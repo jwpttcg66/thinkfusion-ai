@@ -20,7 +20,7 @@
     "clean": "rm -rf out dist resources/ax-bridge",
     "package:mac": "npm run build:ax:mac && npm run build && electron-builder --mac dmg --arm64",
     "test:protocol": "npm run build:agent && node scripts/check-protocol.mjs",
-    "install:electron": "npx --no-install install-electron --no",
+    "install:electron": "node node_modules/electron/install.js",
     "predev": "npm run install:electron",
     "prebuild": "npm run install:electron",
     "prepackage:mac": "npm run install:electron",
