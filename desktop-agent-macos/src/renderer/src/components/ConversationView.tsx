@@ -39,6 +39,15 @@ export function ConversationView(props: {
 }) {
   const { conversation, messages } = props;
   const synthesis = [...messages].reverse().find(message => message.synthesis)?.synthesis ?? null;
+  /**
+   * Which channels have answered, derived from the messages rather than from
+   * live events. Opening a conversation from the history list replays no
+   * events, so the chips used to read 待命 for a channel whose answer was on
+   * screen right below them.
+   */
+  const answeredChannels = new Set(
+    messages.filter(message => message.role === 'channel' && message.channelId).map(message => message.channelId as string)
+  );
 
   return (
     <section className="conversation" aria-label="对话">
@@ -56,13 +65,14 @@ export function ConversationView(props: {
           channels={conversation.channels}
           statuses={props.channelStatuses}
           phases={props.phases}
+          answered={answeredChannels}
         />
       </header>
 
       <div className="conversation-body">
         {messages.length === 0 && <p className="muted">还没有内容。</p>}
 
-        {messages.map(message => {
+        {messages.map((message, index) => {
           if (message.role === 'synthesis' && message.synthesis) {
             return <SynthesisCard key={message.messageId} synthesis={message.synthesis} />;
           }
@@ -73,9 +83,21 @@ export function ConversationView(props: {
               </p>
             );
           }
+          if (message.role === 'channel') {
+            // Consecutive channel messages are one turn's answers. They are
+            // rendered together, in their own cards, because comparing two
+            // answers is the point — and two paragraphs of prose stacked in one
+            // column cannot be compared, only read in order.
+            if (index > 0 && messages[index - 1].role === 'channel') return null;
+            const group: ConversationMessage[] = [];
+            for (let cursor = index; cursor < messages.length && messages[cursor].role === 'channel'; cursor += 1) {
+              group.push(messages[cursor]);
+            }
+            return <ChannelGrid key={message.messageId} messages={group} />;
+          }
           return (
             <article key={message.messageId} className={`bubble role-${message.role}`}>
-              <div className="bubble-who">{message.role === 'user' ? '你' : labelOf(message.channelId)}</div>
+              <div className="bubble-who">你</div>
               <div className="bubble-text">{message.text}</div>
             </article>
           );
@@ -104,10 +126,35 @@ function labelOf(channelId?: string): string {
   return channelId ?? '通道';
 }
 
+/**
+ * One turn's channel answers, each in its own card.
+ *
+ * The grid is auto-fitting rather than a fixed two columns: in the app's narrow
+ * default pane two 240px cards still fit, and when the pane is dragged wider
+ * they stay readable instead of stretching into unreadable lines.
+ */
+function ChannelGrid({ messages }: { messages: ConversationMessage[] }) {
+  return (
+    <div className="channel-grid">
+      {messages.map(message => (
+        <article key={message.messageId} className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
+          <header className="channel-card-head">
+            <span className="channel-dot" />
+            <b>{labelOf(message.channelId)}</b>
+            <span className="channel-chars">{message.text.length} 字</span>
+          </header>
+          <div className="channel-card-body">{message.text}</div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function ChannelStrip(props: {
   channels: string[];
   statuses: ChannelStatus[];
   phases: Record<string, { phase: string; detail?: string }>;
+  answered: Set<string>;
 }) {
   if (props.channels.length === 0) return null;
 
@@ -116,7 +163,7 @@ function ChannelStrip(props: {
       {props.channels.map(channelId => {
         const status = props.statuses.find(item => item.id === channelId);
         const phase = props.phases[channelId];
-        const label = phase?.phase ?? (status?.available ? 'idle' : 'unavailable');
+        const label = phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable');
         return (
           <li key={channelId} className={`channel-chip phase-${label}`} title={phase?.detail ?? status?.detail}>
             <span className="channel-name">{labelOf(channelId)}</span>
@@ -130,6 +177,8 @@ function ChannelStrip(props: {
 
 function phaseLabel(phase: string): string {
   switch (phase) {
+    case 'resetting':
+      return '开新会话';
     case 'asking':
       return '提问中';
     case 'answered':

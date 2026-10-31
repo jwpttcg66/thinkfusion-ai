@@ -51,13 +51,29 @@ function fakeChannel(id, behaviour) {
   };
 }
 
-function fakeRegistry(channels) {
+/**
+ * The registry the runner talks to. `newConversation` is part of the real
+ * interface, so the fake has to have it too — otherwise a test could pass while
+ * the app throws "not a function" on the first turn.
+ */
+function fakeRegistry(channels, options = {}) {
+  const resets = [];
+  const order = [];
   return {
+    resets,
+    order,
     available: async () => channels,
     ask: async (id, input) => {
+      order.push(`${id}:ask`);
       const channel = channels.find(item => item.id === id);
       if (!channel) throw new ChannelBusyError(id);
       return channel.ask(input);
+    },
+    newConversation: async id => {
+      order.push(`${id}:reset`);
+      resets.push(id);
+      if (options.resetFails?.includes(id)) return { ok: false, detail: '页面没有清空，仍在原会话里' };
+      return { ok: true };
     },
     cancel() {}
   };
@@ -66,15 +82,16 @@ function fakeRegistry(channels) {
 function makeRunner(channels, options = {}) {
   const store = fakeStore();
   const events = [];
+  const registry = fakeRegistry(channels, options);
   const runner = new ConversationRunner({
     store,
-    registry: fakeRegistry(channels),
+    registry,
     emit: event => events.push(event),
     submitWorkspace: options.submitWorkspace ?? (async () => {
       throw new Error('unexpected workspace hand-off');
     })
   });
-  return { runner, store, events };
+  return { runner, store, events, registry };
 }
 
 async function settle(runner, conversationId, timeoutMs = 3000) {
@@ -83,6 +100,15 @@ async function settle(runner, conversationId, timeoutMs = 3000) {
     const conversation = runner.get(conversationId);
     if (conversation && ['answered', 'failed', 'cancelled'].includes(conversation.status)) return conversation;
     if (Date.now() > deadline) throw new Error(`conversation did not settle: ${conversation?.status}`);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
+/** For turns whose status was already terminal when they started. */
+async function waitFor(predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('condition never became true');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
 }
@@ -219,4 +245,68 @@ test('the user message is recorded verbatim, before any channel is asked', async
 
   assert.equal(messages[0].role, 'user');
   assert.equal(messages[0].text, text.trim(), 'the question is sent as written, only trimmed');
+});
+
+test('the first turn opens a new session on every channel it asks', async () => {
+  const { runner, registry } = makeRunner([
+    fakeChannel('a', () => answer('连接数过高的主要原因是客户端没有复用连接。')),
+    fakeChannel('b', () => answer('连接数过高的主要原因是客户端没有复用连接，而是每次新建。'))
+  ]);
+
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  await settle(runner, started.conversationId);
+
+  assert.deepEqual([...registry.resets].sort(), ['a', 'b'], 'both channels must be reset');
+  for (const id of ['a', 'b']) {
+    assert.ok(
+      registry.order.indexOf(`${id}:reset`) < registry.order.indexOf(`${id}:ask`),
+      `${id} must be reset before it is asked, not after`
+    );
+  }
+});
+
+test('a follow-up stays in the page session it was asked in', async () => {
+  const { runner, registry } = makeRunner([fakeChannel('a', () => answer('第一轮回答。'))]);
+
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  await settle(runner, started.conversationId);
+  assert.equal(registry.resets.length, 1);
+
+  const before = runner.messages(started.conversationId).filter(message => message.role === 'channel').length;
+  await runner.followup(started.conversationId, '那具体怎么排查？');
+
+  // The status is already 'answered' from the first turn, so waiting on it
+  // would return immediately — the follow-up has to be waited for by content.
+  await waitFor(
+    () => runner.messages(started.conversationId).filter(message => message.role === 'channel').length > before,
+    3000
+  );
+
+  assert.equal(registry.resets.length, 1, 'a follow-up must not clear the page it depends on');
+});
+
+test('a channel that cannot open a new session is still asked, and the drift is recorded', async () => {
+  const { runner, events } = makeRunner(
+    [
+      fakeChannel('a', () => answer('连接数过高的主要原因是客户端没有复用连接。')),
+      fakeChannel('b', () => answer('连接数过高的主要原因是连接池配置过小。'))
+    ],
+    { resetFails: ['b'] }
+  );
+
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(done.status, 'answered', 'a failed reset must not cost the answer');
+  const messages = runner.messages(started.conversationId);
+  assert.equal(messages.filter(message => message.role === 'channel').length, 2);
+
+  const note = messages.find(message => message.role === 'system');
+  assert.ok(note, 'expected a note about the channel that kept its old thread');
+  assert.match(note.text, /旧上下文/);
+  assert.match(note.text, /b/);
+  assert.ok(
+    events.some(event => event.type === 'channel.phase' && event.phase === 'resetting'),
+    'the reset phase has to be observable'
+  );
 });

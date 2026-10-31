@@ -32,6 +32,13 @@ export const CHATGPT_SELECTORS: typeof SELECTORS = {
     'button[data-testid*="send"]'
   ],
   stopButton: ['[data-testid="stop-button"]', 'button[aria-label*="Stop"]', 'button[aria-label*="停止"]'],
+  newChatButton: [
+    '[data-testid="create-new-chat-button"]',
+    'a[data-testid="create-new-chat-button"]',
+    'button[aria-label*="New chat"]',
+    'a[aria-label*="New chat"]',
+    'a[href="/"][aria-label]'
+  ],
   assistant: ['[data-message-author-role="assistant"]', 'article .markdown', '[class*="markdown"]'],
   passwordField: ['input[type="password"]']
 };

@@ -87,6 +87,14 @@ export default function App() {
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
+  /**
+   * The visible conversation, readable from an event listener that was
+   * registered once. Messages arrive for *every* conversation, so without this
+   * a background conversation's replies get appended to the pane on screen —
+   * which reads as one conversation containing two unrelated threads.
+   */
+  const activeConversationRef = useRef<string | null>(null);
+  activeConversationRef.current = activeConversationId;
   const dragRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   /**
@@ -178,6 +186,9 @@ export default function App() {
         return;
       }
       if (event.type === 'message.added') {
+        // Only the conversation on screen. A message for any other one belongs
+        // to its own pane, and appending it here mixed two threads together.
+        if (event.message.conversationId !== activeConversationRef.current) return;
         // Messages are appended live, so the pane fills in as channels answer
         // instead of appearing all at once when the slowest page finishes.
         setMessages(prev =>
@@ -186,6 +197,8 @@ export default function App() {
         return;
       }
       if (event.type === 'channel.phase') {
+        // Same reason: a phase belongs to the conversation it was emitted for.
+        if (event.conversationId !== activeConversationRef.current) return;
         setPhases(prev => ({ ...prev, [event.channelId]: { phase: event.phase, detail: event.detail } }));
         return;
       }
@@ -203,11 +216,32 @@ export default function App() {
     };
   }, []);
 
-  // Refresh channel availability whenever a conversation settles: the common
-  // cause of "no channel answered" is a page that logged itself out.
+  // Channel availability, refreshed while a conversation is running too.
+  //
+  // Refreshing only when idle was the reason the top bar could say "0/2 通道就绪
+  // · 页面尚未加载" during a run in which both pages were in fact answering: the
+  // statuses were read once at startup, before the views had loaded, and never
+  // again while `conversationBusy` held. A stale availability pill is worse than
+  // none — it is the one place the user looks to decide whether to wait.
   useEffect(() => {
-    if (conversationBusy) return;
-    window.agentAPI.getChannelStatuses().then(setChannelStatuses).catch(() => undefined);
+    let cancelled = false;
+    const read = () => {
+      window.agentAPI
+        .getChannelStatuses()
+        .then(list => {
+          if (!cancelled) setChannelStatuses(list);
+        })
+        .catch(() => undefined);
+    };
+    read();
+    if (!conversationBusy) return () => {
+      cancelled = true;
+    };
+    const timer = setInterval(read, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [conversationBusy, activeConversationId]);
 
   useEffect(() => {
@@ -494,10 +528,21 @@ export default function App() {
     }
   }
 
+  /**
+   * One button for both kinds of work.
+   *
+   * A conversation used to have no way out: the only control was the task's,
+   * so a page that never answered left the pane at 收集中 with the composer
+   * disabled and nothing to press. Waiting is fine; waiting without an exit is
+   * what reads as a hang.
+   */
   async function cancel() {
-    if (!activeTask) return;
     try {
-      await window.agentAPI.cancelTask(activeTask.taskId);
+      if (activeConversation && conversationBusy) {
+        await window.agentAPI.cancelConversation(activeConversation.conversationId);
+        return;
+      }
+      if (activeTask) await window.agentAPI.cancelTask(activeTask.taskId);
     } catch (e) {
       setError(errorText(e));
     }
@@ -619,9 +664,9 @@ export default function App() {
             <button className="btn ghost" type="button" onClick={openDiagnostics}>
               诊断
             </button>
-            {(busy || awaitingAnswer) && (
+            {(busy || awaitingAnswer || conversationBusy) && (
               <button className="btn ghost" type="button" onClick={cancel}>
-                取消任务
+                {conversationBusy ? '停止等待' : '取消任务'}
               </button>
             )}
           </div>

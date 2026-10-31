@@ -89,7 +89,7 @@ export interface Synthesis {
 // Events (main -> renderer)
 // ---------------------------------------------------------------------------
 
-export type ChannelPhase = 'asking' | 'answered' | 'failed' | 'busy';
+export type ChannelPhase = 'resetting' | 'asking' | 'answered' | 'failed' | 'busy';
 
 export type ConversationEvent = { at: number } & (
   | { type: 'conversation.created'; conversation: Conversation }

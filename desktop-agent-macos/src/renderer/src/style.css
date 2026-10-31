@@ -1354,6 +1354,13 @@ button:disabled {
   color: var(--accent);
 }
 
+/* A reset is a page navigation, not an answer in progress: dim it so the strip
+   does not read as "already asking" while the page is still clearing. */
+.channel-chip.phase-resetting {
+  border-style: dashed;
+  color: var(--text-3);
+}
+
 .channel-chip.phase-failed {
   border-color: #e6b0aa;
   color: #c0392b;
@@ -1373,6 +1380,70 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+
+/* One card per channel, side by side.
+   Two answers stacked as plain paragraphs have to be read one after the other;
+   two cards can be looked at at once, which is the whole reason to ask more
+   than one AI. `auto-fit` keeps them side by side while the pane is wide enough
+   and drops to one column when it is not — never a squeezed 120px column. */
+.channel-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  align-items: start;
+}
+
+.channel-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid var(--line-strong);
+  border-radius: 10px;
+  background: #fcfcfd;
+}
+
+/* The top edge is the channel's identity. Colours are the products' own, muted
+   so two cards next to each other do not fight for attention. */
+.channel-card.ch-deepseek {
+  border-top-color: #4d6bfe;
+}
+
+.channel-card.ch-chatgpt {
+  border-top-color: #10a37f;
+}
+
+.channel-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.channel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.channel-chars {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-card-body {
+  font-size: 13px;
+  line-height: 1.72;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .bubble-who {

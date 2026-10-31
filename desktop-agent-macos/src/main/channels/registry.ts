@@ -1,4 +1,11 @@
-import { ChannelBusyError, type AiChannel, type AskInput, type ChannelAnswer, type ChannelStatus } from './types';
+import {
+  ChannelBusyError,
+  type AiChannel,
+  type AskInput,
+  type ChannelAnswer,
+  type ChannelStatus,
+  type NewSessionResult
+} from './types';
 
 /**
  * The set of channels, and the only place that decides how many run at once.
@@ -69,6 +76,24 @@ export class ChannelRegistry {
 
   cancel(channelId: string, requestId: string): void {
     this.byId.get(channelId)?.cancel(requestId);
+  }
+
+  /**
+   * Reset one channel's own session.
+   *
+   * Not counted against `maxConcurrent`: a reset is a page interaction that
+   * happens *before* the ask, one per channel, and the per-channel "one writer"
+   * rule is already enforced by the fact that a busy channel is never a target.
+   */
+  async newConversation(channelId: string): Promise<NewSessionResult> {
+    const channel = this.byId.get(channelId);
+    if (!channel) return { ok: false, detail: '通道不存在' };
+    if (!channel.newConversation) return { ok: false, detail: '该通道不支持开新会话' };
+    try {
+      return await channel.newConversation();
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   get concurrency(): number {

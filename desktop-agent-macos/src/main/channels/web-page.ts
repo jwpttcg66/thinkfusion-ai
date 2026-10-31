@@ -6,7 +6,8 @@ import {
   type AiChannel,
   type AskInput,
   type ChannelAnswer,
-  type ChannelStatus
+  type ChannelStatus,
+  type NewSessionResult
 } from './types';
 
 /**
@@ -82,7 +83,10 @@ export class WebPageChannel implements AiChannel {
       const text = await this.spec.adapter.waitForAnswer(
         requestId,
         snapshotBefore,
-        input.timeoutMs ?? this.spec.timeoutMs ?? 180_000,
+        // Long enough for a slow page, short enough that a broken one becomes a
+        // visible failure instead of a conversation that never settles. Ninety
+        // seconds is already several times a normal answer.
+        input.timeoutMs ?? this.spec.timeoutMs ?? 90_000,
         input.question
       );
       return {
@@ -93,6 +97,22 @@ export class WebPageChannel implements AiChannel {
       };
     } finally {
       this.inFlight.delete(requestId);
+    }
+  }
+
+  /**
+   * Start a new chat on the page.
+   *
+   * Never throws: the caller has to be able to ask the question anyway, and a
+   * page that cannot reset is a fact to display, not a reason to lose the
+   * answer. The detail says which of the two things happened.
+   */
+  async newConversation(): Promise<NewSessionResult> {
+    try {
+      const result = await this.spec.adapter.newConversation();
+      return result.ok ? { ok: true } : { ok: false, detail: result.detail ?? '未能开新会话' };
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
     }
   }
 

@@ -33,11 +33,27 @@ export interface ChannelAnswer {
   attribution: { requestId: string; note: string };
 }
 
+/**
+ * What a channel can say about starting a fresh session on its side.
+ *
+ * `ok: false` is not an error: a page that keeps its old thread is still worth
+ * asking, and the caller records the drift rather than dropping the answer.
+ */
+export interface NewSessionResult {
+  ok: boolean;
+  detail?: string;
+}
+
 export interface AiChannel {
   readonly id: string;
   readonly label: string;
   status(): Promise<ChannelStatus>;
   ask(input: AskInput): Promise<ChannelAnswer>;
+  /**
+   * Give this channel a fresh session, so the page and the conversation are the
+   * same thread. Called once per conversation, never for a follow-up.
+   */
+  newConversation?(): Promise<NewSessionResult>;
   /** Drop a pending wait; the underlying page keeps generating. */
   cancel(requestId: string): void;
 }

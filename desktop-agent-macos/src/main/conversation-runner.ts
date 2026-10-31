@@ -157,17 +157,49 @@ export class ConversationRunner {
     this.inFlight.set(conversationId, pending);
 
     const answers: Array<{ answer: ChannelAnswer; messageId: string }> = [];
+    /** Channels whose page could not start over. Reported once, after the asks. */
+    const resetFailures: string[] = [];
 
     await Promise.all(
       targets.map(async channel => {
         if (this.cancelled.has(conversationId)) return;
 
+        // The first time this conversation talks to this channel, give the page
+        // a fresh session — otherwise the thread a user opens later is an
+        // unrelated history with today's question glued onto the end. A
+        // follow-up deliberately skips this: the page's own history is the
+        // context that makes it a follow-up. Gated per channel rather than per
+        // turn, so a channel that failed last turn still starts clean when it
+        // is retried.
+        const fresh = !askedBefore.has(channel.id);
+        if (fresh) {
+          this.deps.emit({
+            type: 'channel.phase',
+            at: Date.now(),
+            conversationId,
+            channelId: channel.id,
+            phase: 'resetting'
+          });
+          const reset = await this.deps.registry.newConversation(channel.id);
+          if (!reset.ok) resetFailures.push(`${channel.label}：${reset.detail ?? '未能开新会话'}`);
+          if (this.cancelled.has(conversationId)) return;
+        }
+
         const prompt = buildConversationPrompt({
           question,
           intent: options.intent === 'workspace' ? 'answer' : options.intent,
-          first: !askedBefore.has(channel.id),
+          first: fresh,
           followup: options.followup
         });
+
+        // Recorded before the ask, not after the answer. The strip is how the
+        // user sees what is happening, and a channel that is being waited on is
+        // the single most important thing to see — the old order meant a slow
+        // page showed up as nothing at all, i.e. exactly like a hang.
+        if (!conversation.channels.includes(channel.id)) {
+          conversation.channels.push(channel.id);
+          this.save(conversation);
+        }
 
         this.deps.emit({
           type: 'channel.phase',
@@ -196,8 +228,6 @@ export class ConversationRunner {
             text: answer.text
           });
           answers.push({ answer, messageId: message.messageId });
-
-          if (!conversation.channels.includes(channel.id)) conversation.channels.push(channel.id);
           this.save(conversation);
 
           this.deps.emit({
@@ -227,6 +257,16 @@ export class ConversationRunner {
     this.inFlight.delete(conversationId);
 
     if (this.cancelled.has(conversationId)) return;
+
+    // A channel that could not reset was still asked: an answer carrying old
+    // context beats no answer, but a wrong answer that looks fresh is worse
+    // than a slow one, so the drift is stated rather than hidden.
+    if (resetFailures.length > 0) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `以下通道没能开新会话，回答可能带着网页里的旧上下文：${resetFailures.join('；')}`
+      });
+    }
 
     if (answers.length === 0) {
       this.fail(conversation, new Error('所有通道都没有给出回答，请检查右侧页面是否已登录并可用。'));

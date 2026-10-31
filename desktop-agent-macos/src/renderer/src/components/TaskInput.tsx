@@ -57,7 +57,7 @@ export function TaskInput(props: {
         ref={props.inputRef}
         value={props.value}
         disabled={props.disabled}
-        placeholder="描述你想要完成的目标，Agent 会自动发送给 DeepSeek 规划"
+        placeholder="问点什么，或说要改哪个文件"
         onChange={event => props.onChange(event.target.value)}
         onKeyDown={onKeyDown}
       />

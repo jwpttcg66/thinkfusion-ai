@@ -51,7 +51,7 @@ function state(overrides = {}) {
  * @param {{fillOk?: boolean, clickOk?: boolean}} options
  */
 function scriptedPage(observations, options = {}) {
-  const calls = { fill: 0, click: 0, enter: 0, probe: 0 };
+  const calls = { fill: 0, click: 0, enter: 0, probe: 0, newChat: 0, reload: 0 };
   let index = 0;
 
   return {
@@ -74,6 +74,16 @@ function scriptedPage(observations, options = {}) {
     },
     async pressEnter() {
       calls.enter += 1;
+    },
+    async newChat() {
+      calls.newChat += 1;
+      return options.newChatOk === false
+        ? { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' }
+        : { ok: true, method: 'label' };
+    },
+    async reloadHome() {
+      calls.reload += 1;
+      return options.reloadOk === false ? { ok: false, reason: 'NAV_FAILED' } : { ok: true };
     }
   };
 }
@@ -199,19 +209,21 @@ test('a prefix that pauses mid-stream is not returned', async () => {
 
   // The page stops growing for a while mid-object, then finishes. Accepting the
   // pause produced a 36-character "answer" that parsed as nothing.
+  const partial = '{"protocol": "desktop-agent/v1", "type": "plan", "steps": [';
+  const complete = '{"protocol": "desktop-agent/v1", "type": "plan", "steps": []}';
   const page = scriptedPage([
-    state({ conversationText: '{"protocol"' }),
-    state({ conversationText: '{"protocol"' }),
-    state({ conversationText: '{"protocol"' }),
-    state({ conversationText: '{"protocol"' }),
-    state({ conversationText: '{"protocol": "desktop-agent/v1"}' }),
-    state({ conversationText: '{"protocol": "desktop-agent/v1"}' }),
-    state({ conversationText: '{"protocol": "desktop-agent/v1"}' }),
-    state({ conversationText: '{"protocol": "desktop-agent/v1"}' })
+    state({ conversationText: partial }),
+    state({ conversationText: partial }),
+    state({ conversationText: partial }),
+    state({ conversationText: partial }),
+    state({ conversationText: complete }),
+    state({ conversationText: complete }),
+    state({ conversationText: complete }),
+    state({ conversationText: complete })
   ]);
 
   const answer = await adapterFor(page, { pollMs: 5, settleMs: 10 }).waitForAnswer('r1', snapshot, 3000);
-  assert.equal(answer, '{"protocol": "desktop-agent/v1"}');
+  assert.equal(answer, complete);
 });
 
 test('a candidate that still contains the prompt is skipped', async () => {
@@ -387,7 +399,7 @@ test('a fresh assistant bubble wins over the raw transcript tail', () => {
   assert.equal(selectAnswerText(probe, snapshot), '{"protocol":"desktop-agent/v1","type":"plan"}');
 });
 
-test('without a selectable bubble only protocol-bearing text is used', () => {
+test('without a selectable bubble a long stable tail is the answer', () => {
   const snapshot = {
     messageCount: 0,
     lastText: '',
@@ -397,14 +409,19 @@ test('without a selectable bubble only protocol-bearing text is used', () => {
     composerText: ''
   };
 
-  // A page whose bubbles cannot be selected still works, as long as the text
-  // carries the protocol marker — which every real answer does.
-  const probe = state({ conversationText: 'old\n{"protocol":"desktop-agent/v1","type":"task_complete"}' });
-  assert.equal(selectAnswerText(probe, snapshot), '{"protocol":"desktop-agent/v1","type":"task_complete"}');
+  // chatgpt.com exposes no message attributes at all, so this is the *only*
+  // path there. It used to require the protocol marker, which the rebuild
+  // stopped sending — so a finished answer sat on the page and the wait timed
+  // out. Length is the gate now; stillness is enforced by the caller.
+  const prose = 'Redis 连接数过高最常见的原因是客户端代码存在连接泄漏：应用获取连接后没有正确关闭或归还连接池。';
+  assert.equal(selectAnswerText(state({ conversationText: `old\n${prose}` }), snapshot), prose);
 
-  // Prose without the marker is not accepted; the alternative is acting on
-  // page furniture.
+  // Page furniture is short, so it never clears the bar.
   assert.equal(selectAnswerText(state({ conversationText: 'old\n随便聊聊' }), snapshot), '');
+  assert.equal(
+    selectAnswerText(state({ conversationText: 'old\n深度思考\n智能搜索\n内容由 AI 生成，请仔细甄别' }), snapshot),
+    ''
+  );
 });
 
 test('an old assistant bubble is never reused as the answer', () => {
@@ -470,6 +487,95 @@ test('the page view never spills past the window edge', () => {
     assert.ok(viewWidth > 0);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Starting a new conversation on the page
+//
+// Typing into a fresh composer *is* starting a new conversation — that is how
+// these sites work, on both of them. So the only thing to establish is that the
+// composer belongs to a new conversation, and the only evidence for that is an
+// empty transcript. A click is a request; it is never the outcome.
+// ---------------------------------------------------------------------------
+
+test('a page that is already a fresh chat is left alone', async () => {
+  // The normal state of a page nobody has used yet: nothing to click, and a
+  // reload here would throw away a perfectly good blank page.
+  const page = scriptedPage([state({ messageCount: 0, composerText: '' })]);
+
+  const result = await adapterFor(page).newConversation();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'already-empty');
+  assert.equal(page.calls.newChat, 0, 'nothing to click');
+  assert.equal(page.calls.reload, 0, 'no reload for a page that is already new');
+});
+
+test('a new conversation waits for the page to actually clear', async () => {
+  const page = scriptedPage([
+    state({ messageCount: 2, conversationText: '旧对话' }),
+    state({ messageCount: 2, conversationText: '旧对话' }),
+    state({ messageCount: 0, conversationText: '' })
+  ]);
+
+  const result = await adapterFor(page, { newChatMs: 2000 }).newConversation();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'label');
+  assert.equal(page.calls.newChat, 1, 'one request, not a loop of clicks');
+  assert.equal(page.calls.reload, 0, 'a click that worked must not be followed by a reload');
+  assert.ok(page.calls.probe >= 3, 'the click alone is never taken as evidence');
+});
+
+test('a page with no new-chat control falls back to the site root', async () => {
+  // chatgpt.com at a narrow pane has no new-chat button at all — only a
+  // "show sidebar" toggle — so the reload is the path that has to work.
+  const page = scriptedPage(
+    [state({ messageCount: 3, conversationText: '旧对话' }), state({ messageCount: 0, conversationText: '' })],
+    { newChatOk: false }
+  );
+
+  const result = await adapterFor(page, { newChatMs: 500 }).newConversation();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'reload');
+  assert.equal(page.calls.reload, 1);
+  assert.ok(page.calls.probe >= 2, 'the reload is still not taken as evidence on its own');
+});
+
+test('a page that stays on the old thread reports the drift instead of pretending', async () => {
+  const page = scriptedPage([state({ messageCount: 2, conversationText: '旧对话' })]);
+  delete page.reloadHome;
+
+  const result = await adapterFor(page, { newChatMs: 60 }).newConversation();
+
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /没有清空/);
+});
+
+test('a page with no new-chat control says so instead of throwing', async () => {
+  const page = scriptedPage([state()]);
+  delete page.newChat;
+  delete page.reloadHome;
+
+  const result = await adapterFor(page).newConversation();
+
+  assert.equal(result.ok, false);
+  assert.equal(result.method, 'unsupported');
+});
+
+test('a reload that fails is reported, not swallowed', async () => {
+  const page = scriptedPage([state({ messageCount: 1 })], { newChatOk: false, reloadOk: false });
+
+  const result = await adapterFor(page, { newChatMs: 60 }).newConversation();
+
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /重新加载站点失败/);
+  assert.match(result.detail, /NAV_FAILED/);
+});
+
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
 
 test('the split is stable across the range a user can drag', () => {
   assert.equal(computeSplit(1560), Math.round(1560 * 0.42));

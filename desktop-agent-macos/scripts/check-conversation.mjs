@@ -11,6 +11,8 @@
  *   2. The answer contains no protocol block.
  *   3. The conversation renders as a conversation (bubbles), not as a plan card.
  *   4. A file change is still routed to a task — the split did not break it.
+ *   5. Every channel that was asked also got a fresh session on its page, so
+ *      the two sides are the same thread rather than the same page reused.
  *
  * Usage: node scripts/check-conversation.mjs   (app running with CDP on)
  */
@@ -65,6 +67,13 @@ checkTrue('每个回答都带着来源通道', channelMessages.every(message => 
 const leaked = channelMessages.filter(message => message.text.includes('desktop-agent/v1') || /"protocol"\s*:/.test(message.text));
 check('回答里没有 desktop-agent/v1 协议块', leaked.length, 0);
 
+// --- 2b. the pages were started over --------------------------------------
+// A page that could not reset still answers, but it says so. Zero such notes
+// means the web session and the conversation began together.
+const resetNotes = messages.filter(message => message.role === 'system' && /没能开新会话/.test(message.text));
+check('每个通道都在网页里开了新会话', resetNotes.length, 0);
+if (resetNotes.length > 0) console.log('  →', resetNotes.map(note => note.text).join(' | '));
+
 // --- 3. two channels means a synthesis ------------------------------------
 if (channelMessages.length >= 2) {
   checkTrue('多通道时生成了综合分析', synthesisMessages.length === 1);
@@ -92,6 +101,8 @@ const ui = await cdp.evaluate(`(() => {
   return {
     hasPane: Boolean(pane),
     bubbles: document.querySelectorAll('.bubble').length,
+    cards: document.querySelectorAll('.channel-card').length,
+    gridColumns: getComputedStyle(document.querySelector('.channel-grid') ?? document.body).gridTemplateColumns,
     hasPlan: Boolean(document.querySelector('.plan-card, .plan-preview')),
     title: document.querySelector('.conversation-title h2')?.textContent ?? null,
     intentBadge: document.querySelector('.intent-badge')?.textContent ?? null
@@ -99,23 +110,70 @@ const ui = await cdp.evaluate(`(() => {
 })()`);
 
 checkTrue('右侧显示的是对话视图', ui.hasPane);
-checkTrue('对话里有气泡', ui.bubbles >= 2);
+checkTrue('对话里有气泡', ui.bubbles >= 1);
+// One card per answer, not one column of prose: comparing answers is the point.
+check('每个通道的回答各自成卡', ui.cards, channelMessages.length);
+checkTrue('多通道时并排显示，而不是上下堆叠', channelMessages.length < 2 || ui.gridColumns.split(' ').length >= 2);
 check('对话视图里没有计划卡片', ui.hasPlan, false);
 checkTrue('对话标题是用户的问题', Boolean(ui.title) && question.startsWith(ui.title.slice(0, 6)));
 
 // --- 5. a file change still goes to the task path -------------------------
+// Counted here, not at the very end: the workspace submission below is allowed
+// to create a task, so comparing the final count would blame the conversation
+// for something the next step did on purpose.
+const afterConversation = await cdp.evaluate('window.agentAPI.getTaskHistory()');
+check('一次问答没有制造执行任务', afterConversation.length, before.length);
+
 const workspaceIntent = await cdp.evaluate(`window.agentAPI.submitConversation(${JSON.stringify({
   text: '帮我修改 README.md 里的标题',
   workspaceRoot: undefined
 })})`);
 check('文件改动仍然被识别为工作区任务', workspaceIntent.intent, 'workspace');
-checkTrue(
-  '没有工作区时明确失败，而不是悄悄当成聊天',
-  workspaceIntent.status === 'failed' && /工作区/.test(workspaceIntent.error ?? '')
-);
 
-const after = await cdp.evaluate('window.agentAPI.getTaskHistory()');
-check('一次问答没有制造执行任务', after.length, before.length);
+// Two honest outcomes, and only two. With a remembered workspace the task is
+// handed off; with none it must fail and say so. Silently becoming a chat is
+// the failure this check exists for — the old build did exactly that.
+const handedOff = typeof workspaceIntent.taskId === 'string';
+const refusedClearly = workspaceIntent.status === 'failed' && /工作区/.test(workspaceIntent.error ?? '');
+checkTrue('工作区任务要么转交执行，要么明确说没有工作区', handedOff || refusedClearly);
+
+// --- 6. leave no trace -----------------------------------------------------
+// This check drives the real app, so everything it submits is real history:
+// two conversations and possibly a task land in the sidebar every run, under
+// fixture titles that look like something the user typed. Deleting them at the
+// end is not tidiness — a check that litters the product's own list is a check
+// nobody will run twice.
+await cdp.evaluate(`(async () => {
+  const cleanup = { conversations: 0, tasks: 0, skipped: [] };
+  const mine = ${JSON.stringify([started.conversationId, workspaceIntent.conversationId])};
+
+  for (const item of await window.agentAPI.getConversations()) {
+    if (!mine.includes(item.conversationId)) continue;
+    await window.agentAPI.deleteConversation(item.conversationId);
+    cleanup.conversations += 1;
+  }
+
+  const taskId = ${JSON.stringify(workspaceIntent.taskId ?? '')};
+  if (taskId) {
+    try {
+      // A task that was only just created is still running, and a running task
+      // cannot be deleted — it has to be stopped first.
+      await window.agentAPI.cancelTask(taskId);
+      await window.agentAPI.deleteTask(taskId);
+      cleanup.tasks += 1;
+    } catch (error) {
+      cleanup.skipped.push(String(error).slice(0, 80));
+    }
+  }
+  return cleanup;
+})()`).then(cleanup => console.log('清理', JSON.stringify(cleanup)));
+
+const leftover = await cdp.evaluate(`(async () => {
+  const mine = ${JSON.stringify([started.conversationId, workspaceIntent.conversationId])};
+  const conversations = await window.agentAPI.getConversations();
+  return conversations.filter(item => mine.includes(item.conversationId)).length;
+})()`);
+check('检查结束后没有留下测试对话', leftover, 0);
 
 const tally = summary();
 cdp.close();

@@ -10,8 +10,8 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../sh
  * `WebContentsView` exists.
  */
 export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging'>;
-import { PROTOCOL } from '../shared/contracts';
 import { stripEcho, containsEcho } from '../shared/protocol';
+import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../shared/text';
 
 const ALLOWED_HOSTS = new Set(['chat.deepseek.com']);
 
@@ -38,6 +38,16 @@ export function isAllowedDeepSeekUrl(raw: string): boolean {
 
 /** Bumped whenever the probe changes shape, so a stale report is identifiable. */
 export const PROBE_VERSION = '3';
+
+/**
+ * Shortest tail that can be an answer rather than page furniture.
+ *
+ * The known furniture is removed by name (`stripChrome`), so this is the second
+ * guard, not the first: a generated chat title or a button label is short, and
+ * twenty-four characters sits above those while still admitting a terse answer
+ * like "对，是连接泄漏。" Stillness is the third guard and the caller enforces it.
+ */
+const MIN_TAIL_CHARS = 24;
 
 /**
  * All DOM knowledge lives in this one place.
@@ -72,6 +82,22 @@ export const SELECTORS = {
     'button[aria-label*="Stop"]',
     '[aria-label*="停止生成"]',
     '[title*="停止"]'
+  ],
+  /**
+   * The "start a new chat" control.
+   *
+   * Kept apart from `sendButton` because it is a navigation, not a submission:
+   * a wrong guess here throws away the conversation the user is reading, and a
+   * wrong guess in the send list merely fails to send. The script therefore
+   * only clicks something it can identify by label or by an exact text match.
+   */
+  newChatButton: [
+    'button[aria-label*="新对话"]',
+    'a[aria-label*="新对话"]',
+    '[role="button"][aria-label*="新对话"]',
+    '[aria-label*="New chat"]',
+    'button[class*="new-chat"]',
+    'a[class*="new-chat"]'
   ],
   assistant: ['[data-message-author-role="assistant"]', '.ds-markdown', '[class*="markdown"]'],
   passwordField: ['input[type="password"]']
@@ -132,6 +158,23 @@ export interface PageDriver {
    * button, and a wrong click silently changes the request instead of failing.
    */
   pressEnter(): Promise<void>;
+  /**
+   * Ask the page to start a new conversation, by clicking its own control.
+   *
+   * Optional, because a page whose markup offers no way to do it must still be
+   * usable: a driver without this simply cannot reset, and the caller records
+   * that the two sides drifted instead of refusing to ask.
+   */
+  newChat?(): Promise<{ ok: boolean; method?: string; reason?: string }>;
+  /**
+   * Navigate to the site root — a new conversation on every chat UI we drive.
+   *
+   * This is not a last resort. A collapsed sidebar has no new-chat control at
+   * all (verified against chatgpt.com at a 599px pane), so for some pages this
+   * is the *only* path. Slower than a click, and it is the one that cannot be
+   * defeated by markup.
+   */
+  reloadHome?(): Promise<{ ok: boolean; reason?: string }>;
 }
 
 const PROBE_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
@@ -408,6 +451,45 @@ const CLICK_SEND_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   return { ok: true, label: (button.className || '').toString().slice(0, 60) };
 })()`;
 
+const NEW_CHAT_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
+  const selectors = ${JSON.stringify(selectors)};
+  const visible = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const enabled = (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true';
+
+  for (const selector of selectors.newChatButton || []) {
+    let nodes;
+    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+    const hit = nodes.filter(visible).filter(enabled);
+    if (hit.length) { hit[0].click(); return { ok: true, method: 'selector:' + selector }; }
+  }
+
+  // Fallback: match the label. The markup is not ours and the class names are
+  // generated, but the words a user reads are stable and localized — so this is
+  // an exact match on the whole label, never a substring. A substring match on
+  // "新对话" would also hit "查看历史新对话".
+  const LABELS = ['新对话', '新建对话', '新的对话', '开启新对话', 'new chat', 'new conversation'];
+  const candidates = [...document.querySelectorAll('button, a, [role="button"]')]
+    .filter(visible)
+    .filter(enabled);
+  for (const el of candidates) {
+    const texts = [el.getAttribute('aria-label'), el.getAttribute('title'), el.innerText, el.textContent]
+      .map((value) => (value || '').trim().toLowerCase())
+      .filter((value) => value.length > 0 && value.length < 40);
+    if (texts.some((value) => LABELS.includes(value))) {
+      el.click();
+      return { ok: true, method: 'label' };
+    }
+  }
+
+  return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
+})()`;
+
 const FOCUS_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
@@ -459,10 +541,26 @@ export function createElectronDriver(view: WebContentsView, selectors: typeof SE
     pressEnter: async () => {
       // Focus inside the page first: the keystroke has to land in the composer,
       // and the DOM focus may have drifted since the fill.
-      await view.webContents.executeJavaScript(FOCUS_SCRIPT(SELECTORS), true);
+      await view.webContents.executeJavaScript(FOCUS_SCRIPT(selectors), true);
       view.webContents.focus();
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
       view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+    },
+    newChat: async () =>
+      (await view.webContents.executeJavaScript(NEW_CHAT_SCRIPT(selectors), true)) as {
+        ok: boolean;
+        method?: string;
+        reason?: string;
+      },
+    reloadHome: async () => {
+      // The URL is already known to be an allowed host — the adapter checks
+      // before it hands us the driver — so its origin is safe to navigate to.
+      try {
+        await view.webContents.loadURL(new URL(view.webContents.getURL()).origin);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      }
     }
   };
 }
@@ -537,6 +635,8 @@ export interface AdapterTuning {
   enterAfterMs: number;
   /** When to click a second time, after the keystroke also did nothing. */
   clickRetryAfterMs: number;
+  /** How long a requested new conversation may take to actually clear the page. */
+  newChatMs: number;
 }
 
 export const DEFAULT_TUNING: AdapterTuning = {
@@ -544,7 +644,8 @@ export const DEFAULT_TUNING: AdapterTuning = {
   pollMs: 700,
   settleMs: 2000,
   enterAfterMs: 3000,
-  clickRetryAfterMs: 8000
+  clickRetryAfterMs: 8000,
+  newChatMs: 12000
 };
 
 export class DeepSeekAdapter {
@@ -675,6 +776,83 @@ export class DeepSeekAdapter {
       conversationText: probe.conversationText,
       composerText: probe.composerText
     };
+  }
+
+  /**
+   * Start a fresh conversation on the page.
+   *
+   * Called once per conversation, before the first question, so the two sides
+   * stay one-to-one: opening the page later must not show a thread that has
+   * yesterday's question above today's answer. A follow-up deliberately skips
+   * this — the page's own history *is* the context that makes it a follow-up.
+   *
+   * Three steps, in order of cost:
+   *   1. Look. An empty transcript and an empty composer already *is* a new
+   *      conversation, and typing into it is all a new conversation needs —
+   *      which is the normal state of a page nobody has used yet. Resetting
+   *      that would be a reload for nothing.
+   *   2. Click the page's own control. Fast, but conditional on markup we do
+   *      not own.
+   *   3. Navigate to the site root. Always works, costs a page load, and is the
+   *      only path on a page whose sidebar is collapsed (chatgpt.com at a
+   *      narrow pane has no new-chat button at all — verified live).
+   *
+   * None of them is trusted on its own: a click is a request, and the only
+   * evidence that the page really started over is an empty transcript.
+   */
+  async newConversation(): Promise<{ ok: boolean; method: string; detail?: string }> {
+    const driver = this.driver();
+    if (!driver.newChat && !driver.reloadHome) {
+      return { ok: false, method: 'unsupported', detail: '该页面没有可用的「新对话」入口' };
+    }
+
+    // One look, no waiting: the page is either empty right now or it is not.
+    if (await this.isEmptyNow(driver)) return { ok: true, method: 'already-empty' };
+
+    const clicked: { ok: boolean; method?: string; reason?: string } = driver.newChat
+      ? await driver.newChat().catch((error: unknown) => ({
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error)
+        }))
+      : { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
+
+    // Only wait after a click that reported success. A control that was never
+    // found will not clear the page by itself, and waiting the full window for
+    // it would delay the path that actually works.
+    if (clicked.ok && (await this.pageIsEmpty(driver))) {
+      return { ok: true, method: clicked.method ?? 'button' };
+    }
+
+    if (driver.reloadHome) {
+      const reloaded = await driver.reloadHome();
+      if (reloaded.ok && (await this.pageIsEmpty(driver))) return { ok: true, method: 'reload' };
+      if (!reloaded.ok) {
+        return { ok: false, method: 'reload', detail: `重新加载站点失败：${reloaded.reason ?? 'UNKNOWN'}` };
+      }
+    }
+
+    return {
+      ok: false,
+      method: clicked.ok ? 'button' : 'none',
+      detail: clicked.ok ? '页面没有清空，仍在原会话里' : `未找到「新对话」入口（${clicked.reason ?? 'UNKNOWN'}）`
+    };
+  }
+
+  /** Is the page empty *right now*? One probe; a page mid-load counts as "no". */
+  private async isEmptyNow(driver: PageDriver): Promise<boolean> {
+    const probe = await driver.probe().catch(() => null);
+    if (!probe) return false;
+    return probe.messageCount === 0 && probe.composerText.trim().length === 0;
+  }
+
+  /** Zero bubbles and an empty composer: the only observable that means "new". */
+  private async pageIsEmpty(driver: PageDriver): Promise<boolean> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < this.tuning.newChatMs) {
+      await sleep(this.tuning.pollMs);
+      if (await this.isEmptyNow(driver)) return true;
+    }
+    return false;
   }
 
   /**
@@ -852,7 +1030,12 @@ export class DeepSeekAdapter {
             sawIncomplete = true;
             continue;
           }
-          if (stableCount >= 3 && stillFor >= required) return next;
+          if (stableCount >= 3 && stillFor >= required) {
+            // Cleaned once, at the point where page text becomes answer text:
+            // furniture, speaker labels and citation chips never reach a bubble
+            // or a synthesis.
+            return normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
+          }
         } else {
           candidate = next;
           stableSince = Date.now();
@@ -899,15 +1082,17 @@ export class DeepSeekAdapter {
  *
  * 1. If the page exposes assistant messages at all, only a *new* one can be the
  *    answer. Nothing else is considered while one exists.
- * 2. With no assistant message on the page, the transcript tail is considered —
- *    but only when it carries the protocol marker. That restriction is the fix
- *    for a real failure: right after a send, the first thing that stabilises on
- *    a fresh conversation is the chat title, the composer toggles and the footer
- *    disclaimer, and a 33-character capture of that chrome was accepted as the
- *    answer while the real reply was still streaming.
+ * 2. With no assistant message on the page, the transcript tail is considered.
+ *    This is not a fallback for a broken page — it is the *only* path on a page
+ *    that exposes no message attributes at all, which is what chatgpt.com ships
+ *    today (verified: `data-message-author-role`, `article` and `.markdown` all
+ *    match nothing, and the only surviving hooks are build-hashed class names).
  *
- * The echo of our own prompt is removed from the tail first — it contains
- * example protocol blocks that would otherwise parse as a real message.
+ * The tail used to have to contain the protocol marker, because every prompt
+ * asked for one. The rebuild stopped asking, so the marker never appears and the
+ * gate made this branch unreachable: a finished answer sat on the page while the
+ * wait timed out. What separates an answer from page furniture is now length —
+ * stillness is enforced by `waitForAnswer`, which requires three identical polls.
  */
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
   const grew = probe.messageCount > snapshot.messageCount;
@@ -916,7 +1101,9 @@ export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, se
   if (probe.messageCount > 0) return bubbleFresh ? probe.lastText : '';
 
   const prefix = commonPrefixLength(snapshot.conversationText, probe.conversationText);
-  const tail = stripEcho(probe.conversationText.slice(prefix), sentText).trim();
+  const tail = normalizeAnswerText(
+    stripChrome(stripEcho(cutSpeakerLabels(probe.conversationText.slice(prefix)), sentText))
+  );
 
-  return tail.includes(PROTOCOL) ? tail : '';
+  return tail.length >= MIN_TAIL_CHARS ? tail : '';
 }
