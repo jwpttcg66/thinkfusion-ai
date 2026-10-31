@@ -110,7 +110,7 @@ README 许的愿超过仓库能兑现的东西，那就只是宣传：
 
 - **离线 59 项**：协议 24、网页通道时序 27、状态机 8。CI 每次 push 都跑，
   见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
-- **实机 40 项**：分栏 15、应用列 9、拖动 16。这些需要真实运行的应用和已登录的页面，
+- **实机 50 项**：分栏 15、应用列 9、拖动 16、新任务反馈 10。这些需要真实运行的应用和已登录的页面，
   所以是手动跑的；脚本通过 CDP 读真实状态，不读像素。
 - 这些测试**证不了什么**，逐条写在 [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) 里——
   那份清单本身就是交付物的一部分。
@@ -135,6 +135,7 @@ npm run dev
 npm run start:debug                     # 带 CDP 端口启动
 npm run check:layout                    # 分栏对齐 + 应用列几何
 npm run check:drag                      # 拖动全流程
+npm run check:new-task                  # 「新任务」点下去要看得见反馈
 npm run e2e:live -- <工作区目录>          # 真实任务走完整条链路
 ```
 

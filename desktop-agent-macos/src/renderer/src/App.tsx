@@ -64,6 +64,8 @@ export default function App() {
   const [status, setStatus] = useState<DeepSeekStatus | null>(null);
   const [clarifyText, setClarifyText] = useState('');
   const [error, setError] = useState('');
+  /** Neither an error nor progress: "you clicked, nothing was submitted, here's why". */
+  const [notice, setNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [split, setSplit] = useState(0);
@@ -75,6 +77,15 @@ export default function App() {
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
   const dragRef = useRef(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  /**
+   * A counter, not a boolean: "focus the composer" has to fire on every click,
+   * and an effect keyed on state only runs when that state changes. The focus
+   * call also has to happen *after* the commit — at `requestAnimationFrame`
+   * time the textarea can still be `disabled` from the task that was just
+   * closed, and a disabled element silently refuses focus.
+   */
+  const [focusRequest, setFocusRequest] = useState(0);
 
   const activeTask = useMemo(() => tasks.find(task => task.taskId === activeId) ?? null, [tasks, activeId]);
   const busy = activeTask ? ACTIVE_STATUSES.includes(activeTask.status) : false;
@@ -87,6 +98,11 @@ export default function App() {
    */
   const awaitingAnswer = activeTask?.status === 'awaiting_clarification';
   const roundCount = events.filter(event => event.type === 'round.started').length;
+
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    composerRef.current?.focus();
+  }, [focusRequest]);
 
   useEffect(() => {
     window.agentAPI.getPlatform().then(setPlatform).catch(() => undefined);
@@ -260,22 +276,47 @@ export default function App() {
   }
 
   async function chooseWorkspace() {
-    const dir = await window.agentAPI.chooseDirectory();
-    if (dir) setWorkspace(dir);
+    try {
+      const dir = await window.agentAPI.chooseDirectory();
+      if (dir) {
+        setWorkspace(dir);
+        setNotice('');
+      }
+    } catch (e) {
+      setError(errorText(e));
+    }
   }
 
   async function submit() {
     const text = prompt.trim();
-    if (!text) return;
+    if (!text) {
+      // The send button is disabled in this state, but Enter gets here too, and
+      // a keystroke that does nothing at all is indistinguishable from a hang.
+      setNotice('先写一句目标，再发送。');
+      composerRef.current?.focus();
+      return;
+    }
 
     let root = workspace;
     if (!root) {
-      const dir = await window.agentAPI.chooseDirectory();
-      if (!dir) return;
-      root = dir;
-      setWorkspace(dir);
+      // Picking a workspace is the only way forward here, and the picker can be
+      // cancelled or can fail. Both used to `return` silently, so pressing send
+      // on a fresh task looked like nothing happened.
+      try {
+        const dir = await window.agentAPI.chooseDirectory();
+        if (!dir) {
+          setNotice('还没有选择工作区，任务没有提交。');
+          return;
+        }
+        root = dir;
+        setWorkspace(dir);
+      } catch (e) {
+        setError(errorText(e));
+        return;
+      }
     }
 
+    setNotice('');
     setSubmitting(true);
     setError('');
     try {
@@ -381,6 +422,13 @@ export default function App() {
           setEvents([]);
           setDerived({ plan: null, questions: [], answer: '' });
           setError('');
+          setNotice('');
+          setPrompt('');
+          setClarifyText('');
+          // On an already-empty screen the click changes nothing you can see,
+          // which reads as "the button is dead". The caret is the feedback: it
+          // moves to where the next action happens.
+          setFocusRequest(n => n + 1);
         }}
       />
 
@@ -516,6 +564,8 @@ export default function App() {
 
             {error && <div className="error">{error}</div>}
 
+            {notice && <div className="notice">{notice}</div>}
+
             {events.length > 0 && <ExecutionLog events={events} />}
           </div>
         </div>
@@ -530,12 +580,16 @@ export default function App() {
               value={prompt}
               workspace={workspace}
               permission={permission}
+              inputRef={composerRef}
               // Disabled while the agent works and while it waits for an answer:
               // in both cases a new prompt would start a second task and lose
               // the question on screen.
               disabled={submitting || busy || awaitingAnswer}
               busy={submitting}
-              onChange={setPrompt}
+              onChange={value => {
+                setPrompt(value);
+                if (notice) setNotice('');
+              }}
               onPermissionChange={changePermission}
               onChooseWorkspace={chooseWorkspace}
               onSubmit={submit}

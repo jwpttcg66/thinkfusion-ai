@@ -130,6 +130,7 @@ Live checks (app already running and signed in):
 npm run start:debug                     # start with a CDP port
 npm run check:layout                    # split alignment + app column geometry
 npm run check:drag                      # full drag interaction
+npm run check:new-task                  # "new task" gives visible feedback
 npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 ```
 
@@ -137,8 +138,9 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 
 - **Offline, 59 assertions**: protocol 24, page-channel timing 27, state machine 8.
   CI runs these on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 40 assertions**: split layout 15, app column 9, drag 16. These need a running app and a
-  signed-in page, so they are run by hand; the scripts read real state over CDP instead of pixels.
+- **Live, 50 assertions**: split layout 15, app column 9, drag 16, new-task feedback 10. These
+  need a running app and a signed-in page, so they are run by hand; the scripts read real state
+  over CDP instead of pixels.
 - What these tests **cannot** prove is written down in
   [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) — that list is part of the deliverable.
 

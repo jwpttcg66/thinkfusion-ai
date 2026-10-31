@@ -19,6 +19,8 @@ export function TaskInput(props: {
   permission: PermissionPreset;
   disabled?: boolean;
   busy?: boolean;
+  /** Lets the shell move the caret into the composer, e.g. after "新任务". */
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string) => void;
   onPermissionChange: (preset: PermissionPreset) => void;
   onChooseWorkspace: () => void;
@@ -39,7 +41,9 @@ export function TaskInput(props: {
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      if (!props.disabled && props.value.trim()) props.onSubmit();
+      // Enter is always forwarded, even with an empty box: the shell answers
+      // "write a goal first" instead of swallowing the keystroke.
+      if (!props.disabled) props.onSubmit();
     }
   }
 
@@ -50,6 +54,7 @@ export function TaskInput(props: {
       <textarea
         className="composer-input"
         rows={2}
+        ref={props.inputRef}
         value={props.value}
         disabled={props.disabled}
         placeholder="描述你想要完成的目标，Agent 会自动发送给 DeepSeek 规划"
