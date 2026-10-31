@@ -18,6 +18,7 @@ import type { Conversation, ConversationEvent, ConversationMessage, SubmitConver
  */
 const api: AgentApi = {
   submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
+  classifyIntent: (text: string) => ipcRenderer.invoke('conversation:classify', text),
   followupConversation: (input: { conversationId: string; text: string }) => ipcRenderer.invoke('conversation:followup', input),
   getConversations: () => ipcRenderer.invoke('conversation:list'),
   getConversation: (conversationId: string) => ipcRenderer.invoke('conversation:get', conversationId),

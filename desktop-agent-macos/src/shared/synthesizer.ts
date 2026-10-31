@@ -41,7 +41,10 @@ const STOP_BIGRAMS = new Set([
   // Verbs: the boundary rule lets a clause start with one, but "导致" tells a
   // reader nothing about what the two answers are about.
   '导致', '造成', '引起', '产生', '出现', '使用', '进行', '存在', '属于', '包括',
-  '表示', '认为', '说明', '应该', '可能', '无法', '不能', '不要'
+  '表示', '认为', '说明', '应该', '可能', '无法', '不能', '不要',
+  // Determiners and quantities: "每个" got through the boundary rule and turned
+  // up in the topic list as if it were a subject.
+  '每个', '各种', '所有', '大量', '多数', '部分', '若干', '多个', '一次'
 ]);
 
 /**

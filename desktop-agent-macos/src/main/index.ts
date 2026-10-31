@@ -24,6 +24,7 @@ import { ChannelRegistry } from './channels/registry';
 import { WebPageChannel } from './channels/web-page';
 import { CHATGPT_HOSTS, CHATGPT_SELECTORS } from './channels/chatgpt';
 import { ConversationRunner } from './conversation-runner';
+import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
@@ -275,14 +276,19 @@ async function createWindow() {
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  // The planning source is the one that must exist at startup; the others are
-  // created the first time the rail asks for them. A failure to load must not
-  // take the window down with it — the UI is still useful with the app column.
+  // Every configured source is a channel, and a channel whose page was never
+  // created cannot answer. Loading only the active one meant a fresh start could
+  // read "0/2 通道就绪 · 页面尚未加载" and then quietly ask one AI, because the
+  // rail was a prerequisite nobody knew they had to click. The active page loads
+  // first so the visible pane fills as early as possible; the rest follow.
   await ensureSource(findSource(activeSourceId) ?? PAGE_SOURCES[0]).catch(() => undefined);
   layout();
   win.on('resize', layout);
-
   startStatusPolling();
+  for (const source of PAGE_SOURCES) {
+    if (source.id === activeSourceId) continue;
+    void ensureSource(source).catch(() => undefined);
+  }
 }
 
 function startStatusPolling() {
@@ -387,6 +393,21 @@ function registerIpc() {
       workspaceRoot: typeof input.workspaceRoot === 'string' ? input.workspaceRoot : undefined,
       permissionPreset: typeof input.permissionPreset === 'string' ? input.permissionPreset : undefined
     });
+  });
+
+  /**
+   * Routing, without the side effect.
+   *
+   * Submitting a `workspace` sentence sends the planning prompt to a live web
+   * page, and that page keeps the thread in its history forever. Anything that
+   * only wants to know how a sentence would be routed — a preview in the UI, a
+   * check script — must be able to ask without writing to someone's account.
+   */
+  ipcMain.handle('conversation:classify', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (typeof raw !== 'string' || !raw.trim()) throw new Error('先写一句想做的事。');
+    const intent = classifyIntent(raw);
+    return { intent: intent.kind, reason: intent.reason };
   });
 
   ipcMain.handle('conversation:followup', async (event, raw: unknown) => {

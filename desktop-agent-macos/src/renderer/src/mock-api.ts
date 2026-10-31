@@ -175,6 +175,7 @@ export function createMockApi(): AgentApi {
       createdAt: Date.now(),
       updatedAt: Date.now()
     }),
+    classifyIntent: async () => ({ intent: 'answer' as const, reason: '默认按问答处理' }),
     followupConversation: async (input: { conversationId: string; text: string }) => ({
       conversationId: input.conversationId,
       title: input.text.slice(0, 42),

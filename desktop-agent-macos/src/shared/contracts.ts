@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { PageSource } from './sources';
+import type { IntentKind } from './intent';
 import type {
   ChannelStatus,
   Conversation,
@@ -375,6 +376,16 @@ export interface AgentApi {
    * workspace task; the caller does not have to know which.
    */
   submitConversation(input: SubmitConversationInput): Promise<Conversation>;
+  /**
+   * Ask the router what it would do, without doing it.
+   *
+   * `submitConversation` is not a dry run: a `workspace` verdict immediately
+   * sends the planning prompt to a real web page, which then keeps that thread
+   * in its history forever. Anything that only wants to inspect routing — the
+   * routing preview in the UI, a check script — has to be able to ask without
+   * leaving a conversation behind on somebody's account.
+   */
+  classifyIntent(text: string): Promise<{ intent: IntentKind; reason: string }>;
   followupConversation(input: { conversationId: string; text: string }): Promise<Conversation>;
   getConversations(): Promise<Conversation[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;

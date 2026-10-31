@@ -16,7 +16,7 @@
  *
  * Usage: node scripts/check-conversation.mjs   (app running with CDP on)
  */
-import { connect, createChecks, findAppTarget, listTargets, sleep } from './lib/cdp.mjs';
+import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -34,6 +34,22 @@ if (usable === 0) {
   cdp.close();
   process.exit(1);
 }
+
+// The pill is the one place a user looks to decide whether to wait, so it has to
+// agree with reality without anyone clicking anything. It used to be read once
+// at startup, before the pages had loaded, and then stayed on "0/2 · 页面尚未
+// 加载" for as long as the app was open.
+const expectedPill = `${usable}/${channelStatuses.length} 通道就绪`;
+const pill = await waitFor(
+  () => cdp.evaluate(`document.querySelector('.topbar-right .pill')?.textContent ?? ''`),
+  expectedPill,
+  { timeoutMs: 12000 }
+);
+check('顶栏的就绪数量与实际可用通道一致', pill, expectedPill);
+checkTrue(
+  '顶栏不再挂着过期的「页面尚未加载」',
+  !(await cdp.evaluate(`document.querySelector('.status-detail')?.textContent ?? ''`)).includes('页面尚未加载')
+);
 
 // --- 1. a question becomes a conversation, not a task ---------------------
 const before = await cdp.evaluate('window.agentAPI.getTaskHistory()');
@@ -141,52 +157,36 @@ checkTrue('对话标题是用户的问题', Boolean(ui.title) && question.starts
 const afterConversation = await cdp.evaluate('window.agentAPI.getTaskHistory()');
 check('一次问答没有制造执行任务', afterConversation.length, before.length);
 
-const workspaceIntent = await cdp.evaluate(`window.agentAPI.submitConversation(${JSON.stringify({
-  text: '帮我修改 README.md 里的标题',
-  workspaceRoot: undefined
-})})`);
-check('文件改动仍然被识别为工作区任务', workspaceIntent.intent, 'workspace');
-
-// Two honest outcomes, and only two. With a remembered workspace the task is
-// handed off; with none it must fail and say so. Silently becoming a chat is
-// the failure this check exists for — the old build did exactly that.
-const handedOff = typeof workspaceIntent.taskId === 'string';
-const refusedClearly = workspaceIntent.status === 'failed' && /工作区/.test(workspaceIntent.error ?? '');
-checkTrue('工作区任务要么转交执行，要么明确说没有工作区', handedOff || refusedClearly);
+// Classify only. Submitting this sentence for real sends the planning prompt to
+// a live page, and that page keeps the thread in its own history forever — the
+// check would litter the account it is supposed to be testing. What is being
+// asserted here is the router's verdict; the hand-off itself is covered by
+// check-runner against a fake registry, where nothing leaves the machine.
+const routing = await cdp.evaluate(
+  `window.agentAPI.classifyIntent(${JSON.stringify('帮我修改 README.md 里的标题')})`
+);
+check('文件改动仍然被识别为工作区任务', routing.intent, 'workspace');
+checkTrue('路由给出了理由', typeof routing.reason === 'string' && routing.reason.length > 0);
 
 // --- 6. leave no trace -----------------------------------------------------
-// This check drives the real app, so everything it submits is real history:
-// two conversations and possibly a task land in the sidebar every run, under
-// fixture titles that look like something the user typed. Deleting them at the
-// end is not tidiness — a check that litters the product's own list is a check
-// nobody will run twice.
+// This check drives the real app, so the question it asks is real history: one
+// conversation lands in the sidebar every run, under a fixture title that looks
+// like something the user typed. Deleting it at the end is not tidiness — a
+// check that litters the product's own list is a check nobody will run twice.
 await cdp.evaluate(`(async () => {
   const cleanup = { conversations: 0, tasks: 0, skipped: [] };
-  const mine = ${JSON.stringify([started.conversationId, workspaceIntent.conversationId])};
+  const mine = ${JSON.stringify([started.conversationId])};
 
   for (const item of await window.agentAPI.getConversations()) {
     if (!mine.includes(item.conversationId)) continue;
     await window.agentAPI.deleteConversation(item.conversationId);
     cleanup.conversations += 1;
   }
-
-  const taskId = ${JSON.stringify(workspaceIntent.taskId ?? '')};
-  if (taskId) {
-    try {
-      // A task that was only just created is still running, and a running task
-      // cannot be deleted — it has to be stopped first.
-      await window.agentAPI.cancelTask(taskId);
-      await window.agentAPI.deleteTask(taskId);
-      cleanup.tasks += 1;
-    } catch (error) {
-      cleanup.skipped.push(String(error).slice(0, 80));
-    }
-  }
   return cleanup;
 })()`).then(cleanup => console.log('清理', JSON.stringify(cleanup)));
 
 const leftover = await cdp.evaluate(`(async () => {
-  const mine = ${JSON.stringify([started.conversationId, workspaceIntent.conversationId])};
+  const mine = ${JSON.stringify([started.conversationId])};
   const conversations = await window.agentAPI.getConversations();
   return conversations.filter(item => mine.includes(item.conversationId)).length;
 })()`);

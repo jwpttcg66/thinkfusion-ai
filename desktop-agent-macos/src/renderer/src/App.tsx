@@ -259,10 +259,12 @@ export default function App() {
         .catch(() => undefined);
     };
     read();
-    if (!conversationBusy) return () => {
-      cancelled = true;
-    };
-    const timer = setInterval(read, 4000);
+    // Idle polling is not redundant. The pages load asynchronously and any page
+    // can go away later (logout, a navigation out of the allow-list), so reading
+    // once at mount is how the pill sat on "0/2 · 页面尚未加载" while both pages
+    // were in fact loading behind it. Slower when nothing is running, because a
+    // wrong number is only urgent while the user is waiting on it.
+    const timer = setInterval(read, conversationBusy ? 4000 : 6000);
     return () => {
       cancelled = true;
       clearInterval(timer);
