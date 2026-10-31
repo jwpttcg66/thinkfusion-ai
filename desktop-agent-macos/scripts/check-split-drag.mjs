@@ -13,6 +13,10 @@
 import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
 const GUTTER = 10;
+/** The rail is DOM painted over the page area, so the view has to stop short of it. */
+const RAIL = 46;
+/** Width the native view should have for a given split — the same formula `computePageBounds` uses. */
+const pageWidthFor = split => split - GUTTER - RAIL;
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -105,7 +109,7 @@ checkTrue('the main process knows the drag ended', !releasedView.dragging);
 const boundary = start.viewport - released.split + GUTTER;
 const returned = await waitFor(async () => (await view()).view.x, boundary);
 check('the view comes back to the boundary', returned, boundary);
-check('the view width matches the applied split', (await view()).view.width, released.split - GUTTER);
+check('the view width matches the applied split', (await view()).view.width, pageWidthFor(released.split));
 
 await cdp.evaluate(`(() => {
   const divider = document.querySelector('.page-divider');
@@ -115,8 +119,8 @@ await cdp.evaluate(`(() => {
 await sleep(400);
 const reset = await state();
 check('double click restores the default ratio', reset.split, Math.round(start.viewport * 0.42));
-const resetView = await waitFor(async () => (await view()).view.width, reset.split - GUTTER);
-check('the view follows the reset', resetView, reset.split - GUTTER);
+const resetView = await waitFor(async () => (await view()).view.width, pageWidthFor(reset.split));
+check('the view follows the reset', resetView, pageWidthFor(reset.split));
 
 cdp.close();
 process.exit(summary().fail === 0 ? 0 : 1);

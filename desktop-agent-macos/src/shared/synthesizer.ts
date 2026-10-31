@@ -23,6 +23,97 @@ export interface SynthesisInput {
 
 const NEGATIONS = /(不|没|无|非|别|勿|禁止|避免|无需|不需要|不能|无法|并非|不会)/g;
 
+/**
+ * Bigrams that are grammar rather than subject matter.
+ *
+ * These are the ones that made "两个通道都在讲同一件事" unmeasurable: 常见、建议、
+ * 主要 show up in every Chinese answer regardless of topic, so treating them as
+ * evidence of overlap is noise. Everything else — 连接、数据、上限、超时 — is
+ * real subject matter and is kept.
+ */
+const STOP_BIGRAMS = new Set([
+  '的是', '不是', '可以', '这个', '那个', '一个', '如果', '以及', '是否', '就是', '已经',
+  '没有', '通常', '这样', '那么', '这些', '那些', '所以', '但是', '因为', '由于', '然后',
+  '并且', '而且', '我们', '你们', '他们', '它们', '什么', '怎么', '为什', '一些', '来说',
+  '的话', '时候', '情况', '方法', '方式', '问题', '这里', '那里', '同时', '以上', '以下',
+  '或者', '还是', '其实', '基本', '主要', '建议', '注意', '常见', '一般', '例如', '比如',
+  '第一', '第二', '第三', '首先', '其次', '最后', '总之', '来说', '起来', '出来', '下来',
+  // Verbs: the boundary rule lets a clause start with one, but "导致" tells a
+  // reader nothing about what the two answers are about.
+  '导致', '造成', '引起', '产生', '出现', '使用', '进行', '存在', '属于', '包括',
+  '表示', '认为', '说明', '应该', '可能', '无法', '不能', '不要'
+]);
+
+/**
+ * A figure with a unit, or a long bare number. These are the only claims a
+ * rule-based pass can actually verify: "两边都写了 80%" is checkable in a way
+ * that "these two paragraphs feel alike" never is.
+ *
+ * A bare single digit is deliberately excluded — "3 个原因" is a count, not a
+ * fact about the world.
+ */
+const FIGURE = /(\d+(?:\.\d+)?)\s*(%|％|倍|秒|毫秒|分钟|小时|天|周|个月|月|年|万|亿|核|gb|mb|kb|ms)/gi;
+const BARE_LONG_NUMBER = /\b\d{3,}\b/g;
+
+/** Longest CJK phrase kept as a topic. Beyond this it is a sentence, not a topic. */
+const MAX_PHRASE_CHARS = 5;
+
+/**
+ * Verbs and determiners that can open a clause but never open a topic.
+ *
+ * "导致连接" begins after a comma, so the boundary rule lets it through — but a
+ * topic list headed by a verb describes the sentence, not the subject. Same for
+ * "一个常见原", which is a slice of "的一个常见原因".
+ */
+const NOISE_PREFIXES = [
+  '导致', '造成', '引起', '产生', '出现', '使用', '进行', '存在', '属于', '包括',
+  '表示', '认为', '说明', '应该', '可能', '无法', '不能', '不要', '需要', '例如',
+  '一个', '这个', '那个', '这些', '那些', '这种', '那种', '什么', '怎么', '如果',
+  '因为', '所以', '但是', '而且', '以及', '或者', '首先', '其次', '最后'
+];
+
+/**
+ * Characters that cannot begin or end a topic.
+ *
+ * Without this the shared-phrase list fills up with "到数据库", "是连接",
+ * "的上限" — correct substrings, useless to a reader.
+ */
+const EDGE_CHARS = new Set(
+  '的了和与及或是就都也还很更最在到从把被让给对为以而且但并则若因所之其此该这那再又却才们'
+);
+
+/**
+ * Characters that cannot appear *anywhere* inside a topic.
+ *
+ * This is the rule that finally kills the fragments. "高的一个常" and
+ * "连接数持续" are made of a particle plus its neighbours; a Chinese term does
+ * not contain 的 / 了 / 是 / 在 / 到, so anything that does is a clause, not a term.
+ */
+const PARTICLES = new Set('的了地得着过和与及或是就在把被让给对为以而且但并则若因所之其此该这那再又却才们到从');
+
+/** "三个" is a count, not a subject. */
+const NUMERAL_START = /^[一二三四五六七八九十两几半]/;
+
+/**
+ * Where a topic is allowed to begin: at the start of a run, or right after one
+ * of these.
+ *
+ * A phrase that starts mid-word is a sliding-window artifact, not a term. Without
+ * this rule "池配置过大" and "设置过大" produce the shared phrase "置过大", which
+ * reads as garbage and appears in neither answer as a word.
+ */
+const BOUNDARY_CHARS = new Set(
+  '的了地得着过和与及或是就在把被让给对为以而且但并则若因所之其此该这那再又却才们到从' +
+    '有没不无会能可要需应使得未已即故便令如按' +
+    // Adverbs that precede a noun phrase ("归还连接池", "都很关键"). 最 is left
+    // out on purpose: it would let "大连接数" out of "最大连接数".
+    '都也还很更' +
+    // Verbs that take an object: "确认连接池" has to yield 连接池, and 认 is not
+    // a particle. Deliberately excludes 配 and 设 — they would re-admit "置过大",
+    // the fragment this rule exists to reject.
+    '认看查核调测算读写取存加减提降检用做换装挂开关停启跑走进出'
+);
+
 /** Sentence terminators for Chinese and English. Newlines count too: chat answers are listy. */
 const SENTENCE_SPLIT = /(?<=[。！？!?；;])|\n+/;
 
@@ -69,11 +160,51 @@ function numbersIn(sentence: string): string[] {
   return sentence.match(/\d[\d,_.]*/g) ?? [];
 }
 
+/** Figures worth comparing: 80%, 30 秒, 10000, 2 倍. */
+function figuresIn(sentence: string): string[] {
+  const found = new Set<string>();
+  for (const match of sentence.matchAll(FIGURE)) found.add(`${match[1]}${match[2].toLowerCase()}`);
+  for (const match of sentence.match(BARE_LONG_NUMBER) ?? []) found.add(match);
+  return [...found];
+}
+
+/** ASCII identifiers (max_connections, processlist) plus CJK phrases. */
+function topicsOf(sentence: string): Set<string> {
+  const set = new Set<string>();
+  for (const word of sentence.toLowerCase().match(/[a-z][a-z0-9_.-]{2,}/g) ?? []) set.add(word);
+
+  // Runs, not one glued string: `replace(/[^\u4e00-\u9fa5]/g, '')` would splice
+  // "空闲连接，再确认连接池" into "空闲连接连接池" and then report a phrase
+  // that neither answer ever wrote. Splitting at punctuation keeps every phrase
+  // a real substring of a real sentence.
+  for (const run of sentence.split(/[^\u4e00-\u9fa5]+/)) {
+    for (let start = 0; start < run.length; start += 1) {
+      if (start > 0 && !BOUNDARY_CHARS.has(run[start - 1])) continue;
+      for (let length = 2; length <= MAX_PHRASE_CHARS && start + length <= run.length; length += 1) {
+        const candidate = run.slice(start, start + length);
+        if (length === 2 && STOP_BIGRAMS.has(candidate)) continue;
+        if (NOISE_PREFIXES.some(prefix => candidate.startsWith(prefix))) continue;
+        if (EDGE_CHARS.has(candidate[0]) || EDGE_CHARS.has(candidate[candidate.length - 1])) continue;
+        if (NUMERAL_START.test(candidate)) continue;
+        // A term never contains a particle: this is what separates 连接池 from
+        // 高的一个常, both of which are substrings of a real sentence.
+        if ([...candidate].some(char => PARTICLES.has(char))) continue;
+        set.add(candidate);
+      }
+    }
+  }
+  return set;
+}
+
 interface Unit {
   channelId: string;
   messageId: string;
   text: string;
+  /** Bigrams for whole-sentence similarity. */
   features: Set<string>;
+  /** Stop-filtered bigrams and identifiers, for "are these about the same thing". */
+  topics: Set<string>;
+  figures: string[];
 }
 
 interface Cluster {
@@ -193,13 +324,112 @@ function findGaps(units: Unit[], channelCount: number): Gap[] {
   return kept;
 }
 
+function sharesTopic(a: Unit, b: Unit): boolean {
+  for (const topic of a.topics) if (b.topics.has(topic)) return true;
+  return false;
+}
+
+/**
+ * The one form of agreement a rule-based pass can actually verify.
+ *
+ * Two channels writing the same figure is checkable — you can open both answers
+ * and look. But a figure alone is not agreement: both mentioning "2024 年" says
+ * nothing about whether they agree. So the two sentences also have to share a
+ * topic bigram, which keeps unrelated mentions from being dressed up as
+ * consensus.
+ */
+function figureConsensus(units: Unit[]): Claim[] {
+  const byFigure = new Map<string, Unit[]>();
+  for (const unit of units) {
+    for (const figure of unit.figures) {
+      byFigure.set(figure, [...(byFigure.get(figure) ?? []), unit]);
+    }
+  }
+
+  const claims: Claim[] = [];
+  for (const [figure, holders] of byFigure) {
+    if (new Set(holders.map(unit => unit.channelId)).size < 2) continue;
+
+    for (let i = 0; i < holders.length; i += 1) {
+      let paired = false;
+      for (let j = i + 1; j < holders.length; j += 1) {
+        const a = holders[i];
+        const b = holders[j];
+        if (a.channelId === b.channelId || !sharesTopic(a, b)) continue;
+
+        const head = a.text.length <= b.text.length ? a : b;
+        claims.push({
+          text: head.text,
+          sources: [a, b].map(unit => ({ channelId: unit.channelId, messageId: unit.messageId })),
+          evidence: [a, b].map(unit => `${unit.channelId}: ${figure}`)
+        });
+        paired = true;
+        break;
+      }
+      if (paired) break;
+    }
+  }
+  return claims;
+}
+
+/**
+ * What every channel kept talking about, even when no sentence matched.
+ *
+ * This exists to stop the code from lying. Two answers can cover exactly the
+ * same ground in completely different words, and telling the user "几乎没有
+ * 重合" in that case is simply false. Sentence similarity cannot see it; shared
+ * subject matter can.
+ */
+function sharedOverlap(units: Unit[], channelCount: number): string[] {
+  const figures = new Map<string, Set<string>>();
+  const words = new Map<string, Set<string>>();
+  const phrases = new Map<string, Set<string>>();
+
+  const record = (table: Map<string, Set<string>>, item: string, channelId: string): void => {
+    const set = table.get(item) ?? new Set<string>();
+    set.add(channelId);
+    table.set(item, set);
+  };
+
+  for (const unit of units) {
+    for (const figure of unit.figures) record(figures, figure, unit.channelId);
+    for (const topic of unit.topics) {
+      const isWord = /^[a-z]/.test(topic);
+      record(isWord ? words : phrases, topic, unit.channelId);
+    }
+  }
+
+  const everywhere = (table: Map<string, Set<string>>): string[] =>
+    [...table.entries()].filter(([, channels]) => channels.size >= channelCount).map(([item]) => item);
+
+  const kept: string[] = [];
+  const take = (item: string, skipIfContained: boolean): void => {
+    if (kept.length >= 6) return;
+    if (skipIfContained && kept.some(other => other.includes(item))) return;
+    kept.push(item);
+  };
+
+  // Figures first: a shared number is the most concrete thing two answers can
+  // have in common. Then the longest Chinese phrases — 连接池 outranks 连接, so
+  // the containment check keeps only the widest one. Identifiers last: they are
+  // usually library names and read as noise to anyone not debugging.
+  everywhere(figures).forEach(item => take(item, false));
+  everywhere(phrases)
+    .sort((a, b) => b.length - a.length)
+    .forEach(item => take(item, true));
+  everywhere(words).forEach(item => take(item, false));
+  return kept;
+}
+
 export function synthesize(inputs: SynthesisInput[]): Synthesis {
   const units: Unit[] = inputs.flatMap(input =>
     sentencesOf(input.text).map(text => ({
       channelId: input.channelId,
       messageId: input.messageId,
       text,
-      features: features(text)
+      features: features(text),
+      topics: topicsOf(text),
+      figures: figuresIn(text)
     }))
   );
 
@@ -213,6 +443,7 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
       disputed: [],
       unique: [],
       gaps: [],
+      overlap: [],
       recommendation: '只有一个通道给出了回答，没有可比较的对象。以下内容未做交叉验证。',
       degraded: true
     };
@@ -233,7 +464,19 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
     }
   }
 
+  // A shared figure is agreement even when not one sentence lines up. Deduped by
+  // text so the same sentence cannot arrive twice from two figures.
+  for (const claim of figureConsensus(units)) {
+    if (consensus.some(item => item.text === claim.text)) continue;
+    consensus.push(claim);
+  }
+
   const gaps = findGaps(units, channelCount);
+  const overlap = sharedOverlap(units, channelCount);
+
+  // A sentence already quoted as consensus must not also appear as "only one
+  // channel said this" — the same text in both columns reads as a bug.
+  const soloed = unique.filter(claim => !consensus.some(item => item.text === claim.text));
 
   // Degraded means "we produced a list, not a synthesis": no claim was shared by
   // two channels. The UI must label it instead of presenting it as agreement.
@@ -242,9 +485,10 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
   return {
     consensus: consensus.slice(0, 8),
     disputed: disputed.slice(0, 5),
-    unique: unique.slice(0, 8),
+    unique: soloed.slice(0, 8),
     gaps,
-    recommendation: buildRecommendation(consensus, disputed, gaps, channelCount, degraded),
+    overlap,
+    recommendation: buildRecommendation(consensus, disputed, gaps, overlap, channelCount, degraded),
     degraded
   };
 }
@@ -253,14 +497,22 @@ function buildRecommendation(
   consensus: Claim[],
   disputed: Dispute[],
   gaps: Gap[],
+  overlap: string[],
   channelCount: number,
   degraded: boolean
 ): string {
   if (degraded) {
+    // Saying "几乎没有重合" here would be false whenever both answers simply
+    // chose different words for the same subject. Name what they share instead.
+    if (overlap.length > 0) {
+      const named = overlap.slice(0, 3).map(item => `「${item}」`).join('');
+      return `${channelCount} 个通道都在讲${named}，但没有一句话相似到可以直接对比，所以这里不做逐条判定。请按下面的原话自行核对它们是不是在说同一件事。`;
+    }
     return `${channelCount} 个通道的回答几乎没有重合，无法形成共识。请直接阅读下方各自的原话，并注意这本身就是一种信号：问题可能没有标准答案，或者提问需要收窄。`;
   }
 
-  const head = `多数通道（${consensus[0].sources.length} 处提及）一致认为：${consensus[0].text}`;
+  const scope = consensus[0].sources.length >= channelCount ? '所有通道' : '多数通道';
+  const head = `${scope}（${consensus[0].sources.length} 处提及）一致认为：${consensus[0].text}`;
   const parts = [head];
 
   if (disputed.length > 0) {

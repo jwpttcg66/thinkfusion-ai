@@ -209,6 +209,17 @@ function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
 
       <p className="synthesis-lead">{synthesis.recommendation}</p>
 
+      {synthesis.overlap && synthesis.overlap.length > 0 && (
+        <p className="synthesis-overlap">
+          <span className="synthesis-overlap-label">共同提到</span>
+          {synthesis.overlap.map(item => (
+            <span key={item} className="synthesis-term">
+              {item}
+            </span>
+          ))}
+        </p>
+      )}
+
       {synthesis.disputed.length > 0 && (
         <div className="synthesis-block">
           <h4>分歧（{synthesis.disputed.length}）</h4>
@@ -239,6 +250,9 @@ function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
                 <span className="claim-src">
                   {claim.sources.map(source => labelOf(source.channelId)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}
                 </span>
+                {/* Without the figures the claim cannot be checked, and "why do
+                    these two agree" becomes a matter of trust. */}
+                {claim.evidence.length > 0 && <span className="claim-evidence">{claim.evidence.join(' · ')}</span>}
               </li>
             ))}
           </ul>

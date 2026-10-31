@@ -452,7 +452,12 @@ button:disabled {
 
 .inner {
   width: 100%;
-  max-width: 660px;
+  /* Grows with the pane instead of sitting at a fixed 660px.
+     A comparison view is the one screen that needs width: at 660 two answers get
+     324px each, which is narrower than the sidebar and turns every answer into a
+     tall skinny column. The upper bound keeps a line from running the full width
+     of a maximised window, where reading it means moving your head. */
+  max-width: clamp(660px, 72vw, 1040px);
   margin: 0 auto;
 }
 
@@ -1272,7 +1277,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 720px;
+  /* No width of its own: `.inner` already decided how wide this column is, and a
+     second cap here silently won that argument — the pane grew and the cards
+     stayed at 324px. */
 }
 
 .conversation-head {
@@ -1391,7 +1398,11 @@ button:disabled {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
-  align-items: start;
+  /* Equal heights, on purpose. With `align-items: start` a 58-character answer
+     and a 329-character one produce a 115px card next to a 428px one, and the
+     hole underneath reads as a rendering bug. Comparison wants a shared
+     baseline: same top, same bottom, text starting at the same line. */
+  align-items: stretch;
 }
 
 .channel-card {
@@ -1444,6 +1455,9 @@ button:disabled {
   line-height: 1.72;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Takes the slack when the cards are stretched to the tallest answer, so the
+     border encloses the space deliberately instead of leaving a gap below it. */
+  flex: 1;
 }
 
 .bubble-who {
@@ -1545,6 +1559,31 @@ button:disabled {
   line-height: 1.7;
 }
 
+/* The evidence that two answers are comparable at all. Shown even when no
+   sentence matched, because "这些回答值得对比" is itself the finding. */
+.synthesis-overlap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.synthesis-overlap-label {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.synthesis-term {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.12));
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.18));
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
 .synthesis-block {
   margin-top: 12px;
 }
@@ -1606,4 +1645,12 @@ button:disabled {
   margin-left: 6px;
   font-size: 11px;
   color: var(--text-3);
+}
+
+.claim-evidence {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }

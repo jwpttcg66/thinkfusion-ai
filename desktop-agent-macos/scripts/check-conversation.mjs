@@ -79,11 +79,24 @@ if (channelMessages.length >= 2) {
   checkTrue('多通道时生成了综合分析', synthesisMessages.length === 1);
   const synthesis = synthesisMessages[0]?.synthesis;
   checkTrue('综合分析带着结构（共识/分歧/缺口）', Boolean(synthesis) && Array.isArray(synthesis.consensus));
+  // A bare consensus is allowed only if it is labelled unverified: "both said
+  // 80%" is checkable, but checkable is not the same as confirmed.
   checkTrue(
-    '综合要么指出分歧/缺口，要么明确说明是降级结果',
+    '综合要么指出分歧/缺口，要么说明是降级结果，要么把共识标为未经验证',
     Boolean(synthesis) &&
-      (synthesis.disputed.length > 0 || synthesis.gaps.length > 0 || synthesis.degraded === true)
+      (synthesis.disputed.length > 0 ||
+        synthesis.gaps.length > 0 ||
+        synthesis.degraded === true ||
+        (synthesis.consensus.length > 0 && /不代表结论已经被验证/.test(synthesis.recommendation)))
   );
+  checkTrue('综合带着共同提到的话题字段', Boolean(synthesis) && Array.isArray(synthesis.overlap));
+  if (synthesis) {
+    console.log(
+      `  综合 degraded=${synthesis.degraded} 共识${synthesis.consensus.length} 分歧${synthesis.disputed.length} ` +
+        `缺口${synthesis.gaps.length} 单方${synthesis.unique.length} 共同提到${(synthesis.overlap ?? []).join('/')}`
+    );
+    console.log('  →', synthesis.recommendation);
+  }
 } else {
   console.log('note  只有一个通道可用，本次没有可比较对象，综合环节跳过');
 }
@@ -104,6 +117,7 @@ const ui = await cdp.evaluate(`(() => {
     cards: document.querySelectorAll('.channel-card').length,
     gridColumns: getComputedStyle(document.querySelector('.channel-grid') ?? document.body).gridTemplateColumns,
     hasPlan: Boolean(document.querySelector('.plan-card, .plan-preview')),
+    overlapChips: document.querySelectorAll('.synthesis-term').length,
     title: document.querySelector('.conversation-title h2')?.textContent ?? null,
     intentBadge: document.querySelector('.intent-badge')?.textContent ?? null
   };
@@ -115,6 +129,9 @@ checkTrue('对话里有气泡', ui.bubbles >= 1);
 check('每个通道的回答各自成卡', ui.cards, channelMessages.length);
 checkTrue('多通道时并排显示，而不是上下堆叠', channelMessages.length < 2 || ui.gridColumns.split(' ').length >= 2);
 check('对话视图里没有计划卡片', ui.hasPlan, false);
+// The chips are the answer to "why are these two answers worth comparing at
+// all" — the recommendation text alone reads as an opinion.
+checkTrue('综合卡片上画出了共同提到的话题', channelMessages.length < 2 || ui.overlapChips > 0);
 checkTrue('对话标题是用户的问题', Boolean(ui.title) && question.startsWith(ui.title.slice(0, 6)));
 
 // --- 5. a file change still goes to the task path -------------------------

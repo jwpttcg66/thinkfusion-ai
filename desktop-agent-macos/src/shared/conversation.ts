@@ -76,6 +76,12 @@ export interface Synthesis {
   disputed: Dispute[];
   unique: Claim[];
   gaps: Gap[];
+  /**
+   * Subject matter every channel touched on, whether or not any sentence lined
+   * up. Lets the UI show that two answers are comparable even when the rules
+   * could not pair a single sentence.
+   */
+  overlap?: string[];
   recommendation: string;
   /**
    * True when the answers could not be segmented into claims and the result is

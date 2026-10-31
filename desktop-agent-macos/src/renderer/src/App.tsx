@@ -342,13 +342,24 @@ export default function App() {
   useEffect(() => {
     if (!draggingPage) return;
     const release = () => stopDrag();
+    /**
+     * A pointermove with no button held means the gesture is already over and we
+     * never saw the pointerup — which is how the page ended up parked offscreen
+     * with a white strip where it used to be. The pointerup below cannot catch
+     * that case; this can.
+     */
+    const releaseIfButtonless = (event: PointerEvent) => {
+      if (event.buttons === 0) stopDrag();
+    };
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
     window.addEventListener('blur', release);
+    window.addEventListener('pointermove', releaseIfButtonless);
     return () => {
       window.removeEventListener('pointerup', release);
       window.removeEventListener('pointercancel', release);
       window.removeEventListener('blur', release);
+      window.removeEventListener('pointermove', releaseIfButtonless);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draggingPage]);
