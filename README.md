@@ -34,6 +34,28 @@ sources more useful than any single response.
 
 ---
 
+## What this is, precisely
+
+A question or a task goes in. ThinkFusion decides what kind of thing it is, organises several AIs
+and sources to think about it, cross-examines their answers, and synthesises something better than
+any one reply. **Only when the work actually has to touch local files** does it produce an
+approvable execution plan.
+
+> AI Orchestrator + Multi-AI Collaboration + Knowledge Synthesis + **Optional** Local Agent Runtime
+
+The `Optional` is the load-bearing word. The local Agent runtime is a subsystem, not the product —
+and today the code has that backwards: every task is forced through a fixed "you are a planning
+engine, emit `desktop-agent/v1` JSON" prompt, which leaves a research question with nowhere to land.
+
+Three documents define the target, and they are written to be checked against the code rather than
+skimmed:
+
+| Document | What it settles |
+| --- | --- |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | What the product is and is not; five task types; the principles that decide trade-offs |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The five layers, the `AiChannel` abstraction, three protocols, two state machines, the migration path |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | P0–P6 with completion criteria, not feature lists |
+
 ## What actually works today
 
 The capabilities above describe what the platform is *for*. Here is what the code currently does,
@@ -44,11 +66,16 @@ stated plainly — a README that promises more than the repository delivers is j
 | Collect a viewpoint from one source | ✅ A web AI page in a real browser view — no API key needed |
 | Turn that reply into a checkable plan | ✅ Strict schema; a plan that fails validation is rejected outright, not "best-effort repaired" |
 | Keep several AI pages open at once | ✅ One rail of buttons on the right edge switches which page is on screen; each page keeps its own cookies and its own host allow-list |
+| **Ask a question without producing a plan** | ❌ **Missing.** Every task is forced into the planning prompt; there is no "just answer" path |
+| **Decide what kind of task this is** | ❌ **Missing.** No intent router — everything is treated as a workspace task |
 | Collect from multiple sources | ⏳ The channel layer is decoupled from Electron and ready, but only one source is wired to the planner |
 | Perspective analysis / cross-challenge | ⏳ Not yet. Conflicts are reported, not interrogated |
 | Knowledge synthesis | ⏳ Not yet. Competing plans are never merged or voted on |
 | Knowledge indexing | ⏳ Not yet. Task history is stored, but nothing is indexed for retrieval |
 | Iterative refinement | ✅ Execution reports are fed back into the page, round after round, until the task completes |
+
+Stated as one line: **the execution subsystem is mature; the orchestration and synthesis layers do
+not exist yet.** P0 in the roadmap is the gap-closing step.
 
 ## How it works
 

@@ -1,5 +1,9 @@
 # 通信协议：`desktop-agent/v1`
 
+> **适用范围已收窄。** 这是三套协议中的**本地执行协议**，只在"需要动本地文件"的任务里出现。问答、研究、多 AI 综合走 `thinkfusion/conversation/v1` 与 `thinkfusion/research/v1`，那两套不要求模型输出 JSON。见 [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) 第 3 节。
+>
+> 本文档以下内容不变：解析规则、回声剥离、回答归属，全部继续适用于执行链路。
+
 模型通道是一条网页。DeepSeek 不会给我们回调，也不会遵守我们的 schema——它只是在聊天框里写字。所以协议必须能在**渲染后的 markdown** 上工作，而不是在理想的 JSON 输出上工作。
 
 这份文档记录协议词汇、解析规则，以及每条规则对应的真实故障。
