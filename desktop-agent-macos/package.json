@@ -29,13 +29,18 @@
     "build:adapter": "tsc -p tsconfig.adapter.json",
     "test:adapter": "npm run build:adapter && node --test scripts/check-adapter.mjs",
     "test:state": "npm run build:adapter && node --test scripts/check-state-machine.mjs",
-    "test": "npm run test:protocol && npm run test:adapter && npm run test:state",
+    "test": "npm run test:protocol && npm run test:intent && npm run test:synthesis && npm run test:runner && npm run test:adapter && npm run test:state",
     "start:debug": "env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS electron . --no-sandbox --disable-gpu --remote-debugging-port=9222",
     "check:layout": "node scripts/check-split.mjs && node scripts/check-app-layout.mjs",
     "check:drag": "node scripts/check-split-drag.mjs",
     "check:new-task": "node scripts/check-new-task.mjs",
     "e2e:live": "node scripts/e2e-live.mjs",
-    "check:sources": "node scripts/check-sources.mjs"
+    "check:sources": "node scripts/check-sources.mjs",
+    "test:intent": "npm run build:agent && node --test scripts/check-intent.mjs",
+    "test:synthesis": "npm run build:agent && node --test scripts/check-synthesis.mjs",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test:runner": "npm run build:test && node --test scripts/check-runner.mjs",
+    "check:conversation": "node scripts/check-conversation.mjs"
   },
   "dependencies": {
     "zod": "3.25.76",

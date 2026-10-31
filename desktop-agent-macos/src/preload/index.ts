@@ -10,12 +10,21 @@ import type {
   SourcesState,
   SubmitPromptInput
 } from '../shared/contracts';
+import type { Conversation, ConversationEvent, ConversationMessage, SubmitConversationInput } from '../shared/conversation';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
  * `invoke(channel, ...)` escape hatch, no ipcRenderer passthrough.
  */
 const api: AgentApi = {
+  submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
+  followupConversation: (input: { conversationId: string; text: string }) => ipcRenderer.invoke('conversation:followup', input),
+  getConversations: () => ipcRenderer.invoke('conversation:list'),
+  getConversation: (conversationId: string) => ipcRenderer.invoke('conversation:get', conversationId),
+  getConversationMessages: (conversationId: string) => ipcRenderer.invoke('conversation:messages', conversationId),
+  cancelConversation: (conversationId: string) => ipcRenderer.invoke('conversation:cancel', conversationId),
+  deleteConversation: (conversationId: string) => ipcRenderer.invoke('conversation:delete', conversationId),
+  getChannelStatuses: () => ipcRenderer.invoke('channel:statuses'),
   submitPrompt: (input: SubmitPromptInput) => ipcRenderer.invoke('task:submit', input),
   getTask: (taskId: string) => ipcRenderer.invoke('task:get', taskId),
   getTaskHistory: () => ipcRenderer.invoke('task:history'),
@@ -41,8 +50,7 @@ const api: AgentApi = {
   setSource: (id: string) => ipcRenderer.invoke('app:set-source', id),
   getViewBounds: () => ipcRenderer.invoke('app:view-bounds'),
 
-  onAgentEvent: (callback: (event: AgentEvent) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
+  onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);
     return () => ipcRenderer.removeListener('agent:event', listener);
   },
@@ -60,6 +68,11 @@ const api: AgentApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: SourcesState) => callback(data);
     ipcRenderer.on('sources:changed', listener);
     return () => ipcRenderer.removeListener('sources:changed', listener);
+  },
+  onConversationEvent: (callback: (event: ConversationEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: ConversationEvent) => callback(data);
+    ipcRenderer.on('conversation:event', listener);
+    return () => ipcRenderer.removeListener('conversation:event', listener);
   }
 };
 

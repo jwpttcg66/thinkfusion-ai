@@ -11,10 +11,13 @@ import type {
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
+import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { computeSplit, PAGE_GUTTER, RAIL_WIDTH } from '../../shared/layout';
+import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
+import { classifyIntent } from '../../shared/intent';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
 interface Derived {
@@ -76,6 +79,11 @@ export default function App() {
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', loading: false });
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
+  const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string }>>({});
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -91,6 +99,19 @@ export default function App() {
   const [focusRequest, setFocusRequest] = useState(0);
 
   const activeTask = useMemo(() => tasks.find(task => task.taskId === activeId) ?? null, [tasks, activeId]);
+  const activeConversation = useMemo(
+    () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
+    [conversations, activeConversationId]
+  );
+  /**
+   * A conversation whose intent turned out to be `workspace` hands off to a
+   * task. From then on the task view owns the screen — showing a conversation
+   * pane with one system line next to a plan would be two half-answers.
+   */
+  const showingConversation = activeConversation !== null && !activeConversation.taskId;
+  const conversationBusy =
+    activeConversation !== null &&
+    ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(activeConversation.status);
   const busy = activeTask ? ACTIVE_STATUSES.includes(activeTask.status) : false;
   /**
    * The task is blocked on a person, not on the page.
@@ -148,13 +169,46 @@ export default function App() {
       if (event.type === 'status') setStatus(event.status);
     });
 
+    window.agentAPI.getConversations().then(setConversations).catch(() => undefined);
+    window.agentAPI.getChannelStatuses().then(setChannelStatuses).catch(() => undefined);
+
+    const stopConversation = window.agentAPI.onConversationEvent(event => {
+      if (event.type === 'conversation.created' || event.type === 'conversation.updated') {
+        setConversations(prev => [event.conversation, ...prev.filter(item => item.conversationId !== event.conversation.conversationId)]);
+        return;
+      }
+      if (event.type === 'message.added') {
+        // Messages are appended live, so the pane fills in as channels answer
+        // instead of appearing all at once when the slowest page finishes.
+        setMessages(prev =>
+          prev.some(item => item.messageId === event.message.messageId) ? prev : [...prev, event.message]
+        );
+        return;
+      }
+      if (event.type === 'channel.phase') {
+        setPhases(prev => ({ ...prev, [event.channelId]: { phase: event.phase, detail: event.detail } }));
+        return;
+      }
+      if (event.type === 'conversation.failed') {
+        setError(event.error);
+      }
+    });
+
     return () => {
       stopEvents();
       stopDeepSeek();
+      stopConversation();
       stopLayout();
       stopSources();
     };
   }, []);
+
+  // Refresh channel availability whenever a conversation settles: the common
+  // cause of "no channel answered" is a page that logged itself out.
+  useEffect(() => {
+    if (conversationBusy) return;
+    window.agentAPI.getChannelStatuses().then(setChannelStatuses).catch(() => undefined);
+  }, [conversationBusy, activeConversationId]);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--split', `${String(split)}px`);
@@ -309,15 +363,38 @@ export default function App() {
       return;
     }
 
+    // An open conversation that already answered takes the message as a
+    // follow-up. The page keeps its own context, so the question goes out as
+    // written — no re-statement of the framing.
+    if (activeConversation && !activeConversation.taskId && !conversationBusy) {
+      setSubmitting(true);
+      setError('');
+      setNotice('');
+      try {
+        const updated = await window.agentAPI.followupConversation({
+          conversationId: activeConversation.conversationId,
+          text
+        });
+        setConversations(prev => [updated, ...prev.filter(item => item.conversationId !== updated.conversationId)]);
+        setPrompt('');
+      } catch (e) {
+        setError(errorText(e));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // A workspace is only needed when the router is actually going to execute
+    // something. Asking for one up front — which is what this used to do for
+    // every message — is the exact behaviour this rebuild removes.
+    const intent = classifyIntent(text);
     let root = workspace;
-    if (!root) {
-      // Picking a workspace is the only way forward here, and the picker can be
-      // cancelled or can fail. Both used to `return` silently, so pressing send
-      // on a fresh task looked like nothing happened.
+    if (intent.kind === 'workspace' && !root) {
       try {
         const dir = await window.agentAPI.chooseDirectory();
         if (!dir) {
-          setNotice('还没有选择工作区，任务没有提交。');
+          setNotice('这是一次工作区操作，但还没有选择目录，任务没有提交。');
           return;
         }
         root = dir;
@@ -332,16 +409,58 @@ export default function App() {
     setSubmitting(true);
     setError('');
     try {
-      const task = await window.agentAPI.submitPrompt({ prompt: text, permissionPreset: permission, workspaceRoot: root });
-      setTasks(prev => upsert(prev, task));
-      setActiveId(task.taskId);
-      setEvents([]);
-      setDerived({ plan: null, questions: [], answer: '' });
+      const conversation = await window.agentAPI.submitConversation({
+        text,
+        workspaceRoot: root || undefined,
+        permissionPreset: permission
+      });
+      setConversations(prev => [
+        conversation,
+        ...prev.filter(item => item.conversationId !== conversation.conversationId)
+      ]);
+      setActiveConversationId(conversation.conversationId);
+      setMessages([]);
+      setPhases({});
       setPrompt('');
+      setActiveId(conversation.taskId ?? null);
+      if (conversation.taskId) await selectTask(conversation.taskId);
     } catch (e) {
       setError(errorText(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function selectConversation(conversationId: string) {
+    setActiveConversationId(conversationId);
+    setActiveId(null);
+    setError('');
+    setPhases({});
+    try {
+      const [list, conversation] = await Promise.all([
+        window.agentAPI.getConversationMessages(conversationId),
+        window.agentAPI.getConversation(conversationId)
+      ]);
+      setMessages(list);
+      if (conversation?.taskId) {
+        setActiveId(conversation.taskId);
+        await selectTask(conversation.taskId);
+      }
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function deleteConversation(conversationId: string) {
+    try {
+      await window.agentAPI.deleteConversation(conversationId);
+      setConversations(prev => prev.filter(item => item.conversationId !== conversationId));
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(null);
+        setMessages([]);
+      }
+    } catch (e) {
+      setError(errorText(e));
     }
   }
 
@@ -442,8 +561,15 @@ export default function App() {
         activeId={activeId}
         onSelect={selectTask}
         onDelete={deleteTask}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={selectConversation}
+        onDeleteConversation={deleteConversation}
         onNew={() => {
           setActiveId(null);
+          setActiveConversationId(null);
+          setMessages([]);
+          setPhases({});
           setEvents([]);
           setDerived({ plan: null, questions: [], answer: '' });
           setError('');
@@ -472,18 +598,22 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right">
-            {/* The pill is a summary; `detail` is the diagnosis. Showing only the
-                pill turns "selectors no longer match the page" into a silent
-                "页面异常", which is the one case a user cannot act on. */}
-            <span
-              className={`pill ${status?.loggedIn && status?.pageReady ? 'ok' : 'warn'}`}
-              title={status?.detail ?? undefined}
-            >
-              {status ? (status.loggedIn ? (status.pageReady ? 'DeepSeek 就绪' : '页面异常') : '未登录') : '连接中…'}
-            </span>
-            {status?.detail && (
-              <span className="status-detail" title={status.detail}>
-                {status.detail}
+            {/* One pill per state used to be enough when there was one page.
+                With several, the useful summary is "how many can answer right
+                now", and the tooltip carries which one cannot and why. */}
+            {(() => {
+              const ready = channelStatuses.filter(channel => channel.available).length;
+              const blocked = channelStatuses.filter(channel => !channel.available);
+              const detail = blocked.map(channel => `${channel.label}: ${channel.detail ?? '不可用'}`).join('；');
+              return (
+                <span className={`pill ${ready > 0 ? 'ok' : 'warn'}`} title={detail || status?.detail || undefined}>
+                  {channelStatuses.length === 0 ? '连接中…' : `${ready}/${channelStatuses.length} 通道就绪`}
+                </span>
+              );
+            })()}
+            {channelStatuses.some(channel => !channel.available && channel.detail) && (
+              <span className="status-detail" title={channelStatuses.map(channel => channel.detail).filter(Boolean).join('；')}>
+                {channelStatuses.find(channel => !channel.available && channel.detail)?.detail}
               </span>
             )}
             <button className="btn ghost" type="button" onClick={openDiagnostics}>
@@ -497,9 +627,19 @@ export default function App() {
           </div>
         </header>
 
-        <div className={`scroll${activeTask ? '' : ' is-empty'}`}>
+        <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
           <div className="inner">
-            {!activeTask && (
+            {showingConversation && activeConversation && (
+              <ConversationView
+                conversation={activeConversation}
+                messages={messages}
+                channelStatuses={channelStatuses}
+                phases={phases}
+                busy={conversationBusy}
+              />
+            )}
+
+            {!activeTask && !showingConversation && (
               <section className="hero">
                 <div className="hero-logo">◈</div>
                 <div className="hero-title">
@@ -507,7 +647,7 @@ export default function App() {
                   <span className="badge">预览版</span>
                 </div>
                 <p className="hero-sub">
-                  提出目标，Agent 自动交给 DeepSeek 规划；计划经本地校验并由你确认后，才在授权目录内执行。
+                  直接提问，问题会发给 AI 并交叉比较；只有当你需要改动本地文件时，才会生成计划、请求授权、在目录内执行。
                 </p>
               </section>
             )}
@@ -606,11 +746,11 @@ export default function App() {
               workspace={workspace}
               permission={permission}
               inputRef={composerRef}
-              // Disabled while the agent works and while it waits for an answer:
-              // in both cases a new prompt would start a second task and lose
-              // the question on screen.
-              disabled={submitting || busy || awaitingAnswer}
-              busy={submitting}
+              // Disabled while a channel is answering and while the task waits
+              // for an answer: in both cases a second prompt would race the
+              // first against the same page and lose the question on screen.
+              disabled={submitting || busy || awaitingAnswer || conversationBusy}
+              busy={submitting || conversationBusy}
               onChange={value => {
                 setPrompt(value);
                 if (notice) setNotice('');

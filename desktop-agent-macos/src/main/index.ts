@@ -20,6 +20,11 @@ import {
 import { AgentStore } from './store';
 import { TaskManager } from './task-manager';
 import { DeepSeekAdapter, createElectronDriver } from './deepseek-adapter';
+import { ChannelRegistry } from './channels/registry';
+import { WebPageChannel } from './channels/web-page';
+import { CHATGPT_HOSTS, CHATGPT_SELECTORS } from './channels/chatgpt';
+import { ConversationRunner } from './conversation-runner';
+import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { computePageBounds, computeSplit } from '../shared/layout';
@@ -61,12 +66,34 @@ let draggingPage = false;
 let store: AgentStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
+let conversations: ConversationRunner;
 // The adapter drives the planning source only. Which source that is lives in
 // shared/sources.ts, so "which page does the agent talk to" is one line.
 const adapter = new DeepSeekAdapter(() => {
   const view = views.get('deepseek');
   return view ? createElectronDriver(view) : null;
 });
+
+/**
+ * The second channel, same driver, different site.
+ *
+ * Reusing `DeepSeekAdapter` rather than writing a second page driver is the
+ * point of the M1 split: the probe, the send path, the "is this answer mine"
+ * logic and the echo stripping are all site-agnostic. Only the hosts and the
+ * selector profile differ.
+ */
+const chatgptAdapter = new DeepSeekAdapter(
+  () => {
+    const view = views.get('chatgpt');
+    return view ? createElectronDriver(view, CHATGPT_SELECTORS) : null;
+  },
+  { hosts: CHATGPT_HOSTS, siteLabel: 'ChatGPT' }
+);
+
+const registry = new ChannelRegistry([
+  new WebPageChannel({ id: 'deepseek', label: 'DeepSeek', adapter }),
+  new WebPageChannel({ id: 'chatgpt', label: 'ChatGPT', adapter: chatgptAdapter })
+]);
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
 function emit(event: AgentEvent) {
@@ -80,6 +107,10 @@ function emit(event: AgentEvent) {
 
 function emitDeepSeek(event: DeepSeekEvent) {
   win?.webContents.send('deepseek:event', event);
+}
+
+function emitConversation(event: ConversationEvent) {
+  win?.webContents.send('conversation:event', event);
 }
 
 function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
@@ -336,6 +367,66 @@ function registerIpc() {
     return process.platform;
   });
 
+  // --- conversations -------------------------------------------------------
+  //
+  // The primary path. Note what is absent: no workspace, no permission, no
+  // approval. A question does not need any of those, and asking for them is how
+  // the old build turned every question into a file operation.
+
+  ipcMain.handle('conversation:submit', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { text?: unknown; workspaceRoot?: unknown; permissionPreset?: unknown };
+    if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想研究或完成的事情。');
+    return conversations.start({
+      text: input.text,
+      workspaceRoot: typeof input.workspaceRoot === 'string' ? input.workspaceRoot : undefined,
+      permissionPreset: typeof input.permissionPreset === 'string' ? input.permissionPreset : undefined
+    });
+  });
+
+  ipcMain.handle('conversation:followup', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = raw as { conversationId?: unknown; text?: unknown };
+    if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
+    if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想追问的内容。');
+    return conversations.followup(input.conversationId, input.text);
+  });
+
+  ipcMain.handle('conversation:list', event => {
+    trustedUiSender(event);
+    return conversations.list();
+  });
+
+  ipcMain.handle('conversation:get', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string') throw new Error('缺少对话 id');
+    return conversations.get(id);
+  });
+
+  ipcMain.handle('conversation:messages', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string') throw new Error('缺少对话 id');
+    return conversations.messages(id);
+  });
+
+  ipcMain.handle('conversation:cancel', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string') throw new Error('缺少对话 id');
+    conversations.cancel(id);
+  });
+
+  ipcMain.handle('conversation:delete', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string') throw new Error('缺少对话 id');
+    conversations.delete(id);
+  });
+
+  ipcMain.handle('channel:statuses', async event => {
+    trustedUiSender(event);
+    return registry.statuses();
+  });
+
   ipcMain.handle('deepseek:status', async event => {
     trustedUiSender(event);
     return adapter.getStatus();
@@ -440,6 +531,21 @@ app.whenReady().then(async () => {
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json')
   });
 
+  // The conversation runner gets the workspace hand-off as a function, not an
+  // import, so that "does this file depend on the runtime" is answerable by
+  // reading its imports.
+  conversations = new ConversationRunner({
+    store,
+    registry,
+    emit: emitConversation,
+    submitWorkspace: input =>
+      orchestrator.submit({
+        prompt: input.prompt,
+        permissionPreset: input.permissionPreset as PermissionPreset,
+        workspaceRoot: input.workspaceRoot
+      })
+  });
+
   // Handlers, the agent process and the event sink all have to exist before any
   // renderer does. They used to be registered inside createWindow() *after*
   // `await loadURL('https://chat.deepseek.com/')`, so on a slow network the UI
@@ -456,6 +562,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
   adapter.cancelAllWaits();
+  chatgptAdapter.cancelAllWaits();
 });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

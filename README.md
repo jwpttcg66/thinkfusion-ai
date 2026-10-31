@@ -66,16 +66,16 @@ stated plainly — a README that promises more than the repository delivers is j
 | Collect a viewpoint from one source | ✅ A web AI page in a real browser view — no API key needed |
 | Turn that reply into a checkable plan | ✅ Strict schema; a plan that fails validation is rejected outright, not "best-effort repaired" |
 | Keep several AI pages open at once | ✅ One rail of buttons on the right edge switches which page is on screen; each page keeps its own cookies and its own host allow-list |
-| **Ask a question without producing a plan** | ❌ **Missing.** Every task is forced into the planning prompt; there is no "just answer" path |
-| **Decide what kind of task this is** | ❌ **Missing.** No intent router — everything is treated as a workspace task |
-| Collect from multiple sources | ⏳ The channel layer is decoupled from Electron and ready, but only one source is wired to the planner |
-| Perspective analysis / cross-challenge | ⏳ Not yet. Conflicts are reported, not interrogated |
+| **Ask a question without producing a plan** | ✅ A question goes out as a question; the answer contains no protocol block |
+| **Decide what kind of task this is** | ✅ Rule-based router: answer / research / compare / extract / workspace |
+| Collect from multiple sources | ✅ Channel abstraction in place (DeepSeek + a ChatGPT profile), per-channel queue, global concurrency cap |
+| Perspective analysis / cross-challenge | ✅ Rule-based v1: consensus, disputes, coverage gaps, single-source claims; unsegmentable text is labelled degraded |
 | Knowledge synthesis | ⏳ Not yet. Competing plans are never merged or voted on |
 | Knowledge indexing | ⏳ Not yet. Task history is stored, but nothing is indexed for retrieval |
 | Iterative refinement | ✅ Execution reports are fed back into the page, round after round, until the task completes |
 
-Stated as one line: **the execution subsystem is mature; the orchestration and synthesis layers do
-not exist yet.** P0 in the roadmap is the gap-closing step.
+Stated as one line: **the execution subsystem is mature; orchestration and synthesis now have a first
+version; indexing and autonomous multi-round research do not exist yet.**
 
 ## How it works
 

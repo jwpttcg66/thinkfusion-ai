@@ -15,13 +15,25 @@ import { stripEcho, containsEcho } from '../shared/protocol';
 
 const ALLOWED_HOSTS = new Set(['chat.deepseek.com']);
 
-export function isAllowedDeepSeekUrl(raw: string): boolean {
+/**
+ * Exact-host allow-list check.
+ *
+ * Exact, not suffix: `evil-chat.deepseek.com` ends with `deepseek.com` and is
+ * not the site we mean. The same helper now backs every channel, because the
+ * second site made "which host is this page allowed to be" a per-channel fact
+ * rather than a constant.
+ */
+export function isAllowedHostUrl(raw: string, hosts: ReadonlySet<string>): boolean {
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' && ALLOWED_HOSTS.has(url.hostname) && !url.username && !url.password;
+    return url.protocol === 'https:' && hosts.has(url.hostname) && !url.username && !url.password;
   } catch {
     return false;
   }
+}
+
+export function isAllowedDeepSeekUrl(raw: string): boolean {
+  return isAllowedHostUrl(raw, ALLOWED_HOSTS);
 }
 
 /** Bumped whenever the probe changes shape, so a stale report is identifiable. */
@@ -427,19 +439,19 @@ const FOCUS_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
 })()`;
 
 /** The one place that knows this is Electron. */
-export function createElectronDriver(view: WebContentsView): PageDriver {
+export function createElectronDriver(view: WebContentsView, selectors: typeof SELECTORS = SELECTORS): PageDriver {
   return {
     url: () => view.webContents.getURL(),
     isDestroyed: () => view.webContents.isDestroyed(),
-    probe: async () => (await view.webContents.executeJavaScript(PROBE_SCRIPT(SELECTORS), true)) as PageProbe,
+    probe: async () => (await view.webContents.executeJavaScript(PROBE_SCRIPT(selectors), true)) as PageProbe,
     fill: async text =>
-      (await view.webContents.executeJavaScript(FILL_SCRIPT(SELECTORS, JSON.stringify(text)), true)) as {
+      (await view.webContents.executeJavaScript(FILL_SCRIPT(selectors, JSON.stringify(text)), true)) as {
         ok: boolean;
         reason?: string;
         kind?: string;
       },
     clickSend: async () =>
-      (await view.webContents.executeJavaScript(CLICK_SEND_SCRIPT(SELECTORS), true)) as {
+      (await view.webContents.executeJavaScript(CLICK_SEND_SCRIPT(selectors), true)) as {
         ok: boolean;
         reason?: string;
         label?: string;
@@ -538,8 +550,26 @@ export const DEFAULT_TUNING: AdapterTuning = {
 export class DeepSeekAdapter {
   private waits = new Map<string, AbortController>();
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
+  private readonly hosts: ReadonlySet<string>;
+  private readonly siteLabel: string;
 
-  constructor(private readonly getDriver: () => PageDriver | null) {}
+  /**
+   * `options` exists so a second site can reuse this driver instead of getting
+   * a copy of it. The only things that differ between chat.deepseek.com and
+   * chatgpt.com are the allowed hosts and the wording of the status detail —
+   * everything else (probe, send, wait, echo stripping) is site-agnostic.
+   */
+  constructor(
+    private readonly getDriver: () => PageDriver | null,
+    options: { hosts?: ReadonlySet<string>; siteLabel?: string } = {}
+  ) {
+    this.hosts = options.hosts ?? ALLOWED_HOSTS;
+    this.siteLabel = options.siteLabel ?? 'DeepSeek';
+  }
+
+  private isAllowed(url: string): boolean {
+    return isAllowedHostUrl(url, this.hosts);
+  }
 
   /** Test and shell hook: shorten the timings without touching the logic. */
   configure(tuning: Partial<AdapterTuning>) {
@@ -548,9 +578,9 @@ export class DeepSeekAdapter {
 
   private driver(): PageDriver {
     const driver = this.getDriver();
-    if (!driver || driver.isDestroyed()) throw new Error('DeepSeek 页面尚未就绪');
+    if (!driver || driver.isDestroyed()) throw new Error(`${this.siteLabel} 页面尚未就绪`);
     const url = driver.url();
-    if (!isAllowedDeepSeekUrl(url)) throw new Error(`当前页面不是允许的 DeepSeek 页面：${url || '(空白)'}`);
+    if (!this.isAllowed(url)) throw new Error(`当前页面不是允许的 ${this.siteLabel} 页面：${url || '(空白)'}`);
     return driver;
   }
 
@@ -562,7 +592,7 @@ export class DeepSeekAdapter {
 
   async getStatus(): Promise<DeepSeekStatus> {
     const url = this.getDriver()?.url() ?? '';
-    if (!isAllowedDeepSeekUrl(url)) {
+    if (!this.isAllowed(url)) {
       return {
         url,
         pageReady: false,
@@ -571,7 +601,7 @@ export class DeepSeekAdapter {
         hasSendButton: false,
         generating: false,
         messageCount: 0,
-        detail: url ? '页面不是 chat.deepseek.com' : '页面尚未加载'
+        detail: url ? `页面不是 ${this.siteLabel}` : '页面尚未加载'
       };
     }
     try {

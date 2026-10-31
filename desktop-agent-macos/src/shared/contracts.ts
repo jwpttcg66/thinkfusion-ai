@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import type { PageSource } from './sources';
+import type {
+  ChannelStatus,
+  Conversation,
+  ConversationEvent,
+  ConversationMessage,
+  SubmitConversationInput
+} from './conversation';
 
 /**
  * desktop-agent/v1 wire + IPC contracts.
@@ -360,6 +367,21 @@ export interface ApprovePlanInput {
 }
 
 export interface AgentApi {
+  // conversations — the primary path
+  /**
+   * Ask something. The router decides whether this becomes a conversation or a
+   * workspace task; the caller does not have to know which.
+   */
+  submitConversation(input: SubmitConversationInput): Promise<Conversation>;
+  followupConversation(input: { conversationId: string; text: string }): Promise<Conversation>;
+  getConversations(): Promise<Conversation[]>;
+  getConversation(conversationId: string): Promise<Conversation | null>;
+  getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;
+  cancelConversation(conversationId: string): Promise<void>;
+  deleteConversation(conversationId: string): Promise<void>;
+  /** Per-channel availability, so the UI can say *which* page needs a login. */
+  getChannelStatuses(): Promise<ChannelStatus[]>;
+
   // task lifecycle
   submitPrompt(input: SubmitPromptInput): Promise<AgentTask>;
   getTask(taskId: string): Promise<AgentTask | null>;
@@ -420,6 +442,7 @@ export interface AgentApi {
   onDeepSeekEvent(callback: (event: DeepSeekEvent) => void): () => void;
   onLayoutChanged(callback: (info: LayoutInfo) => void): () => void;
   onSourcesChanged(callback: (state: SourcesState) => void): () => void;
+  onConversationEvent(callback: (event: ConversationEvent) => void): () => void;
 }
 
 export interface AccessibilitySnapshot {

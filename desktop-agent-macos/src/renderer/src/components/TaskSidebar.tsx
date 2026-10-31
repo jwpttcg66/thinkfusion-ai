@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentTask } from '../../../shared/contracts';
+import type { Conversation } from '../../../shared/conversation';
 
 function relTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -25,6 +26,10 @@ export function TaskSidebar(props: {
   onSelect: (taskId: string) => void;
   onDelete: (taskId: string) => void;
   onNew: () => void;
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  onSelectConversation: (conversationId: string) => void;
+  onDeleteConversation: (conversationId: string) => void;
 }) {
   const groups = React.useMemo(() => {
     const map = new Map<string, AgentTask[]>();
@@ -47,11 +52,47 @@ export function TaskSidebar(props: {
 
       <button className="new-task" onClick={props.onNew}>
         <span>＋</span>
-        新任务
+        新对话
       </button>
 
       <div className="task-scroll">
-        {groups.length === 0 && <p className="empty">还没有任务。在右侧输入目标，Agent 会自动发送给 DeepSeek 规划。</p>}
+        {/* Conversations first: they are the common case. Tasks are what a
+            conversation turns into when the answer needs files changed, so they
+            read as a subset rather than a separate product. */}
+        {props.conversations.length > 0 && (
+          <div className="conv-group">
+            <div className="group-label">
+              <span className="folder">◈</span>
+              <span>对话</span>
+            </div>
+            {props.conversations.map(conversation => (
+              <div
+                key={conversation.conversationId}
+                className={`task-item ${props.activeConversationId === conversation.conversationId ? 'active' : ''}`}
+                onClick={() => props.onSelectConversation(conversation.conversationId)}
+                title={conversation.title}
+              >
+                <span className={`task-dot s-${conversation.status}`} />
+                <span className="task-title">{conversation.title}</span>
+                <span className="task-time">{relTime(conversation.updatedAt)}</span>
+                <button
+                  className="task-delete"
+                  title="删除这条对话记录"
+                  onClick={event => {
+                    event.stopPropagation();
+                    props.onDeleteConversation(conversation.conversationId);
+                  }}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {groups.length === 0 && props.conversations.length === 0 && (
+          <p className="empty">还没有内容。直接提问即可，需要改文件时才会走执行计划。</p>
+        )}
 
         {groups.map(([workspace, tasks]) => (
           <div key={workspace}>

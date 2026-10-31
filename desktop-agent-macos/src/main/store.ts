@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentEvent, AgentRound, AgentTask, ExecutionReport, StoredPlan } from '../shared/contracts';
+import type { Conversation, ConversationMessage } from '../shared/conversation';
 
 interface StoreState {
   version: number;
@@ -9,6 +10,16 @@ interface StoreState {
   plans: StoredPlan[];
   reports: ExecutionReport[];
   events: AgentEvent[];
+  /**
+   * Conversations live in the same journal as tasks.
+   *
+   * One file, one atomic rename: a conversation and the task it may have
+   * spawned can never end up on opposite sides of a crash. The arrays are
+   * optional on read so journals written before conversations existed still
+   * load instead of being treated as corrupt.
+   */
+  conversations: Conversation[];
+  messages: ConversationMessage[];
 }
 
 const MAX_EVENTS = 5000;
@@ -23,7 +34,16 @@ const MAX_EVENTS = 5000;
  * new file, never a half-written one. See DELIVERY_STATUS.md for the tradeoff.
  */
 export class AgentStore {
-  private state: StoreState = { version: 1, tasks: [], rounds: [], plans: [], reports: [], events: [] };
+  private state: StoreState = {
+    version: 1,
+    tasks: [],
+    rounds: [],
+    plans: [],
+    reports: [],
+    events: [],
+    conversations: [],
+    messages: []
+  };
 
   constructor(private readonly file: string) {
     this.load();
@@ -39,7 +59,9 @@ export class AgentStore {
         rounds: parsed.rounds ?? [],
         plans: parsed.plans ?? [],
         reports: parsed.reports ?? [],
-        events: parsed.events ?? []
+        events: parsed.events ?? [],
+        conversations: parsed.conversations ?? [],
+        messages: parsed.messages ?? []
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -150,5 +172,37 @@ export class AgentStore {
 
   listEvents(taskId: string): AgentEvent[] {
     return this.state.events.filter(item => 'taskId' in item && item.taskId === taskId);
+  }
+
+  // --- conversations -------------------------------------------------------
+
+  upsertConversation(conversation: Conversation) {
+    const index = this.state.conversations.findIndex(item => item.conversationId === conversation.conversationId);
+    if (index >= 0) this.state.conversations[index] = conversation;
+    else this.state.conversations.push(conversation);
+    this.persist();
+  }
+
+  getConversation(conversationId: string): Conversation | null {
+    return this.state.conversations.find(item => item.conversationId === conversationId) ?? null;
+  }
+
+  listConversations(): Conversation[] {
+    return [...this.state.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  deleteConversation(conversationId: string) {
+    this.state.conversations = this.state.conversations.filter(item => item.conversationId !== conversationId);
+    this.state.messages = this.state.messages.filter(item => item.conversationId !== conversationId);
+    this.persist();
+  }
+
+  appendMessage(message: ConversationMessage) {
+    this.state.messages.push(message);
+    this.persist();
+  }
+
+  listMessages(conversationId: string): ConversationMessage[] {
+    return this.state.messages.filter(item => item.conversationId === conversationId).sort((a, b) => a.at - b.at);
   }
 }

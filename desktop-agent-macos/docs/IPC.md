@@ -16,6 +16,25 @@
 
 参数一律按 `unknown` 接收，再用 Zod 解析。**没有"相信渲染进程"的分支。**
 
+## 对话（主路径）
+
+一次提问的第一站是这里，不是 `task:submit`。路由由主进程做，渲染进程不需要先知道这是问答还是文件操作。
+
+| 通道 | 入参 | 返回 | 说明 |
+| --- | --- | --- | --- |
+| `conversation:submit` | `{ text, workspaceRoot?, permissionPreset? }` | `Conversation` | 立刻返回，答案通过事件流回来 |
+| `conversation:followup` | `{ conversationId, text }` | `Conversation` | 追问；网页保留上下文，问题原样发出 |
+| `conversation:list` | — | `Conversation[]` | 按 `updatedAt` 倒序 |
+| `conversation:get` | `conversationId` | `Conversation \| null` | |
+| `conversation:messages` | `conversationId` | `ConversationMessage[]` | 切换对话时重建界面 |
+| `conversation:cancel` | `conversationId` | `void` | 中断当前等待 |
+| `conversation:delete` | `conversationId` | `void` | 只删本地记录 |
+| `channel:statuses` | — | `ChannelStatus[]` | 每个通道是否可用的原因 |
+
+`conversation:submit` **不能**同步等回答：一个网页版 AI 的回答可能要一分钟，一个阻塞一分钟的 IPC 调用和卡死没有区别。它创建记录后立刻返回，进度通过 `conversation:event` 推。
+
+`workspaceRoot` / `permissionPreset` 只在路由判定为 `workspace` 时才会被用到。渲染进程传它们是因为同一次提交可能落到执行链路，而不是因为问答需要工作区。
+
 ## 任务
 
 | 通道 | 入参 | 返回 | 说明 |
@@ -85,6 +104,7 @@
 | `deepseek:event` | `DeepSeekEvent`（状态、发送失败） |
 | `layout:changed` | `LayoutInfo` |
 | `sources:changed` | `SourcesState` |
+| `conversation:event` | `ConversationEvent`（创建/更新、消息、通道阶段、综合结果、失败） |
 
 `agent:event` 在发出前会先写入事件日志，所以界面回放和实时流看到的是同一份数据。持久化失败不会中断运行中的任务——事件日志是观测手段，不是任务状态。
 
