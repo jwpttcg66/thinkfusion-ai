@@ -7,6 +7,7 @@ import type {
   DeepSeekStatus,
   LayoutInfo,
   PermissionPreset,
+  SourcesState,
   SubmitPromptInput
 } from '../shared/contracts';
 
@@ -36,6 +37,9 @@ const api: AgentApi = {
   getLayout: () => ipcRenderer.invoke('app:layout'),
   setSplit: (value: number) => ipcRenderer.invoke('app:set-split', value),
   setPageDragging: (active: boolean) => ipcRenderer.invoke('app:drag-page', active),
+  getSources: () => ipcRenderer.invoke('app:sources'),
+  setSource: (id: string) => ipcRenderer.invoke('app:set-source', id),
+  getViewBounds: () => ipcRenderer.invoke('app:view-bounds'),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
@@ -51,6 +55,11 @@ const api: AgentApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: LayoutInfo) => callback(data);
     ipcRenderer.on('layout:changed', listener);
     return () => ipcRenderer.removeListener('layout:changed', listener);
+  },
+  onSourcesChanged: (callback: (state: SourcesState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: SourcesState) => callback(data);
+    ipcRenderer.on('sources:changed', listener);
+    return () => ipcRenderer.removeListener('sources:changed', listener);
   }
 };
 

@@ -1025,7 +1025,9 @@ button:disabled {
 .page-ghost {
   position: fixed;
   top: 0;
-  right: 0;
+  /* Stops where the source rail starts: the ghost stands in for the page, and
+     the page no longer runs to the window edge. */
+  right: var(--rail, 0px);
   bottom: 0;
   display: grid;
   place-items: center;
@@ -1175,4 +1177,82 @@ button:disabled {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
+}
+
+/* ---------------------------------------------------------------------------
+   Source rail
+   ---------------------------------------------------------------------------
+   Pinned to the window's right edge, in the 46px the page view deliberately
+   leaves free (see RAIL_WIDTH in shared/layout.ts — the two must agree or the
+   native view paints over these buttons). */
+
+.source-rail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  background: var(--bg-side);
+  border-left: 1px solid var(--line);
+  z-index: 50;
+}
+
+.rail-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.rail-btn:hover {
+  background: var(--bg-hover);
+}
+
+.rail-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rail-glyph {
+  line-height: 1;
+}
+
+/* Marks the one source the agent actually plans through. */
+.rail-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* A view is created on first click, and the page behind it can take seconds. */
+.rail-spinner {
+  position: absolute;
+  inset: -3px;
+  border-radius: 13px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--accent);
+  animation: rail-spin 800ms linear infinite;
+}
+
+@keyframes rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

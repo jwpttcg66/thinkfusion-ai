@@ -1,6 +1,15 @@
 import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog } from 'electron';
 import path from 'node:path';
-import type { AgentEvent, DeepSeekDiagnostics, DeepSeekEvent, DeepSeekStatus, LayoutInfo, PermissionPreset } from '../shared/contracts';
+import type {
+  AgentEvent,
+  DeepSeekDiagnostics,
+  DeepSeekEvent,
+  DeepSeekStatus,
+  LayoutInfo,
+  PermissionPreset,
+  SourcesState,
+  ViewBoundsMap
+} from '../shared/contracts';
 import {
   ApprovePlanSchema,
   ClarificationAnswerSchema,
@@ -10,14 +19,28 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { TaskManager } from './task-manager';
-import { DeepSeekAdapter, createElectronDriver, isAllowedDeepSeekUrl } from './deepseek-adapter';
+import { DeepSeekAdapter, createElectronDriver } from './deepseek-adapter';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
-import { computeSplit, PAGE_GUTTER } from '../shared/layout';
+import { computePageBounds, computeSplit } from '../shared/layout';
+import { findSource, isAllowedSourceUrl, PAGE_SOURCES, type PageSource } from '../shared/sources';
 import { PlatformAccessibility } from '../platform/accessibility';
 
 let win: BrowserWindow | null = null;
-let deepseek: WebContentsView | null = null;
+
+/**
+ * One native view per embedded page, created on first use.
+ *
+ * All of them stay alive once created: tearing a view down and rebuilding it
+ * throws away the site's in-memory state, and for a chat page that means the
+ * reply being written right now.
+ */
+const views = new Map<string, WebContentsView>();
+/** The source on screen. Only this view is visible; the rest are parked. */
+let activeSourceId: string = PAGE_SOURCES[0].id;
+/** True while the active source's view is being created or first loaded. */
+let sourceLoading = false;
+
 const accessibility = new PlatformAccessibility();
 let permissionPreset: PermissionPreset = 'workspace-write';
 let statusTimer: NodeJS.Timeout | null = null;
@@ -38,7 +61,12 @@ let draggingPage = false;
 let store: AgentStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
-const adapter = new DeepSeekAdapter(() => (deepseek ? createElectronDriver(deepseek) : null));
+// The adapter drives the planning source only. Which source that is lives in
+// shared/sources.ts, so "which page does the agent talk to" is one line.
+const adapter = new DeepSeekAdapter(() => {
+  const view = views.get('deepseek');
+  return view ? createElectronDriver(view) : null;
+});
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
 function emit(event: AgentEvent) {
@@ -70,18 +98,117 @@ function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
  * derive the boundary from the same number instead of each guessing.
  */
 function layout() {
-  if (!win || !deepseek) return;
+  if (!win) return;
   const [width, height] = win.getContentSize();
   const split = computeSplit(width, preferredSplit);
-  // `split` is measured from the window's right edge, and the gutter sits
-  // inside it — so the view is narrower by exactly the gutter. Getting this
-  // wrong once already pushed the view past the window's right edge and cut
-  // off the page's own scrollbar.
-  const pageWidth = Math.max(1, split - PAGE_GUTTER);
-  // Parked outside the window while dragging: see `draggingPage`.
-  const x = draggingPage ? width + 4 : width - split + PAGE_GUTTER;
-  deepseek.setBounds({ x, y: 0, width: pageWidth, height });
+  const shown = computePageBounds(width, height, split);
+  const parked = computePageBounds(width, height, split, { parked: true });
+
+  for (const [id, view] of views) {
+    // Only the active source is on screen, and never while dragging: an
+    // offscreen-but-visible view still eats the pointer.
+    const visible = id === activeSourceId && !draggingPage;
+    view.setVisible(visible);
+    view.setBounds(visible ? shown : parked);
+  }
+
   win.webContents.send('layout:changed', { split } satisfies LayoutInfo);
+}
+
+function sourcesState(): SourcesState {
+  return { sources: [...PAGE_SOURCES], activeId: activeSourceId, loading: sourceLoading };
+}
+
+function emitSources() {
+  win?.webContents.send('sources:changed', sourcesState());
+}
+
+/**
+ * Create a source's view on first use and load its page.
+ *
+ * Each source gets its own persistent partition, its own permission handlers
+ * (all denied) and its own navigation allow-list — a shared session would let
+ * one site read the other's cookies, which is the whole point of keeping them
+ * apart.
+ */
+async function ensureSource(source: PageSource): Promise<WebContentsView> {
+  const existing = views.get(source.id);
+  if (existing) return existing;
+  if (!win) throw new Error('窗口尚未创建');
+
+  const partition = `persist:${source.id}`;
+  const ses = session.fromPartition(partition);
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  ses.setPermissionCheckHandler(() => false);
+
+  const view = new WebContentsView({
+    webPreferences: {
+      partition,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      spellcheck: true
+    }
+  });
+  win.contentView.addChildView(view);
+  view.setVisible(false);
+
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedSourceUrl(source, url)) return { action: 'allow' };
+    return { action: 'deny' };
+  });
+  view.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedSourceUrl(source, url)) event.preventDefault();
+  });
+  // `will-navigate` covers navigations the page starts, but a server-side
+  // redirect goes through `will-redirect` instead — which is exactly how an
+  // OAuth hop leaves the allow-list without anyone noticing.
+  view.webContents.on('will-redirect', (event, url) => {
+    if (!isAllowedSourceUrl(source, url)) event.preventDefault();
+  });
+  view.webContents.on('will-attach-webview', event => event.preventDefault());
+
+  views.set(source.id, view);
+  // Place and show the view before the network gets a turn. `loadURL` below can
+  // take seconds, and a view that is not in the layout yet has zero bounds — so
+  // without this the pane is simply blank for as long as the site is slow, which
+  // reads as "the button did nothing".
+  layout();
+  await view.webContents.loadURL(source.url);
+  return view;
+}
+
+/**
+ * Bring a source to the front.
+ *
+ * The view is created in the background: the rail must switch immediately even
+ * when the site takes seconds to load, otherwise the button looks broken for
+ * exactly as long as the network is slow.
+ */
+function activateSource(id: string) {
+  const source = findSource(id);
+  if (!source) throw new Error(`未知来源：${id}`);
+  if (id === activeSourceId && views.has(id)) return;
+
+  activeSourceId = id;
+  sourceLoading = !views.has(id);
+  layout();
+  emitSources();
+  if (!sourceLoading) return;
+
+  void ensureSource(source)
+    .then(() => {
+      if (activeSourceId !== id) return;
+      sourceLoading = false;
+      layout();
+      emitSources();
+    })
+    .catch(() => {
+      if (activeSourceId !== id) return;
+      sourceLoading = false;
+      emitSources();
+    });
 }
 
 async function createWindow() {
@@ -117,34 +244,12 @@ async function createWindow() {
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  const partition = 'persist:deepseek';
-  const ses = session.fromPartition(partition);
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  ses.setPermissionCheckHandler(() => false);
-
-  deepseek = new WebContentsView({
-    webPreferences: {
-      partition,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      spellcheck: true
-    }
-  });
-  win.contentView.addChildView(deepseek);
+  // The planning source is the one that must exist at startup; the others are
+  // created the first time the rail asks for them. A failure to load must not
+  // take the window down with it — the UI is still useful with the app column.
+  await ensureSource(findSource(activeSourceId) ?? PAGE_SOURCES[0]).catch(() => undefined);
   layout();
   win.on('resize', layout);
-
-  deepseek.webContents.setWindowOpenHandler(({ url }) => {
-    if (isAllowedDeepSeekUrl(url)) return { action: 'allow' };
-    return { action: 'deny' };
-  });
-  deepseek.webContents.on('will-navigate', (event, url) => {
-    if (!isAllowedDeepSeekUrl(url)) event.preventDefault();
-  });
-  deepseek.webContents.on('will-attach-webview', event => event.preventDefault());
-  await deepseek.webContents.loadURL('https://chat.deepseek.com/');
 
   startStatusPolling();
 }
@@ -152,7 +257,8 @@ async function createWindow() {
 function startStatusPolling() {
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = setInterval(async () => {
-    if (!deepseek || deepseek.webContents.isLoading()) return;
+    const view = views.get('deepseek');
+    if (!view || view.webContents.isLoading()) return;
     try {
       const status: DeepSeekStatus = await adapter.getStatus();
       emitDeepSeek({ type: 'status', status });
@@ -242,15 +348,39 @@ function registerIpc() {
     // the two panes disagree, this is the number that settles it.
     return {
       ...report,
-      view: deepseek ? deepseek.getBounds() : null,
+      view: views.get('deepseek')?.getBounds() ?? null,
       dragging: draggingPage
     } satisfies DeepSeekDiagnostics;
   });
 
   ipcMain.handle('deepseek:reload', async event => {
     trustedUiSender(event);
-    if (!deepseek) throw new Error('内嵌页面尚未创建');
-    await deepseek.webContents.loadURL('https://chat.deepseek.com/');
+    const view = views.get('deepseek');
+    const source = findSource('deepseek');
+    if (!view || !source) throw new Error('内嵌页面尚未创建');
+    await view.webContents.loadURL(source.url);
+  });
+
+  ipcMain.handle('app:sources', event => {
+    trustedUiSender(event);
+    return sourcesState();
+  });
+
+  ipcMain.handle('app:set-source', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string' || !findSource(id)) throw new Error('未知来源');
+    activateSource(id);
+    return sourcesState();
+  });
+
+  // The page views are native, so this is the only honest answer to "is the
+  // rail covered?". It exists because that failure is silent: the buttons just
+  // stop responding, and nothing throws.
+  ipcMain.handle('app:view-bounds', event => {
+    trustedUiSender(event);
+    const out: ViewBoundsMap = {};
+    for (const [id, view] of views) out[id] = view.getBounds();
+    return out;
   });
 
   ipcMain.handle('app:layout', event => {

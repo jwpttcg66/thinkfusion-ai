@@ -34,7 +34,8 @@
     "check:layout": "node scripts/check-split.mjs && node scripts/check-app-layout.mjs",
     "check:drag": "node scripts/check-split-drag.mjs",
     "check:new-task": "node scripts/check-new-task.mjs",
-    "e2e:live": "node scripts/e2e-live.mjs"
+    "e2e:live": "node scripts/e2e-live.mjs",
+    "check:sources": "node scripts/check-sources.mjs"
   },
   "dependencies": {
     "zod": "3.25.76",

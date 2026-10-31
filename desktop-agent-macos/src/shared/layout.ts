@@ -53,3 +53,44 @@ export function computeSplit(width: number, preferred?: number | null): number {
 export function isSplitUsable(width: number, split: number): boolean {
   return width - split >= MIN_APP_COLUMN && split >= MIN_PAGE_COLUMN;
 }
+
+/**
+ * Width of the source rail pinned to the window's right edge.
+ *
+ * The rail is DOM, the page is a native view painted above the DOM — so the
+ * view has to stop short of the rail's width or it covers the buttons. The
+ * renderer sets its rail to this exact number; the two are the same constant
+ * for the same reason `--split` is shared.
+ */
+export const RAIL_WIDTH = 46;
+
+export interface PageBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where the embedded page view goes.
+ *
+ * `split` is measured from the window's right edge and includes both the
+ * gutter and the rail, so the view is narrower than the split by exactly those
+ * two. Getting this wrong once pushed the view past the window edge; forgetting
+ * the rail now would hide the very buttons that switch sources.
+ */
+export function computePageBounds(
+  width: number,
+  height: number,
+  split: number,
+  options: { parked?: boolean } = {}
+): PageBounds {
+  const pageWidth = Math.max(1, split - PAGE_GUTTER - RAIL_WIDTH);
+  return {
+    x: options.parked ? width + 4 : width - split + PAGE_GUTTER,
+    y: 0,
+    width: pageWidth,
+    height
+  };
+}
+

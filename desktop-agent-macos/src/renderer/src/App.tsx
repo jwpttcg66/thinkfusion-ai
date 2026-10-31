@@ -5,14 +5,16 @@ import type {
   DeepSeekDiagnostics,
   DeepSeekStatus,
   PermissionPreset,
-  PlanPreview as PlanPreviewType
+  PlanPreview as PlanPreviewType,
+  SourcesState
 } from '../../shared/contracts';
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
+import { SourceRail } from './components/SourceRail';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
-import { computeSplit, PAGE_GUTTER } from '../../shared/layout';
+import { computeSplit, PAGE_GUTTER, RAIL_WIDTH } from '../../shared/layout';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
 interface Derived {
@@ -73,6 +75,7 @@ export default function App() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', loading: false });
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -117,6 +120,9 @@ export default function App() {
     window.agentAPI.getLayout().then(info => setSplit(info.split)).catch(() => undefined);
     const stopLayout = window.agentAPI.onLayoutChanged(info => setSplit(info.split));
 
+    window.agentAPI.getSources().then(setSources).catch(() => undefined);
+    const stopSources = window.agentAPI.onSourcesChanged(setSources);
+
     const stopEvents = window.agentAPI.onAgentEvent(event => {
       if (event.type === 'task.updated') {
         setTasks(prev => upsert(prev, event.task));
@@ -146,12 +152,18 @@ export default function App() {
       stopEvents();
       stopDeepSeek();
       stopLayout();
+      stopSources();
     };
   }, []);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--split', `${String(split)}px`);
   }, [split]);
+
+  useEffect(() => {
+    // Published for the ghost only; the rail sizes itself from the constant.
+    document.documentElement.style.setProperty('--rail', `${String(RAIL_WIDTH)}px`);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Divider drag
@@ -408,6 +420,19 @@ export default function App() {
     }
   }
 
+  async function selectSource(id: string) {
+    if (id === sources.activeId) return;
+    setError('');
+    try {
+      // The reply comes back before the page has loaded — the view is built in
+      // the background, and the rail has to switch immediately or it feels
+      // broken for exactly as long as the network is slow.
+      setSources(await window.agentAPI.setSource(id));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   const showPlan = derived.plan !== null && activeTask?.status === 'awaiting_approval';
 
   return (
@@ -617,12 +642,19 @@ export default function App() {
             onDoubleClick={resetSplit}
           />
           {draggingPage && (
-            <div className="page-ghost" style={{ width: Math.max(0, split - PAGE_GUTTER) }}>
+            <div className="page-ghost" style={{ width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH) }}>
               <span>松开以应用 · {Math.round(split)} px</span>
             </div>
           )}
         </>
       )}
+
+      <SourceRail
+        sources={sources.sources}
+        activeId={sources.activeId}
+        loading={sources.loading}
+        onSelect={selectSource}
+      />
 
       {diagOpen && (
         <DiagnosticsPanel

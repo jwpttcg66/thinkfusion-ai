@@ -16,9 +16,11 @@
  *
  * Usage: node scripts/check-split.mjs     (app running with --remote-debugging-port=9222)
  */
-import { connect, createChecks, findAppTarget, findPageTarget, listTargets, waitFor } from './lib/cdp.mjs';
+import { connect, createChecks, findAppTarget, findPageTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
 const GUTTER = 10;
+/** Mirrors RAIL_WIDTH in src/shared/layout.ts; scripts cannot import TS. */
+const RAIL = 46;
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -28,6 +30,16 @@ if (!app) throw new Error('找不到应用渲染进程；请用 --remote-debuggi
 const appCdp = await connect(app);
 const pageCdp = page ? await connect(page) : null;
 const { check, checkTrue, summary } = createChecks();
+
+// The rail can leave another embedded page on screen. This check is about the
+// planning pane's geometry, so put that pane in front first — otherwise every
+// position assertion reads the parked bounds of a hidden view and fails for a
+// reason that has nothing to do with layout.
+const before = await appCdp.evaluate('window.agentAPI.getSources()');
+if (before.activeId !== 'deepseek') {
+  await appCdp.evaluate("window.agentAPI.setSource('deepseek')");
+  await sleep(900);
+}
 
 const readApp = () =>
   appCdp.evaluate(`(() => {
@@ -51,10 +63,12 @@ const { view, dragging } = await readView();
 console.log('app', state.viewport, 'split', state.split, 'view', view, 'dragging', dragging);
 
 checkTrue('the page view exists', view);
-check('the page view width is the split minus the gutter', view.width, state.split - GUTTER);
+// The split covers the gutter and the source rail, so the view is narrower than
+// the split by both, and it stops at the rail rather than the window edge.
+check('the page view width is the split minus the gutter and rail', view.width, state.split - GUTTER - RAIL);
 check('the page view is full height', view.height, state.viewport.h);
 check('the page view starts one gutter in from the boundary', view.x, state.viewport.w - state.split + GUTTER);
-checkTrue('the page view ends exactly on the window edge', view.x + view.width === state.viewport.w);
+checkTrue('the page view ends where the source rail begins', view.x + view.width === state.viewport.w - RAIL);
 // The divider fills the gutter: left edge where the app column stops, right
 // edge where the page view starts.
 check('the app column stops at the boundary', state.dividerLeft, state.viewport.w - state.split);
@@ -67,19 +81,23 @@ checkTrue('the view is not parked while idle', !dragging);
 // what makes the drag feel like dragging rather than like requesting.
 const applied = await appCdp.evaluate('window.agentAPI.setSplit(700)');
 check('a representable width is applied as asked', applied.split, 700);
-const appliedView = await waitFor(async () => (await readView()).view.width, 700 - GUTTER);
-check('the view follows the applied width', appliedView, 700 - GUTTER);
+const appliedView = await waitFor(async () => (await readView()).view.width, 700 - GUTTER - RAIL);
+check('the view follows the applied width', appliedView, 700 - GUTTER - RAIL);
 
 // Restore the default ratio so the app is left the way a user expects it.
 const restored = await appCdp.evaluate('window.agentAPI.setSplit(0)');
 check('reset restores the default ratio', restored.split, Math.round(state.viewport.w * 0.42));
-const restoredView = await waitFor(async () => (await readView()).view.width, restored.split - GUTTER);
-check('the view follows the reset', restoredView, restored.split - GUTTER);
+const restoredView = await waitFor(async () => (await readView()).view.width, restored.split - GUTTER - RAIL);
+check('the view follows the reset', restoredView, restored.split - GUTTER - RAIL);
 
 if (pageCdp) {
   const visibility = await pageCdp.evaluate('document.visibilityState');
   if (visibility === 'visible') {
-    check('the page agrees with the view width', await pageCdp.evaluate('window.innerWidth'), restored.split - GUTTER);
+    // `setBounds` lands immediately, the page's own layout pass does not: read
+    // once and you catch the width from before the resize and call it a bug.
+    const expected = restored.split - GUTTER - RAIL;
+    const pageWidth = await waitFor(() => pageCdp.evaluate('window.innerWidth'), expected, { timeoutMs: 4000 });
+    check('the page agrees with the view width', pageWidth, expected);
   } else {
     console.log(`note  the page is "${visibility}" (window not in front), so window.innerWidth cannot confirm the width — the view bounds above are authoritative`);
   }

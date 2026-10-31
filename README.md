@@ -43,7 +43,8 @@ stated plainly — a README that promises more than the repository delivers is j
 | --- | --- |
 | Collect a viewpoint from one source | ✅ A web AI page in a real browser view — no API key needed |
 | Turn that reply into a checkable plan | ✅ Strict schema; a plan that fails validation is rejected outright, not "best-effort repaired" |
-| Collect from multiple sources | ⏳ The channel layer is decoupled from Electron and ready, but only one channel is wired |
+| Keep several AI pages open at once | ✅ One rail of buttons on the right edge switches which page is on screen; each page keeps its own cookies and its own host allow-list |
+| Collect from multiple sources | ⏳ The channel layer is decoupled from Electron and ready, but only one source is wired to the planner |
 | Perspective analysis / cross-challenge | ⏳ Not yet. Conflicts are reported, not interrogated |
 | Knowledge synthesis | ⏳ Not yet. Competing plans are never merged or voted on |
 | Knowledge indexing | ⏳ Not yet. Task history is stored, but nothing is indexed for retrieval |
@@ -81,6 +82,19 @@ Four decisions shape the design:
 4. **Execution is a separate process.** A `UtilityProcess` receives an approved plan, re-verifies
    the authorization on every step, and runs inside a tool whitelist.
 
+### Several pages, one planner
+
+The right edge of the window is a rail of buttons, one per embedded page. Clicking one brings that
+page to the front. The others are *parked offscreen, not destroyed* — a chat page that gets torn
+down loses whatever the model was in the middle of writing.
+
+One page on screen at a time is deliberate: two chat UIs side by side get half a window each, and a
+half-width chat UI is worse than one you can switch to in a click.
+
+The rail is DOM; the page is a native view painted above the DOM. So the view's bounds have to stop
+`RAIL_WIDTH` short of the window edge — forget that and the buttons are invisible and unclickable,
+with no error anywhere. `app:view-bounds` exists so that failure is observable instead of silent.
+
 ### How competing plans are handled
 
 A single reply can contain several candidate plans. Today:
@@ -102,7 +116,7 @@ This is not a tool that trusts model output. The boundaries are explicit:
 | --- | --- |
 | Web text | Treated as untrusted input; parsed as JSON only, never executed as code or commands |
 | Renderer | No Node integration, `contextIsolation`, sandbox; IPC accepts the main frame only |
-| Embedded page | Separate `WebContentsView`, separate partition, all permission requests denied, target site only |
+| Embedded page | One `WebContentsView` per source, each with its own persistent partition; all permission requests denied; host allow-list enforced on navigate, redirect and `window.open` |
 | Execution process | Separate `UtilityProcess`; authorization re-checked before every step |
 | Tool surface | Whitelist: list directory, read file, create directory, exclusive file create. No shell, no delete, no overwrite |
 | Approval | Every plan needs a human click; grants expire in 30 minutes, plans in 10 |

@@ -6,6 +6,7 @@ import type {
   PermissionPreset,
   PlanPreview
 } from '../../shared/contracts';
+import { PAGE_SOURCES } from '../../shared/sources';
 import { computeSplit } from '../../shared/layout';
 
 /**
@@ -161,9 +162,13 @@ export function createMockApi(): AgentApi {
     getLayout: async () => ({ split: computeSplit(window.innerWidth, null) }),
     setSplit: async (value: number) => ({ split: computeSplit(window.innerWidth, value) }),
     setPageDragging: async () => undefined,
+    getSources: async () => ({ sources: [...PAGE_SOURCES], activeId: PAGE_SOURCES[0].id, loading: false }),
+    setSource: async (id: string) => ({ sources: [...PAGE_SOURCES], activeId: id, loading: false }),
+    getViewBounds: async () => ({}),
     getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),
     onAgentEvent: () => () => undefined,
     onDeepSeekEvent: () => () => undefined,
-    onLayoutChanged: () => () => undefined
+    onLayoutChanged: () => () => undefined,
+    onSourcesChanged: () => () => undefined
   };
 }

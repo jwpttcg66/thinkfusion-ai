@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PageSource } from './sources';
 
 /**
  * desktop-agent/v1 wire + IPC contracts.
@@ -304,6 +305,37 @@ export interface LayoutInfo {
   split: number;
 }
 
+/**
+ * Which embedded pages exist and which one is on screen.
+ *
+ * The rail on the right edge renders straight from this, so the list of sources
+ * is defined once (shared/sources.ts) instead of being duplicated in the UI.
+ */
+export interface SourcesState {
+  sources: PageSource[];
+  activeId: string;
+  /** True while the active source's view is still being created or loaded. */
+  loading: boolean;
+}
+
+/** Where one native page view currently sits, in window coordinates. */
+export interface ViewRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Every created view's position, keyed by source id.
+ *
+ * These views are painted above the DOM, so the app cannot observe them by
+ * querying elements — the same blindness that once let a page view sit on top
+ * of the app column unnoticed. Anything that needs to prove "the buttons are
+ * not covered" or "the parked page really is offscreen" has to ask here.
+ */
+export type ViewBoundsMap = Record<string, ViewRect>;
+
 // ---------------------------------------------------------------------------
 // IPC surface
 // ---------------------------------------------------------------------------
@@ -365,10 +397,29 @@ export interface AgentApi {
    */
   setPageDragging(active: boolean): Promise<void>;
 
+  // embedded sources
+  /** The pages this app embeds, and which one is currently on screen. */
+  getSources(): Promise<SourcesState>;
+  /**
+   * Bring one embedded page to the front. The view is created on first use, so
+   * the reply returns before the page has loaded — `loading` says so, and a
+   * `sources:changed` event follows when the view is actually up.
+   */
+  setSource(id: string): Promise<SourcesState>;
+  /**
+   * Where the native page views are right now.
+   *
+   * Only the ones that have been created appear. A view missing from the map
+   * has never been shown; a view present but with `x` past the window width is
+   * parked, which is how a hidden-but-alive page looks.
+   */
+  getViewBounds(): Promise<ViewBoundsMap>;
+
   // streams
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
   onDeepSeekEvent(callback: (event: DeepSeekEvent) => void): () => void;
   onLayoutChanged(callback: (info: LayoutInfo) => void): () => void;
+  onSourcesChanged(callback: (state: SourcesState) => void): () => void;
 }
 
 export interface AccessibilitySnapshot {

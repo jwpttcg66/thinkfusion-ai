@@ -51,10 +51,19 @@
 | `deepseek:status` | — | `DeepSeekStatus` |
 | `deepseek:diagnose` | — | `DeepSeekDiagnostics` |
 | `deepseek:reload` | — | `void` |
+| `app:sources` | — | `SourcesState` |
+| `app:set-source` | `sourceId` | `SourcesState` |
+| `app:view-bounds` | — | `ViewBoundsMap` |
 
 `deepseek:diagnose` 是排查用的：逐选择器命中数、命中选择器、回答预览，以及**原生视图的真实 bounds**（`view` / `dragging`）。
 
 视图位置只在这里能看到。页面是 `WebContentsView`，不是元素，DOM 里查不到它——它当初能盖住应用列而无人察觉，就是因为这个数字没有出口。
+
+`app:view-bounds` 把同一件事扩到所有页面：返回每个已创建视图的 `{x,y,width,height}`，键是来源 id。它是"右缘按钮为什么点不动"的唯一诚实答案——被压住的按钮不会抛错，只是不再响应。`x` 超过窗口宽度即为"停到窗口外"，也就是隐藏但还活着的页面。
+
+`app:set-source` 只切换"哪一页在前台"，不负责加载：视图是首次用到时才创建的，创建和首屏加载都在后台进行，所以返回值会带着 `loading: true` 立刻回来，页面真正就绪后再补一条 `sources:changed`。让按钮等一个几秒钟的加载，等于让按钮看起来是坏的。
+
+`sourceId` 只能是 `shared/sources.ts` 里列出的 id；不认识的值直接抛错，不猜。
 
 ## 布局
 
@@ -75,6 +84,7 @@
 | `agent:event` | `AgentEvent`（任务、轮次、计划、步骤、报告、日志） |
 | `deepseek:event` | `DeepSeekEvent`（状态、发送失败） |
 | `layout:changed` | `LayoutInfo` |
+| `sources:changed` | `SourcesState` |
 
 `agent:event` 在发出前会先写入事件日志，所以界面回放和实时流看到的是同一份数据。持久化失败不会中断运行中的任务——事件日志是观测手段，不是任务状态。
 

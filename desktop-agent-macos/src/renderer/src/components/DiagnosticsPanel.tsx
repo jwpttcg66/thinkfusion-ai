@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import type { DeepSeekDiagnostics } from '../../../shared/contracts';
+import React, { useEffect, useState } from 'react';
+import type { DeepSeekDiagnostics, ViewBoundsMap } from '../../../shared/contracts';
 
 interface Props {
   report: DeepSeekDiagnostics | null;
@@ -16,14 +16,30 @@ interface Props {
  * matching, the only useful artefact is the hit count per candidate — a zero
  * next to a selector is the whole diagnosis. This panel exists so that fact is
  * visible instead of being flattened into "页面异常".
+ *
+ * The view positions at the bottom are here for the same reason. A page view
+ * that overlaps the source rail makes the buttons dead with no error anywhere,
+ * because the covering element is native and therefore absent from the DOM.
+ * Printing the rectangles turns that invisible failure into a red line.
  */
 export function DiagnosticsPanel({ report, loading, onClose, onRefresh, onReload }: Props) {
   const [copied, setCopied] = useState(false);
+  const [bounds, setBounds] = useState<ViewBoundsMap>({});
+
+  useEffect(() => {
+    window.agentAPI
+      .getViewBounds()
+      .then(setBounds)
+      .catch(() => undefined);
+  }, [report]);
+
+  const views = Object.entries(bounds);
+  const railLeft = document.querySelector('.source-rail')?.getBoundingClientRect().left ?? window.innerWidth;
 
   async function copy() {
     if (!report) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify({ report, views: bounds }, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -124,6 +140,29 @@ export function DiagnosticsPanel({ report, loading, onClose, onRefresh, onReload
                 <pre className="diag-preview">{report.probe.lastTextPreview}</pre>
               </section>
             )}
+
+            <section>
+              <h3>页面视图位置</h3>
+              <ul className="diag-hits">
+                {views.length === 0 && <li className="muted">还没有创建任何页面视图</li>}
+                {views.map(([id, rect]) => {
+                  const parked = rect.x >= window.innerWidth;
+                  const coversRail = !parked && rect.x + rect.width > railLeft;
+                  return (
+                    <li key={id} className={coversRail ? 'dead' : ''}>
+                      <span className="mono">{id}</span>
+                      <b>
+                        {parked
+                          ? '停到窗口外'
+                          : coversRail
+                            ? '压住来源栏'
+                            : `${rect.width}×${rect.height} @ x=${rect.x}`}
+                      </b>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           </div>
         )}
       </div>
