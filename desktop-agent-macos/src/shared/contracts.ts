@@ -241,6 +241,8 @@ export type AgentEvent = AgentEventBase &
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }
     | { type: 'task.cancelled'; taskId: string }
+    /** Emitted on delete, so a list built from events drops the row too. */
+    | { type: 'task.deleted'; taskId: string }
     | { type: 'log'; taskId?: string; level: 'info' | 'warn' | 'error'; message: string }
   );
 

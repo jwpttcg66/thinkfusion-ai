@@ -94,6 +94,8 @@ export type ChannelPhase = 'resetting' | 'asking' | 'answered' | 'failed' | 'bus
 export type ConversationEvent = { at: number } & (
   | { type: 'conversation.created'; conversation: Conversation }
   | { type: 'conversation.updated'; conversation: Conversation }
+  /** Emitted by whoever deletes, so every open list drops the row. */
+  | { type: 'conversation.deleted'; conversationId: string }
   | { type: 'message.added'; message: ConversationMessage }
   | { type: 'channel.phase'; conversationId: string; channelId: string; phase: ChannelPhase; detail?: string }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }

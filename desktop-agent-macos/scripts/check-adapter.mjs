@@ -290,6 +290,20 @@ test('a streaming answer is only returned once it stops changing', async () => {
   assert.equal(answer, '{"final":true}');
 });
 
+test('a prompt the page reflowed is still recognised as the echo', () => {
+  // The page renders the prompt's list items as their own blocks, so the
+  // newline before "1." disappears entirely. Collapsing whitespace to a space
+  // inserted a character the page never had, the match failed, and the prompt
+  // was accepted as the answer — which is exactly what showed up in a card.
+  const prompt =
+    '你是我在 ThinkFusion 里的研究伙伴，我们直接对话。\n\n几点要求：\n1. 用自然语言回答，不要输出 JSON。\n2. 信息不足时先说明。';
+  const page =
+    '你是我在 ThinkFusion 里的研究伙伴，我们直接对话。几点要求：1. 用自然语言回答，不要输出 JSON。2. 信息不足时先说明。对话已删除。';
+
+  assert.equal(containsEcho(page, prompt), true, 'the reflowed prompt is still our prompt');
+  assert.equal(stripEcho(page, prompt).trim(), '对话已删除。');
+});
+
 test('the echoed prompt is stripped out of the captured answer', async () => {
   const prompt = 'line one is long enough\ntaskId：abc\nroundId：def';
   const snapshot = {

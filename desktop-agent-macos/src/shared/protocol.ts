@@ -215,56 +215,50 @@ function isProtocolMessage(value: unknown): boolean {
  */
 export function stripEcho(text: string, echo?: string): string {
   if (!echo || echo.length === 0) return text;
+  if (echo.replace(/\s+/g, '').length < 40) return text;
 
-  const needle = echo.replace(/\s+/g, ' ').trim();
-  if (needle.length < 40) return text;
+  const whole = findIgnoringWhitespace(text, echo);
+  if (whole) return `${text.slice(0, whole.start)}${text.slice(whole.end)}`;
 
-  // Normalised copy of `text`, plus the original offset of every normalised
-  // character, so a match can be cut out of the original rather than a copy.
+  // Fallback: the page may have altered the middle of the echo (line numbers, a
+  // collapsed block). Match a window at each end and cut everything between.
+  const head = findIgnoringWhitespace(text, echo.slice(0, 80));
+  if (!head) return text;
+  const tail = findIgnoringWhitespace(text.slice(head.end), echo.slice(-80));
+  if (!tail) return text;
+
+  return `${text.slice(0, head.start)}${text.slice(head.end + tail.end)}`;
+}
+
+/**
+ * Locate `needle` in `text` while ignoring every whitespace character.
+ *
+ * Whitespace is *dropped*, not collapsed to a space. A chat page reflows what it
+ * is given: a prompt that reads "几点要求：\n1. …" comes back as "几点要求：1. …",
+ * because the list item is its own block and `innerText` puts no separator
+ * between the two. Collapsing to a single space inserts a character the page
+ * never had, and the match fails — which is how the echo check silently stopped
+ * working and a prompt was accepted as the answer.
+ *
+ * Returns offsets into the original string, so the caller cuts the original
+ * rather than a normalised copy.
+ */
+export function findIgnoringWhitespace(text: string, needle: string): { start: number; end: number } | null {
+  const squeezedNeedle = needle.replace(/\s+/g, '');
+  if (squeezedNeedle.length === 0) return null;
+
   const chars: string[] = [];
   const offsets: number[] = [];
-  let pendingSpace = false;
-
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (/\s/.test(char)) {
-      pendingSpace = chars.length > 0;
-      continue;
-    }
-    if (pendingSpace) {
-      chars.push(' ');
-      offsets.push(index);
-      pendingSpace = false;
-    }
+    if (/\s/.test(char)) continue;
     chars.push(char);
     offsets.push(index);
   }
 
-  const haystack = chars.join('');
-  const at = haystack.indexOf(needle);
-  if (at !== -1) {
-    const startOriginal = offsets[at];
-    const lastNormalized = at + needle.length - 1;
-    const endOriginal = lastNormalized + 1 < offsets.length ? offsets[lastNormalized + 1] : text.length;
-    return `${text.slice(0, startOriginal)}${text.slice(endOriginal)}`;
-  }
-
-  // Fallback: the page may have altered the middle of the echo (line numbers, a
-  // collapsed block). Match a window at each end and cut everything between.
-  const head = needle.slice(0, 80);
-  const tail = needle.slice(-80);
-  if (head.length < 40 || tail.length < 40) return text;
-
-  const headAt = haystack.indexOf(head);
-  if (headAt === -1) return text;
-  const tailAt = haystack.indexOf(tail, headAt + head.length);
-  if (tailAt === -1) return text;
-
-  const startOriginal = offsets[headAt];
-  const endNormalized = tailAt + tail.length - 1;
-  const endOriginal = endNormalized + 1 < offsets.length ? offsets[endNormalized + 1] : text.length;
-
-  return `${text.slice(0, startOriginal)}${text.slice(endOriginal)}`;
+  const at = chars.join('').indexOf(squeezedNeedle);
+  if (at === -1) return null;
+  return { start: offsets[at], end: offsets[at + squeezedNeedle.length - 1] + 1 };
 }
 
 /**
@@ -275,9 +269,9 @@ export function stripEcho(text: string, echo?: string): string {
  */
 export function containsEcho(text: string, echo?: string): boolean {
   if (!echo) return false;
-  const head = echo.replace(/\s+/g, ' ').trim().slice(0, 60);
-  if (head.length < 40) return false;
-  return text.replace(/\s+/g, ' ').includes(head);
+  const head = echo.slice(0, 80);
+  if (head.replace(/\s+/g, '').length < 40) return false;
+  return findIgnoringWhitespace(text, head) !== null;
 }
 
 export function parseAnswer(

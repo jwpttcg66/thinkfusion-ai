@@ -122,9 +122,18 @@ export class AgentStore {
     this.persist();
   }
 
+  /**
+   * Patch a round in place.
+   *
+   * A missing round is not an error: deleting a task removes its rounds, and a
+   * round that was already in flight comes back to write its result afterwards.
+   * Throwing here turned that race into a user-visible "round not found" —
+   * jargon about an internal id, caused by deleting something the user had
+   * every right to delete. There is nothing to update, so nothing is done.
+   */
   updateRound(roundId: string, patch: Partial<AgentRound>) {
     const round = this.state.rounds.find(item => item.roundId === roundId);
-    if (!round) throw new Error(`round not found: ${roundId}`);
+    if (!round) return;
     Object.assign(round, patch);
     this.persist();
   }

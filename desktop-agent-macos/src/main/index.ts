@@ -345,7 +345,11 @@ function registerIpc() {
 
   ipcMain.handle('task:delete', async (event, taskId: unknown) => {
     trustedUiSender(event);
-    await orchestrator.deleteTask(TaskIdSchema.parse(taskId));
+    const id = TaskIdSchema.parse(taskId);
+    await orchestrator.deleteTask(id);
+    // The list is built from events, so a delete that is only persisted leaves
+    // the row on screen until the window is reloaded.
+    win?.webContents.send('agent:event', { type: 'task.deleted', taskId: id, at: Date.now() });
   });
 
   ipcMain.handle('permission:get', event => {
@@ -420,6 +424,9 @@ function registerIpc() {
     trustedUiSender(event);
     if (typeof id !== 'string') throw new Error('缺少对话 id');
     conversations.delete(id);
+    // Deletion is silent otherwise: the store loses the row while every open
+    // list keeps showing it, which looks like the delete button did nothing.
+    emitConversation({ type: 'conversation.deleted', at: Date.now(), conversationId: id });
   });
 
   ipcMain.handle('channel:statuses', async event => {

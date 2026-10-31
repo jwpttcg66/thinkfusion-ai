@@ -50,6 +50,7 @@ const CHROME_PHRASES: readonly RegExp[] = [
   /升级即可使用高级模型[^。]*。?/g,
   /升级至 ?Go/g,
   /最新一条回复/g,
+  /到目前为止[，,]?这段对话对你有帮助吗[？?]?/g,
   /内容由 ?AI ?生成[，,]?\s*请仔细甄别[。.]?/g,
   /ChatGPT 可能会出错[。.]?\s*请核查重要信息[。.]?/g,
   /ChatGPT can make mistakes[.。]?\s*Check important info[.。]?/g

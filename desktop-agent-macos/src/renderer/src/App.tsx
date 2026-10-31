@@ -95,6 +95,15 @@ export default function App() {
    */
   const activeConversationRef = useRef<string | null>(null);
   activeConversationRef.current = activeConversationId;
+  /**
+   * Conversations that have been deleted.
+   *
+   * A delete races the conversation's own event stream: the runner keeps
+   * emitting `conversation.updated` while it settles, and any of those arriving
+   * after the delete put the row straight back into the list. Ids are UUIDs, so
+   * remembering them is exact — no guessing at titles.
+   */
+  const deletedConversations = useRef<Set<string>>(new Set());
   const dragRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   /**
@@ -157,6 +166,11 @@ export default function App() {
         setTasks(prev => upsert(prev, event.task));
         return;
       }
+      if (event.type === 'task.deleted') {
+        setTasks(prev => prev.filter(item => item.taskId !== event.taskId));
+        if (activeRef.current === event.taskId) setActiveId(null);
+        return;
+      }
       if (!('taskId' in event) || event.taskId !== activeRef.current) return;
 
       setEvents(prev => [...prev, event]);
@@ -182,7 +196,18 @@ export default function App() {
 
     const stopConversation = window.agentAPI.onConversationEvent(event => {
       if (event.type === 'conversation.created' || event.type === 'conversation.updated') {
+        if (deletedConversations.current.has(event.conversation.conversationId)) return;
         setConversations(prev => [event.conversation, ...prev.filter(item => item.conversationId !== event.conversation.conversationId)]);
+        return;
+      }
+      if (event.type === 'conversation.deleted') {
+        deletedConversations.current.add(event.conversationId);
+        setConversations(prev => prev.filter(item => item.conversationId !== event.conversationId));
+        if (activeConversationRef.current === event.conversationId) {
+          setActiveConversationId(null);
+          setMessages([]);
+          setPhases({});
+        }
         return;
       }
       if (event.type === 'message.added') {
@@ -487,6 +512,7 @@ export default function App() {
 
   async function deleteConversation(conversationId: string) {
     try {
+      deletedConversations.current.add(conversationId);
       await window.agentAPI.deleteConversation(conversationId);
       setConversations(prev => prev.filter(item => item.conversationId !== conversationId));
       if (activeConversationId === conversationId) {
