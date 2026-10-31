@@ -142,6 +142,19 @@ for (const id of others) {
 const live = await listTargets();
 checkTrue('切换往返后规划页面仍然活着', live.some(t => t.url.includes('chat.deepseek.com')));
 
+// Every embedded page must have a real box, not just the one on screen. A view
+// that has never been given a size measures 0 wide for every element in it, so
+// the probe cannot find an input box and the channel reports "未找到输入框，页面
+// 结构可能已变化" about a healthy page — and a source the user never clicked is
+// silently unaskable, which turns two-channel comparison into one channel.
+for (const target of live.filter(t => t.type === 'page' && !t.url.startsWith('file:'))) {
+  const pageCdp = await connect(target);
+  const viewport = await pageCdp.evaluate('JSON.stringify({ w: innerWidth, h: innerHeight })');
+  const size = JSON.parse(viewport);
+  checkTrue(`内嵌页面有真实尺寸：${new URL(target.url).host}`, size.w > 0 && size.h > 0);
+  pageCdp.close();
+}
+
 const tally = summary();
 cdp.close();
 process.exit(tally.fail === 0 ? 0 : 1);

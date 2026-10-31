@@ -84,9 +84,15 @@ export class WebPageChannel implements AiChannel {
         requestId,
         snapshotBefore,
         // Long enough for a slow page, short enough that a broken one becomes a
-        // visible failure instead of a conversation that never settles. Ninety
-        // seconds is already several times a normal answer.
-        input.timeoutMs ?? this.spec.timeoutMs ?? 90_000,
+        // visible failure instead of a conversation that never settles.
+        //
+        // Ninety seconds used to be the number, and it was measured against a
+        // plain chat answer. A page that decides to search the web first spends
+        // that long collecting sources before it writes a word: a real DeepSeek
+        // answer that opened thirteen pages finished well after the old limit,
+        // so the app declared failure while the answer was still being written.
+        // Three minutes covers a search-backed answer and still ends.
+        input.timeoutMs ?? this.spec.timeoutMs ?? 180_000,
         input.question
       );
       return {

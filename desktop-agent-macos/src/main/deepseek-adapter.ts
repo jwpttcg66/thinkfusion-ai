@@ -116,6 +116,9 @@ export interface MessageSnapshot {
 export interface PageProbe {
   url: string;
   title: string;
+  /** Layout size of the page. Zero means the view was never given a real box. */
+  viewportWidth: number;
+  viewportHeight: number;
   hasPasswordField: boolean;
   hasInput: boolean;
   inputKind: string;
@@ -309,6 +312,11 @@ const PROBE_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   return {
     url: location.href,
     title: document.title,
+    // A page that has never been given a real size measures 0 wide everywhere,
+    // which is indistinguishable from "the markup changed" unless the viewport
+    // itself is reported. This is the number that tells the two apart.
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
     hasPasswordField: firstMatch('passwordField').length > 0,
     hasInput: !!composer,
     inputKind: kindOf(composer),
@@ -720,7 +728,12 @@ export class DeepSeekAdapter {
           ? '需要在内嵌页面完成 DeepSeek 登录'
           : probe.hasInput
             ? undefined
-            : '未找到输入框，页面结构可能已变化',
+            : probe.viewportWidth === 0
+              // Not a markup problem at all: with a 0x0 viewport every element
+              // measures zero, so nothing is ever "visible". Saying the page
+              // changed sent the last investigation in the wrong direction.
+              ? '页面还没有分到尺寸（视口 0×0），右侧切换到这个页面一次即可'
+              : '未找到输入框，页面结构可能已变化',
         diagnostics: diagnosticsOf(probe)
       };
     } catch (error) {
@@ -1050,10 +1063,18 @@ export class DeepSeekAdapter {
     // timeout is unactionable: the interesting facts are whether the transcript
     // grew, whether a bubble was selectable, and whether the page is even still
     // the same conversation.
+    //
+    // The two branches are different facts and used to read alike. "Still
+    // changing" means the page is working and simply outran us — the answer will
+    // land on the page a moment later. "Nothing found" means we never had text
+    // to watch. Collapsing them into one message made a slow answer look exactly
+    // like a broken one.
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
     throw new Error(
       sawIncomplete
-        ? 'ANSWER_TIMEOUT：捕获到的回答一直没有结束（JSON 未闭合），可能是页面仍在生成或结构已变化'
-        : `ANSWER_TIMEOUT：未确认到属于本轮的新回答。` +
+        ? `ANSWER_TIMEOUT：${String(seconds)} 秒内回答一直在变化，没能稳定下来（页面多半还在生成）。` +
+            `右侧页面稍后可能出现完整回答，刷新即可看到。`
+        : `ANSWER_TIMEOUT：${String(seconds)} 秒内没有确认到属于本轮的新回答。` +
             `页面 ${lastSeen ? `${String(lastSeen.messageCount)} 条回答 / ${String(lastSeen.conversationText.length)} 字` : '不可读'}` +
             `（发送前 ${String(snapshot.messageCount)} 条 / ${String(snapshot.conversationText.length)} 字），` +
             `回答选择器 ${lastSeen?.chosen.assistant ?? '未命中'}，` +

@@ -159,6 +159,8 @@ export class ConversationRunner {
     const answers: Array<{ answer: ChannelAnswer; messageId: string }> = [];
     /** Channels whose page could not start over. Reported once, after the asks. */
     const resetFailures: string[] = [];
+    /** One line per channel that produced nothing, so the reason survives. */
+    const askFailures: string[] = [];
 
     await Promise.all(
       targets.map(async channel => {
@@ -240,13 +242,15 @@ export class ConversationRunner {
         } catch (error) {
           // One channel failing is a fact to display, not a reason to abort:
           // the other answers are still worth having.
+          const detail = describeChannelError(error, channel.id);
+          askFailures.push(`${channel.label}：${detail}`);
           this.deps.emit({
             type: 'channel.phase',
             at: Date.now(),
             conversationId,
             channelId: channel.id,
             phase: error instanceof ChannelBusyError ? 'busy' : 'failed',
-            detail: describeChannelError(error, channel.id)
+            detail
           });
         } finally {
           pending.delete(slot);
@@ -269,7 +273,15 @@ export class ConversationRunner {
     }
 
     if (answers.length === 0) {
-      this.fail(conversation, new Error('所有通道都没有给出回答，请检查右侧页面是否已登录并可用。'));
+      // The old text was "所有通道都没有给出回答，请检查右侧页面是否已登录并可用",
+      // which was wrong often enough to be misleading: the pages were logged in
+      // and working, and the actual cause was a timeout on an answer that was
+      // still being written. The per-channel reason is the only useful part.
+      const why = askFailures.length > 0 ? `\n${askFailures.join('\n')}` : '';
+      this.fail(
+        conversation,
+        new Error(`所有通道都没有给出回答。${why}`.trim())
+      );
       return;
     }
 

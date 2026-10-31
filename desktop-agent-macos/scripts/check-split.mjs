@@ -91,15 +91,21 @@ const restoredView = await waitFor(async () => (await readView()).view.width, re
 check('the view follows the reset', restoredView, restored.split - GUTTER - RAIL);
 
 if (pageCdp) {
-  const visibility = await pageCdp.evaluate('document.visibilityState');
-  if (visibility === 'visible') {
-    // `setBounds` lands immediately, the page's own layout pass does not: read
-    // once and you catch the width from before the resize and call it a bug.
+  // `setBounds` lands immediately, the page's own layout pass does not. That is
+  // only true while the window is really in front, though: macOS stops
+  // compositing an occluded window, and Chromium then defers the relayout of the
+  // page inside it. The page's own `visibilityState` does not report that — it
+  // kept saying "visible" while the width sat at a stale 644 through three
+  // resizes — so the signal used here is whether the app window has focus at
+  // all. Without this the check fails for a reason that has nothing to do with
+  // the split, and the failure is indistinguishable from a real one.
+  const focused = await appCdp.evaluate('document.hasFocus()');
+  if (focused) {
     const expected = restored.split - GUTTER - RAIL;
     const pageWidth = await waitFor(() => pageCdp.evaluate('window.innerWidth'), expected, { timeoutMs: 4000 });
     check('the page agrees with the view width', pageWidth, expected);
   } else {
-    console.log(`note  the page is "${visibility}" (window not in front), so window.innerWidth cannot confirm the width — the view bounds above are authoritative`);
+    console.log('note  the app window is not in front, so the page inside it is not being relaid out — the view bounds above are authoritative');
   }
 }
 

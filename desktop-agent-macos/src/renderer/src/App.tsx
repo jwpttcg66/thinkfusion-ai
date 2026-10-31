@@ -83,7 +83,7 @@ export default function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
-  const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string }>>({});
+  const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string; at?: number }>>({});
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -224,7 +224,13 @@ export default function App() {
       if (event.type === 'channel.phase') {
         // Same reason: a phase belongs to the conversation it was emitted for.
         if (event.conversationId !== activeConversationRef.current) return;
-        setPhases(prev => ({ ...prev, [event.channelId]: { phase: event.phase, detail: event.detail } }));
+        // `at` is kept so the strip can show how long a channel has been asking.
+        // Without it "提问中" is the same word at second two and second ninety,
+        // which is exactly what a frozen app looks like.
+        setPhases(prev => ({
+          ...prev,
+          [event.channelId]: { phase: event.phase, detail: event.detail, at: event.at }
+        }));
         return;
       }
       if (event.type === 'conversation.failed') {

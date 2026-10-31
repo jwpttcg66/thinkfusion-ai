@@ -1356,6 +1356,12 @@ button:disabled {
   color: var(--text-3);
 }
 
+/* Tabular figures so the counter does not twitch the pill's width every second. */
+.channel-elapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
 .channel-chip.phase-asking {
   border-color: var(--accent);
   color: var(--accent);

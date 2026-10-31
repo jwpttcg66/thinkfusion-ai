@@ -28,7 +28,7 @@ import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
-import { computePageBounds, computeSplit } from '../shared/layout';
+import { computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import { findSource, isAllowedSourceUrl, PAGE_SOURCES, type PageSource } from '../shared/sources';
 import { PlatformAccessibility } from '../platform/accessibility';
 
@@ -42,8 +42,16 @@ let win: BrowserWindow | null = null;
  * reply being written right now.
  */
 const views = new Map<string, WebContentsView>();
-/** The source on screen. Only this view is visible; the rest are parked. */
+/**
+ * The source on screen. Only this view is visible; the rest are parked.
+ *
+ * A parked view keeps the viewport it was primed with (see `primeViewports`) —
+ * that is what makes a background channel answerable. Hiding a view before it
+ * has ever had a size is the one thing that must not happen.
+ */
 let activeSourceId: string = PAGE_SOURCES[0].id;
+/** Last geometry handed to each native view, so `layout()` only pushes changes. */
+const applied = new Map<string, PageBounds & { visible: boolean }>();
 /** True while the active source's view is being created or first loaded. */
 let sourceLoading = false;
 
@@ -134,17 +142,59 @@ function layout() {
   const [width, height] = win.getContentSize();
   const split = computeSplit(width, preferredSplit);
   const shown = computePageBounds(width, height, split);
-  const parked = computePageBounds(width, height, split, { parked: true });
+  const offstage = computePageBounds(width, height, split, { parked: true });
 
   for (const [id, view] of views) {
     // Only the active source is on screen, and never while dragging: an
-    // offscreen-but-visible view still eats the pointer.
-    const visible = id === activeSourceId && !draggingPage;
-    view.setVisible(visible);
-    view.setBounds(visible ? shown : parked);
+    // offscreen-but-visible view on the boundary still eats the pointer.
+    //
+    // The parked view keeps the viewport it was given while it was on screen
+    // (`primeViewports`), so it stays askable in the background even though it
+    // is not laid out against the current split.
+    const onScreen = id === activeSourceId && !draggingPage;
+    const bounds = onScreen ? shown : offstage;
+    const last = applied.get(id);
+    if (!last || last.x !== bounds.x || last.y !== bounds.y || last.width !== bounds.width || last.height !== bounds.height) {
+      view.setBounds(bounds);
+      applied.set(id, { ...bounds, visible: last?.visible ?? true });
+    }
+    if (!last || last.visible !== onScreen) {
+      view.setVisible(onScreen);
+      const entry = applied.get(id);
+      if (entry) entry.visible = onScreen;
+    }
   }
 
   win.webContents.send('layout:changed', { split } satisfies LayoutInfo);
+}
+
+/**
+ * Give every page a real box once, while the window is still off screen.
+ *
+ * A `WebContentsView` that has never been shown has a **0x0 viewport**: every
+ * element measures zero, so the probe cannot see an input box and cannot read an
+ * answer. The channel then reports "未找到输入框，页面结构可能已变化" about a page
+ * that is perfectly healthy, and a source the user has never clicked is never
+ * askable at all — multi-channel comparison silently degrades to whichever page
+ * happens to be in front.
+ *
+ * A viewport, once given, survives being hidden, so this only has to happen
+ * before the first paint. Doing it before `win.show()` is what keeps it
+ * invisible: showing the views afterwards would flash the second site over the
+ * pane the user is looking at.
+ */
+async function primeViewports(): Promise<void> {
+  if (!win) return;
+  const [width, height] = win.getContentSize();
+  const shown = computePageBounds(width, height, computeSplit(width, preferredSplit));
+  for (const [id, view] of views) {
+    view.setBounds(shown);
+    view.setVisible(true);
+    applied.set(id, { ...shown, visible: true });
+  }
+  // One layout pass is not enough: the page needs a frame with a non-zero size
+  // before its own layout runs.
+  await new Promise(resolve => setTimeout(resolve, 150));
 }
 
 function sourcesState(): SourcesState {
@@ -156,16 +206,14 @@ function emitSources() {
 }
 
 /**
- * Create a source's view on first use and load its page.
+ * Create a source's view. Loading is a separate step.
  *
  * Each source gets its own persistent partition, its own permission handlers
  * (all denied) and its own navigation allow-list — a shared session would let
  * one site read the other's cookies, which is the whole point of keeping them
  * apart.
  */
-async function ensureSource(source: PageSource): Promise<WebContentsView> {
-  const existing = views.get(source.id);
-  if (existing) return existing;
+function createSourceView(source: PageSource): WebContentsView {
   if (!win) throw new Error('窗口尚未创建');
 
   const partition = `persist:${source.id}`;
@@ -184,7 +232,12 @@ async function ensureSource(source: PageSource): Promise<WebContentsView> {
     }
   });
   win.contentView.addChildView(view);
-  view.setVisible(false);
+  // Background throttling would be a second way to break a channel that is not
+  // the one on screen: Chromium slows timers and paints for a page it believes
+  // is hidden, and a chat page that stops painting also stops updating the text
+  // the probe reads. These pages are the product's workers, not decoration, so
+  // they keep running at full rate whether or not the user is looking.
+  view.webContents.setBackgroundThrottling(false);
 
   view.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedSourceUrl(source, url)) return { action: 'allow' };
@@ -202,12 +255,29 @@ async function ensureSource(source: PageSource): Promise<WebContentsView> {
   view.webContents.on('will-attach-webview', event => event.preventDefault());
 
   views.set(source.id, view);
-  // Place and show the view before the network gets a turn. `loadURL` below can
-  // take seconds, and a view that is not in the layout yet has zero bounds — so
-  // without this the pane is simply blank for as long as the site is slow, which
-  // reads as "the button did nothing".
-  layout();
+  return view;
+}
+
+/**
+ * Load a source's page.
+ *
+ * Separate from creating the view so the window can be shown — and the viewport
+ * primed — before any site is given a turn on the network.
+ */
+async function loadSource(source: PageSource): Promise<void> {
+  const view = views.get(source.id);
+  if (!view) return;
   await view.webContents.loadURL(source.url);
+}
+
+/** Create the view on first use, and make sure its page is on its way. */
+async function ensureSource(source: PageSource): Promise<WebContentsView> {
+  const existing = views.get(source.id);
+  if (existing) return existing;
+  if (!win) throw new Error('窗口尚未创建');
+  const view = createSourceView(source);
+  layout();
+  await loadSource(source);
   return view;
 }
 
@@ -224,7 +294,9 @@ function activateSource(id: string) {
   if (id === activeSourceId && views.has(id)) return;
 
   activeSourceId = id;
-  sourceLoading = !views.has(id);
+  // A view that exists is not necessarily a page that has arrived: every source
+  // is created at startup now, so "has a view" no longer answers "is it ready".
+  sourceLoading = views.get(id)?.webContents.isLoading() ?? true;
   layout();
   emitSources();
   if (!sourceLoading) return;
@@ -264,6 +336,8 @@ async function createWindow() {
     minWidth: 1180,
     minHeight: 720,
     title: 'ThinkFusion',
+    // Shown after the views have been primed: see the startup order below.
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -279,15 +353,32 @@ async function createWindow() {
   // Every configured source is a channel, and a channel whose page was never
   // created cannot answer. Loading only the active one meant a fresh start could
   // read "0/2 通道就绪 · 页面尚未加载" and then quietly ask one AI, because the
-  // rail was a prerequisite nobody knew they had to click. The active page loads
-  // first so the visible pane fills as early as possible; the rest follow.
-  await ensureSource(findSource(activeSourceId) ?? PAGE_SOURCES[0]).catch(() => undefined);
-  layout();
-  win.on('resize', layout);
-  startStatusPolling();
+  // rail was a prerequisite nobody knew they had to click.
+  //
+  // The order matters and is not the obvious one: every view is created and
+  // given a real box while the window is still off screen, because a view that
+  // has never been shown can never be asked. Only then is the window shown, and
+  // only then does any site get a turn on the network — so startup is not gated
+  // on the slower site, and nothing flashes over the pane.
+  // The window is created hidden (`show: false`) so the views can be primed
+  // before anything is painted. A window that never gets shown is worse than a
+  // flash, so the show is in `finally`: whatever the priming does, the app
+  // appears.
+  try {
+    for (const source of PAGE_SOURCES) createSourceView(source);
+    await primeViewports();
+    layout();
+    win.on('resize', layout);
+    startStatusPolling();
+  } finally {
+    win.show();
+  }
+
+  const active = findSource(activeSourceId) ?? PAGE_SOURCES[0];
+  await loadSource(active).catch(() => undefined);
   for (const source of PAGE_SOURCES) {
-    if (source.id === activeSourceId) continue;
-    void ensureSource(source).catch(() => undefined);
+    if (source.id === active.id) continue;
+    void loadSource(source).catch(() => undefined);
   }
 }
 

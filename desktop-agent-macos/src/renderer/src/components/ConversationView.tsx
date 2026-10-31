@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ChannelStatus, Conversation, ConversationMessage, Synthesis } from '../../../shared/conversation';
 
 /**
@@ -34,7 +34,7 @@ export function ConversationView(props: {
   conversation: Conversation;
   messages: ConversationMessage[];
   channelStatuses: ChannelStatus[];
-  phases: Record<string, { phase: string; detail?: string }>;
+  phases: Record<string, { phase: string; detail?: string; at?: number }>;
   busy: boolean;
 }) {
   const { conversation, messages } = props;
@@ -153,9 +153,22 @@ function ChannelGrid({ messages }: { messages: ConversationMessage[] }) {
 function ChannelStrip(props: {
   channels: string[];
   statuses: ChannelStatus[];
-  phases: Record<string, { phase: string; detail?: string }>;
+  phases: Record<string, { phase: string; detail?: string; at?: number }>;
   answered: Set<string>;
 }) {
+  // A page can take minutes, so "提问中" has to move. Ticking locally rather
+  // than streaming an event every second keeps the main process out of it: the
+  // only thing that changes is a number the renderer can derive from the phase's
+  // own timestamp.
+  const [now, setNow] = useState(() => Date.now());
+  const asking = Object.values(props.phases).some(item => item.phase === 'asking');
+
+  useEffect(() => {
+    if (!asking) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [asking]);
+
   if (props.channels.length === 0) return null;
 
   return (
@@ -164,15 +177,31 @@ function ChannelStrip(props: {
         const status = props.statuses.find(item => item.id === channelId);
         const phase = props.phases[channelId];
         const label = phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable');
+        const waited = phase?.phase === 'asking' && phase.at ? Math.max(0, Math.round((now - phase.at) / 1000)) : 0;
         return (
-          <li key={channelId} className={`channel-chip phase-${label}`} title={phase?.detail ?? status?.detail}>
+          <li
+            key={channelId}
+            className={`channel-chip phase-${label}`}
+            title={phase?.detail ?? status?.detail}
+          >
             <span className="channel-name">{labelOf(channelId)}</span>
-            <span className="channel-phase">{phaseLabel(label)}</span>
+            <span className="channel-phase">
+              {phaseLabel(label)}
+              {waited > 0 && <span className="channel-elapsed"> {formatWaited(waited)}</span>}
+            </span>
           </li>
         );
       })}
     </ul>
   );
+}
+
+/** Seconds until a minute, then m:ss — the same shape as a call timer. */
+function formatWaited(seconds: number): string {
+  if (seconds < 60) return `${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${String(minutes)}:${String(rest).padStart(2, '0')}`;
 }
 
 function phaseLabel(phase: string): string {

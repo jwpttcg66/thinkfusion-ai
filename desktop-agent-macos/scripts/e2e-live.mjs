@@ -13,6 +13,13 @@
  * The app must already be running with --remote-debugging-port=9222, and the
  * embedded page must be logged in. The script approves each plan it receives,
  * because the point is to prove the loop closes, not to exercise the button.
+ *
+ * ## It writes to the page's own history
+ *
+ * The planning prompt goes to the real site, and the site keeps it. That thread
+ * cannot be removed from here, so this stays a hand-run script that needs a
+ * workspace argument — never part of `npm test`. Anything that can run
+ * unattended must not send a prompt (see check-conversation.mjs).
  */
 import { connect, findAppTarget, findPageTarget, listTargets, sleep } from './lib/cdp.mjs';
 
