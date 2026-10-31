@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # The app targets macOS, but everything this job runs is platform-neutral:
+    # TypeScript, the protocol parser, the page-timing rules and the state
+    # machine. The parts that need a real page live in scripts/check-*.mjs and
+    # are run by hand against a running app — see docs/TEST_PLAN.md.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop-agent-macos
+    env:
+      # The Electron binary is only needed to launch the app, not to typecheck,
+      # test or bundle it. Downloading ~100MB per job for nothing is wasteful,
+      # and the download is the slowest, flakiest part of the run.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent-macos/package-lock.json
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        # --ignore-scripts skips the prebuild hook, which exists to fetch the
+        # Electron binary before `npm run dev`. Bundling does not need it.
+        run: npm run build --ignore-scripts

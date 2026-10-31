@@ -1,0 +1,41 @@
+#!/bin/sh
+# pre-push: optional protection for the main branch.
+# Off by default. Turn it on per clone with:
+#   git config hooks.protectMain true
+# When on, direct and non-fast-forward pushes to main are rejected —
+# work must arrive through a branch + merge/rebase, or you push with
+#   git push --no-verify
+set -e
+
+protected=$(git config --get hooks.protectMain || echo "false")
+[ "$protected" = "true" ] || exit 0
+
+protected_branch="refs/heads/main"
+zero="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[ "$remote_ref" = "$protected_branch" ] || continue
+
+	# Deleting the remote branch is out of scope here
+	if [ "$local_sha" = "$zero" ]; then
+		continue
+	fi
+
+	if [ "$remote_sha" = "$zero" ]; then
+		echo "BLOCKED: initial push to protected branch '$protected_branch'." >&2
+		echo "Push a feature branch instead, or run: git push --no-verify" >&2
+		exit 1
+	fi
+
+	if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+		echo "BLOCKED: non-fast-forward push to protected branch '$protected_branch'." >&2
+		echo "Rebase or merge first, or run: git push --no-verify" >&2
+		exit 1
+	fi
+
+	echo "BLOCKED: direct push to protected branch '$protected_branch'." >&2
+	echo "Open a branch and merge it, or run: git push --no-verify" >&2
+	exit 1
+done
+
+exit 0

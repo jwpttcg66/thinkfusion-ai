@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Agent workspace: local tooling state, not project source.
+# Work logs and caches contain machine-specific paths, so they stay out of the repo.
+.workbuddy-ai/
+
+# Node
+node_modules/
+dist/
+build/
+out/
+coverage/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+
+# electron-vite temp config
+electron.vite.config.*.mjs
+
+# mock-renderer preview output (build:ui-preview)
+ui-preview/
+
+# compiled harness plugins (tsc emit, rebuilt by `npm run build`)
+packages/*/lib/

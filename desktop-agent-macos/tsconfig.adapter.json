@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "out/adapter",
+    "rootDir": "src",
+    "types": [
+      "node",
+      "electron"
+    ],
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/main/deepseek-adapter.ts",
+    "src/main/task-manager.ts",
+    "src/shared/**/*.ts"
+  ]
+}

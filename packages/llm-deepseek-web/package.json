@@ -1,0 +1,37 @@
+{
+  "name": "@desktop-agent/llm-deepseek-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek web-page model channel: drives the logged-in chat page and translates answers into stream chunks. The protocol vocabulary is our own; no runtime dependencies.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./protocol": {
+      "types": "./lib/protocol.d.ts",
+      "default": "./lib/protocol.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  }
+}

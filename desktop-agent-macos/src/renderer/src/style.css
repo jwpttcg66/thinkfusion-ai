@@ -1,0 +1,1165 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  color: #1a1a1a;
+  background: #ffffff;
+  font-synthesis: none;
+  --bg: #ffffff;
+  --bg-side: #f9f9f9;
+  --bg-hover: #f0f0f0;
+  --bg-active: #ececec;
+  --line: #ececec;
+  --line-strong: #e3e3e3;
+  --text: #1a1a1a;
+  --text-2: #6b6b6b;
+  --text-3: #9a9a9a;
+  --accent: #4d6bfe;
+  --accent-soft: #eef1ff;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  height: 100vh;
+  /* The embedded page is a native view painted over this document. Without
+     this reservation it covers the right-hand part of the app's own column,
+     which is what made the window look broken. The value comes from the main
+     process so both sides agree on the boundary. */
+  padding-right: var(--split, 0px);
+}
+
+/* ------------------------------- sidebar ------------------------------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-side);
+  border-right: 1px solid var(--line);
+  padding: 10px 8px 8px;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px 12px;
+}
+
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--text);
+  color: #fff;
+  font-size: 12px;
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+
+.brand-tag {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.new-task {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 34px;
+  margin-bottom: 10px;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #2b2b2b;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
+}
+
+.new-task:hover {
+  background: #fdfdfd;
+}
+
+.side-section {
+  padding: 6px 6px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.side-section .actions {
+  display: flex;
+  gap: 2px;
+}
+
+.side-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.side-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+
+.task-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 0 8px;
+}
+
+.group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.group-label .folder {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.task-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  color: #2b2b2b;
+}
+
+.task-item:hover {
+  background: var(--bg-hover);
+}
+
+.task-item.active {
+  background: var(--bg-active);
+}
+
+.task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.task-item:hover .task-time {
+  display: none;
+}
+
+.task-delete {
+  display: none;
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 10px;
+  color: #b42318;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+}
+
+.task-item:hover .task-delete {
+  display: block;
+}
+
+.task-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: none;
+  background: #c9c9c9;
+}
+
+.s-planning,
+.s-executing,
+.s-verifying,
+.s-report_pending {
+  background: #f79009;
+}
+
+.s-awaiting_approval {
+  background: var(--accent);
+}
+
+/* Waiting on a person is not progress: it gets the accent colour, not the
+   "working" amber, so the dot never reads as "still busy". */
+.s-awaiting_clarification {
+  background: var(--accent);
+}
+
+.s-completed {
+  background: #12b76a;
+}
+
+.s-failed {
+  background: #f04438;
+}
+
+.empty {
+  padding: 14px 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.side-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.side-foot:hover {
+  background: var(--bg-hover);
+}
+
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd8a8, #ff9f9f);
+  flex: none;
+}
+
+.side-foot-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -------------------------------- center -------------------------------- */
+
+.center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+  position: relative;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  padding: 0 18px;
+  flex: none;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.crumb b {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb .sep {
+  color: #d0d0d0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Diagnosis next to the status pill: truncates rather than pushing the topbar
+   wider, with the full text in the title attribute. */
+.status-detail {
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.pill.ok {
+  color: #0f7b4f;
+  border-color: #cdeedd;
+  background: #f4fcf8;
+}
+
+.pill.warn {
+  color: #b54708;
+  border-color: #f6e0c3;
+  background: #fffaf3;
+}
+
+/* Status pills need their own colours: the generic .pill background would
+   otherwise win over the .s-* dot colours above. */
+.pill.s-planning,
+.pill.s-executing,
+.pill.s-verifying,
+.pill.s-report_pending,
+.pill.s-awaiting_next_round {
+  background: #fffaf3;
+  color: #b54708;
+  border-color: #f6e0c3;
+}
+
+.pill.s-awaiting_approval,
+.pill.s-plan_ready,
+.pill.s-awaiting_clarification {
+  background: var(--accent-soft);
+  color: #3f5bea;
+  border-color: #dde4ff;
+}
+
+.pill.s-completed {
+  background: #f4fcf8;
+  color: #0f7b4f;
+  border-color: #cdeedd;
+}
+
+.pill.s-failed {
+  background: #fff5f4;
+  color: #b42318;
+  border-color: #fbd9d6;
+}
+
+.pill.s-cancelled,
+.pill.s-created {
+  background: #f7f7f7;
+  color: #6b6b6b;
+  border-color: var(--line-strong);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 18px 8px;
+}
+
+/* With nothing in it yet, the empty state centres itself in whatever room is
+   left above the docked composer — the same shape the DeepSeek page has. */
+.scroll.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 0;
+}
+
+/* The composer's own row: outside the scroll container on purpose, so it stays
+   put while the transcript above it moves. */
+.dock {
+  flex: 0 0 auto;
+  padding: 6px 18px 16px;
+  background: #fff;
+}
+
+.dock .composer {
+  margin-bottom: 0;
+}
+
+.inner {
+  width: 100%;
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+/* ------------------------------- empty state ---------------------------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 0 26px;
+  gap: 12px;
+}
+
+.hero-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--text);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.hero-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f2efff;
+  color: #6b4eff;
+  border: 1px solid #e5ddff;
+}
+
+.hero-sub {
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+  max-width: 460px;
+  line-height: 1.7;
+}
+
+/* -------------------------------- composer ------------------------------ */
+
+.composer {
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  padding: 12px 12px 10px;
+  margin-bottom: 18px;
+}
+
+.composer:focus-within {
+  border-color: #cfd6f5;
+  box-shadow: 0 2px 14px rgba(77, 107, 254, 0.09);
+}
+
+.composer-input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  background: transparent;
+  min-height: 54px;
+  padding: 2px 4px 6px;
+}
+
+.composer-input::placeholder {
+  color: #b0b0b0;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px 0;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  border: 1px solid transparent;
+  max-width: 260px;
+}
+
+.chip-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chip-btn .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-btn .caret {
+  font-size: 8px;
+  color: var(--text-3);
+}
+
+.send {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  transition: background 0.15s ease;
+}
+
+.send:disabled {
+  background: #e6e8f5;
+  color: #fff;
+  opacity: 1;
+}
+
+.send:not(:disabled):hover {
+  background: #3f5bea;
+}
+
+.hint {
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+/* -------------------------------- popover ------------------------------- */
+
+.popover {
+  position: absolute;
+  z-index: 20;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 5px;
+}
+
+.popover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.popover-item:hover {
+  background: var(--bg-hover);
+}
+
+.popover-item.active {
+  background: var(--accent-soft);
+}
+
+.popover-item b {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.popover-item small {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+/* --------------------------------- cards -------------------------------- */
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 15px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+
+.card h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.muted {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------------- plan --------------------------------- */
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-desc {
+  margin: 5px 0 10px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 17px;
+}
+
+.steps li {
+  font-size: 12px;
+  margin: 7px 0;
+  color: #2b2b2b;
+}
+
+.step-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tool {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #f4f4f5;
+  color: #444;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.steps li.write .tool {
+  background: #fff4e8;
+  color: #b54708;
+}
+
+.step-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.step-desc {
+  color: var(--text-3);
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+
+.plan-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.plan-facts p {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.notice {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: #fffaf2;
+  color: #93370d;
+  font-size: 11px;
+  line-height: 1.55;
+  border: 1px solid #f8e7cf;
+}
+
+.plan-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--text);
+  color: #fff;
+}
+
+.btn:hover {
+  background: #000;
+}
+
+.btn.secondary {
+  background: #f4f4f5;
+  color: #333;
+}
+
+.btn.secondary:hover {
+  background: #ececec;
+}
+
+.btn.ghost {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+}
+
+/* ------------------------------- clarify -------------------------------- */
+
+/* The one card that needs an answer, so it gets the accent treatment: while a
+   question is pending this is the only thing on the page worth clicking. */
+.card.clarify {
+  border-color: #dde4ff;
+  box-shadow: 0 2px 14px rgba(77, 107, 254, 0.08);
+}
+
+.clarify ol {
+  margin: 0 0 10px;
+  padding-left: 17px;
+}
+
+.clarify li {
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.clarify textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  margin-bottom: 9px;
+  outline: none;
+}
+
+.clarify textarea:focus {
+  border-color: #cfd6f5;
+}
+
+/* -------------------------------- running ------------------------------- */
+
+/* The waiting state deliberately has no spinner: a spinner says "hold on",
+   and nothing is moving — the next move is the user's. */
+.waiting {
+  border-color: #dde4ff;
+  background: #fbfcff;
+}
+
+.waiting p {
+  margin: 4px 0 0;
+  line-height: 1.6;
+}
+
+.running {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.running p {
+  margin: 3px 0 0;
+  line-height: 1.6;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid #e2e2e2;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------- log ---------------------------------- */
+
+.answer summary {
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.answer pre {
+  margin: 10px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #fafafa;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.log-lines {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.log-line {
+  padding: 6px 0;
+  border-bottom: 1px solid #f6f6f6;
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.log-line:last-child {
+  border-bottom: 0;
+}
+
+.t-ok {
+  color: #0f7b4f;
+}
+
+.t-error {
+  color: #b42318;
+}
+
+.t-warn {
+  color: #b54708;
+}
+
+.t-info {
+  color: #333;
+}
+
+.t-muted {
+  color: var(--text-3);
+}
+
+.error {
+  background: #fff5f4;
+  color: #b42318;
+  border: 1px solid #fbd9d6;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+/* ------------------------------- page split ------------------------------ */
+
+/* The boundary with the native page view. It fills the gutter between the app
+   column and the page, which makes it the only place the drag can start: the
+   page view's left edge is where the gutter ends, so aiming at the seam hits
+   this element instead of the view. Without it the two panes read as one
+   misaligned surface and there is nothing to grab. */
+.page-divider {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  /* Sits inside the reserved split, in the gap the main process leaves before
+     the page view. `--split` is the full pane width including this gutter. */
+  right: calc(var(--split, 0px) - 10px);
+  width: 10px;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  cursor: col-resize;
+  z-index: 40;
+  touch-action: none;
+  transition: background 120ms ease;
+}
+
+.page-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 3px;
+  height: 42px;
+  margin-top: -21px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.page-divider:hover,
+.page-divider.dragging {
+  background: var(--bg-side);
+}
+
+.page-divider:hover::after,
+.page-divider.dragging::after {
+  opacity: 1;
+}
+
+/* Stands in for the page while the native view is parked outside the window
+   during a drag — the drag needs the pointer to stay over this document, so
+   the real view cannot be there to be looked at. */
+.page-ghost {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-side);
+  border-left: 1px dashed var(--line-strong);
+  color: var(--text-2);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* ------------------------------ diagnostics ------------------------------ */
+
+.diag-overlay {
+  position: fixed;
+  /* Stop at the split: the embedded page is a native view painted over this
+     document, so an overlay that spans the whole window has its right-hand
+     side hidden behind the page — which is how the hit counts were cut off. */
+  top: 0;
+  left: 0;
+  right: var(--split, 0px);
+  bottom: 0;
+  background: rgba(20, 20, 20, 0.28);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 32px;
+}
+
+.diag-panel {
+  width: min(680px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.diag-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+.diag-head b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.diag-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.diag-body {
+  overflow: auto;
+  padding: 4px 16px 16px;
+}
+
+.diag-body h3 {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 16px 0 8px;
+}
+
+.diag-warn {
+  color: #b42318;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.diag-grid dt {
+  color: var(--text-3);
+}
+
+.diag-grid dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.diag-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+.diag-hits li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: #fafafa;
+}
+
+.diag-hits li.dead {
+  background: #fff5f4;
+  color: #b42318;
+}
+
+.diag-hits b {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag-preview {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.diag-empty {
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}

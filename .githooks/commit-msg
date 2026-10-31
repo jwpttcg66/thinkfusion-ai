@@ -1,0 +1,55 @@
+#!/bin/sh
+# commit-msg: enforce Conventional Commits.
+# Bypass with: git commit --no-verify
+set -e
+
+msg_file="$1"
+subject=$(head -n 1 "$msg_file")
+
+# Empty or comment-only message -> let git handle it
+if [ -z "$(grep -hvE '^[[:space:]]*(#|$)' "$msg_file" 2>/dev/null)" ]; then
+	exit 0
+fi
+
+# Merge / revert / autosquash commits are exempt
+case "$subject" in
+	"Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*)
+		exit 0
+		;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([A-Za-z0-9._/-]+\))?!?: .+'
+
+if ! printf '%s' "$subject" | grep -qE "$pattern"; then
+	cat >&2 <<'EOF'
+ERROR: commit message rejected — must follow Conventional Commits.
+
+  <type>(<scope>): <subject>
+
+  feat(auth): add SMS login
+  fix: prevent duplicate order submit
+  docs: update git workflow
+
+Allowed types: feat fix docs style refactor perf test build ci chore revert
+Example with breaking change: feat(api)!: drop v1 endpoints
+
+See .gitmessage or docs/git-workflow.md for details.
+EOF
+	exit 1
+fi
+
+len=$(printf '%s' "$subject" | wc -c | tr -d ' ')
+if [ "$len" -gt 100 ]; then
+	echo "ERROR: subject line is $len chars, keep it under 100." >&2
+	exit 1
+fi
+
+# Trailing period is noise in a subject line
+case "$subject" in
+	*.)
+		echo "ERROR: subject line must not end with a period." >&2
+		exit 1
+		;;
+esac
+
+exit 0

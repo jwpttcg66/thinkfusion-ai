@@ -1,0 +1,96 @@
+import { z } from 'zod';
+import { PROTOCOL, TOOL_NAMES } from './contracts';
+
+/**
+ * Input validation for every IPC entry point and for data coming back from the
+ * runtime process. Main process validates before acting; the runtime validates
+ * again before executing. Same schemas, two independent checks.
+ */
+
+const presetEnum = z.enum(['read-only', 'workspace-write', 'danger-full-access']);
+
+export const SubmitPromptSchema = z
+  .object({
+    prompt: z.string().min(1).max(20_000),
+    permissionPreset: presetEnum,
+    workspaceRoot: z.string().min(1).max(2000).optional()
+  })
+  .strict();
+
+export const ApprovePlanSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    roundId: z.string().min(1).max(80),
+    planId: z.string().min(1).max(80),
+    approved: z.literal(true)
+  })
+  .strict();
+
+export const RejectPlanSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    planId: z.string().min(1).max(80),
+    reason: z.string().max(500).optional()
+  })
+  .strict();
+
+export const TaskIdSchema = z.string().min(1).max(80);
+
+export const ClarificationAnswerSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    answer: z.string().min(1).max(10_000)
+  })
+  .strict();
+
+export const StepResultSchema = z
+  .object({
+    stepId: z.string().min(1).max(200),
+    tool: z.enum(TOOL_NAMES),
+    status: z.enum(['completed', 'failed', 'skipped']),
+    verified: z.boolean(),
+    result: z.unknown().optional(),
+    error: z.string().max(2000).optional(),
+    durationMs: z.number().int().min(0)
+  })
+  .strict();
+
+export const ExecutionReportSchema = z
+  .object({
+    protocol: z.literal(PROTOCOL),
+    type: z.literal('execution_report'),
+    taskId: z.string().min(1).max(80),
+    roundId: z.string().max(80),
+    planId: z.string().max(80),
+    status: z.enum(['completed', 'partial', 'failed', 'cancelled']),
+    results: z.array(StepResultSchema).max(30),
+    errors: z
+      .array(
+        z
+          .object({
+            stepId: z.string().max(200).optional(),
+            code: z.string().min(1).max(60),
+            message: z.string().max(2000)
+          })
+          .strict()
+      )
+      .max(30),
+    nextAction: z.enum(['continue', 'complete', 'retry', 'stop']),
+    createdAt: z.number().int().positive()
+  })
+  .strict()
+  .superRefine((report, ctx) => {
+    // A run that produced results must be attributable to the plan that was
+    // approved, otherwise its output cannot be trusted or reported back. A
+    // failure that never got as far as executing has nothing to attribute, so
+    // empty ids are allowed there — and only there.
+    if (report.status === 'failed') return;
+    if (report.roundId.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['roundId'], message: '非失败的报告必须携带 roundId' });
+    }
+    if (report.planId.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['planId'], message: '非失败的报告必须携带 planId' });
+    }
+  });
+
+export type ValidatedExecutionReport = z.infer<typeof ExecutionReportSchema>;

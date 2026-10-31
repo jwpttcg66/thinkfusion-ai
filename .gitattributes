@@ -1,0 +1,39 @@
+# Normalize line endings so the repo behaves the same on macOS / Linux / Windows
+* text=auto eol=lf
+
+# Explicit text types
+*.md      text eol=lf
+*.sh      text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.js      text eol=lf
+*.ts      text eol=lf
+*.py      text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+.gitignore   text eol=lf
+.gitattributes text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Binary — never diff or convert
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.gz      binary
+*.mp4     binary
+*.mov     binary
+*.woff    binary
+*.woff2   binary
+
+# Collapse generated files in diffs and GitHub language stats
+package-lock.json  linguist-generated=true -diff
+pnpm-lock.yaml     linguist-generated=true -diff
+yarn.lock          linguist-generated=true -diff

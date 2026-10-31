@@ -1,0 +1,79 @@
+{
+  "name": "thinkfusion-ai",
+  "version": "0.6.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Gather, challenge and synthesize perspectives from multiple AI models and web sources — starting with a web AI page driven as the model channel",
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "npm run build:agent && electron-vite dev",
+    "build:agent": "tsc -p tsconfig.agent.json",
+    "build": "electron-vite build && npm run build:agent",
+    "preview": "electron-vite preview",
+    "build:ui-preview": "VITE_MOCK=1 vite build src/renderer --mode development --outDir ui-preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.agent.json && tsc --noEmit -p tsconfig.renderer.json",
+    "build:ax:mac": "bash scripts/build-ax-bridge.sh",
+    "clean": "rm -rf out dist resources/ax-bridge",
+    "package:mac": "npm run build:ax:mac && npm run build && electron-builder --mac dmg --arm64",
+    "test:protocol": "npm run build:agent && node scripts/check-protocol.mjs",
+    "install:electron": "npx --no-install install-electron --no",
+    "predev": "npm run install:electron",
+    "prebuild": "npm run install:electron",
+    "prepackage:mac": "npm run install:electron",
+    "doctor:electron": "node scripts/check-electron.mjs",
+    "test:security": "node scripts/check-protocol.mjs",
+    "build:adapter": "tsc -p tsconfig.adapter.json",
+    "test:adapter": "npm run build:adapter && node --test scripts/check-adapter.mjs",
+    "test:state": "npm run build:adapter && node --test scripts/check-state-machine.mjs",
+    "test": "npm run test:protocol && npm run test:adapter && npm run test:state",
+    "start:debug": "env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS electron . --no-sandbox --disable-gpu --remote-debugging-port=9222",
+    "check:layout": "node scripts/check-split.mjs && node scripts/check-app-layout.mjs",
+    "check:drag": "node scripts/check-split-drag.mjs",
+    "e2e:live": "node scripts/e2e-live.mjs"
+  },
+  "dependencies": {
+    "zod": "3.25.76",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "electron": "45.1.0",
+    "electron-builder": "26.0.12",
+    "electron-vite": "4.0.0",
+    "typescript": "5.8.3",
+    "vite": "6.3.5"
+  },
+  "build": {
+    "appId": "com.thinkfusion.app",
+    "productName": "ThinkFusion",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": "resources/ax-bridge",
+        "to": "ax-bridge",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}

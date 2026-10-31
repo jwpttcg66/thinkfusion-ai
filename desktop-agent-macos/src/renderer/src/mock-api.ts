@@ -1,0 +1,169 @@
+import type {
+  AgentApi,
+  AgentEvent,
+  AgentTask,
+  DeepSeekStatus,
+  PermissionPreset,
+  PlanPreview
+} from '../../shared/contracts';
+import { computeSplit } from '../../shared/layout';
+
+/**
+ * Dev-only stand-in for the preload API so the renderer can be opened in a plain
+ * browser (`npx vite --root src/renderer`) without Electron.
+ *
+ * Guarded by `import.meta.env.DEV` in main.tsx and therefore excluded from the
+ * production bundle. It never touches the filesystem.
+ */
+
+const now = Date.now();
+
+const plan: PlanPreview = {
+  planId: 'plan-demo',
+  taskId: 'task-demo',
+  roundId: 'round-1',
+  title: '分析项目结构并生成报告',
+  description: '读取工作区目录与 package.json，汇总模块依赖后生成 Markdown 报告。',
+  completion: 'reports/project-analysis.md 已生成且内容校验通过',
+  steps: [
+    { id: 'step-1', tool: 'fs.list', description: '列出项目根目录', args: { path: '.' } },
+    { id: 'step-2', tool: 'fs.readFile', description: '读取 package.json', args: { path: 'package.json' } },
+    { id: 'step-3', tool: 'fs.mkdir', description: '创建报告目录', args: { path: 'reports' } },
+    {
+      id: 'step-4',
+      tool: 'fs.writeFile',
+      description: '写入分析报告',
+      args: { path: 'reports/project-analysis.md', content: '# 项目分析\n\n…' }
+    }
+  ]
+};
+
+const tasks: AgentTask[] = [
+  {
+    taskId: 'task-demo',
+    title: '分析项目结构并生成报告',
+    userPrompt: '分析当前项目，找出主要模块和依赖关系，生成一份 Markdown 项目分析报告。',
+    status: 'awaiting_approval',
+    permissionPreset: 'workspace-write',
+    workspaceRoot: '/Users/example/workspace',
+    currentRoundId: 'round-1',
+    currentPlanId: 'plan-demo',
+    createdAt: now - 1000 * 60 * 6,
+    updatedAt: now - 1000 * 60 * 2,
+    maxRounds: 20,
+    maxSteps: 30,
+    timeoutMs: 180_000
+  },
+  {
+    taskId: 'task-done',
+    title: '检查 Netty 堆外内存泄漏',
+    userPrompt: '检查当前 Java 项目的 Netty 堆外内存使用情况。',
+    status: 'completed',
+    permissionPreset: 'read-only',
+    workspaceRoot: '/Users/example/workspace',
+    createdAt: now - 1000 * 60 * 60 * 26,
+    updatedAt: now - 1000 * 60 * 60 * 25,
+    maxRounds: 20,
+    maxSteps: 30,
+    timeoutMs: 180_000
+  },
+  {
+    taskId: 'task-old',
+    title: '生成发票获取脚本说明',
+    userPrompt: '整理微信读书发票获取步骤。',
+    status: 'failed',
+    permissionPreset: 'workspace-write',
+    workspaceRoot: '/Users/example/workspace',
+    createdAt: now - 1000 * 60 * 60 * 24 * 5,
+    updatedAt: now - 1000 * 60 * 60 * 24 * 5,
+    maxRounds: 20,
+    maxSteps: 30,
+    timeoutMs: 180_000
+  }
+];
+
+const events: Record<string, AgentEvent[]> = {
+  'task-demo': [
+    { type: 'round.started', at: now - 120_000, taskId: 'task-demo', roundId: 'round-1', roundNumber: 1, inputType: 'user_prompt' },
+    { type: 'round.answer', at: now - 90_000, taskId: 'task-demo', roundId: 'round-1', text: '（示例回答）' },
+    { type: 'plan.ready', at: now - 88_000, taskId: 'task-demo', roundId: 'round-1', plan }
+  ],
+  'task-done': [
+    { type: 'round.started', at: now - 90_000_000, taskId: 'task-done', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' },
+    { type: 'report.ready', at: now - 89_000_000, taskId: 'task-done', roundId: 'r1', report: {
+      protocol: 'desktop-agent/v1', type: 'execution_report', taskId: 'task-done', roundId: 'r1', planId: 'p1',
+      status: 'completed', results: [], errors: [], nextAction: 'complete', createdAt: now - 89_000_000
+    } },
+    { type: 'task.completed', at: now - 88_900_000, taskId: 'task-done', summary: '已生成堆外内存排查报告' }
+  ]
+};
+
+export function createMockApi(): AgentApi {
+  let preset: PermissionPreset = 'workspace-write';
+
+  return {
+    submitPrompt: async () => tasks[0],
+    getTask: async taskId => tasks.find(task => task.taskId === taskId) ?? null,
+    getTaskHistory: async () => tasks,
+    getTaskEvents: async taskId => events[taskId] ?? [],
+    approvePlan: async () => undefined,
+    rejectPlan: async () => undefined,
+    cancelTask: async () => undefined,
+    answerClarification: async () => undefined,
+    deleteTask: async () => undefined,
+    getPermissionPreset: async () => preset,
+    setPermissionPreset: async (next: PermissionPreset) => {
+      preset = next;
+      return { preset, approvalPolicy: 'ask' as const };
+    },
+    chooseDirectory: async () => '/Users/example/workspace',
+    getPlatform: async () => 'darwin',
+    getDeepSeekStatus: async (): Promise<DeepSeekStatus> => ({
+      url: 'https://chat.deepseek.com/',
+      pageReady: true,
+      loggedIn: true,
+      hasInput: true,
+      hasSendButton: true,
+      generating: false,
+      messageCount: 3
+    }),
+    getDeepSeekDiagnostics: async () => ({
+      probeVersion: 'mock',
+      url: 'https://chat.deepseek.com/',
+      title: 'DeepSeek',
+      status: {
+        url: 'https://chat.deepseek.com/',
+        pageReady: true,
+        loggedIn: true,
+        hasInput: true,
+        hasSendButton: true,
+        generating: false,
+        messageCount: 3
+      },
+      selectors: {},
+      view: { x: Math.round(window.innerWidth * 0.58), y: 0, width: computeSplit(window.innerWidth, null) - 10, height: window.innerHeight },
+      dragging: false,
+      probe: {
+        hasInput: true,
+        inputKind: 'contenteditable',
+        hasSendButton: true,
+        generating: false,
+        messageCount: 3,
+        lastTextPreview: '（mock 诊断数据）',
+        selectorHits: { 'input:#chat-input': 1, 'input:div[contenteditable="true"]': 1 },
+        chosen: { input: '#chat-input' }
+      }
+    }),
+    reloadDeepSeek: async () => undefined,
+    // Mirrors the main process's split so the browser preview reserves the same
+    // column the native page view would occupy. There is no native view here,
+    // so a drag just reports the clamped width straight back.
+    getLayout: async () => ({ split: computeSplit(window.innerWidth, null) }),
+    setSplit: async (value: number) => ({ split: computeSplit(window.innerWidth, value) }),
+    setPageDragging: async () => undefined,
+    getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),
+    onAgentEvent: () => () => undefined,
+    onDeepSeekEvent: () => () => undefined,
+    onLayoutChanged: () => () => undefined
+  };
+}

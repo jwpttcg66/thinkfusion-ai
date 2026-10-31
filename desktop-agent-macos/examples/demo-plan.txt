@@ -1,0 +1,26 @@
+请根据我的任务生成 desktop-agent/v1 结构化本地执行计划。只允许使用 fs.list、fs.mkdir、fs.writeFile。所有路径必须是相对于我随后选择的授权目录的相对路径。不要输出 Shell 命令，不要尝试删除或覆盖文件。把完整 JSON 放在 <AGENT_PLAN> 和 </AGENT_PLAN> 之间。只有完整输出结束后，本地 Agent 才会同步计划；我会检查计划并手动授权执行。
+
+<AGENT_PLAN>
+{
+  "protocol": "desktop-agent/v1",
+  "task": {
+    "title": "创建测试报告",
+    "description": "在用户授权目录内创建 reports/demo.md"
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "tool": "fs.mkdir",
+      "args": { "path": "reports" }
+    },
+    {
+      "id": "s2",
+      "tool": "fs.writeFile",
+      "args": {
+        "path": "reports/demo.md",
+        "content": "# Demo\n\n由 Desktop Agent 创建。\n"
+      }
+    }
+  ]
+}
+</AGENT_PLAN>

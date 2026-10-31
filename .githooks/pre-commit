@@ -1,0 +1,49 @@
+#!/bin/sh
+# pre-commit: catch the mistakes that are expensive to fix after the fact.
+#   1. merge conflict markers left in staged files
+#   2. oversized files (> 5 MB)
+#   3. obvious secrets / private keys
+# Bypass with: git commit --no-verify
+set -e
+
+MAX_BYTES=5242880
+failed=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$staged" ]; then
+	exit 0
+fi
+
+while IFS= read -r file; do
+	[ -n "$file" ] || continue
+	[ -f "$file" ] || continue
+
+	# 1. conflict markers
+	if grep -qE '^(<<<<<<< |=======$|>>>>>>> )' "$file" 2>/dev/null; then
+		echo "ERROR: unresolved merge conflict markers in: $file" >&2
+		failed=1
+	fi
+
+	# 2. large files
+	size=$(wc -c <"$file" | tr -d ' ')
+	if [ "$size" -gt "$MAX_BYTES" ]; then
+		echo "ERROR: $file is $((size / 1048576))MB, over the 5MB limit. Use Git LFS or keep it out of the repo." >&2
+		failed=1
+	fi
+
+	# 3. secrets
+	if grep -qE 'BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{32,}' "$file" 2>/dev/null; then
+		echo "ERROR: possible secret detected in: $file" >&2
+		failed=1
+	fi
+done <<EOF
+$staged
+EOF
+
+if [ "$failed" -ne 0 ]; then
+	echo "" >&2
+	echo "Commit blocked. Fix the issues above, then stage and commit again." >&2
+	exit 1
+fi
+
+exit 0
