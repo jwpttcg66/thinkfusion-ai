@@ -1,155 +1,184 @@
-# ThinkFusion
+# ThinkFusion AI
 
-**把多个 AI 的观点收上来、让它们互相质疑、再综合成一个更好的答案。**
+**Many Minds. One Better Answer.**
 
-而不是问一个模型、拿到一段话、默认它是对的。
+ThinkFusion AI is an open-source collective intelligence platform designed to bring together
+ideas, knowledge, and perspectives from multiple AI models and web sources to produce deeper
+insights and better answers.
 
-> 当前版本只走通了这条路的**第一段**：把一个网页版 AI 当模型通道，从它的回答里取出
-> 结构化方案，多个方案冲突时如实报出来，而不是替你挑一个。多模型、多来源、交叉质疑与
-> 综合，写在 [Roadmap](#roadmap) 里，还没做。这个 README 不替它们吹牛。
+Instead of relying on a single AI model or information source, ThinkFusion AI collects diverse
+viewpoints, analyzes agreements and disagreements, identifies missing information, and
+synthesizes them into a unified, well-reasoned result.
+
+**中文文档：[README.zh-CN.md](README.zh-CN.md)**
 
 ---
 
-## 它解决什么
+## Core Capabilities
 
-把大模型接进本地工具，通常卡在三件事上：
+- **Multi-AI Aggregation** — Gather responses and insights from multiple AI models.
+- **Web Intelligence** — Extract and summarize information from web pages and online sources.
+- **Perspective Analysis** — Compare different viewpoints, identify consensus, and detect contradictions.
+- **Knowledge Synthesis** — Combine complementary ideas into a more comprehensive answer.
+- **Critical Reasoning** — Challenge assumptions, identify gaps, and improve the quality of conclusions.
+- **Knowledge Indexing** — Organize, index, and retrieve accumulated knowledge.
+- **Iterative Refinement** — Continuously refine conclusions through additional research and analysis.
 
-1. **要 API Key。** 有额度才能跑；本地小工具、内网环境、只想试一下的时候都很别扭。
-2. **要模型遵守 JSON Schema。** 网页版 AI 不保证输出格式，也没有 function calling。
-3. **要信任它的输出。** 让一个不可控的文本通道直接驱动文件操作，谁都不敢。
+## Vision
 
-ThinkFusion 的做法：
+Turn fragmented information and diverse perspectives into collective intelligence.
+ThinkFusion AI aims to make the combined intelligence of multiple AI systems and knowledge
+sources more useful than any single response.
 
-- 用 Electron 内嵌一个真实浏览器视图打开 AI 网页，把提示词**真的发出去**，再把回答取回来。
-- 从**渲染后的 markdown** 里抽结构化消息——不是从 API 响应，是从网页上肉眼看到的那段字。
-- 抽出来的计划先过严格 schema 校验，再交给用户确认，最后由**独立的 UtilityProcess** 在授权目录内执行。
-- 执行结果结构化回传给网页，进入下一轮，直到任务完成。
+**Many Minds. One Better Answer.**
+
+---
+
+## What actually works today
+
+The capabilities above describe what the platform is *for*. Here is what the code currently does,
+stated plainly — a README that promises more than the repository delivers is just marketing:
+
+| Capability | Status |
+| --- | --- |
+| Collect a viewpoint from one source | ✅ A web AI page in a real browser view — no API key needed |
+| Turn that reply into a checkable plan | ✅ Strict schema; a plan that fails validation is rejected outright, not "best-effort repaired" |
+| Collect from multiple sources | ⏳ The channel layer is decoupled from Electron and ready, but only one channel is wired |
+| Perspective analysis / cross-challenge | ⏳ Not yet. Conflicts are reported, not interrogated |
+| Knowledge synthesis | ⏳ Not yet. Competing plans are never merged or voted on |
+| Knowledge indexing | ⏳ Not yet. Task history is stored, but nothing is indexed for retrieval |
+| Iterative refinement | ✅ Execution reports are fed back into the page, round after round, until the task completes |
+
+## How it works
 
 ```
-你的目标
+Your goal
    │
-   ├─► 内嵌网页（真实浏览器视图）──► 提示词发出 ──► 模型回答
+   ├─► Embedded web page (real browser view) ──► prompt sent ──► model reply
    │                                                │
    │                                    ┌───────────┘
    │                                    ▼
-   │                          从渲染文本抽协议块
+   │                    parse the protocol block from rendered text
    │                                    │
-   │                            schema 校验 + 冲突检测
+   │                        schema validation + conflict detection
    │                                    │
-   │                          你确认（整份计划）
+   │                          you approve (the whole plan)
    │                                    │
-   │                          独立 Runtime 串行执行
-   │                          （路径校验 / 只读或写入 / sha256 复验）
+   │                       isolated runtime, serial execution
+   │                       (path check / read-only or write / sha256 re-verify)
    │                                    │
-   └──────────────────────────── 执行报告回传，下一轮 ◄──┘
+   └────────────────────── execution report sent back, next round ◄──┘
 ```
 
-## 现在做到哪一步
+Four decisions shape the design:
 
-| 环节 | 状态 |
+1. **The model channel is a web page, not an API.** Electron embeds a real `WebContentsView`,
+   types the prompt, and reads the reply back. No key, no quota, no function calling.
+2. **Parsing happens on rendered markdown.** Not on an API response — on the text a human would
+   actually see in the chat box. That is the only interface a web AI guarantees.
+3. **The text is untrusted input.** It is parsed as JSON and nothing else. It never becomes code,
+   never becomes a shell command, and never touches the filesystem directly.
+4. **Execution is a separate process.** A `UtilityProcess` receives an approved plan, re-verifies
+   the authorization on every step, and runs inside a tool whitelist.
+
+### How competing plans are handled
+
+A single reply can contain several candidate plans. Today:
+
+- **Exact duplicates** are tolerated and collapsed to one.
+- **Mutually conflicting plans** are rejected, with the conflict count reported — the tool does not
+  guess which one you meant.
+- **Across rounds**, every plan is persisted with a content hash and stays approvable for 10 minutes,
+  so history shows exactly what was approved at the time.
+
+Actually *fusing* plans — deduplicating equivalent steps, detecting write-path collisions, ranking
+by evidence — is the next milestone, not a finished feature.
+
+## Security model
+
+This is not a tool that trusts model output. The boundaries are explicit:
+
+| Boundary | Measure |
 | --- | --- |
-| 收集一个来源的观点 | ✅ 网页版 AI，真实浏览器视图，不依赖 API |
-| 结构化成可校验的方案 | ✅ 严格 schema，不合格的整份拒绝，不做"尽力修复" |
-| 收集多个来源 | ⏳ 通道层已与 Electron 解耦，接口留好了，只接了一个 |
-| 让观点互相质疑 | ⏳ 未做。当前只会报冲突，不会追问 |
-| 综合成一个答案 | ⏳ 未做。冲突计划不合并、不投票、不给取舍建议 |
+| Web text | Treated as untrusted input; parsed as JSON only, never executed as code or commands |
+| Renderer | No Node integration, `contextIsolation`, sandbox; IPC accepts the main frame only |
+| Embedded page | Separate `WebContentsView`, separate partition, all permission requests denied, target site only |
+| Execution process | Separate `UtilityProcess`; authorization re-checked before every step |
+| Tool surface | Whitelist: list directory, read file, create directory, exclusive file create. No shell, no delete, no overwrite |
+| Approval | Every plan needs a human click; grants expire in 30 minutes, plans in 10 |
 
-## 多个方案怎么处理
+Details in [`SECURITY.md`](desktop-agent-macos/SECURITY.md).
 
-一轮回答里可能同时出现多个候选计划。当前版本：
+## Quick start
 
-- **完全相同的重复块**：容忍，只取一份。
-- **互相冲突的多个计划**：拒绝执行并报出冲突数量——不替你猜哪个才是你要的。
-- **跨轮次**：每一份计划都会落库、计算内容哈希、10 分钟内可审批，历史任务里能回看当时批了什么。
-
-真正的**融合**（同类步骤去重、写入路径冲突检测、按证据给取舍建议）是下一个里程碑。
-
-## 安全模型
-
-这不是一个"信任模型输出"的工具，边界写得很直白：
-
-| 边界 | 做法 |
-| --- | --- |
-| 网页文本 | 当作不可信输入；只当 JSON 解析，绝不当代码或命令执行 |
-| 渲染进程 | 无 Node 集成、contextIsolation、sandbox；IPC 只接受主 frame |
-| 内嵌页面 | 独立 `WebContentsView`、独立分区、拒绝一切权限请求、只允许目标站点 |
-| 执行进程 | 独立 UtilityProcess；每步执行前重新校验授权凭据 |
-| 工具面 | 白名单：列目录、读文件、建目录、独占创建文件。没有 shell、没有删除、没有覆盖 |
-| 审批 | 每一份计划都要人点确认；授权 30 分钟过期，计划 10 分钟过期 |
-
-细节见 [`SECURITY.md`](desktop-agent-macos/SECURITY.md)。
-
-## 快速开始
-
-要求：macOS（Apple Silicon）、Node.js ≥ 22.12、Electron 45。
+Requirements: macOS (Apple Silicon), Node.js ≥ 22.12, Electron 45.
 
 ```bash
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # 协议 24 + 适配器 27 + 状态机 8
+npm test          # protocol 24 + adapter 27 + state machine 8
 npm run dev
 ```
 
-启动后在右侧内嵌页面登录 AI 网页，在底部输入框写目标，选择工作区，等计划出现后确认。
+Once running, sign in to the AI page in the right-hand pane, type a goal in the bottom input,
+pick a workspace, and approve the plan when it appears.
 
-实机验证（应用已在跑、页面已登录）：
+Live checks (app already running and signed in):
 
 ```bash
-npm run start:debug                     # 带 CDP 端口启动
-npm run check:layout                    # 分栏对齐 + 应用列几何
-npm run check:drag                      # 拖动全流程
-npm run e2e:live -- <工作区目录>          # 真实任务走完整条链路
+npm run start:debug                     # start with a CDP port
+npm run check:layout                    # split alignment + app column geometry
+npm run check:drag                      # full drag interaction
+npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 ```
 
-## 当前状态
+## Tests
 
-诚实版：
+- **Offline, 59 assertions**: protocol 24, page-channel timing 27, state machine 8.
+  CI runs these on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+- **Live, 40 assertions**: split layout 15, app column 9, drag 16. These need a running app and a
+  signed-in page, so they are run by hand; the scripts read real state over CDP instead of pixels.
+- What these tests **cannot** prove is written down in
+  [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) — that list is part of the deliverable.
 
-- 闭环**已在真实网页 + 真实登录态下跑通**：提交 → 计划 → 审批 → 执行 → 报告回传 → 完成。
-- 离线 59 项（协议 24 / 网页通道时序 27 / 状态机 8），实机 40 项（分栏 15 + 应用列 9 + 拖动 16）。
-- 未做：多来源、交叉质疑、方案融合、崩溃恢复、逐步骤审批、打包签名与公证；
-  真实鼠标拖动没有自动化覆盖。
-
-细节与"证不了什么"的清单在 [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md)，
-交付状态在 [`DELIVERY_STATUS.md`](desktop-agent-macos/DELIVERY_STATUS.md)。
-
-## 仓库结构
+## Repository layout
 
 ```
-desktop-agent-macos/   Electron 应用：主进程 / 预加载 / 渲染进程 / 独立 Runtime
-  src/main/            任务、存储、网页适配、编排、窗口分栏
-  src/agent/           独立 Runtime：计划校验、工具执行、结果验证
-  src/renderer/        React 三栏界面
-  src/shared/          协议、IPC 契约、分栏计算（主进程与渲染进程共用）
-  scripts/             离线测试 + 实机检查（scripts/lib/cdp.mjs 是共用底座）
-packages/              可复用的模型通道包（零依赖，与 Electron 解耦）
-docs/                  仓库工作流文档（提交规范、分支模型、发版）
-scripts/               版本管理基础设施（钩子、发版脚本）
+desktop-agent-macos/   Electron app: main / preload / renderer / isolated runtime
+  src/main/            tasks, storage, web adapter, orchestration, window split
+  src/agent/           isolated runtime: plan validation, tool execution, result verification
+  src/renderer/        React three-pane UI
+  src/shared/          protocol, IPC contracts, split geometry (shared by main and renderer)
+  scripts/             offline tests + live checks (scripts/lib/cdp.mjs is the shared base)
+packages/              reusable model-channel package (zero dependencies, Electron-free)
+docs/                  repository workflow docs (commit conventions, branching, release)
+scripts/               versioning infrastructure (hooks, release scripts)
 ```
 
-工程内部文档：
+## Documentation
 
-| 文档 | 内容 |
+| Document | Contents |
 | --- | --- |
-| [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | 协议词汇、三级解析、回声剥离、回答归属 |
-| [`IPC.md`](desktop-agent-macos/docs/IPC.md) | 通道清单、信任检查、为什么某些参数是字面量 |
-| [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) | 离线测什么、实机断言什么、证不了什么 |
-| [`HARNESS_BASELINE.md`](desktop-agent-macos/docs/HARNESS_BASELINE.md) | 借鉴了谁的设计、明确没有依赖谁 |
+| [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | Protocol vocabulary, three-stage parsing, echo stripping, reply attribution |
+| [`IPC.md`](desktop-agent-macos/docs/IPC.md) | Channel list, trust checks, why some arguments are literals |
+| [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) | What offline tests cover, what live checks assert, what neither can prove |
+| [`HARNESS_BASELINE.md`](desktop-agent-macos/docs/HARNESS_BASELINE.md) | What design was borrowed, what is explicitly not depended on |
 
-## 参与开发
+## Contributing
 
-首次克隆后执行一次 `./scripts/git-setup.sh`，激活提交规范钩子与常用别名；
-约定见 [`docs/git-workflow.md`](docs/git-workflow.md)。
+Run `./scripts/git-setup.sh` once after cloning to enable the commit-convention hooks and aliases;
+conventions are in [`docs/git-workflow.md`](docs/git-workflow.md).
 
 ## Roadmap
 
-- [ ] **接第二个来源**：通道层已与 Electron 解耦，加一个网页 AI 或 RSS / 搜索源
-- [ ] **交叉质疑**：把 A 的方案喂给 B，让 B 指出漏洞，而不是各自独立作答
-- [ ] **方案融合**：同类步骤去重、写入路径冲突检测、按证据给取舍建议
-- [ ] 崩溃恢复：执行中断的任务进入待核对状态，而不是停在 `executing`
-- [ ] 逐步骤审批：整份计划批准后，仍可在危险步骤前停下
-- [ ] 打包、签名、公证
+- [ ] **Wire a second source** — the channel layer is already decoupled from Electron
+- [ ] **Cross-challenge** — feed A's plan to B and have B find the holes, instead of answering independently
+- [ ] **Plan fusion** — deduplicate steps, detect write-path collisions, rank by evidence
+- [ ] Knowledge indexing and retrieval over accumulated tasks
+- [ ] Crash recovery: interrupted execution lands in a review state instead of sticking at `executing`
+- [ ] Per-step approval: stop before a dangerous step even after the plan is approved
+- [ ] Packaging, signing, notarization
 
 ## License
 

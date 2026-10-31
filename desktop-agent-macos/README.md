@@ -1,6 +1,7 @@
 # ThinkFusion v0.6.0 — macOS Apple Silicon
 
-> 仓库总览、为什么叫这个名字、以及多个方案怎么处理，见[根目录 README](../README.md)。
+> 仓库总览、核心能力、工程介绍与 Roadmap，见[根目录 README（中文）](../README.zh-CN.md)
+> 或 [English README](../README.md)。
 
 在 Agent 输入框里提出目标，应用自动把任务发到内嵌的 DeepSeek 网页完成规划，取回结构化计划、本地校验、经你确认后由独立 Runtime 执行，再把执行报告自动回传给 DeepSeek 进入下一轮，直到任务完成。
 
