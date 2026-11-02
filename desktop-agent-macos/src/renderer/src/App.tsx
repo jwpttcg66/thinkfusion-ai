@@ -16,6 +16,7 @@ import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
+import { StyleReport, type StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
@@ -25,6 +26,51 @@ interface Derived {
   plan: PlanPreviewType | null;
   questions: string[];
   answer: string;
+}
+
+/**
+ * The two page-pane actions, as icons.
+ *
+ * Text was wrong here for a structural reason: this bar lives inside the page
+ * pane, and the pane can be dragged down to 380px. Two four-character labels ate
+ * most of that width and pushed the status out of sight — the one thing the bar
+ * exists to show. An icon is a fixed 24px whatever the language.
+ *
+ * They are drawn rather than borrowed from a font because the distinction has to
+ * survive at 13px: outward brackets mean "give this page more room", an arrow
+ * returning to a wall means "put it back where it came from". A single
+ * expand/collapse glyph pair reads as one button in two states, which is exactly
+ * the confusion to avoid — these two do different things to a live page.
+ */
+function IconExpand() {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconDockBack() {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path d="M2.5 3v10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M13 8H6.2M9 5.2 6.2 8 9 10.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 function derive(events: AgentEvent[]): Derived {
@@ -83,8 +129,14 @@ export default function App() {
   const [page, setPage] = useState<PageState>({ detachedId: null });
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
-  /** What the last repair found, shown in the page bar until it is replaced. */
-  const [styleNote, setStyleNote] = useState<{ text: string; ok: boolean } | null>(null);
+  /**
+   * The last repair result, shown as a dialog.
+   *
+   * Not a line in the page bar: the bar is inside the pane, the pane can be
+   * dragged to 380px, and the sentence is longer than what is left after the
+   * buttons — the one clause that matters got cut off every time.
+   */
+  const [styleReport, setStyleReport] = useState<StyleReportData | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -668,7 +720,10 @@ export default function App() {
    * so a click flips the button even if the event is missed.
    */
   async function toggleDetach() {
-    setStyleNote(null);
+    // A report describes the page that was in the pane when it was produced.
+    // Moving that page elsewhere makes it stale, so it goes away rather than
+    // sitting over a pane that no longer contains what it describes.
+    setStyleReport(null);
     try {
       const next = page.detachedId === sources.activeId
         ? await window.agentAPI.reattachPage()
@@ -683,22 +738,36 @@ export default function App() {
    * 「更新样式」: re-read the page and repair what stopped matching.
    *
    * Runs against the page that is on screen — including one that has been
-   * detached, because it is the same webContents. The result is a sentence, not
-   * a boolean: "已重新提取 2 项" and "没找到输入框，可能需要登录" are different
-   * situations and the user has to be able to tell them apart.
+   * detached, because it is the same webContents. The outcome is always a
+   * dialog: "已重新提取 2 项" and "没找到输入框，可能需要登录" are different
+   * situations, and the second one is the reason the user pressed the button.
    */
   async function refreshSelectors() {
     if (learning) return;
     setLearning(true);
-    setStyleNote(null);
+    const label = activeSource?.label ?? '内嵌页面';
     try {
       const report = await window.agentAPI.learnSelectors(sources.activeId);
-      setStyleNote({ text: report.message, ok: report.learned.length > 0 || report.failed.length === 0 });
+      setStyleReport({
+        sourceLabel: label,
+        message: report.message,
+        learned: report.learned,
+        intact: report.intact,
+        failed: report.failed,
+        probe: report.probe
+      });
       // A repair changes whether the channel is usable, so the pill above has to
       // stop saying "未就绪" the moment the page works again.
       setChannelStatuses(await window.agentAPI.getChannelStatuses());
     } catch (e) {
-      setStyleNote({ text: errorText(e), ok: false });
+      setStyleReport({
+        sourceLabel: label,
+        message: errorText(e),
+        learned: [],
+        intact: [],
+        failed: [],
+        probe: null
+      });
     } finally {
       setLearning(false);
     }
@@ -945,26 +1014,24 @@ export default function App() {
             />
             <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
             <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
-            {styleNote && (
-              <span className={`page-note${styleNote.ok ? ' ok' : ' warn'}`} title={styleNote.text}>
-                {styleNote.text}
-              </span>
-            )}
             <span className="page-actions">
               <button
-                className="page-btn"
+                className="page-btn icon"
                 type="button"
                 onClick={toggleDetach}
                 disabled={sources.loading && !isDetached}
-                title={isDetached ? '把页面放回窗口' : '把页面放大到独立窗口'}
+                data-action="detach"
+                aria-label={isDetached ? '吸附回来' : '放大'}
+                title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
               >
-                {isDetached ? '吸附回来' : '放大'}
+                {isDetached ? <IconDockBack /> : <IconExpand />}
               </button>
               <button
                 className="page-btn"
                 type="button"
                 onClick={refreshSelectors}
                 disabled={learning}
+                data-action="learn"
                 title="网页改版后重新提取选择器，修好提问与读取回答"
               >
                 {learning ? '提取中…' : '更新样式'}
@@ -1014,6 +1081,8 @@ export default function App() {
         loading={sources.loading}
         onSelect={selectSource}
       />
+
+      {styleReport && <StyleReport report={styleReport} onClose={() => setStyleReport(null)} />}
 
       {diagOpen && (
         <DiagnosticsPanel

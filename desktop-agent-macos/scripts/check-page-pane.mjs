@@ -48,8 +48,17 @@ const readPane = () =>
       split: Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue('--split'), 10),
       bar: rect ? { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) } : null,
       text: bar ? bar.innerText.split('\\n').join(' / ') : '',
-      buttons: [...document.querySelectorAll('.page-btn')].map(button => button.textContent),
-      placeholder: Boolean(document.querySelector('.page-detached'))
+      // Icon buttons carry no text, so the label has to come from aria-label —
+      // which is also what a screen reader reads, so this checks the same thing
+      // a person using one would get.
+      buttons: [...document.querySelectorAll('.page-btn')].map(button => button.getAttribute('aria-label') ?? button.textContent),
+      iconButton: Boolean(document.querySelector('.page-btn.icon svg')),
+      iconWidth: (() => {
+        const icon = document.querySelector('.page-btn.icon');
+        return icon ? Math.round(icon.getBoundingClientRect().width) : 0;
+      })(),
+      placeholder: Boolean(document.querySelector('.page-detached')),
+      hasNote: Boolean(document.querySelector('.page-note'))
     };
   })()`);
 
@@ -81,7 +90,18 @@ if (pane.bar) {
   check('页面栏高度就是预留的那一条', pane.bar.height, HEADER);
   checkTrue('页面栏与页面视图左边缘对齐', Math.abs(pane.bar.left - view.x) <= 1);
   checkTrue('页面栏里有两个按钮：放大、更新样式', pane.buttons.join('/') === '放大/更新样式');
-  checkTrue('页面栏写出了来源与状态', pane.text.includes('DeepSeek') && (pane.text.includes('就绪') || pane.text.includes('加载中')));
+  // The pane can be dragged down to 380px, and two four-character labels used to
+  // push the status out of view. An icon is a fixed width, so this asserts the
+  // width rather than trusting that it stayed small.
+  checkTrue('放大是一个图标按钮', pane.iconButton);
+  checkTrue(`图标按钮是方形的（${String(pane.iconWidth)}px）`, pane.iconWidth > 0 && pane.iconWidth <= 26);
+  checkTrue('页面栏写出了来源', pane.text.includes('DeepSeek'));
+  // Any of the real states is fine — the page may be signed out, and this check
+  // must not depend on somebody's session staying alive. What it does assert is
+  // that the bar says *something* about the page.
+  checkTrue(`页面栏写出了状态（${pane.text}）`, /(就绪|加载中|登录|不可用)/.test(pane.text));
+  // The repair result used to live here and got cut off; it is a dialog now.
+  checkTrue('页面栏里不再挤着结果文字', pane.hasNote === false);
   check('页面还没有被分离', pane.placeholder, false);
 }
 
@@ -134,16 +154,47 @@ check('吸附回来后页面视口也跟着恢复', restored, backView.width);
 
 // ------------------------------------------------------------ repair
 
-const report = await cdp.evaluate('window.agentAPI.learnSelectors("deepseek")');
-checkTrue('更新样式给出了结果', typeof report.message === 'string' && report.message.length > 0);
-check('更新样式检查的是当前这个页面', report.sourceId, 'deepseek');
-checkTrue('更新样式没有把工作正常的选择器换掉', report.learned.length === 0 || report.intact.length >= 0);
+// Press the real button, not the IPC call: the point of this half is that the
+// result reaches the user, and the dialog is opened by the click handler.
+await cdp.evaluate(`document.querySelector('.page-btn[data-action="learn"]').click()`);
+
+const readDialog = () =>
+  cdp.evaluate(`(() => {
+    const panel = document.querySelector('.style-panel');
+    if (!panel) return { open: false };
+    return {
+      open: true,
+      title: panel.querySelector('.diag-head b')?.textContent ?? '',
+      message: panel.querySelector('.style-lead')?.textContent ?? '',
+      roles: [...panel.querySelectorAll('.style-role-name')].map(node => node.textContent),
+      badges: [...panel.querySelectorAll('.style-badge')].map(node => node.textContent),
+      selectors: [...panel.querySelectorAll('.style-selectors code')].map(node => node.textContent),
+      probe: panel.querySelector('.style-probe')?.textContent ?? ''
+    };
+  })()`);
+
+const opened = await waitFor(async () => (await readDialog()).open, true, { timeoutMs: 20000 });
+check('点「更新样式」后弹出结果', opened, true);
+
+const dialog = await readDialog();
+checkTrue(`弹窗标题写明了来源（${dialog.title}）`, dialog.title.includes('DeepSeek'));
+checkTrue(`弹窗写出了结论（${dialog.message}）`, dialog.message.length > 0);
+check('弹窗按三项角色列出', dialog.roles.join('/'), '输入框/发送键/回答区域');
+check('每项角色都有状态', dialog.badges.length, 3);
+// Whichever state the page is in, the sentence has to name it — "已重新提取",
+// "不需要更新", or the reason it could not be checked. A generic "失败" would
+// pass a looser assertion and tell the user nothing.
 checkTrue(
-  '页面正常时说清「不需要更新」或「还缺一条回答」',
-  report.learned.length > 0 || report.message.includes('不需要更新') || report.message.includes('校准'),
-  true
+  `结论解释了当前状态（${dialog.message}）`,
+  /(已重新提取|不需要更新|校准|登录|加载|仍没找到)/.test(dialog.message)
 );
-checkTrue('更新样式没有留下空的 learned 条目', report.learned.every(item => item.selector.length > 0));
+checkTrue(`弹窗附上了页面状态（${dialog.probe}）`, /页面 \d+px/.test(dialog.probe));
+checkTrue('有提取结果时列出了具体选择器', dialog.badges.includes('已重新提取') ? dialog.selectors.length > 0 : true);
+checkTrue('列出的选择器都不是空的', dialog.selectors.every(item => item.trim().length > 8));
+
+await cdp.evaluate(`document.querySelector('.style-foot .btn').click()`);
+const closed = await waitFor(async () => (await readDialog()).open, false, { timeoutMs: 3000 });
+check('关掉之后弹窗消失', closed, false);
 
 summary();
 cdp.close();

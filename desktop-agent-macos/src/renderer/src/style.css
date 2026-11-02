@@ -1036,27 +1036,9 @@ button:disabled {
 .page-status {
   color: var(--text-3);
   white-space: nowrap;
-  max-width: 30%;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The result of 「更新样式」. A sentence, because "worked" and "you are not
-   logged in" are different problems and the button cannot say both. */
-.page-note {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-2);
-}
-
-.page-note.ok {
-  color: #1f7a44;
-}
-
-.page-note.warn {
-  color: #a8611f;
 }
 
 .page-actions {
@@ -1082,6 +1064,19 @@ button:disabled {
 .page-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+/* Square, because an icon has no text width to borrow. The 24px is the hit
+   target, not the drawing: the glyph itself is 13px. */
+.page-btn.icon {
+  width: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.page-btn.icon svg {
+  display: block;
 }
 
 /* The pane while its page is in another window. Without this the pane is simply
@@ -1797,4 +1792,111 @@ button:disabled {
   font-size: 11px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------- style repair report ------------------------ */
+
+/* Same shell as the diagnostics panel, narrower: this is one sentence and three
+   rows, not a wall of hit counts. Sharing the overlay means one backdrop, one
+   focus behaviour and one place to fix when the page pane moves. */
+.style-panel {
+  width: min(460px, 100%);
+  max-height: min(70vh, 560px);
+}
+
+.style-lead {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.style-roles {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.style-role {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.style-role:last-child {
+  border-bottom: 0;
+}
+
+.style-role-name {
+  color: var(--text);
+}
+
+.style-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.style-role.s-learned .style-badge {
+  color: #1f7a44;
+  border-color: rgba(31, 122, 68, 0.28);
+  background: rgba(31, 122, 68, 0.07);
+}
+
+.style-role.s-missing .style-badge {
+  color: #a8611f;
+  border-color: rgba(168, 97, 31, 0.28);
+  background: rgba(168, 97, 31, 0.07);
+}
+
+.style-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.style-selectors-label {
+  margin: 0 0 2px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.style-selectors code {
+  display: block;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--bg-side);
+  border: 1px solid var(--line);
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.style-probe {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.style-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  flex: none;
 }
