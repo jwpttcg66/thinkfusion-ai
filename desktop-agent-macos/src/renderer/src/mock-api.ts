@@ -165,6 +165,19 @@ export function createMockApi(): AgentApi {
     getSources: async () => ({ sources: [...PAGE_SOURCES], activeId: PAGE_SOURCES[0].id, loading: false }),
     setSource: async (id: string) => ({ sources: [...PAGE_SOURCES], activeId: id, loading: false }),
     getViewBounds: async () => ({}),
+    // No native views in the browser preview, so a detach is just a flag: the
+    // page header still has to render both states.
+    getPageState: async () => ({ detachedId: null }),
+    detachPage: async (sourceId?: string) => ({ detachedId: sourceId ?? PAGE_SOURCES[0].id }),
+    reattachPage: async () => ({ detachedId: null }),
+    learnSelectors: async (sourceId?: string) => ({
+      sourceId: sourceId ?? PAGE_SOURCES[0].id,
+      learned: [],
+      intact: ['input', 'sendButton', 'assistant'],
+      failed: [],
+      probe: { hasInput: true, hasSendButton: true, messageCount: 3, viewportWidth: window.innerWidth },
+      message: '（mock）现有选择器都还命中，不需要更新'
+    }),
     submitConversation: async (input: { text: string }) => ({
       conversationId: 'mock-conversation',
       title: input.text.slice(0, 42),
@@ -197,6 +210,7 @@ export function createMockApi(): AgentApi {
     onAgentEvent: () => () => undefined,
     onDeepSeekEvent: () => () => undefined,
     onLayoutChanged: () => () => undefined,
-    onSourcesChanged: () => () => undefined
+    onSourcesChanged: () => () => undefined,
+    onPageChanged: () => () => undefined
   };
 }

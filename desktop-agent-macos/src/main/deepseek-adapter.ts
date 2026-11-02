@@ -12,6 +12,7 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../sh
 export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging'>;
 import { stripEcho, containsEcho } from '../shared/protocol';
 import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../shared/text';
+import type { DiscoveredSelectors, SelectorProfile } from '../shared/selectors';
 
 const ALLOWED_HOSTS = new Set(['chat.deepseek.com']);
 
@@ -62,7 +63,7 @@ const MIN_TAIL_CHARS = 24;
  * forever. Generation state is advisory anyway (see `waitForAnswer`), so a
  * missing stop button must never break the loop.
  */
-export const SELECTORS = {
+export const SELECTORS: SelectorProfile = {
   input: [
     '#chat-input',
     'div[contenteditable="true"][role="textbox"]',
@@ -180,7 +181,7 @@ export interface PageDriver {
   reloadHome?(): Promise<{ ok: boolean; reason?: string }>;
 }
 
-const PROBE_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
+export const PROBE_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
 
   const visible = (el) => {
@@ -331,7 +332,196 @@ const PROBE_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   };
 })()`;
 
-const FILL_SCRIPT = (selectors: typeof SELECTORS, payload: string) => `(() => {
+/**
+ * Read the live DOM and propose a selector for each role.
+ *
+ * This is the "the site redesigned itself" path. The probe already has
+ * structural fallbacks, so a class rename mostly keeps the app working — but
+ * `assistant` has no fallback, and a renamed message container silently turns
+ * every answer into "no new reply". Discovery is what turns that into a repair
+ * the user can trigger instead of a bug report.
+ *
+ * Two rules make the output worth persisting:
+ *
+ * 1. **Prefer a promise the site made over a class name.** `data-testid`,
+ *    `aria-label`, `name` and `id` survive redesigns; `.css-1x2y3z` does not.
+ *    Class names that look like build hashes are rejected outright.
+ * 2. **Every selector must match something visible right now.** A selector
+ *    built from a detached node is a selector that will fail at question time,
+ *    and failing later is worse than not learning it.
+ *
+ * Nothing here mutates the page. The caller validates the proposal against a
+ * real probe before writing anything down.
+ */
+export const DISCOVER_SCRIPT = `(() => {
+  const visible = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+  };
+
+  /**
+   * The cheap visibility test, for scans over thousands of nodes.
+   *
+   * 'visible' above reads the computed style and the rect, which forces a
+   * synchronous layout per element. On a page with twenty thousand nodes that is
+   * not a slow function, it is a frozen window — and a frozen window is what
+   * this whole button exists to fix. 'checkVisibility' answers the same question
+   * in one native call.
+   */
+  const shown = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    if (typeof el.checkVisibility === 'function') {
+      return el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    }
+    return true;
+  };
+
+  const count = (selector) => {
+    try { return [...document.querySelectorAll(selector)].filter(visible).length; } catch { return 0; }
+  };
+
+  const unique = (selector) => count(selector) === 1;
+
+  const escaped = (value) => (window.CSS && CSS.escape ? CSS.escape(value) : null);
+
+  const ATTRS = ['data-testid', 'data-test-id', 'data-test', 'data-id', 'name', 'aria-label', 'role'];
+
+  const fromAttributes = (el) => {
+    if (!el || !(el instanceof Element)) return null;
+    for (const attr of ATTRS) {
+      const value = el.getAttribute(attr);
+      if (!value || value.length > 60) continue;
+      if (value.includes('"') || value.includes('\\\\')) continue;
+      const selector = '[' + attr + '="' + value + '"]';
+      if (unique(selector)) return selector;
+    }
+    const id = el.id;
+    if (id && id.length <= 40 && /^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
+      const selector = '#' + escaped(id);
+      if (selector && unique(selector)) return selector;
+    }
+    return null;
+  };
+
+  // A build hash changes on every deploy — learning it would be learning the
+  // thing that broke. Long names are usually utility soup rather than meaning.
+  const looksGenerated = (name) => /[0-9a-f]{6,}/i.test(name) || name.length > 28;
+
+  const fromClasses = (el) => {
+    if (!el || !(el instanceof Element)) return null;
+    const classes = [...el.classList]
+      .filter((name) => name.length > 1 && !looksGenerated(name))
+      .slice(0, 2);
+    if (!classes.length) return null;
+    const parts = classes.map((name) => escaped(name));
+    if (parts.some((part) => !part)) return null;
+    const selector = el.tagName.toLowerCase() + parts.map((part) => '.' + part).join('');
+    return unique(selector) ? selector : null;
+  };
+
+  const describe = (el) => fromAttributes(el) || fromClasses(el);
+
+  const labelOf = (el) =>
+    [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.getAttribute('type'), (el.textContent || '').trim().slice(0, 20)]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+  const editables = [...document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')]
+    .filter(visible)
+    .filter((el) => el.getBoundingClientRect().width > 120);
+  // Bottom-most: a chat composer sits at the bottom of the viewport, and the
+  // sidebar's search box does not.
+  editables.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+  const input = editables[0] || null;
+
+  let send = null;
+  if (input) {
+    let scope = input;
+    for (let depth = 0; depth < 6 && scope && !send; depth += 1) {
+      scope = scope.parentElement;
+      if (!scope) break;
+      const buttons = [...scope.querySelectorAll('button, [role="button"], input[type="submit"]')].filter(visible);
+      if (!buttons.length) continue;
+      send = buttons.find((el) => /send|发送|submit|提交/.test(labelOf(el))) || buttons[buttons.length - 1];
+    }
+  }
+
+  const stop = [...document.querySelectorAll('button, [role="button"]')]
+    .filter(visible)
+    .find((el) => /stop|停止|abort/.test(labelOf(el))) || null;
+
+  const newChat = [...document.querySelectorAll('a, button, [role="button"]')]
+    .filter(visible)
+    .find((el) => /new chat|新对话|新建对话/.test(labelOf(el))) || null;
+
+  // The answer container, found by repetition rather than by name: whatever
+  // holds prose and appears many times with the same shape is the transcript.
+  // Counting by signature is what stops a one-off banner from being learned as
+  // "the answer".
+  //
+  // Cost matters here and is not obvious. '[class*="message"]' matches thousands
+  // of nodes on a real chat page, and both innerText and getBoundingClientRect
+  // force a synchronous layout — reading them per node turned this into a
+  // minute-long stall that looked exactly like a hung app. So: textContent for
+  // the length test, only the last 400 matches, and one measurement for the
+  // winner instead of one per group.
+  let bestGroup = null;
+  let bestSize = 0;
+  for (const probe of ['[class*="markdown"]', '[class*="message"]', '[class*="prose"]', 'article', '[data-message-author-role]']) {
+    let nodes = [];
+    try { nodes = [...document.querySelectorAll(probe)].filter(shown); } catch { continue; }
+    nodes = nodes.slice(-400);
+    const groups = new Map();
+    for (const el of nodes) {
+      if (input && input.contains(el)) continue;
+      if ((el.textContent || '').trim().length < 12) continue;
+      const key = el.tagName + '|' + [...el.classList].join('.');
+      const bucket = groups.get(key) || [];
+      bucket.push(el);
+      groups.set(key, bucket);
+    }
+    for (const bucket of groups.values()) {
+      if (bucket.length <= bestSize) continue;
+      bestSize = bucket.length;
+      bestGroup = bucket;
+    }
+  }
+
+  let assistant = null;
+  if (bestGroup) {
+    const selector = describe(bestGroup[bestGroup.length - 1]);
+    const hits = selector ? count(selector) : 0;
+    // A selector matching hundreds of nodes is a layout container, not a
+    // message: it would report every edit on the page as a new answer.
+    if (selector && hits >= 1 && hits <= 400) assistant = selector;
+  }
+
+  // The transcript container is deliberately NOT proposed here. Finding it
+  // means scoring every scrollable box, which costs a layout pass per node, and
+  // the probe already has a structural rule for it that a learned selector
+  // would never replace.
+  const proposed = {
+    input: describe(input),
+    sendButton: describe(send),
+    stopButton: describe(stop),
+    newChatButton: describe(newChat),
+    assistant,
+    conversation: null,
+    passwordField: 'input[type="password"]'
+  };
+
+  const roles = {};
+  for (const [role, selector] of Object.entries(proposed)) {
+    roles[role] = selector ? { selector, hits: count(selector) } : null;
+  }
+  return { url: location.href, roles };
+})()`;
+
+const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const value = ${payload};
 
@@ -396,7 +586,7 @@ const FILL_SCRIPT = (selectors: typeof SELECTORS, payload: string) => `(() => {
   };
 })()`;
 
-const CLICK_SEND_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
+const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -459,7 +649,7 @@ const CLICK_SEND_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   return { ok: true, label: (button.className || '').toString().slice(0, 60) };
 })()`;
 
-const NEW_CHAT_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
+const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -498,7 +688,7 @@ const NEW_CHAT_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
 })()`;
 
-const FOCUS_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
+const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -528,20 +718,32 @@ const FOCUS_SCRIPT = (selectors: typeof SELECTORS) => `(() => {
   return document.activeElement === target;
 })()`;
 
-/** The one place that knows this is Electron. */
-export function createElectronDriver(view: WebContentsView, selectors: typeof SELECTORS = SELECTORS): PageDriver {
+/**
+ * The one place that knows this is Electron.
+ *
+ * `selectors` may be a function. A learned selector only takes effect if the
+ * next probe sees it, and the probe is built when the call is made — so the
+ * driver has to resolve the profile at call time, not at construction time.
+ * Passing the object directly (the default) still works, which is what the
+ * tests rely on.
+ */
+export function createElectronDriver(
+  view: WebContentsView,
+  selectors: SelectorProfile | (() => SelectorProfile) = SELECTORS
+): PageDriver {
+  const profile = typeof selectors === 'function' ? selectors : () => selectors;
   return {
     url: () => view.webContents.getURL(),
     isDestroyed: () => view.webContents.isDestroyed(),
-    probe: async () => (await view.webContents.executeJavaScript(PROBE_SCRIPT(selectors), true)) as PageProbe,
+    probe: async () => (await view.webContents.executeJavaScript(PROBE_SCRIPT(profile()), true)) as PageProbe,
     fill: async text =>
-      (await view.webContents.executeJavaScript(FILL_SCRIPT(selectors, JSON.stringify(text)), true)) as {
+      (await view.webContents.executeJavaScript(FILL_SCRIPT(profile(), JSON.stringify(text)), true)) as {
         ok: boolean;
         reason?: string;
         kind?: string;
       },
     clickSend: async () =>
-      (await view.webContents.executeJavaScript(CLICK_SEND_SCRIPT(selectors), true)) as {
+      (await view.webContents.executeJavaScript(CLICK_SEND_SCRIPT(profile()), true)) as {
         ok: boolean;
         reason?: string;
         label?: string;
@@ -549,13 +751,13 @@ export function createElectronDriver(view: WebContentsView, selectors: typeof SE
     pressEnter: async () => {
       // Focus inside the page first: the keystroke has to land in the composer,
       // and the DOM focus may have drifted since the fill.
-      await view.webContents.executeJavaScript(FOCUS_SCRIPT(selectors), true);
+      await view.webContents.executeJavaScript(FOCUS_SCRIPT(profile()), true);
       view.webContents.focus();
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
       view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
     },
     newChat: async () =>
-      (await view.webContents.executeJavaScript(NEW_CHAT_SCRIPT(selectors), true)) as {
+      (await view.webContents.executeJavaScript(NEW_CHAT_SCRIPT(profile()), true)) as {
         ok: boolean;
         method?: string;
         reason?: string;

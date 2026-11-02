@@ -21,6 +21,8 @@ import { connect, createChecks, findAppTarget, findPageTarget, listTargets, slee
 const GUTTER = 10;
 /** Mirrors RAIL_WIDTH in src/shared/layout.ts; scripts cannot import TS. */
 const RAIL = 46;
+/** Mirrors PAGE_HEADER_HEIGHT: the strip of document above the page view. */
+const HEADER = 36;
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -66,7 +68,11 @@ checkTrue('the page view exists', view);
 // The split covers the gutter and the source rail, so the view is narrower than
 // the split by both, and it stops at the rail rather than the window edge.
 check('the page view width is the split minus the gutter and rail', view.width, state.split - GUTTER - RAIL);
-check('the page view is full height', view.height, state.viewport.h);
+// Not full height: the strip above the page is document, and the view starts
+// under it. If this ever goes back to `viewport.h` the bar is covered again —
+// painted, but invisible, because a native view is always on top.
+check('the page view starts under the page bar', view.y, HEADER);
+check('the page view ends at the window bottom', view.height, state.viewport.h - HEADER);
 check('the page view starts one gutter in from the boundary', view.x, state.viewport.w - state.split + GUTTER);
 checkTrue('the page view ends where the source rail begins', view.x + view.width === state.viewport.w - RAIL);
 // The divider fills the gutter: left edge where the app column stops, right

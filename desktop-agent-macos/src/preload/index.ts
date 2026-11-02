@@ -6,6 +6,7 @@ import type {
   DeepSeekEvent,
   DeepSeekStatus,
   LayoutInfo,
+  PageState,
   PermissionPreset,
   SourcesState,
   SubmitPromptInput
@@ -51,6 +52,11 @@ const api: AgentApi = {
   setSource: (id: string) => ipcRenderer.invoke('app:set-source', id),
   getViewBounds: () => ipcRenderer.invoke('app:view-bounds'),
 
+  getPageState: () => ipcRenderer.invoke('page:state'),
+  detachPage: (sourceId?: string) => ipcRenderer.invoke('page:detach', sourceId),
+  reattachPage: () => ipcRenderer.invoke('page:reattach'),
+  learnSelectors: (sourceId?: string) => ipcRenderer.invoke('page:learn-selectors', sourceId),
+
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);
     return () => ipcRenderer.removeListener('agent:event', listener);
@@ -69,6 +75,11 @@ const api: AgentApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: SourcesState) => callback(data);
     ipcRenderer.on('sources:changed', listener);
     return () => ipcRenderer.removeListener('sources:changed', listener);
+  },
+  onPageChanged: (callback: (state: PageState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: PageState) => callback(data);
+    ipcRenderer.on('page:changed', listener);
+    return () => ipcRenderer.removeListener('page:changed', listener);
   },
   onConversationEvent: (callback: (event: ConversationEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ConversationEvent) => callback(data);

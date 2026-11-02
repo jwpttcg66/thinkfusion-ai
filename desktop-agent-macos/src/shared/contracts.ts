@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
+import type { LearnSelectorsReport } from './selectors';
 import type {
   ChannelStatus,
   Conversation,
@@ -328,6 +329,17 @@ export interface SourcesState {
   loading: boolean;
 }
 
+/**
+ * Whether a page has been pulled out into its own window.
+ *
+ * The main window cannot see a native view, so "the pane looks empty" and "the
+ * page is in another window" are the same pixels. This is the fact that tells
+ * the two apart, and it is what flips the button between 放大 and 吸附回来.
+ */
+export interface PageState {
+  detachedId: string | null;
+}
+
 /** Where one native page view currently sits, in window coordinates. */
 export interface ViewRect {
   x: number;
@@ -450,11 +462,34 @@ export interface AgentApi {
    */
   getViewBounds(): Promise<ViewBoundsMap>;
 
+  // page pane
+  /** Which page, if any, is currently in its own window. */
+  getPageState(): Promise<PageState>;
+  /**
+   * Pull a page out into its own window — the 「放大」 button.
+   *
+   * This moves the live view, it does not reload the site: a half-written answer
+   * keeps writing, and the session is the same one. Closing that window (or
+   * pressing 吸附回去) puts it back.
+   */
+  detachPage(sourceId?: string): Promise<PageState>;
+  /** Put the detached page back into the main window. */
+  reattachPage(): Promise<PageState>;
+  /**
+   * Re-read the page and repair selectors that no longer match.
+   *
+   * Runs in the page, validates the proposal against a real probe, and persists
+   * only what measurably fixed something. Safe to press on a healthy page: it
+   * reports that nothing needed changing.
+   */
+  learnSelectors(sourceId?: string): Promise<LearnSelectorsReport>;
+
   // streams
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
   onDeepSeekEvent(callback: (event: DeepSeekEvent) => void): () => void;
   onLayoutChanged(callback: (info: LayoutInfo) => void): () => void;
   onSourcesChanged(callback: (state: SourcesState) => void): () => void;
+  onPageChanged(callback: (state: PageState) => void): () => void;
   onConversationEvent(callback: (event: ConversationEvent) => void): () => void;
 }
 

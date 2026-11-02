@@ -6,6 +6,7 @@ import type {
   DeepSeekEvent,
   DeepSeekStatus,
   LayoutInfo,
+  PageState,
   PermissionPreset,
   SourcesState,
   ViewBoundsMap
@@ -19,7 +20,7 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { TaskManager } from './task-manager';
-import { DeepSeekAdapter, createElectronDriver } from './deepseek-adapter';
+import { DeepSeekAdapter, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, SELECTORS, type PageProbe } from './deepseek-adapter';
 import { ChannelRegistry } from './channels/registry';
 import { WebPageChannel } from './channels/web-page';
 import { CHATGPT_HOSTS, CHATGPT_SELECTORS } from './channels/chatgpt';
@@ -30,6 +31,15 @@ import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import { findSource, isAllowedSourceUrl, PAGE_SOURCES, type PageSource } from '../shared/sources';
+import { mergeProfile, SelectorStore } from './selector-profile';
+import { confirmRepairs, proposeRepairs } from '../shared/selectors';
+import type {
+  DiscoveredSelectors,
+  LearnSelectorsReport,
+  LearnedRole,
+  SelectorProfile,
+  SelectorRole
+} from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
 
 let win: BrowserWindow | null = null;
@@ -72,6 +82,57 @@ let preferredSplit: number | null = null;
  */
 let draggingPage = false;
 
+/**
+ * The page that has been pulled out into its own window, if any.
+ *
+ * A `WebContentsView` can only have one parent, so "放大" is literally a
+ * re-parent: the view leaves the main window's contentView and joins a second
+ * window's. The page inside keeps running — same webContents, same session,
+ * same scroll position — which is the point. Closing that window puts it back.
+ */
+let detached: { window: BrowserWindow; sourceId: string } | null = null;
+
+/** Height of the toolbar drawn above the page inside a detached window. */
+const DETACHED_BAR_HEIGHT = 40;
+
+/**
+ * Learned selectors, per source and per host.
+ *
+ * Created in `whenReady` because it lives in the user-data directory, and read
+ * on every probe: the profile is resolved at call time so a repair takes effect
+ * on the next question without rebuilding any adapter.
+ */
+let selectorStore: SelectorStore | null = null;
+
+function baseProfile(sourceId: string): SelectorProfile {
+  return sourceId === 'chatgpt' ? CHATGPT_SELECTORS : SELECTORS;
+}
+
+function hostOf(view: WebContentsView | undefined): string {
+  if (!view) return '';
+  try {
+    return new URL(view.webContents.getURL()).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The selector profile for a source right now.
+ *
+ * Built-ins first, then whatever was learned for this exact host (see
+ * `mergeProfile`). A page sitting on a login host gets the built-in profile and
+ * nothing else, so a repair done on the chat page cannot leak into the sign-in
+ * flow.
+ */
+function selectorsFor(sourceId: string): SelectorProfile {
+  const base = baseProfile(sourceId);
+  const view = views.get(sourceId);
+  const host = hostOf(view);
+  if (!selectorStore || !host) return base;
+  return mergeProfile(base, selectorStore.forHost(sourceId, host));
+}
+
 let store: AgentStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
@@ -80,7 +141,7 @@ let conversations: ConversationRunner;
 // shared/sources.ts, so "which page does the agent talk to" is one line.
 const adapter = new DeepSeekAdapter(() => {
   const view = views.get('deepseek');
-  return view ? createElectronDriver(view) : null;
+  return view ? createElectronDriver(view, () => selectorsFor('deepseek')) : null;
 });
 
 /**
@@ -94,7 +155,7 @@ const adapter = new DeepSeekAdapter(() => {
 const chatgptAdapter = new DeepSeekAdapter(
   () => {
     const view = views.get('chatgpt');
-    return view ? createElectronDriver(view, CHATGPT_SELECTORS) : null;
+    return view ? createElectronDriver(view, () => selectorsFor('chatgpt')) : null;
   },
   { hosts: CHATGPT_HOSTS, siteLabel: 'ChatGPT' }
 );
@@ -145,6 +206,10 @@ function layout() {
   const offstage = computePageBounds(width, height, split, { parked: true });
 
   for (const [id, view] of views) {
+    // A detached page belongs to another window now. Touching its bounds here
+    // would drag it back into the main window's coordinate space while it is
+    // being displayed somewhere else.
+    if (detached?.sourceId === id) continue;
     // Only the active source is on screen, and never while dragging: an
     // offscreen-but-visible view on the boundary still eats the pointer.
     //
@@ -203,6 +268,272 @@ function sourcesState(): SourcesState {
 
 function emitSources() {
   win?.webContents.send('sources:changed', sourcesState());
+}
+
+/** Which page (if any) is living in its own window. */
+function pageState(): PageState {
+  return { detachedId: detached?.sourceId ?? null };
+}
+
+function emitPageState() {
+  win?.webContents.send('page:changed', pageState());
+}
+
+/**
+ * The toolbar for a detached window.
+ *
+ * A `WebContentsView` paints over its window's own document, so the bar only
+ * shows in the band the view does not cover. `-webkit-app-region: drag` is what
+ * makes that band work as a title bar under `hiddenInset` — without it the
+ * window cannot be moved at all, which is a trap a frameless window sets for
+ * every first attempt at this.
+ *
+ * The button closes the window, and the main process listens for `closed`. That
+ * is deliberately the only mechanism: the red traffic light, Cmd+W and the
+ * button then all mean the same thing, so there is no second path to keep in
+ * sync.
+ */
+function detachedDocument(source: PageSource): string {
+  const label = source.label.replace(/[<>&]/g, '');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${label}</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; }
+  body { font: 12px/1.4 -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; color: #2b2b2b; }
+  .bar {
+    position: fixed; inset: 0 0 auto 0; height: ${String(DETACHED_BAR_HEIGHT)}px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 12px 0 84px; box-sizing: border-box;
+    background: #f7f7f5; border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    -webkit-app-region: drag; user-select: none;
+  }
+  .name { font-weight: 600; letter-spacing: 0.02em; }
+  .hint { color: #8a8a86; }
+  .spacer { flex: 1; }
+  button {
+    -webkit-app-region: no-drag; font: inherit; height: 24px; padding: 0 12px;
+    border-radius: 6px; border: 1px solid rgba(0, 0, 0, 0.16); background: #fff;
+    color: #2b2b2b; cursor: pointer;
+  }
+  button:hover { background: #efefec; }
+</style></head><body>
+<div class="bar">
+  <span class="name">${label}</span>
+  <span class="hint">独立窗口 · 关闭即吸附回去</span>
+  <span class="spacer"></span>
+  <button id="back" type="button">吸附回去</button>
+</div>
+<script>document.getElementById('back').addEventListener('click', function () { window.close(); });</script>
+</body></html>`;
+}
+
+/**
+ * Pull a page out into its own window.
+ *
+ * This is a re-parent, not a copy: `WebContentsView` has exactly one parent, so
+ * the same webContents moves from the main window's contentView to the new
+ * window's. The page keeps its session, its cookies, its scroll position and
+ * any answer it is in the middle of writing — which is why this is a move and
+ * not a second view onto the same URL.
+ */
+function detachSource(id: string): PageState {
+  const source = findSource(id);
+  const view = views.get(id);
+  if (!source || !view) throw new Error('页面尚未创建');
+  if (!win) throw new Error('窗口尚未创建');
+  if (detached?.sourceId === id) return pageState();
+  if (detached) reattachSource();
+
+  const [width, height] = win.getContentSize();
+  const frame = new BrowserWindow({
+    width: Math.max(900, Math.round(width * 0.8)),
+    height: Math.max(680, Math.round(height * 0.92)),
+    minWidth: 520,
+    minHeight: 400,
+    title: `${source.label} · 独立窗口`,
+    // Keeps the traffic lights and makes the page's own bar the title bar.
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#ffffff',
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+  });
+
+  win.contentView.removeChildView(view);
+  frame.contentView.addChildView(view);
+  // The remembered geometry belongs to the main window. Forgetting it is what
+  // makes the next `layout()` push real numbers instead of deciding nothing
+  // changed.
+  applied.delete(id);
+
+  const place = () => {
+    if (frame.isDestroyed() || view.webContents.isDestroyed()) return;
+    const [w, h] = frame.getContentSize();
+    view.setBounds({
+      x: 0,
+      y: DETACHED_BAR_HEIGHT,
+      width: Math.max(1, w),
+      height: Math.max(1, h - DETACHED_BAR_HEIGHT)
+    });
+    view.setVisible(true);
+  };
+  place();
+  frame.on('resize', place);
+  frame.on('closed', () => {
+    // `reattachSource` clears `detached` before destroying the window, so this
+    // branch only runs for a close the user performed.
+    if (detached?.window !== frame) return;
+    reattachSource();
+  });
+
+  detached = { window: frame, sourceId: id };
+  void frame.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(detachedDocument(source))}`);
+  layout();
+  emitPageState();
+  return pageState();
+}
+
+/** Put a detached page back where it came from. */
+function reattachSource(): PageState {
+  if (!detached) return pageState();
+  const { window: frame, sourceId } = detached;
+  detached = null;
+
+  const view = views.get(sourceId);
+  if (view && !view.webContents.isDestroyed() && win && !win.isDestroyed()) {
+    if (!frame.isDestroyed()) frame.contentView.removeChildView(view);
+    win.contentView.addChildView(view);
+    applied.delete(sourceId);
+  }
+  layout();
+  if (!frame.isDestroyed()) frame.destroy();
+  emitPageState();
+  return pageState();
+}
+
+/**
+ * Run a script in the page with a deadline.
+ *
+ * `executeJavaScript` has no timeout of its own, and a page that is mid-load can
+ * leave the promise pending for tens of seconds. A button that hangs forever is
+ * the exact failure this app keeps having to apologise for, so a repair that
+ * cannot finish has to fail out loud instead.
+ */
+function runInPage<T>(view: WebContentsView, script: string, label: string, timeoutMs = 8000): Promise<T> {
+  const deadline = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`${label}超时（${String(timeoutMs / 1000)} 秒），页面可能卡住了`)), timeoutMs)
+  );
+  return Promise.race([view.webContents.executeJavaScript(script, true) as Promise<T>, deadline]);
+}
+
+/**
+ * Re-read the page and repair the selectors that stopped matching.
+ *
+ * The sequence is: discover from the live DOM, compare against what the current
+ * profile can already see, then **prove the proposal with a real probe** before
+ * writing it down. Only the third step makes this a repair instead of a guess —
+ * a selector that matches during discovery can still be useless at question
+ * time (it may match a hidden duplicate, or the node may be replaced on the
+ * next render), and persisting that would turn "the site changed" into "the app
+ * is broken in a new way".
+ *
+ * Roles the built-in profile already handles are never touched: appending a
+ * learned selector for a working role is how a repair becomes a regression.
+ */
+async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport> {
+  const view = views.get(sourceId);
+  if (!view) throw new Error('页面尚未创建');
+  if (view.webContents.isDestroyed()) throw new Error('页面已关闭');
+
+  const label = findSource(sourceId)?.label ?? sourceId;
+  const base = baseProfile(sourceId);
+  const host = hostOf(view);
+  const notes: Record<string, string> = { input: '输入框', sendButton: '发送键', assistant: '回答区域' };
+
+  // Nothing to read yet, and running three scripts against a half-built page is
+  // how this took twenty seconds on a cold start.
+  if (view.webContents.isLoading()) {
+    return {
+      sourceId,
+      learned: [],
+      intact: [],
+      failed: ['input', 'sendButton', 'assistant'],
+      probe: { hasInput: false, hasSendButton: false, messageCount: 0, viewportWidth: 0 },
+      message: `${label}：页面还在加载，等它显示出来再试`
+    };
+  }
+
+  const discovered = await runInPage<DiscoveredSelectors>(view, DISCOVER_SCRIPT, '读取页面结构');
+  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base), '检查页面状态');
+
+  const probe = {
+    hasInput: before.hasInput,
+    hasSendButton: before.hasSendButton,
+    messageCount: before.messageCount,
+    viewportWidth: before.viewportWidth
+  };
+
+  if (before.viewportWidth === 0) {
+    return {
+      sourceId,
+      learned: [],
+      intact: [],
+      failed: ['input', 'sendButton', 'assistant'],
+      probe,
+      message: `${label}：页面还没有尺寸，先让窗口显示出来再试`
+    };
+  }
+
+  // A role is "working" when the current profile can already see it. Note the
+  // asymmetry for `assistant`: zero messages is also what an empty new chat
+  // looks like, so a working chat cannot be told apart from a renamed one until
+  // there is at least one answer on screen.
+  const working = {
+    input: before.hasInput,
+    sendButton: before.hasSendButton,
+    assistant: before.messageCount > 0
+  };
+
+  const proposal = proposeRepairs(working, discovered.roles);
+  const intact: SelectorRole[] = [...proposal.intact];
+  const failed: SelectorRole[] = [...proposal.failed];
+
+  let after = before;
+  if (Object.keys(proposal.candidate).length > 0) {
+    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate)), '验证新选择器');
+  }
+
+  const verdict = confirmRepairs(proposal.candidate, after);
+  failed.push(...verdict.failed);
+
+  const confirmed: Partial<Record<SelectorRole, string[]>> = verdict.confirmed;
+  const learned: LearnedRole[] = verdict.learned.map(role => ({
+    role,
+    selector: confirmed[role]?.[0] ?? '',
+    note: notes[role] ?? role
+  }));
+
+  if (Object.keys(confirmed).length > 0 && selectorStore && host) {
+    const existing = selectorStore.forHost(sourceId, host) ?? {};
+    selectorStore.save(sourceId, host, { ...existing, ...confirmed });
+  }
+
+  probe.hasInput = after.hasInput;
+  probe.hasSendButton = after.hasSendButton;
+  probe.messageCount = after.messageCount;
+
+  const failedText = failed.map(role => notes[role] ?? role).join('、');
+  // "回答区域 still not found" is the wrong thing to say about an empty chat:
+  // there is nothing to calibrate against until the page has one answer on it,
+  // and the input box and send key — the two things that actually gate asking —
+  // are fine.
+  const onlyAssistantPending = failed.length === 1 && failed[0] === 'assistant' && before.messageCount === 0;
+  const message = learned.length
+    ? `${label}：已重新提取 ${String(learned.length)} 项（${learned.map(item => item.note).join('、')}）`
+    : failed.length === 0
+      ? `${label}：现有选择器都还命中，不需要更新`
+      : onlyAssistantPending
+        ? `${label}：输入框和发送键都正常；回答区域要等页面上有一条回答才能校准`
+        : `${label}：${failedText} 仍没找到${before.hasInput ? '' : '，页面可能还没加载完或需要登录'}`;
+
+  return { sourceId, learned, intact, failed, probe, message };
 }
 
 /**
@@ -291,6 +622,10 @@ async function ensureSource(source: PageSource): Promise<WebContentsView> {
 function activateSource(id: string) {
   const source = findSource(id);
   if (!source) throw new Error(`未知来源：${id}`);
+  // Clicking a source's rail button means "show me that page here". A page that
+  // is living in its own window has to come home first, or the pane would stay
+  // empty while the button claims it is active.
+  if (detached?.sourceId === id) reattachSource();
   if (id === activeSourceId && views.has(id)) return;
 
   activeSourceId = id;
@@ -583,6 +918,34 @@ function registerIpc() {
     return sourcesState();
   });
 
+  // ---------------------------------------------------------------- page pane
+  ipcMain.handle('page:state', event => {
+    trustedUiSender(event);
+    return pageState();
+  });
+
+  // 「放大」. Pulls the page into its own window; the reply is the new state so
+  // the button can flip without waiting for the event.
+  ipcMain.handle('page:detach', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const id = typeof raw === 'string' && findSource(raw) ? raw : activeSourceId;
+    return detachSource(id);
+  });
+
+  // 「吸附回去」, and also what happens when the detached window is closed.
+  ipcMain.handle('page:reattach', event => {
+    trustedUiSender(event);
+    return reattachSource();
+  });
+
+  // 「更新样式」. Deliberately explicit: it runs three scripts in the page and
+  // writes to disk, so it must never fire as a side effect of a poll.
+  ipcMain.handle('page:learn-selectors', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const id = typeof raw === 'string' && findSource(raw) ? raw : activeSourceId;
+    return learnSelectorsFor(id);
+  });
+
   // The page views are native, so this is the only honest answer to "is the
   // rail covered?". It exists because that failure is silent: the buttons just
   // stop responding, and nothing throws.
@@ -641,6 +1004,7 @@ function registerIpc() {
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
   tasks = new TaskManager(store, emit);
   orchestrator = new AgentOrchestrator({
     tasks,

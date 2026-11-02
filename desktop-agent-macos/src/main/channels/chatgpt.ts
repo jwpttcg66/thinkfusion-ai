@@ -1,4 +1,4 @@
-import { SELECTORS } from '../deepseek-adapter';
+import type { SelectorProfile } from '../../shared/selectors';
 
 /**
  * ChatGPT's markup, as a selector profile.
@@ -17,7 +17,7 @@ export const CHATGPT_HOSTS: ReadonlySet<string> = new Set([
   'chat.openai.com'
 ]);
 
-export const CHATGPT_SELECTORS: typeof SELECTORS = {
+export const CHATGPT_SELECTORS: SelectorProfile = {
   input: [
     '#prompt-textarea',
     'div[contenteditable="true"][id="prompt-textarea"]',

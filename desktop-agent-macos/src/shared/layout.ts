@@ -64,6 +64,18 @@ export function isSplitUsable(width: number, split: number): boolean {
  */
 export const RAIL_WIDTH = 46;
 
+/**
+ * Height of the strip the renderer draws above the page view.
+ *
+ * The page is a native view painted over the document, so it cannot have a
+ * toolbar of its own — anything above it has to be DOM, and the DOM only shows
+ * through where the view is not. That makes this constant load-bearing: the
+ * main process pushes the view down by exactly this much, and the renderer
+ * draws its strip in exactly this band. They are the same number for the same
+ * reason `--split` is.
+ */
+export const PAGE_HEADER_HEIGHT = 36;
+
 export interface PageBounds {
   x: number;
   y: number;
@@ -88,9 +100,11 @@ export function computePageBounds(
   const pageWidth = Math.max(1, split - PAGE_GUTTER - RAIL_WIDTH);
   return {
     x: options.parked ? width + 4 : width - split + PAGE_GUTTER,
-    y: 0,
+    // The strip above the page belongs to the document. A view that started at
+    // y=0 covered it, which is why the status bar could be drawn but never seen.
+    y: PAGE_HEADER_HEIGHT,
     width: pageWidth,
-    height
+    height: Math.max(1, height - PAGE_HEADER_HEIGHT)
   };
 }
 

@@ -4,6 +4,7 @@ import type {
   AgentTask,
   DeepSeekDiagnostics,
   DeepSeekStatus,
+  PageState,
   PermissionPreset,
   PlanPreview as PlanPreviewType,
   SourcesState
@@ -15,7 +16,7 @@ import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
-import { computeSplit, PAGE_GUTTER, RAIL_WIDTH } from '../../shared/layout';
+import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
@@ -79,6 +80,11 @@ export default function App() {
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', loading: false });
+  const [page, setPage] = useState<PageState>({ detachedId: null });
+  /** True while 「更新样式」 is running its three passes over the page. */
+  const [learning, setLearning] = useState(false);
+  /** What the last repair found, shown in the page bar until it is replaced. */
+  const [styleNote, setStyleNote] = useState<{ text: string; ok: boolean } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -160,6 +166,12 @@ export default function App() {
 
     window.agentAPI.getSources().then(setSources).catch(() => undefined);
     const stopSources = window.agentAPI.onSourcesChanged(setSources);
+
+    // Whether a page is in its own window. The pane is a native view, so an
+    // empty pane and a detached page are the same pixels — this is the only
+    // thing that tells them apart.
+    window.agentAPI.getPageState().then(setPage).catch(() => undefined);
+    const stopPage = window.agentAPI.onPageChanged(setPage);
 
     const stopEvents = window.agentAPI.onAgentEvent(event => {
       if (event.type === 'task.updated') {
@@ -244,6 +256,7 @@ export default function App() {
       stopConversation();
       stopLayout();
       stopSources();
+      stopPage();
     };
   }, []);
 
@@ -637,12 +650,71 @@ export default function App() {
       // the background, and the rail has to switch immediately or it feels
       // broken for exactly as long as the network is slow.
       setSources(await window.agentAPI.setSource(id));
+      // Bringing a detached page to the front brings it home (the main process
+      // does that), so the pane's state has to be re-read or the bar keeps
+      // offering 吸附回来 for a page that is already back.
+      setPage(await window.agentAPI.getPageState());
     } catch (e) {
       setError(errorText(e));
     }
   }
 
+  /**
+   * 「放大」 / 「吸附回来」.
+   *
+   * Detaching moves the live view into its own window, so the only feedback the
+   * main window can give is this bar — the page itself is simply gone from the
+   * pane. The state comes back in the reply rather than only through the event,
+   * so a click flips the button even if the event is missed.
+   */
+  async function toggleDetach() {
+    setStyleNote(null);
+    try {
+      const next = page.detachedId === sources.activeId
+        ? await window.agentAPI.reattachPage()
+        : await window.agentAPI.detachPage(sources.activeId);
+      setPage(next);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  /**
+   * 「更新样式」: re-read the page and repair what stopped matching.
+   *
+   * Runs against the page that is on screen — including one that has been
+   * detached, because it is the same webContents. The result is a sentence, not
+   * a boolean: "已重新提取 2 项" and "没找到输入框，可能需要登录" are different
+   * situations and the user has to be able to tell them apart.
+   */
+  async function refreshSelectors() {
+    if (learning) return;
+    setLearning(true);
+    setStyleNote(null);
+    try {
+      const report = await window.agentAPI.learnSelectors(sources.activeId);
+      setStyleNote({ text: report.message, ok: report.learned.length > 0 || report.failed.length === 0 });
+      // A repair changes whether the channel is usable, so the pill above has to
+      // stop saying "未就绪" the moment the page works again.
+      setChannelStatuses(await window.agentAPI.getChannelStatuses());
+    } catch (e) {
+      setStyleNote({ text: errorText(e), ok: false });
+    } finally {
+      setLearning(false);
+    }
+  }
+
   const showPlan = derived.plan !== null && activeTask?.status === 'awaiting_approval';
+
+  const activeSource = sources.sources.find(source => source.id === sources.activeId) ?? null;
+  const activeChannel = channelStatuses.find(channel => channel.id === sources.activeId) ?? null;
+  /** The page in the pane is the one living in its own window. */
+  const isDetached = page.detachedId !== null && page.detachedId === sources.activeId;
+  const pageStatusText = sources.loading
+    ? '加载中'
+    : activeChannel?.available
+      ? '就绪'
+      : (activeChannel?.detail ?? '未就绪');
 
   return (
     <div className="app">
@@ -859,6 +931,46 @@ export default function App() {
           stands in for the page while the real view is parked offscreen. */}
       {split > 0 && (
         <>
+          {/* The strip above the page. It has to be DOM: the page is a native
+              view painted over this document, so anything drawn on top of it is
+              invisible. The main process pushes the view down by exactly this
+              height, and the two numbers come from the same constant. */}
+          <div
+            className="page-bar"
+            style={{ right: RAIL_WIDTH, width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH), height: PAGE_HEADER_HEIGHT }}
+          >
+            <span
+              className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
+              aria-hidden="true"
+            />
+            <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
+            <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
+            {styleNote && (
+              <span className={`page-note${styleNote.ok ? ' ok' : ' warn'}`} title={styleNote.text}>
+                {styleNote.text}
+              </span>
+            )}
+            <span className="page-actions">
+              <button
+                className="page-btn"
+                type="button"
+                onClick={toggleDetach}
+                disabled={sources.loading && !isDetached}
+                title={isDetached ? '把页面放回窗口' : '把页面放大到独立窗口'}
+              >
+                {isDetached ? '吸附回来' : '放大'}
+              </button>
+              <button
+                className="page-btn"
+                type="button"
+                onClick={refreshSelectors}
+                disabled={learning}
+                title="网页改版后重新提取选择器，修好提问与读取回答"
+              >
+                {learning ? '提取中…' : '更新样式'}
+              </button>
+            </span>
+          </div>
           <div
             className={`page-divider${draggingPage ? ' dragging' : ''}`}
             role="separator"
@@ -874,6 +986,23 @@ export default function App() {
           {draggingPage && (
             <div className="page-ghost" style={{ width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH) }}>
               <span>松开以应用 · {Math.round(split)} px</span>
+            </div>
+          )}
+          {/* A detached page leaves the pane empty, and an empty pane is
+              indistinguishable from a broken one. This says which it is, and
+              carries the way back for anyone who closed the other window's bar. */}
+          {isDetached && !draggingPage && (
+            <div
+              className="page-detached"
+              style={{ right: RAIL_WIDTH, width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH), top: PAGE_HEADER_HEIGHT }}
+            >
+              <div className="page-detached-card">
+                <p className="page-detached-title">{activeSource?.label ?? '这个页面'}在独立窗口里</p>
+                <p className="page-detached-hint">页面还在运行，同一个登录、同一段回答。关掉那个窗口就会回到这里。</p>
+                <button className="btn" type="button" onClick={toggleDetach}>
+                  吸附回来
+                </button>
+              </div>
             </div>
           )}
         </>

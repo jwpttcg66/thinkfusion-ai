@@ -158,7 +158,7 @@ Requirements: macOS (Apple Silicon), Node.js ≥ 22.12, Electron 45.
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # protocol 24 + adapter 27 + state machine 8
+npm test          # 120 offline assertions, see Tests below
 npm run dev
 ```
 
@@ -169,19 +169,23 @@ Live checks (app already running and signed in):
 
 ```bash
 npm run start:debug                     # start with a CDP port
+npm run check:pane                      # page status bar, 放大 / 吸附回来, 更新样式
+npm run check:sources                   # the rail really switches pages
 npm run check:layout                    # split alignment + app column geometry
 npm run check:drag                      # full drag interaction
 npm run check:new-task                  # "new task" gives visible feedback
+npm run check:conversation              # channel readiness and routing (sends nothing)
 npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 ```
 
 ## Tests
 
-- **Offline, 59 assertions**: protocol 24, page-channel timing 27, state machine 8.
-  CI runs these on every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 50 assertions**: split layout 15, app column 9, drag 16, new-task feedback 10. These
-  need a running app and a signed-in page, so they are run by hand; the scripts read real state
-  over CDP instead of pixels.
+- **Offline, 120 assertions**: protocol 24, page-channel timing 34, synthesis 16, selector
+  repair 10, conversation runner 10, intent 9, page text 9, state machine 8. CI runs these on
+  every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+- **Live, 113 assertions**: page pane 23, sources 26, split layout 16, app column 10, drag 16,
+  conversation 12, new-task feedback 10. These need a running app and a signed-in page, so they
+  are run by hand; the scripts read real state over CDP instead of pixels.
 - What these tests **cannot** prove is written down in
   [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) — that list is part of the deliverable.
 

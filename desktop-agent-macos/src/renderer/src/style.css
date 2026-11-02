@@ -979,6 +979,144 @@ button:disabled {
 
 /* ------------------------------- page split ------------------------------ */
 
+/* The strip above the page.
+   It exists because the page is a native view: anything drawn over it is
+   invisible, so a toolbar has to live in the band the view does not cover. The
+   main process pushes the view down by PAGE_HEADER_HEIGHT for exactly this
+   reason, and `--split` still measures the whole pane. */
+.page-bar {
+  position: fixed;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: var(--bg-side);
+  border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--text-2);
+  z-index: 44;
+  user-select: none;
+}
+
+.page-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+}
+
+.page-dot.ok {
+  background: #1f9d55;
+}
+
+.page-dot.warn {
+  background: #d9822b;
+}
+
+.page-dot.pending {
+  background: var(--accent);
+  animation: page-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes page-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.page-name {
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.page-status {
+  color: var(--text-3);
+  white-space: nowrap;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The result of 「更新样式」. A sentence, because "worked" and "you are not
+   logged in" are different problems and the button cannot say both. */
+.page-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.page-note.ok {
+  color: #1f7a44;
+}
+
+.page-note.warn {
+  color: #a8611f;
+}
+
+.page-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.page-btn {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The pane while its page is in another window. Without this the pane is simply
+   blank, which is what a crashed page looks like. */
+.page-detached {
+  position: fixed;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-side);
+  border-left: 1px solid var(--line);
+  z-index: 25;
+}
+
+.page-detached-card {
+  max-width: 300px;
+  text-align: center;
+  color: var(--text-2);
+}
+
+.page-detached-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.page-detached-hint {
+  margin: 0 0 14px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
 /* The boundary with the native page view. It fills the gutter between the app
    column and the page, which makes it the only place the drag can start: the
    page view's left edge is where the gutter ends, so aiming at the seam hits
