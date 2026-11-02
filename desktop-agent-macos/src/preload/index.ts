@@ -55,6 +55,7 @@ const api: AgentApi = {
   getPageState: () => ipcRenderer.invoke('page:state'),
   detachPage: (sourceId?: string) => ipcRenderer.invoke('page:detach', sourceId),
   reattachPage: () => ipcRenderer.invoke('page:reattach'),
+  setPageCollapsed: (collapsed: boolean) => ipcRenderer.invoke('page:set-collapsed', collapsed),
   learnSelectors: (sourceId?: string) => ipcRenderer.invoke('page:learn-selectors', sourceId),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);

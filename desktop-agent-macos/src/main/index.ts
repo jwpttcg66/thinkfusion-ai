@@ -29,10 +29,11 @@ import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
-import { computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
+import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import { findSource, isAllowedSourceUrl, PAGE_SOURCES, type PageSource } from '../shared/sources';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
+import { ICON_DOCK_BACK_PATHS, iconSvg } from '../shared/icons';
 import type {
   DiscoveredSelectors,
   LearnSelectorsReport,
@@ -81,6 +82,17 @@ let preferredSplit: number | null = null;
  * the renderer draws a placeholder where it will land.
  */
 let draggingPage = false;
+
+/**
+ * True while the page pane is folded shut.
+ *
+ * Not "split = 0". The split is a share of the window; folding is a visibility
+ * switch. Keeping them apart is what lets the folded page keep the real box it
+ * was primed with — a view handed a zero-width rectangle loses its viewport, and
+ * a page with no viewport cannot answer anything. So a folded page is parked
+ * offscreen and hidden, exactly like a page whose source is not active.
+ */
+let pageCollapsed = false;
 
 /**
  * The page that has been pulled out into its own window, if any.
@@ -215,8 +227,10 @@ function layout() {
     //
     // The parked view keeps the viewport it was given while it was on screen
     // (`primeViewports`), so it stays askable in the background even though it
-    // is not laid out against the current split.
-    const onScreen = id === activeSourceId && !draggingPage;
+    // is not laid out against the current split. A folded pane is the same
+    // situation, which is why it goes through this branch rather than through a
+    // zero-width bounds.
+    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed;
     const bounds = onScreen ? shown : offstage;
     const last = applied.get(id);
     if (!last || last.x !== bounds.x || last.y !== bounds.y || last.width !== bounds.width || last.height !== bounds.height) {
@@ -230,7 +244,23 @@ function layout() {
     }
   }
 
-  win.webContents.send('layout:changed', { split } satisfies LayoutInfo);
+  win.webContents.send('layout:changed', layoutInfo());
+}
+
+/**
+ * What the renderer needs to draw the boundary.
+ *
+ * While folded the reservation is the rail plus the stub, not zero: the app
+ * column has to stop before the rail or the source buttons end up painted over
+ * the composer. `collapsed` is what tells the renderer the small number means
+ * "no page here" rather than "a 76px page".
+ */
+function layoutInfo(): LayoutInfo {
+  const width = win ? win.getContentSize()[0] : 0;
+  return {
+    split: pageCollapsed ? collapsedSplit() : computeSplit(width, preferredSplit),
+    collapsed: pageCollapsed
+  };
 }
 
 /**
@@ -272,11 +302,31 @@ function emitSources() {
 
 /** Which page (if any) is living in its own window. */
 function pageState(): PageState {
-  return { detachedId: detached?.sourceId ?? null };
+  return { detachedId: detached?.sourceId ?? null, collapsed: pageCollapsed };
 }
 
 function emitPageState() {
   win?.webContents.send('page:changed', pageState());
+}
+
+/**
+ * Fold the page pane away, or bring it back — the chevron at the end of the bar.
+ *
+ * The view is hidden, never resized. A `WebContentsView` that is handed a
+ * zero-width rectangle loses the viewport `primeViewports` gave it, and every
+ * element in the page then measures zero — the channel would report "找不到输入框"
+ * about a page that is perfectly fine, and the next question would go nowhere.
+ * Parking it offscreen keeps the box and drops only the painting.
+ *
+ * Folding is allowed while a page is detached: the pane is empty in that case
+ * anyway, and refusing would mean the bar has one button that sometimes lies.
+ */
+function setCollapsed(next: boolean): PageState {
+  if (next === pageCollapsed) return pageState();
+  pageCollapsed = next;
+  layout();
+  emitPageState();
+  return pageState();
 }
 
 /**
@@ -309,18 +359,22 @@ function detachedDocument(source: PageSource): string {
   .name { font-weight: 600; letter-spacing: 0.02em; }
   .hint { color: #8a8a86; }
   .spacer { flex: 1; }
+  /* Same 24px square as the main window's page bar, and the same glyph: the two
+     windows perform the same action, so they must not look different. */
   button {
-    -webkit-app-region: no-drag; font: inherit; height: 24px; padding: 0 12px;
-    border-radius: 6px; border: 1px solid rgba(0, 0, 0, 0.16); background: #fff;
-    color: #2b2b2b; cursor: pointer;
+    -webkit-app-region: no-drag; display: grid; place-items: center;
+    width: 24px; height: 24px; padding: 0; border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.16); background: #fff;
+    color: #6b6b6b; cursor: pointer;
   }
-  button:hover { background: #efefec; }
+  button:hover { background: #efefec; color: #1a1a1a; }
+  button svg { display: block; }
 </style></head><body>
 <div class="bar">
   <span class="name">${label}</span>
   <span class="hint">独立窗口 · 关闭即吸附回去</span>
   <span class="spacer"></span>
-  <button id="back" type="button">吸附回去</button>
+  <button id="back" type="button" aria-label="吸附回去" title="吸附回去">${iconSvg(ICON_DOCK_BACK_PATHS)}</button>
 </div>
 <script>document.getElementById('back').addEventListener('click', function () { window.close(); });</script>
 </body></html>`;
@@ -405,6 +459,28 @@ function reattachSource(): PageState {
   layout();
   if (!frame.isDestroyed()) frame.destroy();
   emitPageState();
+
+  // Force one real resize after the move.
+  //
+  // A view that has just changed parents does not always re-lay-out its page:
+  // the native frame takes the new bounds while the document inside keeps the
+  // viewport of the window it came from, so a page returns from 1248px wide
+  // still laid out at 1248 inside a 599px pane. It is intermittent — it depends
+  // on whether the destination window happens to be painting at that moment —
+  // and it never heals on its own, because every later `setBounds` pushes the
+  // same numbers and Chromium sees no change. Two calls one pixel apart is the
+  // cheapest thing that is guaranteed to be a change.
+  if (view && !view.webContents.isDestroyed() && win && !win.isDestroyed()) {
+    const [width, height] = win.getContentSize();
+    const target = computePageBounds(width, height, computeSplit(width, preferredSplit));
+    view.setBounds({ ...target, width: Math.max(1, target.width - 1) });
+    setTimeout(() => {
+      if (view.webContents.isDestroyed()) return;
+      view.setBounds(target);
+      applied.set(sourceId, { ...target, visible: true });
+    }, 32);
+  }
+
   return pageState();
 }
 
@@ -938,6 +1014,13 @@ function registerIpc() {
     return reattachSource();
   });
 
+  // 「收起」/「展开」. The page keeps running while folded — this only stops
+  // painting it and gives the width back to the app column.
+  ipcMain.handle('page:set-collapsed', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return setCollapsed(raw === true);
+  });
+
   // 「更新样式」. Deliberately explicit: it runs three scripts in the page and
   // writes to disk, so it must never fire as a side effect of a poll.
   ipcMain.handle('page:learn-selectors', async (event, raw: unknown) => {
@@ -958,8 +1041,7 @@ function registerIpc() {
 
   ipcMain.handle('app:layout', event => {
     trustedUiSender(event);
-    const [width] = win!.getContentSize();
-    return { split: computeSplit(width, preferredSplit) } satisfies LayoutInfo;
+    return layoutInfo();
   });
 
   // Dragging the divider. The renderer only proposes a width; the clamp lives
@@ -970,7 +1052,7 @@ function registerIpc() {
     const [width] = win!.getContentSize();
     preferredSplit = computeSplit(width, value);
     layout();
-    return { split: preferredSplit } satisfies LayoutInfo;
+    return layoutInfo();
   });
 
   // Told when a drag starts and ends so the page view can step out of the way.

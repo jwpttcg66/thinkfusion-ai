@@ -314,6 +314,15 @@ export interface DeepSeekDiagnostics {
 /** Width of the pane reserved for the embedded page, in CSS pixels. */
 export interface LayoutInfo {
   split: number;
+  /**
+   * True while the page pane is folded away.
+   *
+   * `split` alone cannot say it: while folded the right edge still has to
+   * reserve the rail and the stub, so the number is small but not zero, and a
+   * renderer that only compared it to zero would draw a page bar over a pane
+   * that is not there.
+   */
+  collapsed: boolean;
 }
 
 /**
@@ -338,6 +347,15 @@ export interface SourcesState {
  */
 export interface PageState {
   detachedId: string | null;
+  /**
+   * True while the pane is folded shut.
+   *
+   * Separate from `detachedId` on purpose: a folded page is still *here* — the
+   * same view, the same viewport, still askable — it is simply not painted. A
+   * detached page is somewhere else. Folding one does not detach it, and
+   * unfolding must not reload anything.
+   */
+  collapsed: boolean;
 }
 
 /** Where one native page view currently sits, in window coordinates. */
@@ -475,6 +493,14 @@ export interface AgentApi {
   detachPage(sourceId?: string): Promise<PageState>;
   /** Put the detached page back into the main window. */
   reattachPage(): Promise<PageState>;
+  /**
+   * Fold the page pane away, or unfold it — the chevron on the page bar.
+   *
+   * Folding hides the view without shrinking it, so the page keeps the viewport
+   * it was given and can still be asked questions while the app column uses the
+   * full window. Unfolding restores the width the user had dragged to.
+   */
+  setPageCollapsed(collapsed: boolean): Promise<PageState>;
   /**
    * Re-read the page and repair selectors that no longer match.
    *

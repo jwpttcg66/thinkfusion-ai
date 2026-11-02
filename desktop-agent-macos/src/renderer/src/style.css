@@ -1079,6 +1079,68 @@ button:disabled {
   display: block;
 }
 
+/* The pane, folded shut.
+   A strip rather than nothing: the page inside is still alive and still
+   answerable, so folding it must not look like closing it. It also has to be
+   clickable, which is the whole reason it keeps 30px instead of disappearing —
+   the control that folded the pane lived inside the pane. */
+.page-stub {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 12px;
+  background: var(--bg-side);
+  border-left: 1px solid var(--line);
+  z-index: 44;
+  user-select: none;
+}
+
+.page-stub-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text-2);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.page-stub-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.page-stub-btn svg {
+  display: block;
+}
+
+/* On its side, because 30px of width cannot hold a word: the name is the one
+   thing worth spending the column on. `ellipsis` needs the nowrap to apply in
+   vertical writing, so both are here. */
+.page-stub-label {
+  writing-mode: vertical-rl;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--text-3);
+}
+
+.page-stub .page-dot {
+  margin-top: auto;
+}
+
 /* The pane while its page is in another window. Without this the pane is simply
    blank, which is what a crashed page looks like. */
 .page-detached {

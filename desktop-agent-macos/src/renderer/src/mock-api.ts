@@ -159,17 +159,18 @@ export function createMockApi(): AgentApi {
     // Mirrors the main process's split so the browser preview reserves the same
     // column the native page view would occupy. There is no native view here,
     // so a drag just reports the clamped width straight back.
-    getLayout: async () => ({ split: computeSplit(window.innerWidth, null) }),
-    setSplit: async (value: number) => ({ split: computeSplit(window.innerWidth, value) }),
+    getLayout: async () => ({ split: computeSplit(window.innerWidth, null), collapsed: false }),
+    setSplit: async (value: number) => ({ split: computeSplit(window.innerWidth, value), collapsed: false }),
     setPageDragging: async () => undefined,
     getSources: async () => ({ sources: [...PAGE_SOURCES], activeId: PAGE_SOURCES[0].id, loading: false }),
     setSource: async (id: string) => ({ sources: [...PAGE_SOURCES], activeId: id, loading: false }),
     getViewBounds: async () => ({}),
     // No native views in the browser preview, so a detach is just a flag: the
     // page header still has to render both states.
-    getPageState: async () => ({ detachedId: null }),
-    detachPage: async (sourceId?: string) => ({ detachedId: sourceId ?? PAGE_SOURCES[0].id }),
-    reattachPage: async () => ({ detachedId: null }),
+    getPageState: async () => ({ detachedId: null, collapsed: false }),
+    detachPage: async (sourceId?: string) => ({ detachedId: sourceId ?? PAGE_SOURCES[0].id, collapsed: false }),
+    reattachPage: async () => ({ detachedId: null, collapsed: false }),
+    setPageCollapsed: async (collapsed: boolean) => ({ detachedId: null, collapsed }),
     learnSelectors: async (sourceId?: string) => ({
       sourceId: sourceId ?? PAGE_SOURCES[0].id,
       learned: [],

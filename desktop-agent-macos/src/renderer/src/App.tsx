@@ -17,7 +17,8 @@ import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { StyleReport, type StyleReportData } from './components/StyleReport';
-import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
+import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
+import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_FOLD_PATHS, ICON_UNFOLD_PATHS } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
@@ -29,49 +30,43 @@ interface Derived {
 }
 
 /**
- * The two page-pane actions, as icons.
+ * One page-pane glyph, drawn from shared/icons.ts.
  *
  * Text was wrong here for a structural reason: this bar lives inside the page
  * pane, and the pane can be dragged down to 380px. Two four-character labels ate
  * most of that width and pushed the status out of sight — the one thing the bar
  * exists to show. An icon is a fixed 24px whatever the language.
  *
- * They are drawn rather than borrowed from a font because the distinction has to
- * survive at 13px: outward brackets mean "give this page more room", an arrow
- * returning to a wall means "put it back where it came from". A single
- * expand/collapse glyph pair reads as one button in two states, which is exactly
- * the confusion to avoid — these two do different things to a live page.
+ * The paths come from shared/icons.ts so the detached window's toolbar draws the
+ * same glyphs; that toolbar is a `data:` URL built in the main process and
+ * cannot import a component.
  */
-function IconExpand() {
+function Glyph({ paths }: { paths: readonly string[] }) {
   return (
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
-      <path
-        d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {paths.map(path => (
+        <path
+          key={path}
+          d={path}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
     </svg>
   );
 }
 
-function IconDockBack() {
-  return (
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
-      <path d="M2.5 3v10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path
-        d="M13 8H6.2M9 5.2 6.2 8 9 10.8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+/** 放大：把这个页面交给一整扇窗。 */
+const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
+/** 吸附回来：放回它原来的位置。 */
+const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
+/** 收起：把页面折向右边那条缝。 */
+const IconFold = () => <Glyph paths={ICON_FOLD_PATHS} />;
+/** 展开：把折起来的页面再拉出来。 */
+const IconUnfold = () => <Glyph paths={ICON_UNFOLD_PATHS} />;
 
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
@@ -126,7 +121,7 @@ export default function App() {
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', loading: false });
-  const [page, setPage] = useState<PageState>({ detachedId: null });
+  const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /**
@@ -735,6 +730,24 @@ export default function App() {
   }
 
   /**
+   * 「收起」 / 「展开」.
+   *
+   * The bar is *inside* the pane, so collapsing removes the very control that
+   * was pressed. The state therefore comes back in the reply and the bar is
+   * replaced on the same tick — waiting for the event would leave a bar floating
+   * over a pane that is already gone. The width follows from `layout:changed`,
+   * which reports the rail plus the stub rather than zero, so the app column
+   * still stops short of the source buttons.
+   */
+  async function toggleCollapse() {
+    try {
+      setPage(await window.agentAPI.setPageCollapsed(!page.collapsed));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  /**
    * 「更新样式」: re-read the page and repair what stopped matching.
    *
    * Runs against the page that is on screen — including one that has been
@@ -779,6 +792,8 @@ export default function App() {
   const activeChannel = channelStatuses.find(channel => channel.id === sources.activeId) ?? null;
   /** The page in the pane is the one living in its own window. */
   const isDetached = page.detachedId !== null && page.detachedId === sources.activeId;
+  /** The pane is folded shut; the page is still running, just not painted. */
+  const isCollapsed = page.collapsed;
   const pageStatusText = sources.loading
     ? '加载中'
     : activeChannel?.available
@@ -997,8 +1012,12 @@ export default function App() {
       {/* The native page view is not part of this document, so the boundary
           needs to be drawn here or the two panes look like one broken one.
           It is also the only place the drag can start, and the ghost is what
-          stands in for the page while the real view is parked offscreen. */}
-      {split > 0 && (
+          stands in for the page while the real view is parked offscreen.
+
+          Folded, none of it exists: `split` is then the stub width, and drawing
+          a bar over that 30px strip would put two buttons where there is no
+          page. */}
+      {split > 0 && !isCollapsed && (
         <>
           {/* The strip above the page. It has to be DOM: the page is a native
               view painted over this document, so anything drawn on top of it is
@@ -1035,6 +1054,19 @@ export default function App() {
                 title="网页改版后重新提取选择器，修好提问与读取回答"
               >
                 {learning ? '提取中…' : '更新样式'}
+              </button>
+              {/* Last, and pointing right: it is the one action that removes the
+                  other two, so it belongs at the end of the row rather than
+                  between them. */}
+              <button
+                className="page-btn icon"
+                type="button"
+                onClick={toggleCollapse}
+                data-action="collapse"
+                aria-label="收起网页"
+                title="收起：把网页折起来，让应用占满窗口"
+              >
+                <IconFold />
               </button>
             </span>
           </div>
@@ -1073,6 +1105,32 @@ export default function App() {
             </div>
           )}
         </>
+      )}
+
+      {/* Folded. Not `display: none`: a pane that vanishes leaves nothing to
+          click and no sign that the page is still there — and it is, with the
+          same login and the same half-written answer. This strip is both the
+          way back and the reminder. */}
+      {isCollapsed && (
+        <div className="page-stub" style={{ right: RAIL_WIDTH, width: PAGE_STUB_WIDTH }}>
+          <button
+            className="page-stub-btn"
+            type="button"
+            onClick={toggleCollapse}
+            data-action="expand"
+            aria-label="展开网页"
+            title="展开：把网页放回来"
+          >
+            <IconUnfold />
+          </button>
+          {/* Turned on its side: a 30px column can still say which page it is
+              hiding, and the name is the thing worth keeping. */}
+          <span className="page-stub-label">{activeSource?.label ?? '内嵌页面'}</span>
+          <span
+            className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
+            aria-hidden="true"
+          />
+        </div>
       )}
 
       <SourceRail

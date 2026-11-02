@@ -67,7 +67,13 @@ checkTrue(
 // A source that has never been clicked must still be askable. When it is not,
 // the pill quietly says one channel fewer and the comparison silently becomes a
 // single answer — which is exactly what a 0x0 page viewport used to cause.
-check('每个已配置的来源都被算作可用通道', usable, channelStatuses.length);
+//
+// Signed out is not that failure. A page sitting on a login screen is honestly
+// unavailable, and counting it as a regression would make this check depend on
+// whoever ran it last having a live session. What must never happen is a channel
+// that is down for a *structural* reason: no viewport, no input, no send button.
+const broken = channelStatuses.filter(status => !status.available && !/登录/.test(status.detail ?? ''));
+check('没有哪个来源因为页面结构而不可用', broken.map(status => status.id).join(','), '');
 for (const status of channelStatuses.filter(item => !item.available)) {
   console.log(`  → ${status.id} 不可用：${status.detail ?? '没有说明'}`);
 }

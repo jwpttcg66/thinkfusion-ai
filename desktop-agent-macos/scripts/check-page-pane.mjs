@@ -1,5 +1,5 @@
 /**
- * Checks the strip above the embedded page, and 放大 / 吸附回来.
+ * Checks the strip above the embedded page, and 放大 / 吸附回来 / 收起.
  *
  * The failure this exists for is not visual: the page is a native view painted
  * over the document, so a bar drawn in the wrong place is *invisible* rather
@@ -13,14 +13,21 @@
  * screenshot, not a bigger page. So the assertion is on `window.innerWidth` of
  * the page itself, not on the window size.
  *
+ * The fold half is the mirror image: folding must give the width back to the app
+ * *without* taking the page's viewport away. A hidden view that was shrunk to
+ * zero loses it, and the channel then reports "找不到输入框" about a page that is
+ * perfectly healthy — so the assertion is that the box is unchanged and only the
+ * painting stopped.
+ *
  * Usage: node scripts/check-page-pane.mjs   (app running with --remote-debugging-port=9222)
  */
 import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
-/** Mirrors RAIL_WIDTH / PAGE_GUTTER / PAGE_HEADER_HEIGHT in src/shared/layout.ts. */
+/** Mirrors RAIL_WIDTH / PAGE_GUTTER / PAGE_HEADER_HEIGHT / PAGE_STUB_WIDTH in src/shared/layout.ts. */
 const RAIL = 46;
 const GUTTER = 10;
 const HEADER = 36;
+const STUB = 30;
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -53,12 +60,39 @@ const readPane = () =>
       // a person using one would get.
       buttons: [...document.querySelectorAll('.page-btn')].map(button => button.getAttribute('aria-label') ?? button.textContent),
       iconButton: Boolean(document.querySelector('.page-btn.icon svg')),
+      // The path data, not just the label: a label can flip while the drawing
+      // stays put, and then the button says "back" but still looks like "grow".
+      // Joined, because the dock-back glyph is two paths. Scoped to the detach
+      // button, because the fold button is an icon too.
+      iconPath: [...document.querySelectorAll('.page-btn[data-action="detach"] path')]
+        .map(path => path.getAttribute('d'))
+        .join('|'),
       iconWidth: (() => {
         const icon = document.querySelector('.page-btn.icon');
         return icon ? Math.round(icon.getBoundingClientRect().width) : 0;
       })(),
+      // The fold button's own glyph, kept apart from iconPath — that one is
+      // "the first icon button", which is 放大.
+      foldPath: [...document.querySelectorAll('.page-btn[data-action="collapse"] path')]
+        .map(path => path.getAttribute('d'))
+        .join('|'),
       placeholder: Boolean(document.querySelector('.page-detached')),
-      hasNote: Boolean(document.querySelector('.page-note'))
+      hasNote: Boolean(document.querySelector('.page-note')),
+      // What the app column reserved for the pane. Read from the computed style
+      // rather than from the --split variable: the variable could be right while
+      // the rule that consumes it is missing, and then the app draws under the
+      // page.
+      appPadding: Number.parseInt(getComputedStyle(document.querySelector('.app')).paddingRight, 10),
+      stub: (() => {
+        const node = document.querySelector('.page-stub');
+        if (!node) return null;
+        const box = node.getBoundingClientRect();
+        return { left: Math.round(box.left), width: Math.round(box.width) };
+      })(),
+      stubLabel: document.querySelector('.page-stub-label')?.textContent ?? '',
+      expandLabel: document.querySelector('.page-stub-btn')?.getAttribute('aria-label') ?? null,
+      expandPath: [...document.querySelectorAll('.page-stub-btn path')].map(path => path.getAttribute('d')).join('|'),
+      railLeft: Math.round(document.querySelector('.source-rail').getBoundingClientRect().left)
     };
   })()`);
 
@@ -89,11 +123,15 @@ if (pane.bar) {
   check('页面视图从页面栏下沿开始', view.y, HEADER);
   check('页面栏高度就是预留的那一条', pane.bar.height, HEADER);
   checkTrue('页面栏与页面视图左边缘对齐', Math.abs(pane.bar.left - view.x) <= 1);
-  checkTrue('页面栏里有两个按钮：放大、更新样式', pane.buttons.join('/') === '放大/更新样式');
-  // The pane can be dragged down to 380px, and two four-character labels used to
+  check('页面栏里有三个按钮：放大、更新样式、收起', pane.buttons.join('/'), '放大/更新样式/收起网页');
+  // 收起 is a third action, not another state of 放大 — so it must not reuse the
+  // four-corner glyph. Its own chevron points at the edge the pane folds toward.
+  checkTrue(`收起画的是朝右的尖角（${pane.foldPath}）`, pane.foldPath.includes('M6 3.2'));
+  checkTrue('收起和放大不是同一个图标', pane.foldPath !== pane.iconPath);  // The pane can be dragged down to 380px, and two four-character labels used to
   // push the status out of view. An icon is a fixed width, so this asserts the
   // width rather than trusting that it stayed small.
   checkTrue('放大是一个图标按钮', pane.iconButton);
+  checkTrue(`放大画的是向外四角（${pane.iconPath}）`, pane.iconPath.includes('M6 2.5H2.5V6'));
   checkTrue(`图标按钮是方形的（${String(pane.iconWidth)}px）`, pane.iconWidth > 0 && pane.iconWidth <= 26);
   checkTrue('页面栏写出了来源', pane.text.includes('DeepSeek'));
   // Any of the real states is fine — the page may be signed out, and this check
@@ -128,6 +166,38 @@ checkTrue('分离后页面仍有真实尺寸', grown > 200);
 
 const barWhenDetached = await readPane();
 checkTrue('按钮变成「吸附回来」', barWhenDetached.buttons[0] === '吸附回来');
+// The glyph has to change too. This is the assertion that would have caught the
+// detached window still showing a text button while the main window showed an
+// icon: same action, two different-looking controls.
+checkTrue(`图标换成箭头回到竖线（${barWhenDetached.iconPath}）`, barWhenDetached.iconPath.includes('M13 8H6.2'));
+checkTrue('两个状态的图标不是同一个', barWhenDetached.iconPath !== pane.iconPath);
+
+// The detached window's own toolbar carries the same button, drawn from the same
+// path data in shared/icons.ts. Its document is a `data:` URL that loads
+// asynchronously, so this waits for it instead of racing it.
+const detachedFrame = (await listTargets()).find(target => target.url.startsWith('data:text/html'));
+if (detachedFrame) {
+  const frameCdp = await connect(detachedFrame);
+  const readBack = () =>
+    frameCdp.evaluate(`(() => {
+      const button = document.getElementById('back');
+      const paths = button ? [...button.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
+      return {
+        ready: paths.length > 0,
+        label: button ? button.getAttribute('aria-label') : null,
+        path: paths.join('|')
+      };
+    })()`);
+  const ready = await waitFor(async () => (await readBack()).ready, true, { timeoutMs: 4000 });
+  const frameBar = await readBack();
+  frameCdp.close();
+  check('独立窗口的工具栏加载出来了', ready, true);
+  checkTrue('独立窗口里的按钮也是图标', frameBar.ready);
+  checkTrue('独立窗口的图标和主窗口一致', frameBar.path.includes('M13 8H6.2'));
+  check('独立窗口的按钮有可读的名字', frameBar.label, '吸附回去');
+} else {
+  checkTrue('独立窗口存在', false);
+}
 
 // ------------------------------------------------------------ reattach
 
@@ -195,6 +265,58 @@ checkTrue('列出的选择器都不是空的', dialog.selectors.every(item => it
 await cdp.evaluate(`document.querySelector('.style-foot .btn').click()`);
 const closed = await waitFor(async () => (await readDialog()).open, false, { timeoutMs: 3000 });
 check('关掉之后弹窗消失', closed, false);
+
+// ------------------------------------------------------------------ fold
+
+// Start from a known state: an earlier run, or the section above, may have left
+// the pane folded.
+await cdp.evaluate('window.agentAPI.setPageCollapsed(false)');
+await sleep(350);
+
+const openPane = await readPane();
+const openView = await viewOf();
+const openViewport = await pageViewport();
+const viewportWidth = await cdp.evaluate('window.innerWidth');
+
+// Press the real button. Folding removes the bar that carries the button, so a
+// click is also the only way to prove the reply arrives before the bar is gone.
+await cdp.evaluate(`document.querySelector('.page-btn[data-action="collapse"]').click()`);
+const folded = await waitFor(async () => (await readPane()).stub !== null, true, { timeoutMs: 3000 });
+check('点「收起」之后页面栏收成一条', folded, true);
+
+const stub = await readPane();
+check('收起后页面栏消失', stub.bar, null);
+check('收起后剩下的是可点的竖条', stub.expandLabel, '展开网页');
+checkTrue(`展开画的是朝左的尖角（${stub.expandPath}）`, stub.expandPath.includes('M10 3.2'));
+checkTrue(`竖条上还写着被收起的页面（${stub.stubLabel}）`, stub.stubLabel.includes('DeepSeek'));
+// The width has to go back to the app, but not all the way: the rail is part of
+// the same reservation, and a zero split would put the app column underneath it.
+check('收起后只留轨道和竖条', stub.split, RAIL + STUB);
+check('收起后应用列排到轨道前', stub.appPadding, RAIL + STUB);
+checkTrue('竖条紧贴轨道左边', stub.stub.left + stub.stub.width <= stub.railLeft + 1);
+
+const foldedView = await viewOf();
+checkTrue(`收起后页面视图挪到窗口外（${String(foldedView.x)} > ${String(viewportWidth)}）`, foldedView.x > viewportWidth);
+// This is the assertion the whole section exists for. Folding must hide the
+// view, not shrink it: a view handed a zero-width rectangle loses the viewport
+// it was primed with, and every element in the page then measures zero.
+check('收起没有把页面视图缩没', foldedView.width, openView.width);
+const foldedViewport = await pageViewport();
+checkTrue('两个状态的页面视口都读得到', openViewport !== null && foldedViewport !== null);
+check('收起后页面自己的视口没变', foldedViewport?.w, openViewport?.w);
+
+await cdp.evaluate(`document.querySelector('.page-stub-btn').click()`);
+const unfolded = await waitFor(async () => (await readPane()).bar !== null, true, { timeoutMs: 3000 });
+check('点展开之后页面栏回来了', unfolded, true);
+
+const backPane = await readPane();
+check('展开后宽度回到收起前', backPane.split, openPane.split);
+check('展开后应用列也回到收起前', backPane.appPadding, openPane.appPadding);
+check('展开后按钮还是那三个', backPane.buttons.join('/'), '放大/更新样式/收起网页');
+
+const backToPane = await viewOf();
+check('展开后页面视图回到原位', backToPane.x, openView.x);
+check('展开后页面视图恢复宽度', backToPane.width, openView.width);
 
 summary();
 cdp.close();
