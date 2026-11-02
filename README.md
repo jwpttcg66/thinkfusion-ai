@@ -122,6 +122,19 @@ The rail is DOM; the page is a native view painted above the DOM. So the view's 
 `RAIL_WIDTH` short of the window edge — forget that and the buttons are invisible and unclickable,
 with no error anywhere. `app:view-bounds` exists so that failure is observable instead of silent.
 
+### The address is yours to change
+
+Every provider is a row in 设置 · 模型 with an address and an on/off switch. Sites move, people run
+regional mirrors, and an address baked into the bundle turns a working channel into a dead one with
+no way back except a new release — so the shipped defaults live in `shared/sources.ts` and the user's
+edits live in `userData/sources.json`, merged by one pure function.
+
+Two rules are enforced in the main process rather than the renderer: an address has to be `https`,
+and **at least one source has to stay on** — the agent needs somewhere to ask. Editing an address
+reloads the same view rather than rebuilding it, because the login belongs to the source id, not to
+the URL. A source that is off is not a channel: it disappears from the rail and from the readiness
+count in the same step.
+
 ### How competing plans are handled
 
 A single reply can contain several candidate plans. Today:
@@ -158,7 +171,7 @@ Requirements: macOS (Apple Silicon), Node.js ≥ 22.12, Electron 45.
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # 120 offline assertions, see Tests below
+npm test          # 138 offline assertions, see Tests below
 npm run dev
 ```
 
@@ -171,6 +184,7 @@ Live checks (app already running and signed in):
 npm run start:debug                     # start with a CDP port
 npm run check:pane                      # page status bar, 放大 / 吸附回来 / 收起, 更新样式
 npm run check:sources                   # the rail really switches pages
+npm run check:settings                  # the account row, 设置, editable addresses, on/off
 npm run check:layout                    # split alignment + app column geometry
 npm run check:drag                      # full drag interaction
 npm run check:new-task                  # "new task" gives visible feedback
@@ -180,12 +194,13 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 
 ## Tests
 
-- **Offline, 120 assertions**: protocol 24, page-channel timing 34, synthesis 16, selector
-  repair 10, conversation runner 10, intent 9, page text 9, state machine 8. CI runs these on
-  every push — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 149 assertions**: page pane 59, sources 26, split layout 16, app column 10, drag 16,
-  conversation 12, new-task feedback 10. These need a running app and a signed-in page, so they
-  are run by hand; the scripts read real state over CDP instead of pixels.
+- **Offline, 138 assertions**: protocol 24, page-channel timing 34, source config 18,
+  synthesis 16, selector repair 10, conversation runner 10, intent 9, page text 9, state
+  machine 8. CI runs these on every push — see
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+- **Live, 178 assertions**: page pane 59, settings 39, sources 27, split layout 16, app column
+  10, drag 16, conversation 12, new-task feedback 10. These need a running app and a signed-in
+  page, so they are run by hand; the scripts read real state over CDP instead of pixels.
 - What these tests **cannot** prove is written down in
   [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) — that list is part of the deliverable.
 

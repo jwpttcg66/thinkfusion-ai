@@ -8,6 +8,7 @@
     "src/shared/**/*.ts",
     "src/main/conversation-runner.ts",
     "src/main/selector-profile.ts",
+    "src/main/source-store.ts",
     "src/main/channels/**/*.ts"
   ]
 }

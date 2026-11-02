@@ -6,7 +6,10 @@ import type {
   PermissionPreset,
   PlanPreview
 } from '../../shared/contracts';
-import { PAGE_SOURCES } from '../../shared/sources';
+import { BUILTIN_SOURCES } from '../../shared/sources';
+
+/** The shipped list, as the preview's starting point. */
+const PAGE_SOURCES = [...BUILTIN_SOURCES];
 import { computeSplit } from '../../shared/layout';
 
 /**
@@ -162,9 +165,53 @@ export function createMockApi(): AgentApi {
     getLayout: async () => ({ split: computeSplit(window.innerWidth, null), collapsed: false }),
     setSplit: async (value: number) => ({ split: computeSplit(window.innerWidth, value), collapsed: false }),
     setPageDragging: async () => undefined,
-    getSources: async () => ({ sources: [...PAGE_SOURCES], activeId: PAGE_SOURCES[0].id, loading: false }),
-    setSource: async (id: string) => ({ sources: [...PAGE_SOURCES], activeId: id, loading: false }),
+    getSources: async () => ({
+      sources: [...PAGE_SOURCES],
+      activeId: PAGE_SOURCES[0].id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
+    setSource: async (id: string) => ({
+      sources: [...PAGE_SOURCES],
+      activeId: id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
     getViewBounds: async () => ({}),
+    // The preview keeps its edits in memory: there is no user-data directory in
+    // a browser tab, and the point of the mock is that the panel renders both
+    // states, not that it survives a reload.
+    saveSource: async (id: string, patch: { url?: string; enabled?: boolean }) => ({
+      sources: PAGE_SOURCES.map(source => (source.id === id ? { ...source, ...patch } : source)),
+      activeId: PAGE_SOURCES[0].id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
+    addSource: async (input: { label: string; url: string }) => ({
+      sources: [
+        ...PAGE_SOURCES,
+        {
+          id: `custom-${input.label}`,
+          label: input.label,
+          glyph: input.label[0] ?? '?',
+          url: input.url,
+          hosts: [],
+          planning: false,
+          enabled: true,
+          custom: true
+        }
+      ],
+      activeId: PAGE_SOURCES[0].id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
+    removeSource: async () => ({
+      sources: [...PAGE_SOURCES],
+      activeId: PAGE_SOURCES[0].id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
+    getIdentity: async () => ({ name: 'local-user', initial: 'L', host: 'localhost' }),
     // No native views in the browser preview, so a detach is just a flag: the
     // page header still has to render both states.
     getPageState: async () => ({ detachedId: null, collapsed: false }),

@@ -7,6 +7,9 @@ const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string 
   { value: 'danger-full-access', label: '完全权限', desc: '受 macOS 用户权限与 TCC 约束' }
 ];
 
+/** The same three labels are shown in 设置 · 通用设置, so they are defined once. */
+export { PERMISSIONS };
+
 function shortPath(path: string): string {
   const parts = path.split('/').filter(Boolean);
   if (parts.length <= 2) return path;

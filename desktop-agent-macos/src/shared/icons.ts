@@ -36,6 +36,28 @@ export const ICON_FOLD_PATHS = ['M6 3.2 10.8 8 6 12.8'];
 /** The same chevron turned around: "bring the folded pane back out". */
 export const ICON_UNFOLD_PATHS = ['M10 3.2 5.2 8 10 12.8'];
 
+/**
+ * A ring, a hub, and eight teeth: 设置.
+ *
+ * The ring is what makes it a gear. A hub with radial ticks — which is what the
+ * first attempt drew — reads as a sun at 13px, and the sun is already taken by
+ * "brightness". Teeth on the outside of a circle read as machinery at any size.
+ */
+export const ICON_GEAR_PATHS = [
+  'M8 3.4a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2',
+  'M8 6.1a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8',
+  'M8 3.4V1.6M8 12.6v1.8M3.4 8H1.6M12.6 8h1.8M4.75 4.75 3.47 3.47M11.25 11.25l1.28 1.28M11.25 4.75l1.28-1.28M4.75 11.25l-1.28 1.28'
+];
+
+/**
+ * A dial with a needle: 页面诊断.
+ *
+ * A full circle rather than an open arc. At 13px the arc's gap closes up and
+ * the whole thing reads as a hook; the closed circle with a needle survives the
+ * size, and it is the shape the app this was modelled on uses.
+ */
+export const ICON_GAUGE_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8', 'M8 8l3.4-3.8'];
+
 /** One `<svg>` for a path list, so both surfaces draw byte-identical glyphs. */
 export function iconSvg(paths: readonly string[], size = 13): string {
   const body = paths

@@ -1,10 +1,12 @@
 import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import type {
   AgentEvent,
   DeepSeekDiagnostics,
   DeepSeekEvent,
   DeepSeekStatus,
+  Identity,
   LayoutInfo,
   PageState,
   PermissionPreset,
@@ -23,14 +25,25 @@ import { TaskManager } from './task-manager';
 import { DeepSeekAdapter, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, SELECTORS, type PageProbe } from './deepseek-adapter';
 import { ChannelRegistry } from './channels/registry';
 import { WebPageChannel } from './channels/web-page';
-import { CHATGPT_HOSTS, CHATGPT_SELECTORS } from './channels/chatgpt';
+import { CHATGPT_SELECTORS } from './channels/chatgpt';
 import { ConversationRunner } from './conversation-runner';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
-import { findSource, isAllowedSourceUrl, PAGE_SOURCES, type PageSource } from '../shared/sources';
+import {
+  isAllowedSourceUrl,
+  makeCustomSource,
+  normalizeSourceUrl,
+  planningSource,
+  resolveSources,
+  sourceById,
+  type PageSource,
+  type SourceOverride,
+  type StoredSources
+} from '../shared/sources';
+import { SourceStore } from './source-store';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
 import { ICON_DOCK_BACK_PATHS, iconSvg } from '../shared/icons';
@@ -54,13 +67,22 @@ let win: BrowserWindow | null = null;
  */
 const views = new Map<string, WebContentsView>();
 /**
+ * The sources in effect right now: shipped defaults merged with the user's file.
+ *
+ * Never mutated in place — `applyStored` replaces the array wholesale so a
+ * reader can never see a half-applied edit (URL updated but hosts not).
+ */
+let sources: PageSource[] = resolveSources();
+/** Where those edits live. Created in `whenReady`, next to the other stores. */
+let sourceStore: SourceStore | null = null;
+/**
  * The source on screen. Only this view is visible; the rest are parked.
  *
  * A parked view keeps the viewport it was primed with (see `primeViewports`) —
  * that is what makes a background channel answerable. Hiding a view before it
  * has ever had a size is the one thing that must not happen.
  */
-let activeSourceId: string = PAGE_SOURCES[0].id;
+let activeSourceId: string = sources[0]?.id ?? 'deepseek';
 /** Last geometry handed to each native view, so `layout()` only pushes changes. */
 const applied = new Map<string, PageBounds & { visible: boolean }>();
 /** True while the active source's view is being created or first loaded. */
@@ -149,33 +171,60 @@ let store: AgentStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
 let conversations: ConversationRunner;
-// The adapter drives the planning source only. Which source that is lives in
-// shared/sources.ts, so "which page does the agent talk to" is one line.
-const adapter = new DeepSeekAdapter(() => {
-  const view = views.get('deepseek');
-  return view ? createElectronDriver(view, () => selectorsFor('deepseek')) : null;
-});
 
 /**
- * The second channel, same driver, different site.
+ * One adapter per source, created on first use.
  *
- * Reusing `DeepSeekAdapter` rather than writing a second page driver is the
- * point of the M1 split: the probe, the send path, the "is this answer mine"
- * logic and the echo stripping are all site-agnostic. Only the hosts and the
- * selector profile differ.
+ * Reusing `DeepSeekAdapter` rather than writing a driver per site is the point
+ * of the M1 split: the probe, the send path, the "is this answer mine" logic
+ * and the echo stripping are all site-agnostic. Only the allowed hosts and the
+ * selector profile differ — and the hosts are passed as a function because the
+ * user can change the URL while the adapter is alive.
  */
-const chatgptAdapter = new DeepSeekAdapter(
-  () => {
-    const view = views.get('chatgpt');
-    return view ? createElectronDriver(view, () => selectorsFor('chatgpt')) : null;
-  },
-  { hosts: CHATGPT_HOSTS, siteLabel: 'ChatGPT' }
-);
+const adapters = new Map<string, DeepSeekAdapter>();
 
-const registry = new ChannelRegistry([
-  new WebPageChannel({ id: 'deepseek', label: 'DeepSeek', adapter }),
-  new WebPageChannel({ id: 'chatgpt', label: 'ChatGPT', adapter: chatgptAdapter })
-]);
+function adapterFor(id: string): DeepSeekAdapter {
+  const existing = adapters.get(id);
+  if (existing) return existing;
+  const created = new DeepSeekAdapter(
+    () => {
+      const view = views.get(id);
+      return view ? createElectronDriver(view, () => selectorsFor(id)) : null;
+    },
+    {
+      // A function, not a Set: `saveSource` can add a host at any time, and an
+      // adapter that captured yesterday's list would refuse the new address
+      // with "当前页面不是允许的…页面" — which reads like a network failure.
+      hosts: () => new Set(sourceById(sources, id)?.hosts ?? []),
+      siteLabel: sourceById(sources, id)?.label ?? id
+    }
+  );
+  adapters.set(id, created);
+  return created;
+}
+
+/** The adapter the agent plans through. */
+function planningAdapter(): DeepSeekAdapter {
+  return adapterFor(planningSource(sources)?.id ?? 'deepseek');
+}
+
+const registry = new ChannelRegistry([]);
+
+/**
+ * Rebuild the channel list from the sources that are switched on.
+ *
+ * A disabled source is not a channel: it is a page that is not there, and
+ * counting it would make the readiness pill say "1/4" on a fresh install. The
+ * registry is mutated rather than replaced because `ConversationRunner` holds
+ * this exact instance.
+ */
+function rebuildChannels() {
+  registry.replaceAll(
+    sources
+      .filter(source => source.enabled)
+      .map(source => new WebPageChannel({ id: source.id, label: source.label, adapter: adapterFor(source.id) }))
+  );
+}
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
 function emit(event: AgentEvent) {
@@ -278,26 +327,227 @@ function layoutInfo(): LayoutInfo {
  * invisible: showing the views afterwards would flash the second site over the
  * pane the user is looking at.
  */
-async function primeViewports(): Promise<void> {
+function showOnce(id: string, view: WebContentsView): void {
   if (!win) return;
   const [width, height] = win.getContentSize();
   const shown = computePageBounds(width, height, computeSplit(width, preferredSplit));
-  for (const [id, view] of views) {
-    view.setBounds(shown);
-    view.setVisible(true);
-    applied.set(id, { ...shown, visible: true });
-  }
+  view.setBounds(shown);
+  view.setVisible(true);
+  applied.set(id, { ...shown, visible: true });
+}
+
+async function primeViewports(): Promise<void> {
+  if (!win) return;
+  for (const [id, view] of views) showOnce(id, view);
   // One layout pass is not enough: the page needs a frame with a non-zero size
   // before its own layout runs.
   await new Promise(resolve => setTimeout(resolve, 150));
 }
 
+/**
+ * The same priming, for a view that is created while the window is on screen.
+ *
+ * Switching a source on in 设置 builds a view that has never been painted, so it
+ * starts at 0x0 exactly like a startup view would — and then `layout()` parks it
+ * offstage because it is not the active source, which it can never recover from
+ * on its own. The symptom is the misleading one: the channel says "未找到输入框，
+ * 页面结构可能已变化" about a page that has simply never been given a box.
+ *
+ * `createSourceView` puts every view at the bottom of the stack, so showing it
+ * here does not cover the page the user is looking at — z-order has nothing to
+ * do with layout, and the box is real either way.
+ */
+async function primeViewport(id: string, view: WebContentsView): Promise<void> {
+  showOnce(id, view);
+  await new Promise(resolve => setTimeout(resolve, 150));
+}
+
 function sourcesState(): SourcesState {
-  return { sources: [...PAGE_SOURCES], activeId: activeSourceId, loading: sourceLoading };
+  return {
+    sources: sources.map(source => ({ ...source })),
+    activeId: activeSourceId,
+    planningId: planningSource(sources)?.id ?? null,
+    loading: sourceLoading
+  };
 }
 
 function emitSources() {
   win?.webContents.send('sources:changed', sourcesState());
+}
+
+/** Replace the live list with the file's contents. Never mutates in place. */
+function applyStored(stored: StoredSources) {
+  sources = resolveSources(stored);
+}
+
+/**
+ * Make the running app match a new setting for one source.
+ *
+ * Three things can change and they are independent:
+ *
+ * - a new address means a real navigation, but **the same view**. The partition
+ *   — and therefore the login — belongs to the source id, not to the URL, so
+ *   recreating the view would silently sign the user out of the site they just
+ *   fixed the address for;
+ * - switching on means the view has to exist at all;
+ * - switching off the page that is on screen means something else has to be on
+ *   screen, or the pane shows a page the rail no longer lists.
+ */
+function syncSource(before: PageSource | undefined, after: PageSource) {
+  const view = views.get(after.id);
+  // A view that does not exist yet has to be primed before the layout pass at
+  // the end of this function parks it, or it spends its whole life at 0x0.
+  const created = after.enabled && !view ? createSourceView(after) : null;
+
+  if (view && before?.url !== after.url && after.url) {
+    void view.webContents.loadURL(after.url).catch(() => undefined);
+  }
+  if (!after.enabled && activeSourceId === after.id) {
+    const next = sources.find(source => source.enabled);
+    if (next) activeSourceId = next.id;
+  }
+
+  rebuildChannels();
+  emitSources();
+
+  if (created) {
+    void primeViewport(after.id, created)
+      .then(() => loadSource(after))
+      .catch(() => undefined)
+      .finally(() => layout());
+    return;
+  }
+
+  layout();
+}
+
+/**
+ * Save one source's settings.
+ *
+ * Every rejection here is something the settings panel has to be able to say
+ * out loud, so they are messages rather than codes: a URL that does not parse,
+ * a URL that is not https, and the one rule that is a product decision — the
+ * last source cannot be switched off, because the agent would then have nowhere
+ * to ask and the failure would surface later as "规划没有返回".
+ *
+ * The rule used to be "the planning channel cannot be switched off". That was
+ * the wrong shape: it made one source special and left the user unable to turn
+ * off a page they had stopped paying for. "Leave at least one on" says the same
+ * thing about the invariant without carving out an exception — and
+ * `planningSource` moves planning to whatever is still on.
+ */
+function saveSource(raw: unknown): SourcesState {
+  if (!raw || typeof raw !== 'object') throw new Error('无效的来源设置');
+  const input = raw as { id?: unknown; url?: unknown; enabled?: unknown };
+  if (typeof input.id !== 'string') throw new Error('无效的来源设置');
+  const current = sourceById(sources, input.id);
+  if (!current) throw new Error('未知来源');
+  if (!sourceStore) throw new Error('设置还没有准备好');
+
+  const patch: SourceOverride = {};
+  if (input.url !== undefined) {
+    if (typeof input.url !== 'string') throw new Error('网址必须是一段文字');
+    const check = normalizeSourceUrl(input.url);
+    if (!check.ok || !check.url) throw new Error(check.error ?? '这个网址不能用');
+    patch.url = check.url;
+  }
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== 'boolean') throw new Error('启用状态只能是开或关');
+    const stays = sources.some(source => source.id !== current.id && source.enabled);
+    if (!input.enabled && current.enabled && !stays) throw new Error('至少要留一个来源，全关掉 Agent 就没地方问了');
+    // A source with no address cannot answer, so switching it on would only add
+    // a channel that reports a failure forever. WorkBuddy ships this way on
+    // purpose: there is no single address for it to default to.
+    if (input.enabled && !(patch.url ?? current.url)) throw new Error('先填网址，再打开这个提供商');
+    patch.enabled = input.enabled;
+  }
+  if (Object.keys(patch).length === 0) return sourcesState();
+
+  applyStored(sourceStore.patch(current.id, patch));
+  syncSource(current, sourceById(sources, current.id) ?? current);
+  return sourcesState();
+}
+
+/** Add a web page as a new source. Its first address is its allow-list. */
+function addSource(raw: unknown): SourcesState {
+  if (!raw || typeof raw !== 'object') throw new Error('无效的来源');
+  const input = raw as { label?: unknown; url?: unknown };
+  const label = typeof input.label === 'string' ? input.label.trim() : '';
+  if (!label) throw new Error('请填写名称');
+  const check = normalizeSourceUrl(typeof input.url === 'string' ? input.url : '');
+  if (!check.ok || !check.url) throw new Error(check.error ?? '这个网址不能用');
+  if (!sourceStore) throw new Error('设置还没有准备好');
+
+  const created = makeCustomSource({ label, url: check.url }, sources);
+  applyStored(sourceStore.addCustom(created));
+  const source = sourceById(sources, created.id);
+  rebuildChannels();
+  emitSources();
+  if (!source) {
+    layout();
+    return sourcesState();
+  }
+  // Same reason as in `syncSource`: prime before parking, or the page is 0x0
+  // and the new channel reports a structural failure it does not have.
+  const view = createSourceView(source);
+  void primeViewport(source.id, view)
+    .then(() => loadSource(source))
+    .catch(() => undefined)
+    .finally(() => layout());
+  return sourcesState();
+}
+
+/**
+ * Remove a source that was added in 设置.
+ *
+ * Built-ins are refused rather than deleted: disabling one already means "I do
+ * not want this", and deleting a shipped source would make the next release's
+ * fixes to it invisible. Removing a custom one is the only case where the view
+ * itself has to go, so this is the only place that closes a `WebContentsView`.
+ */
+function removeSource(raw: unknown): SourcesState {
+  const id = typeof raw === 'string' ? raw : '';
+  const source = sourceById(sources, id);
+  if (!source) throw new Error('未知来源');
+  if (!source.custom) throw new Error('内置来源不能删除，可以先关掉');
+  if (!sourceStore) throw new Error('设置还没有准备好');
+  // Deleting is the other way to end up with nothing to ask: the same invariant
+  // as switching the last source off, so it gets the same answer.
+  if (source.enabled && !sources.some(other => other.id !== id && other.enabled)) {
+    throw new Error('至少要留一个来源，删掉它 Agent 就没地方问了');
+  }
+
+  if (detached?.sourceId === id) reattachSource();
+  const view = views.get(id);
+  if (view && !view.webContents.isDestroyed()) {
+    win?.contentView.removeChildView(view);
+    view.webContents.close();
+  }
+  views.delete(id);
+  applied.delete(id);
+  adapters.delete(id);
+
+  applyStored(sourceStore.removeCustom(id));
+  if (!sourceById(sources, activeSourceId)) {
+    const next = sources.find(item => item.enabled);
+    if (next) activeSourceId = next.id;
+  }
+  rebuildChannels();
+  layout();
+  emitSources();
+  return sourcesState();
+}
+
+/**
+ * Who is using this app.
+ *
+ * There is no account system, and this does not pretend to be one: it is the
+ * machine's own user name. Everything — tasks, conversations, page sessions —
+ * stays on this machine, so a local name is the accurate label.
+ */
+function identity(): Identity {
+  const name = os.userInfo().username || '本机用户';
+  return { name, initial: (name[0] ?? '?').toUpperCase(), host: os.hostname() };
 }
 
 /** Which page (if any) is living in its own window. */
@@ -390,7 +640,7 @@ function detachedDocument(source: PageSource): string {
  * not a second view onto the same URL.
  */
 function detachSource(id: string): PageState {
-  const source = findSource(id);
+  const source = sourceById(sources, id);
   const view = views.get(id);
   if (!source || !view) throw new Error('页面尚未创建');
   if (!win) throw new Error('窗口尚未创建');
@@ -518,7 +768,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
   if (!view) throw new Error('页面尚未创建');
   if (view.webContents.isDestroyed()) throw new Error('页面已关闭');
 
-  const label = findSource(sourceId)?.label ?? sourceId;
+  const label = sourceById(sources, sourceId)?.label ?? sourceId;
   const base = baseProfile(sourceId);
   const host = hostOf(view);
   const notes: Record<string, string> = { input: '输入框', sendButton: '发送键', assistant: '回答区域' };
@@ -638,7 +888,11 @@ function createSourceView(source: PageSource): WebContentsView {
       spellcheck: true
     }
   });
-  win.contentView.addChildView(view);
+  // Bottom of the stack, always. Only one page is visible at a time, so stacking
+  // order would not matter — except while a view created after startup is being
+  // primed: it has to be shown to get a viewport, and it must not cover the page
+  // the user is reading while that happens.
+  win.contentView.addChildView(view, 0);
   // Background throttling would be a second way to break a channel that is not
   // the one on screen: Chromium slows timers and paints for a page it believes
   // is hidden, and a chat page that stops painting also stops updating the text
@@ -674,6 +928,10 @@ function createSourceView(source: PageSource): WebContentsView {
 async function loadSource(source: PageSource): Promise<void> {
   const view = views.get(source.id);
   if (!view) return;
+  // An address that has not been filled in yet is a real state (WorkBuddy ships
+  // that way). Loading `''` throws a confusing net error and leaves the view on
+  // about:blank with no hint why, so it is skipped instead.
+  if (!source.url) return;
   await view.webContents.loadURL(source.url);
 }
 
@@ -696,8 +954,9 @@ async function ensureSource(source: PageSource): Promise<WebContentsView> {
  * exactly as long as the network is slow.
  */
 function activateSource(id: string) {
-  const source = findSource(id);
+  const source = sourceById(sources, id);
   if (!source) throw new Error(`未知来源：${id}`);
+  if (!source.enabled) throw new Error(`${source.label} 还没启用，先在设置里打开`);
   // Clicking a source's rail button means "show me that page here". A page that
   // is living in its own window has to come home first, or the pane would stay
   // empty while the button claims it is active.
@@ -776,7 +1035,7 @@ async function createWindow() {
   // flash, so the show is in `finally`: whatever the priming does, the app
   // appears.
   try {
-    for (const source of PAGE_SOURCES) createSourceView(source);
+    for (const source of sources.filter(item => item.enabled)) createSourceView(source);
     await primeViewports();
     layout();
     win.on('resize', layout);
@@ -785,10 +1044,12 @@ async function createWindow() {
     win.show();
   }
 
-  const active = findSource(activeSourceId) ?? PAGE_SOURCES[0];
-  await loadSource(active).catch(() => undefined);
-  for (const source of PAGE_SOURCES) {
-    if (source.id === active.id) continue;
+  // Only the enabled ones: a disabled source has no view, and asking for its
+  // page would create one behind the settings panel's back.
+  const active = sourceById(sources, activeSourceId) ?? sources.find(source => source.enabled);
+  if (active) await loadSource(active).catch(() => undefined);
+  for (const source of sources) {
+    if (!source.enabled || source.id === active?.id) continue;
     void loadSource(source).catch(() => undefined);
   }
 }
@@ -796,10 +1057,12 @@ async function createWindow() {
 function startStatusPolling() {
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = setInterval(async () => {
-    const view = views.get('deepseek');
+    const planning = planningSource(sources);
+    if (!planning) return;
+    const view = views.get(planning.id);
     if (!view || view.webContents.isLoading()) return;
     try {
-      const status: DeepSeekStatus = await adapter.getStatus();
+      const status: DeepSeekStatus = await planningAdapter().getStatus();
       emitDeepSeek({ type: 'status', status });
     } catch {
       /* transient; next tick retries */
@@ -959,25 +1222,26 @@ function registerIpc() {
 
   ipcMain.handle('deepseek:status', async event => {
     trustedUiSender(event);
-    return adapter.getStatus();
+    return planningAdapter().getStatus();
   });
 
   ipcMain.handle('deepseek:diagnose', async event => {
     trustedUiSender(event);
-    const report = await adapter.diagnose();
+    const report = await planningAdapter().diagnose();
     // The page is a native view, so its position is only knowable here. When
     // the two panes disagree, this is the number that settles it.
+    const planning = planningSource(sources);
     return {
       ...report,
-      view: views.get('deepseek')?.getBounds() ?? null,
+      view: planning ? (views.get(planning.id)?.getBounds() ?? null) : null,
       dragging: draggingPage
     } satisfies DeepSeekDiagnostics;
   });
 
   ipcMain.handle('deepseek:reload', async event => {
     trustedUiSender(event);
-    const view = views.get('deepseek');
-    const source = findSource('deepseek');
+    const source = planningSource(sources);
+    const view = source ? views.get(source.id) : undefined;
     if (!view || !source) throw new Error('内嵌页面尚未创建');
     await view.webContents.loadURL(source.url);
   });
@@ -989,9 +1253,30 @@ function registerIpc() {
 
   ipcMain.handle('app:set-source', (event, id: unknown) => {
     trustedUiSender(event);
-    if (typeof id !== 'string' || !findSource(id)) throw new Error('未知来源');
+    if (typeof id !== 'string' || !sourceById(sources, id)) throw new Error('未知来源');
     activateSource(id);
     return sourcesState();
+  });
+
+  // 设置 · 模型. One source, one edit: the URL, whether it is on, or both.
+  ipcMain.handle('sources:save', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return saveSource(raw);
+  });
+
+  ipcMain.handle('sources:add', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return addSource(raw);
+  });
+
+  ipcMain.handle('sources:remove', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return removeSource(raw);
+  });
+
+  ipcMain.handle('app:identity', event => {
+    trustedUiSender(event);
+    return identity();
   });
 
   // ---------------------------------------------------------------- page pane
@@ -1004,7 +1289,7 @@ function registerIpc() {
   // the button can flip without waiting for the event.
   ipcMain.handle('page:detach', (event, raw: unknown) => {
     trustedUiSender(event);
-    const id = typeof raw === 'string' && findSource(raw) ? raw : activeSourceId;
+    const id = typeof raw === 'string' && sourceById(sources, raw) ? raw : activeSourceId;
     return detachSource(id);
   });
 
@@ -1025,7 +1310,7 @@ function registerIpc() {
   // writes to disk, so it must never fire as a side effect of a poll.
   ipcMain.handle('page:learn-selectors', async (event, raw: unknown) => {
     trustedUiSender(event);
-    const id = typeof raw === 'string' && findSource(raw) ? raw : activeSourceId;
+    const id = typeof raw === 'string' && sourceById(sources, raw) ? raw : activeSourceId;
     return learnSelectorsFor(id);
   });
 
@@ -1087,11 +1372,18 @@ function registerIpc() {
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
+  // Before anything reads `sources`: the window's startup path decides which
+  // views to create, and a source the user switched off must not be one of them.
+  sourceStore = new SourceStore(path.join(app.getPath('userData'), 'sources.json'));
+  applyStored(sourceStore.all());
+  activeSourceId = sources.find(source => source.enabled)?.id ?? activeSourceId;
+  rebuildChannels();
+
   tasks = new TaskManager(store, emit);
   orchestrator = new AgentOrchestrator({
     tasks,
     store,
-    adapter,
+    adapter: planningAdapter(),
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json')
   });
@@ -1126,8 +1418,9 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
-  adapter.cancelAllWaits();
-  chatgptAdapter.cancelAllWaits();
+  // Every adapter, not the two that used to exist: a source added in 设置 owns
+  // one too, and a pending wait on it would otherwise keep the app alive.
+  for (const adapter of adapters.values()) adapter.cancelAllWaits();
 });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

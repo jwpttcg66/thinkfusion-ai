@@ -1,5 +1,5 @@
 /**
- * The web pages this app embeds.
+ * The web pages this app embeds, and the rules for changing them.
  *
  * Each source gets its own `WebContentsView` and its own persistent partition,
  * so two logins never share cookies and one site's storage cannot be read by
@@ -8,8 +8,14 @@
  * and reloaded loses whatever the model was in the middle of writing.
  *
  * `planning: true` marks the single source the agent actually drives. The rest
- * are embedded so a person can read or ask by hand; wiring them into the
- * planning loop is a separate step, and the README says so.
+ * are embedded so a person can read or ask by hand.
+ *
+ * **The list is no longer a constant.** Sites move (`kimi.moonshot.cn` became
+ * `kimi.com`), people run regional mirrors, and a URL baked into the bundle
+ * turns a working channel into a dead one with no way back except a new
+ * release. So the shipped defaults live here and the user's edits live in
+ * `userData/sources.json`; `resolveSources` is the one place the two are
+ * combined, and it is a pure function so the merge can be asserted.
  */
 export interface PageSource {
   id: string;
@@ -20,16 +26,36 @@ export interface PageSource {
   /** Hostnames this view may navigate to. Everything else is denied. */
   hosts: string[];
   planning: boolean;
+  /**
+   * Whether this source is part of the app right now.
+   *
+   * A disabled source keeps its settings and disappears from the rail — it is
+   * not deleted, because "turn this off for now" and "remove this" are
+   * different requests and only one of them should lose the URL.
+   */
+  enabled: boolean;
+  /** Added in 设置 rather than shipped. Built-ins cannot be removed. */
+  custom?: boolean;
 }
 
-export const PAGE_SOURCES: readonly PageSource[] = [
+/**
+ * The shipped defaults.
+ *
+ * `kimi` and `workbuddy` start disabled on purpose: neither has a built-in
+ * selector profile, so enabling them by default would add two pages that
+ * cannot answer and make the readiness pill say "2/4" on a fresh install. The
+ * settings panel is where they are turned on, and the first thing to do after
+ * that is 「更新样式」 on the new page.
+ */
+export const BUILTIN_SOURCES: readonly PageSource[] = [
   {
     id: 'deepseek',
     label: 'DeepSeek',
     glyph: 'D',
     url: 'https://chat.deepseek.com/',
     hosts: ['chat.deepseek.com'],
-    planning: true
+    planning: true,
+    enabled: true
   },
   {
     id: 'chatgpt',
@@ -51,21 +77,114 @@ export const PAGE_SOURCES: readonly PageSource[] = [
       'accounts.google.com',
       'login.microsoftonline.com'
     ],
-    planning: false
+    planning: false,
+    enabled: true
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi',
+    glyph: 'K',
+    url: 'https://kimi.moonshot.cn/',
+    hosts: ['kimi.moonshot.cn', 'kimi.com', 'www.kimi.com'],
+    planning: false,
+    enabled: false
+  },
+  {
+    id: 'workbuddy',
+    label: 'WorkBuddy',
+    glyph: 'W',
+    // Deliberately empty: there is no address that is right for everyone, and
+    // guessing one would produce a page that loads someone else's product. The
+    // settings panel says so instead of pretending.
+    url: '',
+    hosts: [],
+    planning: false,
+    enabled: false
   }
 ];
 
-export function findSource(id: string): PageSource | undefined {
-  return PAGE_SOURCES.find(source => source.id === id);
+/** What the user changed about a source, as stored on disk. */
+export interface SourceOverride {
+  url?: string;
+  enabled?: boolean;
+}
+
+/** The whole persisted file. */
+export interface StoredSources {
+  overrides: Record<string, SourceOverride>;
+  custom: PageSource[];
+}
+
+export const EMPTY_STORED_SOURCES: StoredSources = { overrides: {}, custom: [] };
+
+function hostOf(raw: string): string {
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Hosts after a URL edit.
+ *
+ * The declared hosts stay and the new URL's host is added. Replacing the list
+ * would break sign-in on the sites that hop through an identity provider;
+ * leaving it alone would deny the new address outright, which is the failure
+ * that makes someone think the app is broken after they fixed the URL.
+ */
+function hostsFor(base: PageSource, url: string): string[] {
+  const host = hostOf(url);
+  if (!host || base.hosts.includes(host)) return [...base.hosts];
+  return [...base.hosts, host];
+}
+
+function applyOverride(base: PageSource, override: SourceOverride | undefined): PageSource {
+  if (!override) return { ...base, hosts: [...base.hosts] };
+  const url = override.url ?? base.url;
+  return {
+    ...base,
+    url,
+    enabled: override.enabled ?? base.enabled,
+    hosts: hostsFor(base, url)
+  };
+}
+
+/**
+ * The live list: shipped defaults, then the user's edits, then anything added.
+ *
+ * Order matters for the rail — built-ins keep their shipped order so the
+ * buttons do not move around after an edit — and custom sources come last in
+ * the order they were added.
+ */
+export function resolveSources(stored: StoredSources = EMPTY_STORED_SOURCES): PageSource[] {
+  const built = BUILTIN_SOURCES.map(base => applyOverride(base, stored.overrides[base.id]));
+  const custom = stored.custom.map(extra => applyOverride({ ...extra, custom: true }, stored.overrides[extra.id]));
+  return [...built, ...custom];
+}
+
+export function sourceById(sources: readonly PageSource[], id: string): PageSource | undefined {
+  return sources.find(source => source.id === id);
+}
+
+/**
+ * The source the agent plans through.
+ *
+ * Prefers the shipped planner, but only while it is switched on: turning it off
+ * in 设置 has to mean something, and the agent still needs somewhere to ask. The
+ * fallback is the first enabled source, which is why the settings rule is "leave
+ * at least one on" rather than "this one cannot be turned off".
+ */
+export function planningSource(sources: readonly PageSource[]): PageSource | undefined {
+  return sources.find(source => source.planning && source.enabled) ?? sources.find(source => source.enabled);
 }
 
 /**
  * Whether a source may navigate to a URL.
  *
- * Same rules as the DeepSeek allow-list: https only, no credentials in the
- * URL, and the hostname must be one the source declared. Sub-domains are not
- * matched by suffix — `evil-chatgpt.com` ends with `chatgpt.com` and would slip
- * through a `endsWith` check.
+ * https only, no credentials in the URL, and the hostname must be one the
+ * source declared. Sub-domains are not matched by suffix — `evil-chatgpt.com`
+ * ends with `chatgpt.com` and would slip through an `endsWith` check.
  */
 export function isAllowedSourceUrl(source: PageSource, raw: string): boolean {
   try {
@@ -76,4 +195,68 @@ export function isAllowedSourceUrl(source: PageSource, raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+export interface UrlCheck {
+  ok: boolean;
+  /** The normalized address, when `ok`. */
+  url?: string;
+  /** What to tell the user, when not. */
+  error?: string;
+}
+
+/**
+ * Turn whatever was typed into the address to load.
+ *
+ * A bare `kimi.com` is what people type, so the scheme is added rather than
+ * demanded. `http:` is refused rather than upgraded silently: the whole
+ * allow-list is https-only, and quietly rewriting the address someone gave you
+ * is how a redirect loop becomes a mystery.
+ */
+export function normalizeSourceUrl(raw: string): UrlCheck {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, error: '请填写网址' };
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return { ok: false, error: '这个网址看不懂，检查一下有没有拼错' };
+  }
+  if (parsed.protocol !== 'https:') return { ok: false, error: '只支持 https:// 开头的网址' };
+  if (parsed.username || parsed.password) return { ok: false, error: '网址里不能带账号密码' };
+  if (!parsed.hostname.includes('.')) return { ok: false, error: '网址缺少域名' };
+  return { ok: true, url: parsed.href };
+}
+
+/**
+ * The id and glyph for a source added in 设置.
+ *
+ * The glyph is the first letter of the name, because the rail has room for one
+ * character and inventing an icon for a site we know nothing about is worse
+ * than showing its initial.
+ */
+export function makeCustomSource(input: { label: string; url: string }, existing: readonly PageSource[]): PageSource {
+  const label = input.label.trim().slice(0, 24);
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20);
+  let id = `custom-${slug || 'source'}`;
+  let n = 2;
+  while (existing.some(source => source.id === id)) {
+    id = `custom-${slug || 'source'}-${String(n)}`;
+    n += 1;
+  }
+  return {
+    id,
+    label,
+    glyph: (label[0] ?? '?').toUpperCase(),
+    url: input.url,
+    hosts: hostOf(input.url) ? [hostOf(input.url)] : [],
+    planning: false,
+    enabled: true,
+    custom: true
+  };
 }

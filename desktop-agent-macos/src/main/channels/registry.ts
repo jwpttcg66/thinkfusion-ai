@@ -34,6 +34,20 @@ export class ChannelRegistry {
     for (const channel of channels) this.byId.set(channel.id, channel);
   }
 
+  /**
+   * Swap the whole channel set, keeping this instance.
+   *
+   * The list is no longer fixed at startup: turning a source on in 设置 has to
+   * make it a channel, and turning it off has to stop it counting toward the
+   * readiness pill. Replacing the object instead would leave every holder —
+   * `ConversationRunner`, the status poller — talking to a registry nobody
+   * updates, which is a class of bug that only shows up after a settings change.
+   */
+  replaceAll(channels: readonly AiChannel[]): void {
+    this.byId.clear();
+    for (const channel of channels) this.byId.set(channel.id, channel);
+  }
+
   list(): AiChannel[] {
     return [...this.byId.values()];
   }

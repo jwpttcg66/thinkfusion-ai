@@ -51,6 +51,10 @@ const api: AgentApi = {
   getSources: () => ipcRenderer.invoke('app:sources'),
   setSource: (id: string) => ipcRenderer.invoke('app:set-source', id),
   getViewBounds: () => ipcRenderer.invoke('app:view-bounds'),
+  saveSource: (id: string, patch: { url?: string; enabled?: boolean }) => ipcRenderer.invoke('sources:save', { id, ...patch }),
+  addSource: (input: { label: string; url: string }) => ipcRenderer.invoke('sources:add', input),
+  removeSource: (id: string) => ipcRenderer.invoke('sources:remove', id),
+  getIdentity: () => ipcRenderer.invoke('app:identity'),
 
   getPageState: () => ipcRenderer.invoke('page:state'),
   detachPage: (sourceId?: string) => ipcRenderer.invoke('page:detach', sourceId),

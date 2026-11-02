@@ -861,7 +861,7 @@ export const DEFAULT_TUNING: AdapterTuning = {
 export class DeepSeekAdapter {
   private waits = new Map<string, AbortController>();
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
-  private readonly hosts: ReadonlySet<string>;
+  private readonly hostsOf: () => ReadonlySet<string>;
   private readonly siteLabel: string;
 
   /**
@@ -869,17 +869,23 @@ export class DeepSeekAdapter {
    * a copy of it. The only things that differ between chat.deepseek.com and
    * chatgpt.com are the allowed hosts and the wording of the status detail —
    * everything else (probe, send, wait, echo stripping) is site-agnostic.
+   *
+   * `hosts` may be a function because the address is editable: an adapter that
+   * captured the list at construction would refuse the URL the user just fixed,
+   * and report it as "当前页面不是允许的…页面" — which reads like a network
+   * failure rather than a stale setting.
    */
   constructor(
     private readonly getDriver: () => PageDriver | null,
-    options: { hosts?: ReadonlySet<string>; siteLabel?: string } = {}
+    options: { hosts?: ReadonlySet<string> | (() => ReadonlySet<string>); siteLabel?: string } = {}
   ) {
-    this.hosts = options.hosts ?? ALLOWED_HOSTS;
+    const hosts = options.hosts ?? ALLOWED_HOSTS;
+    this.hostsOf = typeof hosts === 'function' ? hosts : () => hosts;
     this.siteLabel = options.siteLabel ?? 'DeepSeek';
   }
 
   private isAllowed(url: string): boolean {
-    return isAllowedHostUrl(url, this.hosts);
+    return isAllowedHostUrl(url, this.hostsOf());
   }
 
   /** Test and shell hook: shorten the timings without touching the logic. */

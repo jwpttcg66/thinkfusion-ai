@@ -4,6 +4,7 @@ import type {
   AgentTask,
   DeepSeekDiagnostics,
   DeepSeekStatus,
+  Identity,
   PageState,
   PermissionPreset,
   PlanPreview as PlanPreviewType,
@@ -16,6 +17,8 @@ import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
+import { SettingsPanel } from './components/SettingsPanel';
+import { Glyph } from './components/Glyph';
 import { StyleReport, type StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
 import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_FOLD_PATHS, ICON_UNFOLD_PATHS } from '../../shared/icons';
@@ -30,35 +33,17 @@ interface Derived {
 }
 
 /**
- * One page-pane glyph, drawn from shared/icons.ts.
+ * The page-pane actions, as icons.
  *
  * Text was wrong here for a structural reason: this bar lives inside the page
  * pane, and the pane can be dragged down to 380px. Two four-character labels ate
  * most of that width and pushed the status out of sight — the one thing the bar
  * exists to show. An icon is a fixed 24px whatever the language.
  *
- * The paths come from shared/icons.ts so the detached window's toolbar draws the
- * same glyphs; that toolbar is a `data:` URL built in the main process and
- * cannot import a component.
+ * The drawing itself is `components/Glyph`, shared with the sidebar and the
+ * settings panel; the paths come from `shared/icons.ts` so the detached
+ * window's toolbar can draw byte-identical glyphs.
  */
-function Glyph({ paths }: { paths: readonly string[] }) {
-  return (
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
-      {paths.map(path => (
-        <path
-          key={path}
-          d={path}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      ))}
-    </svg>
-  );
-}
-
 /** 放大：把这个页面交给一整扇窗。 */
 const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 /** 吸附回来：放回它原来的位置。 */
@@ -120,7 +105,7 @@ export default function App() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
-  const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', loading: false });
+  const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', planningId: null, loading: false });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
@@ -137,6 +122,9 @@ export default function App() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
   const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string; at?: number }>>({});
+  /** The local user name for the row at the bottom of the sidebar. */
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -213,6 +201,10 @@ export default function App() {
 
     window.agentAPI.getSources().then(setSources).catch(() => undefined);
     const stopSources = window.agentAPI.onSourcesChanged(setSources);
+
+    // The account row. Read once: it is this machine's user name and cannot
+    // change while the app is running.
+    window.agentAPI.getIdentity().then(setIdentity).catch(() => undefined);
 
     // Whether a page is in its own window. The pane is a native view, so an
     // empty pane and a detached page are the same pixels — this is the only
@@ -689,6 +681,53 @@ export default function App() {
     }
   }
 
+  /**
+   * 设置 · 模型.
+   *
+   * All three return an empty string on success and a sentence to show on
+   * failure. They are not `void` on purpose: the panel's job is to say *why* an
+   * address was refused, and throwing past it into the app-level error bar puts
+   * the reason somewhere the person is not looking.
+   *
+   * Every rule lives in the main process — https only, and the planning channel
+   * cannot be switched off. Nothing here re-implements them; a second copy
+   * would be a weaker one.
+   */
+  async function saveSource(id: string, patch: { url?: string; enabled?: boolean }): Promise<string> {
+    try {
+      setSources(await window.agentAPI.saveSource(id, patch));
+      // A new address or a flipped switch changes whether a channel can answer.
+      setChannelStatuses(await window.agentAPI.getChannelStatuses());
+      // Switching off the source that is on screen moves the pane somewhere
+      // else, so the page bar has to re-read rather than assume.
+      setPage(await window.agentAPI.getPageState());
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
+  async function addSource(input: { label: string; url: string }): Promise<string> {
+    try {
+      setSources(await window.agentAPI.addSource(input));
+      setChannelStatuses(await window.agentAPI.getChannelStatuses());
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
+  async function removeSource(id: string): Promise<string> {
+    try {
+      setSources(await window.agentAPI.removeSource(id));
+      setChannelStatuses(await window.agentAPI.getChannelStatuses());
+      setPage(await window.agentAPI.getPageState());
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
   async function selectSource(id: string) {
     if (id === sources.activeId) return;
     setError('');
@@ -811,6 +850,12 @@ export default function App() {
         activeConversationId={activeConversationId}
         onSelectConversation={selectConversation}
         onDeleteConversation={deleteConversation}
+        identity={identity}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenDiagnostics={() => {
+          setDiagOpen(true);
+          void refreshDiagnostics();
+        }}
         onNew={() => {
           setActiveId(null);
           setActiveConversationId(null);
@@ -1133,14 +1178,31 @@ export default function App() {
         </div>
       )}
 
+      {/* Only the enabled ones. A disabled source still exists — its address is
+          kept — but a rail button for a page that is switched off would be a
+          button that does nothing. */}
       <SourceRail
-        sources={sources.sources}
+        sources={sources.sources.filter(source => source.enabled)}
         activeId={sources.activeId}
         loading={sources.loading}
         onSelect={selectSource}
       />
 
       {styleReport && <StyleReport report={styleReport} onClose={() => setStyleReport(null)} />}
+
+      {settingsOpen && (
+        <SettingsPanel
+          sources={sources}
+          channelStatuses={channelStatuses}
+          identity={identity}
+          permission={permission}
+          onClose={() => setSettingsOpen(false)}
+          onSaveSource={saveSource}
+          onAddSource={addSource}
+          onRemoveSource={removeSource}
+          onPermissionChange={changePermission}
+        />
+      )}
 
       {diagOpen && (
         <DiagnosticsPanel
@@ -1175,4 +1237,15 @@ function statusLabel(status: AgentTask['status']): string {
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The message without Electron's envelope.
+ *
+ * A rejected IPC handler arrives as "Error invoking remote method 'sources:save':
+ * Error: 只支持 https:// 开头的网址". The sentence after the colon is the whole
+ * useful part; the rest is plumbing the user never asked about.
+ */
+function ipcErrorText(error: unknown) {
+  return errorText(error).replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, '');
 }

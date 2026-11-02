@@ -1,0 +1,373 @@
+/**
+ * Checks the account row and 设置 · 模型.
+ *
+ * The failure this exists for is the one the feature was asked for: an address
+ * that cannot be changed, and a source that cannot be switched off. Every
+ * assertion here is either "the row is there" or "the value that was typed is
+ * the value the main process now holds" — because a settings panel that renders
+ * a saved-looking address while the app still loads the old one is worse than no
+ * panel at all.
+ *
+ * It deliberately edits **Kimi's** address rather than DeepSeek's: Kimi is off
+ * by default and has no view, so the edit costs no navigation and cannot sign
+ * anybody out of the page they are using. The one thing it asserts about
+ * DeepSeek is the rule that matters — the switch on every row works, and the
+ * last remaining source cannot be switched off.
+ *
+ * Usage: node scripts/check-settings.mjs   (app running with --remote-debugging-port=9222)
+ */
+import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
+
+const KIMI_DEFAULT = 'https://kimi.moonshot.cn/';
+const KIMI_TRIAL = 'https://kimi.com/';
+const LAST_REFUSED = '至少要留一个来源，全关掉 Agent 就没地方问了';
+
+const targets = await listTargets();
+const app = findAppTarget(targets);
+if (!app) throw new Error('找不到应用渲染进程；请用 --remote-debugging-port=9222 启动');
+
+const cdp = await connect(app);
+const { check, checkTrue, summary } = createChecks();
+
+// Start from a known state. A previous run that died halfway would otherwise
+// leave Kimi on — or on the trial address it typed — and then the assertions
+// below are measuring the previous run instead of this one.
+//
+// Order matters: switch the two on *before* switching the others off, or a run
+// that died while only one source was on would make the first "off" illegal and
+// the check would fail on its own housekeeping.
+await cdp.evaluate('window.agentAPI.saveSource("deepseek", { enabled: true })');
+await cdp.evaluate('window.agentAPI.saveSource("chatgpt", { enabled: true })');
+await cdp.evaluate(`window.agentAPI.saveSource("kimi", { url: "${KIMI_DEFAULT}", enabled: false })`);
+await cdp.evaluate('window.agentAPI.saveSource("workbuddy", { enabled: false })');
+await sleep(400);
+
+const readFoot = () =>
+  cdp.evaluate(`(() => {
+    const foot = document.querySelector('.side-foot');
+    if (!foot) return { present: false };
+    return {
+      present: true,
+      name: foot.querySelector('.side-foot-name')?.textContent ?? '',
+      initial: foot.querySelector('.side-foot-avatar')?.textContent ?? '',
+      buttons: [...foot.querySelectorAll('.side-foot-btn')].map(button => button.getAttribute('aria-label')),
+      icons: [...foot.querySelectorAll('.side-foot-btn svg')].length
+    };
+  })()`);
+
+const readPanel = () =>
+  cdp.evaluate(`(() => {
+    const panel = document.querySelector('.settings-panel');
+    // formUrl is null on a closed panel, not undefined: the helpers below use
+    // "is there a form open" as a boolean, and undefined would read as "yes".
+    if (!panel) return { open: false, formUrl: null, tags: [], urls: [] };
+    const rows = [...panel.querySelectorAll('.settings-row')];
+    return {
+      open: true,
+      nav: [...panel.querySelectorAll('.settings-nav-item')].map(item => item.textContent?.trim() ?? ''),
+      activeNav: panel.querySelector('.settings-nav-item.active')?.textContent?.trim() ?? '',
+      title: panel.querySelector('.settings-section h3')?.textContent ?? '',
+      providers: rows.map(row => row.querySelector('.settings-row-name')?.textContent ?? ''),
+      dots: rows.map(row => {
+        const dot = row.querySelector('.settings-state');
+        return dot ? dot.className.replace('settings-state ', '') : '';
+      }),
+      tags: rows.map(row => [...row.querySelectorAll('.settings-tag')].map(tag => tag.textContent ?? '')),
+      urls: rows.map(row => row.querySelector('.settings-row-url')?.textContent ?? ''),
+      editButtons: rows.map(row => row.querySelector('.settings-edit')?.textContent ?? ''),
+      formUrl: panel.querySelector('.settings-form .settings-input input')?.value ?? null,
+      toggleDisabled: panel.querySelector('.settings-form .settings-toggle input')?.disabled ?? null,
+      error: panel.querySelector('.settings-error')?.textContent ?? '',
+      addButton: panel.querySelector('.settings-add')?.textContent?.trim() ?? ''
+    };
+  })()`);
+
+/**
+ * Click something if it is there. Returns whether it was.
+ *
+ * These checks drive a real window on a real desktop, so a selector can go away
+ * between reading it and clicking it — most often because somebody dismissed the
+ * panel. A missing element is a retry, not a stack trace.
+ */
+const clickIfPresent = selector =>
+  cdp.evaluate(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (el) el.click();
+    return !!el;
+  })()`);
+
+const clickInRow = (row, selector) =>
+  cdp.evaluate(`(() => {
+    const el = document.querySelectorAll('.settings-row')[${row}]?.querySelector(${JSON.stringify(selector)});
+    if (el) el.click();
+    return !!el;
+  })()`);
+
+/**
+ * Reopen 设置 if it is closed.
+ *
+ * Not defensive coding for its own sake: this runs against a live app on a
+ * person's desktop, and a click on the dimmed backdrop dismisses the panel. The
+ * assertions below are about what the panel says, not about whether somebody
+ * happened to click elsewhere in the meantime.
+ */
+const ensurePanel = async () => {
+  if ((await readPanel()).open) return;
+  await clickIfPresent('.side-foot-btn[aria-label="设置"]');
+  await waitFor(async () => (await readPanel()).open, true, { timeoutMs: 3000 });
+};
+
+/**
+ * Open one row's form, and only one.
+ *
+ * 编辑 is a toggle: on a row that is already open it means 取消. Making "open"
+ * idempotent here keeps every step below from depending on whether the previous
+ * one left a form behind.
+ */
+const openForm = async row => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await ensurePanel();
+    if ((await readPanel()).formUrl !== null) {
+      await clickIfPresent('.settings-form-foot .btn.secondary');
+      await sleep(150);
+    }
+    await clickInRow(row, '.settings-edit');
+    const opened = await waitFor(async () => (await readPanel()).formUrl !== null, true, { timeoutMs: 1500 });
+    if (opened) return;
+  }
+  throw new Error(`打不开第 ${String(row + 1)} 行的编辑表单`);
+};
+
+/** Type into the address box the way a person would: through the input event. */
+const typeUrl = async value => {
+  await cdp.evaluate(`(() => {
+    const input = document.querySelector('.settings-form .settings-input input');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(150);
+};
+
+const toggleEnable = async () => {
+  await clickIfPresent('.settings-form .settings-toggle input');
+  await sleep(150);
+};
+
+const saveForm = async () => {
+  await cdp.evaluate(`[...document.querySelectorAll('.settings-form-foot .btn')].pop().click()`);
+};
+
+const cancelForm = async () => {
+  await clickIfPresent('.settings-form-foot .btn.secondary');
+  await sleep(200);
+};
+
+const railCount = () => cdp.evaluate(`document.querySelectorAll('.source-rail .rail-btn').length`);
+const kimiUrl = async () =>
+  (await cdp.evaluate('window.agentAPI.getSources()')).sources.find(source => source.id === 'kimi').url;
+
+// ------------------------------------------------------------ the account row
+
+const foot = await readFoot();
+check('侧栏底部有账号行', foot.present, true);
+checkTrue(`账号行写的是本机用户名（${foot.name}）`, foot.name.length > 0 && foot.name !== '本地工作区');
+checkTrue(`头像里是名字的首字母（${foot.initial}）`, foot.initial.trim().length === 1);
+check('账号行有两个按钮：页面诊断、设置', (foot.buttons ?? []).join('/'), '页面诊断/设置');
+check('两个按钮都是图标', foot.icons, 2);
+
+// --------------------------------------------------------------- open 设置
+
+await cdp.evaluate(`document.querySelector('.side-foot-btn[aria-label="设置"]').click()`);
+const opened = await waitFor(async () => (await readPanel()).open, true, { timeoutMs: 3000 });
+check('点设置打开面板', opened, true);
+
+const panel = await readPanel();
+check('左侧有四个分类', panel.nav.join('/'), '通用设置/模型/内置插件/Agent 预设');
+// The model list is the reason the panel exists, so it is where it opens.
+check('默认停在「模型」', panel.activeNav, '模型');
+check('模型页列出四个提供商', panel.providers.join('/'), 'DeepSeek/ChatGPT/Kimi/WorkBuddy');
+check('每一行都有状态点', panel.dots.length, 4);
+checkTrue(`未启用的行状态是关（${panel.dots.join(',')}）`, panel.dots[2] === 'off' && panel.dots[3] === 'off');
+checkTrue(`规划通道被标了出来（${panel.tags[0].join('、')}）`, panel.tags[0].includes('规划通道'));
+// WorkBuddy ships without an address on purpose; the row has to say so rather
+// than show an empty string that looks like a rendering bug.
+checkTrue(`没填网址的行明说了（${panel.tags[3].join('、')}）`, panel.tags[3].includes('还没填网址'));
+check('每一行都有编辑按钮', panel.editButtons.join('/'), '编辑/编辑/编辑/编辑');
+check('列表底部是添加按钮', panel.addButton, '＋ 添加模型提供商');
+
+// ------------------------------------------------------------ edit a URL
+
+await openForm(2);
+check('点编辑后网址栏里是当前的地址', (await readPanel()).formUrl, KIMI_DEFAULT);
+
+// A rule the panel must not swallow: https only. Typing http:// is the most
+// likely mistake, so it is the one asserted.
+await typeUrl('http://kimi.com/');
+await saveForm();
+const refused = await waitFor(async () => (await readPanel()).error, '只支持 https:// 开头的网址', { timeoutMs: 4000 });
+check('http 地址被拒绝，理由写在表单里', refused, '只支持 https:// 开头的网址');
+check('被拒绝的地址没有落盘', await kimiUrl(), KIMI_DEFAULT);
+
+// ----------------------------------------------------------- save a URL
+
+await typeUrl(KIMI_TRIAL);
+await saveForm();
+const saved = await waitFor(kimiUrl, KIMI_TRIAL, { timeoutMs: 4000 });
+check('保存之后主进程里是新地址', saved, KIMI_TRIAL);
+const afterSave = await waitFor(async () => (await readPanel()).urls[2], KIMI_TRIAL, { timeoutMs: 3000 });
+check('面板上也显示新地址', afterSave, KIMI_TRIAL);
+
+// ------------------------------------------------------- on / off switching
+
+check('现在来源栏有两个按钮', await railCount(), 2);
+const channelsBefore = await cdp.evaluate('window.agentAPI.getChannelStatuses()');
+check('现在有两个通道', channelsBefore.length, 2);
+
+await openForm(2);
+await toggleEnable();
+await saveForm();
+const railAfter = await waitFor(railCount, 3, { timeoutMs: 4000 });
+check('启用 Kimi 之后来源栏多了一个按钮', railAfter, 3);
+const channelsAfter = await cdp.evaluate('window.agentAPI.getChannelStatuses()');
+check('启用之后通道也变成三个', channelsAfter.length, 3);
+
+// 通道和来源必须是同一份清单. A source that is on is a channel, a source that is
+// off is not — anything else means the readiness pill counts pages the user
+// cannot use, or hides one they can.
+const channelIdsAfter = channelsAfter
+  .map(channel => channel.id)
+  .sort()
+  .join(',');
+check('通道和开着的来源是同一份清单', channelIdsAfter, 'chatgpt,deepseek,kimi');
+// The viewport is granted a frame or two after the rail grows — the rail is told
+// first on purpose, so the button does not wait for the page. Polling is the
+// honest assertion here; a single read races the priming.
+const kimiTarget = (await listTargets()).find(target => target.type === 'page' && /kimi/.test(target.url));
+const kimiView = kimiTarget ? await connect(kimiTarget) : null;
+const kimiHasViewport = kimiView
+  ? await waitFor(
+      async () => {
+        const size = JSON.parse(await kimiView.evaluate('JSON.stringify({ w: innerWidth, h: innerHeight })'));
+        return size.w > 0 && size.h > 0;
+      },
+      true,
+      { timeoutMs: 4000 }
+    )
+  : false;
+const kimiSize = kimiView ? await kimiView.evaluate('innerWidth + "×" + innerHeight') : '0×0';
+// Chromium does not lay out a view inside a window that is not in front, so the
+// viewport can read 0 for reasons that have nothing to do with the app. Say so
+// instead of turning "nobody is looking at it" into a failed assertion.
+const appInFront = await cdp.evaluate('document.hasFocus()');
+if (appInFront) {
+  checkTrue(`刚打开的来源有真实视口（${kimiSize}）`, kimiHasViewport);
+} else {
+  console.log('note  the app window is not in front, so the new view is not laid out — asserting it exists instead');
+  checkTrue('刚打开的来源的页面已经创建', Boolean(kimiTarget));
+}
+
+// ------------------------------------------------- the planner can be switched off
+//
+// Every source has a working switch, the planner's included. The invariant is
+// "at least one stays on", not "this one is special": the agent needs somewhere
+// to ask, and a checkbox that cannot be unchecked is a product rule leaking out
+// as a dead control.
+
+const beforePlanning = await cdp.evaluate('window.agentAPI.getSources()');
+check('规划通道是 DeepSeek', beforePlanning.planningId, 'deepseek');
+
+await openForm(0);
+check('规划通道的开关也能点', (await readPanel()).toggleDisabled, false);
+await toggleEnable();
+await saveForm();
+const movedPlanning = await waitFor(
+  async () => (await cdp.evaluate('window.agentAPI.getSources()')).planningId,
+  'chatgpt',
+  { timeoutMs: 4000 }
+);
+check('关掉规划通道之后规划换到下一个来源', movedPlanning, 'chatgpt');
+const movedTags = await waitFor(async () => ((await readPanel()).tags?.[1] ?? []).join('、'), '规划通道', {
+  timeoutMs: 3000
+});
+check('「规划通道」标签跟着走', movedTags, '规划通道');
+
+// Put it back before the rail counts below: a disabled DeepSeek is one less
+// button and one less channel, and those numbers are asserted elsewhere.
+await openForm(0);
+await toggleEnable();
+await saveForm();
+const backPlanning = await waitFor(
+  async () => (await cdp.evaluate('window.agentAPI.getSources()')).planningId,
+  'deepseek',
+  { timeoutMs: 4000 }
+);
+check('再打开就换回来', backPlanning, 'deepseek');
+
+// ---------------------------------------------------------------- restore
+
+await openForm(2);
+await toggleEnable();
+await saveForm();
+const restoredRail = await waitFor(railCount, 2, { timeoutMs: 4000 });
+check('关掉 Kimi 之后来源栏回到两个', restoredRail, 2);
+const channelIdsRestored = (await cdp.evaluate('window.agentAPI.getChannelStatuses()'))
+  .map(channel => channel.id)
+  .sort()
+  .join(',');
+check('关掉之后通道里也没有它了', channelIdsRestored, 'chatgpt,deepseek');
+
+await openForm(2);
+await typeUrl(KIMI_DEFAULT);
+await saveForm();
+const restoredUrl = await waitFor(kimiUrl, KIMI_DEFAULT, { timeoutMs: 4000 });
+check('跑完之后 Kimi 的地址回到出厂值', restoredUrl, KIMI_DEFAULT);
+
+// ------------------------------------------- the last source cannot be turned off
+//
+// The other end of the same rule, asserted at the end because it needs the state
+// the restore section leaves behind: DeepSeek and ChatGPT on, nothing else. With
+// one source left, switching it off is refused — and the reason has to land in
+// the form, next to the switch that was just clicked, not in the app's error
+// strip at the bottom of the window.
+await openForm(1);
+await toggleEnable();
+await saveForm();
+const oneLeft = await waitFor(railCount, 1, { timeoutMs: 4000 });
+check('关掉 ChatGPT 之后只剩一个来源', oneLeft, 1);
+
+await openForm(0);
+await toggleEnable();
+await saveForm();
+const lastRefused = await waitFor(async () => (await readPanel()).error, LAST_REFUSED, { timeoutMs: 4000 });
+check('关掉最后一个来源被拒绝，理由写在表单里', lastRefused, LAST_REFUSED);
+const stillOn = (await cdp.evaluate('window.agentAPI.getSources()')).sources.find(source => source.id === 'deepseek').enabled;
+check('被拒绝之后它还是开着的', stillOn, true);
+await cancelForm();
+
+// Put ChatGPT back so the closing assertions count what a fresh install has.
+await openForm(1);
+await toggleEnable();
+await saveForm();
+const backRail = await waitFor(railCount, 2, { timeoutMs: 4000 });
+check('把 ChatGPT 打开之后来源栏回到两个', backRail, 2);
+
+// The other half of "开启后才可以用": a source with no address cannot be switched
+// on at all. WorkBuddy ships that way on purpose — there is no address to default
+// to — and switching it on would only add a channel that fails forever.
+await openForm(3);
+await toggleEnable();
+await saveForm();
+const noUrlRefused = await waitFor(async () => (await readPanel()).error, '请填写网址', { timeoutMs: 4000 });
+check('没有网址的来源开启被拒绝', noUrlRefused, '请填写网址');
+await cancelForm();
+check('被拒绝之后它还是关着的', (await railCount()) === 2, true);
+
+// ------------------------------------------------------------------ close
+
+await cdp.evaluate(`document.querySelector('.settings-close').click()`);
+const closed = await waitFor(async () => (await readPanel()).open, false, { timeoutMs: 3000 });
+check('关掉之后面板消失', closed, false);
+
+summary();
+cdp.close();

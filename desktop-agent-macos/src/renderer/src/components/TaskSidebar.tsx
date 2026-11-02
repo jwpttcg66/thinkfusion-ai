@@ -1,6 +1,8 @@
 import React from 'react';
-import type { AgentTask } from '../../../shared/contracts';
+import type { AgentTask, Identity } from '../../../shared/contracts';
 import type { Conversation } from '../../../shared/conversation';
+import { ICON_GAUGE_PATHS, ICON_GEAR_PATHS } from '../../../shared/icons';
+import { Glyph } from './Glyph';
 
 function relTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -30,6 +32,9 @@ export function TaskSidebar(props: {
   activeConversationId: string | null;
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
+  identity: Identity | null;
+  onOpenSettings: () => void;
+  onOpenDiagnostics: () => void;
 }) {
   const groups = React.useMemo(() => {
     const map = new Map<string, AgentTask[]>();
@@ -126,10 +131,39 @@ export function TaskSidebar(props: {
         ))}
       </div>
 
+      {/* The account row.
+          Not a login: there is no account. It is this machine's user name, and
+          saying so is more useful than the "本地工作区" label it replaced — that
+          line named a folder while looking like a profile. The two buttons are
+          the two things a person reaches for from the bottom of a sidebar: how
+          the pages are doing, and where the settings are. */}
       <div className="side-foot">
-        <span className="avatar" />
-        <span className="side-foot-name">本地工作区</span>
-        <span className="muted">···</span>
+        <span className="side-foot-avatar" aria-hidden="true">
+          {props.identity?.initial ?? '·'}
+        </span>
+        <span className="side-foot-name" title={props.identity?.host ?? ''}>
+          {props.identity?.name ?? '本机用户'}
+        </span>
+        <span className="side-foot-actions">
+          <button
+            className="side-foot-btn"
+            type="button"
+            onClick={props.onOpenDiagnostics}
+            aria-label="页面诊断"
+            title="页面诊断：看内嵌页面的真实状态"
+          >
+            <Glyph paths={ICON_GAUGE_PATHS} />
+          </button>
+          <button
+            className="side-foot-btn"
+            type="button"
+            onClick={props.onOpenSettings}
+            aria-label="设置"
+            title="设置：模型、网址、权限"
+          >
+            <Glyph paths={ICON_GEAR_PATHS} />
+          </button>
+        </span>
       </div>
     </aside>
   );

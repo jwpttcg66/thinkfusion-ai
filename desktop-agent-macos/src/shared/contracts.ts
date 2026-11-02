@@ -330,12 +330,54 @@ export interface LayoutInfo {
  *
  * The rail on the right edge renders straight from this, so the list of sources
  * is defined once (shared/sources.ts) instead of being duplicated in the UI.
+ *
+ * `sources` carries disabled ones too. The rail filters them out, and the
+ * settings panel needs the whole list — sending two different lists would mean
+ * two chances for them to disagree about which sources exist.
  */
 export interface SourcesState {
   sources: PageSource[];
   activeId: string;
+  /**
+   * The source the agent plans through, as it is right now.
+   *
+   * Not `source.planning`: that flag says which source *ships* as the planner,
+   * and the user can switch it off. When they do, planning falls to the next
+   * enabled source, and a panel that kept drawing the tag on the shipped one
+   * would be pointing at a page the app no longer uses.
+   */
+  planningId: string | null;
   /** True while the active source's view is still being created or loaded. */
   loading: boolean;
+}
+
+/** An edit to one source, from 设置 · 模型. */
+export interface SourcePatch {
+  /** The address to load. Normalized and allow-list-checked in the main process. */
+  url?: string;
+  /** Whether the source is part of the app right now. */
+  enabled?: boolean;
+}
+
+/** A source the user adds in 设置. */
+export interface NewSourceInput {
+  label: string;
+  url: string;
+}
+
+/**
+ * Who this app thinks you are.
+ *
+ * There is no account system and this does not pretend to be one: it is the
+ * local machine's user name, shown so the bottom of the sidebar has something
+ * to say other than "本地工作区". Everything stays on this machine, which is the
+ * honest description of what the app actually is.
+ */
+export interface Identity {
+  name: string;
+  /** One character for the avatar square. */
+  initial: string;
+  host: string;
 }
 
 /**
@@ -479,6 +521,21 @@ export interface AgentApi {
    * parked, which is how a hidden-but-alive page looks.
    */
   getViewBounds(): Promise<ViewBoundsMap>;
+  /**
+   * Change one source: its address, whether it is on, or both.
+   *
+   * The URL is normalized and checked against the source's allow-list before
+   * anything is written, and the reply is the resulting state — a rejected
+   * address must not leave the panel showing something that was never saved.
+   */
+  saveSource(id: string, patch: SourcePatch): Promise<SourcesState>;
+  /** Add a web page as a new source. Its first address is its allow-list. */
+  addSource(input: NewSourceInput): Promise<SourcesState>;
+  /** Remove a source that was added in 设置. Built-ins are only disabled. */
+  removeSource(id: string): Promise<SourcesState>;
+
+  /** The local user name, for the row at the bottom of the sidebar. */
+  getIdentity(): Promise<Identity>;
 
   // page pane
   /** Which page, if any, is currently in its own window. */

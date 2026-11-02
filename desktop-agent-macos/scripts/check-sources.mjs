@@ -44,7 +44,11 @@ const read = () =>
         title: b.title,
         active: b.classList.contains('active')
       })),
-      sources: state.sources.map(s => ({ id: s.id, planning: s.planning })),
+      sources: state.sources.map(s => ({ id: s.id, planning: s.planning, enabled: s.enabled })),
+      // The rail shows the enabled ones only; a disabled source is a saved
+      // address, not a page. Every index below is into this list, not into the
+      // full sources array, or the assertions would be about the wrong button.
+      enabled: state.sources.filter(s => s.enabled).map(s => s.id),
       activeId: state.activeId,
       bounds
     };
@@ -58,7 +62,8 @@ const read = () =>
 const activate = async id => {
   await cdp.evaluate(`(async () => {
     const state = await window.agentAPI.getSources();
-    const index = state.sources.findIndex(s => s.id === ${JSON.stringify(id)});
+    const enabled = state.sources.filter(s => s.enabled);
+    const index = enabled.findIndex(s => s.id === ${JSON.stringify(id)});
     if (index < 0) throw new Error('未知来源：' + ${JSON.stringify(id)});
     const buttons = [...document.querySelectorAll('.rail-btn')];
     if (!buttons[index]) throw new Error('来源栏里没有第 ' + index + ' 个按钮');
@@ -89,7 +94,7 @@ checkTrue('窗口宽度被读到', base.win.w > 0);
 checkTrue('右侧存在来源栏', base.rail !== null);
 check('来源栏贴在窗口右边缘', base.rail.right, base.win.w);
 check('来源栏宽度等于 RAIL_WIDTH', base.rail.w, RAIL_WIDTH);
-check('按钮数量等于来源数量', base.buttons.length, base.sources.length);
+check('按钮数量等于启用的来源数量', base.buttons.length, base.enabled.length);
 checkTrue('只有一个来源被标记为规划通道', base.sources.filter(s => s.planning).length === 1);
 check('DeepSeek 是规划通道', base.sources.find(s => s.id === 'deepseek')?.planning, true);
 check('当前来源被高亮', base.buttons.filter(b => b.active).length, 1);
@@ -101,7 +106,7 @@ check('页面视图右边缘正好停在来源栏左边缘', Math.round(view.x +
 check('没有任何页面视图压住来源栏', coveringRail(base).length, 0);
 
 // --- switching -------------------------------------------------------------
-const others = base.sources.map(s => s.id).filter(id => id !== base.activeId);
+const others = base.enabled.filter(id => id !== base.activeId);
 checkTrue('至少还有一个来源可以切换', others.length > 0);
 
 for (const id of others) {

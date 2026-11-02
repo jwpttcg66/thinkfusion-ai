@@ -145,6 +145,29 @@
 
 验证口径：单元 120 项、`check:pane` 59 项、`check:sources` 26 项、`check:layout` 26 项、`check:drag` 16 项、`check:conversation` 12 项、`check:new-task` 10 项全绿。
 
+### 第八轮：账号行、可改的网址，和每个来源自己的开关（2026-11-02）
+
+用户先要「修改成这种账号系统，网页可以设置」——「规划的 deepseek, chatgpt, kimi, workbuddy 都需要可以选和更新网址」；随后补了一句把规则说全：「每个网页源都可以设置是否开启。开启后才可以用，并且通道要保持一致。」
+
+| 问题 | 根因 | 修法 |
+| --- | --- | --- |
+| 侧栏底部写着「本地工作区」，没有账号，也没有设置入口 | 没有身份概念，设置无处可放 | 换成账号行：首字母头像 + 系统用户名 + 「页面诊断」「设置」两颗图标按钮。身份来自 `os.userInfo()` 与 `os.hostname()`——**这不是登录**，没有后端也没有密码，界面照实写「这个应用只跑在这台机器上」 |
+| 网址写死在常量里，站点一搬家就只能等新版本 | 来源列表是一份常量 | `BUILTIN_SOURCES`（出厂）+ `userData/sources.json`（用户增量）→ `resolveSources()` 纯函数合并。**只存 delta**：存解析后的整份列表，等于把今天的内置项钉死，将来修 URL、加来源对已安装的人永远不可见 |
+| 改网址时若重建视图，用户会被悄悄退出登录 | partition 属于**来源 id**，不属于 URL；换视图 = 换 session | 改址走 `loadURL`，还是同一个 `WebContentsView`。登录、滚动位置、正在写的回答都留着 |
+| 改了网址，页面却拒绝导航到新地址 | 允许列表是构造时定死的 `Set` | `hostsFor()` 保留声明过的 hosts 并**追加**新 host：替换会破坏 OAuth 跳转，不追加会拒绝刚填的地址。`DeepSeekAdapter` 的 `hosts` 改成 `() => Set`，每次 `isAllowed` 现算 |
+| 开关拨了，通道数不变 | 注册表在启动时建好一次 | `ChannelRegistry.replaceAll()`——是替换内容而不是换对象，因为 `ConversationRunner` 持有的是同一个实例，换对象会让持有者永远读旧列表 |
+| 「规划通道」的开关是灰的，点不动 | 把「Agent 得有地方问」写成了「这一行不许关」 | 改成「**至少留一个**」：`planningSource()` 优先选开着的规划来源，其次任一开着的来源；关掉最后一个会被拒绝，理由落在表单里。「规划通道」标签跟着 `planningId` 走，而不是跟着出厂标记——否则关掉 DeepSeek 之后标签还挂在它身上，指着一个已经不用的页面 |
+| 刚打开的来源报「未找到输入框，页面结构可能已变化」 | 运行时新建的视图从没上过屏，视口是 0×0；而 `layout()` 紧接着就把它停到窗口外，它自己好不了 | `primeViewport()`：先按页面尺寸显示一帧，再交给 `layout()`。`createSourceView` 一律把视图插到栈**最底层**——z 序不影响布局，所以它能拿到视口，又不会盖住用户正在看的那一页 |
+| 被拒绝的理由出现在应用底部的错误条里 | IPC 把异常包成 `Error invoking remote method '…': Error: …` | `ipcErrorText()` 剥掉外壳，句子放在被拒的那张表单旁边：改哪个地址出错，就在哪个地址下面说 |
+| 网址显示成 `/https://chat.deepseek.com` | 想用 `direction: rtl` 让长网址从右边截断 | 去掉 `direction`。URL 的斜杠顺序会被双向算法打乱，看起来像坏地址 |
+| 「设置」图标在 13px 读作太阳 | 「轮毂 + 八条放射线」和亮度图标同形 | 圆环 + 轮毂 + 8 齿：齿在圆环外面，任何尺寸下都读作机械件 |
+
+「开启后才可以用」是三层一起成立的，缺一层就会漏：来源栏只列开着的（点不到）、`activateSource` 对没开的来源直接拒绝、`rebuildChannels` 只把开着的变成通道。所以「通道和来源是同一份清单」这条断言在 `check:settings` 里写成两半：开 Kimi → `chatgpt,deepseek,kimi`，关 Kimi → `chatgpt,deepseek`。
+
+顺带修的是检查脚本自己的两处脆弱：`check:settings` 现在开跑前先把状态归位（而且**先开后关**，否则上一轮死在「只剩一个来源」时，这一轮第一步就会撞上自己定的规则）；面板被误关时会自动重开——它跑在真人的桌面上，点一下遮罩就没了，那不该算作被测功能的失败。
+
+验证口径：单元 138 项（新增 `test:sources-config` 18 项）、`check:settings` 39 项、`check:pane` 59 项、`check:sources` 27 项、`check:layout` 26 项（窗口不在前台时 25，脚本会打 note 说明跳过的是哪一条）、`check:drag` 16 项、`check:conversation` 12 项、`check:new-task` 10 项全绿。
+
 ---
 
 ## P0 · 自然语言任务输入与动态对话
