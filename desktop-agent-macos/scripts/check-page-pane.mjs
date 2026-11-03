@@ -89,6 +89,18 @@ const readPane = () =>
         };
       })(),
       winWidth: window.innerWidth,
+      // The focus ring, forced on. Chromium's default is the *system* highlight
+      // colour — orange on this machine, around a blue-accent app — so the ring
+      // has to be ours, and this is where that is checked.
+      focusRing: (() => {
+        const button = document.querySelector('.rail-toggle');
+        if (!button) return null;
+        button.focus({ focusVisible: true });
+        const style = getComputedStyle(button);
+        const ring = { color: style.outlineColor, width: style.outlineWidth };
+        button.blur();
+        return ring;
+      })(),
       placeholder: Boolean(document.querySelector('.page-detached')),
       hasNote: Boolean(document.querySelector('.page-note')),
       // What the app column reserved for the pane. Read from the computed style
@@ -156,6 +168,8 @@ if (pane.bar) {
   checkTrue(`收起画的是面板（${pane.railToggle?.path ?? ''}）`, (pane.railToggle?.path ?? '').includes('M4.4 3.1'));
   checkTrue('面板右侧那一列是实心的', (pane.railToggle?.filled ?? 0) === 1);
   checkTrue('收起和放大不是同一个图标', (pane.railToggle?.path ?? '') !== pane.iconPath);
+  check('聚焦环用的是应用自己的蓝，不是系统强调色', pane.focusRing?.color, 'rgb(77, 107, 254)');
+  check('聚焦环两像素，和按钮留出间隙', `${pane.focusRing?.width}`, '2px');
   // The pane can be dragged down to 380px, and two four-character labels used to
   // push the status out of view. An icon is a fixed width, so this asserts the
   // width rather than trusting that it stayed small.

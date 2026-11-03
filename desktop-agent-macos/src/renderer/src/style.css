@@ -48,6 +48,17 @@ button:disabled {
   cursor: default;
 }
 
+/* Chromium draws its default focus ring in the *system* highlight colour. On a
+   machine whose accent is orange that is an orange ring around a blue-accent
+   button — a colour this app never uses, and one that reads as a warning.
+   Keyboard users need a ring; they do not need the wrong one.
+   `:where()` keeps the specificity at zero, so any component that wants a
+   different ring can still say so. */
+:where(button, [role='button'], a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);

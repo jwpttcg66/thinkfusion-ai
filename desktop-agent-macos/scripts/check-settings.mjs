@@ -47,6 +47,25 @@ await cdp.evaluate('window.agentAPI.saveSource("workbuddy", { enabled: false })'
 await cdp.evaluate('window.agentAPI.setDisplayName("")');
 await sleep(400);
 
+// Housekeeping that verifies itself. Four fire-and-forget writes are not a known
+// state — a rejected write (the last-source rule) or a panel that was still
+// saving leaves the run measuring something else, and the failure then shows up
+// three assertions later as "the planner did not come back". Read it back, and
+// say so plainly if it did not take.
+const settled = await waitFor(
+  async () => {
+    const list = await cdp.evaluate('window.agentAPI.getSources()');
+    const state = Object.fromEntries(list.sources.map(source => [source.id, source.enabled]));
+    return state.deepseek === true && state.chatgpt === true && state.kimi === false && state.workbuddy === false;
+  },
+  true,
+  { timeoutMs: 4000 }
+);
+if (!settled) {
+  const list = await cdp.evaluate('window.agentAPI.getSources()');
+  throw new Error(`检查开始前无法把来源恢复成已知状态：${JSON.stringify(list.sources.map(s => [s.id, s.enabled]))}`);
+}
+
 const readFoot = () =>
   cdp.evaluate(`(() => {
     const foot = document.querySelector('.side-foot');

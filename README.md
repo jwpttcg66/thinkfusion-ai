@@ -198,7 +198,7 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
   name 10, synthesis 16, selector repair 10, conversation runner 10, intent 9, page text 9,
   state machine 8. CI runs these on every push — see
   [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 190 assertions**: page pane 62, settings 50, sources 27, split layout 16, app column
+- **Live, 192 assertions**: page pane 64, settings 50, sources 27, split layout 16, app column
   10, drag 16, conversation 12, new-task feedback 10. These need a running app and a signed-in
   page, so they are run by hand; the scripts read real state over CDP instead of pixels.
 - What these tests **cannot** prove is written down in
