@@ -216,7 +216,11 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 
 ```
 desktop-agent-macos/   Electron app: main / preload / renderer / isolated runtime
-  src/main/            tasks, storage, web adapter, orchestration, window split
+  src/main/            tasks, storage, orchestration, window split
+    master-agent.ts    who joins a round, and when the round is over
+    agents/            participants: SubAgent interface, ProviderSubAgent, registry
+    adapters/browser/  the page driver and the adapter that wraps it (no site constants)
+    adapters/providers/  one file per AI site: selectors + hosts
   src/agent/           isolated runtime: plan validation, tool execution, result verification
   src/renderer/        React three-pane UI
   src/shared/          protocol, IPC contracts, split geometry (shared by main and renderer)
@@ -225,6 +229,12 @@ packages/              reusable model-channel package (zero dependencies, Electr
 docs/                  repository workflow docs (commit conventions, branching, release)
 scripts/               versioning infrastructure (hooks, release scripts)
 ```
+
+Adding an AI site is one file in `adapters/providers/` (selectors + hosts) plus one line in its
+`index.ts`. A participant is not a page driver: `ProviderSubAgent` owns identity, session and
+health, `BrowserAdapter` owns the DOM, and the Master Agent owns the budget for a round. The
+debate round between agents is designed but deliberately not wired yet — see
+[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2.2.
 
 ## Documentation
 

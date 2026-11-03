@@ -14,7 +14,7 @@ import type {
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
-import { DeepSeekAdapter } from './deepseek-adapter';
+import { ChatPageDriver } from './adapters/browser/page-driver';
 import { runPlan } from './agent-manager';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
@@ -22,7 +22,7 @@ const GRANT_TTL_MS = 30 * 60 * 1000;
 export interface OrchestratorDeps {
   tasks: TaskManager;
   store: AgentStore;
-  adapter: DeepSeekAdapter;
+  adapter: ChatPageDriver;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
 }

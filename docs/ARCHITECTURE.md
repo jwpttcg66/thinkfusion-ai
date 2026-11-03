@@ -14,9 +14,9 @@
 | --- | --- | --- |
 | 普通问题不能要求生成 JSON 计划 | 每个任务都走 `buildInitialPrompt`，开头就是「你是本地 ThinkFusion 的任务规划引擎……输出执行计划」 | `src/shared/protocol.ts:381` |
 | 一个通道失败不能拖垮整条链路 | `AgentOrchestrator` 一个循环同时负责发问、解析、审批、执行、回传 | `src/main/orchestrator.ts:37` |
-| 增加第二个 AI 不需要改主流程 | `DeepSeekAdapter` 是唯一通道，892 行里混了选择器、探测、发送、归属判断 | `src/main/deepseek-adapter.ts` |
+| 增加第二个 AI 不需要改主流程 | 曾经只有一个 `DeepSeekAdapter`，892 行里混了选择器、探测、发送、归属判断 | 已拆成 `ChatPageDriver`（无站点常量）+ `adapters/providers/`（一个站点一个文件） |
 
-三条都指向同一个动作：**先定义通道接口，再谈编排。**
+三条都指向同一个动作：**先定义接口，再谈编排。** 这三条现在都兑现了，兑现的方式见第 2 节。
 
 ---
 
@@ -25,12 +25,12 @@
 | 层 | 职责 | 现有代码 | 目标 | 动作 |
 | --- | --- | --- | --- | --- |
 | **1. User Interaction** | 输入、进度、对话呈现 | `App.tsx`、`SourceRail.tsx`、`TaskInput.tsx` | 同左 + `ConversationView` | 扩展 |
-| **2. Intent & Task Orchestrator** | 判定任务类型、选流程 | 无。所有输入都被当成计划任务 | `IntentRouter` + `ConversationRunner` | **新建** |
-| **3. AI Collaboration Engine** | 分头发问、收集、比较、追问 | 无。只有一个通道，一轮一问 | `AiChannel` 接口 + `CollaborationEngine` | **新建** |
+| **2. Intent & Task Orchestrator** | 判定任务类型、选流程 | `shared/intent.ts` + `ConversationRunner` | 同左 | 已落地 |
+| **3. AI Collaboration Engine** | 分头发问、收集、比较 | `MasterAgent` + `SubAgentRegistry` + `ProviderSubAgent` + `BrowserAdapter` | 同左 | 已落地（辩论轮未做，见 2.2 末） |
 | **4. Tool & Execution Runtime** | 工具、权限、复验 | `src/agent/*`、`agent-manager.ts` | 保留原样 | **收敛为按需** |
-| **5. Knowledge & Synthesis** | 观点、证据、分歧、索引 | 无。只有 `AgentStore` 的事件流 | `SynthesisStore` + `Synthesizer` | **新建** |
+| **5. Knowledge & Synthesis** | 观点、证据、分歧、索引 | `shared/synthesizer.ts`（规则式，已接进链路） | 同左 + 证据索引 | 部分落地 |
 
-第 2、3、5 层目前是空的。这不是"待优化"，是产品定位没落地。
+第 2、3 层已经落地，第 5 层只做了"把几段回答比成共识/分歧/缺口"这一步：证据索引、跨会话的知识沉淀都还没有。
 
 ### 2.1 第 2 层：意图路由
 
@@ -55,53 +55,71 @@ export type Intent =
 
 路由结果要落进事件流，用户可回看"系统把这次当成了什么"。
 
-### 2.2 第 3 层：通道接口
+### 2.2 第 3 层：SubAgent 与网页适配器
 
-这是整个重构的支点。所有 AI 接入（网页版 DeepSeek、ChatGPT、将来的 API 通道）实现同一个接口：
+这一层不是一层，是四层。相邻两层只通过接口说话：
+
+```
+MasterAgent            谁参加这一轮、几轮、什么时候停
+  └ SubAgentPool       SubAgentRegistry：谁现在能用、同时最多几个
+      └ SubAgent       ProviderSubAgent：身份、会话、健康记录、结果归一
+          └ BrowserAdapter   PageBrowserAdapter：只碰 DOM
+              └ ChatPageDriver  探针、发送、等待、回声剥离（与站点无关）
+                  └ ProviderProfile  某个站点的选择器与 host
+```
+
+**SubAgent 是逻辑上的参与者，Adapter 是技术上的网页驱动器，两者不能写成一个类。** 写在一起，最后会得到「哪个模型说的」和「用了哪个 DOM 选择器」在同一个文件、同一份 bug 报告里。分开的收益是具体的：换一个站点只动 `adapters/providers/`，换一个驱动器（将来的 Playwright）只动 `adapters/browser/`，「谁参加这次研究」在 `agents/` 和 `master-agent.ts` 里，三处互不牵连。
 
 ```ts
-export interface AiChannel {
+// agents/types.ts —— 参与者
+export interface SubAgent {
+  readonly identity: SubAgentIdentity;   // id、label、kind（provider / specialist）、role
   readonly id: string;
   readonly label: string;
+  health(): Promise<ChannelStatus>;      // 页面状态 + 自己的连续失败记录
+  ask(task: SubAgentTask): Promise<SubAgentAnswer>;
+  newConversation?(): Promise<NewSessionResult>;
+  cancel(requestId: string): void;
+}
 
-  /** 现在能不能用：登录态、页面就绪、是否正在生成。 */
+// adapters/browser/types.ts —— 驱动器
+export interface BrowserAdapter {
+  readonly id: string;
+  readonly label: string;
   status(): Promise<ChannelStatus>;
-
-  /** 发一句话，拿回一段话。 */
-  ask(input: AskInput): Promise<ChannelAnswer>;
-}
-
-export interface AskInput {
-  /** 用户的原话，或据此派生的一句追问。不是重写过的任务规格。 */
-  question: string;
-  /** 同一会话里更早的轮次，旧的在前。 */
-  history?: readonly Turn[];
-  /** 这次提问的目的，只影响编排，不影响线格式。 */
-  stage: 'initial' | 'followup' | 'challenge' | 'synthesis';
-}
-
-export interface ChannelAnswer {
-  text: string;
-  /** 这一段是怎么被认定为"本轮回答"的，排障用。 */
-  attribution: Attribution;
-  receivedAt: number;
+  ask(input: AdapterAsk): Promise<AdapterAnswer>;
+  newConversation?(): Promise<NewSessionResult>;
+  cancel(requestId: string): void;
+  /** 停止：请求 id 只有答完才知道，所以"放弃所有在等的"必须是一个独立动作。 */
+  cancelAll?(): void;
 }
 ```
 
-两个刻意的设计：
+两个刻意的设计，和上一版一样：
 
 1. **`ask()` 只返回 `text`。** 没有 `data`、没有 `payload`、没有 `structured`。类型系统层面禁止"让通道吐 JSON"，因为那正是现在所有问题的源头。
 2. **通道不知道协议存在。** 需要 JSON 的场景由调用方在 `question` 后面追加协议后缀，通道照常发、照常取回文本。
 
-现在的 `DeepSeekAdapter` 按这个接口拆成三块：
+文件在哪，以及每个文件里**没有**什么：
 
-| 拆分后 | 内容 | 依据 |
+| 文件 | 是什么 | 里面没有 |
 | --- | --- | --- |
-| `channels/web-page/` | 选择器、probe、发送、`waitForAnswer`、回声剥离、回答归属 | `deepseek-adapter.ts` 现有全部 |
-| `channels/registry.ts` | 按 id 注册、并发队列、健康状态 | 新建 |
-| `channels/status.ts` | `ChannelStatus` 投影（上层只看得到这个） | 新建 |
+| `agents/types.ts` | `SubAgent`、`SubAgentTask/Answer`、`SubAgentPool` | DOM、选择器 |
+| `agents/provider-agent.ts` | `ProviderSubAgent`：身份、会话、健康记录、`normalizeAnswer` | DOM、轮次编排 |
+| `agents/registry.ts` | `SubAgentRegistry`：并发上限、可用性、`replaceAll` | 谁该参加这一轮 |
+| `adapters/browser/types.ts` | `BrowserAdapter`、`PageBusyError` / `PageUnavailableError` | 站点名、选择器 |
+| `adapters/browser/page-adapter.ts` | `PageBrowserAdapter`：把一次提问变成「发—等—认领」 | 身份、会话策略 |
+| `adapters/browser/page-driver.ts` | `ChatPageDriver`：探针、发送、`waitForAnswer`、回声剥离 | 任何站点的常量 |
+| `adapters/providers/deepseek.ts`、`chatgpt.ts` | 选择器 + host，一个站点一个文件 | 行为 |
+| `master-agent.ts` | 选参与者、单答还是并行研究、收集、交给综合 | DOM、存储、事件 |
 
-上层永远拿不到 DOM 选择器，也拿不到 `WebContentsView`。站点改版只影响 `channels/web-page/`。
+**加一个站点要动两处**：`adapters/providers/<id>.ts`（选择器 + host），和 `adapters/providers/index.ts` 里的一行。`index.ts` 里不再有 `sourceId === 'chatgpt' ? … : …` 这种 if——那正是上一个站点的加入方式，它把"支持哪些站点"散进了装配代码。
+
+顺带修掉一个真 bug：诊断面板报告的 `selectors` 原来是模块级的默认值，于是 ChatGPT 的面板里显示的是 DeepSeek 的选择器。现在驱动器的 `selectors` 是构造时传进来的（一个函数，学到的 profile 下一次探针就生效），`diagnose()` 报告的是**正在用的那一份**。
+
+**Master 管预算，SubAgent 不能自己叫人。** 谁能被问、一次问几个、问几轮，只有 `MasterAgent` 决定。一个能自行召集同伴的参与者会把用户的时间和页面的额度花在没人计数的地方。所以 `SubAgent` 接口里没有 `askOther()`，`SubAgentPool` 也没有暴露给参与者。
+
+**辩论轮：设计在，实现不在。** `shared/prompts.ts` 里的 `buildChallengePrompt` 和 `AskStage = 'challenge'` 是留给它的；规则式综合也已经能指出分歧在哪一句。但这一轮**刻意没有接进链路**：先有可靠的"谁在说什么、页面怎么驱动"，再有"让它们互相质疑"。在那之前，分歧就如实报成分歧，而不是被一轮没人要求的二次提问抹平。
 
 #### 回答归属：两条路，一条兜底
 
@@ -171,7 +189,7 @@ export interface ChannelAnswer {
 | `BUILTIN_SOURCES`（出厂）+ `userData/sources.json`（增量），由纯函数 `resolveSources()` 合并 | 存解析后的整份列表，等于把今天的内置项钉死：将来修一个 URL、加一个来源，对已安装的人永远不可见 |
 | 改地址走 `loadURL`，不重建视图 | partition 属于**来源 id**，不属于 URL。重建视图就是换 session——用户刚改好地址，却发现自己被登出了 |
 | `hostsFor()` 保留声明过的 hosts 并**追加**新 host | 替换掉会破坏 OAuth 跳转（跳到 accounts.google.com 之类被拒）；不追加会拒绝用户刚填的那个地址，而报错看起来像网络故障 |
-| `ChannelRegistry.replaceAll()` 而不是换一个新的注册表对象 | `ConversationRunner` 持有的是那个实例，换对象会让它永远读旧列表——开关拨了，通道数不动 |
+| `SubAgentRegistry.replaceAll()` 而不是换一个新的注册表对象 | `ConversationRunner` 持有的是那个实例，换对象会让它永远读旧列表——开关拨了，通道数不动 |
 
 「开启后才可以用」不是一个 if，而是三层同时成立：来源栏只列开着的（点不到）、`activateSource` 对没开的来源直接报错（绕不过去）、`rebuildChannels` 只把开着的变成通道（数得对）。少任何一层，就会出现"按钮在、点了没反应"或者"就绪度写着 1/4，其中两个根本没开"。
 
@@ -229,7 +247,7 @@ export interface ChannelAnswer {
 
 ### 2.3 第 5 层：综合
 
-输入是 N 个 `ChannelAnswer`，输出是结构化的 `Synthesis`：
+输入是 N 个 `SubAgentAnswer`，输出是结构化的 `Synthesis`：
 
 ```ts
 export interface Synthesis {
@@ -324,7 +342,7 @@ export interface Claim {
 用户输入
   → IntentRouter           判定 answer / research / compare / extract
   → CollaborationEngine    拆问题，分发给 N 个通道（并行，每通道独立队列）
-  → 收集 ChannelAnswer[]   文本，可能伴随归属失败重试
+  → 收集 SubAgentAnswer[]  文本，可能伴随归属失败重试
   → Synthesizer            规则抽取 → consensus / disputed / unique / gaps
   → conversation 事件流     渲染成对话 + 左侧协作进度
 ```
@@ -401,7 +419,7 @@ draft ──route──► thinking ──► collecting ──► comparing ─
 | --- | --- | --- |
 | `buildInitialPrompt` 无条件注入计划协议 | 每个任务都被迫变成计划任务 | `buildRolePrompt`（稳定角色）+ `buildStagePrompt`（本轮动态内容）+ `buildPlanSuffix`（仅执行链路） |
 | `AgentOrchestrator` 409 行，五件事混在一起 | 改一处牵全身 | `IntentRouter` / `ConversationRunner` / `Executor` 三个类 |
-| `DeepSeekAdapter` 892 行 | 加第二个 AI 要复制一遍 | 按 `AiChannel` 拆分 |
+| `DeepSeekAdapter` 892 行 | 加第二个 AI 要复制一遍 | 按 `SubAgent` + `BrowserAdapter` 拆分（已做，见 2.2） |
 | `pageQueue` 全局串行 | 多通道互相阻塞 | 每通道队列 + 全局并发上限 |
 
 ---
@@ -412,12 +430,13 @@ draft ──route──► thinking ──► collecting ──► comparing ─
 
 | 步骤 | 内容 | 行为变化 | 验收 |
 | --- | --- | --- | --- |
-| **M1** | 抽出 `AiChannel` 接口，`DeepSeekAdapter` 实现它，行为不变 | 无 | 现有 59 项实机检查全绿 |
+| **M1** ✅ | 抽出通道接口（后来改名 `SubAgent`），`DeepSeekAdapter` 实现它，行为不变 | 无 | 现有 59 项实机检查全绿 |
 | **M2** | 引入 `IntentRouter`，`answer` 分支先只做一件事：**不注入计划提示词**，直接把用户原话发出去并展示回答 | 问答不再产出计划 | 问一个知识问题，回答里没有 JSON |
 | **M3** | `ConversationRunner` + 右侧对话流 UI，来源栏保留为"看原始页面" | 右侧从网页视图变成对话视图 | 能连续追问两轮，上下文不断 |
 | **M4** | 接入第二个通道（ChatGPT），per-channel 队列 | 可并行收集 | 两个通道同时提问互不干扰 |
 | **M5** | `Synthesizer` 规则版 | 出现"分歧/缺失"标注 | 输出里至少一处明确分歧 |
 | **M6** | `Executor` 收敛：只有 `workspace` 意图进入 | 计划与审批变稀有 | 关掉 Runtime，问答与研究仍可用 |
+| **M7** ✅ | 第 3 层再拆一层：`ProviderSubAgent`（参与者）+ `BrowserAdapter`（驱动器）+ `adapters/providers/`（一个站点一个文件） | 无（装配位置变了） | `test:runner` 10、`test:adapter` 34、`test:sources-config` 24、`check:settings` 74 |
 
 M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Runtime 不影响核心产品。**
 
@@ -427,11 +446,11 @@ M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Run
 
 | 风险 | 具体形态 | 对策 |
 | --- | --- | --- |
-| **逼模型吐 JSON 复发** | 给 `research/v1` 也定义一套模型输出格式，换个名字回到老路 | `AiChannel.ask()` 的返回类型里只有 `string`；结构化只在应用侧发生 |
+| **逼模型吐 JSON 复发** | 给 `research/v1` 也定义一套模型输出格式，换个名字回到老路 | `SubAgent.ask()` 的返回类型里只有 `string`；结构化只在应用侧发生 |
 | **综合退化成压缩** | 把 N 个回答拼给一个模型"总结一下" | `Synthesis` 必须包含 `disputed` 与 `gaps`，缺任一项视为未完成综合 |
 | **多页面资源爆炸** | 同时开 6 个网页版 AI | 全局并发上限 + 队列满即返回 `ChannelBusy` |
 | **回答归属失效** | 多通道下把 A 的回答当成 B 的 | 归属逻辑留在各通道内部，`attribution` 随答案一起返回，可回查 |
-| **站点改版** | 选择器失效，整条链路静默变空 | 全部收在 `channels/web-page/`；`ChannelStatus` 暴露 `probeVersion` 与命中选择器 |
+| **站点改版** | 选择器失效，整条链路静默变空 | 选择器只出现在 `adapters/providers/`；`ChannelStatus` 暴露 `probeVersion` 与命中选择器 |
 | **旧任务数据** | 迁移后历史任务无法回看 | `AgentStore` 只读兼容，旧任务标记 `legacy`，不尝试续跑 |
 
 ---

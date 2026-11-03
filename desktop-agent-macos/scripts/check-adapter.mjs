@@ -17,8 +17,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { DeepSeekAdapter, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isAllowedDeepSeekUrl, PROBE_VERSION } = await import(
-  path.join(root, 'out/adapter/main/deepseek-adapter.js')
+const { ChatPageDriver, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, PROBE_VERSION } = await import(
+  path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
+);
+const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
+  path.join(root, 'out/adapter/main/adapters/providers/deepseek.js')
 );
 const { buildInitialPrompt, parseAnswer, stripEcho, containsEcho } = await import(path.join(root, 'out/adapter/shared/protocol.js'));
 
@@ -91,7 +94,11 @@ function scriptedPage(observations, options = {}) {
 const FAST = { pollMs: 5, settleMs: 20, enterAfterMs: 4000, clickRetryAfterMs: 8000 };
 
 function adapterFor(page, tuning = {}) {
-  const adapter = new DeepSeekAdapter(() => page);
+  const adapter = new ChatPageDriver(() => page, {
+    hosts: DEEPSEEK_HOSTS,
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'DeepSeek'
+  });
   adapter.configure({ ...FAST, ...tuning });
   return adapter;
 }

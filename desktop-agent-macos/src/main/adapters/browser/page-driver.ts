@@ -1,5 +1,5 @@
 import type { WebContentsView } from 'electron';
-import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../shared/contracts';
+import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../../../shared/contracts';
 
 /**
  * Everything the adapter can say about the page.
@@ -10,11 +10,9 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../sh
  * `WebContentsView` exists.
  */
 export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging'>;
-import { stripEcho, containsEcho } from '../shared/protocol';
-import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../shared/text';
-import type { DiscoveredSelectors, SelectorProfile } from '../shared/selectors';
-
-const ALLOWED_HOSTS = new Set(['chat.deepseek.com']);
+import { stripEcho, containsEcho } from '../../../shared/protocol';
+import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../../../shared/text';
+import type { DiscoveredSelectors, SelectorProfile } from '../../../shared/selectors';
 
 /**
  * Exact-host allow-list check.
@@ -33,10 +31,6 @@ export function isAllowedHostUrl(raw: string, hosts: ReadonlySet<string>): boole
   }
 }
 
-export function isAllowedDeepSeekUrl(raw: string): boolean {
-  return isAllowedHostUrl(raw, ALLOWED_HOSTS);
-}
-
 /** Bumped whenever the probe changes shape, so a stale report is identifiable. */
 export const PROBE_VERSION = '3';
 
@@ -50,59 +44,6 @@ export const PROBE_VERSION = '3';
  */
 const MIN_TAIL_CHARS = 24;
 
-/**
- * All DOM knowledge lives in this one place.
- *
- * Ordered most specific first; the first list with a visible hit wins. Every
- * list is a guess about markup we do not own, so each role also has a
- * structural fallback in the probe script — the selectors decide *which* node
- * when they match, the fallback keeps the app working when they do not.
- *
- * Stop-button selectors are deliberately narrow: a broad `[class*="stop"]`
- * matches chrome that is always present, which would report "generating"
- * forever. Generation state is advisory anyway (see `waitForAnswer`), so a
- * missing stop button must never break the loop.
- */
-export const SELECTORS: SelectorProfile = {
-  input: [
-    '#chat-input',
-    'div[contenteditable="true"][role="textbox"]',
-    'textarea[placeholder]',
-    'div[contenteditable="true"]',
-    'textarea'
-  ],
-  sendButton: [
-    'button[aria-label*="发送"]',
-    'button[aria-label*="Send"]',
-    'div[role="button"][aria-label*="发送"]',
-    '[data-testid*="send"]',
-    'button[type="submit"]'
-  ],
-  stopButton: [
-    'button[aria-label*="停止"]',
-    'button[aria-label*="Stop"]',
-    '[aria-label*="停止生成"]',
-    '[title*="停止"]'
-  ],
-  /**
-   * The "start a new chat" control.
-   *
-   * Kept apart from `sendButton` because it is a navigation, not a submission:
-   * a wrong guess here throws away the conversation the user is reading, and a
-   * wrong guess in the send list merely fails to send. The script therefore
-   * only clicks something it can identify by label or by an exact text match.
-   */
-  newChatButton: [
-    'button[aria-label*="新对话"]',
-    'a[aria-label*="新对话"]',
-    '[role="button"][aria-label*="新对话"]',
-    '[aria-label*="New chat"]',
-    'button[class*="new-chat"]',
-    'a[class*="new-chat"]'
-  ],
-  assistant: ['[data-message-author-role="assistant"]', '.ds-markdown', '[class*="markdown"]'],
-  passwordField: ['input[type="password"]']
-};
 
 export interface MessageSnapshot {
   messageCount: number;
@@ -729,7 +670,7 @@ const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
  */
 export function createElectronDriver(
   view: WebContentsView,
-  selectors: SelectorProfile | (() => SelectorProfile) = SELECTORS
+  selectors: SelectorProfile | (() => SelectorProfile)
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
   return {
@@ -858,30 +799,41 @@ export const DEFAULT_TUNING: AdapterTuning = {
   newChatMs: 12000
 };
 
-export class DeepSeekAdapter {
+export class ChatPageDriver {
   private waits = new Map<string, AbortController>();
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
   private readonly hostsOf: () => ReadonlySet<string>;
+  private readonly selectorsOf: () => SelectorProfile;
   private readonly siteLabel: string;
 
   /**
-   * `options` exists so a second site can reuse this driver instead of getting
-   * a copy of it. The only things that differ between chat.deepseek.com and
-   * chatgpt.com are the allowed hosts and the wording of the status detail —
-   * everything else (probe, send, wait, echo stripping) is site-agnostic.
+   * Everything site-specific arrives here; the driver itself knows no site.
    *
-   * `hosts` may be a function because the address is editable: an adapter that
-   * captured the list at construction would refuse the URL the user just fixed,
-   * and report it as "当前页面不是允许的…页面" — which reads like a network
-   * failure rather than a stale setting.
+   * Three things differ between one chat page and another: which hosts it is
+   * allowed to be, which selectors its markup answers to, and what to call it
+   * when the status detail has to say whose page is broken. Everything else —
+   * the probe, the send path, "is this answer mine", echo stripping — is
+   * site-agnostic, which is why there is one driver and not one per site.
+   *
+   * `hosts` and `selectors` may both be functions, because both change while the
+   * app runs: the address is editable, and a learned selector takes effect on
+   * the next probe. A driver that captured either at construction would refuse
+   * the URL the user just fixed, and report it as "当前页面不是允许的…页面" —
+   * which reads like a network failure rather than a stale setting.
    */
   constructor(
     private readonly getDriver: () => PageDriver | null,
-    options: { hosts?: ReadonlySet<string> | (() => ReadonlySet<string>); siteLabel?: string } = {}
+    options: {
+      hosts: ReadonlySet<string> | (() => ReadonlySet<string>);
+      siteLabel: string;
+      selectors: SelectorProfile | (() => SelectorProfile);
+    }
   ) {
-    const hosts = options.hosts ?? ALLOWED_HOSTS;
+    const hosts = options.hosts;
     this.hostsOf = typeof hosts === 'function' ? hosts : () => hosts;
-    this.siteLabel = options.siteLabel ?? 'DeepSeek';
+    const selectors = options.selectors;
+    this.selectorsOf = typeof selectors === 'function' ? selectors : () => selectors;
+    this.siteLabel = options.siteLabel;
   }
 
   private isAllowed(url: string): boolean {
@@ -972,7 +924,7 @@ export class DeepSeekAdapter {
       url: status.url,
       title: probe?.title ?? '',
       status,
-      selectors: SELECTORS as unknown as Record<string, string[]>,
+      selectors: this.selectorsOf() as unknown as Record<string, string[]>,
       probe: {
         hasInput: probe?.hasInput ?? false,
         inputKind: probe?.inputKind ?? 'none',

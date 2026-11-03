@@ -39,7 +39,7 @@ export interface ConversationMessage {
   messageId: string;
   conversationId: string;
   role: MessageRole;
-  /** Present for `channel` messages. */
+  /** Present for `channel` messages: which agent said it. */
   channelId?: string;
   /** Present for `synthesis` messages: the structured result, JSON-encoded on disk. */
   synthesis?: Synthesis;

@@ -268,7 +268,30 @@
 
 ---
 
----
+### 第十四轮：网页适配器与网页 Agent 拆开（2026-11-03，分支 0.0.8）
+
+用户的要求是一张架构图：Master Agent 拆任务、每个 AI 网站一个独立 SubAgent、SubAgent 内部用各自的 Browser Adapter 操作网页。里面有一句是硬要求——**「SubAgent 是逻辑上的独立参与者，Adapter 是技术上的网页驱动器，不要把两者写成一个类」**。同一句话还带了一个范围限制：**先不做辩论。**
+
+所以这一轮只改第 3 层的形状，行为不变。验收标准就是「看不出区别」。
+
+| 原来 | 现在 | 为什么 |
+| --- | --- | --- |
+| `channels/web-page.ts` 里一个类同时是「通道」和「网页驱动器」 | `ProviderSubAgent`（身份/会话/健康/结果归一）+ `PageBrowserAdapter`（只碰 DOM） | 参与者的生命周期和页面的生命周期不是一回事。混在一起，「哪个模型说的」和「用了哪个选择器」就进了同一份 bug 报告 |
+| `deepseek-adapter.ts`（1338 行）名字叫 DeepSeek，实际是所有站点共用的驱动器 | `adapters/browser/page-driver.ts` 的 `ChatPageDriver`，构造时必须传 `hosts` / `selectors` / `siteLabel` | 一个通用类用某个站点的名字命名，下一个人就会往里加站点特有的分支 |
+| `index.ts` 里 `sourceId === 'chatgpt' ? CHATGPT_SELECTORS : SELECTORS` | `adapters/providers/index.ts` 的 `profileFor(sourceId)` | 加一个站点原来要改装配代码，于是「支持哪些站点」散在两处 |
+| `SELECTORS`、`ALLOWED_HOSTS`、`isAllowedDeepSeekUrl` 在驱动器里 | `adapters/providers/deepseek.ts`，和 `chatgpt.ts` 并排 | 站点常量留在通用代码里，就是下一次「顺手加个 if」的入口 |
+| `ChannelRegistry` / `AiChannel` | `SubAgentRegistry` / `SubAgent` | 名字跟着概念走：注册表里放的是参与者，不是网页 |
+
+顺手修掉两个真 bug：
+
+- **诊断面板报的选择器是错的**：`diagnose()` 一直返回模块级的默认 profile，于是 ChatGPT 的面板里显示 DeepSeek 的选择器。现在驱动器持有构造时传入的 `selectors`（可以是函数，学到的 profile 下一次探针就生效），面板报的是正在用的那一份。
+- **「停止」按了没用**：原来靠 `requestId` 取消等待，而 `requestId` 要等回答到了才有——飞行中传的是空字符串。现在 `BrowserAdapter.cancelAll()` 让驱动器放弃它手上所有在等的请求。
+
+**辩论轮没有做。** `buildChallengePrompt`、`AskStage = 'challenge'`、规则式分歧识别都在，但没接进链路：先把「谁在说什么、页面怎么驱动」做扎实，再谈让它们互相质疑。现在有分歧就如实报成分歧。
+
+验收：`npm test` 全绿（`test:adapter` 34、`test:runner` 10、`test:sources-config` 24、`test:synthesis` 16 等），`check:settings` 74/74，`typecheck` 通过，应用能正常启动并跑完实机检查。
+
+还踩到一个只有真跑才会遇到的坑：`npm run build` 会先跑 `install:electron` 重新解出一份 `Electron.app`，于是改名脚本面对「两份 bundle」直接 `ENOTEMPTY` 崩掉。现在脚本按**版本**决定谁留下：版本不同说明是新装的，重命名新那份；版本相同说明是上次改名留下的残骸，删掉残骸。
 
 ---
 

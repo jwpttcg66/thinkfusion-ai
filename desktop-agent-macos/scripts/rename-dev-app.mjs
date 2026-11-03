@@ -85,6 +85,23 @@ const writeKey = (plist, key, value) => {
   execFileSync('/usr/bin/plutil', ['-replace', key, '-string', value, plist]);
 };
 
+// 0. Both bundles present is not a corner case — it is what `npm run build`
+//    leaves behind, because `install:electron` re-extracts Electron.app next to
+//    the copy this script renamed. Renaming then fails with ENOTEMPTY, which is
+//    how this was found.
+//
+//    Which one wins is decided by version, not by age: if they differ, the stock
+//    bundle is a fresh install and the renamed one is stale, so the fresh one is
+//    kept and renamed again. If they are the same version, the stock bundle is a
+//    leftover of an interrupted run and gets removed instead of copied over.
+if (fs.existsSync(stock) && fs.existsSync(renamed)) {
+  const stockVersion = readKey(plistOf(stock), 'CFBundleShortVersionString');
+  const renamedVersion = readKey(plistOf(renamed), 'CFBundleShortVersionString');
+  const discard = stockVersion === renamedVersion ? stock : renamed;
+  fs.rmSync(discard, { recursive: true, force: true });
+  console.log(`ok    two bundles found (${stockVersion} vs ${renamedVersion}), removed ${path.basename(discard)}`);
+}
+
 // 1. The bundle and the binary inside it, before the plist starts pointing at
 //    names that do not exist yet.
 if (fs.existsSync(stock)) {

@@ -21,10 +21,11 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { TaskManager } from './task-manager';
-import { DeepSeekAdapter, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, SELECTORS, type PageProbe } from './deepseek-adapter';
-import { ChannelRegistry } from './channels/registry';
-import { WebPageChannel } from './channels/web-page';
-import { CHATGPT_SELECTORS } from './channels/chatgpt';
+import { ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
+import { SubAgentRegistry } from './agents/registry';
+import { ProviderSubAgent } from './agents/provider-agent';
+import { PageBrowserAdapter } from './adapters/browser/page-adapter';
+import { profileFor, providerFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
@@ -141,8 +142,16 @@ const DETACHED_BAR_HEIGHT = 40;
  */
 let selectorStore: SelectorStore | null = null;
 
+/**
+ * The built-in selectors for a source.
+ *
+ * One lookup, no `if`: adding a site is a file in `adapters/providers/` and an
+ * entry in its index. A source the app does not know — one the user added — gets
+ * the generic profile, which is the one the probe's structural fallbacks were
+ * tuned against.
+ */
 function baseProfile(sourceId: string): SelectorProfile {
-  return sourceId === 'chatgpt' ? CHATGPT_SELECTORS : SELECTORS;
+  return profileFor(sourceId);
 }
 
 function hostOf(view: WebContentsView | undefined): string {
@@ -178,28 +187,32 @@ let conversations: ConversationRunner;
 /**
  * One adapter per source, created on first use.
  *
- * Reusing `DeepSeekAdapter` rather than writing a driver per site is the point
+ * Reusing `ChatPageDriver` rather than writing a driver per site is the point
  * of the M1 split: the probe, the send path, the "is this answer mine" logic
  * and the echo stripping are all site-agnostic. Only the allowed hosts and the
  * selector profile differ — and the hosts are passed as a function because the
  * user can change the URL while the adapter is alive.
  */
-const adapters = new Map<string, DeepSeekAdapter>();
+const adapters = new Map<string, ChatPageDriver>();
 
-function adapterFor(id: string): DeepSeekAdapter {
+function adapterFor(id: string): ChatPageDriver {
   const existing = adapters.get(id);
   if (existing) return existing;
-  const created = new DeepSeekAdapter(
+  const created = new ChatPageDriver(
     () => {
       const view = views.get(id);
       return view ? createElectronDriver(view, () => selectorsFor(id)) : null;
     },
     {
-      // A function, not a Set: `saveSource` can add a host at any time, and an
-      // adapter that captured yesterday's list would refuse the new address
+      // A function, not a Set: `saveSource` can add a host at any time, and a
+      // driver that captured yesterday's list would refuse the new address
       // with "当前页面不是允许的…页面" — which reads like a network failure.
-      hosts: () => new Set(sourceById(sources, id)?.hosts ?? []),
-      siteLabel: sourceById(sources, id)?.label ?? id
+      hosts: () => new Set(sourceById(sources, id)?.hosts ?? providerFor(id)?.hosts ?? []),
+      // Same reason: a repair in the page status bar has to take effect on the
+      // next probe, and the diagnostics panel must report the profile that is
+      // actually in use rather than the built-in one.
+      selectors: () => selectorsFor(id),
+      siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
     }
   );
   adapters.set(id, created);
@@ -207,16 +220,22 @@ function adapterFor(id: string): DeepSeekAdapter {
 }
 
 /** The adapter the agent plans through. */
-function planningAdapter(): DeepSeekAdapter {
+function planningAdapter(): ChatPageDriver {
   return adapterFor(planningSource(sources)?.id ?? 'deepseek');
 }
 
-const registry = new ChannelRegistry([]);
+const registry = new SubAgentRegistry([]);
 
 /**
- * Rebuild the channel list from the sources that are switched on.
+ * Rebuild the agent pool from the sources that are switched on.
  *
- * A disabled source is not a channel: it is a page that is not there, and
+ * Two layers, deliberately: a `ProviderSubAgent` is the participant (identity,
+ * session, health) and a `PageBrowserAdapter` is the thing that types into the
+ * page. They are built here and nowhere else, so "which AI is speaking" and
+ * "which DOM does it speak through" are decided in one place and can be argued
+ * about in one place.
+ *
+ * A disabled source is not an agent: it is a page that is not there, and
  * counting it would make the readiness pill say "1/4" on a fresh install. The
  * registry is mutated rather than replaced because `ConversationRunner` holds
  * this exact instance.
@@ -225,7 +244,21 @@ function rebuildChannels() {
   registry.replaceAll(
     sources
       .filter(source => source.enabled)
-      .map(source => new WebPageChannel({ id: source.id, label: source.label, adapter: adapterFor(source.id) }))
+      .map(source => {
+        const adapter = new PageBrowserAdapter({
+          id: source.id,
+          label: source.label,
+          adapter: adapterFor(source.id)
+        });
+        return new ProviderSubAgent(
+          {
+            id: source.id,
+            label: source.label,
+            role: `代表 ${source.label} 参与研究，只说自己看到的和能证明的部分`
+          },
+          adapter
+        );
+      })
   );
 }
 

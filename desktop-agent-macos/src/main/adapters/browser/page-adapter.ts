@@ -1,35 +1,38 @@
 import { randomUUID } from 'node:crypto';
-import type { DeepSeekAdapter } from '../deepseek-adapter';
+import type { ChatPageDriver } from './page-driver';
+import type { ChannelStatus } from '../../../shared/conversation';
 import {
-  ChannelBusyError,
-  ChannelUnavailableError,
-  type AiChannel,
-  type AskInput,
-  type ChannelAnswer,
-  type ChannelStatus,
+  PageBusyError,
+  PageUnavailableError,
+  type AdapterAnswer,
+  type AdapterAsk,
+  type BrowserAdapter,
   type NewSessionResult
 } from './types';
 
 /**
- * An AI that lives behind a chat page.
+ * A chat page, driven.
  *
  * Everything that knows about DOM — selectors, probing, waiting for the bubble
  * to settle, stripping our own echoed prompt — stays behind this class. Callers
  * get text, or an error that says which of the three things went wrong.
  *
- * The adapter underneath is still called `DeepSeekAdapter`; the name is
- * historical. What it actually does is drive a generic chat page through a
- * `PageDriver`, which is why the same class can back a second site once it is
- * given its own selector profile.
+ * The class underneath is `ChatPageDriver`: probe, send, wait, echo stripping,
+ * and nothing about any particular site. Which markup it answers to, and which
+ * hosts it may be, arrive as options from `adapters/providers/`.
+ *
+ * This is the *only* file in the app that a new AI site needs a variant of, and
+ * even then it is usually just a selector profile (see
+ * `adapters/providers/chatgpt.ts`) rather than a subclass.
  */
-export class WebPageChannel implements AiChannel {
+export class PageBrowserAdapter implements BrowserAdapter {
   private inFlight = new Set<string>();
 
   constructor(
     private readonly spec: {
       id: string;
       label: string;
-      adapter: DeepSeekAdapter;
+      adapter: ChatPageDriver;
       /** Page-driven answers are slow; a question deserves more than a socket timeout. */
       timeoutMs?: number;
     }
@@ -69,12 +72,12 @@ export class WebPageChannel implements AiChannel {
     }
   }
 
-  async ask(input: AskInput): Promise<ChannelAnswer> {
-    if (this.inFlight.size > 0) throw new ChannelBusyError(this.id);
+  async ask(input: AdapterAsk): Promise<AdapterAnswer> {
+    if (this.inFlight.size > 0) throw new PageBusyError(this.id);
 
     const status = await this.status();
-    if (!status.pageReady) throw new ChannelUnavailableError(this.id, status.detail ?? '页面未就绪');
-    if (!status.loggedIn) throw new ChannelUnavailableError(this.id, status.detail ?? '未登录');
+    if (!status.pageReady) throw new PageUnavailableError(this.id, status.detail ?? '页面未就绪');
+    if (!status.loggedIn) throw new PageUnavailableError(this.id, status.detail ?? '未登录');
 
     const requestId = randomUUID();
     this.inFlight.add(requestId);
@@ -96,7 +99,7 @@ export class WebPageChannel implements AiChannel {
         input.question
       );
       return {
-        channelId: this.id,
+        agentId: this.id,
         text,
         receivedAt: Date.now(),
         attribution: { requestId, note: '气泡增量 + 连续三次稳定' }
@@ -124,5 +127,10 @@ export class WebPageChannel implements AiChannel {
 
   cancel(requestId: string): void {
     this.spec.adapter.cancelWait(requestId);
+  }
+
+  cancelAll(): void {
+    for (const requestId of this.inFlight) this.spec.adapter.cancelWait(requestId);
+    this.inFlight.clear();
   }
 }

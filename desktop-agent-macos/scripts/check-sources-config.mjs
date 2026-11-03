@@ -25,7 +25,7 @@ import {
   sourceById
 } from '../out-test/shared/sources.js';
 import { SourceStore } from '../out-test/main/source-store.js';
-import { ChannelRegistry } from '../out-test/main/channels/registry.js';
+import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sources-')), 'sources.json');
 
@@ -257,21 +257,22 @@ test('a custom source whose id collides with a built-in is dropped on load', () 
   assert.deepEqual(store.all().custom.map(source => source.id), ['custom-ok']);
 });
 
-test('the channel registry can be swapped without losing its identity', () => {
+test('the agent registry can be swapped without losing its identity', () => {
   const make = id => ({
     id,
     label: id,
-    status: async () => ({ id, label: id, available: true, loggedIn: true, pageReady: true, generating: false }),
+    identity: { id, label: id, kind: 'provider', role: `代表 ${id}` },
+    health: async () => ({ id, label: id, available: true, loggedIn: true, pageReady: true, generating: false }),
     ask: async () => {
       throw new Error('not used');
     },
     cancel: () => undefined
   });
-  const registry = new ChannelRegistry([make('deepseek')]);
-  assert.deepEqual(registry.list().map(channel => channel.id), ['deepseek']);
+  const registry = new SubAgentRegistry([make('deepseek')]);
+  assert.deepEqual(registry.list().map(agent => agent.id), ['deepseek']);
   registry.replaceAll([make('deepseek'), make('kimi')]);
-  assert.deepEqual(registry.list().map(channel => channel.id), ['deepseek', 'kimi']);
+  assert.deepEqual(registry.list().map(agent => agent.id), ['deepseek', 'kimi']);
   registry.replaceAll([make('deepseek')]);
   // A disabled source must stop counting toward the readiness pill.
-  assert.deepEqual(registry.list().map(channel => channel.id), ['deepseek']);
+  assert.deepEqual(registry.list().map(agent => agent.id), ['deepseek']);
 });

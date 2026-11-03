@@ -16,7 +16,8 @@
     "sourceMap": false
   },
   "include": [
-    "src/main/deepseek-adapter.ts",
+    "src/main/adapters/browser/page-driver.ts",
+    "src/main/adapters/providers/**/*.ts",
     "src/main/task-manager.ts",
     "src/shared/**/*.ts"
   ]

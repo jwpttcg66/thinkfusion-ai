@@ -1,4 +1,5 @@
-import type { SelectorProfile } from '../../shared/selectors';
+import type { SelectorProfile } from '../../../shared/selectors';
+import type { ProviderProfile } from './types';
 
 /**
  * ChatGPT's markup, as a selector profile.
@@ -8,8 +9,10 @@ import type { SelectorProfile } from '../../shared/selectors';
  * `[data-testid="send-button"]` are exact and stable, and using them stops the
  * "bottom-most editable field" heuristic from picking a sidebar search box.
  *
- * Everything site-specific about a channel is this file plus its host list.
- * Nothing above the channel layer knows either exists.
+ * Everything site-specific about a provider is this file plus its host list.
+ * Nothing above the adapter layer knows either exists — the agent that speaks
+ * for ChatGPT is a `ProviderSubAgent` like any other, and it would not notice if
+ * this profile were replaced by a different one tomorrow.
  */
 export const CHATGPT_HOSTS: ReadonlySet<string> = new Set([
   'chatgpt.com',
@@ -41,4 +44,11 @@ export const CHATGPT_SELECTORS: SelectorProfile = {
   ],
   assistant: ['[data-message-author-role="assistant"]', 'article .markdown', '[class*="markdown"]'],
   passwordField: ['input[type="password"]']
+};
+
+export const CHATGPT_PROFILE: ProviderProfile = {
+  id: 'chatgpt',
+  label: 'ChatGPT',
+  selectors: CHATGPT_SELECTORS,
+  hosts: CHATGPT_HOSTS
 };

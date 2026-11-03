@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
-import { ChannelBusyError } from '../out-test/main/channels/types.js';
+import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
 
 function fakeStore() {
   const conversations = new Map();
@@ -41,11 +41,16 @@ function fakeChannel(id, behaviour) {
   return {
     id,
     label: id,
-    async status() {
+    identity: { id, label: id, kind: 'provider', role: `代表 ${id}` },
+    async health() {
       return { id, label: id, available: true, loggedIn: true, pageReady: true, generating: false };
     },
     async ask(input) {
-      return behaviour(input, id);
+      // The real subagent stamps the answer with its own id and the stage it was
+      // asked at; the fake does the same, otherwise a test could pass while the
+      // app files every answer under `undefined`.
+      const result = await behaviour(input, id);
+      return { agentId: id, stage: input.stage, ...result };
     },
     cancel() {}
   };
@@ -66,7 +71,7 @@ function fakeRegistry(channels, options = {}) {
     ask: async (id, input) => {
       order.push(`${id}:ask`);
       const channel = channels.find(item => item.id === id);
-      if (!channel) throw new ChannelBusyError(id);
+      if (!channel) throw new PageBusyError(id);
       return channel.ask(input);
     },
     newConversation: async id => {
@@ -141,8 +146,8 @@ test('a plain question asks exactly one channel and synthesises nothing', async 
 
 test('a research question asks every channel and produces a synthesis', async () => {
   const { runner } = makeRunner([
-    fakeChannel('a', () => answer('连接数过高的主要原因是客户端没有复用连接。')),
-    fakeChannel('b', () => answer('连接数过高的主要原因是客户端没有复用连接，而是每次新建。'))
+    fakeChannel('a', () => answer('生产环境必须开启连接池复用来降低连接数。')),
+    fakeChannel('b', () => answer('生产环境不要开启连接池复用，否则连接数会更高。'))
   ]);
 
   const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
@@ -188,7 +193,7 @@ test('a busy channel is reported as busy, not as a broken one', async () => {
   const { runner, events } = makeRunner([
     fakeChannel('a', () => answer('连接数过高的主要原因是客户端没有复用连接。')),
     fakeChannel('b', () => {
-      throw new ChannelBusyError('b');
+      throw new PageBusyError('b');
     })
   ]);
 

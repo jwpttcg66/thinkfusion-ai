@@ -8,9 +8,11 @@
     "src/shared/**/*.ts",
     "src/main/atomic-write.ts",
     "src/main/conversation-runner.ts",
+    "src/main/master-agent.ts",
     "src/main/selector-profile.ts",
     "src/main/source-store.ts",
     "src/main/profile-store.ts",
-    "src/main/channels/**/*.ts"
+    "src/main/agents/**/*.ts",
+    "src/main/adapters/**/*.ts"
   ]
 }
