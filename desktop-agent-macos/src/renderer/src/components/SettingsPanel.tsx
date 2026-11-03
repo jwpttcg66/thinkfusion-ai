@@ -33,6 +33,23 @@ const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> =
  * `planningId` — the source the agent is actually using right now — rather than
  * the shipped flag, so switching the planner off visibly moves the tag instead
  * of leaving it on a page the app has stopped using.
+ *
+ * The switch is the row's first control and it works in one click. It used to
+ * live inside the edit form as 「启用这个提供商」, which made the cheapest action
+ * on the page — turn a provider off — cost four: open the form, untick, save,
+ * watch it close. Two verbs (开关 / 改地址) were sharing one door (编辑), and the
+ * door said 编辑.
+ *
+ * Two things the switch deliberately does **not** gate:
+ *
+ * - The address field. "Only editable while on" reads tidier than it behaves:
+ *   turning a source on creates its `WebContentsView` and loads the page, so
+ *   fixing the address of a source you just switched off would first load the
+ *   address you are trying to get rid of. 编辑 stays available on every row.
+ * - Its own default. Every row cannot ship on: WorkBuddy has no address and Kimi
+ *   has no selector profile, so a fresh install would show four pages of which
+ *   two can only fail. A source that is added here does come in on, because it
+ *   arrives with an address.
  */
 export function SettingsPanel(props: {
   sources: SourcesState;
@@ -51,7 +68,6 @@ export function SettingsPanel(props: {
   /** The row whose form is open. One at a time: two open forms is two truths. */
   const [editing, setEditing] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState('');
-  const [draftEnabled, setDraftEnabled] = useState(true);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const [newUrl, setNewUrl] = useState('');
@@ -86,7 +102,6 @@ export function SettingsPanel(props: {
   function startEdit(source: PageSource) {
     setEditing(source.id);
     setDraftUrl(source.url);
-    setDraftEnabled(source.enabled);
     setError('');
     setAdding(false);
   }
@@ -101,13 +116,36 @@ export function SettingsPanel(props: {
     if (busy) return;
     setBusy(true);
     setError('');
-    const problem = await props.onSaveSource(source.id, { url: draftUrl, enabled: draftEnabled });
+    const problem = await props.onSaveSource(source.id, { url: draftUrl });
     setBusy(false);
     if (problem) {
       setError(problem);
       return;
     }
     stopEdit();
+  }
+
+  /**
+   * Flip one source on or off. One click, no form.
+   *
+   * A row with no address cannot be switched on — the main process refuses it
+   * (`先填网址，再打开这个提供商`) and is right to. Rather than print a refusal for
+   * something the row already shows, the click opens the address field: the dead
+   * end becomes the next step. That is also why the refusal is not duplicated
+   * here as a disabled switch; a disabled control with no sentence is a wall.
+   */
+  async function toggle(source: PageSource) {
+    if (busy) return;
+    if (!source.enabled && !source.url) {
+      startEdit(source);
+      setError('先填网址，再打开这个提供商');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const problem = await props.onSaveSource(source.id, { enabled: !source.enabled });
+    setBusy(false);
+    if (problem) setError(problem);
   }
 
   async function add() {
@@ -259,20 +297,39 @@ export function SettingsPanel(props: {
               <section className="settings-section">
                 <h3>模型</h3>
                 <p className="settings-lead">
-                  每个提供商就是一个内嵌网页。填它的网址就能用；改完网址重新打开这个页面即可。
+                  每个提供商就是一个内嵌网页。左边的开关决定它在不在来源栏里，点一下就生效，不用进编辑。改完网址重新打开这个页面即可。
                 </p>
 
                 <div className="settings-list">
                   {props.sources.sources.map(source => {
                     const status = statusOf(source.id);
                     const state = !source.enabled ? 'off' : status?.available ? 'ok' : 'warn';
+                    // Said out loud before the click, because after it the answer
+                    // is a refusal and the person has already lost the click.
+                    const switchTitle = !source.enabled
+                      ? `启用 ${source.label}`
+                      : enabledCount === 1
+                        ? '这是最后一个开着的来源，关掉就没地方问了'
+                        : `关掉 ${source.label}`;
                     return (
-                      <div key={source.id} className={`settings-row${editing === source.id ? ' editing' : ''}`}>
+                      <div
+                        key={source.id}
+                        className={`settings-row${editing === source.id ? ' editing' : ''}${source.enabled ? '' : ' off'}`}
+                      >
                         <div className="settings-row-head">
+                          <button
+                            className="settings-switch"
+                            type="button"
+                            role="switch"
+                            aria-checked={source.enabled}
+                            aria-label={`启用 ${source.label}`}
+                            title={switchTitle}
+                            disabled={busy}
+                            onClick={() => void toggle(source)}
+                          />
                           <span className={`settings-state ${state}`} aria-hidden="true" />
                           <span className="settings-row-name">{source.label}</span>
                           {props.sources.planningId === source.id && <span className="settings-tag">规划通道</span>}
-                          {!source.enabled && <span className="settings-tag off">未启用</span>}
                           {!source.url && <span className="settings-tag warn">还没填网址</span>}
                           <span className="settings-row-url" title={source.url || '未填写网址'}>
                             {source.url || '未填写网址'}
@@ -302,19 +359,11 @@ export function SettingsPanel(props: {
                                 }}
                               />
                             </label>
-                            <label className="settings-toggle">
-                              <input
-                                type="checkbox"
-                                checked={draftEnabled}
-                                onChange={event => setDraftEnabled(event.target.checked)}
-                              />
-                              <span>
-                                启用这个提供商
-                                {source.enabled && enabledCount === 1 && (
-                                  <em className="settings-muted">（这是最后一个，关掉就没地方问了）</em>
-                                )}
-                              </span>
-                            </label>
+                            {/* The reason belongs to the row it is about. It used to
+                                render once at the bottom of the list, which put the
+                                answer to a click on the fourth row three rows away
+                                from the click. */}
+                            {error && <p className="settings-error">{error}</p>}
                             <div className="settings-form-foot">
                               {source.custom && (
                                 <button className="btn ghost" type="button" onClick={() => void remove(source)}>
@@ -370,7 +419,9 @@ export function SettingsPanel(props: {
                   )}
                 </div>
 
-                {error && <p className="settings-error">{error}</p>}
+                {/* Only when no row has a form open: otherwise the message is
+                    already printed inside the form it belongs to. */}
+                {error && !editing && <p className="settings-error">{error}</p>}
               </section>
             )}
 

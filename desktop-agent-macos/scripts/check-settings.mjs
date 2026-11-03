@@ -99,9 +99,25 @@ const readPanel = () =>
       }),
       tags: rows.map(row => [...row.querySelectorAll('.settings-tag')].map(tag => tag.textContent ?? '')),
       urls: rows.map(row => row.querySelector('.settings-row-url')?.textContent ?? ''),
+      rowClasses: rows.map(row => row.className),
       editButtons: rows.map(row => row.querySelector('.settings-edit')?.textContent ?? ''),
+      // The switch is read as an object, not a boolean, because three separate
+      // things have to hold: it is a real switch for assistive tech, it says
+      // which state it is in, and it is the row's first control rather than a
+      // checkbox hidden inside 编辑.
+      switches: rows.map(row => {
+        const el = row.querySelector('.settings-switch');
+        if (!el) return null;
+        return {
+          role: el.getAttribute('role'),
+          checked: el.getAttribute('aria-checked'),
+          label: el.getAttribute('aria-label'),
+          title: el.getAttribute('title') ?? '',
+          disabled: el.disabled,
+          first: row.querySelector('.settings-row-head')?.firstElementChild === el
+        };
+      }),
       formUrl: panel.querySelector('.settings-form .settings-input input')?.value ?? null,
-      toggleDisabled: panel.querySelector('.settings-form .settings-toggle input')?.disabled ?? null,
       error: panel.querySelector('.settings-error')?.textContent ?? '',
       addButton: panel.querySelector('.settings-add')?.textContent?.trim() ?? ''
     };
@@ -174,9 +190,19 @@ const typeUrl = async value => {
   await sleep(150);
 };
 
-const toggleEnable = async () => {
-  await clickIfPresent('.settings-form .settings-toggle input');
-  await sleep(150);
+/**
+ * Flip one row's switch, the way a person would: one click, no form.
+ *
+ * There used to be a `toggleEnable` here that ticked a checkbox inside the edit
+ * form and then pressed 保存. The point of the switch moving out into the row is
+ * that those three steps become one, so this helper must not reach for the form
+ * — and the assertions below check that no form opened.
+ */
+const flip = async row => {
+  await ensurePanel();
+  const clicked = await clickInRow(row, '.settings-switch');
+  await sleep(300);
+  return clicked;
 };
 
 const saveForm = async () => {
@@ -236,8 +262,32 @@ checkTrue(`规划通道被标了出来（${panel.tags[0].join('、')}）`, panel
 // WorkBuddy ships without an address on purpose; the row has to say so rather
 // than show an empty string that looks like a rendering bug.
 checkTrue(`没填网址的行明说了（${panel.tags[3].join('、')}）`, panel.tags[3].includes('还没填网址'));
+// 编辑 stays on every row, including the ones that are off. "Only editable while
+// on" reads tidier than it behaves: switching a source on creates its view and
+// loads the page, so fixing the address of a source you just turned off would
+// first load the address you are trying to replace.
 check('每一行都有编辑按钮', panel.editButtons.join('/'), '编辑/编辑/编辑/编辑');
 check('列表底部是添加按钮', panel.addButton, '＋ 添加模型提供商');
+
+// ------------------------------------------------------------------ the switch
+//
+// The switch is the row's first control, it is a real switch rather than a
+// checkbox, and it says out loud which state it is in. It used to live inside
+// the edit form as 「启用这个提供商」, which made the cheapest action on the page
+// cost four clicks.
+check('每一行最左边都是开关', panel.switches.map(item => item?.first).join(','), 'true,true,true,true');
+check('开关的角色是 switch', panel.switches.map(item => item?.role).join(','), 'switch,switch,switch,switch');
+check('开关说得出自己是开还是关', panel.switches.map(item => item?.checked).join(','), 'true,true,false,false');
+check('开关的名字带着提供商', panel.switches[2].label, '启用 Kimi');
+check('开着的行提前说清点下去会关掉', panel.switches[0].title, '关掉 DeepSeek');
+checkTrue(`关着的行说的是启用（${panel.switches[3].title}）`, panel.switches[3].title === '启用 WorkBuddy');
+// Two indicators for one fact is the thing this change was meant to remove: the
+// switch already says "off", so the row must not also print a 「未启用」 tag.
+check('关着的行不再重复写「未启用」', panel.tags[2].join('、'), '');
+checkTrue(
+  '关着的行只变淡，不消失',
+  panel.rowClasses[2].includes('off') && !panel.rowClasses[0].includes('off')
+);
 
 // ------------------------------------------------------------ edit a URL
 
@@ -267,11 +317,14 @@ check('现在来源栏有两个按钮', await railCount(), 2);
 const channelsBefore = await cdp.evaluate('window.agentAPI.getChannelStatuses()');
 check('现在有两个通道', channelsBefore.length, 2);
 
-await openForm(2);
-await toggleEnable();
-await saveForm();
+// One click. The assertion that matters is the second one: flipping a source
+// must not open a form, because a form is where the switch used to hide.
+check('点开关之前没有任何表单开着', (await readPanel()).formUrl, null);
+await flip(2);
 const railAfter = await waitFor(railCount, 3, { timeoutMs: 4000 });
-check('启用 Kimi 之后来源栏多了一个按钮', railAfter, 3);
+check('点一下开关，来源栏就多了一个按钮', railAfter, 3);
+check('开关没有把表单打开', (await readPanel()).formUrl, null);
+check('开关自己翻到了开', (await readPanel()).switches[2].checked, 'true');
 const channelsAfter = await cdp.evaluate('window.agentAPI.getChannelStatuses()');
 check('启用之后通道也变成三个', channelsAfter.length, 3);
 
@@ -337,10 +390,9 @@ if (appInFront) {
 const beforePlanning = await cdp.evaluate('window.agentAPI.getSources()');
 check('规划通道是 DeepSeek', beforePlanning.planningId, 'deepseek');
 
-await openForm(0);
-check('规划通道的开关也能点', (await readPanel()).toggleDisabled, false);
-await toggleEnable();
-await saveForm();
+await ensurePanel();
+check('规划通道的开关也能点', (await readPanel()).switches[0].disabled, false);
+await flip(0);
 const movedPlanning = await waitFor(
   async () => (await cdp.evaluate('window.agentAPI.getSources()')).planningId,
   'chatgpt',
@@ -354,9 +406,7 @@ check('「规划通道」标签跟着走', movedTags, '规划通道');
 
 // Put it back before the rail counts below: a disabled DeepSeek is one less
 // button and one less channel, and those numbers are asserted elsewhere.
-await openForm(0);
-await toggleEnable();
-await saveForm();
+await flip(0);
 const backPlanning = await waitFor(
   async () => (await cdp.evaluate('window.agentAPI.getSources()')).planningId,
   'deepseek',
@@ -366,9 +416,7 @@ check('再打开就换回来', backPlanning, 'deepseek');
 
 // ---------------------------------------------------------------- restore
 
-await openForm(2);
-await toggleEnable();
-await saveForm();
+await flip(2);
 const restoredRail = await waitFor(railCount, 2, { timeoutMs: 4000 });
 check('关掉 Kimi 之后来源栏回到两个', restoredRail, 2);
 const channelIdsRestored = (await cdp.evaluate('window.agentAPI.getChannelStatuses()'))
@@ -377,7 +425,10 @@ const channelIdsRestored = (await cdp.evaluate('window.agentAPI.getChannelStatus
   .join(',');
 check('关掉之后通道里也没有它了', channelIdsRestored, 'chatgpt,deepseek');
 
+// A source that is off can still have its address changed — and that has to be
+// true, because switching one on loads its page.
 await openForm(2);
+check('关着的行照样能改地址', (await readPanel()).formUrl, KIMI_TRIAL);
 await typeUrl(KIMI_DEFAULT);
 await saveForm();
 const restoredUrl = await waitFor(kimiUrl, KIMI_DEFAULT, { timeoutMs: 4000 });
@@ -388,40 +439,38 @@ check('跑完之后 Kimi 的地址回到出厂值', restoredUrl, KIMI_DEFAULT);
 // The other end of the same rule, asserted at the end because it needs the state
 // the restore section leaves behind: DeepSeek and ChatGPT on, nothing else. With
 // one source left, switching it off is refused — and the reason has to land in
-// the form, next to the switch that was just clicked, not in the app's error
+// the panel, next to the switch that was just clicked, not in the app's error
 // strip at the bottom of the window.
-await openForm(1);
-await toggleEnable();
-await saveForm();
+await flip(1);
 const oneLeft = await waitFor(railCount, 1, { timeoutMs: 4000 });
 check('关掉 ChatGPT 之后只剩一个来源', oneLeft, 1);
 
-await openForm(0);
-await toggleEnable();
-await saveForm();
+// Said before the click, too: the switch's tooltip is the warning, so nobody
+// has to be refused to find out.
+check('最后一个来源的开关提前提醒', (await readPanel()).switches[0].title, '这是最后一个开着的来源，关掉就没地方问了');
+await flip(0);
 const lastRefused = await waitFor(async () => (await readPanel()).error, LAST_REFUSED, { timeoutMs: 4000 });
-check('关掉最后一个来源被拒绝，理由写在表单里', lastRefused, LAST_REFUSED);
+check('关掉最后一个来源被拒绝，理由写在开关旁边', lastRefused, LAST_REFUSED);
 const stillOn = (await cdp.evaluate('window.agentAPI.getSources()')).sources.find(source => source.id === 'deepseek').enabled;
 check('被拒绝之后它还是开着的', stillOn, true);
-await cancelForm();
 
 // Put ChatGPT back so the closing assertions count what a fresh install has.
-await openForm(1);
-await toggleEnable();
-await saveForm();
+await flip(1);
 const backRail = await waitFor(railCount, 2, { timeoutMs: 4000 });
 check('把 ChatGPT 打开之后来源栏回到两个', backRail, 2);
 
-// The other half of "开启后才可以用": a source with no address cannot be switched
+// The other half of "开之前得有地址": a source with no address cannot be switched
 // on at all. WorkBuddy ships that way on purpose — there is no address to default
-// to — and switching it on would only add a channel that fails forever.
-await openForm(3);
-await toggleEnable();
-await saveForm();
-const noUrlRefused = await waitFor(async () => (await readPanel()).error, '请填写网址', { timeoutMs: 4000 });
-check('没有网址的来源开启被拒绝', noUrlRefused, '请填写网址');
-await cancelForm();
+// to — and switching it on would only add a channel that fails forever. The click
+// opens the address field instead of refusing: the dead end becomes the next step.
+await ensurePanel();
+await flip(3);
+const noUrlOpened = await waitFor(async () => (await readPanel()).formUrl, '', { timeoutMs: 3000 });
+check('没地址的行点开关，打开的是地址框', noUrlOpened, '');
+check('并且说清要先填网址', (await readPanel()).error, '先填网址，再打开这个提供商');
+check('它还是关着的', (await readPanel()).switches[3].checked, 'false');
 check('被拒绝之后它还是关着的', (await railCount()) === 2, true);
+await cancelForm();
 
 // ------------------------------------------------------------------ the name
 //

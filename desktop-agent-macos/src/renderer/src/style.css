@@ -2246,6 +2246,59 @@ button:disabled {
   box-shadow: 0 1px 10px rgba(77, 107, 254, 0.08);
 }
 
+/* A row that is off is still a row: its address stays readable (that is how you
+   decide whether to turn it back on), it just stops competing with the rows that
+   are in use. Dimming the label instead of hiding it is the difference between
+   "paused" and "gone". */
+.settings-row.off .settings-row-name {
+  color: var(--text-2);
+}
+
+.settings-row.off .settings-row-url {
+  color: #c9c9c9;
+}
+
+/* The row's main verb, and it takes one click.
+   A track with a knob rather than a styled checkbox: `accent-color` on a native
+   checkbox paints a checkmark inside a square, which reads as "selected", and
+   the thing being selected here is a page that is part of the app. */
+.settings-switch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: #dcdcdc;
+  transition: background 120ms ease;
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 120ms ease;
+}
+
+.settings-switch[aria-checked='true'] {
+  background: var(--accent);
+}
+
+.settings-switch[aria-checked='true']::after {
+  transform: translateX(12px);
+}
+
+.settings-switch:disabled {
+  opacity: 0.55;
+}
+
 .settings-row-head {
   display: flex;
   align-items: center;
@@ -2289,11 +2342,6 @@ button:disabled {
   background: var(--accent-soft);
   color: var(--accent);
   white-space: nowrap;
-}
-
-.settings-tag.off {
-  background: #f2f2f2;
-  color: var(--text-3);
 }
 
 .settings-tag.warn {
@@ -2379,25 +2427,6 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.12);
 }
 
-.settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.settings-toggle input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-}
-
-.settings-toggle em {
-  font-style: normal;
-}
-
 .settings-form-foot {
   display: flex;
   align-items: center;
@@ -2435,4 +2464,10 @@ button:disabled {
   color: #b33a3a;
   font-size: 11.5px;
   line-height: 1.6;
+}
+
+/* Inside a form the gap is already the form's, and a second one would push the
+   message away from the field it is about. */
+.settings-form .settings-error {
+  margin: 0;
 }
