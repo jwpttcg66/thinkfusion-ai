@@ -199,6 +199,18 @@ export interface ChannelAnswer {
 
 这条规则的另一半在项目底层规则里：工程内（源码、文档、注释、测试、提交信息、记忆文件）不允许出现本机用户名，路径一律写 `~/...`。界面这一半和文件那一半是同一件事的两端——**运行期读到的用户名也不许显示**，否则"工程里没有这个字符串"只是把泄露点从代码挪到了截图。
 
+#### 应用自己叫什么
+
+一个人的名字由他自己给，一个应用的名字也一样，而且同样不由操作系统决定。开发时它跑在 `node_modules/electron/dist/Electron.app` 里，而 macOS 的 Dock 和菜单栏读的是 **bundle 的 `CFBundleName` / `CFBundleDisplayName`**——所以无论代码里写什么，Dock 上都写着 "Electron"。
+
+两处一起改才完整：
+
+- `app.setName('ThinkFusion')` 改的是 Electron 自己派生出来的一切：菜单、崩溃报告、user-agent（现在是 `ThinkFusion/0.6.0`，不再是包名）。
+- `scripts/rename-dev-app.mjs` 改的是 bundle。它敢就地改这份 bundle，是因为 npm 装下来的 Electron.app 是 ad-hoc 签名且 `Info.plist=not bound`——改 plist 不动签名；也因为**就地**改（同一个路径），而不是复制一份：macOS 的辅助功能权限是发给路径的，而这个应用正是靠它驱动浏览器，复制出来的副本等于让用户再授权一次。
+- 打包版不需要这些：`build.productName` 已经是 ThinkFusion，bundle 生来就叫这个名字。
+
+有一处必须跟着改，否则会重演「设置丢了」：`app.getPath('userData')` 是**从应用名派生**的。只改名不钉路径，数据目录就会从 `…/thinkfusion-ai` 变成 `…/ThinkFusion`，所有保存过的通道、改过的网址、选好的显示名称，在下次启动时都会像被删掉一样。所以 `app.setPath('userData', …/thinkfusion-ai)` 紧跟在改名后面，目录名保持原样——重命名目录是一次数据迁移，而只能在别人的机器上验证的迁移，不值那点整齐。
+
 #### 页面文本 → 应用文本，只有一个边界
 
 `shared/text.ts` 是唯一允许"页面长什么样"和"答案是什么"不同的地方，四件事：

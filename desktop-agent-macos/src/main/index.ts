@@ -1384,6 +1384,32 @@ function registerIpc() {
   });
 }
 
+/**
+ * What the app calls itself.
+ *
+ * In development this runs out of `node_modules/electron/dist/Electron.app`, and
+ * macOS takes the Dock label from that bundle's Info.plist — no line of code can
+ * change it. `scripts/rename-dev-bundle.mjs` handles that half; what this line
+ * does is everything Electron derives from `app.getName()`: the menu bar, the
+ * crash reporter's product name, the user-agent, and — which is why the line
+ * below it exists — the data folder.
+ *
+ * The packaged build already gets this from `build.productName` in package.json.
+ */
+app.setName('ThinkFusion');
+
+/**
+ * Pin the data folder, because `userData` is derived from the app name.
+ *
+ * Without this, renaming the app would move the folder to `…/ThinkFusion` and
+ * every saved channel, every edited URL and the chosen display name would look
+ * deleted on the next launch — the exact failure the persistence work was
+ * about. The folder keeps the name it has always had: renaming it is a data
+ * migration, and a migration that can only be tested on other people's machines
+ * is not worth the tidier path.
+ */
+app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
+
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));

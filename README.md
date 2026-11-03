@@ -171,12 +171,17 @@ Requirements: macOS (Apple Silicon), Node.js ≥ 22.12, Electron 45.
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # 148 offline assertions, see Tests below
+npm test          # 154 offline assertions, see Tests below
 npm run dev
 ```
 
 Once running, sign in to the AI page in the right-hand pane, type a goal in the bottom input,
 pick a workspace, and approve the plan when it appears.
+
+In development the app presents as **ThinkFusion**, not "Electron": macOS takes the Dock and
+menu-bar label from the bundle, so `scripts/rename-dev-app.mjs` (run by `predev` and
+`prestart:debug`) edits the Electron bundle's display name. The packaged build gets it from
+`build.productName` instead.
 
 Live checks (app already running and signed in):
 
@@ -194,11 +199,11 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 
 ## Tests
 
-- **Offline, 148 assertions**: protocol 24, page-channel timing 34, source config 18, display
+- **Offline, 154 assertions**: protocol 24, page-channel timing 34, source config 24, display
   name 10, synthesis 16, selector repair 10, conversation runner 10, intent 9, page text 9,
   state machine 8. CI runs these on every push — see
   [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 199 assertions**: page pane 71, settings 50, sources 27, split layout 16, app column
+- **Live, 236 assertions**: page pane 71, settings 74, sources 27, split layout 16, app column
   10, drag 16, conversation 12, new-task feedback 10. These need a running app and a signed-in
   page, so they are run by hand; the scripts read real state over CDP instead of pixels.
 - What these tests **cannot** prove is written down in

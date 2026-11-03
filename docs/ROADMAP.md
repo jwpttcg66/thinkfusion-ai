@@ -244,6 +244,24 @@
 
 顺带修掉 `check:pane` 的一条假失败：窗口不在前台时，Chromium 会画自己的聚焦环但**不匹配作者写的 `:focus-visible`**，于是读到的颜色是 UA 的灰、宽度 3px，两条断言红在一个和 CSS 无关的原因上。现在先读 `document.hasFocus()`，不在前台就打印 note 跳过这两条——和视口那条同样的处理方式。
 
+### 第十三轮：Dock 上那个名字（2026-11-03）
+
+用户指着 Dock：「这个修改默认显示为 ThinkFusion」。截图里那枚原子图标下面写着 **Electron**。
+
+`build.productName` 早就是 ThinkFusion，所以打包版没问题——问题只出在开发时：应用跑在 `node_modules/electron/dist/Electron.app` 里，而 macOS 的 Dock 和菜单栏读的是 **bundle 的 `CFBundleName` / `CFBundleDisplayName`**。`app.setName()` 改不了它，这点用 `lsappinfo` 验过：改完代码重启，LaunchServices 里那条记录仍然叫 "Electron"。
+
+| 改哪儿 | 改了什么 | 为什么不是另一条路 |
+| --- | --- | --- |
+| `app.setName('ThinkFusion')` | 菜单、崩溃报告、user-agent（现在发出去的是 `ThinkFusion/0.6.0`，不再是包名 `thinkfusion-ai`） | — |
+| `scripts/rename-dev-app.mjs` | 就地改 bundle 的 Info.plist 两个字段 | 不复制一份 bundle：辅助功能权限发给的是**路径**，而这个应用正是靠它驱动浏览器，副本等于让用户再授权一次。敢就地改是因为这份 Electron.app 是 ad-hoc 签名且 `Info.plist=not bound`——改 plist 不动签名（`codesign -dv` 前后一致） |
+| `app.setPath('userData', …/thinkfusion-ai)` | 钉住数据目录 | `userData` 是**从应用名派生**的：只改名不钉路径，数据目录会变成 `…/ThinkFusion`，所有保存过的通道、改过的网址、选好的名字下次启动全像被删了——上一轮刚修的就是这件事 |
+
+脚本幂等，挂在 `predev` 和 `prestart:debug` 上，`npm ci` 之后下一次启动自动重新改名。
+
+验证：`lsappinfo list` 里该进程的名字从 `"Electron"` 变成 `"ThinkFusion"`；`~/Library/Application Support/ThinkFusion` 没有被创建，原目录里四个通道和名字都还在。
+
+还没做：图标仍是 Electron 的原子。名字和图标是两件事，图标需要一张 1024 的图，不猜。
+
 ---
 
 ---
