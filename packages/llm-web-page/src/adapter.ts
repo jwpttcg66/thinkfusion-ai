@@ -8,7 +8,7 @@
  * *which* text is the answer, {@link parseAnswer} decides what it means,
  * {@link answerChunks} decides how it is framed.
  *
- * @module @desktop-agent/llm-deepseek-web/adapter
+ * @module @desktop-agent/llm-web-page/adapter
  */
 import { LlmAdapter, LlmError, toolCallId } from './protocol.js'
 import type {
@@ -28,7 +28,7 @@ import { buildWebPrompt } from './prompt.js'
 import { PageTransport, type TransportConfig } from './transport.js'
 
 /** Construction facts for one adapter instance. */
-export interface DeepSeekWebAdapterOptions {
+export interface WebPageAdapterOptions {
   /** Provider route this adapter owns; the harness selects it by this name. */
   readonly provider: string
   /** Model id advertised for the route. The page has one model, so this is a label. */
@@ -54,16 +54,16 @@ function toFailure(error: unknown): LlmFailure {
   }
 }
 
-/** DeepSeek web-page route for the harness LLM seam. */
-export class DeepSeekWebAdapter extends LlmAdapter {
-  readonly #options: DeepSeekWebAdapterOptions
+/** Web-page route for the harness LLM seam. */
+export class WebPageAdapter extends LlmAdapter {
+  readonly #options: WebPageAdapterOptions
   /** Monotonic suffix so two calls in one millisecond stay distinct. */
   #calls = 0
 
   /**
-   * @param options - construction facts; see {@link DeepSeekWebAdapterOptions}.
+   * @param options - construction facts; see {@link WebPageAdapterOptions}.
    */
-  constructor(options: DeepSeekWebAdapterOptions) {
+  constructor(options: WebPageAdapterOptions) {
     super()
     this.#options = options
   }
@@ -73,7 +73,7 @@ export class DeepSeekWebAdapter extends LlmAdapter {
    * @param provider - the route passed to `registerAdapter()`.
    */
   override providerInfo(provider: string): LlmProviderInfo {
-    return { id: provider, name: this.#options.providerName ?? 'DeepSeek (web)' }
+    return { id: provider, name: this.#options.providerName ?? 'Web page' }
   }
 
   /**
@@ -109,7 +109,7 @@ export class DeepSeekWebAdapter extends LlmAdapter {
     const page = this.#options.resolvePage()
     if (page === undefined) {
       yield failureChunk({
-        message: 'deepseek-web: no page is registered; the shell has not attached a view yet',
+        message: 'web-page: no page is registered; the shell has not attached a view yet',
         code: FAILURE.NO_PAGE,
       })
       return
@@ -132,7 +132,7 @@ export class DeepSeekWebAdapter extends LlmAdapter {
 
     const parsed = parseAnswer(raw)
     if (parsed.kind === 'invalid') {
-      yield failureChunk({ message: `deepseek-web: ${parsed.reason}`, code: FAILURE.PROTOCOL })
+      yield failureChunk({ message: `web-page: ${parsed.reason}`, code: FAILURE.PROTOCOL })
       return
     }
 
@@ -148,6 +148,6 @@ export class DeepSeekWebAdapter extends LlmAdapter {
    */
   #nextCallId(): ToolCallId {
     this.#calls += 1
-    return toolCallId(`deepseek-web-${Date.now().toString(36)}-${String(this.#calls)}`)
+    return toolCallId(`web-page-${Date.now().toString(36)}-${String(this.#calls)}`)
   }
 }

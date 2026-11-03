@@ -30,6 +30,14 @@ import { Glyph } from './Glyph';
 export function SourceRail(props: {
   sources: PageSource[];
   activeId: string;
+  /**
+   * The source the agent plans through right now, which is not the same question
+   * as `source.planning`: that flag says which source *ships* as the planner, and
+   * it keeps that flag even while it is switched off. Drawing the dot and the
+   * tooltip from the flag would leave a page labelled "Agent 通过这个页面规划"
+   * when it is off and another one is doing the planning.
+   */
+  planningId: string | null;
   loading: boolean;
   collapsed: boolean;
   onSelect: (id: string) => void;
@@ -58,13 +66,14 @@ export function SourceRail(props: {
       <span className="rail-sep" aria-hidden="true" />
       {props.sources.map(source => {
         const active = source.id === props.activeId;
+        const planning = source.id === props.planningId;
         return (
           <button
             key={source.id}
             type="button"
             className={`rail-btn ${active ? 'active' : ''}`}
             title={
-              source.planning
+              planning
                 ? `${source.label}（Agent 通过这个页面规划）`
                 : `${source.label}（仅供查看，Agent 不通过它规划）`
             }
@@ -73,7 +82,7 @@ export function SourceRail(props: {
           >
             <span className="rail-glyph">{source.glyph}</span>
             {active && props.loading && <span className="rail-spinner" />}
-            {source.planning && <span className="rail-dot" />}
+            {planning && <span className="rail-dot" />}
           </button>
         );
       })}

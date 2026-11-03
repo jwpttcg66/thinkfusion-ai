@@ -7,7 +7,7 @@
  * object. That split is what makes the ownership logic testable without a
  * logged-in browser.
  *
- * @module @desktop-agent/llm-deepseek-web/page
+ * @module @desktop-agent/llm-web-page/page
  */
 
 /** One observation of the page's conversation state. */

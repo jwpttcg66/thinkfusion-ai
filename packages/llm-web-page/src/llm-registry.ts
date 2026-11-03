@@ -11,7 +11,7 @@
  * configuration surfaces, generation pinning. Those are host concerns; adding
  * them here would turn a registry into a framework.
  *
- * @module @desktop-agent/llm-deepseek-web/llm-registry
+ * @module @desktop-agent/llm-web-page/llm-registry
  */
 import type { AdapterRegistrationHandle, LlmRegistry } from './host.js'
 import { LlmError } from './protocol.js'

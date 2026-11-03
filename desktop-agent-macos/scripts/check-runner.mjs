@@ -72,6 +72,9 @@ function fakeRegistry(channels, options = {}) {
     // and that is the situation the failure message has to get right.
     all: async () => channels,
     available: async () => (options.noneUsable ? [] : channels),
+    // `get` is how a channel's display name is found when a turn is abandoned
+    // without an answer to take it from.
+    get: id => channels.find(channel => channel.id === id),
     ask: async (id, input) => {
       order.push(`${id}:ask`);
       const channel = channels.find(item => item.id === id);
@@ -84,7 +87,8 @@ function fakeRegistry(channels, options = {}) {
       if (options.resetFails?.includes(id)) return { ok: false, detail: '页面没有清空，仍在原会话里' };
       return { ok: true };
     },
-    cancel() {}
+    cancel() {},
+    cancelAll() {}
   };
 }
 
@@ -96,6 +100,7 @@ function makeRunner(channels, options = {}) {
     store,
     registry,
     emit: event => events.push(event),
+    budgetMs: options.budgetMs,
     submitWorkspace: options.submitWorkspace ?? (async () => {
       throw new Error('unexpected workspace hand-off');
     })
@@ -335,4 +340,67 @@ test('a channel that cannot open a new session is still asked, and the drift is 
     events.some(event => event.type === 'channel.phase' && event.phase === 'resetting'),
     'the reset phase has to be observable'
   );
+});
+
+test('a second question is refused while the first one is still running', async () => {
+  // A page that never answers: the state the pane was actually in when two
+  // identical user bubbles appeared over one stuck channel.
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => new Promise(() => {}))],
+    { budgetMs: 60_000 }
+  );
+
+  const started = await runner.start({ text: '算一道题：2+3 等于多少' });
+  await waitFor(() => runner.get(started.conversationId).channels.length === 1);
+
+  await assert.rejects(
+    () => runner.followup(started.conversationId, '算一道题：2+3 等于多少'),
+    /还在等回答/
+  );
+
+  const asked = runner.messages(started.conversationId).filter(message => message.role === 'user');
+  assert.equal(asked.length, 1, '被拒绝的追问不能留下第二条用户消息');
+
+  // Releases the budget timer; without this the test process waits a minute.
+  runner.cancel(started.conversationId);
+});
+
+test('a turn that never returns ends as a failure that names the channel', async () => {
+  const { runner, events } = makeRunner(
+    [fakeChannel('a', () => new Promise(() => {}))],
+    { budgetMs: 120 }
+  );
+
+  const started = await runner.start({ text: '算一道题：2+3 等于多少' });
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(done.status, 'failed', '卡住的一轮必须结束，不能一直是思考中');
+  assert.match(done.error, /没有结果/);
+  assert.match(done.error, /a/, '失败要说清楚在等谁');
+  assert.ok(
+    events.some(event => event.type === 'conversation.failed'),
+    'renderer 要收到结束事件，否则界面还停在旧状态'
+  );
+});
+
+test('a conversation stranded by the last process is marked interrupted', () => {
+  const { runner, store } = makeRunner([fakeChannel('a', () => answer('x'))]);
+  const stranded = {
+    conversationId: 'c-stranded',
+    title: '上一轮没跑完',
+    intent: 'answer',
+    intentReason: '默认按问答处理',
+    status: 'thinking',
+    channels: ['a'],
+    createdAt: 1,
+    updatedAt: 1
+  };
+  store.upsertConversation(stranded);
+  store.upsertConversation({ ...stranded, conversationId: 'c-done', status: 'answered' });
+
+  assert.equal(runner.reconcile(), 1, '只有中断的那条该被改');
+  assert.equal(runner.get('c-stranded').status, 'failed');
+  assert.match(runner.get('c-stranded').error, /没有结束/);
+  assert.equal(runner.get('c-done').status, 'answered');
+  assert.equal(runner.get('c-done').error, undefined);
 });

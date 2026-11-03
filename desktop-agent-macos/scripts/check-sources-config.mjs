@@ -29,17 +29,19 @@ import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sources-')), 'sources.json');
 
-test('the shipped defaults are the four providers, two of them off', () => {
+test('the shipped defaults are the four providers, and only one is on', () => {
   assert.deepEqual(
     BUILTIN_SOURCES.map(source => source.id),
     ['deepseek', 'chatgpt', 'kimi', 'workbuddy']
   );
-  // kimi and workbuddy have no selector profile yet, so enabling them by
-  // default would add two pages that cannot answer.
+  // One live channel, so a fresh install has somewhere to ask and does not
+  // pre-load sites (or accounts) the user did not choose.
   assert.deepEqual(
     BUILTIN_SOURCES.filter(source => source.enabled).map(source => source.id),
-    ['deepseek', 'chatgpt']
+    ['chatgpt']
   );
+  // The planning flag survives on a source that ships off; see the pool below.
+  assert.equal(sourceById(BUILTIN_SOURCES, 'deepseek').planning, true);
 });
 
 test('an untouched list is the defaults, in the shipped order', () => {
@@ -73,13 +75,17 @@ test('enabling a source does not touch the planning flag', () => {
   const resolved = resolveSources({ overrides: { kimi: { enabled: true } }, custom: [] });
   assert.equal(sourceById(resolved, 'kimi').enabled, true);
   assert.equal(sourceById(resolved, 'kimi').planning, false);
-  assert.equal(planningSource(resolved).id, 'deepseek');
+  // kimi carries no planning flag, so the planner stays the first source that
+  // is on — which, with DeepSeek off by default, is ChatGPT.
+  assert.equal(planningSource(resolved).id, 'chatgpt');
 });
 
-test('switching the planner off hands planning to the next source that is on', () => {
-  const resolved = resolveSources({ overrides: { deepseek: { enabled: false } }, custom: [] });
-  assert.equal(planningSource(resolved).id, 'chatgpt');
-  assert.equal(planningSource(resolved).planning, false);
+test('turning the flagged source on makes it the planner again', () => {
+  assert.equal(planningSource(resolveSources()).id, 'chatgpt');
+
+  const resolved = resolveSources({ overrides: { deepseek: { enabled: true } }, custom: [] });
+  assert.equal(planningSource(resolved).id, 'deepseek');
+  assert.equal(planningSource(resolved).planning, true);
 });
 
 test('with everything off there is no planner at all — which is why one has to stay on', () => {

@@ -1,37 +1,53 @@
 /**
- * Plugin entry: register the DeepSeek web route with the model-call registry.
+ * Plugin entry: register a web page as a model route, with the model-call
+ * registry.
+ *
+ * Nothing in this package knows which site it is driving. The page, the
+ * selectors and the DOM all live on the other side of `WebPage`; the route name
+ * and the model label are configuration. That is deliberate: the site-specific
+ * part of a channel is a selector profile in the app, not a fork of this layer,
+ * so a site name only appears where a site is actually chosen.
+ *
+ * ```ts
+ * import { apply, registerPage } from '@desktop-agent/llm-web-page'
+ *
+ * // Neutral defaults: route `web-page`, model `default`, page `web-page`.
+ * registerPage('web-page', viewPage)
+ * apply({ llm: registry })
+ *
+ * // A real site passes its own three names, and nothing else changes.
+ * registerPage('deepseek-web', deepseekView)
+ * apply({ llm: registry }, {
+ *   provider: 'deepseek-web',
+ *   model: 'deepseek-chat',
+ *   pageName: 'deepseek-web'
+ * })
+ * ```
  *
  * The host contract is ours (`./host.ts`), three members wide. No plugin
  * framework is imported and none is required: if a host already speaks a
  * different registry shape, the bridge is a few lines, not a dependency.
  *
- * ```ts
- * import { apply, registerPage } from '@desktop-agent/llm-deepseek-web'
- *
- * registerPage('deepseek-web', viewPage)
- * apply({ llm: registry }, { provider: 'deepseek-web', model: 'deepseek-chat' })
- * ```
- *
  * The page may be published before or after `apply()`: it is resolved per
  * request, so an early request fails with `NO_PAGE` and later ones work.
  *
- * @module @desktop-agent/llm-deepseek-web
+ * @module @desktop-agent/llm-web-page
  */
-import { DeepSeekWebAdapter } from './adapter.js'
+import { WebPageAdapter } from './adapter.js'
 import type { PluginContext } from './host.js'
 import { DEFAULT_PAGE_NAME, resolvePage } from './registry.js'
 import type { TransportConfig } from './transport.js'
 
-export const name = 'llm-deepseek-web'
+export const name = 'llm-web-page'
 export const inject = ['llm']
 
 /** YAML configuration accepted by {@link apply}. */
 export interface PluginConfig {
-  /** Provider route to own. Defaults to `deepseek-web`. */
+  /** Provider route to own. Defaults to `web-page`. */
   readonly provider?: string
-  /** Model id to advertise. Defaults to `deepseek-chat` — a label, not a page setting. */
+  /** Model id to advertise. Defaults to `default` — a label, not a page setting. */
   readonly model?: string
-  /** Name the shell registered its page under. Defaults to `deepseek-web`. */
+  /** Name the shell registered its page under. Defaults to `web-page`. */
   readonly pageName?: string
   /** Delay between page polls, in milliseconds. */
   readonly pollMs?: number
@@ -48,12 +64,12 @@ export interface PluginConfig {
  * @throws Error naming the offending field.
  */
 function validate(config: PluginConfig): { provider: string; model: string; pageName: string } {
-  const provider = config.provider ?? 'deepseek-web'
-  const model = config.model ?? 'deepseek-chat'
+  const provider = config.provider ?? 'web-page'
+  const model = config.model ?? 'default'
   const pageName = config.pageName ?? DEFAULT_PAGE_NAME
-  if (provider.trim().length === 0) throw new Error('llm-deepseek-web: config.provider must not be empty')
-  if (model.trim().length === 0) throw new Error('llm-deepseek-web: config.model must not be empty')
-  if (pageName.trim().length === 0) throw new Error('llm-deepseek-web: config.pageName must not be empty')
+  if (provider.trim().length === 0) throw new Error('llm-web-page: config.provider must not be empty')
+  if (model.trim().length === 0) throw new Error('llm-web-page: config.model must not be empty')
+  if (pageName.trim().length === 0) throw new Error('llm-web-page: config.pageName must not be empty')
   return { provider, model, pageName }
 }
 
@@ -72,7 +88,7 @@ function transportOf(config: PluginConfig): Partial<TransportConfig> {
     const value = config[field]
     if (value === undefined) continue
     if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(`llm-deepseek-web: config.${field} must be a positive number`)
+      throw new Error(`llm-web-page: config.${field} must be a positive number`)
     }
     transport[field] = value
   }
@@ -86,18 +102,18 @@ function transportOf(config: PluginConfig): Partial<TransportConfig> {
  */
 export function apply(ctx: PluginContext, config: PluginConfig = {}): void {
   const { provider, model, pageName } = validate(config)
-  const adapter = new DeepSeekWebAdapter({
+  const adapter = new WebPageAdapter({
     provider,
     model,
-    providerName: 'DeepSeek (web)',
+    providerName: 'Web page',
     resolvePage: () => resolvePage(pageName),
     transport: transportOf(config),
   })
   ctx.llm.registerAdapter([provider], adapter)
 }
 
-export { DeepSeekWebAdapter } from './adapter.js'
-export type { DeepSeekWebAdapterOptions } from './adapter.js'
+export { WebPageAdapter } from './adapter.js'
+export type { WebPageAdapterOptions } from './adapter.js'
 export { FAILURE } from './failures.js'
 export type { FailureCode } from './failures.js'
 export type { AdapterRegistrationHandle, LlmRegistry, PluginContext, PluginLogger } from './host.js'

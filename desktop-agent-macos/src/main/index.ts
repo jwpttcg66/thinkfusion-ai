@@ -21,11 +21,11 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { TaskManager } from './task-manager';
-import { ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
+import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
 import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
-import { profileFor, providerFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
@@ -201,7 +201,7 @@ function adapterFor(id: string): ChatPageDriver {
   const created = new ChatPageDriver(
     () => {
       const view = views.get(id);
-      return view ? createElectronDriver(view, () => selectorsFor(id)) : null;
+      return view ? createElectronDriver(view, () => selectorsFor(id), () => reasoningFor(id)) : null;
     },
     {
       // A function, not a Set: `saveSource` can add a host at any time, and a
@@ -212,6 +212,9 @@ function adapterFor(id: string): ChatPageDriver {
       // next probe, and the diagnostics panel must report the profile that is
       // actually in use rather than the built-in one.
       selectors: () => selectorsFor(id),
+      // What to cut out of an answer bubble before its text counts as the
+      // answer. Site knowledge like the selectors, so it is resolved per call.
+      reasoning: () => reasoningFor(id),
       siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
     }
   );
@@ -780,10 +783,9 @@ function reattachSource(): PageState {
  * cannot finish has to fail out loud instead.
  */
 function runInPage<T>(view: WebContentsView, script: string, label: string, timeoutMs = 8000): Promise<T> {
-  const deadline = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`${label}超时（${String(timeoutMs / 1000)} 秒），页面可能卡住了`)), timeoutMs)
-  );
-  return Promise.race([view.webContents.executeJavaScript(script, true) as Promise<T>, deadline]);
+  // Same deadline the driver uses. It lived here first, in a second copy, and a
+  // second copy of a timeout is a second place for the number to be wrong.
+  return callPage<T>(view, label, script, timeoutMs);
 }
 
 /**
@@ -824,7 +826,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
   }
 
   const discovered = await runInPage<DiscoveredSelectors>(view, DISCOVER_SCRIPT, '读取页面结构');
-  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base), '检查页面状态');
+  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base, reasoningFor(sourceId)), '检查页面状态');
 
   const probe = {
     hasInput: before.hasInput,
@@ -860,7 +862,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
 
   let after = before;
   if (Object.keys(proposal.candidate).length > 0) {
-    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate)), '验证新选择器');
+    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate), reasoningFor(sourceId)), '验证新选择器');
   }
 
   const verdict = confirmRepairs(proposal.candidate, after);
@@ -1479,6 +1481,11 @@ app.whenReady().then(async () => {
         workspaceRoot: input.workspaceRoot
       })
   });
+
+  // A turn that was running when the last process ended has nobody left to
+  // finish it. Marking it interrupted here — before any window can show it — is
+  // the difference between "上次没做完" and an eternal 「思考中」.
+  conversations.reconcile();
 
   // Handlers, the agent process and the event sink all have to exist before any
   // renderer does. They used to be registered inside createWindow() *after*

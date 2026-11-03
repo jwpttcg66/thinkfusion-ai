@@ -909,7 +909,7 @@ export default function App() {
               const detail = blocked.map(channel => `${channel.label}: ${channel.detail ?? '不可用'}`).join('；');
               return (
                 <span className={`pill ${ready > 0 ? 'ok' : 'warn'}`} title={detail || status?.detail || undefined}>
-                  {channelStatuses.length === 0 ? '连接中…' : `${ready}/${channelStatuses.length} 通道就绪`}
+                  {channelStatuses.length === 0 ? '连接中…' : `${ready}/${channelStatuses.length} 页面就绪`}
                 </span>
               );
             })()}
@@ -1182,6 +1182,7 @@ export default function App() {
       <SourceRail
         sources={sources.sources.filter(source => source.enabled)}
         activeId={sources.activeId}
+        planningId={sources.planningId}
         loading={sources.loading}
         collapsed={isCollapsed}
         onSelect={selectSource}

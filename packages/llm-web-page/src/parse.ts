@@ -8,7 +8,7 @@
  * invalid — never coerced — because a mis-read answer would silently drive
  * tools with the wrong arguments.
  *
- * @module @desktop-agent/llm-deepseek-web/parse
+ * @module @desktop-agent/llm-web-page/parse
  */
 
 /** One tool call the page asked for. */

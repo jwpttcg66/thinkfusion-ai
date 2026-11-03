@@ -19,7 +19,7 @@ monorepo、跑在 node ≥24.9 上、需要 cordis 插件体系。把它变成�
 
 | 层 | 处置 |
 | --- | --- |
-| 协议词汇（块类型、chunk 种类、失败码、终止原因） | **抄形状，自己定义**。`packages/llm-deepseek-web/src/protocol.ts` |
+| 协议词汇（块类型、chunk 种类、失败码、终止原因） | **抄形状，自己定义**。`packages/llm-web-page/src/protocol.ts` |
 | 分层思路（契约中立 / 适配器管 wire；工具调用逐次审批；模型可见即已记录） | **抄思路，自己实现**。指导 v0.6.0 之后的改造方向 |
 | 包、进程、插件框架、构建链 | **不引入**。我们自己的宿主契约只有三个成员（`host.ts`） |
 
@@ -51,7 +51,7 @@ dsh，写的是十几行桥接层，不是重写。
 | `shared/protocol.ts` 的 plan 协议 | `exit_plan_mode` + 审批 seam | 自研：协议退化为适配器内部的翻译层 |
 | `orchestrator.ts` 闭环 | `agent-loop` | 自研：轮次/步骤语义对齐，去掉我们自造的状态跳转 |
 | `agent/index.ts` + `policy.ts` + `verify.ts` | `tools/pre-execute` 瀑布 + 沙箱包装 | 自研：把审批从「批准整份计划」下沉到「每次工具调用」 |
-| `deepseek-adapter.ts` 页面收发 | `ctx.llm` 适配器 seam | **已迁移**到 `packages/llm-deepseek-web` |
+| `deepseek-adapter.ts` 页面收发 | `ctx.llm` 适配器 seam | **已迁移**到 `packages/llm-web-page` |
 | 三栏 UI | `apps/desktop` 的布局 | 已按截图重做，继续自研 |
 
 ## 适配器契约（已核对源码，2026-10-31 修订）
@@ -110,7 +110,7 @@ type StreamChunk =
 ## 里程碑与状态
 
 - **M1**：适配器把网页回答翻成 `tool-call` 块，跑通一次 `read` 调用。
-  **代码已完成**：`packages/llm-deepseek-web`，69 项行为测试 + 8 项 spike 断言全过，零依赖。
+  **代码已完成**：`packages/llm-web-page`，69 项行为测试 + 8 项 spike 断言全过，零依赖。
   `examples/mount.mjs` 走通两轮对话（一次工具调用 + 一次总结），宿主是我们的 `InMemoryLlmRegistry`。
   **未完成**：真实登录态下的 DOM 选择器（属 M3），以及把 `WebPage` 接到 `WebContentsView`。
 - **M2**：把审批下沉到每次工具调用（对齐 `tools/pre-execute` 的思路），去掉「批准整批计划」。

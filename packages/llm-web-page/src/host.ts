@@ -7,7 +7,7 @@
  * small enough that adopting a framework later is a bridge of a few lines,
  * and shipping one now would be a dependency we cannot justify.
  *
- * @module @desktop-agent/llm-deepseek-web/host
+ * @module @desktop-agent/llm-web-page/host
  */
 import type { LlmAdapter } from './protocol.js'
 

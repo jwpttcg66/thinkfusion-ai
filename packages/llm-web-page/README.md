@@ -1,6 +1,6 @@
-# @desktop-agent/llm-deepseek-web
+# @desktop-agent/llm-web-page
 
-把 **DeepSeek 网页**当作模型通道：驱动一个已登录的聊天页面，把它的回答翻译成标准的流式 chunk。
+把**一个已登录的聊天网页**当作模型通道：驱动页面、等一个可证明是本轮的答复，把回答翻译成标准的流式 chunk。包本身不知道是哪个站点。
 
 **设计借鉴自 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（MIT），代码零依赖。** `dependencies` 是空的，`src/` 里没有任何 `@deepseek-ai/*` 的 import。我们采纳的是它的**协议词汇与分层思路**，不是它的包。
 
@@ -9,6 +9,20 @@
 - dsh 自称「未来会出现破坏兼容性的变更」，我们不会跟着断。
 - 要改一个字段，不需要 fork 一个 232 MB 的 monorepo。
 - 形状保持一致，所以将来若要接进别的宿主，写的是**桥接层（十几行）**，不是重写。
+
+## 站点名在哪里
+
+这个包不知道自己在驱动哪个站点，站点名只出现在**真正选了一个站点**的地方——也就是调用方传进来的配置：
+
+| 名字 | 默认值 | 谁决定 |
+| --- | --- | --- |
+| `provider` | `web-page` | 宿主：这条路由在模型注册表里叫什么 |
+| `model` | `default` | 宿主：页面上那个模型对外用什么标签 |
+| `pageName` | `web-page` | 宿主：壳把视图注册成了什么名字 |
+
+所以目录、包名、类名都没有站点词：`llm-web-page` / `WebPageAdapter`。站点特有的东西只有两样——选择器画像和 host 白名单——它们在 App 那一侧（`desktop-agent-macos/src/main/adapters/providers/`，一个站点一个文件）。
+
+这条命名规则不是洁癖：通用层一旦带上某个站点的名字，第二个站点接进来时这个名字就开始说谎了。名字说的必须是这个东西是什么，而不是它第一次被用在哪儿。
 
 ## 它做什么
 
@@ -40,7 +54,7 @@ GenerateOptions ──▶ 拍平成一段网页提示词 ──▶ 提交
 ## 安装与验证
 
 ```bash
-cd packages/llm-deepseek-web
+cd packages/llm-web-page
 npm install         # 只装 typescript 和 @types/node
 npm run typecheck
 npm test            # 69 项行为测试
@@ -50,13 +64,16 @@ node examples/mount.mjs   # 两轮对话：一次工具调用 + 一次总结
 ## 怎么用
 
 ```ts
-import { InMemoryLlmRegistry, apply, registerPage, unregisterPage } from '@desktop-agent/llm-deepseek-web'
+import { InMemoryLlmRegistry, apply, registerPage, unregisterPage } from '@desktop-agent/llm-web-page'
 
 const registry = new InMemoryLlmRegistry()
+
+// 站点名只出现在调用方：路由、模型标签、页面注册名，三件事都由宿主给。
 registerPage('deepseek-web', viewPage)      // 见下
 apply({ llm: registry }, {
   provider: 'deepseek-web',
   model: 'deepseek-chat',
+  pageName: 'deepseek-web',
   pollMs: 250,        // 轮询间隔
   settleMs: 1200,     // 两次一致需保持多久
   timeoutMs: 600000,  // 单轮上限
@@ -66,6 +83,8 @@ for await (const chunk of registry.stream({ provider: 'deepseek-web', model: 'de
   // block-start / text-delta / tool-call-delta / block-end / finish
 }
 ```
+
+三个名字都不传，得到的就是一条还没起名字的网页通道（`web-page` / `default` / `web-page`）——能跑，只是它在注册表里叫什么由默认值决定，而不是由你决定。
 
 `apply()` 只依赖 `{ llm: { registerAdapter } }` 这一个方法。若宿主已有自己的注册表，包一层适配即可，不需要装任何东西。
 

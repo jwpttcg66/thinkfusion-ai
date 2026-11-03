@@ -5,7 +5,7 @@
  * consumers route on, so the strings are a contract: they are stable, and they
  * never carry page text (which can contain user content or a stray key).
  *
- * @module @desktop-agent/llm-deepseek-web/failures
+ * @module @desktop-agent/llm-web-page/failures
  */
 export const FAILURE = {
   /** No page has been registered under the configured name. */

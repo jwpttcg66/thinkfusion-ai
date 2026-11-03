@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ChannelStatus, Conversation, ConversationMessage, Synthesis } from '../../../shared/conversation';
+import { isMultiChannel } from '../../../shared/intent';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -54,6 +55,7 @@ export function ConversationView(props: {
    * synthesis — so all three say the same name for the same site.
    */
   const labels = new Map(props.channelStatuses.map(status => [status.id, status.label]));
+  const askedLabel = conversation.channels.map(id => labels.get(id) ?? id).join('、');
 
   return (
     <section className="conversation" aria-label="对话">
@@ -65,6 +67,13 @@ export function ConversationView(props: {
         </div>
         <p className="conversation-why">
           路由依据：{conversation.intentReason}
+          {/* Who is actually being asked, said out loud. With two pages switched
+              on and a plain question, only one of them is used — by design — but
+              nothing in the pane used to say so, and "2/2 通道就绪" next to an
+              idle second page reads as "both are answering, one is frozen". */}
+          {isMultiChannel(conversation.intent)
+            ? ` · 多通道，同时问 ${conversation.channels.length || ''} 个页面`
+            : ` · 单通道，只问 ${askedLabel || '一个页面'}`}
           {conversation.error ? ` · ${conversation.error}` : ''}
         </p>
         <ChannelStrip

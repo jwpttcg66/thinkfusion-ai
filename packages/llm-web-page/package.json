@@ -1,8 +1,8 @@
 {
-  "name": "@desktop-agent/llm-deepseek-web",
+  "name": "@desktop-agent/llm-web-page",
   "version": "0.1.0",
   "private": true,
-  "description": "DeepSeek web-page model channel: drives the logged-in chat page and translates answers into stream chunks. The protocol vocabulary is our own; no runtime dependencies.",
+  "description": "Web page as a model channel: drive a logged-in chat page and translate its answer into stream chunks. Site-agnostic — the page, the route name and the model label are supplied by the caller. Protocol vocabulary is our own; no runtime dependencies.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

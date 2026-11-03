@@ -10,7 +10,7 @@
  *   its delta carried, because the assembler concatenates deltas and compares;
  * - nothing follows the terminal `finish`.
  *
- * @module @desktop-agent/llm-deepseek-web/chunks
+ * @module @desktop-agent/llm-web-page/chunks
  */
 import { toolCallId } from './protocol.js'
 import type { LlmFailure, StreamChunk, ToolCallId } from './protocol.js'

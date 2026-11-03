@@ -11,7 +11,7 @@
  * grow, require generation to have stopped, and require two consecutive polls
  * to agree on the text. Only then is the text treated as the answer.
  *
- * @module @desktop-agent/llm-deepseek-web/transport
+ * @module @desktop-agent/llm-web-page/transport
  */
 import { LlmError } from './protocol.js'
 import { FAILURE } from './failures.js'
@@ -89,7 +89,7 @@ export class PageTransport {
       return await this.#page.probe()
     } catch (error) {
       throw new LlmError(
-        `deepseek-web: reading the page failed (${describe(error)})`,
+        `web-page: reading the page failed (${describe(error)})`,
         FAILURE.PAGE_ERROR,
         { cause: error },
       )
@@ -107,7 +107,7 @@ export class PageTransport {
     const before = await this.status()
     if (!before.ready) {
       throw new LlmError(
-        'deepseek-web: the page is not ready — sign in and leave the composer visible',
+        'web-page: the page is not ready — sign in and leave the composer visible',
         FAILURE.NOT_READY,
       )
     }
@@ -116,7 +116,7 @@ export class PageTransport {
       await this.#page.send(prompt)
     } catch (error) {
       throw new LlmError(
-        `deepseek-web: submitting the prompt failed (${describe(error)})`,
+        `web-page: submitting the prompt failed (${describe(error)})`,
         FAILURE.SEND_FAILED,
         { cause: error },
       )
@@ -131,7 +131,7 @@ export class PageTransport {
     for (;;) {
       if (signal?.aborted === true) {
         await this.#stopQuietly()
-        throw new LlmError('deepseek-web: the request was cancelled', FAILURE.TIMEOUT)
+        throw new LlmError('web-page: the request was cancelled', FAILURE.TIMEOUT)
       }
       if (Date.now() > deadline) {
         await this.#stopQuietly()
@@ -140,8 +140,8 @@ export class PageTransport {
         // never stopped moving (still generating, or a stuck stream).
         throw new LlmError(
           sawNew
-            ? `deepseek-web: the answer never settled within ${String(this.#config.timeoutMs)}ms`
-            : `deepseek-web: the page produced no new message within ${String(this.#config.timeoutMs)}ms`,
+            ? `web-page: the answer never settled within ${String(this.#config.timeoutMs)}ms`
+            : `web-page: the page produced no new message within ${String(this.#config.timeoutMs)}ms`,
           sawNew ? FAILURE.TIMEOUT : FAILURE.NO_ANSWER,
         )
       }

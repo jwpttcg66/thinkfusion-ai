@@ -44,7 +44,7 @@ const read = () =>
         title: b.title,
         active: b.classList.contains('active')
       })),
-      sources: state.sources.map(s => ({ id: s.id, planning: s.planning, enabled: s.enabled })),
+      sources: state.sources.map(s => ({ id: s.id, planning: s.planning, enabled: s.enabled, url: s.url })),
       // The rail shows the enabled ones only; a disabled source is a saved
       // address, not a page. Every index below is into this list, not into the
       // full sources array, or the assertions would be about the wrong button.
@@ -87,8 +87,13 @@ const coveringRail = state =>
     .map(([id]) => id);
 
 // --- the rail itself -------------------------------------------------------
-// Start on the planning pane so the geometry below is about a page that exists.
-const base = await activate('deepseek');
+// Start on the first enabled source so the geometry below is about a page that
+// exists. Not a hardcoded id: which sources ship switched on is a product
+// decision, and it has already changed once.
+const initial = await read();
+const startId = initial.enabled[0];
+if (!startId) throw new Error('没有启用的来源：来源栏是空的');
+const base = await activate(startId);
 
 checkTrue('窗口宽度被读到', base.win.w > 0);
 checkTrue('右侧存在来源栏', base.rail !== null);
@@ -96,7 +101,7 @@ check('来源栏贴在窗口右边缘', base.rail.right, base.win.w);
 check('来源栏宽度等于 RAIL_WIDTH', base.rail.w, RAIL_WIDTH);
 check('按钮数量等于启用的来源数量', base.buttons.length, base.enabled.length);
 checkTrue('只有一个来源被标记为规划通道', base.sources.filter(s => s.planning).length === 1);
-check('DeepSeek 是规划通道', base.sources.find(s => s.id === 'deepseek')?.planning, true);
+checkTrue('当前页面来自一个已启用的来源', base.enabled.includes(base.activeId));
 check('当前来源被高亮', base.buttons.filter(b => b.active).length, 1);
 
 // --- the page must stop where the rail begins ------------------------------
@@ -141,11 +146,13 @@ for (const id of others) {
   checkTrue(`切回后 ${id} 被停到窗口外`, isParked(back.bounds[id], back.win.w));
 }
 
-// The planning page must survive a round trip. This is checked against the
+// The page we started on must survive a round trip. Checked against the
 // DevTools target list rather than a URL field, because a view that has been
-// torn down has no target at all.
+// torn down has no target at all. Which source that is depends on the user's
+// settings, so the host comes from the source itself, not from a literal.
 const live = await listTargets();
-checkTrue('切换往返后规划页面仍然活着', live.some(t => t.url.includes('chat.deepseek.com')));
+const homeHost = new URL(base.sources.find(s => s.id === base.activeId).url).host;
+checkTrue('切换往返后起始页面仍然活着', live.some(t => t.url.includes(homeHost)));
 
 // Every embedded page must have a real box, not just the one on screen. A view
 // that has never been given a size measures 0 wide for every element in it, so

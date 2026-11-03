@@ -172,7 +172,7 @@ export interface BrowserAdapter {
 | `adapters/browser/types.ts` | `BrowserAdapter`、`PageBusyError` / `PageUnavailableError` | 站点名、选择器 |
 | `adapters/browser/page-adapter.ts` | `PageBrowserAdapter`：把一次提问变成「发—等—认领」 | 身份、会话策略 |
 | `adapters/browser/page-driver.ts` | `ChatPageDriver`：探针、发送、`waitForAnswer`、回声剥离 | 任何站点的常量 |
-| `adapters/providers/deepseek.ts`、`chatgpt.ts` | 选择器 + host，一个站点一个文件 | 行为 |
+| `adapters/providers/deepseek.ts`、`chatgpt.ts`、`kimi.ts` | 选择器 + host（+ 需要剔除的思考区），一个站点一个文件 | 行为 |
 | `master-agent.ts` | 选参与者、单答还是并行研究、收集、交给综合 | DOM、存储、事件 |
 | `conversation-runner.ts` | `ConversationRunner`：装配 `ResearchSink`、写消息、落事件、取消 | 页面、选择器、综合规则 |
 
@@ -213,11 +213,19 @@ export interface ResearchSink {
 
 #### 一个站点是怎么加进来的
 
-`adapters/providers/<id>.ts` 里写 `ProviderProfile`（`selectors` + `hosts` + `label`），`adapters/providers/index.ts` 的 `PROVIDERS` 里加一行。就这两处。
+`adapters/providers/<id>.ts` 里写 `ProviderProfile`（`selectors` + `hosts` + `label`，需要时再加 `reasoning`），`adapters/providers/index.ts` 的 `PROVIDERS` 里加一行。就这两处。
 
 这条承诺有代价，所以要写清它靠什么成立：驱动器里没有 `if (site === …)`，通用层里没有站点名字（连文案都没有，见上），`hosts` 和 `selectors` 都可以是函数（地址可编辑、学到的选择器下一次探针生效），渲染层的名字来自 `ChannelStatus.label`。**这四条任何一条破了，「加一个站点」就会重新变成「改五个文件」。**
 
-还没验证的部分要说清：第三个站点一次都没真正加过。目前两个站点（DeepSeek、ChatGPT）是同时写出来的，所以「一个文件加一行」是设计上的承诺，不是被踩过的路。真要验证它，得加一个**结构不同**的站点——不是再抄一份选择器，而是先看它的 DOM 长什么样。
+**这条路已经踩过了（第三站：Kimi）。** 结论是「一个文件加一行」成立，但成立的前提是那次真的先看了 DOM，而不是照着前两个抄：
+
+- 发送键在 Kimi 上是个 `div`，没有 `role`、没有 `aria-label`、没有 `data-testid`，唯一身份是 class `send-button-container`。通用兜底找的是 `button, [role="button"]`，实测会先命中输入框工具栏的「上传文件」，点了等于什么都没发。所以画像必须显式给出这个 class。
+- 同一个元素在生成时**变成**停止键（加 class `stop`），因此发送选择器写成 `.send-button-container:not(.stop)`。少了 `:not`，生成中点击会把「停止」当成「已发送」。
+- 回答是「气泡 + 思考面板 + 正文」的一棵子树，`innerText` 会把「思考已完成」和推理一起带出来。为此通用层加了一个小能力：画像可以声明 `reasoning`（要剔除的子树），探针在取回答文本时克隆气泡、剪掉这些子树再读。剪完为空则回退原文——**剪辑是假设，假设错了不能把回答变成空**。
+
+这三条都不是「多写几个选择器」，而是站点结构逼出来的。所以「加一个站点不用改主流程」以后要加一句：**主流程不改，但可能要新增一种画像能力**。这次的 `reasoning` 就是。
+
+顺带修掉的一个通用缺陷：Kimi 的输入框是 Lexical 编辑器，`execCommand('insertText')` 返回 true 时 DOM 还是空的，文本要等约 40ms 才出现（实测）。旧的填字逻辑同步读回，于是把一个已经成功的填写判成 `INPUT_NOT_FILLED`、拒绝发送。现在对 `contenteditable` 会轮询最多 600ms 再判定；`textarea`/`input` 不轮询——值设进去要么成了要么没成，等待只会掩盖 bug。
 
 #### 回答归属：两条路，一条兜底
 

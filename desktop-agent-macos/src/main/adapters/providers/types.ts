@@ -21,4 +21,18 @@ export interface ProviderProfile {
   selectors: SelectorProfile;
   /** Exact hosts, never suffixes: `chat.deepseek.com.evil.test` must not match. */
   hosts: ReadonlySet<string>;
+  /**
+   * Subtrees that are part of the assistant's message but are not the answer.
+   *
+   * The reasoning trace is the reason this exists. A site that shows "thinking"
+   * inline puts it in the same bubble as the reply, so `innerText` on the bubble
+   * returns the model talking to itself followed by the answer — and that trace
+   * would then be shipped to the synthesiser as if the site had said it. The
+   * prose has to be separable without knowing the site's class names, so a
+   * profile lists what to cut instead.
+   *
+   * Cutting is a last resort, never the first: if removing these leaves nothing,
+   * the untrimmed text is used, because a noisy answer still beats no answer.
+   */
+  reasoning?: readonly string[];
 }

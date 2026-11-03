@@ -41,11 +41,26 @@ export interface PageSource {
 /**
  * The shipped defaults.
  *
- * `kimi` and `workbuddy` start disabled on purpose: neither has a built-in
- * selector profile, so enabling them by default would add two pages that
- * cannot answer and make the readiness pill say "2/4" on a fresh install. The
- * settings panel is where they are turned on, and the first thing to do after
- * that is 「更新样式」 on the new page.
+ * Exactly one source starts enabled — ChatGPT — because the app has to have
+ * somewhere to ask on a fresh install, and opening more than one means deciding
+ * for the user which sites to load and which account to sign into.
+ *
+ * `deepseek` keeps its `planning: true` flag but ships off. The flag reads
+ * "when this one is on, it plans", so turning it on in 设置 makes it the planner
+ * again; while it is off, `planningSource` falls back to the first enabled
+ * source. It keeps the flag because it is the reference site — the one the
+ * probe's structural heuristics were tuned against — and so is the right planner
+ * the moment someone switches it on.
+ *
+ * `kimi` ships off for a third reason: it answers as a guest, so nothing breaks
+ * when it is on — but a guest is put in the queue behind subscribers at busy
+ * times (「和Kimi聊天的人太多了」), and that is a poor first impression for a page
+ * someone did not ask for. It has a full selector profile now, so switching it
+ * on in 设置 is all it takes; no 「更新样式」 needed.
+ *
+ * `workbuddy` is off for the original reason: no selector profile and no address
+ * that is right for everyone. Turning it on is a guess, and 「更新样式」 is the
+ * first thing to do afterwards.
  */
 export const BUILTIN_SOURCES: readonly PageSource[] = [
   {
@@ -55,7 +70,7 @@ export const BUILTIN_SOURCES: readonly PageSource[] = [
     url: 'https://chat.deepseek.com/',
     hosts: ['chat.deepseek.com'],
     planning: true,
-    enabled: true
+    enabled: false
   },
   {
     id: 'chatgpt',

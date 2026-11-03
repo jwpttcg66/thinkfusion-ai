@@ -30,10 +30,10 @@ function fakePage() {
 }
 
 const registry = new InMemoryLlmRegistry()
-registerPage('deepseek-web', fakePage())
+registerPage('web-page', fakePage())
 apply({ llm: registry }, { pollMs: 2, settleMs: 8, timeoutMs: 500 })
 
-const base = { provider: 'deepseek-web', model: 'deepseek-chat' }
+const base = { provider: 'web-page', model: 'default' }
 
 for (const [label, messages] of [
   ['turn 1 (tool call)', [{ role: 'user', content: [{ type: 'text', text: '看一下 package.json' }] }]],
@@ -63,4 +63,4 @@ for (const [label, messages] of [
   }
 }
 
-unregisterPage('deepseek-web')
+unregisterPage('web-page')

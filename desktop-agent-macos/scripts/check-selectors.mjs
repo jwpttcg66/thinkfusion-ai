@@ -20,6 +20,11 @@ import test from 'node:test';
 import { confirmRepairs, proposeRepairs } from '../out-test/shared/selectors.js';
 import { mergeProfile, SelectorStore } from '../out-test/main/selector-profile.js';
 
+// Loaded through `await import` because these modules are compiled output, not
+// source: the test build compiles the app, then this file reads what it wrote.
+const providers = await import('../out-test/main/adapters/providers/index.js');
+const sharedSelectors = await import('../out-test/shared/selectors.js');
+
 const BASE = {
   input: ['#chat-input', 'textarea'],
   sendButton: ['button[aria-label*="发送"]'],
@@ -145,5 +150,48 @@ test('a corrupt selector file degrades to "nothing learned"', () => {
     assert.deepEqual(store.forHost('deepseek', 'chat.deepseek.com'), { input: ['#x'] });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Built-in profiles: the constraints that are not obvious from the markup.
+// ---------------------------------------------------------------------------
+
+test('the Kimi profile keeps the send control apart from the stop control', () => {
+  const { providerFor, reasoningFor } = providers;
+  const kimi = providerFor('kimi');
+  assert.ok(kimi, 'Kimi 应当有内置画像');
+  // The page turns the same div into a stop button by adding a class while it
+  // generates. A send list that still matches there reports a submit that never
+  // happened, so the first selector must exclude that state.
+  assert.equal(kimi.selectors.sendButton[0], '.send-button-container:not(.stop)');
+  assert.ok(kimi.selectors.stopButton.includes('.send-button-container.stop'));
+  // Kimi exposes no role/aria/testid on the control, so the class is the only
+  // hook — a regression to a button-based selector would silently fall back to
+  // the composer toolbar and click 「上传文件」.
+  assert.ok(kimi.selectors.sendButton.every(selector => !/^button\[type=/.test(selector)));
+  assert.ok(kimi.hosts.has('www.kimi.com') && kimi.hosts.has('kimi.com'));
+});
+
+test('the Kimi profile counts answers by bubble and cuts the reasoning out', () => {
+  const { providerFor, reasoningFor } = providers;
+  const kimi = providerFor('kimi');
+  // One element per answer. Counting markdown blocks over-counts a reply that
+  // spans several of them, and hands the driver only its last fragment.
+  assert.equal(kimi.selectors.assistant[0], '.chat-content-item-assistant');
+  const cuts = reasoningFor('kimi');
+  assert.ok(cuts.includes('.toolcall-flow'), '思考面板必须被剔除');
+  assert.ok(cuts.includes('.segment-assistant-actions'), '复制/分享按钮必须被剔除');
+  // A site with no such noise opts out by saying nothing, not by guessing.
+  assert.deepEqual(reasoningFor('chatgpt'), []);
+  assert.deepEqual(reasoningFor('deepseek'), []);
+});
+
+test('every built-in profile covers all six roles', () => {
+  const { SELECTOR_ROLES } = sharedSelectors;
+  for (const [id, profile] of Object.entries(providers.PROVIDERS)) {
+    for (const role of SELECTOR_ROLES) {
+      assert.ok(Array.isArray(profile.selectors[role]) && profile.selectors[role].length > 0, `${id} 缺少 ${role}`);
+    }
   }
 });

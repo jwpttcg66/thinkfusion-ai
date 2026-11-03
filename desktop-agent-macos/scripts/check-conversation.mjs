@@ -52,7 +52,7 @@ if (usable === 0) {
 // agree with reality without anyone clicking anything. It used to be read once
 // at startup, before the pages had loaded, and then stayed on "0/2 · 页面尚未
 // 加载" for as long as the app was open.
-const expectedPill = `${usable}/${channelStatuses.length} 通道就绪`;
+const expectedPill = `${usable}/${channelStatuses.length} 页面就绪`;
 const pill = await waitFor(
   () => cdp.evaluate(`document.querySelector('.topbar-right .pill')?.textContent ?? ''`),
   expectedPill,

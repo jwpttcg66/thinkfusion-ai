@@ -38,10 +38,15 @@ const cdp = await connect(app);
 const { check, checkTrue, summary } = createChecks();
 
 // The rail may leave another page in front. This check is about one pane, so put
-// the planning page there first.
+// one page there first — whichever source is enabled first, since which sources
+// ship switched on is a product decision, not a fact this script should assume.
 const before = await cdp.evaluate('window.agentAPI.getSources()');
-if (before.activeId !== 'deepseek') {
-  await cdp.evaluate("window.agentAPI.setSource('deepseek')");
+const source = before.sources.find(s => s.enabled);
+if (!source) throw new Error('没有启用的来源：页面窗格检查无法进行');
+const SOURCE = source.id;
+const HOST = new URL(source.url).host;
+if (before.activeId !== SOURCE) {
+  await cdp.evaluate(`window.agentAPI.setSource(${JSON.stringify(SOURCE)})`);
   await sleep(900);
 }
 // And make sure nothing is left detached from an earlier run.
@@ -137,12 +142,12 @@ const readPane = () =>
 
 const viewOf = async () => {
   const bounds = await cdp.evaluate('window.agentAPI.getViewBounds()');
-  return bounds.deepseek ?? null;
+  return bounds[SOURCE] ?? null;
 };
 
 const pageViewport = async () => {
   const list = await listTargets();
-  const page = list.find(target => target.url.includes('chat.deepseek.com'));
+  const page = list.find(target => target.url.includes(HOST));
   if (!page) return null;
   const pageCdp = await connect(page);
   const size = await pageCdp.evaluate('JSON.stringify({ w: innerWidth, h: innerHeight })');
@@ -211,8 +216,8 @@ if (pane.bar) {
 
 // -------------------------------------------------------------- detach
 
-const detached = await cdp.evaluate("window.agentAPI.detachPage('deepseek')");
-check('放大之后状态里记录了分离的页面', detached.detachedId, 'deepseek');
+const detached = await cdp.evaluate(`window.agentAPI.detachPage(${JSON.stringify(SOURCE)})`);
+check('放大之后状态里记录了分离的页面', detached.detachedId, SOURCE);
 
 const afterDetach = await waitFor(async () => (await readPane()).placeholder, true, { timeoutMs: 3000 });
 check('主窗口的页面位置换成了说明', afterDetach, true);

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, PROBE_VERSION } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, PROBE_VERSION } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
@@ -682,4 +682,53 @@ test('the same driver refuses another site host, and names the right site', asyn
   const status = await adapter.getStatus();
   assert.equal(status.pageReady, false);
   assert.match(status.detail, /示例站点/);
+});
+
+// ---------------------------------------------------------------------------
+// The deadline on the Electron boundary.
+//
+// Everything above this line assumes the page answers. A renderer that is
+// navigating, crashed, or stuck in a synchronous task answers nothing, and the
+// promise never settles — which is how a turn could sit at 「提问中」 while every
+// timer inside the wait loop kept being skipped: the loop only checks its clock
+// between polls, and a poll that never returns stops it from ever returning.
+// ---------------------------------------------------------------------------
+
+test('a page call that never answers gives up instead of hanging', async () => {
+  const stuck = {
+    webContents: {
+      isDestroyed: () => false,
+      executeJavaScript: () => new Promise(() => {})
+    }
+  };
+
+  const started = Date.now();
+  await assert.rejects(() => callPage(stuck, '读取页面状态', '1 + 1', 120), /没有响应/);
+  assert.ok(Date.now() - started < 2000, '超时必须在限期内发生，而不是等到天荒地老');
+});
+
+test('a closed page is refused before anything is executed in it', async () => {
+  let executed = false;
+  const closed = {
+    webContents: {
+      isDestroyed: () => true,
+      executeJavaScript: () => {
+        executed = true;
+        return Promise.resolve(null);
+      }
+    }
+  };
+
+  await assert.rejects(() => callPage(closed, '读取页面状态', '1 + 1', 120), /页面已关闭/);
+  assert.equal(executed, false);
+});
+
+test('a page that answers in time returns its value untouched', async () => {
+  const view = {
+    webContents: {
+      isDestroyed: () => false,
+      executeJavaScript: () => Promise.resolve({ messageCount: 2 })
+    }
+  };
+  assert.deepEqual(await callPage(view, '读取页面状态', 'x', 120), { messageCount: 2 });
 });

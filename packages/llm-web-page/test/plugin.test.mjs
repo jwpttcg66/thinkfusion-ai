@@ -22,8 +22,8 @@ function fakeContext() {
 const FAST_TUNING = { pollMs: FAST.pollMs, settleMs: FAST.settleMs, timeoutMs: FAST.timeoutMs }
 
 const request = {
-  provider: 'deepseek-web',
-  model: 'deepseek-chat',
+  provider: 'web-page',
+  model: 'default',
   messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
 }
 
@@ -31,7 +31,7 @@ test('apply registers exactly one route on the llm service', () => {
   const { ctx, registrations } = fakeContext()
   apply(ctx, {})
   assert.equal(registrations.length, 1)
-  assert.deepEqual(registrations[0].providers, ['deepseek-web'])
+  assert.deepEqual(registrations[0].providers, ['web-page'])
 })
 
 test('the configured provider name is the registered route', () => {
@@ -64,7 +64,7 @@ test('a page registered after mount is still found at request time', async () =>
   const before = await collect(adapter.stream(request))
   assert.equal(before[0].reason.failure.code, 'NO_PAGE')
 
-  registerPage('deepseek-web', scriptedPage([
+  registerPage('web-page', scriptedPage([
     IDLE_WITH_HISTORY,
     { messageCount: 2, lastText: '{"text":"attached"}', generating: false, ready: true },
   ]))
@@ -72,7 +72,7 @@ test('a page registered after mount is still found at request time', async () =>
     const after = await collect(adapter.stream(request))
     assert.equal(after[1].text, 'attached')
   } finally {
-    unregisterPage('deepseek-web')
+    unregisterPage('web-page')
   }
 })
 
@@ -80,8 +80,8 @@ test('an unregistered page makes later requests fail with NO_PAGE again', async 
   const { ctx, registrations } = fakeContext()
   apply(ctx, FAST_TUNING)
   const adapter = registrations[0].adapter
-  registerPage('deepseek-web', scriptedPage([IDLE_WITH_HISTORY, { messageCount: 2, lastText: '{"text":"x"}', generating: false, ready: true }]))
-  unregisterPage('deepseek-web')
+  registerPage('web-page', scriptedPage([IDLE_WITH_HISTORY, { messageCount: 2, lastText: '{"text":"x"}', generating: false, ready: true }]))
+  unregisterPage('web-page')
   const chunks = await collect(adapter.stream(request))
   assert.equal(chunks[0].reason.failure.code, 'NO_PAGE')
 })

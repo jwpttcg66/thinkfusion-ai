@@ -6,7 +6,7 @@
  * the harness expresses structurally therefore has to be spelled out in prose
  * here, including the reply contract the parser later depends on.
  *
- * @module @desktop-agent/llm-deepseek-web/prompt
+ * @module @desktop-agent/llm-web-page/prompt
  */
 import type { ContentBlock, GenerateOptions, RequestMessage, ToolSchema } from './protocol.js'
 

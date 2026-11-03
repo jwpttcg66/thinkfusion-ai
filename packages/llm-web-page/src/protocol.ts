@@ -20,7 +20,7 @@
  * machinery we never exercise is how a "borrowed design" turns into an
  * unmaintained fork.
  *
- * @module @desktop-agent/llm-deepseek-web/protocol
+ * @module @desktop-agent/llm-web-page/protocol
  */
 
 declare const TOOL_CALL_BRAND: unique symbol

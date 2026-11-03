@@ -17,9 +17,37 @@ export interface ConversationDeps {
    * point of the split is that the conversation path has no execution in it.
    */
   submitWorkspace: (input: { prompt: string; permissionPreset: string; workspaceRoot?: string }) => Promise<AgentTask>;
+  /**
+   * Test seam for the turn budget. Five minutes is a product number, not a
+   * behaviour — a test that has to wait five minutes to see what happens when
+   * the budget runs out is a test nobody runs.
+   */
+  budgetMs?: number;
 }
 
 const TITLE_CHARS = 42;
+
+/**
+ * How long one turn may take before the runner stops waiting on it.
+ *
+ * A channel has its own three-minute deadline for the answer itself, and that
+ * deadline is only reachable if every call underneath it returns. When something
+ * in that chain never returns — a page call that hangs on a stuck renderer, a
+ * navigation that never finishes — the per-answer deadline is never even
+ * consulted, and the turn sits at 「思考中」 forever. This is the outer bound:
+ * past it the turn ends as a failure that names what was still being waited on,
+ * because 「等了五分钟，ChatGPT 没有回应」 is a usable thing to read and
+ * 「思考中」 is not.
+ */
+const TURN_BUDGET_MS = 5 * 60_000;
+
+/** Statuses that mean a turn is running — i.e. the ones a crash can strand. */
+const IN_FLIGHT_STATUSES = new Set<Conversation['status']>([
+  'thinking',
+  'collecting',
+  'comparing',
+  'synthesizing'
+]);
 
 /**
  * Runs one conversation: route it, hand it to the Master Agent, record what came back.
@@ -38,7 +66,22 @@ export class ConversationRunner {
   /** Conversations the user pressed stop on. The Master checks this between steps. */
   private readonly cancelled = new Set<string>();
 
+  /**
+   * Turns that are still in flight, with their budget timer.
+   *
+   * The set is not only bookkeeping: it is what keeps a second question from
+   * being started on top of a running one. That happened, and it does not look
+   * like an error — the pane simply gained a second identical user bubble while
+   * the page was asked nothing new, because only one ask per page can be in
+   * flight. Two bubbles and one stuck channel is a worse outcome than a refusal.
+   */
+  private readonly running = new Map<string, NodeJS.Timeout>();
+
   constructor(private readonly deps: ConversationDeps) {}
+
+  private get budgetMs(): number {
+    return this.deps.budgetMs ?? TURN_BUDGET_MS;
+  }
 
   list(): Conversation[] {
     return this.deps.store.listConversations();
@@ -118,6 +161,13 @@ export class ConversationRunner {
     const question = text.trim();
     if (!question) throw new Error('先写一句你想追问的内容。');
 
+    // Refused before the message is written, not after: a second bubble for the
+    // same question is a lie about what was asked, and it is the part that
+    // survives in the history.
+    if (this.running.has(conversationId)) {
+      throw new Error('上一轮还在等回答。等它结束，或先点「停止等待」，再发下一句。');
+    }
+
     this.cancelled.delete(conversationId);
     this.addMessage(conversation, { role: 'user', text: question });
     void this.run(conversation, question, { followup: true, intent: conversation.intent }).catch(error =>
@@ -137,6 +187,7 @@ export class ConversationRunner {
    */
   cancel(conversationId: string): void {
     this.cancelled.add(conversationId);
+    this.release(conversationId);
     const conversation = this.deps.store.getConversation(conversationId);
     for (const agentId of conversation?.channels ?? []) {
       this.deps.registry.cancelAll(agentId);
@@ -149,6 +200,67 @@ export class ConversationRunner {
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Turns a previous process left mid-flight.
+   *
+   * They are loaded from disk as 「思考中」 and nothing will ever move them: the
+   * promise that would have finished the turn died with the process that owned
+   * it. Left alone they read as work still in progress — a spinner over a
+   * conversation nobody is working on, which is indistinguishable from a hang
+   * and therefore worse than an honest interruption.
+   */
+  reconcile(): number {
+    let changed = 0;
+    for (const conversation of this.deps.store.listConversations()) {
+      if (!IN_FLIGHT_STATUSES.has(conversation.status)) continue;
+      conversation.status = 'failed';
+      conversation.error = '上一轮在应用退出前没有结束，已标记为中断。重新发一次即可。';
+      conversation.updatedAt = Date.now();
+      this.save(conversation);
+      changed += 1;
+    }
+    return changed;
+  }
+
+  private release(conversationId: string): void {
+    const timer = this.running.get(conversationId);
+    if (timer) clearTimeout(timer);
+    this.running.delete(conversationId);
+  }
+
+  /**
+   * The turn ran out of budget.
+   *
+   * Shaped like a user pressing stop, for the same two reasons: the flag is what
+   * the Master checks between steps, and cancelling the pages is what stops a
+   * late answer from being written into a turn that has already been declared
+   * over. Without the second part the failure card would grow an answer minutes
+   * after the fact.
+   */
+  private abandon(conversation: Conversation): void {
+    const conversationId = conversation.conversationId;
+    if (!this.running.has(conversationId)) return;
+
+    this.cancelled.add(conversationId);
+    this.release(conversationId);
+    for (const agentId of conversation.channels) {
+      this.deps.registry.cancelAll(agentId);
+    }
+
+    const waiting = conversation.channels
+      .map(id => this.deps.registry.get(id)?.label ?? id)
+      .join('、');
+    const budget = this.budgetMs;
+    const spent = budget >= 60_000 ? `${String(Math.round(budget / 60_000))} 分钟` : `${String(Math.round(budget / 1000))} 秒`;
+    this.fail(
+      conversation,
+      new Error(
+        `等了 ${spent}还没有结果${waiting ? `（${waiting}）` : ''}。` +
+          '页面可能卡住了：点「停止等待」后重新加载那一页再问。'
+      )
+    );
+  }
+
   private async run(
     conversation: Conversation,
     question: string,
@@ -156,6 +268,25 @@ export class ConversationRunner {
   ): Promise<void> {
     const conversationId = conversation.conversationId;
     const master = new MasterAgent(this.deps.registry);
+
+    this.running.set(
+      conversationId,
+      setTimeout(() => this.abandon(conversation), this.budgetMs)
+    );
+    try {
+      await this.conduct(conversation, master, question, options);
+    } finally {
+      this.release(conversationId);
+    }
+  }
+
+  private async conduct(
+    conversation: Conversation,
+    master: MasterAgent,
+    question: string,
+    options: { followup: boolean; intent: Conversation['intent'] }
+  ): Promise<void> {
+    const conversationId = conversation.conversationId;
 
     const sink: ResearchSink = {
       join: (agentId: string) => {

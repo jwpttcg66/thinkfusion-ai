@@ -8,14 +8,14 @@
  * `apply()` — is deliberate: the plugin may be mounted before the view is
  * created, and a captured `undefined` would fail forever.
  *
- * @module @desktop-agent/llm-deepseek-web/registry
+ * @module @desktop-agent/llm-web-page/registry
  */
 import type { WebPage } from './page.js'
 
 const pages = new Map<string, WebPage>()
 
 /** Name the Electron shell registers its view under by default. */
-export const DEFAULT_PAGE_NAME = 'deepseek-web'
+export const DEFAULT_PAGE_NAME = 'web-page'
 
 /**
  * Publish a live page under `name`, replacing any previous one.

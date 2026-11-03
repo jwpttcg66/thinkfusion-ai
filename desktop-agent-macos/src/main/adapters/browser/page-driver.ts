@@ -32,7 +32,7 @@ export function isAllowedHostUrl(raw: string, hosts: ReadonlySet<string>): boole
 }
 
 /** Bumped whenever the probe changes shape, so a stale report is identifiable. */
-export const PROBE_VERSION = '3';
+export const PROBE_VERSION = '4';
 
 /**
  * Shortest tail that can be an answer rather than page furniture.
@@ -122,8 +122,9 @@ export interface PageDriver {
   reloadHome?(): Promise<{ ok: boolean; reason?: string }>;
 }
 
-export const PROBE_SCRIPT = (selectors: SelectorProfile) => `(() => {
+export const PROBE_SCRIPT = (selectors: SelectorProfile, reasoning: readonly string[] = []) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
+  const reasoning = ${JSON.stringify(reasoning)};
 
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -214,6 +215,42 @@ export const PROBE_SCRIPT = (selectors: SelectorProfile) => `(() => {
 
   const stopButtons = firstMatch('stopButton');
 
+  // The answer, with the site's own noise cut out.
+  //
+  // A site that renders "thinking" inside the same bubble as the reply makes
+  // innerText returns the model's reasoning followed by the answer, and that
+  // trace is not something the site ever said to the user. The profile names the
+  // subtrees to drop; nothing is guessed here.
+  //
+  // The clone has to be *visible* to measure: innerText on a
+  // visibility:hidden subtree silently drops the very content we are trying
+  // to keep (measured — the answer went from "2" to ""). It is therefore parked
+  // off-screen at full size for the one read, then removed.
+  const answerText = (el) => {
+    const raw = (el.innerText || '').trim();
+    if (!reasoning.length) return raw;
+    let hasNoise = false;
+    for (const selector of reasoning) {
+      try { if (el.querySelector(selector)) { hasNoise = true; break; } } catch { /* a bad selector is not a reason to cut */ }
+    }
+    if (!hasNoise) return raw;
+    const clone = el.cloneNode(true);
+    clone.style.cssText = 'position:fixed;left:-99999px;top:0;width:900px;height:1600px;pointer-events:none;';
+    document.body.appendChild(clone);
+    let trimmed = '';
+    try {
+      for (const selector of reasoning) {
+        try { clone.querySelectorAll(selector).forEach(node => node.remove()); } catch { /* keep going */ }
+      }
+      trimmed = (clone.innerText || '').trim();
+    } finally {
+      clone.remove();
+    }
+    // Cutting is a hypothesis. If it removed everything, the hypothesis was
+    // wrong for this markup, and a noisy answer still beats an empty one.
+    return trimmed.length ? trimmed : raw;
+  };
+
   // Assistant text. The first list with hits wins, so a broad match cannot
   // shadow the specific one; the composer is excluded because it can contain
   // markdown-looking text.
@@ -224,7 +261,7 @@ export const PROBE_SCRIPT = (selectors: SelectorProfile) => `(() => {
     const texts = nodes
       .filter(visible)
       .filter((el) => !composer || !composer.contains(el))
-      .map((el) => (el.innerText || '').trim())
+      .map(answerText)
       .filter((text) => text.length > 0);
     if (texts.length) {
       assistantTexts = texts;
@@ -462,7 +499,7 @@ export const DISCOVER_SCRIPT = `(() => {
   return { url: location.href, roles };
 })()`;
 
-const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(() => {
+const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () => {
   const selectors = ${JSON.stringify(selectors)};
   const value = ${payload};
 
@@ -516,9 +553,26 @@ const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(() => {
   }
   target.dispatchEvent(new Event('change', { bubbles: true }));
 
-  const written = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement
+  const isPlainField = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement;
+  const readBack = () => (isPlainField
     ? target.value
-    : (target.innerText || target.textContent || '');
+    : (target.innerText || target.textContent || ''));
+
+  let written = readBack();
+
+  // A Lexical-based composer applies the edit on its own microtask queue, so
+  // the DOM still reads empty on the tick that execCommand returned true.
+  // Reporting INPUT_NOT_FILLED there refuses a fill that worked a frame later
+  // (measured on kimi.com: the text showed up a few milliseconds after the
+  // call returned, and the driver refused to send). Plain fields are exempt —
+  // a value setter either took or it did not, so waiting would only hide a bug.
+  if (!isPlainField && !written.trim()) {
+    const deadline = Date.now() + 600;
+    while (!written.trim() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      written = readBack();
+    }
+  }
 
   return {
     ok: written.trim().length > 0,
@@ -660,6 +714,59 @@ const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
 })()`;
 
 /**
+ * How long one call into a page may take before we stop waiting for it.
+ *
+ * `executeJavaScript` settles when the renderer answers. A renderer that is
+ * navigating, crashed, or stuck in a long synchronous task never answers — and
+ * these calls had no deadline of their own: the loops around them check *their*
+ * clock between polls, so a poll that never returns stops the clock check from
+ * ever running. That is how a conversation sat at 「提问中」 for minutes with
+ * nothing on disk changing: the per-answer timeout lives inside `waitForAnswer`,
+ * and the call that hung was the probe *before* it.
+ *
+ * Twenty seconds is a lot for a DOM read and far short of anything a user would
+ * call "stuck". The abandoned promise is left to settle by itself; the point is
+ * that the caller stops waiting.
+ */
+const PAGE_CALL_TIMEOUT_MS = 20_000;
+
+export function callPage<T>(
+  view: WebContentsView,
+  label: string,
+  script: string,
+  timeoutMs = PAGE_CALL_TIMEOUT_MS
+): Promise<T> {
+  const contents = view.webContents;
+  if (contents.isDestroyed()) return Promise.reject(new Error(`${label}：页面已关闭`));
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(`${label}：页面 ${Math.round(timeoutMs / 1000)} 秒没有响应，渲染进程可能卡住了`)
+      );
+    }, timeoutMs);
+
+    contents.executeJavaScript(script, true).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value as T);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+  });
+}
+
+/**
  * The one place that knows this is Electron.
  *
  * `selectors` may be a function. A learned selector only takes effect if the
@@ -670,21 +777,24 @@ const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
  */
 export function createElectronDriver(
   view: WebContentsView,
-  selectors: SelectorProfile | (() => SelectorProfile)
+  selectors: SelectorProfile | (() => SelectorProfile),
+  reasoning: readonly string[] | (() => readonly string[]) = []
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
+  const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
   return {
     url: () => view.webContents.getURL(),
     isDestroyed: () => view.webContents.isDestroyed(),
-    probe: async () => (await view.webContents.executeJavaScript(PROBE_SCRIPT(profile()), true)) as PageProbe,
+    probe: async () =>
+      (await callPage(view, '读取页面状态', PROBE_SCRIPT(profile(), cut()))) as PageProbe,
     fill: async text =>
-      (await view.webContents.executeJavaScript(FILL_SCRIPT(profile(), JSON.stringify(text)), true)) as {
+      (await callPage(view, '写入输入框', FILL_SCRIPT(profile(), JSON.stringify(text)))) as {
         ok: boolean;
         reason?: string;
         kind?: string;
       },
     clickSend: async () =>
-      (await view.webContents.executeJavaScript(CLICK_SEND_SCRIPT(profile()), true)) as {
+      (await callPage(view, '点击发送', CLICK_SEND_SCRIPT(profile()))) as {
         ok: boolean;
         reason?: string;
         label?: string;
@@ -692,13 +802,13 @@ export function createElectronDriver(
     pressEnter: async () => {
       // Focus inside the page first: the keystroke has to land in the composer,
       // and the DOM focus may have drifted since the fill.
-      await view.webContents.executeJavaScript(FOCUS_SCRIPT(profile()), true);
+      await callPage(view, '聚焦输入框', FOCUS_SCRIPT(profile()));
       view.webContents.focus();
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
       view.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
     },
     newChat: async () =>
-      (await view.webContents.executeJavaScript(NEW_CHAT_SCRIPT(profile()), true)) as {
+      (await callPage(view, '开新会话', NEW_CHAT_SCRIPT(profile()))) as {
         ok: boolean;
         method?: string;
         reason?: string;
@@ -706,8 +816,18 @@ export function createElectronDriver(
     reloadHome: async () => {
       // The URL is already known to be an allowed host — the adapter checks
       // before it hands us the driver — so its origin is safe to navigate to.
+      // A navigation is the one call here that legitimately takes seconds, so it
+      // gets its own deadline rather than sharing the DOM one.
       try {
-        await view.webContents.loadURL(new URL(view.webContents.getURL()).origin);
+        await Promise.race([
+          view.webContents.loadURL(new URL(view.webContents.getURL()).origin),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error('重新加载超时：页面没有在 30 秒内完成加载')),
+              30_000
+            )
+          )
+        ]);
         return { ok: true };
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -804,6 +924,7 @@ export class ChatPageDriver {
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
   private readonly hostsOf: () => ReadonlySet<string>;
   private readonly selectorsOf: () => SelectorProfile;
+  private readonly reasoningOf: () => readonly string[];
   /**
    * Public, because the callers that talk to the user about "this page" need a
    * name for it and must not supply their own. `AgentOrchestrator` used to write
@@ -832,12 +953,21 @@ export class ChatPageDriver {
       hosts: ReadonlySet<string> | (() => ReadonlySet<string>);
       siteLabel: string;
       selectors: SelectorProfile | (() => SelectorProfile);
+      /**
+       * Subtrees inside an answer bubble that are not the answer (see
+       * `ProviderProfile.reasoning`). Resolved per call for the same reason as
+       * `selectors`: this is site knowledge, and it can be repaired or replaced
+       * while the app runs.
+       */
+      reasoning?: readonly string[] | (() => readonly string[]);
     }
   ) {
     const hosts = options.hosts;
     this.hostsOf = typeof hosts === 'function' ? hosts : () => hosts;
     const selectors = options.selectors;
     this.selectorsOf = typeof selectors === 'function' ? selectors : () => selectors;
+    const reasoning = options.reasoning ?? [];
+    this.reasoningOf = typeof reasoning === 'function' ? reasoning : () => reasoning;
     this.siteLabel = options.siteLabel;
   }
 

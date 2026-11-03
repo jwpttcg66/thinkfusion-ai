@@ -2,15 +2,15 @@
  * Spike: prove that a DeepSeek web answer becomes a protocol-legal chunk stream.
  *
  * This used to carry its own copy of the translation. It no longer does: the
- * translation now lives in `packages/llm-deepseek-web`, and a second
+ * translation now lives in `packages/llm-web-page`, and a second
  * implementation here would only drift away from the one that ships. So this
  * script drives the real adapter through a fake page and checks the chunks it
  * actually produces.
  *
- *   node spike/plan-to-chunks.mjs        # after: cd packages/llm-deepseek-web && npm run build
+ *   node spike/plan-to-chunks.mjs        # after: cd packages/llm-web-page && npm run build
  */
 import assert from 'node:assert/strict'
-import { DeepSeekWebAdapter, PageTransport } from '../../packages/llm-deepseek-web/lib/index.js'
+import { WebPageAdapter, PageTransport } from '../../packages/llm-web-page/lib/index.js'
 
 /** What a page plausibly answers when asked to read and then write a file. */
 const TWO_CALLS = `我先看一下项目结构。
@@ -35,7 +35,7 @@ const CHATTY = '我会调用 read 工具读取文件。'
 /**
  * A page holding one prior answer that then renders the given reply.
  * @param {string} reply - the text the page produces for the next request.
- * @returns a {@link import('../../packages/llm-deepseek-web/lib/page.js').WebPage}
+ * @returns a {@link import('../../packages/llm-web-page/lib/page.js').WebPage}
  */
 function pageAnswering(reply) {
   let polls = 0
@@ -57,7 +57,7 @@ function pageAnswering(reply) {
  * @returns {Promise<any[]>} the chunks the adapter emitted.
  */
 async function chunksFor(reply) {
-  const adapter = new DeepSeekWebAdapter({
+  const adapter = new WebPageAdapter({
     provider: 'deepseek-web',
     model: 'deepseek-chat',
     resolvePage: () => pageAnswering(reply),
