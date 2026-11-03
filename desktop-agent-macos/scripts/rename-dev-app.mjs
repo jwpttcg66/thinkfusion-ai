@@ -90,21 +90,44 @@ const writeKey = (plist, key, value) => {
 //    the copy this script renamed. Renaming then fails with ENOTEMPTY, which is
 //    how this was found.
 //
-//    Which one wins is decided by version, not by age: if they differ, the stock
-//    bundle is a fresh install and the renamed one is stale, so the fresh one is
-//    kept and renamed again. If they are the same version, the stock bundle is a
-//    leftover of an interrupted run and gets removed instead of copied over.
+//    This step used to delete one of the two. It does not any more: deleting a
+//    250 MB application bundle to solve a naming problem is the kind of thing
+//    that deserves a confirmation prompt, and the script runs unattended from
+//    `predev`. Nothing needs the deletion, either —
+//
+//    - same version: the two bundles are the same build, and `path.txt` decides
+//      which one runs. The renamed one wins, the factory copy is inert;
+//    - different versions: the older one is *moved* under `dist/.stale/`, not
+//      removed, so a bad install can be recovered by hand.
+let skipRename = false;
+const compareVersions = (a, b) =>
+  String(a).localeCompare(String(b), 'en', { numeric: true, sensitivity: 'base' });
+
 if (fs.existsSync(stock) && fs.existsSync(renamed)) {
   const stockVersion = readKey(plistOf(stock), 'CFBundleShortVersionString');
   const renamedVersion = readKey(plistOf(renamed), 'CFBundleShortVersionString');
-  const discard = stockVersion === renamedVersion ? stock : renamed;
-  fs.rmSync(discard, { recursive: true, force: true });
-  console.log(`ok    two bundles found (${stockVersion} vs ${renamedVersion}), removed ${path.basename(discard)}`);
+  if (compareVersions(stockVersion, renamedVersion) === 0) {
+    skipRename = true;
+    console.log(
+      `ok    two bundles of ${stockVersion} found, using ${path.basename(renamed)} (factory copy left in place)`
+    );
+  } else {
+    const stale = compareVersions(stockVersion, renamedVersion) > 0 ? renamed : stock;
+    const staleVersion = stale === renamed ? renamedVersion : stockVersion;
+    const staleDir = path.join(dist, '.stale');
+    fs.mkdirSync(staleDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const target = path.join(staleDir, `${path.basename(stale, '.app')}-${staleVersion}-${stamp}.app`);
+    fs.renameSync(stale, target);
+    console.log(
+      `ok    moved the older bundle (${staleVersion}) to ${path.relative(root, target)} — delete it when you like`
+    );
+  }
 }
 
 // 1. The bundle and the binary inside it, before the plist starts pointing at
 //    names that do not exist yet.
-if (fs.existsSync(stock)) {
+if (!skipRename && fs.existsSync(stock)) {
   const oldBinary = path.join(stock, 'Contents', 'MacOS', 'Electron');
   const newBinary = path.join(stock, 'Contents', 'MacOS', APP_NAME);
   if (fs.existsSync(oldBinary) && !fs.existsSync(newBinary)) fs.renameSync(oldBinary, newBinary);
@@ -122,13 +145,40 @@ const wanted = {
 const stale = Object.entries(wanted).filter(([key, value]) => readKey(plist, key) !== value);
 for (const [key, value] of stale) writeKey(plist, key, value);
 
-// 3. Where the `electron` CLI should look, since it reads this file, not the
+// 3. The icon. A packaged build takes it from `build.mac.icon`, but the
+//    development bundle is Electron's, and it ships with Electron's atom. The
+//    file lands inside the bundle rather than being set at runtime with
+//    `app.dock.setIcon()`: the Dock caches by bundle path, so a runtime icon
+//    flickers back to the atom on the next launch, and a pinned Dock tile keeps
+//    the bundle's icon regardless.
+const iconSource = path.join(root, 'resources', 'icon.icns');
+const iconTarget = path.join(renamed, 'Contents', 'Resources', 'icon.icns');
+let iconChanged = false;
+if (fs.existsSync(iconSource)) {
+  const same = fs.existsSync(iconTarget) && fs.readFileSync(iconTarget).equals(fs.readFileSync(iconSource));
+  if (!same) {
+    fs.copyFileSync(iconSource, iconTarget);
+    iconChanged = true;
+  }
+  if (readKey(plist, 'CFBundleIconFile') !== 'icon.icns') {
+    writeKey(plist, 'CFBundleIconFile', 'icon.icns');
+    iconChanged = true;
+  }
+  // Touching the bundle is what makes the Dock drop a cached icon; without it
+  // the change only shows up after a relaunch of the Dock itself.
+  if (iconChanged) {
+    const now = new Date();
+    fs.utimesSync(renamed, now, now);
+  }
+}
+
+// 4. Where the `electron` CLI should look, since it reads this file, not the
 //    bundle.
 const expected = `${APP_NAME}.app/Contents/MacOS/${APP_NAME}`;
 const current = fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : '';
 if (current !== expected) fs.writeFileSync(pathFile, expected);
 
-// 4. Read all of it back. A half-done rename is the exact failure this script
+// 5. Read all of it back. A half-done rename is the exact failure this script
 //    exists to prevent, and it stays invisible until someone looks at the Dock —
 //    so say it here instead.
 const identity = {
@@ -138,6 +188,7 @@ const identity = {
   CFBundleDisplayName: readKey(plist, 'CFBundleDisplayName'),
   CFBundleExecutable: readKey(plist, 'CFBundleExecutable'),
   CFBundleIdentifier: readKey(plist, 'CFBundleIdentifier'),
+  CFBundleIconFile: readKey(plist, 'CFBundleIconFile'),
   pathTxt: fs.existsSync(pathFile) ? fs.readFileSync(pathFile, 'utf8').trim() : ''
 };
 const agreed = {
@@ -147,6 +198,7 @@ const agreed = {
   CFBundleDisplayName: APP_NAME,
   CFBundleExecutable: APP_NAME,
   CFBundleIdentifier: BUNDLE_ID,
+  CFBundleIconFile: fs.existsSync(iconTarget) ? 'icon.icns' : identity.CFBundleIconFile,
   pathTxt: expected
 };
 const wrong = Object.keys(agreed).filter(key => identity[key] !== agreed[key]);
@@ -156,10 +208,14 @@ if (wrong.length > 0) {
   for (const key of wrong) console.log(`      ${key}: ${identity[key] || '(empty)'}`);
   console.log(`      the Dock will fall back to whatever still disagrees`);
   process.exitCode = 1;
-} else if (stale.length === 0 && current === expected) {
+} else if (stale.length === 0 && current === expected && !iconChanged) {
   console.log(`ok    the development bundle already calls itself ${APP_NAME}`);
 } else {
-  const touched = [...(current !== expected ? ['path.txt'] : []), ...stale.map(([key]) => key)];
+  const touched = [
+    ...(current !== expected ? ['path.txt'] : []),
+    ...stale.map(([key]) => key),
+    ...(iconChanged ? ['icon.icns'] : [])
+  ];
   console.log(`ok    ${path.relative(root, renamed)} now presents as ${APP_NAME} (${touched.join(', ')})`);
   console.log('      relaunch to see it');
 }

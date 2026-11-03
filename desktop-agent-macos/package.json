@@ -70,6 +70,7 @@
     "productName": "ThinkFusion",
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "resources/icon.icns",
       "target": [
         "dmg"
       ]

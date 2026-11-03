@@ -186,6 +186,12 @@ match. Renaming only the plist keys is not enough — a process started from a s
 LaunchServices registration, so the Dock falls back to the executable's name on disk. The
 packaged build gets its name from `build.productName` instead.
 
+The icon is drawn by `scripts/make-icon.mjs` into `resources/icon.png`, which `iconutil`
+turns into `resources/icon.icns` (sizes are listed in the script header). The packaged build
+picks it up from `build.mac.icon`; for development the rename script copies it into the
+Electron bundle and points `CFBundleIconFile` at it, because a runtime `app.dock.setIcon()`
+does not survive a relaunch and never reaches a pinned Dock tile.
+
 Live checks (app already running and signed in):
 
 ```bash
