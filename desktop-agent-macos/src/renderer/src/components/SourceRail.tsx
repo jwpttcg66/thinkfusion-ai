@@ -37,6 +37,10 @@ export function SourceRail(props: {
 }) {
   return (
     <nav className="source-rail" style={{ width: RAIL_WIDTH }} aria-label="内嵌网页">
+      {/* The same drawing in both states, on purpose: this is one switch, and a
+          switch that redraws itself is a second thing to read. What changes is
+          the label and what the window looks like behind it. Bigger than the
+          page buttons below, because it is not one of them. */}
       <button
         type="button"
         className="rail-toggle"
@@ -46,15 +50,7 @@ export function SourceRail(props: {
         title={props.collapsed ? '展开：把网页放回来' : '收起：把网页折起来，让应用占满窗口'}
         onClick={props.onToggleCollapse}
       >
-        {/* Folded, the column is empty — so the drawing is an empty frame. That
-            is the state, drawn instead of coloured: a filled square here would
-            sit one row above the active source's filled square and read as a
-            second selection. */}
-        <Glyph
-          paths={ICON_PANEL_PATHS}
-          filled={props.collapsed ? [] : ICON_PANEL_FILL_PATHS}
-          size={14}
-        />
+        <Glyph paths={ICON_PANEL_PATHS} filled={ICON_PANEL_FILL_PATHS} size={20} />
       </button>
       {/* A hairline, not a gap: the toggle acts on the window, the buttons below
           switch pages, and without the line the first page button reads as part

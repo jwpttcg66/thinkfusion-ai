@@ -1472,17 +1472,17 @@ button:disabled {
 }
 
 /* The fold toggle, at the top of the rail — the window's right edge.
-   Same box as a source button on purpose: two sizes of square in a 46px column
-   read as a mistake. The hairline below is what says it is a different kind of
-   control, and the panel glyph says what it does. */
+   A size up from the page buttons below: it is a window-level control, not a
+   fourth page, and at 32px it read as one of them. 36px in a 46px column still
+   leaves 5px on each side. */
 .rail-toggle {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex: none;
   display: grid;
   place-items: center;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 11px;
   background: #fff;
   border: 1px solid var(--line-strong);
   color: var(--text-2);
@@ -1494,14 +1494,9 @@ button:disabled {
   color: var(--text);
 }
 
-/* Folded. The icon does not change direction — it empties: the column that is
-   drawn solid when the pane is open is gone when the pane is folded. No accent
-   fill, because the source button directly below uses one for "this is the page
-   on screen", and two filled squares in a 46px column read as two selections. */
-.rail-toggle[aria-pressed='true'] {
-  background: var(--bg-hover);
-  color: var(--text);
-}
+/* Folded, the button looks exactly the same. It is one switch, and a switch
+   that redraws itself is a second thing to read — the window behind it already
+   says which state it is in. `aria-pressed` stays for screen readers. */
 
 .rail-sep {
   width: 18px;

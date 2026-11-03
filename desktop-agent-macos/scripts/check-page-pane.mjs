@@ -85,7 +85,12 @@ const readPane = () =>
           path: [...button.querySelectorAll('path')].map(path => path.getAttribute('d')).join('|'),
           filled: [...button.querySelectorAll('path[fill="currentColor"]')].length,
           right: Math.round(box.right),
-          width: Math.round(box.width)
+          width: Math.round(box.width),
+          // The drawing and the paint, so the folded state can be compared with
+          // the open one. The requirement is that they are identical.
+          glyph: Math.round(button.querySelector('svg')?.getBoundingClientRect().width ?? 0),
+          background: getComputedStyle(button).backgroundColor,
+          border: getComputedStyle(button).borderTopColor
         };
       })(),
       winWidth: window.innerWidth,
@@ -168,6 +173,11 @@ if (pane.bar) {
   checkTrue(`收起画的是面板（${pane.railToggle?.path ?? ''}）`, (pane.railToggle?.path ?? '').includes('M4.4 3.1'));
   checkTrue('面板右侧那一列是实心的', (pane.railToggle?.filled ?? 0) === 1);
   checkTrue('收起和放大不是同一个图标', (pane.railToggle?.path ?? '') !== pane.iconPath);
+  // 收起 is a window-level control, not a fourth page: a size up from the page
+  // buttons below it, and a bigger glyph inside.
+  const pageButtonWidth = await cdp.evaluate(`Math.round(document.querySelector('.rail-btn').getBoundingClientRect().width)`);
+  checkTrue(`收起按钮比来源按钮大（${String(pane.railToggle?.width)} > ${String(pageButtonWidth)}）`, (pane.railToggle?.width ?? 0) > pageButtonWidth);
+  checkTrue(`图标本身也更大（${String(pane.railToggle?.glyph)}px）`, (pane.railToggle?.glyph ?? 0) >= 18);
   check('聚焦环用的是应用自己的蓝，不是系统强调色', pane.focusRing?.color, 'rgb(77, 107, 254)');
   check('聚焦环两像素，和按钮留出间隙', `${pane.focusRing?.width}`, '2px');
   // The pane can be dragged down to 380px, and two four-character labels used to
@@ -337,6 +347,14 @@ check('点「收起」之后页面栏收成一条', folded, true);
 
 const stub = await readPane();
 check('收起后页面栏消失', stub.bar, null);
+// The switch keeps its face: same drawing, same fill, same paint. Only the
+// label and the window behind it change — a control that redraws itself is a
+// second thing to read.
+check('收起后图标没变', stub.railToggle?.path, pane.railToggle?.path);
+check('收起后填充没变', stub.railToggle?.filled, pane.railToggle?.filled);
+check('收起后底色没变', stub.railToggle?.background, pane.railToggle?.background);
+check('收起后边框没变', stub.railToggle?.border, pane.railToggle?.border);
+check('收起后只有名字变了', stub.railToggle?.label, '展开网页');
 check('收起后剩下的是可点的竖条', stub.expandLabel, '展开网页');
 check('竖条自己就是展开按钮', stub.expandTag, 'BUTTON');
 checkTrue(`竖条上还写着被收起的页面（${stub.stubLabel}）`, stub.stubLabel.includes('DeepSeek'));
