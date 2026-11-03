@@ -248,17 +248,21 @@
 
 用户指着 Dock：「这个修改默认显示为 ThinkFusion」。截图里那枚原子图标下面写着 **Electron**。
 
-`build.productName` 早就是 ThinkFusion，所以打包版没问题——问题只出在开发时：应用跑在 `node_modules/electron/dist/Electron.app` 里，而 macOS 的 Dock 和菜单栏读的是 **bundle 的 `CFBundleName` / `CFBundleDisplayName`**。`app.setName()` 改不了它，这点用 `lsappinfo` 验过：改完代码重启，LaunchServices 里那条记录仍然叫 "Electron"。
+`build.productName` 早就是 ThinkFusion，所以打包版没问题——问题只出在开发时：应用跑在 `node_modules/electron/dist/Electron.app` 里，而 macOS 的 Dock 读的是 bundle 的身份。`app.setName()` 改不了它。
+
+第一次只改了 `CFBundleName` / `CFBundleDisplayName`，然后用户说「还是不对啊」。查下来 Dock 不只读这两个键：**从命令行 exec 起来的进程没经过 LaunchServices**——`lsappinfo` 报 `bundleID=[NULL]`，`lsregister -dump` 里根本没有它的记录——Dock 拿不到显示名，就退回可执行文件的名字，而它叫 `Electron`。于是 `NSRunningApplication.localizedName` 说 ThinkFusion、屏幕上画的是 Electron，两处并不读同一处。**教训：`lsappinfo` 说它是 ThinkFusion，不等于 Dock 上写着 ThinkFusion。**
 
 | 改哪儿 | 改了什么 | 为什么不是另一条路 |
 | --- | --- | --- |
 | `app.setName('ThinkFusion')` | 菜单、崩溃报告、user-agent（现在发出去的是 `ThinkFusion/0.6.0`，不再是包名 `thinkfusion-ai`） | — |
-| `scripts/rename-dev-app.mjs` | 就地改 bundle 的 Info.plist 两个字段 | 不复制一份 bundle：辅助功能权限发给的是**路径**，而这个应用正是靠它驱动浏览器，副本等于让用户再授权一次。敢就地改是因为这份 Electron.app 是 ad-hoc 签名且 `Info.plist=not bound`——改 plist 不动签名（`codesign -dv` 前后一致） |
+| `scripts/rename-dev-app.mjs` | 整份身份一起搬：目录 `Electron.app` → `ThinkFusion.app`、二进制 `Contents/MacOS/Electron` → `ThinkFusion`、`CFBundleExecutable`、两个名字键、`CFBundleIdentifier` → `com.thinkfusion.dev`，并重写 `node_modules/electron/path.txt` | 只改 plist 已经试过，不够。复制第二份 bundle 也不走：一个路径上只有一份，才没有「副本去申请同一份权限」这回事。敢就地改是因为这份 Electron.app 是 ad-hoc 签名且 `Info.plist=not bound`——改 plist、改文件名都不动签名（`codesign -dv` 前后一致） |
 | `app.setPath('userData', …/thinkfusion-ai)` | 钉住数据目录 | `userData` 是**从应用名派生**的：只改名不钉路径，数据目录会变成 `…/ThinkFusion`，所有保存过的通道、改过的网址、选好的名字下次启动全像被删了——上一轮刚修的就是这件事 |
 
 脚本幂等，挂在 `predev` 和 `prestart:debug` 上，`npm ci` 之后下一次启动自动重新改名。
 
-验证：`lsappinfo list` 里该进程的名字从 `"Electron"` 变成 `"ThinkFusion"`；`~/Library/Application Support/ThinkFusion` 没有被创建，原目录里四个通道和名字都还在。
+验证：四个来源同时看，缺一个就可能只改到一半——bundle 目录名 `ThinkFusion.app`、`CFBundleExecutable` 指向的文件确实存在、`mdls kMDItemDisplayName` 返回 `ThinkFusion`、`lsregister -dump` 里那条记录的 `name` / `displayName` 都是 `ThinkFusion`（改之前这条记录根本不存在）。另外 `~/Library/Application Support/ThinkFusion` 没有被创建，原目录里四个通道和名字都还在；`test:identity` 10/10、`test:sources-config` 24/24。
+
+没验成的一处，如实记下：macOS 26 的 Dock 不画标签文字（整条 Dock 只有运行小圆点），名字只在悬停时出现，而合成鼠标事件触发不了那个提示——「屏幕上的像素」这一层只能由人看。这一轮能确认的是四个来源都指向 ThinkFusion，其中两个在改之前指向 Electron。
 
 还没做：图标仍是 Electron 的原子。名字和图标是两件事，图标需要一张 1024 的图，不猜。
 

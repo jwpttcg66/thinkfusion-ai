@@ -201,13 +201,18 @@ export interface ChannelAnswer {
 
 #### 应用自己叫什么
 
-一个人的名字由他自己给，一个应用的名字也一样，而且同样不由操作系统决定。开发时它跑在 `node_modules/electron/dist/Electron.app` 里，而 macOS 的 Dock 和菜单栏读的是 **bundle 的 `CFBundleName` / `CFBundleDisplayName`**——所以无论代码里写什么，Dock 上都写着 "Electron"。
+一个人的名字由他自己给，一个应用的名字也一样，而且同样不由操作系统决定。开发时它跑在 `node_modules/electron/dist/` 里，而 macOS 的 Dock 读的是 **bundle 的身份**——所以无论代码里写什么，Dock 上都写着 "Electron"。
 
-两处一起改才完整：
+第一次修只改了 `CFBundleName` / `CFBundleDisplayName`，Dock 上还是 "Electron"。原因值得记住：Dock 不只读这两个键。**从命令行直接 exec 起来的进程没有经过 LaunchServices**——`lsappinfo` 对这个实例报的是 `bundleID=[NULL]`，`lsregister -dump` 里根本没有它的记录——Dock 拿不到「显示名」这条记录，就退回磁盘上那个可执行文件的名字，而它叫 `Electron`。于是 `NSRunningApplication.localizedName` 回答 ThinkFusion、屏幕上画的却是 Electron：两处都「对」，只是它们并不读同一处。
+
+所以现在整份身份一起搬，而不是改一个字段：
 
 - `app.setName('ThinkFusion')` 改的是 Electron 自己派生出来的一切：菜单、崩溃报告、user-agent（现在是 `ThinkFusion/0.6.0`，不再是包名）。
-- `scripts/rename-dev-app.mjs` 改的是 bundle。它敢就地改这份 bundle，是因为 npm 装下来的 Electron.app 是 ad-hoc 签名且 `Info.plist=not bound`——改 plist 不动签名；也因为**就地**改（同一个路径），而不是复制一份：macOS 的辅助功能权限是发给路径的，而这个应用正是靠它驱动浏览器，复制出来的副本等于让用户再授权一次。
+- `scripts/rename-dev-app.mjs` 搬的是 bundle 本身：目录名、里面的可执行文件、`CFBundleExecutable`、两个名字键、以及 bundle identifier（Electron 出厂的 `com.github.Electron` 是全机器所有开发副本共用的，本来也不该占着）。`node_modules/electron/path.txt` 跟着重写，因为 `electron` CLI 靠这个文件找二进制。
+- 两件事让它在这里是安全的而不是取巧：npm 装下来的 Electron.app 是 ad-hoc 签名、`Info.plist=not bound`、`Sealed Resources=none`，plist 没有被封进去，而改文件名不影响「签名签的是内容」；并且**不复制第二份 bundle**——只有一个路径上的一份，就不存在「副本去申请同一份权限」。辅助功能权限本来就属于 `resources/ax-bridge`（一个被 spawn 的独立二进制），与这个路径无关；早先这里写着相反的理由，是错的。
 - 打包版不需要这些：`build.productName` 已经是 ThinkFusion，bundle 生来就叫这个名字。
+
+验收要同时看四个来源，缺一个就可能只改到了一半：bundle 目录名、`CFBundleExecutable` 指向的文件、`mdls kMDItemDisplayName`、`lsregister -dump` 里那条记录的 `displayName`。
 
 有一处必须跟着改，否则会重演「设置丢了」：`app.getPath('userData')` 是**从应用名派生**的。只改名不钉路径，数据目录就会从 `…/thinkfusion-ai` 变成 `…/ThinkFusion`，所有保存过的通道、改过的网址、选好的显示名称，在下次启动时都会像被删掉一样。所以 `app.setPath('userData', …/thinkfusion-ai)` 紧跟在改名后面，目录名保持原样——重命名目录是一次数据迁移，而只能在别人的机器上验证的迁移，不值那点整齐。
 

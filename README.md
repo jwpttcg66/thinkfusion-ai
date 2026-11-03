@@ -180,8 +180,11 @@ pick a workspace, and approve the plan when it appears.
 
 In development the app presents as **ThinkFusion**, not "Electron": macOS takes the Dock and
 menu-bar label from the bundle, so `scripts/rename-dev-app.mjs` (run by `predev` and
-`prestart:debug`) edits the Electron bundle's display name. The packaged build gets it from
-`build.productName` instead.
+`prestart:debug`) renames the Electron bundle and its executable, sets `CFBundleExecutable` /
+the two name keys / `CFBundleIdentifier`, and rewrites `node_modules/electron/path.txt` to
+match. Renaming only the plist keys is not enough — a process started from a shell has no
+LaunchServices registration, so the Dock falls back to the executable's name on disk. The
+packaged build gets its name from `build.productName` instead.
 
 Live checks (app already running and signed in):
 
