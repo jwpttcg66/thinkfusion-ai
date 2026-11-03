@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import { writeFileAtomic } from './atomic-write';
 import { DEFAULT_DISPLAY_NAME, normalizeDisplayName } from '../shared/identity';
 
 interface ProfileFile {
@@ -35,16 +35,9 @@ export class ProfileStore {
   }
 
   private persist() {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    const handle = fs.openSync(tmp, 'w', 0o600);
-    try {
-      fs.writeFileSync(handle, JSON.stringify(this.state));
-      fs.fsyncSync(handle);
-    } finally {
-      fs.closeSync(handle);
-    }
-    fs.renameSync(tmp, this.file);
+    // Same atomic swap as the sources file: a name that survives to the next
+    // launch is the only thing 「保存」 can mean.
+    writeFileAtomic(this.file, JSON.stringify(this.state));
   }
 
   displayName(): string {

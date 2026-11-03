@@ -94,6 +94,12 @@ const readPane = () =>
         };
       })(),
       winWidth: window.innerWidth,
+      // Whether the window is in front. It decides whether the focus ring can be
+      // observed at all: with the window behind another app, Chromium still
+      // paints its own ring around the focused element but does not match
+      // author :focus-visible rules, so the reading is the UA's colour and the
+      // assertion would fail for a reason that has nothing to do with the app.
+      appFocused: document.hasFocus(),
       // The focus ring, forced on. Chromium's default is the *system* highlight
       // colour — orange on this machine, around a blue-accent app — so the ring
       // has to be ours, and this is where that is checked.
@@ -178,8 +184,15 @@ if (pane.bar) {
   const pageButtonWidth = await cdp.evaluate(`Math.round(document.querySelector('.rail-btn').getBoundingClientRect().width)`);
   checkTrue(`收起按钮比来源按钮大（${String(pane.railToggle?.width)} > ${String(pageButtonWidth)}）`, (pane.railToggle?.width ?? 0) > pageButtonWidth);
   checkTrue(`图标本身也更大（${String(pane.railToggle?.glyph)}px）`, (pane.railToggle?.glyph ?? 0) >= 18);
-  check('聚焦环用的是应用自己的蓝，不是系统强调色', pane.focusRing?.color, 'rgb(77, 107, 254)');
-  check('聚焦环两像素，和按钮留出间隙', `${pane.focusRing?.width}`, '2px');
+  // The ring is only observable with the window in front — see `appFocused`.
+  // Reporting the UA's colour as a regression would send the next person looking
+  // at the CSS for a bug that is a background window.
+  if (pane.appFocused) {
+    check('聚焦环用的是应用自己的蓝，不是系统强调色', pane.focusRing?.color, 'rgb(77, 107, 254)');
+    check('聚焦环两像素，和按钮留出间隙', `${pane.focusRing?.width}`, '2px');
+  } else {
+    console.log('note  the app window is not in front, so author :focus-visible rules do not match — the focus ring is not asserted');
+  }
   // The pane can be dragged down to 380px, and two four-character labels used to
   // push the status out of view. An icon is a fixed width, so this asserts the
   // width rather than trusting that it stayed small.

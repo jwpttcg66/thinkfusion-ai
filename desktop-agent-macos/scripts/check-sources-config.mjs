@@ -150,6 +150,97 @@ test('a corrupt file degrades to the shipped defaults', () => {
   assert.deepEqual(resolveSources(store.all()).map(source => source.id), BUILTIN_SOURCES.map(source => source.id));
 });
 
+// --------------------------------------------------------------- 保存就是承诺
+//
+// The promise 保存 makes is not "the running app remembers", it is "the next
+// launch remembers". These four tests are that promise, at the only layer that
+// can keep it: the file.
+
+test('a custom source added through the store is there after a reopen', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.addCustom(makeCustomSource({ label: 'Mine', url: 'https://mine.example.com/' }, resolveSources()));
+  const reopened = new SourceStore(file);
+  const custom = reopened.all().custom;
+  assert.equal(custom.length, 1);
+  assert.equal(custom[0].id, 'custom-mine');
+  assert.equal(custom[0].url, 'https://mine.example.com/');
+  // And it resolves into the live list, with its own host allowed.
+  const live = resolveSources(reopened.all());
+  assert.equal(live.at(-1).label, 'Mine');
+  assert.equal(isAllowedSourceUrl(live.at(-1), 'https://mine.example.com/chat'), true);
+});
+
+test('a switch that was turned off is still off after a reopen', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.patch('deepseek', { enabled: false });
+  store.patch('chatgpt', { enabled: false });
+  store.patch('kimi', { enabled: true });
+  const reopened = new SourceStore(file);
+  const live = resolveSources(reopened.all());
+  assert.equal(sourceById(live, 'deepseek').enabled, false);
+  assert.equal(sourceById(live, 'kimi').enabled, true);
+  // The planner followed the switch, and it still follows it on the next boot.
+  assert.equal(planningSource(live).id, 'kimi');
+});
+
+test('a write leaves no temp file and one known-good copy', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.patch('kimi', { url: 'https://kimi.com/' });
+  const leftovers = fs.readdirSync(path.dirname(file)).filter(name => name.includes('.tmp'));
+  assert.deepEqual(leftovers, []);
+  assert.ok(fs.existsSync(`${file}.bak`), 'the previous copy should be kept');
+});
+
+test('a write that cannot land throws, and the file on disk is untouched', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sources-'));
+  const file = path.join(dir, 'sources.json');
+  const store = new SourceStore(file);
+  store.patch('kimi', { url: 'https://kimi.com/' });
+  const before = fs.readFileSync(file, 'utf8');
+
+  // A directory without write permission is the honest simulation: the file is
+  // readable, and creating the temp file next to it fails.
+  fs.chmodSync(dir, 0o500);
+  try {
+    assert.throws(() => store.patch('kimi', { url: 'https://kimi.com/chat' }), /重启后会丢/);
+  } finally {
+    fs.chmodSync(dir, 0o700);
+  }
+
+  // Memory must not claim what the disk refused.
+  assert.equal(store.all().overrides.kimi.url, 'https://kimi.com/');
+  // And the file that is there still parses — that is the whole point of the
+  // temp-file dance: a failed write is a no-op, not a truncated file.
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  assert.deepEqual(new SourceStore(file).all().overrides.kimi, { url: 'https://kimi.com/' });
+});
+
+test('a damaged main file falls back to the copy beside it', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.patch('kimi', { url: 'https://kimi.com/', enabled: true });
+  // The damage comes from outside, after a good write: the backup has the edit.
+  fs.writeFileSync(file, '{"overrides":{"kimi":{"url":"https://kimi.c');
+  const reopened = new SourceStore(file);
+  assert.deepEqual(reopened.all().overrides.kimi, { url: 'https://kimi.com/', enabled: true });
+});
+
+test('the damaged file does not overwrite the good copy on the next save', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.patch('kimi', { url: 'https://kimi.com/', enabled: true });
+  fs.writeFileSync(file, 'not json');
+  const reopened = new SourceStore(file);
+  // A save now would otherwise copy the damaged file over the only copy that
+  // still has the person's settings in it.
+  reopened.patch('chatgpt', { enabled: false });
+  const parsed = JSON.parse(fs.readFileSync(`${file}.bak`, 'utf8'));
+  assert.deepEqual(parsed.overrides.kimi, { url: 'https://kimi.com/', enabled: true });
+});
+
 test('a custom source whose id collides with a built-in is dropped on load', () => {
   const file = tmpFile();
   fs.writeFileSync(

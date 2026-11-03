@@ -16,12 +16,29 @@
  *
  * Usage: node scripts/check-settings.mjs   (app running with --remote-debugging-port=9222)
  */
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
 const KIMI_DEFAULT = 'https://kimi.moonshot.cn/';
 const KIMI_TRIAL = 'https://kimi.com/';
 const LAST_REFUSED = '至少要留一个来源，全关掉 Agent 就没地方问了';
+
+/**
+ * The file the app actually reads on the next launch.
+ *
+ * The panel can only ever show what the main process holds in memory, and a
+ * memory that says 已保存 while the disk says nothing is precisely the failure
+ * this run is meant to catch. So the last assertion of a save is made against
+ * the file — the one thing a restart consults.
+ */
+const APP_NAME = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name;
+const SOURCES_FILE = path.join(os.homedir(), 'Library', 'Application Support', APP_NAME, 'sources.json');
+if (!fs.existsSync(SOURCES_FILE)) {
+  throw new Error(`找不到 ${SOURCES_FILE}：应用名可能改了，或者应用还没保存过任何设置`);
+}
+const onDisk = () => JSON.parse(fs.readFileSync(SOURCES_FILE, 'utf8'));
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -310,6 +327,8 @@ const saved = await waitFor(kimiUrl, KIMI_TRIAL, { timeoutMs: 4000 });
 check('保存之后主进程里是新地址', saved, KIMI_TRIAL);
 const afterSave = await waitFor(async () => (await readPanel()).urls[2], KIMI_TRIAL, { timeoutMs: 3000 });
 check('面板上也显示新地址', afterSave, KIMI_TRIAL);
+// The third one, and the only one that survives a restart.
+check('保存之后磁盘上也有这个地址', onDisk().overrides.kimi?.url, KIMI_TRIAL);
 
 // ------------------------------------------------------- on / off switching
 
@@ -471,6 +490,61 @@ check('并且说清要先填网址', (await readPanel()).error, '先填网址，
 check('它还是关着的', (await readPanel()).switches[3].checked, 'false');
 check('被拒绝之后它还是关着的', (await railCount()) === 2, true);
 await cancelForm();
+
+// ------------------------------------------------------- 添加的通道也写进磁盘
+//
+// A provider added here is the case the promise is really about: it exists
+// nowhere else — not in the shipped defaults, not in any release — so if it is
+// not on disk it is gone. This drives the panel's own 添加 form rather than the
+// IPC, because the form is what a person uses.
+
+const CUSTOM = { label: '磁盘测试', url: 'https://example.com/' };
+
+const addProvider = async ({ label, url }) => {
+  await ensurePanel();
+  await clickIfPresent('.settings-add');
+  await waitFor(async () => (await cdp.evaluate(`!!document.querySelector('.settings-form-new')`)), true, {
+    timeoutMs: 2000
+  });
+  await cdp.evaluate(`(() => {
+    const inputs = document.querySelectorAll('.settings-form-new input');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(inputs[0], ${JSON.stringify(label)});
+    inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+    setter.call(inputs[1], ${JSON.stringify(url)});
+    inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(150);
+  await cdp.evaluate(`[...document.querySelectorAll('.settings-form-new .btn')].pop().click()`);
+};
+
+await addProvider(CUSTOM);
+const added = await waitFor(
+  async () => (await cdp.evaluate('window.agentAPI.getSources()')).sources.find(source => source.label === CUSTOM.label) ?? null,
+  null,
+  { timeoutMs: 4000, until: value => value !== null }
+);
+check('添加之后列表里有这一行', added?.label, CUSTOM.label);
+check('添加之后来源栏多了一个按钮', await waitFor(railCount, 3, { timeoutMs: 4000 }), 3);
+check('添加的通道写进了磁盘', onDisk().custom?.find(source => source.label === CUSTOM.label)?.url, CUSTOM.url);
+// A source that only lives in memory looks identical to one that was saved,
+// until the next launch. The file is the only place that difference exists.
+checkTrue('磁盘上的那份带着自己的 host', (onDisk().custom ?? []).some(source => (source.hosts ?? []).includes('example.com')));
+
+// And removing it has to reach the disk too, or a deleted provider comes back
+// from the dead on the next launch.
+const customRow = (await readPanel()).providers.indexOf(CUSTOM.label);
+checkTrue(`新加的行排在最后（第 ${customRow + 1} 行）`, customRow === 4);
+await openForm(customRow);
+await cdp.evaluate(`[...document.querySelectorAll('.settings-form-foot .btn')].find(button => button.textContent.trim() === '删除').click()`);
+const removed = await waitFor(
+  async () => (await cdp.evaluate('window.agentAPI.getSources()')).sources.some(source => source.label === CUSTOM.label),
+  false,
+  { timeoutMs: 4000 }
+);
+check('删掉之后列表里没有它了', removed, false);
+check('删掉之后磁盘上也没有它了', (onDisk().custom ?? []).some(source => source.label === CUSTOM.label), false);
+check('删掉之后来源栏回到两个', await waitFor(railCount, 2, { timeoutMs: 4000 }), 2);
 
 // ------------------------------------------------------------------ the name
 //

@@ -6,6 +6,7 @@
   },
   "include": [
     "src/shared/**/*.ts",
+    "src/main/atomic-write.ts",
     "src/main/conversation-runner.ts",
     "src/main/selector-profile.ts",
     "src/main/source-store.ts",
