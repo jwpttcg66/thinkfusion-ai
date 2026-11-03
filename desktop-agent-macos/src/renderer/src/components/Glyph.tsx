@@ -12,7 +12,16 @@ import React from 'react';
  * weight, so one size covers both. Colour comes from `currentColor`, which is
  * what lets hover states work without a second copy of the drawing.
  */
-export function Glyph({ paths, size = 13 }: { paths: readonly string[]; size?: number }) {
+export function Glyph({
+  paths,
+  size = 13,
+  filled = []
+}: {
+  paths: readonly string[];
+  size?: number;
+  /** Paths drawn solid rather than stroked — see `iconSvg`. */
+  filled?: readonly string[];
+}) {
   return (
     <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true" focusable="false">
       {paths.map(path => (
@@ -25,6 +34,9 @@ export function Glyph({ paths, size = 13 }: { paths: readonly string[]; size?: n
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+      ))}
+      {filled.map(path => (
+        <path key={path} d={path} fill="currentColor" stroke="none" />
       ))}
     </svg>
   );

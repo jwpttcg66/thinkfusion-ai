@@ -1,6 +1,8 @@
 import React from 'react';
 import type { PageSource } from '../../../shared/sources';
 import { RAIL_WIDTH } from '../../../shared/layout';
+import { ICON_PANEL_FILL_PATHS, ICON_PANEL_PATHS } from '../../../shared/icons';
+import { Glyph } from './Glyph';
 
 /**
  * The strip on the window's right edge that decides which embedded page is on
@@ -14,15 +16,50 @@ import { RAIL_WIDTH } from '../../../shared/layout';
  * One page at a time is deliberate. Two chat pages side by side would halve the
  * width each one gets, and a chat UI squeezed to half a window is worse than
  * one you can switch to in a click.
+ *
+ * 收起 lives here, at the top, rather than at the end of the page bar. Two
+ * reasons, and the second is the one that decided it:
+ *
+ * - The bar is inside the pane, so folding removed the bar and the button with
+ *   it — the only way back was a 24px chevron in the 30px stub, which is a small
+ *   target for the action that undoes the thing you just did.
+ * - The pane is a *window-level* thing, and this column is the window's right
+ *   edge. A control that folds a pane belongs where the pane ends, not in a
+ *   toolbar that the fold itself deletes.
  */
 export function SourceRail(props: {
   sources: PageSource[];
   activeId: string;
   loading: boolean;
+  collapsed: boolean;
   onSelect: (id: string) => void;
+  onToggleCollapse: () => void;
 }) {
   return (
     <nav className="source-rail" style={{ width: RAIL_WIDTH }} aria-label="内嵌网页">
+      <button
+        type="button"
+        className="rail-toggle"
+        data-action="collapse"
+        aria-pressed={props.collapsed}
+        aria-label={props.collapsed ? '展开网页' : '收起网页'}
+        title={props.collapsed ? '展开：把网页放回来' : '收起：把网页折起来，让应用占满窗口'}
+        onClick={props.onToggleCollapse}
+      >
+        {/* Folded, the column is empty — so the drawing is an empty frame. That
+            is the state, drawn instead of coloured: a filled square here would
+            sit one row above the active source's filled square and read as a
+            second selection. */}
+        <Glyph
+          paths={ICON_PANEL_PATHS}
+          filled={props.collapsed ? [] : ICON_PANEL_FILL_PATHS}
+          size={14}
+        />
+      </button>
+      {/* A hairline, not a gap: the toggle acts on the window, the buttons below
+          switch pages, and without the line the first page button reads as part
+          of the same control. */}
+      <span className="rail-sep" aria-hidden="true" />
       {props.sources.map(source => {
         const active = source.id === props.activeId;
         return (

@@ -21,7 +21,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Glyph } from './components/Glyph';
 import { StyleReport, type StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
-import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_FOLD_PATHS, ICON_UNFOLD_PATHS } from '../../shared/icons';
+import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
@@ -48,11 +48,6 @@ interface Derived {
 const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 /** 吸附回来：放回它原来的位置。 */
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
-/** 收起：把页面折向右边那条缝。 */
-const IconFold = () => <Glyph paths={ICON_FOLD_PATHS} />;
-/** 展开：把折起来的页面再拉出来。 */
-const IconUnfold = () => <Glyph paths={ICON_UNFOLD_PATHS} />;
-
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
@@ -1116,19 +1111,6 @@ export default function App() {
               >
                 {learning ? '提取中…' : '更新样式'}
               </button>
-              {/* Last, and pointing right: it is the one action that removes the
-                  other two, so it belongs at the end of the row rather than
-                  between them. */}
-              <button
-                className="page-btn icon"
-                type="button"
-                onClick={toggleCollapse}
-                data-action="collapse"
-                aria-label="收起网页"
-                title="收起：把网页折起来，让应用占满窗口"
-              >
-                <IconFold />
-              </button>
             </span>
           </div>
           <div
@@ -1170,20 +1152,20 @@ export default function App() {
 
       {/* Folded. Not `display: none`: a pane that vanishes leaves nothing to
           click and no sign that the page is still there — and it is, with the
-          same login and the same half-written answer. This strip is both the
-          way back and the reminder. */}
+          same login and the same half-written answer. The whole strip is the
+          button, because a 24px glyph inside a 30px column was a small target
+          for the action that undoes the one you just took; the rail's toggle at
+          the top of the next column does the same thing from a fixed place. */}
       {isCollapsed && (
-        <div className="page-stub" style={{ right: RAIL_WIDTH, width: PAGE_STUB_WIDTH }}>
-          <button
-            className="page-stub-btn"
-            type="button"
-            onClick={toggleCollapse}
-            data-action="expand"
-            aria-label="展开网页"
-            title="展开：把网页放回来"
-          >
-            <IconUnfold />
-          </button>
+        <button
+          className="page-stub"
+          type="button"
+          onClick={toggleCollapse}
+          data-action="expand"
+          aria-label="展开网页"
+          title="展开：把网页放回来"
+          style={{ right: RAIL_WIDTH, width: PAGE_STUB_WIDTH }}
+        >
           {/* Turned on its side: a 30px column can still say which page it is
               hiding, and the name is the thing worth keeping. */}
           <span className="page-stub-label">{activeSource?.label ?? '内嵌页面'}</span>
@@ -1191,7 +1173,7 @@ export default function App() {
             className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
             aria-hidden="true"
           />
-        </div>
+        </button>
       )}
 
       {/* Only the enabled ones. A disabled source still exists — its address is
@@ -1201,7 +1183,9 @@ export default function App() {
         sources={sources.sources.filter(source => source.enabled)}
         activeId={sources.activeId}
         loading={sources.loading}
+        collapsed={isCollapsed}
         onSelect={selectSource}
+        onToggleCollapse={toggleCollapse}
       />
 
       {styleReport && <StyleReport report={styleReport} onClose={() => setStyleReport(null)} />}

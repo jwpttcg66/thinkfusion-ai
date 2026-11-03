@@ -1,5 +1,6 @@
 /**
- * Checks the strip above the embedded page, and 放大 / 吸附回来 / 收起.
+ * Checks the strip above the embedded page, and 放大 / 吸附回来 / 收起 — the last
+ * of which now lives at the top of the source rail, on the window's right edge.
  *
  * The failure this exists for is not visual: the page is a native view painted
  * over the document, so a bar drawn in the wrong place is *invisible* rather
@@ -71,11 +72,23 @@ const readPane = () =>
         const icon = document.querySelector('.page-btn.icon');
         return icon ? Math.round(icon.getBoundingClientRect().width) : 0;
       })(),
-      // The fold button's own glyph, kept apart from iconPath — that one is
-      // "the first icon button", which is 放大.
-      foldPath: [...document.querySelectorAll('.page-btn[data-action="collapse"] path')]
-        .map(path => path.getAttribute('d'))
-        .join('|'),
+      // The fold toggle is no longer in this bar: it lives at the top of the
+      // rail, on the window's right edge. Read here anyway so one round trip
+      // answers "where is it and what does it draw".
+      railToggle: (() => {
+        const button = document.querySelector('.rail-toggle');
+        if (!button) return null;
+        const box = button.getBoundingClientRect();
+        return {
+          label: button.getAttribute('aria-label'),
+          pressed: button.getAttribute('aria-pressed'),
+          path: [...button.querySelectorAll('path')].map(path => path.getAttribute('d')).join('|'),
+          filled: [...button.querySelectorAll('path[fill="currentColor"]')].length,
+          right: Math.round(box.right),
+          width: Math.round(box.width)
+        };
+      })(),
+      winWidth: window.innerWidth,
       placeholder: Boolean(document.querySelector('.page-detached')),
       hasNote: Boolean(document.querySelector('.page-note')),
       // What the app column reserved for the pane. Read from the computed style
@@ -90,8 +103,11 @@ const readPane = () =>
         return { left: Math.round(box.left), width: Math.round(box.width) };
       })(),
       stubLabel: document.querySelector('.page-stub-label')?.textContent ?? '',
-      expandLabel: document.querySelector('.page-stub-btn')?.getAttribute('aria-label') ?? null,
-      expandPath: [...document.querySelectorAll('.page-stub-btn path')].map(path => path.getAttribute('d')).join('|'),
+      // The strip itself is the button now — a 24px glyph inside a 30px column
+      // was a small target for undoing the fold, and after the toggle moved to
+      // the rail it was a second copy of the same control.
+      expandLabel: document.querySelector('.page-stub')?.getAttribute('aria-label') ?? null,
+      expandTag: document.querySelector('.page-stub')?.tagName ?? '',
       railLeft: Math.round(document.querySelector('.source-rail').getBoundingClientRect().left)
     };
   })()`);
@@ -113,6 +129,11 @@ const pageViewport = async () => {
 
 // ---------------------------------------------------------------- the bar
 
+// A cold start reads "页面尚未加载" for a second or two — true, and not what the
+// status assertion below is about. Wait for the page to settle rather than
+// teaching the assertion to accept a state that means "ask again later".
+await waitFor(async () => !(await readPane()).text.includes('尚未加载'), true, { timeoutMs: 12000 });
+
 const pane = await readPane();
 checkTrue('页面栏存在', pane.bar !== null);
 if (pane.bar) {
@@ -123,11 +144,19 @@ if (pane.bar) {
   check('页面视图从页面栏下沿开始', view.y, HEADER);
   check('页面栏高度就是预留的那一条', pane.bar.height, HEADER);
   checkTrue('页面栏与页面视图左边缘对齐', Math.abs(pane.bar.left - view.x) <= 1);
-  check('页面栏里有三个按钮：放大、更新样式、收起', pane.buttons.join('/'), '放大/更新样式/收起网页');
-  // 收起 is a third action, not another state of 放大 — so it must not reuse the
-  // four-corner glyph. Its own chevron points at the edge the pane folds toward.
-  checkTrue(`收起画的是朝右的尖角（${pane.foldPath}）`, pane.foldPath.includes('M6 3.2'));
-  checkTrue('收起和放大不是同一个图标', pane.foldPath !== pane.iconPath);  // The pane can be dragged down to 380px, and two four-character labels used to
+  check('页面栏里只剩两个按钮：放大、更新样式', pane.buttons.join('/'), '放大/更新样式');
+  // 收起 moved out of this bar on purpose: the bar is inside the pane, so folding
+  // deleted the button that undoes the fold. It now sits at the top of the rail —
+  // the window's right edge — and this is the assertion that keeps it there.
+  checkTrue('收起按钮在轨道里', pane.railToggle !== null);
+  checkTrue(
+    `收起按钮贴着窗口右边（右沿 ${String(pane.railToggle?.right)} / 窗口 ${String(pane.winWidth)}）`,
+    (pane.railToggle?.right ?? 0) >= pane.winWidth - 8
+  );
+  checkTrue(`收起画的是面板（${pane.railToggle?.path ?? ''}）`, (pane.railToggle?.path ?? '').includes('M4.4 3.1'));
+  checkTrue('面板右侧那一列是实心的', (pane.railToggle?.filled ?? 0) === 1);
+  checkTrue('收起和放大不是同一个图标', (pane.railToggle?.path ?? '') !== pane.iconPath);
+  // The pane can be dragged down to 380px, and two four-character labels used to
   // push the status out of view. An icon is a fixed width, so this asserts the
   // width rather than trusting that it stayed small.
   checkTrue('放大是一个图标按钮', pane.iconButton);
@@ -288,14 +317,14 @@ const viewportWidth = await cdp.evaluate('window.innerWidth');
 
 // Press the real button. Folding removes the bar that carries the button, so a
 // click is also the only way to prove the reply arrives before the bar is gone.
-await cdp.evaluate(`document.querySelector('.page-btn[data-action="collapse"]').click()`);
+await cdp.evaluate(`document.querySelector('.rail-toggle').click()`);
 const folded = await waitFor(async () => (await readPane()).stub !== null, true, { timeoutMs: 3000 });
 check('点「收起」之后页面栏收成一条', folded, true);
 
 const stub = await readPane();
 check('收起后页面栏消失', stub.bar, null);
 check('收起后剩下的是可点的竖条', stub.expandLabel, '展开网页');
-checkTrue(`展开画的是朝左的尖角（${stub.expandPath}）`, stub.expandPath.includes('M10 3.2'));
+check('竖条自己就是展开按钮', stub.expandTag, 'BUTTON');
 checkTrue(`竖条上还写着被收起的页面（${stub.stubLabel}）`, stub.stubLabel.includes('DeepSeek'));
 // The width has to go back to the app, but not all the way: the rail is part of
 // the same reservation, and a zero split would put the app column underneath it.
@@ -313,14 +342,14 @@ const foldedViewport = await pageViewport();
 checkTrue('两个状态的页面视口都读得到', openViewport !== null && foldedViewport !== null);
 check('收起后页面自己的视口没变', foldedViewport?.w, openViewport?.w);
 
-await cdp.evaluate(`document.querySelector('.page-stub-btn').click()`);
+await cdp.evaluate(`document.querySelector('.page-stub').click()`);
 const unfolded = await waitFor(async () => (await readPane()).bar !== null, true, { timeoutMs: 3000 });
 check('点展开之后页面栏回来了', unfolded, true);
 
 const backPane = await readPane();
 check('展开后宽度回到收起前', backPane.split, openPane.split);
 check('展开后应用列也回到收起前', backPane.appPadding, openPane.appPadding);
-check('展开后按钮还是那三个', backPane.buttons.join('/'), '放大/更新样式/收起网页');
+check('展开后按钮还是那两个', backPane.buttons.join('/'), '放大/更新样式');
 
 const backToPane = await viewOf();
 check('展开后页面视图回到原位', backToPane.x, openView.x);

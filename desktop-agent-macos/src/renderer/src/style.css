@@ -1126,6 +1126,9 @@ button:disabled {
    answerable, so folding it must not look like closing it. It also has to be
    clickable, which is the whole reason it keeps 30px instead of disappearing —
    the control that folded the pane lived inside the pane. */
+/* The whole strip is the button. It used to hold a 24px glyph button at the top,
+   which was a small target for "undo the fold" — and once the fold toggle moved
+   to the top of the rail, it was also a second copy of the same control. */
 .page-stub {
   position: fixed;
   top: 0;
@@ -1134,34 +1137,23 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 8px 0 12px;
+  padding: 12px 0;
   background: var(--bg-side);
+  border: 0;
   border-left: 1px solid var(--line);
   z-index: 44;
+  font: inherit;
+  /* A button centres its text by default, and in `vertical-rl` "centre" is the
+     block axis — the name landed in the middle of a 900px column instead of at
+     the top. `start` is the top in vertical writing. */
+  text-align: start;
+  cursor: pointer;
   user-select: none;
+  transition: background 120ms ease;
 }
 
-.page-stub-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  border: 1px solid var(--line-strong);
-  background: var(--bg);
-  color: var(--text-2);
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.page-stub-btn:hover {
+.page-stub:hover {
   background: var(--bg-hover);
-  color: var(--text);
-}
-
-.page-stub-btn svg {
-  display: block;
 }
 
 /* On its side, because 30px of width cannot hold a word: the name is the one
@@ -1466,6 +1458,46 @@ button:disabled {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* The fold toggle, at the top of the rail — the window's right edge.
+   Same box as a source button on purpose: two sizes of square in a 46px column
+   read as a mistake. The hairline below is what says it is a different kind of
+   control, and the panel glyph says what it does. */
+.rail-toggle {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.rail-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Folded. The icon does not change direction — it empties: the column that is
+   drawn solid when the pane is open is gone when the pane is folded. No accent
+   fill, because the source button directly below uses one for "this is the page
+   on screen", and two filled squares in a 46px column read as two selections. */
+.rail-toggle[aria-pressed='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.rail-sep {
+  width: 18px;
+  height: 1px;
+  flex: none;
+  margin: -2px 0 2px;
+  background: var(--line-strong);
 }
 
 .rail-glyph {

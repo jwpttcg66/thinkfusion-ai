@@ -25,16 +25,23 @@ export const ICON_EXPAND_PATHS = ['M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13
 export const ICON_DOCK_BACK_PATHS = ['M2.5 3v10', 'M13 8H6.2M9 5.2 6.2 8 9 10.8'];
 
 /**
- * A chevron pointing at the right edge: "fold the page away".
+ * A panel with its right column filled: 收起 / 展开.
  *
- * A chevron rather than a second bracket pair, because this is a *third* action
- * on the same bar and must not read as another state of 放大. The direction is
- * the point: the pane lives on the right, so folding moves it right.
+ * This replaced a chevron. A chevron says "move this right", which describes the
+ * animation rather than the thing — and next to 放大's corner brackets it read as
+ * a third state of the same button. A panel shape says what the control acts on,
+ * which is why every app that folds a pane uses one.
+ *
+ * The filled column is the side the pane sits on. It is a separate path with a
+ * fill, not a thick stroke: at 13px a stroke that wide closes the outline it is
+ * meant to sit inside, and the glyph turns into a blob.
  */
-export const ICON_FOLD_PATHS = ['M6 3.2 10.8 8 6 12.8'];
-
-/** The same chevron turned around: "bring the folded pane back out". */
-export const ICON_UNFOLD_PATHS = ['M10 3.2 5.2 8 10 12.8'];
+export const ICON_PANEL_PATHS = [
+  'M4.4 3.1h7.2a2.3 2.3 0 0 1 2.3 2.3v5.2a2.3 2.3 0 0 1-2.3 2.3H4.4a2.3 2.3 0 0 1-2.3-2.3V5.4a2.3 2.3 0 0 1 2.3-2.3z'
+];
+export const ICON_PANEL_FILL_PATHS = [
+  'M9.4 3.1h2.2a2.3 2.3 0 0 1 2.3 2.3v5.2a2.3 2.3 0 0 1-2.3 2.3H9.4z'
+];
 
 /**
  * A ring, a hub, and eight teeth: 设置.
@@ -58,10 +65,16 @@ export const ICON_GEAR_PATHS = [
  */
 export const ICON_GAUGE_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8', 'M8 8l3.4-3.8'];
 
-/** One `<svg>` for a path list, so both surfaces draw byte-identical glyphs. */
-export function iconSvg(paths: readonly string[], size = 13): string {
+/**
+ * One `<svg>` for a path list, so both surfaces draw byte-identical glyphs.
+ *
+ * `filled` paths are drawn with `fill` instead of a stroke — a shape that is
+ * solid on purpose (the panel's column), not a line that happens to be thick.
+ */
+export function iconSvg(paths: readonly string[], size = 13, filled: readonly string[] = []): string {
   const body = paths
     .map(path => `<path d="${path}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`)
     .join('');
-  return `<svg viewBox="0 0 16 16" width="${String(size)}" height="${String(size)}" aria-hidden="true" focusable="false">${body}</svg>`;
+  const solids = filled.map(path => `<path d="${path}" fill="currentColor" stroke="none"/>`).join('');
+  return `<svg viewBox="0 0 16 16" width="${String(size)}" height="${String(size)}" aria-hidden="true" focusable="false">${body}${solids}</svg>`;
 }
