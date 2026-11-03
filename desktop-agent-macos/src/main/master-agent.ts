@@ -59,10 +59,21 @@ export interface ResearchOutcome {
   failures: string[];
 }
 
-/** No agent could take the question at all. Distinct from "all of them failed". */
+/**
+ * No agent could take the question at all. Distinct from "all of them failed".
+ *
+ * The site names come from the pool, not from this file. The message used to
+ * read "请先在右侧页面登录 DeepSeek 或 ChatGPT" — a list that goes stale the
+ * first time a third site is added, and stale in the worst way: it names sites
+ * the user has already logged into and omits the one they haven't.
+ */
 export class NoUsableAgentError extends Error {
-  constructor() {
-    super('没有可用的通道：请先在右侧页面登录 DeepSeek 或 ChatGPT。');
+  constructor(labels: readonly string[]) {
+    super(
+      labels.length > 0
+        ? `没有可用的通道：请先在右侧页面登录 ${labels.join(' 或 ')}。`
+        : '没有可用的通道：请先在设置里打开至少一个 AI 站点。'
+    );
     this.name = 'NoUsableAgentError';
   }
 }
@@ -75,7 +86,11 @@ export class MasterAgent {
     const multi = isMultiChannel(request.intent);
     const participants = multi ? usable : usable.slice(0, 1);
 
-    if (participants.length === 0) throw new NoUsableAgentError();
+    if (participants.length === 0) {
+      // The user needs to know which pages to log into, so the message is built
+      // from the pool's own roster rather than a list baked into this file.
+      throw new NoUsableAgentError((await this.pool.all()).map(agent => agent.label));
+    }
 
     sink.status(multi ? 'collecting' : 'thinking');
 

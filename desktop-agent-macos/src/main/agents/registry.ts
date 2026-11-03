@@ -62,6 +62,17 @@ export class SubAgentRegistry implements SubAgentPool {
   }
 
   /**
+   * Everything switched on, usable or not.
+   *
+   * `available()` answers "who can be asked"; this answers "who exists", which
+   * is what the Master needs when nobody can be asked — the useful message then
+   * is which pages to go and log into, not that there are none.
+   */
+  async all(): Promise<SubAgent[]> {
+    return this.list();
+  }
+
+  /**
    * The agents that could take a task right now.
    *
    * Order is the registry's order, i.e. the order the sources are configured in,

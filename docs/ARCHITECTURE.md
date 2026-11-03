@@ -115,6 +115,10 @@ export interface BrowserAdapter {
 
 **加一个站点要动两处**：`adapters/providers/<id>.ts`（选择器 + host），和 `adapters/providers/index.ts` 里的一行。`index.ts` 里不再有 `sourceId === 'chatgpt' ? … : …` 这种 if——那正是上一个站点的加入方式，它把"支持哪些站点"散进了装配代码。
 
+**「不含站点常量」包括文案，不只是代码。** 拆完的第一次复查发现，四个通用层里的代码已经不认识站点，**报错和提示还认识**：驱动器说「需要在内嵌页面完成 DeepSeek 登录」，于是在 ChatGPT 的页面上要求用户去登录 DeepSeek；编排器说「DeepSeek 未登录 / 正在生成」；Master 说「请先登录 DeepSeek 或 ChatGPT」——加了第三个站点后，这句既点名了用户已登录的，又漏掉了他没登录的；渲染层 `labelOf()` 里是一张 `if (id === 'deepseek')` 的表，于是答案卡片上显示原始 id 而其他界面显示名字。规矩因此补了一条：**通用层里出现的站点名字只能来自参数**（`siteLabel`、`ChannelStatus.label`、`SubAgentPool.all()`），不能是字面量。`test:adapter` 里两个用例用一个编出来的站点（`chat.example.test` / 「示例站点」）把这条钉住：登录提示里出现的是新名字、且不含 `DeepSeek`。
+
+`DeepSeekStatus` / `DeepSeekDiagnostics` / `DeepSeekEvent` 这三个**类型名**还没改。它们是跨 preload 和渲染层的契约名（34 处引用），改名要动 IPC 表面，留给下一次动 IPC 时一起做。
+
 顺带修掉一个真 bug：诊断面板报告的 `selectors` 原来是模块级的默认值，于是 ChatGPT 的面板里显示的是 DeepSeek 的选择器。现在驱动器的 `selectors` 是构造时传进来的（一个函数，学到的 profile 下一次探针就生效），`diagnose()` 报告的是**正在用的那一份**。
 
 **Master 管预算，SubAgent 不能自己叫人。** 谁能被问、一次问几个、问几轮，只有 `MasterAgent` 决定。一个能自行召集同伴的参与者会把用户的时间和页面的额度花在没人计数的地方。所以 `SubAgent` 接口里没有 `askOther()`，`SubAgentPool` 也没有暴露给参与者。
@@ -436,7 +440,7 @@ draft ──route──► thinking ──► collecting ──► comparing ─
 | **M4** | 接入第二个通道（ChatGPT），per-channel 队列 | 可并行收集 | 两个通道同时提问互不干扰 |
 | **M5** | `Synthesizer` 规则版 | 出现"分歧/缺失"标注 | 输出里至少一处明确分歧 |
 | **M6** | `Executor` 收敛：只有 `workspace` 意图进入 | 计划与审批变稀有 | 关掉 Runtime，问答与研究仍可用 |
-| **M7** ✅ | 第 3 层再拆一层：`ProviderSubAgent`（参与者）+ `BrowserAdapter`（驱动器）+ `adapters/providers/`（一个站点一个文件） | 无（装配位置变了） | `test:runner` 10、`test:adapter` 34、`test:sources-config` 24、`check:settings` 74 |
+| **M7** ✅ | 第 3 层再拆一层：`ProviderSubAgent`（参与者）+ `BrowserAdapter`（驱动器）+ `adapters/providers/`（一个站点一个文件） | 无（装配位置变了） | `test:runner` 11、`test:adapter` 36、`test:sources-config` 24、`check:settings` 74 |
 
 M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Runtime 不影响核心产品。**
 

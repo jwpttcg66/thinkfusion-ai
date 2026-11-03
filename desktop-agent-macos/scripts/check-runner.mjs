@@ -67,7 +67,11 @@ function fakeRegistry(channels, options = {}) {
   return {
     resets,
     order,
-    available: async () => channels,
+    // `all()` is the roster; `available()` is who can be asked. They differ in
+    // exactly one situation — a site is configured but its page is not usable —
+    // and that is the situation the failure message has to get right.
+    all: async () => channels,
+    available: async () => (options.noneUsable ? [] : channels),
     ask: async (id, input) => {
       order.push(`${id}:ask`);
       const channel = channels.find(item => item.id === id);
@@ -212,6 +216,23 @@ test('no channel at all is a visible failure, not an empty pane', async () => {
 
   assert.equal(done.status, 'failed');
   assert.match(done.error, /没有可用的通道/);
+  // Nothing is configured, so there is no page to go and log into. Telling the
+  // user to log in would be advice they cannot act on.
+  assert.match(done.error, /设置里打开/);
+});
+
+test('a configured site with an unusable page is named, not treated as absent', async () => {
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('不会被问到。')), fakeChannel('b', () => answer('不会被问到。'))],
+    { noneUsable: true }
+  );
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(done.status, 'failed');
+  // The roster comes from the pool, so adding a third site needs no edit to the
+  // message. The old text listed two site names by hand and went stale.
+  assert.match(done.error, /a 或 b/);
 });
 
 test('a workspace intent never touches a channel', async () => {

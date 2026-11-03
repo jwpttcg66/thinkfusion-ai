@@ -19,7 +19,10 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
     case 'plan.invalid':
       return { key, text: `计划被拒绝：${event.error}`, tone: 'error' };
     case 'clarification.required':
-      return { key, text: `DeepSeek 需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
+      // "模型", not a site name: which page is driving the plan is a setting
+      // (`planningSource`), and an event carries no site id to look a name up
+      // by. A hardcoded name here is simply wrong once the setting changes.
+      return { key, text: `模型需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
     case 'step.started':
       return { key, text: `执行 ${event.tool}`, tone: 'muted' };
     case 'step.completed':
@@ -33,7 +36,7 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
         tone: event.report.status === 'completed' ? 'ok' : 'warn'
       };
     case 'report.sent':
-      return { key, text: '执行报告已回传 DeepSeek', tone: 'muted' };
+      return { key, text: '执行报告已回传给模型', tone: 'muted' };
     case 'task.completed':
       return { key, text: `任务完成${event.summary ? `：${event.summary}` : ''}`, tone: 'ok' };
     case 'task.failed':

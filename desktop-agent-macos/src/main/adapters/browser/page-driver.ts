@@ -804,7 +804,12 @@ export class ChatPageDriver {
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
   private readonly hostsOf: () => ReadonlySet<string>;
   private readonly selectorsOf: () => SelectorProfile;
-  private readonly siteLabel: string;
+  /**
+   * Public, because the callers that talk to the user about "this page" need a
+   * name for it and must not supply their own. `AgentOrchestrator` used to write
+   * "DeepSeek 未登录" over a driver that could be pointing at any site.
+   */
+  readonly siteLabel: string;
 
   /**
    * Everything site-specific arrives here; the driver itself knows no site.
@@ -885,7 +890,7 @@ export class ChatPageDriver {
         generating: probe.generating,
         messageCount: probe.messageCount,
         detail: !loggedIn
-          ? '需要在内嵌页面完成 DeepSeek 登录'
+          ? `需要在内嵌页面完成 ${this.siteLabel} 登录`
           : probe.hasInput
             ? undefined
             : probe.viewportWidth === 0
@@ -1078,7 +1083,7 @@ export class ChatPageDriver {
 
     while (Date.now() - startedAt < this.tuning.confirmMs) {
       await sleep(this.tuning.pollMs);
-      if (driver.isDestroyed()) throw new Error('DeepSeek 页面已关闭，无法确认提交');
+      if (driver.isDestroyed()) throw new Error(`${this.siteLabel} 页面已关闭，无法确认提交`);
 
       let probe: PageProbe;
       try {

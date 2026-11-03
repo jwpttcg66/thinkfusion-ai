@@ -626,3 +626,60 @@ test('a dragged width is honoured but never at the app column\'s expense', () =>
   // cannot leave the window in an unusable state.
   assert.ok(Number.isFinite(computeSplit(1560, Number.POSITIVE_INFINITY)));
 });
+
+// ---------------------------------------------------------------------------
+// The driver knows no site
+// ---------------------------------------------------------------------------
+
+/**
+ * A page belonging to a site the app has never heard of.
+ *
+ * `scriptedPage` is hardwired to chat.deepseek.com because the timing tests are
+ * about that page. These two tests exist to prove the opposite property: the
+ * driver's entire knowledge of "which site is this" is what the caller passed
+ * to the constructor.
+ */
+function foreignPage(url, probeOverrides = {}) {
+  return {
+    url: () => url,
+    isDestroyed: () => false,
+    async probe() {
+      return state({ url, ...probeOverrides });
+    }
+  };
+}
+
+function adapterForSite(page, { hosts, siteLabel, selectors = DEEPSEEK_SELECTORS }) {
+  return new ChatPageDriver(() => page, { hosts, siteLabel, selectors });
+}
+
+test('a site the driver has never heard of is driven by label and hosts alone', async () => {
+  const hosts = new Set(['chat.example.test']);
+  const selectors = { ...DEEPSEEK_SELECTORS, input: ['#foreign-input'] };
+  const page = foreignPage('https://chat.example.test/', { hasPasswordField: true, hasInput: false });
+  const adapter = adapterForSite(page, { hosts, siteLabel: '示例站点', selectors });
+
+  const status = await adapter.getStatus();
+  assert.equal(status.loggedIn, false);
+  // The login hint used to read "需要在内嵌页面完成 DeepSeek 登录" on every page,
+  // so a ChatGPT pane told the user to log into DeepSeek.
+  assert.match(status.detail, /示例站点/);
+  assert.doesNotMatch(status.detail, /DeepSeek/);
+
+  // The diagnosis reports the selectors actually in use, not a module default.
+  // That was the bug where the panel under a ChatGPT page listed DeepSeek's
+  // selectors — the numbers looked authoritative and described the wrong page.
+  const report = await adapter.diagnose();
+  assert.equal(report.selectors.input[0], '#foreign-input');
+});
+
+test('the same driver refuses another site host, and names the right site', async () => {
+  const adapter = adapterForSite(foreignPage('https://chat.deepseek.com/'), {
+    hosts: new Set(['chat.example.test']),
+    siteLabel: '示例站点'
+  });
+
+  const status = await adapter.getStatus();
+  assert.equal(status.pageReady, false);
+  assert.match(status.detail, /示例站点/);
+});

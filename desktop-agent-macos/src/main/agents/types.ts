@@ -71,6 +71,8 @@ export interface SubAgent {
  * against a hand-written object with four methods.
  */
 export interface SubAgentPool {
+  /** Configured and switched on, whether or not their page is usable right now. */
+  all(): Promise<SubAgent[]>;
   available(): Promise<SubAgent[]>;
   ask(agentId: string, task: SubAgentTask): Promise<SubAgentAnswer>;
   newConversation(agentId: string): Promise<NewSessionResult>;

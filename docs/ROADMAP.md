@@ -289,9 +289,31 @@
 
 **辩论轮没有做。** `buildChallengePrompt`、`AskStage = 'challenge'`、规则式分歧识别都在，但没接进链路：先把「谁在说什么、页面怎么驱动」做扎实，再谈让它们互相质疑。现在有分歧就如实报成分歧。
 
-验收：`npm test` 全绿（`test:adapter` 34、`test:runner` 10、`test:sources-config` 24、`test:synthesis` 16 等），`check:settings` 74/74，`typecheck` 通过，应用能正常启动并跑完实机检查。
+验收：`npm test` 全绿（`test:adapter` 36、`test:runner` 11、`test:sources-config` 24、`test:synthesis` 16 等），`check:settings` 74/74，`typecheck` 通过，应用能正常启动并跑完实机检查。
 
 还踩到一个只有真跑才会遇到的坑：`npm run build` 会先跑 `install:electron` 重新解出一份 `Electron.app`，于是改名脚本面对「两份 bundle」直接 `ENOTEMPTY` 崩掉。现在脚本按**版本**决定谁留下：版本不同说明是新装的，重命名新那份；版本相同说明是上次改名留下的残骸，删掉残骸。
+
+**收尾：拆完了不等于拆干净。** 提交之后把四个通用层挨个读了一遍，找出的都是同一类残留——代码已经不知道站点，**文案还知道**：
+
+| 残留 | 用户看到的样子 |
+| --- | --- |
+| `ChatPageDriver.getStatus()` 的登录提示写死「需要在内嵌页面完成 DeepSeek 登录」 | 在 ChatGPT 的页面上被要求去登录 DeepSeek |
+| `ChatPageDriver` 提交确认里写死「DeepSeek 页面已关闭」 | 同上，而且是在报错的时候 |
+| `AgentOrchestrator` 四条错误/日志写死「DeepSeek 未登录 / 页面不可用 / 正在生成 / 计划已过期 / 声明完成」 | 规划来源换成别的站点后，日志里说的是另一个站点 |
+| `NoUsableAgentError` 写死「请先在右侧页面登录 DeepSeek 或 ChatGPT」 | 加了第三个站点后，这条提示既点名了用户已经登录的站点，又漏掉了他没登录的那个 |
+| `ConversationView.labelOf()` 里 `if (id === 'deepseek') return 'DeepSeek'` | 加第三个站点后，答案卡片上显示的是原始 id，而其他地方显示的是名字 |
+| `ExecutionLog` 写死「DeepSeek 需要澄清 / 执行报告已回传 DeepSeek」 | 规划来源可配置，事件里却没有站点 id 可以查名字 |
+
+改法各不一样，因为信息可得性不一样：
+
+- 驱动器自己知道名字（`siteLabel` 现在是 `readonly` 公开的），所以它和 `AgentOrchestrator` 直接用 `this.siteLabel`；
+- Master 在「一个人都用不了」的时候仍然要告诉用户去登录谁，所以 `SubAgentPool` 多了一个 `all()`——`available()` 回答「谁能被问」，`all()` 回答「有谁」。名单从池子里来，加站点就不用再改这句提示；
+- 渲染层的名字从 `ChannelStatus.label` 建一张 `id → 名字` 的表，一次渲染建一次，通道条、答案卡片、综合卡共用同一份，三处不会再说出不同的名字；
+- 执行日志没有站点 id 可查，所以改成说「模型」——比说错一个站点名诚实。
+
+补了两个用例把「驱动器不认识任何站点」钉住：拿一个编出来的站点（`chat.example.test` / 「示例站点」）造驱动器，断言登录提示里出现的是这个新名字、且不含 `DeepSeek`；同时断言 `diagnose()` 报的是构造时传进去的那份选择器。这两个断言如果早存在，上面第一、二条残留根本进不了主干。
+
+还剩一处**没改**：`DeepSeekStatus` / `DeepSeekDiagnostics` / `DeepSeekEvent` 这三个类型名和对应的 IPC 通道名。它们是 34 处引用、跨 preload 和渲染层的契约名字，改起来是纯改名却要动 IPC 表面，风险大于收益。记在这里，等下次动 IPC 时一起处理。
 
 ---
 

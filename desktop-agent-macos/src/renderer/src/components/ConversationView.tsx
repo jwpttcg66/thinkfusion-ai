@@ -48,6 +48,12 @@ export function ConversationView(props: {
   const answeredChannels = new Set(
     messages.filter(message => message.role === 'channel' && message.channelId).map(message => message.channelId as string)
   );
+  /**
+   * id -> display name, from the health record the main process already sends.
+   * One map, built once per render, used by the strip, the answer cards and the
+   * synthesis — so all three say the same name for the same site.
+   */
+  const labels = new Map(props.channelStatuses.map(status => [status.id, status.label]));
 
   return (
     <section className="conversation" aria-label="对话">
@@ -66,6 +72,7 @@ export function ConversationView(props: {
           statuses={props.channelStatuses}
           phases={props.phases}
           answered={answeredChannels}
+          labels={labels}
         />
       </header>
 
@@ -74,7 +81,7 @@ export function ConversationView(props: {
 
         {messages.map((message, index) => {
           if (message.role === 'synthesis' && message.synthesis) {
-            return <SynthesisCard key={message.messageId} synthesis={message.synthesis} />;
+            return <SynthesisCard key={message.messageId} synthesis={message.synthesis} labels={labels} />;
           }
           if (message.role === 'system') {
             return (
@@ -93,7 +100,7 @@ export function ConversationView(props: {
             for (let cursor = index; cursor < messages.length && messages[cursor].role === 'channel'; cursor += 1) {
               group.push(messages[cursor]);
             }
-            return <ChannelGrid key={message.messageId} messages={group} />;
+            return <ChannelGrid key={message.messageId} messages={group} labels={labels} />;
           }
           return (
             <article key={message.messageId} className={`bubble role-${message.role}`}>
@@ -120,10 +127,17 @@ export function ConversationView(props: {
   );
 }
 
-function labelOf(channelId?: string): string {
-  if (channelId === 'deepseek') return 'DeepSeek';
-  if (channelId === 'chatgpt') return 'ChatGPT';
-  return channelId ?? '通道';
+/**
+ * A channel's display name, as the main process reports it.
+ *
+ * Not a hardcoded `if (id === 'deepseek')`. That map was a third place a new
+ * site had to be added, and the only one with no compiler behind it — the card
+ * would have shown the raw id `claude` next to an answer while every other
+ * surface showed "Claude".
+ */
+function labelOf(channelId: string | undefined, labels: ReadonlyMap<string, string>): string {
+  if (!channelId) return '通道';
+  return labels.get(channelId) ?? channelId;
 }
 
 /**
@@ -133,14 +147,14 @@ function labelOf(channelId?: string): string {
  * default pane two 240px cards still fit, and when the pane is dragged wider
  * they stay readable instead of stretching into unreadable lines.
  */
-function ChannelGrid({ messages }: { messages: ConversationMessage[] }) {
+function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">
       {messages.map(message => (
         <article key={message.messageId} className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
           <header className="channel-card-head">
             <span className="channel-dot" />
-            <b>{labelOf(message.channelId)}</b>
+            <b>{labelOf(message.channelId, labels)}</b>
             <span className="channel-chars">{message.text.length} 字</span>
           </header>
           <div className="channel-card-body">{message.text}</div>
@@ -155,6 +169,7 @@ function ChannelStrip(props: {
   statuses: ChannelStatus[];
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   answered: Set<string>;
+  labels: ReadonlyMap<string, string>;
 }) {
   // A page can take minutes, so "提问中" has to move. Ticking locally rather
   // than streaming an event every second keeps the main process out of it: the
@@ -184,7 +199,7 @@ function ChannelStrip(props: {
             className={`channel-chip phase-${label}`}
             title={phase?.detail ?? status?.detail}
           >
-            <span className="channel-name">{labelOf(channelId)}</span>
+            <span className="channel-name">{labelOf(channelId, props.labels)}</span>
             <span className="channel-phase">
               {phaseLabel(label)}
               {waited > 0 && <span className="channel-elapsed"> {formatWaited(waited)}</span>}
@@ -227,7 +242,7 @@ function phaseLabel(phase: string): string {
  * The structured result. Every section is rendered even when empty, because
  * "no gaps found" and "we could not look for gaps" must not look the same.
  */
-function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
+function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: ReadonlyMap<string, string> }) {
   return (
     <article className={`synthesis ${synthesis.degraded ? 'degraded' : ''}`}>
       <div className="synthesis-head">
@@ -259,7 +274,7 @@ function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
               <ul>
                 {dispute.positions.map((position, positionIndex) => (
                   <li key={positionIndex}>
-                    <span className="who">{labelOf(position.channelId)}</span>
+                    <span className="who">{labelOf(position.channelId, labels)}</span>
                     {position.stance}
                   </li>
                 ))}
@@ -277,7 +292,7 @@ function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
               <li key={index}>
                 {claim.text}
                 <span className="claim-src">
-                  {claim.sources.map(source => labelOf(source.channelId)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}
+                  {claim.sources.map(source => labelOf(source.channelId, labels)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}
                 </span>
                 {/* Without the figures the claim cannot be checked, and "why do
                     these two agree" becomes a matter of trust. */}
@@ -309,7 +324,7 @@ function SynthesisCard({ synthesis }: { synthesis: Synthesis }) {
             {synthesis.unique.map((claim, index) => (
               <li key={index}>
                 {claim.text}
-                <span className="claim-src">{labelOf(claim.sources[0]?.channelId)}</span>
+                <span className="claim-src">{labelOf(claim.sources[0]?.channelId, labels)}</span>
               </li>
             ))}
           </ul>

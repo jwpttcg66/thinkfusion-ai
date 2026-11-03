@@ -2,10 +2,10 @@
  * The roles a page has to expose before the app can drive it.
  *
  * These live in shared/ because three separate places need to agree on the
- * spelling: the built-in profile in `deepseek-adapter.ts`, the discovery script
- * that runs inside the page, and the persisted file of learned selectors. When
- * the list was a bare object literal, a typo in the discovery script produced a
- * role nobody read and a repair that silently did nothing.
+ * spelling: the per-site profiles in `main/adapters/providers/`, the discovery
+ * script that runs inside the page, and the persisted file of learned selectors.
+ * When the list was a bare object literal, a typo in the discovery script
+ * produced a role nobody read and a repair that silently did nothing.
  */
 export const SELECTOR_ROLES = [
   'input',
