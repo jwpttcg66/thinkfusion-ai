@@ -16,6 +16,7 @@
  *
  * Usage: node scripts/check-settings.mjs   (app running with --remote-debugging-port=9222)
  */
+import os from 'node:os';
 import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
 const KIMI_DEFAULT = 'https://kimi.moonshot.cn/';
@@ -40,6 +41,10 @@ await cdp.evaluate('window.agentAPI.saveSource("deepseek", { enabled: true })');
 await cdp.evaluate('window.agentAPI.saveSource("chatgpt", { enabled: true })');
 await cdp.evaluate(`window.agentAPI.saveSource("kimi", { url: "${KIMI_DEFAULT}", enabled: false })`);
 await cdp.evaluate('window.agentAPI.saveSource("workbuddy", { enabled: false })');
+// Same reasoning for the name: the account-row assertions below expect the
+// shipped name, and a run that died after renaming would otherwise fail on its
+// own leftovers rather than on a real regression.
+await cdp.evaluate('window.agentAPI.setDisplayName("")');
 await sleep(400);
 
 const readFoot = () =>
@@ -49,6 +54,7 @@ const readFoot = () =>
     return {
       present: true,
       name: foot.querySelector('.side-foot-name')?.textContent ?? '',
+      title: foot.querySelector('.side-foot-name')?.getAttribute('title') ?? '',
       initial: foot.querySelector('.side-foot-avatar')?.textContent ?? '',
       buttons: [...foot.querySelectorAll('.side-foot-btn')].map(button => button.getAttribute('aria-label')),
       icons: [...foot.querySelectorAll('.side-foot-btn svg')].length
@@ -171,12 +177,30 @@ const kimiUrl = async () =>
 
 const foot = await readFoot();
 check('侧栏底部有账号行', foot.present, true);
-checkTrue(`账号行写的是本机用户名（${foot.name}）`, foot.name.length > 0 && foot.name !== '本地工作区');
-checkTrue(`头像里是名字的首字母（${foot.initial}）`, foot.initial.trim().length === 1);
+check('账号行默认写「本机用户」', foot.name, '本机用户');
+// The row used to print the operating system's login name, and its tooltip
+// printed the machine name. Both are things this app was never given, and both
+// ended up in screenshots. Compared against the running user rather than a
+// literal: a literal here would be the leak it is guarding against.
+checkTrue(
+  '账号行不是系统用户名',
+  foot.name !== os.userInfo().username && !foot.name.includes(os.userInfo().username)
+);
+checkTrue(`账号行的提示是平台，不是机器名（${foot.title}）`, foot.title === '这台 Mac');
+checkTrue(`头像里是名字的第一个字（${foot.initial}）`, foot.initial.trim() === '本');
 check('账号行有两个按钮：页面诊断、设置', (foot.buttons ?? []).join('/'), '页面诊断/设置');
 check('两个按钮都是图标', foot.icons, 2);
 
 // --------------------------------------------------------------- open 设置
+
+// A previous run may have left the panel open — and the panel remembers which
+// page it was on, so reopening it would land on 通用设置 and the assertions below
+// would be measuring the wrong page. Close first, then open it through the
+// button, the way a person would.
+if ((await readPanel()).open) {
+  await cdp.evaluate(`document.querySelector('.settings-close').click()`);
+  await waitFor(async () => (await readPanel()).open, false, { timeoutMs: 3000 });
+}
 
 await cdp.evaluate(`document.querySelector('.side-foot-btn[aria-label="设置"]').click()`);
 const opened = await waitFor(async () => (await readPanel()).open, true, { timeoutMs: 3000 });
@@ -240,10 +264,31 @@ const channelIdsAfter = channelsAfter
   .sort()
   .join(',');
 check('通道和开着的来源是同一份清单', channelIdsAfter, 'chatgpt,deepseek,kimi');
-// The viewport is granted a frame or two after the rail grows — the rail is told
-// first on purpose, so the button does not wait for the page. Polling is the
-// honest assertion here; a single read races the priming.
-const kimiTarget = (await listTargets()).find(target => target.type === 'page' && /kimi/.test(target.url));
+// "A view was created" is asked of the main process, not of the CDP target list.
+// A view exists — with bounds — a frame before its page becomes a debugging
+// target, and on a cold start that target is briefly blank, so matching on the
+// URL turns "not yet" into "never". The bounds map is the app's own answer.
+const kimiBounds = await waitFor(
+  async () => (await cdp.evaluate('window.agentAPI.getViewBounds()'))?.kimi ?? null,
+  null,
+  { timeoutMs: 6000, until: value => value !== null }
+);
+checkTrue(
+  `启用之后给 Kimi 建了视图（${kimiBounds ? `${kimiBounds.width}×${kimiBounds.height}` : '无'}）`,
+  Boolean(kimiBounds) && (kimiBounds?.width ?? 0) > 0 && (kimiBounds?.height ?? 0) > 0
+);
+
+// The viewport is a second, independent question: a view can exist with a box
+// and still have a page that never got laid out (that was the bug this whole
+// section was written for). Chromium will not lay out a view inside a window
+// that is not in front, so when the app is behind another window this reads 0
+// for reasons that have nothing to do with the app — say so rather than turning
+// "nobody is looking at it" into a failure.
+const kimiTarget = await waitFor(
+  async () => (await listTargets()).find(target => target.type === 'page' && /kimi/.test(target.url)) ?? null,
+  null,
+  { timeoutMs: 8000, until: value => value !== null }
+);
 const kimiView = kimiTarget ? await connect(kimiTarget) : null;
 const kimiHasViewport = kimiView
   ? await waitFor(
@@ -256,15 +301,11 @@ const kimiHasViewport = kimiView
     )
   : false;
 const kimiSize = kimiView ? await kimiView.evaluate('innerWidth + "×" + innerHeight') : '0×0';
-// Chromium does not lay out a view inside a window that is not in front, so the
-// viewport can read 0 for reasons that have nothing to do with the app. Say so
-// instead of turning "nobody is looking at it" into a failed assertion.
 const appInFront = await cdp.evaluate('document.hasFocus()');
 if (appInFront) {
   checkTrue(`刚打开的来源有真实视口（${kimiSize}）`, kimiHasViewport);
 } else {
-  console.log('note  the app window is not in front, so the new view is not laid out — asserting it exists instead');
-  checkTrue('刚打开的来源的页面已经创建', Boolean(kimiTarget));
+  console.log('note  the app window is not in front, so the new view is not laid out — its bounds are asserted instead');
 }
 
 // ------------------------------------------------- the planner can be switched off
@@ -363,11 +404,63 @@ check('没有网址的来源开启被拒绝', noUrlRefused, '请填写网址');
 await cancelForm();
 check('被拒绝之后它还是关着的', (await railCount()) === 2, true);
 
+// ------------------------------------------------------------------ the name
+//
+// The name is the one thing on 通用设置 that is about the person rather than
+// about a page. It has to be editable, it has to show up in the sidebar the
+// moment it is saved, and an empty one has to be refused with a sentence next to
+// the field — an empty row at the bottom of the sidebar reads as "not signed in",
+// and there is nothing to sign into.
+
+await ensurePanel();
+await cdp.evaluate(`[...document.querySelectorAll('.settings-nav-item')].find(button => button.textContent.includes('通用设置')).click()`);
+await waitFor(async () => (await readPanel()).activeNav, '通用设置', { timeoutMs: 3000 });
+checkTrue('通用设置里有名字输入框', (await cdp.evaluate(`!!document.querySelector('.settings-account .settings-name-input')`)) === true);
+check(
+  '输入框预填当前名字',
+  await cdp.evaluate(`document.querySelector('.settings-account .settings-name-input').value`),
+  '本机用户'
+);
+
+const typeName = async value => {
+  await cdp.evaluate(`(() => {
+    const input = document.querySelector('.settings-account .settings-name-input');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(150);
+};
+
+await typeName('小柯');
+await cdp.evaluate(`document.querySelector('.settings-account .btn.secondary').click()`);
+const renamed = await waitFor(async () => (await readFoot()).name, '小柯', { timeoutMs: 3000 });
+check('改完名字，侧栏立刻跟着变', renamed, '小柯');
+const renamedInitial = (await readFoot()).initial.trim();
+check('头像也跟着换成第一个字', renamedInitial, '小');
+
+await typeName('   ');
+await cdp.evaluate(`document.querySelector('.settings-account .btn.secondary').click()`);
+const emptyRefused = await waitFor(
+  async () => cdp.evaluate(`document.querySelector('.settings-account ~ .settings-error')?.textContent ?? document.querySelector('.settings-field .settings-error')?.textContent ?? ''`),
+  '名字不能是空的',
+  { timeoutMs: 3000 }
+);
+check('空名字被拒绝，理由写在输入框下面', emptyRefused, '名字不能是空的');
+check('被拒绝之后名字没变', (await readFoot()).name, '小柯');
+
+await cdp.evaluate(`document.querySelector('.settings-account .btn.ghost').click()`);
+const backToDefault = await waitFor(async () => (await readFoot()).name, '本机用户', { timeoutMs: 3000 });
+check('恢复默认回到「本机用户」', backToDefault, '本机用户');
+
 // ------------------------------------------------------------------ close
 
 await cdp.evaluate(`document.querySelector('.settings-close').click()`);
 const closed = await waitFor(async () => (await readPanel()).open, false, { timeoutMs: 3000 });
 check('关掉之后面板消失', closed, false);
 
-summary();
+// Exit explicitly: the CDP socket keeps a timer alive, and a script that prints
+// its verdict but never returns is a script whose exit code lies about it.
+const tally = summary();
 cdp.close();
+process.exit(tally.fail > 0 ? 1 : 0);

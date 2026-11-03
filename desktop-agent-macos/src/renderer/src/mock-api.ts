@@ -211,7 +211,12 @@ export function createMockApi(): AgentApi {
       planningId: PAGE_SOURCES[0].id,
       loading: false
     }),
-    getIdentity: async () => ({ name: 'local-user', initial: 'L', host: 'localhost' }),
+    getIdentity: async () => ({ name: '本机用户', initial: '本', device: '这台 Mac' }),
+    setDisplayName: async (name: string) => ({
+      name: name || '本机用户',
+      initial: (name || '本机用户').slice(0, 1),
+      device: '这台 Mac'
+    }),
     // No native views in the browser preview, so a detach is just a flag: the
     // page header still has to render both states.
     getPageState: async () => ({ detachedId: null, collapsed: false }),

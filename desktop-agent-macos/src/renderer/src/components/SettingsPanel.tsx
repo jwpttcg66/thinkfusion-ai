@@ -3,6 +3,7 @@ import type { ChannelStatus } from '../../../shared/conversation';
 import type { Identity, PermissionPreset, SourcesState } from '../../../shared/contracts';
 import type { PageSource } from '../../../shared/sources';
 import { ICON_GEAR_PATHS } from '../../../shared/icons';
+import { DEFAULT_DISPLAY_NAME, MAX_DISPLAY_NAME_LENGTH, initialOf } from '../../../shared/identity';
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
@@ -42,6 +43,8 @@ export function SettingsPanel(props: {
   onSaveSource: (id: string, patch: { url?: string; enabled?: boolean }) => Promise<string>;
   onAddSource: (input: { label: string; url: string }) => Promise<string>;
   onRemoveSource: (id: string) => Promise<string>;
+  /** Rename the sidebar row. Empty string means 「恢复默认」. */
+  onRename: (name: string) => Promise<string>;
   onPermissionChange: (preset: PermissionPreset) => void;
 }) {
   const [section, setSection] = useState<Section>('models');
@@ -54,6 +57,23 @@ export function SettingsPanel(props: {
   const [newUrl, setNewUrl] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /**
+   * The name field is its own draft, with its own error.
+   *
+   * Two reasons it does not share `error` with the 模型 page: the two are never on
+   * screen at the same time (a message about an address under a name box is a
+   * lie about what went wrong), and typing must not clear a message about
+   * something else.
+   */
+  const [draftName, setDraftName] = useState('');
+  const [nameError, setNameError] = useState('');
+
+  // The identity arrives after the first render, and 「恢复默认」 changes it from
+  // the main process — so the draft follows the stored value, not the other way
+  // round.
+  useEffect(() => {
+    setDraftName(props.identity?.name ?? DEFAULT_DISPLAY_NAME);
+  }, [props.identity?.name]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -118,6 +138,23 @@ export function SettingsPanel(props: {
     stopEdit();
   }
 
+  /**
+   * Rename the sidebar row.
+   *
+   * The panel does not pre-validate: the main process owns the rules (trimming,
+   * length, control characters) and answers with a sentence, which lands under
+   * the field. A second copy of the rules here would drift, and a name that
+   * passed in the renderer but failed on disk is the worst of both.
+   */
+  async function rename(next: string) {
+    if (busy) return;
+    setBusy(true);
+    setNameError('');
+    const problem = await props.onRename(next);
+    setBusy(false);
+    if (problem) setNameError(problem);
+  }
+
   const statusOf = (id: string) => props.channelStatuses.find(status => status.id === id) ?? null;
   /** Used to say "this is the last one" before the save is refused, not after. */
   const enabledCount = props.sources.sources.filter(source => source.enabled).length;
@@ -158,14 +195,46 @@ export function SettingsPanel(props: {
                 <h3>通用设置</h3>
                 <p className="settings-lead">这个应用只跑在这台机器上，任务、对话和网页登录都留在本地。</p>
                 <div className="settings-field">
-                  <span className="settings-field-label">当前用户</span>
+                  <span className="settings-field-label">显示名称</span>
                   <div className="settings-account">
-                    <span className="side-foot-avatar">{props.identity?.initial ?? '?'}</span>
-                    <div>
-                      <b>{props.identity?.name ?? '读取中…'}</b>
-                      <span className="settings-muted">{props.identity?.host ?? ''}</span>
+                    {/* The avatar follows the draft, not the stored name: typing
+                        「小柯」 and seeing the old character is a small lie about
+                        what is about to happen. */}
+                    <span className="side-foot-avatar">{initialOf(draftName)}</span>
+                    <div className="settings-account-body">
+                      <input
+                        className="settings-name-input"
+                        value={draftName}
+                        maxLength={MAX_DISPLAY_NAME_LENGTH}
+                        spellCheck={false}
+                        placeholder={DEFAULT_DISPLAY_NAME}
+                        aria-label="显示名称"
+                        onChange={event => {
+                          setDraftName(event.target.value);
+                          setNameError('');
+                        }}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') void rename(draftName);
+                        }}
+                      />
+                      <span className="settings-muted">{props.identity?.device ?? ''}</span>
                     </div>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      disabled={busy || draftName === (props.identity?.name ?? DEFAULT_DISPLAY_NAME)}
+                      onClick={() => void rename(draftName)}
+                    >
+                      保存
+                    </button>
+                    <button className="btn ghost" type="button" disabled={busy} onClick={() => void rename('')}>
+                      恢复默认
+                    </button>
                   </div>
+                  <p className="settings-hint">
+                    侧栏左下角显示的就是这个名字。默认「{DEFAULT_DISPLAY_NAME}」，不读取系统的用户名和机器名。
+                  </p>
+                  {nameError && <p className="settings-error">{nameError}</p>}
                 </div>
                 <div className="settings-field">
                   <span className="settings-field-label">执行权限</span>

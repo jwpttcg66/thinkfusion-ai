@@ -2119,6 +2119,41 @@ button:disabled {
   font-size: 13px;
 }
 
+/* The name is a text field, not a label: it is the one thing on this page the
+   person can change about themselves, and a pencil icon next to a name reads as
+   "edit your account" — which is the one thing this app must not imply. */
+.settings-account-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-name-input {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+}
+
+.settings-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.12);
+}
+
+.settings-hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
 .settings-muted {
   font-size: 11.5px;
   color: var(--text-3);

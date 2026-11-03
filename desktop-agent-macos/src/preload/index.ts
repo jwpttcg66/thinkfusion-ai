@@ -55,6 +55,7 @@ const api: AgentApi = {
   addSource: (input: { label: string; url: string }) => ipcRenderer.invoke('sources:add', input),
   removeSource: (id: string) => ipcRenderer.invoke('sources:remove', id),
   getIdentity: () => ipcRenderer.invoke('app:identity'),
+  setDisplayName: (name: string) => ipcRenderer.invoke('app:set-name', name),
 
   getPageState: () => ipcRenderer.invoke('page:state'),
   detachPage: (sourceId?: string) => ipcRenderer.invoke('page:detach', sourceId),

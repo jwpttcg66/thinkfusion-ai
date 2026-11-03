@@ -171,7 +171,7 @@ Requirements: macOS (Apple Silicon), Node.js ≥ 22.12, Electron 45.
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # 138 offline assertions, see Tests below
+npm test          # 148 offline assertions, see Tests below
 npm run dev
 ```
 
@@ -184,7 +184,7 @@ Live checks (app already running and signed in):
 npm run start:debug                     # start with a CDP port
 npm run check:pane                      # page status bar, 放大 / 吸附回来 / 收起, 更新样式
 npm run check:sources                   # the rail really switches pages
-npm run check:settings                  # the account row, 设置, editable addresses, on/off
+npm run check:settings                  # the account row, 设置, editable name/addresses, on/off
 npm run check:layout                    # split alignment + app column geometry
 npm run check:drag                      # full drag interaction
 npm run check:new-task                  # "new task" gives visible feedback
@@ -194,11 +194,11 @@ npm run e2e:live -- <workspace-dir>     # a real task through the whole chain
 
 ## Tests
 
-- **Offline, 138 assertions**: protocol 24, page-channel timing 34, source config 18,
-  synthesis 16, selector repair 10, conversation runner 10, intent 9, page text 9, state
-  machine 8. CI runs these on every push — see
+- **Offline, 148 assertions**: protocol 24, page-channel timing 34, source config 18, display
+  name 10, synthesis 16, selector repair 10, conversation runner 10, intent 9, page text 9,
+  state machine 8. CI runs these on every push — see
   [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-- **Live, 178 assertions**: page pane 59, settings 39, sources 27, split layout 16, app column
+- **Live, 187 assertions**: page pane 59, settings 50, sources 27, split layout 16, app column
   10, drag 16, conversation 12, new-task feedback 10. These need a running app and a signed-in
   page, so they are run by hand; the scripts read real state over CDP instead of pixels.
 - What these tests **cannot** prove is written down in

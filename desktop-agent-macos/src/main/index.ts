@@ -1,6 +1,5 @@
 import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog } from 'electron';
 import path from 'node:path';
-import os from 'node:os';
 import type {
   AgentEvent,
   DeepSeekDiagnostics,
@@ -44,6 +43,8 @@ import {
   type StoredSources
 } from '../shared/sources';
 import { SourceStore } from './source-store';
+import { ProfileStore } from './profile-store';
+import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
 import { ICON_DOCK_BACK_PATHS, iconSvg } from '../shared/icons';
@@ -75,6 +76,8 @@ const views = new Map<string, WebContentsView>();
 let sources: PageSource[] = resolveSources();
 /** Where those edits live. Created in `whenReady`, next to the other stores. */
 let sourceStore: SourceStore | null = null;
+/** The display name in the sidebar's bottom row. Also created in `whenReady`. */
+let profileStore: ProfileStore | null = null;
 /**
  * The source on screen. Only this view is visible; the rest are parked.
  *
@@ -541,13 +544,14 @@ function removeSource(raw: unknown): SourcesState {
 /**
  * Who is using this app.
  *
- * There is no account system, and this does not pretend to be one: it is the
- * machine's own user name. Everything — tasks, conversations, page sessions —
- * stays on this machine, so a local name is the accurate label.
+ * There is no account system, and this does not pretend to be one: it is a name
+ * the person chose, defaulting to 本机用户. It used to be the operating system's
+ * user name with the machine name as its tooltip — see `shared/identity.ts` for
+ * why that had to go. Nothing here reads the OS about its owner.
  */
 function identity(): Identity {
-  const name = os.userInfo().username || '本机用户';
-  return { name, initial: (name[0] ?? '?').toUpperCase(), host: os.hostname() };
+  const name = profileStore?.displayName() ?? DEFAULT_DISPLAY_NAME;
+  return { name, initial: initialOf(name), device: deviceLabel(process.platform) };
 }
 
 /** Which page (if any) is living in its own window. */
@@ -1279,6 +1283,17 @@ function registerIpc() {
     return identity();
   });
 
+  // An empty string is not a rejected name: it is 「恢复默认」, and the panel says
+  // so next to the button. The reply is the identity after normalization, so the
+  // renderer shows what was actually stored rather than what was typed.
+  ipcMain.handle('app:set-name', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!profileStore) throw new Error('设置还没有准备好');
+    if (raw === '') profileStore.reset();
+    else profileStore.setDisplayName(raw);
+    return identity();
+  });
+
   // ---------------------------------------------------------------- page pane
   ipcMain.handle('page:state', event => {
     trustedUiSender(event);
@@ -1378,6 +1393,9 @@ app.whenReady().then(async () => {
   applyStored(sourceStore.all());
   activeSourceId = sources.find(source => source.enabled)?.id ?? activeSourceId;
   rebuildChannels();
+  // Its own file: renaming yourself is not a property of which pages exist, and a
+  // corrupt one must not be able to take the sources down with it.
+  profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
 
   tasks = new TaskManager(store, emit);
   orchestrator = new AgentOrchestrator({

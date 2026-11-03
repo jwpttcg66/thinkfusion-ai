@@ -132,16 +132,19 @@ export function TaskSidebar(props: {
       </div>
 
       {/* The account row.
-          Not a login: there is no account. It is this machine's user name, and
+          Not a login: there is no account. It is a name the person chose, and
           saying so is more useful than the "本地工作区" label it replaced — that
           line named a folder while looking like a profile. The two buttons are
           the two things a person reaches for from the bottom of a sidebar: how
-          the pages are doing, and where the settings are. */}
+          the pages are doing, and where the settings are.
+          It used to show the operating system's user name. It no longer does,
+          and the tooltip no longer shows the machine's name: neither is
+          something this app was given. */}
       <div className="side-foot">
         <span className="side-foot-avatar" aria-hidden="true">
           {props.identity?.initial ?? '·'}
         </span>
-        <span className="side-foot-name" title={props.identity?.host ?? ''}>
+        <span className="side-foot-name" title={props.identity?.device ?? ''}>
           {props.identity?.name ?? '本机用户'}
         </span>
         <span className="side-foot-actions">

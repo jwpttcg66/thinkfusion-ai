@@ -728,6 +728,22 @@ export default function App() {
     }
   }
 
+  /**
+   * Rename the sidebar row.
+   *
+   * The reply is the stored identity, so the panel and the sidebar cannot drift
+   * apart: trimming and the default name are decided in the main process, and
+   * this only mirrors the result.
+   */
+  async function renameIdentity(name: string): Promise<string> {
+    try {
+      setIdentity(await window.agentAPI.setDisplayName(name));
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
   async function selectSource(id: string) {
     if (id === sources.activeId) return;
     setError('');
@@ -1200,6 +1216,7 @@ export default function App() {
           onSaveSource={saveSource}
           onAddSource={addSource}
           onRemoveSource={removeSource}
+          onRename={renameIdentity}
           onPermissionChange={changePermission}
         />
       )}

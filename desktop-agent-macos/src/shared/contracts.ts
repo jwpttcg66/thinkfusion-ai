@@ -366,18 +366,22 @@ export interface NewSourceInput {
 }
 
 /**
- * Who this app thinks you are.
+ * The name on the row at the bottom of the sidebar.
  *
- * There is no account system and this does not pretend to be one: it is the
- * local machine's user name, shown so the bottom of the sidebar has something
- * to say other than "本地工作区". Everything stays on this machine, which is the
- * honest description of what the app actually is.
+ * There is no account system and this does not pretend to be one: it is a name
+ * the person chose, defaulting to 本机用户, so the bottom of the sidebar has
+ * something to say other than "本地工作区". Everything stays on this machine,
+ * which is the honest description of what the app actually is.
+ *
+ * Note what is *not* here: nothing read from the operating system about its
+ * owner. See `shared/identity.ts` for why that matters.
  */
 export interface Identity {
   name: string;
   /** One character for the avatar square. */
   initial: string;
-  host: string;
+  /** Platform description — "这台 Mac", not the machine's name. */
+  device: string;
 }
 
 /**
@@ -534,8 +538,16 @@ export interface AgentApi {
   /** Remove a source that was added in 设置. Built-ins are only disabled. */
   removeSource(id: string): Promise<SourcesState>;
 
-  /** The local user name, for the row at the bottom of the sidebar. */
+  /** The display name, for the row at the bottom of the sidebar. */
   getIdentity(): Promise<Identity>;
+  /**
+   * Rename the row at the bottom of the sidebar.
+   *
+   * Pass an empty string to go back to the shipped name. The reply is the
+   * resulting identity, so the caller never has to guess how the input was
+   * normalized (trimmed, upper-cased initial) before showing it.
+   */
+  setDisplayName(name: string): Promise<Identity>;
 
   // page pane
   /** Which page, if any, is currently in its own window. */
