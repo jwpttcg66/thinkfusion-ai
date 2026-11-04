@@ -28,6 +28,7 @@
 | `supportsCancellation: boolean` | `cancellation: 'abort' \| 'give-up' \| 'none'` | 网页通道能「不等了」，不能「让它别写了」。压成 `true` 会让上层以为取消能省配额 |
 | `capabilities.available` | `health().available` | 能力是静态的，可用性是那一秒的。放一起每次判断都要重取能力 |
 | `ModelRegistry` 另立一份 | 不建，`registry.models()` 现取 | 模型挂在 Provider 下，另存一份就是需要同步的缓存 |
+| `type: "local" \| "cloud"` | `ProviderType = 'web' \| 'local' \| 'cloud'` | 网页通道两者都不是。压成两值后，执行模式判断会把 web 误算成 cloud，而 cloud 是允许外发的档位——这正好是隐私边界上最不该模糊的一处 |
 | 无 | 接口里没有 `newConversation` | 那是网页特有的生命周期，本地/云端每次请求本来就是新的 |
 
 网页通道的能力描述刻意写成：`streaming: false`、`cancellation: 'give-up'`、`modelDiscovery: 'unknown'`、`contextTokens: null`、`usage: {input: null, output: null}`。这五项都不是「暂时没实现」，而是「网页确实不提供」——写死一个假的数字，上层的上下文切分和费用估算会跟着错，而且错得很安静。

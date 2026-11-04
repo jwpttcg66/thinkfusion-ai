@@ -15,9 +15,9 @@
 
 | Phase | 项目书要求 | 实际 | 缺口 |
 | --- | --- | --- | --- |
-| A 审计 | 7 份文档（5 份 architecture + 2 份 implementation） | 1 份综合审计 `docs/audits/2026-11-04-upgrade-proposal.md`；外加 `PHASE-B.md`、本文件 | 缺 `CURRENT_ARCHITECTURE` `MODEL_PROVIDER_AUDIT` `WEB_CHANNEL_AUDIT` `SYNTHESIS_AUDIT` `DATA_MODEL_AUDIT` `RISKS_AND_COMPATIBILITY` |
-| B Provider 抽象 | 接口 / Registry / 能力 / 错误模型 / 超时取消 / 保留 Web Channel | `types.ts` `registry.ts` `web-channel.ts` + 15 条测试（`db16263`） | 未接线（按文档属 Phase E）；未做真机回归 |
-| C Ollama | 12 项能力 + 6 条验收 | 未开始 | 全部 |
+| A 审计 | 7 份文档（5 份 architecture + 2 份 implementation） | **已完成**：5 份 architecture + `MULTI_MODEL_UPGRADE_PLAN` + `RISKS_AND_COMPATIBILITY` + 综合审计 `docs/audits/2026-11-04-upgrade-proposal.md` | 无（真机回归属 B 的验收，不属 A） |
+| B Provider 抽象 | 接口 / Registry / 能力 / 错误模型 / 超时取消 / 保留 Web Channel | `types.ts` `registry.ts` `web-channel.ts` + 15 条测试（`db16263`） | 未接线（按文档属 Phase E）；未做真机回归；`type` 三值已补记 |
+| C Ollama | 12 项能力 + 6 条验收 | **已完成**：`ollama.ts` `local-admission.ts` + 17 条回放测试 + 7 条真机测试，见 `PHASE-C.md` | 未接线；9B 未下载；模型运行状态展示缺 UI（属 J） |
 | D Cloud | OpenAI 兼容 + key 安全存储 + token/费用 | 未开始 | 全部 |
 | E 执行模式 | 4 模式 + 对话级配置 + 隐私 | 未开始 | 全部 |
 | F Hybrid | Smart / Parallel / All / Sequential | 未开始 | 全部 |
@@ -59,20 +59,12 @@ A ── B ── C ─┐
 
 ## 三、逐阶段计划
 
-### Phase A（补交付物，纯文档，不改代码）
+### Phase A（已完成，纯文档）
 
-项目书要求 7 份文档，现在只有 1 份综合审计。补法是按模块拆，不重新审一遍：
-
-| 待补文件 | 内容来源 |
-| --- | --- |
-| `docs/architecture/CURRENT_ARCHITECTURE.md` | 五层调用链、IPC 通道表、目录职责、实际依赖方向 |
-| `docs/architecture/MODEL_PROVIDER_AUDIT.md` | 现有 `SubAgent`/`SubAgentPool`/`MasterAgent` 的职责边界，以及哪些逻辑将来要挪进 Provider |
-| `docs/architecture/WEB_CHANNEL_AUDIT.md` | `PageBrowserAdapter` → `ChatPageDriver` 的提问/取答/删除全流程、超时与失败态 |
-| `docs/architecture/SYNTHESIS_AUDIT.md` | `shared/synthesizer.ts` 的判据与阈值、`Synthesis` 契约、已知误判 |
-| `docs/architecture/DATA_MODEL_AUDIT.md` | `Conversation`/`Message`/`Claim` 字段、JSON journal 写入方式、无迁移机制 |
-| `docs/implementation/RISKS_AND_COMPATIBILITY.md` | 第六节风险清单扩展版 + 老数据兼容策略 |
-
-验收：六份文件都能指向具体 `文件:行号`。这一阶段不改任何 `.ts`。
+项目书要求 7 份文档，现已补齐：`docs/architecture/` 下 5 份模块审计，
+`docs/implementation/` 下本文件与 `RISKS_AND_COMPATIBILITY.md`，另有
+`docs/audits/2026-11-04-upgrade-proposal.md` 作为逐条对照代码的综合审计。
+每份都能指向具体 `文件:行号`。这一阶段没有改任何 `.ts`。
 
 ### Phase B（已完成，补两条记录）
 
@@ -153,14 +145,15 @@ A ── B ── C ─┐
 （按配置选 Provider 集合）、`src/main/index.ts` + `contracts.ts` + `preload` + renderer
 （读写配置）。
 
-**必须裁决的两处语义冲突**（现在不裁决，E 会写出自相矛盾的代码）
+**必须裁决的两处语义冲突**（2026-11-04 已定，见第五节）
 
-1. **`local-only` 与 `web` 模式互斥**。项目书 6.3 说 `local-only` 禁止向网页 Channel
-   发送内容，但 `web` 模式的全部内容都发往网页 Channel。建议：`web` 模式下
-   `privacyMode` 恒为 `allow-cloud`（网页本来就是外发），UI 不提供 `local-only` 选项。
-2. **老会话没有 `executionConfig`**。现有会话全是网页产生的，读到缺失字段时应视为
-   `{executionMode:'web', fallbackEnabled:false, privacyMode:'allow-cloud'}`。若默认成
-   `local-only`，老会话一打开就成了违规状态。
+1. **`local-only` 与 `web` 模式互斥，web 模式保留**。项目书 6.3 说 `local-only`
+   禁止向网页 Channel 发送内容，但 `web` 模式的全部内容都发往网页 Channel，
+   两者不能共存。裁决：`web` 模式下 `privacyMode` 恒为 `allow-cloud`（网页本来
+   就是外发），UI 在 web 模式下不提供 `local-only` 选项，而不是禁用 web 模式。
+2. **老会话没有 `executionConfig`**。增加该字段，读到缺失时视为
+   `{executionMode:'web', fallbackEnabled:false, privacyMode:'allow-cloud'}`。
+   若默认成 `local-only`，老会话一打开就成了违规状态。
 
 **这一阶段只做一件事**：把配置读出来，选 Provider 集合，然后走现有并发路径。
 不引入新的调度器，不碰辩论——那是 F、G。
@@ -235,12 +228,17 @@ Ollama 退出、网络中断、应用重启后恢复。这三项无法用单测�
 | 已装模型 | `qwen2.5:7b`、`nomic-embed-text:latest` |
 | 项目书推荐模型 | `qwen3.5:9b-q4_K_M` 存在（6.6GB，Apache-2.0），**本机未安装** |
 
-所以 Phase C 有两种走法：用 `qwen2.5:7b` 先把链路跑通（不下载），或先拉 9B
-（6.6GB）再按项目书默认配置验。代码两条路一样，差别只在验证用的 tag。
+已定：Phase C 用 `qwen2.5:7b` 验证（本机已有，不下载），代码里的默认 tag 仍按
+项目书写 `qwen3.5:9b-q4_K_M`，两者靠配置区分，不写死在代码里。9B 等链路跑通后
+再按需拉取。
 
 ---
 
 ## 五、已裁决的冲突（沿用审计报告与 `PHASE-B.md`）
+
+下面四条与 Phase E 的两条语义冲突，2026-11-04 已确认：**保留 web 模式**（即
+`local-only` 与 web 互斥，web 下恒 `allow-cloud`）、**增加 `executionConfig`**、
+**保留 `Claim[]` 扩字段**、**`type` 扩为三值**。
 
 | 冲突 | 裁决 | 依据 |
 | --- | --- | --- |
