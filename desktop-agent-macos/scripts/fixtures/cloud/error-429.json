@@ -1,0 +1,1 @@
+{ "error": { "message": "Rate limit reached for gpt-4o-mini", "type": "tokens", "param": null, "code": "rate_limit_exceeded" } }

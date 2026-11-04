@@ -1,0 +1,6 @@
+{
+  "source": "OpenAI API Reference 的响应字段结构（chat.completion / chat.completion.chunk / GET /v1/models / 429 error）",
+  "recordedFromLiveService": false,
+  "note": "本机没有配置云端 API Key，无法真机录制。字段结构与 OpenAI 官方文档一致，但数值是文档示例值，不是真实调用结果。真机验证走 npm run test:cloud:live（需环境变量 CLOUD_API_KEY / CLOUD_BASE_URL）。",
+  "date": "2026-11-04"
+}
