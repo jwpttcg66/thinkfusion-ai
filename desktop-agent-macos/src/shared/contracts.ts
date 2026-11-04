@@ -472,12 +472,24 @@ export interface DebateCandidateView {
   detail?: string;
 }
 
+export interface CloudProviderView {
+  id: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  /** 这个服务有哪些模型不能用、为什么。界面照实显示。 */
+  note?: string;
+  hasKey: boolean;
+}
+
 export interface ExecutionOptions {
   modes: readonly ExecutionMode[];
   webChannels: Array<{ id: string; label: string }>;
   localModels: string[];
   cloudModels: string[];
   providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
+  /** 各云端服务的端点与模型（预设 + 用户覆盖）。 */
+  cloudProviders: CloudProviderView[];
   /** 辩论用的真实可用成员；health() 判出来的，不是注册表里的名字。 */
   debateCandidates: DebateCandidateView[];
 }
@@ -650,6 +662,8 @@ export interface AgentApi {
   /** 只写主进程的密文库；返回值里没有 Key。 */
   setApiKey(input: { id: string; key: string }): Promise<{ id: string; configured: boolean }>;
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
+  /** 改云端服务的端点或模型列表；不含 API Key。 */
+  setCloudConfig(input: { id: string; baseUrl?: string; models?: string[] }): Promise<CloudProviderView>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
   getUsage(): Promise<UsageSummary | null>;

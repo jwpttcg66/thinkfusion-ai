@@ -30,6 +30,7 @@ const api: AgentApi = {
   getExecutionOptions: () => ipcRenderer.invoke('app:execution-options'),
   setApiKey: (input: { id: string; key: string }) => ipcRenderer.invoke('app:set-api-key', input),
   removeApiKey: (id: string) => ipcRenderer.invoke('app:remove-api-key', id),
+  setCloudConfig: (input: { id: string; baseUrl?: string; models?: string[] }) => ipcRenderer.invoke('app:set-cloud-config', input),
   getProviderHealth: () => ipcRenderer.invoke('app:provider-health'),
   getCollaborationRecords: () => ipcRenderer.invoke('app:collaboration'),
   getUsage: () => ipcRenderer.invoke('app:usage'),

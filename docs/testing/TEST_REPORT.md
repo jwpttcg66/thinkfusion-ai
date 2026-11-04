@@ -5,12 +5,13 @@
 ## 总览
 
 ```
-npm test                319 条，全绿，0 失败
+npm test                327 条，全绿，0 失败
 npm run typecheck        干净
 npm run build            通过
 npm run test:ollama      17 条（真实录制 payload 回放）
 npm run test:ollama:live  7 条（真机 Ollama）
 npm run test:cloud        17 条（文档结构回放）
+npm run test:cloud-multi   8 条（真实 HTTP，三套端点与 Key 隔离）
 npm run test:cloud:live   3 条 skip（没有 CLOUD_API_KEY）
 npm run test:execution    13 条
 npm run test:collaboration 11 条
@@ -27,7 +28,7 @@ npm run test:scenarios    15 条（Phase K 的 17 项场景）
 | --- | --- | --- | --- |
 | 1 | Web 模式回归 | ✅ 真机 | Phase B 两轮（三通道 `51`）、Phase E/K 各一轮；删除 `failed: []`，三站侧栏无残留 |
 | 2 | Local 模式 | ✅ 真机 | Phase E 两轮，`channels/answered` 只有 `ollama:qwen2.5:7b`，回答 `46` |
-| 3 | Cloud 模式 | ⚠️ 真机未验 | 无 API Key。`getProviderHealth()` 显示「还没有配置 API Key」；`test:cloud:live` 3 条整组 skip；逻辑侧 health/429/usage/budget/重试全测 |
+| 3 | Cloud 模式 | ✅ 链路真机 / ⚠️ 真实模型未验 | 三个云端服务可配端点与模型；把 DeepSeek 端点指向本地 mock 后，混合模式 6 成员首轮发言、模型裁决给出「192 人时」；真实 DeepSeek / OpenCode 的回答质量仍待 Key |
 | 4 | Hybrid 模式 | ✅ 真机 | `19 乘 2`：`channels = [ollama:qwen2.5:7b, chatgpt, gemini, kimi]`，四个都答 `38` |
 | 5 | 多模型并行 | ✅ 真机 + 逻辑 | 同上四来源一轮完成；分批与顺序有单测 |
 | 6 | 多轮辩论 | ✅ 真机 | 三种主导方式各跑一场：`local` 只走 Ollama、`web` 3 网页 + 1 本地、`hybrid` 4 成员首轮全发言且无主辩；主导者与选人理由落盘可查；逻辑侧 standard/deep/adversarial 各轮数、后轮 context 0/1/2 全测 |

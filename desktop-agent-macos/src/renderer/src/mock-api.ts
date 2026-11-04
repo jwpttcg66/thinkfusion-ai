@@ -271,6 +271,11 @@ export function createMockApi(): AgentApi {
       webChannels: [],
       localModels: ['qwen2.5:7b'],
       cloudModels: ['gpt-4o-mini'],
+      cloudProviders: [
+        { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'], hasKey: false },
+        { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], hasKey: false },
+        { id: 'opencode', label: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/v1', models: ['deepseek-v4-flash', 'kimi-k2.6'], hasKey: false, note: '只支持走 Chat Completions 的模型' }
+      ],
       providers: [],
       debateCandidates: [
         { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
@@ -279,6 +284,7 @@ export function createMockApi(): AgentApi {
     }),
     setApiKey: async ({ id }) => ({ id, configured: true }),
     removeApiKey: async id => ({ id, configured: false }),
+    setCloudConfig: async ({ id, baseUrl, models }) => ({ id, label: id, baseUrl: baseUrl ?? '', models: models ?? [], hasKey: false }),
     getProviderHealth: async () => ({}),
     getCollaborationRecords: async () => [],
     getUsage: async () => null,

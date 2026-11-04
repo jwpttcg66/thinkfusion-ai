@@ -58,7 +58,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [configDrafts, setConfigDrafts] = useState<Record<string, { baseUrl: string; models: string }>>({});
   const [debateQuestion, setDebateQuestion] = useState('');
   const [debateStrategy, setDebateStrategy] = useState<NonNullable<DebateConfigInput['strategy']>>('standard');
   const [debateRounds, setDebateRounds] = useState(2);
@@ -117,7 +118,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   }
 
   const isWeb = config.executionMode === 'web';
-  const cloudProvider = options?.providers.find(item => item.type === 'cloud');
+
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
   const candidates = options?.debateCandidates ?? [];
@@ -220,22 +221,50 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               )}
               <p className="muted">不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。</p>
 
-              <h3>云端 API Key</h3>
-              <div className="research-row">
-                <input
-                  type="password"
-                  placeholder={cloudProvider?.hasKey ? '已配置，输入新值可替换' : 'sk-…'}
-                  value={apiKey}
-                  onChange={event => setApiKey(event.target.value)}
-                />
-                <button className="btn" type="button" disabled={busy || !apiKey.trim() || !cloudProvider}
-                  onClick={() => void run(async () => {
-                    await window.agentAPI.setApiKey({ id: cloudProvider!.id, key: apiKey });
-                    setApiKey('');
-                  })}>保存</button>
-                <button className="btn ghost" type="button" disabled={busy || !cloudProvider?.hasKey}
-                  onClick={() => void run(() => window.agentAPI.removeApiKey(cloudProvider!.id))}>移除</button>
-              </div>
+              <h3>云端服务</h3>
+              <p className="muted">每个服务的端点和模型都能改。云厂商改模型名比改文档还快，写死会在某天开始报 404；改完立刻生效，重启也保留。</p>
+              {options?.cloudProviders.map(item => {
+                const draft = configDrafts[item.id] ?? { baseUrl: item.baseUrl, models: item.models.join(', ') };
+                return (
+                  <div key={item.id} className="research-cloud">
+                    <div className="research-row">
+                      <b>{item.label}</b>
+                      <span className={`research-tag${item.hasKey ? ' ok' : ''}`}>{item.hasKey ? '已配置 Key' : '未配置 Key'}</span>
+                    </div>
+                    {item.note && <p className="muted">{item.note}</p>}
+                    <div className="research-row">
+                      <span>端点</span>
+                      <input value={draft.baseUrl}
+                        onChange={event => setConfigDrafts(prev => ({ ...prev, [item.id]: { ...draft, baseUrl: event.target.value } }))} />
+                      <span>模型</span>
+                      <input value={draft.models} placeholder="逗号分隔"
+                        onChange={event => setConfigDrafts(prev => ({ ...prev, [item.id]: { ...draft, models: event.target.value } }))} />
+                      <button className="btn ghost" type="button" disabled={busy}
+                        onClick={() => void run(async () => {
+                          await window.agentAPI.setCloudConfig({
+                            id: item.id,
+                            baseUrl: draft.baseUrl,
+                            models: draft.models.split(/[,，\n]/).map(value => value.trim()).filter(Boolean)
+                          });
+                          setConfigDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                        })}>保存</button>
+                    </div>
+                    <div className="research-row">
+                      <span>API Key</span>
+                      <input type="password" placeholder={item.hasKey ? '已配置，输入新值可替换' : '粘贴 API Key'}
+                        value={keyDrafts[item.id] ?? ''}
+                        onChange={event => setKeyDrafts(prev => ({ ...prev, [item.id]: event.target.value }))} />
+                      <button className="btn" type="button" disabled={busy || !(keyDrafts[item.id] ?? '').trim()}
+                        onClick={() => void run(async () => {
+                          await window.agentAPI.setApiKey({ id: item.id, key: keyDrafts[item.id] });
+                          setKeyDrafts(prev => ({ ...prev, [item.id]: '' }));
+                        })}>保存 Key</button>
+                      <button className="btn ghost" type="button" disabled={busy || !item.hasKey}
+                        onClick={() => void run(() => window.agentAPI.removeApiKey(item.id))}>移除</button>
+                    </div>
+                  </div>
+                );
+              })}
               <p className="muted">Key 只存主进程的系统加密区，界面上只看得到「已配置 / 未配置」，不会回显。</p>
             </>
           )}

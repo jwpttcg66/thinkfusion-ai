@@ -41,6 +41,8 @@ import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
 import { normalizeDebateConfig } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate } from './debate/lead';
+import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset, type CloudPreset } from './providers/cloud-presets';
+import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
@@ -289,13 +291,50 @@ const providerRegistry = new ProviderRegistry();
 let apiKeys: ApiKeyStore | null = null;
 let extraAgents: ProviderBackedSubAgent[] = [];
 const LOCAL_MODELS = ['qwen2.5:7b'];
-const CLOUD_MODELS = ['gpt-4o-mini'];
 let collaborationRecords: CollaborationRecord[] = [];
-let cloudProvider: OpenAICompatibleProvider | null = null;
+let cloudConfigs: CloudConfigStore | null = null;
+/** 当前生效的云端清单（预设 + 用户覆盖）。界面、成员、裁决都读它。 */
+let cloudCatalog: CloudPreset[] = [];
+let cloudProviders: OpenAICompatibleProvider[] = [];
 let debates: DebateOrchestrator | null = null;
-let judge: JudgeEngine | null = null;
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
+
+/**
+ * 合并多个云端 Provider 的用量。
+ *
+ * 分开求和而不是取第一个：用户可能同时配了 DeepSeek 和 OpenCode，只看第一个
+ * 会让预算显示偏低一半。`cost` 按币种分组，不同币种不能相加。
+ */
+function mergedUsage(): {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cost: Array<{ currency: string; amount: number }>;
+  unknownUsageCalls: number;
+} | null {
+  const summaries = cloudProviders.map(provider => provider.usageSummary()).filter(Boolean);
+  if (summaries.length === 0) return null;
+  const cost = new Map<string, number>();
+  let calls = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let unknownUsageCalls = 0;
+  for (const summary of summaries) {
+    calls += summary.calls;
+    inputTokens += summary.inputTokens;
+    outputTokens += summary.outputTokens;
+    unknownUsageCalls += summary.unknownUsageCalls;
+    for (const item of summary.cost) cost.set(item.currency, (cost.get(item.currency) ?? 0) + item.amount);
+  }
+  return {
+    calls,
+    inputTokens,
+    outputTokens,
+    cost: [...cost.entries()].map(([currency, amount]) => ({ currency, amount })),
+    unknownUsageCalls
+  };
+}
 
 /**
  * Rebuild the agent pool from the sources that are switched on.
@@ -348,22 +387,33 @@ function rebuildProviders() {
   const providers: ModelProvider[] = [];
   for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
   providers.push(new OllamaProvider({ defaultModel: LOCAL_MODELS[0] }));
-  cloudProvider = null;
+  cloudCatalog = [];
+  cloudProviders = [];
   if (apiKeys) {
-    cloudProvider = new OpenAICompatibleProvider({
-        id: 'openai',
-        label: 'OpenAI 兼容 API',
-        models: CLOUD_MODELS,
-        defaultModel: CLOUD_MODELS[0],
-      keyStore: apiKeys
-    });
-    providers.push(cloudProvider);
+    for (const preset of CLOUD_PRESETS) {
+      const resolved = resolvePreset(preset, cloudConfigs?.get(preset.id));
+      cloudCatalog.push(resolved);
+      const provider = new OpenAICompatibleProvider({
+        id: resolved.id,
+        label: resolved.label,
+        baseUrl: resolved.baseUrl,
+        models: resolved.models,
+        defaultModel: resolved.models[0],
+        keyStore: apiKeys
+      });
+      cloudProviders.push(provider);
+      providers.push(provider);
+    }
   }
   providerRegistry.replaceAll(providers);
   extraAgents = [];
   for (const provider of providers) {
     if (provider.type === 'web') continue;
-    const models = provider.type === 'local' ? LOCAL_MODELS : CLOUD_MODELS;
+    // 本地模型的候选来自 Ollama 的配置常量；云端用刚才解析出的清单，
+    // 不再有任何一处硬编码的 CLOUD_MODELS。
+    const models = provider.type === 'local'
+      ? LOCAL_MODELS
+      : cloudCatalog.find(item => item.id === provider.id)?.models ?? [];
     for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
   }
 }
@@ -1509,7 +1559,16 @@ function registerIpc() {
       modes: ['web', 'local', 'cloud', 'hybrid'] as const,
       webChannels: registry.list().map(agent => ({ id: agent.id, label: agent.label })),
       localModels: LOCAL_MODELS,
-      cloudModels: CLOUD_MODELS,
+      // 保留旧字段：所有云端模型的合集，老调用方不用改。
+      cloudModels: cloudCatalog.flatMap(item => item.models),
+      cloudProviders: cloudCatalog.map(item => ({
+        id: item.id,
+        label: item.label,
+        baseUrl: item.baseUrl,
+        models: item.models,
+        note: item.note,
+        hasKey: apiKeys?.has(item.id) ?? false
+      })),
       providers: providerRegistry.list().map(provider => ({
         id: provider.id,
         label: provider.label,
@@ -1531,6 +1590,36 @@ function registerIpc() {
     apiKeys.set(input.id, input.key);
     rebuildProviders();
     return { id: input.id, configured: true };
+  });
+
+  /**
+   * 改云端服务的 baseUrl / 模型列表。Key 不在这里——它只走 set-api-key，
+   * 两件事分开，读配置不需要解密。
+   */
+  ipcMain.handle('app:set-cloud-config', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!cloudConfigs) throw new Error('设置还没有准备好');
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { id?: unknown; baseUrl?: unknown; models?: unknown };
+    if (typeof input.id !== 'string' || !presetOf(input.id)) throw new Error('未知的云端服务');
+    const patch: { baseUrl?: string; models?: string[] } = {};
+    if (input.baseUrl !== undefined) {
+      if (typeof input.baseUrl !== 'string' || !/^https?:\/\//.test(input.baseUrl.trim())) {
+        throw new Error('baseUrl 必须是 http(s) 地址');
+      }
+      patch.baseUrl = input.baseUrl.trim();
+    }
+    if (input.models !== undefined) {
+      const models = normalizeModels(input.models);
+      if (models.length === 0) throw new Error('至少保留一个模型');
+      patch.models = models;
+    }
+    cloudConfigs.set(input.id, patch);
+    rebuildProviders();
+    const resolved = cloudCatalog.find(item => item.id === input.id);
+    return resolved
+      ? { id: resolved.id, baseUrl: resolved.baseUrl, models: resolved.models, hasKey: apiKeys?.has(resolved.id) ?? false }
+      : { id: input.id, baseUrl: patch.baseUrl ?? '', models: patch.models ?? [], hasKey: false };
   });
 
   ipcMain.handle('app:remove-api-key', (event, id: unknown) => {
@@ -1656,10 +1745,26 @@ function registerIpc() {
 
   ipcMain.handle('judge:adjudicate', async (event, debateId: unknown) => {
     trustedUiSender(event);
-    if (!judge || !debates || !verdicts || typeof debateId !== 'string') throw new Error('裁决还没有准备好');
+    if (!debates || !verdicts || typeof debateId !== 'string') throw new Error('裁决还没有准备好');
     const state = debates.get(debateId);
     if (!state) throw new Error('找不到这场辩论');
-    const verdict = await judge.judge(state);
+
+    // 裁决模型每次现选，不在启动时定死：用户可能刚配好 Key、刚改完模型名。
+    // 优先选**没参加这一场**的云端模型（独立裁决）；只剩参辩模型时按决策 5
+    // 允许兼任，但必须标 sharedWith，让人知道它既当运动员又当裁判。
+    const askAgent = (agentId: string, task: Parameters<ProviderBackedSubAgent['ask']>[0]) => {
+      const extra = extraAgents.find(agent => agent.id === agentId);
+      return extra ? extra.ask(task) : registry.ask(agentId, task);
+    };
+    const cloud = (await debateCandidates()).filter(item => item.type === 'cloud' && item.available);
+    const independent = cloud.find(item => !state.plan.participants.includes(item.id));
+    const pick = independent ?? cloud.find(item => state.plan.participants.includes(item.id));
+    const engine = new JudgeEngine(pick ? {
+      ask: askAgent,
+      judgeAgentId: pick.id,
+      sharedWith: state.plan.participants.includes(pick.id) ? pick.id : undefined
+    } : {});
+    const verdict = await engine.judge(state);
     verdicts.save(verdict);
     if (state.conversationId) verdictByConversation.set(state.conversationId, verdict);
     return verdict;
@@ -1671,10 +1776,10 @@ function registerIpc() {
     return verdicts.get(debateId);
   });
 
-  /** 预算统计：只有云端 Provider 有 token/费用，没有配置时返回 null。 */
+  /** 预算统计：多云端 Provider 的用量合并；一个都没配时返回 null。 */
   ipcMain.handle('app:usage', event => {
     trustedUiSender(event);
-    return cloudProvider?.usageSummary() ?? null;
+    return mergedUsage();
   });
 
   ipcMain.handle('app:sources', event => {
@@ -1852,6 +1957,7 @@ app.whenReady().then(async () => {
   // views to create, and a source the user switched off must not be one of them.
   sourceStore = new SourceStore(path.join(app.getPath('userData'), 'sources.json'));
   apiKeys = new ApiKeyStore({ file: path.join(app.getPath('userData'), 'api-keys.json') });
+  cloudConfigs = new CloudConfigStore(path.join(app.getPath('userData'), 'cloud-config.json'));
   applyStored(sourceStore.all());
   activeSourceId = sources.find(source => source.enabled)?.id ?? activeSourceId;
   rebuildChannels();
@@ -1860,11 +1966,6 @@ app.whenReady().then(async () => {
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
 
   verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
-  // 本机只有一个本地模型、云端没有 Key，没有独立于参辩者的模型可用。
-  // 决策 5 允许兼任，但那会既当运动员又当裁判；这里宁可用规则版并如实
-  // 标 backend='rules'，也不假装有一份独立裁决。将来有独立模型时给
-  // JudgeEngine 传 ask + judgeAgentId 即可切到 model 后端。
-  judge = new JudgeEngine({});
 
   debates = new DebateOrchestrator(new DebateStore(path.join(app.getPath('userData'), 'debates')), {
     ask: (agentId, task) => {

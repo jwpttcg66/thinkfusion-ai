@@ -2627,3 +2627,9 @@ button:disabled {
 .research-candidate.off { opacity: .55; }
 .diag-lead { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); }
 .diag-lead p { margin: 4px 0 0; }
+
+/* 云端服务：每个服务一块，配置和 Key 分开，避免把「保存」理解成两件事一起。 */
+.research-cloud { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.research-cloud .research-row { margin: 6px 0; }
+.research-cloud .research-row > span:first-child { min-width: 56px; }
+.research-tag.ok { background: #e7f6ec; color: #1d6b39; }
