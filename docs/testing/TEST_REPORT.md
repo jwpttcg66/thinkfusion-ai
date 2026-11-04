@@ -5,7 +5,7 @@
 ## 总览
 
 ```
-npm test                306 条，全绿，0 失败
+npm test                319 条，全绿，0 失败
 npm run typecheck        干净
 npm run build            通过
 npm run test:ollama      17 条（真实录制 payload 回放）
@@ -15,6 +15,7 @@ npm run test:cloud:live   3 条 skip（没有 CLOUD_API_KEY）
 npm run test:execution    13 条
 npm run test:collaboration 11 条
 npm run test:debate       13 条
+npm run test:debate-lead  13 条（三种主导方式）
 npm run test:judge        14 条
 npm run test:fusion       11 条
 npm run test:scenarios    15 条（Phase K 的 17 项场景）
@@ -29,7 +30,7 @@ npm run test:scenarios    15 条（Phase K 的 17 项场景）
 | 3 | Cloud 模式 | ⚠️ 真机未验 | 无 API Key。`getProviderHealth()` 显示「还没有配置 API Key」；`test:cloud:live` 3 条整组 skip；逻辑侧 health/429/usage/budget/重试全测 |
 | 4 | Hybrid 模式 | ✅ 真机 | `19 乘 2`：`channels = [ollama:qwen2.5:7b, chatgpt, gemini, kimi]`，四个都答 `38` |
 | 5 | 多模型并行 | ✅ 真机 + 逻辑 | 同上四来源一轮完成；分批与顺序有单测 |
-| 6 | 多轮辩论 | ⚠️ 真机未跑 | 本机只有一个本地模型、云端无 Key，`eligible()` 后不足两成员。逻辑侧 standard/deep/adversarial 各轮数、后轮 context 0/1/2 全测 |
+| 6 | 多轮辩论 | ✅ 真机 | 三种主导方式各跑一场：`local` 只走 Ollama、`web` 3 网页 + 1 本地、`hybrid` 4 成员首轮全发言且无主辩；主导者与选人理由落盘可查；逻辑侧 standard/deep/adversarial 各轮数、后轮 context 0/1/2 全测 |
 | 7 | 模型中途失败 | ✅ 逻辑 | 失败成员重试一次，其余照常完成；彻底失败记 unanswered |
 | 8 | 网络中断 | ✅ 逻辑 | `OllamaProvider` fetch 抛错 → `unavailable`，不抛裸错 |
 | 9 | Ollama 退出 | ✅ 逻辑 | `health().available=false`，detail 指向 `ollama serve` |
@@ -52,6 +53,10 @@ npm run test:scenarios    15 条（Phase K 的 17 项场景）
 - Phase E 两轮：`failed: []`，应用侧 0 条。
 - Phase K Hybrid：重启恢复后删除，`cleaned = [chatgpt, kimi, gemini]`、
   `failed: []`，应用侧 0 条，三站侧栏都无 `TF-K-HYBRID` 标记。
+- 三种主导模式辩论：每场结束用 `debate:cleanup-web` 按 `threadUrl` 删站点侧
+  会话，`web` / `hybrid` 两场都是 `cleaned/reset = [chatgpt, kimi, gemini]`、
+  `failed: []`、`noAddress: []`；再用 `debate:remove` 删本地记录。复核应用侧
+  会话 0 条、辩论记录 0 条、三站 `innerText` 无 `TF-LEAD-*` 标记。
 - 临时脚本已清。用户自己的会话全程 0 条，一条没动。
 
 ## 真机观察到的两点（如实记录）

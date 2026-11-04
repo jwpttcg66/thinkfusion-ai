@@ -271,7 +271,11 @@ export function createMockApi(): AgentApi {
       webChannels: [],
       localModels: ['qwen2.5:7b'],
       cloudModels: ['gpt-4o-mini'],
-      providers: []
+      providers: [],
+      debateCandidates: [
+        { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
+        { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', type: 'cloud', available: false, detail: '浏览器预览里没有 API Key' }
+      ]
     }),
     setApiKey: async ({ id }) => ({ id, configured: true }),
     removeApiKey: async id => ({ id, configured: false }),
@@ -283,6 +287,8 @@ export function createMockApi(): AgentApi {
     listDebates: async () => [],
     stopDebate: async () => null,
     resumeDebate: async () => null,
+    cleanupDebateWeb: async () => ({ cleaned: [], reset: [], failed: [], noAddress: [] }),
+    removeDebate: async id => ({ id, removed: false }),
     adjudicate: async () => { throw new Error('浏览器预览里不能裁决'); },
     getVerdict: async () => null,
     onConversationEvent: () => () => undefined,

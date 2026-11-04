@@ -464,12 +464,22 @@ export interface ApprovePlanInput {
 }
 
 /** 新建对话设置页能看到的选项。刻意不含 API Key 明文或密文。 */
+export interface DebateCandidateView {
+  id: string;
+  label: string;
+  type: 'web' | 'local' | 'cloud';
+  available: boolean;
+  detail?: string;
+}
+
 export interface ExecutionOptions {
   modes: readonly ExecutionMode[];
   webChannels: Array<{ id: string; label: string }>;
   localModels: string[];
   cloudModels: string[];
   providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
+  /** 辩论用的真实可用成员；health() 判出来的，不是注册表里的名字。 */
+  debateCandidates: DebateCandidateView[];
 }
 
 /** Phase F 的子任务执行记录。放在 shared 是为了让 renderer 不依赖 main。 */
@@ -496,11 +506,44 @@ export interface JudgeVerdictView {
   fallbackReason?: string;
 }
 
+export type DebateLeadMode = 'local' | 'web' | 'hybrid';
+
 export interface DebateConfigInput {
   strategy?: 'standard' | 'deep' | 'adversarial';
   maxRounds?: number;
   participants?: string[];
   convergenceStop?: boolean;
+  /** 谁主导这一场：本地 / 网页 / 混合。 */
+  leadMode?: DebateLeadMode;
+  /** 用户指定的主辩；不传由 planLead 按模式挑。 */
+  leadAgentId?: string;
+}
+
+export interface DebateLeadView {
+  mode: DebateLeadMode;
+  agentId: string | null;
+  label: string;
+  reason: string;
+  /** 流程由代码编排，不是模型主持。 */
+  drivenBy: 'orchestrator';
+}
+
+export interface DebatePlanView {
+  reason: string;
+  warnings: string[];
+  excluded: Array<{ id: string; reason: string }>;
+  openingSpeakers: string[];
+  debaters: string[];
+  webOnly: string[];
+  participants: string[];
+}
+
+export interface DebateCleanupOutcome {
+  cleaned: string[];
+  reset: string[];
+  failed: Array<{ agentId: string; detail: string }>;
+  /** 网页成员回答了但页面没给地址，无法按地址删除，如实列出。 */
+  noAddress: string[];
 }
 
 export interface DebateMessageView {
@@ -511,6 +554,8 @@ export interface DebateMessageView {
   kind: 'position' | 'question' | 'rebuttal' | 'revision';
   text: string;
   targetMessageId?: string;
+  /** 只有网页成员有；清理网页侧会话靠它。 */
+  threadUrl?: string;
   createdAt: number;
 }
 
@@ -527,7 +572,16 @@ export interface DebateView {
   debateId: string;
   conversationId?: string;
   question: string;
-  config: Required<DebateConfigInput>;
+  config: {
+    strategy: 'standard' | 'deep' | 'adversarial';
+    maxRounds: number;
+    participants: string[];
+    convergenceStop: boolean;
+    leadMode: DebateLeadMode;
+    leadAgentId?: string;
+  };
+  lead: DebateLeadView;
+  plan: DebatePlanView;
   status: 'running' | 'completed' | 'stopped' | 'cancelled';
   rounds: DebateRoundView[];
   minorities: DebateMessageView[];
@@ -604,6 +658,8 @@ export interface AgentApi {
   listDebates(): Promise<DebateView[]>;
   stopDebate(debateId: string): Promise<DebateView | null>;
   resumeDebate(debateId: string): Promise<DebateView | null>;
+  cleanupDebateWeb(debateId: string): Promise<DebateCleanupOutcome>;
+  removeDebate(debateId: string): Promise<{ id: string; removed: boolean }>;
   adjudicate(debateId: string): Promise<JudgeVerdictView>;
   getVerdict(debateId: string): Promise<JudgeVerdictView | null>;
 

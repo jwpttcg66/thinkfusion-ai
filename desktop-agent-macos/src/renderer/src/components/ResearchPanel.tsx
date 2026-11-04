@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import type {
   CollaborationTaskRecord,
+  DebateCleanupOutcome,
   DebateConfigInput,
+  DebateLeadMode,
   DebateView,
   ExecutionOptions,
   JudgeVerdictView,
@@ -32,6 +34,12 @@ const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: st
   { id: 'hybrid', label: '混合', hint: '三类来源一起参与' }
 ];
 
+const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
+  { id: 'local', label: '本地主导', hint: '本地/云端模型给基准观点并做质疑；网页通道不参与，内容不往网页发' },
+  { id: 'web', label: '网页主导', hint: '网页通道各自独立回答原问题，本地/云端读取全部观点做交叉质疑' },
+  { id: 'hybrid', label: '混合', hint: '网页与本地/云端第一轮都独立发言，不设单一主辩，由能读上下文的成员交锋' }
+];
+
 const STRATEGIES: Array<{ id: NonNullable<ConversationExecutionConfig['strategy']>; label: string }> = [
   { id: 'smart', label: '智能（规则决定串/并）' },
   { id: 'parallel', label: '并行（分批）' },
@@ -54,6 +62,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const [debateQuestion, setDebateQuestion] = useState('');
   const [debateStrategy, setDebateStrategy] = useState<NonNullable<DebateConfigInput['strategy']>>('standard');
   const [debateRounds, setDebateRounds] = useState(2);
+  const [debateLeadMode, setDebateLeadMode] = useState<DebateLeadMode>('hybrid');
+  /** null = 还没动过，默认勾选所有当前可用成员。 */
+  const [debateSelected, setDebateSelected] = useState<string[] | null>(null);
+  const [debateLeadAgentId, setDebateLeadAgentId] = useState('');
+  const [cleanup, setCleanup] = useState<DebateCleanupOutcome | null>(null);
 
   async function load() {
     try {
@@ -105,10 +118,22 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
 
   const isWeb = config.executionMode === 'web';
   const cloudProvider = options?.providers.find(item => item.type === 'cloud');
-  const nonWebParticipants = [
-    ...(options?.localModels ?? []).map(id => `ollama:${id}`),
-    ...(options?.cloudModels ?? []).map(id => `openai:${id}`)
-  ];
+  // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
+  // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
+  const candidates = options?.debateCandidates ?? [];
+  const selectedIds = debateSelected ?? candidates.filter(item => item.available).map(item => item.id);
+  const leadChoices = candidates.filter(item => item.available && (
+    debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type !== 'web' : false
+  ));
+  const leadHint = debateLeadMode === 'hybrid'
+    ? '混合模式不设主辩：所有成员第一轮平等独立发言'
+    : debateLeadMode === 'local'
+      ? '不指定时，取第一个可用的本地模型为主辩'
+      : '不指定时，取第一个可用的网页通道为主辩';
+  function toggleCandidate(id: string) {
+    const next = selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id];
+    setDebateSelected(next);
+  }
 
   return (
     <div className="diag-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
@@ -244,7 +269,41 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
           {tab === 'debate' && (
             <>
               <h3>发起辩论</h3>
-              <p className="muted">辩论只用本地 / 云端模型：网页通道会忽略结构化指令，参与进来只是重复独立回答。至少需要两个可用成员。</p>
+              <p className="muted">流程由 DebateOrchestrator 这段代码编排，不是某个模型在主持。下面的「主导」决定的是：基准观点由谁给、其他成员围绕谁展开。</p>
+
+              <div className="research-leads">
+                {LEAD_MODES.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`research-mode${debateLeadMode === item.id ? ' on' : ''}`}
+                    onClick={() => { setDebateLeadMode(item.id); setDebateLeadAgentId(''); }}
+                  >
+                    <b>{item.label}</b>
+                    <span>{item.hint}</span>
+                  </button>
+                ))}
+              </div>
+
+              <h4>参与成员</h4>
+              <p className="muted">可用性由 health() 实时判定。不可用的成员不会混进名单，也不会在发起后被静默丢弃。</p>
+              <div className="research-candidates">
+                {candidates.length === 0 && <p className="muted">正在读取可用成员…</p>}
+                {candidates.map(item => {
+                  const blocked = !item.available || (debateLeadMode === 'local' && item.type === 'web');
+                  return (
+                    <label key={item.id} className={`research-candidate${blocked ? ' off' : ''}`} title={item.detail ?? ''}>
+                      <input type="checkbox" disabled={blocked} checked={!blocked && selectedIds.includes(item.id)}
+                        onChange={() => toggleCandidate(item.id)} />
+                      <span className="research-tag">{item.type === 'web' ? '网页' : item.type === 'local' ? '本地' : '云端'}</span>
+                      <span>{item.label}</span>
+                      {!item.available && <span className="research-tag">{item.detail ?? '不可用'}</span>}
+                      {item.available && debateLeadMode === 'local' && item.type === 'web' && <span className="research-tag">本地主导不参与</span>}
+                    </label>
+                  );
+                })}
+              </div>
+
               <div className="research-row">
                 <input value={debateQuestion} placeholder="要辩论的问题" onChange={event => setDebateQuestion(event.target.value)} />
               </div>
@@ -255,27 +314,48 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   <option value="adversarial">对抗（主张 / 质疑角色）</option>
                 </select>
                 <label>轮数 <input type="number" min={1} max={10} value={debateRounds} onChange={event => setDebateRounds(Number(event.target.value))} /></label>
-                <button className="btn" type="button" disabled={busy || !debateQuestion.trim() || nonWebParticipants.length < 2}
+                {debateLeadMode !== 'hybrid' && (
+                  <label>主辩
+                    <select value={debateLeadAgentId} onChange={event => setDebateLeadAgentId(event.target.value)}>
+                      <option value="">自动</option>
+                      {leadChoices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+                    </select>
+                  </label>
+                )}
+                <button className="btn" type="button" disabled={busy || !debateQuestion.trim() || selectedIds.length === 0}
                   onClick={() => void run(async () => {
                     const started = await window.agentAPI.startDebate({
                       question: debateQuestion,
-                      config: { strategy: debateStrategy, maxRounds: debateRounds, participants: nonWebParticipants }
+                      config: {
+                        strategy: debateStrategy,
+                        maxRounds: debateRounds,
+                        leadMode: debateLeadMode,
+                        leadAgentId: debateLeadAgentId || undefined,
+                        participants: selectedIds
+                      }
                     });
                     setSelectedDebate(started.debateId);
+                    setVerdict(null);
+                    setCleanup(null);
                   })}>开始</button>
               </div>
-              {nonWebParticipants.length < 2 && <p className="muted">当前可用成员不足两个，无法真机辩论。配置云端 Key 后可参与。</p>}
+              <p className="muted">{leadHint}。网页成员只收到用户原话，不接收任何指令，也只在第一轮发言：页面看不到别人的回答，让它每轮发言只是重复独立回答。</p>
 
               <h3>历史辩论</h3>
               {debates.length === 0 && <p className="muted">还没有辩论记录。</p>}
               {debates.map(item => (
                 <div key={item.debateId} className={`research-debate${selectedDebate === item.debateId ? ' on' : ''}`}>
                   <button type="button" className="btn ghost" onClick={() => { setSelectedDebate(item.debateId); void run(async () => setVerdict(await window.agentAPI.getVerdict(item.debateId))); }}>
-                    {item.question.slice(0, 40)} · {item.config.strategy} · {item.rounds.length} 轮 · {item.status}
+                    {item.question.slice(0, 40)} · {LEAD_MODES.find(mode => mode.id === item.config.leadMode)?.label ?? '主导未记录'} · {item.lead.label} · {item.rounds.length} 轮 · {item.status}
                   </button>
                   {item.status === 'running' && <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(() => window.agentAPI.stopDebate(item.debateId))}>停止</button>}
                   {(item.status === 'stopped' || item.status === 'cancelled') && <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(() => window.agentAPI.resumeDebate(item.debateId))}>继续</button>}
                   <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(async () => setVerdict(await window.agentAPI.adjudicate(item.debateId)))}>裁决</button>
+                  <button className="btn ghost" type="button" disabled={busy || item.status === 'running'}
+                    onClick={() => void run(async () => {
+                      await window.agentAPI.removeDebate(item.debateId);
+                      if (selectedDebate === item.debateId) { setSelectedDebate(''); setVerdict(null); setCleanup(null); }
+                    })}>删除</button>
                 </div>
               ))}
 
@@ -284,13 +364,43 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 if (!current) return null;
                 return (
                   <>
+                    <h3>本场主导</h3>
+                    <div className="diag-lead">
+                      <b>{current.lead.label} · {LEAD_MODES.find(mode => mode.id === current.lead.mode)?.label ?? '主导未记录'}</b>
+                      <p className="muted">{current.lead.reason}。流程由代码编排（{current.lead.drivenBy}），不是模型在主持。</p>
+                      <p className="muted">{current.plan.reason}</p>
+                      <p className="muted">参与成员：{current.plan.participants.join('、') || '无'}；交锋成员：{current.plan.debaters.join('、') || '无'}</p>
+                      {current.plan.excluded.length > 0 && (
+                        <p className="muted">未参与：{current.plan.excluded.map(item => `${item.id}（${item.reason}）`).join('；')}</p>
+                      )}
+                      {current.plan.warnings.length > 0 && (
+                        <div className="diag-warn">{current.plan.warnings.map((line, index) => <p key={index}>{line}</p>)}</div>
+                      )}
+                    </div>
+                    {current.plan.webOnly.length > 0 && (
+                      <div className="research-row">
+                        <button className="btn ghost" type="button" disabled={busy}
+                          onClick={() => void run(async () => setCleanup(await window.agentAPI.cleanupDebateWeb(current.debateId)))}>
+                          清理网页记录
+                        </button>
+                        <span className="muted">按发言时记下的网页地址删除这一场在各站留下的会话，并把页面移回新对话。</span>
+                      </div>
+                    )}
+                    {cleanup && (
+                      <p className="muted">
+                        已删：{cleanup.cleaned.join('、') || '无'}；已重置：{cleanup.reset.join('、') || '无'}；
+                        失败：{cleanup.failed.map(item => `${item.agentId}（${item.detail}）`).join('、') || '无'}；
+                        没有网页地址：{cleanup.noAddress.join('、') || '无'}
+                      </p>
+                    )}
+
                     <h3>时间线</h3>
                     {current.rounds.map(round => (
                       <div key={round.index} className="research-round">
                         <b>第 {round.index + 1} 轮{round.converged ? ' · 已收敛' : ''}</b>
                         {round.messages.map(message => (
                           <div key={message.messageId} className="research-message">
-                            <span className="research-tag">{message.agentId} / {message.kind}</span>
+                            <span className="research-tag">{message.agentId} / {message.role} / {message.kind}{message.threadUrl ? ' / 有网页会话' : ''}</span>
                             <p>{message.text}</p>
                           </div>
                         ))}

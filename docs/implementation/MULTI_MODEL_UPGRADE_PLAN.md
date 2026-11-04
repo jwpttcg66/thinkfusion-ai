@@ -21,11 +21,11 @@
 | D Cloud | OpenAI 兼容 + key 安全存储 + token/费用 | **已完成**：`openai-compatible.ts` `secrets.ts` + 17 条测试，见 `PHASE-D.md` | 真机未验（无 API Key）；接线与 UI 已在 E/J 完成 |
 | E 执行模式 | 4 模式 + 对话级配置 + 隐私 | **已完成**：`execution/` 三件套 + runner/index/IPC 接线 + 13 条测试 + 两轮真机，见 `PHASE-E.md` | cloud 模式真机未验（无 Key）；UI 已在 J 完成 |
 | F Hybrid | Smart / Parallel / All / Sequential | **已完成**：`collaboration/` 策略与执行器 + 11 条测试，见 `PHASE-F.md` | 真机 sequential 未跑；Token 闸门已在 K、时间线 UI 已在 J 完成 |
-| G 辩论 | 3 策略 + 角色 + 自动停止 + 恢复 | **已完成**：`debate/` 三件套 + 独立文件存储 + 13 条测试，见 `PHASE-G.md` | 真机辩论未跑（可用成员不足 2）；UI 已在 J 完成 |
+| G 辩论 | 3 策略 + 角色 + 自动停止 + 恢复 | **已完成**：`debate/` + 13 条测试 + 三种主导方式（`lead.ts`、13 条 `test:debate-lead`）与真机三场，见 `PHASE-G.md` / `DEBATE_LEAD_MODES.md` | Cloud 真机未验（无 Key）；`local` 主导本机只能自辩 |
 | H Judge | 独立裁决 + 少数派保护 | **已完成**：`judge/` 三件套 + 14 条测试，见 `PHASE-H.md` | 本机无独立模型，接线用规则版并如实标记 |
 | I Synthesis | 保留现有 + 6 项新增 | **已完成**：补齐 evidence/ranker/engine、接线 11 条测试，见 `PHASE-I.md` | 远程后端未实现（本轮只做本地）；关系图 UI 未做 |
 | J UI | 9 项 | **已完成**：`ResearchPanel` 四 tab + 设置栏 + `app:usage`，真机 CDP 验证，见 `PHASE-J.md` | 辩论做成独立面板而非提问开关（决策 2） |
-| K 测试 | 17 项场景 + 4 份报告 | **已完成**：15 条场景测试 + 四份 `docs/testing/` 报告；`npm test` 306 条全绿，真机 Hybrid / 重启恢复 / 清理均通过 | Cloud 与真机辩论未验（无 Key / 成员不足 2） |
+| K 测试 | 17 项场景 + 4 份报告 | **已完成**：15 条场景测试 + 四份 `docs/testing/` 报告；`npm test` 319 条全绿，真机 Hybrid / 重启恢复 / 三种主导模式辩论 / 清理均通过 | Cloud 真机未验（无 Key） |
 
 ---
 

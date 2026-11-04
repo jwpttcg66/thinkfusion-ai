@@ -39,6 +39,8 @@ import { selectParticipants } from './execution/policy';
 import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
+import { normalizeDebateConfig } from './debate/types';
+import { normalizeLeadMode, planLead, type DebateCandidate } from './debate/lead';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
@@ -364,6 +366,31 @@ function rebuildProviders() {
     const models = provider.type === 'local' ? LOCAL_MODELS : CLOUD_MODELS;
     for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
   }
+}
+
+/**
+ * 辩论候选：逐个问 health()，不用「注册表里有这个名字」冒充可用。
+ *
+ * Phase G 的 eligible 只看 extraAgents 里有没有这个 id，于是没配 Key 的
+ * openai:gpt-4o-mini 也被算成可用成员，界面能发起、实际每轮都失败，
+ * 一场双边辩论静默变成单边。这里把真实原因（detail）一并交给界面。
+ */
+async function debateCandidates(): Promise<DebateCandidate[]> {
+  const entries: Array<{ id: string; label: string; type: DebateCandidate['type']; health: () => Promise<{ available: boolean; detail?: string }> }> = [
+    ...registry.list().map(agent => ({ id: agent.id, label: agent.label, type: 'web' as const, health: () => agent.health() })),
+    ...extraAgents.map(agent => ({ id: agent.id, label: agent.label, type: agent.sourceType, health: () => agent.health() }))
+  ];
+  return Promise.all(entries.map(async entry => {
+    try {
+      const status = await entry.health();
+      return { id: entry.id, label: entry.label, type: entry.type, available: status.available, detail: status.detail };
+    } catch (error) {
+      return {
+        id: entry.id, label: entry.label, type: entry.type, available: false,
+        detail: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }));
 }
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
@@ -1476,7 +1503,7 @@ function registerIpc() {
 
 
   /** 设置页 / 新建对话用的选项。绝不包含 API Key 明文或密文。 */
-  ipcMain.handle('app:execution-options', event => {
+  ipcMain.handle('app:execution-options', async event => {
     trustedUiSender(event);
     return {
       modes: ['web', 'local', 'cloud', 'hybrid'] as const,
@@ -1488,7 +1515,8 @@ function registerIpc() {
         label: provider.label,
         type: provider.type,
         hasKey: apiKeys?.has(provider.id) ?? false
-      }))
+      })),
+      debateCandidates: await debateCandidates()
     };
   });
 
@@ -1524,13 +1552,29 @@ function registerIpc() {
     return collaborationRecords;
   });
 
-  ipcMain.handle('debate:start', (event, raw: unknown) => {
+  ipcMain.handle('debate:start', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!debates || !raw || typeof raw !== 'object') throw new Error('辩论还没有准备好');
     const input = raw as { question?: unknown; config?: unknown; conversationId?: unknown };
     if (typeof input.question !== 'string' || !input.question.trim()) throw new Error('先写一句要辩论的问题');
-    return debates.start(input.question, (input.config ?? {}) as Record<string, unknown>,
-      typeof input.conversationId === 'string' ? input.conversationId : undefined);
+    const rawConfig = (input.config ?? {}) as Record<string, unknown>;
+    const selected = Array.isArray(rawConfig.participants) && rawConfig.participants.length > 0
+      ? rawConfig.participants.filter((id): id is string => typeof id === 'string')
+      : undefined;
+    const plan = planLead({
+      mode: normalizeLeadMode(rawConfig.leadMode),
+      strategy: normalizeDebateConfig(rawConfig).strategy,
+      candidates: await debateCandidates(),
+      selected,
+      leadAgentId: typeof rawConfig.leadAgentId === 'string' ? rawConfig.leadAgentId : undefined
+    });
+    // 网页成员要提问就得先给页面一个干净的会话：否则会追进用户正在看的
+    // 那条对话里，测试题混进历史，事后也无法按 threadUrl 精确删除。
+    for (const agentId of plan.webOnly) {
+      try { await registry.newConversation(agentId); } catch { /* 页面没准备好时由 ask 如实报错 */ }
+    }
+    return debates.start(input.question, rawConfig,
+      typeof input.conversationId === 'string' ? input.conversationId : undefined, plan);
   });
 
   ipcMain.handle('debate:get', (event, id: unknown) => {
@@ -1554,6 +1598,60 @@ function registerIpc() {
     trustedUiSender(event);
     if (!debates || typeof id !== 'string') throw new Error('无效输入');
     return debates.resume(id);
+  });
+
+  /**
+   * 清理某场辩论在网页侧留下的会话。辩论是独立子系统，不往 Conversation
+   * 登记，所以不能用 deleteConversation；地址存在每条发言的 threadUrl 上。
+   * 没有地址的成员会如实列在 noAddress 里，不假装已经删掉。
+   */
+  ipcMain.handle('debate:cleanup-web', async (event, debateId: unknown) => {
+    trustedUiSender(event);
+    if (!debates || typeof debateId !== 'string') throw new Error('无效输入');
+    const state = debates.get(debateId);
+    if (!state) throw new Error('找不到这场辩论');
+    const webIds = state.plan.webOnly;
+    const addresses = new Map<string, string>();
+    for (const round of state.rounds) {
+      for (const message of round.messages) {
+        if (message.threadUrl && webIds.includes(message.agentId)) {
+          addresses.set(message.agentId, message.threadUrl);
+        }
+      }
+    }
+    const cleaned: string[] = [];
+    const reset: string[] = [];
+    const failed: Array<{ agentId: string; detail: string }> = [];
+    for (const agentId of webIds) {
+      const threadUrl = addresses.get(agentId);
+      if (threadUrl) {
+        try {
+          const result = await registry.deleteConversation(agentId, threadUrl);
+          if (result.ok) cleaned.push(agentId);
+          else failed.push({ agentId, detail: result.detail ?? '网页侧删除失败' });
+        } catch (error) {
+          failed.push({ agentId, detail: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      try {
+        const moved = await registry.newConversation(agentId);
+        if (moved.ok) reset.push(agentId);
+      } catch { /* 页面暂时不可用，下一轮 reset 会再试 */ }
+    }
+    return {
+      cleaned, reset, failed,
+      noAddress: webIds.filter(id => !addresses.has(id))
+    };
+  });
+
+  /** 删除一场辩论的本地记录。正在跑的不让删，避免后台 run 又写回来。 */
+  ipcMain.handle('debate:remove', (event, debateId: unknown) => {
+    trustedUiSender(event);
+    if (!debates || typeof debateId !== 'string') throw new Error('无效输入');
+    const state = debates.get(debateId);
+    if (state?.status === 'running') throw new Error('先停止这场辩论再删除');
+    debates.remove(debateId);
+    return { id: debateId, removed: true };
   });
 
   ipcMain.handle('judge:adjudicate', async (event, debateId: unknown) => {
@@ -1773,8 +1871,8 @@ app.whenReady().then(async () => {
       const extra = extraAgents.find(agent => agent.id === agentId);
       return extra ? extra.ask(task) : registry.ask(agentId, task);
     },
-    // 网页通道会忽略 system 指令，让它参与辩论只是重复独立回答，不算交锋。
-    eligible: ids => ids.filter(id => extraAgents.some(agent => agent.id === id))
+    // 谁参与由 debate:start 里的 planLead 按 health() 决定，编排器不再
+    // 维护第二套名单。网页成员在计划里被标成 webOnly，只第一轮发言。
   });
 
   tasks = new TaskManager(store, emit);

@@ -2618,3 +2618,12 @@ button:disabled {
 .research-tag { font-size: 10px; color: var(--muted, #777); }
 .research-bar { display: flex; align-items: center; gap: 10px; padding: 0 2px 6px; font-size: 11px; }
 .research-private { padding: 1px 6px; border-radius: 10px; background: #e7f6ec; color: #1d6b39; }
+
+/* 辩论主导方式：三个并列卡片，选中的那个要有明确边框，不靠颜色独断。 */
+.research-leads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 14px; }
+.research-leads .research-mode { min-height: 68px; }
+.research-candidates { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.research-candidate { display: flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 11px; }
+.research-candidate.off { opacity: .55; }
+.diag-lead { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); }
+.diag-lead p { margin: 4px 0 0; }

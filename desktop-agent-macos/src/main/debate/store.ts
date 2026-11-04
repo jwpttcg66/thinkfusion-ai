@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeFileAtomic } from '../atomic-write';
-import type { DebateState } from './types';
+import { LEGACY_LEAD, LEGACY_PLAN, type DebateState } from './types';
 
 /**
  * 辩论记录独立成文件，**不进主 journal**。
@@ -31,7 +31,15 @@ export class DebateStore {
 
   get(id: string): DebateState | null {
     try {
-      return JSON.parse(fs.readFileSync(this.file(id), 'utf8')) as DebateState;
+      const state = JSON.parse(fs.readFileSync(this.file(id), 'utf8')) as DebateState;
+      // 主导模式上线之前的文件没有 lead / plan。读的时候补齐，但不写回盘：
+      // 一次只读不该产生写入，也不该把「未记录」伪装成某个真实模式。
+      return {
+        ...state,
+        lead: state.lead ?? LEGACY_LEAD,
+        plan: state.plan ?? LEGACY_PLAN,
+        config: { ...state.config, leadMode: state.config.leadMode ?? 'hybrid' }
+      };
     } catch {
       return null;
     }

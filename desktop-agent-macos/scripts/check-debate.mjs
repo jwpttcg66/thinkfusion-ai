@@ -50,7 +50,8 @@ const config = (overrides = {}) => ({
 
 test('配置收敛：非法策略/轮数退回默认，参与成员过滤非字符串', () => {
   assert.deepEqual(normalizeDebateConfig({}), {
-    strategy: 'standard', maxRounds: DEFAULT_ROUNDS.standard, participants: [], convergenceStop: true
+    strategy: 'standard', maxRounds: DEFAULT_ROUNDS.standard, participants: [], convergenceStop: true,
+    leadMode: 'hybrid', leadAgentId: undefined
   });
   assert.equal(normalizeDebateConfig({ strategy: 'nope' }).strategy, 'standard');
   assert.equal(normalizeDebateConfig({ strategy: 'deep', maxRounds: 99 }).maxRounds, 3);

@@ -41,7 +41,7 @@ Phase K 的 Hybrid 真机（4 个来源：1 本地 + 3 网页）一轮达到 `an
 ## 构建与测试
 
 ```
-npm test        306 条，0 失败（未记录总耗时）
+npm test        319 条，0 失败（未记录总耗时）
 typecheck       通过
 build           通过（renderer 一次约 0.5s，未做完整计时）
 ```

@@ -3,6 +3,16 @@ import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { DebateStore } from './store';
 import {
+  kindFor,
+  normalizeLeadMode,
+  planLead,
+  roleFor as roleForPlan,
+  speakersFor,
+  type DebateCandidate,
+  type DebateLead,
+  type LeadPlan
+} from './lead';
+import {
   normalizeDebateConfig,
   type DebateConfig,
   type DebateMessage,
@@ -25,6 +35,11 @@ export interface DebateDeps {
   now?: () => number;
   /** 单场辩论的成员名单，由调用方按 Provider 能力决定。 */
   eligible?: (agentIds: readonly string[]) => string[];
+  /**
+   * 当前真正可用的成员（含类型与不可用的原因）。主进程用 health() 算好，
+   * 同步喂进来；不传时按 participants 全是可用的本地成员兜底，老测试照跑。
+   */
+  candidates?: () => readonly DebateCandidate[];
 }
 
 const SIMILAR = 0.34;
@@ -47,20 +62,45 @@ export class DebateOrchestrator {
     return this.deps.now ?? Date.now;
   }
 
-  /** 立即返回 running 状态，执行在后台；UI 靠 get() 轮询、stop() 中止。 */
-  start(question: string, configInput: Partial<DebateConfig>, conversationId?: string): DebateState {
+  /**
+   * 立即返回 running 状态，执行在后台；UI 靠 get() 轮询、stop() 中止。
+   *
+   * `plan` 由主进程算好传进来：谁此刻真的可用、谁主导，需要 health() 这类
+   * 运行时信息，不该由编排器猜。不传时按 participants 全是可用的本地成员
+   * 兜底，纯逻辑测试照跑。
+   */
+  start(
+    question: string,
+    configInput: Partial<DebateConfig>,
+    conversationId?: string,
+    plan?: LeadPlan
+  ): DebateState {
     const config = normalizeDebateConfig(configInput);
-    // 只留能接受 system 指令的成员：网页通道会把指令丢掉，让它参与辩论
-    // 只会得到一遍又一遍对原问题的独立回答，看起来像辩论其实没有交锋。
-    const participants = this.deps.eligible?.(config.participants) ?? config.participants;
-    if (participants.length < 2) throw new Error('辩论至少需要两个参与成员');
-    const effectiveConfig: DebateConfig = { ...config, participants };
+    const candidates = this.deps.candidates?.() ?? config.participants.map(id => ({
+      id, label: id, type: 'local' as const, available: true
+    }));
+    const selection = this.deps.eligible?.(config.participants) ?? config.participants;
+    const effectivePlan = plan ?? planLead({
+      mode: normalizeLeadMode(config.leadMode),
+      strategy: config.strategy,
+      candidates,
+      selected: selection,
+      leadAgentId: config.leadAgentId
+    });
+    // local 主导在本机只有一个模型时允许自辩（同一模型分饰质疑与修正），
+    // 并在 plan.warnings 里如实写明；其余模式仍要求两个不同成员。
+    if (effectivePlan.participants.length < 2 && effectivePlan.lead.mode !== 'local') {
+      throw new Error('辩论至少需要两个参与成员');
+    }
+    const effectiveConfig: DebateConfig = { ...config, participants: [...effectivePlan.participants] };
     const at = this.now();
     const state: DebateState = {
       debateId: randomUUID(),
       conversationId,
       question,
       config: effectiveConfig,
+      lead: effectivePlan.lead,
+      plan: effectivePlan,
       status: 'running',
       rounds: [],
       minorities: [],
@@ -79,6 +119,12 @@ export class DebateOrchestrator {
 
   list(): DebateState[] {
     return this.store.list();
+  }
+
+  remove(debateId: string): void {
+    this.stopped.add(debateId);
+    this.generation.delete(debateId);
+    this.store.remove(debateId);
   }
 
   stop(debateId: string): DebateState | null {
@@ -187,18 +233,25 @@ export class DebateOrchestrator {
     };
     const previous = state.rounds.at(-1)?.messages ?? [];
     const context = previous.map(message => message.text);
-    const kind: DebateMessageKind = index === 0 ? 'position' : index === 1 ? 'question' : 'revision';
+    const kind: DebateMessageKind = kindFor(index);
+    const speakers = speakersFor(state.plan, index);
 
     const results = await Promise.all(
-      state.config.participants.map(async (agentId, position) => {
-        const role = roleFor(state.config.strategy, position, kind);
-        const targetMessageId = previous.find(message => message.agentId !== agentId)?.messageId;
+      speakers.map(async agentId => {
+        const role = roleForPlan(state.plan, agentId, index, state.config.strategy);
+        // 自辩（本机只有一个本地模型）时上一轮全是自己的发言，也得有个
+        // 明确的质疑对象，否则 targetMessageId 悄悄变 undefined。
+        const targetMessageId =
+          previous.find(message => message.agentId !== agentId)?.messageId ?? previous[0]?.messageId;
+        const isWebOnly = state.plan.webOnly.includes(agentId);
         const task: SubAgentTask = {
           // 用户问题原样。质疑/修正的对象走 context，指令走 system。
+          // 网页成员两项都不给：页面收到的只有这一句原话，页面上不会出现
+          // 「请质疑以下观点」之类的包装文字。
           question: state.question,
           stage: index === 0 ? 'initial' : 'followup',
-          context: context.length > 0 ? context : undefined,
-          system: instructions(state.config.strategy, kind, role)
+          context: !isWebOnly && context.length > 0 ? context : undefined,
+          system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead)
         };
         try {
           const answer = await this.deps.ask(agentId, task);
@@ -212,6 +265,7 @@ export class DebateOrchestrator {
               kind,
               text: answer.text,
               targetMessageId,
+              threadUrl: answer.threadUrl,
               createdAt: this.now()
             } satisfies DebateMessage
           };
@@ -231,22 +285,25 @@ export class DebateOrchestrator {
   }
 }
 
-function roleFor(strategy: DebateConfig['strategy'], position: number, kind: DebateMessageKind): DebateRole {
-  if (strategy !== 'adversarial') return 'peer';
-  if (kind === 'revision') return position === 0 ? 'proposer' : 'critic';
-  return position === 0 ? 'proposer' : 'critic';
-}
-
 /**
  * 指令只进 system 轮次，不拼进 question。文字刻意简短，不套角色扮演话术。
+ * 这些指令只会发给本地/云端 API；网页成员拿到的 task 里没有 system 字段。
  */
-function instructions(strategy: DebateConfig['strategy'], kind: DebateMessageKind, role: DebateRole): string[] {
+function instructions(
+  strategy: DebateConfig['strategy'],
+  kind: DebateMessageKind,
+  role: DebateRole,
+  lead: DebateLead
+): string[] {
   const lines: string[] = [];
   if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
-  else if (kind === 'question') lines.push('逐条质疑其他回答里证据不足或推理跳跃的地方；指出具体是哪一句。');
+  else if (kind === 'question') lines.push('逐条质疑上一轮发言里证据不足或推理跳跃的地方；指出具体是哪一句。');
   else lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
   if (strategy === 'adversarial') {
     lines.push(role === 'proposer' ? '你的职责是提出并维护主张。' : '你的职责是检验主张的漏洞。');
+  }
+  if (lead.mode === 'web' && kind !== 'position') {
+    lines.push('这一场以网页通道的独立观点为基准，重点检验它的证据和推理，但不要忽略其他回答里的问题。');
   }
   lines.push('保留有依据的不同意见，不要为了达成一致而放弃它。');
   return lines;

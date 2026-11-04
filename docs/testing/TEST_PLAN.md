@@ -6,7 +6,7 @@
 
 | 层 | 入口 | 依赖 |
 | --- | --- | --- |
-| 逻辑回归 | `npm test`（17 个检查脚本，306 条） | 无 |
+| 逻辑回归 | `npm test`（含 `test:debate-lead` 在内的全部检查脚本，319 条） | 无 |
 | 真实响应回放 | `test:ollama`（本机录制的 Ollama payload）、`test:cloud`（OpenAI 文档结构） | 无 |
 | 真机端到端 | `test:ollama:live` / `test:cloud:live` / CDP 脚本 | Ollama 服务 / API Key / 已登录网页 |
 | 静态检查 | `npm run typecheck` / `npm run build` | 无 |
@@ -24,7 +24,7 @@
 | 3 | Cloud 模式 | 逻辑 + live 脚本 | 无 Key 时如实 skip |
 | 4 | Hybrid 模式 | 真机 | 网页 + 本地同时参与 |
 | 5 | 多模型并行 | 真机 + 逻辑 | 所有成员都被问到、按并发上限分批 |
-| 6 | 多轮辩论 | 逻辑 | 三种策略轮数、后轮带前序 |
+| 6 | 多轮辩论 | 逻辑 + 真机 | 三种策略轮数、后轮带前序；三种主导方式各自跑通、网页侧记录清理干净 |
 | 7 | 模型中途失败 | 逻辑 | 失败隔离、重试一次、他人照常完成 |
 | 8 | 网络中断 | 逻辑 | `unavailable`，不抛裸 fetch 错 |
 | 9 | Ollama 退出 | 逻辑 | `health().available === false` |
