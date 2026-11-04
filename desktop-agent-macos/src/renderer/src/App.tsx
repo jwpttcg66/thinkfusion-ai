@@ -21,7 +21,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
-import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
+import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_GAUGE_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
@@ -50,6 +50,8 @@ const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
 /** 刷新：把这一页重新加载一次，会话还留在原地。 */
 const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
+/** 诊断：这一页到底找到了什么。 */
+const IconGauge = () => <Glyph paths={ICON_GAUGE_PATHS} />;
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
@@ -1177,21 +1179,15 @@ export default function App() {
             className="page-bar"
             style={{ right: RAIL_WIDTH, width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH), height: PAGE_HEADER_HEIGHT }}
           >
-            {/* 诊断 sits on the left of the bar, away from the icons.
-                放大 is the right-most thing in this strip on purpose: it is
-                the one action that moves the page somewhere else, and the
-                edge is where people reach for that. A text button parked in
-                that corner read as part of the same group as the two glyphs
-                and stole the edge from them. */}
-            <button
-              className="page-btn"
-              type="button"
-              onClick={() => void openDiagnostics()}
-              data-action="diagnose"
-              title="通道诊断：看这一页真实找到了什么；更新样式也在里面"
-            >
-              诊断
-            </button>
+            {/* The bar reads left to right: which page, how it is doing, what
+                you can do to it. 诊断 belongs to the last group — it is an
+                action on this page, not a label for it. It used to sit at the
+                far left as a bordered text button, which put a box in front of
+                the channel name and made the identity look like it started
+                after the button.
+
+                放大 stays right-most: it is the one action that moves the page
+                somewhere else, and the edge is where people reach for that. */}
             <span
               className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
               aria-hidden="true"
@@ -1209,6 +1205,16 @@ export default function App() {
                 title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
               >
                 <IconRefresh />
+              </button>
+              <button
+                className="page-btn icon"
+                type="button"
+                onClick={() => void openDiagnostics()}
+                data-action="diagnose"
+                aria-label="诊断"
+                title="诊断：看这一页真实找到了什么；更新样式也在里面"
+              >
+                <IconGauge />
               </button>
               <button
                 className="page-btn icon"
