@@ -978,7 +978,7 @@ const THREAD_LIST_SCRIPT = `(() => {
  * Hence the generic walk: go up from the link until a level exposes exactly one
  * menu-shaped button, then dispatch the full pointer sequence.
  */
-const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
+const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async () => {
   const target = ${JSON.stringify(threadUrl)};
   const id = (() => {
     try {
@@ -1110,6 +1110,15 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
     }
   }
   if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档' };
+
+  // First pass: open the drawer, scroll the row into view, and hand back where
+  // it is. The caller moves the real pointer there — a row that reveals its
+  // actions button on hover has none to find until that happens, and script
+  // cannot fake the state. The second pass does the deleting.
+  if (${locateOnly}) {
+    const box = link.getBoundingClientRect();
+    return { ok: true, at: { x: box.left + box.width / 2, y: box.top + box.height / 2 } };
+  }
 
   // Some rows only reveal their actions button while the pointer is over them —
   // DeepSeek renders it in the DOM but hides it until hover. Moving the pointer
@@ -1349,6 +1358,45 @@ function sameThreadAddress(a: string, b: string): boolean {
  */
 const PAGE_CALL_TIMEOUT_MS = 20_000;
 
+/**
+ * Put the real pointer on a point of the page.
+ *
+ * Some rows only grow their actions button while the pointer is actually over
+ * them: DeepSeek keeps it in the DOM at 0x0 and lays it out at 28x28 on
+ * `:hover`. A synthetic `pointerover` dispatched from script does not set that
+ * state — `:hover` is decided by the browser's own hit test, not by events — so
+ * every DeepSeek row that was not the one on screen looked like a row with no
+ * menu at all, and the delete reported 「这条会话旁边没有「更多」菜单」.
+ *
+ * `Input.dispatchMouseEvent` through the debugger is a real input event and
+ * does move the hover state. The debugger is already attached for the focus
+ * emulation these flows need; `sendInputEvent` is the fallback.
+ */
+async function hoverPoint(view: WebContentsView, x: number, y: number): Promise<void> {
+  const contents = view.webContents;
+  if (contents.isDestroyed()) return;
+  try {
+    if (contents.debugger.isAttached()) {
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x,
+        y,
+        button: 'none',
+        clickCount: 0
+      });
+      return;
+    }
+  } catch {
+    // Fall through: without hover the row lookup still runs, it just has fewer
+    // controls to find.
+  }
+  try {
+    contents.sendInputEvent({ type: 'mouseMove', x: Math.round(x), y: Math.round(y) });
+  } catch {
+    // A page mid-navigation drops it; the delete reports that on its own.
+  }
+}
+
 export function callPage<T>(
   view: WebContentsView,
   label: string,
@@ -1541,11 +1589,17 @@ export function createElectronDriver(
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
       }
     },
-    deleteChat: async (threadUrl: string) =>
-      (await callPage(view, '删除网页会话', DELETE_CHAT_SCRIPT(threadUrl))) as {
+    deleteChat: async (threadUrl: string) => {
+      const located = (await callPage(view, '定位网页会话', DELETE_CHAT_SCRIPT(threadUrl, true))) as {
+        ok?: boolean;
+        at?: { x: number; y: number };
+      };
+      if (located?.at) await hoverPoint(view, located.at.x, located.at.y);
+      return (await callPage(view, '删除网页会话', DELETE_CHAT_SCRIPT(threadUrl))) as {
         ok: boolean;
         detail?: string;
-      },
+      };
+    },
     threadCandidates: async () =>
       (await callPage(view, '读取会话列表', THREAD_LIST_SCRIPT)) as ThreadCandidate[],
     reloadHome: async () => {
