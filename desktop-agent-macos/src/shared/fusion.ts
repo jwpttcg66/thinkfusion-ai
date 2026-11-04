@@ -118,10 +118,11 @@ export interface FusionInput {
 export interface FusionReport {
   /**
    * 哪个实现算的。本地是不联网的规则/算法；本地模型是 Ollama 归纳；远程是
-   * 调用大模型 API。三种方式必须能从产物上看出来，否则「这条结论是模型说的
-   * 还是规则说的」就永远说不清。
+   * 调用大模型 API；网页是一位网页通道当主导，读完各家回答后给的评判。
+   * 四种方式必须能从产物上看出来，否则「这条结论是模型说的还是规则说的」
+   * 就永远说不清。
    */
-  backend: 'local' | 'local-model' | 'remote';
+  backend: 'local' | 'local-model' | 'remote' | 'web';
   claims: FusedClaim[];
   evidence: Evidence[];
   relations: ArgumentRelation[];

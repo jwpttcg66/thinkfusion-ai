@@ -38,7 +38,8 @@ const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: st
 const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string> = {
   local: '本地规则（按句子比对，不联网）',
   'local-model': '本地模型（读完各家回答后归纳）',
-  remote: '远程模型 API'
+  remote: '远程模型 API',
+  web: '网页模型主导（读完全部回答后评判）'
 };
 
 const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
@@ -131,6 +132,16 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
   const candidates = options?.debateCandidates ?? [];
+  // 主导必须在被问到的名单里：混合模式下本地模型已经不算来源，所以它只能
+  // 当「自动汇总」，不能出现在这里被选中。
+  const leadKinds: Array<'web' | 'local' | 'cloud'> = config.executionMode === 'web'
+    ? ['web']
+    : config.executionMode === 'local'
+      ? ['local']
+      : config.executionMode === 'cloud'
+        ? ['cloud']
+        : ['web', 'cloud'];
+  const leadOptions = candidates.filter(item => leadKinds.includes(item.type));
   const selectedIds = debateSelected ?? candidates.filter(item => item.available).map(item => item.id);
   const leadChoices = candidates.filter(item => item.available && (
     debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type !== 'web' : false
@@ -189,6 +200,23 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   </button>
                 ))}
               </div>
+
+              <h3>主导</h3>
+              <p className="muted">
+                全部回答回来之后，主导模型读完整份材料：指出谁错在哪、比较谁的答案更好，然后给出自己的最终答案。
+                网页主导只能靠「再发一条消息」把各家答案递进那个页面，所以这一轮会多花一次生成时间。
+              </p>
+              <select
+                value={config.leadAgentId ?? ''}
+                onChange={event => onConfigChange({ leadAgentId: event.target.value })}
+              >
+                <option value="">自动：本地模型汇总（不可用时退回规则）</option>
+                {leadOptions.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}{item.available ? '' : '（不可用）'}
+                  </option>
+                ))}
+              </select>
 
               <h3>隐私与降级</h3>
               <label className="research-row">

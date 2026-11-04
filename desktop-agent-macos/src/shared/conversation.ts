@@ -136,9 +136,10 @@ export interface Synthesis {
      * - `local`：本地规则（按句子比对，不联网）
      * - `local-model`：本地模型（Ollama 读完各家回答后归纳）
      * - `remote`：远程大模型 API
-     * 三种产物必须能分辨，否则「结论是模型说的还是规则说的」说不清。
+     * - `web`：一位网页通道当主导，读完全部回答后给的评判
+     * 四种产物必须能分辨，否则「结论是模型说的还是规则说的」说不清。
      */
-    backend: 'local' | 'local-model' | 'remote';
+    backend: 'local' | 'local-model' | 'remote' | 'web';
     finalDecision: string | null;
     undetermined: boolean;
     confidence: { level: 'low' | 'medium' | 'high'; why: string };
@@ -235,6 +236,14 @@ export interface ConversationExecutionConfig {
   executionMode: ExecutionMode;
   primaryProviderId?: string;
   primaryModelId?: string;
+  /**
+   * 这一轮的主导：读完所有来源的回答，指出错误、比较优劣、给出最终答案。
+   *
+   * 必须是本轮被问到的成员之一（执行模式决定谁在名单里）。网页通道也能当
+   * 主导——代价是多发一条消息，因为页面读不到别人的回答，只能由我们把各家
+   * 答案拼成一条发进去。不设时退回默认：本地模型汇总。
+   */
+  leadAgentId?: string;
   selectedWebChannels?: string[];
   selectedLocalModels?: string[];
   selectedCloudModels?: string[];
@@ -289,6 +298,7 @@ export function normalizeExecutionConfig(
   };
   if (typeof input?.primaryProviderId === 'string') result.primaryProviderId = input.primaryProviderId;
   if (typeof input?.primaryModelId === 'string') result.primaryModelId = input.primaryModelId;
+  if (typeof input?.leadAgentId === 'string' && input.leadAgentId.trim()) result.leadAgentId = input.leadAgentId.trim();
   const webChannels = strings(input?.selectedWebChannels);
   const localModels = strings(input?.selectedLocalModels);
   const cloudModels = strings(input?.selectedCloudModels);

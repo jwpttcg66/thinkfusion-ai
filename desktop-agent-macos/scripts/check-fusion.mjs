@@ -226,3 +226,32 @@ test('本地模型不可用 / 只有一份回答 / provider 抛错，都返回 n
   assert.equal(result.modelId, 'qwen2.5:7b');
   assert.match(result.text, /【结论】4 余 1/);
 });
+
+// ---------------------------------------------------------------------------
+// 主导轮：一位模型读完全部回答，指出错误、比较优劣、给最终答案
+// ---------------------------------------------------------------------------
+
+test('主导提示词把每份回答编号并标出来源，还标出哪一份是它自己写的', async () => {
+  const { buildLeadPrompt } = await import('../out-test/main/synthesis/lead-prompt.js');
+  const prompt = buildLeadPrompt(
+    '9.11 和 9.9 哪个大？',
+    [
+      { agentId: 'chatgpt', label: 'ChatGPT', text: '9.9 更大。' },
+      { agentId: 'gemini', label: 'Gemini', text: '9.11 更大。' }
+    ],
+    { selfAgentId: 'chatgpt' }
+  );
+  assert.ok(prompt.includes('9.11 和 9.9 哪个大？'), '原问题要在里面，否则主导不知道在评什么');
+  assert.ok(prompt.includes('【回答1】ChatGPT（这是你自己的回答）'), '自己的回答要标出来，否则它会给自己投票');
+  assert.ok(prompt.includes('【回答2】Gemini'), '别人的回答要编号');
+  assert.ok(/指出.*事实错误|事实错误/.test(prompt), '必须要求指出错误，而不只是复述');
+  assert.ok(/最终的答案/.test(prompt), '必须要求给出自己的最终答案');
+  assert.ok(/无法确定/.test(prompt), '证据不足要允许说不知道');
+});
+
+test('API 主导用 system 轮次说评审要求，问题本身不被改写', async () => {
+  const { LEAD_SYSTEM } = await import('../out-test/main/synthesis/lead-prompt.js');
+  assert.ok(LEAD_SYSTEM.length >= 3);
+  assert.ok(LEAD_SYSTEM.some(line => /不要编造/.test(line)));
+  assert.ok(LEAD_SYSTEM.some(line => /无法确定/.test(line)));
+});

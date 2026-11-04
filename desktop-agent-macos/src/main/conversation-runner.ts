@@ -9,6 +9,7 @@ import type { SubAgentAnswer, SubAgentPool } from './agents/types';
 import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
+import { buildLeadPrompt, LEAD_SYSTEM } from './synthesis/lead-prompt';
 import type { JudgeVerdict } from './judge/types';
 
 export interface ConversationDeps {
@@ -38,6 +39,11 @@ export interface ConversationDeps {
    * 提示用户去手动删网页记录，也不该去重置一个不存在的页面。
    */
   isPageChannel?: (agentId: string) => boolean;
+  /**
+   * 这个成员是什么来源。网页主导和云端主导在产物上要分开标注，所以要能问
+   * 出来。不传就当网页（老行为）。
+   */
+  agentSource?: (agentId: string) => 'web' | 'local' | 'cloud' | undefined;
   /** Phase F：每个子任务状态变化时的旁路通知，给界面和记录用。 */
   onCollaborationRecord?: (record: CollaborationRecord) => void;
   /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
@@ -397,7 +403,7 @@ export class ConversationRunner {
       setTimeout(() => this.abandon(conversation), this.budgetMs)
     );
     try {
-      await this.conduct(conversation, master, question, options);
+      await this.conduct(conversation, master, question, options, pool);
     } finally {
       this.release(conversationId);
     }
@@ -407,7 +413,8 @@ export class ConversationRunner {
     conversation: Conversation,
     master: ResearchRunner,
     question: string,
-    options: { followup: boolean }
+    options: { followup: boolean },
+    pool: SubAgentPool
   ): Promise<void> {
     const conversationId = conversation.conversationId;
 
@@ -471,6 +478,12 @@ export class ConversationRunner {
 
     if (this.cancelled.has(conversationId)) return;
 
+    // 主导轮：让一位能读上下文的成员指出错误、比较优劣、给出最终答案。
+    // 这一步在「回答都回来之后」发生，所以它读得到全部回答；网页主导靠再发
+    // 一条消息完成（页面读不到别人的回答），本地/云端走 API 的 system 轮次。
+    const lead = await this.runLead(pool, conversation, question, outcome, sink);
+    if (this.cancelled.has(conversationId)) return;
+
     // A channel that stayed silent is a fact the user needs. It used to be
     // dropped on the floor: two answers arrived out of three, the pane showed
     // two bubbles and no explanation, and the only way to learn that Gemini had
@@ -500,7 +513,7 @@ export class ConversationRunner {
         // 规则版给的是结构（观点、分歧、证据），结论那一段交给本地模型读
         // 完整回答后自己写。它是「汇总者」而不是「来源」：上一轮提问里没有
         // 它，这里才有它。
-        if (this.deps.summarizeLocal && fused.synthesis.fusion) {
+        if (this.deps.summarizeLocal && fused.synthesis.fusion && !lead) {
           const labels = new Map(
             outcome.channels.map(item => [item.agentId, item.label] as const)
           );
@@ -533,6 +546,25 @@ export class ConversationRunner {
       }
     }
 
+    // 主导的结论盖过默认汇总：用户明确点了谁当主导，就该读它的判断。
+    // 结构（观点/证据/分歧）仍是规则算的，只有「结论」这一段来自主导。
+    if (lead && synthesis) {
+      synthesis = {
+        ...synthesis,
+        recommendation: lead.text,
+        fusion: synthesis.fusion
+          ? {
+              ...synthesis.fusion,
+              backend: lead.backend,
+              confidence: {
+                ...synthesis.fusion.confidence,
+                why: `${synthesis.fusion.confidence.why}；由主导 ${lead.label} 读完全部回答后给出最终答案`
+              }
+            }
+          : synthesis.fusion
+      };
+    }
+
     if (synthesis) {
       const message = this.addMessage(conversation, {
         role: 'synthesis',
@@ -544,6 +576,67 @@ export class ConversationRunner {
     }
 
     this.setStatus(conversation, 'answered');
+  }
+
+  /**
+   * 主导轮：一个人读完全部回答，指出错误、比较优劣、给出最终答案。
+   *
+   * 为什么不在选人阶段做：主导要看的是**别人的回答**，所以必须等所有来源
+   * 都回来。网页通道也一样——它读不到别人的页面，只能由我们把各家答案拼成
+   * 一条消息发进去（页面上表现为用户说的第二段话）。
+   *
+   * 失败不抛：主导没说话时这一轮仍然是「有回答、有规则版综合」的，比整轮
+   * 失败好得多；原因写进系统消息，用户能看到是谁没说话。
+   */
+  private async runLead(
+    pool: SubAgentPool,
+    conversation: Conversation,
+    question: string,
+    outcome: ResearchOutcome,
+    sink: ResearchSink
+  ): Promise<{ agentId: string; label: string; text: string; backend: 'web' | 'local-model' | 'remote' } | null> {
+    const config = normalizeExecutionConfig(conversation.executionConfig);
+    const leadId = config.leadAgentId;
+    if (!leadId) return null;
+    // 只剩自己那一份回答时没有可评的对象。
+    if (outcome.answers.filter(answer => answer.agentId !== leadId).length === 0) return null;
+
+    const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
+    const label = labels.get(leadId) ?? leadId;
+    const answers = outcome.answers.map(answer => ({
+      agentId: answer.agentId,
+      label: labels.get(answer.agentId) ?? answer.agentId,
+      text: answer.text
+    }));
+    const isPage = this.deps.isPageChannel?.(leadId) ?? false;
+    const source = this.deps.agentSource?.(leadId) ?? (isPage ? 'web' : undefined);
+
+    this.setStatus(conversation, 'synthesizing');
+    sink.phase(leadId, 'asking', '主导：读完全部回答，指出错误并给最终答案');
+    try {
+      const answer = await pool.ask(leadId, {
+        question: buildLeadPrompt(question, answers, { selfAgentId: leadId }),
+        stage: 'challenge',
+        // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
+        timeoutMs: 180_000,
+        // 只有 API 主导用得上 system；网页通道会忽略它。
+        system: isPage ? undefined : LEAD_SYSTEM
+      });
+      const text = answer.text.trim();
+      if (!text) return null;
+      sink.phase(leadId, 'answered', '主导发言完成');
+      return {
+        agentId: leadId,
+        label,
+        text,
+        backend: source === 'local' ? 'local-model' : source === 'cloud' ? 'remote' : 'web'
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      sink.phase(leadId, 'failed', detail);
+      this.addMessage(conversation, { role: 'system', text: `主导 ${label} 这一轮没有给出评判：${detail}` });
+      return null;
+    }
   }
 
   private setStatus(conversation: Conversation, status: Conversation['status']): void {

@@ -2016,6 +2016,11 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.ids);
     },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
+    agentSource: agentId => {
+      const extra = extraAgents.find(agent => agent.id === agentId);
+      if (extra) return extra.sourceType;
+      return registry.get(agentId) ? 'web' : undefined;
+    },
     fusionEnabled: true,
     // 汇总交给本地模型：它不参加上面那轮提问，只在这里读完整回答。
     // 没装模型/超时返回 null，runner 保留规则版综合。

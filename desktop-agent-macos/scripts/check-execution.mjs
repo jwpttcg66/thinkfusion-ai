@@ -67,6 +67,12 @@ test('web 模式与 local-only 互斥：归一成 allow-cloud，但 web 模式�
   assert.equal(config.privacyMode, 'allow-cloud', '网页本来就外发，不能标成 local-only 自欺欺人');
 });
 
+test('主导成员被持久化；给空串等于没设', () => {
+  assert.equal(normalizeExecutionConfig({ leadAgentId: 'chatgpt' }).leadAgentId, 'chatgpt');
+  assert.equal(normalizeExecutionConfig({ leadAgentId: '   ' }).leadAgentId, undefined);
+  assert.equal(normalizeExecutionConfig({ leadAgentId: 42 }).leadAgentId, undefined);
+});
+
 test('IPC 传来的非法值一律退回默认，不进 undefined 分支', () => {
   assert.equal(normalizeExecutionConfig({ executionMode: 'nonsense' }).executionMode, 'web');
   assert.equal(normalizeExecutionConfig({ privacyMode: 'nonsense' }).privacyMode, 'allow-cloud');
