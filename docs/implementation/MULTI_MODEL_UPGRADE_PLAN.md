@@ -19,13 +19,13 @@
 | B Provider 抽象 | 接口 / Registry / 能力 / 错误模型 / 超时取消 / 保留 Web Channel | `types.ts` `registry.ts` `web-channel.ts` + 15 条测试（`db16263`）；真机回归已补，见 `PHASE-B.md` | 未接线（按文档属 Phase E）；其余无 |
 | C Ollama | 12 项能力 + 6 条验收 | **已完成**：`ollama.ts` `local-admission.ts` + 17 条回放测试 + 7 条真机测试，见 `PHASE-C.md` | 未接线；9B 未下载；模型运行状态展示缺 UI（属 J） |
 | D Cloud | OpenAI 兼容 + key 安全存储 + token/费用 | **已完成**：`openai-compatible.ts` `secrets.ts` + 17 条测试，见 `PHASE-D.md` | 真机未验（无 API Key）；未接线；UI 开关属 J |
-| E 执行模式 | 4 模式 + 对话级配置 + 隐私 | 未开始 | 全部 |
+| E 执行模式 | 4 模式 + 对话级配置 + 隐私 | **已完成**：`execution/` 三件套 + runner/index/IPC 接线 + 13 条测试 + 两轮真机，见 `PHASE-E.md` | UI 选择器属 J；cloud 模式真机未验（无 Key） |
 | F Hybrid | Smart / Parallel / All / Sequential | 未开始 | 全部 |
 | G 辩论 | 3 策略 + 角色 + 自动停止 + 恢复 | 未开始 | 全部 |
 | H Judge | 独立裁决 + 少数派保护 | 未开始 | 全部 |
 | I Synthesis | 保留现有 + 6 项新增 | 4 个未接线文件（见第七节） | engine / evidence / ranker / 接线 / 测试 |
 | J UI | 9 项 | 未开始 | 全部 |
-| K 测试 | 17 项场景 + 4 份报告 | 现有 229 条单测 | 全部 |
+| K 测试 | 17 项场景 + 4 份报告 | 现有 242 条单测 | 全部 |
 
 ---
 

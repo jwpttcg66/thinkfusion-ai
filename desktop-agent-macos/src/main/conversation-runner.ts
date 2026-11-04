@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentTask } from '../shared/contracts';
-import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationMessage } from '../shared/conversation';
+import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage } from '../shared/conversation';
+import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
-import type { SubAgentAnswer } from './agents/types';
+import type { SubAgentAnswer, SubAgentPool } from './agents/types';
 import { MasterAgent, type ResearchSink } from './master-agent';
 
 export interface ConversationDeps {
@@ -23,6 +24,17 @@ export interface ConversationDeps {
    * the budget runs out is a test nobody runs.
    */
   budgetMs?: number;
+  /**
+   * 把「这一轮问谁」交给外面组装，runner 自己不认识执行模式。
+   *
+   * 不传就是老行为（整份网页注册表），所以现有测试和没有接线的环境都不受影响。
+   */
+  poolFor?: (config: ConversationExecutionConfig, base: SubAgentPool) => SubAgentPool;
+  /**
+   * 哪些成员有「网页里那一份会话」。本地/云端没有站点侧栏，删除时不该
+   * 提示用户去手动删网页记录，也不该去重置一个不存在的页面。
+   */
+  isPageChannel?: (agentId: string) => boolean;
 }
 
 const TITLE_CHARS = 42;
@@ -141,6 +153,14 @@ export class ConversationRunner {
 
     await Promise.all(
       asked.map(async agentId => {
+        const isPage = this.deps.isPageChannel
+          ? this.deps.isPageChannel(agentId)
+          : this.deps.registry.get(agentId) !== undefined;
+        // 真机回归抓到的：本地模型回答完也在 `answered` 里，但没有网页地址。
+        // 走原来的分支会报「网页里的那份请手动删除」，让用户去一个不存在
+        // 的侧栏找记录。非网页来源没有需要清理的副本，直接跳过。
+        if (!isPage) return;
+
         const label = this.deps.registry.get(agentId)?.label ?? agentId;
         const threadUrl = threads[agentId];
 
@@ -166,7 +186,12 @@ export class ConversationRunner {
     return { cleaned, reset, failed };
   }
 
-  async start(input: { text: string; workspaceRoot?: string; permissionPreset?: string }): Promise<Conversation> {
+  async start(input: {
+    text: string;
+    workspaceRoot?: string;
+    permissionPreset?: string;
+    executionConfig?: Partial<ConversationExecutionConfig>;
+  }): Promise<Conversation> {
     const text = input.text.trim();
     if (!text) throw new Error('先写一句你想研究或完成的事情。');
 
@@ -180,7 +205,8 @@ export class ConversationRunner {
       status: 'thinking',
       channels: [],
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      executionConfig: normalizeExecutionConfig(input.executionConfig)
     };
 
     this.save(conversation);
@@ -334,7 +360,9 @@ export class ConversationRunner {
     options: { followup: boolean }
   ): Promise<void> {
     const conversationId = conversation.conversationId;
-    const master = new MasterAgent(this.deps.registry);
+    const config = normalizeExecutionConfig(conversation.executionConfig);
+    const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
+    const master = new MasterAgent(pool);
 
     this.running.set(
       conversationId,

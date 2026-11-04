@@ -14,6 +14,7 @@
     "src/main/profile-store.ts",
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",
+    "src/main/execution/**/*.ts",
     "src/main/adapters/**/*.ts"
   ]
 }

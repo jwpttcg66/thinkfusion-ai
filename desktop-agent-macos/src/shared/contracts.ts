@@ -8,6 +8,7 @@ import type {
   ConversationDeleteOutcome,
   ConversationEvent,
   ConversationMessage,
+  ExecutionMode,
   SubmitConversationInput
 } from './conversation';
 
@@ -462,6 +463,21 @@ export interface ApprovePlanInput {
   approved: true;
 }
 
+/** 新建对话设置页能看到的选项。刻意不含 API Key 明文或密文。 */
+export interface ExecutionOptions {
+  modes: readonly ExecutionMode[];
+  webChannels: Array<{ id: string; label: string }>;
+  localModels: string[];
+  cloudModels: string[];
+  providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
+}
+
+export interface ProviderHealthInfo {
+  available: boolean;
+  detail?: string;
+  checkedAt: number;
+}
+
 export interface AgentApi {
   // conversations — the primary path
   /**
@@ -487,6 +503,13 @@ export interface AgentApi {
   deleteConversation(conversationId: string): Promise<ConversationDeleteOutcome>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
+
+  // 执行模式（Phase E）
+  getExecutionOptions(): Promise<ExecutionOptions>;
+  /** 只写主进程的密文库；返回值里没有 Key。 */
+  setApiKey(input: { id: string; key: string }): Promise<{ id: string; configured: boolean }>;
+  removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
+  getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
 
   // task lifecycle
   submitPrompt(input: SubmitPromptInput): Promise<AgentTask>;

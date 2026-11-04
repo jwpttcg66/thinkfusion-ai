@@ -266,6 +266,16 @@ export function createMockApi(): AgentApi {
     cancelConversation: async () => undefined,
     deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
     getChannelStatuses: async () => [],
+    getExecutionOptions: async () => ({
+      modes: ['web', 'local', 'cloud', 'hybrid'],
+      webChannels: [],
+      localModels: ['qwen2.5:7b'],
+      cloudModels: ['gpt-4o-mini'],
+      providers: []
+    }),
+    setApiKey: async ({ id }) => ({ id, configured: true }),
+    removeApiKey: async id => ({ id, configured: false }),
+    getProviderHealth: async () => ({}),
     onConversationEvent: () => () => undefined,
     getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),
     onAgentEvent: () => () => undefined,

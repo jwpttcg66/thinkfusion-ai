@@ -63,6 +63,11 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  /**
+   * 这一轮用哪些模型来源。老会话没有这个字段，读的时候一律走
+   * `normalizeExecutionConfig()`，不要直接访问。
+   */
+  executionConfig?: ConversationExecutionConfig;
 }
 
 export type MessageRole = 'user' | 'channel' | 'synthesis' | 'system';
@@ -145,6 +150,8 @@ export interface SubmitConversationInput {
   /** Only used when the router picks `workspace`. */
   workspaceRoot?: string;
   permissionPreset?: string;
+  /** 可选。不给就是默认 web 模式，老会话保持原样。 */
+  executionConfig?: Partial<ConversationExecutionConfig>;
 }
 
 /**
@@ -186,4 +193,85 @@ export interface ChannelStatus {
   pageReady: boolean;
   generating: boolean;
   detail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 执行模式（项目书 6.1）
+// ---------------------------------------------------------------------------
+
+export type ExecutionMode = 'web' | 'local' | 'cloud' | 'hybrid';
+export type PrivacyMode = 'local-only' | 'allow-cloud';
+
+/**
+ * 执行模式存在每个 Conversation 里，不是全局设置。
+ *
+ * 全部字段可选是为了老数据：现有会话全是网页产生的，读不到这个字段时要能
+ * 原样打开，不能因为升级就变成一个「没配过」的坏对象。
+ */
+export interface ConversationExecutionConfig {
+  executionMode: ExecutionMode;
+  primaryProviderId?: string;
+  primaryModelId?: string;
+  selectedWebChannels?: string[];
+  selectedLocalModels?: string[];
+  selectedCloudModels?: string[];
+  fallbackEnabled: boolean;
+  privacyMode: PrivacyMode;
+  /** 协作策略，Phase F 才用；这里先留位置，避免到时候再改一次持久化结构。 */
+  strategy?: 'smart' | 'parallel' | 'all-selected' | 'sequential';
+}
+
+/**
+ * 老会话 / 缺省配置的唯一入口。
+ *
+ * `web` + `allow-cloud` 是刻意的：老对话本来就是发给网页 AI 的，默认成
+ * `local-only` 会让它们一打开就处于违规状态。
+ */
+export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
+  executionMode: 'web',
+  fallbackEnabled: false,
+  privacyMode: 'allow-cloud'
+};
+
+/**
+ * 把界面传来的配置收成一份合法的。
+ *
+ * 关键的硬规则（项目书 6.3 + 2026-11-04 裁决）：`web` 模式的全部内容都发往
+ * 网页 Channel，而 `local-only` 禁止向网页和云端发送用户内容，两者不能共存。
+ * 我们保留 web 模式，做法是 web 下把 privacyMode 归一成 `allow-cloud`，
+ * 而不是禁用 web 模式、也不是悄悄突破隐私约束。
+ */
+export function normalizeExecutionConfig(
+  input?: Partial<ConversationExecutionConfig> | null
+): ConversationExecutionConfig {
+  // IPC 的输入来自 renderer，不能假设它守规矩。非法值一律退回默认 web，
+  // 不让一个拼错的字符串把选人策略带到 undefined 分支里。
+  const modes: ExecutionMode[] = ['web', 'local', 'cloud', 'hybrid'];
+  const requested = input?.executionMode;
+  const executionMode = requested && modes.includes(requested) ? requested : DEFAULT_EXECUTION_CONFIG.executionMode;
+  const privacyMode: PrivacyMode =
+    executionMode === 'web'
+      ? 'allow-cloud'
+      : input?.privacyMode === 'local-only'
+        ? 'local-only'
+        : 'allow-cloud';
+  const strings = (value: unknown): string[] | undefined =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined;
+  // 只放有值的字段。全塞 undefined 看着无害，但持久化后的对象和测试里的
+  // 期望值对不上，而且「没配置」和「配置成 undefined」变成一个说不清的状态。
+  const result: ConversationExecutionConfig = {
+    executionMode,
+    fallbackEnabled: input?.fallbackEnabled === true,
+    privacyMode
+  };
+  if (typeof input?.primaryProviderId === 'string') result.primaryProviderId = input.primaryProviderId;
+  if (typeof input?.primaryModelId === 'string') result.primaryModelId = input.primaryModelId;
+  const webChannels = strings(input?.selectedWebChannels);
+  const localModels = strings(input?.selectedLocalModels);
+  const cloudModels = strings(input?.selectedCloudModels);
+  if (webChannels) result.selectedWebChannels = webChannels;
+  if (localModels) result.selectedLocalModels = localModels;
+  if (cloudModels) result.selectedCloudModels = cloudModels;
+  if (input?.strategy) result.strategy = input.strategy;
+  return result;
 }

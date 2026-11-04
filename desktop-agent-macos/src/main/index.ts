@@ -27,6 +27,15 @@ import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
 import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
+import { OllamaProvider } from './providers/ollama';
+import { OpenAICompatibleProvider } from './providers/openai-compatible';
+import { WebChannelProvider } from './providers/web-channel';
+import { ProviderRegistry } from './providers/registry';
+import { ApiKeyStore } from './providers/secrets';
+import type { ModelProvider } from './providers/types';
+import { ProviderBackedSubAgent } from './execution/provider-sub-agent';
+import { ExecutionPool } from './execution/execution-pool';
+import { selectParticipants } from './execution/policy';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -261,6 +270,20 @@ function diagnosedSource(id: unknown): PageSource | undefined {
 const registry = new SubAgentRegistry([]);
 
 /**
+ * Phase E：三种来源共用一份名单。
+ *
+ * `SubAgentRegistry` 仍是唯一执行名单（决策 3：不重写 Web Channel），
+ * `ProviderRegistry` 只回答「有谁、各自什么能力」，不参与调度。
+ * `extraAgents` 是把本地/云端 Provider 包成 SubAgent 后的成员，每个模型一个，
+ * 这样执行模式里的 selectedLocalModels / selectedCloudModels 才有得选。
+ */
+const providerRegistry = new ProviderRegistry();
+let apiKeys: ApiKeyStore | null = null;
+let extraAgents: ProviderBackedSubAgent[] = [];
+const LOCAL_MODELS = ['qwen2.5:7b'];
+const CLOUD_MODELS = ['gpt-4o-mini'];
+
+/**
  * Rebuild the agent pool from the sources that are switched on.
  *
  * Two layers, deliberately: a `ProviderSubAgent` is the participant (identity,
@@ -297,6 +320,38 @@ function rebuildChannels() {
         );
       })
   );
+  rebuildProviders();
+}
+
+/**
+ * 名单随来源开关一起重建。网页 Provider 直接包现有的 SubAgent（只读适配，
+ * 不碰页面）；本地与云端每个模型一个可执行成员。
+ *
+ * `apiKeys` 还没初始化时不注册云端——一个没有 Key 的 Cloud Provider 在
+ * health() 里就是不可用，没必要先造出来再解释。
+ */
+function rebuildProviders() {
+  const providers: ModelProvider[] = [];
+  for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
+  providers.push(new OllamaProvider({ defaultModel: LOCAL_MODELS[0] }));
+  if (apiKeys) {
+    providers.push(
+      new OpenAICompatibleProvider({
+        id: 'openai',
+        label: 'OpenAI 兼容 API',
+        models: CLOUD_MODELS,
+        defaultModel: CLOUD_MODELS[0],
+        keyStore: apiKeys
+      })
+    );
+  }
+  providerRegistry.replaceAll(providers);
+  extraAgents = [];
+  for (const provider of providers) {
+    if (provider.type === 'web') continue;
+    const models = provider.type === 'local' ? LOCAL_MODELS : CLOUD_MODELS;
+    for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
+  }
 }
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
@@ -1308,12 +1363,18 @@ function registerIpc() {
   ipcMain.handle('conversation:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
-    const input = raw as { text?: unknown; workspaceRoot?: unknown; permissionPreset?: unknown };
+    const input = raw as { text?: unknown; workspaceRoot?: unknown; permissionPreset?: unknown; executionConfig?: unknown };
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想研究或完成的事情。');
     return conversations.start({
       text: input.text,
       workspaceRoot: typeof input.workspaceRoot === 'string' ? input.workspaceRoot : undefined,
-      permissionPreset: typeof input.permissionPreset === 'string' ? input.permissionPreset : undefined
+      permissionPreset: typeof input.permissionPreset === 'string' ? input.permissionPreset : undefined,
+      // 原样交给 runner 里的 normalizeExecutionConfig 收敛：IPC 输入不可信，
+      // 非法模式一律退回默认 web，local-only 的硬约束也在那里生效。
+      executionConfig:
+        input.executionConfig && typeof input.executionConfig === 'object'
+          ? (input.executionConfig as Record<string, unknown>)
+          : undefined
     });
   });
 
@@ -1399,6 +1460,50 @@ function registerIpc() {
       view: source ? (views.get(source.id)?.getBounds() ?? null) : null,
       dragging: draggingPage
     } satisfies DeepSeekDiagnostics;
+  });
+
+
+  /** 设置页 / 新建对话用的选项。绝不包含 API Key 明文或密文。 */
+  ipcMain.handle('app:execution-options', event => {
+    trustedUiSender(event);
+    return {
+      modes: ['web', 'local', 'cloud', 'hybrid'] as const,
+      webChannels: registry.list().map(agent => ({ id: agent.id, label: agent.label })),
+      localModels: LOCAL_MODELS,
+      cloudModels: CLOUD_MODELS,
+      providers: providerRegistry.list().map(provider => ({
+        id: provider.id,
+        label: provider.label,
+        type: provider.type,
+        hasKey: apiKeys?.has(provider.id) ?? false
+      }))
+    };
+  });
+
+  ipcMain.handle('app:set-api-key', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!apiKeys) throw new Error('设置还没有准备好');
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { id?: unknown; key?: unknown };
+    if (typeof input.id !== 'string' || !input.id.trim() || typeof input.key !== 'string') {
+      throw new Error('无效输入');
+    }
+    apiKeys.set(input.id, input.key);
+    rebuildProviders();
+    return { id: input.id, configured: true };
+  });
+
+  ipcMain.handle('app:remove-api-key', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (!apiKeys || typeof id !== 'string') throw new Error('无效输入');
+    apiKeys.remove(id);
+    rebuildProviders();
+    return { id, configured: false };
+  });
+
+  ipcMain.handle('app:provider-health', async event => {
+    trustedUiSender(event);
+    return providerRegistry.health();
   });
 
   ipcMain.handle('app:sources', event => {
@@ -1575,6 +1680,7 @@ app.whenReady().then(async () => {
   // Before anything reads `sources`: the window's startup path decides which
   // views to create, and a source the user switched off must not be one of them.
   sourceStore = new SourceStore(path.join(app.getPath('userData'), 'sources.json'));
+  apiKeys = new ApiKeyStore({ file: path.join(app.getPath('userData'), 'api-keys.json') });
   applyStored(sourceStore.all());
   activeSourceId = sources.find(source => source.enabled)?.id ?? activeSourceId;
   rebuildChannels();
@@ -1598,6 +1704,11 @@ app.whenReady().then(async () => {
     store,
     registry,
     emit: emitConversation,
+    poolFor: (config, base) => {
+      const selection = selectParticipants(config, registry.list(), extraAgents);
+      return new ExecutionPool(base, extraAgents, selection.ids);
+    },
+    isPageChannel: agentId => registry.get(agentId) !== undefined,
     submitWorkspace: input =>
       orchestrator.submit({
         prompt: input.prompt,
