@@ -1559,8 +1559,15 @@ function registerIpc() {
       modes: ['web', 'local', 'cloud', 'hybrid'] as const,
       webChannels: registry.list().map(agent => ({ id: agent.id, label: agent.label })),
       localModels: LOCAL_MODELS,
-      // 保留旧字段：所有云端模型的合集，老调用方不用改。
-      cloudModels: cloudCatalog.flatMap(item => item.models),
+      // 每个「服务 + 模型」是一个成员：同名模型在不同服务上是两件事，
+      // 用裸模型名当 id 会勾一个等于勾两家。
+      cloudMembers: cloudCatalog.flatMap(item =>
+        item.models.map(model => ({
+          id: `${item.id}:${model}`,
+          label: `${item.label} · ${model}`,
+          hasKey: apiKeys?.has(item.id) ?? false
+        }))
+      ),
       cloudProviders: cloudCatalog.map(item => ({
         id: item.id,
         label: item.label,

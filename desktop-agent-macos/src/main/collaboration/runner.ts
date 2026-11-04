@@ -1,6 +1,7 @@
 import { synthesize } from '../../shared/synthesizer';
 import {
   NoUsableAgentError,
+  describeUnusable,
   type ChannelOutcome,
   type ResearchOutcome,
   type ResearchRequest,
@@ -238,7 +239,7 @@ export class CollaborationResearch {
       maxConcurrency: this.maxConcurrency
     });
     if (plan.tasks.length === 0) {
-      throw new NoUsableAgentError((await this.pool.all()).map(agent => agent.label));
+      throw new NoUsableAgentError(await describeUnusable(await this.pool.all()));
     }
 
     const result = await runCollaboration(this.pool, plan, sink, { onRecord: this.onRecord });

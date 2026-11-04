@@ -482,11 +482,26 @@ export interface CloudProviderView {
   hasKey: boolean;
 }
 
+/**
+ * 勾选清单里的一个云端成员。
+ *
+ * `id` 是 `provider:model`，不是裸模型名：DeepSeek 和 OpenCode Zen 都有
+ * `deepseek-v4-flash`，用模型名当 id 会出现两个一模一样的复选框，而且勾一
+ * 个等于把两家一起勾上——用户没法只问其中一家。
+ */
+export interface CloudMemberView {
+  id: string;
+  /** 带服务名前缀，界面上才分得清是哪一家。 */
+  label: string;
+  /** 服务级的 Key 配了没有。没配的成员运行时会被 health() 挡掉。 */
+  hasKey: boolean;
+}
+
 export interface ExecutionOptions {
   modes: readonly ExecutionMode[];
   webChannels: Array<{ id: string; label: string }>;
   localModels: string[];
-  cloudModels: string[];
+  cloudMembers: CloudMemberView[];
   providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
   /** 各云端服务的端点与模型（预设 + 用户覆盖）。 */
   cloudProviders: CloudProviderView[];

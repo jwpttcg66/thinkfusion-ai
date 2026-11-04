@@ -2605,9 +2605,13 @@ button:disabled {
 .research-row > span:first-child { min-width: 150px; font-size: 12px; }
 .research-row input[type="text"], .research-row input[type="password"], .research-row input:not([type]) { flex: 1; min-width: 180px; }
 .research-row input[type="number"] { width: 64px; }
-.research-lists { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0; }
+/* 云端成员的名字带服务名前缀（DeepSeek · deepseek-v4-flash），比网页/本地长，
+   三列等宽会把它们挤成两三行；给云端那一列多一点宽度。 */
+.research-lists { display: grid; grid-template-columns: 1fr 1fr 1.8fr; gap: 10px; margin: 8px 0; }
 .research-picker { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
-.research-picker label { display: flex; gap: 6px; align-items: center; }
+/* 复选框不能跟着文字一起收缩，否则长名字换行时勾选框会飘到中间。 */
+.research-picker label { display: flex; gap: 6px; align-items: flex-start; line-height: 1.5; }
+.research-picker label input { flex: 0 0 auto; margin-top: 3px; }
 .research-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .research-table th, .research-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; }
 .research-debate, .research-round { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }

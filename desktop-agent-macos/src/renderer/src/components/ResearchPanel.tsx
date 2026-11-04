@@ -117,7 +117,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     }
   }
 
+  // 网页与云端都是往外发的模式，「仅本地」在这两种模式下没有意义。
   const isWeb = config.executionMode === 'web';
+  const forcedOutbound = config.executionMode === 'web' || config.executionMode === 'cloud';
 
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
@@ -168,8 +170,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     className={`research-mode${config.executionMode === mode.id ? ' on' : ''}`}
                     onClick={() => onConfigChange({
                       executionMode: mode.id,
-                      // web 与 local-only 互斥：切到 web 时把隐私模式归一。
-                      privacyMode: mode.id === 'web' ? 'allow-cloud' : config.privacyMode
+                      // 「仅本地」与往外发的模式互斥：网页和云端的内容本来就
+                      // 离开本机，留着 local-only 只会让模式名骗人（选云端、
+                      // 实际一个云端都没问）。切换时把隐私模式同步回允许外发，
+                      // 下面的下拉会立刻显示这个变化。
+                      privacyMode: mode.id === 'web' || mode.id === 'cloud' ? 'allow-cloud' : config.privacyMode
                     })}
                   >
                     <b>{mode.label}</b>
@@ -186,10 +191,16 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   onChange={event => onConfigChange({ privacyMode: event.target.value as ConversationExecutionConfig['privacyMode'] })}
                 >
                   <option value="allow-cloud">允许外发（网页与云端）</option>
-                  <option value="local-only" disabled={isWeb}>仅本地（web 模式下不可用）</option>
+                  <option value="local-only" disabled={forcedOutbound}>仅本地（网页/云端模式下不可用）</option>
                 </select>
               </label>
-              {isWeb && <p className="muted">网页模式的内容本来就发往浏览器页面，因此不能标成「仅本地」；选本地模式才能真正不出本机。</p>}
+              {forcedOutbound && (
+                <p className="muted">
+                  {isWeb
+                    ? '网页模式的内容本来就发往浏览器页面，因此不能标成「仅本地」；选本地模式才能真正不出本机。'
+                    : '云端模式的内容要发给云厂商接口，因此不能标成「仅本地」；确实不能出本机时选本地模式。'}
+                </p>
+              )}
               <label className="research-row">
                 <span>没有可用成员时退回网页</span>
                 <input
@@ -211,11 +222,15 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               <h3>参与模型</h3>
               {options && (
                 <div className="research-lists">
-                  <Picker title="网页通道" ids={options.webChannels.map(item => item.id)} selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
+                  <Picker title="网页通道" items={options.webChannels}
+                    selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
                     onChange={next => onConfigChange({ selectedWebChannels: next })} />
-                  <Picker title="本地模型" ids={options.localModels} selected={config.selectedLocalModels} all={options.localModels}
+                  <Picker title="本地模型" items={options.localModels.map(id => ({ id, label: id }))}
+                    selected={config.selectedLocalModels} all={options.localModels}
                     onChange={next => onConfigChange({ selectedLocalModels: next })} />
-                  <Picker title="云端模型" ids={options.cloudModels} selected={config.selectedCloudModels} all={options.cloudModels}
+                  <Picker title="云端模型"
+                    items={options.cloudMembers.map(item => ({ ...item, note: item.hasKey ? undefined : '无 Key' }))}
+                    selected={config.selectedCloudModels} all={options.cloudMembers.map(item => item.id)}
                     onChange={next => onConfigChange({ selectedCloudModels: next })} />
                 </div>
               )}
@@ -517,9 +532,15 @@ function toggle(list: string[] | undefined, id: string, all: string[]): string[]
   return current.includes(id) ? current.filter(item => item !== id) : [...current, id];
 }
 
-  function Picker({ title, ids, selected, all, onChange }: {
+  /**
+   * 勾选清单。
+   *
+   * `id` 是真正发给主进程的值，`label` 只是显示用的——云端同名模型出现在
+   * 两个服务里时必须能分开勾。
+   */
+  function Picker({ title, items, selected, all, onChange }: {
   title: string;
-  ids: string[];
+  items: Array<{ id: string; label: string; note?: string }>;
   selected: string[] | undefined;
   all: string[];
   onChange: (next: string[]) => void;
@@ -528,11 +549,12 @@ function toggle(list: string[] | undefined, id: string, all: string[]): string[]
   return (
     <div className="research-picker">
       <b>{title}</b>
-      {ids.length === 0 && <span className="muted">没有可选成员</span>}
-      {ids.map(id => (
-        <label key={id}>
-          <input type="checkbox" checked={current.includes(id)} onChange={() => onChange(toggle(current, id, all))} />
-          {id}
+      {items.length === 0 && <span className="muted">没有可选成员</span>}
+      {items.map(item => (
+        <label key={item.id}>
+          <input type="checkbox" checked={current.includes(item.id)} onChange={() => onChange(toggle(current, item.id, all))} />
+          {item.label}
+          {item.note && <span className="muted">（{item.note}）</span>}
         </label>
       ))}
     </div>

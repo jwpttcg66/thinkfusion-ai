@@ -65,6 +65,14 @@ export interface SubAgent {
   readonly identity: SubAgentIdentity;
   readonly id: string;
   readonly label: string;
+  /**
+   * 这个成员是什么来源。网页通道不实现它（缺省即网页），只有
+   * `ProviderBackedSubAgent` 会返回 local / cloud。
+   *
+   * 选人策略本来就能自己判断，但「没有可用成员」这句报错也要用：对着云端
+   * 模型说「去右侧页面登录」是纯误导，用户会去翻一个根本不存在的页面。
+   */
+  readonly sourceType?: 'web' | 'local' | 'cloud';
   /** Usable right now, from the adapter plus this agent's own failure record. */
   health(): Promise<ChannelStatus>;
   ask(task: SubAgentTask): Promise<SubAgentAnswer>;

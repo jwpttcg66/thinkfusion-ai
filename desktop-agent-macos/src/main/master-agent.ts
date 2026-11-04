@@ -91,16 +91,57 @@ export interface ResearchOutcome {
  * read "请先在右侧页面登录 DeepSeek 或 ChatGPT" — a list that goes stale the
  * first time a third site is added, and stale in the worst way: it names sites
  * the user has already logged into and omits the one they haven't.
+ *
+ * 现在又多了本地和云端两种来源，那句「去右侧页面登录」对它们完全是误导：
+ * 云端模型没有页面，缺的是 API Key；本地模型缺的是 Ollama 进程。所以这句
+ * 报错改成按来源分组，原因用各自的 `health().detail`（“还没有配置 API Key”
+ * “连不上 http://127.0.0.1:11434”），再给一句能照着做的话。
  */
+export interface UnusableMember {
+  label: string;
+  detail?: string;
+  source: 'web' | 'local' | 'cloud';
+}
+
 export class NoUsableAgentError extends Error {
-  constructor(labels: readonly string[]) {
-    super(
-      labels.length > 0
-        ? `没有可用的通道：请先在右侧页面登录 ${labels.join(' 或 ')}。`
-        : '没有可用的通道：请先在设置里打开至少一个 AI 站点。'
-    );
+  constructor(roster: readonly UnusableMember[]) {
+    const web = roster.filter(item => item.source === 'web');
+    const models = roster.filter(item => item.source !== 'web');
+    const hints: string[] = [];
+    if (models.some(item => item.source === 'cloud')) {
+      hints.push('云端模型要先去「研究设置 → 执行模式 → 云端服务」填 API Key');
+    }
+    if (models.some(item => item.source === 'local')) {
+      hints.push('本地模型要先启动 Ollama');
+    }
+    let message: string;
+    if (roster.length === 0) {
+      message = '没有可用的通道：请先在设置里打开至少一个 AI 站点。';
+    } else if (models.length === 0) {
+      message = `没有可用的通道：请先在右侧页面登录 ${web.map(item => item.label).join(' 或 ')}。`;
+    } else {
+      // 逐个带原因：只说「不可用」会让人以为是网络问题，实际多半是没配 Key。
+      const list = roster
+        .map(item => (item.detail ? `${item.label}（${item.detail}）` : item.label))
+        .join('、');
+      message = `没有可用的通道：${list}。${hints.join('；')}。`;
+    }
+    super(message);
     this.name = 'NoUsableAgentError';
   }
+}
+
+/** 名单里每个人此刻为什么不能问。只在「一个都问不了」的失败路径上调用。 */
+export async function describeUnusable(roster: readonly SubAgent[]): Promise<UnusableMember[]> {
+  return Promise.all(roster.map(async agent => {
+    let detail: string | undefined;
+    try {
+      detail = (await agent.health()).detail;
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error);
+    }
+    return { label: agent.label, detail, source: agent.sourceType ?? 'web' as const };
+  }));
 }
 
 export class MasterAgent {
@@ -110,9 +151,9 @@ export class MasterAgent {
     const participants = await this.pool.available();
 
     if (participants.length === 0) {
-      // The user needs to know which pages to log into, so the message is built
-      // from the pool's own roster rather than a list baked into this file.
-      throw new NoUsableAgentError((await this.pool.all()).map(agent => agent.label));
+      // 用户要知道每个来源具体缺什么，所以原因来自各自的 health()，
+      // 不是把注册表里的名字拼成一句「请去登录」。
+      throw new NoUsableAgentError(await describeUnusable(await this.pool.all()));
     }
 
     sink.status(participants.length > 1 ? 'collecting' : 'thinking');

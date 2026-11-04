@@ -270,7 +270,10 @@ export function createMockApi(): AgentApi {
       modes: ['web', 'local', 'cloud', 'hybrid'],
       webChannels: [],
       localModels: ['qwen2.5:7b'],
-      cloudModels: ['gpt-4o-mini'],
+      cloudMembers: [
+        { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', hasKey: false },
+        { id: 'deepseek:deepseek-v4-flash', label: 'DeepSeek · deepseek-v4-flash', hasKey: false }
+      ],
       cloudProviders: [
         { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'], hasKey: false },
         { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], hasKey: false },
