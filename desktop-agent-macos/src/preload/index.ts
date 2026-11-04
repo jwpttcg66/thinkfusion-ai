@@ -32,6 +32,7 @@ const api: AgentApi = {
   removeApiKey: (id: string) => ipcRenderer.invoke('app:remove-api-key', id),
   getProviderHealth: () => ipcRenderer.invoke('app:provider-health'),
   getCollaborationRecords: () => ipcRenderer.invoke('app:collaboration'),
+  getUsage: () => ipcRenderer.invoke('app:usage'),
   startDebate: (input: { question: string; config: unknown; conversationId?: string }) => ipcRenderer.invoke('debate:start', input),
   getDebate: (debateId: string) => ipcRenderer.invoke('debate:get', debateId),
   listDebates: () => ipcRenderer.invoke('debate:list'),

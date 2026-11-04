@@ -2591,3 +2591,30 @@ button:disabled {
 .settings-form .settings-error {
   margin: 0;
 }
+
+/* 研究设置面板：复用诊断弹窗的骨架，只补自己的分栏与标签。 */
+.research-panel { width: min(820px, 100%); }
+.research-tabs { display: flex; gap: 4px; margin-left: 8px; }
+.research-tabs .btn.active { background: var(--accent-soft, #eef2ff); border-color: var(--line); }
+.research-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 16px; }
+.research-mode { display: flex; flex-direction: column; gap: 4px; padding: 10px; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); cursor: pointer; }
+.research-mode b { font-size: 13px; }
+.research-mode span { font-size: 11px; color: var(--muted, #777); line-height: 1.4; }
+.research-mode.on { border-color: var(--accent, #4f6bed); box-shadow: inset 0 0 0 1px var(--accent, #4f6bed); }
+.research-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.research-row > span:first-child { min-width: 150px; font-size: 12px; }
+.research-row input[type="text"], .research-row input[type="password"], .research-row input:not([type]) { flex: 1; min-width: 180px; }
+.research-row input[type="number"] { width: 64px; }
+.research-lists { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0; }
+.research-picker { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.research-picker label { display: flex; gap: 6px; align-items: center; }
+.research-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.research-table th, .research-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.research-debate, .research-round { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.research-debate.on { background: var(--accent-soft, #f5f7ff); }
+.research-round { display: block; }
+.research-message { margin: 6px 0; padding-left: 8px; border-left: 2px solid var(--line); font-size: 12px; }
+.research-message p { margin: 2px 0; white-space: pre-wrap; }
+.research-tag { font-size: 10px; color: var(--muted, #777); }
+.research-bar { display: flex; align-items: center; gap: 10px; padding: 0 2px 6px; font-size: 11px; }
+.research-private { padding: 1px 6px; border-radius: 10px; background: #e7f6ec; color: #1d6b39; }

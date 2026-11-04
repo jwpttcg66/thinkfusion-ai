@@ -1,0 +1,401 @@
+import React, { useEffect, useState } from 'react';
+import type {
+  CollaborationTaskRecord,
+  DebateConfigInput,
+  DebateView,
+  ExecutionOptions,
+  JudgeVerdictView,
+  ProviderHealthInfo,
+  UsageSummary
+} from '../../../shared/contracts';
+import type { ConversationExecutionConfig, Synthesis } from '../../../shared/conversation';
+
+/**
+ * 研究设置 / 协作 / 辩论 / 报告。
+ *
+ * 这一层只读 `agentAPI`，不碰主进程对象。所有输入在 main 侧还会再收敛一次
+ * （`normalizeExecutionConfig`），所以这里不做「防恶意输入」，只做让人看得懂。
+ */
+interface Props {
+  config: ConversationExecutionConfig;
+  onConfigChange: (patch: Partial<ConversationExecutionConfig>) => void;
+  latestSynthesis: Synthesis | null;
+  onClose: () => void;
+}
+
+type Tab = 'mode' | 'collab' | 'debate' | 'report';
+
+const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
+  { id: 'web', label: '网页', hint: '只问已开启的网页通道' },
+  { id: 'local', label: '本地', hint: '只问 Ollama 本地模型' },
+  { id: 'cloud', label: '云端', hint: '只问已配置 Key 的云端模型' },
+  { id: 'hybrid', label: '混合', hint: '三类来源一起参与' }
+];
+
+const STRATEGIES: Array<{ id: NonNullable<ConversationExecutionConfig['strategy']>; label: string }> = [
+  { id: 'smart', label: '智能（规则决定串/并）' },
+  { id: 'parallel', label: '并行（分批）' },
+  { id: 'all-selected', label: '全模型同时' },
+  { id: 'sequential', label: '递进（后一个看前一个）' }
+];
+
+export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose }: Props) {
+  const [tab, setTab] = useState<Tab>('mode');
+  const [options, setOptions] = useState<ExecutionOptions | null>(null);
+  const [health, setHealth] = useState<Record<string, ProviderHealthInfo>>({});
+  const [records, setRecords] = useState<CollaborationTaskRecord[]>([]);
+  const [debates, setDebates] = useState<DebateView[]>([]);
+  const [selectedDebate, setSelectedDebate] = useState<string>('');
+  const [verdict, setVerdict] = useState<JudgeVerdictView | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [debateQuestion, setDebateQuestion] = useState('');
+  const [debateStrategy, setDebateStrategy] = useState<NonNullable<DebateConfigInput['strategy']>>('standard');
+  const [debateRounds, setDebateRounds] = useState(2);
+
+  async function load() {
+    try {
+      const [nextOptions, nextHealth, nextRecords, nextDebates, nextUsage] = await Promise.all([
+        window.agentAPI.getExecutionOptions(),
+        window.agentAPI.getProviderHealth(),
+        window.agentAPI.getCollaborationRecords(),
+        window.agentAPI.listDebates(),
+        window.agentAPI.getUsage()
+      ]);
+      setOptions(nextOptions);
+      setHealth(nextHealth);
+      setRecords(nextRecords);
+      setDebates(nextDebates);
+      setUsage(nextUsage);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => {
+      if (tab === 'collab' || tab === 'debate' || tab === 'report') void load();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [tab]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    setError('');
+    try {
+      await action();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isWeb = config.executionMode === 'web';
+  const cloudProvider = options?.providers.find(item => item.type === 'cloud');
+  const nonWebParticipants = [
+    ...(options?.localModels ?? []).map(id => `ollama:${id}`),
+    ...(options?.cloudModels ?? []).map(id => `openai:${id}`)
+  ];
+
+  return (
+    <div className="diag-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="diag-panel research-panel" role="dialog" aria-label="研究设置">
+        <div className="diag-head">
+          <b>研究设置</b>
+          <div className="research-tabs">
+            {([['mode', '执行模式'], ['collab', '协作'], ['debate', '辩论'], ['report', '报告与预算']] as const).map(([id, label]) => (
+              <button key={id} type="button" className={`btn ghost${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="diag-actions">
+            <button className="btn ghost" type="button" onClick={() => void load()}>刷新</button>
+            <button className="btn ghost" type="button" onClick={onClose}>关闭</button>
+          </div>
+        </div>
+
+        <div className="diag-body">
+          {error && <div className="error">{error}</div>}
+
+          {tab === 'mode' && (
+            <>
+              <h3>执行模式</h3>
+              <div className="research-modes">
+                {MODES.map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={`research-mode${config.executionMode === mode.id ? ' on' : ''}`}
+                    onClick={() => onConfigChange({
+                      executionMode: mode.id,
+                      // web 与 local-only 互斥：切到 web 时把隐私模式归一。
+                      privacyMode: mode.id === 'web' ? 'allow-cloud' : config.privacyMode
+                    })}
+                  >
+                    <b>{mode.label}</b>
+                    <span>{mode.hint}</span>
+                  </button>
+                ))}
+              </div>
+
+              <h3>隐私与降级</h3>
+              <label className="research-row">
+                <span>隐私模式</span>
+                <select
+                  value={config.privacyMode}
+                  onChange={event => onConfigChange({ privacyMode: event.target.value as ConversationExecutionConfig['privacyMode'] })}
+                >
+                  <option value="allow-cloud">允许外发（网页与云端）</option>
+                  <option value="local-only" disabled={isWeb}>仅本地（web 模式下不可用）</option>
+                </select>
+              </label>
+              {isWeb && <p className="muted">网页模式的内容本来就发往浏览器页面，因此不能标成「仅本地」；选本地模式才能真正不出本机。</p>}
+              <label className="research-row">
+                <span>没有可用成员时退回网页</span>
+                <input
+                  type="checkbox"
+                  checked={config.fallbackEnabled}
+                  onChange={event => onConfigChange({ fallbackEnabled: event.target.checked })}
+                />
+              </label>
+              <p className="muted">「仅本地」下无论是否勾选，都不会退回网页或云端。</p>
+
+              <h3>协作策略</h3>
+              <select
+                value={config.strategy ?? 'smart'}
+                onChange={event => onConfigChange({ strategy: event.target.value as ConversationExecutionConfig['strategy'] })}
+              >
+                {STRATEGIES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+
+              <h3>参与模型</h3>
+              {options && (
+                <div className="research-lists">
+                  <Picker title="网页通道" ids={options.webChannels.map(item => item.id)} selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
+                    onChange={next => onConfigChange({ selectedWebChannels: next })} />
+                  <Picker title="本地模型" ids={options.localModels} selected={config.selectedLocalModels} all={options.localModels}
+                    onChange={next => onConfigChange({ selectedLocalModels: next })} />
+                  <Picker title="云端模型" ids={options.cloudModels} selected={config.selectedCloudModels} all={options.cloudModels}
+                    onChange={next => onConfigChange({ selectedCloudModels: next })} />
+                </div>
+              )}
+              <p className="muted">不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。</p>
+
+              <h3>云端 API Key</h3>
+              <div className="research-row">
+                <input
+                  type="password"
+                  placeholder={cloudProvider?.hasKey ? '已配置，输入新值可替换' : 'sk-…'}
+                  value={apiKey}
+                  onChange={event => setApiKey(event.target.value)}
+                />
+                <button className="btn" type="button" disabled={busy || !apiKey.trim() || !cloudProvider}
+                  onClick={() => void run(async () => {
+                    await window.agentAPI.setApiKey({ id: cloudProvider!.id, key: apiKey });
+                    setApiKey('');
+                  })}>保存</button>
+                <button className="btn ghost" type="button" disabled={busy || !cloudProvider?.hasKey}
+                  onClick={() => void run(() => window.agentAPI.removeApiKey(cloudProvider!.id))}>移除</button>
+              </div>
+              <p className="muted">Key 只存主进程的系统加密区，界面上只看得到「已配置 / 未配置」，不会回显。</p>
+            </>
+          )}
+
+          {tab === 'collab' && (
+            <>
+              <h3>最近一轮的子任务记录</h3>
+              {records.length === 0 && <p className="muted">还没有协作记录。选一个非默认策略发起一次提问后，这里会显示每个子任务的状态。</p>}
+              {records.length > 0 && (
+                <table className="research-table">
+                  <thead><tr><th>任务</th><th>成员</th><th>轮次</th><th>状态</th><th>尝试</th><th>前序</th><th>耗时</th></tr></thead>
+                  <tbody>
+                    {records.map(record => (
+                      <tr key={record.taskId}>
+                        <td>{record.taskId}</td><td>{record.label}</td><td>{record.stage}</td>
+                        <td>{record.status}</td><td>{record.attempts}</td><td>{record.contextCount}</td>
+                        <td>{record.latencyMs ?? '—'}{record.latencyMs !== undefined ? 'ms' : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {records.some(record => record.error) && (
+                <div className="diag-warn">
+                  {records.filter(record => record.error).map(record => <p key={record.taskId}>{record.label}：{record.error}</p>)}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === 'debate' && (
+            <>
+              <h3>发起辩论</h3>
+              <p className="muted">辩论只用本地 / 云端模型：网页通道会忽略结构化指令，参与进来只是重复独立回答。至少需要两个可用成员。</p>
+              <div className="research-row">
+                <input value={debateQuestion} placeholder="要辩论的问题" onChange={event => setDebateQuestion(event.target.value)} />
+              </div>
+              <div className="research-row">
+                <select value={debateStrategy} onChange={event => setDebateStrategy(event.target.value as typeof debateStrategy)}>
+                  <option value="standard">标准（独立观点 → 交叉质疑）</option>
+                  <option value="deep">深度（+ 回应与修正）</option>
+                  <option value="adversarial">对抗（主张 / 质疑角色）</option>
+                </select>
+                <label>轮数 <input type="number" min={1} max={10} value={debateRounds} onChange={event => setDebateRounds(Number(event.target.value))} /></label>
+                <button className="btn" type="button" disabled={busy || !debateQuestion.trim() || nonWebParticipants.length < 2}
+                  onClick={() => void run(async () => {
+                    const started = await window.agentAPI.startDebate({
+                      question: debateQuestion,
+                      config: { strategy: debateStrategy, maxRounds: debateRounds, participants: nonWebParticipants }
+                    });
+                    setSelectedDebate(started.debateId);
+                  })}>开始</button>
+              </div>
+              {nonWebParticipants.length < 2 && <p className="muted">当前可用成员不足两个，无法真机辩论。配置云端 Key 后可参与。</p>}
+
+              <h3>历史辩论</h3>
+              {debates.length === 0 && <p className="muted">还没有辩论记录。</p>}
+              {debates.map(item => (
+                <div key={item.debateId} className={`research-debate${selectedDebate === item.debateId ? ' on' : ''}`}>
+                  <button type="button" className="btn ghost" onClick={() => { setSelectedDebate(item.debateId); void run(async () => setVerdict(await window.agentAPI.getVerdict(item.debateId))); }}>
+                    {item.question.slice(0, 40)} · {item.config.strategy} · {item.rounds.length} 轮 · {item.status}
+                  </button>
+                  {item.status === 'running' && <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(() => window.agentAPI.stopDebate(item.debateId))}>停止</button>}
+                  {(item.status === 'stopped' || item.status === 'cancelled') && <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(() => window.agentAPI.resumeDebate(item.debateId))}>继续</button>}
+                  <button className="btn ghost" type="button" disabled={busy} onClick={() => void run(async () => setVerdict(await window.agentAPI.adjudicate(item.debateId)))}>裁决</button>
+                </div>
+              ))}
+
+              {(() => {
+                const current = debates.find(item => item.debateId === selectedDebate);
+                if (!current) return null;
+                return (
+                  <>
+                    <h3>时间线</h3>
+                    {current.rounds.map(round => (
+                      <div key={round.index} className="research-round">
+                        <b>第 {round.index + 1} 轮{round.converged ? ' · 已收敛' : ''}</b>
+                        {round.messages.map(message => (
+                          <div key={message.messageId} className="research-message">
+                            <span className="research-tag">{message.agentId} / {message.kind}</span>
+                            <p>{message.text}</p>
+                          </div>
+                        ))}
+                        {round.failures.map(failure => <p key={failure.agentId} className="muted">{failure.agentId}：{failure.detail}</p>)}
+                      </div>
+                    ))}
+                    {current.minorities.length > 0 && (
+                      <div className="diag-warn"><b>少数派观点</b>{current.minorities.map(item => <p key={item.messageId}>{item.text}</p>)}</div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {verdict && (
+                <>
+                  <h3>裁决（{verdict.backend === 'rules' ? '规则版' : '独立模型'}）</h3>
+                  <p><b>结论：</b>{verdict.conclusion ?? '无法确定'}</p>
+                  <p className="muted">{verdict.reason}</p>
+                  <p className="muted">置信度：{verdict.confidence.level} · {verdict.confidence.why}</p>
+                  {verdict.fallbackReason && <p className="muted">{verdict.fallbackReason}</p>}
+                  {verdict.unresolved.length > 0 && <p className="muted">未解决：{verdict.unresolved.map(item => item.question).join('；')}</p>}
+                </>
+              )}
+            </>
+          )}
+
+          {tab === 'report' && (
+            <>
+              <h3>最近一次综合</h3>
+              {!latestSynthesis && <p className="muted">还没有综合报告。</p>}
+              {latestSynthesis && (
+                <>
+                  <p>{latestSynthesis.recommendation}</p>
+                  {latestSynthesis.degraded && <div className="diag-warn">这是一份降级报告：没有跨通道共识，不能当成一致结论。</div>}
+                  {latestSynthesis.fusion ? (
+                    <dl className="diag-grid">
+                      <dt>后端</dt><dd>{latestSynthesis.fusion.backend}</dd>
+                      <dt>最终结论</dt><dd>{latestSynthesis.fusion.finalDecision ?? '未裁决 / 无法确定'}</dd>
+                      <dt>置信度</dt><dd>{latestSynthesis.fusion.confidence.level} · {latestSynthesis.fusion.confidence.why}</dd>
+                      <dt>证据 / 关系</dt><dd>{latestSynthesis.fusion.evidenceCount} 条 / {latestSynthesis.fusion.relationCount} 条边</dd>
+                      <dt>被否定观点</dt><dd>{latestSynthesis.fusion.rejected.length} 条（原文保留）</dd>
+                      <dt>未解决问题</dt><dd>{latestSynthesis.fusion.unresolvedQuestions.length} 条</dd>
+                    </dl>
+                  ) : <p className="muted">规则版综合，没有融合摘要。</p>}
+                  {latestSynthesis.fusion && latestSynthesis.fusion.limits.length > 0 && (
+                    <details><summary>这一版算法做不到的事</summary>
+                      <ul>{latestSynthesis.fusion.limits.map((line, index) => <li key={index}>{line}</li>)}</ul>
+                    </details>
+                  )}
+                </>
+              )}
+
+              <h3>预算统计</h3>
+              {!usage && <p className="muted">还没有配置云端 Provider，没有 token / 费用数据。</p>}
+              {usage && (
+                <dl className="diag-grid">
+                  <dt>云端调用</dt><dd>{usage.calls} 次</dd>
+                  <dt>Token</dt><dd>输入 {usage.inputTokens} / 输出 {usage.outputTokens}</dd>
+                  <dt>费用</dt><dd>{usage.cost.length > 0 ? usage.cost.map(item => `${item.amount.toFixed(6)} ${item.currency}`).join('，') : '未配置单价，不估算'}</dd>
+                  <dt>服务端没给 usage</dt><dd>{usage.unknownUsageCalls} 次（没有当成 0）</dd>
+                </dl>
+              )}
+
+              <h3>来源状态</h3>
+              <dl className="diag-grid">
+                {Object.entries(health).map(([id, item]) => (
+                  <React.Fragment key={id}>
+                    <dt>{id}</dt><dd>{item.available ? '可用' : '不可用'}{item.detail ? ` · ${item.detail}` : ''}</dd>
+                  </React.Fragment>
+                ))}
+              </dl>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+
+}
+
+/** 提到组件外：定义在 render 里的组件类型每次都会变，输入框会丢焦点。 */
+function toggle(list: string[] | undefined, id: string, all: string[]): string[] {
+  const current = list ?? all;
+  return current.includes(id) ? current.filter(item => item !== id) : [...current, id];
+}
+
+  function Picker({ title, ids, selected, all, onChange }: {
+  title: string;
+  ids: string[];
+  selected: string[] | undefined;
+  all: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const current = selected ?? all;
+  return (
+    <div className="research-picker">
+      <b>{title}</b>
+      {ids.length === 0 && <span className="muted">没有可选成员</span>}
+      {ids.map(id => (
+        <label key={id}>
+          <input type="checkbox" checked={current.includes(id)} onChange={() => onChange(toggle(current, id, all))} />
+          {id}
+        </label>
+      ))}
+    </div>
+  );
+}

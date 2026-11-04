@@ -18,11 +18,13 @@ import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ResearchPanel } from './components/ResearchPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
 import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_GAUGE_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
-import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
+import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage } from '../../shared/conversation';
+import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
@@ -133,6 +135,8 @@ export default function App() {
   /** The local user name for the row at the bottom of the sidebar. */
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -555,7 +559,8 @@ export default function App() {
       const conversation = await window.agentAPI.submitConversation({
         text,
         workspaceRoot: root || undefined,
-        permissionPreset: permission
+        permissionPreset: permission,
+        executionConfig
       });
       setConversations(prev => [
         conversation,
@@ -1139,6 +1144,15 @@ export default function App() {
             does not. */}
         <div className="dock">
           <div className="inner">
+            <div className="research-bar">
+              <button className="btn ghost" type="button" onClick={() => setResearchOpen(true)}>研究设置</button>
+              <span className="muted">
+                当前：{({ web: '网页', local: '本地', cloud: '云端', hybrid: '混合' } as const)[executionConfig.executionMode]}
+                {' / '}{executionConfig.privacyMode === 'local-only' ? '仅本地' : '允许外发'}
+                {' / '}{executionConfig.strategy ?? '默认并行'}
+              </span>
+              {executionConfig.privacyMode === 'local-only' && <span className="research-private">不出本机</span>}
+            </div>
             <TaskInput
               value={prompt}
               workspace={workspace}
@@ -1304,6 +1318,15 @@ export default function App() {
         onSelect={selectSource}
         onToggleCollapse={toggleCollapse}
       />
+
+      {researchOpen && (
+        <ResearchPanel
+          config={executionConfig}
+          onConfigChange={patch => setExecutionConfig(prev => normalizeExecutionConfig({ ...prev, ...patch }))}
+          latestSynthesis={messages.find(item => item.role === 'synthesis' && item.synthesis)?.synthesis ?? null}
+          onClose={() => setResearchOpen(false)}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsPanel

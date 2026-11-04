@@ -277,6 +277,7 @@ export function createMockApi(): AgentApi {
     removeApiKey: async id => ({ id, configured: false }),
     getProviderHealth: async () => ({}),
     getCollaborationRecords: async () => [],
+    getUsage: async () => null,
     startDebate: async () => { throw new Error('浏览器预览里不能发起辩论'); },
     getDebate: async () => null,
     listDebates: async () => [],

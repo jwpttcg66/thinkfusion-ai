@@ -536,6 +536,14 @@ export interface DebateView {
   stopReason?: string;
 }
 
+export interface UsageSummary {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cost: Array<{ currency: string; amount: number }>;
+  unknownUsageCalls: number;
+}
+
 export interface CollaborationTaskRecord {
   taskId: string;
   agentId: string;
@@ -590,6 +598,7 @@ export interface AgentApi {
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
+  getUsage(): Promise<UsageSummary | null>;
   startDebate(input: { question: string; config: DebateConfigInput; conversationId?: string }): Promise<DebateView>;
   getDebate(debateId: string): Promise<DebateView | null>;
   listDebates(): Promise<DebateView[]>;

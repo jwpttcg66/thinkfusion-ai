@@ -289,6 +289,7 @@ let extraAgents: ProviderBackedSubAgent[] = [];
 const LOCAL_MODELS = ['qwen2.5:7b'];
 const CLOUD_MODELS = ['gpt-4o-mini'];
 let collaborationRecords: CollaborationRecord[] = [];
+let cloudProvider: OpenAICompatibleProvider | null = null;
 let debates: DebateOrchestrator | null = null;
 let judge: JudgeEngine | null = null;
 let verdicts: VerdictStore | null = null;
@@ -345,16 +346,16 @@ function rebuildProviders() {
   const providers: ModelProvider[] = [];
   for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
   providers.push(new OllamaProvider({ defaultModel: LOCAL_MODELS[0] }));
+  cloudProvider = null;
   if (apiKeys) {
-    providers.push(
-      new OpenAICompatibleProvider({
+    cloudProvider = new OpenAICompatibleProvider({
         id: 'openai',
         label: 'OpenAI 兼容 API',
         models: CLOUD_MODELS,
         defaultModel: CLOUD_MODELS[0],
-        keyStore: apiKeys
-      })
-    );
+      keyStore: apiKeys
+    });
+    providers.push(cloudProvider);
   }
   providerRegistry.replaceAll(providers);
   extraAgents = [];
@@ -1570,6 +1571,12 @@ function registerIpc() {
     trustedUiSender(event);
     if (!verdicts || typeof debateId !== 'string') throw new Error('无效输入');
     return verdicts.get(debateId);
+  });
+
+  /** 预算统计：只有云端 Provider 有 token/费用，没有配置时返回 null。 */
+  ipcMain.handle('app:usage', event => {
+    trustedUiSender(event);
+    return cloudProvider?.usageSummary() ?? null;
   });
 
   ipcMain.handle('app:sources', event => {
