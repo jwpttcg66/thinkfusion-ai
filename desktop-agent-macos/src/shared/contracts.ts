@@ -285,6 +285,14 @@ export interface PageDiagnostics {
 
 export interface DeepSeekDiagnostics {
   probeVersion: string;
+  /**
+   * Which channel was read.
+   *
+   * The panel can diagnose any channel, not just the one in the pane, so the
+   * reply has to say which page these numbers came from — otherwise the header
+   * can name Gemini while the numbers are ChatGPT's.
+   */
+  sourceId?: string;
   url: string;
   title: string;
   status: DeepSeekStatus;
@@ -306,6 +314,14 @@ export interface DeepSeekDiagnostics {
     hasSendButton: boolean;
     generating: boolean;
     messageCount: number;
+    /**
+     * Characters sitting in the composer.
+     *
+     * Load bearing for the verdict, not decoration: Gemini only renders its
+     * send button once there is something to send, so "no send button" on an
+     * empty composer is the normal state of a perfectly working page.
+     */
+    composerChars: number;
     lastTextPreview: string;
     selectorHits: Record<string, number>;
     chosen: Record<string, string>;
@@ -489,8 +505,12 @@ export interface AgentApi {
   chooseDirectory(): Promise<string | null>;
   getPlatform(): Promise<string>;
   getDeepSeekStatus(): Promise<DeepSeekStatus>;
-  getDeepSeekDiagnostics(): Promise<DeepSeekDiagnostics>;
-  reloadDeepSeek(): Promise<void>;
+  /**
+   * Read one channel's page. Without an id it reads the planning channel —
+   * kept so an old caller (and the sources-reload window) still gets an answer.
+   */
+  getDeepSeekDiagnostics(sourceId?: string): Promise<DeepSeekDiagnostics>;
+  reloadDeepSeek(sourceId?: string): Promise<void>;
   getAccessibilitySnapshot(): Promise<AccessibilitySnapshot>;
 
   // layout

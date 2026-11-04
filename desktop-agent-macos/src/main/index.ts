@@ -243,6 +243,21 @@ function planningAdapter(): ChatPageDriver {
   return adapterFor(planningSource(sources)?.id ?? 'deepseek');
 }
 
+/**
+ * The channel a diagnostics request is about.
+ *
+ * An unknown or disabled id falls back to the planning channel instead of
+ * throwing: the panel is opened from a bar whose id comes from the last
+ * `app:sources` reply, and during a sources reload that id can be one edit
+ * stale. A diagnostics button that errors out because of an edit elsewhere
+ * would be worse than one that reads the wrong page and says so.
+ */
+function diagnosedSource(id: unknown): PageSource | undefined {
+  const wanted = typeof id === 'string' ? sourceById(sources, id) : undefined;
+  if (wanted?.enabled) return wanted;
+  return planningSource(sources);
+}
+
 const registry = new SubAgentRegistry([]);
 
 /**
@@ -1372,22 +1387,26 @@ function registerIpc() {
     return planningAdapter().getStatus();
   });
 
-  ipcMain.handle('deepseek:diagnose', async event => {
+  ipcMain.handle('deepseek:diagnose', async (event, sourceId: unknown) => {
     trustedUiSender(event);
-    const report = await planningAdapter().diagnose();
+    const source = diagnosedSource(sourceId);
+    const report = await adapterFor(source?.id ?? 'deepseek').diagnose();
     // The page is a native view, so its position is only knowable here. When
     // the two panes disagree, this is the number that settles it.
-    const planning = planningSource(sources);
     return {
       ...report,
-      view: planning ? (views.get(planning.id)?.getBounds() ?? null) : null,
+      sourceId: source?.id,
+      view: source ? (views.get(source.id)?.getBounds() ?? null) : null,
       dragging: draggingPage
     } satisfies DeepSeekDiagnostics;
   });
 
-  ipcMain.handle('deepseek:reload', async event => {
+  ipcMain.handle('deepseek:reload', async (event, sourceId: unknown) => {
     trustedUiSender(event);
-    const source = planningSource(sources);
+    // Same channel as the report: reloading planning while the panel shows
+    // another page would clear the wrong one and look like the button did
+    // nothing.
+    const source = diagnosedSource(sourceId);
     const view = source ? views.get(source.id) : undefined;
     if (!view || !source) throw new Error('内嵌页面尚未创建');
     await view.webContents.loadURL(source.url);

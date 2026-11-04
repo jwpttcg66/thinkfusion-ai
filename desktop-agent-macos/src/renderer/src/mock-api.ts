@@ -153,6 +153,7 @@ export function createMockApi(): AgentApi {
         hasSendButton: true,
         generating: false,
         messageCount: 3,
+        composerChars: 0,
         lastTextPreview: '（mock 诊断数据）',
         selectorHits: { 'input:#chat-input': 1, 'input:div[contenteditable="true"]': 1 },
         chosen: { input: '#chat-input' }

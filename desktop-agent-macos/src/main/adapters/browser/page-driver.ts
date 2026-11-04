@@ -6,10 +6,11 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../..
  *
  * Deliberately not the whole `DeepSeekDiagnostics`: where the native view sits
  * is a fact about the window, not about the page, so the main process adds it.
- * Keeping the boundary here means the adapter never needs to know that a
- * `WebContentsView` exists.
+ * The channel id is the same kind of thing — the adapter is reached through an
+ * id it never stores. Keeping the boundary here means the adapter never needs
+ * to know that a `WebContentsView` exists.
  */
-export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging'>;
+export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging' | 'sourceId'>;
 import { stripEcho, containsEcho, findIgnoringWhitespace } from '../../../shared/protocol';
 import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../../../shared/text';
 import type { DiscoveredSelectors, SelectorProfile } from '../../../shared/selectors';
@@ -1969,6 +1970,7 @@ export class ChatPageDriver {
         hasSendButton: probe?.hasSendButton ?? false,
         generating: probe?.generating ?? false,
         messageCount: probe?.messageCount ?? 0,
+        composerChars: (probe?.composerText ?? '').trim().length,
         lastTextPreview: (probe?.lastText ?? '').slice(0, 400),
         selectorHits: probe?.selectorHits ?? {},
         chosen: probe?.chosen ?? {}

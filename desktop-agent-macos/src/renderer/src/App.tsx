@@ -19,7 +19,7 @@ import { ExecutionLog } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Glyph } from './components/Glyph';
-import { StyleReport, type StyleReportData } from './components/StyleReport';
+import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
 import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
@@ -102,6 +102,14 @@ export default function App() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagReport, setDiagReport] = useState<DeepSeekDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  /**
+   * The channel the diagnostics panel is about.
+   *
+   * Not the same thing as the channel in the pane: the panel can be pointed at
+   * any page while you keep looking at one. Opened from the bar it starts on
+   * that bar's channel, which is the only one the button can mean.
+   */
+  const [diagChannelId, setDiagChannelId] = useState('');
   const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', planningId: null, loading: false });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
@@ -109,13 +117,12 @@ export default function App() {
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
   const [refreshing, setRefreshing] = useState(false);
   /**
-   * The last repair result, shown as a dialog.
+   * The last repair result, shown inside the diagnostics panel.
    *
-   * Not a line in the page bar: the bar is inside the pane, the pane can be
-   * dragged to 380px, and the sentence is longer than what is left after the
-   * buttons — the one clause that matters got cut off every time.
+   * Not a dialog of its own any more: the only button that starts a repair is
+   * the one next to the problem, so the answer belongs under that problem.
    */
-  const [styleReport, setStyleReport] = useState<StyleReportData | null>(null);
+  const [repairReport, setRepairReport] = useState<StyleReportData | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -430,15 +437,25 @@ export default function App() {
       .catch(() => undefined);
   }
 
+  /**
+   * Open the channel report for the page in the pane.
+   *
+   * A repair result from a previous visit is dropped on purpose: it describes a
+   * read that no longer exists, and leaving it above fresh numbers is how a
+   * stale "已重新提取" ends up looking like the state of a broken page.
+   */
   async function openDiagnostics() {
+    const id = sources.activeId;
+    setDiagChannelId(id);
+    setRepairReport(null);
     setDiagOpen(true);
-    await refreshDiagnostics();
+    await refreshDiagnostics(id);
   }
 
-  async function refreshDiagnostics() {
+  async function refreshDiagnostics(sourceId = diagChannelId) {
     setDiagLoading(true);
     try {
-      setDiagReport(await window.agentAPI.getDeepSeekDiagnostics());
+      setDiagReport(await window.agentAPI.getDeepSeekDiagnostics(sourceId || undefined));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -449,12 +466,18 @@ export default function App() {
   async function reloadPage() {
     setDiagLoading(true);
     try {
-      await window.agentAPI.reloadDeepSeek();
+      await window.agentAPI.reloadDeepSeek(diagChannelId || undefined);
     } catch (e) {
       setError(errorText(e));
     } finally {
       setDiagLoading(false);
     }
+  }
+
+  function selectDiagChannel(id: string) {
+    setDiagChannelId(id);
+    setRepairReport(null);
+    void refreshDiagnostics(id);
   }
 
   async function selectTask(taskId: string) {
@@ -783,10 +806,10 @@ export default function App() {
    * so a click flips the button even if the event is missed.
    */
   async function toggleDetach() {
-    // A report describes the page that was in the pane when it was produced.
-    // Moving that page elsewhere makes it stale, so it goes away rather than
-    // sitting over a pane that no longer contains what it describes.
-    setStyleReport(null);
+    // A repair result describes the page that was in the pane when it was
+    // produced. Moving that page elsewhere makes it stale, so it goes away
+    // rather than sitting in a report about a pane that no longer holds it.
+    setRepairReport(null);
     try {
       const next = page.detachedId === sources.activeId
         ? await window.agentAPI.reattachPage()
@@ -851,18 +874,20 @@ export default function App() {
   /**
    * 「更新样式」: re-read the page and repair what stopped matching.
    *
-   * Runs against the page that is on screen — including one that has been
-   * detached, because it is the same webContents. The outcome is always a
-   * dialog: "已重新提取 2 项" and "没找到输入框，可能需要登录" are different
-   * situations, and the second one is the reason the user pressed the button.
+   * Runs against the channel the diagnostics panel is pointed at, which is the
+   * page the problem was seen on — not necessarily the one in the pane. The
+   * outcome goes straight back into the panel: the numbers below it are re-read
+   * immediately, so "修好了没有" is answered by the same hit counts that raised
+   * the alarm.
    */
   async function refreshSelectors() {
     if (learning) return;
     setLearning(true);
-    const label = activeSource?.label ?? '内嵌页面';
+    const id = diagChannelId || sources.activeId;
+    const label = sources.sources.find(source => source.id === id)?.label ?? '内嵌页面';
     try {
-      const report = await window.agentAPI.learnSelectors(sources.activeId);
-      setStyleReport({
+      const report = await window.agentAPI.learnSelectors(id);
+      setRepairReport({
         sourceLabel: label,
         message: report.message,
         learned: report.learned,
@@ -873,8 +898,9 @@ export default function App() {
       // A repair changes whether the channel is usable, so the pill above has to
       // stop saying "未就绪" the moment the page works again.
       setChannelStatuses(await window.agentAPI.getChannelStatuses());
+      if (diagOpen) await refreshDiagnostics(id);
     } catch (e) {
-      setStyleReport({
+      setRepairReport({
         sourceLabel: label,
         message: errorText(e),
         learned: [],
@@ -990,9 +1016,16 @@ export default function App() {
                 </span>
               );
             })()}
-            <button className="btn ghost" type="button" onClick={openDiagnostics}>
-              诊断
-            </button>
+            {/* Only while the pane is folded. The page bar carries 诊断 when it
+                is there, and the bar is the honest place for it — it is about
+                the page next to it. Folded, that bar is gone, and diagnostics
+                is exactly the thing you want when a page looks wrong but is
+                not being shown. */}
+            {isCollapsed && (
+              <button className="btn ghost" type="button" onClick={() => void openDiagnostics()}>
+                诊断
+              </button>
+            )}
             {(busy || awaitingAnswer || conversationBusy) && (
               <button className="btn ghost" type="button" onClick={cancel}>
                 {conversationBusy ? '停止等待' : '取消任务'}
@@ -1184,15 +1217,19 @@ export default function App() {
               >
                 {isDetached ? <IconDockBack /> : <IconExpand />}
               </button>
+              {/* 诊断, not 更新样式.
+                  Repair is a reaction to a bad reading, so it moved into the
+                  report where the reading is; what stays here is the door to
+                  that report. Two buttons in a 34px bar that most sessions
+                  never press became one that explains itself. */}
               <button
                 className="page-btn"
                 type="button"
-                onClick={refreshSelectors}
-                disabled={learning}
-                data-action="learn"
-                title="网页改版后重新提取选择器，修好提问与读取回答"
+                onClick={() => void openDiagnostics()}
+                data-action="diagnose"
+                title="通道诊断：看这一页真实找到了什么，有问题就在里面更新样式"
               >
-                {learning ? '提取中…' : '更新样式'}
+                诊断
               </button>
             </span>
           </div>
@@ -1272,8 +1309,6 @@ export default function App() {
         onToggleCollapse={toggleCollapse}
       />
 
-      {styleReport && <StyleReport report={styleReport} onClose={() => setStyleReport(null)} />}
-
       {settingsOpen && (
         <SettingsPanel
           sources={sources}
@@ -1293,9 +1328,21 @@ export default function App() {
         <DiagnosticsPanel
           report={diagReport}
           loading={diagLoading}
+          repairing={learning}
+          channelId={diagChannelId}
+          channels={sources.sources
+            .filter(source => source.enabled)
+            .map(source => ({
+              id: source.id,
+              label: source.label,
+              available: channelStatuses.find(channel => channel.id === source.id)?.available ?? false
+            }))}
+          repair={repairReport}
+          onSelectChannel={selectDiagChannel}
           onClose={() => setDiagOpen(false)}
-          onRefresh={refreshDiagnostics}
-          onReload={reloadPage}
+          onRefresh={() => void refreshDiagnostics()}
+          onReload={() => void reloadPage()}
+          onRepair={() => void refreshSelectors()}
         />
       )}
     </div>
