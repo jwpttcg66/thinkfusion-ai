@@ -82,6 +82,12 @@ export interface MessageSnapshot {
   composerText: string;
 }
 
+/** One row of a site's conversation list, as the page draws it. */
+export interface ThreadCandidate {
+  href: string;
+  title: string;
+}
+
 export interface PageProbe {
   url: string;
   title: string;
@@ -167,6 +173,26 @@ export interface PageDriver {
    * defeated by markup.
    */
   reloadHome?(): Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * Go to an address on this site, e.g. the thread a conversation was recorded
+   * in. Used when the sidebar no longer lists that row without scrolling to it.
+   */
+  navigate?(url: string): Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * Delete a conversation from the site's own sidebar.
+   *
+   * Found by thread id, never by title. Declining is a valid answer: a page
+   * with no sidebar (signed out) has nothing to delete from, and saying so is
+   * better than clicking something that merely looks like a menu.
+   */
+  deleteChat?(threadUrl: string): Promise<{ ok: boolean; detail?: string }>;
+  /**
+   * Conversation links the page is listing right now (see `THREAD_LIST_SCRIPT`).
+   *
+   * Compared before and after an ask: the entry that was not there before is
+   * the thread this conversation created. Never used as "the first row".
+   */
+  threadCandidates?(): Promise<ThreadCandidate[]>;
 }
 
 export const PROBE_SCRIPT = (
@@ -783,6 +809,187 @@ const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(() => {
   return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
 })()`;
 
+/**
+ * Every conversation link the page is currently listing, in DOM order.
+ *
+ * Taken before a question is asked and again after it is answered: the row that
+ * appeared in between is the one this conversation created. That difference is
+ * the only safe way to name a thread on a site that keeps its id out of the
+ * address bar — Kimi does, and "the first row" would happily delete a
+ * conversation the user started on their phone a minute earlier.
+ */
+const THREAD_LIST_SCRIPT = `(() => {
+  const visible = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  return [...document.querySelectorAll('a[href]')]
+    .filter(visible)
+    .map((a) => ({ href: a.href, title: (a.innerText || '').trim().slice(0, 80) }))
+    .filter((row) => /\\/(chat\\/[^/?#]+|c\\/[^/?#]+|app\\/[^/?#]+)/.test(row.href))
+    .filter((row) => !/\\/chat\\/history/.test(row.href))
+    .slice(0, 60);
+})()`;
+
+/**
+ * Delete *this* conversation from the site's own sidebar.
+ *
+ * The row is found by the thread id in the address recorded when the answer
+ * arrived, never by its title: two conversations can be called the same thing,
+ * and the wrong one cannot be brought back. When the id is not in the sidebar
+ * the script returns `ok: false` without clicking anything — a delete that
+ * guesses is worse than a delete that declines.
+ *
+ * Two shapes had to be handled, measured live:
+ *   - Kimi  — row is `.next-sidebar-history-item`, its menu button carries
+ *             `aria-label="更多"`, and the menu item is a span reading 删除;
+ *   - ChatGPT — the menu button lives four levels above the link
+ *             (`aria-label="聊天操作"`) and the trigger opens on *pointerdown*,
+ *             so a plain `.click()` does nothing at all.
+ * Hence the generic walk: go up from the link until a level exposes exactly one
+ * menu-shaped button, then dispatch the full pointer sequence.
+ */
+const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
+  const target = ${JSON.stringify(threadUrl)};
+  const id = (() => {
+    try {
+      const path = new URL(target).pathname;
+      const uuid = path.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
+      if (uuid) return uuid[0];
+      const parts = path.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
+    } catch { return ''; }
+  })();
+  if (!id) return { ok: false, detail: '这个地址里没有会话编号' };
+
+  const visible = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const label = (el) =>
+    [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), el.className]
+      .map((value) => (value || '').toString().trim())
+      .filter(Boolean)
+      .join(' ');
+
+  const rowLink = () =>
+    [...document.querySelectorAll('a[href]')]
+      .filter(visible)
+      .find((a) => (a.getAttribute('href') || '').includes(id)) || null;
+
+  let link = rowLink();
+
+  // A collapsed sidebar has no rows at all. Opening it is a click the user
+  // would have made anyway, and it is the only way to reach the row.
+  if (!link) {
+    const opener = [...document.querySelectorAll('button, [role="button"]')]
+      .filter(visible)
+      .find((el) => /显示侧边栏|打开侧边栏|show sidebar|open sidebar/i.test(label(el)));
+    if (opener) {
+      opener.click();
+      await sleep(1200);
+      link = rowLink();
+    }
+  }
+  if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档' };
+
+  // Walk up to the smallest ancestor that owns a menu button. Smallest matters:
+  // one level too high and every row in the list matches, which is how a delete
+  // lands on somebody else's conversation.
+  const MENU_WORDS = /聊天操作|更多|更多选项|操作|菜单|chat actions|more|options|menu/i;
+  const menuButton = (() => {
+    let node = link.parentElement;
+    for (let depth = 0; depth < 5 && node; depth += 1) {
+      const hits = [...node.querySelectorAll('button, [role="button"]')]
+        .filter(visible)
+        .filter((el) => MENU_WORDS.test(label(el)));
+      if (hits.length === 1) return hits[0];
+      if (hits.length > 1) return null;
+      node = node.parentElement;
+    }
+    return null;
+  })();
+  if (!menuButton) return { ok: false, detail: '这条会话旁边没有「更多」菜单' };
+
+  const rect = menuButton.getBoundingClientRect();
+  const at = {
+    bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
+    pointerId: 1, pointerType: 'mouse', isPrimary: true,
+    clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2
+  };
+  menuButton.dispatchEvent(new PointerEvent('pointerover', at));
+  menuButton.dispatchEvent(new PointerEvent('pointerdown', at));
+  menuButton.dispatchEvent(new MouseEvent('mousedown', at));
+  menuButton.dispatchEvent(new PointerEvent('pointerup', at));
+  menuButton.dispatchEvent(new MouseEvent('mouseup', at));
+  menuButton.dispatchEvent(new MouseEvent('click', at));
+
+  const findDeleteItem = () =>
+    [...document.querySelectorAll('[role="menuitem"], [class*="menu-item"], [class*="MenuItem"]')]
+      .filter(visible)
+      .find((el) => /^(删除|删除聊天|delete|delete chat)$/i.test((el.innerText || '').trim()));
+
+  let item = null;
+  for (let wait = 0; wait < 8 && !item; wait += 1) {
+    await sleep(200);
+    item = findDeleteItem();
+  }
+  if (!item) return { ok: false, detail: '菜单里没有「删除」这一项' };
+
+  // The text node is not always the click target: Kimi puts the word in a
+  // span three levels inside the row that handles the click.
+  let clickTarget = item;
+  for (let depth = 0; depth < 3 && clickTarget; depth += 1) {
+    if (clickTarget.matches('button, [role="menuitem"], [role="button"], a[href]')) break;
+    clickTarget = clickTarget.parentElement;
+  }
+  clickTarget = clickTarget || item;
+
+  clickTarget.dispatchEvent(new PointerEvent('pointerdown', at));
+  clickTarget.dispatchEvent(new MouseEvent('click', at));
+  // Some sites put the confirm one click later. Clicking it is safe even when
+  // it never appears, because nothing is clicked unless the label says delete.
+  // ChatGPT's confirm is 「删除聊天」, not 「删除」 — measured, after the first
+  // version matched only the short word and left the dialog open.
+  const CONFIRM = /^(删除|删除聊天|delete|delete chat|确定|确认|remove)$/i;
+  for (let wait = 0; wait < 8; wait += 1) {
+    await sleep(200);
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"]')].filter(visible);
+    let confirm = null;
+    for (const dialog of dialogs) {
+      confirm = [...dialog.querySelectorAll('button, [role="button"]')]
+        .filter(visible)
+        .find((el) => CONFIRM.test((el.innerText || '').trim())) || null;
+      if (confirm) break;
+    }
+    if (confirm) {
+      const box = confirm.getBoundingClientRect();
+      const point = { ...at, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+      confirm.dispatchEvent(new PointerEvent('pointerdown', point));
+      confirm.dispatchEvent(new MouseEvent('mousedown', point));
+      confirm.dispatchEvent(new PointerEvent('pointerup', point));
+      confirm.dispatchEvent(new MouseEvent('mouseup', point));
+      confirm.dispatchEvent(new MouseEvent('click', point));
+      break;
+    }
+  }
+
+  // Evidence, not belief: a click is a request. The row is gone only when the
+  // sidebar stops listing it.
+  for (let wait = 0; wait < 15; wait += 1) {
+    await sleep(200);
+    if (!rowLink()) return { ok: true };
+  }
+  return { ok: false, detail: '点了删除，但侧栏里这条会话还在' };
+})()`;
+
 const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
@@ -977,6 +1184,28 @@ export function createElectronDriver(
         method?: string;
         reason?: string;
       },
+    navigate: async (url: string) => {
+      // Same deadline reasoning as `reloadHome`: a navigation legitimately takes
+      // seconds, and a page that never finishes must not hold the delete open.
+      try {
+        await Promise.race([
+          view.webContents.loadURL(url),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('打开这条会话超时：页面没有在 30 秒内加载完')), 30_000)
+          )
+        ]);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    deleteChat: async (threadUrl: string) =>
+      (await callPage(view, '删除网页会话', DELETE_CHAT_SCRIPT(threadUrl))) as {
+        ok: boolean;
+        detail?: string;
+      },
+    threadCandidates: async () =>
+      (await callPage(view, '读取会话列表', THREAD_LIST_SCRIPT)) as ThreadCandidate[],
     reloadHome: async () => {
       // The URL is already known to be an allowed host — the adapter checks
       // before it hands us the driver — so its origin is safe to navigate to.
@@ -1391,6 +1620,135 @@ export class ChatPageDriver {
       method: clicked.ok ? 'button' : 'none',
       detail: clicked.ok ? '页面没有清空，仍在原会话里' : `未找到「新对话」入口（${clicked.reason ?? 'UNKNOWN'}）`
     };
+  }
+
+  /**
+   * Delete the site's own copy of a conversation.
+   *
+   * The address comes from the answer record, and the row is located by the id
+   * inside it. If the sidebar does not list it — a long history that only
+   * renders what has been scrolled to — the page is opened on that thread first
+   * and the lookup is retried once. Anything else is reported, not retried:
+   * a delete that keeps clicking is how the wrong row goes.
+   */
+  async deleteConversation(threadUrl: string): Promise<{ ok: boolean; detail?: string }> {
+    const driver = this.driver();
+    if (!driver.deleteChat) return { ok: false, detail: '该页面没有可用的删除入口' };
+    if (!threadUrl) return { ok: false, detail: '没有记录这条会话在网页上的地址' };
+
+    // A signed-out page has no history to delete from — Gemini still answers
+    // guests, so this is a real state and not an edge case. There is nothing to
+    // remove and nothing to report: returning a failure here made the caller
+    // reset the page, and resetting a signed-out Gemini lands on Google's login
+    // flow, which is a worse outcome than the thread that never existed.
+    const status = await this.getStatus().catch(() => null);
+    if (status && !status.loggedIn) {
+      return { ok: true, detail: '未登录，站点不保存会话记录' };
+    }
+
+    const first = await driver.deleteChat(threadUrl).catch((error: unknown) => ({
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    }));
+    if (first.ok) return { ok: true };
+    if (!driver.navigate || !/找不到这条会话/.test(first.detail ?? '')) return first;
+
+    const opened = await driver.navigate(threadUrl);
+    if (!opened.ok) return { ok: false, detail: `打不开这条会话：${opened.reason ?? 'UNKNOWN'}` };
+    return driver.deleteChat(threadUrl).catch((error: unknown) => ({
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    }));
+  }
+
+  /** The page's address, or empty when it has not been created yet. */
+  currentUrl(): string {
+    try {
+      return this.getDriver()?.url() ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** Links the sidebar is listing right now. Empty when the page has none. */
+  async threadCandidates(): Promise<ThreadCandidate[]> {
+    try {
+      return (await this.getDriver()?.threadCandidates?.()) ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The address once it actually names a thread.
+   *
+   * Reading it the moment the answer settles is too early on the sites that
+   * write their thread id *after the first reply*: Gemini's address went from
+   * `/app` to `/app/<id>` a beat later.
+   *
+   * Kimi never writes it at all — the address stays `/` for the whole
+   * conversation, and the id only exists in the sidebar's own link. There the
+   * thread is identified by difference: `baseline` is the list as it was before
+   * the question, and the row that appeared since is the one this conversation
+   * created.
+   *
+   * Two new rows is not always somebody else: Kimi briefly lists the live
+   * thread and then lists it again, and it also adds rows a beat after the
+   * answer. So when the difference is ambiguous, the question itself breaks the
+   * tie — a row whose title starts the way the question does is this one. If
+   * even that is ambiguous, nothing is returned and the delete says it cannot
+   * identify the thread. Guessing here deletes someone else's conversation.
+   */
+  async settledUrl(
+    baseline: readonly ThreadCandidate[] = [],
+    question = '',
+    timeoutMs = 6000
+  ): Promise<string> {
+    const idOf = (url: string): string => {
+      try {
+        const segments = new URL(url).pathname.split('/').filter(Boolean);
+        const last = segments[segments.length - 1] ?? '';
+        return /^[0-9a-zA-Z-]{16,}$/.test(last) && /[0-9]/.test(last) ? last : '';
+      } catch {
+        return '';
+      }
+    };
+    const named = (url: string) => idOf(url) !== '';
+    const appeared = (list: readonly ThreadCandidate[]): string => {
+      const known = new Set(baseline.map(row => idOf(row.href)).filter(Boolean));
+      const fresh = new Map<string, ThreadCandidate>();
+      for (const row of list) {
+        const id = idOf(row.href);
+        if (id && !known.has(id)) fresh.set(id, row);
+      }
+      if (fresh.size === 1) return [...fresh.values()][0].href;
+
+      const head = question.trim().slice(0, 10);
+      if (fresh.size > 1 && head.length >= 4) {
+        const matching = [...fresh.values()].filter(row => row.title.includes(head));
+        if (matching.length === 1) return matching[0].href;
+      }
+      return '';
+    };
+
+    const deadline = Date.now() + timeoutMs;
+    let url = this.currentUrl();
+    let tick = 0;
+    while (Date.now() < deadline) {
+      if (named(url)) return url;
+      // The sidebar is read every other tick: it is an IPC round trip, and the
+      // address catches the sites that do put the id there without one.
+      if (tick % 2 === 0) {
+        const fresh = appeared(await this.threadCandidates());
+        if (fresh) return fresh;
+      }
+      await sleep(200);
+      url = this.currentUrl();
+      tick += 1;
+    }
+
+    const fresh = appeared(await this.threadCandidates());
+    return fresh || url;
   }
 
   /** Is the page empty *right now*? One probe; a page mid-load counts as "no". */

@@ -5,6 +5,7 @@ import type { LearnSelectorsReport } from './selectors';
 import type {
   ChannelStatus,
   Conversation,
+  ConversationDeleteOutcome,
   ConversationEvent,
   ConversationMessage,
   SubmitConversationInput
@@ -467,7 +468,7 @@ export interface AgentApi {
   getConversation(conversationId: string): Promise<Conversation | null>;
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;
   cancelConversation(conversationId: string): Promise<void>;
-  deleteConversation(conversationId: string): Promise<void>;
+  deleteConversation(conversationId: string): Promise<ConversationDeleteOutcome>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
 

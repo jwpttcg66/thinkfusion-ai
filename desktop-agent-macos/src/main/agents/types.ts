@@ -1,5 +1,5 @@
 import type { ChannelStatus } from '../../shared/conversation';
-import type { AdapterAnswer, AskStage, NewSessionResult } from '../adapters/browser/types';
+import type { AdapterAnswer, AskStage, DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 
 /**
  * A participant in the research, as opposed to the thing that types into a page.
@@ -59,6 +59,13 @@ export interface SubAgent {
   ask(task: SubAgentTask): Promise<SubAgentAnswer>;
   /** Give this agent's page a fresh thread. Called once per conversation. */
   newConversation?(): Promise<NewSessionResult>;
+  /**
+   * Delete this agent's copy of a conversation on its own site.
+   *
+   * Optional: an agent whose page has no sidebar cannot do it, and that is a
+   * fact to report rather than a reason to fail the local delete.
+   */
+  deleteConversation?(threadUrl: string): Promise<DeleteThreadResult>;
   cancel(requestId: string): void;
   /** Give up on whatever this agent is waiting for. See `BrowserAdapter.cancelAll`. */
   cancelAll?(): void;
@@ -76,5 +83,7 @@ export interface SubAgentPool {
   available(): Promise<SubAgent[]>;
   ask(agentId: string, task: SubAgentTask): Promise<SubAgentAnswer>;
   newConversation(agentId: string): Promise<NewSessionResult>;
+  /** Delete one agent's copy of a conversation. Resolves, never throws. */
+  deleteConversation(agentId: string, threadUrl: string): Promise<DeleteThreadResult>;
   cancel(agentId: string, requestId: string): void;
 }

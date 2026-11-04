@@ -7,6 +7,7 @@ import {
   type AdapterAnswer,
   type AdapterAsk,
   type BrowserAdapter,
+  type DeleteThreadResult,
   type NewSessionResult
 } from './types';
 
@@ -96,6 +97,10 @@ export class PageBrowserAdapter implements BrowserAdapter {
     const requestId = randomUUID();
     this.inFlight.add(requestId);
     try {
+      // Taken before the question: a site that never puts the id in its address
+      // bar (Kimi) is identified by the row its sidebar gains, and that only
+      // works against a list from before the ask.
+      const baseline = await this.spec.adapter.threadCandidates();
       const { snapshotBefore } = await this.spec.adapter.sendMessage(input.question, requestId);
       const text = await this.spec.adapter.waitForAnswer(
         requestId,
@@ -116,6 +121,10 @@ export class PageBrowserAdapter implements BrowserAdapter {
         agentId: this.id,
         text,
         receivedAt: Date.now(),
+        // Read after the answer, because that is when the site has settled on a
+        // thread id. Deleting the conversation later needs exactly this address
+        // to find the row again.
+        threadUrl: (await this.spec.adapter.settledUrl(baseline, input.question)) || undefined,
         attribution: { requestId, note: '气泡增量 + 连续三次稳定' }
       };
     } finally {
@@ -139,10 +148,26 @@ export class PageBrowserAdapter implements BrowserAdapter {
     }
   }
 
+  /**
+   * Delete this conversation on the site itself.
+   *
+   * The page may currently be showing something else entirely — another
+   * conversation, or the new-chat screen — which is why the address is passed
+   * in rather than read from the page. Never throws: the local row is already
+   * gone by the time this is called, and the detail is what the user needs in
+   * order to remove it by hand.
+   */
+  async deleteConversation(threadUrl: string): Promise<DeleteThreadResult> {
+    try {
+      return await this.spec.adapter.deleteConversation(threadUrl);
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   cancel(requestId: string): void {
     this.spec.adapter.cancelWait(requestId);
   }
-
   cancelAll(): void {
     for (const requestId of this.inFlight) this.spec.adapter.cancelWait(requestId);
     this.inFlight.clear();

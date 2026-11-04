@@ -30,8 +30,28 @@ export interface AdapterAnswer {
   agentId: string;
   text: string;
   receivedAt: number;
+  /**
+   * The page's address once the answer had arrived.
+   *
+   * A chat site puts the thread id in its URL the moment the first message is
+   * accepted, so this is what later identifies *this* conversation in the
+   * site's sidebar. Recorded here because it is only knowable from the page.
+   */
+  threadUrl?: string;
   /** How this text was recognised as *this turn's* answer. Debugging breadcrumb. */
   attribution: { requestId: string; note: string };
+}
+
+/**
+ * What came of trying to delete the page's own copy of a conversation.
+ *
+ * `ok: false` is not a failure of the app's delete: the row is already gone
+ * locally, and the detail is what the user needs in order to remove it in the
+ * site by hand.
+ */
+export interface DeleteThreadResult {
+  ok: boolean;
+  detail?: string;
 }
 
 /**
@@ -52,6 +72,15 @@ export interface BrowserAdapter {
   ask(input: AdapterAsk): Promise<AdapterAnswer>;
   /** Give the page a fresh thread. Called once per conversation, never for a follow-up. */
   newConversation?(): Promise<NewSessionResult>;
+  /**
+   * Delete this conversation from the site itself.
+   *
+   * `threadUrl` is the address recorded when the answer arrived; the row is
+   * found by that address, never by title. Optional because a signed-out page
+   * has no sidebar to delete from — the caller then only resets the page and
+   * says so.
+   */
+  deleteConversation?(threadUrl: string): Promise<DeleteThreadResult>;
   /** Drop a pending wait; the page keeps generating. */
   cancel(requestId: string): void;
   /**

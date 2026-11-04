@@ -1263,13 +1263,18 @@ function registerIpc() {
     conversations.cancel(id);
   });
 
-  ipcMain.handle('conversation:delete', (event, id: unknown) => {
+  ipcMain.handle('conversation:delete', async (event, id: unknown) => {
     trustedUiSender(event);
     if (typeof id !== 'string') throw new Error('缺少对话 id');
-    conversations.delete(id);
+    // The row disappears first and the pages are cleaned after: a site that
+    // will not give up its copy must not make the delete look like it did
+    // nothing. What could not be cleaned comes back in `failed`, so the caller
+    // can say which thread is still there.
+    const outcome = await conversations.delete(id);
     // Deletion is silent otherwise: the store loses the row while every open
     // list keeps showing it, which looks like the delete button did nothing.
     emitConversation({ type: 'conversation.deleted', at: Date.now(), conversationId: id });
+    return outcome;
   });
 
   ipcMain.handle('channel:statuses', async event => {

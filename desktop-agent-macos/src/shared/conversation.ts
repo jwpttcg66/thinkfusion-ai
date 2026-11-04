@@ -26,6 +26,19 @@ export interface Conversation {
   status: ConversationStatus;
   /** Channels that were asked in this conversation, in the order they were asked. */
   channels: string[];
+  /**
+   * Where each channel kept this conversation on its own site.
+   *
+   * `channelId → page URL` right after that channel answered. Deleting the
+   * conversation uses it to find the same row in the site's own sidebar, and
+   * the row's address is the only thing that identifies it without guessing
+   * from a title — two conversations called 「3+5」 are not distinguishable by
+   * text, and deleting the wrong one is not recoverable.
+   *
+   * Absent for channels that never answered, and empty for conversations that
+   * predate this field. They fall back to leaving the page on a new chat.
+   */
+  threads?: Record<string, string>;
   /** Set only when the intent was `workspace`: the execution task behind it. */
   taskId?: string;
   createdAt: number;
@@ -113,6 +126,19 @@ export interface SubmitConversationInput {
   /** Only used when the router picks `workspace`. */
   workspaceRoot?: string;
   permissionPreset?: string;
+}
+
+/**
+ * What happened to the pages when a conversation was deleted.
+ *
+ * The local row is always gone by the time this exists. `failed` is the part
+ * the user has to be told: those threads are still sitting in their accounts,
+ * and no retry from here can change that.
+ */
+export interface ConversationDeleteOutcome {
+  /** Channels whose web-side thread was removed. */
+  cleaned: string[];
+  failed: Array<{ channelId: string; label: string; detail: string }>;
 }
 
 /**

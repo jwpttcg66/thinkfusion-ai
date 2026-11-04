@@ -1,5 +1,5 @@
 import type { ChannelStatus } from '../../shared/conversation';
-import type { BrowserAdapter, NewSessionResult } from '../adapters/browser/types';
+import type { BrowserAdapter, DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 import type { SubAgent, SubAgentAnswer, SubAgentIdentity, SubAgentTask } from './types';
 
 /**
@@ -72,6 +72,11 @@ export class ProviderSubAgent implements SubAgent {
   async newConversation(): Promise<NewSessionResult> {
     if (!this.adapter.newConversation) return { ok: false, detail: '该页面不支持开新会话' };
     return this.adapter.newConversation();
+  }
+
+  async deleteConversation(threadUrl: string): Promise<DeleteThreadResult> {
+    if (!this.adapter.deleteConversation) return { ok: false, detail: '该页面不支持删除会话' };
+    return this.adapter.deleteConversation(threadUrl);
   }
 
   cancel(requestId: string): void {

@@ -579,11 +579,21 @@ export default function App() {
   async function deleteConversation(conversationId: string) {
     try {
       deletedConversations.current.add(conversationId);
-      await window.agentAPI.deleteConversation(conversationId);
+      const outcome = await window.agentAPI.deleteConversation(conversationId);
       setConversations(prev => prev.filter(item => item.conversationId !== conversationId));
       if (activeConversationId === conversationId) {
         setActiveConversationId(null);
         setMessages([]);
+      }
+      // The row is gone either way; what can still be wrong is the sites. Saying
+      // it here is the only moment the user can act on it — the conversation is
+      // no longer there to carry the note.
+      if (outcome?.failed?.length) {
+        setNotice(
+          `对话已删除，但网页里的会话没删掉：${outcome.failed
+            .map(item => `${item.label}（${item.detail}）`)
+            .join('；')}`
+        );
       }
     } catch (e) {
       setError(errorText(e));

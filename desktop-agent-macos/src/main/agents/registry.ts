@@ -1,5 +1,5 @@
 import { PageBusyError } from '../adapters/browser/types';
-import type { NewSessionResult } from '../adapters/browser/types';
+import type { NewSessionResult, DeleteThreadResult } from '../adapters/browser/types';
 import type { ChannelStatus } from '../../shared/conversation';
 import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './types';
 
@@ -121,6 +121,24 @@ export class SubAgentRegistry implements SubAgentPool {
     if (!agent.newConversation) return { ok: false, detail: '该 agent 不支持开新会话' };
     try {
       return await agent.newConversation();
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * Delete one agent's copy of a conversation on its own site.
+   *
+   * Resolves rather than throws, for the same reason as `newConversation`: the
+   * local delete has already happened, and a page that cannot be cleaned is
+   * something to report, not something to fail the whole operation over.
+   */
+  async deleteConversation(agentId: string, threadUrl: string): Promise<DeleteThreadResult> {
+    const agent = this.byId.get(agentId);
+    if (!agent) return { ok: false, detail: '没有这个 agent' };
+    if (!agent.deleteConversation) return { ok: false, detail: '该 agent 不支持删除会话' };
+    try {
+      return await agent.deleteConversation(threadUrl);
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) };
     }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentTask } from '../shared/contracts';
-import type { Conversation, ConversationEvent, ConversationMessage } from '../shared/conversation';
+import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationMessage } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
@@ -95,8 +95,57 @@ export class ConversationRunner {
     return this.deps.store.listMessages(conversationId);
   }
 
-  delete(conversationId: string): void {
+  /**
+   * Delete a conversation, and the copies of it the sites are holding.
+   *
+   * The local row goes first and unconditionally: the user asked for it to
+   * disappear, and a web page that cannot be cleaned is not a reason to keep
+   * showing it. What happens to the pages afterwards is reported back, because
+   * "已删除" over a ChatGPT sidebar that still lists the thread is a lie the
+   * user only discovers later.
+   *
+   * Only channels with a recorded address are touched. Deleting by title was
+   * considered and rejected: two conversations can carry the same words, and
+   * there is no undo in someone's account.
+   */
+  async delete(conversationId: string): Promise<ConversationDeleteOutcome> {
+    const conversation = this.deps.store.getConversation(conversationId);
+    const channels = conversation?.channels ?? [];
+    const threads = conversation?.threads ?? {};
+
+    // A running turn would keep typing into a page whose row is being removed.
+    this.cancelled.add(conversationId);
+    this.release(conversationId);
+    for (const agentId of channels) this.deps.registry.cancelAll(agentId);
+
     this.deps.store.deleteConversation(conversationId);
+
+    const cleaned: string[] = [];
+    const failed: ConversationDeleteOutcome['failed'] = [];
+    await Promise.all(
+      channels.map(async agentId => {
+        const label = this.deps.registry.get(agentId)?.label ?? agentId;
+        const threadUrl = threads[agentId];
+        if (!threadUrl) {
+          failed.push({ channelId: agentId, label, detail: '这条会话没有记录网页地址，网页里的那份请手动删除' });
+          await this.deps.registry.newConversation(agentId);
+          return;
+        }
+        const result = await this.deps.registry.deleteConversation(agentId, threadUrl);
+        if (result.ok) {
+          cleaned.push(agentId);
+          return;
+        }
+        failed.push({ channelId: agentId, label, detail: result.detail ?? '删除失败' });
+        // Could not remove the thread, but the page must not stay sitting on
+        // it: the next question would otherwise continue the conversation the
+        // user just deleted. Resetting is the honest fallback — the row may
+        // still be in the site's history, and the note says so.
+        await this.deps.registry.newConversation(agentId);
+      })
+    );
+
+    return { cleaned, failed };
   }
 
   async start(input: { text: string; workspaceRoot?: string; permissionPreset?: string }): Promise<Conversation> {
@@ -299,6 +348,12 @@ export class ConversationRunner {
         this.save(conversation);
       },
       record: (answer: SubAgentAnswer) => {
+        // The address is what makes the web-side copy findable later. Recorded
+        // with the message so a delete does not depend on the page still being
+        // open on that thread — it usually is not.
+        if (answer.threadUrl) {
+          conversation.threads = { ...(conversation.threads ?? {}), [answer.agentId]: answer.threadUrl };
+        }
         const message = this.addMessage(conversation, {
           role: 'channel',
           channelId: answer.agentId,
