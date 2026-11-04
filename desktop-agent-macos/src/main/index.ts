@@ -47,6 +47,7 @@ import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
 import { summarizeLocally } from './synthesis/local-summary';
+import { pickLeadLocally } from './synthesis/lead-selector';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -2025,6 +2026,9 @@ app.whenReady().then(async () => {
     // 汇总交给本地模型：它不参加上面那轮提问，只在这里读完整回答。
     // 没装模型/超时返回 null，runner 保留规则版综合。
     summarizeLocal: input => summarizeLocally(localProvider, input.question, input.answers),
+    // 主导的自动选择也交给本地模型：它读「问题 + 各来源回答」挑一位来源来主导，
+    // 自己不在候选里（本地模型不是来源）。返回 null 时 runner 退回按完整度兜底。
+    pickLead: input => pickLeadLocally(localProvider, input.question, input.answers),
     verdictFor: conversationId => verdictByConversation.get(conversationId) ?? null,
     onCollaborationRecord: record => {
       const index = collaborationRecords.findIndex(item => item.taskId === record.taskId);

@@ -1846,6 +1846,17 @@ button:disabled {
   line-height: 1.7;
 }
 
+.synthesis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
 /* The evidence that two answers are comparable at all. Shown even when no
    sentence matched, because "这些回答值得对比" is itself the finding. */
 .synthesis-overlap {

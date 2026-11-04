@@ -10,6 +10,7 @@ import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchS
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
 import { buildLeadPrompt, LEAD_SYSTEM } from './synthesis/lead-prompt';
+import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
 
 export interface ConversationDeps {
@@ -59,6 +60,15 @@ export interface ConversationDeps {
   }) => Promise<{ text: string; modelId: string; latencyMs: number } | null>;
   /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
   verdictFor?: (conversationId: string) => JudgeVerdict | null;
+  /**
+   * 主导的自动选择：本地模型不是来源，不参与被提问名单；它在这里作为中立的
+   * 评审，读「问题 + 各来源回答」挑出哪一份最适合主导辩论。返回 null（没装
+   * 模型、超时、解析不出编号）时 runner 退回到按回答完整度的确定性兜底。
+   */
+  pickLead?: (input: {
+    question: string;
+    answers: Array<{ agentId: string; label: string; text: string }>;
+  }) => Promise<{ agentId: string; label: string; reason: string } | null>;
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -549,6 +559,9 @@ export class ConversationRunner {
     // 主导的结论盖过默认汇总：用户明确点了谁当主导，就该读它的判断。
     // 结构（观点/证据/分歧）仍是规则算的，只有「结论」这一段来自主导。
     if (lead && synthesis) {
+      const why = lead.auto
+        ? `系统按「问题 + 答案质量」自动选 ${lead.label} 主导（${lead.reason ?? '本地模型判定'}）；它读完全部回答后给出最终答案`
+        : `由主导 ${lead.label} 读完全部回答后给出最终答案`;
       synthesis = {
         ...synthesis,
         recommendation: lead.text,
@@ -556,9 +569,12 @@ export class ConversationRunner {
           ? {
               ...synthesis.fusion,
               backend: lead.backend,
+              leadAgentId: lead.agentId,
+              leadReason: lead.reason ?? undefined,
+              leadAuto: lead.auto,
               confidence: {
                 ...synthesis.fusion.confidence,
-                why: `${synthesis.fusion.confidence.why}；由主导 ${lead.label} 读完全部回答后给出最终答案`
+                why: `${synthesis.fusion.confidence.why}；${why}`
               }
             }
           : synthesis.fusion
@@ -594,28 +610,45 @@ export class ConversationRunner {
     question: string,
     outcome: ResearchOutcome,
     sink: ResearchSink
-  ): Promise<{ agentId: string; label: string; text: string; backend: 'web' | 'local-model' | 'remote' } | null> {
+  ): Promise<{ agentId: string; label: string; text: string; backend: 'web' | 'local-model' | 'remote'; auto: boolean; reason: string | null } | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
-    const leadId = config.leadAgentId;
-    if (!leadId) return null;
-    // 只剩自己那一份回答时没有可评的对象。
-    if (outcome.answers.filter(answer => answer.agentId !== leadId).length === 0) return null;
 
+    // 候选 = 这一轮实际回答了的来源（本地模型不在其中：它不是来源）。
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
-    const label = labels.get(leadId) ?? leadId;
-    const answers = outcome.answers.map(answer => ({
+    const candidates = outcome.answers.map(answer => ({
       agentId: answer.agentId,
       label: labels.get(answer.agentId) ?? answer.agentId,
       text: answer.text
     }));
+    // 只有一份回答时没人可评，主导轮无意义。
+    if (candidates.length < 2) return null;
+
+    // 用户没手动指定主辩 → 自动选：本地模型按「问题 + 答案」挑一位来源主导。
+    // 本地模型不可用或解析不出编号时，退回按回答完整度的确定性兜底。
+    let leadId = config.leadAgentId;
+    let auto = false;
+    let reason: string | null = null;
+    if (!leadId) {
+      const picked =
+        (await this.deps.pickLead?.({ question, answers: candidates })) ?? heuristicPick(candidates);
+      if (!picked) return null;
+      leadId = picked.agentId;
+      reason = picked.reason;
+      auto = true;
+    }
+    // 指定的那位根本没回答（比如它失败了），这一轮没有可评的对象。
+    if (!candidates.some(item => item.agentId === leadId)) return null;
+    if (candidates.filter(item => item.agentId !== leadId).length === 0) return null;
+
+    const label = labels.get(leadId) ?? leadId;
     const isPage = this.deps.isPageChannel?.(leadId) ?? false;
     const source = this.deps.agentSource?.(leadId) ?? (isPage ? 'web' : undefined);
 
     this.setStatus(conversation, 'synthesizing');
-    sink.phase(leadId, 'asking', '主导：读完全部回答，指出错误并给最终答案');
+    sink.phase(leadId, 'asking', auto ? `自动选 ${label} 主导：读完全部回答，指出错误并给最终答案` : '主导：读完全部回答，指出错误并给最终答案');
     try {
       const answer = await pool.ask(leadId, {
-        question: buildLeadPrompt(question, answers, { selfAgentId: leadId }),
+        question: buildLeadPrompt(question, candidates, { selfAgentId: leadId }),
         stage: 'challenge',
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
         timeoutMs: 180_000,
@@ -629,7 +662,9 @@ export class ConversationRunner {
         agentId: leadId,
         label,
         text,
-        backend: source === 'local' ? 'local-model' : source === 'cloud' ? 'remote' : 'web'
+        backend: source === 'local' ? 'local-model' : source === 'cloud' ? 'remote' : 'web',
+        auto,
+        reason
       };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);

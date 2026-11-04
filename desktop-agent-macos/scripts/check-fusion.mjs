@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fuse, synthesizeWithFusion } from '../out-test/main/synthesis/engine.js';
 import { toSynthesis } from '../out-test/shared/fusion.js';
+import { buildPickPrompt, PICK_SYSTEM, pickLeadLocally, heuristicPick } from '../out-test/main/synthesis/lead-selector.js';
 
 const input = (channelId, messageId, text) => ({ channelId, messageId, text });
 
@@ -254,4 +255,60 @@ test('API 主导用 system 轮次说评审要求，问题本身不被改写', as
   assert.ok(LEAD_SYSTEM.length >= 3);
   assert.ok(LEAD_SYSTEM.some(line => /不要编造/.test(line)));
   assert.ok(LEAD_SYSTEM.some(line => /无法确定/.test(line)));
+});
+
+// ---------------------------------------------------------------------------
+// 主导自动选择：本地模型按「问题 + 答案」挑一位来源主导，失败退回启发式
+// ---------------------------------------------------------------------------
+
+test('buildPickPrompt 把问题和每份回答编号带进去，不改写问题', () => {
+  const prompt = buildPickPrompt('9.11 和 9.9 谁大', [
+    { agentId: 'chatgpt', label: 'ChatGPT', text: '9.9 大。' },
+    { agentId: 'gemini', label: 'Gemini', text: '9.11 大。' }
+  ]);
+  assert.ok(prompt.includes('9.11 和 9.9 谁大'), '原问题要在');
+  assert.ok(prompt.includes('【回答1】ChatGPT'), '第一份要标号带来源');
+  assert.ok(prompt.includes('【回答2】Gemini'), '第二份也要');
+  assert.ok(PICK_SYSTEM.some(line => /选择：回答N/.test(line)), 'system 要指明输出格式');
+});
+
+test('pickLeadLocally 解析「选择：回答N」，映射到候选的 agentId', async () => {
+  const provider = { generate: async () => ({ text: '选择：回答2\nGemini 的推理更严谨。', modelId: 'qwen2.5:7b' }) };
+  const picked = await pickLeadLocally(provider, 'q', [
+    { agentId: 'chatgpt', label: 'ChatGPT', text: 'a' },
+    { agentId: 'gemini', label: 'Gemini', text: 'b' }
+  ]);
+  assert.equal(picked.agentId, 'gemini');
+  assert.equal(picked.label, 'Gemini');
+  assert.match(picked.reason, /Gemini 的推理更严谨/);
+});
+
+test('pickLeadLocally 编号越界时返回 null，交给兜底', async () => {
+  const provider = { generate: async () => ({ text: '选择：回答9', modelId: 'qwen2.5:7b' }) };
+  const picked = await pickLeadLocally(provider, 'q', [
+    { agentId: 'a', label: 'A', text: 'a' },
+    { agentId: 'b', label: 'B', text: 'b' }
+  ]);
+  assert.equal(picked, null);
+});
+
+test('pickLeadLocally 没装模型 / 候选不足 / 报错都返回 null', async () => {
+  assert.equal(await pickLeadLocally(null, 'q', [{ agentId: 'a', label: 'A', text: 'a' }]), null, '没装模型');
+  assert.equal(
+    await pickLeadLocally({ generate: async () => { throw new Error('x'); } }, 'q', [
+      { agentId: 'a', label: 'A', text: 'a' },
+      { agentId: 'b', label: 'B', text: 'b' }
+    ]),
+    null,
+    '报错/超时'
+  );
+});
+
+test('heuristicPick 选正文最长的那一份（确定性兜底）', () => {
+  const picked = heuristicPick([
+    { agentId: 'short', label: '短', text: '一两个字' },
+    { agentId: 'long', label: '长', text: '这是一段明显长得多的回答内容用于测试启发式兜底逻辑是否真的挑选了长度更大的那一份' }
+  ]);
+  assert.equal(picked.agentId, 'long');
+  assert.match(picked.reason, /完整度/);
 });

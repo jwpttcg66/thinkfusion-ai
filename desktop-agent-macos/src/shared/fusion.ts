@@ -146,6 +146,14 @@ export interface FusionReport {
   rejected?: Array<{ text: string; why: string }>;
   unresolvedQuestions?: Array<{ question: string; why: string }>;
   debateId?: string;
+  /**
+   * 这一轮由谁主导辩论/裁决。自动选择时 `leadAuto` 为真，配合 `leadReason`
+   * 说明为什么选它（例如「本地模型判定其回答最完整」）。手动指定时 `leadAuto`
+   * 为假、`leadReason` 为空——用户自己拍板，不需要理由。
+   */
+  leadAgentId?: string;
+  leadReason?: string;
+  leadAuto?: boolean;
 }
 
 /**
@@ -202,6 +210,9 @@ export function toSynthesis(report: FusionReport): Synthesis {
       evidenceCount: report.evidence.length,
       relationCount: report.relations.length,
       debateId: report.debateId,
+      leadAgentId: report.leadAgentId,
+      leadReason: report.leadReason,
+      leadAuto: report.leadAuto,
       limits: report.limits
     }
   };

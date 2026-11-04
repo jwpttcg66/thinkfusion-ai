@@ -203,14 +203,17 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
 
               <h3>主导</h3>
               <p className="muted">
-                全部回答回来之后，主导模型读完整份材料：指出谁错在哪、比较谁的答案更好，然后给出自己的最终答案。
+                全部回答回来之后，由一位来源当主导，读完整份材料：指出谁错在哪、比较谁的答案更好，然后给出自己的最终答案。
                 网页主导只能靠「再发一条消息」把各家答案递进那个页面，所以这一轮会多花一次生成时间。
               </p>
               <select
                 value={config.leadAgentId ?? ''}
                 onChange={event => onConfigChange({ leadAgentId: event.target.value })}
               >
-                <option value="">自动：本地模型汇总（不可用时退回规则）</option>
+                <option value="">
+                  自动：按「问题 + 答案质量」选一位来源主导
+                  {config.executionMode === 'hybrid' ? '（本地模型挑，不参加回答）' : ''}
+                </option>
                 {leadOptions.map(item => (
                   <option key={item.id} value={item.id}>
                     {item.label}{item.available ? '' : '（不可用）'}

@@ -148,6 +148,10 @@ export interface Synthesis {
     evidenceCount: number;
     relationCount: number;
     debateId?: string;
+    /** 这一轮由谁主导；自动选择时 leadAuto 为真、leadReason 说明为什么。 */
+    leadAgentId?: string;
+    leadReason?: string;
+    leadAuto?: boolean;
     limits: string[];
   };
 }

@@ -361,6 +361,28 @@ function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: Re
           </ul>
         </details>
       )}
+
+      {synthesis.fusion && (
+        <footer className="synthesis-meta">
+          <span>结论来源：{BACKEND_LABEL[synthesis.fusion.backend]}</span>
+          {synthesis.fusion.leadAgentId && (
+            <span>
+              主导：{labelOf(synthesis.fusion.leadAgentId, labels)}
+              {synthesis.fusion.leadAuto
+                ? `（系统自动选择${synthesis.fusion.leadReason ? `：${synthesis.fusion.leadReason}` : ''}）`
+                : '（手动指定）'}
+            </span>
+          )}
+        </footer>
+      )}
     </article>
   );
 }
+
+/** 综合卡页脚用：结论由谁算的，界面上必须能一眼分清。 */
+const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string> = {
+  local: '本地规则（按句子比对，不联网）',
+  'local-model': '本地模型（读完各家回答后归纳）',
+  remote: '远程模型 API',
+  web: '网页模型主导（读完全部回答后评判）'
+};

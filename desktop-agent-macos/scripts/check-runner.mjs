@@ -159,7 +159,10 @@ test('a plain question asks every channel that is switched on', async () => {
 
   assert.equal(done.intent, 'answer');
   assert.equal(done.status, 'answered');
-  assert.deepEqual([...asked].sort(), ['a', 'b'], 'both channels must be asked');
+  // 两个来源都被问到（主导轮会再把其中一份重新问一遍当主导，所以这里只断言
+  // 「都问过」，不要求恰好一次）。
+  assert.ok(asked.includes('a') && asked.includes('b'), 'both channels must be asked');
+  assert.equal(new Set(asked).size, 2, '没有去问名单之外的通道');
   assert.equal(done.channels.length, 2);
   const messages = runner.messages(started.conversationId);
   assert.equal(messages.filter(message => message.role === 'channel').length, 2);
