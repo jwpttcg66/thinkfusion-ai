@@ -50,15 +50,36 @@ export interface ResearchSink {
 export interface ResearchRequest {
   question: string;
   followup: boolean;
-  /** Agents this conversation has already spoken to; they keep their page thread. */
-  known: ReadonlySet<string>;
+  /**
+   * Agents that already hold this conversation on their page.
+   *
+   * Named for what it decides: whether the page has to be reset. A channel that
+   * was asked and failed last turn is not in here — its page never received
+   * this conversation's thread, so the follow-up has to start it clean.
+   */
+  continuing: ReadonlySet<string>;
 }
+
+/**
+ * What happened to one channel in one turn.
+ *
+ * One shape for all of them, so the runner can report without inferring from
+ * whether an answer happens to be in a list. Every channel that was handed the
+ * question ends up as exactly one of these.
+ */
+export type ChannelOutcome =
+  | { kind: 'answered'; agentId: string; label: string; answer: SubAgentAnswer; resetFailure?: string }
+  | { kind: 'unanswered'; agentId: string; label: string; phase: 'failed' | 'busy'; detail: string }
+  /** The user stopped the turn while this channel was still being prepared. */
+  | { kind: 'cancelled'; agentId: string; label: string };
 
 export interface ResearchOutcome {
   answers: SubAgentAnswer[];
   synthesis: Synthesis | null;
   /** One line per agent that produced nothing, so the reason survives. */
   failures: string[];
+  /** The same per-channel results, structured — see `ChannelOutcome`. */
+  channels: ChannelOutcome[];
 }
 
 /**
@@ -95,29 +116,38 @@ export class MasterAgent {
     sink.status(participants.length > 1 ? 'collecting' : 'thinking');
 
     const round = await this.ask(participants, request, sink);
+    const base: ResearchOutcome = {
+      answers: round.answers,
+      synthesis: null,
+      failures: round.channels
+        .filter((item): item is Extract<ChannelOutcome, { kind: 'unanswered' }> => item.kind === 'unanswered')
+        .map(item => `${item.label}：${item.detail}`),
+      channels: round.channels
+    };
 
-    if (sink.cancelled()) return { answers: round.answers, synthesis: null, failures: round.failures };
+    if (sink.cancelled()) return base;
 
     // An agent that could not reset was still asked: an answer carrying old
     // context beats no answer, but a wrong answer that looks fresh is worse than
     // a slow one, so the drift is stated rather than hidden.
-    if (round.resetFailures.length > 0) {
-      sink.note(`以下通道没能开新会话，回答可能带着网页里的旧上下文：${round.resetFailures.join('；')}`);
+    const resetFailures = round.channels.flatMap(item =>
+      item.kind === 'answered' && item.resetFailure ? [`${item.label}：${item.resetFailure}`] : []
+    );
+    if (resetFailures.length > 0) {
+      sink.note(`以下通道没能开新会话，回答可能带着网页里的旧上下文：${resetFailures.join('；')}`);
     }
 
     if (round.answers.length === 0) {
       // The per-agent reason is the only useful part. "所有通道都没有给出回答"
       // on its own was wrong often enough to mislead: the pages were logged in
       // and working, and the cause was a timeout on an answer still being written.
-      const why = round.failures.length > 0 ? `\n${round.failures.join('\n')}` : '';
+      const why = base.failures.length > 0 ? `\n${base.failures.join('\n')}` : '';
       throw new Error(`所有通道都没有给出回答。${why}`.trim());
     }
 
     // Two or more answers is the only case where synthesis means anything. With
     // one, the honest output is the answer itself.
-    if (round.answers.length < 2) {
-      return { answers: round.answers, synthesis: null, failures: round.failures };
-    }
+    if (round.answers.length < 2) return base;
 
     sink.status('synthesizing');
     const synthesis = synthesize(
@@ -131,11 +161,18 @@ export class MasterAgent {
     // The runner marks the conversation answered once the synthesis message is
     // written. Not here: a status that flips before its own last message lands
     // is how a pane ends up showing "已回答" above an empty card.
-    return { answers: round.answers, synthesis, failures: round.failures };
+    return { ...base, synthesis };
   }
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Ask everyone at once, and describe what happened to each of them.
+   *
+   * Results are put back into roster order afterwards. Completion order would
+   * make the answer cards and the synthesis read differently from one turn to
+   * the next for reasons the user cannot see.
+   */
   private async ask(
     participants: SubAgent[],
     request: ResearchRequest,
@@ -143,56 +180,73 @@ export class MasterAgent {
   ): Promise<{
     answers: SubAgentAnswer[];
     messageIds: Map<string, string>;
-    failures: string[];
-    resetFailures: string[];
+    channels: ChannelOutcome[];
   }> {
-    const answers: SubAgentAnswer[] = [];
     const messageIds = new Map<string, string>();
-    const failures: string[] = [];
-    const resetFailures: string[] = [];
+    const channels: ChannelOutcome[] = [];
+    const positions = new Map(participants.map((agent, index) => [agent.id, index]));
 
     await Promise.all(
       participants.map(async agent => {
-        if (sink.cancelled()) return;
-
-        // The first time this conversation talks to this agent, give the page a
-        // fresh session — otherwise the thread a user opens later is an
-        // unrelated history with today's question glued onto the end. A
-        // follow-up deliberately skips this: the page's own history is the
-        // context that makes it a follow-up. Gated per agent rather than per
-        // turn, so an agent that failed last turn still starts clean when retried.
-        const fresh = !request.known.has(agent.id);
-        if (fresh) {
-          sink.phase(agent.id, 'resetting');
-          const reset = await this.pool.newConversation(agent.id);
-          if (!reset.ok) resetFailures.push(`${agent.label}：${reset.detail ?? '未能开新会话'}`);
-          if (sink.cancelled()) return;
-        }
-
-        sink.join(agent.id);
-        sink.phase(agent.id, 'asking');
-        try {
-          const answer = await this.pool.ask(agent.id, {
-            // Verbatim. `request.question` is the text the user typed — nothing
-            // is prepended, prefixed, or wrapped for this channel.
-            question: request.question,
-            stage: request.followup ? 'followup' : 'initial'
-          });
-          if (sink.cancelled()) return;
-          messageIds.set(agent.id, sink.record(answer));
-          answers.push(answer);
-          sink.phase(agent.id, 'answered');
-        } catch (error) {
-          // One agent failing is a fact to display, not a reason to abort: the
-          // other answers are still worth having.
-          const detail = describeAgentError(error, agent.id);
-          failures.push(`${agent.label}：${detail}`);
-          sink.phase(agent.id, error instanceof PageBusyError ? 'busy' : 'failed', detail);
-        }
+        const outcome = await this.askOne(agent, request, sink, messageIds);
+        if (outcome) channels.push(outcome);
       })
     );
 
-    return { answers, messageIds, failures, resetFailures };
+    channels.sort((a, b) => (positions.get(a.agentId) ?? 0) - (positions.get(b.agentId) ?? 0));
+    const answers = channels
+      .filter((item): item is Extract<ChannelOutcome, { kind: 'answered' }> => item.kind === 'answered')
+      .map(item => item.answer);
+
+    return { answers, messageIds, channels };
+  }
+
+  /**
+   * One channel: reset (only when it does not already hold this conversation),
+   * ask, and record.
+   *
+   * The reset is gated per agent, not per turn, because "does this page hold
+   * this conversation" is a fact about the page. A channel that failed last
+   * turn does not hold it, so it starts clean this turn instead of inheriting
+   * whatever unrelated history its page was left on.
+   */
+  private async askOne(
+    agent: SubAgent,
+    request: ResearchRequest,
+    sink: ResearchSink,
+    messageIds: Map<string, string>
+  ): Promise<ChannelOutcome | null> {
+    if (sink.cancelled()) return null;
+
+    let resetFailure: string | undefined;
+    if (!request.continuing.has(agent.id)) {
+      sink.phase(agent.id, 'resetting');
+      const reset = await this.pool.newConversation(agent.id);
+      if (!reset.ok) resetFailure = reset.detail ?? '未能开新会话';
+      if (sink.cancelled()) return { kind: 'cancelled', agentId: agent.id, label: agent.label };
+    }
+
+    sink.join(agent.id);
+    sink.phase(agent.id, 'asking');
+    try {
+      const answer = await this.pool.ask(agent.id, {
+        // Verbatim. `request.question` is the text the user typed — nothing
+        // is prepended, prefixed, or wrapped for this channel.
+        question: request.question,
+        stage: request.followup ? 'followup' : 'initial'
+      });
+      if (sink.cancelled()) return { kind: 'cancelled', agentId: agent.id, label: agent.label };
+      messageIds.set(agent.id, sink.record(answer));
+      sink.phase(agent.id, 'answered');
+      return { kind: 'answered', agentId: agent.id, label: agent.label, answer, resetFailure };
+    } catch (error) {
+      // One agent failing is a fact to display, not a reason to abort: the
+      // other answers are still worth having.
+      const phase = error instanceof PageBusyError ? 'busy' : 'failed';
+      const detail = describeAgentError(error, agent.id);
+      sink.phase(agent.id, phase, detail);
+      return { kind: 'unanswered', agentId: agent.id, label: agent.label, phase, detail };
+    }
   }
 }
 

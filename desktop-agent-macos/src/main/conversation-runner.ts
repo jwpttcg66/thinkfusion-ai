@@ -104,48 +104,66 @@ export class ConversationRunner {
    * "已删除" over a ChatGPT sidebar that still lists the thread is a lie the
    * user only discovers later.
    *
-   * Only channels with a recorded address are touched. Deleting by title was
-   * considered and rejected: two conversations can carry the same words, and
-   * there is no undo in someone's account.
+   * Three states, and each site gets the same treatment regardless of which one
+   * it is in — that is the point of this pass:
+   *
+   * - answered with an address: the thread is removed from the site's sidebar;
+   * - answered with no address: it may still be in the account, so the user is
+   *   told plainly instead of being told a deletion succeeded;
+   * - asked but never answered: nothing was created, so nothing is reported.
+   *   This used to be lumped in with the second case, and the "please delete it
+   *   by hand" it produced sent people looking for a row that never existed.
+   *
+   * Whichever of the three, the page is then moved to a new chat. A page left
+   * sitting on a deleted conversation silently continues it on the next
+   * question, which is the failure that makes a delete look like it did
+   * nothing.
    */
   async delete(conversationId: string): Promise<ConversationDeleteOutcome> {
     const conversation = this.deps.store.getConversation(conversationId);
-    const channels = conversation?.channels ?? [];
+    const asked = conversation?.channels ?? [];
     const threads = conversation?.threads ?? {};
+    // Conversations written before `answered` existed only carry evidence of
+    // the answers that left an address behind. That is enough: every channel
+    // with a thread is one this conversation definitely talked to.
+    const answered = new Set(conversation?.answered ?? Object.keys(threads));
 
     // A running turn would keep typing into a page whose row is being removed.
     this.cancelled.add(conversationId);
     this.release(conversationId);
-    for (const agentId of channels) this.deps.registry.cancelAll(agentId);
+    for (const agentId of asked) this.deps.registry.cancelAll(agentId);
 
     this.deps.store.deleteConversation(conversationId);
 
     const cleaned: string[] = [];
+    const reset: string[] = [];
     const failed: ConversationDeleteOutcome['failed'] = [];
+
     await Promise.all(
-      channels.map(async agentId => {
+      asked.map(async agentId => {
         const label = this.deps.registry.get(agentId)?.label ?? agentId;
         const threadUrl = threads[agentId];
-        if (!threadUrl) {
+
+        if (threadUrl) {
+          const result = await this.deps.registry.deleteConversation(agentId, threadUrl);
+          if (result.ok) cleaned.push(agentId);
+          else failed.push({ channelId: agentId, label, detail: result.detail ?? '删除失败' });
+        } else if (answered.has(agentId)) {
+          // It answered, so the site almost certainly saved something, and the
+          // app has no address to find it by. Saying so is the only actionable
+          // thing left.
           failed.push({ channelId: agentId, label, detail: '这条会话没有记录网页地址，网页里的那份请手动删除' });
-          await this.deps.registry.newConversation(agentId);
-          return;
         }
-        const result = await this.deps.registry.deleteConversation(agentId, threadUrl);
-        if (result.ok) {
-          cleaned.push(agentId);
-          return;
-        }
-        failed.push({ channelId: agentId, label, detail: result.detail ?? '删除失败' });
-        // Could not remove the thread, but the page must not stay sitting on
-        // it: the next question would otherwise continue the conversation the
-        // user just deleted. Resetting is the honest fallback — the row may
-        // still be in the site's history, and the note says so.
-        await this.deps.registry.newConversation(agentId);
+
+        // Leaving the page on the deleted thread used to be the fallback after
+        // a failed delete, and a no-op after a successful one. Both are wrong
+        // for the next question, so all of them move on.
+        const moved = await this.deps.registry.newConversation(agentId);
+        if (moved.ok) reset.push(agentId);
       })
     );
 
-    return { cleaned, failed };
+    return { cleaned, reset, failed };
   }
 
   async start(input: { text: string; workspaceRoot?: string; permissionPreset?: string }): Promise<Conversation> {
@@ -354,6 +372,12 @@ export class ConversationRunner {
         if (answer.threadUrl) {
           conversation.threads = { ...(conversation.threads ?? {}), [answer.agentId]: answer.threadUrl };
         }
+        // Answered, which is not the same as asked: a channel that timed out
+        // was still in `channels`, and pretending it produced something is what
+        // made a delete warn about rows that were never created.
+        if (!conversation.answered?.includes(answer.agentId)) {
+          conversation.answered = [...(conversation.answered ?? []), answer.agentId];
+        }
         const message = this.addMessage(conversation, {
           role: 'channel',
           channelId: answer.agentId,
@@ -380,7 +404,11 @@ export class ConversationRunner {
       {
         question,
         followup: options.followup,
-        known: new Set(conversation.channels)
+        // Continuity is per answered channel, not per asked one. A channel that
+        // failed last turn is not holding this conversation's thread, so a
+        // follow-up has to start it clean — otherwise its answer arrives with
+        // whatever unrelated history the page was left on.
+        continuing: new Set(conversation.answered ?? [])
       },
       sink
     );

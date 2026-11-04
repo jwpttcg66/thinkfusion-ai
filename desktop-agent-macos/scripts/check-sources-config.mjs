@@ -30,18 +30,20 @@ import { PROVIDERS } from '../out-test/main/adapters/providers/index.js';
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sources-')), 'sources.json');
 
-test('the shipped defaults are the five providers, and only one is on', () => {
+test('the shipped defaults are the five providers, and two are on', () => {
   assert.deepEqual(
     BUILTIN_SOURCES.map(source => source.id),
     ['deepseek', 'chatgpt', 'kimi', 'gemini', 'workbuddy']
   );
-  // One live channel, so a fresh install has somewhere to ask and does not
-  // pre-load sites (or accounts) the user did not choose.
+  // Two live channels, because one page is a chatbot and two is a cross-check.
+  // Both have a complete profile and a known sign-in path, so a fresh install
+  // can ask and compare without opening 设置 first.
   assert.deepEqual(
     BUILTIN_SOURCES.filter(source => source.enabled).map(source => source.id),
-    ['chatgpt']
+    ['deepseek', 'chatgpt']
   );
-  // The planning flag survives on a source that ships off; see the pool below.
+  // DeepSeek is the reference site the structural heuristics were tuned
+  // against, so it stays the planner.
   assert.equal(sourceById(BUILTIN_SOURCES, 'deepseek').planning, true);
 });
 
@@ -49,6 +51,7 @@ test('an untouched list is the defaults, in the shipped order', () => {
   const resolved = resolveSources();
   assert.deepEqual(resolved.map(source => source.id), ['deepseek', 'chatgpt', 'kimi', 'gemini', 'workbuddy']);
   assert.equal(resolved[0].url, 'https://chat.deepseek.com/');
+  assert.equal(planningSource(resolved).id, 'deepseek');
 });
 
 test('a saved URL replaces the default and adds its host', () => {
@@ -76,17 +79,18 @@ test('enabling a source does not touch the planning flag', () => {
   const resolved = resolveSources({ overrides: { kimi: { enabled: true } }, custom: [] });
   assert.equal(sourceById(resolved, 'kimi').enabled, true);
   assert.equal(sourceById(resolved, 'kimi').planning, false);
-  // kimi carries no planning flag, so the planner stays the first source that
-  // is on — which, with DeepSeek off by default, is ChatGPT.
-  assert.equal(planningSource(resolved).id, 'chatgpt');
+  // kimi carries no planning flag, so the planner is still the one that does —
+  // switching a second site on never silently moves planning.
+  assert.equal(planningSource(resolved).id, 'deepseek');
 });
 
-test('turning the flagged source on makes it the planner again', () => {
-  assert.equal(planningSource(resolveSources()).id, 'chatgpt');
+test('switching the flagged source off hands planning to the next one that is on', () => {
+  const off = resolveSources({ overrides: { deepseek: { enabled: false } }, custom: [] });
+  assert.equal(planningSource(off).id, 'chatgpt');
 
-  const resolved = resolveSources({ overrides: { deepseek: { enabled: true } }, custom: [] });
-  assert.equal(planningSource(resolved).id, 'deepseek');
-  assert.equal(planningSource(resolved).planning, true);
+  const on = resolveSources({ overrides: { deepseek: { enabled: true } }, custom: [] });
+  assert.equal(planningSource(on).id, 'deepseek');
+  assert.equal(planningSource(on).planning, true);
 });
 
 test('with everything off there is no planner at all — which is why one has to stay on', () => {

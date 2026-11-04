@@ -543,6 +543,14 @@ export const DISCOVER_SCRIPT = `(() => {
   const input = editables[0] || null;
 
   let send = null;
+  // Only a control that says it sends. The old fallback — "the last button near
+  // the composer" — is how Gemini's 语音输入 got learned as 发送: an empty
+  // composer has no send control yet, and the last button in that toolbar is
+  // the microphone. A guessed button is worse than a missing one, because the
+  // guess only surfaces when someone presses 发送 and the page starts
+  // listening instead of answering.
+  const SEND_LABEL = /send|发送|submit|提交/i;
+  const NOT_SEND_LABEL = /语音|voice|mic|microphone|上传|attach|upload|工具|tool|菜单|menu/i;
   if (input) {
     let scope = input;
     for (let depth = 0; depth < 6 && scope && !send; depth += 1) {
@@ -550,9 +558,18 @@ export const DISCOVER_SCRIPT = `(() => {
       if (!scope) break;
       const buttons = [...scope.querySelectorAll('button, [role="button"], input[type="submit"]')].filter(visible);
       if (!buttons.length) continue;
-      send = buttons.find((el) => /send|发送|submit|提交/.test(labelOf(el))) || buttons[buttons.length - 1];
+      send = buttons.find((el) => {
+        const label = labelOf(el);
+        if (NOT_SEND_LABEL.test(label)) return false;
+        return SEND_LABEL.test(label);
+      }) || null;
     }
   }
+
+  // Whether the composer is empty. A site that only renders its send control
+  // once there is text (Gemini, measured) cannot be calibrated from an empty
+  // page, and saying so beats learning something else in its place.
+  const composerEmpty = input ? (input.value || input.textContent || '').trim().length === 0 : true;
 
   const stop = [...document.querySelectorAll('button, [role="button"]')]
     .filter(visible)
@@ -582,6 +599,11 @@ export const DISCOVER_SCRIPT = `(() => {
     const groups = new Map();
     for (const el of nodes) {
       if (input && input.contains(el)) continue;
+      // A node that contains the composer is a wrapper around the whole page,
+      // not an answer. Gemini's root chat-app carries a markdown-styling class,
+      // so a [class*="markdown"] probe matched it and it was learned as 回答
+      // 区域 — a selector that reports the entire page as one answer.
+      if (input && el.contains(input)) continue;
       if ((el.textContent || '').trim().length < 12) continue;
       const key = el.tagName + '|' + [...el.classList].join('.');
       const bucket = groups.get(key) || [];
@@ -597,11 +619,16 @@ export const DISCOVER_SCRIPT = `(() => {
 
   let assistant = null;
   if (bestGroup) {
-    const selector = describe(bestGroup[bestGroup.length - 1]);
+    const last = bestGroup[bestGroup.length - 1];
+    const selector = describe(last);
     const hits = selector ? count(selector) : 0;
+    const own = (last.textContent || '').trim().length;
+    const all = (document.body.textContent || '').trim().length;
+    // A node holding nearly all of the page's text is the page, not a message.
+    const tooBroad = all > 0 && own / all > 0.8;
     // A selector matching hundreds of nodes is a layout container, not a
     // message: it would report every edit on the page as a new answer.
-    if (selector && hits >= 1 && hits <= 400) assistant = selector;
+    if (selector && hits >= 1 && hits <= 400 && !tooBroad) assistant = selector;
   }
 
   // The transcript container is deliberately NOT proposed here. Finding it
@@ -622,7 +649,7 @@ export const DISCOVER_SCRIPT = `(() => {
   for (const [role, selector] of Object.entries(proposed)) {
     roles[role] = selector ? { selector, hits: count(selector) } : null;
   }
-  return { url: location.href, roles };
+  return { url: location.href, roles, composerEmpty };
 })()`;
 
 const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () => {
@@ -770,7 +797,7 @@ const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(() => {
   return { ok: true, label: (button.className || '').toString().slice(0, 60) };
 })()`;
 
-const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(() => {
+const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(async () => {
   const selectors = ${JSON.stringify(selectors)};
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -780,33 +807,56 @@ const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(() => {
     return style.visibility !== 'hidden' && style.display !== 'none';
   };
   const enabled = (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true';
-
-  for (const selector of selectors.newChatButton || []) {
-    let nodes;
-    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
-    const hit = nodes.filter(visible).filter(enabled);
-    if (hit.length) { hit[0].click(); return { ok: true, method: 'selector:' + selector }; }
-  }
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const labelOf = (el) =>
+    [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), (el.textContent || '').trim().slice(0, 24)]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
 
   // Fallback: match the label. The markup is not ours and the class names are
   // generated, but the words a user reads are stable and localized — so this is
   // an exact match on the whole label, never a substring. A substring match on
   // "新对话" would also hit "查看历史新对话".
-  const LABELS = ['新对话', '新建对话', '新的对话', '开启新对话', 'new chat', 'new conversation'];
-  const candidates = [...document.querySelectorAll('button, a, [role="button"]')]
-    .filter(visible)
-    .filter(enabled);
-  for (const el of candidates) {
-    const texts = [el.getAttribute('aria-label'), el.getAttribute('title'), el.innerText, el.textContent]
-      .map((value) => (value || '').trim().toLowerCase())
-      .filter((value) => value.length > 0 && value.length < 40);
-    if (texts.some((value) => LABELS.includes(value))) {
-      el.click();
-      return { ok: true, method: 'label' };
+  const LABELS = ['新对话', '新建对话', '新的对话', '开启新对话', '新聊天', 'new chat', 'new conversation'];
+  const findNewChat = () => {
+    for (const selector of selectors.newChatButton || []) {
+      let nodes;
+      try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+      const hit = nodes.filter(visible).filter(enabled);
+      if (hit.length) return { el: hit[0], method: 'selector:' + selector };
+    }
+    const candidates = [...document.querySelectorAll('button, a, [role="button"]')]
+      .filter(visible)
+      .filter(enabled);
+    for (const el of candidates) {
+      const texts = [el.getAttribute('aria-label'), el.getAttribute('title'), el.innerText, el.textContent]
+        .map((value) => (value || '').trim().toLowerCase())
+        .filter((value) => value.length > 0 && value.length < 40);
+      if (texts.some((value) => LABELS.includes(value))) return { el, method: 'label' };
+    }
+    return null;
+  };
+
+  let found = findNewChat();
+  if (!found) {
+    // A collapsed sidebar hides the control entirely — measured on ChatGPT,
+    // whose 「显示侧边栏」 button was the only way to reach 「新聊天」. Treating
+    // that as "the site changed" produced a reset warning on a page that was
+    // one click away from a new chat.
+    const opener = [...document.querySelectorAll('button, [role="button"]')]
+      .filter(visible)
+      .find((el) => /显示侧边栏|打开边栏|打开侧边栏|展开侧边栏|主菜单|sidebar|main menu/i.test(labelOf(el)));
+    if (opener) {
+      opener.click();
+      await sleep(800);
+      found = findNewChat();
     }
   }
 
-  return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
+  if (!found) return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
+  found.el.click();
+  return { ok: true, method: found.method };
 })()`;
 
 /**
@@ -888,17 +938,57 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
 
   // A collapsed sidebar has no rows at all. Opening it is a click the user
   // would have made anyway, and it is the only way to reach the row.
+  //
+  // The label list is measured, not invented: Gemini's control says 「主菜单」
+  // and carries data-test-id="side-nav-menu-button", which the first version
+  // did not match — so the row was never found and every Gemini delete came
+  // back as 「可能太旧或已被归档」 over a conversation that was right there.
   if (!link) {
-    const opener = [...document.querySelectorAll('button, [role="button"]')]
+    const openers = [...document.querySelectorAll('button, [role="button"], [class*="ds-button"]')]
       .filter(visible)
-      .find((el) => /显示侧边栏|打开侧边栏|show sidebar|open sidebar/i.test(label(el)));
-    if (opener) {
-      opener.click();
-      await sleep(1200);
+      .filter((el) => /主菜单|边栏|导航|sidebar|main menu|open menu|show menu/i.test(label(el)));
+    // Second shape, measured on DeepSeek: the control is a bare div holding an
+    // SVG, with no label and no role — its only distinguishing feature is that
+    // it sits at the very left of the top bar. When the drawer is closed that
+    // div is translated off-screen, so it is not reachable by a pointer but a
+    // programmatic click still opens it. Only tried when the row exists but is
+    // hidden: that is the one situation where opening a drawer is the whole fix,
+    // and without the check this would be clicking at a logo.
+    const hiddenRow = [...document.querySelectorAll('a[href]')]
+      .some((a) => (a.getAttribute('href') || '').includes(id) && !visible(a));
+    if (openers.length === 0 && hiddenRow) {
+      const topLeft = [...document.querySelectorAll('button, [role="button"], [class*="ds-button"], [class*="sidebar"], [class*="collapse"]')]
+        .filter(visible)
+        .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.y < 90 && rect.height >= 20 && rect.height <= 64 && rect.width >= 20 && rect.width <= 64)
+        .sort((a, b) => a.rect.x - b.rect.x);
+      if (topLeft.length > 0) openers.push(topLeft[0].el);
+    }
+    if (openers.length > 0) openers[0].click();
+    // The history list is fetched after the panel opens — and on DeepSeek a row
+    // for a conversation that answered a second ago is not there yet. Poll
+    // instead of looking once and concluding it was archived.
+    for (let wait = 0; wait < 16 && !link; wait += 1) {
+      await sleep(250);
       link = rowLink();
     }
   }
   if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档' };
+
+  // Some rows only reveal their actions button while the pointer is over them —
+  // DeepSeek renders it in the DOM but hides it until hover. Moving the pointer
+  // onto the row is what a person would do first.
+  const linkRect = link.getBoundingClientRect();
+  const hoverAt = {
+    bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
+    pointerId: 1, pointerType: 'mouse', isPrimary: true,
+    clientX: linkRect.left + linkRect.width / 2, clientY: linkRect.top + linkRect.height / 2
+  };
+  link.dispatchEvent(new PointerEvent('pointerover', hoverAt));
+  link.dispatchEvent(new MouseEvent('mouseover', hoverAt));
+  link.dispatchEvent(new PointerEvent('pointermove', hoverAt));
+  link.dispatchEvent(new MouseEvent('mousemove', hoverAt));
+  await sleep(200);
 
   // Walk up to the smallest ancestor that owns a menu button. Smallest matters:
   // one level too high and every row in the list matches, which is how a delete
@@ -907,11 +997,20 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   const menuButton = (() => {
     let node = link.parentElement;
     for (let depth = 0; depth < 5 && node; depth += 1) {
-      const hits = [...node.querySelectorAll('button, [role="button"]')]
-        .filter(visible)
-        .filter((el) => MENU_WORDS.test(label(el)));
+      const buttons = [...node.querySelectorAll('button, [role="button"]')].filter(visible);
+      const hits = buttons.filter((el) => MENU_WORDS.test(label(el)));
       if (hits.length === 1) return hits[0];
       if (hits.length > 1) return null;
+      // A row whose only control is one unlabelled icon *is* the actions
+      // button: DeepSeek ships exactly that — a div with role=button, no
+      // aria-label, no title, and a 16px svg inside. Refusing to use it made
+      // every DeepSeek delete report 「这条会话旁边没有「更多」菜单」.
+      const icons = buttons.filter((el) => {
+        if ((el.innerText || '').trim().length > 0) return false;
+        const box = el.getBoundingClientRect();
+        return box.width <= 40 && box.height <= 40;
+      });
+      if (icons.length === 1) return icons[0];
       node = node.parentElement;
     }
     return null;
@@ -931,10 +1030,20 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   menuButton.dispatchEvent(new MouseEvent('mouseup', at));
   menuButton.dispatchEvent(new MouseEvent('click', at));
 
-  const findDeleteItem = () =>
-    [...document.querySelectorAll('[role="menuitem"], [class*="menu-item"], [class*="MenuItem"]')]
+  const findDeleteItem = () => {
+    const named = [...document.querySelectorAll('[role="menuitem"], [class*="menu-item"], [class*="MenuItem"]')]
       .filter(visible)
       .find((el) => /^(删除|删除聊天|delete|delete chat)$/i.test((el.innerText || '').trim()));
+    if (named) return named;
+    // Some menus are plain divs with no role at all (DeepSeek). Exact text, and
+    // the innermost of the matches: a container that merely contains the word
+    // in a sentence is not a menu item.
+    const loose = [...document.querySelectorAll('div, span, li, a, button, [role="button"]')]
+      .filter(visible)
+      .filter((el) => /^(删除|删除聊天|delete|delete chat)$/i.test((el.innerText || '').trim()))
+      .filter((el) => el.getBoundingClientRect().height <= 64);
+    return loose.length > 0 ? loose[loose.length - 1] : null;
+  };
 
   let item = null;
   for (let wait = 0; wait < 8 && !item; wait += 1) {
@@ -1753,6 +1862,12 @@ export class ChatPageDriver {
 
   /** Is the page empty *right now*? One probe; a page mid-load counts as "no". */
   private async isEmptyNow(driver: PageDriver): Promise<boolean> {
+    // The loading check is not decoration. A page in the middle of a navigation
+    // reports zero messages simply because nothing has rendered yet, and
+    // calling that "already a new chat" made `newConversation` return success
+    // while the old thread was still on its way back — measured on DeepSeek,
+    // whose page stayed on the thread it was told to leave.
+    if (driver.isLoading?.() === true) return false;
     const probe = await driver.probe().catch(() => null);
     if (!probe) return false;
     return probe.messageCount === 0 && probe.composerText.trim().length === 0;

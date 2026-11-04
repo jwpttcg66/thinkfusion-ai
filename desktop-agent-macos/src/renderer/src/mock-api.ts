@@ -264,7 +264,7 @@ export function createMockApi(): AgentApi {
     getConversation: async () => null,
     getConversationMessages: async () => [],
     cancelConversation: async () => undefined,
-    deleteConversation: async () => ({ cleaned: [], failed: [] }),
+    deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
     getChannelStatuses: async () => [],
     onConversationEvent: () => () => undefined,
     getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),

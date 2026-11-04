@@ -53,6 +53,7 @@ import type {
   DiscoveredSelectors,
   LearnSelectorsReport,
   LearnedRole,
+  RepairableRole,
   SelectorProfile,
   SelectorRole
 } from '../shared/selectors';
@@ -874,9 +875,10 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
     assistant: before.messageCount > 0
   };
 
-  const proposal = proposeRepairs(working, discovered.roles);
+  const proposal = proposeRepairs(working, discovered.roles, { composerEmpty: discovered.composerEmpty });
   const intact: SelectorRole[] = [...proposal.intact];
   const failed: SelectorRole[] = [...proposal.failed];
+  const pending: RepairableRole[] = [...proposal.pending];
 
   let after = before;
   if (Object.keys(proposal.candidate).length > 0) {
@@ -902,19 +904,27 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
   probe.hasSendButton = after.hasSendButton;
   probe.messageCount = after.messageCount;
 
-  const failedText = failed.map(role => notes[role] ?? role).join('、');
-  // "回答区域 still not found" is the wrong thing to say about an empty chat:
-  // there is nothing to calibrate against until the page has one answer on it,
-  // and the input box and send key — the two things that actually gate asking —
-  // are fine.
-  const onlyAssistantPending = failed.length === 1 && failed[0] === 'assistant' && before.messageCount === 0;
+  // Two reasons a role can be absent without anything being wrong: the send
+  // control only exists once the composer has text, and the answer area only
+  // exists once there is an answer. Both are states, not breakage, and saying
+  // "仍没找到" there is how a working page got reported as a broken one.
+  const unmeasurable: RepairableRole[] = [...pending];
+  if (before.messageCount === 0 && failed.includes('assistant')) unmeasurable.push('assistant');
+  const hardFailed = failed.filter((role): role is RepairableRole => !unmeasurable.includes(role as RepairableRole));
+  const failedText = hardFailed.map(role => notes[role] ?? role).join('、');
+
+  const waiting: string[] = [];
+  if (unmeasurable.includes('sendButton')) waiting.push('发送键要等输入框里有字才会出现');
+  if (unmeasurable.includes('assistant')) waiting.push('回答区域要等页面上有一条回答才能校准');
+
   const message = learned.length
-    ? `${label}：已重新提取 ${String(learned.length)} 项（${learned.map(item => item.note).join('、')}）`
-    : failed.length === 0
-      ? `${label}：现有选择器都还命中，不需要更新`
-      : onlyAssistantPending
-        ? `${label}：输入框和发送键都正常；回答区域要等页面上有一条回答才能校准`
-        : `${label}：${failedText} 仍没找到${before.hasInput ? '' : '，页面可能还没加载完或需要登录'}`;
+    ? `${label}：已重新提取 ${String(learned.length)} 项（${learned.map(item => item.note).join('、')}）` +
+      (hardFailed.length > 0 ? `；${failedText} 仍没找到` : '')
+    : hardFailed.length > 0
+      ? `${label}：${failedText} 仍没找到${before.hasInput ? '' : '，页面可能还没加载完或需要登录'}`
+      : waiting.length > 0
+        ? `${label}：${intact.length > 0 ? `${intact.map(role => notes[role] ?? role).join('、')}正常；` : ''}${waiting.join('，')}，到时候再点一次「更新样式」`
+        : `${label}：现有选择器都还命中，不需要更新`;
 
   return { sourceId, learned, intact, failed, probe, message };
 }

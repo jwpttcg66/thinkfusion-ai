@@ -598,6 +598,10 @@ export default function App() {
             .map(item => `${item.label}（${item.detail}）`)
             .join('；')}`
         );
+      } else if (outcome?.cleaned?.length) {
+        // Silence after a delete is indistinguishable from a delete that did
+        // nothing, and the web-side part is exactly what the user asked for.
+        setNotice(`对话已删除，网页里的 ${String(outcome.cleaned.length)} 条会话也一起删掉了。`);
       }
     } catch (e) {
       setError(errorText(e));

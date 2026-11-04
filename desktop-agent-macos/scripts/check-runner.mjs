@@ -63,9 +63,11 @@ function fakeChannel(id, behaviour) {
  */
 function fakeRegistry(channels, options = {}) {
   const resets = [];
+  const deletes = [];
   const order = [];
   return {
     resets,
+    deletes,
     order,
     // `all()` is the roster; `available()` is who can be asked. They differ in
     // exactly one situation — a site is configured but its page is not usable —
@@ -85,6 +87,12 @@ function fakeRegistry(channels, options = {}) {
       order.push(`${id}:reset`);
       resets.push(id);
       if (options.resetFails?.includes(id)) return { ok: false, detail: '页面没有清空，仍在原会话里' };
+      return { ok: true };
+    },
+    deleteConversation: async (id, threadUrl) => {
+      order.push(`${id}:delete`);
+      deletes.push({ id, threadUrl });
+      if (options.deleteFails?.includes(id)) return { ok: false, detail: '页面里没找到这条会话' };
       return { ok: true };
     },
     cancel() {},
@@ -442,4 +450,107 @@ test('a conversation stranded by the last process is marked interrupted', () => 
   assert.match(runner.get('c-stranded').error, /没有结束/);
   assert.equal(runner.get('c-done').status, 'answered');
   assert.equal(runner.get('c-done').error, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Deleting: the local row and the copies on the sites
+// ---------------------------------------------------------------------------
+
+/** An answer that also recorded where the site kept it. */
+const answerAt = (threadUrl, text = '这是一条回答。') => ({
+  ...answer(text),
+  threadUrl
+});
+
+test('deleting a conversation removes it from every site that answered', async () => {
+  const { runner, registry } = makeRunner([
+    fakeChannel('a', () => answerAt('https://a.example/chat/1')),
+    fakeChannel('b', () => answerAt('https://b.example/chat/2'))
+  ]);
+
+  const started = await runner.start({ text: '3+5 等于多少' });
+  await settle(runner, started.conversationId);
+
+  const outcome = await runner.delete(started.conversationId);
+
+  assert.equal(runner.get(started.conversationId), null, '本地记录必须删掉');
+  assert.deepEqual([...outcome.cleaned].sort(), ['a', 'b']);
+  assert.deepEqual(outcome.failed, []);
+  assert.deepEqual(
+    registry.deletes.map(item => item.threadUrl).sort(),
+    ['https://a.example/chat/1', 'https://b.example/chat/2'],
+    '每个有地址的通道都要按地址去删'
+  );
+  // The pages must not stay on a thread that no longer exists anywhere.
+  assert.deepEqual([...outcome.reset].sort(), ['a', 'b']);
+});
+
+test('a channel that never answered is not reported as something to remove by hand', async () => {
+  // The asked-but-silent channel used to be listed as 「网页里的那份请手动删除」,
+  // which sent people looking for a sidebar row that was never created.
+  const { runner } = makeRunner([
+    fakeChannel('a', () => answer('回答了，但这个站点没留下地址。')),
+    fakeChannel('b', () => {
+      throw new Error('页面卡住了');
+    })
+  ]);
+
+  const started = await runner.start({ text: '3+5 等于多少' });
+  await settle(runner, started.conversationId);
+
+  const outcome = await runner.delete(started.conversationId);
+
+  assert.deepEqual(outcome.cleaned, []);
+  assert.equal(outcome.failed.length, 1, '只有真的回答过、又没地址的通道需要提示');
+  assert.equal(outcome.failed[0].channelId, 'a');
+  assert.match(outcome.failed[0].detail, /手动删除/);
+  assert.deepEqual([...outcome.reset].sort(), ['a', 'b'], '参与过的页面都要回到新对话');
+});
+
+test('a site that cannot delete its copy is reported, and its page still moves on', async () => {
+  const { runner } = makeRunner(
+    [
+      fakeChannel('a', () => answerAt('https://a.example/chat/1')),
+      fakeChannel('b', () => answerAt('https://b.example/chat/2'))
+    ],
+    { deleteFails: ['b'] }
+  );
+
+  const started = await runner.start({ text: '3+5 等于多少' });
+  await settle(runner, started.conversationId);
+
+  const outcome = await runner.delete(started.conversationId);
+
+  assert.deepEqual(outcome.cleaned, ['a']);
+  assert.equal(outcome.failed.length, 1);
+  assert.equal(outcome.failed[0].channelId, 'b');
+  assert.deepEqual([...outcome.reset].sort(), ['a', 'b']);
+});
+
+test('a follow-up resets only the channels that did not answer', async () => {
+  let bFails = true;
+  const { runner, registry } = makeRunner([
+    fakeChannel('a', () => answerAt('https://a.example/chat/1', '第一轮回答。')),
+    fakeChannel('b', () => {
+      if (bFails) throw new Error('超时了');
+      return answerAt('https://b.example/chat/2', '第二轮回答。');
+    })
+  ]);
+
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  await settle(runner, started.conversationId);
+  assert.deepEqual([...registry.resets].sort(), ['a', 'b'], '第一轮每页都要开新会话');
+
+  registry.resets.length = 0;
+  bFails = false;
+  await runner.followup(started.conversationId, '那具体怎么排查？');
+
+  await waitFor(
+    () => runner.messages(started.conversationId).filter(message => message.channelId === 'b').length > 0,
+    3000
+  );
+
+  // `a` already holds this conversation on its page; `b` never did, so only `b`
+  // has to start clean — otherwise the follow-up arrives over unrelated history.
+  assert.deepEqual(registry.resets, ['b']);
 });

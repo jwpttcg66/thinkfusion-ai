@@ -68,11 +68,23 @@ export const DEEPSEEK_SELECTORS: SelectorProfile = {
 /** Exact host, never a suffix: `chat.deepseek.com.evil.test` must not match. */
 export const DEEPSEEK_HOSTS: ReadonlySet<string> = new Set(['chat.deepseek.com']);
 
+/**
+ * How this page says "you are not signed in".
+ *
+ * Measured: asking for `/` while signed out lands on `/sign_in`, which has no
+ * composer and no password field until the 密码登录 tab is clicked. Without this
+ * the page was described as 已登录 with 「未找到输入框，页面结构可能已变化」 —
+ * two wrong statements at once, about a page that was working exactly as
+ * designed. The path is the only signal that is true before anything is typed.
+ */
+const DEEPSEEK_SIGNED_OUT_PATHS = ['/sign_in'];
+
 export const DEEPSEEK_PROFILE: ProviderProfile = {
   id: 'deepseek',
   label: 'DeepSeek',
   selectors: DEEPSEEK_SELECTORS,
-  hosts: DEEPSEEK_HOSTS
+  hosts: DEEPSEEK_HOSTS,
+  signedOutPaths: DEEPSEEK_SIGNED_OUT_PATHS
 };
 
 export function isAllowedDeepSeekUrl(raw: string): boolean {

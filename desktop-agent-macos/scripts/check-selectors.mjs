@@ -64,6 +64,20 @@ test('a broken role with a live selector is proposed', () => {
   assert.deepEqual(proposal.intact, []);
 });
 
+test('an empty composer is not a reason to learn somebody else button', () => {
+  // Measured on Gemini: an idle composer has no send control at all, and the
+  // last button in that toolbar is 语音输入. The old fallback learned it as
+  // 发送, which would have clicked the microphone instead of sending.
+  const proposal = proposeRepairs(
+    nothingWorking,
+    { input: { selector: '#chat-input', hits: 1 }, sendButton: null, assistant: null },
+    { composerEmpty: true }
+  );
+  assert.deepEqual(proposal.candidate, { input: ['#chat-input'] });
+  assert.deepEqual(proposal.pending, ['sendButton']);
+  assert.deepEqual(proposal.failed, ['assistant'], '回答区域 is still a real miss');
+});
+
 test('a selector that matches nothing right now is not proposed', () => {
   const proposal = proposeRepairs(nothingWorking, {
     input: { selector: '#prompt-textarea', hits: 0 },

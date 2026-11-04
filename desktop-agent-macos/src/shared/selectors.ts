@@ -43,6 +43,15 @@ export interface DiscoveredRole {
 export interface DiscoveredSelectors {
   url: string;
   roles: Record<SelectorRole, DiscoveredRole | null>;
+  /**
+   * True when the composer has no text in it.
+   *
+   * Sites that only render the send control once there is something to send
+   * (Gemini, measured) show an empty toolbar on an idle page. A repair pass run
+   * in that state has nothing to measure, and the honest answer is "not yet"
+   * rather than a selector for whatever button happened to be last.
+   */
+  composerEmpty?: boolean;
 }
 
 /** One role that a repair pass decided to keep, with the evidence for it. */
@@ -96,6 +105,15 @@ export interface RepairProposal {
   candidate: Partial<Record<SelectorRole, string[]>>;
   intact: RepairableRole[];
   failed: RepairableRole[];
+  /**
+   * Roles this page cannot show in its current state.
+   *
+   * Not a failure: an empty composer has no send control on the sites that
+   * render one only when there is text. Reporting it as missing would send
+   * someone looking for a redesign that did not happen; reporting it as learned
+   * is how the microphone got saved as 发送.
+   */
+  pending: RepairableRole[];
 }
 
 /**
@@ -107,15 +125,23 @@ export interface RepairProposal {
  */
 export function proposeRepairs(
   working: WorkingRoles,
-  discovered: Partial<Record<SelectorRole, { selector: string; hits: number } | null>>
+  discovered: Partial<Record<SelectorRole, { selector: string; hits: number } | null>>,
+  context: { composerEmpty?: boolean } = {}
 ): RepairProposal {
   const candidate: Partial<Record<SelectorRole, string[]>> = {};
   const intact: RepairableRole[] = [];
   const failed: RepairableRole[] = [];
+  const pending: RepairableRole[] = [];
 
   for (const role of REPAIRABLE_ROLES) {
     if (working[role]) {
       intact.push(role);
+      continue;
+    }
+    // The send control on these sites is created by typing, so there is nothing
+    // to learn from an empty composer — only something to guess at.
+    if (role === 'sendButton' && context.composerEmpty) {
+      pending.push(role);
       continue;
     }
     const found = discovered[role];
@@ -128,7 +154,7 @@ export function proposeRepairs(
     candidate[role] = [found.selector];
   }
 
-  return { candidate, intact, failed };
+  return { candidate, intact, failed, pending };
 }
 
 /**

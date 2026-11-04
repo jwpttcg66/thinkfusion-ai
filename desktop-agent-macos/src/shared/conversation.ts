@@ -24,8 +24,27 @@ export interface Conversation {
   /** Why the router chose that intent. Kept so routing can be argued with. */
   intentReason: string;
   status: ConversationStatus;
-  /** Channels that were asked in this conversation, in the order they were asked. */
+  /**
+   * Channels that were asked in this conversation, in the order they were asked.
+   *
+   * Asked, not answered. A channel is listed here from the moment the question
+   * is handed to it, so the strip above the pane can show a page being waited
+   * on. That is also why this list is *not* the delete list: a channel that
+   * timed out never created anything on its site, and warning that its copy has
+   * to be removed by hand would send the user looking for a row that does not
+   * exist.
+   */
   channels: string[];
+  /**
+   * Channels that actually produced an answer in this conversation.
+   *
+   * The difference from `channels` is the whole point: `answered` is what may
+   * exist on the sites, so it is what a delete has to report on, and it is what
+   * a follow-up may continue without resetting the page. Absent on conversations
+   * written before this field existed — readers treat a missing list as "we
+   * cannot tell", which is the same as `threads` being empty.
+   */
+  answered?: string[];
   /**
    * Where each channel kept this conversation on its own site.
    *
@@ -132,12 +151,22 @@ export interface SubmitConversationInput {
  * What happened to the pages when a conversation was deleted.
  *
  * The local row is always gone by the time this exists. `failed` is the part
- * the user has to be told: those threads are still sitting in their accounts,
- * and no retry from here can change that.
+ * the user has to be told: those threads may still be sitting in their
+ * accounts, and no retry from here can change that.
  */
 export interface ConversationDeleteOutcome {
   /** Channels whose web-side thread was removed. */
   cleaned: string[];
+  /**
+   * Channels whose page was returned to a new chat.
+   *
+   * Every participating page is reset, whether or not it had a thread to
+   * remove: leaving a page sitting on the conversation the user just deleted is
+   * how the next question ends up appended to a thread that is supposed to be
+   * gone. Kept apart from `cleaned` because "nothing to remove, page moved on"
+   * and "removed it" are different facts.
+   */
+  reset: string[];
   failed: Array<{ channelId: string; label: string; detail: string }>;
 }
 
