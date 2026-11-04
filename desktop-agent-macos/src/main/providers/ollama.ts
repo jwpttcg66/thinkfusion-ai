@@ -260,7 +260,7 @@ export class OllamaProvider implements ModelProvider {
             method: 'POST',
             body: JSON.stringify({
               model,
-              messages: this.messages(request.question, request.context),
+              messages: this.messages(request.question, request.context, request.system),
               stream: false,
               keep_alive: this.keepAlive,
               options: {
@@ -309,7 +309,7 @@ export class OllamaProvider implements ModelProvider {
           method: 'POST',
           body: JSON.stringify({
             model,
-            messages: this.messages(request.question, request.context),
+            messages: this.messages(request.question, request.context, request.system),
             stream: true,
             keep_alive: this.keepAlive,
             options: {
@@ -470,12 +470,16 @@ export class OllamaProvider implements ModelProvider {
    * 都会改变它。末尾再把同一个问题发一次，让模型知道该回答的是哪一问。
    * 网页通道完全不走这里，它收到的永远是 `request.question` 本身。
    */
-  private messages(question: string, context?: string[]): Array<{ role: string; content: string }> {
+  private messages(question: string, context?: string[], system?: string[]): Array<{ role: string; content: string }> {
     const first = [{ role: 'user', content: question }];
-    if (!context?.length) return first;
+    const prefix = (system ?? []).filter(Boolean).map(text => ({ role: 'system', content: text }));
+    const turns = (context ?? []).filter(Boolean);
+    if (!turns.length && !prefix.length) return first;
+    if (!turns.length) return [...prefix, ...first];
     return [
+      ...prefix,
       ...first,
-      ...context.filter(Boolean).map(text => ({ role: 'assistant', content: text })),
+      ...turns.map(text => ({ role: 'assistant', content: text })),
       { role: 'user', content: question }
     ];
   }

@@ -50,6 +50,11 @@ export interface SubAgentTask {
    * 只有本地/云端 Provider 会把它放进 messages 的 assistant 轮次。
    */
   context?: string[];
+  /**
+   * 辩论/裁判等子系统的结构化指令，只给本地与云端 API 的 system 轮次用。
+   * 网页通道忽略它：发到页面的仍然只有 `question` 原话。
+   */
+  system?: string[];
 }
 
 export interface SubAgentAnswer extends AdapterAnswer {

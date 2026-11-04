@@ -16,6 +16,7 @@
     "src/main/providers/**/*.ts",
     "src/main/execution/**/*.ts",
     "src/main/collaboration/**/*.ts",
+    "src/main/debate/**/*.ts",
     "src/main/adapters/**/*.ts"
   ]
 }

@@ -37,6 +37,8 @@ import { ProviderBackedSubAgent } from './execution/provider-sub-agent';
 import { ExecutionPool } from './execution/execution-pool';
 import { selectParticipants } from './execution/policy';
 import type { CollaborationRecord } from './collaboration/runner';
+import { DebateStore } from './debate/store';
+import { DebateOrchestrator } from './debate/orchestrator';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -284,6 +286,7 @@ let extraAgents: ProviderBackedSubAgent[] = [];
 const LOCAL_MODELS = ['qwen2.5:7b'];
 const CLOUD_MODELS = ['gpt-4o-mini'];
 let collaborationRecords: CollaborationRecord[] = [];
+let debates: DebateOrchestrator | null = null;
 
 /**
  * Rebuild the agent pool from the sources that are switched on.
@@ -1514,6 +1517,38 @@ function registerIpc() {
     return collaborationRecords;
   });
 
+  ipcMain.handle('debate:start', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!debates || !raw || typeof raw !== 'object') throw new Error('辩论还没有准备好');
+    const input = raw as { question?: unknown; config?: unknown; conversationId?: unknown };
+    if (typeof input.question !== 'string' || !input.question.trim()) throw new Error('先写一句要辩论的问题');
+    return debates.start(input.question, (input.config ?? {}) as Record<string, unknown>,
+      typeof input.conversationId === 'string' ? input.conversationId : undefined);
+  });
+
+  ipcMain.handle('debate:get', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (!debates || typeof id !== 'string') throw new Error('无效输入');
+    return debates.get(id);
+  });
+
+  ipcMain.handle('debate:list', event => {
+    trustedUiSender(event);
+    return debates?.list() ?? [];
+  });
+
+  ipcMain.handle('debate:stop', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (!debates || typeof id !== 'string') throw new Error('无效输入');
+    return debates.stop(id);
+  });
+
+  ipcMain.handle('debate:resume', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (!debates || typeof id !== 'string') throw new Error('无效输入');
+    return debates.resume(id);
+  });
+
   ipcMain.handle('app:sources', event => {
     trustedUiSender(event);
     return sourcesState();
@@ -1695,6 +1730,15 @@ app.whenReady().then(async () => {
   // Its own file: renaming yourself is not a property of which pages exist, and a
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
+
+  debates = new DebateOrchestrator(new DebateStore(path.join(app.getPath('userData'), 'debates')), {
+    ask: (agentId, task) => {
+      const extra = extraAgents.find(agent => agent.id === agentId);
+      return extra ? extra.ask(task) : registry.ask(agentId, task);
+    },
+    // 网页通道会忽略 system 指令，让它参与辩论只是重复独立回答，不算交锋。
+    eligible: ids => ids.filter(id => extraAgents.some(agent => agent.id === id))
+  });
 
   tasks = new TaskManager(store, emit);
   orchestrator = new AgentOrchestrator({

@@ -473,6 +473,47 @@ export interface ExecutionOptions {
 }
 
 /** Phase F 的子任务执行记录。放在 shared 是为了让 renderer 不依赖 main。 */
+/** 辩论的界面契约。结构与 main/debate/types.ts 一致，避免 renderer 依赖 main。 */
+export interface DebateConfigInput {
+  strategy?: 'standard' | 'deep' | 'adversarial';
+  maxRounds?: number;
+  participants?: string[];
+  convergenceStop?: boolean;
+}
+
+export interface DebateMessageView {
+  messageId: string;
+  roundIndex: number;
+  agentId: string;
+  role: 'proposer' | 'critic' | 'peer';
+  kind: 'position' | 'question' | 'rebuttal' | 'revision';
+  text: string;
+  targetMessageId?: string;
+  createdAt: number;
+}
+
+export interface DebateRoundView {
+  index: number;
+  messages: DebateMessageView[];
+  startedAt: number;
+  endedAt?: number;
+  converged: boolean;
+  failures: Array<{ agentId: string; detail: string }>;
+}
+
+export interface DebateView {
+  debateId: string;
+  conversationId?: string;
+  question: string;
+  config: Required<DebateConfigInput>;
+  status: 'running' | 'completed' | 'stopped' | 'cancelled';
+  rounds: DebateRoundView[];
+  minorities: DebateMessageView[];
+  createdAt: number;
+  updatedAt: number;
+  stopReason?: string;
+}
+
 export interface CollaborationTaskRecord {
   taskId: string;
   agentId: string;
@@ -527,6 +568,11 @@ export interface AgentApi {
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
+  startDebate(input: { question: string; config: DebateConfigInput; conversationId?: string }): Promise<DebateView>;
+  getDebate(debateId: string): Promise<DebateView | null>;
+  listDebates(): Promise<DebateView[]>;
+  stopDebate(debateId: string): Promise<DebateView | null>;
+  resumeDebate(debateId: string): Promise<DebateView | null>;
 
   // task lifecycle
   submitPrompt(input: SubmitPromptInput): Promise<AgentTask>;

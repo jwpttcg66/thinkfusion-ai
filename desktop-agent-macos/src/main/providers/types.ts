@@ -73,6 +73,8 @@ export interface ModelRequest {
    * 刻意不叫 prompt/prefix：它不会被拼进用户问题里。
    */
   context?: string[];
+  /** 结构化指令（辩论角色、裁判规则）。不拼进 question，网页通道忽略。 */
+  system?: string[];
 }
 
 export interface ModelUsage {
