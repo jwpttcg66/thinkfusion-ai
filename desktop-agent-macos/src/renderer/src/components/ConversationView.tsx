@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import type { ChannelStatus, Conversation, ConversationMessage, Synthesis } from '../../../shared/conversation';
+import {
+  normalizeExecutionConfig,
+  type ChannelStatus,
+  type Conversation,
+  type ConversationExecutionConfig,
+  type ConversationMessage,
+  type Synthesis
+} from '../../../shared/conversation';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -30,6 +37,20 @@ const STATUS_LABEL: Record<Conversation['status'], string> = {
   cancelled: '已取消'
 };
 
+/**
+ * 这条会话自己用的执行模式。
+ *
+ * 底栏那行「当前：…」是**下一条提问**的草稿设置，跟正在看的这条会话没
+ * 关系：打开一条混合模式的历史会话时，底栏仍写着「网页」，于是「网页模式
+ * 怎么有本地模型在回答」看起来像个 bug。模式属于会话，就该出现在会话头部。
+ */
+const MODE_LABEL: Record<ConversationExecutionConfig['executionMode'], string> = {
+  web: '网页',
+  local: '本地',
+  cloud: '云端',
+  hybrid: '混合'
+};
+
 export function ConversationView(props: {
   conversation: Conversation;
   messages: ConversationMessage[];
@@ -55,6 +76,8 @@ export function ConversationView(props: {
    */
   const labels = new Map(props.channelStatuses.map(status => [status.id, status.label]));
   const askedLabel = conversation.channels.map(id => labels.get(id) ?? id).join('、');
+  // 老会话没有这个字段，归一化后就是默认的 web，不会因为缺字段显示成空白。
+  const mode = MODE_LABEL[normalizeExecutionConfig(conversation.executionConfig).executionMode];
 
   return (
     <section className="conversation" aria-label="对话">
@@ -65,6 +88,8 @@ export function ConversationView(props: {
           <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
         </div>
         <p className="conversation-why">
+          {`这条用「${mode}」模式跑`}
+          {' · '}
           路由依据：{conversation.intentReason}
           {/* Who is actually being asked, said out loud. Every channel that is
               switched on is asked — a single answer is not a cross-check — so
