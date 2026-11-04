@@ -91,3 +91,24 @@ test('cleaning an empty page yields an empty answer, not whitespace', () => {
   assert.equal(normalizeAnswerText('   \n\n  \n'), '');
   assert.equal(stripChrome(''), '');
 });
+
+test("Gemini's shell is not an answer", () => {
+  // Captured on the guest page before the reply existed: the user bubble, the
+  // model picker and the disclaimer. It sat still for seconds and the app
+  // reported it as Gemini's answer.
+  const shell = [
+    '与 Gemini 对话',
+    'Gemini 3.5 Flash-Lite',
+    '你说 3+5。结果是多少',
+    'Gemini 是一款 AI 工具，其回答未必正确无误。',
+    '登录即可关联到 Google 应用、制作图片等等'
+  ].join('\n');
+
+  const cleaned = stripChrome(cutSpeakerLabels(shell)).trim();
+  assert.equal(cleaned.replace(/\s+/g, ''), '3+5。结果是多少', '只应剩用户自己那句话');
+});
+
+test('the assistant label is cut even without its colon', () => {
+  // Gemini renders "Gemini 说\n18" — no colon, and the label is on its own line.
+  assert.equal(cutSpeakerLabels('你说 3+5\nGemini 说 18').trim(), '18');
+});

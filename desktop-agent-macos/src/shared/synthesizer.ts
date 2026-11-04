@@ -333,6 +333,81 @@ function sharesTopic(a: Unit, b: Unit): boolean {
 }
 
 /**
+ * Words a one-line answer uses to say nothing. 「3 + 5 = 8」, 「3 + 5 的结果是
+ * 8。」 and 「3 + 5 = 8。回答已完成」 are the same answer written three ways; the
+ * difference is all in here.
+ */
+const FILLER = /(的结果是|结果是|答案是|回答已完成|已完成|所以|因此|等于|就是|答案|回答|是|为|的|了)/g;
+
+/**
+ * The numbers of an answer that is only a conclusion, or `null`.
+ *
+ * `topicsOf` finds 「结果」 in 「3 + 5 的结果是 8。」, so a topic test cannot tell
+ * a bare calculation from prose. What separates them is how much meaning is left
+ * once the numbers and the filler are removed: a real sentence keeps words, and
+ * this keeps nothing.
+ *
+ * A negation disqualifies the answer outright. 「3 + 5 不等于 8」 leaves only
+ * 「不」, which is short enough to pass, and treating it as the same answer as
+ * 「3 + 5 = 8」 would be the worst thing this file could do.
+ */
+function conclusionOf(text: string): string[] | null {
+  // `NEGATIONS` is a /g regex; `match` resets its lastIndex, `test` advances it.
+  if ((text.match(NEGATIONS) ?? []).length > 0) return null;
+  const numbers = numbersIn(text).map(number => number.replace(/[,_]/g, ''));
+  if (numbers.length === 0) return null;
+
+  const leftover = text
+    .replace(/\d[\d,_.]*/g, '')
+    .replace(FILLER, '')
+    .replace(/[\s\p{P}\p{S}]/gu, '');
+  return leftover.length <= 2 ? numbers : null;
+}
+
+/**
+ * Agreement between answers that are nothing but a conclusion.
+ *
+ * 「3 + 5 = 8」 has nothing for `topicsOf` to find — no Chinese phrase, no
+ * identifier — and `figuresIn` ignores a bare single digit, so three channels
+ * answering this way reached `clusterUnits` with no feature and no figure,
+ * landed in `unique` one by one, and the card said 「几乎没有重合」 above three
+ * identical results.
+ *
+ * Prose never takes this path: `conclusionOf` refuses an answer that still has
+ * meaning once the numbers and the filler are gone, and refuses a negation.
+ */
+function numericAnswers(units: Unit[]): { claims: Claim[]; covered: Unit[] } {
+  const groups = new Map<string, Unit[]>();
+  for (const unit of units) {
+    const numbers = conclusionOf(unit.text);
+    if (!numbers) continue;
+    // The last number is the answer: 「8」 and 「3 + 5 = 8」 both end at 8, and
+    // that is the same finding. The earlier numbers are the question restated.
+    const key = numbers[numbers.length - 1];
+    if (!key) continue;
+    groups.set(key, [...(groups.get(key) ?? []), unit]);
+  }
+
+  const claims: Claim[] = [];
+  const covered: Unit[] = [];
+  for (const [answer, group] of groups) {
+    const byChannel = new Map<string, Unit>();
+    for (const unit of group) if (!byChannel.has(unit.channelId)) byChannel.set(unit.channelId, unit);
+    if (byChannel.size < 2) continue;
+
+    const distinct = [...byChannel.values()];
+    const head = distinct.reduce((a, b) => (a.text.length <= b.text.length ? a : b));
+    covered.push(...distinct);
+    claims.push({
+      text: head.text,
+      sources: distinct.map(unit => ({ channelId: unit.channelId, messageId: unit.messageId })),
+      evidence: distinct.map(unit => `${unit.channelId}: ${answer}`)
+    });
+  }
+  return { claims, covered };
+}
+
+/**
  * The one form of agreement a rule-based pass can actually verify.
  *
  * Two channels writing the same figure is checkable — you can open both answers
@@ -458,17 +533,32 @@ function identicalAnswers(inputs: SynthesisInput[]): Claim[] {
   return claims;
 }
 
+/**
+ * One answer as the units the synthesis compares.
+ *
+ * Usually this is its sentences. But `sentencesOf` drops anything under twelve
+ * characters, and a short answer is all it has: 「3 + 5 = 8」 is nine. So three
+ * channels answering the same question produced one unit between them and the
+ * card said 「只有一个通道给出了回答」 — the answers were in the pane, in the
+ * conversation, and missing only here. An answer that cannot be segmented is
+ * still an answer; keep it whole rather than dropping the channel.
+ */
+function unitsOf(input: SynthesisInput): Unit[] {
+  const sentences = sentencesOf(input.text);
+  const texts = sentences.length > 0 ? sentences : [input.text.trim()].filter(Boolean);
+
+  return texts.map(text => ({
+    channelId: input.channelId,
+    messageId: input.messageId,
+    text,
+    features: features(text),
+    topics: topicsOf(text),
+    figures: figuresIn(text)
+  }));
+}
+
 export function synthesize(inputs: SynthesisInput[]): Synthesis {
-  const units: Unit[] = inputs.flatMap(input =>
-    sentencesOf(input.text).map(text => ({
-      channelId: input.channelId,
-      messageId: input.messageId,
-      text,
-      features: features(text),
-      topics: topicsOf(text),
-      figures: figuresIn(text)
-    }))
-  );
+  const units: Unit[] = inputs.flatMap(unitsOf);
 
   const channelCount = new Set(inputs.map(input => input.channelId)).size;
 
@@ -496,9 +586,10 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
     };
   }
 
-  // Nothing to compare: one channel, or text we could not segment. Saying so is
-  // the point — a fake consensus is worse than an honest "couldn't".
-  if (channelCount < 2 || units.length < 2) {
+  // Nothing to compare. Which of the two reasons it is matters: saying 「只有
+  // 一个通道」 when three answered is a false statement about what happened,
+  // and it sends the user looking for a page that never failed.
+  if (channelCount < 2) {
     return {
       consensus: [],
       disputed: [],
@@ -506,6 +597,18 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
       gaps: [],
       overlap: [],
       recommendation: '只有一个通道给出了回答，没有可比较的对象。以下内容未做交叉验证。',
+      degraded: true
+    };
+  }
+
+  if (units.length < 2) {
+    return {
+      consensus: [],
+      disputed: [],
+      unique: [],
+      gaps: [],
+      overlap: [],
+      recommendation: `${String(channelCount)} 个通道都给出了回答，但没有可以逐句对比的内容。请直接看下方各自的原话。`,
       degraded: true
     };
   }
@@ -525,9 +628,11 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
     }
   }
 
-  // A shared figure is agreement even when not one sentence lines up. Deduped by
-  // text so the same sentence cannot arrive twice from two figures.
-  for (const claim of figureConsensus(units)) {
+  // Agreement that a sentence-similarity pass cannot see: same numbers for the
+  // answers that are only numbers, and a shared figure for the rest. Deduped by
+  // text so the same sentence cannot arrive twice.
+  const numeric = numericAnswers(units);
+  for (const claim of [...numeric.claims, ...figureConsensus(units)]) {
     if (consensus.some(item => item.text === claim.text)) continue;
     consensus.push(claim);
   }
@@ -536,8 +641,14 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
   const overlap = sharedOverlap(units, channelCount);
 
   // A sentence already quoted as consensus must not also appear as "only one
-  // channel said this" — the same text in both columns reads as a bug.
-  const soloed = unique.filter(claim => !consensus.some(item => item.text === claim.text));
+  // channel said this" — the same text in both columns reads as a bug. The same
+  // goes for an answer counted above: 「3 + 5 的结果是 8。」 is the same finding
+  // as 「3 + 5 = 8」, and listing it under 「只有这个通道这样回答」 next to that
+  // consensus is how the card contradicts itself.
+  const counted = new Set(numeric.covered.map(unit => unit.text));
+  const soloed = unique.filter(
+    claim => !counted.has(claim.text) && !consensus.some(item => item.text === claim.text)
+  );
 
   // Degraded means "we produced a list, not a synthesis": no claim was shared by
   // two channels. The UI must label it instead of presenting it as agreement.
@@ -573,7 +684,12 @@ function buildRecommendation(
   }
 
   const scope = consensus[0].sources.length >= channelCount ? '所有通道' : '多数通道';
-  const head = `${scope}（${consensus[0].sources.length} 处提及）一致认为：${consensus[0].text}`;
+  const claimed = consensus[0].text.trim();
+  // The parts are joined without separators, so a claim that ends in a number
+  // ran straight into the next sentence: 「一致认为：8未发现明显冲突」. Close the
+  // quote properly instead.
+  const stop = /[。！？.!?）)」』"]$/.test(claimed) ? '' : '。';
+  const head = `${scope}（${String(consensus[0].sources.length)} 处提及）一致认为：${claimed}${stop}`;
   const parts = [head];
 
   if (disputed.length > 0) {

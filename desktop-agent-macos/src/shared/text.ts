@@ -32,7 +32,20 @@ const CHROME_LINES: readonly RegExp[] = [
   /^ChatGPT 说：?$/,
   /^复制$/,
   /^重新生成$/,
-  /^(?:赞|踩)$/
+  /^(?:赞|踩)$/,
+  // ChatGPT's status line under a finished reply. Measured: the bubble comes
+  // back as 「8回答已完成」 — the answer and this, with no separator.
+  /^回答已完成$/,
+  /^回答中$/,
+  /^正在回答$/,
+  // Gemini's shell. A new conversation renders the user bubble, the model
+  // picker and the disclaimer before the answer exists; measured on the guest
+  // page, that text sat still for seconds and was captured as the reply
+  // （「3+5。结果是多少 Gemini 是一款 AI 工具…」）. None of it is ever an answer.
+  /^与 ?Gemini ?对话$/,
+  /^Gemini [\d.]+\s+\S+$/,
+  /^Gemini 是一款 ?AI ?工具[，,]\s*其回答未必正确无误[。.]?$/,
+  /^Gemini can make mistakes[.。]?.*$/
 ];
 
 /**
@@ -53,7 +66,13 @@ const CHROME_PHRASES: readonly RegExp[] = [
   /到目前为止[，,]?这段对话对你有帮助吗[？?]?/g,
   /内容由 ?AI ?生成[，,]?\s*请仔细甄别[。.]?/g,
   /ChatGPT 可能会出错[。.]?\s*请核查重要信息[。.]?/g,
-  /ChatGPT can make mistakes[.。]?\s*Check important info[.。]?/g
+  /ChatGPT can make mistakes[.。]?\s*Check important info[.。]?/g,
+  // Gemini's footer, whether or not it lands on its own line.
+  /Gemini 是一款 ?AI ?工具[，,]\s*其回答未必正确无误[。.]?/g,
+  /登录即可关联到 ?Google ?应用[^。]*。?/g,
+  // ChatGPT's status line, when `innerText` glues it to the answer instead of
+  // putting it on its own line （「8回答已完成」）.
+  /回答已完成|回答中/g
 ];
 
 /** Remove whole lines that are page furniture. */
@@ -93,7 +112,11 @@ const ASSISTANT_LABELS = [
   /Gemini\s*说[：:]?/,
   /Gemini\s+said[：:]?/i
 ];
-const USER_LABELS = [/你说[：:]/, /You\s+said[：:]/i];
+// Gemini writes the label without a colon — 「你说 3+5。结果是多少」 — so the
+// colon-only rule left 「你说」 in front of the question, and with the question
+// cut out the answer became the two characters 「你说」. Anchored to the line
+// start so an answer that quotes the words 「你说」 keeps them.
+const USER_LABELS = [/^[ \t]*你说[：:]?[ \t]*/gm, /^[ \t]*You\s+said[：:]?[ \t]*/gim];
 
 export function cutSpeakerLabels(raw: string): string {
   if (!raw) return '';

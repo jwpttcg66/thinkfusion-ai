@@ -56,8 +56,10 @@ function isUnderPath(raw: string, prefix: string): boolean {
  * marker, which a password field does not cover.
  * 6: `signedOut` can also come from the text of the site's sign-in control,
  * and the probe is readable while the page is still loading.
+ * 7: the transcript is read from the tallest scrollable container that holds
+ * the composer, so a sidebar cannot be mistaken for an answer.
  */
-export const PROBE_VERSION = '6';
+export const PROBE_VERSION = '7';
 
 /**
  * Shortest tail considered an answer while the page is still generating.
@@ -344,16 +346,40 @@ export const PROBE_SCRIPT = (
   }
 
   // Conversation text for change detection. Prefer the tallest scrollable
-  // container: reading document.body.innerText on a long conversation is both
-  // slower and noisier (sidebars, banners) than the transcript itself.
-  let scrollRoot = null;
-  let bestScore = 0;
-  for (const el of document.querySelectorAll('div, main, section')) {
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 320 || rect.height < 240) continue;
-    if (el.scrollHeight - el.clientHeight <= 0) continue;
-    if (el.scrollHeight > bestScore) { bestScore = el.scrollHeight; scrollRoot = el; }
-  }
+  // container *that contains the composer*: reading document.body.innerText on
+  // a long conversation is both slower and noisier (sidebars, banners) than the
+  // transcript itself.
+  //
+  // The composer is what makes the container the conversation. Without that
+  // condition the tallest scroll container on kimi.com's start page is the
+  // whole shell — sidebar included — and a send that never left the start page
+  // produced an "answer" that was the sidebar's chat titles read out loud
+  // （「3+5结果是多少… 升级套餐… 深度研究」）. The transcript is the one that
+  // holds the box you type into.
+  const tallestScrollable = (requireComposer) => {
+    let root = null;
+    let score = 0;
+    for (const el of document.querySelectorAll('div, main, section')) {
+      const holdsComposer = !!composer && el.contains(composer);
+      if (requireComposer && !holdsComposer) continue;
+      // The size floor is a guess at "this is a pane, not a widget". It does not
+      // apply to a container that holds the composer: kimi.com's chat-box is
+      // 230px tall on the start page, so the floor rejected it, nothing else
+      // qualified, and the read fell back to the whole shell — sidebar and all.
+      if (!holdsComposer) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 320 || rect.height < 240) continue;
+      }
+      if (el.scrollHeight - el.clientHeight <= 0) continue;
+      if (el.scrollHeight > score) { score = el.scrollHeight; root = el; }
+    }
+    return root;
+  };
+
+  // Fall back to any container: on sites that pin the composer outside the
+  // scroll area nothing contains it, and refusing to read would lose the
+  // transcript entirely.
+  const scrollRoot = tallestScrollable(true) || tallestScrollable(false);
   if (scrollRoot) chosen.conversation = 'structural:tallest-scroll-container';
 
   const rawText = ((scrollRoot || document.body).innerText || '').trim();
@@ -1551,22 +1577,31 @@ export class ChatPageDriver {
         // A candidate that still contains our own prompt is not an answer.
         if (containsEcho(next, sentText)) continue;
 
-        if (next === candidate) {
+        // Clean before judging stillness, not after it. 「Gemini 说」 is a speaker
+        // label with nothing behind it yet, and while the model is thinking it is
+        // perfectly still — three identical polls, then returned as the answer,
+        // cleaned to an empty string, and reported as 「页面没有给出可读的回答」
+        // for a page that answered two seconds later. Raw page text is not the
+        // unit of comparison; the answer is.
+        const cleaned = normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
+        if (!cleaned) continue;
+
+        if (cleaned === candidate) {
           stableCount += 1;
           const stillFor = Date.now() - stableSince;
           const required = probe.generating ? Math.max(this.tuning.settleMs * 2.5, 3000) : this.tuning.settleMs;
-          if (!answerLooksComplete(next)) {
+          if (!answerLooksComplete(cleaned)) {
             sawIncomplete = true;
             continue;
           }
           if (stableCount >= 3 && stillFor >= required) {
-            // Cleaned once, at the point where page text becomes answer text:
+            // Already cleaned, at the point where page text becomes answer text:
             // furniture, speaker labels and citation chips never reach a bubble
             // or a synthesis.
-            return normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
+            return cleaned;
           }
         } else {
-          candidate = next;
+          candidate = cleaned;
           stableSince = Date.now();
           stableCount = 1;
         }

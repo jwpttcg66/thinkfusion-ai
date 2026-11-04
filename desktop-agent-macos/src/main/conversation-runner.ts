@@ -332,6 +332,17 @@ export class ConversationRunner {
 
     if (this.cancelled.has(conversationId)) return;
 
+    // A channel that stayed silent is a fact the user needs. It used to be
+    // dropped on the floor: two answers arrived out of three, the pane showed
+    // two bubbles and no explanation, and the only way to learn that Gemini had
+    // timed out was to reconstruct the round by hand.
+    if (outcome.failures.length > 0) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `以下通道没有给出回答：${outcome.failures.join('；')}`
+      });
+    }
+
     if (outcome.synthesis) {
       const message = this.addMessage(conversation, {
         role: 'synthesis',

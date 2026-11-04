@@ -244,3 +244,51 @@ test('two of three agreeing names the odd one out instead of agreeing wholesale'
   assert.equal(result.unique.length, 1);
   assert.equal(result.unique[0].text, '9');
 });
+
+test('three channels answering the same sum in three phrasings is agreement', () => {
+  // Measured: 「3 + 5。结果是多少」 was answered 「3 + 5 = 8」 (Kimi),
+  // 「3 + 5 的结果是 8。」 (Gemini) and 「3 + 5 = 8。回答已完成」 (ChatGPT).
+  // `sentencesOf` drops anything under twelve characters, so the first two
+  // answers produced no units at all and the card said 「只有一个通道给出了
+  // 回答」 — about a conversation where three channels had answered.
+  const result = synthesize([
+    one('kimi', '3 + 5 = 8'),
+    one('gemini', '3 + 5 的结果是 8。'),
+    one('chatgpt', '3 + 5 = 8。回答已完成')
+  ]);
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.consensus.length, 1);
+  assert.equal(result.consensus[0].sources.length, 3);
+  assert.match(result.recommendation, /所有通道/);
+  assert.match(result.recommendation, /3 \+ 5 = 8/);
+  // No channel is listed as the odd one out when all three agreed.
+  assert.deepEqual(result.unique, []);
+});
+
+test('a negated answer is not the same answer', () => {
+  // 「3 + 5 不等于 8」 differs from 「3 + 5 = 8」 by one character, and calling
+  // that agreement would be the worst thing this file could do.
+  const result = synthesize([one('a', '3 + 5 = 8'), one('b', '3 + 5 不等于 8')]);
+
+  assert.equal(result.degraded, true);
+  assert.deepEqual(result.consensus, []);
+});
+
+test('one channel is the only case that says so', () => {
+  const result = synthesize([one('a', '8')]);
+  assert.equal(result.degraded, true);
+  assert.match(result.recommendation, /只有一个通道/);
+});
+
+test('a bare number and the sum that produces it are the same answer', () => {
+  // Measured on the same question: ChatGPT answered 「8」, Kimi answered
+  // 「3 + 5 = 8」. The conclusion is the last number — the earlier ones are the
+  // question restated — and comparing the whole sequence called this no overlap.
+  const result = synthesize([one('chatgpt', '8'), one('kimi', '3 + 5 = 8')]);
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.consensus.length, 1);
+  assert.equal(result.consensus[0].sources.length, 2);
+  assert.match(result.recommendation, /所有通道/);
+});
