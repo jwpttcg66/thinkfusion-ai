@@ -22,10 +22,10 @@
 | E 执行模式 | 4 模式 + 对话级配置 + 隐私 | **已完成**：`execution/` 三件套 + runner/index/IPC 接线 + 13 条测试 + 两轮真机，见 `PHASE-E.md` | UI 选择器属 J；cloud 模式真机未验（无 Key） |
 | F Hybrid | Smart / Parallel / All / Sequential | **已完成**：`collaboration/` 策略与执行器 + 11 条测试，见 `PHASE-F.md` | 真机 sequential 未跑；Token 预算闸门属 K；时间线 UI 属 J |
 | G 辩论 | 3 策略 + 角色 + 自动停止 + 恢复 | **已完成**：`debate/` 三件套 + 独立文件存储 + 13 条测试，见 `PHASE-G.md` | 真机辩论未跑（可用成员不足 2）；UI 属 J |
-| H Judge | 独立裁决 + 少数派保护 | 未开始 | 全部 |
+| H Judge | 独立裁决 + 少数派保护 | **已完成**：`judge/` 三件套 + 14 条测试，见 `PHASE-H.md` | 本机无独立模型，接线用规则版并如实标记 |
 | I Synthesis | 保留现有 + 6 项新增 | 4 个未接线文件（见第七节） | engine / evidence / ranker / 接线 / 测试 |
 | J UI | 9 项 | 未开始 | 全部 |
-| K 测试 | 17 项场景 + 4 份报告 | 现有 266 条单测 | 全部 |
+| K 测试 | 17 项场景 + 4 份报告 | 现有 280 条单测 | 全部 |
 
 ---
 

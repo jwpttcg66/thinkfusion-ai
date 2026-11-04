@@ -39,6 +39,8 @@ import { selectParticipants } from './execution/policy';
 import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
+import { JudgeEngine } from './judge/engine';
+import { VerdictStore } from './judge/store';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -287,6 +289,8 @@ const LOCAL_MODELS = ['qwen2.5:7b'];
 const CLOUD_MODELS = ['gpt-4o-mini'];
 let collaborationRecords: CollaborationRecord[] = [];
 let debates: DebateOrchestrator | null = null;
+let judge: JudgeEngine | null = null;
+let verdicts: VerdictStore | null = null;
 
 /**
  * Rebuild the agent pool from the sources that are switched on.
@@ -1549,6 +1553,22 @@ function registerIpc() {
     return debates.resume(id);
   });
 
+  ipcMain.handle('judge:adjudicate', async (event, debateId: unknown) => {
+    trustedUiSender(event);
+    if (!judge || !debates || !verdicts || typeof debateId !== 'string') throw new Error('裁决还没有准备好');
+    const state = debates.get(debateId);
+    if (!state) throw new Error('找不到这场辩论');
+    const verdict = await judge.judge(state);
+    verdicts.save(verdict);
+    return verdict;
+  });
+
+  ipcMain.handle('judge:get', (event, debateId: unknown) => {
+    trustedUiSender(event);
+    if (!verdicts || typeof debateId !== 'string') throw new Error('无效输入');
+    return verdicts.get(debateId);
+  });
+
   ipcMain.handle('app:sources', event => {
     trustedUiSender(event);
     return sourcesState();
@@ -1730,6 +1750,13 @@ app.whenReady().then(async () => {
   // Its own file: renaming yourself is not a property of which pages exist, and a
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
+
+  verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
+  // 本机只有一个本地模型、云端没有 Key，没有独立于参辩者的模型可用。
+  // 决策 5 允许兼任，但那会既当运动员又当裁判；这里宁可用规则版并如实
+  // 标 backend='rules'，也不假装有一份独立裁决。将来有独立模型时给
+  // JudgeEngine 传 ask + judgeAgentId 即可切到 model 后端。
+  judge = new JudgeEngine({});
 
   debates = new DebateOrchestrator(new DebateStore(path.join(app.getPath('userData'), 'debates')), {
     ask: (agentId, task) => {

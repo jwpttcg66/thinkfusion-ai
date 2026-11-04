@@ -282,6 +282,8 @@ export function createMockApi(): AgentApi {
     listDebates: async () => [],
     stopDebate: async () => null,
     resumeDebate: async () => null,
+    adjudicate: async () => { throw new Error('浏览器预览里不能裁决'); },
+    getVerdict: async () => null,
     onConversationEvent: () => () => undefined,
     getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),
     onAgentEvent: () => () => undefined,

@@ -474,6 +474,28 @@ export interface ExecutionOptions {
 
 /** Phase F 的子任务执行记录。放在 shared 是为了让 renderer 不依赖 main。 */
 /** 辩论的界面契约。结构与 main/debate/types.ts 一致，避免 renderer 依赖 main。 */
+/** 裁决的界面契约。字段与 main/judge/types.ts 对齐。 */
+export interface JudgeVerdictView {
+  verdictId: string;
+  debateId: string;
+  createdAt: number;
+  judgeAgentId: string | null;
+  sharedWith?: string;
+  backend: 'model' | 'rules';
+  conclusion: string | null;
+  undetermined: boolean;
+  reason: string;
+  disagreement: string;
+  evidence: Array<{ messageId: string; agentId: string; score: number; why: string; signals: string[] }>;
+  argumentQuality: Array<{ agentId: string; score: number; why: string; responded: boolean }>;
+  minorities: Array<{ messageId: string; agentId: string; text: string; why: string }>;
+  unresolved: Array<{ question: string; why: string; sourceMessageIds: string[] }>;
+  confidence: { level: 'low' | 'medium' | 'high'; why: string };
+  sourceMessageIds: string[];
+  supportCount: Record<string, number>;
+  fallbackReason?: string;
+}
+
 export interface DebateConfigInput {
   strategy?: 'standard' | 'deep' | 'adversarial';
   maxRounds?: number;
@@ -573,6 +595,8 @@ export interface AgentApi {
   listDebates(): Promise<DebateView[]>;
   stopDebate(debateId: string): Promise<DebateView | null>;
   resumeDebate(debateId: string): Promise<DebateView | null>;
+  adjudicate(debateId: string): Promise<JudgeVerdictView>;
+  getVerdict(debateId: string): Promise<JudgeVerdictView | null>;
 
   // task lifecycle
   submitPrompt(input: SubmitPromptInput): Promise<AgentTask>;
