@@ -260,7 +260,7 @@ export class OllamaProvider implements ModelProvider {
             method: 'POST',
             body: JSON.stringify({
               model,
-              messages: [{ role: 'user', content: request.question }],
+              messages: this.messages(request.question, request.context),
               stream: false,
               keep_alive: this.keepAlive,
               options: {
@@ -309,7 +309,7 @@ export class OllamaProvider implements ModelProvider {
           method: 'POST',
           body: JSON.stringify({
             model,
-            messages: [{ role: 'user', content: request.question }],
+            messages: this.messages(request.question, request.context),
             stream: true,
             keep_alive: this.keepAlive,
             options: {
@@ -463,6 +463,23 @@ export class OllamaProvider implements ModelProvider {
    * ——看起来像取消了，其实模型还在算。所以 controller 由调用方从发起到
    * 读完整个周期持有。
    */
+  /**
+   * Sequential 协作时把前序回答放进 messages 的 assistant 轮次。
+   *
+   * 刻意不写「请参考以下回答」这类引导句：用户的问题是原样的，任何包装
+   * 都会改变它。末尾再把同一个问题发一次，让模型知道该回答的是哪一问。
+   * 网页通道完全不走这里，它收到的永远是 `request.question` 本身。
+   */
+  private messages(question: string, context?: string[]): Array<{ role: string; content: string }> {
+    const first = [{ role: 'user', content: question }];
+    if (!context?.length) return first;
+    return [
+      ...first,
+      ...context.filter(Boolean).map(text => ({ role: 'assistant', content: text })),
+      { role: 'user', content: question }
+    ];
+  }
+
   private async call(
     path: string,
     init: { method: string; body?: string },

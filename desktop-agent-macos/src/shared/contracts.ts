@@ -472,6 +472,22 @@ export interface ExecutionOptions {
   providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
 }
 
+/** Phase F 的子任务执行记录。放在 shared 是为了让 renderer 不依赖 main。 */
+export interface CollaborationTaskRecord {
+  taskId: string;
+  agentId: string;
+  label: string;
+  stage: number;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  attempts: number;
+  contextCount: number;
+  startedAt?: number;
+  endedAt?: number;
+  latencyMs?: number;
+  text?: string;
+  error?: string;
+}
+
 export interface ProviderHealthInfo {
   available: boolean;
   detail?: string;
@@ -510,6 +526,7 @@ export interface AgentApi {
   setApiKey(input: { id: string; key: string }): Promise<{ id: string; configured: boolean }>;
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
+  getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
 
   // task lifecycle
   submitPrompt(input: SubmitPromptInput): Promise<AgentTask>;

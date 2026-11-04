@@ -168,7 +168,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResponse> {
     const model = request.modelId ?? this.defaultModel;
     const started = this.now();
-    const body = this.body(request.question, model, false);
+    const body = this.body(request.question, model, false, request.context);
 
     const data = await this.withRetry(body, signal) as ChatCompletion;
     const text = data.choices?.[0]?.message?.content ?? '';
@@ -187,7 +187,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     try {
       // 重试只能发生在第一个字之前。拿到响应头之后就一路读到底，
       // 中途失败不会重新发一次请求把两段回答拼在一起。
-      const res = await this.withRetryResponse(this.body(request.question, model, true), controller.controller.signal);
+      const res = await this.withRetryResponse(this.body(request.question, model, true, request.context), controller.controller.signal);
       for await (const chunk of this.readSse(res)) {
         if (chunk.usage) lastUsage = chunk.usage;
         const piece = chunk.choices?.[0]?.delta?.content;
@@ -262,13 +262,24 @@ export class OpenAICompatibleProvider implements ModelProvider {
     return { inputTokens, outputTokens, cost };
   }
 
-  private body(question: string, model: string, stream: boolean) {
+  private body(question: string, model: string, stream: boolean, context?: string[]) {
     return JSON.stringify({
       model,
-      messages: [{ role: 'user', content: question }],
+      messages: this.messages(question, context),
       stream,
       ...(stream ? { stream_options: { include_usage: true } } : {})
     });
+  }
+
+  /** 同 ollama.ts：上下文只走结构化 messages，不改用户问题，不加引导句。 */
+  private messages(question: string, context?: string[]): Array<{ role: string; content: string }> {
+    const first = [{ role: 'user', content: question }];
+    if (!context?.length) return first;
+    return [
+      ...first,
+      ...context.filter(Boolean).map(text => ({ role: 'assistant', content: text })),
+      { role: 'user', content: question }
+    ];
   }
 
   private headers(): Record<string, string> {

@@ -31,6 +31,7 @@ const api: AgentApi = {
   setApiKey: (input: { id: string; key: string }) => ipcRenderer.invoke('app:set-api-key', input),
   removeApiKey: (id: string) => ipcRenderer.invoke('app:remove-api-key', id),
   getProviderHealth: () => ipcRenderer.invoke('app:provider-health'),
+  getCollaborationRecords: () => ipcRenderer.invoke('app:collaboration'),
   submitPrompt: (input: SubmitPromptInput) => ipcRenderer.invoke('task:submit', input),
   getTask: (taskId: string) => ipcRenderer.invoke('task:get', taskId),
   getTaskHistory: () => ipcRenderer.invoke('task:history'),

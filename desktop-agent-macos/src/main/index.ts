@@ -36,6 +36,7 @@ import type { ModelProvider } from './providers/types';
 import { ProviderBackedSubAgent } from './execution/provider-sub-agent';
 import { ExecutionPool } from './execution/execution-pool';
 import { selectParticipants } from './execution/policy';
+import type { CollaborationRecord } from './collaboration/runner';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -282,6 +283,7 @@ let apiKeys: ApiKeyStore | null = null;
 let extraAgents: ProviderBackedSubAgent[] = [];
 const LOCAL_MODELS = ['qwen2.5:7b'];
 const CLOUD_MODELS = ['gpt-4o-mini'];
+let collaborationRecords: CollaborationRecord[] = [];
 
 /**
  * Rebuild the agent pool from the sources that are switched on.
@@ -1506,6 +1508,12 @@ function registerIpc() {
     return providerRegistry.health();
   });
 
+  /** Phase F：最近一轮每个子任务的独立执行记录。 */
+  ipcMain.handle('app:collaboration', event => {
+    trustedUiSender(event);
+    return collaborationRecords;
+  });
+
   ipcMain.handle('app:sources', event => {
     trustedUiSender(event);
     return sourcesState();
@@ -1709,6 +1717,11 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.ids);
     },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
+    onCollaborationRecord: record => {
+      const index = collaborationRecords.findIndex(item => item.taskId === record.taskId);
+      if (index >= 0) collaborationRecords[index] = record;
+      else collaborationRecords.push(record);
+    },
     submitWorkspace: input =>
       orchestrator.submit({
         prompt: input.prompt,

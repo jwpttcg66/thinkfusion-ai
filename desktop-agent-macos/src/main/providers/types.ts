@@ -68,6 +68,11 @@ export interface ModelRequest {
    * 「手上只有 ID、拿不到 signal」的场景留的（例如界面上的「停止」）。
    */
   requestId?: string;
+  /**
+   * 前序回答，按发生顺序。用于 Sequential 协作；网页通道忽略。
+   * 刻意不叫 prompt/prefix：它不会被拼进用户问题里。
+   */
+  context?: string[];
 }
 
 export interface ModelUsage {

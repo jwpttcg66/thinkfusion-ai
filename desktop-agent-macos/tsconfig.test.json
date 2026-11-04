@@ -15,6 +15,7 @@
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",
     "src/main/execution/**/*.ts",
+    "src/main/collaboration/**/*.ts",
     "src/main/adapters/**/*.ts"
   ]
 }

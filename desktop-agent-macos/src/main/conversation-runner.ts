@@ -6,7 +6,8 @@ import { classifyIntent } from '../shared/intent';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool } from './agents/types';
-import { MasterAgent, type ResearchSink } from './master-agent';
+import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
+import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 
 export interface ConversationDeps {
   store: AgentStore;
@@ -35,6 +36,13 @@ export interface ConversationDeps {
    * 提示用户去手动删网页记录，也不该去重置一个不存在的页面。
    */
   isPageChannel?: (agentId: string) => boolean;
+  /** Phase F：每个子任务状态变化时的旁路通知，给界面和记录用。 */
+  onCollaborationRecord?: (record: CollaborationRecord) => void;
+}
+
+/** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
+export interface ResearchRunner {
+  research(request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome>;
 }
 
 const TITLE_CHARS = 42;
@@ -362,7 +370,12 @@ export class ConversationRunner {
     const conversationId = conversation.conversationId;
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
-    const master = new MasterAgent(pool);
+    // 默认（含 parallel）仍走原来的 MasterAgent，老路径零风险。只有显式选了
+    // sequential / all-selected / smart 才换协作执行器。
+    const master: ResearchRunner =
+      config.strategy && config.strategy !== 'parallel'
+        ? new CollaborationResearch(pool, config.strategy, question, undefined, this.deps.onCollaborationRecord)
+        : new MasterAgent(pool);
 
     this.running.set(
       conversationId,
@@ -377,7 +390,7 @@ export class ConversationRunner {
 
   private async conduct(
     conversation: Conversation,
-    master: MasterAgent,
+    master: ResearchRunner,
     question: string,
     options: { followup: boolean }
   ): Promise<void> {

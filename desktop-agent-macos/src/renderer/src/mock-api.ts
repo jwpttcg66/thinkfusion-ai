@@ -276,6 +276,7 @@ export function createMockApi(): AgentApi {
     setApiKey: async ({ id }) => ({ id, configured: true }),
     removeApiKey: async id => ({ id, configured: false }),
     getProviderHealth: async () => ({}),
+    getCollaborationRecords: async () => [],
     onConversationEvent: () => () => undefined,
     getAccessibilitySnapshot: async () => ({ available: false, application: null, tree: [] }),
     onAgentEvent: () => () => undefined,

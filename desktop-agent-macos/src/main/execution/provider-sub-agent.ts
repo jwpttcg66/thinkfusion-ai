@@ -64,7 +64,8 @@ export class ProviderBackedSubAgent implements SubAgent {
       modelId: this.modelId,
       timeoutMs: task.timeoutMs,
       requestId,
-      continuation: task.stage === 'followup'
+      continuation: task.stage === 'followup',
+      context: task.context
     });
     return {
       agentId: this.id,

@@ -44,6 +44,12 @@ export interface SubAgentTask {
    */
   dispute?: { topic: string; stance: string; counter: string };
   timeoutMs?: number;
+  /**
+   * 前序成员的回答（Sequential 策略用）。这是**结构化的上下文**，不是包装
+   * 话术：网页通道会原样忽略它，用户的问题一个字不变地发到页面；
+   * 只有本地/云端 Provider 会把它放进 messages 的 assistant 轮次。
+   */
+  context?: string[];
 }
 
 export interface SubAgentAnswer extends AdapterAnswer {
