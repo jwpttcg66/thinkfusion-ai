@@ -21,7 +21,6 @@ interface Props {
   onSelectChannel: (id: string) => void;
   onClose: () => void;
   onRefresh: () => void;
-  onReload: () => void;
   onRepair: () => void;
 }
 
@@ -52,10 +51,8 @@ export function DiagnosticsPanel({
   onSelectChannel,
   onClose,
   onRefresh,
-  onReload,
   onRepair
 }: Props) {
-  const [copied, setCopied] = useState(false);
   const [bounds, setBounds] = useState<ViewBoundsMap>({});
 
   useEffect(() => {
@@ -78,17 +75,6 @@ export function DiagnosticsPanel({
   const views = Object.entries(bounds);
   const railLeft = document.querySelector('.source-rail')?.getBoundingClientRect().left ?? window.innerWidth;
 
-  async function copy() {
-    if (!report) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify({ report, views: bounds }, null, 2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   const hits = Object.entries(report?.probe.selectorHits ?? {});
   // The channel this report belongs to. Falls back to the selection so the
   // header still names something during the first read.
@@ -105,12 +91,6 @@ export function DiagnosticsPanel({
           <div className="diag-actions">
             <button className="btn ghost" type="button" onClick={onRefresh} disabled={loading}>
               {loading ? '检测中…' : '重新检测'}
-            </button>
-            <button className="btn ghost" type="button" onClick={onReload}>
-              重新加载页面
-            </button>
-            <button className="btn ghost" type="button" onClick={copy} disabled={!report}>
-              {copied ? '已复制' : '复制报告'}
             </button>
             <button className="btn ghost" type="button" onClick={onClose}>
               关闭
@@ -172,7 +152,19 @@ export function DiagnosticsPanel({
             {problems.length === 0 && (
               <section className="diag-ok">
                 <h3>没有发现问题</h3>
-                <p className="muted">输入框和发送键都能找到，页面也没报错。只有网页改版之后才需要重建样式。</p>
+                <p className="muted">输入框和发送键都能找到，页面也没报错。</p>
+                {/* The repair is still here, and deliberately quiet.
+                    Nothing in this report can see that a site was redesigned
+                    under a composer we still find: the box exists, the button
+                    exists, and the answers now land in a node we no longer
+                    read. Gating the only way to re-learn on "there is a
+                    problem" hid it exactly when the numbers looked fine. */}
+                <div className="diag-fix">
+                  <button className="btn ghost" type="button" onClick={onRepair} disabled={repairing}>
+                    {repairing ? '正在重新提取…' : '更新样式'}
+                  </button>
+                  <span className="muted">网页改版、换了账号之后回答读不出来，就点这里重新提取。</span>
+                </div>
               </section>
             )}
 

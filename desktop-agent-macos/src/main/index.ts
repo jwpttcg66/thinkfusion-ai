@@ -1401,17 +1401,6 @@ function registerIpc() {
     } satisfies DeepSeekDiagnostics;
   });
 
-  ipcMain.handle('deepseek:reload', async (event, sourceId: unknown) => {
-    trustedUiSender(event);
-    // Same channel as the report: reloading planning while the panel shows
-    // another page would clear the wrong one and look like the button did
-    // nothing.
-    const source = diagnosedSource(sourceId);
-    const view = source ? views.get(source.id) : undefined;
-    if (!view || !source) throw new Error('内嵌页面尚未创建');
-    await view.webContents.loadURL(source.url);
-  });
-
   ipcMain.handle('app:sources', event => {
     trustedUiSender(event);
     return sourcesState();

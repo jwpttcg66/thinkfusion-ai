@@ -43,7 +43,6 @@ const api: AgentApi = {
   getPlatform: () => ipcRenderer.invoke('app:platform'),
   getDeepSeekStatus: (): Promise<DeepSeekStatus> => ipcRenderer.invoke('deepseek:status'),
   getDeepSeekDiagnostics: (sourceId?: string) => ipcRenderer.invoke('deepseek:diagnose', sourceId),
-  reloadDeepSeek: (sourceId?: string) => ipcRenderer.invoke('deepseek:reload', sourceId),
   getAccessibilitySnapshot: () => ipcRenderer.invoke('ax:snapshot'),
   getLayout: () => ipcRenderer.invoke('app:layout'),
   setSplit: (value: number) => ipcRenderer.invoke('app:set-split', value),

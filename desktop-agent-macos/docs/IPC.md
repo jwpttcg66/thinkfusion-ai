@@ -68,8 +68,7 @@
 | 通道 | 入参 | 返回 |
 | --- | --- | --- |
 | `deepseek:status` | — | `DeepSeekStatus` |
-| `deepseek:diagnose` | — | `DeepSeekDiagnostics` |
-| `deepseek:reload` | — | `void` |
+| `deepseek:diagnose` | `sourceId?` | `DeepSeekDiagnostics` |
 | `app:sources` | — | `SourcesState` |
 | `app:set-source` | `sourceId` | `SourcesState` |
 | `app:view-bounds` | — | `ViewBoundsMap` |

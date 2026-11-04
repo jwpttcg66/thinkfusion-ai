@@ -510,7 +510,6 @@ export interface AgentApi {
    * kept so an old caller (and the sources-reload window) still gets an answer.
    */
   getDeepSeekDiagnostics(sourceId?: string): Promise<DeepSeekDiagnostics>;
-  reloadDeepSeek(sourceId?: string): Promise<void>;
   getAccessibilitySnapshot(): Promise<AccessibilitySnapshot>;
 
   // layout

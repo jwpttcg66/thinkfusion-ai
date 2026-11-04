@@ -463,17 +463,6 @@ export default function App() {
     }
   }
 
-  async function reloadPage() {
-    setDiagLoading(true);
-    try {
-      await window.agentAPI.reloadDeepSeek(diagChannelId || undefined);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setDiagLoading(false);
-    }
-  }
-
   function selectDiagChannel(id: string) {
     setDiagChannelId(id);
     setRepairReport(null);
@@ -1188,6 +1177,21 @@ export default function App() {
             className="page-bar"
             style={{ right: RAIL_WIDTH, width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH), height: PAGE_HEADER_HEIGHT }}
           >
+            {/* 诊断 sits on the left of the bar, away from the icons.
+                放大 is the right-most thing in this strip on purpose: it is
+                the one action that moves the page somewhere else, and the
+                edge is where people reach for that. A text button parked in
+                that corner read as part of the same group as the two glyphs
+                and stole the edge from them. */}
+            <button
+              className="page-btn"
+              type="button"
+              onClick={() => void openDiagnostics()}
+              data-action="diagnose"
+              title="通道诊断：看这一页真实找到了什么；更新样式也在里面"
+            >
+              诊断
+            </button>
             <span
               className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
               aria-hidden="true"
@@ -1216,20 +1220,6 @@ export default function App() {
                 title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
               >
                 {isDetached ? <IconDockBack /> : <IconExpand />}
-              </button>
-              {/* 诊断, not 更新样式.
-                  Repair is a reaction to a bad reading, so it moved into the
-                  report where the reading is; what stays here is the door to
-                  that report. Two buttons in a 34px bar that most sessions
-                  never press became one that explains itself. */}
-              <button
-                className="page-btn"
-                type="button"
-                onClick={() => void openDiagnostics()}
-                data-action="diagnose"
-                title="通道诊断：看这一页真实找到了什么，有问题就在里面更新样式"
-              >
-                诊断
               </button>
             </span>
           </div>
@@ -1341,7 +1331,6 @@ export default function App() {
           onSelectChannel={selectDiagChannel}
           onClose={() => setDiagOpen(false)}
           onRefresh={() => void refreshDiagnostics()}
-          onReload={() => void reloadPage()}
           onRepair={() => void refreshSelectors()}
         />
       )}

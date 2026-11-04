@@ -159,7 +159,6 @@ export function createMockApi(): AgentApi {
         chosen: { input: '#chat-input' }
       }
     }),
-    reloadDeepSeek: async () => undefined,
     // Mirrors the main process's split so the browser preview reserves the same
     // column the native page view would occupy. There is no native view here,
     // so a drag just reports the clamped width straight back.
