@@ -29,7 +29,9 @@ function kindsFor(config: ConversationExecutionConfig): SourceKind[] {
     web: ['web'],
     local: ['local'],
     cloud: ['cloud'],
-    hybrid: ['web', 'local', 'cloud']
+    // 本地模型不是「源」：它在混合模式里负责汇总，不参与回答。只有明确选
+    // 「本地」模式时，它才是唯一被问的一方（隐私任务、本地分析）。
+    hybrid: ['web', 'cloud']
   };
   return byMode[config.executionMode];
 }

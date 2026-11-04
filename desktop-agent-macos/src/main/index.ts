@@ -46,6 +46,7 @@ import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
+import { summarizeLocally } from './synthesis/local-summary';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -296,6 +297,16 @@ let cloudConfigs: CloudConfigStore | null = null;
 /** 当前生效的云端清单（预设 + 用户覆盖）。界面、成员、裁决都读它。 */
 let cloudCatalog: CloudPreset[] = [];
 let cloudProviders: OpenAICompatibleProvider[] = [];
+/**
+ * 本地模型（Ollama）。它有两个身份：
+ *
+ * - 「本地」模式下唯一的回答者（隐私任务）；
+ * - 其他模式下不参与提问，只在**汇总**阶段读各家回答并写结论。
+ *
+ * 保存一份引用是因为汇总要直接调它，而汇总不走选人名单——它不在 SubAgent
+ * 池里被挑中，而是在回答都回来之后才被叫到。
+ */
+let localProvider: OllamaProvider | null = null;
 let debates: DebateOrchestrator | null = null;
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
@@ -387,6 +398,7 @@ function rebuildProviders() {
   const providers: ModelProvider[] = [];
   for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
   providers.push(new OllamaProvider({ defaultModel: LOCAL_MODELS[0] }));
+  localProvider = providers[providers.length - 1] as OllamaProvider;
   cloudCatalog = [];
   cloudProviders = [];
   if (apiKeys) {
@@ -2005,6 +2017,9 @@ app.whenReady().then(async () => {
     },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     fusionEnabled: true,
+    // 汇总交给本地模型：它不参加上面那轮提问，只在这里读完整回答。
+    // 没装模型/超时返回 null，runner 保留规则版综合。
+    summarizeLocal: input => summarizeLocally(localProvider, input.question, input.answers),
     verdictFor: conversationId => verdictByConversation.get(conversationId) ?? null,
     onCollaborationRecord: record => {
       const index = collaborationRecords.findIndex(item => item.taskId === record.taskId);

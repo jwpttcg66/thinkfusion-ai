@@ -79,7 +79,12 @@ test('四种模式各自包含哪些来源', () => {
   assert.deepEqual(ids(selectParticipants({ executionMode: 'web' }, web, extra)), ['chatgpt', 'kimi']);
   assert.deepEqual(ids(selectParticipants({ executionMode: 'local' }, web, extra)), [local.id]);
   assert.deepEqual(ids(selectParticipants({ executionMode: 'cloud' }, web, extra)), [cloud.id]);
-  assert.deepEqual(ids(selectParticipants({ executionMode: 'hybrid' }, web, extra)), ['chatgpt', 'openai:gpt-4o-mini', 'kimi', 'ollama:qwen2.5:7b'].sort());
+  // 本地模型不是来源：混合模式下它不参与回答，只在汇总阶段被叫到。
+  assert.deepEqual(ids(selectParticipants({ executionMode: 'hybrid' }, web, extra)), ['chatgpt', 'openai:gpt-4o-mini', 'kimi'].sort());
+  assert.ok(
+    selectParticipants({ executionMode: 'hybrid' }, web, extra).blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
+    '本地模型要被明确挡在名单外，不是悄悄消失'
+  );
 });
 
 test('local-only 是硬边界：hybrid 里也只剩本地，网页和云端都被挡下', () => {
@@ -124,8 +129,9 @@ test('fallback 只在非隐私模式下退回网页，local-only 下明确报错
 test('按模型选择生效，空数组表示「一个都不选」而不是「没指定」', () => {
   const none = selectParticipants({ executionMode: 'hybrid', selectedLocalModels: [], selectedCloudModels: [] }, web, extra);
   assert.deepEqual(ids(none), ['chatgpt', 'kimi']);
+  // 哪怕显式勾了本地模型，混合模式也不会把它当来源提问。
   const one = selectParticipants({ executionMode: 'hybrid', selectedLocalModels: ['qwen2.5:7b'], selectedCloudModels: [] }, web, extra);
-  assert.deepEqual(ids(one), ['chatgpt', 'kimi', local.id].sort());
+  assert.deepEqual(ids(one), ['chatgpt', 'kimi'].sort());
 });
 
 test('ExecutionPool：名单外的人连问都不让问', async () => {

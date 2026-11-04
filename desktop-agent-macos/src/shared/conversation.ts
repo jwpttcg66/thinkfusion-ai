@@ -131,7 +131,14 @@ export interface Synthesis {
    * 界面读不到就按原来的卡片显示，不需要数据迁移。
    */
   fusion?: {
-    backend: 'local' | 'remote';
+    /**
+     * 谁算的这份综合：
+     * - `local`：本地规则（按句子比对，不联网）
+     * - `local-model`：本地模型（Ollama 读完各家回答后归纳）
+     * - `remote`：远程大模型 API
+     * 三种产物必须能分辨，否则「结论是模型说的还是规则说的」说不清。
+     */
+    backend: 'local' | 'local-model' | 'remote';
     finalDecision: string | null;
     undetermined: boolean;
     confidence: { level: 'low' | 'medium' | 'high'; why: string };

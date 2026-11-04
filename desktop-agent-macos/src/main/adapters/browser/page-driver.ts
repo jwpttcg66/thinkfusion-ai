@@ -1722,6 +1722,22 @@ export interface AdapterTuning {
   emptyStableMs: number;
   /** The window for deciding the page was already empty, so no click is needed. */
   alreadyEmptyMs: number;
+  /**
+   * 短于这个长度的文本先不当成「回答」。
+   *
+   * 流式回答的第一段经常只有两三个字符。实测过：问「9.11 和 9.9 哪个大」，
+   * Gemini 先吐出「9.」就停顿了一下，2 秒的静止规则把这个前缀收成了整段
+   * 回答，页面上真正的答案根本没进记录。短答案要么等到停止按钮消失
+   * （有证据表明生成结束），要么静止够久（见 `shortAnswerSettleMs`）。
+   */
+  minAnswerChars: number;
+  /**
+   * 短回答要多长时间不再变化才敢认。默认 5 秒，只对没出现停止按钮的页面生效。
+   *
+   * 为什么不是无限长：静止本身不是证据，等太久会把「页面就是答得很短」变成
+   * 超时；5 秒足够跨过大多数流式停顿，又不会让一个三字回答等成失败。
+   */
+  shortAnswerSettleMs: number;
 }
 
 export const DEFAULT_TUNING: AdapterTuning = {
@@ -1737,7 +1753,9 @@ export const DEFAULT_TUNING: AdapterTuning = {
   afterClickMs: 3500,
   newChatMs: 6000,
   emptyStableMs: 1200,
-  alreadyEmptyMs: 1800
+  alreadyEmptyMs: 1800,
+  minAnswerChars: 6,
+  shortAnswerSettleMs: 5000
 };
 
 /**
@@ -2476,7 +2494,14 @@ export class ChatPageDriver {
           // the site's own latency, which is most of the difference between the
           // app and the same page in a browser.
           const stoppedStreaming = sawGenerating && !probe.generating && stillFor >= this.tuning.pollMs * 2;
-          const required = probe.generating ? Math.max(this.tuning.settleMs * 2.5, 3000) : this.tuning.settleMs;
+          // 太短的文本不靠「静止两秒」就认：那正是流式回答第一段的样子。
+          // 没有停止按钮可作证时，要求它静止够久（默认 12 秒）。
+          const tooShort = cleaned.length < this.tuning.minAnswerChars;
+          const required = tooShort
+            ? this.tuning.shortAnswerSettleMs
+            : probe.generating
+              ? Math.max(this.tuning.settleMs * 2.5, 3000)
+              : this.tuning.settleMs;
           if (stoppedStreaming) return cleaned;
           if (stableCount >= 3 && stillFor >= required) {
             // Already cleaned, at the point where page text becomes answer text:

@@ -188,3 +188,41 @@ test('少数派原文进报告，不为达成共识被删掉', () => {
   const texts = [...report.claims, ...report.rejected].map(item => item.text);
   assert.ok(texts.some(text => /单线程|内存模式|不需要连接池/.test(text)));
 });
+
+// ---------------------------------------------------------------------------
+// 汇总阶段：本地模型读完整回答写结论，失败退回规则版
+// ---------------------------------------------------------------------------
+
+test('汇总提示词带上每个来源的标签和原文，不替用户改写问题', async () => {
+  const { buildSummaryQuestion, SUMMARY_SYSTEM } = await import('../out-test/main/synthesis/local-summary.js');
+  const question = '17 个任务平均分给 4 个人，每人几个？';
+  const prompt = buildSummaryQuestion(question, [
+    { channelId: 'chatgpt', label: 'ChatGPT', text: '每人 4 个，余 1 个。' },
+    { channelId: 'kimi', label: 'Kimi', text: '4 余 1。' }
+  ]);
+  assert.ok(prompt.includes(question), '用户问题原样带进去');
+  assert.ok(prompt.includes('ChatGPT') && prompt.includes('Kimi'), '来源要标号，否则分歧说清是跟谁分');
+  assert.ok(prompt.includes('每人 4 个，余 1 个。'), '回答原文不能被改写');
+  assert.ok(SUMMARY_SYSTEM.some(line => /不要补充它们没说过的事实/.test(line)));
+});
+
+test('本地模型不可用 / 只有一份回答 / provider 抛错，都返回 null 而不是编一个结论', async () => {
+  const { summarizeLocally } = await import('../out-test/main/synthesis/local-summary.js');
+  const one = [{ channelId: 'a', label: 'A', text: '只有一份' }];
+  assert.equal(await summarizeLocally(null, 'q', one), null, '没装模型就没有汇总');
+  assert.equal(await summarizeLocally({ generate: async () => ({ text: 'x' }) }, 'q', one), null, '一份回答不需要汇总');
+
+  const two = [
+    { channelId: 'a', label: 'A', text: '甲' },
+    { channelId: 'b', label: 'B', text: '乙' }
+  ];
+  const failing = { generate: async () => { throw new Error('timeout'); } };
+  assert.equal(await summarizeLocally(failing, 'q', two), null, '超时降级，不抛给上层');
+  const empty = { generate: async () => ({ text: '   ' }) };
+  assert.equal(await summarizeLocally(empty, 'q', two), null, '空串不算汇总');
+
+  const ok = { generate: async request => ({ text: `【结论】4 余 1\n${request.system.length}`, modelId: 'qwen2.5:7b' }) };
+  const result = await summarizeLocally(ok, 'q', two);
+  assert.equal(result.modelId, 'qwen2.5:7b');
+  assert.match(result.text, /【结论】4 余 1/);
+});

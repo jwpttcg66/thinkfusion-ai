@@ -28,11 +28,18 @@ interface Props {
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
 
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
-  { id: 'web', label: '网页', hint: '只问已开启的网页通道' },
-  { id: 'local', label: '本地', hint: '只问 Ollama 本地模型' },
-  { id: 'cloud', label: '云端', hint: '只问已配置 Key 的云端模型' },
-  { id: 'hybrid', label: '混合', hint: '三类来源一起参与' }
+  { id: 'web', label: '网页', hint: '只问已开启的网页通道；汇总由本地模型读完全部回答后写' },
+  { id: 'local', label: '本地', hint: '只问 Ollama，回答与汇总都由它自己完成' },
+  { id: 'cloud', label: '云端', hint: '只问已配置 Key 的云端模型；汇总交给本地模型' },
+  { id: 'hybrid', label: '混合', hint: '网页与云端回答，本地模型不参与回答、只负责汇总' }
 ];
+
+/** 融合报告里「谁算的这份综合」。三种后端要能分辨。 */
+const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string> = {
+  local: '本地规则（按句子比对，不联网）',
+  'local-model': '本地模型（读完各家回答后归纳）',
+  remote: '远程模型 API'
+};
 
 const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
   { id: 'local', label: '本地主导', hint: '本地/云端模型给基准观点并做质疑；网页通道不参与，内容不往网页发' },
@@ -225,7 +232,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   <Picker title="网页通道" items={options.webChannels}
                     selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
                     onChange={next => onConfigChange({ selectedWebChannels: next })} />
-                  <Picker title="本地模型" items={options.localModels.map(id => ({ id, label: id }))}
+                  <Picker title="本地模型（仅「本地」模式参与回答）" items={options.localModels.map(id => ({ id, label: id }))}
                     selected={config.selectedLocalModels} all={options.localModels}
                     onChange={next => onConfigChange({ selectedLocalModels: next })} />
                   <Picker title="云端模型"
@@ -234,7 +241,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     onChange={next => onConfigChange({ selectedCloudModels: next })} />
                 </div>
               )}
-              <p className="muted">不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。</p>
+              <p className="muted">
+                不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
+                本地模型不是来源：网页/云端/混合模式下它不参与回答，只在汇总时读完全部回答写结论；
+                只有「本地」模式才会把它当回答者。
+              </p>
 
               <h3>云端服务</h3>
               <p className="muted">每个服务的端点和模型都能改。云厂商改模型名比改文档还快，写死会在某天开始报 404；改完立刻生效，重启也保留。</p>
@@ -481,7 +492,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   {latestSynthesis.degraded && <div className="diag-warn">这是一份降级报告：没有跨通道共识，不能当成一致结论。</div>}
                   {latestSynthesis.fusion ? (
                     <dl className="diag-grid">
-                      <dt>后端</dt><dd>{latestSynthesis.fusion.backend}</dd>
+                      <dt>后端</dt><dd>{BACKEND_LABEL[latestSynthesis.fusion.backend] ?? latestSynthesis.fusion.backend}</dd>
                       <dt>最终结论</dt><dd>{latestSynthesis.fusion.finalDecision ?? '未裁决 / 无法确定'}</dd>
                       <dt>置信度</dt><dd>{latestSynthesis.fusion.confidence.level} · {latestSynthesis.fusion.confidence.why}</dd>
                       <dt>证据 / 关系</dt><dd>{latestSynthesis.fusion.evidenceCount} 条 / {latestSynthesis.fusion.relationCount} 条边</dd>

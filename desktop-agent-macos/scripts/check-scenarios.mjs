@@ -57,7 +57,8 @@ for (const [mode, expected] of [
   ['web', ['chatgpt', 'kimi']],
   ['local', [local.id]],
   ['cloud', [cloud.id]],
-  ['hybrid', ['chatgpt', 'kimi', local.id, cloud.id].sort()]
+  // 本地模型不是来源：混合模式只问网页和云端，本地模型留给汇总。
+  ['hybrid', ['chatgpt', 'kimi', cloud.id].sort()]
 ]) {
   test(`场景 ${mode} 模式：名单符合项目书 6.2`, () => {
     const config = normalizeExecutionConfig({ executionMode: mode });

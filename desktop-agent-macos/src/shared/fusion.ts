@@ -117,11 +117,11 @@ export interface FusionInput {
 
 export interface FusionReport {
   /**
-   * 哪个实现算的。本地是不联网的规则/算法；远程是调用大模型 API。
-   * 两种方式必须能从产物上看出来，否则「这条结论是模型说的还是规则说的」
-   * 就永远说不清。
+   * 哪个实现算的。本地是不联网的规则/算法；本地模型是 Ollama 归纳；远程是
+   * 调用大模型 API。三种方式必须能从产物上看出来，否则「这条结论是模型说的
+   * 还是规则说的」就永远说不清。
    */
-  backend: 'local';
+  backend: 'local' | 'local-model' | 'remote';
   claims: FusedClaim[];
   evidence: Evidence[];
   relations: ArgumentRelation[];

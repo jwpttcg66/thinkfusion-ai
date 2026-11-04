@@ -42,6 +42,15 @@ export interface ConversationDeps {
   onCollaborationRecord?: (record: CollaborationRecord) => void;
   /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
   fusionEnabled?: boolean;
+  /**
+   * 汇总阶段的实现。本地模型不是「来源」，不参与上面那轮提问；它只在这里
+   * 读已经回来的回答并归纳。返回 null（没装模型、超时、被 abort）时保留
+   * 规则版综合，一轮问答不会因为汇总失败而失败。
+   */
+  summarizeLocal?: (input: {
+    question: string;
+    answers: Array<{ channelId: string; label: string; text: string }>;
+  }) => Promise<{ text: string; modelId: string; latencyMs: number } | null>;
   /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
   verdictFor?: (conversationId: string) => JudgeVerdict | null;
 }
@@ -487,6 +496,38 @@ export class ConversationRunner {
           { verdict: this.deps.verdictFor?.(conversationId) ?? undefined }
         );
         synthesis = fused.synthesis;
+
+        // 规则版给的是结构（观点、分歧、证据），结论那一段交给本地模型读
+        // 完整回答后自己写。它是「汇总者」而不是「来源」：上一轮提问里没有
+        // 它，这里才有它。
+        if (this.deps.summarizeLocal && fused.synthesis.fusion) {
+          const labels = new Map(
+            outcome.channels.map(item => [item.agentId, item.label] as const)
+          );
+          const summary = await this.deps.summarizeLocal({
+            question,
+            answers: outcome.answers.map(answer => ({
+              channelId: answer.agentId,
+              label: labels.get(answer.agentId) ?? answer.agentId,
+              text: answer.text
+            }))
+          });
+          if (summary && summary.text.trim()) {
+            synthesis = {
+              ...fused.synthesis,
+              recommendation: summary.text.trim(),
+              fusion: {
+                ...fused.synthesis.fusion,
+                // 结论这段是模型写的，观点/证据/分歧仍是规则算的——两者不能混着说。
+                backend: 'local-model',
+                confidence: {
+                  ...fused.synthesis.fusion.confidence,
+                  why: `${fused.synthesis.fusion.confidence.why}；结论由本地模型 ${summary.modelId} 汇总（${(summary.latencyMs / 1000).toFixed(1)} 秒）`
+                }
+              }
+            };
+          }
+        }
       } catch {
         // 故意不记日志刷屏：降级是正常路径，原来的 synthesis 还在。
       }
