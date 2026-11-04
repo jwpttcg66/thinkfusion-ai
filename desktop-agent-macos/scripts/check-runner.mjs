@@ -554,3 +554,73 @@ test('a follow-up resets only the channels that did not answer', async () => {
   // has to start clean — otherwise the follow-up arrives over unrelated history.
   assert.deepEqual(registry.resets, ['b']);
 });
+
+/**
+ * Every switched-on channel is asked at the same time.
+ *
+ * The registry used to cap the whole pool at three. With a fourth site switched
+ * on, the fourth agent was handed the question and immediately refused with
+ * PageBusyError — reported to the user as 「通道正在处理上一个问题，本次跳过」
+ * while nothing at all was busy. Measured live: DeepSeek and ChatGPT answered,
+ * Gemini was told it was busy, Kimi timed out, and the answers arrived one after
+ * another because the cap doubled as a queue.
+ *
+ * The test holds all four asks open until the fourth has started, so a cap of
+ * three fails it by deadlock-free assertion rather than by timing.
+ */
+test('four channels are asked at once, not three at a time', async () => {
+  const { SubAgentRegistry } = await import('../out-test/main/agents/registry.js');
+  const started = [];
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+
+  const agents = ['deepseek', 'chatgpt', 'kimi', 'gemini'].map(id => ({
+    id,
+    label: id,
+    identity: { id, label: id, kind: 'provider', role: id },
+    async health() {
+      return { id, label: id, available: true, loggedIn: true, pageReady: true, generating: false };
+    },
+    async ask() {
+      started.push(id);
+      await gate;
+      return { agentId: id, text: '4', receivedAt: Date.now(), attribution: { requestId: id, note: '' }, stage: 'initial' };
+    }
+  }));
+
+  const registry = new SubAgentRegistry(agents);
+  const round = Promise.all(agents.map(agent => registry.ask(agent.id, { question: '1+3', stage: 'initial' })));
+
+  // Give the fourth ask a real chance to be refused.
+  const deadline = Date.now() + 1000;
+  while (started.length < 4 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.deepEqual(started.sort(), ['chatgpt', 'deepseek', 'gemini', 'kimi'], '四个通道都应该已经被问上');
+  release();
+  const answers = await round;
+  assert.equal(answers.length, 4);
+});
+
+test('one page still refuses a second question while it is answering', async () => {
+  const { SubAgentRegistry } = await import('../out-test/main/agents/registry.js');
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const agent = {
+    id: 'a',
+    label: 'a',
+    identity: { id: 'a', label: 'a', kind: 'provider', role: 'a' },
+    async health() {
+      return { id: 'a', label: 'a', available: true, loggedIn: true, pageReady: true, generating: false };
+    },
+    async ask() {
+      await gate;
+      return { agentId: 'a', text: '4', receivedAt: Date.now(), attribution: { requestId: 'a', note: '' }, stage: 'initial' };
+    }
+  };
+
+  const registry = new SubAgentRegistry([agent]);
+  const first = registry.ask('a', { question: '1+3', stage: 'initial' });
+  await assert.rejects(() => registry.ask('a', { question: '2+2', stage: 'initial' }), /正在处理|busy/i);
+  release();
+  await first;
+});

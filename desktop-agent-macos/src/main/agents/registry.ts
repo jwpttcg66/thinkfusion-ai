@@ -7,18 +7,23 @@ import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './typ
  * The agents available right now, and the only place that decides how many run
  * at once.
  *
- * Two separate limits, for two different reasons:
+ * One limit, and it is per agent: a chat page has one writer. A second question
+ * sent while the first is still being answered gets interleaved with it and
+ * both answers are then misread. So one ask per agent, and a second one is
+ * refused rather than queued — a queued request looks like a stuck UI, and the
+ * caller can retry or skip that agent.
  *
- * - Per agent: a chat page has one writer. A second question sent while the
- *   first is still being answered gets interleaved with it and both answers are
- *   then misread. So one ask per agent, and a second one is refused rather than
- *   queued.
- * - Global: each agent is a full `WebContentsView`, i.e. a renderer process.
- *   Three is already a lot of memory; six would make the machine the bottleneck
- *   and look like the app hanging.
+ * There used to be a second, global limit: three at a time, justified by "each
+ * agent is a whole renderer process". That number was really "how many sites
+ * the app shipped with", and it broke the moment a fourth was switched on —
+ * measured, four channels enabled: `deepseek` and `chatgpt` answered, Gemini was
+ * handed the question and then told 「通道正在处理上一个问题，本次跳过」 while
+ * three others were simply answering, and Kimi failed. Nothing was busy; the
+ * cap was. It never saved memory either: a channel's `WebContentsView` exists
+ * from the moment the source is switched on, whether it is being asked or not.
  *
- * Refusing immediately is deliberate. A queued request looks like a stuck UI,
- * and the caller can always retry or skip that agent.
+ * So there is no global cap. Every channel the user has switched on gets the
+ * question at the same time, which is the whole point of asking several at once.
  *
  * The registry is a *pool*, not a scheduler: it does not decide who joins a
  * round. That is the Master Agent's call, and keeping the two apart is what
@@ -30,7 +35,8 @@ export class SubAgentRegistry implements SubAgentPool {
 
   constructor(
     agents: readonly SubAgent[],
-    private readonly maxConcurrent = 3
+    /** Only for tests that need to observe the refusal path. */
+    private readonly maxConcurrent = Number.POSITIVE_INFINITY
   ) {
     for (const agent of agents) this.byId.set(agent.id, agent);
   }

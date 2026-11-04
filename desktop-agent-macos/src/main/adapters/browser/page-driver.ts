@@ -193,6 +193,24 @@ export interface PageDriver {
    * the thread this conversation created. Never used as "the first row".
    */
   threadCandidates?(): Promise<ThreadCandidate[]>;
+  /**
+   * Pretend the page is the one the user is looking at.
+   *
+   * The pane shows one site at a time; the other channels are laid out offstage
+   * and hidden. Their DOM still reads, their JS still runs, and their controls
+   * still get clicks — but `document.hasFocus()` is false, and a site is free to
+   * treat that as "this window is in the background, do not start anything".
+   * Gemini does exactly that: measured with three other channels answering, the
+   * composer held the question, the send control was found and clicked, and
+   * nothing was submitted until the page was switched into the pane — and with
+   * focus emulated on the hidden page, the very same click sent it.
+   *
+   * So driving a page means more than dispatching events at it. This is a
+   * debugger call (`Emulation.setFocusEmulationEnabled`) because there is no DOM
+   * way to lie about focus, and it is optional so a scripted test driver can
+   * ignore it.
+   */
+  setFocusEmulation?(on: boolean): Promise<void>;
 }
 
 export const PROBE_SCRIPT = (
@@ -734,8 +752,9 @@ const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () 
   };
 })()`;
 
-const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(() => {
+const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(async () => {
   const selectors = ${JSON.stringify(selectors)};
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
     const rect = el.getBoundingClientRect();
@@ -750,6 +769,14 @@ const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(() => {
       if (hit.length) return hit[hit.length - 1];
     }
     return null;
+  };
+
+  const composerText = () => {
+    const el = findComposer();
+    if (!el) return '';
+    return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
+      ? el.value
+      : (el.innerText || el.textContent || '');
   };
 
   let button = null;
@@ -793,8 +820,57 @@ const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(() => {
   }
 
   if (!button) return { ok: false, reason: 'SEND_BUTTON_NOT_FOUND' };
+
+  // Clicking the inner control is not enough on every site.
+  //
+  // Measured on Gemini: the control is
+  //   gem-icon-button > div.mat-mdc-tooltip-trigger > button[aria-label="发送"]
+  // The inner button element has no listeners at all — the click handler sits
+  // on the gem-icon-button custom element around it. Calling click() on the
+  // button therefore dispatches an event that nothing handles, and the page
+  // looks frozen: text stays in the composer, no message is added, and the
+  // driver reports SEND_UNCONFIRMED after its whole window. Clicking the
+  // element that carries the handler sends the very same message on the first
+  // try, measured live: composer cleared, one model-response added, address
+  // changed to /app/thread-id.
+  //
+  // So: click the control, and if the composer still holds our text, walk up to
+  // the wrappers that could own the handler. Only custom elements (a dash in
+  // the tag name) and explicit role="button" wrappers are tried, at most two
+  // levels, and only while the text is still sitting there — a click that
+  // worked then has nothing else clicked on top of it, which is what keeps this
+  // from sending the same question twice.
+  const baseline = composerText().trim();
+  const clicked = ['button'];
+
   button.click();
-  return { ok: true, label: (button.className || '').toString().slice(0, 60) };
+  if (!baseline) return { ok: true, label: (button.className || '').toString().slice(0, 60) };
+
+  const cleared = async (ms) => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      await sleep(100);
+      if (!composerText().trim()) return true;
+    }
+    return false;
+  };
+
+  if (await cleared(400)) return { ok: true, label: 'button' };
+
+  let scope = button.parentElement;
+  for (let depth = 0; depth < 2 && scope; depth += 1) {
+    const owns = scope.tagName.includes('-') || scope.getAttribute('role') === 'button' || scope.hasAttribute('aria-label');
+    if (owns && visible(scope)) {
+      scope.click();
+      clicked.push(scope.tagName.toLowerCase());
+      if (await cleared(500)) return { ok: true, label: clicked.join('>').slice(0, 60) };
+    }
+    scope = scope.parentElement;
+  }
+
+  // Nothing on the DOM cleared it. Still "clicked" — the page may be slow, and
+  // the caller has its own polling and escalation for that.
+  return { ok: true, label: clicked.join('>').slice(0, 60) };
 })()`;
 
 const NEW_CHAT_SCRIPT = (selectors: SelectorProfile) => `(async () => {
@@ -997,15 +1073,22 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   const menuButton = (() => {
     let node = link.parentElement;
     for (let depth = 0; depth < 5 && node; depth += 1) {
-      const buttons = [...node.querySelectorAll('button, [role="button"]')].filter(visible);
-      const hits = buttons.filter((el) => MENU_WORDS.test(label(el)));
+      // Custom elements are controls too. Gemini renders its per-row actions as
+      // gem-icon-button around a plain button, the same shape as its send
+      // control — and a query for button/[role=button] alone walked straight
+      // past it into a wider ancestor, which is why that channel reported
+      // 「这条会话旁边没有「更多」菜单」 on a row that had one.
+      const controls = [...node.querySelectorAll('button, [role="button"], *')]
+        .filter((el) => el.matches('button, [role="button"]') || el.tagName.includes('-'))
+        .filter(visible);
+      const hits = controls.filter((el) => MENU_WORDS.test(label(el)));
       if (hits.length === 1) return hits[0];
       if (hits.length > 1) return null;
       // A row whose only control is one unlabelled icon *is* the actions
       // button: DeepSeek ships exactly that — a div with role=button, no
       // aria-label, no title, and a 16px svg inside. Refusing to use it made
       // every DeepSeek delete report 「这条会话旁边没有「更多」菜单」.
-      const icons = buttons.filter((el) => {
+      const icons = controls.filter((el) => {
         if ((el.innerText || '').trim().length > 0) return false;
         const box = el.getBoundingClientRect();
         return box.width <= 40 && box.height <= 40;
@@ -1250,10 +1333,40 @@ export function createElectronDriver(
   const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
   const signedOut = typeof signedOutSelectors === 'function' ? signedOutSelectors : () => signedOutSelectors;
   const signedOutWords = typeof signedOutText === 'function' ? signedOutText : () => signedOutText;
+  /**
+   * Whether *we* attached the debugger, so detaching cannot take the user's own
+   * DevTools session with it.
+   */
+  let ownsDebugger = false;
   return {
     url: () => view.webContents.getURL(),
     isDestroyed: () => view.webContents.isDestroyed(),
     isLoading: () => view.webContents.isLoading(),
+    setFocusEmulation: async (on: boolean) => {
+      const contents = view.webContents;
+      if (contents.isDestroyed()) return;
+      if (on) {
+        if (contents.debugger.isAttached()) return; // the user's DevTools, or a probe: leave it alone
+        try {
+          contents.debugger.attach('1.3');
+          ownsDebugger = true;
+          await contents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+        } catch {
+          // Not fatal: the send path still tries, and the page is what decides.
+        }
+        return;
+      }
+      if (!ownsDebugger) return;
+      ownsDebugger = false;
+      try {
+        // Detaching is what turns the emulation off; there is no need to send
+        // enabled:false first, and a second round trip is a second chance to
+        // hang on a page that has navigated away.
+        contents.debugger.detach();
+      } catch {
+        // Already gone with the document; the next attach re-emulates.
+      }
+    },
     probe: async () => {
       const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords());
       // A page that is still loading is not necessarily an unusable one: Gemini
@@ -1408,7 +1521,21 @@ export interface AdapterTuning {
   enterAfterMs: number;
   /** When to click a second time, after the keystroke also did nothing. */
   clickRetryAfterMs: number;
-  /** How long a requested new conversation may take to actually clear the page. */
+  /**
+   * How long to wait for the page to clear after the new-chat control was
+   * clicked.
+   *
+   * Deliberately much shorter than `newChatMs`. When the click works the page
+   * has already cleared by the first or second poll; when it does not, every
+   * further second is spent before the question is even handed to that
+   * channel. Measured on ChatGPT: the click reported success, the page never
+   * cleared, and the full 12s window ran out on every turn — with the 8s reload
+   * and a second window after it, that channel was asked 27s after the others.
+   * Four answers arriving one after another is what that looks like from the
+   * outside.
+   */
+  afterClickMs: number;
+  /** How long a reloaded page may take to come back empty. */
   newChatMs: number;
 }
 
@@ -1418,7 +1545,8 @@ export const DEFAULT_TUNING: AdapterTuning = {
   settleMs: 2000,
   enterAfterMs: 3000,
   clickRetryAfterMs: 8000,
-  newChatMs: 12000
+  afterClickMs: 3500,
+  newChatMs: 6000
 };
 
 /**
@@ -1712,7 +1840,7 @@ export class ChatPageDriver {
     // Only wait after a click that reported success. A control that was never
     // found will not clear the page by itself, and waiting the full window for
     // it would delay the path that actually works.
-    if (clicked.ok && (await this.pageIsEmpty(driver))) {
+    if (clicked.ok && (await this.pageIsEmpty(driver, this.tuning.afterClickMs))) {
       return { ok: true, method: clicked.method ?? 'button' };
     }
 
@@ -1874,9 +2002,9 @@ export class ChatPageDriver {
   }
 
   /** Zero bubbles and an empty composer: the only observable that means "new". */
-  private async pageIsEmpty(driver: PageDriver): Promise<boolean> {
+  private async pageIsEmpty(driver: PageDriver, budgetMs = this.tuning.newChatMs): Promise<boolean> {
     const startedAt = Date.now();
-    while (Date.now() - startedAt < this.tuning.newChatMs) {
+    while (Date.now() - startedAt < budgetMs) {
       await sleep(this.tuning.pollMs);
       if (await this.isEmptyNow(driver)) return true;
     }
@@ -1897,8 +2025,24 @@ export class ChatPageDriver {
    * never be submitted twice.
    */
   async sendMessage(text: string, requestId: string): Promise<SendOutcome> {
-    const before = await this.snapshot();
     const driver = this.driver();
+
+    // The page has to believe someone is looking at it. Only one channel is
+    // ever the one in the pane; the rest are laid out offstage, and a site may
+    // refuse to start a turn from a window that reports itself unfocused —
+    // Gemini does (see `setFocusEmulation`). Turned on for the write and the
+    // submit only, then dropped, so the page goes back to its real state.
+    await driver.setFocusEmulation?.(true);
+    try {
+      return await this.submit(text, requestId, driver);
+    } finally {
+      await driver.setFocusEmulation?.(false);
+    }
+  }
+
+  /** `sendMessage` without the focus dance, so the try/finally stays readable. */
+  private async submit(text: string, requestId: string, driver: PageDriver): Promise<SendOutcome> {
+    const before = await this.snapshot();
 
     const filled = await driver.fill(text);
     if (!filled?.ok) {
