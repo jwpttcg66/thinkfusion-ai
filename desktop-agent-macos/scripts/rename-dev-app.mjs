@@ -34,8 +34,15 @@
  *   a separate helper that it spawns, so that grant is not tied to this path at
  *   all — an earlier version of this comment claimed otherwise.)
  *
- * It is idempotent and cheap, so it runs before `dev` and before `start:debug`.
- * After `npm ci` the bundle is fresh again and the next `dev` renames it.
+ * It is idempotent and cheap, so it runs right after `install:electron`, and
+ * that is the only place it needs to be hooked. `install.js` rewrites
+ * `path.txt` on every run, even when it skips the download because the version
+ * already matches — so anything that calls `install:electron` (dev, build,
+ * package) used to leave the file pointing at the factory `Electron.app`, and
+ * the next launch came up as Electron: atom icon, "Electron" on hover. That is
+ * how the icon and the Dock label went missing a second time. Hooking the
+ * rename to the install step instead of to each entry point means a new script
+ * cannot forget it.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
