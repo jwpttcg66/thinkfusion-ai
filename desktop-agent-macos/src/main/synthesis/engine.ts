@@ -108,11 +108,23 @@ export function fuse(inputs: FusionInput[], options: FusionOptions = {}): Fusion
 
   const verdict = options.verdict;
   const rankedConsensus = [...consensus].sort((a, b) => b.rank - a.rank);
+  // 共识门槛是「至少两个通道」（见上面的 cluster.channels.size >= 2），
+  // 不是「所有通道」。四个通道里两个都提到一句，也照样算共识——所以这句
+  // 必须带上几分之几：写成「多通道共同提到的」，读起来像全体一致。
+  const channelsOf = new Map<string, number>();
+  for (const cluster of clusters) channelsOf.set(cluster.representative.id, cluster.channels.size);
+  // 分母是「这一轮有几份回答」，不是「抽出过观点的通道数」：某份回答没抽出
+  // 可判的句子，不代表它没回答过这个问题。
+  const totalChannels = new Set(inputs.map(item => item.channelId)).size;
   let recommendation: string;
   if (verdict && !verdict.undetermined && verdict.conclusion) {
     recommendation = verdict.conclusion;
   } else if (rankedConsensus.length > 0) {
-    recommendation = `多通道共同提到的：${rankedConsensus[0].text}`;
+    const top = rankedConsensus[0];
+    const agreed = channelsOf.get(top.id) ?? 0;
+    recommendation = agreed >= totalChannels
+      ? `所有 ${totalChannels} 个通道都提到：${top.text}`
+      : `${agreed}/${totalChannels} 个通道提到：${top.text}`;
   } else {
     recommendation = '没有跨通道共识，下面只是各通道的回答并列，不能当成一致结论。';
   }

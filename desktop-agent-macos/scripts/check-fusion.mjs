@@ -77,6 +77,22 @@ test('条件句抽成 assumptions，条件不同不硬判矛盾', () => {
   assert.equal(report.consensus.length, 0);
 });
 
+test('共识句要报几分之几：两个通道同意不等于全体一致', () => {
+  // 真实场景：四个通道里两个都说「押平水韵下平七阳」，另两个各用别的韵。
+  // 这时候写「多通道共同提到的」读起来像全体一致，实际只有一半。
+  const partial = fuse([
+    input('a', 'm1', A),
+    input('b', 'm2', A2),
+    input('c', 'm3', '这首诗用的是下平十一尤，韵脚分别是眸、秋、愁、楼、头五个字。')
+  ]);
+  assert.ok(partial.consensus.length >= 1);
+  assert.match(partial.recommendation, /2\/3 个通道提到/, '两个通道同意就要写成 2/3');
+  assert.doesNotMatch(partial.recommendation, /所有/, '不是全体一致就不能写「所有」');
+
+  const full = fuse([input('a', 'm1', A), input('b', 'm2', A2), input('c', 'm3', A)]);
+  assert.match(full.recommendation, /所有 3 个通道都提到/);
+});
+
 test('证据七维分别打，timeliness 本地判不了就写 null', () => {
   const report = fuse([input('a', 'm1', A), input('b', 'm2', A2)]);
   assert.ok(report.evidence.length > 0);
