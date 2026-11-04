@@ -52,7 +52,7 @@ const BOUNDARY = /[。！？!?；;\n]/g;
 const MIN_CLAIM_CHARS = 12;
 
 /** 收尾话、开场白。它们不是观点，而且每条回答里都有。 */
-const BOILERPLATE = /^(以下是|希望对你有帮助|如果需要|总结一下[:：]?$|以上[:：]?$|还有别的|欢迎继续)/;
+const BOILERPLATE = /^(以下是|以上就是|希望对你有帮助|如果需要|总结一下[:：]?$|以上[:：]?$|还有别的|欢迎继续)/;
 
 const QUESTION = /[？?]\s*$|^(请问|是否|为什么|为何|如何|怎么|能否|可否|哪一个|哪个)/;
 
@@ -211,7 +211,12 @@ function evidenceOf(text: string, base: number): EvidenceDraft[] {
 }
 
 export function extractClaims(input: { channelId: string; messageId: string; text: string }): ExtractedClaim[] {
-  return segmentsOf(input.text).map((segment, index) => {
+  return segmentsOf(input.text)
+    .map((segment, index) => ({ segment, index }))
+    // 收尾话/开场白不是观点。放在这里再挡一道：segmentsOf 只管切句，
+    // 「以下是……」这种长得像观点的开场白会在切句后漏过来。
+    .filter(({ segment }) => !BOILERPLATE.test(segment.text.trim()))
+    .map(({ segment, index }) => {
     const { kind, cue } = kindOf(segment.text);
     return {
       id: `${input.messageId}#${String(index)}`,
@@ -228,5 +233,5 @@ export function extractClaims(input: { channelId: string; messageId: string; tex
       features: features(segment.text),
       evidence: evidenceOf(input.text.slice(segment.start, segment.end), segment.start)
     };
-  });
+    });
 }

@@ -141,6 +141,8 @@ export type ProviderErrorCode =
    * 混在一起，界面只能提示一句「请求有误」。
    */
   | 'model-not-found'
+  /** 主动停在本地预算闸门，不是服务端拒绝。 */
+  | 'budget-exceeded'
   | 'unknown';
 
 /**

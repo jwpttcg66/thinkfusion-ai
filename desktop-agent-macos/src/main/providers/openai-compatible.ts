@@ -45,6 +45,8 @@ export interface CloudOptions {
   /** 429 / 5xx / 网络错误的最大重试次数，不含首次。 */
   maxRetries?: number;
   retryBaseMs?: number;
+  /** Token / 费用闸门。累计达到上限后不再发请求，避免一次误操作烧完预算。 */
+  budget?: { maxTokens?: number; maxCost?: number; currency?: string };
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -93,6 +95,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly budget: CloudOptions['budget'];
   private readonly inflight = new Map<string, AbortController>();
   private readonly usageLog: UsageRecord[] = [];
   private seq = 0;
@@ -112,6 +115,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    this.budget = options.budget;
   }
 
   async capabilities(): Promise<ProviderCapabilities> {
@@ -167,6 +171,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResponse> {
     const model = request.modelId ?? this.defaultModel;
+    this.assertBudget();
     const started = this.now();
     const body = this.body(request.question, model, false, request.context, request.system);
 
@@ -178,6 +183,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
+    this.assertBudget();
     const model = request.modelId ?? this.defaultModel;
     const controller = this.fork(signal, request.timeoutMs ?? this.timeoutMs);
     const requestId = request.requestId ?? this.newRequestId();
@@ -245,6 +251,27 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   private record(usage: { inputTokens: number | null; outputTokens: number | null; cost: { amount: number; currency: string } | null }, model: string): void {
     this.usageLog.push({ at: this.now(), modelId: model, ...usage });
+  }
+
+  /**
+   * 请求前的预算闸门。检查的是**已经发生**的累计用量，不去猜这次会花多少：
+   * 猜出来的数会让人以为还剩预算，实际早超了。重试不再过这道门，因为一次
+   * 请求只算一次调用。
+   */
+  private assertBudget(): void {
+    if (!this.budget) return;
+    const summary = this.usageSummary();
+    const total = summary.inputTokens + summary.outputTokens;
+    if (this.budget.maxTokens !== undefined && total >= this.budget.maxTokens) {
+      throw new ProviderError('budget-exceeded', `Token 预算已用尽（累计 ${total}）`, this.id);
+    }
+    if (this.budget.maxCost !== undefined) {
+      const currency = this.budget.currency ?? 'CNY';
+      const spent = summary.cost.find(item => item.currency === currency)?.amount ?? 0;
+      if (spent >= this.budget.maxCost) {
+        throw new ProviderError('budget-exceeded', `费用预算已用尽（累计 ${spent} ${currency}）`, this.id);
+      }
+    }
   }
 
   /** 单价配置缺失时返回 null，不写 0——「不知道费用」和「免费」是两回事。 */

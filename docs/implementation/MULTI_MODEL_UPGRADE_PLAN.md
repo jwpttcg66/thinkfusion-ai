@@ -25,7 +25,7 @@
 | H Judge | 独立裁决 + 少数派保护 | **已完成**：`judge/` 三件套 + 14 条测试，见 `PHASE-H.md` | 本机无独立模型，接线用规则版并如实标记 |
 | I Synthesis | 保留现有 + 6 项新增 | **已完成**：补齐 evidence/ranker/engine、接线 11 条测试，见 `PHASE-I.md` | 远程后端未实现（本轮只做本地）；关系图 UI 未做 |
 | J UI | 9 项 | **已完成**：`ResearchPanel` 四 tab + 设置栏 + `app:usage`，真机 CDP 验证，见 `PHASE-J.md` | 辩论做成独立面板而非提问开关（决策 2） |
-| K 测试 | 17 项场景 + 4 份报告 | 现有 291 条单测 | 全部 |
+| K 测试 | 17 项场景 + 4 份报告 | **已完成**：15 条场景测试 + 四份 `docs/testing/` 报告；`npm test` 306 条全绿，真机 Hybrid / 重启恢复 / 清理均通过 | Cloud 与真机辩论未验（无 Key / 成员不足 2） |
 
 ---
 
