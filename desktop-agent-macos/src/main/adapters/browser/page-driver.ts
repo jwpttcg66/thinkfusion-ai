@@ -1671,7 +1671,11 @@ export interface AdapterTuning {
 
 export const DEFAULT_TUNING: AdapterTuning = {
   confirmMs: 20000,
-  pollMs: 700,
+  // Every wait in this file is a multiple of this number: the reset poll, the
+  // send confirmation, and the stillness rule for the answer. At 700ms each of
+  // them rounded up to the next second and a half; a probe is one script
+  // evaluation on an idle page, so the cadence is cheap.
+  pollMs: 400,
   settleMs: 2000,
   enterAfterMs: 3000,
   clickRetryAfterMs: 8000,
@@ -2364,6 +2368,7 @@ export class ChatPageDriver {
     let stableSince = 0;
     let stableCount = 0;
     let sawIncomplete = false;
+    let sawGenerating = false;
     let lastSeen: PageProbe | null = null;
 
     try {
@@ -2395,14 +2400,25 @@ export class ChatPageDriver {
         const cleaned = normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
         if (!cleaned) continue;
 
+        if (probe.generating) sawGenerating = true;
+
         if (cleaned === candidate) {
           stableCount += 1;
           const stillFor = Date.now() - stableSince;
-          const required = probe.generating ? Math.max(this.tuning.settleMs * 2.5, 3000) : this.tuning.settleMs;
           if (!answerLooksComplete(cleaned)) {
             sawIncomplete = true;
             continue;
           }
+          // A page that showed its stop control earlier and has just dropped it
+          // is telling us the stream ended. That is a statement, not an
+          // inference from stillness — a model that is thinking is also
+          // perfectly still — so one more unchanged reading is enough. The
+          // three-poll rule below cost every answer 2.1s of pure wait on top of
+          // the site's own latency, which is most of the difference between the
+          // app and the same page in a browser.
+          const stoppedStreaming = sawGenerating && !probe.generating && stillFor >= this.tuning.pollMs * 2;
+          const required = probe.generating ? Math.max(this.tuning.settleMs * 2.5, 3000) : this.tuning.settleMs;
+          if (stoppedStreaming) return cleaned;
           if (stableCount >= 3 && stillFor >= required) {
             // Already cleaned, at the point where page text becomes answer text:
             // furniture, speaker labels and citation chips never reach a bubble

@@ -317,6 +317,56 @@ test('a streaming answer is only returned once it stops changing', async () => {
   assert.equal(answer, '{"final":true}');
 });
 
+test('a page that drops its stop control is done, without waiting out the stillness rule', async () => {
+  // The stop control is on the page exactly while text is still arriving. When
+  // it goes away the stream has ended — that is a statement, not the inference
+  // from stillness the old rule had to make, and a thinking model is perfectly
+  // still without being finished. Requiring three identical polls anyway put
+  // ~2s of our own waiting on top of every answer, which is most of why the app
+  // felt slower than the same page in a browser.
+  const snapshot = {
+    messageCount: 1,
+    lastText: 'old',
+    url: 'https://chat.deepseek.com/',
+    capturedAt: Date.now(),
+    conversationText: 'old',
+    composerText: ''
+  };
+  const done = state({ conversationText: 'old 四十七', messageCount: 2, lastText: '四十七', generating: false });
+  const streaming = state({ conversationText: 'old 四十七', messageCount: 2, lastText: '四十七', generating: true });
+  const page = scriptedPage([streaming, streaming, done, done]);
+
+  const startedAt = Date.now();
+  const answer = await adapterFor(page, { pollMs: 5, settleMs: 2000 }).waitForAnswer('r1', snapshot, 8000);
+  const took = Date.now() - startedAt;
+
+  assert.equal(answer, '四十七');
+  assert.ok(took < 500, `returned after ${String(took)}ms; the stop control going away should not cost a stillness window`);
+});
+
+test('a page with no stop control still waits for the stillness rule', async () => {
+  // The fast path above must not become "the first repeated reading is the
+  // answer" on pages that never report a stop control — a pause inside a
+  // streaming answer looks exactly like that.
+  const snapshot = {
+    messageCount: 1,
+    lastText: 'old',
+    url: 'https://chat.deepseek.com/',
+    capturedAt: Date.now(),
+    conversationText: 'old',
+    composerText: ''
+  };
+  const done = state({ conversationText: 'old 四十七', messageCount: 2, lastText: '四十七' });
+  const page = scriptedPage([done]);
+
+  const startedAt = Date.now();
+  const answer = await adapterFor(page, { pollMs: 5, settleMs: 300 }).waitForAnswer('r1', snapshot, 8000);
+  const took = Date.now() - startedAt;
+
+  assert.equal(answer, '四十七');
+  assert.ok(took >= 250, `returned after ${String(took)}ms; a page with no stop control must still settle`);
+});
+
 test('a prompt the page reflowed is still recognised as the echo', () => {
   // The page renders the prompt's list items as their own blocks, so the
   // newline before "1." disappears entirely. Collapsing whitespace to a space
