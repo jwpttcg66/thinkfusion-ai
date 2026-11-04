@@ -1,0 +1,55 @@
+{
+  "recordedAt": "2026-11-04T11:51:57.401Z",
+  "baseUrl": "http://127.0.0.1:11434",
+  "models": [
+    {
+      "name": "nomic-embed-text:latest",
+      "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+      "modified_at": "2026-06-04T12:53:58.509329744+08:00",
+      "size": 274302450
+    },
+    {
+      "name": "qwen2.5:7b",
+      "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
+      "modified_at": "2026-06-04T12:31:46.829152362+08:00",
+      "size": 4683087332
+    }
+  ],
+  "note": "从运行中的 Ollama 真实端点录制，用于 check-ollama.mjs 回放。不是手写样例。",
+  "trimmed": {
+    "show-qwen.json": {
+      "templateChars": 1482,
+      "keptKeys": [
+        "license",
+        "modelfile",
+        "system",
+        "details",
+        "tensors",
+        "capabilities",
+        "modified_at"
+      ],
+      "modelInfoKeys": 33
+    },
+    "show-nomic.json": {
+      "templateChars": 13,
+      "keptKeys": [
+        "license",
+        "modelfile",
+        "parameters",
+        "details",
+        "tensors",
+        "capabilities",
+        "modified_at"
+      ],
+      "modelInfoKeys": 24
+    },
+    "note": "template / messages 是模型自带的大段文本，与 Provider 判据无关，录制后移除；model_info 与 capabilities 保持真实原值。",
+    "removedKeys": [
+      "template",
+      "messages",
+      "license",
+      "modelfile",
+      "tensors"
+    ]
+  }
+}

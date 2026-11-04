@@ -61,6 +61,13 @@ export interface ModelRequest {
    * 本地和云端可以忽略。
    */
   continuation?: boolean;
+  /**
+   * 这次请求的名字，用来调 `cancel(requestId)`。
+   *
+   * 不传就内部生成一个：调用方通常靠 `AbortSignal` 取消，这个字段是给
+   * 「手上只有 ID、拿不到 signal」的场景留的（例如界面上的「停止」）。
+   */
+  requestId?: string;
 }
 
 export interface ModelUsage {
@@ -114,6 +121,14 @@ export type ProviderErrorCode =
   | 'cancelled'
   | 'auth'
   | 'bad-request'
+  /**
+   * 服务在，但找不到这个模型。
+   *
+   * 和 `bad-request` 分开是因为处理方式完全不同：前者要做的是
+   * `ollama pull <tag>` 或去设置里改模型名，后者要改的是请求内容。
+   * 混在一起，界面只能提示一句「请求有误」。
+   */
+  | 'model-not-found'
   | 'unknown';
 
 /**
