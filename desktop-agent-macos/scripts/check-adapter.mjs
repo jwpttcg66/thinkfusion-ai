@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, PROBE_VERSION } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, PROBE_VERSION } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
@@ -955,4 +955,23 @@ test('a page that answers in time returns its value untouched', async () => {
     }
   };
   assert.deepEqual(await callPage(view, '读取页面状态', 'x', 120), { messageCount: 2 });
+});
+
+// 2026-11-04 真机回归发现：问「17 乘 3」时 Gemini 把提问气泡当成回答收下。
+// containsEcho 对短提问有 40 字门槛，39 字的测试题差一个字没过，于是整段
+// 提问原样进了综合报告。下面几条把这个长度无关的判据钉住。
+test('a short prompt echoed back whole is not an answer', () => {
+  const question = 'TF-B-REGRESSION-20261104 17 乘 3 等于多少？只回答数字。';
+  assert.equal(question.replace(/\s+/g, '').length, 39, '正好低于 containsEcho 的 40 字门槛');
+  assert.equal(isOwnPromptEcho(question, question), true);
+  assert.equal(isOwnPromptEcho(question.replace(/ /g, '\n'), question), true, '空白差异不算新内容');
+  assert.equal(isOwnPromptEcho('17 乘 3 等于多少？', question), true, '提问的一部分也不算回答');
+});
+
+test('a real short answer is never mistaken for an echo', () => {
+  const question = '17 乘 3 等于多少？只回答数字。';
+  assert.equal(isOwnPromptEcho('51', question), false);
+  assert.equal(isOwnPromptEcho('17 乘 3 等于 51。', question), false, '引用了问题但更长');
+  assert.equal(isOwnPromptEcho('51', '17 乘 3 等于 51 吗？'), false, '两个字的答案不参与判断');
+  assert.equal(isOwnPromptEcho('51'), false, '没发过问题就无从判断');
 });

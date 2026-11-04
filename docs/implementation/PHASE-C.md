@@ -144,6 +144,7 @@ signal 必须 aborted；排队超时报 `busy`；切模型前发 `keep_alive: 0`
 - **没有注册进 `main/index.ts`**，也没有任何 UI 入口（Phase E/J）。
 - **没有下载 `qwen3.5:9b-q4_K_M`**。代码里的默认 tag 仍按项目书写，
   真机验证用 `defaultModel: 'qwen2.5:7b'` 覆盖，没有把验证用的模型写死进实现。
-- **没有做 Web Channel 真机回归**（Phase B 遗留的那一条，仍未补）。
+- **Web Channel 真机回归**在 Phase C 期间补做了（Phase B 的遗留项），
+  顺带修掉一处短问题回显，见 `PHASE-B.md`；与 Phase C 代码无关。
 - **没有做 Phase K 的稳定性场景**（Ollama 中途退出、网络中断、应用重启），
   这些要等接线之后才有意义。

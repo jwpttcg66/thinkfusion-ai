@@ -14,7 +14,7 @@
 | 2 | API Key 明文落到 renderer、配置或日志 | D | preload 只暴露 `agentAPI`，renderer 拿不到 `fs`；但 IPC 返回值若不收敛，key 会顺着它回来 | `safeStorage` 存密文，IPC 只回 `hasKey: boolean`；日志只打 provider id | 待实现 |
 | 3 | 以模型数量判定正确性 | H / I | `ARCHITECTURE.md` 11.8 红线；19 章第 14 条 | Judge 不读 `support` 计数；少数派强制进 `disagreements`；输出允许「无法确定」 | 待实现 |
 | 4 | 为达成共识删掉少数派观点 | G / I | 项目书决策 7、19 章第 15 条 | 辩论记录只追加，不覆盖；综合保留独立结构 | 待实现 |
-| 5 | 破坏现有 Web Channel | 全程 | 决策 3、19 章第 5 条 | Phase E 之前新模块一律不接线；每阶段结束真机问一句 | **Phase B/C 物理上未接线**；B 的真机回归仍未补 |
+| 5 | 破坏现有 Web Channel | 全程 | 决策 3、19 章第 5 条 | Phase E 之前新模块一律不接线；每阶段结束真机问一句 | **已验证**：B/C 未接线；B 真机回归三通道正常，见 `PHASE-B.md` |
 
 ## P1：会造成错误结论或频繁返工
 
@@ -56,7 +56,8 @@
 
 这些不能写成通过（`项目书 19 章` 明确禁止）：
 
-- Phase B 的「现有 Web Channel 正常运行」**没做真机回归**，只做了逻辑测试。
+- Phase B 的真机回归**已补做**，两轮；第二轮顺带修掉一处短问题回显
+  （`isOwnPromptEcho`），详见 `PHASE-B.md`。这一项不再是未完成。
 - Phase C 用 `qwen2.5:7b` 验证，**没有下载项目书默认的 `qwen3.5:9b-q4_K_M`**，
   9B 的冷加载、内存占用、首字延迟均未测。
 - `OllamaProvider` **没注册进 `main/index.ts`**，没有 UI 入口，不影响现有链路。

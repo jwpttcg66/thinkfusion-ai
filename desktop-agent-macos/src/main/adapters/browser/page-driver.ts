@@ -2455,6 +2455,9 @@ export class ChatPageDriver {
         // unit of comparison; the answer is.
         const cleaned = normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
         if (!cleaned) continue;
+        // 短问题绕过了 containsEcho 的 40 字门槛，这里补一次精确判断：
+        // 整段还是我们自己的话，就不是答案，继续等下一段。
+        if (isOwnPromptEcho(cleaned, sentText)) continue;
 
         if (probe.generating) sawGenerating = true;
 
@@ -2551,6 +2554,26 @@ export class ChatPageDriver {
  * removed. Stillness is still enforced by `waitForAnswer`, which requires three
  * identical polls.
  */
+/**
+ * 候选是不是我们刚发出去的那句话本身。
+ *
+ * `containsEcho` 有 40 字门槛：短 needle 太容易在正文里误命中，所以短提问
+ * 它干脆不查。可「整段就是提问」是另一回事，与长度无关——而短问题恰恰
+ * 最常见。真机回归里问「17 乘 3」，Gemini 把提问气泡当成了回答收下来，
+ * 就是因为 39 字差一个字没过门槛。
+ *
+ * 只在候选是提问的**子集**时挡掉，不挡「回答里引用了问题一部分」这种
+ * 正常情况：那时候候选比提问长，`includes` 不成立。
+ */
+export function isOwnPromptEcho(candidate: string, sentText?: string): boolean {
+  if (!sentText) return false;
+  const squeeze = (value: string) => value.replace(/\s+/g, '');
+  const answer = squeeze(candidate);
+  const prompt = squeeze(sentText);
+  if (answer.length < 4) return false;
+  return prompt.includes(answer);
+}
+
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
   const grew = probe.messageCount > snapshot.messageCount;
   const bubbleFresh = grew && probe.lastText.trim().length > 0 && probe.lastText !== snapshot.lastText;

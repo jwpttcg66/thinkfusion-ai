@@ -16,7 +16,7 @@
 | Phase | 项目书要求 | 实际 | 缺口 |
 | --- | --- | --- | --- |
 | A 审计 | 7 份文档（5 份 architecture + 2 份 implementation） | **已完成**：5 份 architecture + `MULTI_MODEL_UPGRADE_PLAN` + `RISKS_AND_COMPATIBILITY` + 综合审计 `docs/audits/2026-11-04-upgrade-proposal.md` | 无（真机回归属 B 的验收，不属 A） |
-| B Provider 抽象 | 接口 / Registry / 能力 / 错误模型 / 超时取消 / 保留 Web Channel | `types.ts` `registry.ts` `web-channel.ts` + 15 条测试（`db16263`） | 未接线（按文档属 Phase E）；未做真机回归；`type` 三值已补记 |
+| B Provider 抽象 | 接口 / Registry / 能力 / 错误模型 / 超时取消 / 保留 Web Channel | `types.ts` `registry.ts` `web-channel.ts` + 15 条测试（`db16263`）；真机回归已补，见 `PHASE-B.md` | 未接线（按文档属 Phase E）；其余无 |
 | C Ollama | 12 项能力 + 6 条验收 | **已完成**：`ollama.ts` `local-admission.ts` + 17 条回放测试 + 7 条真机测试，见 `PHASE-C.md` | 未接线；9B 未下载；模型运行状态展示缺 UI（属 J） |
 | D Cloud | OpenAI 兼容 + key 安全存储 + token/费用 | 未开始 | 全部 |
 | E 执行模式 | 4 模式 + 对话级配置 + 隐私 | 未开始 | 全部 |
@@ -25,7 +25,7 @@
 | H Judge | 独立裁决 + 少数派保护 | 未开始 | 全部 |
 | I Synthesis | 保留现有 + 6 项新增 | 4 个未接线文件（见第七节） | engine / evidence / ranker / 接线 / 测试 |
 | J UI | 9 项 | 未开始 | 全部 |
-| K 测试 | 17 项场景 + 4 份报告 | 现有 193 条单测 | 全部 |
+| K 测试 | 17 项场景 + 4 份报告 | 现有 212 条单测 | 全部 |
 
 ---
 
@@ -66,15 +66,17 @@ A ── B ── C ─┐
 `docs/audits/2026-11-04-upgrade-proposal.md` 作为逐条对照代码的综合审计。
 每份都能指向具体 `文件:行号`。这一阶段没有改任何 `.ts`。
 
-### Phase B（已完成，补两条记录）
+### Phase B（已完成）
 
-代码已提交（`db16263`）。剩两件事，不做就一直是账：
+代码在 `db16263`。两件欠账都已补上，记录在 `PHASE-B.md`：
 
-1. **真机回归**：启动应用，四个通道各问一句，确认页面栏、提问、取答、删除都没变。
-   这是项目书 Phase B 的第一条验收「现有 Web Channel 可以正常运行」，现在标的是「未做」。
-2. **差异补记**：`PHASE-B.md` 里漏了一条 —— 项目书写 `type: "local" | "cloud"`，
-   实际是 `'web' | 'local' | 'cloud'`。网页通道既不是本地也不是云端，压成两值
-   会让 E 阶段的模式判断把 web 误算成 cloud，而 cloud 是允许外发的档位。
+1. **真机回归**：三个已登录通道各问一句 `17 乘 3`，确认提问、取答、综合、
+   删除全链路正常，测试数据当场清干净。第一轮发现 Gemini 把提问回显当成
+   回答（`containsEcho` 的 40 字门槛放过了一道 39 字的短问题），已加
+   `isOwnPromptEcho` 修掉，第二轮三通道都返回 `51`。
+2. **差异补记**：项目书写 `type: "local" | "cloud"`，实际是
+   `'web' | 'local' | 'cloud'`。网页通道两者都不是，压成两值会让 E 阶段的
+   模式判断把 web 误算成 cloud，而 cloud 是允许外发的档位。
 
 ### Phase C：Ollama 集成
 

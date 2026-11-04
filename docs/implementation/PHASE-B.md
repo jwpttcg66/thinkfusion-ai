@@ -43,16 +43,41 @@
 | 统一错误模型 | ✅（`ProviderError` 带 `code`，原始错误挂 `cause`） |
 | 超时与取消 | ✅（`AbortSignal` → `cancelAll` + race） |
 | 保留现有 Web Channel | ✅（未改一行现有代码） |
-| 现有 Web Channel 正常运行 | 未做真机回归（见下） |
+| 现有 Web Channel 正常运行 | ✅ 已补真机回归（见下节，过程中修掉一处短问题回显） |
 | 新接口不破坏原有调用流程 | ✅（尚未接线，物理上不可能影响） |
 | Provider 可独立注册与检测状态 | ✅（测试覆盖） |
 
+## 真机回归（2026-11-04 补做）
+
+用 CDP 连到运行中的应用，走真实 `agentAPI.submitConversation`，三个已登录通道
+（ChatGPT / Kimi / Gemini）各问一句 `17 乘 3`，等综合完成，再删除并双侧回读。
+
+**第一轮**发现一处既有问题：Kimi、ChatGPT 都回了 `51`，唯独 Gemini 那条
+「回答」是提问原文。查下来是 `containsEcho()` 对短提问有 40 字门槛（防短
+needle 误命中），而测试题去空白后正好 39 字，差一个字没过检查，页面把提问
+气泡当成了回答收下来。短问题恰恰最常见，这不是测试题的特殊性。
+
+**修复**：`page-driver.ts` 新增导出的 `isOwnPromptEcho(candidate, sentText)`，
+判据是「候选是不是提问的子集」，与长度无关；只在候选 ≥4 字时生效，避免把
+`51` 这类两字答案误杀。`waitForAnswer` 在清洗之后多挡一道。新增 2 条单测
+（`check-adapter.mjs` 52 条），另有一条断言把「39 字」这个边界写死，防止
+以后有人顺手调门槛又把它放过去。
+
+**第二轮**（重新构建、重启应用）：三通道全部返回 `51`，`status: answered`，
+消息为 `user 1 / channel 3 / system 1 / synthesis 1`。
+
+**清理**（用户硬性规则）：删前先读提问内容确认是本次测试题，再
+`deleteConversation()`；结果 `cleaned / reset` 均含三站、`failed: []`；
+应用侧会话回到 0 条、原有会话一条没动；三站网页侧 `innerText` 都不再含测试
+标记。两轮都没有留下测试会话。
+
 ## 没做的
 
-- **没有把 `WebChannelProvider` 接进 `main/index.ts`**。项目书 Phase B 的验收只要求「可注册、可检测」，接线属于 Phase E（执行模式）。现在接进去，等于在没有 Local/Cloud 的情况下先改一遍调度路径。
-- **没有实现 OllamaProvider / CloudProvider**，那是 Phase C、D。
-- **没有真机回归**。`npm test` 是纯逻辑测试，不碰页面。要确认「现有 Web Channel 正常运行」，需要启动应用、四个通道各问一句，这一步还没做。
+- **没有把 `WebChannelProvider` 接进 `main/index.ts`**。项目书 Phase B 的验收只要求「可注册、可检测」，接线属于 Phase E（执行模式）。现在接进去，等于在没有 Cloud 的情况下先改一遍调度路径。
+- **没有实现 CloudProvider**，那是 Phase D。
 
-## 下一步的阻塞项
+## 下一步
 
-Phase C（Ollama）不依赖任何未决事项，可以直接开始。Phase E 之前必须先定「执行模式存在 Conversation 的哪个字段」，因为 `Conversation` 现在是既有的持久化结构，加字段要考虑老数据兼容。
+Phase C（Ollama）已完成，见 `PHASE-C.md`。按次序下一个是 Phase D（Cloud API）。
+Phase E 之前必须先定「执行模式存在 Conversation 的哪个字段」和「两份名单谁是
+唯一名单」，这两条都在 `MULTI_MODEL_UPGRADE_PLAN.md` 里挂着。
