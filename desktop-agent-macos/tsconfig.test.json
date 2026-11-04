@@ -18,6 +18,7 @@
     "src/main/collaboration/**/*.ts",
     "src/main/debate/**/*.ts",
     "src/main/judge/**/*.ts",
+    "src/main/synthesis/**/*.ts",
     "src/main/adapters/**/*.ts"
   ]
 }

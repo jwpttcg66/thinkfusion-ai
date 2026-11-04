@@ -8,6 +8,8 @@ import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool } from './agents/types';
 import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
+import { synthesizeWithFusion } from './synthesis/engine';
+import type { JudgeVerdict } from './judge/types';
 
 export interface ConversationDeps {
   store: AgentStore;
@@ -38,6 +40,10 @@ export interface ConversationDeps {
   isPageChannel?: (agentId: string) => boolean;
   /** Phase F：每个子任务状态变化时的旁路通知，给界面和记录用。 */
   onCollaborationRecord?: (record: CollaborationRecord) => void;
+  /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
+  fusionEnabled?: boolean;
+  /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
+  verdictFor?: (conversationId: string) => JudgeVerdict | null;
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -467,13 +473,32 @@ export class ConversationRunner {
       });
     }
 
-    if (outcome.synthesis) {
+    // 融合引擎失败时保留原来的规则版综合，不抛错（ARCHITECTURE 11.9）。
+    // 规则版本身已经是各通道回答的合成，降级后界面仍有东西可看。
+    let synthesis = outcome.synthesis;
+    if (this.deps.fusionEnabled && outcome.answers.length >= 2) {
+      try {
+        const fused = synthesizeWithFusion(
+          outcome.answers.map(answer => ({
+            channelId: answer.agentId,
+            messageId: outcome.messageIds?.get(answer.agentId) ?? '',
+            text: answer.text
+          })),
+          { verdict: this.deps.verdictFor?.(conversationId) ?? undefined }
+        );
+        synthesis = fused.synthesis;
+      } catch {
+        // 故意不记日志刷屏：降级是正常路径，原来的 synthesis 还在。
+      }
+    }
+
+    if (synthesis) {
       const message = this.addMessage(conversation, {
         role: 'synthesis',
-        synthesis: outcome.synthesis,
-        text: outcome.synthesis.recommendation
+        synthesis,
+        text: synthesis.recommendation
       });
-      this.deps.emit({ type: 'synthesis.ready', at: Date.now(), conversationId, synthesis: outcome.synthesis });
+      this.deps.emit({ type: 'synthesis.ready', at: Date.now(), conversationId, synthesis });
       void message;
     }
 

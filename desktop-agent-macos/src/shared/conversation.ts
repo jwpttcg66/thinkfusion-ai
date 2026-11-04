@@ -126,6 +126,22 @@ export interface Synthesis {
    * a real synthesis.
    */
   degraded?: boolean;
+  /**
+   * Phase I 的融合报告摘要。可选字段：老数据、规则版综合都没有它，
+   * 界面读不到就按原来的卡片显示，不需要数据迁移。
+   */
+  fusion?: {
+    backend: 'local' | 'remote';
+    finalDecision: string | null;
+    undetermined: boolean;
+    confidence: { level: 'low' | 'medium' | 'high'; why: string };
+    rejected: Array<{ text: string; why: string }>;
+    unresolvedQuestions: Array<{ question: string; why: string }>;
+    evidenceCount: number;
+    relationCount: number;
+    debateId?: string;
+    limits: string[];
+  };
 }
 
 // ---------------------------------------------------------------------------

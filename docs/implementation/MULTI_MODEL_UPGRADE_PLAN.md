@@ -23,9 +23,9 @@
 | F Hybrid | Smart / Parallel / All / Sequential | **已完成**：`collaboration/` 策略与执行器 + 11 条测试，见 `PHASE-F.md` | 真机 sequential 未跑；Token 预算闸门属 K；时间线 UI 属 J |
 | G 辩论 | 3 策略 + 角色 + 自动停止 + 恢复 | **已完成**：`debate/` 三件套 + 独立文件存储 + 13 条测试，见 `PHASE-G.md` | 真机辩论未跑（可用成员不足 2）；UI 属 J |
 | H Judge | 独立裁决 + 少数派保护 | **已完成**：`judge/` 三件套 + 14 条测试，见 `PHASE-H.md` | 本机无独立模型，接线用规则版并如实标记 |
-| I Synthesis | 保留现有 + 6 项新增 | 4 个未接线文件（见第七节） | engine / evidence / ranker / 接线 / 测试 |
+| I Synthesis | 保留现有 + 6 项新增 | **已完成**：补齐 evidence/ranker/engine、接线 11 条测试，见 `PHASE-I.md` | 远程后端未实现（本轮只做本地）；关系图 UI 未做 |
 | J UI | 9 项 | 未开始 | 全部 |
-| K 测试 | 17 项场景 + 4 份报告 | 现有 280 条单测 | 全部 |
+| K 测试 | 17 项场景 + 4 份报告 | 现有 291 条单测 | 全部 |
 
 ---
 
@@ -275,18 +275,9 @@ Ollama 退出、网络中断、应用重启后恢复。这三项无法用单测�
 
 ## 七、工作区遗留
 
-四个文件已写好但**未提交、未接线、无测试**，属 Phase I 的前置材料：
-
-```
-desktop-agent-macos/src/shared/fusion.ts
-desktop-agent-macos/src/main/synthesis/claim-extractor.ts
-desktop-agent-macos/src/main/synthesis/clusterer.ts
-desktop-agent-macos/src/main/synthesis/relations.ts
-desktop-agent-macos/src/shared/synthesizer.ts   (仅新增 export)
-```
-
-处理方式：**冻结，不删除**。到 Phase I 时补齐 `evidence` / `ranker` / `engine`
-和测试后一并提交。在此之前不进 `master-agent`，也不在 UI 暴露。
+这些文件已在 Phase I 补齐 `evidence` / `ranker` / `engine` 和测试后一并提交，
+并通过 `ConversationRunner.fusionEnabled` 接线。冻结期结束，工作区不再有
+未提交算法文件。
 
 ---
 

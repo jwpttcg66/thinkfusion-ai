@@ -136,8 +136,12 @@ function sentencesOf(text: string): string[] {
  * Chinese has no spaces, and pulling in a segmenter for this is not worth it:
  * character bigrams plus ASCII words are enough to tell "连接复用" apart from
  * "故障恢复", which is all the clustering needs to do.
+ *
+ * Exported for `main/synthesis/`: the fusion engine compares the same way this
+ * file does, and two copies of the bigram rules would drift apart the first time
+ * one of them is tuned.
  */
-function features(sentence: string): Set<string> {
+export function features(sentence: string): Set<string> {
   const set = new Set<string>();
   const ascii = sentence.toLowerCase().match(/[a-z0-9_.-]{2,}/g) ?? [];
   for (const word of ascii) set.add(word);
@@ -148,23 +152,23 @@ function features(sentence: string): Set<string> {
   return set;
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let shared = 0;
   for (const item of a) if (b.has(item)) shared += 1;
   return shared / (a.size + b.size - shared);
 }
 
-function negationCount(sentence: string): number {
+export function negationCount(sentence: string): number {
   return (sentence.match(NEGATIONS) ?? []).length;
 }
 
-function numbersIn(sentence: string): string[] {
+export function numbersIn(sentence: string): string[] {
   return sentence.match(/\d[\d,_.]*/g) ?? [];
 }
 
 /** Figures worth comparing: 80%, 30 秒, 10000, 2 倍. */
-function figuresIn(sentence: string): string[] {
+export function figuresIn(sentence: string): string[] {
   const found = new Set<string>();
   for (const match of sentence.matchAll(FIGURE)) found.add(`${match[1]}${match[2].toLowerCase()}`);
   for (const match of sentence.match(BARE_LONG_NUMBER) ?? []) found.add(match);
@@ -172,7 +176,7 @@ function figuresIn(sentence: string): string[] {
 }
 
 /** ASCII identifiers (max_connections, processlist) plus CJK phrases. */
-function topicsOf(sentence: string): Set<string> {
+export function topicsOf(sentence: string): Set<string> {
   const set = new Set<string>();
   for (const word of sentence.toLowerCase().match(/[a-z][a-z0-9_.-]{2,}/g) ?? []) set.add(word);
 
@@ -351,7 +355,7 @@ const FILLER = /(的结果是|结果是|答案是|回答已完成|已完成|所�
  * 「不」, which is short enough to pass, and treating it as the same answer as
  * 「3 + 5 = 8」 would be the worst thing this file could do.
  */
-function conclusionOf(text: string): string[] | null {
+export function conclusionOf(text: string): string[] | null {
   // `NEGATIONS` is a /g regex; `match` resets its lastIndex, `test` advances it.
   if ((text.match(NEGATIONS) ?? []).length > 0) return null;
   const numbers = numbersIn(text).map(number => number.replace(/[,_]/g, ''));

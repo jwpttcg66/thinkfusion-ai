@@ -80,6 +80,8 @@ export interface ResearchOutcome {
   failures: string[];
   /** The same per-channel results, structured — see `ChannelOutcome`. */
   channels: ChannelOutcome[];
+  /** 每个回答落库后的消息 id，Phase I 的融合报告靠它跳回原话。 */
+  messageIds?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -118,6 +120,7 @@ export class MasterAgent {
     const round = await this.ask(participants, request, sink);
     const base: ResearchOutcome = {
       answers: round.answers,
+      messageIds: round.messageIds,
       synthesis: null,
       failures: round.channels
         .filter((item): item is Extract<ChannelOutcome, { kind: 'unanswered' }> => item.kind === 'unanswered')

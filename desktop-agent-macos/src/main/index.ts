@@ -41,6 +41,7 @@ import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
+import type { JudgeVerdict } from './judge/types';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -291,6 +292,7 @@ let collaborationRecords: CollaborationRecord[] = [];
 let debates: DebateOrchestrator | null = null;
 let judge: JudgeEngine | null = null;
 let verdicts: VerdictStore | null = null;
+const verdictByConversation = new Map<string, JudgeVerdict>();
 
 /**
  * Rebuild the agent pool from the sources that are switched on.
@@ -1560,6 +1562,7 @@ function registerIpc() {
     if (!state) throw new Error('找不到这场辩论');
     const verdict = await judge.judge(state);
     verdicts.save(verdict);
+    if (state.conversationId) verdictByConversation.set(state.conversationId, verdict);
     return verdict;
   });
 
@@ -1788,6 +1791,8 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.ids);
     },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
+    fusionEnabled: true,
+    verdictFor: conversationId => verdictByConversation.get(conversationId) ?? null,
     onCollaborationRecord: record => {
       const index = collaborationRecords.findIndex(item => item.taskId === record.taskId);
       if (index >= 0) collaborationRecords[index] = record;
