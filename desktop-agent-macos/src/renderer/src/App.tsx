@@ -21,7 +21,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Glyph } from './components/Glyph';
 import { StyleReport, type StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
-import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS } from '../../shared/icons';
+import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationMessage } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
 
@@ -48,6 +48,8 @@ interface Derived {
 const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 /** 吸附回来：放回它原来的位置。 */
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
+/** 刷新：把这一页重新加载一次，会话还留在原地。 */
+const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
@@ -104,6 +106,8 @@ export default function App() {
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
+  /** True from the press of 「刷新」 until the reload settles or its budget ends. */
+  const [refreshing, setRefreshing] = useState(false);
   /**
    * The last repair result, shown as a dialog.
    *
@@ -808,6 +812,39 @@ export default function App() {
   }
 
   /**
+   * 「刷新」: load the page again, keeping the thread it has open.
+   *
+   * A page can stop responding — its own script wedges, or it sits on a login
+   * wall that never resolves — and every control the app has goes *through*
+   * that page. Reloading is the one action that still works when the page is the
+   * problem, so it is a button rather than something to find in a menu.
+   *
+   * The wait is bounded in the main process, so this can never leave the button
+   * showing 「刷新中」 for a document that will never announce itself.
+   */
+  async function refreshPage() {
+    if (refreshing) return;
+    setRefreshing(true);
+    if (notice) setNotice('');
+    try {
+      setSources(await window.agentAPI.reloadPage(sources.activeId));
+      // A reload interrupts whatever the page was in the middle of, so saying so
+      // is the difference between "the button worked" and "the answer vanished".
+      if (conversationBusy) setNotice('页面已刷新。正在进行的问答被打断，需要重新提问。');
+      // The pill follows the page, not the press: this is what turns 「未就绪」
+      // back into 「就绪」 without waiting for the next poll.
+      void window.agentAPI
+        .getChannelStatuses()
+        .then(setChannelStatuses)
+        .catch(() => undefined);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  /**
    * 「更新样式」: re-read the page and repair what stopped matching.
    *
    * Runs against the page that is on screen — including one that has been
@@ -1121,6 +1158,17 @@ export default function App() {
             <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
             <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
             <span className="page-actions">
+              <button
+                className={`page-btn icon${refreshing ? ' spinning' : ''}`}
+                type="button"
+                onClick={() => void refreshPage()}
+                disabled={refreshing}
+                data-action="reload"
+                aria-label="刷新"
+                title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
+              >
+                <IconRefresh />
+              </button>
               <button
                 className="page-btn icon"
                 type="button"

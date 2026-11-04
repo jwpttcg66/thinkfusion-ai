@@ -54,6 +54,7 @@ const api: AgentApi = {
   saveSource: (id: string, patch: { url?: string; enabled?: boolean }) => ipcRenderer.invoke('sources:save', { id, ...patch }),
   addSource: (input: { label: string; url: string }) => ipcRenderer.invoke('sources:add', input),
   removeSource: (id: string) => ipcRenderer.invoke('sources:remove', id),
+  reloadPage: (id?: string) => ipcRenderer.invoke('page:reload', id),
   getIdentity: () => ipcRenderer.invoke('app:identity'),
   setDisplayName: (name: string) => ipcRenderer.invoke('app:set-name', name),
 

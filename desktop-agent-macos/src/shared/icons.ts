@@ -25,6 +25,21 @@ export const ICON_EXPAND_PATHS = ['M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13
 export const ICON_DOCK_BACK_PATHS = ['M2.5 3v10', 'M13 8H6.2M9 5.2 6.2 8 9 10.8'];
 
 /**
+ * An arrow chasing its own tail clockwise: 刷新.
+ *
+ * A page can wedge — the site's own script stops, the probe finds nothing, and
+ * the only way back is to load the document again. That needs a button someone
+ * can find, not a keyboard shortcut in a window that never had one.
+ *
+ * One arc and one corner, not the two-arrow version: at 13px a pair of arcs
+ * merges into an ellipse and stops reading as anything.
+ */
+export const ICON_REFRESH_PATHS = [
+  'M14 8a6 6 0 1 1-6-6c1.68 0 3.3.66 4.5 1.81L14 5.33',
+  'M14 2v3.33h-3.33'
+];
+
+/**
  * A panel with its right column filled: 收起 / 展开.
  *
  * This replaced a chevron. A chevron says "move this right", which describes the

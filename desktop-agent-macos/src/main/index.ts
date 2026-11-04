@@ -1042,6 +1042,81 @@ function activateSource(id: string) {
     });
 }
 
+/**
+ * Load a page again and wait, but not forever.
+ *
+ * `did-finish-load` is the only signal that the document actually came back, and
+ * a renderer that has wedged itself never sends it. Waiting on it without a
+ * budget would put the button in 「刷新中…」 for the rest of the session, which is
+ * the exact failure the button exists to fix.
+ */
+function settleLoad(view: WebContentsView, action: () => void, timeoutMs: number): Promise<boolean> {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      view.webContents.off('did-finish-load', onLoad);
+      view.webContents.off('did-fail-load', onFail);
+      resolve(ok);
+    };
+    const onLoad = () => finish(true);
+    // Only the main frame counts, and `ERR_ABORTED` is not a failure at all: it
+    // is what a site's blocked iframe and its own redirects report, and treating
+    // those as "the reload did not work" would navigate the page home for no
+    // reason.
+    const onFail = (_event: unknown, errorCode: number, _desc: string, _url: string, isMainFrame: boolean) => {
+      if (isMainFrame && errorCode !== -3) finish(false);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    view.webContents.on('did-finish-load', onLoad);
+    view.webContents.on('did-fail-load', onFail);
+    action();
+  });
+}
+
+/**
+ * 「刷新」: reload the page on screen, in place.
+ *
+ * In place, because the thread that is open has to stay open — a person presses
+ * this when the page stopped responding, not when they want a new conversation.
+ * The home address is the fallback, and only when the reload did not settle:
+ * at that point the old document is unreachable anyway, and a full navigation is
+ * the one thing that can replace a wedged renderer.
+ *
+ * The first load is bounded at 8s so the button always comes back. The fallback
+ * navigation is not awaited for the same reason; the status poller reports the
+ * outcome, which is where 「就绪 / 未就绪」already comes from.
+ */
+async function reloadPage(rawId?: unknown): Promise<SourcesState> {
+  const source = sourceById(sources, typeof rawId === 'string' && rawId ? rawId : activeSourceId);
+  if (!source) throw new Error('没有可刷新的页面');
+  if (!source.enabled) throw new Error(`${source.label} 还没启用，先在设置里打开`);
+
+  const view = views.get(source.id);
+  // A page that was never created is not a reload, it is the first load — the
+  // same path 「点开这个来源」 takes.
+  if (!view || view.webContents.isDestroyed()) {
+    activeSourceId = source.id;
+    await ensureSource(source);
+    return sourcesState();
+  }
+
+  sourceLoading = true;
+  emitSources();
+  try {
+    const settled = await settleLoad(view, () => view.webContents.reload(), 8000);
+    if (!settled && source.url) {
+      void view.webContents.loadURL(source.url).catch(() => undefined);
+    }
+  } finally {
+    sourceLoading = false;
+    emitSources();
+  }
+  return sourcesState();
+}
+
 async function createWindow() {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const isAppPage =
@@ -1334,6 +1409,14 @@ function registerIpc() {
   ipcMain.handle('sources:remove', (event, raw: unknown) => {
     trustedUiSender(event);
     return removeSource(raw);
+  });
+
+  // 「刷新」. Not routed through `sources:save`: nothing is being saved, and a
+  // reload that looks like an edit would make the settings panel think the URL
+  // changed.
+  ipcMain.handle('page:reload', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return reloadPage(raw);
   });
 
   ipcMain.handle('app:identity', event => {

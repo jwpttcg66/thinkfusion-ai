@@ -539,6 +539,17 @@ export interface AgentApi {
   /** Remove a source that was added in 设置. Built-ins are only disabled. */
   removeSource(id: string): Promise<SourcesState>;
 
+  /**
+   * 「刷新」: load the page again, in place.
+   *
+   * Not a navigation back to the home address — the thread that is open stays
+   * open, because the point is to recover a page that stopped responding, not to
+   * abandon the conversation. The home address is only used as a fallback when
+   * the reload itself does not settle, which is the one case where the old
+   * document is unreachable anyway.
+   */
+  reloadPage(id?: string): Promise<SourcesState>;
+
   /** The display name, for the row at the bottom of the sidebar. */
   getIdentity(): Promise<Identity>;
   /**

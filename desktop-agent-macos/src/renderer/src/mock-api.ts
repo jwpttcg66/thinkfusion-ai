@@ -211,6 +211,14 @@ export function createMockApi(): AgentApi {
       planningId: PAGE_SOURCES[0].id,
       loading: false
     }),
+    // There is no native page to reload in the preview; the button still has to
+    // exist and still has to bounce back to "not loading".
+    reloadPage: async () => ({
+      sources: [...PAGE_SOURCES],
+      activeId: PAGE_SOURCES[0].id,
+      planningId: PAGE_SOURCES[0].id,
+      loading: false
+    }),
     getIdentity: async () => ({ name: '本机用户', initial: '本', device: '这台 Mac' }),
     setDisplayName: async (name: string) => ({
       name: name || '本机用户',

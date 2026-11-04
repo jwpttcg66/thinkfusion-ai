@@ -1132,6 +1132,12 @@ button:disabled {
   display: block;
 }
 
+/* A reload in progress. Same 900ms turn as the composer's spinner, because "the
+   app is working" has to look like one thing wherever it happens. */
+.page-btn.icon.spinning svg {
+  animation: spin 0.9s linear infinite;
+}
+
 /* The pane, folded shut.
    A strip rather than nothing: the page inside is still alive and still
    answerable, so folding it must not look like closing it. It also has to be
