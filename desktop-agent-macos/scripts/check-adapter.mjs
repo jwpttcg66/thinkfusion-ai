@@ -51,21 +51,29 @@ function state(overrides = {}) {
 /**
  * @param {object[]} observations - exact sequence of probe results; the last
  *   one repeats forever, so a test only writes the transitions it cares about.
- * @param {{fillOk?: boolean, clickOk?: boolean}} options
+ *   The sequence applies up to the click; `afterNewChat` / `afterReload` are
+ *   what the page reports once the click or the reload actually happened.
+ *   Without that split, one list has to describe both "the old thread is still
+ *   there" and "the page is blank", and a test that waits for the blank state
+ *   ends up proving only that the list ran out.
+ * @param {{fillOk?: boolean, clickOk?: boolean, newChatOk?: boolean, loading?: boolean,
+ *   afterNewChat?: object[], afterReload?: object[]}} options
  */
 function scriptedPage(observations, options = {}) {
   const calls = { fill: 0, click: 0, enter: 0, probe: 0, newChat: 0, reload: 0 };
+  let sequence = observations;
   let index = 0;
+  let currentUrl = options.url ?? 'https://chat.deepseek.com/';
 
   return {
     calls,
-    url: () => 'https://chat.deepseek.com/',
+    url: () => currentUrl,
     isDestroyed: () => false,
     /** `true` reproduces a page whose load never settles (Gemini's case). */
     isLoading: () => options.loading === true,
     async probe() {
       calls.probe += 1;
-      const hit = observations[Math.min(index, observations.length - 1)];
+      const hit = sequence[Math.min(index, sequence.length - 1)];
       index += 1;
       return { ...hit };
     },
@@ -82,13 +90,23 @@ function scriptedPage(observations, options = {}) {
     },
     async newChat() {
       calls.newChat += 1;
-      return options.newChatOk === false
-        ? { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' }
-        : { ok: true, method: 'label' };
+      if (options.newChatOk === false) return { ok: false, reason: 'NEW_CHAT_BUTTON_NOT_FOUND' };
+      if (options.afterNewChat) {
+        sequence = options.afterNewChat;
+        index = 0;
+      }
+      if (options.urlAfterNewChat) currentUrl = options.urlAfterNewChat;
+      return { ok: true, method: 'label' };
     },
     async reloadHome() {
       calls.reload += 1;
-      return options.reloadOk === false ? { ok: false, reason: 'NAV_FAILED' } : { ok: true };
+      if (options.reloadOk === false) return { ok: false, reason: 'NAV_FAILED' };
+      if (options.afterReload) {
+        sequence = options.afterReload;
+        index = 0;
+      }
+      if (options.urlAfterReload) currentUrl = options.urlAfterReload;
+      return { ok: true };
     }
   };
 }
@@ -617,12 +635,82 @@ test('a page that is already a fresh chat is left alone', async () => {
   assert.equal(page.calls.reload, 0, 'no reload for a page that is already new');
 });
 
+test('a page that reports loading forever still counts as cleared when it is empty', async () => {
+  // Measured on ChatGPT: its page keeps a streaming connection open, so
+  // `isLoading()` never settles while the transcript is already blank. Making
+  // that a veto meant every reset expired against an empty page and the turn was
+  // told 「页面没有清空，仍在原会话里」 with nothing in it.
+  const page = scriptedPage([state({ messageCount: 0, conversationText: '' })], { loading: true });
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 2000, emptyStableMs: 40 }).newConversation();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'already-empty');
+  assert.equal(page.calls.newChat, 0);
+});
+
+test('one empty reading in the middle of a navigation is not a new conversation', async () => {
+  // The page blanks out before the old thread renders back in. Accepting that
+  // first reading is what made a reset look successful on a page that still
+  // held the conversation it was told to leave.
+  const page = scriptedPage(
+    [state({ messageCount: 0, conversationText: '' }), state({ messageCount: 2, conversationText: '旧对话' })],
+    { afterNewChat: [state({ messageCount: 0, conversationText: '' })] }
+  );
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 1500, emptyStableMs: 40 }).newConversation();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'label', 'the empty gap must not be mistaken for a fresh page');
+  assert.equal(page.calls.newChat, 1);
+});
+
+test('a page that never left its thread is not a new conversation, however empty it looks', async () => {
+  // ChatGPT no longer ships data-message-author-role, so its transcript count is
+  // always zero — including on the page that is still sitting on the old
+  // thread. The address is what settles it: the same path means "still there",
+  // a locale query string or not.
+  const page = scriptedPage([state({ messageCount: 0, composerText: '' })], {
+    url: 'https://chat.deepseek.com/a/chat/s/abc',
+    afterNewChat: [state({ messageCount: 0, composerText: '' })],
+    urlAfterNewChat: 'https://chat.deepseek.com/'
+  });
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 1500, emptyStableMs: 40 }).newConversation(
+    'https://chat.deepseek.com/a/chat/s/abc?hl=zh'
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'label', 'the same thread is not a reset, even with nothing rendered');
+  assert.equal(page.calls.newChat, 1);
+});
+
+test('a leftover draft in the composer does not stop a reset', async () => {
+  // A person can start a new chat and type before sending. Requiring an empty
+  // composer made the reset fail on exactly that page, and ChatGPT was the one
+  // that kept it failing: with no message markup to count, the composer was the
+  // only evidence left.
+  const page = scriptedPage([state({ messageCount: 0, composerText: 'draft' })], {
+    url: 'https://chat.deepseek.com/c/1',
+    afterNewChat: [state({ messageCount: 0, composerText: 'draft' })],
+    urlAfterNewChat: 'https://chat.deepseek.com/'
+  });
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 1500, emptyStableMs: 40 }).newConversation('https://chat.deepseek.com/c/1');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.method, 'label');
+});
+
 test('a new conversation waits for the page to actually clear', async () => {
-  const page = scriptedPage([
-    state({ messageCount: 2, conversationText: '旧对话' }),
-    state({ messageCount: 2, conversationText: '旧对话' }),
-    state({ messageCount: 0, conversationText: '' })
-  ]);
+  // Before the click the transcript still holds the old thread; only after it
+  // does the page go blank, and only then may the reset count as done.
+  const page = scriptedPage([state({ messageCount: 2, conversationText: '旧对话' })], {
+    afterNewChat: [
+      state({ messageCount: 2, conversationText: '旧对话' }),
+      state({ messageCount: 0, conversationText: '' })
+    ]
+  });
 
   const result = await adapterFor(page, { newChatMs: 2000 }).newConversation();
 
@@ -636,12 +724,12 @@ test('a new conversation waits for the page to actually clear', async () => {
 test('a page with no new-chat control falls back to the site root', async () => {
   // chatgpt.com at a narrow pane has no new-chat button at all — only a
   // "show sidebar" toggle — so the reload is the path that has to work.
-  const page = scriptedPage(
-    [state({ messageCount: 3, conversationText: '旧对话' }), state({ messageCount: 0, conversationText: '' })],
-    { newChatOk: false }
-  );
+  const page = scriptedPage([state({ messageCount: 3, conversationText: '旧对话' })], {
+    newChatOk: false,
+    afterReload: [state({ messageCount: 0, conversationText: '' })]
+  });
 
-  const result = await adapterFor(page, { newChatMs: 500 }).newConversation();
+  const result = await adapterFor(page, { newChatMs: 2000 }).newConversation();
 
   assert.equal(result.ok, true);
   assert.equal(result.method, 'reload');

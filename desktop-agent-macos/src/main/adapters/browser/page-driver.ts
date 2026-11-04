@@ -991,10 +991,26 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   })();
   if (!id) return { ok: false, detail: '这个地址里没有会话编号' };
 
+  // On screen, not merely laid out.
+  //
+  // A closed sidebar still has boxes: Gemini keeps mat-sidenav at x = -320 with
+  // width 320, DeepSeek translates its drawer controls to x = -198, and both
+  // keep width and height. Testing only those two numbers called every row
+  // "visible", so the driver never opened the drawer and then clicked at
+  // coordinates no pointer can reach — reported as 「没有「更多」菜单」 on a row
+  // that has one, and as 「点了删除，但侧栏里这条会话还在」 on a row it never
+  // really clicked. Requiring the box to intersect the viewport is what a
+  // person means by visible here.
+  const inViewport = (rect) =>
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.right > 0 &&
+    rect.bottom > 0 &&
+    rect.left < window.innerWidth &&
+    rect.top < window.innerHeight;
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
+    if (!inViewport(el.getBoundingClientRect())) return false;
     const style = getComputedStyle(el);
     return style.visibility !== 'hidden' && style.display !== 'none';
   };
@@ -1005,12 +1021,50 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
       .filter(Boolean)
       .join(' ');
 
-  const rowLink = () =>
-    [...document.querySelectorAll('a[href]')]
-      .filter(visible)
-      .find((a) => (a.getAttribute('href') || '').includes(id)) || null;
+  // One press, four events.
+  //
+  // Sites disagree about which one they listen to: ChatGPT's menu opens on
+  // pointerdown and ignores click, Angular's mat-menu opens on click, DeepSeek's
+  // dropdown opens on pointerdown. Sending the whole sequence is what a mouse
+  // does anyway, and it costs nothing when a site only cares about one of them.
+  const press = (el) => {
+    if (!el) return false;
+    const box = el.getBoundingClientRect();
+    const at = {
+      bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
+      pointerId: 1, pointerType: 'mouse', isPrimary: true,
+      clientX: box.left + box.width / 2, clientY: box.top + box.height / 2
+    };
+    el.dispatchEvent(new PointerEvent('pointerover', at));
+    el.dispatchEvent(new PointerEvent('pointerdown', at));
+    el.dispatchEvent(new MouseEvent('mousedown', at));
+    el.dispatchEvent(new PointerEvent('pointerup', { ...at, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent('mouseup', { ...at, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent('click', { ...at, buttons: 0 }));
+    return true;
+  };
 
-  let link = rowLink();
+  // The row is looked up by thread id, and a row that exists but sits outside
+  // the scroll viewport is scrolled into view instead of being reported as
+  // missing: history lists here are long, and the conversation being deleted is
+  // often the newest one at the very top of a list that starts scrolled down.
+  const rowLink = async () => {
+    const matches = [...document.querySelectorAll('a[href]')].filter((a) =>
+      (a.getAttribute('href') || '').includes(id)
+    );
+    const shown = matches.find(visible);
+    if (shown) return shown;
+    if (!matches.length) return null;
+    try {
+      matches[0].scrollIntoView({ block: 'center' });
+    } catch {
+      return null;
+    }
+    await sleep(150);
+    return matches.find(visible) || null;
+  };
+
+  let link = await rowLink();
 
   // A collapsed sidebar has no rows at all. Opening it is a click the user
   // would have made anyway, and it is the only way to reach the row.
@@ -1025,11 +1079,12 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
       .filter((el) => /主菜单|边栏|导航|sidebar|main menu|open menu|show menu/i.test(label(el)));
     // Second shape, measured on DeepSeek: the control is a bare div holding an
     // SVG, with no label and no role — its only distinguishing feature is that
-    // it sits at the very left of the top bar. When the drawer is closed that
-    // div is translated off-screen, so it is not reachable by a pointer but a
-    // programmatic click still opens it. Only tried when the row exists but is
-    // hidden: that is the one situation where opening a drawer is the whole fix,
-    // and without the check this would be clicking at a logo.
+    // it sits at the very left of the top bar. The drawer's own copy of that
+    // control is translated to a negative x while closed, and it used to win the
+    // sort because it had the smaller x: the driver pressed a button parked
+    // outside the window and the drawer never opened. Restricting the pool to
+    // boxes actually on screen is what makes the leftmost *reachable* control
+    // the one that gets pressed.
     const hiddenRow = [...document.querySelectorAll('a[href]')]
       .some((a) => (a.getAttribute('href') || '').includes(id) && !visible(a));
     if (openers.length === 0 && hiddenRow) {
@@ -1040,13 +1095,18 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
         .sort((a, b) => a.rect.x - b.rect.x);
       if (topLeft.length > 0) openers.push(topLeft[0].el);
     }
-    if (openers.length > 0) openers[0].click();
-    // The history list is fetched after the panel opens — and on DeepSeek a row
-    // for a conversation that answered a second ago is not there yet. Poll
-    // instead of looking once and concluding it was archived.
-    for (let wait = 0; wait < 16 && !link; wait += 1) {
-      await sleep(250);
-      link = rowLink();
+    // Pressing twice is deliberate: some panels only take focus on the first
+    // press and slide open on the second, and when the first one worked the row
+    // is already there so the second never happens.
+    for (let attempt = 0; attempt < 2 && openers.length > 0 && !link; attempt += 1) {
+      press(openers[0]);
+      // The history list is fetched after the panel opens — and on DeepSeek a
+      // row for a conversation that answered a second ago is not there yet. Poll
+      // instead of looking once and concluding it was archived.
+      for (let wait = 0; wait < 16 && !link; wait += 1) {
+        await sleep(250);
+        link = await rowLink();
+      }
     }
   }
   if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档' };
@@ -1070,9 +1130,19 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   // one level too high and every row in the list matches, which is how a delete
   // lands on somebody else's conversation.
   const MENU_WORDS = /聊天操作|更多|更多选项|操作|菜单|chat actions|more|options|menu/i;
+  const describe = (el) =>
+    [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid'), (el.innerText || '').trim()]
+      .map((value) => (value || '').toString().trim())
+      .filter(Boolean)
+      .join(' ');
   const menuButton = (() => {
-    let node = link.parentElement;
-    for (let depth = 0; depth < 5 && node; depth += 1) {
+    // Start at the row, not at its parent. DeepSeek keeps its actions button
+    // *inside* the anchor, so starting one level up skipped it entirely; and a
+    // scope holding more than one conversation is no longer this row, so the
+    // walk stops there instead of wandering into the whole list.
+    let node = link;
+    for (let depth = 0; depth < 6 && node; depth += 1) {
+      if (node.querySelectorAll('a[href]').length > 1) break;
       // Custom elements are controls too. Gemini renders its per-row actions as
       // gem-icon-button around a plain button, the same shape as its send
       // control — and a query for button/[role=button] alone walked straight
@@ -1080,10 +1150,21 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
       // 「这条会话旁边没有「更多」菜单」 on a row that had one.
       const controls = [...node.querySelectorAll('button, [role="button"], *')]
         .filter((el) => el.matches('button, [role="button"]') || el.tagName.includes('-'))
+        .filter((el) => el !== link)
         .filter(visible);
-      const hits = controls.filter((el) => MENU_WORDS.test(label(el)));
-      if (hits.length === 1) return hits[0];
-      if (hits.length > 1) return null;
+      // Text before class, and the innermost of the matches.
+      //
+      // An explicit label ("「…」的更多选项", "聊天操作", "更多") is the strongest
+      // evidence there is. A className containing "menu" is the weakest: Gemini
+      // puts mat-mdc-menu-trigger on both the custom element and the button
+      // inside it, so the same control was counted twice, and the old rule
+      // "more than one hit means ambiguous" refused a row that had exactly one
+      // menu. Taking the innermost of the label matches resolves that without
+      // guessing: the wrapper and the button it wraps are one control.
+      const named = controls.filter((el) => MENU_WORDS.test(describe(el)));
+      if (named.length > 0) return named[named.length - 1];
+      const byClass = controls.filter((el) => MENU_WORDS.test((el.className || '').toString()));
+      if (byClass.length > 0) return byClass[byClass.length - 1];
       // A row whose only control is one unlabelled icon *is* the actions
       // button: DeepSeek ships exactly that — a div with role=button, no
       // aria-label, no title, and a 16px svg inside. Refusing to use it made
@@ -1100,32 +1181,27 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   })();
   if (!menuButton) return { ok: false, detail: '这条会话旁边没有「更多」菜单' };
 
-  const rect = menuButton.getBoundingClientRect();
-  const at = {
-    bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
-    pointerId: 1, pointerType: 'mouse', isPrimary: true,
-    clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2
-  };
-  menuButton.dispatchEvent(new PointerEvent('pointerover', at));
-  menuButton.dispatchEvent(new PointerEvent('pointerdown', at));
-  menuButton.dispatchEvent(new MouseEvent('mousedown', at));
-  menuButton.dispatchEvent(new PointerEvent('pointerup', at));
-  menuButton.dispatchEvent(new MouseEvent('mouseup', at));
-  menuButton.dispatchEvent(new MouseEvent('click', at));
+  press(menuButton);
 
   const findDeleteItem = () => {
-    const named = [...document.querySelectorAll('[role="menuitem"], [class*="menu-item"], [class*="MenuItem"]')]
+    const named = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [class*="menu-item"], [class*="MenuItem"]')]
       .filter(visible)
-      .find((el) => /^(删除|删除聊天|delete|delete chat)$/i.test((el.innerText || '').trim()));
+      .find((el) => /^(删除|删除聊天|删除该对话|delete|delete chat)$/i.test((el.innerText || '').trim()));
     if (named) return named;
-    // Some menus are plain divs with no role at all (DeepSeek). Exact text, and
-    // the innermost of the matches: a container that merely contains the word
-    // in a sentence is not a menu item.
+    // Some menus are plain divs with no role at all (DeepSeek's
+    // ds-dropdown-menu-option). Exact text, at row height, and the *outermost*
+    // match: the outermost is the element the site binds its handler to, while
+    // the innermost is the label span inside it. Picking the innermost and then
+    // walking up three levels landed on the floating wrapper around the menu,
+    // so the option never got clicked and the delete never happened.
     const loose = [...document.querySelectorAll('div, span, li, a, button, [role="button"]')]
       .filter(visible)
-      .filter((el) => /^(删除|删除聊天|delete|delete chat)$/i.test((el.innerText || '').trim()))
-      .filter((el) => el.getBoundingClientRect().height <= 64);
-    return loose.length > 0 ? loose[loose.length - 1] : null;
+      .filter((el) => /^(删除|删除聊天|删除该对话|delete|delete chat)$/i.test((el.innerText || '').trim()))
+      .filter((el) => {
+        const box = el.getBoundingClientRect();
+        return box.height <= 64 && box.width >= 40;
+      });
+    return loose.length > 0 ? loose[0] : null;
   };
 
   let item = null;
@@ -1136,48 +1212,76 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string) => `(async () => {
   if (!item) return { ok: false, detail: '菜单里没有「删除」这一项' };
 
   // The text node is not always the click target: Kimi puts the word in a
-  // span three levels inside the row that handles the click.
+  // span three levels inside the row that handles the click. But walking up
+  // from a real option is wrong in the other direction — DeepSeek's option is a
+  // div with no role, so an unconditional climb reached the floating wrapper
+  // that positions the menu and clicked that instead. So: climb only when the
+  // match is a bare text leaf, which is exactly the Kimi shape.
   let clickTarget = item;
-  for (let depth = 0; depth < 3 && clickTarget; depth += 1) {
-    if (clickTarget.matches('button, [role="menuitem"], [role="button"], a[href]')) break;
-    clickTarget = clickTarget.parentElement;
+  if (!item.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href]') && item.children.length === 0) {
+    for (let depth = 0; depth < 3 && clickTarget.parentElement; depth += 1) {
+      const up = clickTarget.parentElement;
+      if (up.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href], li')) {
+        clickTarget = up;
+        break;
+      }
+      clickTarget = up;
+    }
   }
-  clickTarget = clickTarget || item;
 
-  clickTarget.dispatchEvent(new PointerEvent('pointerdown', at));
-  clickTarget.dispatchEvent(new MouseEvent('click', at));
+  press(clickTarget);
   // Some sites put the confirm one click later. Clicking it is safe even when
   // it never appears, because nothing is clicked unless the label says delete.
-  // ChatGPT's confirm is 「删除聊天」, not 「删除」 — measured, after the first
-  // version matched only the short word and left the dialog open.
-  const CONFIRM = /^(删除|删除聊天|delete|delete chat|确定|确认|remove)$/i;
+  //
+  // The words are measured, not guessed: ChatGPT says 「删除聊天」, Gemini says
+  // 「删除」, DeepSeek says 「删除该对话」. Matching only the short word left
+  // DeepSeek's dialog open, and the row therefore stayed in the sidebar — which
+  // the caller reported as 「点了删除，但侧栏里这条会话还在」 over a delete that
+  // had never been confirmed. Anything starting with delete counts, minus the
+  // buttons that mean the opposite.
+  const isConfirm = (text) => {
+    const value = (text || '').trim();
+    if (/取消|cancel|关闭|close|返回|back/i.test(value)) return false;
+    return /^(删除|确定|确认|remove|delete)/i.test(value);
+  };
   for (let wait = 0; wait < 8; wait += 1) {
     await sleep(200);
-    const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"]')].filter(visible);
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"], [class*="confirm"]')].filter(visible);
     let confirm = null;
     for (const dialog of dialogs) {
-      confirm = [...dialog.querySelectorAll('button, [role="button"]')]
-        .filter(visible)
-        .find((el) => CONFIRM.test((el.innerText || '').trim())) || null;
-      if (confirm) break;
+      const buttons = [...dialog.querySelectorAll('button, [role="button"], [class*="button"]')].filter(visible);
+      // The last matching button is the destructive one on every site seen so
+      // far (cancel is rendered first); taking the first would press 取消.
+      const hits = buttons.filter((el) => isConfirm(el.innerText));
+      if (hits.length > 0) {
+        confirm = hits[hits.length - 1];
+        break;
+      }
     }
     if (confirm) {
-      const box = confirm.getBoundingClientRect();
-      const point = { ...at, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
-      confirm.dispatchEvent(new PointerEvent('pointerdown', point));
-      confirm.dispatchEvent(new MouseEvent('mousedown', point));
-      confirm.dispatchEvent(new PointerEvent('pointerup', point));
-      confirm.dispatchEvent(new MouseEvent('mouseup', point));
-      confirm.dispatchEvent(new MouseEvent('click', point));
+      press(confirm);
       break;
     }
   }
 
   // Evidence, not belief: a click is a request. The row is gone only when the
-  // sidebar stops listing it.
-  for (let wait = 0; wait < 15; wait += 1) {
+  // sidebar stops listing it — and stays that way.
+  //
+  // "Stays that way" is the part that was missing. Gemini re-fetches its history
+  // after a delete, and for a moment the list has no rows at all: the old check
+  // saw that gap, returned success, and the row was back a second later, so a
+  // conversation that was never deleted was reported as cleaned while it sat in
+  // the sidebar the whole time. Requiring the absence to hold for more than one
+  // poll is what separates "deleted" from "re-rendering".
+  let missingSince = 0;
+  for (let wait = 0; wait < 30; wait += 1) {
     await sleep(200);
-    if (!rowLink()) return { ok: true };
+    if (await rowLink()) {
+      missingSince = 0;
+      continue;
+    }
+    if (missingSince === 0) missingSince = Date.now();
+    if (Date.now() - missingSince >= 1200) return { ok: true };
   }
   return { ok: false, detail: '点了删除，但侧栏里这条会话还在' };
 })()`;
@@ -1211,6 +1315,22 @@ const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
   }
   return document.activeElement === target;
 })()`;
+
+/**
+ * Do these two addresses point at the same place on the site?
+ *
+ * Compared by path only: a thread URL carries a locale or a tracking query
+ * (?hl=zh) that changes between visits, and treating that as "a different page"
+ * is how a page that never left its thread gets called a new conversation.
+ */
+function sameThreadAddress(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  try {
+    return new URL(a).pathname === new URL(b).pathname;
+  } catch {
+    return a === b;
+  }
+}
 
 /**
  * How long one call into a page may take before we stop waiting for it.
@@ -1537,6 +1657,16 @@ export interface AdapterTuning {
   afterClickMs: number;
   /** How long a reloaded page may take to come back empty. */
   newChatMs: number;
+  /**
+   * How long the page must *look* empty before that counts as an answer.
+   *
+   * Two polls on the default cadence. One empty reading is also what a page
+   * looks like mid-navigation, and accepting it is how a reset reported success
+   * over a thread that was still loading back in.
+   */
+  emptyStableMs: number;
+  /** The window for deciding the page was already empty, so no click is needed. */
+  alreadyEmptyMs: number;
 }
 
 export const DEFAULT_TUNING: AdapterTuning = {
@@ -1546,7 +1676,9 @@ export const DEFAULT_TUNING: AdapterTuning = {
   enterAfterMs: 3000,
   clickRetryAfterMs: 8000,
   afterClickMs: 3500,
-  newChatMs: 6000
+  newChatMs: 6000,
+  emptyStableMs: 1200,
+  alreadyEmptyMs: 1800
 };
 
 /**
@@ -1821,14 +1953,23 @@ export class ChatPageDriver {
    * None of them is trusted on its own: a click is a request, and the only
    * evidence that the page really started over is an empty transcript.
    */
-  async newConversation(): Promise<{ ok: boolean; method: string; detail?: string }> {
+  async newConversation(leaving?: string): Promise<{ ok: boolean; method: string; detail?: string }> {
     const driver = this.driver();
     if (!driver.newChat && !driver.reloadHome) {
       return { ok: false, method: 'unsupported', detail: '该页面没有可用的「新对话」入口' };
     }
 
-    // One look, no waiting: the page is either empty right now or it is not.
-    if (await this.isEmptyNow(driver)) return { ok: true, method: 'already-empty' };
+    // Already empty, and empty for longer than one poll: a page in the middle
+    // of a navigation looks exactly like this for a moment, and treating that
+    // moment as "nothing to reset" sent the question to the old thread.
+    //
+    // `leaving` is the address this channel answered in last time. When it is
+    // known, the page has to be *off* that address — the one observation that
+    // does not depend on the site's markup, which is the part that keeps
+    // changing.
+    if (await this.pageIsEmpty(driver, this.tuning.alreadyEmptyMs, this.tuning.emptyStableMs, leaving)) {
+      return { ok: true, method: 'already-empty' };
+    }
 
     const clicked: { ok: boolean; method?: string; reason?: string } = driver.newChat
       ? await driver.newChat().catch((error: unknown) => ({
@@ -1840,13 +1981,15 @@ export class ChatPageDriver {
     // Only wait after a click that reported success. A control that was never
     // found will not clear the page by itself, and waiting the full window for
     // it would delay the path that actually works.
-    if (clicked.ok && (await this.pageIsEmpty(driver, this.tuning.afterClickMs))) {
+    if (clicked.ok && (await this.pageIsEmpty(driver, this.tuning.afterClickMs, this.tuning.emptyStableMs, leaving))) {
       return { ok: true, method: clicked.method ?? 'button' };
     }
 
     if (driver.reloadHome) {
       const reloaded = await driver.reloadHome();
-      if (reloaded.ok && (await this.pageIsEmpty(driver))) return { ok: true, method: 'reload' };
+      if (reloaded.ok && (await this.pageIsEmpty(driver, this.tuning.newChatMs, this.tuning.emptyStableMs, leaving))) {
+        return { ok: true, method: 'reload' };
+      }
       if (!reloaded.ok) {
         return { ok: false, method: 'reload', detail: `重新加载站点失败：${reloaded.reason ?? 'UNKNOWN'}` };
       }
@@ -1883,19 +2026,29 @@ export class ChatPageDriver {
       return { ok: true, detail: '未登录，站点不保存会话记录' };
     }
 
-    const first = await driver.deleteChat(threadUrl).catch((error: unknown) => ({
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error)
-    }));
-    if (first.ok) return { ok: true };
-    if (!driver.navigate || !/找不到这条会话/.test(first.detail ?? '')) return first;
+    // Same reason as `sendMessage`: a page laid out offstage reports itself
+    // unfocused, and an offstage page treats a press differently — Gemini's
+    // drawer stays shut and Angular Material's menu opens somewhere a pointer
+    // cannot reach it. Deleting happens while the user is looking at another
+    // channel, so this is the normal case, not the edge case.
+    await driver.setFocusEmulation?.(true);
+    try {
+      const first = await driver.deleteChat(threadUrl).catch((error: unknown) => ({
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+      if (first.ok) return { ok: true };
+      if (!driver.navigate || !/找不到这条会话/.test(first.detail ?? '')) return first;
 
-    const opened = await driver.navigate(threadUrl);
-    if (!opened.ok) return { ok: false, detail: `打不开这条会话：${opened.reason ?? 'UNKNOWN'}` };
-    return driver.deleteChat(threadUrl).catch((error: unknown) => ({
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error)
-    }));
+      const opened = await driver.navigate(threadUrl);
+      if (!opened.ok) return { ok: false, detail: `打不开这条会话：${opened.reason ?? 'UNKNOWN'}` };
+      return driver.deleteChat(threadUrl).catch((error: unknown) => ({
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    } finally {
+      await driver.setFocusEmulation?.(false);
+    }
   }
 
   /** The page's address, or empty when it has not been created yet. */
@@ -1989,24 +2142,63 @@ export class ChatPageDriver {
   }
 
   /** Is the page empty *right now*? One probe; a page mid-load counts as "no". */
-  private async isEmptyNow(driver: PageDriver): Promise<boolean> {
-    // The loading check is not decoration. A page in the middle of a navigation
-    // reports zero messages simply because nothing has rendered yet, and
-    // calling that "already a new chat" made `newConversation` return success
-    // while the old thread was still on its way back — measured on DeepSeek,
-    // whose page stayed on the thread it was told to leave.
-    if (driver.isLoading?.() === true) return false;
+  private async isEmptyNow(driver: PageDriver, leaving?: string): Promise<boolean> {
+    // No `isLoading` veto here.
+    //
+    // It used to be one, to stop DeepSeek from reporting a new conversation
+    // while it was still navigating: mid-navigation the page has zero messages
+    // because nothing has rendered yet. That fixed the symptom and broke
+    // ChatGPT, whose page holds a streaming connection open and therefore
+    // reports `isLoading` for a very long time while being completely idle —
+    // so every reset expired against a page that was already empty and the
+    // conversation was told 「页面没有清空，仍在原会话里」 with nothing in it.
+    //
+    // The replacement is stronger evidence, not a weaker one: the address.
     const probe = await driver.probe().catch(() => null);
     if (!probe) return false;
-    return probe.messageCount === 0 && probe.composerText.trim().length === 0;
+    if (probe.messageCount > 0) return false;
+
+    // Still sitting on the thread we were told to leave is the clearest "not a
+    // new conversation" there is, and it does not depend on the site's markup.
+    if (leaving && sameThreadAddress(driver.url(), leaving)) return false;
+    if (leaving) {
+      // The address moved on, so this is not the old thread. The transcript
+      // count is the only remaining signal, and it is unreliable on sites that
+      // rebuild their message markup (ChatGPT no longer ships
+      // data-message-author-role at all). A draft in the composer is *not*
+      // evidence of an old thread either — a person can start a new chat and
+      // type before sending — and treating one as evidence is what kept every
+      // ChatGPT reset failing on a page that had already reset.
+      return true;
+    }
+    return probe.composerText.trim().length === 0;
   }
 
-  /** Zero bubbles and an empty composer: the only observable that means "new". */
-  private async pageIsEmpty(driver: PageDriver, budgetMs = this.tuning.newChatMs): Promise<boolean> {
+  /**
+   * Zero bubbles and an empty composer — held for a while, not just once.
+   *
+   * A single empty reading is also what a page looks like in the middle of a
+   * navigation, and that reading is what made a reset look successful while the
+   * old thread was still on its way back. Requiring the same answer on
+   * consecutive polls separates "new conversation" from "re-rendering".
+   */
+  private async pageIsEmpty(
+    driver: PageDriver,
+    budgetMs = this.tuning.newChatMs,
+    stableMs = this.tuning.emptyStableMs,
+    leaving?: string
+  ): Promise<boolean> {
     const startedAt = Date.now();
+    let emptySince = 0;
     while (Date.now() - startedAt < budgetMs) {
       await sleep(this.tuning.pollMs);
-      if (await this.isEmptyNow(driver)) return true;
+      if (!(await this.isEmptyNow(driver, leaving))) {
+        emptySince = 0;
+        continue;
+      }
+      if (stableMs <= 0) return true;
+      if (emptySince === 0) emptySince = Date.now();
+      if (Date.now() - emptySince >= stableMs) return true;
     }
     return false;
   }

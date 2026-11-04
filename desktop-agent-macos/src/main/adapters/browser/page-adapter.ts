@@ -29,6 +29,16 @@ import {
 export class PageBrowserAdapter implements BrowserAdapter {
   private inFlight = new Set<string>();
 
+  /**
+   * The address this channel last answered in.
+   *
+   * Kept because "start a new conversation" needs to prove it left that place,
+   * and the site's own markup cannot be relied on to say so: ChatGPT no longer
+   * ships any stable hook on its messages, so a message count of zero there
+   * means "nothing to count", not "nothing on screen".
+   */
+  private lastThreadUrl = '';
+
   constructor(
     private readonly spec: {
       id: string;
@@ -117,6 +127,11 @@ export class PageBrowserAdapter implements BrowserAdapter {
         input.timeoutMs ?? this.spec.timeoutMs ?? 180_000,
         input.question
       );
+      const threadUrl = (await this.spec.adapter.settledUrl(baseline, input.question)) || undefined;
+      // Kept for the next reset: starting a new conversation has to prove it
+      // left *this* address, and that is the one signal which does not depend
+      // on how the site happens to render its messages today.
+      if (threadUrl) this.lastThreadUrl = threadUrl;
       return {
         agentId: this.id,
         text,
@@ -124,7 +139,7 @@ export class PageBrowserAdapter implements BrowserAdapter {
         // Read after the answer, because that is when the site has settled on a
         // thread id. Deleting the conversation later needs exactly this address
         // to find the row again.
-        threadUrl: (await this.spec.adapter.settledUrl(baseline, input.question)) || undefined,
+        threadUrl,
         attribution: { requestId, note: '气泡增量 + 连续三次稳定' }
       };
     } finally {
@@ -141,7 +156,7 @@ export class PageBrowserAdapter implements BrowserAdapter {
    */
   async newConversation(): Promise<NewSessionResult> {
     try {
-      const result = await this.spec.adapter.newConversation();
+      const result = await this.spec.adapter.newConversation(this.lastThreadUrl || undefined);
       return result.ok ? { ok: true } : { ok: false, detail: result.detail ?? '未能开新会话' };
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) };

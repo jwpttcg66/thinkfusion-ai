@@ -70,8 +70,15 @@ export interface BrowserAdapter {
   readonly label: string;
   status(): Promise<ChannelStatus>;
   ask(input: AdapterAsk): Promise<AdapterAnswer>;
-  /** Give the page a fresh thread. Called once per conversation, never for a follow-up. */
-  newConversation?(): Promise<NewSessionResult>;
+  /**
+   * Give the page a fresh thread. Called once per conversation, never for a
+   * follow-up.
+   *
+   * `leaving` is the address this channel answered in last time. A reset is
+   * only real once the page is off that address, which is the one signal the
+   * site's own markup cannot take away.
+   */
+  newConversation?(leaving?: string): Promise<NewSessionResult>;
   /**
    * Delete this conversation from the site itself.
    *
