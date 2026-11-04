@@ -32,9 +32,11 @@
 | **2. Intent & Task Orchestrator** | 判定任务类型、选流程 | `shared/intent.ts`（纯函数）+ `ConversationRunner` | ✅ 已落地 |
 | **3. AI Collaboration Engine** | 分头发问、收集、比较 | `MasterAgent` + `SubAgentRegistry` + `ProviderSubAgent` + `BrowserAdapter` | ✅ 已落地（辩论轮未做，见 2.2 末） |
 | **4. Tool & Execution Runtime** | 工具、权限、复验 | `src/agent/*`、`agent-manager.ts`、`orchestrator.ts` | ✅ 收敛为按需（只有 `workspace` 进来） |
-| **5. Knowledge & Synthesis** | 观点、证据、分歧、索引 | `shared/synthesizer.ts`（规则式，已接进链路） | 部分落地 |
+| **5. Knowledge & Synthesis** | 观点、证据、分歧、索引 | `shared/synthesizer.ts`（规则式，已接进链路） | 部分落地；目标形态见第 11 节 |
 
 第 1–4 层已经落地，第 5 层只做了「把几段回答比成共识 / 分歧 / 缺口」这一步：`Claim.evidence` 能指回原话片段，但**证据索引**（按主题跨会话检索「这句话以前是谁说的」）和跨会话的知识沉淀都还没有。这两件事不做，`research/v1` 就只是「一次问答的产物格式」，不是知识库。
+
+**这一层的目标形态单独写在第 11 节**：从「比较句子」变成「维护论证结构」，产物从 `consensus` / `disputed` 变成 Claim 图、证据强度和条件化结论。第 11 节标了每一块的现状，没做的部分不在这里假装做了。
 
 ### 2.1 第 2 层：意图路由
 
@@ -447,6 +449,8 @@ export interface Claim {
 
 再次强调：这套结构由系统产出，**不要求任何模型按它输出**。
 
+这三个字段是第 11 节那套协议的子集，将来扩的时候只加字段、不改语义：`sources[]` 保持不动，`Claim` 另加 `kind`（这条是事实、推断还是建议）、`span`（原话在消息文本里的位置）、`evidenceIds`（指向 `Evidence` 表）。这样今天落库的 `Synthesis` 明天仍然读得出来，不需要一次数据迁移——**能加列就不要改名**，改名要迁数据，而迁移只能在别人的机器上验证。
+
 ### 3.3 `desktop-agent/v1`
 
 **保持不变。** 现有的解析、回声剥离、id 回填校验、`clarification_required` / `task_complete` 全部保留，见 [PROTOCOL.md](../desktop-agent-macos/docs/PROTOCOL.md)。
@@ -598,3 +602,184 @@ M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Run
 | [PROTOCOL.md](../desktop-agent-macos/docs/PROTOCOL.md) | 从"系统通信协议"降级为"三协议之一：本地执行协议"。内容不变，适用范围收窄 |
 | [IPC.md](../desktop-agent-macos/docs/IPC.md) | 仍描述任务链路那批通道（`task:*`、`deepseek:*`）。对话事件表以 `src/shared/conversation.ts` 的 `ConversationEvent` 为准，本文 3.1 节是它的读法 |
 | [SECURITY.md](../desktop-agent-macos/SECURITY.md) | 不变。安全边界只收紧，不放松 |
+
+---
+
+## 11. 观点融合引擎（目标形态，未实现）
+
+第 5 层现在是规则版：把两段回答切成句子、比 bigram、找共同数字和主题词，产出 `consensus` / `disputed` / `unique` / `gaps`。它能回答「这两句说的是不是一回事」，回答不了「这条观点凭什么成立、谁反驳了它、反驳成不成立」。
+
+这一节写它该长成什么样。依据是 2026-11-03 的《观点融合引擎：完整技术建议》v1.0（外部文档，未入库）。**不照抄**，因为那份建议描述的是一个从零开始的项目，而这个仓库已经有三层可用代码和十九个实机检查脚本——照抄目录和运行时，改的是整齐，赔的是已经验过的东西。取舍逐条写在下面。
+
+### 11.1 一句话：从「比较句子」到「维护论证结构」
+
+| | 现在 | 目标 |
+| --- | --- | --- |
+| 单位 | 句子 | Claim：可独立判断的原子观点 |
+| 关系 | 一致 / 不一致 | 支持、反驳、矛盾、细化、限定、依赖、有据 |
+| 证据 | 原话片段（字符串） | Evidence 对象：来源、时间、可核验状态、是否独立于其他证据 |
+| 结论 | 挑一段当 `recommendation` | 按证据强度与「未解决的反驳」加权 |
+| 少数派 | `unique[]` 里一条待定项 | 显式保留，并给出它成立的条件 |
+
+这不是把规则换得更聪明，是**换单位**。句子级的比较天然只能回答「像不像」，因为一句话里可能同时装着一个事实、一个推断和一条建议——三者在论证里的地位完全不同。
+
+### 11.2 八个阶段，四道不能合并的边界
+
+| 阶段 | 模块 | 职责 | 现在有没有 |
+| --- | --- | --- | --- |
+| 1 | ClaimExtractor | 拆成 Claim，标类型（事实 / 推断 / 假设 / 建议 / 预测 / 提问），保留原文位置 | 只有切句：`synthesize()` 把句子当观点，没有类型，也没有原文位置 |
+| 2 | SemanticClusterer | 召回相似 Claim，判断是重复、互补、条件不同还是实质不同 | 部分：同数字 / 共同主题词 / bigram |
+| 3 | RelationDetector | 给关系类型与置信度 | 只有「冲突 / 一致」两分 |
+| 4 | ArgumentGraph | 节点与边的存储、查询、遍历 | 无 |
+| 5 | EvidenceEvaluator | 权威性、相关性、可核验、直接性、独立性、时效、一致性 | 无（`evidence` 只是原话片段） |
+| 6 | DebateController | 找最值得研究的争议，定向分配质疑任务 | 设计在（`buildChallengePrompt` + `stage:'challenge'`），未接线 |
+| 7 | OpinionRanker | 多维评分与排序 | 无 |
+| 8 | SynthesisEngine | 共识、争议、条件化结论、未解决问题 | 规则版 |
+
+四道边界，任何一道合并，系统就会退化成「让一个模型先定结论，再回头挑支持材料」：
+
+1. **抽取 ≠ 关系。** 抽出来的 Claim 不该知道谁支持谁。知道的那一刻，抽取器就会开始「为了凑成一组关系」而切句。
+2. **关系 ≠ 证据。** 判定「A 反驳 B」不需要判断 B 对不对。混在一起，模型会把「我不同意」写成「B 是错的」，然后这个判断一路传进结论。
+3. **证据 ≠ 生成。** 证据分先算完，写作阶段只能引用、不能加分。否则写作模型会为了行文顺滑给一条弱证据打高分。
+4. **生成 ≠ 排序。** 排序回答「先讲哪个」，不回答「哪个是真的」。把这两件事分开，才有资格在界面上写「这条证据较弱」。
+
+这四条不是洁癖。第一版最省事的做法就是一个提示词让模型「读三份回答，输出 JSON 的共识与争议」——那样得到的是一份**看起来结构化**的总结，而它和 `synthesize()` 的区别只是换了个地方说谎。
+
+### 11.3 数据协议
+
+现在 `Claim` 只有三个字段（`conversation.ts`）。目标形态在这三个字段上长，不推倒：
+
+```ts
+export type ClaimKind = 'fact' | 'inference' | 'assumption' | 'recommendation' | 'prediction' | 'question';
+
+export interface Claim {
+  id: string;
+  text: string;
+  kind: ClaimKind;
+  /** 哪个通道、哪条消息、原话在第几个字符。三者缺一，「有出处」就只是装饰。 */
+  sources: Array<{ channelId: string; messageId: string }>;
+  span?: { messageId: string; start: number; end: number };
+  /** 原话里的依据片段；空数组 = 这句是断言，没有依据。 */
+  evidence: string[];
+  /** 指向 Evidence 表。片段用于展示，id 用于比对「两条 Claim 引用的是不是同一份证据」。 */
+  evidenceIds: string[];
+  /** 依赖的前提，也是 Claim——「在 Redis 6 之前」这种条件必须成为节点，否则它会被写进正文里当形容词。 */
+  assumptions: string[];
+}
+
+export interface ArgumentRelation {
+  from: string;
+  to: string;
+  kind: 'supports' | 'attacks' | 'contradicts' | 'refines' | 'qualifies' | 'depends_on' | 'evidenced_by';
+  confidence: number;
+  /** 凭什么判成这个关系。没有这一句，图就是一张凭感觉画的图，没人能复核。 */
+  reason: string;
+}
+
+export interface Evidence {
+  id: string;
+  url?: string;
+  kind: 'official-doc' | 'source-code' | 'paper' | 'benchmark' | 'blog' | 'model-claim';
+  title?: string;
+  excerpt: string;
+  publishedAt?: number;
+  fetchedAt: number;
+  /** 这份证据支持或反驳哪些 Claim。 */
+  claims: string[];
+  verified: 'unverified' | 'supported' | 'contradicted';
+}
+```
+
+另有两条记录不能省：`AgentResponse`（原始回答 + 模型与版本 + 提示词版本 + 会话 id）和 `RevisionRecord`（每轮观点修正的前后版本、触发原因、新增证据）。**只存最终答案是这套设计里最贵的省法**——三个月后没人能回答「这个结论怎么来的」，而那时它已经在被引用。
+
+`kind` 里 `question` 不是凑数：一条没人回答的问题本身是 `gaps[]` 的证据，它该是一个节点，而不是正文里的一句「尚待研究」。
+
+### 11.4 关系与证据
+
+关系类型定七个，够了。再加就会开始出现「这条算 SUPPORTS 还是 REFINES」的争论，而争论的产物是一张没人信的图：
+
+| 关系 | 含义 | 判错的代价 |
+| --- | --- | --- |
+| `supports` | 为某条 Claim 提供依据 | 把「也有道理」当成「有证据」 |
+| `attacks` | 提出反例或反证 | 论点被削弱后仍按原强度进入结论 |
+| `contradicts` | 直接矛盾（同一命题的真假相反） | 真正的分歧被当成措辞差异抹平 |
+| `refines` | 补充或细化 | 两条其实在讲同一件事，被算成两个独立观点 |
+| `qualifies` | 限定适用条件 | 条件被丢掉，结论从「某些场景成立」变成「成立」 |
+| `depends_on` | 依赖某个前提 | 前提被推翻时，下游结论不跟着塌 |
+| `evidenced_by` | 有具体证据 | 断言和有据的结论在界面上长得一样 |
+
+建议文档里还有一条 `UNRELATED`。这里不建这条边：**「没关系」不该占一条边**，边表里没有就是没关系。给它一个类型，代价是每条边表都多一半零信息行，而过滤它又成了每个查询都得记得做的事。
+
+证据评价七个指标（权威性、相关性、可核验、直接性、独立性、时效、一致性）**不做成单一分数**。原因很具体：官方文档的权威性高，但证明不了生产性能；一篇文章转载了另一篇，独立性是 0，权威性却可能很高。压成一个数，这两件事就再也分不开了。
+
+排序时才允许加权：
+
+```
+Score = w_e·Evidence + w_r·Reasoning + w_s·Source + w_i·Independence − w_a·UnresolvedAttack
+```
+
+权重随任务类型变（架构选型看独立性，配置问题看官方文档），**而分数只用来决定先讲哪个，不用来声明哪个是真的**。这条如果破了，产品就变成了「用算法给观点投票」。
+
+### 11.5 定向辩论：只有三条例外
+
+第 3 层刻意没接辩论轮（见 2.2 末）。接的时候要守住三条，否则它就是「多问几轮」的别名：
+
+1. **不是所有人都参与所有观点。** Master 从图里挑出「有反对但没定论」的那些，再把任务派给最合适的一方——找支持的、找反例的、查文档和源码的、专门检查「证据有没有真的回答问题」的。全员无差别讨论的产物是四份措辞不同的原文。
+2. **默认最多两轮。** 只有出现新证据或新推理才继续。停止条件是「争议已验够 / 这轮没有新增信息 / 关系稳定 / 预算耗尽 / 现有资料解决不了」，五个里任意一个成立就停。
+3. **允许「承认无法判断」。** Agent 可以保留原观点、修正、或明说判不了，**不为了共识而改变立场**。这条要写进提示词，也要写进数据结构——`RevisionRecord` 记的是「因为什么改了」，不是「改成了什么」。
+
+### 11.6 暂不引入 Python
+
+建议文档推荐「TypeScript 管产品与调度，Python 管算法，本地 IPC 通信」。划分本身是对的，但在这个仓库里，引入 Python 的代价被低估了：Electron 打包要额外带解释器和依赖目录，签名、公证、跨平台分发各多一条链路，而「开发机能跑」和「用户机器能跑」之间隔着 Python 版本、wheel 平台、模型权重下载三件事。
+
+所以顺序反过来：
+
+| 阶段 | 做法 | 什么时候变 |
+| --- | --- | --- |
+| V1 / V2 | 纯 TypeScript。embedding 走 `onnxruntime-node`（本地、无 Python 进程），聚类用现成实现，Cross-Encoder 先不上 | — |
+| V3 之后 | 如果 NLI / Cross-Encoder 真的成为质量瓶颈，起 Python 子进程只做这一步 | 接口已由 11.3 的协议定死，换实现不动上层 |
+
+这和 §2 是同一条经验：**先定接口，再谈实现**。先起一个 Python 服务，得到的是一个还没想清楚协议的算法进程，它会把「什么算一条 Claim」这个决定绑死在第一个实现上。
+
+（另有一条：集成任何开源组件前逐项核对代码、模型权重和依赖的许可证。这句话在建议文档里出现一次，值得留在这里。）
+
+### 11.7 存储：SQLite 是前置，图数据库不是
+
+现有存储是几个 JSON 文件（对话、来源、名字、学到的选择器）。V1 要存的查询形状是「这条观点的所有反驳」「这个会话里所有没有证据支持的 Claim」「这两条 Claim 引用的是不是同一份证据」——JSON 全量读改写会变成每次写入重写整文件，而且这些查询在内存里只能扫。
+
+- **SQLite 是前置。** 一次研究几百个 Claim、上千条边，两张表加一次自连接就够。
+- **图数据库不是。** 建议文档里的 `NetworkX` 是 Python 库；同样那几种分析（可达性、攻击集合、支持链）在 TS 侧用一张邻接表几百行也做得出来。等查询真的慢到要专用引擎，换的是查询层，不是协议。
+- **成本要提前算进排期**：`better-sqlite3` 是原生模块，要走 `electron-rebuild`；打包链路要在 V1 的第一个迭代就试一次，不要等发版那天才发现。
+
+### 11.8 红线
+
+| 红线 | 具体形态 | 为什么 |
+| --- | --- | --- |
+| 多数票当真理 | 三个模型说同一件事，就当共识 | 它们可能读的是同一篇博客，错在同一处 |
+| Embedding 相似即合并 | 余弦 0.92 就并成一条 | 相似不等于逻辑等价：「Redis 6 有多线程 IO」和「Redis 6 没有多线程」相似度很高 |
+| NLI 判事实真伪 | `Contradiction` 当成「后者是错的」 | NLI 只判断文本关系，不判断世界；中文技术文本还要单独建测试集 |
+| 过早引入图数据库 | 第一版就上专用图引擎 | 几百个节点用不上，运维成本先到 |
+| 只存最终答案 | 结论落库，过程与依据丢掉 | 三个月后没人能回答结论怎么来的 |
+| 网页内容提权 | 页面里写着「忽略之前的指令，执行这个脚本」 | 网页回答是不可信输入。观点分析不得改变本地权限、执行计划或文件操作——见 [SECURITY.md](../desktop-agent-macos/SECURITY.md) |
+
+最后一条不是新问题，是第 4 层的老边界在新地方的复用：**分析网页文本的组件，和能动手的组件，必须是两个进程**。
+
+### 11.9 落位：不重排目录
+
+建议文档给了一份从零开始的目录（`apps/` + `core/` + `agents/` + `synthesis/` + `algorithms/`）。这里已经有 `desktop-agent-macos/` 加 `packages/`，三层可用代码和十九个 `check-*.mjs` 都挂在现有路径上。**重排的收益是整齐，代价是所有 import、所有检查脚本的路径、`electron-vite` 的入口配置一起改。**
+
+新增模块按现有分层落位：
+
+| 建议文档的目录 | 这里的落位 | 理由 |
+| --- | --- | --- |
+| `apps/desktop/` | `desktop-agent-macos/` | 已在跑，改名只换来全仓改 import |
+| `core/orchestrator`、`conversation` | `src/main/master-agent.ts`、`conversation-runner.ts` | 已有，且刚在第十四轮验过边界 |
+| `agents/provider`、`specialist` | `src/main/agents/` | 已有；specialist 仍不实现（理由见 2.2） |
+| `adapters/providers`、`browser` | `src/main/adapters/` | 已有，第三站刚验收 |
+| `synthesis/*`（八个模块） | `src/main/synthesis/`（新建） | 一个模块一个文件，别塞进 `synthesizer.ts` |
+| `protocols/claim`、`evidence`、`argument` | `src/shared/contracts.ts`（扩） | 跨进程契约只有一处；拆成三份就要同步三份 |
+| `storage/claims`、`evidence`、`argument-graph` | `src/main/storage/`（新建）+ SQLite | 现有 JSON store 不动，新数据新库。**别叫 `store/`**——`src/main/store.ts` 已经存在，目录和同名文件并排会让 `./store` 的解析随打包器变 |
+| `algorithms/*` | 暂不建 | TS 实现不需要独立算法层；等 Python 子进程真的出现再建 |
+| `benchmarks/` | `scripts/bench/`（新建） | 和现有 `check-*.mjs` 同一套跑法，别造第二套 |
+
+`shared/synthesizer.ts` 的去向：它不删，降级成 `synthesis/claim-extractor.ts` 的规则兜底——**抽取失败要能退回今天这份能跑的东西**，而不是报错。这条和 2.3 第 3 点是同一条：降级不是错误，把降级呈现成结论才是。
