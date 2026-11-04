@@ -13,6 +13,7 @@
     "src/main/source-store.ts",
     "src/main/profile-store.ts",
     "src/main/agents/**/*.ts",
+    "src/main/providers/**/*.ts",
     "src/main/adapters/**/*.ts"
   ]
 }
