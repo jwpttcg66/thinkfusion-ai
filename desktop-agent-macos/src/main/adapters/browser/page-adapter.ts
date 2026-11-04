@@ -35,6 +35,11 @@ export class PageBrowserAdapter implements BrowserAdapter {
       adapter: ChatPageDriver;
       /** Page-driven answers are slow; a question deserves more than a socket timeout. */
       timeoutMs?: number;
+      /**
+       * Can this channel answer while signed out? Comes from the site's profile;
+       * false is the default because for most sites it cannot.
+       */
+      guestUsable?: boolean;
     }
   ) {}
 
@@ -46,10 +51,19 @@ export class PageBrowserAdapter implements BrowserAdapter {
     return this.spec.label;
   }
 
+  /** Signed in, or a site that showed it answers guests too. */
+  private usable(status: { loggedIn: boolean }): boolean {
+    return status.loggedIn || this.spec.guestUsable === true;
+  }
+
   async status(): Promise<ChannelStatus> {
     try {
       const status = await this.spec.adapter.getStatus();
-      const available = status.loggedIn && status.pageReady && !status.generating;
+      // Signed out is not automatically unusable: Gemini answers guests and
+      // only the history / heavier models need an account. That exception is
+      // declared per site (`guestUsable`), not assumed here — a signed-out
+      // ChatGPT is still a dead end.
+      const available = status.pageReady && !status.generating && this.usable(status);
       return {
         id: this.id,
         label: this.label,
@@ -77,7 +91,7 @@ export class PageBrowserAdapter implements BrowserAdapter {
 
     const status = await this.status();
     if (!status.pageReady) throw new PageUnavailableError(this.id, status.detail ?? '页面未就绪');
-    if (!status.loggedIn) throw new PageUnavailableError(this.id, status.detail ?? '未登录');
+    if (!this.usable(status)) throw new PageUnavailableError(this.id, status.detail ?? '未登录');
 
     const requestId = randomUUID();
     this.inFlight.add(requestId);

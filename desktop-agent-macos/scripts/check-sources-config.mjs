@@ -26,13 +26,14 @@ import {
 } from '../out-test/shared/sources.js';
 import { SourceStore } from '../out-test/main/source-store.js';
 import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
+import { PROVIDERS } from '../out-test/main/adapters/providers/index.js';
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sources-')), 'sources.json');
 
-test('the shipped defaults are the four providers, and only one is on', () => {
+test('the shipped defaults are the five providers, and only one is on', () => {
   assert.deepEqual(
     BUILTIN_SOURCES.map(source => source.id),
-    ['deepseek', 'chatgpt', 'kimi', 'workbuddy']
+    ['deepseek', 'chatgpt', 'kimi', 'gemini', 'workbuddy']
   );
   // One live channel, so a fresh install has somewhere to ask and does not
   // pre-load sites (or accounts) the user did not choose.
@@ -46,7 +47,7 @@ test('the shipped defaults are the four providers, and only one is on', () => {
 
 test('an untouched list is the defaults, in the shipped order', () => {
   const resolved = resolveSources();
-  assert.deepEqual(resolved.map(source => source.id), ['deepseek', 'chatgpt', 'kimi', 'workbuddy']);
+  assert.deepEqual(resolved.map(source => source.id), ['deepseek', 'chatgpt', 'kimi', 'gemini', 'workbuddy']);
   assert.equal(resolved[0].url, 'https://chat.deepseek.com/');
 });
 
@@ -281,4 +282,29 @@ test('the agent registry can be swapped without losing its identity', () => {
   registry.replaceAll([make('deepseek')]);
   // A disabled source must stop counting toward the readiness pill.
   assert.deepEqual(registry.list().map(agent => agent.id), ['deepseek']);
+});
+
+test('two sources never share a rail glyph', () => {
+  // The rail is 46px wide and shows one character. Two sources with the same
+  // initial are indistinguishable without hovering — Gemini nearly shipped as a
+  // second 'G' next to ChatGPT. This is a config fact, so it is checked here
+  // rather than by looking at the window.
+  const glyphs = BUILTIN_SOURCES.map(source => source.glyph);
+  const duplicates = glyphs.filter((glyph, index) => glyphs.indexOf(glyph) !== index);
+  assert.deepEqual(duplicates, [], `重名字形：${duplicates.join(', ')}`);
+  for (const source of BUILTIN_SOURCES) {
+    assert.equal([...source.glyph].length, 1, `${source.id} 的字形必须是一个字符`);
+  }
+});
+
+test('every built-in source that ships on has a provider profile', () => {
+  // A source that is on by default and has no profile falls back to DeepSeek's
+  // selectors, which "works" just well enough to look like a bug later.
+  for (const source of BUILTIN_SOURCES.filter(item => item.enabled)) {
+    assert.ok(PROVIDERS[source.id], `${source.id} 默认开启却没有内置画像`);
+  }
+  // Gemini ships off, but it is on the rail the moment someone enables it, so
+  // its profile has to be there already.
+  assert.ok(PROVIDERS.gemini, 'Gemini 缺少内置画像');
+  assert.ok(PROVIDERS.gemini.hosts.has('accounts.google.com'), 'Gemini 登录要能跳出 gemini.google.com');
 });

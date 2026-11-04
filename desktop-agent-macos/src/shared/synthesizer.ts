@@ -424,6 +424,40 @@ function sharedOverlap(units: Unit[], channelCount: number): string[] {
   return kept;
 }
 
+/**
+ * Channels that wrote the same answer, character for character.
+ *
+ * The one form of agreement no heuristic is needed for, and the one the
+ * sentence-level rules were missing. "3+5" answered "8" by three channels
+ * produced three one-sentence units with no shared bigram and no figure, so
+ * every one of them landed in `unique` and the synthesis reported "几乎没有
+ * 重合" — over three identical answers. Exact equality is checkable by eye,
+ * which is the bar this module holds itself to.
+ *
+ * Compared after removing whitespace and trailing punctuation, because the page
+ * decides where the line breaks go, not the model.
+ */
+function identicalAnswers(inputs: SynthesisInput[]): Claim[] {
+  const groups = new Map<string, SynthesisInput[]>();
+  for (const input of inputs) {
+    const key = input.text.replace(/\s+/g, '').replace(/[。．.!！?？]+$/, '').toLowerCase();
+    if (!key) continue;
+    groups.set(key, [...(groups.get(key) ?? []), input]);
+  }
+
+  const claims: Claim[] = [];
+  for (const group of groups.values()) {
+    const channels = new Set(group.map(item => item.channelId));
+    if (channels.size < 2) continue;
+    claims.push({
+      text: group[0].text.trim(),
+      sources: group.map(item => ({ channelId: item.channelId, messageId: item.messageId })),
+      evidence: [`${String(channels.size)} 个通道给出完全相同的回答`]
+    });
+  }
+  return claims;
+}
+
 export function synthesize(inputs: SynthesisInput[]): Synthesis {
   const units: Unit[] = inputs.flatMap(input =>
     sentencesOf(input.text).map(text => ({
@@ -437,6 +471,30 @@ export function synthesize(inputs: SynthesisInput[]): Synthesis {
   );
 
   const channelCount = new Set(inputs.map(input => input.channelId)).size;
+
+  // Identical answers first: no heuristic can beat equality, and the sentence
+  // pass cannot see it on a one-line reply. Everything else about this function
+  // is a guess; this is not.
+  const identical = identicalAnswers(inputs);
+  if (identical.length > 0) {
+    const claimed = new Set(identical.flatMap(claim => claim.sources.map(source => source.messageId)));
+    const unique: Claim[] = inputs
+      .filter(input => !claimed.has(input.messageId))
+      .map(input => ({
+        text: input.text.trim(),
+        sources: [{ channelId: input.channelId, messageId: input.messageId }],
+        evidence: ['只有这个通道这样回答']
+      }));
+    return {
+      consensus: identical,
+      disputed: [],
+      unique,
+      gaps: [],
+      overlap: [],
+      recommendation: buildRecommendation(identical, [], [], [], channelCount, false),
+      degraded: false
+    };
+  }
 
   // Nothing to compare: one channel, or text we could not segment. Saying so is
   // the point — a fake consensus is worse than an honest "couldn't".

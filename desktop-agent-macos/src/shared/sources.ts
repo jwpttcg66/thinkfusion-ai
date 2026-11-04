@@ -61,6 +61,12 @@ export interface PageSource {
  * `workbuddy` is off for the original reason: no selector profile and no address
  * that is right for everyone. Turning it on is a guess, and 「更新样式」 is the
  * first thing to do afterwards.
+ *
+ * `gemini` ships off because it is the only channel that is useless signed out:
+ * the page will accept a question and then render nothing, so switching it on
+ * without a Google account looks like a broken channel rather than a login
+ * prompt. The profile is complete (see `adapters/providers/gemini.ts`), so
+ * turning it on and signing in once is all it takes.
  */
 export const BUILTIN_SOURCES: readonly PageSource[] = [
   {
@@ -101,6 +107,28 @@ export const BUILTIN_SOURCES: readonly PageSource[] = [
     glyph: 'K',
     url: 'https://kimi.moonshot.cn/',
     hosts: ['kimi.moonshot.cn', 'kimi.com', 'www.kimi.com'],
+    planning: false,
+    enabled: false
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini',
+    // Not 'G': ChatGPT already owns that letter in the rail, and two buttons
+    // with the same initial in a 46px column is a coin flip every time. The
+    // four-pointed star is the shape Gemini's own mark is built from.
+    glyph: '✦',
+    url: 'https://gemini.google.com/app?hl=zh',
+    // Sign-in leaves this host for Google's account flow. The list stays exact
+    // rather than `endsWith('google.com')`, for the same reason as ChatGPT's:
+    // the point of the list is that it is a closed set.
+    hosts: [
+      'gemini.google.com',
+      'accounts.google.com',
+      'consent.google.com',
+      'myaccount.google.com',
+      'ogs.google.com',
+      'www.google.com'
+    ],
     planning: false,
     enabled: false
   },

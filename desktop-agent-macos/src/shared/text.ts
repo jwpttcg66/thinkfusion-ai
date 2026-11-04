@@ -77,14 +77,22 @@ export function stripChrome(raw: string): string {
 /**
  * Speaker labels the page puts in front of each message.
  *
- * Both sites render these for screen readers, and `innerText` flattens them
+ * Every driven site renders these for screen readers, and `innerText` flattens them
  * into the middle of the transcript, so a captured answer arrives as
  * "…你说：<our whole prompt>ChatGPT 说：<the answer>". Everything up to the
  * assistant label is the echo of our own question — and since the page reflows
  * that prompt, an exact-string echo check no longer matches it. The label is the
  * boundary the page itself draws, so it is the reliable one to cut on.
  */
-const ASSISTANT_LABELS = [/ChatGPT\s*说[：:]/, /ChatGPT\s+said[：:]/i];
+const ASSISTANT_LABELS = [
+  /ChatGPT\s*说[：:]/,
+  /ChatGPT\s+said[：:]/i,
+  // Gemini's label carries no colon and lives on its own line: a bubble's
+  // innerText is "Gemini 说\n18". Without this the answer arrives prefixed with
+  // the site's speaker label — measured on gemini.google.com, signed out.
+  /Gemini\s*说[：:]?/,
+  /Gemini\s+said[：:]?/i
+];
 const USER_LABELS = [/你说[：:]/, /You\s+said[：:]/i];
 
 export function cutSpeakerLabels(raw: string): string {

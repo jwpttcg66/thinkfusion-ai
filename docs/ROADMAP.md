@@ -33,7 +33,7 @@
 
 | 项 | 状态 | 证据 |
 | --- | --- | --- |
-| 自然语言对话（不强制 JSON） | ✅ 已落地 | `shared/prompts.ts`；`check:conversation` 断言回答里没有协议块 |
+| 自然语言对话（不强制 JSON） | ✅ 已落地 | `master-agent.ts` 原样转发用户原话；`check:conversation` 断言回答里没有协议块 |
 | 意图识别 / 任务分类 | ✅ 已落地 | `shared/intent.ts` + 9 项 `test:intent` |
 | 通道抽象 | ✅ 已落地 | `main/channels/`（types / web-page / registry / chatgpt 画像） |
 | 多通道收集 | ✅ 代码就绪，待登录验证 | 注册表 + 每通道队列 + 全局并发上限；7 项 `test:runner` 覆盖单通道失败、忙、全失败 |
@@ -323,7 +323,7 @@
 
 **要做的**
 
-1. 拆 `buildInitialPrompt` → `buildRolePrompt`（稳定角色）+ `buildStagePrompt`（本轮动态内容）。角色提示词只描述"你是协作研究伙伴"，不描述输出格式。
+1. ~~拆 `buildInitialPrompt` → `buildRolePrompt` + `buildStagePrompt`~~ —— 后来否掉了：不发固定提示词，用户原话直接发给通道（见 `master-agent.ts` 的注释）。
 2. 新建 `IntentRouter`，默认分支为 `answer`。
 3. 新建 `ConversationRunner`：发问 → 等回答 → 落事件 → 渲染。
 4. 右侧界面从网页视图改为对话视图；来源栏保留为"查看原始页面"。

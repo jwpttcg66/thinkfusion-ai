@@ -147,7 +147,7 @@ export class ConversationRunner {
     // Returned immediately: a web answer can take a minute, and an IPC call
     // that blocks for a minute is indistinguishable from a hung app. Progress
     // arrives as events.
-    void this.run(conversation, text, { followup: false, intent: intent.kind }).catch(error =>
+    void this.run(conversation, text, { followup: false }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;
@@ -170,7 +170,7 @@ export class ConversationRunner {
 
     this.cancelled.delete(conversationId);
     this.addMessage(conversation, { role: 'user', text: question });
-    void this.run(conversation, question, { followup: true, intent: conversation.intent }).catch(error =>
+    void this.run(conversation, question, { followup: true }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;
@@ -264,7 +264,7 @@ export class ConversationRunner {
   private async run(
     conversation: Conversation,
     question: string,
-    options: { followup: boolean; intent: Conversation['intent'] }
+    options: { followup: boolean }
   ): Promise<void> {
     const conversationId = conversation.conversationId;
     const master = new MasterAgent(this.deps.registry);
@@ -284,7 +284,7 @@ export class ConversationRunner {
     conversation: Conversation,
     master: MasterAgent,
     question: string,
-    options: { followup: boolean; intent: Conversation['intent'] }
+    options: { followup: boolean }
   ): Promise<void> {
     const conversationId = conversation.conversationId;
 
@@ -324,7 +324,6 @@ export class ConversationRunner {
     const outcome = await master.research(
       {
         question,
-        intent: options.intent === 'workspace' ? 'answer' : options.intent,
         followup: options.followup,
         known: new Set(conversation.channels)
       },

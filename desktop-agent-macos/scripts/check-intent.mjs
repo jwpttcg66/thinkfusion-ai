@@ -11,7 +11,9 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyIntent, isMultiChannel } from '../out/shared/intent.js';
+import * as intentModule from '../out/shared/intent.js';
+
+const { classifyIntent } = intentModule;
 
 test('a plain question is an answer, not a task', () => {
   assert.equal(classifyIntent('Redis 的 SETNX 是做什么的').kind, 'answer');
@@ -57,10 +59,9 @@ test('every intent carries a reason', () => {
   }
 });
 
-test('multi-channel intents are exactly research, compare and extract', () => {
-  assert.equal(isMultiChannel('research'), true);
-  assert.equal(isMultiChannel('compare'), true);
-  assert.equal(isMultiChannel('extract'), true);
-  assert.equal(isMultiChannel('answer'), false);
-  assert.equal(isMultiChannel('workspace'), false);
+test('intent no longer decides how many channels are asked', () => {
+  // It used to: a plain question went to one channel and research fanned out.
+  // Every switched-on channel is asked now, so the routing table is gone. The
+  // classification is still needed for `workspace` and for the badge.
+  assert.equal(intentModule.isMultiChannel, undefined);
 });

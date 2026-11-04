@@ -1,6 +1,7 @@
 import type { SelectorProfile } from '../../../shared/selectors';
 import { DEEPSEEK_PROFILE, DEEPSEEK_SELECTORS } from './deepseek';
 import { CHATGPT_PROFILE } from './chatgpt';
+import { GEMINI_PROFILE } from './gemini';
 import { KIMI_PROFILE } from './kimi';
 import type { ProviderProfile } from './types';
 
@@ -16,7 +17,8 @@ import type { ProviderProfile } from './types';
 export const PROVIDERS: Readonly<Record<string, ProviderProfile>> = {
   deepseek: DEEPSEEK_PROFILE,
   chatgpt: CHATGPT_PROFILE,
-  kimi: KIMI_PROFILE
+  kimi: KIMI_PROFILE,
+  gemini: GEMINI_PROFILE
 };
 
 export function providerFor(sourceId: string): ProviderProfile | null {
@@ -44,6 +46,51 @@ export function profileFor(sourceId: string): SelectorProfile {
  */
 export function reasoningFor(sourceId: string): readonly string[] {
   return providerFor(sourceId)?.reasoning ?? [];
+}
+
+/**
+ * Selectors that mean "this page is showing a sign-in offer".
+ *
+ * Empty for a site whose signed-out state already has a password field, which
+ * is most of them. Passing an empty list is not a missing answer — it means the
+ * password-field check is the whole story for this site.
+ */
+export function signedOutFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.signedOut ?? [];
+}
+
+/**
+ * The words a site puts on its sign-in control, for sites whose control carries
+ * no hook to select it by.
+ *
+ * Empty for every site that exposes a marker or a password field. Gemini has
+ * neither on its guest page: the only visible affordance is a `button` whose
+ * class list is Material's, so the label is the only thing to match on.
+ */
+export function signedOutTextFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.signedOutText ?? [];
+}
+
+/**
+ * Paths that mean the site has moved the page into its sign-in flow.
+ *
+ * Empty for every site that keeps one address while signed out. Gemini is the
+ * one that does not: `/app` either renders a guest-usable page or redirects to
+ * `/signin?continue=…`, and the redirect has no composer — which the status
+ * check would otherwise report as "页面结构可能已变化".
+ */
+export function signedOutPathsFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.signedOutPaths ?? [];
+}
+
+/**
+ * Whether a signed-out page is still worth asking.
+ *
+ * Off unless the site says so, because for most of them "signed out" means the
+ * composer is gone or the answer never comes. Gemini measured otherwise.
+ */
+export function guestUsableFor(sourceId: string): boolean {
+  return providerFor(sourceId)?.guestUsable === true;
 }
 
 /** Hosts a source is allowed to be, when the source itself does not say. */

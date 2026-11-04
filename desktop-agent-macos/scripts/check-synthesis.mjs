@@ -218,3 +218,29 @@ test('different root causes are not dressed up as agreement', () => {
   assert.equal(result.consensus.length, 0);
   assert.ok(result.overlap.length > 0, 'they are still comparable, and the card should say why');
 });
+
+test('three channels answering "8" is agreement, not three lonely answers', () => {
+  // Measured: "3+5。结果是多少" answered 8 by ChatGPT, Kimi and Gemini. Every
+  // answer is one sentence with no shared bigram and no figure, so the
+  // sentence pass put all three in `unique` and the card said 「几乎没有重合」
+  // above three identical answers. Equality is the one thing a rule-based pass
+  // can check without a heuristic, so it is checked first.
+  const result = synthesize([one('a', '8'), one('b', '8'), one('c', '8')]);
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.consensus.length, 1);
+  assert.equal(result.consensus[0].text, '8');
+  assert.equal(result.consensus[0].sources.length, 3);
+  assert.match(result.recommendation, /所有通道/);
+  assert.match(result.recommendation, /8/);
+});
+
+test('two of three agreeing names the odd one out instead of agreeing wholesale', () => {
+  const result = synthesize([one('a', '8'), one('b', '8'), one('c', '9')]);
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.consensus.length, 1);
+  assert.match(result.recommendation, /多数通道/);
+  assert.equal(result.unique.length, 1);
+  assert.equal(result.unique[0].text, '9');
+});

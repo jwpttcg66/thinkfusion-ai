@@ -129,16 +129,20 @@ async function waitFor(predicate, timeoutMs = 3000) {
 
 const answer = text => ({ channelId: 'x', text, receivedAt: Date.now(), attribution: { requestId: 'r1', note: 'test' } });
 
-test('a plain question asks exactly one channel and synthesises nothing', async () => {
-  let asked = 0;
+test('a plain question asks every channel that is switched on', async () => {
+  // Until 0.0.9 this went to exactly one channel, and the strip said so:
+  // "单通道，只问 Gemini" next to two idle pages. One answer is not a
+  // cross-check, which is the whole product, so every switched-on channel is
+  // asked — plain question or research, same rule.
+  const asked = [];
   const { runner } = makeRunner([
     fakeChannel('a', () => {
-      asked += 1;
-      return answer('这是一个直接回答，没有比较对象。');
+      asked.push('a');
+      return answer('这是个直接回答，只讲一件事。');
     }),
     fakeChannel('b', () => {
-      asked += 1;
-      return answer('第二个通道不应该被问到。');
+      asked.push('b');
+      return answer('另一个通道也回答了，讲的是别的事情。');
     })
   ]);
 
@@ -147,10 +151,45 @@ test('a plain question asks exactly one channel and synthesises nothing', async 
 
   assert.equal(done.intent, 'answer');
   assert.equal(done.status, 'answered');
-  assert.equal(asked, 1, 'a question should not fan out');
+  assert.deepEqual([...asked].sort(), ['a', 'b'], 'both channels must be asked');
+  assert.equal(done.channels.length, 2);
   const messages = runner.messages(started.conversationId);
-  assert.equal(messages.filter(message => message.role === 'channel').length, 1);
-  assert.equal(messages.filter(message => message.role === 'synthesis').length, 0);
+  assert.equal(messages.filter(message => message.role === 'channel').length, 2);
+});
+
+test('the question goes out verbatim, with nothing prepended', async () => {
+  // The wrapper that used to be sent ("你是我在 ThinkFusion 里的研究伙伴…") was a
+  // fixed prompt the user never wrote. It also had to be stripped back out of
+  // the page's echo before an answer could be trusted.
+  const sent = [];
+  const { runner } = makeRunner([
+    fakeChannel('a', input => {
+      sent.push(input.question);
+      return answer('好的。');
+    })
+  ]);
+
+  const started = await runner.start({ text: '3+5。结果是多少' });
+  await settle(runner, started.conversationId);
+
+  assert.deepEqual(sent, ['3+5。结果是多少']);
+});
+
+test('a follow-up is sent verbatim too', async () => {
+  const sent = [];
+  const { runner } = makeRunner([
+    fakeChannel('a', input => {
+      sent.push(input.question);
+      return answer('第二个答案。');
+    })
+  ]);
+
+  const started = await runner.start({ text: '第一问' });
+  await settle(runner, started.conversationId);
+  await runner.followup(started.conversationId, '第二问');
+  await settle(runner, started.conversationId);
+
+  assert.deepEqual(sent, ['第一问', '第二问']);
 });
 
 test('a research question asks every channel and produces a synthesis', async () => {

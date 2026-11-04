@@ -16,7 +16,7 @@
 
 | 要求 | 原来 | 现在 |
 | --- | --- | --- |
-| 普通问题不能要求生成 JSON 计划 | 每个任务都走 `buildInitialPrompt`，开头就是「你是本地 ThinkFusion 的任务规划引擎……输出执行计划」（`shared/protocol.ts`） | 问答 / 研究走 `buildConversationPrompt`（`shared/prompts.ts`）；`desktop-agent/v1` 只在 `workspace` 意图下追加后缀 |
+| 普通问题不能要求生成 JSON 计划 | 每个任务都走 `buildInitialPrompt`，开头就是「你是本地 ThinkFusion 的任务规划引擎……输出执行计划」（`shared/protocol.ts`） | 问答 / 研究把用户原话原样发给每个已开启通道（`master-agent.ts`），不拼任何固定提示词；`desktop-agent/v1` 只在 `workspace` 意图下使用 |
 | 一个通道失败不能拖垮整条链路 | `AgentOrchestrator` 一个循环同时负责发问、解析、审批、执行、回传 | 问答链路里失败按 agent 记账（`failures[]`），一个失败不中止其他，原因写进那一轮；执行链路仍是单循环 |
 | 增加第二个 AI 不需要改主流程 | 只有一个 `DeepSeekAdapter`，1338 行里混了选择器、探测、发送、归属判断 | `ChatPageDriver`（无站点常量）+ `adapters/providers/`（一个站点一个文件），装配处只有一个 `profileFor(sourceId)` |
 
@@ -205,7 +205,7 @@ export interface ResearchSink {
 
 **Master 管预算，SubAgent 不能自己叫人。** 谁能被问、一次问几个、问几轮，只有 `MasterAgent` 决定。一个能自行召集同伴的参与者会把用户的时间和页面的额度花在没人计数的地方。所以 `SubAgent` 接口里没有 `askOther()`，`SubAgentPool` 也没有暴露给参与者。
 
-**辩论轮：设计在，实现不在。** `shared/prompts.ts` 里的 `buildChallengePrompt` 和 `AskStage = 'challenge'` 是留给它的；规则式综合也已经能指出分歧在哪一句。但这一轮**刻意没有接进链路**：先有可靠的"谁在说什么、页面怎么驱动"，再有"让它们互相质疑"。在那之前，分歧就如实报成分歧，而不是被一轮没人要求的二次提问抹平。
+**辩论轮：设计在，实现不在。** `AskStage = 'challenge'` 是留给它的，规则式综合也已经能指出分歧在哪一句。但这一轮**刻意没有接进链路**：先有可靠的"谁在说什么、页面怎么驱动"，再有"让它们互相质疑"。在那之前，分歧就如实报成分歧，而不是被一轮没人要求的二次提问抹平。（原先这里还留了一份挑战提示词模板，已随"不发固定提示词"一并删除：要接这一轮时，把两种说法并列给通道就够了，不需要一段预设话术。）
 
 #### 只有一种参与者：provider
 

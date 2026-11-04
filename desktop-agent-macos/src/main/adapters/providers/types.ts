@@ -35,4 +35,53 @@ export interface ProviderProfile {
    * the untrimmed text is used, because a noisy answer still beats no answer.
    */
   reasoning?: readonly string[];
+  /**
+   * Subtrees that only exist while the site considers you signed out.
+   *
+   * Not the same thing as a password field. A site that keeps its composer
+   * usable for guests (Gemini does) has no password field when signed out, so
+   * "no password field" reads as logged in — and the failure is an answer that
+   * never comes. Listing the site's own sign-in control is the only honest
+   * signal, and it has to be exact: 「登录」 also labels a sidebar row for an
+   * account that is already signed in.
+   */
+  signedOut?: readonly string[];
+  /**
+   * The words the site puts on its sign-in control, when that control has no
+   * hook to select it by.
+   *
+   * Gemini is the case: measured on the guest page, the only visible sign-in
+   * affordance is `<button class="mdc-button …">登录</button>` — no
+   * `data-test-id`, no `aria-label`, nothing stable to query. The one hook that
+   * *looked* right, `[data-test-id="signed-out-disclaimer"]`, turned out to be
+   * the terms-and-privacy paragraph, which stays on screen after you sign in —
+   * so it reported 未登录 for an account that was logged in.
+   *
+   * Matching is exact and limited to controls, so the same word inside a
+   * sentence ("登录以保存活动记录") does not count.
+   */
+  signedOutText?: readonly string[];
+  /**
+   * Paths that mean the site has taken the page into its sign-in flow.
+   *
+   * The second shape of the same state. Gemini answers a request for `/app`
+   * with either a usable signed-out page or a redirect to `/signin?continue=…`,
+   * depending on how it feels about the session — measured both, on clean
+   * profiles, minutes apart. The redirect has no composer at all, so without
+   * this the status reads "未找到输入框，页面结构可能已变化" over a page that is
+   * working exactly as designed.
+   *
+   * Paths only, no domains: the host has already been checked against `hosts`.
+   */
+  signedOutPaths?: readonly string[];
+  /**
+   * Can the page still answer while signed out?
+   *
+   * False for every channel that treats a signed-out session as a dead end —
+   * ChatGPT and Kimi stop working, DeepSeek redirects to its sign-in page. True
+   * only for Gemini, which answers guests and reserves just the history and the
+   * heavier models for an account: calling that unusable would drop a channel
+   * that answers, so the sign-in state becomes a hint instead of a gate.
+   */
+  guestUsable?: boolean;
 }

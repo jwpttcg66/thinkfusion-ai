@@ -70,8 +70,3 @@ export function classifyIntent(text: string): Intent {
 
   return { kind: 'answer', reason: '默认按问答处理' };
 }
-
-/** Intents that fan out across channels and end in a synthesis. */
-export function isMultiChannel(kind: IntentKind): boolean {
-  return kind === 'research' || kind === 'compare' || kind === 'extract';
-}

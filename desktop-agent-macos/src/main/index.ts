@@ -25,7 +25,7 @@ import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_
 import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
-import { profileFor, providerFor, reasoningFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
@@ -201,7 +201,15 @@ function adapterFor(id: string): ChatPageDriver {
   const created = new ChatPageDriver(
     () => {
       const view = views.get(id);
-      return view ? createElectronDriver(view, () => selectorsFor(id), () => reasoningFor(id)) : null;
+      return view
+        ? createElectronDriver(
+            view,
+            () => selectorsFor(id),
+            () => reasoningFor(id),
+            () => signedOutFor(id),
+            () => signedOutTextFor(id)
+          )
+        : null;
     },
     {
       // A function, not a Set: `saveSource` can add a host at any time, and a
@@ -215,6 +223,13 @@ function adapterFor(id: string): ChatPageDriver {
       // What to cut out of an answer bubble before its text counts as the
       // answer. Site knowledge like the selectors, so it is resolved per call.
       reasoning: () => reasoningFor(id),
+      // How this page looks when it is signed out. The password-field check is
+      // not enough for a site that lets a guest type (Gemini), and the symptom
+      // of getting it wrong is an answer that never arrives.
+      signedOut: () => signedOutFor(id),
+      // The second shape of the same state: a site that redirects to its own
+      // sign-in route instead of rendering a guest page (Gemini does both).
+      signedOutPaths: () => signedOutPathsFor(id),
       siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
     }
   );
@@ -251,7 +266,10 @@ function rebuildChannels() {
         const adapter = new PageBrowserAdapter({
           id: source.id,
           label: source.label,
-          adapter: adapterFor(source.id)
+          adapter: adapterFor(source.id),
+          // Only a site whose profile measured it gets to answer while signed
+          // out; everything else keeps the old "login first" gate.
+          guestUsable: guestUsableFor(source.id)
         });
         return new ProviderSubAgent(
           {
@@ -826,7 +844,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
   }
 
   const discovered = await runInPage<DiscoveredSelectors>(view, DISCOVER_SCRIPT, '读取页面结构');
-  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base, reasoningFor(sourceId)), '检查页面状态');
+  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base, reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId)), '检查页面状态');
 
   const probe = {
     hasInput: before.hasInput,
@@ -862,7 +880,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
 
   let after = before;
   if (Object.keys(proposal.candidate).length > 0) {
-    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate), reasoningFor(sourceId)), '验证新选择器');
+    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate), reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId)), '验证新选择器');
   }
 
   const verdict = confirmRepairs(proposal.candidate, after);

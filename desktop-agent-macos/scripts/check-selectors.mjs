@@ -187,6 +187,59 @@ test('the Kimi profile counts answers by bubble and cuts the reasoning out', () 
   assert.deepEqual(reasoningFor('deepseek'), []);
 });
 
+test('the Gemini profile fills the Quill editor, not the wrapper around it', () => {
+  const { providerFor } = providers;
+  const gemini = providerFor('gemini');
+  assert.ok(gemini, 'Gemini 应当有内置画像');
+  // `<rich-textarea>` is a custom element with no editable surface of its own;
+  // writing to it does nothing. The editor is the `div.ql-editor` inside.
+  assert.match(gemini.selectors.input[0], /\.ql-editor/);
+  // The send control only exists once the composer has text, so a list that
+  // starts with a structural guess would click 「上传和工具」 instead.
+  assert.ok(gemini.selectors.sendButton.some(selector => selector.includes('发送')));
+  assert.ok(gemini.selectors.sendButton.some(selector => selector.includes('Send')));
+  // 「新对话」 is spelled `reset` here.
+  assert.ok(gemini.selectors.newChatButton.includes('[data-test-id="reset-button"]'));
+});
+
+test('the Gemini profile counts answers by turn and cuts the thinking panel', () => {
+  const { providerFor, reasoningFor } = providers;
+  const gemini = providerFor('gemini');
+  // One element per reply. `message-content` is the renderer inside a single
+  // turn, so it stays as the fallback rather than the first choice.
+  assert.equal(gemini.selectors.assistant[0], 'model-response');
+  assert.ok(reasoningFor('gemini').includes('model-thoughts'), '思考面板必须被剔除');
+  // Signed out, Gemini accepts a question and renders nothing. The login button
+  // is a stable hook, and `accounts.google.com` has to be reachable or the
+  // channel can never leave that state.
+  assert.ok(gemini.hosts.has('accounts.google.com'));
+  assert.ok(gemini.hosts.has('gemini.google.com'));
+  // Signed out, Gemini is usable but says so. The visible sign-in control has no
+  // hook to select it by — measured on the guest page it is a plain
+  // `<button>登录</button>` — so the label is what is matched.
+  assert.deepEqual(gemini.signedOutText, ['登录', 'Sign in']);
+  // `[data-test-id="signed-out-disclaimer"]` must NOT be used: measured on the
+  // same page, that element is the terms-and-privacy paragraph and it stays on
+  // screen after signing in, so it reported 未登录 for a logged-in account.
+  assert.ok(
+    !gemini.signedOut.includes('[data-test-id="signed-out-disclaimer"]'),
+    '条款段落不是未登录信号'
+  );
+  // The other shape of the same state: `/app` sometimes redirects to `/signin`,
+  // and that page has no composer — without the path, the status calls a
+  // working redirect "页面结构可能已变化".
+  assert.deepEqual(gemini.signedOutPaths, ['/signin']);
+  // The signed-out page still answers (measured: "18" in one turn), so the
+  // login is a hint rather than a gate — but only because this profile says so.
+  assert.equal(gemini.guestUsable, true);
+  assert.equal(providers.guestUsableFor('chatgpt'), false);
+  assert.equal(providers.guestUsableFor('kimi'), false);
+  // A site with nothing of its own to say opts out by saying nothing.
+  assert.deepEqual(providers.signedOutFor('kimi'), []);
+  assert.deepEqual(providers.signedOutFor('chatgpt'), []);
+  assert.deepEqual(providers.signedOutPathsFor('kimi'), []);
+});
+
 test('every built-in profile covers all six roles', () => {
   const { SELECTOR_ROLES } = sharedSelectors;
   for (const [id, profile] of Object.entries(providers.PROVIDERS)) {

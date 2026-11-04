@@ -913,11 +913,32 @@ export default function App() {
                 </span>
               );
             })()}
-            {channelStatuses.some(channel => !channel.available && channel.detail) && (
-              <span className="status-detail" title={channelStatuses.map(channel => channel.detail).filter(Boolean).join('；')}>
-                {channelStatuses.find(channel => !channel.available && channel.detail)?.detail}
-              </span>
-            )}
+            {(() => {
+              // Two different sentences share this slot. A blocked channel is a
+              // failure and says why; a signed-out-but-working one is a hint.
+              //
+              // The text is short and names its channel on purpose. It used to be
+              // the raw detail — 「未登录：仍可使用，登录后可保存记录并解锁更高模型」 —
+              // which is 24 characters in a slot that fits about sixteen, so it
+              // was cut mid-sentence, and next to a green 「3/3 页面就绪」 it read
+              // as "not connected" no matter what it said. The full sentence is
+              // still there, as the tooltip.
+              const blocked = channelStatuses.find(channel => !channel.available && channel.detail);
+              const hint = blocked ?? channelStatuses.find(channel => channel.available && !channel.loggedIn && channel.detail);
+              if (!hint?.detail) return null;
+              return (
+                <span
+                  className="status-detail"
+                  title={
+                    blocked
+                      ? channelStatuses.map(channel => channel.detail).filter(Boolean).join('；')
+                      : `${hint.label}：${hint.detail}`
+                  }
+                >
+                  {blocked ? hint.detail : `${hint.label} 未登录 · 可用`}
+                </span>
+              );
+            })()}
             <button className="btn ghost" type="button" onClick={openDiagnostics}>
               诊断
             </button>

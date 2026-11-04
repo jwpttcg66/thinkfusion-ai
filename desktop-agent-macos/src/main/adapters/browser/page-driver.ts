@@ -10,7 +10,7 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../..
  * `WebContentsView` exists.
  */
 export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging'>;
-import { stripEcho, containsEcho } from '../../../shared/protocol';
+import { stripEcho, containsEcho, findIgnoringWhitespace } from '../../../shared/protocol';
 import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../../../shared/text';
 import type { DiscoveredSelectors, SelectorProfile } from '../../../shared/selectors';
 
@@ -31,16 +31,41 @@ export function isAllowedHostUrl(raw: string, hosts: ReadonlySet<string>): boole
   }
 }
 
-/** Bumped whenever the probe changes shape, so a stale report is identifiable. */
-export const PROBE_VERSION = '4';
+/**
+ * Does this URL sit under one of the site's sign-in routes?
+ *
+ * Path prefixes, not full matches: Gemini redirects to `/signin?continue=…`, so
+ * the query is part of the address and the pathname is what is stable. The
+ * prefix is matched on a segment boundary (`/signin` must not match
+ * `/signinfo`), which is why the comparison is not a bare `startsWith`.
+ */
+function isUnderPath(raw: string, prefix: string): boolean {
+  try {
+    const path = new URL(raw).pathname.replace(/\/+$/, '');
+    const base = prefix.replace(/\/+$/, '');
+    return path === base || path.startsWith(`${base}/`);
+  } catch {
+    return false;
+  }
+}
 
 /**
- * Shortest tail that can be an answer rather than page furniture.
+ * Bumped whenever the probe changes shape, so a stale report is identifiable.
  *
- * The known furniture is removed by name (`stripChrome`), so this is the second
- * guard, not the first: a generated chat title or a button label is short, and
- * twenty-four characters sits above those while still admitting a terse answer
- * like "对，是连接泄漏。" Stillness is the third guard and the caller enforces it.
+ * 5: the probe also reports `signedOut` — the site's own "you are a guest"
+ * marker, which a password field does not cover.
+ * 6: `signedOut` can also come from the text of the site's sign-in control,
+ * and the probe is readable while the page is still loading.
+ */
+export const PROBE_VERSION = '6';
+
+/**
+ * Shortest tail considered an answer while the page is still generating.
+ *
+ * Known furniture is removed by name (`stripChrome`), so this is only the
+ * second guard. It applies while the page says it is still working, where a
+ * short string is a status line ("思考中") rather than a result. Once the page
+ * has stopped, the tail is whatever it left there.
  */
 const MIN_TAIL_CHARS = 24;
 
@@ -62,6 +87,16 @@ export interface PageProbe {
   viewportWidth: number;
   viewportHeight: number;
   hasPasswordField: boolean;
+  /**
+   * The page is showing its own 「登录」 call to action.
+   *
+   * A password field is not the only shape of "not signed in". Gemini lets you
+   * type a question while signed out and then renders nothing at all — no
+   * error, no prompt, an empty conversation. Without this flag the channel
+   * reports `loggedIn: true` (there is no password field on that page) and the
+   * only symptom is an answer that never arrives.
+   */
+  signedOut: boolean;
   hasInput: boolean;
   inputKind: string;
   hasSendButton: boolean;
@@ -93,6 +128,16 @@ export interface SendOutcome {
 export interface PageDriver {
   url(): string;
   isDestroyed(): boolean;
+  /**
+   * Is the page still pulling resources?
+   *
+   * Needed because `executeJavaScript` is queued until the page stops loading —
+   * a chat site whose analytics endpoint never answers leaves the page at
+   * `readyState: "interactive"` for a minute, and every probe behind that queue
+   * times out as "渲染进程可能卡住了" over a page that is drawing fine. Asking
+   * the question up front turns that into a status that says what it is doing.
+   */
+  isLoading?(): boolean;
   probe(): Promise<PageProbe>;
   fill(text: string): Promise<{ ok: boolean; reason?: string; kind?: string }>;
   clickSend(): Promise<{ ok: boolean; reason?: string; label?: string }>;
@@ -122,9 +167,16 @@ export interface PageDriver {
   reloadHome?(): Promise<{ ok: boolean; reason?: string }>;
 }
 
-export const PROBE_SCRIPT = (selectors: SelectorProfile, reasoning: readonly string[] = []) => `(() => {
+export const PROBE_SCRIPT = (
+  selectors: SelectorProfile,
+  reasoning: readonly string[] = [],
+  signedOutSelectors: readonly string[] = [],
+  signedOutText: readonly string[] = []
+) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const reasoning = ${JSON.stringify(reasoning)};
+  const signedOutSelectors = ${JSON.stringify(signedOutSelectors)};
+  const signedOutText = ${JSON.stringify(signedOutText)};
 
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -215,6 +267,27 @@ export const PROBE_SCRIPT = (selectors: SelectorProfile, reasoning: readonly str
 
   const stopButtons = firstMatch('stopButton');
 
+  // The site's own "you are not signed in" control. Declared by the profile,
+  // never guessed: a 「登录」 label can also be a sidebar entry while logged in,
+  // so only a hook the site reserves for the signed-out state belongs here.
+  let signedOut = false;
+  for (const selector of signedOutSelectors) {
+    let nodes;
+    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+    if (nodes.some(visible)) { signedOut = true; break; }
+  }
+
+  // The same signal when the control has no hook to select it by: the site
+  // labels its sign-in button 「登录」 (or 「Sign in」) and only shows it to
+  // guests. Exact match on the control's own text, so a sentence that happens
+  // to contain the word does not count.
+  if (!signedOut && signedOutText.length) {
+    const wanted = new Set(signedOutText);
+    signedOut = [...document.querySelectorAll('a, button, [role="button"], [role="link"]')].some(
+      (el) => visible(el) && wanted.has((el.innerText || '').trim())
+    );
+  }
+
   // The answer, with the site's own noise cut out.
   //
   // A site that renders "thinking" inside the same bubble as the reply makes
@@ -297,6 +370,7 @@ export const PROBE_SCRIPT = (selectors: SelectorProfile, reasoning: readonly str
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
     hasPasswordField: firstMatch('passwordField').length > 0,
+    signedOut,
     hasInput: !!composer,
     inputKind: kindOf(composer),
     hasSendButton: sendButtons.length > 0 || structuralSend,
@@ -767,6 +841,54 @@ export function callPage<T>(
 }
 
 /**
+ * A DOM read over the debugger protocol is a single round trip, so a short
+ * deadline is enough — and it keeps one slow probe from stalling the 4-second
+ * status poll.
+ */
+const DEBUGGER_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * Read a page that has not finished loading.
+ *
+ * `executeJavaScript` is queued until the frame stops loading, and on Gemini
+ * that queue is open for a minute: measured on a cold start, every probe timed
+ * out for 62 seconds while the page was drawn, the composer was there and a
+ * question would have worked. The channel said 「页面正在加载」 the whole time,
+ * which is the display bug this exists to remove.
+ *
+ * The debugger protocol has no such queue — measured on the same page it
+ * answered in 0–19ms while `isLoading()` was still true. So it is used for the
+ * probe only, and only while a load is in progress: attach, ask, detach.
+ *
+ * `undefined` means "cannot answer this way" (already attached by the user's
+ * DevTools, or the call failed), and the caller falls back to the normal path.
+ */
+async function probeWhileLoading(view: WebContentsView, script: string): Promise<PageProbe | undefined> {
+  const contents = view.webContents;
+  if (contents.isDestroyed() || contents.debugger.isAttached()) return undefined;
+  try {
+    contents.debugger.attach('1.3');
+  } catch {
+    return undefined;
+  }
+  try {
+    const reply = (await Promise.race([
+      contents.debugger.sendCommand('Runtime.evaluate', { expression: script, returnByValue: true, awaitPromise: true }),
+      new Promise(resolve => setTimeout(() => resolve(null), DEBUGGER_PROBE_TIMEOUT_MS))
+    ])) as { result?: { value?: PageProbe } } | null;
+    return reply?.result?.value;
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      contents.debugger.detach();
+    } catch {
+      // A detach after a navigation can fail; nothing above depends on it.
+    }
+  }
+}
+
+/**
  * The one place that knows this is Electron.
  *
  * `selectors` may be a function. A learned selector only takes effect if the
@@ -778,15 +900,31 @@ export function callPage<T>(
 export function createElectronDriver(
   view: WebContentsView,
   selectors: SelectorProfile | (() => SelectorProfile),
-  reasoning: readonly string[] | (() => readonly string[]) = []
+  reasoning: readonly string[] | (() => readonly string[]) = [],
+  signedOutSelectors: readonly string[] | (() => readonly string[]) = [],
+  signedOutText: readonly string[] | (() => readonly string[]) = []
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
   const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
+  const signedOut = typeof signedOutSelectors === 'function' ? signedOutSelectors : () => signedOutSelectors;
+  const signedOutWords = typeof signedOutText === 'function' ? signedOutText : () => signedOutText;
   return {
     url: () => view.webContents.getURL(),
     isDestroyed: () => view.webContents.isDestroyed(),
-    probe: async () =>
-      (await callPage(view, '读取页面状态', PROBE_SCRIPT(profile(), cut()))) as PageProbe,
+    isLoading: () => view.webContents.isLoading(),
+    probe: async () => {
+      const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords());
+      // A page that is still loading is not necessarily an unusable one: Gemini
+      // draws its whole chat UI while a request keeps the load open, so the
+      // status said 「页面正在加载」 over a page the user could already type in.
+      // The debugger path reads it anyway; when it cannot, the normal call is
+      // the fallback and the caller reports the wait honestly.
+      if (view.webContents.isLoading()) {
+        const early = await probeWhileLoading(view, script);
+        if (early) return early;
+      }
+      return (await callPage(view, '读取页面状态', script)) as PageProbe;
+    },
     fill: async text =>
       (await callPage(view, '写入输入框', FILL_SCRIPT(profile(), JSON.stringify(text)))) as {
         ok: boolean;
@@ -919,12 +1057,52 @@ export const DEFAULT_TUNING: AdapterTuning = {
   newChatMs: 12000
 };
 
+/**
+ * Cut the user's own message out of the transcript tail.
+ *
+ * The tail begins with the prompt: the page renders what we sent as a bubble,
+ * and on a site with no assistant container that bubble is part of the
+ * transcript we diff against. So the answer has to be found *behind* our own
+ * words, and there are three ways to get past them — head, anywhere, and the
+ * prompt's own ending. Each covers a different way the page can render it.
+ *
+ * Without this the tail kept our prompt, `containsEcho` rejected every
+ * candidate, and the turn sat at 「提问中」 until the deadline: the page had
+ * answered, and the app refused to look past its own question.
+ */
+function cutPrompt(text: string, prompt?: string): string {
+  if (!prompt) return text;
+  const asked = prompt.trim();
+
+  // 1. At the head, whitespace-insensitive. This is the ordinary shape: the
+  //    page echoes the question as a bubble and the tail starts with it.
+  //    `stripEcho` refuses short strings on purpose, and a question can be
+  //    short — the tail's first line is still ours either way.
+  const head = findIgnoringWhitespace(text, asked);
+  if (head && text.slice(0, head.start).trim().length === 0) return text.slice(head.end);
+
+  // 2. Wherever it sits, for a page that put something in front of the bubble
+  //    ("你说：…"). This is the path that needs the long-string guard.
+  const stripped = stripEcho(text, prompt);
+  if (stripped !== text) return stripped;
+
+  // 3. The prompt's own ending, when the page reflowed its middle — a markdown
+  //    list, a collapsed block — so the whole-string match fails while the last
+  //    line, the question itself, is still on screen.
+  const marker = asked.slice(-40);
+  if (marker.replace(/\s+/g, '').length < 4) return text;
+  const at = findIgnoringWhitespace(text, marker);
+  return at ? text.slice(at.end) : text;
+}
+
 export class ChatPageDriver {
   private waits = new Map<string, AbortController>();
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };
   private readonly hostsOf: () => ReadonlySet<string>;
   private readonly selectorsOf: () => SelectorProfile;
   private readonly reasoningOf: () => readonly string[];
+  private readonly signedOutOf: () => readonly string[];
+  private readonly signedOutPathsOf: () => readonly string[];
   /**
    * Public, because the callers that talk to the user about "this page" need a
    * name for it and must not supply their own. `AgentOrchestrator` used to write
@@ -960,6 +1138,18 @@ export class ChatPageDriver {
        * while the app runs.
        */
       reasoning?: readonly string[] | (() => readonly string[]);
+      /**
+       * Selectors that mean "the page is offering a sign-in" (see
+       * `ProviderProfile.signedOut`). Empty is a complete answer, not a missing
+       * one: for most sites the password-field check already covers it.
+       */
+      signedOut?: readonly string[] | (() => readonly string[]);
+      /**
+       * Path prefixes that mean the site moved the page into its sign-in flow
+       * (see `ProviderProfile.signedOutPaths`). Empty for every site that keeps
+       * one address while signed out.
+       */
+      signedOutPaths?: readonly string[] | (() => readonly string[]);
     }
   ) {
     const hosts = options.hosts;
@@ -968,6 +1158,11 @@ export class ChatPageDriver {
     this.selectorsOf = typeof selectors === 'function' ? selectors : () => selectors;
     const reasoning = options.reasoning ?? [];
     this.reasoningOf = typeof reasoning === 'function' ? reasoning : () => reasoning;
+    const signedOut = options.signedOut ?? [];
+    this.signedOutOf = typeof signedOut === 'function' ? signedOut : () => signedOut;
+    const signedOutPaths = options.signedOutPaths ?? [];
+    this.signedOutPathsOf =
+      typeof signedOutPaths === 'function' ? signedOutPaths : () => signedOutPaths;
     this.siteLabel = options.siteLabel;
   }
 
@@ -1008,9 +1203,23 @@ export class ChatPageDriver {
         detail: url ? `页面不是 ${this.siteLabel}` : '页面尚未加载'
       };
     }
+    // Loading is not the same as unusable, and it is no longer a reason to
+    // answer without looking: `probe()` reads the page through the debugger
+    // while a load is open. The flag is kept because it changes what "no
+    // composer" means — on a half-drawn page it is "wait", not "the site
+    // changed its markup".
+    const loading = this.getDriver()?.isLoading?.() === true;
     try {
       const probe = await this.probe();
-      const loggedIn = !probe.hasPasswordField;
+      // Three shapes of "not signed in": a password field (the site is asking
+      // you to), the site's own signed-out marker (it is offering), and a
+      // redirect into its sign-in route. The last two were measured on Gemini,
+      // where the signed-out page is either usable with a hint or a `/signin`
+      // page with no composer at all — the password-field check called both
+      // logged in / broken respectively.
+      const onSignInPath = this.signedOutPathsOf().some(prefix => isUnderPath(probe.url, prefix));
+      const signedOut = probe.hasPasswordField || probe.signedOut || onSignInPath;
+      const loggedIn = !signedOut;
       return {
         url: probe.url,
         pageReady: probe.hasInput,
@@ -1019,16 +1228,24 @@ export class ChatPageDriver {
         hasSendButton: probe.hasSendButton,
         generating: probe.generating,
         messageCount: probe.messageCount,
-        detail: !loggedIn
-          ? `需要在内嵌页面完成 ${this.siteLabel} 登录`
-          : probe.hasInput
-            ? undefined
-            : probe.viewportWidth === 0
-              // Not a markup problem at all: with a 0x0 viewport every element
-              // measures zero, so nothing is ever "visible". Saying the page
-              // changed sent the last investigation in the wrong direction.
-              ? '页面还没有分到尺寸（视口 0×0），右侧切换到这个页面一次即可'
-              : '未找到输入框，页面结构可能已变化',
+        // Signed out is not the same as unusable: Gemini answers guests and
+        // only the history/heavier models need an account. So the detail says
+        // what is missing instead of pretending the page is broken — the
+        // channel stays in the ready count either way.
+        detail: !probe.hasInput
+          ? loading
+            ? '页面正在加载，加载完就能用'
+            : signedOut
+              ? `需要登录 ${this.siteLabel} 才能继续`
+              : probe.viewportWidth === 0
+                // Not a markup problem at all: with a 0x0 viewport every element
+                // measures zero, so nothing is ever "visible". Saying the page
+                // changed sent the last investigation in the wrong direction.
+                ? '页面还没有分到尺寸（视口 0×0），右侧切换到这个页面一次即可'
+                : '未找到输入框，页面结构可能已变化'
+          : signedOut
+            ? `未登录：仍可使用，登录后可保存记录并解锁更高模型`
+            : undefined,
         diagnostics: diagnosticsOf(probe)
       };
     } catch (error) {
@@ -1040,7 +1257,11 @@ export class ChatPageDriver {
         hasSendButton: false,
         generating: false,
         messageCount: 0,
-        detail: error instanceof Error ? error.message : String(error)
+        // A probe that could not read the page while it was still loading is a
+        // wait, not a fault: the debugger path is unavailable when the user has
+        // DevTools open, and then `executeJavaScript` queues until the load
+        // ends. Reporting the error text there blames the page for being slow.
+        detail: loading ? '页面正在加载，加载完就能用' : error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -1407,8 +1628,12 @@ export class ChatPageDriver {
  * The tail used to have to contain the protocol marker, because every prompt
  * asked for one. The rebuild stopped asking, so the marker never appears and the
  * gate made this branch unreachable: a finished answer sat on the page while the
- * wait timed out. What separates an answer from page furniture is now length —
- * stillness is enforced by `waitForAnswer`, which requires three identical polls.
+ * wait timed out. Removing the gate then exposed two more ways to miss a reply
+ * that was already on screen — the prompt's own echo sitting in front of it
+ * (see `cutPrompt`) and a length floor that rejected "8" — so a finished answer
+ * is now whatever is left after our own message and the page's furniture are
+ * removed. Stillness is still enforced by `waitForAnswer`, which requires three
+ * identical polls.
  */
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
   const grew = probe.messageCount > snapshot.messageCount;
@@ -1417,9 +1642,22 @@ export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, se
   if (probe.messageCount > 0) return bubbleFresh ? probe.lastText : '';
 
   const prefix = commonPrefixLength(snapshot.conversationText, probe.conversationText);
-  const tail = normalizeAnswerText(
-    stripChrome(stripEcho(cutSpeakerLabels(probe.conversationText.slice(prefix)), sentText))
-  );
+  const fresh = probe.conversationText.slice(prefix);
+  const answer = normalizeAnswerText(stripChrome(cutSpeakerLabels(cutPrompt(fresh, sentText))));
 
-  return tail.length >= MIN_TAIL_CHARS ? tail : '';
+  if (!answer) return '';
+
+  if (answer.length < MIN_TAIL_CHARS) {
+    // While the page says it is still generating, a short tail is its own status
+    // line ("思考中") rather than a result.
+    if (probe.generating) return '';
+    // With the page idle, the other short thing that stabilises is the chat
+    // title the site generates from the question — "列出工作区文件" for a prompt
+    // that starts the same way. It is the question in fewer words, so a short
+    // tail made of the question's own characters is not an answer.
+    const squeezed = answer.replace(/\s+/g, '');
+    if (squeezed.length >= 4 && sentText && sentText.replace(/\s+/g, '').includes(squeezed)) return '';
+  }
+
+  return answer;
 }

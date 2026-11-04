@@ -1,7 +1,4 @@
 import type { ChannelPhase, ConversationStatus, Synthesis } from '../shared/conversation';
-import type { IntentKind } from '../shared/intent';
-import { isMultiChannel } from '../shared/intent';
-import { buildConversationPrompt } from '../shared/prompts';
 import { synthesize } from '../shared/synthesizer';
 import { PageBusyError, PageUnavailableError } from './adapters/browser/types';
 import type { SubAgent, SubAgentAnswer, SubAgentPool } from './agents/types';
@@ -16,15 +13,21 @@ import type { SubAgent, SubAgentAnswer, SubAgentPool } from './agents/types';
  *
  * Two rules, both learned from what the app used to do:
  *
- * - A plain question goes to one agent. Asking three and synthesising is slower
- *   and noisier for "what does SETNX do", and the disagreement it produces is
- *   about wording, not about the answer.
- * - Research and comparison fan out, because there the disagreement *is* the
- *   product.
+ * - **Every channel that is switched on gets asked.** The rule used to be "a
+ *   plain question goes to one agent, research fans out", and it was wrong in
+ *   the way that is hardest to notice: three pages were open, the strip said
+ *   three were ready, and one of them answered while the other two sat there —
+ *   the pane then reported a single answer as if that were the product. The
+ *   fan-out is the product: what one model says is not a cross-check.
+ * - **The question goes out verbatim.** No role line, no per-intent preamble,
+ *   no "you are my research partner" wrapping. Two reasons, both measured: the
+ *   page echoes what we send, so any wrapper becomes text the app has to strip
+ *   back out before it can trust an answer; and a wrapper is a fixed prompt the
+ *   user never wrote and cannot see themselves writing. The channel answers the
+ *   user's question, or it is the wrong channel.
  *
- * Not implemented, and deliberately so: the debate round. The design is written
- * down (`buildChallengePrompt`, `AskStage = 'challenge'`), and the rule-based
- * synthesizer already finds the disputes it would be aimed at — but the round
+ * Not implemented, and deliberately so: the debate round. The rule-based
+ * synthesizer already finds the disputes it would be aimed at, but the round
  * itself is later work. Until it exists, a disagreement is reported as a
  * disagreement, which is honest, instead of being papered over by a second pass
  * nobody asked for.
@@ -46,7 +49,6 @@ export interface ResearchSink {
 
 export interface ResearchRequest {
   question: string;
-  intent: Exclude<IntentKind, 'workspace'>;
   followup: boolean;
   /** Agents this conversation has already spoken to; they keep their page thread. */
   known: ReadonlySet<string>;
@@ -82,9 +84,7 @@ export class MasterAgent {
   constructor(private readonly pool: SubAgentPool) {}
 
   async research(request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome> {
-    const usable = await this.pool.available();
-    const multi = isMultiChannel(request.intent);
-    const participants = multi ? usable : usable.slice(0, 1);
+    const participants = await this.pool.available();
 
     if (participants.length === 0) {
       // The user needs to know which pages to log into, so the message is built
@@ -92,7 +92,7 @@ export class MasterAgent {
       throw new NoUsableAgentError((await this.pool.all()).map(agent => agent.label));
     }
 
-    sink.status(multi ? 'collecting' : 'thinking');
+    sink.status(participants.length > 1 ? 'collecting' : 'thinking');
 
     const round = await this.ask(participants, request, sink);
 
@@ -169,18 +169,13 @@ export class MasterAgent {
           if (sink.cancelled()) return;
         }
 
-        const prompt = buildConversationPrompt({
-          question: request.question,
-          intent: request.intent,
-          first: fresh,
-          followup: request.followup
-        });
-
         sink.join(agent.id);
         sink.phase(agent.id, 'asking');
         try {
           const answer = await this.pool.ask(agent.id, {
-            question: prompt,
+            // Verbatim. `request.question` is the text the user typed — nothing
+            // is prepended, prefixed, or wrapped for this channel.
+            question: request.question,
             stage: request.followup ? 'followup' : 'initial'
           });
           if (sink.cancelled()) return;

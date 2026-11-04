@@ -61,6 +61,8 @@ function scriptedPage(observations, options = {}) {
     calls,
     url: () => 'https://chat.deepseek.com/',
     isDestroyed: () => false,
+    /** `true` reproduces a page whose load never settles (Gemini's case). */
+    isLoading: () => options.loading === true,
     async probe() {
       calls.probe += 1;
       const hit = observations[Math.min(index, observations.length - 1)];
@@ -394,13 +396,40 @@ test('stripEcho does not touch text that merely shares a line with the prompt', 
 // Answer selection order
 // ---------------------------------------------------------------------------
 
+test('a page that is still loading is read, not written off', async () => {
+  // Measured on Gemini: the page draws its whole chat UI while a request keeps
+  // `isLoading()` true for a minute, and `executeJavaScript` queues behind that
+  // load. The channel therefore said 「页面正在加载」 over a page that was open,
+  // visible and ready to type in — the status was about the network, not about
+  // the page. The driver now reads such a page through the debugger; what this
+  // checks is that the status believes what it read.
+  const page = scriptedPage([state({ hasInput: true })], { loading: true });
+  const adapter = adapterFor(page);
+
+  const status = await adapter.getStatus();
+  assert.equal(status.pageReady, true, '输入框在，页面就算就绪');
+  assert.notEqual(status.detail, '页面正在加载，加载完就能用');
+});
+
+test('a page with no composer while loading is a wait, not a broken profile', async () => {
+  const page = scriptedPage([state({ hasInput: false })], { loading: true });
+  const status = await adapterFor(page).getStatus();
+
+  assert.equal(status.pageReady, false);
+  assert.equal(status.detail, '页面正在加载，加载完就能用', '加载中不能说成「页面结构可能已变化」');
+});
+
 test('page chrome is never mistaken for an answer', () => {
   const snapshot = { messageCount: 0, lastText: '', url: '', capturedAt: 0, conversationText: '', composerText: '' };
   // What a fresh conversation actually shows after sending: a generated title,
   // the composer toggles and the footer disclaimer. It stabilises before the
   // reply does, and accepting it produced a 33-character "answer".
   const chrome = state({ conversationText: '列出工作区文件\n深度思考\n智能搜索\n内容由 AI 生成，请仔细甄别' });
-  assert.equal(selectAnswerText(chrome, snapshot), '');
+  // The title is the question in fewer words — that is why it can be dropped
+  // once the furniture around it is stripped. The question is passed because
+  // the decision needs it: a short tail on its own is indistinguishable from a
+  // short answer.
+  assert.equal(selectAnswerText(chrome, snapshot, '列出工作区文件，不要修改任何内容'), '');
 });
 
 test('a fresh assistant bubble wins over the raw transcript tail', () => {
@@ -420,7 +449,7 @@ test('a fresh assistant bubble wins over the raw transcript tail', () => {
   assert.equal(selectAnswerText(probe, snapshot), '{"protocol":"desktop-agent/v1","type":"plan"}');
 });
 
-test('without a selectable bubble a long stable tail is the answer', () => {
+test('without a selectable bubble the stable tail is the answer', () => {
   const snapshot = {
     messageCount: 0,
     lastText: '',
@@ -433,15 +462,47 @@ test('without a selectable bubble a long stable tail is the answer', () => {
   // chatgpt.com exposes no message attributes at all, so this is the *only*
   // path there. It used to require the protocol marker, which the rebuild
   // stopped sending — so a finished answer sat on the page and the wait timed
-  // out. Length is the gate now; stillness is enforced by the caller.
+  // out. Stillness is enforced by the caller.
   const prose = 'Redis 连接数过高最常见的原因是客户端代码存在连接泄漏：应用获取连接后没有正确关闭或归还连接池。';
   assert.equal(selectAnswerText(state({ conversationText: `old\n${prose}` }), snapshot), prose);
 
-  // Page furniture is short, so it never clears the bar.
-  assert.equal(selectAnswerText(state({ conversationText: 'old\n随便聊聊' }), snapshot), '');
+  // The page had already replied with one character. A length floor is not a
+  // test of answers, and treating it as one is how this looked stuck.
+  assert.equal(selectAnswerText(state({ conversationText: 'old\n8' }), snapshot), '8');
+
+  // Page furniture is removed by name, not by length.
   assert.equal(
     selectAnswerText(state({ conversationText: 'old\n深度思考\n智能搜索\n内容由 AI 生成，请仔细甄别' }), snapshot),
     ''
+  );
+
+  // While the page says it is still working, a short line is its status line.
+  assert.equal(
+    selectAnswerText(state({ conversationText: 'old\n思考中', generating: true }), snapshot),
+    ''
+  );
+});
+
+test('the question we sent is not part of the answer', () => {
+  const snapshot = {
+    messageCount: 0,
+    lastText: '',
+    url: '',
+    capturedAt: 0,
+    conversationText: 'old',
+    composerText: ''
+  };
+
+  // ChatGPT and Kimi both echo the user's bubble into the transcript, and on a
+  // page with no assistant container that bubble is inside the tail. Leaving it
+  // there made the candidate "contain our own prompt", which the echo guard
+  // rejected on every poll — the answer was on screen and the turn timed out.
+  assert.equal(selectAnswerText(state({ conversationText: 'old\n3+5。结果是多少\n8' }), snapshot, '3+5。结果是多少'), '8');
+
+  // The page decides where the line breaks go; the match is whitespace-blind.
+  assert.equal(
+    selectAnswerText(state({ conversationText: 'old\n3+5。\n结果是多少\n8' }), snapshot, '3+5。结果是多少'),
+    '8'
   );
 });
 
@@ -476,7 +537,32 @@ test('an unauthenticated page is reported as such, not as a broken selector', as
   const page = scriptedPage([state({ hasPasswordField: true, hasInput: false })]);
   const status = await adapterFor(page).getStatus();
   assert.equal(status.loggedIn, false);
-  assert.equal(status.detail, '需要在内嵌页面完成 DeepSeek 登录');
+  assert.equal(status.detail, '需要登录 DeepSeek 才能继续');
+});
+
+test('a signed-out page with a working composer is a hint, not a failure', async () => {
+  // Gemini answers guests: the composer works, only history and the heavier
+  // models need an account. Calling that unusable would drop a channel that
+  // can answer, so the signed-out marker changes the message, not the verdict.
+  const page = scriptedPage([
+    state({ hasInput: true, inputKind: 'contenteditable', signedOut: true, hasPasswordField: false })
+  ]);
+  const status = await adapterFor(page).getStatus();
+  assert.equal(status.pageReady, true);
+  assert.equal(status.loggedIn, false);
+  assert.match(status.detail, /仍可使用/);
+  assert.match(status.detail, /登录/);
+});
+
+test('the Gemini speaker label is cut even without a colon', async () => {
+  // A Gemini bubble's innerText is "Gemini 说\n18", not "ChatGPT 说：18" — the
+  // label has no colon and sits on its own line. Left in, every answer from
+  // that channel would arrive prefixed with the site's own label.
+  const { cutSpeakerLabels, normalizeAnswerText } = await import(
+    path.join(root, 'out/adapter/shared/text.js')
+  );
+  assert.equal(normalizeAnswerText(cutSpeakerLabels('Gemini 说\n18')), '18');
+  assert.equal(normalizeAnswerText(cutSpeakerLabels('Gemini said\n18')), '18');
 });
 
 test('default tuning is patient enough for a cold page load', () => {

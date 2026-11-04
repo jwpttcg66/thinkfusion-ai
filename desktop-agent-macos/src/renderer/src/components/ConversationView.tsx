@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import type { ChannelStatus, Conversation, ConversationMessage, Synthesis } from '../../../shared/conversation';
-import { isMultiChannel } from '../../../shared/intent';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -67,13 +66,11 @@ export function ConversationView(props: {
         </div>
         <p className="conversation-why">
           路由依据：{conversation.intentReason}
-          {/* Who is actually being asked, said out loud. With two pages switched
-              on and a plain question, only one of them is used — by design — but
-              nothing in the pane used to say so, and "2/2 通道就绪" next to an
-              idle second page reads as "both are answering, one is frozen". */}
-          {isMultiChannel(conversation.intent)
-            ? ` · 多通道，同时问 ${conversation.channels.length || ''} 个页面`
-            : ` · 单通道，只问 ${askedLabel || '一个页面'}`}
+          {/* Who is actually being asked, said out loud. Every channel that is
+              switched on is asked — a single answer is not a cross-check — so
+              the line names them instead of describing a routing decision that
+              no longer exists. */}
+          {` · 同时问 ${askedLabel || '所有已开启的通道'}`}
           {conversation.error ? ` · ${conversation.error}` : ''}
         </p>
         <ChannelStrip
