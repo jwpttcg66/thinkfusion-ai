@@ -60,7 +60,7 @@ function state(overrides = {}) {
  *   afterNewChat?: object[], afterReload?: object[]}} options
  */
 function scriptedPage(observations, options = {}) {
-  const calls = { fill: 0, click: 0, enter: 0, probe: 0, newChat: 0, reload: 0 };
+  const calls = { fill: 0, click: 0, enter: 0, probe: 0, newChat: 0, reload: 0, clear: 0 };
   let sequence = observations;
   let index = 0;
   let currentUrl = options.url ?? 'https://chat.deepseek.com/';
@@ -84,6 +84,10 @@ function scriptedPage(observations, options = {}) {
     async clickSend() {
       calls.click += 1;
       return options.clickOk === false ? { ok: false, reason: 'SEND_BUTTON_NOT_FOUND' } : { ok: true };
+    },
+    async clearComposer() {
+      calls.clear += 1;
+      return options.clearOk === false ? { ok: false, reason: 'INPUT_NOT_FOUND' } : { ok: true };
     },
     async pressEnter() {
       calls.enter += 1;
@@ -204,6 +208,26 @@ test('never sends twice when the page reacts immediately', async () => {
   await adapterFor(page).sendMessage('hello', 'r1');
   assert.equal(page.calls.click, 1, 'exactly one click');
   assert.equal(page.calls.enter, 0, 'no escalation after a successful send');
+});
+
+test('文字发出去后还留在输入框里，会被清掉', async () => {
+  // 真机上见过：站点只清它自己认识的那份文档，页面上另一份残留一直挂着。
+  // 语气上是「这条没发出去」，所以确认发送之后要主动清一次。
+  const page = scriptedPage([
+    state(),
+    state({ composerText: 'hello' }),
+    state({ composerText: 'hello', generating: true })
+  ]);
+  const outcome = await adapterFor(page).sendMessage('hello', 'r1');
+  assert.equal(outcome.submitted, true);
+  assert.equal(page.calls.clear, 1, '发送成功后清一次输入框');
+  assert.ok(outcome.signals.includes('composer:cleared-after-send'));
+});
+
+test('输入框已经自己清干净时，不再多按一次清零', async () => {
+  const page = scriptedPage([state(), state({ composerText: 'hello' }), state({ composerText: '', messageCount: 1 })]);
+  await adapterFor(page).sendMessage('hello', 'r1');
+  assert.equal(page.calls.clear, 0, '站点自己清了就不用再动它');
 });
 
 test('a composer that cannot be filled is refused before any click', async () => {

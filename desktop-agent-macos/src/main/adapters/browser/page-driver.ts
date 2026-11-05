@@ -149,6 +149,12 @@ export interface PageDriver {
   isLoading?(): boolean;
   probe(): Promise<PageProbe>;
   fill(text: string): Promise<{ ok: boolean; reason?: string; kind?: string }>;
+  /**
+   * 把输入框清空，只用在一句话已经确认发出去之后。
+   *
+   * 可选：脚本化的测试页没有编辑器状态，也就不需要清。
+   */
+  clearComposer?(): Promise<{ ok: boolean; reason?: string; left?: string }>;
   clickSend(): Promise<{ ok: boolean; reason?: string; label?: string }>;
   /**
    * Focus the composer and press a real Enter.
@@ -732,9 +738,24 @@ const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () 
     // for pages that do not support it.
     const selection = window.getSelection();
     const range = document.createRange();
-    range.selectNodeContents(target);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const selectAll = () => {
+      range.selectNodeContents(target);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    };
+
+    // 先把框里的东西删干净，再写这一句。
+    //
+    // 只靠「选中 + insertText」把旧内容顶掉是不够的：能顶掉的只是编辑器自己
+    // 认识的那份文档，页面上还可能有它不认识的残留（比如上一轮我们填进去的
+    // 文本、站点自己恢复的草稿）。真机上见过这类残留一直挂在 ChatGPT 输入框里，
+    // 发送成功后也不消失；它要是被顶不掉，下一条问题就会被拼在残句后面发出去。
+    if ((target.innerText || target.textContent || '').trim().length > 0) {
+      selectAll();
+      try { document.execCommand('delete'); } catch { /* 下面还有一次整体重写 */ }
+    }
+
+    selectAll();
     let inserted = false;
     try { inserted = document.execCommand('insertText', false, value); } catch { inserted = false; }
     if (!inserted) {
@@ -770,6 +791,67 @@ const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () 
     reason: written.trim().length ? undefined : 'INPUT_NOT_FILLED',
     kind: target.tagName.toLowerCase()
   };
+})()`;
+
+/**
+ * 把输入框清空。
+ *
+ * 只在一句话确认发出去之后调用：那时候框里的任何内容都不再是「待发送的提问」，
+ * 留着它只会在下一次提问时被当成草稿或者挡在发送路径上。实测（chatgpt.com）
+ * 发送成功后框里仍可能挂着一句残留——编辑器只清自己认识的那份文档，页面上另一份
+ * 它不认识的文本就一直留在那儿，用户看到的就是「输入框偶尔有残留」。
+ *
+ * 两条路径都走：先按浏览器的方式全选删除（编辑器能收到 beforeinput/input 事件，
+ * 自己的状态跟着更新），删不掉再整体换掉节点内容。后者是暴力手段，所以放在
+ * 前者失败之后，而且补一个 input 事件让编辑器有机会重新渲染。
+ */
+const CLEAR_SCRIPT = (selectors: SelectorProfile) => `(() => {
+  const selectors = ${JSON.stringify(selectors)};
+
+  const visible = (el) => {
+    if (!el || !(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  const findInput = () => {
+    for (const selector of selectors.input) {
+      let nodes;
+      try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+      const hit = nodes.filter(visible);
+      if (hit.length) return hit[hit.length - 1];
+    }
+    return null;
+  };
+
+  const target = findInput();
+  if (!target) return { ok: false, reason: 'INPUT_NOT_FOUND' };
+  target.focus();
+
+  const read = () => (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement
+    ? target.value
+    : (target.innerText || target.textContent || '')).trim();
+
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const proto = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(target, '');
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    return { ok: read().length === 0 };
+  }
+
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  try { document.execCommand('delete'); } catch { /* 由下面的整体替换兜底 */ }
+
+  if (read().length > 0) {
+    target.innerHTML = '';
+    target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+  }
+
+  return { ok: read().length === 0, left: read().slice(0, 80) };
 })()`;
 
 const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(async () => {
@@ -1573,6 +1655,12 @@ export function createElectronDriver(
         ok: boolean;
         reason?: string;
         kind?: string;
+      },
+    clearComposer: async () =>
+      (await callPage(view, '清空输入框', CLEAR_SCRIPT(profile()))) as {
+        ok: boolean;
+        reason?: string;
+        left?: string;
       },
     clickSend: async () =>
       (await callPage(view, '点击发送', CLICK_SEND_SCRIPT(profile()))) as {
@@ -2395,6 +2483,16 @@ export class ChatPageDriver {
         composerCleared || countGrew || generating || (textChanged && !stillFilled);
 
       if (submitted) {
+        // 发出去了，框里就不该还留着东西。实测 chatgpt.com：站点清掉的是编辑器
+        // 自己认识的那份文档，页面上另一份它不认识的文本会一直挂在输入框里，
+        // 发送成功后也不消失——用户看到的就是「输入框偶尔有残留」。残留本身
+        // 不会再被发出去（下一次写入前会先清空），但白挂着一句话会让人以为
+        // 这条问题没发出去，所以确认发送之后主动清一次。
+        if (stillFilled) {
+          const cleared = await driver.clearComposer?.().catch(() => undefined);
+          if (cleared?.ok) signals.push('composer:cleared-after-send');
+          else if (cleared) signals.push(`composer:residual(${cleared.left ?? cleared.reason ?? 'UNKNOWN'})`);
+        }
         this.waits.set(requestId, new AbortController());
         return {
           submitted: true,
