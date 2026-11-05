@@ -187,6 +187,13 @@ export class DebateOrchestrator {
         if (!this.persist(state)) return;
 
         if (!current()) return;
+        // 没有能读上下文的成员时，后续轮次只会把同一句原话再问一遍（网页
+        // 通道彼此看不到回答），不是交锋。跑完第一轮就收，别空转。
+        if (state.plan.debaters.length === 0) {
+          state.status = 'completed';
+          state.stopReason = '只有第一轮独立回答：没有可读上下文的成员来做交叉质疑';
+          break;
+        }
         if (state.config.convergenceStop && round.converged) {
           state.status = 'completed';
           state.stopReason = '观点已收敛，没有新的质疑';

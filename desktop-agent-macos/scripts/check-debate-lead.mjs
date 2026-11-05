@@ -118,7 +118,8 @@ test('用户只勾选部分成员时，其余的不参与，且不会被记成�
 
 test('成员不够时明确报错，不静默开一场单边辩论', () => {
   const onlyWeb = [{ id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true }];
-  assert.throws(() => planLead({ mode: 'web', strategy: 'standard', candidates: onlyWeb }), /本地或云端模型/);
+  // 一个网页成员、没有本地/云端成员：只有一个人发言，不成辩论。
+  assert.throws(() => planLead({ mode: 'web', strategy: 'standard', candidates: onlyWeb }), /至少需要两个/);
   assert.throws(() => planLead({ mode: 'local', strategy: 'standard', candidates: onlyWeb }), /本地或云端模型/);
   const oneLocal = [{ id: 'ollama:qwen2.5:7b', label: 'Ollama', type: 'local', available: true }];
   assert.throws(() => planLead({ mode: 'hybrid', strategy: 'standard', candidates: oneLocal }), /至少需要两个/);
@@ -270,30 +271,40 @@ test('主导信息落盘后重启可读，老文件没有 lead 时如实补成�
 });
 
 // ---------------------------------------------------------------------------
-// 生产形态：本地模型撤出辩论候选名单后（debate:start 里 filter(type !== 'local')）
+// 不依赖云端：本地模型可以参辩，云端只是可选成员
 // ---------------------------------------------------------------------------
 
-test('生产形态：本地模型被排除后，离网主导退回云端模型，理由说清本地只做裁判', () => {
-  // 模拟 debate:start 里 (await debateCandidates()).filter(item => item.type !== 'local')
-  const cloud = [
+test('没有云端 API 时三种主导方式都能跑：本地模型就是交锋者', () => {
+  const noCloud = [
     { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
-    { id: 'deepseek', label: 'DeepSeek', type: 'cloud', available: true }
+    { id: 'kimi', label: 'Kimi', type: 'web', available: true },
+    { id: 'ollama:qwen2.5:7b', label: 'Ollama', type: 'local', available: true }
   ];
-  const p = planLead({ mode: 'local', strategy: 'standard', candidates: cloud });
-  assert.equal(p.lead.agentId, 'deepseek', '离网主导在没有本地模型时取第一个可用云端模型');
-  assert.match(p.lead.reason, /云端模型/);
-  assert.match(p.reason, /本地模型只做裁判/);
+  // 本地主导：本地模型给基准观点并自辩，不需要云端
+  const local = planLead({ mode: 'local', strategy: 'standard', candidates: noCloud });
+  assert.equal(local.lead.agentId, 'ollama:qwen2.5:7b');
+  assert.deepEqual(local.participants, ['ollama:qwen2.5:7b']);
+  // 网页主导：网页给基准观点，本地模型做后续质疑
+  const web = planLead({ mode: 'web', strategy: 'standard', candidates: noCloud });
+  assert.deepEqual(web.openingSpeakers, ['chatgpt', 'kimi']);
+  assert.deepEqual(web.debaters, ['ollama:qwen2.5:7b']);
+  // 混合：网页 + 本地都在第一轮发言
+  const hybrid = planLead({ mode: 'hybrid', strategy: 'standard', candidates: noCloud });
+  assert.deepEqual(hybrid.openingSpeakers, ['chatgpt', 'kimi', 'ollama:qwen2.5:7b']);
+  assert.deepEqual(hybrid.debaters, ['ollama:qwen2.5:7b']);
 });
 
-test('生产形态：没有任何可用 API 模型时，离网主导如实报错，不会把本地模型算进来', () => {
-  // 用户当前环境：3 个网页 + 1 个本地（无 Key 的云端）。本地模型撤出后只剩网页，
-  // 离网主导需要至少一个 API 参与者，应明确报错而不是静默开一场单边辩论。
+test('页面上限：没有本地/云端成员时，网页模式降级为只有第一轮，不报错', () => {
   const webOnly = [
     { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
-    { id: 'openai:gpt-4o-mini', label: 'OpenAI', type: 'cloud', available: false }
+    { id: 'kimi', label: 'Kimi', type: 'web', available: true }
   ];
-  assert.throws(
-    () => planLead({ mode: 'local', strategy: 'standard', candidates: webOnly }),
-    /本地或云端模型/
-  );
+  const p = planLead({ mode: 'web', strategy: 'standard', candidates: webOnly });
+  assert.deepEqual(p.openingSpeakers, ['chatgpt', 'kimi']);
+  assert.deepEqual(p.debaters, []);
+  assert.ok(p.warnings.some(line => /没有可读上下文的本地\/云端成员/.test(line)));
+  // 混合模式同理：两个网页也能开，只是没有交叉质疑。
+  const h = planLead({ mode: 'hybrid', strategy: 'standard', candidates: webOnly });
+  assert.deepEqual(h.openingSpeakers, ['chatgpt', 'kimi']);
+  assert.deepEqual(h.debaters, []);
 });

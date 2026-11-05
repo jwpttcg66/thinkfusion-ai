@@ -281,6 +281,9 @@ export function createMockApi(): AgentApi {
       ],
       providers: [],
       debateCandidates: [
+        { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
+        { id: 'kimi', label: 'Kimi', type: 'web', available: true },
+        { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
         { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', type: 'cloud', available: false, detail: '浏览器预览里没有 API Key' }
       ]
     }),

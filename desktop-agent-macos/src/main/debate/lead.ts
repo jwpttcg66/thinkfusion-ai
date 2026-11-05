@@ -138,10 +138,11 @@ export function planLead(input: LeadInput): LeadPlan {
       warnings.push('只有一个可交锋的模型：后续轮次由同一模型分饰质疑与修正角色，不是两个独立模型的意见');
     }
     const hasLocal = local.length > 0;
-    reason = `本地主导：${api.length} 个${hasLocal ? '本地/云端' : '云端'}模型给出基准观点并做交叉质疑${hasLocal ? '' : '（本地模型只做裁判，不参与辩论）'}，网页通道不参与，提问内容不发送到网页。`;
+    const hasCloud = cloud.length > 0;
+    reason = `本地主导：${api.length} 个${hasLocal && hasCloud ? '本地 / 云端' : hasLocal ? '本地' : '云端'}模型给出基准观点并做交叉质疑，网页通道不参与，提问内容不发送到网页。`;
   } else if (mode === 'web') {
     if (web.length === 0) throw new Error('网页主导需要至少一个可用的网页通道');
-    if (api.length === 0) throw new Error('网页主导还需要至少一个可用的本地或云端模型来做交叉质疑（网页通道看不到其他回答）');
+    if (web.length + api.length < 2) throw new Error('网页主导至少需要两个可用成员');
     openingSpeakers = web.map(item => item.id);
     debaters = api.map(item => item.id);
     participants = [...openingSpeakers, ...debaters];
@@ -156,10 +157,14 @@ export function planLead(input: LeadInput): LeadPlan {
         : `网页主导取第一个可用的网页通道（${pick.label}）作为主辩`,
       drivenBy: 'orchestrator'
     };
-    reason = `网页主导：${web.length} 个网页通道各自独立回答用户原话，它们构成基准观点；${api.length} 个本地/云端模型读取全部观点后交叉质疑与修正。网页成员只收到用户原话，不看别人的回答，也不接收任何指令。`;
+    reason = api.length > 0
+      ? `网页主导：${web.length} 个网页通道各自独立回答用户原话，它们构成基准观点；${api.length} 个本地/云端模型读取全部观点后交叉质疑与修正。网页成员只收到用户原话，不看别人的回答，也不接收任何指令。`
+      : `网页主导：${web.length} 个网页通道各自独立回答用户原话，它们构成基准观点。当前没有可读上下文的本地/云端成员，因此只有第一轮独立回答，没有交叉质疑。`;
     warnings.push('网页通道只在第一轮发言：页面收到的一直是用户原话，无法针对他人观点回应');
+    if (api.length === 0) {
+      warnings.push('没有可读上下文的本地/云端成员：这一场只有第一轮独立回答，网页之间不会互相看到或质疑');
+    }
   } else {
-    if (api.length === 0) throw new Error('混合模式需要至少一个可用的本地或云端模型来做交叉质疑');
     if (all.length < 2) throw new Error('混合模式至少需要两个可用成员');
     openingSpeakers = all.map(item => item.id);
     debaters = api.map(item => item.id);
@@ -172,8 +177,13 @@ export function planLead(input: LeadInput): LeadPlan {
       reason: '混合模式让所有成员在第一轮平等地独立发言，不把任何一方定为主辩',
       drivenBy: 'orchestrator'
     };
-    reason = `混合：${all.length} 个成员（网页 ${web.length}、本地/云端 ${api.length}）都在第一轮独立给出观点，之后由能读上下文的 ${api.length} 个成员交叉质疑。没有单一主导方。`;
+    reason = api.length > 0
+      ? `混合：${all.length} 个成员（网页 ${web.length}、本地/云端 ${api.length}）都在第一轮独立给出观点，之后由能读上下文的 ${api.length} 个成员交叉质疑。没有单一主导方。`
+      : `混合：${all.length} 个网页通道在第一轮独立给出观点，当前没有可读上下文的本地/云端成员，因此没有后续交叉质疑。没有单一主导方。`;
     warnings.push('网页通道只在第一轮发言：页面收到的一直是用户原话，无法针对他人观点回应');
+    if (api.length === 0) {
+      warnings.push('没有可读上下文的本地/云端成员：这一场只有第一轮独立回答，网页之间不会互相看到或质疑');
+    }
   }
 
   return { lead, openingSpeakers, debaters, participants, webOnly, reason, warnings, excluded };
