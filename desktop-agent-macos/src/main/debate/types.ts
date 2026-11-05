@@ -10,10 +10,30 @@ import type { ClaimKind, ClaimSpan, EvidenceKind } from '../../shared/fusion';
 import type { PageCitation } from '../../shared/evidence';
 import type { EvidenceDraft } from '../synthesis/claim-extractor';
 import type { DebateLead, DebateLeadMode, LeadPlan } from './lead';
+import { isStrategy, STRATEGY_PROFILES } from './strategies';
+import type { DebateMetrics } from './metrics';
 
-export type DebateStrategy = 'standard' | 'deep' | 'adversarial';
+/**
+ * 协作策略（任务书 4.2 的六种 + 两个旧名字）。
+ *
+ * 六种是可选值，`standard` / `deep` 只用于读回 0.1.0 的辩论文件。各策略做什么
+ * 见 `strategies.ts`——那里是行为，这里是取值。
+ */
+export type DebateStrategy =
+  | 'truth'
+  | 'adversarial'
+  | 'expert'
+  | 'assumption'
+  | 'solution'
+  | 'discovery'
+  | 'standard'
+  | 'deep';
 export type DebateStatus = 'running' | 'completed' | 'stopped' | 'cancelled';
-export type DebateRole = 'proposer' | 'critic' | 'peer';
+/**
+ * 角色（任务书 5.1 的 `ParticipantRole` 去掉 `judge`——裁判是规则，不是某位成员）。
+ * `critic` 对应任务书的 `challenger`，沿用旧名是为了老文件读得回来。
+ */
+export type DebateRole = 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer';
 export type DebateMessageKind = 'position' | 'question' | 'rebuttal' | 'revision';
 
 /**
@@ -101,6 +121,11 @@ export interface DebateConfig {
   participants: string[];
   /** 观点不再变化时提前停止。 */
   convergenceStop: boolean;
+  /**
+   * 连续两轮没有新增证据、没有实质修订、也没有新争议时停止（Phase 5 的成本
+   * 优化）。默认关闭：它会改变「打满 N 轮」的预期，得由调用方明确选择。
+   */
+  earlyStopOnStall?: boolean;
   /** 谁主导：本地 / 网页 / 混合。老数据没有这个字段，按 hybrid 读。 */
   leadMode?: DebateLeadMode;
   /** 用户指定的主辩。没有指定就由 planLead 按模式挑，并把结果写进 lead。 */
@@ -463,6 +488,11 @@ export interface DebateState {
   /** 整场结论（五档）。裁判没跑或没有可判主张时为 undefined。 */
   verdict?: DebateVerdict;
   /**
+   * 质量指标（Phase 5）。收尾时算一次写进来：可追溯率、无效轮次占比、
+   * 少数派是否完整保留、耗时与调用次数。老文件没有这个字段。
+   */
+  metrics?: DebateMetrics;
+  /**
    * 追加事件流（AC-14）。只追加，不改写；`seq` 单调，`key` 幂等。
    * 老文件没有这个字段，读出来是 undefined——不补空数组冒充「记录过」。
    */
@@ -473,9 +503,14 @@ export interface DebateState {
 }
 
 export const DEFAULT_ROUNDS: Record<DebateStrategy, number> = {
-  standard: 2,
-  deep: 3,
-  adversarial: 3
+  truth: STRATEGY_PROFILES.truth.rounds,
+  adversarial: STRATEGY_PROFILES.adversarial.rounds,
+  expert: STRATEGY_PROFILES.expert.rounds,
+  assumption: STRATEGY_PROFILES.assumption.rounds,
+  solution: STRATEGY_PROFILES.solution.rounds,
+  discovery: STRATEGY_PROFILES.discovery.rounds,
+  standard: STRATEGY_PROFILES.standard.rounds,
+  deep: STRATEGY_PROFILES.deep.rounds
 };
 
 /** 老辩论文件没有主导信息时的兜底：如实说没记录，不假装是混合模式。 */
@@ -499,8 +534,7 @@ export const LEGACY_PLAN: LeadPlan = {
 };
 
 export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined): DebateConfig {
-  const strategies: DebateStrategy[] = ['standard', 'deep', 'adversarial'];
-  const strategy = input?.strategy && strategies.includes(input.strategy) ? input.strategy : 'standard';
+  const strategy = isStrategy(input?.strategy) ? input.strategy : 'truth';
   const participants = Array.isArray(input?.participants)
     ? input.participants.filter((id): id is string => typeof id === 'string')
     : [];
@@ -523,6 +557,7 @@ export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined):
     };
   }
   // 预算同理：不传就没有这个字段，默认值在使用处兜（见 orchestrator 的 budgetOf）。
+  if (input?.earlyStopOnStall === true) normalized.earlyStopOnStall = true;
   if (input?.budget) {
     const budget: DebateBudget = {};
     if (typeof input.budget.stageTimeoutMs === 'number' && input.budget.stageTimeoutMs > 0) {

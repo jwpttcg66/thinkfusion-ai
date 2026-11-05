@@ -6,8 +6,10 @@ import { analyseRound, challengesFor } from './claims';
 import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { judgeDebate } from './judges';
+import { debateMetrics, roundProgress } from './metrics';
 import { applyDecisions, revisionOf } from './revision';
 import { DebateStore } from './store';
+import { orderDisputes, strategyFocus } from './strategies';
 import {
   kindFor,
   normalizeLeadMode,
@@ -261,6 +263,14 @@ export class DebateOrchestrator {
           state.stopReason = '回应里没有新的修订，也没有新的争议';
           break;
         }
+        // 成本优化（Phase 5）：连续两轮什么新东西都没有，再跑下去只是把同样
+        // 的话换个说法。默认关闭——「打满 N 轮」是调用方的预期，由它决定
+        // 要不要为省一次调用改掉这个预期。
+        if (state.config.earlyStopOnStall && stalledTwice(state)) {
+          state.status = 'completed';
+          state.stopReason = '连续两轮没有新增证据或实质修订，提前收尾';
+          break;
+        }
       }
       if (!current()) {
         // resume 之后旧 generation 的 run 必须退出，不能把结论写到新状态上。
@@ -336,6 +346,8 @@ export class DebateOrchestrator {
     state.verdict = run.verdict;
     // 图要带上判断节点，所以结论之后再建一次。
     state.graph = buildGraph(state);
+    // 指标跟着结论一起落盘：它要读的就是最后一轮的证据与修订。
+    state.metrics = debateMetrics(state);
     appendEvent(state, {
       type: 'verdict.recorded',
       key: `verdict:${run.verdict.verdictId}`,
@@ -388,7 +400,10 @@ export class DebateOrchestrator {
     const challenges = index === 0
       ? []
       : challengesFor(
-          (state.disputes ?? []).filter(dispute => dispute.roundIndex === index - 1),
+          orderDisputes(
+            (state.disputes ?? []).filter(dispute => dispute.roundIndex === index - 1),
+            state.config.strategy
+          ),
           state.rounds.at(-1)?.claims ?? []
         );
     // 谁被质疑了哪几句：回应阶段要把决策写回这几条主张。
@@ -525,20 +540,30 @@ function instructions(
         '（依次是 接受质疑 / 有依据地坚持 / 部分修正 / 撤回这条说法 / 现有信息判断不了）。'
     );
   }
+  // 策略在这一轮额外要求做的事：先列前提、给候选方案、找反例……都写在
+  // `strategies.ts` 里，这里只负责拼进去。没有策略差异的轮次它返回空数组。
+  lines.push(...strategyFocus(strategy, kind));
   // 具体冲突排在通用指令后面：模型先知道这一轮要做什么，再看到具体问哪几句。
   if (options.challenges && options.challenges.length > 0 && kind !== 'position') {
     lines.push('这一轮先处理下面几处具体冲突，它们都是上一轮里彼此对不上的两句：');
     lines.push(...options.challenges);
   }
-  if (strategy === 'adversarial') {
-    lines.push(role === 'proposer' ? '你的职责是提出并维护主张。' : '你的职责是检验主张的漏洞。');
-  }
+  const duty = ROLE_DUTY[role];
+  if (duty) lines.push(duty);
   if (lead.mode === 'web' && kind !== 'position') {
     lines.push('这一场以网页通道的独立观点为基准，重点检验它的证据和推理，但不要忽略其他回答里的问题。');
   }
   lines.push('保留有依据的不同意见，不要为了达成一致而放弃它。');
   return lines;
 }
+
+/** 角色说明。`peer` 不写：平等发言时不该硬塞一个立场。 */
+const ROLE_DUTY: Partial<Record<DebateRole, string>> = {
+  proposer: '你的职责是提出并维护主张。',
+  critic: '你的职责是检验主张的漏洞。',
+  domain_expert: '以你所在领域的证据标准发言，并说明这个标准是什么。',
+  evidence_reviewer: '你的职责是核对前提与证据，而不是另起一个结论。'
+};
 
 /** 轮次 → 步骤：第一轮独立表态，第二轮质疑，第三轮之后都是回应。 */
 function phaseFor(index: number): DebatePhase {
@@ -606,6 +631,17 @@ function progressed(revisions: readonly DebateRevision[], disputes: readonly Deb
   return revisions.some(
     revision => revision.decision === 'accept' || revision.decision === 'revise' || revision.decision === 'withdraw'
   );
+}
+
+/**
+ * 最后两轮都没有进展。
+ *
+ * 首轮不算：第一轮本来就没有「新证据」这回事。只看最后两轮，是成本优化
+ * 而不是「一场辩论只要有一轮没进展就停」——中间一轮没进展很正常。
+ */
+function stalledTwice(state: DebateState): boolean {
+  const tail = state.rounds.slice(-2);
+  return tail.length === 2 && tail.every(round => round.index > 0 && roundProgress(state, round).stalled);
 }
 
 /** 限并发地跑一批任务，保持入参顺序。用于「同时问 3 位」这条预算。 */

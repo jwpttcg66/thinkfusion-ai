@@ -535,11 +535,27 @@ export interface JudgeVerdictView {
 
 export type DebateLeadMode = 'local' | 'web' | 'hybrid';
 
+/**
+ * 协作策略（任务书 4.2）。六个可选值 + 两个只用于读旧记录的名字。
+ * 行为在 `main/debate/strategies.ts`，渲染层只需要这个联合类型。
+ */
+export type DebateStrategyId =
+  | 'truth'
+  | 'adversarial'
+  | 'expert'
+  | 'assumption'
+  | 'solution'
+  | 'discovery'
+  | 'standard'
+  | 'deep';
+
 export interface DebateConfigInput {
-  strategy?: 'standard' | 'deep' | 'adversarial';
+  strategy?: DebateStrategyId;
   maxRounds?: number;
   participants?: string[];
   convergenceStop?: boolean;
+  /** 连续两轮没进展就停，默认关闭。 */
+  earlyStopOnStall?: boolean;
   /** 谁主导这一场：本地 / 网页 / 混合。 */
   leadMode?: DebateLeadMode;
   /** 用户指定的主辩；不传由 planLead 按模式挑。 */
@@ -577,13 +593,25 @@ export interface DebateMessageView {
   messageId: string;
   roundIndex: number;
   agentId: string;
-  role: 'proposer' | 'critic' | 'peer';
+  role: 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer';
   kind: 'position' | 'question' | 'rebuttal' | 'revision';
   text: string;
   targetMessageId?: string;
   /** 只有网页成员有；清理网页侧会话靠它。 */
   threadUrl?: string;
   createdAt: number;
+}
+
+/** 一条主张。报告里的「关键主张」读这个。 */
+export interface DebateClaimView {
+  claimId: string;
+  messageId: string;
+  agentId: string;
+  text: string;
+  kind: string;
+  kindCue?: string;
+  assumptions: string[];
+  status: string;
 }
 
 export interface DebateRoundView {
@@ -593,6 +621,69 @@ export interface DebateRoundView {
   endedAt?: number;
   converged: boolean;
   failures: Array<{ agentId: string; detail: string }>;
+  /** 这一轮切出来的主张。老辩论文件没有这个字段。 */
+  claims?: DebateClaimView[];
+}
+
+/** 证据（Phase 3）。界面用它画证据链：来源、地址、可核验程度。 */
+export interface DebateEvidenceView {
+  evidenceId: string;
+  claimIds: string[];
+  kind: string;
+  excerpt: string;
+  url?: string;
+  finalUrl?: string;
+  pageTitle?: string;
+  sourceId: string;
+  roundIndex: number;
+  fetchedAt?: number;
+  fingerprint: string;
+  originKey: string | null;
+  verified: 'page-link' | 'reported' | 'unverified';
+  independent: boolean;
+  duplicateOf?: string;
+  assessment: string;
+}
+
+export interface DebateDisputeView {
+  disputeId: string;
+  roundIndex: number;
+  claimIds: [string, string];
+  agents: [string, string];
+  type: string;
+  reason: string;
+  status: string;
+}
+
+export interface DebateRevisionView {
+  revisionId: string;
+  agentId: string;
+  roundIndex: number;
+  decision: string | null;
+  source: string;
+  reason: string;
+  before: string;
+  after: string;
+}
+
+export interface DebateJudgmentView {
+  claimId: string;
+  claimText: string;
+  agentId: string;
+  verdict: string;
+  rationale: string;
+  dimensions: Array<{ dimension: string; outcome: string; rationale: string }>;
+  evidenceIds: string[];
+}
+
+/** 质量指标（Phase 5）。比率没有分母时是 null，不是 0。 */
+export interface DebateMetricsView {
+  rounds: number;
+  traceability: { judged: number; traceable: number; rate: number | null };
+  invalidRounds: { total: number; invalid: number; rate: number | null };
+  minority: { count: number; preserved: number; rate: number | null };
+  latency: { totalMs: number; averageRoundMs: number | null };
+  calls: { messages: number; failures: number };
 }
 
 /**
@@ -628,10 +719,11 @@ export interface DebateView {
   conversationId?: string;
   question: string;
   config: {
-    strategy: 'standard' | 'deep' | 'adversarial';
+    strategy: DebateStrategyId;
     maxRounds: number;
     participants: string[];
     convergenceStop: boolean;
+    earlyStopOnStall?: boolean;
     leadMode: DebateLeadMode;
     leadAgentId?: string;
   };
@@ -648,6 +740,29 @@ export interface DebateView {
    * 字段直接来自那份文件，不需要第二个接口。
    */
   verdict?: DebateVerdictView;
+  /** 每条主张的三维判断（Phase 4 报告用）。 */
+  judgments?: DebateJudgmentView[];
+  /** 证据链（Phase 4 报告用）。 */
+  evidence?: DebateEvidenceView[];
+  /** 逐轮争议。 */
+  disputes?: DebateDisputeView[];
+  /** 修订记录：观点怎么因为证据变了。 */
+  revisions?: DebateRevisionView[];
+  /** 质量指标（Phase 5）。 */
+  metrics?: DebateMetricsView;
+}
+
+/** 与当前问题相似的历史辩论。只作提示，不会自动跳过或复用结论。 */
+export interface RelatedDebateView {
+  debateId: string;
+  question: string;
+  similarity: number;
+  verdict: DebateVerdictView['verdict'] | null;
+  conclusion: string | null;
+  strategy: DebateStrategyId;
+  status: 'running' | 'completed' | 'stopped' | 'cancelled';
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface UsageSummary {
@@ -718,6 +833,8 @@ export interface AgentApi {
   startDebate(input: { question: string; config: DebateConfigInput; conversationId?: string }): Promise<DebateView>;
   getDebate(debateId: string): Promise<DebateView | null>;
   listDebates(): Promise<DebateView[]>;
+  /** 历史上辩过相似问题的记录（Phase 5）。只读，不改任何状态。 */
+  relatedDebates(input: { question: string; exclude?: string }): Promise<RelatedDebateView[]>;
   stopDebate(debateId: string): Promise<DebateView | null>;
   resumeDebate(debateId: string): Promise<DebateView | null>;
   cleanupDebateWeb(debateId: string): Promise<DebateCleanupOutcome>;

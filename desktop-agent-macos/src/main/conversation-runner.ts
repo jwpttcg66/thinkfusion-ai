@@ -64,6 +64,8 @@ export interface ConversationDeps {
     seeds: Array<{ label: string; text: string }>;
     debaters: string[];
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud' };
+    /** 这一场用哪种协作策略；不传由调用方按默认（真理发现）处理。 */
+    debateStrategy?: ConversationExecutionConfig['debateStrategy'];
   }) => Promise<{
     debateId: string;
     rounds: Array<{
@@ -746,7 +748,8 @@ export class ConversationRunner {
           topics,
           seeds: answers.map(answer => ({ label: answer.label, text: answer.text })),
           debaters,
-          lead: { agentId: lead.agentId, label, kind: lead.kind }
+          lead: { agentId: lead.agentId, label, kind: lead.kind },
+          debateStrategy: config.debateStrategy
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

@@ -291,7 +291,24 @@ export interface ConversationExecutionConfig {
   privacyMode: PrivacyMode;
   /** 协作策略，Phase F 才用；这里先留位置，避免到时候再改一次持久化结构。 */
   strategy?: 'smart' | 'parallel' | 'all-selected' | 'sequential';
+  /**
+   * 会话内辩论用哪种协作策略（任务书 4.2）。
+   *
+   * 与上面的 `strategy` 是两件事：那个决定「这一轮怎么调度子任务」，这个决定
+   * 「辩手怎么辩」。和 `executionMode` 也相互独立：执行模式回答在哪执行，
+   * 策略回答怎么协作，四种执行模式都能配六种策略里的任意一种。
+   */
+  debateStrategy?: DebateStrategyChoice;
 }
+
+/** 六种可选策略。旧名字（standard/deep）不接受新配置，只用于读旧记录。 */
+export type DebateStrategyChoice =
+  | 'truth'
+  | 'adversarial'
+  | 'expert'
+  | 'assumption'
+  | 'solution'
+  | 'discovery';
 
 /**
  * 老会话 / 缺省配置的唯一入口。
@@ -348,5 +365,11 @@ export function normalizeExecutionConfig(
   if (localModels) result.selectedLocalModels = localModels;
   if (cloudModels) result.selectedCloudModels = cloudModels;
   if (input?.strategy) result.strategy = input.strategy;
+  const debateStrategies: DebateStrategyChoice[] = [
+    'truth', 'adversarial', 'expert', 'assumption', 'solution', 'discovery'
+  ];
+  if (input?.debateStrategy && debateStrategies.includes(input.debateStrategy)) {
+    result.debateStrategy = input.debateStrategy;
+  }
   return result;
 }

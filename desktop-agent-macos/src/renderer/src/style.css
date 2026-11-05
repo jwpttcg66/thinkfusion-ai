@@ -2759,3 +2759,26 @@ button:disabled {
 .research-cloud .research-row { margin: 6px 0; }
 .research-cloud .research-row > span:first-child { min-width: 56px; }
 .research-tag.ok { background: #e7f6ec; color: #1d6b39; }
+
+/* 六种协作策略：三列两行，每张卡片带一句「改了什么」，不只是一个名字。 */
+.research-strategies { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 10px; }
+.research-strategies .research-mode { min-height: 74px; }
+.research-related { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.research-related .muted { font-size: 11px; }
+
+/* 结论横幅：五档各有各的颜色，不靠一个「成功/失败」二元判断。
+   「证据不足」用灰蓝而不是红：它不是错，是没判出来。 */
+.verdict-banner { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin: 6px 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface, #fff); }
+.verdict-banner b { font-size: 13px; }
+.verdict-banner span { font-size: 12px; line-height: 1.5; }
+.verdict-supported { border-color: #9ed3ae; background: #f2fbf5; }
+.verdict-partially_supported { border-color: #e6d08a; background: #fdf9ec; }
+.verdict-unsupported { border-color: #e0b0ab; background: #fdf3f2; }
+.verdict-contradicted { border-color: #d99b94; background: #fbeceb; }
+.verdict-insufficient_evidence { border-color: #b9c3d6; background: #f4f6fa; }
+.verdict-dimensions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 12px; }
+.verdict-dimension { display: flex; flex-direction: column; gap: 3px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.verdict-dimension b { font-size: 11px; }
+.verdict-dimension span { font-size: 11px; line-height: 1.45; color: var(--muted, #777); }
+.debate-report h3 { margin: 16px 0 6px; }
+.debate-report a { color: var(--accent, #4f6bed); word-break: break-all; }

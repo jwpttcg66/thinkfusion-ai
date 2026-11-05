@@ -19,6 +19,7 @@
  * 而不是藏在 orchestrator 的某个 if 中，界面才能照实显示。
  */
 import type { DebateMessageKind, DebateRole, DebateStrategy } from './types';
+import { strategyProfile } from './strategies';
 
 export type DebateLeadMode = 'local' | 'web' | 'hybrid';
 
@@ -200,8 +201,10 @@ export function kindFor(roundIndex: number): DebateMessageKind {
 }
 
 /**
- * 角色按「主辩是谁」决定，不再靠数组下标隐式指定。
- * 只有 adversarial 才给正反方；standard/deep 一律 peer，避免假装分了工。
+ * 角色由策略决定（见 `strategies.ts` 的 `roles`），不再靠数组下标隐式指定。
+ *
+ * 只有需要正反分工的策略（对抗、方案竞争）才在没有主辩时把第一位发言者
+ * 记成主张方；其余策略一律按 profile 给，宁可不分工，也不假装分了工。
  */
 export function roleFor(
   plan: LeadPlan,
@@ -209,11 +212,13 @@ export function roleFor(
   roundIndex: number,
   strategy: DebateStrategy
 ): DebateRole {
-  if (plan.lead.agentId === agentId) return 'proposer';
-  if (strategy !== 'adversarial') return 'peer';
-  const debaters = roundIndex === 0 ? plan.openingSpeakers : plan.debaters;
-  const first = debaters[0];
-  return agentId === first ? 'proposer' : 'critic';
+  const profile = strategyProfile(strategy);
+  if (plan.lead.agentId === agentId) return profile.roles.lead;
+  if (profile.roles.other === 'critic') {
+    const speakers = roundIndex === 0 ? plan.openingSpeakers : plan.debaters;
+    return agentId === speakers[0] ? profile.roles.lead : 'critic';
+  }
+  return profile.roles.other;
 }
 
 export function leadModeLabel(mode: DebateLeadMode): string {

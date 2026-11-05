@@ -39,6 +39,7 @@ import { selectParticipants } from './execution/policy';
 import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
+import { relatedDebates } from './debate/history';
 import { normalizeDebateConfig } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate } from './debate/lead';
 import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset, type CloudPreset } from './providers/cloud-presets';
@@ -1699,6 +1700,20 @@ function registerIpc() {
     return debates?.list() ?? [];
   });
 
+  /**
+   * 相似的历史辩论（Phase 5）。只读：界面拿它提示「这个问题以前辩过」，
+   * 要不要复用由人决定。自动跳过会把「旧结论」当成「新结论」。
+   */
+  ipcMain.handle('debate:related', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!debates || !raw || typeof raw !== 'object') return [];
+    const input = raw as { question?: unknown; exclude?: unknown };
+    if (typeof input.question !== 'string' || !input.question.trim()) return [];
+    return relatedDebates(debates.list(), input.question, {
+      exclude: typeof input.exclude === 'string' ? input.exclude : undefined
+    });
+  });
+
   ipcMain.handle('debate:stop', (event, id: unknown) => {
     trustedUiSender(event);
     if (!debates || typeof id !== 'string') throw new Error('无效输入');
@@ -2064,7 +2079,8 @@ app.whenReady().then(async () => {
       const state = debates.start(
         input.question,
         {
-          strategy: 'standard',
+          // 会话里这一场用哪种策略，由研究设置里选的来；没选过就是真理发现。
+          strategy: input.debateStrategy ?? 'truth',
           // 三步各一轮：独立表态 → 质疑 → 回应修订。两轮的话「回应」那一轮
           // 根本不存在，AC-06 要求的决策就永远记不到；多出的一轮只在真有两位
           // 可用辩手时才发生。

@@ -37,6 +37,7 @@ const api: AgentApi = {
   startDebate: (input: { question: string; config: unknown; conversationId?: string }) => ipcRenderer.invoke('debate:start', input),
   getDebate: (debateId: string) => ipcRenderer.invoke('debate:get', debateId),
   listDebates: () => ipcRenderer.invoke('debate:list'),
+  relatedDebates: (input: { question: string; exclude?: string }) => ipcRenderer.invoke('debate:related', input),
   stopDebate: (debateId: string) => ipcRenderer.invoke('debate:stop', debateId),
   resumeDebate: (debateId: string) => ipcRenderer.invoke('debate:resume', debateId),
   cleanupDebateWeb: (debateId: string) => ipcRenderer.invoke('debate:cleanup-web', debateId),

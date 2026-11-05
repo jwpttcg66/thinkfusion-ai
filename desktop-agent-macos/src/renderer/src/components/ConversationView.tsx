@@ -8,6 +8,7 @@ import {
   type Synthesis
 } from '../../../shared/conversation';
 import { splitSummarySections } from '../../../shared/text';
+import type { DebateView } from '../../../shared/contracts';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -493,6 +494,8 @@ function SynthesisCard({
         </p>
       )}
 
+      {synthesis.fusion?.debateId && <DebateVerdictStrip debateId={synthesis.fusion.debateId} />}
+
       {structured && synthesis.overlap && synthesis.overlap.length > 0 && (
         <p className="synthesis-overlap">
           <span className="synthesis-overlap-label">共同提到</span>
@@ -603,4 +606,75 @@ const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string>
   'local-model': '本地模型（读完各家回答后归纳）',
   remote: '远程模型 API',
   web: '网页模型主导（读完全部回答后评判）'
+};
+
+/**
+ * 这一轮辩论的五档结论（Phase 4 的「结果展示」）。
+ *
+ * 只显示**能复核**的东西：结论档位、三维各自的判断、可追溯率与少数派。
+ * 完整的证据链与修订记录在「研究设置 → 辩论」里，这里不把整份报告塞进
+ * 对话流——对话要能读，不是要能查。
+ *
+ * 读不到辩论（记录被删、文件损坏）就整块不显示：综合卡本身仍然成立，
+ * 不该为了一个附加块让整轮回答看起来失败了。
+ */
+function DebateVerdictStrip({ debateId }: { debateId: string }) {
+  const [debate, setDebate] = useState<DebateView | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const next = await window.agentAPI.getDebate(debateId);
+        if (alive) setDebate(next);
+      } catch {
+        if (alive) setDebate(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [debateId]);
+
+  if (!debate?.verdict) return null;
+  const verdict = debate.verdict;
+  const metrics = debate.metrics;
+
+  return (
+    <div className="conversation-verdict">
+      <div className={`verdict-banner verdict-${verdict.verdict}`}>
+        <b>{VERDICT_LABEL[verdict.verdict] ?? verdict.verdict} · 辩后裁判</b>
+        <span>{verdict.conclusion ?? '没有可判定的结论'}</span>
+        {verdict.minorityWins && <span>少数派胜出：{verdict.minorityReason ?? '它的证据比多数派更强'}</span>}
+      </div>
+      <div className="verdict-dimensions">
+        {verdict.dimensions.map(dimension => (
+          <div key={dimension.dimension} className="verdict-dimension">
+            <b>{DIMENSION_LABEL[dimension.dimension] ?? dimension.dimension} · {dimension.outcome}</b>
+            <span>{dimension.rationale}</span>
+          </div>
+        ))}
+      </div>
+      {metrics && (
+        <p className="muted">
+          证据可追溯 {metrics.traceability.rate === null ? '无法计算' : `${Math.round(metrics.traceability.rate * 100)}%`}
+          （{metrics.traceability.traceable}/{metrics.traceability.judged} 条主张有页面来源）
+          {' · '}无效轮次 {metrics.invalidRounds.invalid}/{metrics.invalidRounds.total}
+          {' · '}{metrics.rounds} 轮 / {Math.round(metrics.latency.totalMs / 1000)} 秒
+        </p>
+      )}
+    </div>
+  );
+}
+
+const VERDICT_LABEL: Record<string, string> = {
+  supported: '有证据支持',
+  partially_supported: '部分支持',
+  unsupported: '不成立',
+  contradicted: '被反证推翻',
+  insufficient_evidence: '证据不足（不等于错）'
+};
+
+const DIMENSION_LABEL: Record<string, string> = {
+  logic: '逻辑',
+  evidence: '证据',
+  counterexample: '反例'
 };
