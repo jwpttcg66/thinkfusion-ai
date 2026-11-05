@@ -74,7 +74,8 @@
     "test:debate-metrics": "npm run build:test && node --test scripts/check-debate-metrics.mjs",
     "test:debate-eval": "npm run build:test && node --test scripts/check-debate-eval.mjs",
     "report:debate-eval": "npm run build:test && TF_REPORT=1 node --test scripts/check-debate-eval.mjs",
-    "test:debate-prompts": "npm run build:test && node --test scripts/check-debate-prompts.mjs"
+    "test:debate-prompts": "npm run build:test && node --test scripts/check-debate-prompts.mjs",
+    "quality:debate": "npm run build:test && TF_REPORT=1 node --test scripts/check-debate-eval.mjs"
   },
   "dependencies": {
     "zod": "3.25.76",

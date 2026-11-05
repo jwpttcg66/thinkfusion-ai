@@ -34,9 +34,51 @@ import type {
  * - 什么都没有 → 证据不足。这不是「错」，是「判不了」。
  */
 
-const ABSOLUTE = /(一定|必然|绝对|肯定|毫无疑问|显然|从来|永远|所有|任何|必然)/;
+/**
+ * 绝对化措辞分两类，别混在一起判。
+ *
+ * - `CERTAINTY` 是**认识性强断言**（绝对、肯定、从来……）：说话人声称确定无疑，
+ *   没有成立条件时确实该提示「推理不够严谨」。
+ * - `UNIVERSAL` 是**全称量词**（所有、任何）：中文里它经常只是合法的量化范围，
+ *   例如「所有 HTTP/1.1 请求都必须带 Host 头」是协议规范陈述，不是过度概括。
+ *   真机跑出来过一个更隐蔽的误伤：「任何情况下都不应该关闭校验」被判 questionable。
+ *   所以规范/定义/义务句里的全称量词豁免，其余（「任何版本都可以」）照旧标记。
+ */
+const CERTAINTY = /(一定|必然|绝对|肯定|毫无疑问|显然|从来|永远)/;
+const UNIVERSAL = /(所有|任何|全部|每一个)/;
+/** 规范、定义、义务、要求：这类句子里的「所有/任何」是在划定适用范围。 */
+const NORMATIVE = /(必须|应当|应该|不得|不允许|规定|标准|规范|定义为|是指|指的是|一律|均需|都要求|按要求)/;
+/**
+ * 含「一定」但不是强断言的固定搭配。真机跑出来「WAL 模式在一定程度上提高
+ * 并发读取性能」被判 questionable——「一定」来自「在一定程度上」，恰恰是
+ * 在**限定**程度，与绝对化的意思相反。判强断言前先剔除这些短语。
+ */
+const NOT_CERTAINTY = /(在一定程度上|一定程度|一定条件|一定范围|一定程度上)/g;
 const REASONING = /(因为|由于|所以|因此|据此|由此可见|说明|意味着|得出|由此)/;
 const CONDITION = /(如果|假如|若|当|仅在|只有在|取决于|前提|条件是|适用范围)/;
+
+/**
+ * 空洞推理：有连接词不等于有依据。
+ *
+ * 原来 `REASONING` 一命中就认为「推理链有依据」，于是「因为大家都这么说」
+ * 「因为它是可靠的」这类句子全部判 valid。规则读不懂推理，但**读得出空话**：
+ * 诉诸众人有固定说法，循环论证则是把结论换个说法当理由。
+ */
+const APPEAL = /(大家都|众所周知|人人都|普遍认为|一般来说|一般认为|据说|听说|按理说|向来如此|一直如此|反正)/;
+
+/**
+ * 版本线索：只认**明确标注为版本**的数字。
+ *
+ * 吃过一次假阳性：主张「所有 HTTP/1.1 请求都必须带 Host 头」里的 1.1 是协议
+ * 版本，来源标题「RFC 7230 Section 5.4」里的 5.4 是章节号，两边比对后被判成
+ * 「版本对不上」。裸小数一律不算；要有 `v` 前缀、`版本/version` 字样，或中文
+ * 版本语境（在 7.0 里 / 6.0 之前）才认。
+ */
+const VERSION_TOKEN =
+  /(?:^|[^A-Za-z0-9.])(?:v|V|版本\s*|version\s*)(\d+\.\d+(?:\.\d+)?)|(?:在|自|从)\s*(\d+\.\d+(?:\.\d+)?)\s*(?:里|中|之前|之后|起|开始|版本)|(?:^|[^\d.])(\d+\.\d+(?:\.\d+)?)\s*(?:之前|之后|以前|以后)/gu;
+/** 标题里明说这是旧材料。注意不能用 fetchedAt：那是抓取时间，不是发布时间。 */
+const STALE_TITLE = /(归档|存档|旧版|历史版本|已废弃|已过时|deprecated|legacy|archived)/i;
+const CURRENT_WORDING = /(当前|最新|现在|目前|现版本)/;
 
 /**
  * 判「前后矛盾」的阈值：去掉否定词后两句话的相似度。
@@ -160,10 +202,18 @@ export function judgeLogic(claim: DebateClaim, selfContradictory = false): Dimen
     };
   }
 
+  const hollow = hollowReason(claim.text);
+  // 「在一定程度上」里的「一定」不是强断言，判措辞前先剔除固定搭配。
+  const wording = claim.text.replace(NOT_CERTAINTY, '');
   if (claim.kind === 'inference' && claim.assumptions.length === 0 && !REASONING.test(claim.text)) {
     signals.push('推断句没有给出依据');
   }
-  if (ABSOLUTE.test(claim.text) && claim.assumptions.length === 0 && !CONDITION.test(claim.text)) {
+  // 连接词只是「看起来像在推理」。理由本身是诉诸众人或同义反复时，照样算没有依据。
+  if (hollow) signals.push(hollow);
+  const overclaim =
+    CERTAINTY.test(wording) ||
+    (UNIVERSAL.test(wording) && !NORMATIVE.test(wording));
+  if (overclaim && claim.assumptions.length === 0 && !CONDITION.test(claim.text)) {
     signals.push('绝对化措辞，没有写出成立条件');
   }
   if (claim.kind === 'prediction') signals.push('对未来结果的预测，当前无法验证');
@@ -294,6 +344,17 @@ export function judgeEvidence(
       outcome: 'partial',
       rationale: '链接都指向同一份材料，只能算一个来源，独立性不足',
       signals,
+      evidenceIds: ids,
+      sourceRefs: refs
+    };
+  }
+  const scopeMismatch = evidenceScopeMismatch(claim, links);
+  if (scopeMismatch) {
+    return {
+      dimension: 'evidence',
+      outcome: 'partial',
+      rationale: scopeMismatch,
+      signals: [...signals, scopeMismatch],
       evidenceIds: ids,
       sourceRefs: refs
     };
@@ -763,8 +824,92 @@ function stripNegation(text: string): string {
   return text.replace(/[不没未无非别]/g, '');
 }
 
-/** 证据与主张的相关性：引用片段出现在这句话里就是直接相关。 */
+/**
+ * 「因为」后面那一截是不是空话。
+ *
+ * 只认两类能指着字面复核的：
+ *
+ * 1. 诉诸众人（大家都这么说 / 众所周知 / 据说）——理由是别人的意见，不是依据；
+ * 2. 循环论证——把结论换个说法当理由。判据是连接词两边**用字**重合度 ≥ 0.45
+ *    且理由不比结论长多少。bigram 在这里不管用：「它很可靠」与「它是可靠的」
+ *    只共享一个 bigram（0.167），但谁都看得出那是同义反复。
+ *    「因为命令执行是单线程的，所以并发写入会互相阻塞」用字重合约 0.1，放行。
+ *
+ * 读不懂的推理一律放行：规则版宁可漏判，也不凭一个「因为」就宣布推理成立
+ * 或倒过来随便扣分。
+ */
+function hollowReason(text: string): string | null {
+  const match = text.match(/^(.{2,}?)(?:因为|由于|所以|因此|据此|由此可见)(.{2,}?)[。！？!?]?$/u);
+  if (!match) return null;
+  const [, head, tail] = match;
+  if (APPEAL.test(tail) || APPEAL.test(head)) return '理由只是「大家都这么说」一类说法，没有给出依据';
+  const a = stripNegation(head).replace(/[，,。；;：:、\s]/gu, '');
+  const b = stripNegation(tail).replace(/[，,。；;：:、\s]/gu, '');
+  if (a.length < 4 || b.length < 4 || b.length > a.length + 4) return null;
+  if (characterOverlap(a, b) >= 0.45) return '理由只是把结论换个说法（循环论证），没有给出依据';
+  return null;
+}
+
+/** 两段中文用字的 Jaccard 重合度（去重后比集合，词序不敏感）。 */
+function characterOverlap(a: string, b: string): number {
+  const left = new Set([...a]);
+  const right = new Set([...b]);
+  let shared = 0;
+  for (const char of left) if (right.has(char)) shared += 1;
+  const union = left.size + right.size - shared;
+  return union > 0 ? shared / union : 0;
+}
+
+/**
+ * 版本/时效性冲突（任务书 7.3）。
+ *
+ * 只在**两边都写明了版本**且对不上时才提示：主张说「在 7.0 里」，来源标题是
+ * 「v1.0 手册（已归档）」，这条材料不能直接支撑这句结论。没写版本就不猜——
+ * `fetchedAt` 是我们读到的时间，不是文档的发布时间，拿它判断「过期」是编的。
+ *
+ * 返回人话理由，供证据维度写进 rationale；没有冲突返回 null。
+ */
+function evidenceScopeMismatch(claim: DebateClaim, links: readonly DebateEvidence[]): string | null {
+  const scope = `${claim.text} ${(claim.assumptions ?? []).join(' ')}`;
+  const claimVersions = versionsIn(scope);
+  for (const item of links) {
+    const title = item.pageTitle ?? '';
+    // 只认标题里写明的版本。引文片段里提到「6.0 之前」不代表这份材料是 6.0
+    // 的文档——把 excerpt 也算进来会让「引文里恰好有主张版本」抵消掉真冲突。
+    const sourceVersions = versionsIn(title);
+    if (
+      claimVersions.length > 0 && sourceVersions.length > 0 &&
+      !claimVersions.some(version => sourceVersions.includes(version))
+    ) {
+      return `主张讨论的是 ${claimVersions.join('、')}，来源标注的却是 ${sourceVersions.join('、')}：版本对不上，需要同版本材料`;
+    }
+    if (STALE_TITLE.test(title) && CURRENT_WORDING.test(scope)) {
+      return '来源标题写明是归档/旧版材料，主张问的是当前版本，时效性不足';
+    }
+  }
+  return null;
+}
+
+/** 抽出文本里明确写成的版本号：`v7.0` / `版本 4.1.50` / `在 6.0 之前`。 */
+function versionsIn(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(VERSION_TOKEN)) {
+    const version = match[1] ?? match[2] ?? match[3];
+    if (version) found.push(version);
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * 证据与主张的相关性：引用片段出现在这句话里就是直接相关。
+ *
+ * 例外是页面气泡里 1:1 唯一关联的引用（`soleAttribution`）。网页引用常画成
+ * 上标或 chip，锚文字（「RFC 7230」「参考」）不会原文出现在主张里；这时关联
+ * 是页面给出的，再用字面重合否掉它，等于把网页通道的引用全判成不相关。
+ * 内容是否真的支持该句仍需人读——`assessment` 里写明了。
+ */
 function relevanceOf(evidence: DebateEvidence, claimText: string): number {
+  if (evidence.soleAttribution) return 1;
   const excerpt = evidence.excerpt.trim();
   if (!excerpt) return 0;
   if (claimText.includes(excerpt)) return 1;

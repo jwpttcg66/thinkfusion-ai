@@ -1,14 +1,15 @@
 /**
  * 标注集评测（任务书 14.3 / Phase 5）。
  *
- * 这里只做「拿标签和实际结果比一比」，不产生标签。标签文件是
- * `scripts/fixtures/debate-labels.json`，每条都写着 `labelSource`：
- * `seed` 是本仓库自带的示例标注，**未经人工复核**；`human` 才是人写的。
- * 报告里两种分开算，不把示例标注的准确率说成人工基准。
+ * 这里只做「拿标签和实际结果比一比」，不产生标签。标签在
+ * `scripts/fixtures/debate-labels.mjs`，每条都写着 `labelSource` 与 `basis`：
  *
- * 事实准确率、错误前提纠正率、校准度这三项只能在这里算，因为它们都需要
- * 一个「正确答案」。前两项用标签；校准度需要结论带置信度——目前五档结论
- * 不带置信度，所以这一项是**不适用**，不是 0。
+ * - `rule`：期望值由任务书条款 / AC 推出，复核方式是读条款；
+ * - `seed`：本仓库自带的示例标签，**未经人工复核**；
+ * - `human`：人逐条标注的，当前一条都没有。
+ *
+ * 三类分开算。报告里写的是「与规则基准 / 示例标签的一致程度」，不是事实
+ * 准确率。校准度需要结论带置信度——五档结论没有，所以是**不适用**，不是 0。
  */
 import type { DebateState, Verdict } from './types';
 
@@ -25,8 +26,12 @@ export interface LabeledCase {
   forbidAnyOf?: string[];
   /** 问题本身带错误前提：这一条同时计入「错误前提纠正率」。 */
   wrongPremise?: boolean;
-  /** 标签从哪来。 */
-  labelSource: 'seed' | 'human';
+  /** 标签从哪来。当前没有 human，报告里不许出现人工准确率。 */
+  labelSource: 'rule' | 'seed' | 'human';
+  /** 凭什么期望这个档位：任务书条款或可复核的事实，不是照抄系统输出。 */
+  basis: string;
+  /** 场景标题，报告里给人读。 */
+  title?: string;
   note?: string;
 }
 
@@ -46,7 +51,8 @@ export interface EvalReport {
   passed: number;
   /** 通过率；没有用例时为 null，不是 0。 */
   accuracy: number | null;
-  /** 只看 seed 标签的那一份。 */
+  /** 三类标签分开算，不合并成一个「准确率」。 */
+  rule: { total: number; passed: number; accuracy: number | null };
   seed: { total: number; passed: number; accuracy: number | null };
   human: { total: number; passed: number; accuracy: number | null };
   /** 问题带错误前提的用例中，纠正了的比例。 */
@@ -146,6 +152,7 @@ export function evaluateCases(
     total: outcomes.length,
     passed,
     accuracy: rate(passed, outcomes.length),
+    rule: group('rule'),
     seed: group('seed'),
     human: group('human'),
     premiseCorrection: {

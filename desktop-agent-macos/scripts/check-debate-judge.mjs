@@ -546,3 +546,98 @@ test('每条主张都推理不成立时，整场才是「不成立」', () => {
   const run = judgeDebate(stateOf([flipA, flipB], []));
   assert.equal(run.verdict.verdict, 'unsupported');
 });
+
+// ---------------------------------------------------------------------------
+// 质量诊断里发现的判据缺陷：每一条都先复现过误判，再修
+// ---------------------------------------------------------------------------
+
+test('规范陈述里的全称量词不是「绝对化断言」', () => {
+  for (const text of [
+    '所有 HTTP/1.1 请求都必须带 Host 头。',
+    '任何情况下都不应该在生产环境关闭校验。',
+    '所有请求一律要求带签名。'
+  ]) {
+    const run = judgeDebate(stateOf([claim('a', text, { messageId: `m-${text.length}` })], []));
+    assert.equal(logicOutcome(run.judgments[0]), 'valid', `规范句被误伤：${text}`);
+  }
+  // 没有规范标记的全称概括照旧提示，别把判据放宽成什么都不管。
+  const overclaim = judgeDebate(stateOf([claim('b', '这个库支持并发写入，任何版本都可以。')], []));
+  assert.equal(logicOutcome(overclaim.judgments[0]), 'questionable');
+});
+
+test('「因为」不等于有依据：诉诸众人与循环论证都要抓', () => {
+  const hollow = [
+    '这个库支持并发写入，因为大家都这么说。',
+    '它很可靠，因为它是可靠的。',
+    '这个方案没问题，因为众所周知它没问题。'
+  ];
+  for (const [index, text] of hollow.entries()) {
+    const run = judgeDebate(stateOf([claim('a', text, { messageId: `m-h${index}`, kind: 'inference' })], []));
+    assert.equal(logicOutcome(run.judgments[0]), 'questionable', `空洞理由没抓住：${text}`);
+    // combine 里「证据不足」优先于逻辑瑕疵，所以要看逻辑维度自己的理由。
+    assert.match(dimension(run.judgments[0], 'logic').rationale, /大家都这么说|循环论证/);
+  }
+  // 真推理链不能误伤（TF-D-013 靠这条）。
+  const real = judgeDebate(stateOf([
+    claim('b', '因为命令执行是单线程的，所以并发写入会互相阻塞。', { messageId: 'm-real', kind: 'inference' })
+  ], []));
+  assert.equal(logicOutcome(real.judgments[0]), 'valid');
+});
+
+test('版本对不上：归档的 v1.0 材料不能撑起「7.0 里」的主张', () => {
+  const fresh = claim('a', '在 7.0 里默认值改成了 2048。', { assumptions: ['在 7.0 里'] });
+  const old = evidence('ev-old', [fresh.claimId], {
+    excerpt: '默认值改成了 2048',
+    pageTitle: 'v1.0 配置手册（已归档）',
+    fetchedAt: Date.UTC(2018, 0, 1)
+  });
+  const run = judgeDebate(stateOf([fresh], [old]));
+  assert.equal(dimension(run.judgments[0], 'evidence').outcome, 'partial');
+  assert.match(run.judgments[0].rationale, /版本对不上|时效性/);
+  assert.equal(run.verdict.verdict, 'partially_supported', '不能判成有充分证据支持');
+});
+
+test('标题写明归档、主张问当前版本，也要判时效性不足', () => {
+  const fresh = claim('a', '当前版本的默认值是 2048。');
+  const old = evidence('ev-arch', [fresh.claimId], {
+    excerpt: '默认值是 2048', pageTitle: '旧版配置手册（归档）'
+  });
+  assert.match(judgeDebate(stateOf([fresh], [old])).judgments[0].rationale, /时效性|归档/);
+});
+
+test('引文里恰好出现主张版本，不算「来源版本匹配」', () => {
+  const fresh = claim('a', '在 7.0 里默认值改成了 2048。', { assumptions: ['在 7.0 里'] });
+  const mismatched = evidence('ev-mix', [fresh.claimId], {
+    excerpt: '在 7.0 里默认值改成了 2048', pageTitle: 'v2.0 手册'
+  });
+  assert.equal(dimension(judgeDebate(stateOf([fresh], [mismatched])).judgments[0], 'evidence').outcome, 'partial');
+});
+
+test('没写版本就不猜：不拿抓取时间当发布时间', () => {
+  const plain = claim('a', '官方 release notes 写明了这个行为。');
+  const oldButUnmarked = evidence('ev-old2', [plain.claimId], {
+    excerpt: 'release notes', pageTitle: 'Release notes', fetchedAt: Date.UTC(2015, 0, 1)
+  });
+  assert.equal(dimension(judgeDebate(stateOf([plain], [oldButUnmarked])).judgments[0], 'evidence').outcome, 'sufficient');
+});
+
+test('协议版本与 RFC 章节号不是「版本冲突」', () => {
+  const spec = claim('a', '所有 HTTP/1.1 请求都必须带 Host 头。');
+  const rfc = evidence('ev-rfc', [spec.claimId], {
+    excerpt: 'RFC 7230', pageTitle: 'RFC 7230 Section 5.4',
+    url: 'https://www.rfc-editor.org/rfc/rfc7230',
+    soleAttribution: true
+  });
+  const run = judgeDebate(stateOf([spec], [rfc]));
+  assert.equal(dimension(run.judgments[0], 'evidence').outcome, 'sufficient');
+  assert.equal(run.judgments[0].verdict, 'supported');
+});
+
+test('「在一定程度上」不是绝对化断言', () => {
+  const text = 'WAL 模式在一定程度上可以提高并发读取性能。';
+  const run = judgeDebate(stateOf([claim('a', text, { messageId: 'm-degree' })], []));
+  assert.equal(logicOutcome(run.judgments[0]), 'valid', '限定程度的措辞不该被当成强断言');
+  // 真正的强断言照旧标记。
+  const strong = judgeDebate(stateOf([claim('b', 'WAL 模式一定可以解决所有并发写入问题。', { messageId: 'm-strong' })], []));
+  assert.equal(logicOutcome(strong.judgments[0]), 'questionable');
+});

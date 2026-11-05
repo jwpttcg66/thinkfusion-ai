@@ -1,13 +1,19 @@
 /**
- * Phase 5：标注集评测 + 指标报告。
+ * 辩论质量门槛 + 基准集评测（任务书 §14 / Phase 5）。
  *
  * 跑法：
- *   npm run test:debate-eval            # 只跑，报告写 out-test/
- *   npm run report:debate-eval          # 跑完把报告写到 docs/reports/DEBATE_METRICS.md
+ *   npm run quality:debate              # 达标检查 + 报告写 docs/reports/
+ *   npm run test:debate-eval            # 同上，但报告只写 out-test/
  *
- * 这一组用**回放**跑完整的辩论链路（与 AC-15 同一套做法），然后用标注集算
- * 三项需要「正确答案」的指标：事实准确率（本仓库只有示例标签）、错误前提
- * 纠正率、以及可追溯率。校准度算不了——结论不带置信度，报告里写明原因。
+ * 两个层次，别混：
+ * 1. **硬门槛**（`quality.ts`）：从落盘数据能算出来的十一项布尔检查，任何一项
+ *    不过就 exit 1。它们与模型措辞无关，是「结论可信」的底线。
+ * 2. **基准集一致程度**（`eval.ts`）：13 条固定回放，标签分 `rule`（任务书
+ *    条款推出）/ `seed`（示例）/ `human`（当前 0 条）。这个数字只能读成
+ *    「与规则基准一致」，**不是事实准确率**。
+ *
+ * 回放而不是真跑模型：同样的问题模型每次说的话都不一样，断言「模型说了 X」
+ * 的用例第二天就会红，而且红得没有意义。这里守的是链路与判据不回退。
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,15 +23,16 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { evaluateCases } from '../out-test/main/debate/eval.js';
 import { debateMetrics, summarizeMetrics } from '../out-test/main/debate/metrics.js';
+import { assessAll, NOT_MEASURABLE, VERDICT_LABEL } from '../out-test/main/debate/quality.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
 import { DebateStore } from '../out-test/main/debate/store.js';
 import { LABELED_CASES } from './fixtures/debate-labels.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
-const REPORT_DIR = process.env.TF_REPORT === '1'
-  ? path.resolve(ROOT, '..', 'docs', 'reports')
-  : path.resolve(ROOT, 'out-test');
+const REPORT = process.env.TF_REPORT === '1'
+  ? path.resolve(ROOT, '..', 'docs', 'reports', 'DEBATE_QUALITY.md')
+  : path.resolve(ROOT, 'out-test', 'DEBATE_QUALITY.md');
 
 /** 回放一场：第 i 轮用 `rounds[i]` 里录好的话，引用链接按用例给。 */
 async function replay(item) {
@@ -40,9 +47,7 @@ async function replay(item) {
     if (typeof text !== 'string') throw new Error(`${item.id}：${agentId} 第 ${index + 1} 轮没有录好的发言`);
     const citations = item.citations?.[agentId];
     return {
-      agentId,
-      text,
-      receivedAt: Date.now(),
+      agentId, text, receivedAt: Date.now(),
       ...(citations ? { citations } : {}),
       attribution: { requestId: 'replay', note: 'fixture' },
       stage: task.stage
@@ -60,84 +65,111 @@ async function replay(item) {
   return state;
 }
 
-test('标注集跑一遍：结论、指标、报告都能算出来', async () => {
+test('质量达标：十一项硬门槛全过，基准集 13 条全过', async () => {
   const states = new Map();
   for (const item of LABELED_CASES) {
     const state = await replay(item);
     assert.ok(state, `${item.id} 没跑起来`);
-    states.set(item.id, state);
     assert.ok(state.verdict, `${item.id} 应当有结论`);
     assert.ok(state.metrics, `${item.id} 应当有指标`);
+    states.set(item.id, state);
   }
 
   const report = evaluateCases(LABELED_CASES, states);
-  assert.equal(report.total, LABELED_CASES.length);
-  assert.equal(report.human.total, 0, '这一版没有人工标签，不能冒充有');
-  assert.equal(report.seed.total, LABELED_CASES.length);
-  assert.equal(report.calibration, 'not-applicable');
-  assert.ok(report.premiseCorrection.total >= 1, '至少有一条带错误前提的用例');
-
-  // 「没有可核验来源」这条底线，无论标签如何都必须成立。
-  assert.notEqual(states.get('EVAL-02').verdict.verdict, 'supported', '只有断言不能判成 supported');
-  // 少数派有可复现来源时，不能被人数压掉。
-  assert.equal(states.get('EVAL-04').verdict.minorityWins, true, 'TF-D-011：少数派应当胜出');
-
+  const quality = assessAll([...states.values()]);
   const summary = summarizeMetrics([...states.values()].map(state => debateMetrics(state)));
-  assert.equal(summary.debates, LABELED_CASES.length);
-  assert.ok(summary.traceability.judged > 0);
 
-  const reportPath = path.join(REPORT_DIR, 'DEBATE_METRICS.md');
-  fs.mkdirSync(REPORT_DIR, { recursive: true });
-  fs.writeFileSync(reportPath, markdown(report, summary, states), 'utf8');
-  assert.ok(fs.existsSync(reportPath));
+  // 标签来源如实分开：一条 human 都没有，就不许报告里出现「人工准确率」。
+  assert.equal(report.human.total, 0);
+  assert.equal(report.rule.total + report.seed.total, LABELED_CASES.length);
+  assert.equal(report.calibration, 'not-applicable');
+  assert.ok(report.premiseCorrection.total >= 1);
+
+  // 底线，无论标签怎么写都必须成立。
+  assert.notEqual(states.get('EVAL-02').verdict.verdict, 'supported', '只有断言不能判 supported');
+  assert.equal(states.get('EVAL-04').verdict.minorityWins, true, 'TF-D-011 少数派应当胜出');
+  assert.equal(states.get('EVAL-08').verdict.verdict, 'insufficient_evidence', 'TF-D-007 多数一致不算正确');
+  assert.equal(states.get('EVAL-10').verdict.conclusion, null, 'TF-D-010 不许伪造结论');
+
+  assert.equal(summary.debates, LABELED_CASES.length);
+  fs.mkdirSync(path.dirname(REPORT), { recursive: true });
+  fs.writeFileSync(REPORT, markdown(report, quality, summary, states), 'utf8');
+
+  // 最后才断言达标：报告无论如何都写出来，失败时能直接看是哪一项红的。
+  assert.equal(report.passed, report.total, '基准集有未通过的场景，见报告逐条');
+  assert.equal(quality.ok, true, `质量门槛未全过（${quality.passed}/${quality.total}），见报告`);
 });
 
-function markdown(report, summary, states) {
-  const pct = value => (value === null ? '无法计算' : `${Math.round(value * 100)}%`);
+function pct(value) {
+  return value === null ? '无法计算' : `${Math.round(value * 100)}%`;
+}
+
+function markdown(report, quality, summary, states) {
   const lines = [
-    '# 辩论质量指标（Phase 5）',
+    '# 辩论质量达标报告',
     '',
-    '> 由 `npm run report:debate-eval` 生成，数据来自 `scripts/fixtures/debate-labels.mjs` 的固定回放。',
-    '> **标签是示例标签（`labelSource: seed`），未经人工复核**，所以下面的一致程度',
-    '> 只能读成「与示例标签的一致程度」，不能读成事实准确率。',
+    `> 由 \`npm run quality:debate\` 生成。数据来自 \`scripts/fixtures/debate-labels.mjs\` 的 ${report.total} 条固定回放。`,
+    `> **结论：${quality.ok && report.passed === report.total ? '达标' : '未达标'}**（硬门槛 ${quality.passed}/${quality.total}，基准集 ${report.passed}/${report.total}）。`,
     '',
-    '## 总览',
+    '两个数字的含义不同，别混：硬门槛是「结论可信的底线」，基准集一致程度是',
+    '「与任务书规则推出来的期望一致」。**都不是事实准确率**——那需要人工标注集。',
     '',
-    `- 用例：${report.total} 条（pass ${report.passed}）`,
-    `- 与示例标签一致：${pct(report.accuracy)}`,
-    `- 错误前提纠正：${report.premiseCorrection.corrected}/${report.premiseCorrection.total}（${pct(report.premiseCorrection.rate)}）`,
+    '## 1. 硬门槛（全部通过才算达标）',
+    '',
+    '| 门槛 | 依据 | 通过 |',
+    '| --- | --- | --- |'
+  ];
+  for (const row of quality.byGate) {
+    lines.push(`| ${row.label} \`${row.id}\` | ${row.basis} | ${row.passed}/${row.total}${row.passed === row.total ? ' ✓' : ' ✗'} |`);
+  }
+  const failures = quality.assessments.flatMap(item =>
+    item.gates.filter(g => !g.passed).map(g => `${item.question.slice(0, 24)} → ${g.label}：${g.detail}`)
+  );
+  if (failures.length > 0) {
+    lines.push('', '**未通过的明细**：', ...failures.map(item => `- ${item}`));
+  }
+
+  lines.push('', '## 2. 基准集一致程度', '');
+  lines.push(`- 与规则基准（\`rule\`）一致：${report.rule.passed}/${report.rule.total}（${pct(report.rule.accuracy)}）`);
+  lines.push(`- 与示例标签（\`seed\`）一致：${report.seed.passed}/${report.seed.total}（${pct(report.seed.accuracy)}）`);
+  lines.push(`- 人工标注（\`human\`）：${report.human.total} 条 —— **当前没有人工基准，不算事实准确率**`);
+  lines.push(`- 错误前提纠正：${report.premiseCorrection.corrected}/${report.premiseCorrection.total}（${pct(report.premiseCorrection.rate)}）`);
+  lines.push(`- 校准度：不适用 —— ${report.calibrationReason}`);
+  lines.push('', '| 用例 | 场景 | 要求 | 实际 | 结果 | 标签依据 |', '| --- | --- | --- | --- | --- | --- |');
+  const byId = new Map(LABELED_CASES.map(item => [item.id, item]));
+  for (const outcome of report.outcomes) {
+    const item = byId.get(outcome.id);
+    lines.push(
+      `| ${outcome.id} | ${item?.title ?? item?.question.slice(0, 18) ?? ''} | ` +
+      `${outcome.expected === null ? '非 supported' : VERDICT_LABEL[outcome.expected] ?? outcome.expected} | ` +
+      `${outcome.actual === null ? '无' : VERDICT_LABEL[outcome.actual] ?? outcome.actual} | ` +
+      `${outcome.pass ? '通过' : '**未通过**'} | ${item?.basis ?? ''} |`
+    );
+  }
+
+  lines.push('', '## 3. 过程指标（报告值，不设假阈值）', '');
+  lines.push(
     `- 证据可追溯率：${summary.traceability.traceable}/${summary.traceability.judged}（${pct(summary.traceability.rate)}）`,
     `- 无效轮次：${summary.invalidRounds.invalid}/${summary.invalidRounds.total}（${pct(summary.invalidRounds.rate)}）`,
     `- 少数派原文完整保留：${summary.minority.preserved}/${summary.minority.count}（${pct(summary.minority.rate)}）`,
     `- 平均轮数：${summary.averageRounds ?? '无法计算'}；平均耗时：${summary.averageTotalMs ?? 0} ms`,
     `- 调用：${summary.calls.messages} 次发言，${summary.calls.failures} 次失败`,
-    `- 校准度：不适用——${report.calibrationReason}`,
-    '',
-    '## 逐条',
-    '',
-    '| 用例 | 要求 | 实际 | 结果 | 说明 |',
-    '| --- | --- | --- | --- | --- |'
-  ];
-  for (const outcome of report.outcomes) {
-    const state = states.get(outcome.id);
-    const metrics = state?.metrics;
-    lines.push(
-      `| ${outcome.id} | ${outcome.expected ?? '非 supported'} | ${outcome.actual ?? '无'} | ${outcome.pass ? '通过' : '未通过'} | ${outcome.detail}${metrics ? `；可追溯 ${metrics.traceability.traceable}/${metrics.traceability.judged}` : ''} |`
-    );
-  }
-  lines.push('', '## 指标口径', '');
-  lines.push(
-    '- **与标签一致**：五档结论和标签相同才算通过；`expectVerdict: null` 的要求是「不是 supported」。',
-    '- **错误前提纠正**：带错误前提的用例里，发言出现了正确说法（关键词）的比例；与结论档位无关。',
-    '- **证据可追溯率**：被判定的主张中，至少有一条 `page-link` 且非同源转载证据的比例。',
-    '- **无效轮次**：除首轮外，既没有新证据、也没有接受/修正/撤回、也没有新争议的轮次比例。',
-    '- **少数派保留**：少数派原文在最终记录里仍逐字存在的比例（设计上应恒为 100%，掉了就是回归）。'
+    `- 结论分布：${Object.entries(summary.byVerdict).map(([k, v]) => `${k} ${v}`).join('、')}`
   );
-  lines.push('', '## 这些数字不能说明什么', '');
+  lines.push('', '这些指标**不设达标线**：可追溯率取决于页面有没有给链接（本地模型永远不给），',
+    '无效轮次取决于场景复杂度。给它们编一个「≥ 80%」的门槛，只会逼着系统去凑数字。');
+
+  lines.push('', '## 4. 本仓库无法达标的项目（要达标需要什么）', '');
+  lines.push('| 项 | 为什么算不了 | 需要什么 |', '| --- | --- | --- |');
+  for (const item of NOT_MEASURABLE) lines.push(`| ${item.item} | ${item.reason} | ${item.needs} |`);
+
+  lines.push('', '## 5. 这些数字不能说明什么', '');
   lines.push(
-    '- 回放用的是写好的发言，不是真模型：它证明链路与裁判的判定规则在变，不证明模型会这么回答。',
-    '- 四条用例的标签是示例标签；上面那个 100% 只说明「标签是按本仓库的规则写的」，不是准确率。要得到可用的事实准确率，需要人工逐条复核或扩充标注集。',
-    '- 只有 4 条用例、每条 1 轮，统计上没有代表性；它的用处是让指标随代码变化，不是给系统打分。',
+    '- 回放用的是写好的发言，不是真模型：它证明链路与判据没有回退，不证明模型会这么回答。',
+    '- `rule` 标签由任务书条款推出，改规则时标签和实现可能一起改——它的用处是',
+    '  锁住「已知该判对的场景」，不是给系统打分。',
+    `- ${report.total} 条用例、每条 1 轮，统计上没有代表性。`,
+    '- 「档位 ↔ 证据强度自洽」是确定性一致性检查，不是概率校准度。',
     '- Token 与费用没有数据来源（网页通道与本地模型都不报用量），报告里不出现这两项。'
   );
   return lines.join('\n') + '\n';

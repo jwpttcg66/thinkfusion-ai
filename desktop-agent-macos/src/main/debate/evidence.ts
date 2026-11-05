@@ -111,9 +111,11 @@ export function evidenceOfRound(round: DebateRound): DebateEvidence[] {
       sourceId: message.agentId,
       now: message.createdAt
     });
+    const ownClaims = claimsByMessage.get(message.messageId) ?? [];
     for (const [index, citation] of digest.citations.entries()) {
       const kind = citationKindOf(citation);
-      const owners = claimsForCitation(claimsByMessage.get(message.messageId) ?? [], citation);
+      const owners = claimsForCitation(ownClaims, citation, digest.citations.length);
+      const soleAttribution = ownClaims.length === 1 && digest.citations.length === 1;
       const excerpt = (citation.anchorText || citation.title || citation.finalUrl || citation.url).trim();
       found.push({
         evidenceId: `ev:${message.messageId}:c${String(index)}`,
@@ -136,9 +138,12 @@ export function evidenceOfRound(round: DebateRound): DebateEvidence[] {
         }),
         independent: true,
         verified: 'page-link',
+        ...(soleAttribution && owners.length > 0 ? { soleAttribution: true } : {}),
         assessment:
           owners.length > 0
-            ? '页面给出的链接，可点开复核（内容是否支持该句仍需人读）'
+            ? soleAttribution
+              ? '这条发言只有一句主张、一个引用，按页面气泡里的唯一关联认领；内容是否支持该句仍需人读'
+              : '页面给出的链接，可点开复核（内容是否支持该句仍需人读）'
             : '页面给出的链接，但没有哪一句主张能对上，未被任何主张引用'
       });
     }
@@ -150,11 +155,24 @@ export function evidenceOfRound(round: DebateRound): DebateEvidence[] {
 /**
  * 这条链接挂到哪几句主张上。
  *
- * 只认「同一句里提到出处」和「链接文字与主张文字互相包含」两种。一条都
- * 对不上就返回空数组——页面在回答里列了参考资料，不代表其中某一份支持
- * 其中某一句话。
+ * 三条判据，前两条按字面可复核，第三条是**唯一关联**：
+ *
+ * 1. 这句主张自己提到了外部出处（「官方文档写明……」）；
+ * 2. 链接文字或标题出现在这句主张里；
+ * 3. 这条发言**只切出一句主张、且页面只给了这一个引用**：此时关联是页面
+ *    气泡里唯一的一对，不是我们猜的。网页引用常画成上标或链接 chip，锚文字
+ *    （「RFC 7230」「参考」）几乎不会原文出现在句子里；只靠前两条会把网页
+ *    通道的引用系统性判成「没有哪一句能对上」。
+ *
+ * 第三条严格限制在 1:1：多句主张或多条链接时一律不启用——页面在末尾列一串
+ * 「参考资料」，不等于其中每一份都支持其中某一句。认领了也只算 `page-link`
+ * （地址可点开），内容真伪仍要人读，`assessment` 里如实写明。
  */
-function claimsForCitation(claims: readonly DebateClaim[], citation: PageCitation): string[] {
+function claimsForCitation(
+  claims: readonly DebateClaim[],
+  citation: PageCitation,
+  citationCount = 1
+): string[] {
   const anchor = (citation.anchorText ?? '').trim();
   const title = (citation.title ?? '').trim();
   const matches: string[] = [];
@@ -164,6 +182,9 @@ function claimsForCitation(claims: readonly DebateClaim[], citation: PageCitatio
       (anchor.length >= 2 && claim.text.includes(anchor)) || (title.length >= 2 && claim.text.includes(title));
     if (claimsSource || sharedText) matches.push(claim.claimId);
     if (matches.length >= MAX_CITATIONS_PER_CLAIM) break;
+  }
+  if (matches.length === 0 && claims.length === 1 && citationCount === 1) {
+    return [claims[0].claimId];
   }
   return matches;
 }

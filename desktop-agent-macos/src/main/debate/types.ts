@@ -249,6 +249,12 @@ export interface DebateEvidence {
   verified: EvidenceVerification;
   /** 评价理由，必须能读成人话。 */
   assessment: string;
+  /**
+   * 这条链接是「页面气泡里唯一的一句主张 + 唯一一个引用」认领来的。
+   * 此时关联由页面给出，不是靠锚文字与主张字面重合猜的，所以证据相关性
+   * 检查不再用字面重合二次否决它。老文件没有这个字段，按 false 处理。
+   */
+  soleAttribution?: boolean;
 }
 
 /** 论证图的节点类型（Phase 3 / AC-08）。 */
