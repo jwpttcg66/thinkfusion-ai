@@ -374,16 +374,29 @@ export const PROBE_SCRIPT = (
   // Assistant text. The first list with hits wins, so a broad match cannot
   // shadow the specific one; the composer is excluded because it can contain
   // markdown-looking text.
+  //
+  // Two numbers come out of this loop, and they mean different things:
+  // assistantNodes is how many answer bubbles the page has right now (empty
+  // ones included), assistantTexts is only the ones with readable text.
+  //
+  // "A new answer appeared" is a *bubble* question, not a text question — see
+  // the note on messageCount at the return statement. Counting only non-empty
+  // bubbles made a new reply invisible whenever the site emptied an older one:
+  // measured on Gemini's third turn, the first answer bubble went to innerText
+  // "" while the third was streaming, so the live bubble count stayed at the
+  // pre-send 2 and every poll looked like "nothing new yet". The answer sat
+  // finished on the page for a minute and a half.
+  let assistantNodes = 0;
   let assistantTexts = [];
   for (const selector of selectors.assistant) {
     let nodes;
     try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
-    const texts = nodes
+    const matched = nodes
       .filter(visible)
-      .filter((el) => !composer || !composer.contains(el))
-      .map(answerText)
-      .filter((text) => text.length > 0);
+      .filter((el) => !composer || !composer.contains(el));
+    const texts = matched.map(answerText).filter((text) => text.length > 0);
     if (texts.length) {
+      assistantNodes = matched.length;
       assistantTexts = texts;
       chosen.assistant = selector;
       break;
@@ -446,7 +459,13 @@ export const PROBE_SCRIPT = (
     inputKind: kindOf(composer),
     hasSendButton: sendButtons.length > 0 || structuralSend,
     generating: stopButtons.length > 0,
-    messageCount: assistantTexts.length,
+    // Bubbles, not readable bubbles. A site that temporarily empties an older
+    // answer (Gemini does, while re-rendering a long thread) would otherwise
+    // hold the count flat as the new answer arrives, and the wait reads a flat
+    // count as "nothing new". Reported as 0 when no assistant selector matched
+    // anything readable at all, because that is the case where the
+    // transcript-tail path has to take over.
+    messageCount: assistantTexts.length ? assistantNodes : 0,
     lastText: assistantTexts.length ? assistantTexts[assistantTexts.length - 1].slice(0, 200000) : '',
     conversationText,
     composerText,
