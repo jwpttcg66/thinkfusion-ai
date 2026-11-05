@@ -20,7 +20,7 @@ Token/费用算出一个数字。两个都没做。指标只算从落盘数据�
 | `src/renderer/src/components/ResearchPanel.tsx` | 指标块、历史相似辩论、成本开关 |
 | `scripts/fixtures/debate-labels.mjs`（新增） | 4 条示例标签（`labelSource: seed`） |
 | `scripts/check-debate-metrics.mjs`（新增） | 9 条 |
-| `scripts/check-debate-eval.mjs`（新增） | 1 条，跑完产出 `docs/reports/DEBATE_METRICS.md` |
+| `scripts/check-debate-eval.mjs`（新增） | 1 条，跑完产出 `docs/reports/DEBATE_QUALITY.md` |
 
 ## 1. 指标：五项能算的，三项算不了的
 

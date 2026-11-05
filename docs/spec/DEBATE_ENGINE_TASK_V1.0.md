@@ -13,7 +13,7 @@
 > `src/main/debate/prompts.ts`；配置、迁移、测试、运行见
 > `docs/implementation/DEBATE_RUNBOOK.md`（§17 收尾）。验收对照
 > `docs/architecture/DEBATE_ACCEPTANCE.md`（含 AC 之外逐节对照），指标报告
-> `docs/reports/DEBATE_METRICS.md`。
+> `docs/reports/DEBATE_QUALITY.md`（质量达标报告）。
 
 ---
 

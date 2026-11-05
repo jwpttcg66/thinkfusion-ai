@@ -188,7 +188,7 @@ const out = await window.agentAPI.cleanupDebateWeb(debateId); // 连带删网页
 | `test:page-citations` | 三家 HTML fixture、URL 归一、指纹 | 10 |
 | `test:debate-strategies` | 六种策略、角色、争议排序、4×6 归一 | 8 |
 | `test:debate-metrics` | 指标、成本、历史复用 | 9 |
-| `test:debate-eval` | 示例标注集评测 | 1 |
+| `test:debate-eval` / `quality:debate` | 十一项硬门槛 + 13 条基准场景，输出达标/不达标报告 | 1 |
 | `test:debate-prompts` | 模板契约、文案快照、版本落盘、网页原话 | 11 |
 
 另有适配器 / 融合 / 文本 / 状态等基础用例，见 `package.json` 的 `test` 链。
@@ -197,15 +197,19 @@ const out = await window.agentAPI.cleanupDebateWeb(debateId); // 连带删网页
 
 ```bash
 npm run report:debate-regression   # → docs/reports/DEBATE_REGRESSION.md
-npm run report:debate-eval         # → docs/reports/DEBATE_METRICS.md
+npm run quality:debate              # → docs/reports/DEBATE_QUALITY.md（达标门槛 + 报告）
 ```
 
 **两类测试要说清区别**：
 
 - **固定回放**（TF-D-001~010、模板快照）断言结构，不断言模型措辞。真模型同样
   输入不保证同样输出，断言「模型说了 X」的用例第二天就会红。
-- **标注集**（`fixtures/debate-labels.mjs`）只有 4 条示例标签，报告里明说这不是
-  事实准确率。要得到可用的准确率 / 校准度，需要人工逐条复核并扩充标注集。
+- **标注集**（`fixtures/debate-labels.mjs`）13 条，`rule` 11 条（由任务书条款
+  推出）/ `seed` 2 条 / `human` 0 条。报告只给「与规则基准一致」，明说这不是
+  事实准确率；概率校准度不适用（结论不带置信度）。
+- **达标线**见 `docs/architecture/DEBATE_QUALITY.md`：`npm run quality:debate`
+  跑十一项硬门槛 + 13 条基准场景，任一不过就 `exit 1`。门槛做过变异测试，
+  故意把「无证据 → 判 supported」会立刻变红。
 
 页面脚本是模板字符串拼接，`\/` 会被吃成 `/` 开注释且编译期不报错——
 `check-adapter.mjs` 里有用 `new Function` 编译每个页面脚本的用例兜底。
@@ -282,7 +286,7 @@ JSON 文件里，`seq` 单调。
 | 项 | 原因 |
 | --- | --- |
 | Token / 费用预算 | 三条通道都不报用量，无数据来源 |
-| 事实准确率 / 校准度基准 | 需要人工标注集；五档结论也不带置信度，给数字就是编的 |
+| 事实准确率 / 概率校准度基准 | 需要人工标注集；五档结论不带置信度，给数字就是编的。现有「与规则基准一致」与「档位自洽」都不冒充这两项 |
 | 裁判读网页正文 | 现在只保留页面回答里的链接与文本线索，不抓取网页内容 |
 | 按钮式引用 | 有的站点把引用画成按钮而非 `a[href]`，读不到就按「没有链接」处理，不猜 |
 | 图数据库 | 论证图就是 `{nodes, edges}`，跟着辩论 JSON 落盘 |

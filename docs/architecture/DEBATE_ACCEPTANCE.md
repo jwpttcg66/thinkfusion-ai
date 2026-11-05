@@ -10,7 +10,8 @@
 除 15 条 AC 外，任务书还有 **§12 Prompt 模板**与 **§17 收尾文档**两项，
 不在 AC 编号里，容易被漏掉。本次补齐后逐节状态见文末「任务书章节对照」。
 配置 / 迁移 / 测试 / 运行四项集中在
-`docs/implementation/DEBATE_RUNBOOK.md`。
+`docs/implementation/DEBATE_RUNBOOK.md`；质量达标线在
+`docs/architecture/DEBATE_QUALITY.md`，一键复核 `npm run quality:debate`。
 
 ## 阶段状态：0–5 全部完成
 
@@ -29,7 +30,7 @@
 
 阶段完成不等于质量达标：Phase 5 的指标报告只有 4 条示例标签、回放发言，
 它能守住链路，不能证明模型判断正确。这一点在 `PHASE-5-DEBATE-METRICS.md`
-和 `docs/reports/DEBATE_METRICS.md` 里都写明了。
+和 `docs/reports/DEBATE_QUALITY.md` 里都写明了。
 
 ## 总表
 
@@ -100,14 +101,14 @@ npm run test:debate-events        # AC-14
 npm run test:debate-regression    # AC-15
 npm run test:debate-strategies    # AC-01（六种策略、角色、争议排序）
 npm run test:debate-metrics       # Phase 5 指标 + 成本 + 历史复用
-npm run test:debate-eval          # Phase 5 标注集评测
+npm run quality:debate            # 质量达标：十一项硬门槛 + 13 条基准场景 + 报告
 npm run test:debate-prompts       # §12 模板契约、文案快照、版本落盘、网页原话
 npm test                          # 全量，含上面全部
 ```
 
 `npm run report:debate-regression` 会把报告写到
 `docs/reports/DEBATE_REGRESSION.md`，`npm run report:debate-eval` 写到
-`docs/reports/DEBATE_METRICS.md`；不写 `TF_REPORT=1` 时只写 `out-test/`，
+`docs/reports/DEBATE_QUALITY.md`；不写 `TF_REPORT=1` 时只写 `out-test/`，
 不弄脏仓库。
 
 ## 任务书章节对照（AC 之外，逐节核）
@@ -125,7 +126,7 @@ npm test                          # 全量，含上面全部
 | §13.1 模式选择 | 快速回答与深度辩论两种入口；简单问题不自动开完整辩论 | 达成（按现有形态） | 两种入口已经存在且**默认就是快速回答**：输入框直接提问走综合，不启动辩论；要深度辩论得去「研究设置 → 辩论」手动发起，会话内也只在主导人计划里明确指定时才跑。四个执行模式与六种策略各自独立可选。**没做**的是输入框旁的显式双按钮和「按问题长度自动判断要不要辩论」——前者会改提问链路，后者会按意图替用户分通道，都不做 |
 | §13.2 最终报告 | 九块结构 | 达成 | 研究设置 → 辩论 → 结论报告九块；对话页另有五档结论条 |
 | §14.1/14.2 | 单元测试与 TF-D-001~010 | 达成 | 见「怎么复核」；回放断言结构，不断言模型措辞 |
-| §14.3 质量指标 | 七项 | 部分 | 可追溯率、无效辩论率、分歧保留率、延迟已算；事实准确率/校准度只有 4 条示例标签、结论不带置信度；Token/费用无数据源 |
+| §14.3 质量指标 | 七项 | 部分（有明确达标线） | 可追溯率、错误前提纠正率、无效辩论率、分歧保留率、延迟已算并出报告；十一项硬门槛 + 13 条基准场景由 `quality:debate` 一键判定（`DEBATE_QUALITY.md`），做过变异测试确认会红。**事实准确率与概率校准度仍算不了**：标签是 `rule`/`seed`（人工 0 条），结论不带置信度；Token/费用无数据源 |
 | §17 收尾文档 | 架构文档、配置示例、迁移说明、测试说明、运行手册 | 达成 | `PHASE-*.md` + `DEBATE_ACCEPTANCE.md` + `DEBATE_RUNBOOK.md`（后四项）；`README.md` 里「辩论尚未接线」的过时描述已更正 |
 | 附录 A | 最终结果 JSON 示例 | 达成 | `DebateVerdict` / `DebateView` 是实际落盘与界面结构；没有照抄示例里的「置信度」字段（无数据来源） |
 
@@ -136,5 +137,5 @@ npm test                          # 全量，含上面全部
 | Token / 费用预算 | 三条通道都不报用量 | 无法做，不做假 |
 | 网页通道参与的真机辩论 | 没向三站发测试提问（会动用户账号，且要清理） | 只用脚本用例覆盖「只发原话、只跑第一轮」 |
 | 裁判读网页正文 | 只有地址与文本线索，不抓取网页内容 | 未做；要靠浏览器抓正文，另立项 |
-| 事实准确率 / 校准度 | 需要人工标注集；结论也不带置信度 | 只有示例标签，报告已注明 |
+| 事实准确率 / 概率校准度 | 需要人工标注集；结论不带置信度，给数字就是编的 | 报告只给「与规则基准一致」与确定性的「档位 ↔ 证据强度自洽」，两者都不冒充准确率/校准度 |
 | 网页正文抓取 / 按钮式引用 | 只保留回答里的 `a[href]` 与文本线索 | 另立项，不从链接猜内容 |
