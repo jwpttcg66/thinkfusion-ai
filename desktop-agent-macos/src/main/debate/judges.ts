@@ -523,7 +523,9 @@ function aggregate(
   byId: ReadonlyMap<string, DebateClaim>,
   at: number
 ): DebateVerdict {
-  const minorityMessages = new Set(state.minorities.map(message => message.messageId));
+  // 老辩论文件没有 minorities 字段也读得动：缺了就是「没记录过少数派」，
+  // 不因此让整场裁判崩掉。
+  const minorityMessages = new Set((state.minorities ?? []).map(message => message.messageId));
   const judged = judgments.filter(judgment => {
     const logic = judgment.dimensions.find(item => item.dimension === 'logic');
     return logic?.outcome !== 'not_applicable';
