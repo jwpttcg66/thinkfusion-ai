@@ -29,11 +29,15 @@ export type ClaimStatus = 'proposed' | 'supported' | 'challenged' | 'revised' | 
 /**
  * 争议的类型。
  *
- * 只有规则判得出来的四种。任务书 5.1 还列了 `definitional`（同一个词各指
- * 不同的东西），本地规则没有判据——宁可少一个值，也不把「定义不同」塞进
- * `factual` 里冒充。
+ * 五类都能由规则判出来：极性/数字相反是 `factual` / `evidence_conflict`，
+ * 一边带条件一边是绝对表述是 `scope`，有转向词的反驳是 `logical`，
+ * 同一个术语被定义成两件事是 `definitional`。
+ *
+ * `definitional` 判据要窄：只认「X 是指 Y」这类显式定义，普通判断句不算——
+ * 否则「连接池是一种缓存」和「连接池不是缓存」会被当成定义差异，而它们
+ * 本来就是事实冲突。
  */
-export type DisputeType = 'factual' | 'logical' | 'scope' | 'evidence_conflict';
+export type DisputeType = 'factual' | 'logical' | 'scope' | 'evidence_conflict' | 'definitional';
 
 /** 从发言里抽出的一句可单独判断真假的话。 */
 export interface DebateClaim {
@@ -386,6 +390,38 @@ export interface DebateRound {
   claims?: DebateClaim[];
 }
 
+/**
+ * 辩论事件（任务书 9 的 `debate_events` / AC-14）。
+ *
+ * 状态快照回答「现在是什么样」，事件流回答「怎么走到这一步的」。两者都要，
+ * 因为快照只能恢复到最后一次写盘，而事件能说明最后那一轮为什么没跑完。
+ *
+ * `key` 是幂等键：同一件事只写一次。恢复后重跑同一轮不会再多出一条
+ * `round.started`，取消后重试也不会把 `session.cancelled` 写成两条。
+ */
+export type DebateEventType =
+  | 'session.created'
+  | 'round.started'
+  | 'round.finished'
+  | 'revision.recorded'
+  | 'verdict.recorded'
+  | 'session.stopped'
+  | 'session.resumed'
+  | 'session.completed'
+  | 'session.cancelled';
+
+export interface DebateEvent {
+  /** 从 1 开始，单调递增；同一场辩论里唯一。 */
+  seq: number;
+  eventId: string;
+  type: DebateEventType;
+  at: number;
+  roundIndex?: number;
+  /** 幂等键。同一个键第二次写入会被丢掉。 */
+  key: string;
+  detail?: string;
+}
+
 export interface DebateState {
   debateId: string;
   /** 关联的 Conversation；可以没有（独立发起的辩论）。 */
@@ -426,6 +462,11 @@ export interface DebateState {
   judgments?: ClaimJudgment[];
   /** 整场结论（五档）。裁判没跑或没有可判主张时为 undefined。 */
   verdict?: DebateVerdict;
+  /**
+   * 追加事件流（AC-14）。只追加，不改写；`seq` 单调，`key` 幂等。
+   * 老文件没有这个字段，读出来是 undefined——不补空数组冒充「记录过」。
+   */
+  events?: DebateEvent[];
   createdAt: number;
   updatedAt: number;
   stopReason?: string;

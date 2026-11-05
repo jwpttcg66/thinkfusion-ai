@@ -1,4 +1,5 @@
 import type { ClaimKind } from '../../shared/fusion';
+import { jaccard, features } from '../../shared/synthesizer';
 import { extractClaims, type ExtractedClaim } from '../synthesis/claim-extractor';
 import { detectRelations } from '../synthesis/relations';
 import type { ArgumentRelation } from '../../shared/fusion';
@@ -112,6 +113,17 @@ function detectDisputes(claims: ExtractedClaim[], roundIndex: number): DebateDis
     });
   }
 
+  // 定义差异是另一条判据：它不表现为「两句相反」，所以关系检测永远不会
+  // 把它找出来。同一对句子已经按事实冲突报过时，不再重复报一条定义差异——
+  // 同一个分歧只该有一个类型，否则挑战会问两遍。
+  const reported = new Set(disputes.map(dispute => pairKey(dispute.claimIds)));
+  for (const dispute of definitionDisputes(claims, roundIndex)) {
+    const key = pairKey(dispute.claimIds);
+    if (reported.has(key)) continue;
+    reported.add(key);
+    disputes.push(dispute);
+  }
+
   return disputes
     .sort((a, b) => b.priority - a.priority || a.disputeId.localeCompare(b.disputeId))
     .slice(0, MAX_DISPUTES);
@@ -148,6 +160,97 @@ function priorityOf(relation: ArgumentRelation, from: ExtractedClaim, to: Extrac
 }
 
 /**
+ * 定义句式（AC-04 的「定义差异」）。
+ *
+ * 两组：`X 是指 Y` / `X 指的是 Y`，以及 `「X」在这里指 Y`。
+ * **只认显式定义**。「X 是 Y」这种普通判断不认——否则任何一句「连接池是一种
+ * 缓存」都会被当成定义，跟他人的说法一比对就报定义差异，噪音比信号多。
+ */
+const DEFINITIONS: RegExp[] = [
+  /(?:所谓\s*)?([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9_.+-]{0,14})\s*[，,]?\s*(?:是指|指的是|被定义为|定义为|指的就是)\s*([^。；;，,\n]{2,60})/g,
+  /[「“]([^」”]{2,16})[」”]\s*[，,]?\s*(?:在这里|此处|在这个问题里)?\s*[，,]?\s*(?:是指|指的是|指)\s*([^。；;，,\n]{2,60})/g
+];
+
+export interface TermDefinition {
+  /** 归一之后的术语：去掉引号与空白，比较用。 */
+  term: string;
+  /** 这个术语被定义成什么。 */
+  definition: string;
+}
+
+export function definitionsOf(text: string): TermDefinition[] {
+  const found: TermDefinition[] = [];
+  for (const pattern of DEFINITIONS) {
+    pattern.lastIndex = 0;
+    for (const match of text.matchAll(pattern)) {
+      const term = normalizeTerm(match[1] ?? '');
+      const definition = (match[2] ?? '').trim();
+      if (term.length < 2 || definition.length < 2) continue;
+      if (found.some(item => item.term === term)) continue;
+      found.push({ term, definition });
+    }
+  }
+  return found;
+}
+
+function normalizeTerm(raw: string): string {
+  return raw.replace(/[\s「」“”"'《》]/g, '').replace(/的$/, '');
+}
+
+/**
+ * 同一个词，被两个参与者定义成两件事。
+ *
+ * 判据是「术语相同」+「定义不同」，缺一不可：同一个词被定义成同一件事
+ * （换了个说法）不是分歧。
+ *
+ * 这类争议**不连主张之间的 contradicts 边**（见 `argument-graph.ts`）：
+ * 这两句本身不相反，是同一个词各指一个东西。连一条「互相否定」会让人
+ * 读出一个并不存在的对立。
+ */
+function definitionDisputes(claims: ExtractedClaim[], roundIndex: number): DebateDispute[] {
+  const parsed = claims
+    .map(claim => ({ claim, definitions: definitionsOf(claim.text) }))
+    .filter(item => item.definitions.length > 0);
+
+  const found: DebateDispute[] = [];
+  for (let i = 0; i < parsed.length; i += 1) {
+    for (let j = i + 1; j < parsed.length; j += 1) {
+      const left = parsed[i];
+      const right = parsed[j];
+      if (left.claim.channelId === right.claim.channelId) continue;
+      for (const a of left.definitions) {
+        const b = right.definitions.find(item => item.term === a.term);
+        if (!b) continue;
+        if (sameDefinition(a.definition, b.definition)) continue;
+        found.push({
+          disputeId: `${left.claim.id}~${right.claim.id}#definition`,
+          roundIndex,
+          claimIds: [left.claim.id, right.claim.id],
+          agents: [left.claim.channelId, right.claim.channelId],
+          type: 'definitional',
+          priority: 0.82,
+          reason: `同一个词「${a.term}」被定义成两件事：「${a.definition}」/「${b.definition}」`,
+          status: 'open'
+        });
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** 两种定义是不是同一个意思：互相包含，或措辞高度重合。 */
+function sameDefinition(a: string, b: string): boolean {
+  if (a.includes(b) || b.includes(a)) return true;
+  return jaccard(features(a), features(b)) >= 0.5;
+}
+
+/** 同一对句子只报一条争议。顺序无关。 */
+function pairKey(claimIds: readonly [string, string] | readonly string[]): string {
+  return [...claimIds].sort().join('~');
+}
+
+/**
  * 把争议变成下一轮的具体挑战。
  *
  * 任务书 AC-05 要的是「针对具体 Claim 的挑战，而不是泛泛要求再想一想」，
@@ -177,6 +280,10 @@ export function challengesFor(
       );
     } else if (dispute.type === 'logical') {
       lines.push(`- 有一句在反驳另一句，但没说明凭什么：${head}。请补上理由，或撤回其中一句。`);
+    } else if (dispute.type === 'definitional') {
+      lines.push(
+        `- 同一个词指的不是一回事：${head}。请先说明你们各自的定义指什么，再判断哪一句成立。`
+      );
     } else {
       lines.push(`- 直接矛盾：${head}。请指出哪一句不成立，并给出能区分二者的证据。`);
     }

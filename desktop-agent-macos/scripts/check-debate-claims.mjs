@@ -118,6 +118,46 @@ test('各说各的、没有冲突时不造争议', () => {
   assert.deepEqual(disputes, []);
 });
 
+test('同一个词被定义成两件事，判成 definitional（AC-04）', () => {
+  const { claims, disputes } = analyseRound(
+    [
+      message('m1', 'a', '「连接池」，指的是复用已建立的连接，避免每次握手。'),
+      message('m2', 'b', '「连接池」在这里指一组空闲连接的集合。')
+    ],
+    0
+  );
+  const definitional = disputes.find(dispute => dispute.type === 'definitional');
+  assert.ok(definitional, '同一个词各指一件事，要判成定义差异');
+  assert.match(definitional.reason, /连接池/);
+  assert.deepEqual(definitional.agents, ['a', 'b']);
+
+  const lines = challengesFor(disputes, claims);
+  assert.match(lines.join('\n'), /同一个词指的不是一回事/);
+  assert.match(lines.join('\n'), /定义指什么/);
+});
+
+test('同一个词被定义成同一件事，不算分歧', () => {
+  const { disputes } = analyseRound(
+    [
+      message('m1', 'a', '「连接池」指的是复用已建立的连接。'),
+      message('m2', 'b', '「连接池」指的是复用已建立的连接，避免握手开销。')
+    ],
+    0
+  );
+  assert.equal(disputes.filter(dispute => dispute.type === 'definitional').length, 0);
+});
+
+test('普通判断句不被当成定义', () => {
+  const { disputes } = analyseRound(
+    [
+      message('m1', 'a', '连接池是一种缓存，可以省下握手时间。'),
+      message('m2', 'b', '连接池不是缓存，它管理的是一组连接。')
+    ],
+    0
+  );
+  assert.equal(disputes.filter(dispute => dispute.type === 'definitional').length, 0);
+});
+
 test('挑战照着具体两句写，最多三条', () => {
   const { claims, disputes } = analyseRound(
     [

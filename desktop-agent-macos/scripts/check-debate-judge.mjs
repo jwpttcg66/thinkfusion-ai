@@ -447,3 +447,35 @@ test('真跑三轮辩论：页面引用落成证据，收尾给出三维结论',
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('范围争议只限制「没写范围」的那一句', () => {
+  const qualified = claim('a', '在 6.0 之前，这个库不支持并发写入，官方 release notes 写明了。', {
+    assumptions: ['在 6.0 之前'],
+    evidenceDrafts: [{ excerpt: 'release notes', kind: 'official-doc', start: 0, end: 12, cue: '官方文档' }]
+  });
+  const absolute = claim('b', '这个库支持并发写入，任何版本都可以。');
+  const docs = evidence('ev-scope', [qualified.claimId], {
+    excerpt: 'release notes',
+    sourceId: 'a',
+    messageId: qualified.messageId,
+    originKey: 'url:https://docs.example.com/release-notes'
+  });
+  const run = judgeDebate(stateOf([qualified, absolute], [docs], {
+    disputes: [{
+      disputeId: 'd-scope',
+      roundIndex: 0,
+      claimIds: [qualified.claimId, absolute.claimId],
+      agents: ['a', 'b'],
+      type: 'scope',
+      priority: 0.7,
+      reason: '一句带版本范围，一句是绝对表述',
+      status: 'open'
+    }]
+  }));
+
+  const mine = run.judgments.find(item => item.claimId === qualified.claimId);
+  const other = run.judgments.find(item => item.claimId === absolute.claimId);
+  assert.equal(dimension(mine, 'counterexample').outcome, 'none', '已经写明范围的那句不受范围限制');
+  assert.equal(mine.verdict, 'supported');
+  assert.equal(dimension(other, 'counterexample').outcome, 'limited', '绝对表述那句才受限制');
+});

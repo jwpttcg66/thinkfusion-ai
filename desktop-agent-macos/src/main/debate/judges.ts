@@ -343,11 +343,23 @@ export function judgeCounterexample(
       continue;
     }
     if (dispute.type === 'scope') {
-      scored.push({
-        outcome: 'limited',
-        why: '对方指出这句话的适用范围不对，结论需要加条件',
-        ids: []
-      });
+      // 范围限制落在「没写范围的那句」上。已经写明「在 6.0 之前」的主张，
+      // 对方再给一个不同范围，不构成对它的限制——否则自带条件的一方永远
+      // 只能拿到 partially_supported，而它恰恰是把边界说清楚的那一句。
+      const qualified = claim.assumptions.length > 0 || CONDITION.test(claim.text);
+      scored.push(
+        qualified
+          ? {
+              outcome: 'none',
+              why: '对方给了不同的适用范围，但这句已经写明了自己的范围',
+              ids: []
+            }
+          : {
+              outcome: 'limited',
+              why: '对方指出这句话的适用范围不对，结论需要加条件',
+              ids: []
+            }
+      );
       continue;
     }
     if (verified.length > 0) {

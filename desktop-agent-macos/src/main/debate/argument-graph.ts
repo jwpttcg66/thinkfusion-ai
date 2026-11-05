@@ -130,21 +130,27 @@ export function graphOfRound(input: RoundGraphInput): ArgumentGraph {
         createdAt: at
       });
     }
-    addEdge(graph, {
-      // 方向固定为「先出现的那句 → 后出现的那句」，因为 claimIds 的顺序
-      // 就是抽取顺序，读起来是「A 对 B」，不表示谁对谁错。
-      fromId: claimNodeId(firstId),
-      toId: claimNodeId(secondId),
-      relation: relationOfDispute(dispute),
-      roundIndex,
-      rationale: dispute.reason,
-      source: {
-        messageIds: [],
-        claimIds: [firstId, secondId],
-        disputeId: dispute.disputeId
-      },
-      createdAt: at
-    });
+    const relation = relationOfDispute(dispute);
+    // 定义差异不连主张之间的边：这两句本身不相反，是同一个词各指一件事。
+    // 连一条 contradicts 会让人读出一个并不存在的对立；质疑节点仍然连到两句，
+    // 所以「这里有个分歧」不会丢。
+    if (relation) {
+      addEdge(graph, {
+        // 方向固定为「先出现的那句 → 后出现的那句」，因为 claimIds 的顺序
+        // 就是抽取顺序，读起来是「A 对 B」，不表示谁对谁错。
+        fromId: claimNodeId(firstId),
+        toId: claimNodeId(secondId),
+        relation,
+        roundIndex,
+        rationale: dispute.reason,
+        source: {
+          messageIds: [],
+          claimIds: [firstId, secondId],
+          disputeId: dispute.disputeId
+        },
+        createdAt: at
+      });
+    }
   }
 
   // 4. 修订 → 依赖来源：这一轮的回应是在被质疑的那几句上改的。
@@ -336,7 +342,8 @@ export function mergeGraph(base: ArgumentGraph | undefined, extra: ArgumentGraph
   return graph;
 }
 
-function relationOfDispute(dispute: DebateDispute): ArgumentEdge['relation'] {
+function relationOfDispute(dispute: DebateDispute): ArgumentEdge['relation'] | null {
+  if (dispute.type === 'definitional') return null;
   if (dispute.type === 'scope') return 'qualifies';
   if (dispute.type === 'logical') return 'rebuts';
   return 'contradicts';

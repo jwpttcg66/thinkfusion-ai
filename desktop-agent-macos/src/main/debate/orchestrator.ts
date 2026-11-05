@@ -3,6 +3,7 @@ import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { buildGraph } from './argument-graph';
 import { analyseRound, challengesFor } from './claims';
+import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { judgeDebate } from './judges';
 import { applyDecisions, revisionOf } from './revision';
@@ -116,6 +117,14 @@ export class DebateOrchestrator {
       createdAt: at,
       updatedAt: at
     };
+    // 事件流从创建那一刻开始记（AC-14）。此时还没有任何发言，所以这条
+    // 事件只说明「谁、什么时候、按什么配置起了这场辩论」。
+    appendEvent(state, {
+      type: 'session.created',
+      key: 'session.created',
+      at,
+      detail: `${String(effectivePlan.participants.length)} 位参与者，最多 ${String(effectiveConfig.maxRounds)} 轮`
+    });
     this.store.save(state);
     this.stopped.delete(state.debateId);
     void this.launch(state);
@@ -143,6 +152,7 @@ export class DebateOrchestrator {
     state.status = 'stopped';
     state.stopReason = '用户中止';
     state.updatedAt = this.now();
+    appendEvent(state, { type: 'session.stopped', key: 'session.stopped', at: state.updatedAt, detail: '用户中止' });
     this.store.save(state);
     return state;
   }
@@ -155,6 +165,10 @@ export class DebateOrchestrator {
     state.status = 'running';
     state.stopReason = undefined;
     state.updatedAt = this.now();
+    // 多次恢复要各自留下一条：序号取自现有恢复事件的条数，所以不重复、
+    // 也不会把第二次恢复吞掉。
+    const resumes = (state.events ?? []).filter(event => event.type === 'session.resumed').length;
+    appendEvent(state, { type: 'session.resumed', key: `session.resumed:${String(resumes + 1)}`, at: state.updatedAt });
     this.store.save(state);
     void this.launch(state);
     return state;
@@ -203,6 +217,17 @@ export class DebateOrchestrator {
         state.rounds.push(round);
         state.disputes = [...(state.disputes ?? []), ...disputes];
         state.revisions = [...(state.revisions ?? []), ...revisions];
+        // 每条修订独立记一条事件：它是「观点因为证据变了」的最小单位，
+        // 事后要能按 revisionId 找到对应的那次改口。
+        for (const revision of revisions) {
+          appendEvent(state, {
+            type: 'revision.recorded',
+            key: `revision:${revision.revisionId}`,
+            at: revision.createdAt,
+            roundIndex: revision.roundIndex,
+            detail: `${revision.agentId}：${revision.decision ?? '未写明'}`
+          });
+        }
         state.minorities = collectMinorities(state.rounds);
         // 证据与论证图每轮重算：主张状态会被后面的决策改写，重算才能保证
         // 图里的 `status` 与主张本身一致；条数很小，代价可以忽略。
@@ -251,12 +276,26 @@ export class DebateOrchestrator {
       }
       // 结论永远落在最后一轮之后：读的是全部发言与证据，不是最后一句。
       this.conclude(state);
+      if (state.status === 'completed') {
+        appendEvent(state, {
+          type: 'session.completed',
+          key: 'session.completed',
+          at: this.now(),
+          detail: state.stopReason
+        });
+      }
       state.updatedAt = this.now();
       this.persist(state);
     } catch (error) {
       state.status = 'cancelled';
       state.stopReason = error instanceof Error ? error.message : String(error);
       state.updatedAt = this.now();
+      appendEvent(state, {
+        type: 'session.cancelled',
+        key: 'session.cancelled',
+        at: state.updatedAt,
+        detail: state.stopReason
+      });
       this.store.save(state);
     }
   }
@@ -271,6 +310,14 @@ export class DebateOrchestrator {
     if (external?.status === 'stopped') {
       state.status = 'stopped';
       state.stopReason = external.stopReason;
+      // stop() 写的是磁盘上那份的事件；这里手里是另一个对象，补一条同 key
+      // 的事件（幂等）再存，别让这次保存把它覆盖掉。
+      appendEvent(state, {
+        type: 'session.stopped',
+        key: 'session.stopped',
+        at: external.updatedAt,
+        detail: external.stopReason
+      });
     }
     this.store.save(state);
     return state.status !== 'stopped';
@@ -289,6 +336,12 @@ export class DebateOrchestrator {
     state.verdict = run.verdict;
     // 图要带上判断节点，所以结论之后再建一次。
     state.graph = buildGraph(state);
+    appendEvent(state, {
+      type: 'verdict.recorded',
+      key: `verdict:${run.verdict.verdictId}`,
+      at: run.verdict.createdAt,
+      detail: run.verdict.verdict
+    });
   }
 
   private async runRound(
@@ -297,6 +350,13 @@ export class DebateOrchestrator {
     deadline: number
   ): Promise<{ round: DebateRound; disputes: DebateDispute[]; revisions: DebateRevision[] }> {
     const phase = phaseFor(index);
+    appendEvent(state, {
+      type: 'round.started',
+      key: `round.started:${String(index)}`,
+      at: this.now(),
+      roundIndex: index,
+      detail: phase
+    });
     const round: DebateRound = {
       index,
       phase,
@@ -404,6 +464,14 @@ export class DebateOrchestrator {
           )
           // 并发完成顺序不定，落盘顺序按参与者排，读起来才是稳定的。
           .sort((a, b) => a.agentId.localeCompare(b.agentId));
+
+    appendEvent(state, {
+      type: 'round.finished',
+      key: `round.finished:${String(index)}`,
+      at: round.endedAt ?? this.now(),
+      roundIndex: index,
+      detail: `${String(round.messages.length)} 条发言，${String(round.failures.length)} 位失败`
+    });
 
     return { round, disputes: analysis.disputes, revisions };
   }

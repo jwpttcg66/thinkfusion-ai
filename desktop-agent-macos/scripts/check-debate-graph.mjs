@@ -303,3 +303,36 @@ test('真跑一场辩论：图跟着轮次长出来，结论落在记录里', as
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('定义差异只连质疑节点，不连「这两句互相否定」', () => {
+  const first = claim({ claimId: 'm1#0', text: '「连接池」，指的是复用已建立的连接。' });
+  const second = claim({
+    claimId: 'm2#0',
+    messageId: 'm2',
+    agentId: 'b',
+    text: '「连接池」在这里指一组空闲连接的集合。'
+  });
+  const graph = buildGraph(
+    stateOf([roundOf(0, [first, second])], {
+      disputes: [{
+        disputeId: 'd-def',
+        roundIndex: 0,
+        claimIds: ['m1#0', 'm2#0'],
+        agents: ['a', 'b'],
+        type: 'definitional',
+        priority: 0.82,
+        reason: '同一个词「连接池」被定义成两件事',
+        status: 'open'
+      }]
+    })
+  );
+
+  assert.ok(graph.nodes.some(node => node.type === 'challenge'), '质疑节点要在');
+  assert.equal(
+    graph.edges.filter(edge => edge.relation === 'contradicts').length,
+    0,
+    '定义差异不是两句相反，不连 contradicts'
+  );
+  const challengeEdges = graph.edges.filter(edge => edge.fromId === 'challenge:d-def');
+  assert.equal(challengeEdges.length, 2, '质疑仍然指向两句原话');
+});
