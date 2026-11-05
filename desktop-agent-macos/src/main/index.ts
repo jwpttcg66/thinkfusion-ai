@@ -46,7 +46,6 @@ import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
-import { summarizeLocally } from './synthesis/local-summary';
 import { pickLeadLocally } from './synthesis/lead-selector';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
@@ -2029,12 +2028,77 @@ app.whenReady().then(async () => {
       return registry.get(agentId) ? 'web' : undefined;
     },
     fusionEnabled: true,
-    // 汇总交给本地模型：它不参加上面那轮提问，只在这里读完整回答。
-    // 没装模型/超时返回 null，runner 保留规则版综合。
-    summarizeLocal: input => summarizeLocally(localProvider, input.question, input.answers),
     // 主导的自动选择也交给本地模型：它读「问题 + 各来源回答」挑一位来源来主导，
     // 自己不在候选里（本地模型不是来源）。返回 null 时 runner 退回按完整度兜底。
     pickLead: input => pickLeadLocally(localProvider, input.question, input.answers),
+    // 会话内辩论：主导人指定辩题后，由本地/云端模型读网页回答并交锋。
+    // 辩论是独立子系统，这里只负责起一场、等它跑完、把轮次记录交回 runner。
+    runDebate: async input => {
+      if (!debates) return null;
+      // 执行名单是按配置算的，不代表此刻真的可用：没配 Key 的云端模型也在名单里。
+      // 用它去辩会得到一条「辩论跑了 2 轮」但只有一个人说话的假记录，所以先按
+      // health() 筛一遍；不足两位就如实不辩。
+      const available = new Set(
+        (await debateCandidates()).filter(item => item.available).map(item => item.id)
+      );
+      const debaters = input.debaters.filter(id => available.has(id));
+      if (debaters.length < 2) return null;
+      const labelOf = (agentId: string) =>
+        extraAgents.find(agent => agent.id === agentId)?.label ?? agentId;
+      const plan = {
+        lead: {
+          mode: 'hybrid' as const,
+          agentId: input.lead.agentId,
+          label: input.lead.label,
+          reason: `会话主导人 ${input.lead.label} 指定辩题后发起`,
+          drivenBy: 'orchestrator' as const
+        },
+        openingSpeakers: debaters,
+        debaters,
+        participants: debaters,
+        webOnly: [],
+        reason: `主导人 ${input.lead.label} 指定了 ${input.topics.length} 个辩题；辩手是本地/云端模型`,
+        warnings: [],
+        excluded: []
+      };
+      const state = debates.start(
+        input.question,
+        {
+          strategy: 'standard',
+          maxRounds: 2,
+          participants: debaters,
+          convergenceStop: true,
+          seed: {
+            positions: input.seeds.map(seed => `【${seed.label}】\n${seed.text}`),
+            topics: input.topics
+          }
+        },
+        input.conversationId,
+        plan
+      );
+      const done = await debates.waitFor(state.debateId, 180_000);
+      if (!done) return null;
+      return {
+        debateId: done.debateId,
+        status: done.status,
+        rounds: done.rounds.map(round => ({
+          index: round.index,
+          messages: round.messages.map(message => ({
+            author: labelOf(message.agentId),
+            kind: message.kind,
+            text: message.text
+          })),
+          failures: round.failures
+        }))
+      };
+    },
+    // 会话里发起的辩论属于这条会话：删会话就一起删，不留孤儿记录。
+    deleteDebatesFor: conversationId => {
+      if (!debates) return;
+      for (const state of debates.list()) {
+        if (state.conversationId === conversationId) debates.remove(state.debateId);
+      }
+    },
     verdictFor: conversationId => verdictByConversation.get(conversationId) ?? null,
     onCollaborationRecord: record => {
       const index = collaborationRecords.findIndex(item => item.taskId === record.taskId);

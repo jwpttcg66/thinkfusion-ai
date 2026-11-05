@@ -47,30 +47,30 @@ function sink() {
   };
 }
 
-// 1–4 执行模式（2026-11-05 重定义：回答永远来自网页，模式只管回答后的处理）
+// 1–4 执行模式（2026-11-05 定稿：回答永远来自网页；模式 = 谁当主导人）
 const web = [webAgent('chatgpt'), webAgent('kimi')];
 const local = new ProviderBackedSubAgent(provider('local', 'ollama'), 'qwen2.5:7b');
 const cloud = new ProviderBackedSubAgent(provider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
 
-for (const mode of ['direct', 'summary', 'lead', 'auto']) {
-  test(`场景 ${mode} 模式：回答名单是网页通道，云端只进执行名单，本地两边都不进`, () => {
+for (const mode of ['web', 'local', 'cloud', 'hybrid']) {
+  test(`场景 ${mode} 主导：回答名单是网页通道，本地/云端进执行名单当主导与辩手`, () => {
     const config = normalizeExecutionConfig({ executionMode: mode });
     const selection = selectParticipants(config, web, extra);
     assert.deepEqual([...selection.answerIds].sort(), ['chatgpt', 'kimi'], '回答永远来自网页通道');
-    assert.deepEqual([...selection.executorIds].sort(), [cloud.id], '云端是执行阶段成员（可当主导）');
-    assert.ok(
-      selection.blocked.some(item => item.id === local.id),
-      '本地模型不是来源，要被明确挡在名单外'
+    assert.deepEqual(
+      [...selection.executorIds].sort(),
+      [local.id, cloud.id].sort(),
+      '本地与云端都是执行阶段成员（可当主导/辩手），只是不回答问题'
     );
   });
 }
 
-test('场景 老配置归位：四档旧模式按行为就近映射', () => {
-  assert.equal(normalizeExecutionConfig({ executionMode: 'web' }).executionMode, 'direct');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid' }).executionMode, 'auto');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'local' }).executionMode, 'direct');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'cloud' }).executionMode, 'direct');
+test('场景 老配置归位：处理动作四档按行为就近映射到主导人', () => {
+  assert.equal(normalizeExecutionConfig({ executionMode: 'direct' }).executionMode, 'web');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'lead' }).executionMode, 'web');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'summary' }).executionMode, 'local');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'auto' }).executionMode, 'hybrid');
 });
 
 // 5 多模型并行
@@ -209,7 +209,7 @@ test('场景 14 隐私模式：老配置的 local-only 被归一，回答名单�
     web, extra
   );
   assert.deepEqual([...selection.answerIds], ['chatgpt'], '回答永远来自网页通道，显式选择生效');
-  assert.deepEqual([...selection.executorIds], ['openai:gpt-4o-mini']);
+  assert.deepEqual([...selection.executorIds].sort(), [local.id, 'openai:gpt-4o-mini'].sort());
 });
 
 // 15 超长网页内容

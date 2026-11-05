@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentTask } from '../shared/contracts';
-import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage } from '../shared/conversation';
+import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
 import type { AgentStore } from './store';
@@ -9,7 +9,16 @@ import type { SubAgentAnswer, SubAgentPool } from './agents/types';
 import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
-import { buildLeadPrompt, LEAD_SYSTEM } from './synthesis/lead-prompt';
+import {
+  buildLeadSummaryQuestion,
+  buildVerdictQuestion,
+  formatDebateTranscript,
+  inlineLeadInstructions,
+  LEAD_SUMMARY_SYSTEM,
+  LEAD_SUMMARY_TIMEOUT_MS,
+  LEAD_VERDICT_SYSTEM,
+  parseTopics
+} from './synthesis/lead-stage';
 import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
 
@@ -36,10 +45,35 @@ export interface ConversationDeps {
    */
   poolFor?: (config: ConversationExecutionConfig, base: SubAgentPool) => SubAgentPool;
   /**
-   * 执行阶段成员（云端模型）：它们不参与第一轮回答，但 `lead` 模式可以指定
-   * 其中一位当主导，读完全部网页回答后给最终答案。不传表示没有执行阶段成员。
+   * 执行阶段成员（本地 + 云端模型）：它们不参与第一轮回答，但可以当主导人，
+   * 也可以当辩手。不传表示没有执行阶段成员。
    */
   executorIdsFor?: (config: ConversationExecutionConfig) => ReadonlySet<string>;
+  /**
+   * 跑一场「会话内辩论」：主导人指定辩题后，由本地/云端模型多轮交锋。
+   *
+   * 辩论是独立子系统（`debate/`），runner 不认识它的调度；这里只拿回一份
+   * 可读的轮次记录，交给主导人写最终意见。不传表示这一轮不跑辩论（只汇总）。
+   */
+  runDebate?: (input: {
+    conversationId: string;
+    question: string;
+    topics: string[];
+    /** 网页通道的第一轮回答，作为辩论的基准观点。 */
+    seeds: Array<{ label: string; text: string }>;
+    debaters: string[];
+    lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud' };
+  }) => Promise<{
+    debateId: string;
+    rounds: Array<{
+      index: number;
+      messages: Array<{ author: string; kind: string; text: string }>;
+      failures?: Array<{ agentId: string; detail: string }>;
+    }>;
+    status: string;
+  } | null>;
+  /** 删除会话时连带删掉这一轮的辩论记录；不传表示辩论记录不归会话管。 */
+  deleteDebatesFor?: (conversationId: string) => void;
   /**
    * 哪些成员有「网页里那一份会话」。本地/云端没有站点侧栏，删除时不该
    * 提示用户去手动删网页记录，也不该去重置一个不存在的页面。
@@ -54,15 +88,6 @@ export interface ConversationDeps {
   onCollaborationRecord?: (record: CollaborationRecord) => void;
   /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
   fusionEnabled?: boolean;
-  /**
-   * 汇总阶段的实现。本地模型不是「来源」，不参与上面那轮提问；它只在这里
-   * 读已经回来的回答并归纳。返回 null（没装模型、超时、被 abort）时保留
-   * 规则版综合，一轮问答不会因为汇总失败而失败。
-   */
-  summarizeLocal?: (input: {
-    question: string;
-    answers: Array<{ channelId: string; label: string; text: string }>;
-  }) => Promise<{ text: string; modelId: string; latencyMs: number } | null>;
   /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
   verdictFor?: (conversationId: string) => JudgeVerdict | null;
   /**
@@ -190,6 +215,8 @@ export class ConversationRunner {
     for (const agentId of asked) this.deps.registry.cancelAll(agentId);
 
     this.deps.store.deleteConversation(conversationId);
+    // 会话内辩论的产物随会话一起消失，否则辩论面板会留下一场没有归属的记录。
+    this.deps.deleteDebatesFor?.(conversationId);
 
     const cleaned: string[] = [];
     const reset: string[] = [];
@@ -496,30 +523,20 @@ export class ConversationRunner {
 
     if (this.cancelled.has(conversationId)) return;
 
-    // 执行阶段（回答之后）：执行模式只管这里做什么，不决定谁回答——
-    // 第一手回答永远来自网页通道（上面那轮）。
-    // - lead：指定的主导（网页回答者或云端模型）读全部回答给最终答案；
-    //   没指定时如实退化为汇总。
-    // - auto：本地模型按「问题 + 答案」自动选一位回答者主导。
-    // - summary：不跑主导轮，直接由本地模型汇总。
-    // - direct：都不跑。
-    const mode = config.executionMode;
-    let lead: Awaited<ReturnType<ConversationRunner['runLead']>> = null;
-    if (mode === 'lead' || mode === 'auto') {
-      const fixed = mode === 'lead' ? config.leadAgentId : undefined;
-      if (mode === 'lead' && !fixed) {
-        this.addMessage(conversation, {
-          role: 'system',
-          text: '主导模式没有指定主导（可在研究设置的执行模式里选择），退化为本地汇总。'
-        });
-      } else {
-        lead = await this.runLead(pool, conversation, question, outcome, sink, {
-          leadId: fixed,
-          executorIds
-        });
-      }
-      if (this.cancelled.has(conversationId)) return;
-    }
+    // 执行阶段（回答之后）：执行模式 = 谁当主导人，不决定谁回答——
+    // 第一手回答永远来自网页通道（上面那轮）。主导人做三件事：
+    //   1. 汇总全部回答，写【结论/一致/分歧/存疑】；
+    //   2. 从分歧里指定辩题（没有实质分歧就不辩）；
+    //   3. 读辩论记录，给最终意见。
+    const execution = await this.runExecutionStage(
+      pool,
+      conversation,
+      question,
+      outcome,
+      sink,
+      executorIds
+    );
+    if (this.cancelled.has(conversationId)) return;
 
     // A channel that stayed silent is a fact the user needs. It used to be
     // dropped on the floor: two answers arrived out of three, the pane showed
@@ -546,66 +563,57 @@ export class ConversationRunner {
           { verdict: this.deps.verdictFor?.(conversationId) ?? undefined }
         );
         synthesis = fused.synthesis;
-
-        // 规则版给的是结构（观点、分歧、证据），结论那一段交给本地模型读
-        // 完整回答后自己写。它是「汇总者」而不是「来源」：上一轮提问里没有
-        // 它，这里才有它。direct 模式不做任何模型处理，汇总也不跑。
-        if (this.deps.summarizeLocal && mode !== 'direct' && fused.synthesis.fusion && !lead) {
-          const labels = new Map(
-            outcome.channels.map(item => [item.agentId, item.label] as const)
-          );
-          const summary = await this.deps.summarizeLocal({
-            question,
-            answers: outcome.answers.map(answer => ({
-              channelId: answer.agentId,
-              label: labels.get(answer.agentId) ?? answer.agentId,
-              text: answer.text
-            }))
-          });
-          if (summary && summary.text.trim()) {
-            synthesis = {
-              ...fused.synthesis,
-              recommendation: summary.text.trim(),
-              fusion: {
-                ...fused.synthesis.fusion,
-                // 结论这段是模型写的，观点/证据/分歧仍是规则算的——两者不能混着说。
-                backend: 'local-model',
-                confidence: {
-                  ...fused.synthesis.fusion.confidence,
-                  why: `${fused.synthesis.fusion.confidence.why}；结论由本地模型 ${summary.modelId} 汇总（${(summary.latencyMs / 1000).toFixed(1)} 秒）`
-                }
-              }
-            };
-          }
-        }
       } catch {
         // 故意不记日志刷屏：降级是正常路径，原来的 synthesis 还在。
       }
     }
 
-    // 主导的结论盖过默认汇总：用户明确点了谁当主导，就该读它的判断。
-    // 结构（观点/证据/分歧）仍是规则算的，只有「结论」这一段来自主导。
-    if (lead && synthesis) {
-      const why = lead.auto
-        ? `系统按「问题 + 答案质量」自动选 ${lead.label} 主导（${lead.reason ?? '本地模型判定'}）；它读完全部回答后给出最终答案`
-        : `由主导 ${lead.label} 读完全部回答后给出最终答案`;
-      synthesis = {
-        ...synthesis,
-        recommendation: lead.text,
-        fusion: synthesis.fusion
-          ? {
-              ...synthesis.fusion,
-              backend: lead.backend,
-              leadAgentId: lead.agentId,
-              leadReason: lead.reason ?? undefined,
-              leadAuto: lead.auto,
-              confidence: {
-                ...synthesis.fusion.confidence,
-                why: `${synthesis.fusion.confidence.why}；${why}`
+    // 主导人的产物盖过默认综合：结论/最终意见来自主导人，结构（观点/证据/
+    // 分歧）仍是规则算的，两者不能混着说。
+    if (execution && synthesis) {
+      const { lead, summaryText, topics, debate, verdictText } = execution;
+      const backend: NonNullable<Synthesis['fusion']>['backend'] =
+        lead.kind === 'web' ? 'web' : lead.kind === 'local' ? 'local-model' : 'remote';
+      const parts: string[] = [];
+      parts.push(
+        lead.auto
+          ? `系统按「问题 + 答案质量」自动选 ${lead.label} 当主导人（${lead.reason ?? '本地模型判定'}）：它汇总了 ${outcome.answers.length} 份网页回答`
+          : `由主导人 ${lead.label} 汇总了 ${outcome.answers.length} 份网页回答`
+      );
+      if (topics.length > 0) {
+        parts.push(`它指定了 ${topics.length} 个辩题（${topics.join('；')}）`);
+      } else {
+        parts.push('回答之间没有需要辩的实质分歧，没有发起辩论');
+      }
+      if (debate) {
+        parts.push(`辩论跑了 ${debate.rounds.length} 轮（${debate.status}）`);
+      } else if (topics.length > 0) {
+        parts.push('但可用的本地/云端辩手不足两位，这一轮没有真的辩起来，只给了汇总');
+      }
+      if (verdictText) parts.push('它读完辩论记录后给出最终意见');
+
+      const text = verdictText ?? summaryText;
+      if (text) {
+        synthesis = {
+          ...synthesis,
+          recommendation: text,
+          fusion: synthesis.fusion
+            ? {
+                ...synthesis.fusion,
+                backend,
+                leadAgentId: lead.agentId,
+                leadReason: lead.reason ?? undefined,
+                leadAuto: lead.auto,
+                debateId: debate?.debateId,
+                debateTopics: topics.length > 0 ? topics : undefined,
+                confidence: {
+                  ...synthesis.fusion.confidence,
+                  why: `${synthesis.fusion.confidence.why}；${parts.join('；')}`
+                }
               }
-            }
-          : synthesis.fusion
-      };
+            : synthesis.fusion
+        };
+      }
     }
 
     if (synthesis) {
@@ -622,86 +630,221 @@ export class ConversationRunner {
   }
 
   /**
-   * 主导轮：一个人读完全部回答，指出错误、比较优劣、给出最终答案。
+   * 执行阶段：主导人的三步。
    *
-   * 为什么不在选人阶段做：主导要看的是**别人的回答**，所以必须等所有来源
-   * 都回来。网页通道也一样——它读不到别人的页面，只能由我们把各家答案拼成
-   * 一条消息发进去（页面上表现为用户说的第二段话）。
+   * 1. 汇总——读完全部网页回答，写【结论/一致/分歧/存疑】，并点出【辩题】；
+   * 2. 指定辩论——辩题非空、且有两位以上本地/云端辩手时，交由辩论子系统交锋；
+   * 3. 获取辩论——主导人读辩论记录，给最终意见。
    *
-   * 失败不抛：主导没说话时这一轮仍然是「有回答、有规则版综合」的，比整轮
-   * 失败好得多；原因写进系统消息，用户能看到是谁没说话。
+   * 网页通道也能当主导：它读不到别人的页面，只能由我们把各家答案拼成一条
+   * 消息发进去（页面上表现为用户说的第二段话）。所以网页主导会多花两次生成。
+   *
+   * 失败不抛：任何一步没成，都退回「有回答、有规则版综合」的状态，原因写进
+   * 系统消息，用户能看到是谁没说话、卡在哪。
    */
-  private async runLead(
+  private async runExecutionStage(
     pool: SubAgentPool,
     conversation: Conversation,
     question: string,
     outcome: ResearchOutcome,
     sink: ResearchSink,
-    opts: { leadId?: string; executorIds: ReadonlySet<string> }
-  ): Promise<{ agentId: string; label: string; text: string; backend: 'web' | 'local-model' | 'remote'; auto: boolean; reason: string | null } | null> {
-    // 候选 = 这一轮实际回答了的网页通道（回答永远来自网页）。
+    executorIds: ReadonlySet<string>
+  ): Promise<{
+    lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud'; auto: boolean; reason: string | null };
+    summaryText: string | null;
+    topics: string[];
+    debate: { debateId: string; rounds: Array<{ index: number; messages: Array<{ author: string; kind: string; text: string }>; failures?: Array<{ agentId: string; detail: string }> }>; status: string } | null;
+    verdictText: string | null;
+  } | null> {
+    const config = normalizeExecutionConfig(conversation.executionConfig);
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
-    const candidates = outcome.answers.map(answer => ({
-      agentId: answer.agentId,
+    const answers = outcome.answers.map(answer => ({
+      channelId: answer.agentId,
       label: labels.get(answer.agentId) ?? answer.agentId,
       text: answer.text
     }));
-    // 只有一份回答时没人可评，主导轮无意义。
-    if (candidates.length < 2) return null;
+    // 一份回答没有可汇总的分歧，也没有可辩的对象：执行阶段直接跳过，
+    // 保留规则版综合。只有多个来源时才需要主导人。
+    if (answers.length < 2) return null;
 
-    // 用户没手动指定主辩 → 自动选：本地模型按「问题 + 答案」挑一位来源主导。
-    // 本地模型不可用或解析不出编号时，退回按回答完整度的确定性兜底。
-    let leadId = opts.leadId;
-    let auto = false;
-    let reason: string | null = null;
-    if (!leadId) {
-      const picked =
-        (await this.deps.pickLead?.({ question, answers: candidates })) ?? heuristicPick(candidates);
-      if (!picked) return null;
-      leadId = picked.agentId;
-      reason = picked.reason;
-      auto = true;
-    } else if (!candidates.some(item => item.agentId === leadId) && !opts.executorIds.has(leadId)) {
-      // 指定的主导既没参与回答、也不是云端执行成员：没有可评的资格。
-      this.addMessage(conversation, {
-        role: 'system',
-        text: `指定的主导 ${labels.get(leadId) ?? leadId} 既没有回答这个问题、也不是可用的云端模型，本轮退化为本地汇总。`
-      });
-      return null;
-    }
-
-    const label = labels.get(leadId) ?? leadId;
-    const isPage = this.deps.isPageChannel?.(leadId) ?? false;
-    const source = this.deps.agentSource?.(leadId) ?? (isPage ? 'web' : undefined);
+    const lead = await this.resolveLead(config, question, answers, executorIds);
+    if (!lead) return null;
+    const isPage = lead.kind === 'web';
+    const label = lead.label;
 
     this.setStatus(conversation, 'synthesizing');
-    sink.phase(leadId, 'asking', auto ? `自动选 ${label} 主导：读完全部回答，指出错误并给最终答案` : '主导：读完全部回答，指出错误并给最终答案');
+    sink.phase(
+      lead.agentId,
+      'asking',
+      lead.auto ? `自动选 ${label} 当主导人：汇总各家回答并指定辩题` : `${label} 当主导人：汇总各家回答并指定辩题`
+    );
+
+    // —— 第一步：汇总 + 指定辩题 ————————————————————————————
+    let summaryText: string | null = null;
     try {
-      const answer = await pool.ask(leadId, {
-        question: buildLeadPrompt(question, candidates, { selfAgentId: leadId }),
+      const answer = await pool.ask(lead.agentId, {
+        question: isPage
+          ? inlineLeadInstructions(question, answers)
+          : buildLeadSummaryQuestion(question, answers),
         stage: 'challenge',
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
-        timeoutMs: 180_000,
+        timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
         // 只有 API 主导用得上 system；网页通道会忽略它。
-        system: isPage ? undefined : LEAD_SYSTEM
+        system: isPage ? undefined : LEAD_SUMMARY_SYSTEM
       });
       const text = answer.text.trim();
-      if (!text) return null;
-      sink.phase(leadId, 'answered', '主导发言完成');
-      return {
-        agentId: leadId,
-        label,
-        text,
-        backend: source === 'local' ? 'local-model' : source === 'cloud' ? 'remote' : 'web',
-        auto,
-        reason
-      };
+      summaryText = text || null;
+      if (summaryText) sink.phase(lead.agentId, 'answered', '汇总完成');
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      sink.phase(leadId, 'failed', detail);
-      this.addMessage(conversation, { role: 'system', text: `主导 ${label} 这一轮没有给出评判：${detail}` });
-      return null;
+      sink.phase(lead.agentId, 'failed', detail);
+      this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
     }
+    if (!summaryText) {
+      return { lead, summaryText: null, topics: [], debate: null, verdictText: null };
+    }
+
+    // —— 第二步：指定辩论 ————————————————————————————————
+    const topics = parseTopics(summaryText);
+    const debaters = [...executorIds];
+    let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
+    if (topics.length === 0) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总、不发起辩论。`
+      });
+    } else if (debaters.length < 2) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `${label} 列出了 ${topics.length} 个辩题（${topics.join('；')}），但可用的本地/云端辩手不足两位，这一轮只汇总、不发起辩论。`
+      });
+    } else if (this.deps.runDebate) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `${label} 指定了 ${topics.length} 个辩题：${topics.join('；')}`
+      });
+      try {
+        debate = await this.deps.runDebate({
+          conversationId: conversation.conversationId,
+          question,
+          topics,
+          seeds: answers.map(answer => ({ label: answer.label, text: answer.text })),
+          debaters,
+          lead: { agentId: lead.agentId, label, kind: lead.kind }
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.addMessage(conversation, { role: 'system', text: `辩论没能跑起来：${detail}` });
+      }
+    }
+
+    // —— 第三步：获取辩论结果，给最终意见 ————————————————————
+    let verdictText: string | null = null;
+    if (debate && debate.rounds.length > 0) {
+      const transcript = formatDebateTranscript(debate.rounds);
+      sink.phase(lead.agentId, 'asking', '读辩论记录，给最终意见');
+      try {
+        const answer = await pool.ask(lead.agentId, {
+          question: buildVerdictQuestion(question, summaryText, transcript),
+          stage: 'challenge',
+          timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
+          system: isPage ? undefined : LEAD_VERDICT_SYSTEM
+        });
+        const text = answer.text.trim();
+        verdictText = text || null;
+        if (verdictText) sink.phase(lead.agentId, 'answered', '最终意见完成');
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        sink.phase(lead.agentId, 'failed', detail);
+        this.addMessage(conversation, { role: 'system', text: `${label} 读辩论记录时没给出最终意见：${detail}` });
+      }
+    }
+
+    return { lead, summaryText, topics, debate, verdictText };
+  }
+
+  /**
+   * 谁当主导人。
+   *
+   * - 手动指定且名额合法：就用它；
+   * - 网页/本地/云端：取该类型第一个可用成员；
+   * - 混合：交给本地模型按「问题 + 答案质量」挑（挑不出来按回答完整度兜底）。
+   *
+   * 该模式没有可用成员时如实退回网页回答者，并在系统消息里说明，不假装
+   * 「本地主导」成功了。
+   */
+  private async resolveLead(
+    config: ConversationExecutionConfig,
+    question: string,
+    answers: ReadonlyArray<{ channelId: string; label: string; text: string }>,
+    executorIds: ReadonlySet<string>
+  ): Promise<{
+    agentId: string;
+    label: string;
+    kind: 'web' | 'local' | 'cloud';
+    auto: boolean;
+    reason: string | null;
+  } | null> {
+    const answerById = new Map(answers.map(answer => [answer.channelId, answer] as const));
+    const kindOf = (agentId: string): 'web' | 'local' | 'cloud' => {
+      if (this.deps.isPageChannel?.(agentId)) return 'web';
+      const source = this.deps.agentSource?.(agentId);
+      if (source === 'local' || source === 'cloud') return source;
+      return answerById.has(agentId) ? 'web' : 'cloud';
+    };
+    const usable = (agentId: string) => answerById.has(agentId) || executorIds.has(agentId);
+    const labelOf = (agentId: string) => answerById.get(agentId)?.label ?? agentId;
+
+    const fixed = config.leadAgentId;
+    if (fixed && usable(fixed)) {
+      return { agentId: fixed, label: labelOf(fixed), kind: kindOf(fixed), auto: false, reason: null };
+    }
+
+    const executors = [...executorIds];
+    const pickKind = (kind: 'local' | 'cloud') =>
+      executors.find(agentId => this.deps.agentSource?.(agentId) === kind);
+
+    if (config.executionMode === 'local' || config.executionMode === 'cloud') {
+      const wanted = config.executionMode;
+      const agentId = pickKind(wanted);
+      if (agentId) {
+        return { agentId, label: labelOf(agentId), kind: wanted, auto: false, reason: null };
+      }
+      const fallback = answers[0];
+      // 该模式没有可用成员：如实退回网页回答者，reason 会写进结论文案，
+      // 让用户看到「本地主导没成立」，而不是静默换成别人。
+      return fallback
+        ? {
+            agentId: fallback.channelId,
+            label: fallback.label,
+            kind: 'web',
+            auto: false,
+            reason: `没有可用的${wanted === 'local' ? '本地' : '云端'}模型，退回网页通道 ${fallback.label} 主导`
+          }
+        : null;
+    }
+
+    if (config.executionMode === 'hybrid') {
+      const candidates = answers.map(answer => ({
+        agentId: answer.channelId,
+        label: answer.label,
+        text: answer.text
+      }));
+      const picked = (await this.deps.pickLead?.({ question, answers: candidates })) ?? heuristicPick(candidates);
+      if (picked && usable(picked.agentId)) {
+        return {
+          agentId: picked.agentId,
+          label: labelOf(picked.agentId),
+          kind: kindOf(picked.agentId),
+          auto: true,
+          reason: picked.reason
+        };
+      }
+    }
+
+    const first = answers[0];
+    if (!first) return null;
+    return { agentId: first.channelId, label: first.label, kind: 'web', auto: false, reason: null };
   }
 
   private setStatus(conversation: Conversation, status: Conversation['status']): void {

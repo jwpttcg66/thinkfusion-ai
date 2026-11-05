@@ -1,9 +1,9 @@
 /**
- * Phase E：执行模式（2026-11-05 重定义）、选人、接线。
+ * Phase E：执行模式（2026-11-05 定稿）、选人、接线。
  *
- * 硬规则：回答永远来自网页通道。执行模式（direct/summary/lead/auto）只决定
- * 回答之后的处理流程；云端模型是执行阶段成员（可当主导），本地模型两份名单
- * 都不进（只在汇总/选主导时出场）。
+ * 硬规则：第一手回答永远来自网页通道。执行模式 = 谁当主导人（网页/本地/
+ * 云端/混合），主导人负责汇总、指定辩论、读辩论结果给最终意见。本地与云端
+ * 模型都不参与第一轮回答，但可以当主导人或辩手。
  *
  * Run with: npm run test:execution
  */
@@ -56,18 +56,21 @@ const executors = selection => [...selection.executorIds].sort();
 
 // ---------------------------------------------------------------------------
 
-test('默认配置是 direct / allow-cloud，老会话照这个读', () => {
-  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, { executionMode: 'direct', fallbackEnabled: false, privacyMode: 'allow-cloud' });
+test('默认配置是 web / allow-cloud，老会话照这个读', () => {
+  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, { executionMode: 'web', fallbackEnabled: false, privacyMode: 'allow-cloud' });
   assert.deepEqual(normalizeExecutionConfig(), DEFAULT_EXECUTION_CONFIG);
   assert.deepEqual(normalizeExecutionConfig(null), DEFAULT_EXECUTION_CONFIG);
-  assert.equal(normalizeExecutionConfig({}).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({}).executionMode, 'web');
 });
 
-test('老语义四档归位：web/local/cloud→direct，hybrid→auto；privacyMode 一律 allow-cloud', () => {
-  assert.equal(normalizeExecutionConfig({ executionMode: 'web' }).executionMode, 'direct');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'local' }).executionMode, 'direct');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'cloud' }).executionMode, 'direct');
-  assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid' }).executionMode, 'auto', 'hybrid 原本就是自动主导');
+test('四种主导人保持不变；短暂上线过的处理动作四档按行为归位', () => {
+  for (const mode of ['web', 'local', 'cloud', 'hybrid']) {
+    assert.equal(normalizeExecutionConfig({ executionMode: mode }).executionMode, mode);
+  }
+  assert.equal(normalizeExecutionConfig({ executionMode: 'direct' }).executionMode, 'web');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'lead' }).executionMode, 'web');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'summary' }).executionMode, 'local');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'auto' }).executionMode, 'hybrid');
   // 回答必发网页，「仅本地」没有成立的前提；老配置带 local-only 也归一。
   assert.equal(normalizeExecutionConfig({ executionMode: 'web', privacyMode: 'local-only' }).privacyMode, 'allow-cloud');
   assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid', privacyMode: 'local-only' }).privacyMode, 'allow-cloud');
@@ -80,19 +83,19 @@ test('主导成员被持久化；给空串等于没设', () => {
 });
 
 test('IPC 传来的非法值一律退回默认，不进 undefined 分支', () => {
-  assert.equal(normalizeExecutionConfig({ executionMode: 'nonsense' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'nonsense' }).executionMode, 'web');
   const config = normalizeExecutionConfig({ selectedWebChannels: ['ok', 3, null] });
   assert.deepEqual(config.selectedWebChannels, ['ok']);
   assert.equal(config.fallbackEnabled, false);
 });
 
-test('回答名单 = 网页通道；执行名单 = 云端模型；本地模型两边都不进', () => {
+test('回答名单 = 网页通道；执行名单 = 本地 + 云端模型（可当主导/辩手）', () => {
   const selection = selectParticipants({}, web, extra);
   assert.deepEqual(answers(selection), ['chatgpt', 'kimi']);
-  assert.deepEqual(executors(selection), ['openai:gpt-4o-mini']);
+  assert.deepEqual(executors(selection), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
   assert.ok(
-    selection.blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
-    '本地模型要被明确挡在名单外，不是悄悄消失'
+    !selection.blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
+    '本地模型不是回答者，但不该被挡在执行阶段之外——它能当主导人、能当辩手'
   );
 });
 
@@ -100,9 +103,9 @@ test('按选择裁名单，空数组表示「一个都不选」而不是「没�
   const onlyChatgpt = selectParticipants({ selectedWebChannels: ['chatgpt'] }, web, extra);
   assert.deepEqual(answers(onlyChatgpt), ['chatgpt']);
   const noCloud = selectParticipants({ selectedCloudModels: [] }, web, extra);
-  assert.deepEqual(executors(noCloud), [], '显式清空云端表示这一轮不请任何云端主导');
+  assert.deepEqual(executors(noCloud), ['ollama:qwen2.5:7b'], '显式清空云端只清云端，本地仍在执行名单里');
   const explicitCloud = selectParticipants({ selectedCloudModels: ['gpt-4o-mini'] }, web, extra);
-  assert.deepEqual(executors(explicitCloud), ['openai:gpt-4o-mini']);
+  assert.deepEqual(executors(explicitCloud), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
 });
 
 test('ExecutionPool：all/available 只给回答者（网页）；ask 放行回答者与执行者', async () => {
@@ -123,7 +126,7 @@ test('ExecutionPool：all/available 只给回答者（网页）；ask 放行回�
   // 云端执行成员可以单独被问（主导轮读全部回答）。
   const leadAnswer = await pool.ask(cloud.id, { question: 'x', stage: 'challenge' });
   assert.equal(leadAnswer.text, 'cloud 回答');
-  // 名单外（网页 kimi 没被选、本地模型永远不进名单）连问都不让问。
+  // 名单外（网页 kimi 没被选、本地模型这一轮没进执行名单）连问都不让问。
   await assert.rejects(pool.ask('kimi', { question: 'x', stage: 'initial' }), /这一轮不选/);
   await assert.rejects(pool.ask(local.id, { question: 'x', stage: 'initial' }), /这一轮不选/);
 });
@@ -168,12 +171,12 @@ test('runner 保存 executionConfig，并把它交给 poolFor', async () => {
 
   const conversation = await runner.start({
     text: '17 乘 3 等于多少？',
-    executionConfig: { executionMode: 'summary' }
+    executionConfig: { executionMode: 'local' }
   });
-  assert.equal(conversation.executionConfig.executionMode, 'summary');
+  assert.equal(conversation.executionConfig.executionMode, 'local');
   assert.equal(conversation.executionConfig.privacyMode, 'allow-cloud');
   await sleep(20);
-  assert.equal(seen[0].executionMode, 'summary');
+  assert.equal(seen[0].executionMode, 'local');
 });
 
 test('删除云端参与的会话，不提示「手动删除网页里的那份」', async () => {
@@ -221,7 +224,7 @@ test('删除云端参与的会话，不提示「手动删除网页里的那份�
   assert.equal(calls.newChat, 0, '没有页面需要重置');
 });
 
-test('老会话没有 executionConfig 时，poolFor 收到的是默认 direct', async () => {
+test('老会话没有 executionConfig 时，poolFor 收到的是默认 web', async () => {
   const conversations = new Map();
   const store = {
     listConversations: () => [...conversations.values()],
@@ -249,5 +252,5 @@ test('老会话没有 executionConfig 时，poolFor 收到的是默认 direct', 
   // 直接走 normalize，模拟从磁盘读出来的老对象。
   assert.deepEqual(normalizeExecutionConfig(created.executionConfig), DEFAULT_EXECUTION_CONFIG);
   await sleep(20);
-  assert.equal(seen[0].executionMode, 'direct');
+  assert.equal(seen[0].executionMode, 'web');
 });

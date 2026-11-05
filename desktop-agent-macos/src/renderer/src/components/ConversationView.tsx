@@ -45,10 +45,10 @@ const STATUS_LABEL: Record<Conversation['status'], string> = {
  * 怎么有本地模型在回答」看起来像个 bug。模式属于会话，就该出现在会话头部。
  */
 const MODE_LABEL: Record<ConversationExecutionConfig['executionMode'], string> = {
-  direct: '直接采纳',
-  summary: '本地汇总',
-  lead: '主导辩论',
-  auto: '自动主导'
+  web: '网页主导',
+  local: '本地主导',
+  cloud: '云端主导',
+  hybrid: '混合主导'
 };
 
 export function ConversationView(props: {

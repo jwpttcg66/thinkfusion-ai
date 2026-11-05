@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
+import { parseTopics } from '../out-test/main/synthesis/lead-stage.js';
 
 function fakeStore() {
   const conversations = new Map();
@@ -653,82 +654,188 @@ function execRunner(channels, extra) {
   return { runner, store, events };
 }
 
-test('direct 模式：回答之后不请任何模型处理，也没有本地汇总', async () => {
-  const calls = { summary: 0, pickLead: 0 };
-  const { runner, store } = execRunner(execChannels(), {
-    fusionEnabled: true,
-    summarizeLocal: async () => { calls.summary += 1; return { text: '不该出现的汇总', modelId: 'm', latencyMs: 1 }; },
-    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'a', reason: '不该出现' }; }
-  });
-  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'direct' } });
-  await settle(runner, conversation.conversationId);
-  const messages = store.listMessages(conversation.conversationId);
-  const synthesis = messages.find(message => message.synthesis)?.synthesis;
-  assert.ok(synthesis, 'direct 也有规则版综合');
-  assert.equal(calls.summary, 0, 'direct 模式不做任何模型处理');
-  assert.equal(calls.pickLead, 0);
-});
+/**
+ * 执行阶段成员（本地/云端）的替身：它们不参与第一轮回答，只在主导/辩论时被问。
+ * `replies` 是「收到什么就回什么」的函数，方便断言提示词确实带着各家回答。
+ */
+function execPool(channels, replies) {
+  return {
+    all: async () => channels,
+    available: async () => channels,
+    ask: async (id, task) => {
+      const reply = replies[id];
+      if (reply) {
+        return {
+          agentId: id,
+          text: reply(task),
+          receivedAt: 1,
+          attribution: { requestId: 'r', note: 'n' },
+          stage: task.stage
+        };
+      }
+      const channel = channels.find(item => item.id === id);
+      if (!channel) throw new Error(`没有 ${id}`);
+      return channel.ask(task);
+    },
+    newConversation: async () => ({ ok: true }),
+    deleteConversation: async () => ({ ok: true }),
+    cancel: () => {}
+  };
+}
 
-test('summary 模式：本地模型汇总写结论，不跑主导轮', async () => {
-  const calls = { summary: 0, pickLead: 0 };
-  const { runner, store } = execRunner(execChannels(), {
-    fusionEnabled: true,
-    summarizeLocal: async () => { calls.summary += 1; return { text: '本地模型的四段结论', modelId: 'qwen2.5:7b', latencyMs: 12 }; },
-    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'a', reason: '不该出现' }; }
+const SUMMARY_REPLY = '【结论】综合结论\n【一致】都说到的点\n【分歧】没有\n【存疑】没有\n【辩题】无';
+
+test('网页主导：由回答者当主导，它读全部回答写汇总', async () => {
+  const prompts = [];
+  const channels = [
+    fakeChannel('a', async input => {
+      prompts.push(input.question);
+      return answer(input.question.includes('【各来源的回答】') ? SUMMARY_REPLY : 'a 的回答');
+    }),
+    fakeChannel('b', async () => answer('b 的回答'))
+  ];
+  const { runner, store } = execRunner(channels, { fusionEnabled: true });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'web', leadAgentId: 'a' }
   });
-  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'summary' } });
   await settle(runner, conversation.conversationId);
-  assert.equal(calls.pickLead, 0, '汇总模式不选主导');
-  assert.equal(calls.summary, 1);
+
+  // 第一次是用户原话，第二次才是把各家回答递进去的汇总请求。
+  assert.equal(prompts[0], '一个问题');
+  assert.ok(prompts.some(text => text.includes('【各来源的回答】')), '网页主导应当收到全部回答');
   const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
-  assert.equal(synthesis?.recommendation, '本地模型的四段结论');
-  assert.equal(synthesis?.fusion?.backend, 'local-model');
+  assert.equal(synthesis?.recommendation, SUMMARY_REPLY);
+  assert.equal(synthesis?.fusion?.backend, 'web');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'a');
 });
 
-test('lead 模式指定云端主导：云端没参与回答也能读全部回答给最终答案', async () => {
-  const asked = [];
+test('本地主导：本地模型当主导，汇总与辩题都由它出', async () => {
+  const channels = execChannels();
+  const seen = [];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => execPool(channels, {
+      local: task => {
+        seen.push(task.question);
+        return SUMMARY_REPLY;
+      }
+    }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined)
+  });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'local' }
+  });
+  await settle(runner, conversation.conversationId);
+
+  assert.equal(seen.length, 1, '本地主导应当只做一次汇总（没有辩题就不辩）');
+  assert.ok(seen[0].includes('【各来源的回答】'));
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.recommendation, SUMMARY_REPLY);
+  assert.equal(synthesis?.fusion?.backend, 'local-model');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'local');
+});
+
+test('云端主导：云端没参与回答，也能读全部回答当主导', async () => {
   const channels = execChannels();
   const { runner, store } = execRunner(channels, {
     fusionEnabled: true,
-    poolFor: () => ({
-      all: async () => channels,
-      available: async () => channels,
-      ask: async (id, task) => {
-        asked.push(`${id}:${task.stage}`);
-        if (id === 'cloud') return { agentId: id, text: '云端的最终意见', receivedAt: 1, attribution: { requestId: 'r', note: 'n' }, stage: task.stage };
-        return channels.find(channel => channel.id === id).ask(task);
-      },
-      newConversation: async () => ({ ok: true }),
-      deleteConversation: async () => ({ ok: true }),
-      cancel: () => {}
-    }),
+    poolFor: () => execPool(channels, { cloud: () => SUMMARY_REPLY }),
     executorIdsFor: () => new Set(['cloud']),
     agentSource: id => (id === 'cloud' ? 'cloud' : undefined)
   });
   const conversation = await runner.start({
     text: '一个问题',
-    executionConfig: { executionMode: 'lead', leadAgentId: 'cloud' }
+    executionConfig: { executionMode: 'cloud', leadAgentId: 'cloud' }
   });
   await settle(runner, conversation.conversationId);
-  assert.ok(asked.some(item => item === 'cloud:challenge'), '云端主导在执行阶段被问到');
+
   const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
-  assert.equal(synthesis?.recommendation, '云端的最终意见');
+  assert.equal(synthesis?.recommendation, SUMMARY_REPLY);
   assert.equal(synthesis?.fusion?.backend, 'remote');
   assert.equal(synthesis?.fusion?.leadAgentId, 'cloud');
   assert.equal(synthesis?.fusion?.leadAuto, false, '手动指定不算自动');
 });
 
-test('auto 模式：pickLead 挑一位回答者主导，它被再问一次', async () => {
+test('混合主导：本地模型挑一位成员当主导，理由写进报告', async () => {
   const calls = { pickLead: 0 };
   const { runner, store } = execRunner(execChannels(), {
     fusionEnabled: true,
-    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'A', reason: '测试理由' }; }
+    pickLead: async () => {
+      calls.pickLead += 1;
+      return { agentId: 'b', label: 'B', reason: 'B 的回答更完整' };
+    }
   });
-  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'auto' } });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'hybrid' }
+  });
   await settle(runner, conversation.conversationId);
-  assert.equal(calls.pickLead, 1, '自动模式恰好选一次主导');
+
+  assert.equal(calls.pickLead, 1, '混合主导恰好挑一次');
   const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
-  assert.equal(synthesis?.fusion?.leadAgentId, 'a');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'b');
   assert.equal(synthesis?.fusion?.leadAuto, true);
-  assert.match(synthesis?.fusion?.confidence?.why ?? '', /自动选 a 主导/);
+  assert.equal(synthesis?.fusion?.leadReason, 'B 的回答更完整');
+  assert.match(synthesis?.fusion?.confidence?.why ?? '', /自动选 b 当主导人/);
+});
+
+test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async () => {
+  const channels = execChannels();
+  const debateInputs = [];
+  const localReplies = [];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => execPool(channels, {
+      local: task => {
+        localReplies.push(task.question);
+        // 第一次是汇总 + 定辩题，第二次是读辩论记录给最终意见。
+        return localReplies.length === 1
+          ? '【结论】两家结论不一致\n【分歧】a 说涨、b 说跌\n【辩题】价格到底会涨还是会跌？'
+          : '【最终意见】按证据看，涨的概率更高。';
+      }
+    }),
+    executorIdsFor: () => new Set(['local', 'cloud']),
+    agentSource: id => (id === 'local' ? 'local' : id === 'cloud' ? 'cloud' : undefined),
+    runDebate: async input => {
+      debateInputs.push(input);
+      return {
+        debateId: 'debate-1',
+        status: 'completed',
+        rounds: [
+          {
+            index: 0,
+            messages: [
+              { author: '本地', kind: 'position', text: '会涨' },
+              { author: '云端', kind: 'position', text: '会跌' }
+            ]
+          }
+        ]
+      };
+    }
+  });
+  const conversation = await runner.start({ text: '价格会涨还是会跌', executionConfig: { executionMode: 'local' } });
+  await settle(runner, conversation.conversationId);
+
+  assert.equal(debateInputs.length, 1, '有辩题时应当发起辩论');
+  assert.deepEqual(debateInputs[0].topics, ['价格到底会涨还是会跌？']);
+  assert.deepEqual(debateInputs[0].debaters.sort(), ['cloud', 'local']);
+  assert.equal(debateInputs[0].seeds.length, 2, '网页回答作为辩论的基准观点');
+  assert.equal(localReplies.length, 2, '主导人先汇总、再读辩论记录');
+
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.recommendation, '【最终意见】按证据看，涨的概率更高。');
+  assert.equal(synthesis?.fusion?.debateId, 'debate-1');
+  assert.deepEqual(synthesis?.fusion?.debateTopics, ['价格到底会涨还是会跌？']);
+  assert.match(synthesis?.fusion?.confidence?.why ?? '', /辩论跑了 1 轮/);
+  assert.match(synthesis?.fusion?.confidence?.why ?? '', /最终意见/);
+});
+
+test('辩题解析：一行里挤了多条编号辩题也能拆开，且不吞掉「8杯水」的数字', () => {
+  const summary = '【结论】没有定论\n【辩题】1. 8杯水是否包括食物水分？2. 每天该喝多少水？';
+  assert.deepEqual(parseTopics(summary), ['8杯水是否包括食物水分？', '每天该喝多少水？']);
+  assert.deepEqual(parseTopics('【辩题】无'), [], '写「无」表示不辩');
+  assert.deepEqual(parseTopics('【结论】没有分歧'), [], '没有这一节也表示不辩');
 });

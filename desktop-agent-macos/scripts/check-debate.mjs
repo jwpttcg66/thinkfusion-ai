@@ -206,3 +206,36 @@ test('辩论记录不进主 journal 目录', async () => {
   assert.ok(content.includes(QUESTION));
   h.cleanup();
 });
+
+test('会话内辩论：第一轮读到网页回答与主导人指定的辩题', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-debate-'));
+  const firstTask = [];
+  const orchestrator = new DebateOrchestrator(new DebateStore(dir), {
+    ask: async (agentId, task) => {
+      if (task.stage === 'initial' && firstTask.length < 2) firstTask.push({ agentId, task });
+      return { agentId, text: `${agentId} 的观点`, receivedAt: 1, attribution: { requestId: 'r', note: 'n' }, stage: task.stage };
+    }
+  });
+  const started = orchestrator.start(
+    '价格会涨还是会跌',
+    {
+      strategy: 'standard',
+      maxRounds: 1,
+      participants: ['a', 'b'],
+      convergenceStop: false,
+      seed: {
+        positions: ['【ChatGPT】\n会涨', '【Kimi】\n会跌'],
+        topics: ['哪一方的证据更硬？']
+      }
+    }
+  );
+  await orchestrator.waitFor(started.debateId);
+  assert.equal(firstTask.length, 2, '两位辩手都跑第一轮');
+  for (const { task } of firstTask) {
+    const context = (task.context ?? []).join('\n');
+    assert.match(context, /会涨/, '第一轮读到网页已经给出的回答');
+    assert.match(context, /哪一方的证据更硬/, '第一轮读到主导人指定的辩题');
+    assert.match((task.system ?? []).join('\n'), /网页通道的回答已经在上下文里/, '不是从零重复回答');
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});

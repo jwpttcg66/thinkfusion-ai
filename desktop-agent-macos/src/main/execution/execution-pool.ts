@@ -7,8 +7,8 @@ import { ProviderBackedSubAgent } from './provider-sub-agent';
  *
  * - `answerIds`（网页通道）：`all()` / `available()` 只返回它们，所以
  *   `MasterAgent` 的第一轮只会问网页——回答永远来自网页通道。
- * - `executorIds`（云端模型）：不进 `all()`，但 `ask()` 放行。它们只在
- *   主导轮被点名，读完全部网页回答后给出最终答案。
+ * - `executorIds`（本地 + 云端模型）：不进 `all()`，但 `ask()` 放行。它们
+ *   只在执行阶段被点名：当主导人（汇总/定辩题/给最终意见）或当辩手。
  *
  * `SubAgentPool` 是 `MasterAgent` 唯一的入口，所以裁名单放在这一层，
  * `MasterAgent` 和 `ConversationRunner.conduct()` 都不用知道「执行模式」

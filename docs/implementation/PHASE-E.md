@@ -101,7 +101,7 @@ npm run typecheck / build 通过
 
 ---
 
-## 2026-11-05 附记：执行模式重新定义（用户裁决）
+## 2026-11-05 附记（已被同日 10:40 的修正推翻）：执行模式重新定义（用户裁决）
 
 **原设计错了方向。** Phase E 把 `executionMode`（web/local/cloud/hybrid）做成
 「这一轮问谁」——四种模式是四种**回答来源**的组合。用户裁决：执行模式不包含
@@ -142,3 +142,49 @@ npm run typecheck / build 通过
 矩阵），`test:runner` 新增 4 条（direct 不请模型 / summary 汇总 / lead 云端
 主导 / auto 选主导），`test:scenarios` 1–4 与 14 重写。全套 `npm test` 357
 条全绿。
+
+
+---
+
+## 2026-11-05 10:40 修正：执行模式 = 谁当主导人（定稿）
+
+上一节把执行模式做成了「回答之后的处理动作」（direct/summary/lead/auto），
+用户否决：**四种执行模式是不同的主导人，主导人负责汇总、指定辩论、获取辩论
+结果**。处理动作不是模式，是主导人固定要做的三件事。
+
+### 定稿语义
+
+| 模式 | 主导人 | 谁能被指定 |
+| --- | --- | --- |
+| `web` 网页主导 | 某个网页回答者 | 本轮回答了的网页通道 |
+| `local` 本地主导 | 本机 Ollama | 可用的本地模型 |
+| `cloud` 云端主导 | 配置了 Key 的云端模型 | 可用的云端模型 |
+| `hybrid` 混合主导 | 本地模型按「问题 + 答案质量」挑一位成员 | 不预先指定 |
+
+主导人固定三步：
+
+1. **汇总**——读完所有网页回答，写【结论/一致/分歧/存疑】+【辩题】；
+   汇总和定辩题是一次调用，由它自己决定要不要辩。
+2. **指定辩论**——【辩题】非空且有 ≥2 位可用本地/云端辩手时，交给 `debate/`
+   子系统跑多轮交锋；网页回答作为基准观点注入第一轮 context。
+3. **获取辩论**——辩论跑完，主导人再读一遍轮次记录，给出最终意见；
+   最终意见覆盖汇总结论，`fusion.debateId` / `debateTopics` 落盘。
+
+### 代码落点
+
+| 文件 | 改动 |
+| --- | --- |
+| `shared/conversation.ts` | `ExecutionMode` 回到 web/local/cloud/hybrid（主导人）；处理动作四档只作老值映射 |
+| `main/synthesis/lead-stage.ts` | 新增：汇总+定辩题提示词、辩题解析、辩论记录格式化、最终意见提示词 |
+| `main/conversation-runner.ts` | `runExecutionStage` + `resolveLead`；`runLead` 删除 |
+| `main/debate/types.ts` / `orchestrator.ts` | `DebateConfig.seed`：第一轮读网页回答与辩题 |
+| `main/execution/policy.ts` | `executorIds` = 本地 + 云端（可当主导/辩手，仍不回答） |
+| `main/index.ts` | `runDebate` 接线（按 health 筛辩手、会长会话）、`deleteDebatesFor` |
+| UI | 四档改名（网页/本地/云端/混合主导）、主导下拉按模式收窄、说明三步 |
+
+### 真机验证（本地主导，2026-11-05 10:59）
+
+三个网页通道回答「每天 8 杯水有没有科学依据」；本地 qwen2.5:7b 当主导，
+输出五段汇总、解析出 2 条辩题；因为只有 1 个可用辩手（云端无 Key），如实
+写明「没有真的辩起来，只给了汇总」，没有伪造辩论记录。删会话后辩论记录 0
+条、三站 cleaned+reset。

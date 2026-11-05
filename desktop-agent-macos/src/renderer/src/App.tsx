@@ -1147,7 +1147,7 @@ export default function App() {
             <div className="research-bar">
               <button className="btn ghost" type="button" onClick={() => setResearchOpen(true)}>研究设置</button>
               <span className="muted">
-                下一条：{({ direct: '直接采纳', summary: '本地汇总', lead: '主导辩论', auto: '自动主导' } as const)[executionConfig.executionMode]}
+                下一条：{({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
                 {' / '}{executionConfig.strategy ?? '默认并行'}
               </span>
             </div>

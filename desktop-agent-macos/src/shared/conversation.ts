@@ -152,6 +152,8 @@ export interface Synthesis {
     leadAgentId?: string;
     leadReason?: string;
     leadAuto?: boolean;
+    /** 主导人指定的辩题；没有实质分歧时为空，这一轮就不辩。 */
+    debateTopics?: string[];
     limits: string[];
   };
 }
@@ -230,17 +232,21 @@ export interface ChannelStatus {
 /**
  * 执行模式 = **回答之后的处理流程**，它不决定「谁回答」。
  *
- * 硬规则（2026-11-05 用户裁决）：第一手回答永远来自网页通道。本地模型不是
- * 来源（只在汇总/选主导时出场），云端模型不产生第一手回答（只可能当主导）。
- * 执行模式改变的是回答都回来之后做什么：
+ * 硬规则（2026-11-05 用户裁决）：第一手回答永远来自网页通道，执行模式不包含
+ * 回答。执行模式 = **谁当主导人**，四种主导人各自负责：
  *
- * - `direct`  直接：网页回答 → 本地规则综合，即最终答案。不请任何模型处理。
- * - `summary` 汇总：网页回答后，本地模型读完全部回答，写【结论/一致/分歧/存疑】。
- * - `lead`    主导辩论：由指定的主导（网页回答者或云端模型）读完全部回答，
- *             指出谁错在哪、比较优劣，给出最终答案。没有指定时退化为汇总。
- * - `auto`    自动主导：本地模型按「问题 + 答案质量」自动选一位回答者主导。
+ * 1. 汇总——读完全部网页回答，写【结论/一致/分歧/存疑】；
+ * 2. 指定辩论——从分歧里点出要辩的议题（没有实质分歧就不辩）；
+ * 3. 获取辩论——读懂辩论记录，给出最终意见。
+ *
+ * - `web`    网页主导：由某个网页回答者当主导（再发一条消息把各家答案递进页面）。
+ * - `local`  本地主导：由本机 Ollama 模型当主导（API 调用，不上网）。
+ * - `cloud`  云端主导：由配置了 Key 的云端模型当主导。
+ * - `hybrid` 混合主导：不预先指定，由本地模型按「问题 + 答案质量」挑一位主导。
+ *
+ * 本地模型不当"来源"，但它可以当主导人、也可以当辩手。
  */
-export type ExecutionMode = 'direct' | 'summary' | 'lead' | 'auto';
+export type ExecutionMode = 'web' | 'local' | 'cloud' | 'hybrid';
 /**
  * 遗留字段：回答必发网页，「仅本地」已经没有成立的前提。类型保留是为了老
  * 会话数据不崩，normalize 一律归一成 `allow-cloud`，界面不再提供这个选项。
@@ -258,17 +264,19 @@ export interface ConversationExecutionConfig {
   primaryProviderId?: string;
   primaryModelId?: string;
   /**
-   * `lead` 模式的主导：读完全部回答，指出错误、比较优劣、给出最终答案。
+   * 这一轮的主导人。不指定时按执行模式取第一个可用的同类成员：
+   * 网页主导取第一个回答了的网页通道，本地/云端主导取第一个可用模型，
+   * 混合主导交给本地模型按答案质量挑。
    *
-   * 可以是本轮回答了的网页通道（靠再发一条消息把各家答案递进页面），也可以
-   * 是配置了 Key 的云端模型（走 API 的 system 轮次，不需要它参与第一轮回答）。
-   * 本地模型不能当主导——它是汇总者和选主导者，不是运动员。
+   * 主导人可以做三件事：汇总全部回答、指定辩论议题、读辩论结果给最终意见。
+   * 网页通道能当主导——代价是多发一条消息，因为页面读不到别人的回答，只能
+   * 由我们把各家答案拼成一条发进去。
    */
   leadAgentId?: string;
   selectedWebChannels?: string[];
-  /** 遗留字段，不再参与选人；保留是为了老会话读得回来。 */
+  /** 遗留字段；本地模型现在可当主导/辩手，不再是"回答者"。 */
   selectedLocalModels?: string[];
-  /** 可当主导的云端模型清单；空缺表示全部可用云端模型。 */
+  /** 可当主导/辩手的云端模型清单；空缺表示全部可用云端模型。 */
   selectedCloudModels?: string[];
   fallbackEnabled: boolean;
   privacyMode: PrivacyMode;
@@ -282,7 +290,7 @@ export interface ConversationExecutionConfig {
  * `allow-cloud` 是刻意的：回答必发网页，不存在「不出本机」的回答模式。
  */
 export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
-  executionMode: 'direct',
+  executionMode: 'web',
   fallbackEnabled: false,
   privacyMode: 'allow-cloud'
 };
@@ -290,21 +298,20 @@ export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
 /**
  * 把界面传来的配置收成一份合法的。
  *
- * 老值映射：旧语义的四档（web/local/cloud/hybrid 决定谁回答）已经废弃——
- * 回答只来自网页。老会话读到旧值时按其行为就近归位：web→direct、
- * hybrid→auto（它原本就是自动主导）、local/cloud→direct。这只是在**读取**
- * 时归位，不回写历史。
+ * 老值映射：2026-11-05 上午短暂上线过「处理动作」四档（direct/summary/lead/
+ * auto），与现在的「主导人」四档同名不同义，读到时按最接近的主导人归位：
+ * direct/lead→web、summary→local、auto→hybrid。这只是在**读取**时归位，不回写历史。
  */
 export function normalizeExecutionConfig(
   input?: Partial<ConversationExecutionConfig> | null
 ): ConversationExecutionConfig {
   const legacy: Record<string, ExecutionMode> = {
-    web: 'direct',
-    local: 'direct',
-    cloud: 'direct',
-    hybrid: 'auto'
+    direct: 'web',
+    lead: 'web',
+    summary: 'local',
+    auto: 'hybrid'
   };
-  const modes: ExecutionMode[] = ['direct', 'summary', 'lead', 'auto'];
+  const modes: ExecutionMode[] = ['web', 'local', 'cloud', 'hybrid'];
   const requested = input?.executionMode;
   const executionMode =
     requested && modes.includes(requested)

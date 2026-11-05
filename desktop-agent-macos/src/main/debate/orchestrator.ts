@@ -239,7 +239,15 @@ export class DebateOrchestrator {
       failures: []
     };
     const previous = state.rounds.at(-1)?.messages ?? [];
-    const context = previous.map(message => message.text);
+    const seed = state.config.seed;
+    // 会话执行阶段发起辩论时，第一轮读的是网页已经给出的回答 + 主导人指定
+    // 的辩题；独立辩论没有 seed，仍然是各自独立给观点。
+    const context = index === 0 && seed
+      ? [
+          `【网页通道已经给出的回答】\n${seed.positions.join('\n\n')}`,
+          seed.topics.length > 0 ? `【要辩清楚的议题】\n- ${seed.topics.join('\n- ')}` : ''
+        ].filter(Boolean)
+      : previous.map(message => message.text);
     const kind: DebateMessageKind = kindFor(index);
     const speakers = speakersFor(state.plan, index);
 
@@ -258,7 +266,9 @@ export class DebateOrchestrator {
           question: state.question,
           stage: index === 0 ? 'initial' : 'followup',
           context: !isWebOnly && context.length > 0 ? context : undefined,
-          system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead)
+          system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead, {
+            seeded: index === 0 && Boolean(seed?.positions.length)
+          })
         };
         try {
           const answer = await this.deps.ask(agentId, task);
@@ -300,10 +310,14 @@ function instructions(
   strategy: DebateConfig['strategy'],
   kind: DebateMessageKind,
   role: DebateRole,
-  lead: DebateLead
+  lead: DebateLead,
+  options: { seeded?: boolean } = {}
 ): string[] {
   const lines: string[] = [];
-  if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
+  if (kind === 'position' && options.seeded) {
+    // 网页回答已经在上下文里：不要再重复一遍它们，直接站到异议那一侧。
+    lines.push('网页通道的回答已经在上下文里。不要复述它们，直接指出其中站不住的那一条，并给出你的判断和条件。');
+  } else if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
   else if (kind === 'question') lines.push('逐条质疑上一轮发言里证据不足或推理跳跃的地方；指出具体是哪一句。');
   else lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
   if (strategy === 'adversarial') {

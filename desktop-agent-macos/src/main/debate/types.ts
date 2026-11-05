@@ -24,6 +24,12 @@ export interface DebateConfig {
   leadMode?: DebateLeadMode;
   /** 用户指定的主辩。没有指定就由 planLead 按模式挑，并把结果写进 lead。 */
   leadAgentId?: string;
+  /**
+   * 会话执行阶段发起辩论时的「基准材料」：网页通道已经给出的回答，以及
+   * 主导人指定的辩题。第一轮辩手读到的就是这些，不是从零开始重复回答。
+   * 独立辩论面板不传这个字段，行为不变。
+   */
+  seed?: { positions: string[]; topics: string[] };
 }
 
 export interface DebateMessage {
@@ -107,7 +113,7 @@ export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined):
     ? input.participants.filter((id): id is string => typeof id === 'string')
     : [];
   const modes: DebateLeadMode[] = ['local', 'web', 'hybrid'];
-  return {
+  const normalized: DebateConfig = {
     strategy,
     maxRounds: typeof input?.maxRounds === 'number' && input.maxRounds >= 1 && input.maxRounds <= 10
       ? Math.floor(input.maxRounds)
@@ -117,4 +123,12 @@ export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined):
     leadMode: input?.leadMode && modes.includes(input.leadMode) ? input.leadMode : 'hybrid',
     leadAgentId: typeof input?.leadAgentId === 'string' ? input.leadAgentId : undefined
   };
+  // seed 只在真的传了的时候才存在：老调用方拿到的对象形状不变，deepEqual 对得上。
+  if (input?.seed && Array.isArray(input.seed.positions) && Array.isArray(input.seed.topics)) {
+    normalized.seed = {
+      positions: input.seed.positions.filter((text): text is string => typeof text === 'string'),
+      topics: input.seed.topics.filter((text): text is string => typeof text === 'string')
+    };
+  }
+  return normalized;
 }
