@@ -9,8 +9,10 @@
 > Phase 2 见 `PHASE-2-DEBATE-REVISION.md`，Phase 3 见
 > `PHASE-3-DEBATE-ARGUMENT-JUDGE.md`（论证图与三维裁判），Phase 4 见
 > `PHASE-4-DEBATE-STRATEGIES.md`（六种策略与结果展示），Phase 5 见
-> `PHASE-5-DEBATE-METRICS.md`（指标、历史复用、成本）。验收对照
-> `docs/architecture/DEBATE_ACCEPTANCE.md`，指标报告
+> `PHASE-5-DEBATE-METRICS.md`（指标、历史复用、成本）。§12 Prompt 模板版本化见
+> `src/main/debate/prompts.ts`；配置、迁移、测试、运行见
+> `docs/implementation/DEBATE_RUNBOOK.md`（§17 收尾）。验收对照
+> `docs/architecture/DEBATE_ACCEPTANCE.md`（含 AC 之外逐节对照），指标报告
 > `docs/reports/DEBATE_METRICS.md`。
 
 ---

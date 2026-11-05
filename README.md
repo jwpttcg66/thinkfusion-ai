@@ -238,9 +238,15 @@ scripts/               versioning infrastructure (hooks, release scripts)
 
 Adding an AI site is one file in `adapters/providers/` (selectors + hosts) plus one line in its
 `index.ts`. A participant is not a page driver: `ProviderSubAgent` owns identity, session and
-health, `BrowserAdapter` owns the DOM, and the Master Agent owns the budget for a round. The
-debate round between agents is designed but deliberately not wired yet — see
-[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2.2.
+health, `BrowserAdapter` owns the DOM, and the Master Agent owns the budget for a round.
+
+The multi-round debate engine is implemented in `src/main/debate/` (claims, disputes,
+challenges, revisions, argument graph, three independent judges, evidence from page citations,
+six collaboration strategies). Web channels receive only the user's original question — no
+`system` prompt and no other participant's answer. For configuration, migration, tests and
+operations see [`DEBATE_RUNBOOK.md`](docs/implementation/DEBATE_RUNBOOK.md); the 15 acceptance
+criteria are tracked in
+[`DEBATE_ACCEPTANCE.md`](docs/architecture/DEBATE_ACCEPTANCE.md).
 
 ## Documentation
 
@@ -250,6 +256,8 @@ debate round between agents is designed but deliberately not wired yet — see
 | [`IPC.md`](desktop-agent-macos/docs/IPC.md) | Channel list, trust checks, why some arguments are literals |
 | [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) | What offline tests cover, what live checks assert, what neither can prove |
 | [`HARNESS_BASELINE.md`](desktop-agent-macos/docs/HARNESS_BASELINE.md) | What design was borrowed, what is explicitly not depended on |
+| [`DEBATE_RUNBOOK.md`](docs/implementation/DEBATE_RUNBOOK.md) | Debate engine: configuration, migration, test map, operations |
+| [`DEBATE_ACCEPTANCE.md`](docs/architecture/DEBATE_ACCEPTANCE.md) | AC-01 ~ AC-15 status with evidence |
 
 ## Contributing
 
@@ -259,9 +267,13 @@ conventions are in [`docs/git-workflow.md`](docs/git-workflow.md).
 ## Roadmap
 
 - [ ] **Wire a second source** — the channel layer is already decoupled from Electron
-- [ ] **Cross-challenge** — feed A's plan to B and have B find the holes, instead of answering independently
-- [ ] **Plan fusion** — deduplicate steps, detect write-path collisions, rank by evidence
+- [x] **Cross-challenge** — the debate engine's challenge round feeds each participant the
+      prior round and asks it to point at specific claims; web channels stay isolated (first round only)
+- [x] **Plan fusion** — the lead agent produces a five-section synthesis (conclusion / agreement /
+      disagreement / open questions / debate topics); evidence-ranked verdicts come from the three judges
 - [ ] Knowledge indexing and retrieval over accumulated tasks
+- [ ] Evidence de-duplication that reads page bodies, not just URLs (currently only URL/fingerprint)
+- [ ] Fact-accuracy and calibration baselines (needs a human-labelled dataset)
 - [ ] Crash recovery: interrupted execution lands in a review state instead of sticking at `executing`
 - [ ] Per-step approval: stop before a dangerous step even after the plan is approved
 - [ ] Packaging, signing, notarization
