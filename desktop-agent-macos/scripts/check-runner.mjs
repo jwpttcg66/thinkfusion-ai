@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
-import { parseTopics } from '../out-test/main/synthesis/lead-stage.js';
+import { buildLeadSummaryQuestion, inlineLeadInstructions, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
 
 function fakeStore() {
   const conversations = new Map();
@@ -838,4 +838,49 @@ test('辩题解析：一行里挤了多条编号辩题也能拆开，且不吞�
   assert.deepEqual(parseTopics(summary), ['8杯水是否包括食物水分？', '每天该喝多少水？']);
   assert.deepEqual(parseTopics('【辩题】无'), [], '写「无」表示不辩');
   assert.deepEqual(parseTopics('【结论】没有分歧'), [], '没有这一节也表示不辩');
+});
+
+// ---------------------------------------------------------------------------
+// 主导人写结论时用名字，不用「来源2」这种编号
+// ---------------------------------------------------------------------------
+
+test('提示词按名字标来源，不再编号', () => {
+  const answers = [
+    { channelId: 'kimi', label: 'Kimi', text: '金鱼记忆只有七秒是谣言。' },
+    { channelId: 'chatgpt', label: 'ChatGPT', text: '金鱼记忆远不止七秒。' }
+  ];
+  const prompt = buildLeadSummaryQuestion('金鱼记忆只有七秒吗？', answers);
+  assert.ok(prompt.includes('【Kimi】'), '来源用名字开头');
+  assert.ok(!prompt.includes('【来源1】'), '不再出现编号');
+  assert.ok(inlineLeadInstructions('q', answers).includes('【ChatGPT】'));
+
+  // 提示词本身也要说明白：分歧处直接写名字。
+  assert.ok(inlineLeadInstructions('q', answers).includes('不要写「来源1」这种编号'));
+
+  // 两个来源重名时补编号，否则读的人分不清是哪一家。
+  assert.deepEqual(
+    sourceTags([
+      { channelId: 'a', label: 'Kimi', text: '' },
+      { channelId: 'b', label: 'Kimi', text: '' },
+      { channelId: 'c', label: 'Gemini', text: '' }
+    ]),
+    ['Kimi 1', 'Kimi 2', 'Gemini']
+  );
+});
+
+test('结论里残留的「来源2」换回名字', () => {
+  const answers = [
+    { channelId: 'kimi', label: 'Kimi', text: '' },
+    { channelId: 'chatgpt', label: 'ChatGPT', text: '' }
+  ];
+  // 真机原文（网页主导写出来的）：编号和名字都写了。
+  assert.equal(
+    rewriteSourceRefs('【分歧】来源2介绍的是呼吸作用，不是光合作用。【存疑】【来源2】ChatGPT 显然答非所问。', answers),
+    '【分歧】ChatGPT介绍的是呼吸作用，不是光合作用。【存疑】ChatGPT 显然答非所问。'
+  );
+  assert.equal(rewriteSourceRefs('来源1 说可以用。', answers), 'Kimi 说可以用。');
+  // 越界的编号没有对应的人，原样留着，不要换成空字符串。
+  assert.equal(rewriteSourceRefs('来源9 说了什么？', answers), '来源9 说了什么？');
+  // 真答案里本来就有「来源」两个字的不动。
+  assert.equal(rewriteSourceRefs('数据来源：一份公开报告。', answers), '数据来源：一份公开报告。');
 });

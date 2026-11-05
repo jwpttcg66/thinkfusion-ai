@@ -17,7 +17,8 @@ import {
   LEAD_SUMMARY_SYSTEM,
   LEAD_SUMMARY_TIMEOUT_MS,
   LEAD_VERDICT_SYSTEM,
-  parseTopics
+  parseTopics,
+  rewriteSourceRefs
 } from './synthesis/lead-stage';
 import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
@@ -692,7 +693,7 @@ export class ConversationRunner {
         // 只有 API 主导用得上 system；网页通道会忽略它。
         system: isPage ? undefined : LEAD_SUMMARY_SYSTEM
       });
-      const text = answer.text.trim();
+      const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
       if (summaryText) sink.phase(lead.agentId, 'answered', '汇总完成');
     } catch (error) {
@@ -750,7 +751,7 @@ export class ConversationRunner {
           timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
           system: isPage ? undefined : LEAD_VERDICT_SYSTEM
         });
-        const text = answer.text.trim();
+        const text = rewriteSourceRefs(answer.text.trim(), answers);
         verdictText = text || null;
         if (verdictText) sink.phase(lead.agentId, 'answered', '最终意见完成');
       } catch (error) {
