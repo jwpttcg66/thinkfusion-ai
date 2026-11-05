@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { analyseRound, challengesFor } from './claims';
+import { applyDecisions, revisionOf } from './revision';
 import { DebateStore } from './store';
 import {
   kindFor,
@@ -19,6 +20,8 @@ import {
   type DebateDispute,
   type DebateMessage,
   type DebateMessageKind,
+  type DebatePhase,
+  type DebateRevision,
   type DebateRole,
   type DebateRound,
   type DebateState
@@ -176,16 +179,27 @@ export class DebateOrchestrator {
   private async run(state: DebateState, generation: number): Promise<void> {
     const current = () =>
       this.generation.get(state.debateId) === generation && !this.stopped.has(state.debateId);
+    const budget = budgetOf(state.config);
+    // 预算从这一次运行开始算，不从创建时间算：恢复一场放了两小时的辩论，
+    // 不该一进来就说「超时」。
+    const deadline = budget.totalMs ? this.now() + budget.totalMs : Number.POSITIVE_INFINITY;
 
     try {
       while (current() && state.rounds.length < state.config.maxRounds) {
-        const { round, disputes } = await this.runRound(state, state.rounds.length);
+        if (this.now() >= deadline) {
+          state.stopReason = `超出时间预算（${Math.round((budget.totalMs ?? 0) / 1000)} 秒），停在 ${state.rounds.length} 轮`;
+          break;
+        }
+        const { round, disputes, revisions } = await this.runRound(state, state.rounds.length, deadline);
         // resume 之后旧 generation 的 run 必须立刻退出，不能把上一代的发言
         // 写进新状态。但用户 stop 时 generation 不变，那一轮的发言要留下：
         // 决策 6 要求原始回答不可丢失，喊停不该抹掉已经说出口的话。
         if (this.generation.get(state.debateId) !== generation) return;
+        // 决策写回主张状态：改的是「被质疑的那几句」，可能在更早的那一轮里。
+        applyDecisions(state.rounds, revisions);
         state.rounds.push(round);
         state.disputes = [...(state.disputes ?? []), ...disputes];
+        state.revisions = [...(state.revisions ?? []), ...revisions];
         state.minorities = collectMinorities(state.rounds);
         state.updatedAt = this.now();
         if (!this.persist(state)) return;
@@ -201,6 +215,13 @@ export class DebateOrchestrator {
         if (state.config.convergenceStop && round.converged) {
           state.status = 'completed';
           state.stopReason = '观点已收敛，没有新的质疑';
+          break;
+        }
+        // 回应阶段跑完，既没人改口、也没有新争议：再跑一轮只是重复。
+        // 与「收敛」分开写，因为判据不同——收敛看文字像不像，这里看决定。
+        if (state.config.convergenceStop && round.phase === 'response' && !progressed(revisions, disputes)) {
+          state.status = 'completed';
+          state.stopReason = '回应里没有新的修订，也没有新的争议';
           break;
         }
       }
@@ -234,9 +255,15 @@ export class DebateOrchestrator {
     return state.status !== 'stopped';
   }
 
-  private async runRound(state: DebateState, index: number): Promise<{ round: DebateRound; disputes: DebateDispute[] }> {
+  private async runRound(
+    state: DebateState,
+    index: number,
+    deadline: number
+  ): Promise<{ round: DebateRound; disputes: DebateDispute[]; revisions: DebateRevision[] }> {
+    const phase = phaseFor(index);
     const round: DebateRound = {
       index,
+      phase,
       messages: [],
       startedAt: this.now(),
       converged: false,
@@ -254,6 +281,7 @@ export class DebateOrchestrator {
       : previous.map(message => message.text);
     const kind: DebateMessageKind = kindFor(index);
     const speakers = speakersFor(state.plan, index);
+    const budget = budgetOf(state.config);
     /**
      * 挑战指向具体两句。
      *
@@ -267,48 +295,46 @@ export class DebateOrchestrator {
           (state.disputes ?? []).filter(dispute => dispute.roundIndex === index - 1),
           state.rounds.at(-1)?.claims ?? []
         );
+    // 谁被质疑了哪几句：回应阶段要把决策写回这几条主张。
+    const targetsByAgent = targetsOf(state, index);
 
-    const results = await Promise.all(
-      speakers.map(async agentId => {
-        const role = roleForPlan(state.plan, agentId, index, state.config.strategy);
-        // 自辩（本机只有一个本地模型）时上一轮全是自己的发言，也得有个
-        // 明确的质疑对象，否则 targetMessageId 悄悄变 undefined。
-        const targetMessageId =
-          previous.find(message => message.agentId !== agentId)?.messageId ?? previous[0]?.messageId;
-        const isWebOnly = state.plan.webOnly.includes(agentId);
-        const task: SubAgentTask = {
-          // 用户问题原样。质疑/修正的对象走 context，指令走 system。
-          // 网页成员两项都不给：页面收到的只有这一句原话，页面上不会出现
-          // 「请质疑以下观点」之类的包装文字。
-          question: state.question,
-          stage: index === 0 ? 'initial' : 'followup',
-          context: !isWebOnly && context.length > 0 ? context : undefined,
-          system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead, {
-            seeded: index === 0 && Boolean(seed?.positions.length),
-            challenges
-          })
+    const results = await mapLimit(speakers, budget.maxConcurrency, async agentId => {
+      const role = roleForPlan(state.plan, agentId, index, state.config.strategy);
+      // 自辩（本机只有一个本地模型）时上一轮全是自己的发言，也得有个
+      // 明确的质疑对象，否则 targetMessageId 悄悄变 undefined。
+      const targetMessageId =
+        previous.find(message => message.agentId !== agentId)?.messageId ?? previous[0]?.messageId;
+      const isWebOnly = state.plan.webOnly.includes(agentId);
+      const task: SubAgentTask = {
+        // 用户问题原样。质疑/修正的对象走 context，指令走 system。
+        // 网页成员两项都不给：页面收到的只有这一句原话，页面上不会出现
+        // 「请质疑以下观点」之类的包装文字。
+        question: state.question,
+        stage: index === 0 ? 'initial' : 'followup',
+        context: !isWebOnly && context.length > 0 ? context : undefined,
+        system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead, {
+          seeded: index === 0 && Boolean(seed?.positions.length),
+          challenges
+        })
+      };
+      try {
+        const answer = await this.askWithin(agentId, task, budget.stageTimeoutMs, deadline);
+        const message: DebateMessage = {
+          messageId: randomUUID(),
+          roundIndex: index,
+          agentId,
+          role,
+          kind,
+          text: answer.text,
+          targetMessageId,
+          threadUrl: answer.threadUrl,
+          createdAt: this.now()
         };
-        try {
-          const answer = await this.deps.ask(agentId, task);
-          return {
-            ok: true as const,
-            message: {
-              messageId: randomUUID(),
-              roundIndex: index,
-              agentId,
-              role,
-              kind,
-              text: answer.text,
-              targetMessageId,
-              threadUrl: answer.threadUrl,
-              createdAt: this.now()
-            } satisfies DebateMessage
-          };
-        } catch (error) {
-          return { ok: false as const, failure: { agentId, detail: error instanceof Error ? error.message : String(error) } };
-        }
-      })
-    );
+        return { ok: true as const, message };
+      } catch (error) {
+        return { ok: false as const, failure: { agentId, detail: error instanceof Error ? error.message : String(error) } };
+      }
+    });
 
     for (const result of results) {
       if (result.ok) round.messages.push(result.message);
@@ -320,7 +346,48 @@ export class DebateOrchestrator {
     // 争议检测都基于它，失败成员的缺席不影响已有发言。
     const analysis = analyseRound(round.messages, index);
     round.claims = analysis.claims;
-    return { round, disputes: analysis.disputes };
+
+    // 回应阶段才产生修订记录：质疑轮里没人做决定，那边不该凭空多出五条。
+    const revisions: DebateRevision[] = phase !== 'response'
+      ? []
+      : round.messages
+          .map(message =>
+            revisionOf({
+              messageId: message.messageId,
+              agentId: message.agentId,
+              roundIndex: index,
+              before: positionOf(state, message.agentId),
+              after: message.text,
+              targetClaimIds: targetsByAgent.get(message.agentId) ?? [],
+              now: this.now()
+            })
+          )
+          // 并发完成顺序不定，落盘顺序按参与者排，读起来才是稳定的。
+          .sort((a, b) => a.agentId.localeCompare(b.agentId));
+
+    return { round, disputes: analysis.disputes, revisions };
+  }
+
+  /** 单次调用超时，以及整场预算见底时立刻放弃——不拖着整轮等一个不会来的回答。 */
+  private async askWithin(
+    agentId: string,
+    task: SubAgentTask,
+    stageTimeoutMs: number,
+    deadline: number
+  ): Promise<SubAgentAnswer> {
+    const remaining = deadline - this.now();
+    const timeoutMs = Math.max(1, Math.min(stageTimeoutMs, remaining));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.deps.ask(agentId, task),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`超过单次调用时限 ${Math.round(timeoutMs / 1000)} 秒`)), timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }
 
@@ -341,7 +408,15 @@ function instructions(
     lines.push('网页通道的回答已经在上下文里。不要复述它们，直接指出其中站不住的那一条，并给出你的判断和条件。');
   } else if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
   else if (kind === 'question') lines.push('逐条质疑上一轮发言里证据不足或推理跳跃的地方；指出具体是哪一句。');
-  else lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
+  else {
+    lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
+    // 决策写在哪一行、用哪个词，是全流程唯一能被机器确定读到的信号。
+    // 写不清楚就只能靠规则去猜，猜出来的会标成 inferred。
+    lines.push(
+      '回答的第一行只写决策，从这五个里选一个：决策：accept / defend / revise / withdraw / inconclusive' +
+        '（依次是 接受质疑 / 有依据地坚持 / 部分修正 / 撤回这条说法 / 现有信息判断不了）。'
+    );
+  }
   // 具体冲突排在通用指令后面：模型先知道这一轮要做什么，再看到具体问哪几句。
   if (options.challenges && options.challenges.length > 0 && kind !== 'position') {
     lines.push('这一轮先处理下面几处具体冲突，它们都是上一轮里彼此对不上的两句：');
@@ -355,6 +430,90 @@ function instructions(
   }
   lines.push('保留有依据的不同意见，不要为了达成一致而放弃它。');
   return lines;
+}
+
+/** 轮次 → 步骤：第一轮独立表态，第二轮质疑，第三轮之后都是回应。 */
+function phaseFor(index: number): DebatePhase {
+  return index === 0 ? 'analysis' : index === 1 ? 'challenge' : 'response';
+}
+
+/** 单次调用 60 秒、同时问 3 位，是任务书第 10 节的默认值，不是硬编码常量。 */
+const DEFAULT_STAGE_TIMEOUT_MS = 60_000;
+const DEFAULT_CONCURRENCY = 3;
+
+function budgetOf(config: DebateConfig): { stageTimeoutMs: number; totalMs?: number; maxConcurrency: number } {
+  return {
+    stageTimeoutMs: config.budget?.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS,
+    totalMs: config.budget?.totalMs,
+    maxConcurrency: config.budget?.maxConcurrency ?? DEFAULT_CONCURRENCY
+  };
+}
+
+/**
+ * 这一轮里，每位参与者被点到了哪几句。
+ *
+ * 用「最近一轮出现争议的那一轮」，而不是死盯上一轮：争议在独立表态那轮就
+ * 算出来了，中间隔着的质疑轮里双方只是在吵架，不会再产出可判定的 conflict。
+ * 只看 index-1 会让回应轮永远拿不到目标（第一版就是这么错的）。
+ *
+ * 只认 claimId 属于这位自己的句子：把对方的主张记到自己名下，状态回写就会改错人。
+ */
+function targetsOf(state: DebateState, index: number): Map<string, string[]> {
+  const targets = new Map<string, string[]>();
+  const earlier = (state.disputes ?? []).filter(dispute => dispute.roundIndex < index);
+  if (earlier.length === 0) return targets;
+  const latest = Math.max(...earlier.map(dispute => dispute.roundIndex));
+  const owner = new Map((state.rounds[latest]?.claims ?? []).map(claim => [claim.claimId, claim.agentId]));
+  for (const dispute of earlier) {
+    if (dispute.roundIndex !== latest) continue;
+    for (const agentId of dispute.agents) {
+      const own = dispute.claimIds.filter(claimId => owner.get(claimId) === agentId);
+      if (own.length === 0) continue;
+      targets.set(agentId, [...(targets.get(agentId) ?? []), ...own]);
+    }
+  }
+  return targets;
+}
+
+/**
+ * 这位在更早轮次里说过的那段话，用作修订记录的「改之前」。
+ *
+ * 取最近一次**表态**（position）或上一次**回应**（revision），跳过质疑轮：
+ * 质疑轮里他说的是「你哪里不对」，不是他自己的主张，拿它当 before，
+ * 修订记录就成了「质疑 → 修正」的对照，读不出原来的立场变了没有。
+ */
+function positionOf(state: DebateState, agentId: string): string {
+  for (let index = state.rounds.length - 1; index >= 0; index -= 1) {
+    const messages = state.rounds[index].messages.filter(
+      message => message.agentId === agentId && message.kind !== 'question'
+    );
+    if (messages.length > 0) return messages[messages.length - 1].text;
+  }
+  return '';
+}
+
+/** 回应阶段有没有实质进展：有人改口，或者冒出新的争议。 */
+function progressed(revisions: readonly DebateRevision[], disputes: readonly DebateDispute[]): boolean {
+  if (disputes.length > 0) return true;
+  return revisions.some(
+    revision => revision.decision === 'accept' || revision.decision === 'revise' || revision.decision === 'withdraw'
+  );
+}
+
+/** 限并发地跑一批任务，保持入参顺序。用于「同时问 3 位」这条预算。 */
+async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await run(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function converged(previous: DebateMessage[], current: DebateMessage[]): boolean {

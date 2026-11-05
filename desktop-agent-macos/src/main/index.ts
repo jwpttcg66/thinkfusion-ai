@@ -2065,18 +2065,23 @@ app.whenReady().then(async () => {
         input.question,
         {
           strategy: 'standard',
-          maxRounds: 2,
+          // 三步各一轮：独立表态 → 质疑 → 回应修订。两轮的话「回应」那一轮
+          // 根本不存在，AC-06 要求的决策就永远记不到；多出的一轮只在真有两位
+          // 可用辩手时才发生。
+          maxRounds: 3,
           participants: debaters,
           convergenceStop: true,
           seed: {
             positions: input.seeds.map(seed => `【${seed.label}】\n${seed.text}`),
             topics: input.topics
-          }
+          },
+          // 任务书第 10 节的默认预算：单次 90 秒、整场 4 分钟、同时问 3 位。
+          budget: { stageTimeoutMs: 90_000, totalMs: 240_000, maxConcurrency: 3 }
         },
         input.conversationId,
         plan
       );
-      const done = await debates.waitFor(state.debateId, 180_000);
+      const done = await debates.waitFor(state.debateId, 240_000);
       if (!done) return null;
       return {
         debateId: done.debateId,
