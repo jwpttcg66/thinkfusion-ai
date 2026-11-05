@@ -556,6 +556,17 @@ export interface DebateConfigInput {
   convergenceStop?: boolean;
   /** 连续两轮没进展就停，默认关闭。 */
   earlyStopOnStall?: boolean;
+  /**
+   * 预算覆盖（任务书 §10）。主进程的 `normalizeDebateConfig` 一直支持，但渲染层
+   * 契约漏了这个字段，UI 之外的调用方传了也会被类型挡掉；三项都可选，不传用
+   * 默认值（单次 60s / 并发 3 / 不设整场总时限）。Token 与费用没有数据来源，
+   * 契约里也不留这两个字段。
+   */
+  budget?: {
+    stageTimeoutMs?: number;
+    totalMs?: number;
+    maxConcurrency?: number;
+  };
   /** 谁主导这一场：本地 / 网页 / 混合。 */
   leadMode?: DebateLeadMode;
   /** 用户指定的主辩；不传由 planLead 按模式挑。 */

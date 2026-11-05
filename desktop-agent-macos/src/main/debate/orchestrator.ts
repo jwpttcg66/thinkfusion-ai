@@ -7,9 +7,10 @@ import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { judgeDebate } from './judges';
 import { debateMetrics, roundProgress } from './metrics';
+import { PROMPT_VERSION, renderInstructions } from './prompts';
 import { applyDecisions, revisionOf } from './revision';
 import { DebateStore } from './store';
-import { orderDisputes, strategyFocus } from './strategies';
+import { orderDisputes } from './strategies';
 import {
   kindFor,
   normalizeLeadMode,
@@ -17,7 +18,6 @@ import {
   roleFor as roleForPlan,
   speakersFor,
   type DebateCandidate,
-  type DebateLead,
   type LeadPlan
 } from './lead';
 import {
@@ -28,7 +28,6 @@ import {
   type DebateMessageKind,
   type DebatePhase,
   type DebateRevision,
-  type DebateRole,
   type DebateRound,
   type DebateState
 } from './types';
@@ -116,6 +115,8 @@ export class DebateOrchestrator {
       rounds: [],
       minorities: [],
       disputes: [],
+      // 版本跟着这场辩论落盘：以后升级模板，老记录仍看得出当时用的哪一版。
+      promptVersion: PROMPT_VERSION,
       createdAt: at,
       updatedAt: at
     };
@@ -423,7 +424,7 @@ export class DebateOrchestrator {
         question: state.question,
         stage: index === 0 ? 'initial' : 'followup',
         context: !isWebOnly && context.length > 0 ? context : undefined,
-        system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead, {
+        system: isWebOnly ? undefined : renderInstructions(state.config.strategy, kind, role, state.lead, {
           seeded: index === 0 && Boolean(seed?.positions.length),
           challenges
         })
@@ -513,57 +514,6 @@ export class DebateOrchestrator {
     }
   }
 }
-
-/**
- * 指令只进 system 轮次，不拼进 question。文字刻意简短，不套角色扮演话术。
- * 这些指令只会发给本地/云端 API；网页成员拿到的 task 里没有 system 字段。
- */
-function instructions(
-  strategy: DebateConfig['strategy'],
-  kind: DebateMessageKind,
-  role: DebateRole,
-  lead: DebateLead,
-  options: { seeded?: boolean; challenges?: string[] } = {}
-): string[] {
-  const lines: string[] = [];
-  if (kind === 'position' && options.seeded) {
-    // 网页回答已经在上下文里：不要再重复一遍它们，直接站到异议那一侧。
-    lines.push('网页通道的回答已经在上下文里。不要复述它们，直接指出其中站不住的那一条，并给出你的判断和条件。');
-  } else if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
-  else if (kind === 'question') lines.push('逐条质疑上一轮发言里证据不足或推理跳跃的地方；指出具体是哪一句。');
-  else {
-    lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
-    // 决策写在哪一行、用哪个词，是全流程唯一能被机器确定读到的信号。
-    // 写不清楚就只能靠规则去猜，猜出来的会标成 inferred。
-    lines.push(
-      '回答的第一行只写决策，从这五个里选一个：决策：accept / defend / revise / withdraw / inconclusive' +
-        '（依次是 接受质疑 / 有依据地坚持 / 部分修正 / 撤回这条说法 / 现有信息判断不了）。'
-    );
-  }
-  // 策略在这一轮额外要求做的事：先列前提、给候选方案、找反例……都写在
-  // `strategies.ts` 里，这里只负责拼进去。没有策略差异的轮次它返回空数组。
-  lines.push(...strategyFocus(strategy, kind));
-  // 具体冲突排在通用指令后面：模型先知道这一轮要做什么，再看到具体问哪几句。
-  if (options.challenges && options.challenges.length > 0 && kind !== 'position') {
-    lines.push('这一轮先处理下面几处具体冲突，它们都是上一轮里彼此对不上的两句：');
-    lines.push(...options.challenges);
-  }
-  const duty = ROLE_DUTY[role];
-  if (duty) lines.push(duty);
-  if (lead.mode === 'web' && kind !== 'position') {
-    lines.push('这一场以网页通道的独立观点为基准，重点检验它的证据和推理，但不要忽略其他回答里的问题。');
-  }
-  lines.push('保留有依据的不同意见，不要为了达成一致而放弃它。');
-  return lines;
-}
-
-/** 角色说明。`peer` 不写：平等发言时不该硬塞一个立场。 */
-const ROLE_DUTY: Partial<Record<DebateRole, string>> = {
-  proposer: '你的职责是提出并维护主张。',
-  critic: '你的职责是检验主张的漏洞。',
-  domain_expert: '以你所在领域的证据标准发言，并说明这个标准是什么。',
-  evidence_reviewer: '你的职责是核对前提与证据，而不是另起一个结论。'
-};
 
 /** 轮次 → 步骤：第一轮独立表态，第二轮质疑，第三轮之后都是回应。 */
 function phaseFor(index: number): DebatePhase {

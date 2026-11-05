@@ -58,6 +58,38 @@ test('配置收敛：非法策略/轮数退回默认，参与成员过滤非字�
   assert.deepEqual(normalizeDebateConfig({ participants: ['a', 3, null, 'b'] }).participants, ['a', 'b']);
 });
 
+test('预算覆盖能一路传进来并落盘：非法值丢掉，不传就没有这个字段', () => {
+  const withBudget = normalizeDebateConfig({
+    budget: { stageTimeoutMs: 12_345, totalMs: 90_000, maxConcurrency: 2 }
+  });
+  assert.deepEqual(withBudget.budget, {
+    stageTimeoutMs: 12_345, totalMs: 90_000, maxConcurrency: 2
+  });
+  // 契约里是可选字段；默认值在 budgetOf 兜，不写进配置对象里冒充「用户设过」。
+  assert.equal(normalizeDebateConfig({}).budget, undefined);
+  assert.deepEqual(
+    normalizeDebateConfig({ budget: { stageTimeoutMs: -1, totalMs: 0, maxConcurrency: 0 } }).budget,
+    undefined,
+    '全是非法的预算值不该留下一个空对象'
+  );
+  assert.deepEqual(
+    normalizeDebateConfig({ budget: { maxConcurrency: 2.7 } }).budget,
+    { maxConcurrency: 2 }
+  );
+
+  const h = harness();
+  try {
+    const started = h.orchestrator.start(QUESTION, config({
+      maxRounds: 1, convergenceStop: false,
+      budget: { stageTimeoutMs: 12_345, maxConcurrency: 2 }
+    }));
+    assert.deepEqual(started.config.budget, { stageTimeoutMs: 12_345, maxConcurrency: 2 });
+    assert.deepEqual(h.store.get(started.debateId).config.budget, started.config.budget);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('少于两个成员直接拒绝，不产出一场假辩论', () => {
   const h = harness();
   assert.throws(() => h.orchestrator.start(QUESTION, config({ participants: ['a'] })), /至少需要两个/);

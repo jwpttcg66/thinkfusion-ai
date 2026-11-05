@@ -497,6 +497,12 @@ export interface DebateState {
    * 老文件没有这个字段，读出来是 undefined——不补空数组冒充「记录过」。
    */
   events?: DebateEvent[];
+  /**
+   * 这一场用的 Prompt 模板版本（任务书 §12）。开场时写死，之后升级模板不回写：
+   * 历史会话要能看出「它是用哪一版指令跑的」。老文件没有这个字段，读出来是
+   * undefined，不补一个当前版本冒充记录过。
+   */
+  promptVersion?: string;
   createdAt: number;
   updatedAt: number;
   stopReason?: string;
