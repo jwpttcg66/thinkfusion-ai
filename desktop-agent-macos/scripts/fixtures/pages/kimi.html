@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Kimi</title>
+</head>
+<body>
+  <aside class="chat-sidebar">
+    <a href="https://kimi.moonshot.cn/chat/sidebar">侧栏会话</a>
+  </aside>
+
+  <div class="chat-content">
+    <!-- 上一条回答 -->
+    <div class="chat-content-item chat-content-item-assistant">
+      <div class="segment segment-assistant">
+        <p>上一轮提到过 <a href="https://old.example.com/previous">旧材料</a>。</p>
+      </div>
+    </div>
+
+    <!-- 最后一条回答：引用区块通常挂在气泡里的 segment 下 -->
+    <div class="chat-content-item chat-content-item-assistant">
+      <div class="segment segment-assistant">
+        <p>并发写入要从 6.0 才有，官方 release notes 写得很清楚。</p>
+      </div>
+      <div class="segment segment-assistant">
+        <p>参考：
+          <a href="https://docs.example.com/release-notes?spm=a1&amp;from=share">release notes</a>、
+          <a href="https://www.bing.com/ck/a?u=a1aHR0cHM6Ly9kb2NzLmV4YW1wbGUuY29tL3JlbGVhc2Utbm90ZXM&amp;ntb=1">镜像入口</a>、
+          <a href="https://arxiv.org/abs/2401.00001">一篇论文</a>。
+        </p>
+        <p>另见 <a href="https://docs.example.com/release-notes">同一份文档（无参数）</a>。</p>
+        <p hidden><a href="https://hidden.example.com/kimi">折叠的引用</a></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

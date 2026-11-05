@@ -1,4 +1,5 @@
 import type { ChannelStatus } from '../../../shared/conversation';
+import type { PageCitation } from '../../../shared/evidence';
 
 /**
  * The layer that touches a web page.
@@ -38,6 +39,16 @@ export interface AdapterAnswer {
    * site's sidebar. Recorded here because it is only knowable from the page.
    */
   threadUrl?: string;
+  /**
+   * The links the answer bubble displayed, if any.
+   *
+   * Provenance metadata, not part of the answer: an answer without links is
+   * still a complete answer. Only web pages can have this — a local model has
+   * no DOM to read.
+   */
+  citations?: PageCitation[];
+  /** The page's address when the citations were read. */
+  pageUrl?: string;
   /** How this text was recognised as *this turn's* answer. Debugging breadcrumb. */
   attribution: { requestId: string; note: string };
 }

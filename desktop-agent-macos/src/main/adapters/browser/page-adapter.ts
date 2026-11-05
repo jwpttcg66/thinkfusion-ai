@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { digestCitations } from '../../../shared/evidence';
 import type { ChatPageDriver } from './page-driver';
 import type { ChannelStatus } from '../../../shared/conversation';
 import {
@@ -132,6 +133,23 @@ export class PageBrowserAdapter implements BrowserAdapter {
       // left *this* address, and that is the one signal which does not depend
       // on how the site happens to render its messages today.
       if (threadUrl) this.lastThreadUrl = threadUrl;
+      // 读引用链接放在答案之后：它只补来源元数据，读不到就是没有，
+      // 不影响这次回答已经成立。走同一个 `assistant` 选择器，所以
+      // 「能读到答案、读不到链接」只说明链接真的不存在。
+      const citations = await this.spec.adapter.citations();
+      const digest = citations
+        ? digestCitations(
+            citations.links.map(link => ({
+              url: link.url,
+              anchorText: link.text,
+              title: link.title || citations.title,
+              pageUrl: citations.url,
+              sourceId: this.id,
+              fetchedAt: Date.now()
+            })),
+            { cap: 12, pageUrl: citations.url, sourceId: this.id, now: Date.now() }
+          )
+        : null;
       return {
         agentId: this.id,
         text,
@@ -140,6 +158,8 @@ export class PageBrowserAdapter implements BrowserAdapter {
         // thread id. Deleting the conversation later needs exactly this address
         // to find the row again.
         threadUrl,
+        ...(digest && digest.citations.length > 0 ? { citations: digest.citations } : {}),
+        ...(citations?.url ? { pageUrl: citations.url } : {}),
         attribution: { requestId, note: '气泡增量 + 连续三次稳定' }
       };
     } finally {

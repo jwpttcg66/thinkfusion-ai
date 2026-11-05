@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ChatGPT</title>
+</head>
+<body>
+  <!-- 侧栏：气泡之外的链接，不能被当成这条回答的来源 -->
+  <nav class="sidebar">
+    <a href="https://chatgpt.com/c/sidebar-thread">之前的会话</a>
+  </nav>
+
+  <main>
+    <!-- 上一条回答：读引用只看最后一条，这条里的链接不能被算进来 -->
+    <article>
+      <div data-message-author-role="assistant">
+        <div class="markdown">
+          <p>上一轮的回答里有 <a href="https://old.example.com/previous">旧来源</a>。</p>
+        </div>
+      </div>
+    </article>
+
+    <article>
+      <div data-message-author-role="assistant">
+        <div class="markdown">
+          <p>默认连接数是 1024，见
+            <a href="https://docs.example.com/config?utm_source=chatgpt&amp;utm_medium=chat" title="Configuration">官方文档</a>。
+          </p>
+          <p>旧版本的行为见
+            <a href="https://www.google.com/url?q=https://docs.example.com/release-notes&amp;sa=U">release notes</a>。
+          </p>
+          <p>同一份文档的另一个入口：
+            <a href="https://docs.example.com/config/#defaults">这里</a>。
+          </p>
+          <p>站内相对地址 <a href="/c/abc123">这次会话</a>，
+            <a href="javascript:void(0)">不是来源</a>。
+          </p>
+          <p style="display:none"><a href="https://hidden.example.com/page">隐藏的脚注</a></p>
+        </div>
+      </div>
+    </article>
+  </main>
+</body>
+</html>

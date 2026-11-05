@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Gemini</title>
+</head>
+<body>
+  <aside>
+    <a href="https://gemini.google.com/app/sidebar">侧栏会话</a>
+  </aside>
+
+  <main class="conversation">
+    <model-response>
+      <message-content class="markdown">
+        <p>上一轮说过 <a href="https://old.example.com/previous">旧来源</a>。</p>
+      </message-content>
+    </model-response>
+
+    <model-response>
+      <message-content class="markdown">
+        <p>这个行为的说明在
+          <a href="https://ai.google.dev/gemini-api/docs/models?hl=zh-CN" title="Models">官方文档</a>。
+        </p>
+        <p>版本差异见
+          <a href="https://www.google.com/url?q=https://ai.google.dev/release-notes">release notes</a>。
+        </p>
+        <p>站内地址 <a href="/app/abc123">这次会话</a>。</p>
+        <p style="visibility:hidden"><a href="https://hidden.example.com/gemini">隐藏</a></p>
+      </message-content>
+    </model-response>
+  </main>
+</body>
+</html>

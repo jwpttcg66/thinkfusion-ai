@@ -292,6 +292,11 @@ export function digestCitations(
   for (const citation of citations) {
     const raw = citation.url?.trim();
     if (!raw) continue;
+    // `#section` 是同页锚点，不是来源；解析成页面地址后会变成一条假引用。
+    if (raw.startsWith('#')) {
+      dropped.notHttp += 1;
+      continue;
+    }
     let absolute = raw;
     // 页面脚本已经解析过相对地址；驱动层也可能传来相对地址（fixture、旧调用），
     // 这里再兜一次，免得把 `#/s/xxx` 当成来源。

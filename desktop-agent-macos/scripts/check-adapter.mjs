@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, deleteChatScriptForSyntaxCheck } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, deleteChatScriptForSyntaxCheck, CITATIONS_SCRIPT } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
@@ -1034,7 +1034,10 @@ test('a real short answer is never mistaken for an echo', () => {
 test('every page script still compiles', () => {
   const sources = {
     deleteChat: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624'),
-    deleteChatLocateOnly: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624', true)
+    deleteChatLocateOnly: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624', true),
+    // 读引用是模板拼出来的脚本：拼接被转义吃掉时页面不会报错，只会静默返回空，
+    // 所以这里至少要先过一遍编译。
+    citations: CITATIONS_SCRIPT(DEEPSEEK_SELECTORS)
   };
   for (const [name, source] of Object.entries(sources)) {
     assert.doesNotThrow(() => new Function('return ' + source), `${name} 编译失败`);

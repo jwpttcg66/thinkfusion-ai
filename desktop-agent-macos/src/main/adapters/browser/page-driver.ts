@@ -201,6 +201,13 @@ export interface PageDriver {
    */
   threadCandidates?(): Promise<ThreadCandidate[]>;
   /**
+   * 回答气泡里的引用链接（见 `CITATIONS_SCRIPT`）。
+   *
+   * 可选：脚本化的测试页没有 DOM，也就没有链接；读不到就是空列表，
+   * 不影响答案本身。
+   */
+  citations?(): Promise<PageCitations | null>;
+  /**
    * Pretend the page is the one the user is looking at.
    *
    * The pane shows one site at a time; the other channels are laid out offstage
@@ -479,6 +486,94 @@ export const PROBE_SCRIPT = (
     chosen
   };
 })()`;
+
+/**
+ * 回答气泡里的引用链接（Phase 3 / AC-09）。
+ *
+ * 只做一件事：把**最后一条**回答里的 `a[href]` 读出来，解析成绝对地址。
+ * 这不是「把答案读得更准」——答案那一步已经完成、已经交给调用方了。这里是
+ * 额外的来源元数据，所以任何一步失败都返回空列表，绝不抛错：抓不到引用是
+ * 「这条回答没有给出链接」，不是「这条回答作废」。
+ *
+ * 三个克制的地方：
+ *
+ * 1. 不猜哪些链接是「引用」。气泡里的链接都交出去，由上层按地址、指纹和
+ *    同源去判；在页面里按 DOM 猜「这是学术引用还是脚注」，每个站点都会错。
+ * 2. 不做站点特判。选择器来自 provider 配置，与读答案用的是同一份 `assistant`
+ *    列表——这样「能读到答案却读不到链接」只可能意味着链接真的不存在。
+ * 3. 地址在页面里就解析成绝对地址（`new URL(href, location.href)`），
+ *    相对地址和 `javascript:` 在这一步就分开，不把归一化留到主进程再造一遍。
+ */
+export const CITATIONS_SCRIPT = (selectors: SelectorProfile) => `(() => {
+  const selectors = ${JSON.stringify(selectors)};
+  const base = location.href;
+  const visible = (el) => {
+    try {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const style = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null;
+      if (!style) return true;
+      return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    } catch {
+      return false;
+    }
+  };
+  const absolute = (raw) => {
+    if (!raw) return null;
+    try {
+      const url = new URL(raw, base);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+      return url.href;
+    } catch {
+      return null;
+    }
+  };
+
+  let bubbles = [];
+  for (const selector of selectors.assistant || []) {
+    let nodes = [];
+    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+    const found = nodes.filter(visible);
+    if (found.length) { bubbles = found; break; }
+  }
+  const last = bubbles.length ? bubbles[bubbles.length - 1] : null;
+  const title = document.title || '';
+  if (!last) return { url: base, title: title, links: [] };
+
+  let anchors = [];
+  try { anchors = [...last.querySelectorAll('a[href]')]; } catch { anchors = []; }
+
+  const seen = {};
+  const links = [];
+  for (const anchor of anchors) {
+    if (links.length >= 30) break;
+    if (!visible(anchor)) continue;
+    const href = anchor.getAttribute ? anchor.getAttribute('href') : anchor.href;
+    const url = absolute(href);
+    if (!url || seen[url]) continue;
+    seen[url] = true;
+    const text = ((anchor.innerText || anchor.textContent || '') + '').trim().slice(0, 200);
+    const label = anchor.getAttribute ? (anchor.getAttribute('title') || '') : '';
+    links.push({ url: url, text: text, title: (label + '').slice(0, 200) });
+  }
+  return { url: base, title: title, links: links };
+})()`;
+
+/** 页面读到的引用链接。`url` 已经是绝对地址，`title` 能读到才有。 */
+export interface PageAnchor {
+  url: string;
+  text?: string;
+  title?: string;
+}
+
+export interface PageCitations {
+  /** 读链接时页面所在的地址。 */
+  url: string;
+  /** 页面标题，作为链接没有标题时的兜底。 */
+  title: string;
+  links: PageAnchor[];
+}
 
 /**
  * Read the live DOM and propose a selector for each role.
@@ -1826,6 +1921,15 @@ export function createElectronDriver(
     },
     threadCandidates: async () =>
       (await callPage(view, '读取会话列表', THREAD_LIST_SCRIPT)) as ThreadCandidate[],
+    citations: async () => {
+      // 短超时：这一步只是补来源元数据，宁可没有链接，也不让一次读 DOM 把
+      // 已经到手的回答卡住。
+      try {
+        return (await callPage(view, '读取回答里的引用', CITATIONS_SCRIPT(profile()), 2_000)) as PageCitations;
+      } catch {
+        return null;
+      }
+    },
     reloadHome: async () => {
       // The URL is already known to be an allowed host — the adapter checks
       // before it hands us the driver — so its origin is safe to navigate to.
@@ -2367,6 +2471,26 @@ export class ChatPageDriver {
       return (await this.getDriver()?.threadCandidates?.()) ?? [];
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * The links the last answer bubble contains, for evidence provenance.
+   *
+   * Never throws: an answer that arrived without a readable set of links is a
+   * normal answer. The driver behind this may not implement it at all (a
+   * scripted test page), and a page mid-render may fail the read — both mean
+   * "no citations", not "no answer".
+   */
+  async citations(): Promise<PageCitations | null> {
+    try {
+      const driver = this.driver();
+      if (!driver.citations) return null;
+      const result = await driver.citations();
+      if (!result || !Array.isArray(result.links)) return null;
+      return result;
+    } catch {
+      return null;
     }
   }
 
