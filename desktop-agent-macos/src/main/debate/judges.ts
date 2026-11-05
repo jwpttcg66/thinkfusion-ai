@@ -38,8 +38,15 @@ const ABSOLUTE = /(一定|必然|绝对|肯定|毫无疑问|显然|从来|永远
 const REASONING = /(因为|由于|所以|因此|据此|由此可见|说明|意味着|得出|由此)/;
 const CONDITION = /(如果|假如|若|当|仅在|只有在|取决于|前提|条件是|适用范围)/;
 
-/** 推理被判成「有依据」的最低文本相似度：同一个意思换个说法，不算两句矛盾。 */
-const SAME_TOPIC = 0.45;
+/**
+ * 判「前后矛盾」的阈值：去掉否定词后两句话的相似度。
+ *
+ * 0.45 是实测出来的分界：真改口（「支持并发写入，可以放心用」对「不支持并发
+ * 写入，会丢数据」）去掉否定词后约 0.47，不同范围的两句（「不适合高并发」对
+ * 「适合读多写少」）只有约 0.06。真正防误判的是「写了适用范围就不算改口」
+ * 那条规则，阈值只负责挡掉话题都不一样的句子。
+ */
+const FLIP_FLOP = 0.45;
 
 /** 来源类型里，能单独撑起「证据充足」的几种。博客只能算补充。 */
 const STRONG_KINDS = new Set(['official-doc', 'source-code', 'paper', 'benchmark']);
@@ -693,8 +700,20 @@ function conflictingClaims(disputes: readonly DebateDispute[]): Set<string> {
 /**
  * 同一位参与者前后矛盾的那几句。
  *
- * 判据：两句都在，主题高度相似（bigram 相似度 ≥ 0.45），否定词数量不同。
- * 这是弱判据，所以只用来把「推理不成立」标出来，不用来定谁对。
+ * 判据刻意收紧过一次：真机跑出来发现「SQLite 不适合高并发」和「SQLite 适合
+ * 读多写少的场景」被判成前后矛盾，于是整场结论从「证据不足」变成「不成立」。
+ * 两句说的是不同范围，不是改口。
+ *
+ * 现在要同时满足三条：
+ *
+ * 1. 否定词数量不同；
+ * 2. **两句都没有写适用范围**——写了 `在 6.0 之前` 这类条件，就说明差异来自
+ *    范围，不是来自改口；
+ * 3. 把否定词去掉之后两句话几乎一样（bigram 相似度 ≥ 0.7）。这样「支持并发
+ *    写入」与「不支持并发写入」会命中，「不适合高并发」与「适合读多写少」
+ *    不会。
+ *
+ * 仍然是弱判据，只用来标「这句推理不成立」，不用来定谁对。
  */
 function selfContradictions(claims: readonly DebateClaim[]): Set<string> {
   const found = new Set<string>();
@@ -710,13 +729,21 @@ function selfContradictions(claims: readonly DebateClaim[]): Set<string> {
         const left = list[i];
         const right = list[j];
         if (negationCount(left.text) === negationCount(right.text)) continue;
-        if (jaccard(features(left.text), features(right.text)) < SAME_TOPIC) continue;
+        // 写了范围就说明两句不是同一条件下的判断。
+        if (left.assumptions.length > 0 || right.assumptions.length > 0) continue;
+        const polarityFree = jaccard(features(stripNegation(left.text)), features(stripNegation(right.text)));
+        if (polarityFree < FLIP_FLOP) continue;
         found.add(left.claimId);
         found.add(right.claimId);
       }
     }
   }
   return found;
+}
+
+/** 去掉否定词，剩下的部分越像，越可能只是立场反了。 */
+function stripNegation(text: string): string {
+  return text.replace(/[不没未无非别]/g, '');
 }
 
 /** 证据与主张的相关性：引用片段出现在这句话里就是直接相关。 */

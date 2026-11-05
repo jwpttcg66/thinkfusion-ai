@@ -479,3 +479,43 @@ test('范围争议只限制「没写范围」的那一句', () => {
   assert.equal(mine.verdict, 'supported');
   assert.equal(dimension(other, 'counterexample').outcome, 'limited', '绝对表述那句才受限制');
 });
+
+// ---------------------------------------------------------------------------
+// 前后矛盾的判据（真机跑出来的误判）
+// ---------------------------------------------------------------------------
+
+const logicOutcome = (judgment) =>
+  judgment.dimensions.find(item => item.dimension === 'logic').outcome;
+
+test('说的不是同一个范围，不算前后矛盾', () => {
+  const narrow = claim('a', 'SQLite 不适合作为高并发写入的主数据库，写入会串行化。', { messageId: 'm-a1' });
+  const other = claim('a', 'SQLite 适合读多写少的场景，比如本地缓存。', { messageId: 'm-a2' });
+  const run = judgeDebate(stateOf([narrow, other], []));
+  for (const item of run.judgments) {
+    assert.notEqual(logicOutcome(item), 'invalid', `不该判成前后矛盾：${item.claimText}`);
+  }
+});
+
+test('真正改口仍然判 invalid', () => {
+  const before = claim('a', '这个库支持并发写入，可以放心用。', { messageId: 'm-b1' });
+  const after = claim('a', '这个库不支持并发写入，会丢数据。', { messageId: 'm-b2' });
+  const run = judgeDebate(stateOf([before, after], []));
+  for (const item of run.judgments) {
+    assert.equal(logicOutcome(item), 'invalid', `改口没判出来：${item.claimText}`);
+  }
+});
+
+test('写了适用范围的判断，不按改口处理', () => {
+  const before = claim('a', '在 6.0 之前，这个库不支持并发写入。', {
+    messageId: 'm-c1',
+    assumptions: ['在 6.0 之前']
+  });
+  const after = claim('a', '在 6.0 之后，这个库支持并发写入。', {
+    messageId: 'm-c2',
+    assumptions: ['在 6.0 之后']
+  });
+  const run = judgeDebate(stateOf([before, after], []));
+  for (const item of run.judgments) {
+    assert.notEqual(logicOutcome(item), 'invalid', `范围不同被判成改口：${item.claimText}`);
+  }
+});
