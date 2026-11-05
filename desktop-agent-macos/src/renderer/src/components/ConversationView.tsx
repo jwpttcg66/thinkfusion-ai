@@ -55,6 +55,8 @@ export function ConversationView(props: {
   conversation: Conversation;
   messages: ConversationMessage[];
   channelStatuses: ChannelStatus[];
+  /** 通道 id → 站点图标（K / G / ✦），综合里的「观点A」要配上它。 */
+  glyphs: ReadonlyMap<string, string>;
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   busy: boolean;
 }) {
@@ -112,10 +114,12 @@ export function ConversationView(props: {
 
         {turns.map((turn, turnIndex) => {
           const answers = turn.blocks.flatMap(block => (block.kind === 'answers' ? block.messages : []));
-          const answered = new Set(answers.map(message => message.channelId).filter((id): id is string => !!id));
+          const answeredIds = answers.map(message => message.channelId).filter((id): id is string => !!id);
+          const answered = new Set(answeredIds);
           // 只有最后一轮、并且这一轮还在跑，才用实时状态：更早的那几轮早就结束了，
           // 它们的「谁答完了」只能从自己的消息里数出来。
           const live = turnIndex === turns.length - 1 && (props.busy || liveStatus.includes(conversation.status));
+          const opinionTags = tagsForTurn(conversation.channels, answered, labels, props.glyphs);
 
           return (
             <section
@@ -145,7 +149,16 @@ export function ConversationView(props: {
 
               {turn.blocks.map(block => {
                 if (block.kind === 'answers') return <ChannelGrid key={block.key} messages={block.messages} labels={labels} />;
-                if (block.kind === 'synthesis') return <SynthesisCard key={block.key} synthesis={block.message.synthesis!} labels={labels} />;
+                if (block.kind === 'synthesis') {
+                  return (
+                    <SynthesisCard
+                      key={block.key}
+                      synthesis={block.message.synthesis!}
+                      labels={labels}
+                      opinionTags={opinionTags}
+                    />
+                  );
+                }
                 return (
                   <p key={block.key} className="conv-system">
                     {block.message.text}
@@ -227,7 +240,7 @@ function groupTurns(messages: ConversationMessage[]): Array<{
 }
 
 /**
- * A channel's display name, as the main process reports it.
+ * 一条通道的显示名，as the main process reports it.
  *
  * Not a hardcoded `if (id === 'deepseek')`. That map was a third place a new
  * site had to be added, and the only one with no compiler behind it — the card
@@ -237,6 +250,81 @@ function groupTurns(messages: ConversationMessage[]): Array<{
 function labelOf(channelId: string | undefined, labels: ReadonlyMap<string, string>): string {
   if (!channelId) return '通道';
   return labels.get(channelId) ?? channelId;
+}
+
+/** 「观点A/B/C」和具体是谁的对应关系，一条一枚。 */
+interface OpinionTag {
+  tag: string;
+  letter: string;
+  channelId: string;
+  label: string;
+  glyph: string;
+}
+
+/**
+ * 这一轮里，「观点A」是谁。
+ *
+ * 标签按**提问顺序**发，和主进程递给主导人的顺序是同一个：参与通道的顺序
+ * 就是 `conversation.channels`，答过的那几家按它排列。所以界面上 A、B、C
+ * 永远指向同一家，不随回答到达的先后漂移——三家同时答完时（很常见）它们的
+ * 消息顺序本来就是乱的。
+ */
+function tagsForTurn(
+  channels: string[],
+  answered: ReadonlySet<string>,
+  labels: ReadonlyMap<string, string>,
+  glyphs: ReadonlyMap<string, string>
+): OpinionTag[] {
+  return channels
+    .filter(id => answered.has(id))
+    .slice(0, 6)
+    .map((channelId, index) => {
+      const letter = String.fromCharCode(65 + index);
+      const label = labelOf(channelId, labels);
+      return {
+        tag: `观点${letter}`,
+        letter,
+        channelId,
+        label,
+        glyph: glyphs.get(channelId) ?? label.slice(0, 1)
+      };
+    });
+}
+
+/**
+ * 把结论正文里的「观点A」画成一枚带站点图标的标签。
+ *
+ * 主导人写的是「观点A」三个字，读者得自己回头找 A 是哪一家。图标补上这一步：
+ * 同一个字母永远配同一个图标，扫一眼就知道说的是哪个网页。
+ */
+function SourceRefText({ text, tags }: { text: string; tags: OpinionTag[] }) {
+  const byLetter = new Map(tags.map(item => [item.letter, item]));
+  const parts = text.split(/(观点\s*[A-Za-z])/g);
+  return (
+    <>
+      {parts.map((part, index) => {
+        const match = part.match(/^观点\s*([A-Za-z])$/);
+        const tag = match ? byLetter.get(match[1].toUpperCase()) : undefined;
+        if (!tag) return <React.Fragment key={index}>{part}</React.Fragment>;
+        return <OpinionChip key={index} tag={tag} />;
+      })}
+    </>
+  );
+}
+
+function OpinionChip({ tag }: { tag: OpinionTag }) {
+  return (
+    <span className="opinion-tag" title={tag.label}>
+      <span className="opinion-glyph" aria-hidden="true">{tag.glyph}</span>
+      {tag.tag}
+    </span>
+  );
+}
+
+/** 结构化段落里引用某一家时用同一枚标签，读起来和正文是一套。 */
+function tagOfChannel(tags: OpinionTag[], channelId: string | undefined): OpinionTag | undefined {
+  if (!channelId) return undefined;
+  return tags.find(item => item.channelId === channelId);
 }
 
 /**
@@ -351,7 +439,15 @@ function phaseLabel(phase: string): string {
  * The structured result. Every section is rendered even when empty, because
  * "no gaps found" and "we could not look for gaps" must not look the same.
  */
-function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: ReadonlyMap<string, string> }) {
+function SynthesisCard({
+  synthesis,
+  labels,
+  opinionTags
+}: {
+  synthesis: Synthesis;
+  labels: ReadonlyMap<string, string>;
+  opinionTags: OpinionTag[];
+}) {
   return (
     <article className={`synthesis ${synthesis.degraded ? 'degraded' : ''}`}>
       <div className="synthesis-head">
@@ -360,7 +456,9 @@ function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: Re
         {synthesis.degraded && <span className="synthesis-warn">未形成共识，以下是并列结果</span>}
       </div>
 
-      <p className="synthesis-lead">{synthesis.recommendation}</p>
+      <p className="synthesis-lead">
+        <SourceRefText text={synthesis.recommendation} tags={opinionTags} />
+      </p>
 
       {synthesis.overlap && synthesis.overlap.length > 0 && (
         <p className="synthesis-overlap">
@@ -383,7 +481,11 @@ function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: Re
               <ul>
                 {dispute.positions.map((position, positionIndex) => (
                   <li key={positionIndex}>
-                    <span className="who">{labelOf(position.channelId, labels)}</span>
+                    <span className="who">
+                      {tagOfChannel(opinionTags, position.channelId)
+                        ? <OpinionChip tag={tagOfChannel(opinionTags, position.channelId)!} />
+                        : labelOf(position.channelId, labels)}
+                    </span>
                     {position.stance}
                   </li>
                 ))}
@@ -401,7 +503,10 @@ function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: Re
               <li key={index}>
                 {claim.text}
                 <span className="claim-src">
-                  {claim.sources.map(source => labelOf(source.channelId, labels)).filter((v, i, a) => a.indexOf(v) === i).join(' / ')}
+                  {claim.sources
+                    .map(source => tagOfChannel(opinionTags, source.channelId)?.tag ?? labelOf(source.channelId, labels))
+                    .filter((value, i, all) => all.indexOf(value) === i)
+                    .join(' / ')}
                 </span>
                 {/* Without the figures the claim cannot be checked, and "why do
                     these two agree" becomes a matter of trust. */}
@@ -433,7 +538,9 @@ function SynthesisCard({ synthesis, labels }: { synthesis: Synthesis; labels: Re
             {synthesis.unique.map((claim, index) => (
               <li key={index}>
                 {claim.text}
-                <span className="claim-src">{labelOf(claim.sources[0]?.channelId, labels)}</span>
+                <span className="claim-src">
+                  {tagOfChannel(opinionTags, claim.sources[0]?.channelId)?.tag ?? labelOf(claim.sources[0]?.channelId, labels)}
+                </span>
               </li>
             ))}
           </ul>

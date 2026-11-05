@@ -1881,6 +1881,36 @@ button:disabled {
   line-height: 1.7;
 }
 
+/* 结论里的「观点A」。字母前面那枚小方块就是站点图标（K / G / ✦），
+   和左边来源栏、页面栏上的图标是同一个记号——读者不用回头数 A 是谁。 */
+.opinion-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px 0 2px;
+  margin: 0 1px;
+  border-radius: 6px;
+  background: #f2f3f7;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 17px;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+.opinion-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 9px;
+  line-height: 1;
+}
+
 .synthesis-meta {
   display: flex;
   flex-wrap: wrap;

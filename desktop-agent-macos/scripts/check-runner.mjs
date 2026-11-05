@@ -841,34 +841,27 @@ test('辩题解析：一行里挤了多条编号辩题也能拆开，且不吞�
 });
 
 // ---------------------------------------------------------------------------
-// 主导人写结论时用名字，不用「来源2」这种编号
+// 主导人写结论时用「观点A/B/C」，不写站点名字
 // ---------------------------------------------------------------------------
 
-test('提示词按名字标来源，不再编号', () => {
+test('提示词用观点A/B标来源，不写站点名字', () => {
   const answers = [
     { channelId: 'kimi', label: 'Kimi', text: '金鱼记忆只有七秒是谣言。' },
     { channelId: 'chatgpt', label: 'ChatGPT', text: '金鱼记忆远不止七秒。' }
   ];
   const prompt = buildLeadSummaryQuestion('金鱼记忆只有七秒吗？', answers);
-  assert.ok(prompt.includes('【Kimi】'), '来源用名字开头');
+  assert.ok(prompt.includes('观点A：'), '第一份叫观点A');
+  assert.ok(prompt.includes('观点B：'), '第二份叫观点B');
   assert.ok(!prompt.includes('【来源1】'), '不再出现编号');
-  assert.ok(inlineLeadInstructions('q', answers).includes('【ChatGPT】'));
+  assert.ok(!prompt.includes('【Kimi】'), '也不出现带括号的站点名');
 
-  // 提示词本身也要说明白：分歧处直接写名字。
-  assert.ok(inlineLeadInstructions('q', answers).includes('不要写「来源1」这种编号'));
-
-  // 两个来源重名时补编号，否则读的人分不清是哪一家。
-  assert.deepEqual(
-    sourceTags([
-      { channelId: 'a', label: 'Kimi', text: '' },
-      { channelId: 'b', label: 'Kimi', text: '' },
-      { channelId: 'c', label: 'Gemini', text: '' }
-    ]),
-    ['Kimi 1', 'Kimi 2', 'Gemini']
-  );
+  const inline = inlineLeadInstructions('q', answers);
+  assert.ok(inline.includes('观点A：'));
+  assert.ok(inline.includes('不要加括号'), '提示词要求结论里也不加括号');
+  assert.deepEqual(sourceTags(answers), ['观点A', '观点B']);
 });
 
-test('结论里残留的「来源2」换回名字', () => {
+test('结论里残留的编号、站点名换回观点标签', () => {
   const answers = [
     { channelId: 'kimi', label: 'Kimi', text: '' },
     { channelId: 'chatgpt', label: 'ChatGPT', text: '' }
@@ -876,9 +869,12 @@ test('结论里残留的「来源2」换回名字', () => {
   // 真机原文（网页主导写出来的）：编号和名字都写了。
   assert.equal(
     rewriteSourceRefs('【分歧】来源2介绍的是呼吸作用，不是光合作用。【存疑】【来源2】ChatGPT 显然答非所问。', answers),
-    '【分歧】ChatGPT介绍的是呼吸作用，不是光合作用。【存疑】ChatGPT 显然答非所问。'
+    '【分歧】观点B介绍的是呼吸作用，不是光合作用。【存疑】观点B 显然答非所问。'
   );
-  assert.equal(rewriteSourceRefs('来源1 说可以用。', answers), 'Kimi 说可以用。');
+  assert.equal(rewriteSourceRefs('来源1 说可以用。', answers), '观点A 说可以用。');
+  // 站点名字套方括号的也收成标签，不留括号。
+  assert.equal(rewriteSourceRefs('【Kimi】说金鱼记忆不止七秒。', answers), '观点A说金鱼记忆不止七秒。');
+  assert.equal(rewriteSourceRefs('【观点A】说可以。', answers), '观点A说可以。');
   // 越界的编号没有对应的人，原样留着，不要换成空字符串。
   assert.equal(rewriteSourceRefs('来源9 说了什么？', answers), '来源9 说了什么？');
   // 真答案里本来就有「来源」两个字的不动。

@@ -1045,6 +1045,8 @@ export default function App() {
                 conversation={activeConversation}
                 messages={messages}
                 channelStatuses={channelStatuses}
+                // 综合里的「观点A/B/C」要配上站点图标，读者才知道是哪一家。
+                glyphs={new Map(sources.sources.map(source => [source.id, source.glyph]))}
                 phases={phases}
                 busy={conversationBusy}
               />

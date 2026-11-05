@@ -30,61 +30,67 @@ export const LEAD_SUMMARY_SYSTEM: string[] = [
   '只依据这些回答做事，不要补充它们没说过的事实，也不要替它们编造依据。',
   '按下面五段输出，每段简短，不要复述整篇回答：',
   '【结论】直接回答问题；如果回答之间没有形成可用的结论，就写「这轮没有形成结论」并说明卡在哪。',
-  '【一致】各来源都说到的点；没有就写「没有」。',
-  '【分歧】彼此矛盾的地方，写清各自立场，并直接写是哪一家（例如「Kimi 说 A，ChatGPT 说 B」）；不要写「来源1」这种编号。没有就写「没有」。',
-  '【存疑】证据薄弱、只有一处在说、答非所问的地方，同样直接写是哪一家；回答明显残缺也要指出是谁。',
+  '【一致】各处都说到的点；没有就写「没有」。',
+  '【分歧】彼此矛盾的地方，写清各自立场，并写明是哪一份（写「观点A」「观点B」，不要加括号，也不要写站点名字）；没有就写「没有」。',
+  '【存疑】证据薄弱、只有一处在说、答非所问的地方，同样用「观点A」这样的说法指明是哪一份；回答明显残缺也要指出。',
   '【辩题】如果分歧会影响结论，列出需要辩清楚的议题，一行一条，用问句；没有实质分歧就只写「无」。'
 ];
 
 export const LEAD_SUMMARY_TIMEOUT_MS = 120_000;
 
 /**
- * 各来源在提示词里的标签。
+ * 各来源在提示词与结论里的标签：观点A、观点B……
  *
- * 用名字，不用编号。编号是给机器看的，模型会把它原样搬进结论——真机上
- * 网页主导写出来的就是「【来源2】Kimi 显然答非所问」，用户读到的是编号
- * 而不是哪一家。名字本来就是人家自己报的（Kimi / ChatGPT / Gemini），
- * 直接写名字既不用换算，也不会指错。
- *
- * 只有两个来源重名时才补编号：那种情况下光写名字确实分不清。
+ * 不写站点名字。结论是给人读的对比，读者要看的是「这两份观点哪里不一样」，
+ * 而不是「Kimi 说了什么」——名字还把答案和具体某一家绑在一起，读起来像在
+ * 点名。界面负责把标签和站点图标对应上（同一个字母配同一个图标），所以书面
+ * 上只需要 A、B、C。
  */
+const OPINION_TAGS = ['观点A', '观点B', '观点C', '观点D', '观点E', '观点F'];
+
 export function sourceTags(answers: readonly LeadAnswer[]): string[] {
-  const counts = new Map<string, number>();
-  for (const answer of answers) counts.set(answer.label, (counts.get(answer.label) ?? 0) + 1);
-  const seen = new Map<string, number>();
-  return answers.map(answer => {
-    if ((counts.get(answer.label) ?? 0) === 1) return answer.label;
-    const nth = (seen.get(answer.label) ?? 0) + 1;
-    seen.set(answer.label, nth);
-    return `${answer.label} ${String(nth)}`;
-  });
+  return answers.map((_, index) => OPINION_TAGS[index] ?? `观点${String(index + 1)}`);
 }
 
 /**
- * 把结论里残留的「来源2」换回名字。
+ * 把结论里残留的编号、站点名字换回「观点X」。
  *
- * 提示词已经要求写名字了，但主导人可能还是照输入里的旧习惯写编号；这里兜一次。
- * 「【来源2】Kimi」这种把编号和名字都写上的也一并收成一个名字，不留括号。
+ * 提示词已经要求写标签，但主导人可能照旧写「来源2」或者「【Kimi】」；这里兜一次。
+ * 「【来源2】Kimi」「【Kimi】」这类都收成不带括号的「观点B」。
  */
 export function rewriteSourceRefs(text: string, answers: readonly LeadAnswer[]): string {
   if (!text) return text;
-  const nameOf = (raw: string): string | undefined => answers[Number(raw) - 1]?.label;
+  const tags = sourceTags(answers);
+  const tagOfIndex = (raw: string): string | undefined => tags[Number(raw) - 1];
+  const tagOfLabel = new Map(answers.map((answer, index) => [answer.label, tags[index]] as const));
 
-  // 「【来源2】Kimi」「来源2 Kimi」这类编号和名字都写上的，只留名字。
-  // 先处理它，否则下面那一步会换出「KimiKimi」。
-  let out = text.replace(
+  let out = text;
+
+  // 站点名字的方括号写法：【Kimi】→ 观点A（先换站点名，免得下面按编号再换一次）
+  for (const [label, tag] of tagOfLabel) {
+    if (!label) continue;
+    out = out.split(`【${label}】`).join(tag);
+  }
+
+  // 「【来源2】Kimi」「来源2 Kimi」：编号后面还跟着名字的，收成一个标签。
+  out = out.replace(
     /(?:【来源\s*(\d{1,2})】|来源\s*(\d{1,2}))\s*([^\s，。；、：:）)】\n]{1,24})/g,
     (whole, bracketed, bare, following: string) => {
-      const name = nameOf(bracketed ?? bare);
+      const tag = tagOfIndex(bracketed ?? bare);
+      if (!tag) return whole;
+      const name = answers[Number(bracketed ?? bare) - 1]?.label ?? '';
       if (!name || !following.startsWith(name)) return whole;
-      return name + following.slice(name.length);
+      return tag + following.slice(name.length);
     }
   );
 
-  // 只剩编号的：换成名字。
+  // 只剩编号的：换成标签。越界编号留着不动，换成空字符串会读成病句。
   out = out.replace(/(?:【来源\s*(\d{1,2})】|来源\s*(\d{1,2}))/g, (whole, bracketed, bare) => {
-    return nameOf(bracketed ?? bare) ?? whole;
+    return tagOfIndex(bracketed ?? bare) ?? whole;
   });
+
+  // 标签本身不带括号：读起来和「观点A」一致。
+  out = out.replace(/【(观点\s*[A-Za-z\d]+)】/g, '$1');
   return out;
 }
 
@@ -94,7 +100,7 @@ export function buildLeadSummaryQuestion(
 ): string {
   const tags = sourceTags(answers);
   const body = answers
-    .map((answer, index) => `【${tags[index]}】\n${answer.text.trim()}`)
+    .map((answer, index) => `${tags[index]}：\n${answer.text.trim()}`)
     .join('\n\n');
   return `【用户的问题】\n${question.trim()}\n\n【各来源的回答】\n${body}`;
 }
@@ -103,7 +109,7 @@ export function buildLeadSummaryQuestion(
 export function inlineLeadInstructions(question: string, answers: readonly LeadAnswer[]): string {
   const tags = sourceTags(answers);
   const body = answers
-    .map((answer, index) => `【${tags[index]}】\n${answer.text.trim()}`)
+    .map((answer, index) => `${tags[index]}：\n${answer.text.trim()}`)
     .join('\n\n');
   return [
     `【用户的问题】\n${question.trim()}`,
