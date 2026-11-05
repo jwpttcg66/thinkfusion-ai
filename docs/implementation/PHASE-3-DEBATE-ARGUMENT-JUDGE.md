@@ -14,15 +14,18 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 | `src/main/debate/argument-graph.ts`（新增） | 四种节点、六种边、整场重建、节点上限 |
 | `src/main/debate/evidence.ts`（新增） | 证据采集、可核验三档、同源标识、去重、独立来源数 |
 | `src/main/debate/judges.ts`（新增） | 逻辑 / 证据 / 反例三维 + 五档合成 |
+| `src/main/debate/events.ts`（新增） | 事件流：seq 单调、key 幂等、恢复点 |
 | `src/shared/evidence.ts`（新增） | 引用链接结构、URL 归一、跳转展开、内容指纹 |
 | `src/main/adapters/browser/page-driver.ts` | `CITATIONS_SCRIPT` + `citations()` |
 | `src/main/adapters/browser/page-adapter.ts` | 回答带上 `citations` / `pageUrl` |
-| `src/main/debate/types.ts` | `DebateEvidence`、`ArgumentNode/Edge/Graph`、`ClaimJudgment`、`DebateVerdict`；`DebateState.graph/evidence/judgments/verdict` |
-| `src/main/debate/orchestrator.ts` | 每轮算证据与图；收尾跑裁判并落盘 |
-| `src/main/debate/claims.ts` | 把主张里的出处草稿一起留下（证据层的输入） |
+| `src/main/debate/types.ts` | `DebateEvidence`、`ArgumentNode/Edge/Graph`、`ClaimJudgment`、`DebateVerdict`、`DebateEvent`；`DebateState.graph/evidence/judgments/verdict/events` |
+| `src/main/debate/orchestrator.ts` | 每轮算证据与图；收尾跑裁判；开始/每轮/停止/恢复/完成都记事件 |
+| `src/main/debate/claims.ts` | 把主张里的出处草稿一起留下；定义差异（`definitional`）判据 |
 | `src/shared/contracts.ts` | `DebateView.verdict?`（`debate:get` 本来就返回状态文件） |
-| `scripts/check-debate-graph.mjs`（新增） | 5 条 |
-| `scripts/check-debate-judge.mjs`（新增） | 11 条 |
+| `scripts/check-debate-graph.mjs`（新增） | 6 条 |
+| `scripts/check-debate-judge.mjs`（新增） | 13 条 |
+| `scripts/check-debate-events.mjs`（新增） | 7 条 |
+| `scripts/check-debate-regression.mjs` + `fixtures/debate-regression.mjs`（新增） | TF-D-001~010 固定回放，产出报告 |
 | `scripts/check-page-citations.mjs`（新增） | 10 条，配 `scripts/lib/mini-dom.mjs` |
 | `scripts/fixtures/pages/{chatgpt,kimi,gemini}.html`（新增） | 三家固定 HTML fixture |
 
@@ -144,23 +147,68 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 选择器（`article .markdown` / `.chat-content-item-assistant` / `model-response`），
 所以站点改结构时这一组会先红。
 
+## 5. 事件流：快照之外留一条「怎么走到这里」的线（AC-14）
+
+状态快照只能恢复到最后一次写盘；事件流能说明那一轮为什么没跑完。所以每场
+辩论多存 `events`：`seq` 从 1 单调递增，`key` 幂等。
+
+| 事件 | 什么时候写 | 幂等键 |
+| --- | --- | --- |
+| `session.created` | 起一场 | `session.created` |
+| `round.started` / `round.finished` | 每轮首尾 | `round.started:<index>` / `round.finished:<index>` |
+| `revision.recorded` | 每次改口 | `revision:<revisionId>` |
+| `verdict.recorded` | 出结论 | `verdict:<verdictId>` |
+| `session.stopped` / `session.resumed` | 用户停止 / 恢复 | `session.stopped` / `session.resumed:<n>` |
+| `session.completed` | 正常结束 | `session.completed` |
+| `session.cancelled` | 异常中止 | `session.cancelled` |
+
+幂等键不是装饰：恢复一场辩论会重跑那个没跑完的轮次，`round.started:2` 会被
+写第二次——靠 key 挡掉，事件流才不会因为一次恢复多出一段假的「又开始了」。
+用户连按两次停止也不会留下两条 `session.stopped`。
+
+这一版仍然是**快照为主、事件为辅**，没有改成事件溯源：一场辩论最多几十条
+事件，把恢复路径重写成「重放事件」换不来收益，反而更容易出错。
+
+## 6. 十条回归：回放断言结构，不断言模型判断（AC-15）
+
+任务书 §14.2 的 TF-D-001~010 做成了固定回放 + 结构化断言：
+
+- 每条用例是一份发言稿（按场景写成），按轮次回放给两位/三位辩手；
+- 断言只读结构：关键词还在不在、该判出的争议判出来没有、证据不足时会不会
+  硬给结论、多数一致会不会自动变成正确、转载会不会算成两份独立来源；
+- 跑完输出报告（`out-test/debate-regression.md`，加 `TF_REPORT=1` 时写
+  `docs/reports/DEBATE_REGRESSION.md`）。
+
+这样做是因为真模型同样的输入不保证同样的输出：断言「模型说了 X」的测试第二
+天就会红，而且红得没有意义。这一组守的是**链路不会把真话弄丢**——真模型换掉
+之后，结构上的退化会先在这里红。模型判断本身对不对，要人工标注集，属 Phase 5。
+
 ## 验证
 
-- `npm run test:debate-graph`，5 条：四种节点与六种边、每条边都有轮次与来源、
-  修订连成 `derived_from`、重建与序列化一致、真跑一场后读盘仍是同一张图。
-- `npm run test:debate-judge`，12 条：三维各自出结论且没有总分字段；
+- `npm run test:debate-claims`，13 条：切句与类型、直接矛盾 / 数字冲突 / 范围 /
+  定义差异（`definitional`）四类判据、定义相同时不报分歧、挑战指向具体两句。
+- `npm run test:debate-graph`，6 条：四种节点与六种边、每条边都有轮次与来源、
+  修订连成 `derived_from`、定义差异不连 `contradicts`、重建与序列化一致、
+  真跑一场后读盘仍是同一张图。
+- `npm run test:debate-judge`，13 条：三维各自出结论且没有总分字段；
   逻辑对但证据拿不到 → `insufficient_evidence`（TF-D-013）；自称有出处但没链接 →
   `unverifiable`；证据充分但推理不成立 → `partially_supported`；有可核验反证 →
   `contradicted`；仅仅有人不同意 → 不构成反例；证据冲突 → `insufficient_evidence`；
   少数派胜出（TF-D-011）；结论里没有票数字段；同源只算一个来源（TF-D-012）；
-  页面链接变成可核验证据并展开跳转包装；最后一条跑完整三轮，确认引用落成证据、
-  图里有判断节点、结论落盘且读回来一致。
+  页面链接变成可核验证据并展开跳转包装；跑完整三轮后证据、图、结论都在；
+  范围争议只限制「没写范围」的那一句。
+- `npm run test:debate-events`，7 条：事件链完整、seq 单调、key 幂等、连续停止
+  只有一条、恢复能跑到完成、老文件没有 `events` 也能写、失败轮次照样收尾。
+- `npm run test:debate-regression`，TF-D-001~010 十条，全过并产出报告。
 - `npm run test:page-citations`，10 条：三家 fixture 各一条（只读最后一条回答、
   跳过侧栏/隐藏/javascript:、相对地址解析、同一文档多入口去重、跳转展开）、
   空页面、裁剪环境（无 `getComputedStyle`）、URL 归一、Bing base64 展开、
   指纹、非来源地址、条数上限。
 - `npm test` 全量通过（含 Phase 1/2 的辩论用例，无回归）；
   `npm run typecheck`、`npm run build` 通过。
+
+逐条验收对照（AC-01~AC-15，含「部分达成」的说明）见
+`docs/architecture/DEBATE_ACCEPTANCE.md`。
 
 ## 没做的 / 需要注意的
 
@@ -173,8 +221,8 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
   不是事实核查；`backend: 'rules'` 写死在结论里。
 - **只覆盖 `a[href]`。** 有的站点把引用画成按钮或自定义属性，那种读不到——
   读不到就按「没有链接」处理，不猜。
-- **`definitional` 争议仍未做**（Phase 1 起就没做，规则判不了），所以
-  「同一个词各指不同的东西」不会进争议列表。
+- **Token 与费用预算仍没有。** 三条通道都不报用量（见 AC-07 的说明），只做
+  时间与并发；不写估算值，因为估算出来的预算等于没有预算。
 - **界面还没有结论面板。** 数据已经在 `debate:get` 的返回里（`DebateView.verdict`），
   渲染留给 Phase 4。
 - **会话级 `JudgeEngine`（Phase H）仍存在**，它给的是一段叙述式裁决，与这里的
