@@ -23,7 +23,7 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 | `src/main/debate/claims.ts` | 把主张里的出处草稿一起留下；定义差异（`definitional`）判据 |
 | `src/shared/contracts.ts` | `DebateView.verdict?`（`debate:get` 本来就返回状态文件） |
 | `scripts/check-debate-graph.mjs`（新增） | 6 条 |
-| `scripts/check-debate-judge.mjs`（新增） | 13 条 |
+| `scripts/check-debate-judge.mjs`（新增） | 16 条（含 3 条前后矛盾判据） |
 | `scripts/check-debate-events.mjs`（新增） | 7 条 |
 | `scripts/check-debate-regression.mjs` + `fixtures/debate-regression.mjs`（新增） | TF-D-001~010 固定回放，产出报告 |
 | `scripts/check-page-citations.mjs`（新增） | 10 条，配 `scripts/lib/mini-dom.mjs` |
@@ -190,13 +190,24 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 - `npm run test:debate-graph`，6 条：四种节点与六种边、每条边都有轮次与来源、
   修订连成 `derived_from`、定义差异不连 `contradicts`、重建与序列化一致、
   真跑一场后读盘仍是同一张图。
-- `npm run test:debate-judge`，13 条：三维各自出结论且没有总分字段；
+- `npm run test:debate-judge`，16 条：三维各自出结论且没有总分字段；
   逻辑对但证据拿不到 → `insufficient_evidence`（TF-D-013）；自称有出处但没链接 →
   `unverifiable`；证据充分但推理不成立 → `partially_supported`；有可核验反证 →
   `contradicted`；仅仅有人不同意 → 不构成反例；证据冲突 → `insufficient_evidence`；
   少数派胜出（TF-D-011）；结论里没有票数字段；同源只算一个来源（TF-D-012）；
   页面链接变成可核验证据并展开跳转包装；跑完整三轮后证据、图、结论都在；
-  范围争议只限制「没写范围」的那一句。
+  范围争议只限制「没写范围」的那一句；不同适用范围的判断不算前后矛盾、
+  真正改口仍判 `invalid`、写了范围的不按改口处理。
+
+### 补充：前后矛盾的判据收紧过（真机跑出来的）
+
+第一次用真模型跑 `assumption` 策略时，「SQLite 不适合高并发」和「SQLite 适合
+读多写少」被当成同一位参与者前后矛盾，整场结论从「证据不足」变成「不成立」。
+两句说的是不同范围，不是改口。
+
+现在要同时满足：否定词数量不同、两句都没写适用范围、**去掉否定词之后**
+相似度 ≥ 0.45（真改口约 0.47，不同范围约 0.06）。改了之后同一场重跑，结论
+回到 `insufficient_evidence`，逻辑维度为 `valid`。
 - `npm run test:debate-events`，7 条：事件链完整、seq 单调、key 幂等、连续停止
   只有一条、恢复能跑到完成、老文件没有 `events` 也能写、失败轮次照样收尾。
 - `npm run test:debate-regression`，TF-D-001~010 十条，全过并产出报告。
