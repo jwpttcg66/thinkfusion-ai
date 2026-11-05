@@ -17,7 +17,7 @@
 | `src/main/debate/orchestrator.ts` | 把策略指令拼进 system；挑战按策略优先级排序；成本提前收尾 |
 | `src/shared/conversation.ts` | `ConversationExecutionConfig.debateStrategy`（与 `executionMode`、`strategy` 三权分立） |
 | `src/main/conversation-runner.ts` | 会话内辩论把选中的策略传给编排器 |
-| `src/main/index.ts` | `debate:start` 接受六种策略；新增 `debate:related` 只读查询 |
+| `src/main/index.ts` | `debate:start` 接受六种策略；新增 `debate:related` 只读查询；本地成员按 Ollama 实际安装的模型生成（启动时刷新） |
 | `src/shared/contracts.ts` | `DebateStrategyId`；`DebateView` 增 `judgments/evidence/disputes/revisions/metrics` |
 | `src/renderer/src/components/ResearchPanel.tsx` | 六张策略卡片；成本开关；历史相似辩论；完整结果报告 |
 | `src/renderer/src/components/ConversationView.tsx` | 综合卡下方显示五档结论 + 三维 + 指标 |
@@ -111,6 +111,16 @@ assumption 三种策略跑同一组发言，三份结论都等于 `supported`。
 `invalid`。原因是同一段话里「不适合高并发」和「适合读多写少」被当成前后
 矛盾。判据收紧后重跑，回到 `insufficient_evidence` + `valid`，细节见
 `PHASE-3-DEBATE-ARGUMENT-JUDGE.md` 的补充一节。
+
+**④ 应用内两个本地模型互辩（adversarial，3 轮）**：拉了一个 `qwen2.5:0.5b`
+之后重启，成员清单自动多出 `ollama:qwen2.5:0.5b`（不再写死在代码里），
+两个本地模型都能勾选。跑完 6 条发言、36 条争议，角色是 proposer / critic，
+`0.5b` 没写决策行、记为 `null`。报告九块照常渲染，结论横幅「证据不足（不等于
+错）」，跑完删记录、无残留。
+
+这轮又抓到两处判据问题（同一条发言内的两种说法被当成改口；2/62 条推理不成立
+就把整场判成「不成立」），修完重跑，结论与三维分别是
+`insufficient_evidence` / logic valid / evidence absent。
 
 **没验证到的**：对话页里的结论条（需要一次真实的网页会话综合才会出现，
 没发提问）；网页通道参与的真机辩论。

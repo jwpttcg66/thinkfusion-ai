@@ -23,7 +23,7 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 | `src/main/debate/claims.ts` | 把主张里的出处草稿一起留下；定义差异（`definitional`）判据 |
 | `src/shared/contracts.ts` | `DebateView.verdict?`（`debate:get` 本来就返回状态文件） |
 | `scripts/check-debate-graph.mjs`（新增） | 6 条 |
-| `scripts/check-debate-judge.mjs`（新增） | 16 条（含 3 条前后矛盾判据） |
+| `scripts/check-debate-judge.mjs`（新增） | 19 条（含 6 条判据收紧用例） |
 | `scripts/check-debate-events.mjs`（新增） | 7 条 |
 | `scripts/check-debate-regression.mjs` + `fixtures/debate-regression.mjs`（新增） | TF-D-001~010 固定回放，产出报告 |
 | `scripts/check-page-citations.mjs`（新增） | 10 条，配 `scripts/lib/mini-dom.mjs` |
@@ -190,7 +190,7 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 - `npm run test:debate-graph`，6 条：四种节点与六种边、每条边都有轮次与来源、
   修订连成 `derived_from`、定义差异不连 `contradicts`、重建与序列化一致、
   真跑一场后读盘仍是同一张图。
-- `npm run test:debate-judge`，16 条：三维各自出结论且没有总分字段；
+- `npm run test:debate-judge`，19 条：三维各自出结论且没有总分字段；
   逻辑对但证据拿不到 → `insufficient_evidence`（TF-D-013）；自称有出处但没链接 →
   `unverifiable`；证据充分但推理不成立 → `partially_supported`；有可核验反证 →
   `contradicted`；仅仅有人不同意 → 不构成反例；证据冲突 → `insufficient_evidence`；
@@ -205,9 +205,18 @@ AC-08 / AC-09 / AC-10 / AC-11 / AC-12 / AC-13。分支 `0.1.1`，接在 Phase 2 
 读多写少」被当成同一位参与者前后矛盾，整场结论从「证据不足」变成「不成立」。
 两句说的是不同范围，不是改口。
 
-现在要同时满足：否定词数量不同、两句都没写适用范围、**去掉否定词之后**
-相似度 ≥ 0.45（真改口约 0.47，不同范围约 0.06）。改了之后同一场重跑，结论
-回到 `insufficient_evidence`，逻辑维度为 `valid`。
+现在要同时满足：否定词数量不同、**不是同一条发言**、两句都没写适用范围、
+去掉否定词之后相似度 ≥ 0.45（真改口约 0.47，不同范围约 0.06）。改了之后
+同一场重跑，结论回到 `insufficient_evidence`，逻辑维度为 `valid`。
+
+第二处误判在同一轮里：两个模型互辩时，质疑者常把对方的说法和自己的判断
+写在同一条发言里（「你说支持，但它其实不适合」），照字面比就是「前后矛盾」。
+「前后」的前提是分两次说，所以同一条发言里的两句不再两两比较。
+
+第三处是整场结论的口径：一场 62 条主张的辩论里 2 条自相矛盾、60 条只是没有
+来源，结论原先被写成 `unsupported`——那等于把「判不了」也算成「错」。现在只有
+**每一条**被判过的主张都推理不成立时才给 `unsupported`；有相当一部分只是证据
+不足时，结论是 `insufficient_evidence`，理由里写明各有几条。
 - `npm run test:debate-events`，7 条：事件链完整、seq 单调、key 幂等、连续停止
   只有一条、恢复能跑到完成、老文件没有 `events` 也能写、失败轮次照样收尾。
 - `npm run test:debate-regression`，TF-D-001~010 十条，全过并产出报告。
