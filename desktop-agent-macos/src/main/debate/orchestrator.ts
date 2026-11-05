@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
+import { analyseRound, challengesFor } from './claims';
 import { DebateStore } from './store';
 import {
   kindFor,
@@ -15,6 +16,7 @@ import {
 import {
   normalizeDebateConfig,
   type DebateConfig,
+  type DebateDispute,
   type DebateMessage,
   type DebateMessageKind,
   type DebateRole,
@@ -104,6 +106,7 @@ export class DebateOrchestrator {
       status: 'running',
       rounds: [],
       minorities: [],
+      disputes: [],
       createdAt: at,
       updatedAt: at
     };
@@ -176,12 +179,13 @@ export class DebateOrchestrator {
 
     try {
       while (current() && state.rounds.length < state.config.maxRounds) {
-        const round = await this.runRound(state, state.rounds.length);
+        const { round, disputes } = await this.runRound(state, state.rounds.length);
         // resume 之后旧 generation 的 run 必须立刻退出，不能把上一代的发言
         // 写进新状态。但用户 stop 时 generation 不变，那一轮的发言要留下：
         // 决策 6 要求原始回答不可丢失，喊停不该抹掉已经说出口的话。
         if (this.generation.get(state.debateId) !== generation) return;
         state.rounds.push(round);
+        state.disputes = [...(state.disputes ?? []), ...disputes];
         state.minorities = collectMinorities(state.rounds);
         state.updatedAt = this.now();
         if (!this.persist(state)) return;
@@ -230,7 +234,7 @@ export class DebateOrchestrator {
     return state.status !== 'stopped';
   }
 
-  private async runRound(state: DebateState, index: number): Promise<DebateRound> {
+  private async runRound(state: DebateState, index: number): Promise<{ round: DebateRound; disputes: DebateDispute[] }> {
     const round: DebateRound = {
       index,
       messages: [],
@@ -250,6 +254,19 @@ export class DebateOrchestrator {
       : previous.map(message => message.text);
     const kind: DebateMessageKind = kindFor(index);
     const speakers = speakersFor(state.plan, index);
+    /**
+     * 挑战指向具体两句。
+     *
+     * 上一轮结束后算出的争议是「谁的哪一句」对「谁的哪一句」，这一轮就照着
+     * 这几条问，而不是「请逐条质疑上一轮」。只在上一轮真的算出争议时才有；
+     * 没有就照旧给通用指令，不硬造。
+     */
+    const challenges = index === 0
+      ? []
+      : challengesFor(
+          (state.disputes ?? []).filter(dispute => dispute.roundIndex === index - 1),
+          state.rounds.at(-1)?.claims ?? []
+        );
 
     const results = await Promise.all(
       speakers.map(async agentId => {
@@ -267,7 +284,8 @@ export class DebateOrchestrator {
           stage: index === 0 ? 'initial' : 'followup',
           context: !isWebOnly && context.length > 0 ? context : undefined,
           system: isWebOnly ? undefined : instructions(state.config.strategy, kind, role, state.lead, {
-            seeded: index === 0 && Boolean(seed?.positions.length)
+            seeded: index === 0 && Boolean(seed?.positions.length),
+            challenges
           })
         };
         try {
@@ -298,7 +316,11 @@ export class DebateOrchestrator {
     }
     round.endedAt = this.now();
     round.converged = index > 0 && converged(previous, round.messages);
-    return round;
+    // 结构化那一层只做一遍：发言已经是最终文本（存原文、不摘要），切句和
+    // 争议检测都基于它，失败成员的缺席不影响已有发言。
+    const analysis = analyseRound(round.messages, index);
+    round.claims = analysis.claims;
+    return { round, disputes: analysis.disputes };
   }
 }
 
@@ -311,7 +333,7 @@ function instructions(
   kind: DebateMessageKind,
   role: DebateRole,
   lead: DebateLead,
-  options: { seeded?: boolean } = {}
+  options: { seeded?: boolean; challenges?: string[] } = {}
 ): string[] {
   const lines: string[] = [];
   if (kind === 'position' && options.seeded) {
@@ -320,6 +342,11 @@ function instructions(
   } else if (kind === 'position') lines.push('独立给出你对这个问题的观点，并说明成立的条件。');
   else if (kind === 'question') lines.push('逐条质疑上一轮发言里证据不足或推理跳跃的地方；指出具体是哪一句。');
   else lines.push('针对质疑逐条回应；可以修正观点，也可以说明为什么坚持，并给出条件。');
+  // 具体冲突排在通用指令后面：模型先知道这一轮要做什么，再看到具体问哪几句。
+  if (options.challenges && options.challenges.length > 0 && kind !== 'position') {
+    lines.push('这一轮先处理下面几处具体冲突，它们都是上一轮里彼此对不上的两句：');
+    lines.push(...options.challenges);
+  }
   if (strategy === 'adversarial') {
     lines.push(role === 'proposer' ? '你的职责是提出并维护主张。' : '你的职责是检验主张的漏洞。');
   }

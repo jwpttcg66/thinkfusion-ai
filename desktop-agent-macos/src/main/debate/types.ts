@@ -6,12 +6,64 @@
  * 修正另存一条 `revision` 并带 `targetMessageId`，绝不覆盖前一条。
  */
 
+import type { ClaimKind, ClaimSpan } from '../../shared/fusion';
 import type { DebateLead, DebateLeadMode, LeadPlan } from './lead';
 
 export type DebateStrategy = 'standard' | 'deep' | 'adversarial';
 export type DebateStatus = 'running' | 'completed' | 'stopped' | 'cancelled';
 export type DebateRole = 'proposer' | 'critic' | 'peer';
 export type DebateMessageKind = 'position' | 'question' | 'rebuttal' | 'revision';
+
+/**
+ * 一条主张走到了哪一步（任务书 5.1 的 ClaimStatus）。
+ *
+ * 本轮只到 `challenged`：抽出来的句子是 `proposed`，出现在一条争议里是
+ * `challenged`。`supported / revised / withdrawn / unresolved` 要等参与者
+ * 对挑战作出决策（任务书 AC-06）之后才有，现在不提前给。
+ */
+export type ClaimStatus = 'proposed' | 'supported' | 'challenged' | 'revised' | 'withdrawn' | 'unresolved';
+
+/**
+ * 争议的类型。
+ *
+ * 只有规则判得出来的四种。任务书 5.1 还列了 `definitional`（同一个词各指
+ * 不同的东西），本地规则没有判据——宁可少一个值，也不把「定义不同」塞进
+ * `factual` 里冒充。
+ */
+export type DisputeType = 'factual' | 'logical' | 'scope' | 'evidence_conflict';
+
+/** 从发言里抽出的一句可单独判断真假的话。 */
+export interface DebateClaim {
+  claimId: string;
+  messageId: string;
+  /** 谁说的。跨参与者才算得出争议，靠的就是这一列。 */
+  agentId: string;
+  roundIndex: number;
+  text: string;
+  kind: ClaimKind;
+  /** 判成这个类型的原词，保留下来供人复核。 */
+  kindCue: string;
+  /** 这句话在原发言里的起止，能跳回原话。 */
+  span: ClaimSpan;
+  /** 句子自带的前提/范围。它们是 `scope` 争议的依据，不是形容词。 */
+  assumptions: string[];
+  status: ClaimStatus;
+}
+
+/** 两个参与者的两句话对不上。 */
+export interface DebateDispute {
+  disputeId: string;
+  roundIndex: number;
+  /** 固定的两句，方向不重要；`reason` 说明怎么判的。 */
+  claimIds: [string, string];
+  agents: [string, string];
+  type: DisputeType;
+  /** 0–1，只决定先处理哪一条，不是「谁更可能正确」。 */
+  priority: number;
+  /** 凭什么判成争议（规则原话）。 */
+  reason: string;
+  status: 'open';
+}
 
 export interface DebateConfig {
   strategy: DebateStrategy;
@@ -59,6 +111,11 @@ export interface DebateRound {
   converged: boolean;
   /** 这一轮没能完成的成员及原因，不静默丢掉。 */
   failures: Array<{ agentId: string; detail: string }>;
+  /**
+   * 这一轮每条发言切出来的主张。老辩论文件没有这个字段，读出来是 undefined，
+   * 不迁移——它们没有记录过结构，补一个空数组等于伪造「分析过但没抽到」。
+   */
+  claims?: DebateClaim[];
 }
 
 export interface DebateState {
@@ -75,6 +132,12 @@ export interface DebateState {
   rounds: DebateRound[];
   /** 与多数立场不同的发言，完整保留原文。 */
   minorities: DebateMessage[];
+  /**
+   * 整场下来发现的分歧，按轮次累加。每一轮只跟同一轮的其他参与者比：
+   * 跨轮比较会把「第一轮的前提」和「第三轮的修订」判成冲突，那是同一个人在
+   * 改口，不是两个人对不上。
+   */
+  disputes?: DebateDispute[];
   createdAt: number;
   updatedAt: number;
   stopReason?: string;
