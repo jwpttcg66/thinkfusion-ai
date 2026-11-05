@@ -627,3 +627,108 @@ test('one page still refuses a second question while it is answering', async () 
   release();
   await first;
 });
+
+// ---------------------------------------------------------------------------
+// 执行模式（2026-11-05 重定义）：回答永远来自网页；模式只管回答之后的处理。
+// ---------------------------------------------------------------------------
+
+function execChannels() {
+  return [
+    fakeChannel('a', async () => answer('a 的回答')),
+    fakeChannel('b', async () => answer('b 的回答'))
+  ];
+}
+
+function execRunner(channels, extra) {
+  const store = fakeStore();
+  const events = [];
+  const runner = new ConversationRunner({
+    store,
+    registry: fakeRegistry(channels),
+    emit: event => events.push(event),
+    budgetMs: 5000,
+    submitWorkspace: async () => { throw new Error('unexpected workspace hand-off'); },
+    ...extra
+  });
+  return { runner, store, events };
+}
+
+test('direct 模式：回答之后不请任何模型处理，也没有本地汇总', async () => {
+  const calls = { summary: 0, pickLead: 0 };
+  const { runner, store } = execRunner(execChannels(), {
+    fusionEnabled: true,
+    summarizeLocal: async () => { calls.summary += 1; return { text: '不该出现的汇总', modelId: 'm', latencyMs: 1 }; },
+    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'a', reason: '不该出现' }; }
+  });
+  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'direct' } });
+  await settle(runner, conversation.conversationId);
+  const messages = store.listMessages(conversation.conversationId);
+  const synthesis = messages.find(message => message.synthesis)?.synthesis;
+  assert.ok(synthesis, 'direct 也有规则版综合');
+  assert.equal(calls.summary, 0, 'direct 模式不做任何模型处理');
+  assert.equal(calls.pickLead, 0);
+});
+
+test('summary 模式：本地模型汇总写结论，不跑主导轮', async () => {
+  const calls = { summary: 0, pickLead: 0 };
+  const { runner, store } = execRunner(execChannels(), {
+    fusionEnabled: true,
+    summarizeLocal: async () => { calls.summary += 1; return { text: '本地模型的四段结论', modelId: 'qwen2.5:7b', latencyMs: 12 }; },
+    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'a', reason: '不该出现' }; }
+  });
+  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'summary' } });
+  await settle(runner, conversation.conversationId);
+  assert.equal(calls.pickLead, 0, '汇总模式不选主导');
+  assert.equal(calls.summary, 1);
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.recommendation, '本地模型的四段结论');
+  assert.equal(synthesis?.fusion?.backend, 'local-model');
+});
+
+test('lead 模式指定云端主导：云端没参与回答也能读全部回答给最终答案', async () => {
+  const asked = [];
+  const channels = execChannels();
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => ({
+      all: async () => channels,
+      available: async () => channels,
+      ask: async (id, task) => {
+        asked.push(`${id}:${task.stage}`);
+        if (id === 'cloud') return { agentId: id, text: '云端的最终意见', receivedAt: 1, attribution: { requestId: 'r', note: 'n' }, stage: task.stage };
+        return channels.find(channel => channel.id === id).ask(task);
+      },
+      newConversation: async () => ({ ok: true }),
+      deleteConversation: async () => ({ ok: true }),
+      cancel: () => {}
+    }),
+    executorIdsFor: () => new Set(['cloud']),
+    agentSource: id => (id === 'cloud' ? 'cloud' : undefined)
+  });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'lead', leadAgentId: 'cloud' }
+  });
+  await settle(runner, conversation.conversationId);
+  assert.ok(asked.some(item => item === 'cloud:challenge'), '云端主导在执行阶段被问到');
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.recommendation, '云端的最终意见');
+  assert.equal(synthesis?.fusion?.backend, 'remote');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'cloud');
+  assert.equal(synthesis?.fusion?.leadAuto, false, '手动指定不算自动');
+});
+
+test('auto 模式：pickLead 挑一位回答者主导，它被再问一次', async () => {
+  const calls = { pickLead: 0 };
+  const { runner, store } = execRunner(execChannels(), {
+    fusionEnabled: true,
+    pickLead: async () => { calls.pickLead += 1; return { agentId: 'a', label: 'A', reason: '测试理由' }; }
+  });
+  const conversation = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'auto' } });
+  await settle(runner, conversation.conversationId);
+  assert.equal(calls.pickLead, 1, '自动模式恰好选一次主导');
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.fusion?.leadAgentId, 'a');
+  assert.equal(synthesis?.fusion?.leadAuto, true);
+  assert.match(synthesis?.fusion?.confidence?.why ?? '', /自动选 a 主导/);
+});

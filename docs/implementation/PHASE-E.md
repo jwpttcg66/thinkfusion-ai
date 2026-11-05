@@ -98,3 +98,47 @@ npm run typecheck / build 通过
   「还没有配置 API Key」。
 - **协作策略（Smart / Parallel / Sequential）** 属于 Phase F，这里只留了
   `strategy` 字段位置，不提前实现。
+
+---
+
+## 2026-11-05 附记：执行模式重新定义（用户裁决）
+
+**原设计错了方向。** Phase E 把 `executionMode`（web/local/cloud/hybrid）做成
+「这一轮问谁」——四种模式是四种**回答来源**的组合。用户裁决：执行模式不包含
+回答，**第一手回答永远来自网页通道**；执行模式只决定回答都回来之后做什么。
+
+### 新语义
+
+| 模式 | 回答 | 回答之后 |
+| --- | --- | --- |
+| `direct` 直接 | 网页通道 | 本地规则综合即最终答案，不请任何模型处理 |
+| `summary` 汇总 | 网页通道 | 本地模型读完全部回答，写【结论/一致/分歧/存疑】 |
+| `lead` 主导辩论 | 网页通道 | 指定的主导（网页回答者或云端模型）读全部回答，指出错误、比较优劣、给最终答案；未指定时退化为汇总 |
+| `auto` 自动主导 | 网页通道 | 本地模型按「问题 + 答案质量」自动选一位回答者主导 |
+
+- **回答名单** = 网页通道（`selectedWebChannels` 裁）。
+- **执行名单** = 云端模型（`selectedCloudModels` 裁）：不参与第一轮回答，
+  只可能当主导读全部回答。`ExecutionPool` 变成双名单：`all()/available()`
+  只给回答者，`ask()` 放行回答者与执行者。
+- **本地模型**两份名单都不进：它不是来源，只在汇总（`summarizeLocal`）和
+  自动选主导（`pickLead`）时出场，那两处直接持有 Provider 引用。
+- **隐私模式废弃**：回答必发网页，「仅本地」没有成立的前提。字段保留是为
+  老数据不崩，normalize 一律归一 `allow-cloud`，界面不再提供选项。
+- **老会话映射**（读取时归位，不回写）：web/local/cloud→`direct`，
+  hybrid→`auto`（它原本就是自动主导）。
+
+### 代码落点
+
+| 文件 | 改动 |
+| --- | --- |
+| `shared/conversation.ts` | `ExecutionMode` 四档重定义 + 老值映射 + privacy 归一 |
+| `main/execution/policy.ts` | 重写：返回 `answerIds` + `executorIds` 双名单 |
+| `main/execution/execution-pool.ts` | 双名单：第一轮只问网页，`ask` 放行执行者 |
+| `main/conversation-runner.ts` | `conduct` 按 mode 编排 lead/summary；`runLead` 允许云端主导（没参与回答也能读全部回答） |
+| `main/index.ts` | `poolFor` + `executorIdsFor` 接线 |
+| UI | 四档新文案、主导下拉只出现在 `lead` 档、隐私段移除、底栏与会话头部标签更新 |
+
+测试：`test:execution` 11 条重写（默认 direct、老值映射、双名单、pool 放行
+矩阵），`test:runner` 新增 4 条（direct 不请模型 / summary 汇总 / lead 云端
+主导 / auto 选主导），`test:scenarios` 1–4 与 14 重写。全套 `npm test` 357
+条全绿。

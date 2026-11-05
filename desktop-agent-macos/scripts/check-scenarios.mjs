@@ -47,25 +47,31 @@ function sink() {
   };
 }
 
-// 1–4 执行模式
+// 1–4 执行模式（2026-11-05 重定义：回答永远来自网页，模式只管回答后的处理）
 const web = [webAgent('chatgpt'), webAgent('kimi')];
 const local = new ProviderBackedSubAgent(provider('local', 'ollama'), 'qwen2.5:7b');
 const cloud = new ProviderBackedSubAgent(provider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
 
-for (const [mode, expected] of [
-  ['web', ['chatgpt', 'kimi']],
-  ['local', [local.id]],
-  ['cloud', [cloud.id]],
-  // 本地模型不是来源：混合模式只问网页和云端，本地模型留给汇总。
-  ['hybrid', ['chatgpt', 'kimi', cloud.id].sort()]
-]) {
-  test(`场景 ${mode} 模式：名单符合项目书 6.2`, () => {
+for (const mode of ['direct', 'summary', 'lead', 'auto']) {
+  test(`场景 ${mode} 模式：回答名单是网页通道，云端只进执行名单，本地两边都不进`, () => {
     const config = normalizeExecutionConfig({ executionMode: mode });
-    const ids = [...selectParticipants(config, web, extra).ids].sort();
-    assert.deepEqual(ids, expected);
+    const selection = selectParticipants(config, web, extra);
+    assert.deepEqual([...selection.answerIds].sort(), ['chatgpt', 'kimi'], '回答永远来自网页通道');
+    assert.deepEqual([...selection.executorIds].sort(), [cloud.id], '云端是执行阶段成员（可当主导）');
+    assert.ok(
+      selection.blocked.some(item => item.id === local.id),
+      '本地模型不是来源，要被明确挡在名单外'
+    );
   });
 }
+
+test('场景 老配置归位：四档旧模式按行为就近映射', () => {
+  assert.equal(normalizeExecutionConfig({ executionMode: 'web' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid' }).executionMode, 'auto');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'local' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'cloud' }).executionMode, 'direct');
+});
 
 // 5 多模型并行
 test('场景 5 多模型并行：一轮内所有成员都问到，且按并发上限分批', async () => {
@@ -196,14 +202,14 @@ test('场景 12-13 应用重启与历史恢复：辩论/裁决/Key 都能从盘�
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// 14 隐私模式
-test('场景 14 隐私模式：local-only 下 fallback 与显式选择都不放行', () => {
+// 14 隐私模式（2026-11-05 重定义：回答必发网页，local-only 归一为 allow-cloud）
+test('场景 14 隐私模式：老配置的 local-only 被归一，回答名单仍是网页通道', () => {
   const selection = selectParticipants(
     normalizeExecutionConfig({ executionMode: 'hybrid', privacyMode: 'local-only', selectedWebChannels: ['chatgpt'], selectedCloudModels: ['gpt-4o-mini'], fallbackEnabled: true }),
     web, extra
   );
-  assert.deepEqual([...selection.ids], [local.id]);
-  assert.equal(selection.blocked.length, 3);
+  assert.deepEqual([...selection.answerIds], ['chatgpt'], '回答永远来自网页通道，显式选择生效');
+  assert.deepEqual([...selection.executorIds], ['openai:gpt-4o-mini']);
 });
 
 // 15 超长网页内容

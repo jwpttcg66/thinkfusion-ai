@@ -36,6 +36,11 @@ export interface ConversationDeps {
    */
   poolFor?: (config: ConversationExecutionConfig, base: SubAgentPool) => SubAgentPool;
   /**
+   * 执行阶段成员（云端模型）：它们不参与第一轮回答，但 `lead` 模式可以指定
+   * 其中一位当主导，读完全部网页回答后给最终答案。不传表示没有执行阶段成员。
+   */
+  executorIdsFor?: (config: ConversationExecutionConfig) => ReadonlySet<string>;
+  /**
    * 哪些成员有「网页里那一份会话」。本地/云端没有站点侧栏，删除时不该
    * 提示用户去手动删网页记录，也不该去重置一个不存在的页面。
    */
@@ -401,6 +406,7 @@ export class ConversationRunner {
     const conversationId = conversation.conversationId;
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
+    const executorIds = this.deps.executorIdsFor?.(config) ?? new Set<string>();
     // 默认（含 parallel）仍走原来的 MasterAgent，老路径零风险。只有显式选了
     // sequential / all-selected / smart 才换协作执行器。
     const master: ResearchRunner =
@@ -413,7 +419,7 @@ export class ConversationRunner {
       setTimeout(() => this.abandon(conversation), this.budgetMs)
     );
     try {
-      await this.conduct(conversation, master, question, options, pool);
+      await this.conduct(conversation, master, question, options, pool, executorIds);
     } finally {
       this.release(conversationId);
     }
@@ -424,9 +430,11 @@ export class ConversationRunner {
     master: ResearchRunner,
     question: string,
     options: { followup: boolean },
-    pool: SubAgentPool
+    pool: SubAgentPool,
+    executorIds: ReadonlySet<string>
   ): Promise<void> {
     const conversationId = conversation.conversationId;
+    const config = normalizeExecutionConfig(conversation.executionConfig);
 
     const sink: ResearchSink = {
       join: (agentId: string) => {
@@ -488,11 +496,30 @@ export class ConversationRunner {
 
     if (this.cancelled.has(conversationId)) return;
 
-    // 主导轮：让一位能读上下文的成员指出错误、比较优劣、给出最终答案。
-    // 这一步在「回答都回来之后」发生，所以它读得到全部回答；网页主导靠再发
-    // 一条消息完成（页面读不到别人的回答），本地/云端走 API 的 system 轮次。
-    const lead = await this.runLead(pool, conversation, question, outcome, sink);
-    if (this.cancelled.has(conversationId)) return;
+    // 执行阶段（回答之后）：执行模式只管这里做什么，不决定谁回答——
+    // 第一手回答永远来自网页通道（上面那轮）。
+    // - lead：指定的主导（网页回答者或云端模型）读全部回答给最终答案；
+    //   没指定时如实退化为汇总。
+    // - auto：本地模型按「问题 + 答案」自动选一位回答者主导。
+    // - summary：不跑主导轮，直接由本地模型汇总。
+    // - direct：都不跑。
+    const mode = config.executionMode;
+    let lead: Awaited<ReturnType<ConversationRunner['runLead']>> = null;
+    if (mode === 'lead' || mode === 'auto') {
+      const fixed = mode === 'lead' ? config.leadAgentId : undefined;
+      if (mode === 'lead' && !fixed) {
+        this.addMessage(conversation, {
+          role: 'system',
+          text: '主导模式没有指定主导（可在研究设置的执行模式里选择），退化为本地汇总。'
+        });
+      } else {
+        lead = await this.runLead(pool, conversation, question, outcome, sink, {
+          leadId: fixed,
+          executorIds
+        });
+      }
+      if (this.cancelled.has(conversationId)) return;
+    }
 
     // A channel that stayed silent is a fact the user needs. It used to be
     // dropped on the floor: two answers arrived out of three, the pane showed
@@ -522,8 +549,8 @@ export class ConversationRunner {
 
         // 规则版给的是结构（观点、分歧、证据），结论那一段交给本地模型读
         // 完整回答后自己写。它是「汇总者」而不是「来源」：上一轮提问里没有
-        // 它，这里才有它。
-        if (this.deps.summarizeLocal && fused.synthesis.fusion && !lead) {
+        // 它，这里才有它。direct 模式不做任何模型处理，汇总也不跑。
+        if (this.deps.summarizeLocal && mode !== 'direct' && fused.synthesis.fusion && !lead) {
           const labels = new Map(
             outcome.channels.map(item => [item.agentId, item.label] as const)
           );
@@ -609,11 +636,10 @@ export class ConversationRunner {
     conversation: Conversation,
     question: string,
     outcome: ResearchOutcome,
-    sink: ResearchSink
+    sink: ResearchSink,
+    opts: { leadId?: string; executorIds: ReadonlySet<string> }
   ): Promise<{ agentId: string; label: string; text: string; backend: 'web' | 'local-model' | 'remote'; auto: boolean; reason: string | null } | null> {
-    const config = normalizeExecutionConfig(conversation.executionConfig);
-
-    // 候选 = 这一轮实际回答了的来源（本地模型不在其中：它不是来源）。
+    // 候选 = 这一轮实际回答了的网页通道（回答永远来自网页）。
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
     const candidates = outcome.answers.map(answer => ({
       agentId: answer.agentId,
@@ -625,7 +651,7 @@ export class ConversationRunner {
 
     // 用户没手动指定主辩 → 自动选：本地模型按「问题 + 答案」挑一位来源主导。
     // 本地模型不可用或解析不出编号时，退回按回答完整度的确定性兜底。
-    let leadId = config.leadAgentId;
+    let leadId = opts.leadId;
     let auto = false;
     let reason: string | null = null;
     if (!leadId) {
@@ -635,10 +661,14 @@ export class ConversationRunner {
       leadId = picked.agentId;
       reason = picked.reason;
       auto = true;
+    } else if (!candidates.some(item => item.agentId === leadId) && !opts.executorIds.has(leadId)) {
+      // 指定的主导既没参与回答、也不是云端执行成员：没有可评的资格。
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `指定的主导 ${labels.get(leadId) ?? leadId} 既没有回答这个问题、也不是可用的云端模型，本轮退化为本地汇总。`
+      });
+      return null;
     }
-    // 指定的那位根本没回答（比如它失败了），这一轮没有可评的对象。
-    if (!candidates.some(item => item.agentId === leadId)) return null;
-    if (candidates.filter(item => item.agentId !== leadId).length === 0) return null;
 
     const label = labels.get(leadId) ?? leadId;
     const isPage = this.deps.isPageChannel?.(leadId) ?? false;

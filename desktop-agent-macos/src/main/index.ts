@@ -2019,8 +2019,9 @@ app.whenReady().then(async () => {
     emit: emitConversation,
     poolFor: (config, base) => {
       const selection = selectParticipants(config, registry.list(), extraAgents);
-      return new ExecutionPool(base, extraAgents, selection.ids);
+      return new ExecutionPool(base, extraAgents, selection.answerIds, selection.executorIds);
     },
+    executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     agentSource: agentId => {
       const extra = extraAgents.find(agent => agent.id === agentId);

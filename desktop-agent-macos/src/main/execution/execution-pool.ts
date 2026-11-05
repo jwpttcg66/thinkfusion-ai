@@ -3,11 +3,16 @@ import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/t
 import { ProviderBackedSubAgent } from './provider-sub-agent';
 
 /**
- * 一轮研究的名单：原有网页注册表 + 新来源，再按执行配置裁一遍。
+ * 一轮研究的名单：按两份名单裁过的视图（2026-11-05 重定义）。
  *
- * `SubAgentPool` 是 `MasterAgent` 唯一的入口，所以过滤放在这一层，
+ * - `answerIds`（网页通道）：`all()` / `available()` 只返回它们，所以
+ *   `MasterAgent` 的第一轮只会问网页——回答永远来自网页通道。
+ * - `executorIds`（云端模型）：不进 `all()`，但 `ask()` 放行。它们只在
+ *   主导轮被点名，读完全部网页回答后给出最终答案。
+ *
+ * `SubAgentPool` 是 `MasterAgent` 唯一的入口，所以裁名单放在这一层，
  * `MasterAgent` 和 `ConversationRunner.conduct()` 都不用知道「执行模式」
- * 这个概念。开关一个来源也不会影响全局注册表——每轮研究各有一份视图。
+ * 这个概念。
  */
 export class ExecutionPool implements SubAgentPool {
   private readonly extraById = new Map<string, ProviderBackedSubAgent>();
@@ -15,34 +20,38 @@ export class ExecutionPool implements SubAgentPool {
   constructor(
     private readonly base: SubAgentPool,
     extra: readonly ProviderBackedSubAgent[],
-    private readonly allowedIds: ReadonlySet<string>
+    private readonly answerIds: ReadonlySet<string>,
+    private readonly executorIds: ReadonlySet<string>
   ) {
     for (const agent of extra) this.extraById.set(agent.id, agent);
   }
 
-  private keep<T extends SubAgent>(agents: readonly T[]): T[] {
-    return agents.filter(agent => this.allowedIds.has(agent.id));
+  private keepAnswers<T extends SubAgent>(agents: readonly T[]): T[] {
+    return agents.filter(agent => this.answerIds.has(agent.id));
   }
 
   async all(): Promise<SubAgent[]> {
-    const base = this.keep(await this.base.all());
-    const extra = this.keep([...this.extraById.values()]);
+    const base = this.keepAnswers(await this.base.all());
+    const extra = [...this.extraById.values()].filter(agent => this.answerIds.has(agent.id));
     return [...base, ...extra];
   }
 
   async available(): Promise<SubAgent[]> {
-    const base = this.keep(await this.base.available());
+    const base = this.keepAnswers(await this.base.available());
     const extra = await Promise.all(
-      this.keep([...this.extraById.values()]).map(async agent => ({
-        agent,
-        ok: (await agent.health()).available
-      }))
+      [...this.extraById.values()]
+        .filter(agent => this.answerIds.has(agent.id))
+        .map(async agent => ({
+          agent,
+          ok: (await agent.health()).available
+        }))
     );
     return [...base, ...extra.filter(item => item.ok).map(item => item.agent)];
   }
 
   async ask(agentId: string, task: SubAgentTask): Promise<SubAgentAnswer> {
-    if (!this.allowedIds.has(agentId)) {
+    // 回答者与执行者都能被问：前者在第一轮，后者只在主导轮被点名。
+    if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) {
       throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
     }
     const extra = this.extraById.get(agentId);
@@ -60,7 +69,7 @@ export class ExecutionPool implements SubAgentPool {
   }
 
   cancel(agentId: string, requestId: string): void {
-    if (!this.allowedIds.has(agentId)) return;
+    if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) return;
     const extra = this.extraById.get(agentId);
     if (extra) extra.cancel(requestId);
     else this.base.cancel(agentId, requestId);

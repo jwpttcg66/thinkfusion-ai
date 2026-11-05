@@ -224,10 +224,27 @@ export interface ChannelStatus {
 }
 
 // ---------------------------------------------------------------------------
-// 执行模式（项目书 6.1）
+// 执行模式（2026-11-05 重新定义，见 PHASE-E.md 附记）
 // ---------------------------------------------------------------------------
 
-export type ExecutionMode = 'web' | 'local' | 'cloud' | 'hybrid';
+/**
+ * 执行模式 = **回答之后的处理流程**，它不决定「谁回答」。
+ *
+ * 硬规则（2026-11-05 用户裁决）：第一手回答永远来自网页通道。本地模型不是
+ * 来源（只在汇总/选主导时出场），云端模型不产生第一手回答（只可能当主导）。
+ * 执行模式改变的是回答都回来之后做什么：
+ *
+ * - `direct`  直接：网页回答 → 本地规则综合，即最终答案。不请任何模型处理。
+ * - `summary` 汇总：网页回答后，本地模型读完全部回答，写【结论/一致/分歧/存疑】。
+ * - `lead`    主导辩论：由指定的主导（网页回答者或云端模型）读完全部回答，
+ *             指出谁错在哪、比较优劣，给出最终答案。没有指定时退化为汇总。
+ * - `auto`    自动主导：本地模型按「问题 + 答案质量」自动选一位回答者主导。
+ */
+export type ExecutionMode = 'direct' | 'summary' | 'lead' | 'auto';
+/**
+ * 遗留字段：回答必发网页，「仅本地」已经没有成立的前提。类型保留是为了老
+ * 会话数据不崩，normalize 一律归一成 `allow-cloud`，界面不再提供这个选项。
+ */
 export type PrivacyMode = 'local-only' | 'allow-cloud';
 
 /**
@@ -241,15 +258,17 @@ export interface ConversationExecutionConfig {
   primaryProviderId?: string;
   primaryModelId?: string;
   /**
-   * 这一轮的主导：读完所有来源的回答，指出错误、比较优劣、给出最终答案。
+   * `lead` 模式的主导：读完全部回答，指出错误、比较优劣、给出最终答案。
    *
-   * 必须是本轮被问到的成员之一（执行模式决定谁在名单里）。网页通道也能当
-   * 主导——代价是多发一条消息，因为页面读不到别人的回答，只能由我们把各家
-   * 答案拼成一条发进去。不设时退回默认：本地模型汇总。
+   * 可以是本轮回答了的网页通道（靠再发一条消息把各家答案递进页面），也可以
+   * 是配置了 Key 的云端模型（走 API 的 system 轮次，不需要它参与第一轮回答）。
+   * 本地模型不能当主导——它是汇总者和选主导者，不是运动员。
    */
   leadAgentId?: string;
   selectedWebChannels?: string[];
+  /** 遗留字段，不再参与选人；保留是为了老会话读得回来。 */
   selectedLocalModels?: string[];
+  /** 可当主导的云端模型清单；空缺表示全部可用云端模型。 */
   selectedCloudModels?: string[];
   fallbackEnabled: boolean;
   privacyMode: PrivacyMode;
@@ -260,11 +279,10 @@ export interface ConversationExecutionConfig {
 /**
  * 老会话 / 缺省配置的唯一入口。
  *
- * `web` + `allow-cloud` 是刻意的：老对话本来就是发给网页 AI 的，默认成
- * `local-only` 会让它们一打开就处于违规状态。
+ * `allow-cloud` 是刻意的：回答必发网页，不存在「不出本机」的回答模式。
  */
 export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
-  executionMode: 'web',
+  executionMode: 'direct',
   fallbackEnabled: false,
   privacyMode: 'allow-cloud'
 };
@@ -272,25 +290,28 @@ export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
 /**
  * 把界面传来的配置收成一份合法的。
  *
- * 关键的硬规则（项目书 6.3 + 2026-11-04 裁决）：`web` 模式的全部内容都发往
- * 网页 Channel，而 `local-only` 禁止向网页和云端发送用户内容，两者不能共存。
- * 我们保留 web 模式，做法是 web 下把 privacyMode 归一成 `allow-cloud`，
- * 而不是禁用 web 模式、也不是悄悄突破隐私约束。
+ * 老值映射：旧语义的四档（web/local/cloud/hybrid 决定谁回答）已经废弃——
+ * 回答只来自网页。老会话读到旧值时按其行为就近归位：web→direct、
+ * hybrid→auto（它原本就是自动主导）、local/cloud→direct。这只是在**读取**
+ * 时归位，不回写历史。
  */
 export function normalizeExecutionConfig(
   input?: Partial<ConversationExecutionConfig> | null
 ): ConversationExecutionConfig {
-  // IPC 的输入来自 renderer，不能假设它守规矩。非法值一律退回默认 web，
-  // 不让一个拼错的字符串把选人策略带到 undefined 分支里。
-  const modes: ExecutionMode[] = ['web', 'local', 'cloud', 'hybrid'];
+  const legacy: Record<string, ExecutionMode> = {
+    web: 'direct',
+    local: 'direct',
+    cloud: 'direct',
+    hybrid: 'auto'
+  };
+  const modes: ExecutionMode[] = ['direct', 'summary', 'lead', 'auto'];
   const requested = input?.executionMode;
-  const executionMode = requested && modes.includes(requested) ? requested : DEFAULT_EXECUTION_CONFIG.executionMode;
-  const privacyMode: PrivacyMode =
-    executionMode === 'web'
-      ? 'allow-cloud'
-      : input?.privacyMode === 'local-only'
-        ? 'local-only'
-        : 'allow-cloud';
+  const executionMode =
+    requested && modes.includes(requested)
+      ? requested
+      : requested && legacy[requested]
+        ? legacy[requested]
+        : DEFAULT_EXECUTION_CONFIG.executionMode;
   const strings = (value: unknown): string[] | undefined =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined;
   // 只放有值的字段。全塞 undefined 看着无害，但持久化后的对象和测试里的
@@ -298,7 +319,8 @@ export function normalizeExecutionConfig(
   const result: ConversationExecutionConfig = {
     executionMode,
     fallbackEnabled: input?.fallbackEnabled === true,
-    privacyMode
+    // 回答必发网页，local-only 没有成立的前提；统一归一，不让老数据装作还能「不出本机」。
+    privacyMode: 'allow-cloud'
   };
   if (typeof input?.primaryProviderId === 'string') result.primaryProviderId = input.primaryProviderId;
   if (typeof input?.primaryModelId === 'string') result.primaryModelId = input.primaryModelId;

@@ -1147,11 +1147,9 @@ export default function App() {
             <div className="research-bar">
               <button className="btn ghost" type="button" onClick={() => setResearchOpen(true)}>研究设置</button>
               <span className="muted">
-                下一条：{({ web: '网页', local: '本地', cloud: '云端', hybrid: '混合' } as const)[executionConfig.executionMode]}
-                {' / '}{executionConfig.privacyMode === 'local-only' ? '仅本地' : '允许外发'}
+                下一条：{({ direct: '直接采纳', summary: '本地汇总', lead: '主导辩论', auto: '自动主导' } as const)[executionConfig.executionMode]}
                 {' / '}{executionConfig.strategy ?? '默认并行'}
               </span>
-              {executionConfig.privacyMode === 'local-only' && <span className="research-private">不出本机</span>}
             </div>
             <TaskInput
               value={prompt}

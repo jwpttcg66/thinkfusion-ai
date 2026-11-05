@@ -1,8 +1,9 @@
 /**
- * Phase E：执行模式、隐私边界、名单过滤、接线。
+ * Phase E：执行模式（2026-11-05 重定义）、选人、接线。
  *
- * 最该钉住的是 local-only：它必须在「选人」阶段就把网页和云端全部拿掉，
- * 而不是指望后面每一层都记得判断一次。
+ * 硬规则：回答永远来自网页通道。执行模式（direct/summary/lead/auto）只决定
+ * 回答之后的处理流程；云端模型是执行阶段成员（可当主导），本地模型两份名单
+ * 都不进（只在汇总/选主导时出场）。
  *
  * Run with: npm run test:execution
  */
@@ -50,21 +51,26 @@ const web = [webAgent('chatgpt'), webAgent('kimi')];
 const local = new ProviderBackedSubAgent(fakeProvider('local', 'ollama'), 'qwen2.5:7b');
 const cloud = new ProviderBackedSubAgent(fakeProvider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
-const ids = selection => [...selection.ids].sort();
+const answers = selection => [...selection.answerIds].sort();
+const executors = selection => [...selection.executorIds].sort();
 
 // ---------------------------------------------------------------------------
 
-test('默认配置是 web / allow-cloud，老会话照这个读', () => {
-  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, { executionMode: 'web', fallbackEnabled: false, privacyMode: 'allow-cloud' });
+test('默认配置是 direct / allow-cloud，老会话照这个读', () => {
+  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, { executionMode: 'direct', fallbackEnabled: false, privacyMode: 'allow-cloud' });
   assert.deepEqual(normalizeExecutionConfig(), DEFAULT_EXECUTION_CONFIG);
   assert.deepEqual(normalizeExecutionConfig(null), DEFAULT_EXECUTION_CONFIG);
-  assert.equal(normalizeExecutionConfig({}).executionMode, 'web');
+  assert.equal(normalizeExecutionConfig({}).executionMode, 'direct');
 });
 
-test('web 模式与 local-only 互斥：归一成 allow-cloud，但 web 模式保留', () => {
-  const config = normalizeExecutionConfig({ executionMode: 'web', privacyMode: 'local-only' });
-  assert.equal(config.executionMode, 'web', '不能因为隐私模式就禁用 web');
-  assert.equal(config.privacyMode, 'allow-cloud', '网页本来就外发，不能标成 local-only 自欺欺人');
+test('老语义四档归位：web/local/cloud→direct，hybrid→auto；privacyMode 一律 allow-cloud', () => {
+  assert.equal(normalizeExecutionConfig({ executionMode: 'web' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'local' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'cloud' }).executionMode, 'direct');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid' }).executionMode, 'auto', 'hybrid 原本就是自动主导');
+  // 回答必发网页，「仅本地」没有成立的前提；老配置带 local-only 也归一。
+  assert.equal(normalizeExecutionConfig({ executionMode: 'web', privacyMode: 'local-only' }).privacyMode, 'allow-cloud');
+  assert.equal(normalizeExecutionConfig({ executionMode: 'hybrid', privacyMode: 'local-only' }).privacyMode, 'allow-cloud');
 });
 
 test('主导成员被持久化；给空串等于没设', () => {
@@ -74,73 +80,32 @@ test('主导成员被持久化；给空串等于没设', () => {
 });
 
 test('IPC 传来的非法值一律退回默认，不进 undefined 分支', () => {
-  assert.equal(normalizeExecutionConfig({ executionMode: 'nonsense' }).executionMode, 'web');
-  assert.equal(normalizeExecutionConfig({ privacyMode: 'nonsense' }).privacyMode, 'allow-cloud');
-  const config = normalizeExecutionConfig({ selectedLocalModels: ['ok', 3, null] });
-  assert.deepEqual(config.selectedLocalModels, ['ok']);
+  assert.equal(normalizeExecutionConfig({ executionMode: 'nonsense' }).executionMode, 'direct');
+  const config = normalizeExecutionConfig({ selectedWebChannels: ['ok', 3, null] });
+  assert.deepEqual(config.selectedWebChannels, ['ok']);
   assert.equal(config.fallbackEnabled, false);
 });
 
-test('四种模式各自包含哪些来源', () => {
-  assert.deepEqual(ids(selectParticipants({ executionMode: 'web' }, web, extra)), ['chatgpt', 'kimi']);
-  assert.deepEqual(ids(selectParticipants({ executionMode: 'local' }, web, extra)), [local.id]);
-  assert.deepEqual(ids(selectParticipants({ executionMode: 'cloud' }, web, extra)), [cloud.id]);
-  // 本地模型不是来源：混合模式下它不参与回答，只在汇总阶段被叫到。
-  assert.deepEqual(ids(selectParticipants({ executionMode: 'hybrid' }, web, extra)), ['chatgpt', 'openai:gpt-4o-mini', 'kimi'].sort());
+test('回答名单 = 网页通道；执行名单 = 云端模型；本地模型两边都不进', () => {
+  const selection = selectParticipants({}, web, extra);
+  assert.deepEqual(answers(selection), ['chatgpt', 'kimi']);
+  assert.deepEqual(executors(selection), ['openai:gpt-4o-mini']);
   assert.ok(
-    selectParticipants({ executionMode: 'hybrid' }, web, extra).blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
+    selection.blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
     '本地模型要被明确挡在名单外，不是悄悄消失'
   );
 });
 
-test('local-only 是硬边界：hybrid 里也只剩本地，网页和云端都被挡下', () => {
-  const selection = selectParticipants({ executionMode: 'hybrid', privacyMode: 'local-only' }, web, extra);
-  assert.deepEqual(ids(selection), [local.id]);
-  assert.equal(selection.blocked.length, 3);
-  assert.ok(selection.blocked.every(item => /local-only/.test(item.why)));
+test('按选择裁名单，空数组表示「一个都不选」而不是「没指定」', () => {
+  const onlyChatgpt = selectParticipants({ selectedWebChannels: ['chatgpt'] }, web, extra);
+  assert.deepEqual(answers(onlyChatgpt), ['chatgpt']);
+  const noCloud = selectParticipants({ selectedCloudModels: [] }, web, extra);
+  assert.deepEqual(executors(noCloud), [], '显式清空云端表示这一轮不请任何云端主导');
+  const explicitCloud = selectParticipants({ selectedCloudModels: ['gpt-4o-mini'] }, web, extra);
+  assert.deepEqual(executors(explicitCloud), ['openai:gpt-4o-mini']);
 });
 
-test('local-only 下即使用户显式选了网页/云端，也不放行', () => {
-  const selection = selectParticipants(
-    {
-      executionMode: 'hybrid',
-      privacyMode: 'local-only',
-      selectedWebChannels: ['chatgpt'],
-      selectedCloudModels: ['gpt-4o-mini'],
-      fallbackEnabled: true
-    },
-    web,
-    extra
-  );
-  assert.deepEqual(ids(selection), [local.id]);
-});
-
-test('fallback 只在非隐私模式下退回网页，local-only 下明确报错而不是偷偷外发', () => {
-  const withFallback = selectParticipants(
-    { executionMode: 'cloud', privacyMode: 'allow-cloud', selectedCloudModels: [], fallbackEnabled: true },
-    web,
-    extra
-  );
-  assert.deepEqual(ids(withFallback), ['chatgpt', 'kimi']);
-  assert.match(withFallback.reason, /fallback/);
-
-  const localOnly = selectParticipants(
-    { executionMode: 'local', privacyMode: 'local-only', selectedLocalModels: [], fallbackEnabled: true },
-    web,
-    extra
-  );
-  assert.deepEqual(ids(localOnly), [], '隐私模式下宁可无人可问，也不退回网页');
-});
-
-test('按模型选择生效，空数组表示「一个都不选」而不是「没指定」', () => {
-  const none = selectParticipants({ executionMode: 'hybrid', selectedLocalModels: [], selectedCloudModels: [] }, web, extra);
-  assert.deepEqual(ids(none), ['chatgpt', 'kimi']);
-  // 哪怕显式勾了本地模型，混合模式也不会把它当来源提问。
-  const one = selectParticipants({ executionMode: 'hybrid', selectedLocalModels: ['qwen2.5:7b'], selectedCloudModels: [] }, web, extra);
-  assert.deepEqual(ids(one), ['chatgpt', 'kimi'].sort());
-});
-
-test('ExecutionPool：名单外的人连问都不让问', async () => {
+test('ExecutionPool：all/available 只给回答者（网页）；ask 放行回答者与执行者', async () => {
   const base = {
     all: async () => web,
     available: async () => web,
@@ -149,22 +114,26 @@ test('ExecutionPool：名单外的人连问都不让问', async () => {
     deleteConversation: async () => ({ ok: true }),
     cancel: () => {}
   };
-  const pool = new ExecutionPool(base, extra, new Set([local.id]));
-  assert.deepEqual((await pool.all()).map(a => a.id), [local.id]);
-  assert.deepEqual((await pool.available()).map(a => a.id), [local.id]);
-  await assert.rejects(pool.ask('chatgpt', { question: 'x', stage: 'initial' }), /这一轮不选/);
-  const answer = await pool.ask(local.id, { question: 'x', stage: 'initial' });
-  assert.equal(answer.text, 'local 回答');
-  assert.deepEqual(await pool.newConversation(local.id), { ok: true, detail: '本地/云端每次请求本身就是新会话' });
+  const pool = new ExecutionPool(base, extra, new Set(['chatgpt']), new Set([cloud.id]));
+  // 第一轮只问网页回答者；云端不进 all()，否则 MasterAgent 会把它当回答者。
+  assert.deepEqual((await pool.all()).map(a => a.id), ['chatgpt']);
+  assert.deepEqual((await pool.available()).map(a => a.id), ['chatgpt']);
+  const answer = await pool.ask('chatgpt', { question: 'x', stage: 'initial' });
+  assert.equal(answer.text, 'web');
+  // 云端执行成员可以单独被问（主导轮读全部回答）。
+  const leadAnswer = await pool.ask(cloud.id, { question: 'x', stage: 'challenge' });
+  assert.equal(leadAnswer.text, 'cloud 回答');
+  // 名单外（网页 kimi 没被选、本地模型永远不进名单）连问都不让问。
+  await assert.rejects(pool.ask('kimi', { question: 'x', stage: 'initial' }), /这一轮不选/);
+  await assert.rejects(pool.ask(local.id, { question: 'x', stage: 'initial' }), /这一轮不选/);
 });
 
 test('ProviderBackedSubAgent 把 Provider 的回答转成 MasterAgent 认识的 SubAgentAnswer', async () => {
-  const answer = await local.ask({ question: '17 乘 3', stage: 'followup', timeoutMs: 1000 });
-  assert.equal(answer.agentId, local.id);
-  assert.equal(answer.text, 'local 回答');
+  const answer = await cloud.ask({ question: '17 乘 3', stage: 'followup', timeoutMs: 1000 });
+  assert.equal(answer.agentId, cloud.id);
+  assert.equal(answer.text, 'cloud 回答');
   assert.equal(answer.stage, 'followup');
-  assert.match(answer.attribution.note, /local:/);
-  const status = await local.health();
+  const status = await cloud.health();
   assert.equal(status.available, true);
   assert.equal(status.pageReady, true);
 });
@@ -199,31 +168,30 @@ test('runner 保存 executionConfig，并把它交给 poolFor', async () => {
 
   const conversation = await runner.start({
     text: '17 乘 3 等于多少？',
-    executionConfig: { executionMode: 'local', privacyMode: 'local-only' }
+    executionConfig: { executionMode: 'summary' }
   });
-  assert.equal(conversation.executionConfig.executionMode, 'local');
-  assert.equal(conversation.executionConfig.privacyMode, 'local-only');
+  assert.equal(conversation.executionConfig.executionMode, 'summary');
+  assert.equal(conversation.executionConfig.privacyMode, 'allow-cloud');
   await sleep(20);
-  assert.equal(seen[0].executionMode, 'local');
-  assert.equal(seen[0].privacyMode, 'local-only');
+  assert.equal(seen[0].executionMode, 'summary');
 });
 
-test('删除本地模型参与的会话，不提示「手动删除网页里的那份」', async () => {
-  // 真机回归抓到的：本地回答完也在 answered 里，但没有 threadUrl。
+test('删除云端参与的会话，不提示「手动删除网页里的那份」', async () => {
+  // 真机回归抓到的：非网页成员回答完也在 answered 里，但没有 threadUrl。
   // 原来的分支把「没有网页地址」当成「网页里还有一份要手动删」，
   // 让用户去一个不存在的侧栏找记录。
   const conversation = {
-    conversationId: 'c-local',
-    title: '本地问答',
-    channels: ['ollama:qwen2.5:7b'],
-    answered: ['ollama:qwen2.5:7b'],
+    conversationId: 'c-extra',
+    title: '云端问答',
+    channels: ['openai:gpt-4o-mini'],
+    answered: ['openai:gpt-4o-mini'],
     threads: {},
     status: 'answered',
     createdAt: 1,
     updatedAt: 1
   };
   const store = {
-    getConversation: id => (id === 'c-local' ? conversation : null),
+    getConversation: id => (id === 'c-extra' ? conversation : null),
     deleteConversation: () => {},
     listConversations: () => [],
     listMessages: () => [],
@@ -245,7 +213,7 @@ test('删除本地模型参与的会话，不提示「手动删除网页里的�
     store, registry, emit: () => {},
     submitWorkspace: async () => { throw new Error('not used'); }
   });
-  const outcome = await runner.delete('c-local');
+  const outcome = await runner.delete('c-extra');
   assert.deepEqual(outcome.failed, []);
   assert.deepEqual(outcome.cleaned, []);
   assert.deepEqual(outcome.reset, []);
@@ -253,7 +221,7 @@ test('删除本地模型参与的会话，不提示「手动删除网页里的�
   assert.equal(calls.newChat, 0, '没有页面需要重置');
 });
 
-test('老会话没有 executionConfig 时，poolFor 收到的是默认 web', async () => {
+test('老会话没有 executionConfig 时，poolFor 收到的是默认 direct', async () => {
   const conversations = new Map();
   const store = {
     listConversations: () => [...conversations.values()],
@@ -281,5 +249,5 @@ test('老会话没有 executionConfig 时，poolFor 收到的是默认 web', asy
   // 直接走 normalize，模拟从磁盘读出来的老对象。
   assert.deepEqual(normalizeExecutionConfig(created.executionConfig), DEFAULT_EXECUTION_CONFIG);
   await sleep(20);
-  assert.equal(seen[0].executionMode, 'web');
+  assert.equal(seen[0].executionMode, 'direct');
 });

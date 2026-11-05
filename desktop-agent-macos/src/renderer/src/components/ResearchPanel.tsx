@@ -28,10 +28,10 @@ interface Props {
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
 
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
-  { id: 'web', label: '网页', hint: '只问已开启的网页通道；汇总由本地模型读完全部回答后写' },
-  { id: 'local', label: '本地', hint: '只问 Ollama，回答与汇总都由它自己完成' },
-  { id: 'cloud', label: '云端', hint: '只问已配置 Key 的云端模型；汇总交给本地模型' },
-  { id: 'hybrid', label: '混合', hint: '网页与云端回答，本地模型不参与回答、只负责汇总' }
+  { id: 'direct', label: '直接', hint: '网页通道回答，本地规则综合后就是最终答案；不请任何模型处理' },
+  { id: 'summary', label: '汇总', hint: '网页回答后，本地模型读完全部回答，写结论/一致/分歧/存疑' },
+  { id: 'lead', label: '主导辩论', hint: '网页回答后，由指定的主导读全部回答：指出错误、比较优劣、给最终答案' },
+  { id: 'auto', label: '自动主导', hint: '网页回答后，本地模型按「问题 + 答案质量」自动选一位回答者主导辩论' }
 ];
 
 /** 融合报告里「谁算的这份综合」。三种后端要能分辨。 */
@@ -125,26 +125,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     }
   }
 
-  // 网页与云端都是往外发的模式，「仅本地」在这两种模式下没有意义。
-  const isWeb = config.executionMode === 'web';
-  const forcedOutbound = config.executionMode === 'web' || config.executionMode === 'cloud';
-
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
   const candidates = options?.debateCandidates ?? [];
-  // 辩论参与者就是全部可用候选：本地模型是合法发言者（本地主导靠它给基准
-  // 观点，网页/混合模式靠它做交叉质疑）。三种主导方式都不要求云端 API。
+  // 辩论页参与者就是全部可用候选（独立子系统，与执行模式无关）。
   const debateParticipants = candidates;
-  // 主导必须在被问到的名单里：混合模式下本地模型已经不算来源，所以它只能
-  // 当「自动汇总」，不能出现在这里被选中。
-  const leadKinds: Array<'web' | 'local' | 'cloud'> = config.executionMode === 'web'
-    ? ['web']
-    : config.executionMode === 'local'
-      ? ['local']
-      : config.executionMode === 'cloud'
-        ? ['cloud']
-        : ['web', 'cloud'];
-  const leadOptions = candidates.filter(item => leadKinds.includes(item.type));
   const selectedIds = debateSelected ?? debateParticipants.filter(item => item.available).map(item => item.id);
   const leadChoices = candidates.filter(item => item.available && (
     debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type !== 'web' : false
@@ -152,8 +137,13 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const leadHint = debateLeadMode === 'hybrid'
     ? '混合模式不设主辩：所有成员第一轮平等独立发言'
     : debateLeadMode === 'local'
-      ? '不指定时，取第一个可用的本地模型为主辩（没有本地模型时取云端模型）'
+      ? '不指定时，取第一个可用的本地模型为主辩'
       : '不指定时，取第一个可用的网页通道为主辩';
+  // 会话执行模式：回答永远来自网页通道；云端模型是执行阶段成员，可以当主导。
+  const leadOptions = candidates.filter(
+    item => item.available && (item.type === 'web' || item.type === 'cloud')
+  );
+  const showLeadPicker = config.executionMode === 'lead';
   function toggleCandidate(id: string) {
     const next = selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id];
     setDebateSelected(next);
@@ -183,74 +173,50 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
           {tab === 'mode' && (
             <>
               <h3>执行模式</h3>
+              <p className="muted">回答永远来自网页通道。执行模式决定的是回答都回来之后做什么：直接采纳、本地模型汇总、主导辩论，还是自动选一位主导。</p>
               <div className="research-modes">
-                {MODES.map(mode => (
+                {MODES.map(item => (
                   <button
-                    key={mode.id}
+                    key={item.id}
                     type="button"
-                    className={`research-mode${config.executionMode === mode.id ? ' on' : ''}`}
-                    onClick={() => onConfigChange({
-                      executionMode: mode.id,
-                      // 「仅本地」与往外发的模式互斥：网页和云端的内容本来就
-                      // 离开本机，留着 local-only 只会让模式名骗人（选云端、
-                      // 实际一个云端都没问）。切换时把隐私模式同步回允许外发，
-                      // 下面的下拉会立刻显示这个变化。
-                      privacyMode: mode.id === 'web' || mode.id === 'cloud' ? 'allow-cloud' : config.privacyMode
-                    })}
+                    className={`research-mode${config.executionMode === item.id ? ' on' : ''}`}
+                    onClick={() => onConfigChange({ executionMode: item.id })}
                   >
-                    <b>{mode.label}</b>
-                    <span>{mode.hint}</span>
+                    <b>{item.label}</b>
+                    <span>{item.hint}</span>
                   </button>
                 ))}
               </div>
 
-              <h3>主导</h3>
-              <p className="muted">
-                全部回答回来之后，由一位来源当主导，读完整份材料：指出谁错在哪、比较谁的答案更好，然后给出自己的最终答案。
-                网页主导只能靠「再发一条消息」把各家答案递进那个页面，所以这一轮会多花一次生成时间。
-              </p>
-              <select
-                value={config.leadAgentId ?? ''}
-                onChange={event => onConfigChange({ leadAgentId: event.target.value })}
-              >
-                <option value="">
-                  自动：按「问题 + 答案质量」选一位来源主导
-                  {config.executionMode === 'hybrid' ? '（本地模型挑，不参加回答）' : ''}
-                </option>
-                {leadOptions.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}{item.available ? '' : '（不可用）'}
-                  </option>
-                ))}
-              </select>
-
-              <h3>隐私与降级</h3>
-              <label className="research-row">
-                <span>隐私模式</span>
-                <select
-                  value={config.privacyMode}
-                  onChange={event => onConfigChange({ privacyMode: event.target.value as ConversationExecutionConfig['privacyMode'] })}
-                >
-                  <option value="allow-cloud">允许外发（网页与云端）</option>
-                  <option value="local-only" disabled={forcedOutbound}>仅本地（网页/云端模式下不可用）</option>
-                </select>
-              </label>
-              {forcedOutbound && (
-                <p className="muted">
-                  {isWeb
-                    ? '网页模式的内容本来就发往浏览器页面，因此不能标成「仅本地」；选本地模式才能真正不出本机。'
-                    : '云端模式的内容要发给云厂商接口，因此不能标成「仅本地」；确实不能出本机时选本地模式。'}
-                </p>
-              )}
-              <label className="research-row">
-                <span>没有可用成员时退回网页</span>
-                <input
-                  type="checkbox"
-                  checked={config.fallbackEnabled}
-                  onChange={event => onConfigChange({ fallbackEnabled: event.target.checked })}
-                />
-              </label>
-              <p className="muted">「仅本地」下无论是否勾选，都不会退回网页或云端。</p>
+              {config.executionMode === 'lead' ? (
+                <>
+                  <h3>主导</h3>
+                  <p className="muted">
+                    全部网页回答回来之后，由这位主导读完整份材料：指出谁错在哪、比较谁的答案更好，然后给出自己的最终答案。
+                    可以选本轮回答的网页通道（靠再发一条消息把各家答案递进页面），也可以选配置了 Key 的云端模型（直接读全部回答）。
+                    本地模型不能当主导——它是汇总者和选主导者。
+                  </p>
+                  <select
+                    value={config.leadAgentId ?? ''}
+                    onChange={event => onConfigChange({ leadAgentId: event.target.value })}
+                  >
+                    <option value="">未指定（退化为本地汇总）</option>
+                    {leadOptions.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}{item.available ? '' : '（不可用）'}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : config.executionMode === 'auto' ? (
+                <>
+                  <h3>主导</h3>
+                  <p className="muted">
+                    本地模型按「问题 + 各家回答」自动挑一位回答者主导辩论：它先读全部回答判断谁的最靠谱，再让那位读完整份材料给最终答案。
+                    想自己指定主导时切换到「主导辩论」模式。
+                  </p>
+                </>
+              ) : null}
 
               <h3>协作策略</h3>
               <select
@@ -260,16 +226,13 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 {STRATEGIES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
 
-              <h3>参与模型</h3>
+              <h3>参与成员</h3>
               {options && (
                 <div className="research-lists">
-                  <Picker title="网页通道" items={options.webChannels}
+                  <Picker title="网页通道（回答者）" items={options.webChannels}
                     selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
                     onChange={next => onConfigChange({ selectedWebChannels: next })} />
-                  <Picker title="本地模型（仅「本地」模式参与回答）" items={options.localModels.map(id => ({ id, label: id }))}
-                    selected={config.selectedLocalModels} all={options.localModels}
-                    onChange={next => onConfigChange({ selectedLocalModels: next })} />
-                  <Picker title="云端模型"
+                  <Picker title="云端模型（可当主导）"
                     items={options.cloudMembers.map(item => ({ ...item, note: item.hasKey ? undefined : '无 Key' }))}
                     selected={config.selectedCloudModels} all={options.cloudMembers.map(item => item.id)}
                     onChange={next => onConfigChange({ selectedCloudModels: next })} />
@@ -277,8 +240,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               )}
               <p className="muted">
                 不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
-                本地模型不是来源：网页/云端/混合模式下它不参与回答，只在汇总时读完全部回答写结论；
-                只有「本地」模式才会把它当回答者。
+                本地模型不是来源，不参与回答：汇总模式和自动主导下它读完全部回答写结论/挑主导；
+                主导辩论模式下主导由你指定。
               </p>
 
               <h3>云端服务</h3>
