@@ -881,12 +881,44 @@ const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(async () => {
       : (el.innerText || el.textContent || '');
   };
 
-  let button = null;
-  for (const selector of selectors.sendButton) {
-    let nodes;
-    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
-    const hit = nodes.filter(visible).filter((el) => !el.hasAttribute('disabled'));
-    if (hit.length) { button = hit[hit.length - 1]; break; }
+  // 「这个控件现在不能按」不只是 disabled 属性这一种写法。
+  //
+  // kimi.com 的发送键是个 div，禁用状态写作 class：空输入框时它是
+  // 「send-button-container disabled」，写进字之后 Vue 重新渲染才去掉 disabled。
+  // 只查 hasAttribute('disabled') 会把「空的、按不动的」按钮当成可用的，
+  // 按下去站点什么也不做：文字留在框里，页面没进会话，而调用方要到 20 秒
+  // 之后才判超时。实测就是这条路径让 Kimi 一直发不出去。
+  const looksDisabled = (el) =>
+    el.hasAttribute('disabled') ||
+    el.getAttribute('aria-disabled') === 'true' ||
+    (typeof el.className === 'string' && /(^|\s)(disabled|is-disabled)(\s|$)/.test(el.className));
+
+  const findSend = () => {
+    for (const selector of selectors.sendButton) {
+      let nodes;
+      try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+      const hit = nodes.filter(visible).filter((el) => !looksDisabled(el));
+      if (hit.length) return hit[hit.length - 1];
+    }
+    return null;
+  };
+
+  let button = findSend();
+
+  // 刚写完字的那一帧，按钮可能还挂着「空的」样式。等它一次，别按下去当没事发生。
+  // 只在「找到了控件但它是禁用的」时候等：一个都没有说明是另一类问题，干等无益。
+  if (!button) {
+    const anyControl = selectors.sendButton.some((selector) => {
+      try { return [...document.querySelectorAll(selector)].some(visible); } catch { return false; }
+    });
+    if (anyControl) {
+      const deadline = Date.now() + 1500;
+      while (!button && Date.now() < deadline) {
+        await sleep(50);
+        button = findSend();
+      }
+      if (!button) return { ok: false, reason: 'SEND_BUTTON_DISABLED' };
+    }
   }
 
   if (!button) {
@@ -2800,11 +2832,45 @@ export function isOwnPromptEcho(candidate: string, sentText?: string): boolean {
   return prompt.includes(answer);
 }
 
+/**
+ * 页面转录里有没有我们刚刚发出去的那个问题。
+ *
+ * 只在「没有回答气泡、改读整段转录」那条兜底路径上用（见 `selectAnswerText`）。
+ * 空白不参与比较：站点之间的换行、缩进方式不同，压掉之后才是同一句话。
+ *
+ * 取 12 个字做窗口、每 6 个字滑一次：整句话被站点截断或者加了「你说：」这类
+ * 前缀都还能认出来，而 12 个字的巧合在多站页面文字里基本不会发生。
+ */
+export function transcriptHasPrompt(conversationText: string, sentText?: string): boolean {
+  const prompt = (sentText ?? '').replace(/\s+/g, '');
+  if (!prompt) return true;
+  const haystack = (conversationText ?? '').replace(/\s+/g, '');
+  if (!haystack) return false;
+  const window = Math.min(12, prompt.length);
+  for (let start = 0; start + window <= prompt.length; start += 6) {
+    if (haystack.includes(prompt.slice(start, start + window))) return true;
+  }
+  return haystack.includes(prompt.slice(0, window));
+}
+
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
   const grew = probe.messageCount > snapshot.messageCount;
   const bubbleFresh = grew && probe.lastText.trim().length > 0 && probe.lastText !== snapshot.lastText;
 
   if (probe.messageCount > 0) return bubbleFresh ? probe.lastText : '';
+
+  // 转录里根本没有这个问题，就不存在「这一轮的回答」。
+  //
+  // 挡的是「整页文字被当成回答」。真机（kimi.com）：它的发送键是个 div，空
+  // 输入框时带 disabled 类，按下去站点什么也不做——提问留在输入框里，页面停在
+  // 起始页；这时候转录的差异部分是侧栏、工具栏和页脚（「邀请有奖 / 抢 K3.1 Pro
+  // 权益 / 复制 分享 继续问，消息会排队发送 / 快速 进阶」），却被当成 Kimi 的
+  // 回答显示了出来。用户看到的是一段完全不相干的话。
+  //
+  // 判据很朴素：回答是对问题的回复。这句话在转录里出现过，后面的差异才有
+  // 资格被当成回答；没出现过，就继续等（等到超时会如实报「没有确认到新回答」，
+  // 比给一个假答案好）。
+  if (sentText && sentText.trim() && !transcriptHasPrompt(probe.conversationText, sentText)) return '';
 
   const prefix = commonPrefixLength(snapshot.conversationText, probe.conversationText);
   const fresh = probe.conversationText.slice(prefix);

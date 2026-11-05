@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, PROBE_VERSION, deleteChatScriptForSyntaxCheck } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, deleteChatScriptForSyntaxCheck } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
@@ -602,6 +602,34 @@ test('an old assistant bubble is never reused as the answer', () => {
   const snapshot = { messageCount: 1, lastText: 'old', url: '', capturedAt: 0, conversationText: 'old', composerText: '' };
   const probe = state({ messageCount: 1, lastText: 'old' });
   assert.equal(selectAnswerText(probe, snapshot), '');
+});
+
+test('page furniture is not an answer when the question never left the composer', () => {
+  // 真机（kimi.com）：发送键是个带 disabled 类的 div，按下去站点没反应，提问留在
+  // 输入框里，页面停在起始页。那时候转录差异部分全是侧栏、工具栏和页脚，却被当成
+  // 回答显示了出来——用户看到的就是「Kimi 回答不对」。
+  const snapshot = { messageCount: 0, lastText: '', url: '', capturedAt: 0, conversationText: '新建会话\n我的 Kimi', composerText: '' };
+  const chrome =
+    '新建会话\n我的 Kimi\n邀请有奖\n抢 K3.1 Pro 权益\n登月者4903\n升级\n复制\n分享\n继续问，消息会排队发送…\n快速\n进阶';
+  assert.equal(selectAnswerText(state({ conversationText: `新建会话\n我的 Kimi\n${chrome}` }), snapshot, '女生容易情绪化，给出原因'), '');
+
+  // 同一个页脚，只要问题真的在转录里出现了，后面的文字才有资格被当成回答。
+  assert.equal(
+    selectAnswerText(
+      state({ conversationText: '新建会话\n我的 Kimi\n女生容易情绪化，给出原因\n这是回答正文，足够长到不像状态行。' }),
+      snapshot,
+      '女生容易情绪化，给出原因'
+    ).includes('这是回答正文'),
+    true
+  );
+});
+
+test('the transcript match tolerates the line breaks the page chooses', () => {
+  assert.equal(transcriptHasPrompt('old\n3+5。\n结果是多少\n8', '3+5。结果是多少'), true);
+  assert.equal(transcriptHasPrompt('old\n3+5。结果是多少\n8', '3+5。结果是多少'), true);
+  assert.equal(transcriptHasPrompt('old\n完全不相干的一段话', '3+5。结果是多少'), false);
+  // 没有给出问题就没法判断，不能反过来把正常回答挡掉。
+  assert.equal(transcriptHasPrompt('old\n8', ''), true);
 });
 
 // ---------------------------------------------------------------------------
