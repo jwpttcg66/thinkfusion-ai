@@ -136,7 +136,8 @@ export class PageBrowserAdapter implements BrowserAdapter {
       // 读引用链接放在答案之后：它只补来源元数据，读不到就是没有，
       // 不影响这次回答已经成立。走同一个 `assistant` 选择器，所以
       // 「能读到答案、读不到链接」只说明链接真的不存在。
-      const citations = await this.spec.adapter.citations();
+      // 可选调用：测试里的脚本化驱动没有 DOM，也就没有这一步。
+      const citations = await this.spec.adapter.citations?.();
       const digest = citations
         ? digestCitations(
             citations.links.map(link => ({

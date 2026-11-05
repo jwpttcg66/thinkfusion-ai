@@ -595,6 +595,34 @@ export interface DebateRoundView {
   failures: Array<{ agentId: string; detail: string }>;
 }
 
+/**
+ * 一场辩论的三维结论，界面读这一份（Phase 3）。
+ *
+ * 三个维度各自带着 outcome 与理由，**没有总分**：逻辑对而证据不足，和
+ * 证据强而推理跳步，是两种不同的判断，压成一个数字就再也分不开。
+ * `backend: 'rules'` 说明这是本地规则算的，不是模型裁决。
+ */
+export interface DebateVerdictView {
+  verdict:
+    | 'supported'
+    | 'partially_supported'
+    | 'unsupported'
+    | 'contradicted'
+    | 'insufficient_evidence';
+  conclusion: string | null;
+  rationale: string;
+  /** 被支持的结论来自少数派发言：它赢在证据，不在人数。 */
+  minorityWins: boolean;
+  minorityReason?: string;
+  unresolved: string[];
+  dimensions: Array<{
+    dimension: 'logic' | 'evidence' | 'counterexample';
+    outcome: string;
+    rationale: string;
+  }>;
+  backend: 'rules';
+}
+
 export interface DebateView {
   debateId: string;
   conversationId?: string;
@@ -615,6 +643,11 @@ export interface DebateView {
   createdAt: number;
   updatedAt: number;
   stopReason?: string;
+  /**
+   * 跑完才有的五档结论。`debate:get` 返回的就是落盘的辩论状态，所以这个
+   * 字段直接来自那份文件，不需要第二个接口。
+   */
+  verdict?: DebateVerdictView;
 }
 
 export interface UsageSummary {

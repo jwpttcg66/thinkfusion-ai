@@ -10,9 +10,14 @@
  * Run with: npm run test:debate-judge
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { buildEvidence, dedupeEvidence, independentSourceCount, sameOrigin } from '../out-test/main/debate/evidence.js';
 import { judgeDebate } from '../out-test/main/debate/judges.js';
+import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
+import { DebateStore } from '../out-test/main/debate/store.js';
 
 function claim(agentId, text, overrides = {}) {
   const messageId = overrides.messageId ?? `m-${agentId}`;
@@ -378,4 +383,67 @@ test('页面给出的链接变成可核验证据，跳转包装会被展开', ()
 
   const run = judgeDebate(stateOf([single], built));
   assert.equal(run.judgments[0].verdict, 'supported');
+});
+
+// ---------------------------------------------------------------------------
+// 端到端：真跑三轮，证据、图、结论都落盘
+// ---------------------------------------------------------------------------
+
+test('真跑三轮辩论：页面引用落成证据，收尾给出三维结论', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-judge-'));
+  const store = new DebateStore(dir);
+  let call = 0;
+  const ask = async (agentId, task) => {
+    call += 1;
+    if (call <= 2) {
+      const text = agentId === 'a'
+        ? '这个库在 6.0 之前不支持并发写入，官方 release notes 写明了这一点。'
+        : '这个库支持并发写入，可以放心用。';
+      // 只有 a 的页面给了链接：b 只是断言。
+      const citations = agentId === 'a'
+        ? [{ url: 'https://www.google.com/url?q=https://docs.example.com/release-notes&utm_source=web', anchorText: 'release notes', title: 'Release notes', fetchedAt: 1700000000000 }]
+        : undefined;
+      return { agentId, text, receivedAt: Date.now(), citations, attribution: { requestId: 'r', note: 'test' }, stage: task.stage };
+    }
+    const text = `决策：defend\n${agentId} 坚持原来的判断，理由同上。`;
+    return { agentId, text, receivedAt: Date.now(), attribution: { requestId: 'r', note: 'test' }, stage: task.stage };
+  };
+
+  const orchestrator = new DebateOrchestrator(store, { ask });
+  const started = orchestrator.start('这个库支持并发写入吗？', {
+    strategy: 'standard',
+    maxRounds: 3,
+    participants: ['a', 'b'],
+    convergenceStop: false
+  });
+  const state = await orchestrator.waitFor(started.debateId, 10_000);
+
+  assert.deepEqual(state.rounds.map(round => round.phase), ['analysis', 'challenge', 'response']);
+
+  // 页面链接跟着发言一起落盘，然后变成带地址与指纹的证据。
+  const firstRound = state.rounds[0].messages.find(message => message.agentId === 'a');
+  assert.equal(firstRound.citations.length, 1);
+  const fromPage = (state.evidence ?? []).find(item => item.verified === 'page-link');
+  assert.ok(fromPage, '页面链接要变成证据');
+  assert.equal(fromPage.finalUrl, 'https://docs.example.com/release-notes');
+  assert.ok(fromPage.fingerprint.length > 0);
+
+  // 图里有判断节点，结论是五档之一，三维都在。
+  assert.ok(state.graph.nodes.some(node => node.type === 'judgment'), '结论要进图');
+  assert.ok(state.graph.edges.some(edge => edge.relation === 'supports'), '证据要连到主张');
+  assert.equal(state.verdict.dimensions.length, 3);
+  assert.ok(state.judgments.length > 0);
+  assert.equal(
+    ['supported', 'partially_supported', 'unsupported', 'contradicted', 'insufficient_evidence']
+      .includes(state.verdict.verdict),
+    true
+  );
+
+  // 读盘回来一致：证据、图、结论都在同一个文件里。
+  const reloaded = store.get(started.debateId);
+  assert.equal(reloaded.verdict.verdict, state.verdict.verdict);
+  assert.equal(reloaded.evidence.length, state.evidence.length);
+  assert.equal(reloaded.graph.nodes.length, state.graph.nodes.length);
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });
