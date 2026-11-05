@@ -207,6 +207,13 @@ export class AgentStore {
   }
 
   appendMessage(message: ConversationMessage) {
+    // A stage that was still running when its conversation was deleted keeps
+    // producing turns. The deletion removed the conversation and every message
+    // it had; writing this one anyway leaves a record with no conversation above
+    // it — invisible in the app and impossible to remove from it. Measured: one
+    // orphaned system message survived a delete that happened while the lead
+    // stage was still answering.
+    if (!this.state.conversations.some(item => item.conversationId === message.conversationId)) return;
     this.state.messages.push(message);
     this.persist();
   }
