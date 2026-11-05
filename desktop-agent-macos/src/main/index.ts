@@ -292,7 +292,22 @@ const registry = new SubAgentRegistry([]);
 const providerRegistry = new ProviderRegistry();
 let apiKeys: ApiKeyStore | null = null;
 let extraAgents: ProviderBackedSubAgent[] = [];
-const LOCAL_MODELS = ['qwen2.5:7b'];
+/**
+ * 本地模型的兜底清单。
+ *
+ * 启动后会用 `ollama list` 的真实结果覆盖它：写死一个名字，用户拉了新模型
+ * 也用不上，写死多个又会在没装的机器上造出「不可用成员」。Ollama 没起时保留
+ * 这个默认值，health() 会如实说不可用。
+ */
+let localModels: string[] = ['qwen2.5:7b'];
+/**
+ * 本地调用的默认模型。
+ *
+ * 成员清单按安装情况动态生成之后，`localModels[0]` 可能是用户后来拉的小模型
+ * （0.5b 之类）。默认值不该因为「谁排在前面」而变，所以固定挑这个；它不在
+ * 安装清单里时再用第一个可用的。
+ */
+const PREFERRED_LOCAL_MODEL = 'qwen2.5:7b';
 let collaborationRecords: CollaborationRecord[] = [];
 let cloudConfigs: CloudConfigStore | null = null;
 /** 当前生效的云端清单（预设 + 用户覆盖）。界面、成员、裁决都读它。 */
@@ -386,6 +401,28 @@ function rebuildChannels() {
       })
   );
   rebuildProviders();
+  // Ollama 里实际装了哪些模型，只有问它才知道；问到了就重建成员清单，
+  // 让新拉的模型立刻能当辩手。
+  void refreshLocalModels();
+}
+
+/**
+ * 用 Ollama 的真实模型清单覆盖兜底值。
+ *
+ * 失败不抛：Ollama 没起是常见状态，兜底清单还在，health() 会逐条说明不可用。
+ */
+async function refreshLocalModels(): Promise<void> {
+  if (!localProvider) return;
+  try {
+    const models = await localProvider.listModels();
+    const names = models.map(model => model.id).filter(name => typeof name === 'string' && name.length > 0);
+    if (names.length === 0) return;
+    if (names.join('\u0000') === localModels.join('\u0000')) return;
+    localModels = names;
+    rebuildProviders();
+  } catch {
+    /* 读不到就用兜底清单，不把启动流程拖垮 */
+  }
 }
 
 /**
@@ -398,7 +435,11 @@ function rebuildChannels() {
 function rebuildProviders() {
   const providers: ModelProvider[] = [];
   for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
-  providers.push(new OllamaProvider({ defaultModel: LOCAL_MODELS[0] }));
+  providers.push(new OllamaProvider({
+    defaultModel: localModels.includes(PREFERRED_LOCAL_MODEL)
+      ? PREFERRED_LOCAL_MODEL
+      : localModels[0] ?? PREFERRED_LOCAL_MODEL
+  }));
   localProvider = providers[providers.length - 1] as OllamaProvider;
   cloudCatalog = [];
   cloudProviders = [];
@@ -425,7 +466,7 @@ function rebuildProviders() {
     // 本地模型的候选来自 Ollama 的配置常量；云端用刚才解析出的清单，
     // 不再有任何一处硬编码的 CLOUD_MODELS。
     const models = provider.type === 'local'
-      ? LOCAL_MODELS
+      ? localModels
       : cloudCatalog.find(item => item.id === provider.id)?.models ?? [];
     for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
   }
@@ -1571,7 +1612,7 @@ function registerIpc() {
     return {
       modes: ['web', 'local', 'cloud', 'hybrid'] as const,
       webChannels: registry.list().map(agent => ({ id: agent.id, label: agent.label })),
-      localModels: LOCAL_MODELS,
+      localModels,
       // 每个「服务 + 模型」是一个成员：同名模型在不同服务上是两件事，
       // 用裸模型名当 id 会勾一个等于勾两家。
       cloudMembers: cloudCatalog.flatMap(item =>

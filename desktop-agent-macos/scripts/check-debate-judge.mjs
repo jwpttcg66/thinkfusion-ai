@@ -519,3 +519,30 @@ test('写了适用范围的判断，不按改口处理', () => {
     assert.notEqual(logicOutcome(item), 'invalid', `范围不同被判成改口：${item.claimText}`);
   }
 });
+
+test('同一条发言里把两种说法都写出来，不算前后矛盾', () => {
+  // 质疑者常见的写法：先复述对方，再给自己的判断。
+  const quoted = claim('a', '有人说这个库支持并发写入，可以放心用。', { messageId: 'm-d1' });
+  const mine = claim('a', '但它不支持并发写入，会丢数据。', { messageId: 'm-d1' });
+  const run = judgeDebate(stateOf([quoted, mine], []));
+  for (const item of run.judgments) {
+    assert.notEqual(logicOutcome(item), 'invalid', `同一条发言内的两种说法被判成改口：${item.claimText}`);
+  }
+});
+
+test('少数几句推理不成立，不把整场判成「不成立」', () => {
+  const flipA = claim('a', '这个库支持并发写入，可以放心用。', { messageId: 'm-e1' });
+  const flipB = claim('a', '这个库不支持并发写入，会丢数据。', { messageId: 'm-e2' });
+  const plain = claim('b', '连接池大小取决于并发量。', { messageId: 'm-f1' });
+  const run = judgeDebate(stateOf([flipA, flipB, plain], []));
+  assert.equal(run.verdict.verdict, 'insufficient_evidence', '不能因为两句吵架就说整场不成立');
+  assert.match(run.verdict.rationale, /推理不成立/);
+  assert.match(run.verdict.rationale, /证据不足/);
+});
+
+test('每条主张都推理不成立时，整场才是「不成立」', () => {
+  const flipA = claim('a', '这个库支持并发写入，可以放心用。', { messageId: 'm-g1' });
+  const flipB = claim('a', '这个库不支持并发写入，会丢数据。', { messageId: 'm-g2' });
+  const run = judgeDebate(stateOf([flipA, flipB], []));
+  assert.equal(run.verdict.verdict, 'unsupported');
+});

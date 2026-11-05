@@ -613,17 +613,28 @@ function aggregate(
   }
 
   const pick = chooseConclusion(supported, partial);
+  const insufficient = withMinority.filter(item => item.verdict === 'insufficient_evidence');
+  /**
+   * 什么时候整场才算「不成立」。
+   *
+   * 只有**每一条**被判过的主张都推理不成立时才这么判。以前是「只要有一条
+   * unsupported 就算」——真机跑一场 62 条主张里 2 条自相矛盾、60 条只是没有
+   * 来源，结论就被写成「不成立」。那等于把「判不了」也算成「错」，正好违背
+   * AC-13 要求分清的两件事。
+   */
+  const allUnsupported = unsupported.length > 0 && insufficient.length === 0;
   const verdict: Verdict = supported.length > 0
     ? 'supported'
     : partial.length > 0
       ? 'partially_supported'
       : contradicted.length > 0
         ? 'contradicted'
-        : unsupported.length > 0
+        : allUnsupported
           ? 'unsupported'
           : 'insufficient_evidence';
 
-  const chosen = pick ?? contradicted[0] ?? unsupported[0] ?? withMinority[0];
+  const chosen = pick ?? contradicted[0] ??
+    (verdict === 'unsupported' ? unsupported[0] : insufficient[0] ?? unsupported[0] ?? withMinority[0]);
   const minorityWins = Boolean(pick && pick.minority);
 
   return {
@@ -638,7 +649,9 @@ function aggregate(
         ? '有主张被可核验的反证推翻'
         : verdict === 'unsupported'
           ? '现有主张都缺少证据支持，且推理存在问题'
-          : '现有主张都判不了真假，证据不足',
+          : unsupported.length > 0
+            ? `有 ${String(unsupported.length)} 条主张推理不成立，其余 ${String(insufficient.length)} 条证据不足；整体判不了`
+            : '现有主张都判不了真假，证据不足',
     minorityWins,
     minorityReason: minorityWins
       ? '被支持的结论来自少数派发言；它靠的是可核验的独立来源，不是人数'
@@ -728,6 +741,10 @@ function selfContradictions(claims: readonly DebateClaim[]): Set<string> {
       for (let j = i + 1; j < list.length; j += 1) {
         const left = list[i];
         const right = list[j];
+        // 同一条发言里的两句不算「前后」矛盾：质疑者会把对方的说法和自己的
+        // 判断写在同一条里（「你说支持，但它其实不适合」），照字面比会把它
+        // 判成改口。前后矛盾的前提是「先说过一句，后来又说反了」。
+        if (left.messageId === right.messageId) continue;
         if (negationCount(left.text) === negationCount(right.text)) continue;
         // 写了范围就说明两句不是同一条件下的判断。
         if (left.assumptions.length > 0 || right.assumptions.length > 0) continue;
