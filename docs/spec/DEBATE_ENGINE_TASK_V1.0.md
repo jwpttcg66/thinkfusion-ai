@@ -7,7 +7,11 @@
 > 实施状态见 `docs/architecture/DEBATE_ENGINE_AUDIT.md`（Phase 0 审计）与
 > `docs/implementation/PHASE-1-DEBATE-CLAIMS.md`（Phase 1 交付）。
 > Phase 2 见 `PHASE-2-DEBATE-REVISION.md`，Phase 3 见
-> `PHASE-3-DEBATE-ARGUMENT-JUDGE.md`（论证图与三维裁判）。
+> `PHASE-3-DEBATE-ARGUMENT-JUDGE.md`（论证图与三维裁判），Phase 4 见
+> `PHASE-4-DEBATE-STRATEGIES.md`（六种策略与结果展示），Phase 5 见
+> `PHASE-5-DEBATE-METRICS.md`（指标、历史复用、成本）。验收对照
+> `docs/architecture/DEBATE_ACCEPTANCE.md`，指标报告
+> `docs/reports/DEBATE_METRICS.md`。
 
 ---
 

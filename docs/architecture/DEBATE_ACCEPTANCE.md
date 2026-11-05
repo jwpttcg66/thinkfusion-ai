@@ -7,10 +7,10 @@
 状态只有三种：**达成**、**部分**（说清缺哪一块）、**不适用**（本仓库拿不到
 那个数据，写清楚为什么，而不是假装有）。
 
-## 先说阶段：0–3 完成，4–5 未开始
+## 阶段状态：0–5 全部完成
 
 任务书第 15 节把工作分成六个阶段。15 条验收标准是**跨阶段**的，所以
-「AC 全过」不等于「六个阶段都做完了」。当前实际状态：
+「AC 全过」不等于「六个阶段都做完了」。六个阶段各自的交付物：
 
 | 阶段 | 范围 | 状态 |
 | --- | --- | --- |
@@ -18,17 +18,18 @@
 | Phase 1 | 独立分析、Claim、争议、基础综合 | 完成（`PHASE-1-DEBATE-CLAIMS.md`） |
 | Phase 2 | 多轮、挑战、回应、修订、预算 | 完成（`PHASE-2-DEBATE-REVISION.md`） |
 | Phase 3 | 论证图、证据评价、多维裁判 | 完成（`PHASE-3-DEBATE-ARGUMENT-JUDGE.md`） |
-| Phase 4 | 策略与 UI（六种协作策略、结果展示） | **未开始** |
-| Phase 5 | 质量优化（标注集、评测指标、成本） | **未开始** |
+| Phase 4 | 策略与 UI（六种协作策略、结果展示） | 完成（`PHASE-4-DEBATE-STRATEGIES.md`） |
+| Phase 5 | 质量优化（标注集、评测指标、成本） | 完成（`PHASE-5-DEBATE-METRICS.md`） |
 
-所以下面这张表读作「验收项在现阶段是否可判定」，不是「整个项目做完了」。
-Phase 4/5 的交付物不在这一版里，也没有用「先占位」的方式假装完成。
+阶段完成不等于质量达标：Phase 5 的指标报告只有 4 条示例标签、回放发言，
+它能守住链路，不能证明模型判断正确。这一点在 `PHASE-5-DEBATE-METRICS.md`
+和 `docs/reports/DEBATE_METRICS.md` 里都写明了。
 
 ## 总表
 
 | 编号 | 条款 | 状态 | 证据 |
 | --- | --- | --- | --- |
-| AC-01 | 执行模式与协作策略相互独立 | 达成（策略清单见注） | `shared/conversation.ts` 的 `executionMode` 与 `strategy` 是两个字段；`DebateConfig.strategy`、`leadMode` 各管一件事；`ResearchPanel` 里「执行模式」与「策略」是两组控件 |
+| AC-01 | 执行模式与协作策略相互独立 | 达成 | `shared/conversation.ts` 的 `executionMode` / `strategy` / `debateStrategy` 是三个字段；`DebateConfig.leadMode` 另管主导；`ResearchPanel` 里「执行模式」与「辩论策略」是两组控件；六种策略见 `strategies.ts`，`check-debate-strategies.mjs` 8 条 |
 | AC-02 | 首轮分析相互隔离 | 达成 | `orchestrator.runRound` 首轮 `context` 只来自 seed（会话已有材料），不读其他成员首轮答案；`check-debate.mjs`「第一轮独立、后续轮带前序发言」 |
 | AC-03 | 拆成结构化 Claim 并区分事实/推断/假设 | 达成 | `claims.ts`（切句）+ `synthesis/claim-extractor.ts`（`kind` / `kindCue` / `assumptions`）；`check-debate-claims.mjs` 第 1 条 |
 | AC-04 | 识别直接矛盾、定义差异、范围差异、证据冲突 | 达成 | `DisputeType = factual / logical / scope / evidence_conflict / definitional`；`check-debate-claims.mjs` 第 2、3、4、7 条 |
@@ -46,22 +47,22 @@ Phase 4/5 的交付物不在这一版里，也没有用「先占位」的方式�
 
 ## 需要说明的三条
 
-### AC-01：独立性成立，但不是任务书那六种策略
+### AC-01：四个字段各管一件事，六种策略已落地
 
 「执行模式」与「协作策略」在数据模型和界面上是两组独立配置：
 
-- 执行模式：`web / local / cloud / hybrid`（`ConversationExecutionConfig.executionMode`），
-  决定在哪里执行；
+- 执行模式：`web / local / cloud / hybrid`（`executionMode`），决定在哪里执行、
+  谁当主导人；
 - 协商策略：`smart / parallel / all-selected / sequential`（`strategy`），决定这一轮
-  怎么调度；
-- 辩论策略：`standard / deep / adversarial`（`DebateConfig.strategy`），影响轮数与
-  角色分工；
-- 主导方式：`local / web / hybrid`（`leadMode`），决定谁当主导人。
+  怎么调度子任务；
+- 辩论策略：`truth / adversarial / expert / assumption / solution / discovery`
+  （`debateStrategy` / `DebateConfig.strategy`），决定辩手怎么辩；
+- 主导方式：`local / web / hybrid`（`leadMode`），决定谁给基准观点。
 
-任务书 §4.2 列的 `truth / expert / assumption / solution / discovery` 五类策略
-**没有实现**，只落了 `adversarial` 的职责分工。它们属于 Phase 4「策略与 UI」，
-不在本版范围。所以这一条按「结构独立」判达成，按「策略清单」判未覆盖——
-不把没做的部分算进达成。
+六种策略改的是三件可验证的事：每轮指令、角色分配、先处理哪类争议（见
+`strategies.ts` 与 `PHASE-4-DEBATE-STRATEGIES.md`）。**策略不改裁判口径**：
+`judges.ts` 没有 strategy 参数，同一份证据换策略跑，结论一致——有用例守着。
+旧名字 `standard` / `deep` 仍能读回老记录，界面不再提供。
 
 ### AC-07：Token 与费用不做，是因为拿不到
 
@@ -91,19 +92,22 @@ npm run test:page-citations       # AC-09（三家 HTML fixture）
 npm run test:debate-judge         # AC-10/11/12/13（含 TF-D-011/012/013）
 npm run test:debate-events        # AC-14
 npm run test:debate-regression    # AC-15
+npm run test:debate-strategies    # AC-01（六种策略、角色、争议排序）
+npm run test:debate-metrics       # Phase 5 指标 + 成本 + 历史复用
+npm run test:debate-eval          # Phase 5 标注集评测
 npm test                          # 全量，含上面全部
 ```
 
 `npm run report:debate-regression` 会把报告写到
-`docs/reports/DEBATE_REGRESSION.md`；不写 `TF_REPORT=1` 时只写 `out-test/`，
+`docs/reports/DEBATE_REGRESSION.md`，`npm run report:debate-eval` 写到
+`docs/reports/DEBATE_METRICS.md`；不写 `TF_REPORT=1` 时只写 `out-test/`，
 不弄脏仓库。
 
 ## 已知不达成的部分（汇总）
 
 | 项 | 原因 | 归属 |
 | --- | --- | --- |
-| 任务书 §4.2 的六种协作策略只落了一类 | 策略选择属于 Phase 4 | Phase 4 |
 | Token / 费用预算 | 三条通道都不报用量 | 无法做，不做假 |
 | 真机跑满 3 轮 | 验证时本机没有可用辩手（Ollama 未启动、应用未开） | 有第二个可用成员时补一次记录 |
-| 裁判读网页正文 | 只有地址与文本线索，不抓取网页内容 | 属 Phase 5 质量优化 |
-| 评测指标（事实准确率、校准度等） | 需要人工标注集 | Phase 5 |
+| 裁判读网页正文 | 只有地址与文本线索，不抓取网页内容 | 未做；要靠浏览器抓正文，另立项 |
+| 事实准确率 / 校准度 | 需要人工标注集；结论也不带置信度 | 只有示例标签，报告已注明 |
