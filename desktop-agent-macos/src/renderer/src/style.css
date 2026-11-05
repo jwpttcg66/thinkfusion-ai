@@ -1684,6 +1684,21 @@ button:disabled {
   border-style: dashed;
 }
 
+/* 已经结束的那一轮里没答上来的通道：虚线 + 灰字，和「正在问」区分开，
+   但不像失败那样红——很多轮的缺席只是这一轮没轮到它。 */
+.channel-chip.phase-no-answer {
+  border-style: dashed;
+  color: var(--text-3);
+}
+
+/* 一轮一块：问题、这一轮的状态条、这一轮的各家回答、这一轮的综合。
+   块内间距比块间小，视觉上才看得出哪几张卡属于同一问。 */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .conversation-body {
   display: flex;
   flex-direction: column;

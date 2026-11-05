@@ -571,6 +571,14 @@ export default function App() {
       setPhases({});
       setPrompt('');
       setActiveId(conversation.taskId ?? null);
+      // 读一遍已经落库的消息，而不是只等事件。
+      //
+      // 主进程是先写「你问的这句」再返回的，那一条的 message.added 往往在
+      // 这个窗口挂上监听之前就发完了；只靠事件的话，第一轮的提问气泡永远
+      // 不会出现，而第二轮的会出现——界面上看起来就像「第一问没问过」。
+      // 事件里按 messageId 去重，随后到的同一批消息不会重复渲染。
+      const seeded = await window.agentAPI.getConversationMessages(conversation.conversationId).catch(() => []);
+      setMessages(seeded);
       if (conversation.taskId) await selectTask(conversation.taskId);
     } catch (e) {
       setError(errorText(e));

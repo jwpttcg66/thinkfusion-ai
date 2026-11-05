@@ -12,7 +12,7 @@ import type { DeepSeekDiagnostics, DeepSeekStatus, PageDiagnostics } from '../..
  */
 export type PageReport = Omit<DeepSeekDiagnostics, 'view' | 'dragging' | 'sourceId'>;
 import { stripEcho, containsEcho, findIgnoringWhitespace } from '../../../shared/protocol';
-import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../../../shared/text';
+import { cutSpeakerLabels, looksLikePlaceholder, normalizeAnswerText, stripChrome } from '../../../shared/text';
 import type { DiscoveredSelectors, SelectorProfile } from '../../../shared/selectors';
 
 /**
@@ -2706,6 +2706,10 @@ export class ChatPageDriver {
         // unit of comparison; the answer is.
         const cleaned = normalizeAnswerText(stripChrome(cutSpeakerLabels(next)));
         if (!cleaned) continue;
+        // 「正在思考中 / User」这类整段占位不是回答。它会安安静静待上十几秒，
+        // 正好满足下面的「三段不变」，于是被当成答案收下来——Kimi 那张卡里
+        // 出现的 10 个字就是它，真正的回答随后才到。
+        if (looksLikePlaceholder(cleaned)) continue;
         // 短问题绕过了 containsEcho 的 40 字门槛，这里补一次精确判断：
         // 整段还是我们自己的话，就不是答案，继续等下一段。
         if (isOwnPromptEcho(cleaned, sentText)) continue;

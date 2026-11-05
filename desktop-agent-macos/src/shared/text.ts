@@ -157,3 +157,38 @@ export function normalizeAnswerText(raw: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
+
+/**
+ * 整段只是页面在说「我还在想」——不是回答。
+ *
+ * 站点在生成前会先渲染一行状态字（Kimi：「正在思考中」，ChatGPT：「回答中」），
+ * 回答气泡本身也已经存在了。那一行会静止好几秒，完全满足「三段一样的文本」这条
+ * 稳定判据，于是被当成答案收下来：实测卡片里出现的就是 10 个字的
+ * 「正在思考中 / User」，而真正的答案几秒后才到。
+ *
+ * 只判「整段都是这些词」，不做行内删除：回答里出现 User 这个词（代码、示例）
+ * 很常见，只有整段只剩状态词时它才不可能是答案。
+ */
+const PLACEHOLDER_LINES: ReadonlySet<string> = new Set([
+  '正在思考中',
+  '思考中',
+  '思考已完成',
+  '正在生成',
+  '生成中',
+  '正在回答',
+  'User',
+  '你说',
+  'You',
+  'ChatGPT',
+  'Gemini',
+  'Kimi'
+]);
+
+export function looksLikePlaceholder(text: string): boolean {
+  const lines = text
+    .split('\n')
+    .map(line => line.trim().replace(/[：:]\s*$/, ''))
+    .filter(line => line.length > 0);
+  if (lines.length === 0) return true;
+  return lines.every(line => PLACEHOLDER_LINES.has(line));
+}

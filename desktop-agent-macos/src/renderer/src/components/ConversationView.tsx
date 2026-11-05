@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   normalizeExecutionConfig,
   type ChannelStatus,
@@ -61,15 +61,6 @@ export function ConversationView(props: {
   const { conversation, messages } = props;
   const synthesis = [...messages].reverse().find(message => message.synthesis)?.synthesis ?? null;
   /**
-   * Which channels have answered, derived from the messages rather than from
-   * live events. Opening a conversation from the history list replays no
-   * events, so the chips used to read 待命 for a channel whose answer was on
-   * screen right below them.
-   */
-  const answeredChannels = new Set(
-    messages.filter(message => message.role === 'channel' && message.channelId).map(message => message.channelId as string)
-  );
-  /**
    * id -> display name, from the health record the main process already sends.
    * One map, built once per render, used by the strip, the answer cards and the
    * synthesis — so all three say the same name for the same site.
@@ -78,6 +69,22 @@ export function ConversationView(props: {
   const askedLabel = conversation.channels.map(id => labels.get(id) ?? id).join('、');
   // 老会话没有这个字段，归一化后就是默认的 web，不会因为缺字段显示成空白。
   const mode = MODE_LABEL[normalizeExecutionConfig(conversation.executionConfig).executionMode];
+
+  // 每一轮问的通道都一样，但「这一轮谁答完了」只属于那一轮。以前这条状态条
+  // 只挂在会话头部：第二轮开始后它还留在第一轮的位置，往上滚出去几屏——正在
+  // 等谁、谁已经答完，界面上就看不见了。所以按轮次分组，每轮各带一条。
+  const turns = groupTurns(messages);
+  const liveStatus: ReadonlyArray<Conversation['status']> = ['thinking', 'collecting', 'comparing', 'synthesizing'];
+
+  // 新一轮在转录最下面。不把它带到眼前，「这一轮谁在答」还是得自己往下滚。
+  // 只在这一轮刚出现时对齐一次，之后回答流进来时不再动滚动位置——那会把
+  // 正在往上读的人拽回来。
+  const lastTurnRef = useRef<HTMLElement | null>(null);
+  const lastUserId = [...messages].reverse().find(message => message.role === 'user')?.messageId ?? '';
+  useEffect(() => {
+    if (!lastUserId) return;
+    lastTurnRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [lastUserId]);
 
   return (
     <section className="conversation" aria-label="对话">
@@ -98,46 +105,54 @@ export function ConversationView(props: {
           {` · 同时问 ${askedLabel || '所有已开启的通道'}`}
           {conversation.error ? ` · ${conversation.error}` : ''}
         </p>
-        <ChannelStrip
-          channels={conversation.channels}
-          statuses={props.channelStatuses}
-          phases={props.phases}
-          answered={answeredChannels}
-          labels={labels}
-        />
       </header>
 
       <div className="conversation-body">
         {messages.length === 0 && <p className="muted">还没有内容。</p>}
 
-        {messages.map((message, index) => {
-          if (message.role === 'synthesis' && message.synthesis) {
-            return <SynthesisCard key={message.messageId} synthesis={message.synthesis} labels={labels} />;
-          }
-          if (message.role === 'system') {
-            return (
-              <p key={message.messageId} className="conv-system">
-                {message.text}
-              </p>
-            );
-          }
-          if (message.role === 'channel') {
-            // Consecutive channel messages are one turn's answers. They are
-            // rendered together, in their own cards, because comparing two
-            // answers is the point — and two paragraphs of prose stacked in one
-            // column cannot be compared, only read in order.
-            if (index > 0 && messages[index - 1].role === 'channel') return null;
-            const group: ConversationMessage[] = [];
-            for (let cursor = index; cursor < messages.length && messages[cursor].role === 'channel'; cursor += 1) {
-              group.push(messages[cursor]);
-            }
-            return <ChannelGrid key={message.messageId} messages={group} labels={labels} />;
-          }
+        {turns.map((turn, turnIndex) => {
+          const answers = turn.blocks.flatMap(block => (block.kind === 'answers' ? block.messages : []));
+          const answered = new Set(answers.map(message => message.channelId).filter((id): id is string => !!id));
+          // 只有最后一轮、并且这一轮还在跑，才用实时状态：更早的那几轮早就结束了，
+          // 它们的「谁答完了」只能从自己的消息里数出来。
+          const live = turnIndex === turns.length - 1 && (props.busy || liveStatus.includes(conversation.status));
+
           return (
-            <article key={message.messageId} className={`bubble role-${message.role}`}>
-              <div className="bubble-who">你</div>
-              <div className="bubble-text">{message.text}</div>
-            </article>
+            <section
+              className="turn"
+              key={turn.key}
+              ref={turnIndex === turns.length - 1 ? lastTurnRef : undefined}
+            >
+              {turn.user && (
+                <article className="bubble role-user">
+                  <div className="bubble-who">你</div>
+                  <div className="bubble-text">{turn.user.text}</div>
+                </article>
+              )}
+
+              {/* 还没开始问的那一轮（刚提交、页面还在开新会话）也先画出这条：
+                  这时候通道一个都还没答，状态条本身就是「正在等谁」。 */}
+              {turn.user && (
+                <ChannelStrip
+                  channels={conversation.channels}
+                  statuses={props.channelStatuses}
+                  phases={live ? props.phases : {}}
+                  answered={answered}
+                  live={live}
+                  labels={labels}
+                />
+              )}
+
+              {turn.blocks.map(block => {
+                if (block.kind === 'answers') return <ChannelGrid key={block.key} messages={block.messages} labels={labels} />;
+                if (block.kind === 'synthesis') return <SynthesisCard key={block.key} synthesis={block.message.synthesis!} labels={labels} />;
+                return (
+                  <p key={block.key} className="conv-system">
+                    {block.message.text}
+                  </p>
+                );
+              })}
+            </section>
           );
         })}
 
@@ -156,6 +171,59 @@ export function ConversationView(props: {
       </div>
     </section>
   );
+}
+
+/**
+ * 把消息切成「轮」。
+ *
+ * 一条会话是一串问答：用户那一句开头，后面跟着这一轮的通道回答、系统提示和
+ * 综合结果。以前渲染只按消息类型走，所以「这一轮谁答完了」只能靠整条会话的
+ * 消息算，第二轮一开始就全是「已回答」。分组之后每轮自带自己的答案集合。
+ *
+ * 没有用户消息的前导块（老会话、系统提示）单独成一轮，原样显示，不丢内容。
+ */
+function groupTurns(messages: ConversationMessage[]): Array<{
+  key: string;
+  user?: ConversationMessage;
+  blocks: Array<
+    | { kind: 'answers'; key: string; messages: ConversationMessage[] }
+    | { kind: 'synthesis'; key: string; message: ConversationMessage }
+    | { kind: 'system'; key: string; message: ConversationMessage }
+  >;
+}> {
+  const turns: Array<{
+    key: string;
+    user?: ConversationMessage;
+    blocks: Array<
+      | { kind: 'answers'; key: string; messages: ConversationMessage[] }
+      | { kind: 'synthesis'; key: string; message: ConversationMessage }
+      | { kind: 'system'; key: string; message: ConversationMessage }
+    >;
+  }> = [];
+
+  for (const message of messages) {
+    if (message.role === 'user') {
+      turns.push({ key: `turn-${message.messageId}`, user: message, blocks: [] });
+      continue;
+    }
+    if (turns.length === 0) turns.push({ key: 'turn-leading', blocks: [] });
+    const turn = turns[turns.length - 1];
+
+    if (message.role === 'channel') {
+      // 相邻的通道消息是同一轮的答案，合成一张网格——两张卡片才比得出来。
+      const last = turn.blocks[turn.blocks.length - 1];
+      if (last && last.kind === 'answers') last.messages.push(message);
+      else turn.blocks.push({ kind: 'answers', key: `answers-${message.messageId}`, messages: [message] });
+      continue;
+    }
+    if (message.role === 'synthesis' && message.synthesis) {
+      turn.blocks.push({ kind: 'synthesis', key: message.messageId, message });
+      continue;
+    }
+    turn.blocks.push({ kind: 'system', key: message.messageId, message });
+  }
+
+  return turns;
 }
 
 /**
@@ -200,6 +268,8 @@ function ChannelStrip(props: {
   statuses: ChannelStatus[];
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   answered: Set<string>;
+  /** 这一轮还在跑：状态来自实时事件；已经结束的轮次只看消息。 */
+  live: boolean;
   labels: ReadonlyMap<string, string>;
 }) {
   // A page can take minutes, so "提问中" has to move. Ticking locally rather
@@ -222,8 +292,14 @@ function ChannelStrip(props: {
       {props.channels.map(channelId => {
         const status = props.statuses.find(item => item.id === channelId);
         const phase = props.phases[channelId];
-        const label = phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable');
-        const waited = phase?.phase === 'asking' && phase.at ? Math.max(0, Math.round((now - phase.at) / 1000)) : 0;
+        // 结束的那几轮：「有它的消息」就是答了，没有就是没答。用实时阶段会在
+        // 历史轮次上显示出上一轮残留的「提问中」，或者干脆全是「已回答」。
+        const label = props.live
+          ? phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable')
+          : props.answered.has(channelId)
+            ? 'answered'
+            : 'no-answer';
+        const waited = props.live && phase?.phase === 'asking' && phase.at ? Math.max(0, Math.round((now - phase.at) / 1000)) : 0;
         return (
           <li
             key={channelId}
@@ -264,6 +340,8 @@ function phaseLabel(phase: string): string {
       return '忙，已跳过';
     case 'unavailable':
       return '不可用';
+    case 'no-answer':
+      return '没有回答';
     default:
       return '待命';
   }

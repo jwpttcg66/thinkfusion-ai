@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cutSpeakerLabels, normalizeAnswerText, stripChrome } from '../out-test/shared/text.js';
+import { cutSpeakerLabels, looksLikePlaceholder, normalizeAnswerText, stripChrome } from '../out-test/shared/text.js';
 
 test('the prompt echo in front of the assistant label is cut away', () => {
   // Captured from chatgpt.com: the page flattens its speaker labels into the
@@ -111,4 +111,15 @@ test("Gemini's shell is not an answer", () => {
 test('the assistant label is cut even without its colon', () => {
   // Gemini renders "Gemini 说\n18" — no colon, and the label is on its own line.
   assert.equal(cutSpeakerLabels('你说 3+5\nGemini 说 18').trim(), '18');
+});
+
+test('a still 「正在思考中」 is not an answer', () => {
+  // 真机（kimi.com，第二轮）：回答气泡已经存在但只有一行状态字，静止十几秒，
+  // 正好满足「三段不变」，于是被当成答案收进卡片——真正的回答随后才到。
+  assert.equal(looksLikePlaceholder('正在思考中\nUser'), true);
+  assert.equal(looksLikePlaceholder('思考已完成'), true);
+  assert.equal(looksLikePlaceholder('正在思考中：'), true);
+  // 真回答里有 User 这个词（代码、示例）很正常，只有整段都是状态词时才算占位。
+  assert.equal(looksLikePlaceholder('User\n光合作用是植物把光能转成化学能。'), false);
+  assert.equal(looksLikePlaceholder('光合作用是植物把光能转成化学能。'), false);
 });
