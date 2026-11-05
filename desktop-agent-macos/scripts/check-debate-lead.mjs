@@ -268,3 +268,32 @@ test('主导信息落盘后重启可读，老文件没有 lead 时如实补成�
     h.cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// 生产形态：本地模型撤出辩论候选名单后（debate:start 里 filter(type !== 'local')）
+// ---------------------------------------------------------------------------
+
+test('生产形态：本地模型被排除后，离网主导退回云端模型，理由说清本地只做裁判', () => {
+  // 模拟 debate:start 里 (await debateCandidates()).filter(item => item.type !== 'local')
+  const cloud = [
+    { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
+    { id: 'deepseek', label: 'DeepSeek', type: 'cloud', available: true }
+  ];
+  const p = planLead({ mode: 'local', strategy: 'standard', candidates: cloud });
+  assert.equal(p.lead.agentId, 'deepseek', '离网主导在没有本地模型时取第一个可用云端模型');
+  assert.match(p.lead.reason, /云端模型/);
+  assert.match(p.reason, /本地模型只做裁判/);
+});
+
+test('生产形态：没有任何可用 API 模型时，离网主导如实报错，不会把本地模型算进来', () => {
+  // 用户当前环境：3 个网页 + 1 个本地（无 Key 的云端）。本地模型撤出后只剩网页，
+  // 离网主导需要至少一个 API 参与者，应明确报错而不是静默开一场单边辩论。
+  const webOnly = [
+    { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
+    { id: 'openai:gpt-4o-mini', label: 'OpenAI', type: 'cloud', available: false }
+  ];
+  assert.throws(
+    () => planLead({ mode: 'local', strategy: 'standard', candidates: webOnly }),
+    /本地或云端模型/
+  );
+});

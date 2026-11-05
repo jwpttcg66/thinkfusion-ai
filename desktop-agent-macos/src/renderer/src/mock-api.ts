@@ -281,7 +281,6 @@ export function createMockApi(): AgentApi {
       ],
       providers: [],
       debateCandidates: [
-        { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
         { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', type: 'cloud', available: false, detail: '浏览器预览里没有 API Key' }
       ]
     }),

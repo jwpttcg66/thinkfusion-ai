@@ -131,13 +131,14 @@ export function planLead(input: LeadInput): LeadPlan {
       label: pick.label,
       reason: input.leadAgentId === pick.id
         ? '由你指定为这一场的主辩'
-        : `本地主导取第一个可用的本地模型（${pick.label}）作为主辩`,
+        : `本地主导取第一个可用的${pick.type === 'local' ? '本地模型' : '云端模型'}（${pick.label}）作为主辩`,
       drivenBy: 'orchestrator'
     };
     if (api.length < 2) {
       warnings.push('只有一个可交锋的模型：后续轮次由同一模型分饰质疑与修正角色，不是两个独立模型的意见');
     }
-    reason = `本地主导：${api.length} 个本地/云端模型给出基准观点并做交叉质疑，网页通道不参与，提问内容不发送到网页。`;
+    const hasLocal = local.length > 0;
+    reason = `本地主导：${api.length} 个${hasLocal ? '本地/云端' : '云端'}模型给出基准观点并做交叉质疑${hasLocal ? '' : '（本地模型只做裁判，不参与辩论）'}，网页通道不参与，提问内容不发送到网页。`;
   } else if (mode === 'web') {
     if (web.length === 0) throw new Error('网页主导需要至少一个可用的网页通道');
     if (api.length === 0) throw new Error('网页主导还需要至少一个可用的本地或云端模型来做交叉质疑（网页通道看不到其他回答）');

@@ -1673,7 +1673,9 @@ function registerIpc() {
     const plan = planLead({
       mode: normalizeLeadMode(rawConfig.leadMode),
       strategy: normalizeDebateConfig(rawConfig).strategy,
-      candidates: await debateCandidates(),
+      // 辩论的参与者不含本地模型：它不是「来源」，在辩论里只做裁判（裁决），
+      // 不提供观点、也不当主辩。会话主导下拉仍用全量 candidates（含本地）。
+      candidates: (await debateCandidates()).filter(item => item.type !== 'local'),
       selected,
       leadAgentId: typeof rawConfig.leadAgentId === 'string' ? rawConfig.leadAgentId : undefined
     });
@@ -1770,15 +1772,18 @@ function registerIpc() {
     if (!state) throw new Error('找不到这场辩论');
 
     // 裁决模型每次现选，不在启动时定死：用户可能刚配好 Key、刚改完模型名。
-    // 优先选**没参加这一场**的云端模型（独立裁决）；只剩参辩模型时按决策 5
-    // 允许兼任，但必须标 sharedWith，让人知道它既当运动员又当裁判。
+    // 本地模型不参与辩论（它只做裁判），天然是独立裁决者，优先用它；没有
+    // 可用本地模型时退回「没参加这一场」的云端模型（独立裁决）；只剩参辩
+    // 模型时按决策 5 允许兼任，但必须标 sharedWith，让人知道它既当运动员又当裁判。
     const askAgent = (agentId: string, task: Parameters<ProviderBackedSubAgent['ask']>[0]) => {
       const extra = extraAgents.find(agent => agent.id === agentId);
       return extra ? extra.ask(task) : registry.ask(agentId, task);
     };
-    const cloud = (await debateCandidates()).filter(item => item.type === 'cloud' && item.available);
+    const all = await debateCandidates();
+    const localRef = all.find(item => item.type === 'local' && item.available);
+    const cloud = all.filter(item => item.type === 'cloud' && item.available);
     const independent = cloud.find(item => !state.plan.participants.includes(item.id));
-    const pick = independent ?? cloud.find(item => state.plan.participants.includes(item.id));
+    const pick = localRef ?? independent ?? cloud.find(item => state.plan.participants.includes(item.id));
     const engine = new JudgeEngine(pick ? {
       ask: askAgent,
       judgeAgentId: pick.id,

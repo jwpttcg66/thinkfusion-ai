@@ -43,9 +43,9 @@ const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string>
 };
 
 const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
-  { id: 'local', label: '本地主导', hint: '本地/云端模型给基准观点并做质疑；网页通道不参与，内容不往网页发' },
+  { id: 'local', label: '离网主导', hint: '仅用云端 API 模型给基准观点并交锋；网页通道不参与，本地模型只做裁判、不提供观点' },
   { id: 'web', label: '网页主导', hint: '网页通道各自独立回答原问题，本地/云端读取全部观点做交叉质疑' },
-  { id: 'hybrid', label: '混合', hint: '网页与本地/云端第一轮都独立发言，不设单一主辩，由能读上下文的成员交锋' }
+  { id: 'hybrid', label: '混合', hint: '网页与云端第一轮都独立发言，不设单一主辩，由能读上下文的成员交锋' }
 ];
 
 const STRATEGIES: Array<{ id: NonNullable<ConversationExecutionConfig['strategy']>; label: string }> = [
@@ -132,6 +132,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
   const candidates = options?.debateCandidates ?? [];
+  // 辩论的参与者不含本地模型：它不是「来源」，在辩论里只做裁判（裁决），
+  // 不提供观点、也不当主辩。会话主导下拉仍用全量 candidates（含本地）。
+  const debateParticipants = candidates.filter(item => item.type !== 'local');
   // 主导必须在被问到的名单里：混合模式下本地模型已经不算来源，所以它只能
   // 当「自动汇总」，不能出现在这里被选中。
   const leadKinds: Array<'web' | 'local' | 'cloud'> = config.executionMode === 'web'
@@ -142,14 +145,14 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
         ? ['cloud']
         : ['web', 'cloud'];
   const leadOptions = candidates.filter(item => leadKinds.includes(item.type));
-  const selectedIds = debateSelected ?? candidates.filter(item => item.available).map(item => item.id);
+  const selectedIds = debateSelected ?? debateParticipants.filter(item => item.available).map(item => item.id);
   const leadChoices = candidates.filter(item => item.available && (
-    debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type !== 'web' : false
+    debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type === 'cloud' : false
   ));
   const leadHint = debateLeadMode === 'hybrid'
     ? '混合模式不设主辩：所有成员第一轮平等独立发言'
     : debateLeadMode === 'local'
-      ? '不指定时，取第一个可用的本地模型为主辩'
+      ? '不指定时，取第一个可用的云端模型为主辩（本地模型只做裁判，不参与辩论）'
       : '不指定时，取第一个可用的网页通道为主辩';
   function toggleCandidate(id: string) {
     const next = selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id];
@@ -374,8 +377,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               <h4>参与成员</h4>
               <p className="muted">可用性由 health() 实时判定。不可用的成员不会混进名单，也不会在发起后被静默丢弃。</p>
               <div className="research-candidates">
-                {candidates.length === 0 && <p className="muted">正在读取可用成员…</p>}
-                {candidates.map(item => {
+                {debateParticipants.length === 0 && <p className="muted">正在读取可用成员…</p>}
+                {debateParticipants.map(item => {
                   const blocked = !item.available || (debateLeadMode === 'local' && item.type === 'web');
                   return (
                     <label key={item.id} className={`research-candidate${blocked ? ' off' : ''}`} title={item.detail ?? ''}>
@@ -384,7 +387,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                       <span className="research-tag">{item.type === 'web' ? '网页' : item.type === 'local' ? '本地' : '云端'}</span>
                       <span>{item.label}</span>
                       {!item.available && <span className="research-tag">{item.detail ?? '不可用'}</span>}
-                      {item.available && debateLeadMode === 'local' && item.type === 'web' && <span className="research-tag">本地主导不参与</span>}
+                      {item.available && debateLeadMode === 'local' && item.type === 'web' && <span className="research-tag">离网主导不参与</span>}
                     </label>
                   );
                 })}
