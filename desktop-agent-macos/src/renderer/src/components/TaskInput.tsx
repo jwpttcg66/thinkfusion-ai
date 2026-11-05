@@ -20,6 +20,15 @@ export function TaskInput(props: {
   value: string;
   workspace: string;
   permission: PermissionPreset;
+  /**
+   * 研究设置的口子就开在这个输入框里。
+   *
+   * 它影响的是「下一条怎么问」（谁当主导人、哪些模型可以参辩、要不要出报告），
+   * 和左边那两个胶囊是同一类东西；单占一行摆在框外，既多出一条横线，也让
+   * 输入框上方空出一块不属于任何东西的地方。
+   */
+  researchLabel: string;
+  researchDetail: string;
   disabled?: boolean;
   busy?: boolean;
   /** Lets the shell move the caret into the composer, e.g. after "新任务". */
@@ -27,6 +36,7 @@ export function TaskInput(props: {
   onChange: (value: string) => void;
   onPermissionChange: (preset: PermissionPreset) => void;
   onChooseWorkspace: () => void;
+  onOpenResearch: () => void;
   onSubmit: () => void;
 }) {
   const [menu, setMenu] = useState<'none' | 'permission'>('none');
@@ -82,6 +92,21 @@ export function TaskInput(props: {
             <span>◐</span>
             <span className="label">{permission.label}</span>
             <span className="caret">▾</span>
+          </button>
+
+          {/* 和其他两个胶囊同一种形状、同样高度：这里放的是「下一条怎么问」，
+              点开才是那块面板。设置项读完就收起来，不占正文一行。 */}
+          <button
+            className="chip-btn"
+            type="button"
+            onClick={props.onOpenResearch}
+            title={`研究设置：主导人、参辩模型与报告。下一条提问用「${props.researchLabel} / ${props.researchDetail}」`}
+            aria-label={`研究设置（下一条：${props.researchLabel}）`}
+          >
+            <span>◎</span>
+            <span className="label">研究设置</span>
+            <span className="chip-dot" aria-hidden="true">·</span>
+            <span className="chip-sub">{props.researchLabel}</span>
           </button>
         </div>
 

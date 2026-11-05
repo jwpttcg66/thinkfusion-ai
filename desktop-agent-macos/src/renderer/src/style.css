@@ -642,6 +642,26 @@ button:disabled {
   color: var(--text-3);
 }
 
+/* 胶囊里的第二段字：说清这一项现在是什么，字号再小一号、颜色再淡，
+   让「研究设置」本身仍然是可点的那个词。 */
+.chip-btn .chip-dot {
+  color: var(--text-3);
+  margin: 0 -1px;
+}
+
+.chip-btn .chip-sub {
+  font-size: 10.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 1px;
+}
+
+.chip-btn:hover .chip-sub {
+  color: var(--text-2);
+}
+
 .send {
   width: 30px;
   height: 30px;
@@ -2631,8 +2651,6 @@ button:disabled {
 .research-message { margin: 6px 0; padding-left: 8px; border-left: 2px solid var(--line); font-size: 12px; }
 .research-message p { margin: 2px 0; white-space: pre-wrap; }
 .research-tag { font-size: 10px; color: var(--muted, #777); }
-.research-bar { display: flex; align-items: center; gap: 10px; padding: 0 2px 6px; font-size: 11px; }
-.research-private { padding: 1px 6px; border-radius: 10px; background: #e7f6ec; color: #1d6b39; }
 
 /* 辩论主导方式：三个并列卡片，选中的那个要有明确边框，不靠颜色独断。 */
 .research-leads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 14px; }

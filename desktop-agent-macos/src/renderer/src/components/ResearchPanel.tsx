@@ -178,9 +178,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
             <>
               <h3>执行模式 = 谁当主导人</h3>
               <p className="muted">
-                回答永远来自网页通道。执行模式选的是**由谁主导回答之后的处理**。主导人固定做三件事：
-                ① 汇总全部网页回答（结论 / 一致 / 分歧 / 存疑）；② 从分歧里指定辩题；
-                ③ 读辩论记录，给出最终意见。没有实质分歧时它就不发起辩论。
+                回答永远来自网页通道。执行模式选的是<b>谁当主导人</b>——它不参与第一轮回答，
+                只负责回答之后的三件事：① 汇总全部网页回答（结论 / 一致 / 分歧 / 存疑）；
+                ② 从分歧里指定辩题；③ 读辩论记录，给出最终意见。没有实质分歧时它就不发起辩论。
               </p>
               <div className="research-modes">
                 {MODES.map(item => (

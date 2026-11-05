@@ -1144,17 +1144,13 @@ export default function App() {
             does not. */}
         <div className="dock">
           <div className="inner">
-            <div className="research-bar">
-              <button className="btn ghost" type="button" onClick={() => setResearchOpen(true)}>研究设置</button>
-              <span className="muted">
-                下一条：{({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
-                {' / '}{executionConfig.strategy ?? '默认并行'}
-              </span>
-            </div>
             <TaskInput
               value={prompt}
               workspace={workspace}
               permission={permission}
+              // 研究设置的入口在输入框里（第三个胶囊），这里只把「下一条用什么」传下去。
+              researchLabel={({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
+              researchDetail={executionConfig.strategy ?? '默认并行'}
               inputRef={composerRef}
               // Disabled while a channel is answering and while the task waits
               // for an answer: in both cases a second prompt would race the
@@ -1167,6 +1163,7 @@ export default function App() {
               }}
               onPermissionChange={changePermission}
               onChooseWorkspace={chooseWorkspace}
+              onOpenResearch={() => setResearchOpen(true)}
               onSubmit={submit}
             />
           </div>
