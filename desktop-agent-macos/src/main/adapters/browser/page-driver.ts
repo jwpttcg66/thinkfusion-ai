@@ -1081,6 +1081,12 @@ const THREAD_LIST_SCRIPT = `(() => {
  * menu-shaped button, then dispatch the full pointer sequence.
  */
 const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async () => {
+  const trace = [];
+  // The whole script is wrapped, and the body below keeps its own indentation:
+  // without the catch, a thrown error reaches the caller as 「Script failed to
+  // execute」 with no message and no line — which is what a single broken escape
+  // in this template looks like from the outside.
+  try {
   const target = ${JSON.stringify(threadUrl)};
   const id = (() => {
     try {
@@ -1092,6 +1098,7 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
     } catch { return ''; }
   })();
   if (!id) return { ok: false, detail: '这个地址里没有会话编号' };
+  trace.push('id=' + id);
 
   // On screen, not merely laid out.
   //
@@ -1167,6 +1174,7 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
   };
 
   let link = await rowLink();
+  trace.push('row=' + (link ? 'found' : 'none'));
 
   // A collapsed sidebar has no rows at all. Opening it is a click the user
   // would have made anyway, and it is the only way to reach the row.
@@ -1202,6 +1210,7 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
     // is already there so the second never happens.
     for (let attempt = 0; attempt < 2 && openers.length > 0 && !link; attempt += 1) {
       press(openers[0]);
+      trace.push('openers=' + openers.length + ' press=' + label(openers[0]).slice(0, 40));
       // The history list is fetched after the panel opens — and on DeepSeek a
       // row for a conversation that answered a second ago is not there yet. Poll
       // instead of looking once and concluding it was archived.
@@ -1211,7 +1220,8 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
       }
     }
   }
-  if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档' };
+  trace.push('afterOpen=' + (link ? 'found' : 'none'));
+  if (!link) return { ok: false, detail: '侧栏里找不到这条会话，可能太旧或已被归档', trace };
 
   // First pass: open the drawer, scroll the row into view, and hand back where
   // it is. The caller moves the real pointer there — a row that reveals its
@@ -1225,17 +1235,18 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
   // Some rows only reveal their actions button while the pointer is over them —
   // DeepSeek renders it in the DOM but hides it until hover. Moving the pointer
   // onto the row is what a person would do first.
-  const linkRect = link.getBoundingClientRect();
-  const hoverAt = {
-    bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
-    pointerId: 1, pointerType: 'mouse', isPrimary: true,
-    clientX: linkRect.left + linkRect.width / 2, clientY: linkRect.top + linkRect.height / 2
+  const hoverRow = (row) => {
+    const linkRect = row.getBoundingClientRect();
+    const hoverAt = {
+      bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
+      pointerId: 1, pointerType: 'mouse', isPrimary: true,
+      clientX: linkRect.left + linkRect.width / 2, clientY: linkRect.top + linkRect.height / 2
+    };
+    row.dispatchEvent(new PointerEvent('pointerover', hoverAt));
+    row.dispatchEvent(new MouseEvent('mouseover', hoverAt));
+    row.dispatchEvent(new PointerEvent('pointermove', hoverAt));
+    row.dispatchEvent(new MouseEvent('mousemove', hoverAt));
   };
-  link.dispatchEvent(new PointerEvent('pointerover', hoverAt));
-  link.dispatchEvent(new MouseEvent('mouseover', hoverAt));
-  link.dispatchEvent(new PointerEvent('pointermove', hoverAt));
-  link.dispatchEvent(new MouseEvent('mousemove', hoverAt));
-  await sleep(200);
 
   // Walk up to the smallest ancestor that owns a menu button. Smallest matters:
   // one level too high and every row in the list matches, which is how a delete
@@ -1246,12 +1257,12 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
       .map((value) => (value || '').toString().trim())
       .filter(Boolean)
       .join(' ');
-  const menuButton = (() => {
+  const menuButtonFor = (row) => {
     // Start at the row, not at its parent. DeepSeek keeps its actions button
     // *inside* the anchor, so starting one level up skipped it entirely; and a
     // scope holding more than one conversation is no longer this row, so the
     // walk stops there instead of wandering into the whole list.
-    let node = link;
+    let node = row;
     for (let depth = 0; depth < 6 && node; depth += 1) {
       if (node.querySelectorAll('a[href]').length > 1) break;
       // Custom elements are controls too. Gemini renders its per-row actions as
@@ -1261,7 +1272,7 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
       // 「这条会话旁边没有「更多」菜单」 on a row that had one.
       const controls = [...node.querySelectorAll('button, [role="button"], *')]
         .filter((el) => el.matches('button, [role="button"]') || el.tagName.includes('-'))
-        .filter((el) => el !== link)
+        .filter((el) => el !== row)
         .filter(visible);
       // Text before class, and the innermost of the matches.
       //
@@ -1289,10 +1300,7 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
       node = node.parentElement;
     }
     return null;
-  })();
-  if (!menuButton) return { ok: false, detail: '这条会话旁边没有「更多」菜单' };
-
-  press(menuButton);
+  };
 
   const findDeleteItem = () => {
     const named = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [class*="menu-item"], [class*="MenuItem"]')]
@@ -1315,65 +1323,89 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
     return loose.length > 0 ? loose[0] : null;
   };
 
-  let item = null;
-  for (let wait = 0; wait < 8 && !item; wait += 1) {
+  // One attempt, start to finish: hover the row, open its menu, press 删除,
+  // press the confirmation. It reports what the page did, never what was meant:
+  //   'gone'      the row is not listed (already deleted, or the list re-rendered)
+  //   'no-menu'   the row currently has no actions button
+  //   'no-item'   the menu opened but had no 删除 item
+  //   'no-dialog' the item was pressed and no confirmation dialog appeared
+  //   'pressed'   the dialog was confirmed — the caller still has to check
+  const pressDeleteOnce = async () => {
+    const row = await rowLink();
+    if (!row) return 'gone';
+    hoverRow(row);
     await sleep(200);
-    item = findDeleteItem();
-  }
-  if (!item) return { ok: false, detail: '菜单里没有「删除」这一项' };
+    const menuButton = menuButtonFor(row);
+    if (!menuButton) return 'no-menu';
+    press(menuButton);
+    trace.push('menu=' + describe(menuButton).slice(0, 40));
 
-  // The text node is not always the click target: Kimi puts the word in a
-  // span three levels inside the row that handles the click. But walking up
-  // from a real option is wrong in the other direction — DeepSeek's option is a
-  // div with no role, so an unconditional climb reached the floating wrapper
-  // that positions the menu and clicked that instead. So: climb only when the
-  // match is a bare text leaf, which is exactly the Kimi shape.
-  let clickTarget = item;
-  if (!item.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href]') && item.children.length === 0) {
-    for (let depth = 0; depth < 3 && clickTarget.parentElement; depth += 1) {
-      const up = clickTarget.parentElement;
-      if (up.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href], li')) {
+    let item = null;
+    for (let wait = 0; wait < 8 && !item; wait += 1) {
+      await sleep(200);
+      item = findDeleteItem();
+    }
+    if (!item) return 'no-item';
+    trace.push('item=' + (item.innerText || '').trim().slice(0, 20) + ' tag=' + item.tagName
+      + ' state=' + (item.closest('[data-state]')?.getAttribute('data-state') ?? '-')
+      + ' openMenus=' + [...document.querySelectorAll('[data-radix-menu-content][data-state="open"]')].length);
+
+    // The text node is not always the click target: Kimi puts the word in a
+    // span three levels inside the row that handles the click. But walking up
+    // from a real option is wrong in the other direction — DeepSeek's option is
+    // a div with no role, so an unconditional climb reached the floating
+    // wrapper that positions the menu and clicked that instead. So: climb only
+    // when the match is a bare text leaf, which is exactly the Kimi shape.
+    let clickTarget = item;
+    if (!item.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href]') && item.children.length === 0) {
+      for (let depth = 0; depth < 3 && clickTarget.parentElement; depth += 1) {
+        const up = clickTarget.parentElement;
+        if (up.matches('button, [role="menuitem"], [role="menuitemradio"], [role="button"], a[href], li')) {
+          clickTarget = up;
+          break;
+        }
         clickTarget = up;
-        break;
       }
-      clickTarget = up;
     }
-  }
 
-  press(clickTarget);
-  // Some sites put the confirm one click later. Clicking it is safe even when
-  // it never appears, because nothing is clicked unless the label says delete.
-  //
-  // The words are measured, not guessed: ChatGPT says 「删除聊天」, Gemini says
-  // 「删除」, DeepSeek says 「删除该对话」. Matching only the short word left
-  // DeepSeek's dialog open, and the row therefore stayed in the sidebar — which
-  // the caller reported as 「点了删除，但侧栏里这条会话还在」 over a delete that
-  // had never been confirmed. Anything starting with delete counts, minus the
-  // buttons that mean the opposite.
-  const isConfirm = (text) => {
-    const value = (text || '').trim();
-    if (/取消|cancel|关闭|close|返回|back/i.test(value)) return false;
-    return /^(删除|确定|确认|remove|delete)/i.test(value);
-  };
-  for (let wait = 0; wait < 8; wait += 1) {
-    await sleep(200);
-    const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"], [class*="confirm"]')].filter(visible);
-    let confirm = null;
-    for (const dialog of dialogs) {
-      const buttons = [...dialog.querySelectorAll('button, [role="button"], [class*="button"]')].filter(visible);
-      // The last matching button is the destructive one on every site seen so
-      // far (cancel is rendered first); taking the first would press 取消.
-      const hits = buttons.filter((el) => isConfirm(el.innerText));
-      if (hits.length > 0) {
-        confirm = hits[hits.length - 1];
-        break;
+    press(clickTarget);
+
+    // Some sites put the confirm one click later. Clicking it is safe even when
+    // it never appears, because nothing is clicked unless the label says delete.
+    //
+    // The words are measured, not guessed: ChatGPT says 「删除聊天」, Gemini says
+    // 「删除」, DeepSeek says 「删除该对话」. Matching only the short word left
+    // DeepSeek's dialog open, and the row therefore stayed in the sidebar — which
+    // the caller reported as 「点了删除，但侧栏里这条会话还在」 over a delete that
+    // had never been confirmed. Anything starting with delete counts, minus the
+    // buttons that mean the opposite.
+    const isConfirm = (text) => {
+      const value = (text || '').trim();
+      if (/取消|cancel|关闭|close|返回|back/i.test(value)) return false;
+      return /^(删除|确定|确认|remove|delete)/i.test(value);
+    };
+    for (let wait = 0; wait < 25; wait += 1) {
+      await sleep(200);
+      const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"], [class*="confirm"]')].filter(visible);
+      let confirm = null;
+      for (const dialog of dialogs) {
+        const buttons = [...dialog.querySelectorAll('button, [role="button"], [class*="button"]')].filter(visible);
+        // The last matching button is the destructive one on every site seen so
+        // far (cancel is rendered first); taking the first would press 取消.
+        const hits = buttons.filter((el) => isConfirm(el.innerText));
+        if (hits.length > 0) {
+          confirm = hits[hits.length - 1];
+          break;
+        }
+      }
+      if (confirm) {
+        press(confirm);
+        trace.push('confirm=' + (confirm.innerText || '').trim().slice(0, 20) + ' at=' + wait);
+        return 'pressed';
       }
     }
-    if (confirm) {
-      press(confirm);
-      break;
-    }
-  }
+    return 'no-dialog';
+  };
 
   // Evidence, not belief: a click is a request. The row is gone only when the
   // sidebar stops listing it — and stays that way.
@@ -1384,18 +1416,65 @@ const DELETE_CHAT_SCRIPT = (threadUrl: string, locateOnly = false) => `(async ()
   // conversation that was never deleted was reported as cleaned while it sat in
   // the sidebar the whole time. Requiring the absence to hold for more than one
   // poll is what separates "deleted" from "re-rendering".
-  let missingSince = 0;
-  for (let wait = 0; wait < 30; wait += 1) {
-    await sleep(200);
-    if (await rowLink()) {
-      missingSince = 0;
-      continue;
+  const rowGone = async (polls = 30) => {
+    let missingSince = 0;
+    for (let wait = 0; wait < polls; wait += 1) {
+      await sleep(200);
+      if (await rowLink()) {
+        missingSince = 0;
+        continue;
+      }
+      if (missingSince === 0) missingSince = Date.now();
+      if (Date.now() - missingSince >= 1200) {
+        trace.push('gone@' + wait);
+        return true;
+      }
     }
-    if (missingSince === 0) missingSince = Date.now();
-    if (Date.now() - missingSince >= 1200) return { ok: true };
+    return false;
+  };
+
+  // Two attempts, because a press that does nothing is a real and repeatable
+  // outcome — measured on ChatGPT, the second delete of a run opens the menu,
+  // finds 删除, presses it on a live node inside the single open menu, and the
+  // menu closes without any confirmation dialog appearing; the row stays.
+  // Nothing was deleted in that attempt, so a second one cannot double-delete:
+  // it re-resolves the row and the menu and presses again. Success is still
+  // decided by the row being gone, never by a press having been made.
+  let state = '';
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) {
+      // Dismiss anything the failed attempt left open before pressing again.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(600);
+    }
+    state = await pressDeleteOnce();
+    trace.push('attempt' + attempt + '=' + state);
+    if (state === 'gone') return { ok: true, trace };
+    // A pressed confirmation is worth the full wait: the site is deleting right
+    // now. An attempt that never reached a dialog has nothing pending, so it
+    // only needs long enough to rule out a site that deletes without asking.
+    if (await rowGone(state === 'pressed' ? 30 : 15)) return { ok: true, trace };
   }
-  return { ok: false, detail: '点了删除，但侧栏里这条会话还在' };
+
+  if (state === 'no-menu') return { ok: false, detail: '这条会话旁边没有「更多」菜单', trace };
+  if (state === 'no-item') return { ok: false, detail: '菜单里没有「删除」这一项', trace };
+  trace.push('still path=' + location.pathname.slice(0, 40));
+  return { ok: false, detail: '点了删除，但侧栏里这条会话还在', trace };
+  } catch (error) {
+    return { ok: false, detail: '脚本异常：' + ((error && (error.stack || error.message)) || String(error)), trace };
+  }
 })()`;
+
+/**
+ * The page-side delete script, exposed for one test.
+ *
+ * A page script that no longer compiles fails at click time as
+ * 「Script failed to execute」, which names no cause: a regex written as `\/`
+ * inside the template comes out as `/` and opens a line comment, and the whole
+ * delete is dead until someone reads the built bundle. One `new Function` in
+ * check-adapter turns that into a failing test with the script's name on it.
+ */
+export const deleteChatScriptForSyntaxCheck = DELETE_CHAT_SCRIPT;
 
 const FOCUS_SCRIPT = (selectors: SelectorProfile) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
@@ -1703,10 +1782,15 @@ export function createElectronDriver(
         at?: { x: number; y: number };
       };
       if (located?.at) await hoverPoint(view, located.at.x, located.at.y);
-      return (await callPage(view, '删除网页会话', DELETE_CHAT_SCRIPT(threadUrl))) as {
+      const result = (await callPage(view, '删除网页会话', DELETE_CHAT_SCRIPT(threadUrl))) as {
         ok: boolean;
         detail?: string;
+        trace?: string[];
       };
+      if (process.env.TF_TRACE_DELETE === '1') {
+        console.log('[delete] ' + threadUrl + ' => ' + JSON.stringify(result));
+      }
+      return { ok: result.ok, detail: result.detail };
     },
     threadCandidates: async () =>
       (await callPage(view, '读取会话列表', THREAD_LIST_SCRIPT)) as ThreadCandidate[],

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, PROBE_VERSION } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, PROBE_VERSION, deleteChatScriptForSyntaxCheck } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
@@ -998,4 +998,17 @@ test('a real short answer is never mistaken for an echo', () => {
   assert.equal(isOwnPromptEcho('17 乘 3 等于 51。', question), false, '引用了问题但更长');
   assert.equal(isOwnPromptEcho('51', '17 乘 3 等于 51 吗？'), false, '两个字的答案不参与判断');
   assert.equal(isOwnPromptEcho('51'), false, '没发过问题就无从判断');
+});
+
+// 页面脚本是拼出来的字符串，写坏一个转义（`\/` 在模板里变成 `/`，把后半行变成
+// 注释）不会有任何编译期错误——它只会在用户点删除时以「Script failed to execute」
+// 出现，而那句话不指向任何位置。这条用例把每个页面脚本都真正编译一遍。
+test('every page script still compiles', () => {
+  const sources = {
+    deleteChat: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624'),
+    deleteChatLocateOnly: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624', true)
+  };
+  for (const [name, source] of Object.entries(sources)) {
+    assert.doesNotThrow(() => new Function('return ' + source), `${name} 编译失败`);
+  }
 });
