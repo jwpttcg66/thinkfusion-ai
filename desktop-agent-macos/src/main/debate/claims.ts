@@ -75,6 +75,9 @@ export function analyseRound(messages: readonly DebateMessage[], roundIndex: num
     kindCue: claim.kindCue,
     span: claim.span,
     assumptions: claim.assumptions,
+    // 这一句提到的出处与数字原样留下：Phase 3 的证据评价读的是它们，
+    // 而不是回头再切一遍句子（切法一变，位置就对不上了）。
+    evidenceDrafts: claim.evidence,
     // 「被质疑过」是这一轮的事实：它出现在一条争议里。判没判过是后面的事。
     status: disputed.has(claim.id) ? 'challenged' : 'proposed'
   }));

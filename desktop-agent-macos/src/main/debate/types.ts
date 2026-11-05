@@ -6,7 +6,9 @@
  * 修正另存一条 `revision` 并带 `targetMessageId`，绝不覆盖前一条。
  */
 
-import type { ClaimKind, ClaimSpan } from '../../shared/fusion';
+import type { ClaimKind, ClaimSpan, EvidenceKind } from '../../shared/fusion';
+import type { PageCitation } from '../../shared/evidence';
+import type { EvidenceDraft } from '../synthesis/claim-extractor';
 import type { DebateLead, DebateLeadMode, LeadPlan } from './lead';
 
 export type DebateStrategy = 'standard' | 'deep' | 'adversarial';
@@ -48,6 +50,12 @@ export interface DebateClaim {
   span: ClaimSpan;
   /** 句子自带的前提/范围。它们是 `scope` 争议的依据，不是形容词。 */
   assumptions: string[];
+  /**
+   * 这句话在原话里提到的出处/数字（Phase 3 / AC-09 的证据草稿）。
+   * 只是「作者提到了它」，不是我们核对过的来源，`verified` 会如实标成
+   * `reported` 或 `unverified`。
+   */
+  evidenceDrafts?: EvidenceDraft[];
   status: ClaimStatus;
 }
 
@@ -122,6 +130,13 @@ export interface DebateMessage {
    * 得靠这个地址，不能靠 deleteConversation。
    */
   threadUrl?: string;
+  /**
+   * 页面在回答里给出的引用链接（Phase 3 / AC-09）。
+   *
+   * 只有网页通道有；本地/云端模型的回答里没有 DOM，也就没有可抓的链接。
+   * 抓不到就是 `undefined`，不补空数组：老辩论文件读出来也该是「没记录过」。
+   */
+  citations?: PageCitation[];
   createdAt: number;
 }
 
@@ -153,6 +168,205 @@ export interface DebateRevision {
   /** 这位被质疑的是哪几句。 */
   targetClaimIds: string[];
   createdAt: number;
+}
+
+/**
+ * 证据的可核验程度（Phase 3 / AC-09）。
+ *
+ * - `page-link`：页面把链接画出来了，我们读到了真实地址。仍然不等于内容为真，
+ *   只等于「这条来源确实存在，可以点开复核」。
+ * - `reported`：主张自己说「官方文档 / 源码 / 实测」，但页面没给链接。这是作者
+ *   的说法，不是我们核对过的来源。
+ * - `unverified`：连说法都没有，只有一句断言或一个数字。
+ */
+export type EvidenceVerification = 'page-link' | 'reported' | 'unverified';
+
+/**
+ * 一条证据（任务书 5 的 `DebateEvidence` + 7.3 要求的来源元数据）。
+ *
+ * 与综合层 `shared/fusion.ts` 的 `Evidence` 是两份东西：那份给界面排序用，
+ * 这份要能回答「这条结论凭什么」，所以必须带地址、时间、指纹、同源标识和
+ * 评价理由。字段缺一个，回溯时就少一环。
+ */
+export interface DebateEvidence {
+  evidenceId: string;
+  /** 支持或反驳哪些主张。空数组 = 页面给了这条来源，但没法归到某一句上。 */
+  claimIds: string[];
+  kind: EvidenceKind;
+  /** 原文里的那一小段，不是整句。 */
+  excerpt: string;
+  /** 原文定位：哪条消息、第几字到第几字。 */
+  span: ClaimSpan;
+  /** 哪个通道/来源给的。 */
+  sourceId: string;
+  messageId: string;
+  roundIndex: number;
+  /** 页面给的原始地址。 */
+  url?: string;
+  /** 展开已知跳转包装后的地址；没有包装就没有这个字段。 */
+  finalUrl?: string;
+  /** 抓取时页面标题。 */
+  pageTitle?: string;
+  /** 读到这条来源的时间（不是发布的时间）。 */
+  fetchedAt?: number;
+  /** 内容指纹：去空白与标点后的 FNV-1a。用于识别「同一段文字」。 */
+  fingerprint: string;
+  /** 同源标识：同一份原始材料的所有记录共用它（见 `sameOrigin`）。 */
+  originKey: string | null;
+  /** 同一份材料的第一条记录；非空表示这条是转载/重复。 */
+  duplicateOf?: string;
+  /** 同一份材料只算一次独立来源：第一条为 true，其后为 false。 */
+  independent: boolean;
+  verified: EvidenceVerification;
+  /** 评价理由，必须能读成人话。 */
+  assessment: string;
+}
+
+/** 论证图的节点类型（Phase 3 / AC-08）。 */
+export type ArgumentNodeType = 'claim' | 'evidence' | 'challenge' | 'judgment';
+
+/**
+ * 论证边。任务书列了六种，这里一个不多一个不少。
+ *
+ * 刻意没有 `unrelated` / `refines`：前者是零信息，后者和 `qualifies` 的边界
+ * 永远说不清。判不出关系就不连边。
+ */
+export type ArgumentRelation =
+  | 'supports'
+  | 'rebuts'
+  | 'qualifies'
+  | 'depends_on'
+  | 'contradicts'
+  | 'derived_from';
+
+export interface ArgumentNode {
+  nodeId: string;
+  type: ArgumentNodeType;
+  /** 指回原对象：claimId / evidenceId / disputeId / judgmentId。 */
+  ref: string;
+  roundIndex: number;
+  agentId?: string;
+  /** 节点上的原话。judgment 存的是判断理由的第一句。 */
+  text: string;
+  /** claim 才有。 */
+  kind?: ClaimKind;
+  /** claim 才有；裁判判完会更新。 */
+  status?: ClaimStatus;
+  /** evidence 才有。 */
+  url?: string;
+  /** judgment 才有。 */
+  verdict?: Verdict;
+  /** judgment 才有。 */
+  dimension?: JudgeDimension;
+  createdAt: number;
+}
+
+/**
+ * 一条论证边。
+ *
+ * `roundIndex` + `source` 是硬要求（用户明确说过「不要只保存最终图，否则
+ * 还原不出这条关系是怎么形成的」）：一条边必须能回答「第几轮、由哪条发言/
+ * 哪条争议/哪次修订产生」。
+ */
+export interface ArgumentEdge {
+  edgeId: string;
+  fromId: string;
+  toId: string;
+  relation: ArgumentRelation;
+  roundIndex: number;
+  /** 凭什么连这条边（规则原话）。 */
+  rationale: string;
+  source: {
+    messageIds: string[];
+    claimIds: string[];
+    disputeId?: string;
+    revisionId?: string;
+    evidenceId?: string;
+  };
+  createdAt: number;
+}
+
+export interface ArgumentGraph {
+  version: 1;
+  nodes: ArgumentNode[];
+  edges: ArgumentEdge[];
+  /** 达到节点上限时被丢掉的节点数。有值就说明这不是全部，别当成完整图。 */
+  truncated?: number;
+}
+
+/**
+ * 三维裁判（Phase 3 / AC-11）。
+ *
+ * 三个维度各自给结论，**不压成一个分数**：逻辑对而证据不足，和证据强而逻辑
+ * 跳步，是两种完全不同的判断，压成平均分之后这两种就再也分不开了。
+ */
+export type JudgeDimension = 'logic' | 'evidence' | 'counterexample';
+
+export type LogicOutcome = 'valid' | 'questionable' | 'invalid' | 'not_applicable';
+export type EvidenceOutcome = 'sufficient' | 'partial' | 'unverifiable' | 'absent' | 'conflicting';
+export type CounterexampleOutcome = 'none' | 'limited' | 'refuted';
+
+export interface DimensionJudgment {
+  dimension: JudgeDimension;
+  /** 这一维自己的结论。不进任何平均值。 */
+  outcome: LogicOutcome | EvidenceOutcome | CounterexampleOutcome;
+  rationale: string;
+  /** 判成这个结论的依据（信号、原话、来源）。 */
+  signals: string[];
+  evidenceIds: string[];
+  sourceRefs?: {
+    claimIds?: string[];
+    messageIds?: string[];
+    disputeIds?: string[];
+  };
+}
+
+/** 五档结论（任务书 5.1）。`insufficient_evidence` 不等于 `unsupported`。 */
+export type Verdict =
+  | 'supported'
+  | 'partially_supported'
+  | 'unsupported'
+  | 'contradicted'
+  | 'insufficient_evidence';
+
+export interface ClaimJudgment {
+  judgmentId: string;
+  claimId: string;
+  agentId: string;
+  claimText: string;
+  /** 固定三项，顺序为 逻辑 / 证据 / 反例。 */
+  dimensions: DimensionJudgment[];
+  verdict: Verdict;
+  /** 哪几维决定了这个结论；读的人据此知道分歧在哪一维。 */
+  decidedBy: JudgeDimension[];
+  rationale: string;
+  evidenceIds: string[];
+  /** 这条结论与多数发言不同，但证据支持它（TF-D-011 的情形）。 */
+  minority: boolean;
+  createdAt: number;
+}
+
+/** 整场结论。 */
+export interface DebateVerdict {
+  verdictId: string;
+  debateId: string;
+  createdAt: number;
+  verdict: Verdict;
+  /** 被支持的主张原文；无法判定时为 null，不挑一句看起来顺眼的顶上。 */
+  conclusion: string | null;
+  conclusionClaimId?: string;
+  claimJudgments: ClaimJudgment[];
+  /** 整场三维的独立结论，供界面直接显示。 */
+  dimensions: DimensionJudgment[];
+  rationale: string;
+  minorityWins: boolean;
+  minorityReason?: string;
+  /** 仍然悬着的问题：缺证据、来源冲突、裁判判不了。 */
+  unresolved: string[];
+  /** 这一版是本地规则，不是模型裁决（模型裁决见 `judge/engine.ts`）。 */
+  backend: 'rules';
+  /** 明确写死一句，防止以后有人把 `claimJudgments` 当票箱。 */
+  note: string;
 }
 
 export interface DebateRound {
@@ -197,6 +411,21 @@ export interface DebateState {
    * 原话不被覆盖：`before` / `after` 都是原文，这里只补「改没改、为什么」。
    */
   revisions?: DebateRevision[];
+  /**
+   * 采集到的证据（Phase 3 / AC-09）。每轮重算一次全量：证据是从原话和页面
+   * 链接里读出来的，重算比增量合并更不容易漏；条数很小，代价可以忽略。
+   * 老文件没有这个字段，读出来是 undefined。
+   */
+  evidence?: DebateEvidence[];
+  /**
+   * 论证图（Phase 3 / AC-08）。每轮追加，边带轮次与来源对象。
+   * 老文件没有这个字段。
+   */
+  graph?: ArgumentGraph;
+  /** 每一条主张的三维判断。老文件没有这个字段。 */
+  judgments?: ClaimJudgment[];
+  /** 整场结论（五档）。裁判没跑或没有可判主张时为 undefined。 */
+  verdict?: DebateVerdict;
   createdAt: number;
   updatedAt: number;
   stopReason?: string;

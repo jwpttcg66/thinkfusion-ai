@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
+import { buildGraph } from './argument-graph';
 import { analyseRound, challengesFor } from './claims';
+import { buildEvidence } from './evidence';
+import { judgeDebate } from './judges';
 import { applyDecisions, revisionOf } from './revision';
 import { DebateStore } from './store';
 import {
@@ -201,8 +204,17 @@ export class DebateOrchestrator {
         state.disputes = [...(state.disputes ?? []), ...disputes];
         state.revisions = [...(state.revisions ?? []), ...revisions];
         state.minorities = collectMinorities(state.rounds);
+        // 证据与论证图每轮重算：主张状态会被后面的决策改写，重算才能保证
+        // 图里的 `status` 与主张本身一致；条数很小，代价可以忽略。
+        state.evidence = buildEvidence(state);
+        state.graph = buildGraph(state);
         state.updatedAt = this.now();
-        if (!this.persist(state)) return;
+        if (!this.persist(state)) {
+          // 用户中止：已经说出口的话保留，但仍然给一个结论，别让记录停在半场。
+          this.conclude(state);
+          this.store.save(state);
+          return;
+        }
 
         if (!current()) return;
         // 没有能读上下文的成员时，后续轮次只会把同一句原话再问一遍（网页
@@ -225,11 +237,20 @@ export class DebateOrchestrator {
           break;
         }
       }
-      if (!current()) return;
+      if (!current()) {
+        // resume 之后旧 generation 的 run 必须退出，不能把结论写到新状态上。
+        if (this.generation.get(state.debateId) === generation) {
+          this.conclude(state);
+          this.store.save(state);
+        }
+        return;
+      }
       if (state.status === 'running') {
         state.status = 'completed';
         state.stopReason = state.stopReason ?? `已达到 ${state.config.maxRounds} 轮上限`;
       }
+      // 结论永远落在最后一轮之后：读的是全部发言与证据，不是最后一句。
+      this.conclude(state);
       state.updatedAt = this.now();
       this.persist(state);
     } catch (error) {
@@ -253,6 +274,21 @@ export class DebateOrchestrator {
     }
     this.store.save(state);
     return state.status !== 'stopped';
+  }
+
+  /**
+   * 跑裁判，把结论写进这一场。
+   *
+   * 纯规则、不调模型：不会因为某位裁判模型不可用而让一场辩论没有结论，
+   * 也不额外占预算。模型裁决那条路在 `judge/engine.ts`（会话级），两者
+   * 互不替代，`backend` 字段分别写着 `rules` / `model`。
+   */
+  private conclude(state: DebateState): void {
+    const run = judgeDebate(state, { at: this.now() });
+    state.judgments = run.judgments;
+    state.verdict = run.verdict;
+    // 图要带上判断节点，所以结论之后再建一次。
+    state.graph = buildGraph(state);
   }
 
   private async runRound(
