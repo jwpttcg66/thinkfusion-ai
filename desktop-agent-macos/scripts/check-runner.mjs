@@ -220,13 +220,18 @@ test('a research question asks every channel and produces a synthesis', async ()
   const messages = runner.messages(started.conversationId);
   const synthesis = messages.find(message => message.role === 'synthesis');
   assert.ok(synthesis, 'expected a synthesis message');
-  assert.ok(Array.isArray(synthesis.synthesis.consensus));
+  const card = synthesis.synthesis;
+  assert.ok(Array.isArray(card.consensus));
+  // 两条路：主导人读过全部回答、它的结论就是这张卡的全部内容；或者没有主导人，
+  // 规则版必须自己说出分歧/缺口/降级。不能两条都不占——那才是「什么都没说」。
   assert.ok(
-    synthesis.synthesis.disputed.length > 0 ||
-      synthesis.synthesis.gaps.length > 0 ||
-      synthesis.synthesis.degraded === true,
-    'a synthesis must surface disagreement, a gap, or admit it degraded'
+    card.leadSummary === true ||
+      card.disputed.length > 0 ||
+      card.gaps.length > 0 ||
+      card.degraded === true,
+    'a synthesis must either come from a lead or surface disagreement, a gap, or admit it degraded'
   );
+  assert.ok(card.recommendation.length > 0, '写点东西，不能是一张空卡');
 });
 
 test('one channel failing does not lose the other answer', async () => {
@@ -879,4 +884,55 @@ test('结论里残留的编号、站点名换回观点标签', () => {
   assert.equal(rewriteSourceRefs('来源9 说了什么？', answers), '来源9 说了什么？');
   // 真答案里本来就有「来源」两个字的不动。
   assert.equal(rewriteSourceRefs('数据来源：一份公开报告。', answers), '数据来源：一份公开报告。');
+});
+
+// ---------------------------------------------------------------------------
+// 一轮只留一套结论：主导人写了汇总，规则版的「分歧/共识/覆盖缺口」不再并列
+// ---------------------------------------------------------------------------
+
+test('主导人给了汇总后，规则版的分歧/共识/缺口不再挂到同一张卡上', async () => {
+  // 这两句在规则引擎里确实会被判成 contradicts（见 check-fusion），所以「清空」
+  // 这件事是可验证的，不是因为本来就空。
+  const channels = [
+    fakeChannel('a', async () => answer('这个接口提供了多线程安全保证，可以放心并发调用。')),
+    fakeChannel('b', async () => answer('这个接口没有提供多线程安全保证，不能并发调用。'))
+  ];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => execPool(channels, { local: () => SUMMARY_REPLY }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined)
+  });
+  const conversation = await runner.start({ text: '这个接口能并发调用吗', executionConfig: { executionMode: 'local' } });
+  await settle(runner, conversation.conversationId);
+
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.recommendation, SUMMARY_REPLY);
+  assert.equal(synthesis?.leadSummary, true, '这张卡的内容由主导人给');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'local');
+  assert.deepEqual(synthesis?.disputed, [], '主导人说过【分歧】没有，就不该再列「分歧（n）」');
+  assert.deepEqual(synthesis?.consensus, []);
+  assert.deepEqual(synthesis?.gap ?? synthesis?.gaps, []);
+  assert.deepEqual(synthesis?.overlap, []);
+  assert.equal(synthesis?.degraded, false, '主导人给了结论，就不是「未形成共识」');
+});
+
+test('主导人没成时，规则版综合还在（兜底不能被一起清掉）', async () => {
+  const channels = [
+    fakeChannel('a', async () => answer('这个接口提供了多线程安全保证，可以放心并发调用。')),
+    fakeChannel('b', async () => answer('这个接口没有提供多线程安全保证，不能并发调用。'))
+  ];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => execPool(channels, { local: () => { throw new Error('模型没起来'); } }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined)
+  });
+  const conversation = await runner.start({ text: '这个接口能并发调用吗', executionConfig: { executionMode: 'local' } });
+  await settle(runner, conversation.conversationId);
+
+  const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(synthesis?.leadSummary ?? false, false, '没成就不算主导人结论');
+  assert.equal(synthesis?.fusion?.leadAgentId, undefined, '没成就不记主导人');
+  assert.ok((synthesis?.disputed?.length ?? 0) > 0, '规则版分歧保留');
 });

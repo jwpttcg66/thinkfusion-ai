@@ -192,3 +192,40 @@ export function looksLikePlaceholder(text: string): boolean {
   if (lines.length === 0) return true;
   return lines.every(line => PLACEHOLDER_LINES.has(line));
 }
+
+/**
+ * 主导人写的五段汇总 → 五个段落。
+ *
+ * 提示词要求按【结论】【一致】【分歧】【存疑】【辩题】分段，模型通常把五段写成
+ * 一整段，只留方括号当分隔。整段塞进一个 `<p>` 里，五段就连成一片：真机上一张
+ * 卡片里几百字没有换行，读的人得自己在里面找「分歧在哪」。
+ *
+ * 标记少于两个时不做拆分（普通结论、或者只写了一句【结论】的话），原样交回去，
+ * 由调用方按一段渲染。
+ */
+export const SUMMARY_SECTION_MARKS = ['结论', '一致', '分歧', '存疑', '辩题'] as const;
+export type SummarySectionTitle = (typeof SUMMARY_SECTION_MARKS)[number];
+
+export interface SummarySection {
+  /** 第一个标记之前若还有开场白，作为没有标题的一段，`title` 为空串。 */
+  title: SummarySectionTitle | '';
+  body: string;
+}
+
+export function splitSummarySections(raw: string): SummarySection[] {
+  if (!raw) return [];
+  const marks = [...raw.matchAll(/【(结论|一致|分歧|存疑|辩题)】/g)];
+  if (marks.length < 2) return [];
+
+  const sections: SummarySection[] = [];
+  const head = raw.slice(0, marks[0].index ?? 0).trim();
+  if (head) sections.push({ title: '', body: head });
+
+  marks.forEach((mark, index) => {
+    const start = (mark.index ?? 0) + mark[0].length;
+    const next = marks[index + 1];
+    const end = next ? (next.index ?? raw.length) : raw.length;
+    sections.push({ title: mark[1] as SummarySectionTitle, body: raw.slice(start, end).trim() });
+  });
+  return sections;
+}

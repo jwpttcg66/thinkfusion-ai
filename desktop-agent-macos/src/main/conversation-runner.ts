@@ -569,8 +569,8 @@ export class ConversationRunner {
       }
     }
 
-    // 主导人的产物盖过默认综合：结论/最终意见来自主导人，结构（观点/证据/
-    // 分歧）仍是规则算的，两者不能混着说。
+    // 主导人的产物盖过默认综合：结论、以及「哪些一致、哪里有分歧」这套结构，
+    // 都由读过全部回答的主导人来说，规则版那套不再并列展示。
     if (execution && synthesis) {
       const { lead, summaryText, topics, debate, verdictText } = execution;
       const backend: NonNullable<Synthesis['fusion']>['backend'] =
@@ -598,6 +598,21 @@ export class ConversationRunner {
         synthesis = {
           ...synthesis,
           recommendation: text,
+          // 界面据此只显示这一段；和下面的清空是同一件事的两半。
+          leadSummary: true,
+          // 主导人给了结论，这一轮的结构也归它：五段里就有【一致】和【分歧】。
+          // 规则版那套「共同提到 / 分歧 / 覆盖缺口 / 只有一个通道提到的」是按
+          // 句子比对算出来的另一份判断，两者并存时界面就成了两张互相矛盾的
+          // 结论——真机同一张卡片里，上面写着「没有实质性结论冲突」，下面却列
+          // 着「分歧（3）」，而那三条是拿同一家的两句半截话凑的。一次只留一套。
+          consensus: [],
+          disputed: [],
+          unique: [],
+          gaps: [],
+          overlap: [],
+          // 「没有形成共识」说的是规则没能把句子对上，不适用于主导人读完全文
+          // 之后写下的结论。
+          degraded: false,
           fusion: synthesis.fusion
             ? {
                 ...synthesis.fusion,

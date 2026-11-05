@@ -1881,6 +1881,54 @@ button:disabled {
   line-height: 1.7;
 }
 
+/* 主导人写的五段汇总：一段一块，各带一个小标题。
+   以前五段挤在一个 <p> 里，几百字连成一片，找「分歧」得自己扫。 */
+.summary-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-section {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.summary-section.no-title {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.summary-section-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text-3);
+  letter-spacing: 1px;
+}
+
+.summary-section-body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* 分歧是这张卡里最该被看见的一段，标题和左边那条线都加重。 */
+.summary-section.is-dispute {
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-left: 2px solid #d9a441;
+  border-radius: 0 6px 6px 0;
+  background: #fffcf5;
+}
+
+.summary-section.is-dispute .summary-section-title {
+  color: #9a6a12;
+}
+
 /* 结论里的「观点A」。字母前面那枚小方块就是站点图标（K / G / ✦），
    和左边来源栏、页面栏上的图标是同一个记号——读者不用回头数 A 是谁。 */
 .opinion-tag {

@@ -121,6 +121,15 @@ export interface Synthesis {
   overlap?: string[];
   recommendation: string;
   /**
+   * 这段结论，以及「哪些一致、哪里有分歧」这套结构，都是主导人读过全部回答
+   * 之后写的。置位时规则版那几段（共识/分歧/缺口/共同提到）已经清空，界面
+   * 只该显示主导人这一段。
+   *
+   * 单独立一个字段，而不是靠 `fusion.leadAgentId` 推：没有融合报告时
+   * （`fusion` 为空）照样要能说清这段字是谁写的。
+   */
+  leadSummary?: boolean;
+  /**
    * True when the answers could not be segmented into claims and the result is
    * just the answers side by side. The UI must say so rather than present it as
    * a real synthesis.

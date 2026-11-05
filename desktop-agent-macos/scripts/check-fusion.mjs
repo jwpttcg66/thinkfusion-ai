@@ -312,3 +312,25 @@ test('heuristicPick 选正文最长的那一份（确定性兜底）', () => {
   assert.equal(picked.agentId, 'long');
   assert.match(picked.reason, /完整度/);
 });
+
+test('同一份回答里前后两句相反，不算「两家分歧」；跨通道相反才算', () => {
+  // 真机（网页主导的一张综合卡）：下面那栏「分歧（3）」里三条都是
+  // 「ChatGPT 说 A ／ ChatGPT 说 B」——同一份回答自己的论证被当成了两家打架。
+  const sameChannel = fuse([
+    input('a', 'm1', '这个接口提供了多线程安全保证，可以并发调用。但文档也说这个接口没有提供多线程安全保证，不能并发调用。'),
+    input('b', 'm2', '接口文档写得含糊，建议直接看源码。')
+  ]);
+  assert.ok(
+    sameChannel.relations.some(relation => relation.kind === 'contradicts'),
+    '规则确实看出了这两句相反'
+  );
+  assert.equal(toSynthesis(sameChannel).disputed.length, 0, '同一家的两句话不是分歧');
+
+  const crossChannel = fuse([
+    input('a', 'm1', '这个接口提供了多线程安全保证，可以放心并发调用。'),
+    input('b', 'm2', '这个接口没有提供多线程安全保证，不能并发调用。')
+  ]);
+  const disputes = toSynthesis(crossChannel).disputed;
+  assert.equal(disputes.length, 1, '两家说法相反才算分歧');
+  assert.notEqual(disputes[0].positions[0].channelId, disputes[0].positions[1].channelId);
+});

@@ -7,6 +7,7 @@ import {
   type ConversationMessage,
   type Synthesis
 } from '../../../shared/conversation';
+import { splitSummarySections } from '../../../shared/text';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -176,7 +177,9 @@ export function ConversationView(props: {
           </div>
         )}
 
-        {synthesis && !synthesis.degraded && synthesis.disputed.length === 0 && (
+        {/* 这句是规则版综合的读法（「句子没对上」）。主导人读过全文，它自己在
+            【分歧】里说了有没有矛盾，这里再说一遍就成了第三套说法。 */}
+        {synthesis && !(synthesis.leadSummary ?? synthesis.fusion?.leadAgentId) && !synthesis.degraded && synthesis.disputed.length === 0 && (
           <p className="conv-hint">
             各通道没有互相矛盾，但这不等于结论已经被验证——只说明没人提出反例。
           </p>
@@ -448,19 +451,49 @@ function SynthesisCard({
   labels: ReadonlyMap<string, string>;
   opinionTags: OpinionTag[];
 }) {
+  /**
+   * 这张卡里只有一套结论。
+   *
+   * `recommendation` 是主导人写的五段汇总时（runner 会记下 leadAgentId），
+   * 【一致】【分歧】【存疑】都在那段话里；规则引擎按句子比对算出来的
+   * 「共同提到 / 分歧 / 覆盖缺口 / 只有一个通道提到的」是另一份判断，而且更弱。
+   * 两者一起显示时，同一张卡上会出现「没有实质性结论冲突」和「分歧（3）」并存，
+   * 那三条还是拿同一家的半截话凑的。所以有主导人汇总时只显示它，规则版留给
+   * 主导人没成的那一轮。
+   */
+  const led = Boolean(synthesis.leadSummary ?? synthesis.fusion?.leadAgentId);
+  const sections = led ? splitSummarySections(synthesis.recommendation) : [];
+  const structured = !led;
+
   return (
-    <article className={`synthesis ${synthesis.degraded ? 'degraded' : ''}`}>
+    <article className={`synthesis ${structured && synthesis.degraded ? 'degraded' : ''}`}>
       <div className="synthesis-head">
         <span className="synthesis-mark">◈</span>
         <b>ThinkFusion 综合分析</b>
-        {synthesis.degraded && <span className="synthesis-warn">未形成共识，以下是并列结果</span>}
+        {structured && synthesis.degraded && <span className="synthesis-warn">未形成共识，以下是并列结果</span>}
       </div>
 
-      <p className="synthesis-lead">
-        <SourceRefText text={synthesis.recommendation} tags={opinionTags} />
-      </p>
+      {sections.length > 0 ? (
+        <div className="summary-sections">
+          {sections.map((section, index) => (
+            <section
+              key={index}
+              className={`summary-section${section.title === '分歧' ? ' is-dispute' : ''}${section.title ? '' : ' no-title'}`}
+            >
+              {section.title && <h4 className="summary-section-title">{section.title}</h4>}
+              <p className="summary-section-body">
+                <SourceRefText text={section.body || '没有'} tags={opinionTags} />
+              </p>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <p className="synthesis-lead">
+          <SourceRefText text={synthesis.recommendation} tags={opinionTags} />
+        </p>
+      )}
 
-      {synthesis.overlap && synthesis.overlap.length > 0 && (
+      {structured && synthesis.overlap && synthesis.overlap.length > 0 && (
         <p className="synthesis-overlap">
           <span className="synthesis-overlap-label">共同提到</span>
           {synthesis.overlap.map(item => (
@@ -471,7 +504,7 @@ function SynthesisCard({
         </p>
       )}
 
-      {synthesis.disputed.length > 0 && (
+      {structured && synthesis.disputed.length > 0 && (
         <div className="synthesis-block">
           <h4>分歧（{synthesis.disputed.length}）</h4>
           {synthesis.disputed.map((dispute, index) => (
@@ -495,7 +528,7 @@ function SynthesisCard({
         </div>
       )}
 
-      {synthesis.consensus.length > 0 && (
+      {structured && synthesis.consensus.length > 0 && (
         <div className="synthesis-block">
           <h4>共识（{synthesis.consensus.length}）</h4>
           <ul>
@@ -517,7 +550,7 @@ function SynthesisCard({
         </div>
       )}
 
-      {synthesis.gaps.length > 0 && (
+      {structured && synthesis.gaps.length > 0 && (
         <div className="synthesis-block">
           <h4>覆盖缺口（{synthesis.gaps.length}）</h4>
           <ul>
@@ -531,7 +564,7 @@ function SynthesisCard({
         </div>
       )}
 
-      {synthesis.unique.length > 0 && (
+      {structured && synthesis.unique.length > 0 && (
         <details className="synthesis-block">
           <summary>只有一个通道提到的（{synthesis.unique.length}）</summary>
           <ul>

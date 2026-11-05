@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cutSpeakerLabels, looksLikePlaceholder, normalizeAnswerText, stripChrome } from '../out-test/shared/text.js';
+import { cutSpeakerLabels, looksLikePlaceholder, normalizeAnswerText, splitSummarySections, stripChrome } from '../out-test/shared/text.js';
 
 test('the prompt echo in front of the assistant label is cut away', () => {
   // Captured from chatgpt.com: the page flattens its speaker labels into the
@@ -122,4 +122,31 @@ test('a still 「正在思考中」 is not an answer', () => {
   // 真回答里有 User 这个词（代码、示例）很正常，只有整段都是状态词时才算占位。
   assert.equal(looksLikePlaceholder('User\n光合作用是植物把光能转成化学能。'), false);
   assert.equal(looksLikePlaceholder('光合作用是植物把光能转成化学能。'), false);
+});
+
+test('五段汇总按【结论】【一致】【分歧】【存疑】【辩题】切成段', () => {
+  // 真机原文：五段挤在一行，方括号是唯一的分隔。整段塞进一个 <p> 里，
+  // 卡片就是几百字连成一片，「分歧在哪」得自己找。
+  const summary =
+    '【结论】没有定论。【一致】都提到陪伴。【分歧】观点A 说涨、观点B 说跌。' +
+    '【存疑】观点C 没有依据。【辩题】到底涨还是跌？';
+  assert.deepEqual(splitSummarySections(summary), [
+    { title: '结论', body: '没有定论。' },
+    { title: '一致', body: '都提到陪伴。' },
+    { title: '分歧', body: '观点A 说涨、观点B 说跌。' },
+    { title: '存疑', body: '观点C 没有依据。' },
+    { title: '辩题', body: '到底涨还是跌？' }
+  ]);
+
+  // 标记前有开场白的，留着，不丢字。
+  assert.deepEqual(splitSummarySections('先说一句。\n【结论】A\n【分歧】B'), [
+    { title: '', body: '先说一句。' },
+    { title: '结论', body: 'A' },
+    { title: '分歧', body: 'B' }
+  ]);
+
+  // 只有一个标记、或者根本没有标记：不是五段汇总，原样交回去由调用方按一段渲染。
+  assert.deepEqual(splitSummarySections('【结论】只有一句结论。'), []);
+  assert.deepEqual(splitSummarySections('普通的一段话。'), []);
+  assert.deepEqual(splitSummarySections(''), []);
 });

@@ -178,6 +178,10 @@ export function toSynthesis(report: FusionReport): Synthesis {
     const from = byId.get(relation.from);
     const to = byId.get(relation.to);
     if (!from || !to) continue;
+    // 「分歧」是各家的说法不一样。同一条回答里的两句话互相反驳，那是这段话
+    // 自己的论证结构，不是两个来源对不上——按分歧展示会读成
+    // 「ChatGPT 说 A ／ ChatGPT 说 B」。
+    if (from.sources[0]?.channelId === to.sources[0]?.channelId) continue;
     if (disputed.some(item => item.topic === from.text.slice(0, 40))) continue;
     disputed.push({
       topic: from.text.slice(0, 40),
