@@ -84,6 +84,19 @@ export function signedOutPathsFor(sourceId: string): readonly string[] {
 }
 
 /**
+ * The site's own wording for 「this thread has run out of context」.
+ *
+ * Empty for every site whose banner has not been seen, which is the honest
+ * answer: an empty list means "the driver cannot recognise this state here",
+ * not "this never happens". Recognising it is what turns a thread that can no
+ * longer answer into a fresh thread instead of a question that waits out its
+ * whole timeout.
+ */
+export function contextLimitFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.contextLimit ?? [];
+}
+
+/**
  * Whether a signed-out page is still worth asking.
  *
  * Off unless the site says so, because for most of them "signed out" means the

@@ -75,6 +75,20 @@ export interface ProviderProfile {
    */
   signedOutPaths?: readonly string[];
   /**
+   * The site's own words for 「this conversation is out of context」.
+   *
+   * A chat site stops accepting questions in a thread once the context window
+   * is full, and it says so with a banner. That banner is not an answer, and
+   * re-asking into the same thread can only fail again — the only way forward
+   * is a fresh thread. Knowing the wording is what lets the driver tell that
+   * state apart from an ordinary quiet page.
+   *
+   * Declared per site because it is copy, not markup, and every site writes its
+   * own. Only listed where it has actually been seen: a guessed phrase is worse
+   * than none, because it can match an answer that merely discusses the topic.
+   */
+  contextLimit?: readonly string[];
+  /**
    * Can the page still answer while signed out?
    *
    * False for every channel that treats a signed-out session as a dead end —

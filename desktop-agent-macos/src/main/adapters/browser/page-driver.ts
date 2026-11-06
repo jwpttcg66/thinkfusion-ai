@@ -59,8 +59,10 @@ function isUnderPath(raw: string, prefix: string): boolean {
  * and the probe is readable while the page is still loading.
  * 7: the transcript is read from the tallest scrollable container that holds
  * the composer, so a sidebar cannot be mistaken for an answer.
+ * 8: the probe also reports `contextFull` — the site's own 「上下文窗口已达上限」
+ *    banner, which is neither an answer nor something to wait for.
  */
-export const PROBE_VERSION = '7';
+export const PROBE_VERSION = '8';
 
 /**
  * Shortest tail considered an answer while the page is still generating.
@@ -71,6 +73,20 @@ export const PROBE_VERSION = '7';
  * has stopped, the tail is whatever it left there.
  */
 const MIN_TAIL_CHARS = 24;
+
+/**
+ * 站点说「这条会话装不下更多上下文了」。
+ *
+ * 单独一个错误类型，因为它的出路和别的失败都不一样：不是重试、不是等一等，
+ * 而是换一条会话重新问。调用方靠它来决定「先开新会话，再把这句话发一次」，
+ * 而不是把一次本来能答完的提问记成失败。
+ */
+export class ContextLimitError extends Error {
+  constructor(readonly siteLabel: string) {
+    super(`${siteLabel} 这条会话的上下文已满，需要开新会话再问`);
+    this.name = 'ContextLimitError';
+  }
+}
 
 
 export interface MessageSnapshot {
@@ -106,6 +122,15 @@ export interface PageProbe {
    * only symptom is an answer that never arrives.
    */
   signedOut: boolean;
+  /**
+   * The site is saying this thread has run out of context.
+   *
+   * Only ever true when the profile declares the site's wording
+   * (`ProviderProfile.contextLimit`). Not an error state of the page: the
+   * composer still works, the thread simply cannot take another question — so
+   * the honest response is a fresh thread, never a longer wait.
+   */
+  contextFull?: boolean;
   hasInput: boolean;
   inputKind: string;
   hasSendButton: boolean;
@@ -231,12 +256,14 @@ export const PROBE_SCRIPT = (
   selectors: SelectorProfile,
   reasoning: readonly string[] = [],
   signedOutSelectors: readonly string[] = [],
-  signedOutText: readonly string[] = []
+  signedOutText: readonly string[] = [],
+  contextLimitText: readonly string[] = []
 ) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const reasoning = ${JSON.stringify(reasoning)};
   const signedOutSelectors = ${JSON.stringify(signedOutSelectors)};
   const signedOutText = ${JSON.stringify(signedOutText)};
+  const contextLimitText = ${JSON.stringify(contextLimitText)};
 
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -458,6 +485,44 @@ export const PROBE_SCRIPT = (
     ? rawText.split(composerText).join('')
     : rawText).slice(-120000);
 
+  // 会话上下文满了没有。
+  //
+  // 站点用一条横幅说这件事（ChatGPT：「上下文窗口已达上限」），而那横幅就
+  // 躺在转录里——不认它，它会被当成一条回答收下来，或者被当成「页面没反应」
+  // 白等到超时。两条错都不该发生：这不是回答，也不该等。
+  //
+  // 分两步是为了不花钱。整段转录里连这几个字都没有，就一定不是这个状态，
+  // 而这一步只是一次字符串比较；只有命中了才去逐个元素 innerText——那是
+  // 强制布局，在几千个节点的页面上按元素翻一遍会把探测拖成卡顿。
+  //
+  // 命中之后只认**短块**，且不认消息容器：回答正文里完全可以出现这句话
+  // （比如让它解释什么叫上下文窗口），而一段正文比一条横幅长得多。
+  const squeeze = (value) => (value || '').replace(/\\s+/g, '');
+  let contextFull = false;
+  if (contextLimitText.length) {
+    const flat = squeeze(rawText);
+    const wanted = contextLimitText.map(squeeze).filter((text) => text.length > 0);
+    if (wanted.some((marker) => flat.includes(marker))) {
+      const inMessage = (el) => {
+        try {
+          return !!el.closest('[data-message-author-role], article, [class*="markdown"], [class*="prose"]');
+        } catch {
+          return false;
+        }
+      };
+      contextFull = [...document.querySelectorAll('div, section, aside, [role="alert"], [role="status"]')]
+        .filter(visible)
+        .some((el) => {
+          if (inMessage(el)) return false;
+          // 包住输入框的容器是整块对话区，不是横幅。
+          if (composer && el.contains(composer)) return false;
+          const text = squeeze(el.innerText);
+          if (!text || text.length > 300) return false;
+          return wanted.some((marker) => text.includes(marker));
+        });
+    }
+  }
+
   return {
     url: location.href,
     title: document.title,
@@ -468,6 +533,7 @@ export const PROBE_SCRIPT = (
     viewportHeight: window.innerHeight,
     hasPasswordField: firstMatch('passwordField').length > 0,
     signedOut,
+    contextFull,
     hasInput: !!composer,
     inputKind: kindOf(composer),
     hasSendButton: sendButtons.length > 0 || structuralSend,
@@ -1803,12 +1869,14 @@ export function createElectronDriver(
   selectors: SelectorProfile | (() => SelectorProfile),
   reasoning: readonly string[] | (() => readonly string[]) = [],
   signedOutSelectors: readonly string[] | (() => readonly string[]) = [],
-  signedOutText: readonly string[] | (() => readonly string[]) = []
+  signedOutText: readonly string[] | (() => readonly string[]) = [],
+  contextLimitText: readonly string[] | (() => readonly string[]) = []
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
   const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
   const signedOut = typeof signedOutSelectors === 'function' ? signedOutSelectors : () => signedOutSelectors;
   const signedOutWords = typeof signedOutText === 'function' ? signedOutText : () => signedOutText;
+  const contextWords = typeof contextLimitText === 'function' ? contextLimitText : () => contextLimitText;
   /**
    * Whether *we* attached the debugger, so detaching cannot take the user's own
    * DevTools session with it.
@@ -1844,7 +1912,7 @@ export function createElectronDriver(
       }
     },
     probe: async () => {
-      const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords());
+      const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords(), contextWords());
       // A page that is still loading is not necessarily an unusable one: Gemini
       // draws its whole chat UI while a request keeps the load open, so the
       // status said 「页面正在加载」 over a page the user could already type in.
@@ -2132,6 +2200,13 @@ export class ChatPageDriver {
   private readonly signedOutOf: () => readonly string[];
   private readonly signedOutPathsOf: () => readonly string[];
   /**
+   * The site's own wording for 「this thread is out of context」.
+   *
+   * Resolved per call for the same reason as the selectors: it is site
+   * knowledge, and a site can be re-profiled while the app runs.
+   */
+  private readonly contextLimitOf: () => readonly string[];
+  /**
    * Public, because the callers that talk to the user about "this page" need a
    * name for it and must not supply their own. `AgentOrchestrator` used to write
    * "DeepSeek 未登录" over a driver that could be pointing at any site.
@@ -2178,6 +2253,12 @@ export class ChatPageDriver {
        * one address while signed out.
        */
       signedOutPaths?: readonly string[] | (() => readonly string[]);
+      /**
+       * The words the site uses when a thread has run out of context (see
+       * `ProviderProfile.contextLimit`). Empty means "this state cannot be
+       * recognised on this site", which is a complete answer.
+       */
+      contextLimit?: readonly string[] | (() => readonly string[]);
     }
   ) {
     const hosts = options.hosts;
@@ -2191,6 +2272,8 @@ export class ChatPageDriver {
     const signedOutPaths = options.signedOutPaths ?? [];
     this.signedOutPathsOf =
       typeof signedOutPaths === 'function' ? signedOutPaths : () => signedOutPaths;
+    const contextLimit = options.contextLimit ?? [];
+    this.contextLimitOf = typeof contextLimit === 'function' ? contextLimit : () => contextLimit;
     this.siteLabel = options.siteLabel;
   }
 
@@ -2228,6 +2311,7 @@ export class ChatPageDriver {
         hasSendButton: false,
         generating: false,
         messageCount: 0,
+        contextFull: false,
         detail: url ? `页面不是 ${this.siteLabel}` : '页面尚未加载'
       };
     }
@@ -2256,6 +2340,7 @@ export class ChatPageDriver {
         hasSendButton: probe.hasSendButton,
         generating: probe.generating,
         messageCount: probe.messageCount,
+        contextFull: probe.contextFull === true,
         // Signed out is not the same as unusable: Gemini answers guests and
         // only the history/heavier models need an account. So the detail says
         // what is missing instead of pretending the page is broken — the
@@ -2273,7 +2358,11 @@ export class ChatPageDriver {
                 : '未找到输入框，页面结构可能已变化'
           : signedOut
             ? `未登录：仍可使用，登录后可保存记录并解锁更高模型`
-            : undefined,
+            // 上下文满是「这条会话不能再问了」，不是「这一页坏了」：输入框还在，
+            // 换一条会话就能继续。所以状态照样报可用，只是说明下一次会发生什么。
+            : probe.contextFull
+              ? '这条会话的上下文已满，下一次提问会先开一条新会话'
+              : undefined,
         diagnostics: diagnosticsOf(probe)
       };
     } catch (error) {
@@ -2285,6 +2374,7 @@ export class ChatPageDriver {
         hasSendButton: false,
         generating: false,
         messageCount: 0,
+        contextFull: false,
         // A probe that could not read the page while it was still loading is a
         // wait, not a fault: the debugger path is unavailable when the user has
         // DevTools open, and then `executeJavaScript` queues until the load
@@ -2703,6 +2793,10 @@ export class ChatPageDriver {
         continue;
       }
 
+      // 上下文满的横幅一出现，这一问就注定发不出去（站点把它拦在门口）。
+      // 继续等提交迹象只会把 12 秒花在确认一件不会发生的事上。
+      if (probe.contextFull === true) throw new ContextLimitError(this.siteLabel);
+
       const composerCleared = composerBaseline.length > 0 && probe.composerText.trim().length === 0;
       const countGrew = probe.messageCount > before.messageCount;
       const generating = probe.generating;
@@ -2815,6 +2909,11 @@ export class ChatPageDriver {
           continue; // Page mid-navigation; keep waiting until timeout.
         }
         lastSeen = probe;
+
+        // 站点自己说这条会话装不下更多上下文了。这时候不会有回答——横幅会
+        // 一直挂在页面上，等到超时只会得到「没有确认到属于本轮的新回答」，
+        // 而真正的原因（该换会话了）反而丢了。所以立刻结束等待。
+        if (probe.contextFull === true) throw new ContextLimitError(this.siteLabel);
 
         const next = selectAnswerText(probe, snapshot, sentText);
         if (!next) continue;

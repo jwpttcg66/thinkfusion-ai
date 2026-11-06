@@ -26,7 +26,7 @@ import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
 import { isSameThread, navigateToThread } from './adapters/browser/thread-navigation';
-import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { OllamaProvider } from './providers/ollama';
 import { OpenAICompatibleProvider } from './providers/openai-compatible';
@@ -229,7 +229,8 @@ function adapterFor(id: string): ChatPageDriver {
             () => selectorsFor(id),
             () => reasoningFor(id),
             () => signedOutFor(id),
-            () => signedOutTextFor(id)
+            () => signedOutTextFor(id),
+            () => contextLimitFor(id)
           )
         : null;
     },
@@ -252,6 +253,9 @@ function adapterFor(id: string): ChatPageDriver {
       // The second shape of the same state: a site that redirects to its own
       // sign-in route instead of rendering a guest page (Gemini does both).
       signedOutPaths: () => signedOutPathsFor(id),
+      // 站点说「这条会话装不下更多上下文了」时用的那句话。认出来才有出路：
+      // 换一条会话再问，而不是把横幅当回答、或者白等到超时。
+      contextLimit: () => contextLimitFor(id),
       siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
     }
   );
@@ -1058,7 +1062,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
   }
 
   const discovered = await runInPage<DiscoveredSelectors>(view, DISCOVER_SCRIPT, '读取页面结构');
-  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base, reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId)), '检查页面状态');
+  const before = await runInPage<PageProbe>(view, PROBE_SCRIPT(base, reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId), contextLimitFor(sourceId)), '检查页面状态');
 
   const probe = {
     hasInput: before.hasInput,
@@ -1095,7 +1099,7 @@ async function learnSelectorsFor(sourceId: string): Promise<LearnSelectorsReport
 
   let after = before;
   if (Object.keys(proposal.candidate).length > 0) {
-    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate), reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId)), '验证新选择器');
+    after = await runInPage<PageProbe>(view, PROBE_SCRIPT(mergeProfile(base, proposal.candidate), reasoningFor(sourceId), signedOutFor(sourceId), signedOutTextFor(sourceId), contextLimitFor(sourceId)), '验证新选择器');
   }
 
   const verdict = confirmRepairs(proposal.candidate, after);

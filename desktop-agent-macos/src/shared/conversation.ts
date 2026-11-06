@@ -231,6 +231,13 @@ export interface ChannelStatus {
   loggedIn: boolean;
   pageReady: boolean;
   generating: boolean;
+  /**
+   * 站点自己说「这条会话装不下更多上下文了」（ChatGPT：「上下文窗口已达上限」）。
+   *
+   * 不算不可用：输入框还在，换一条会话就能继续。但它是一个要处理的状态——
+   * 下一条问题会落到一条新会话里，所以界面不该装作什么都没发生。
+   */
+  contextFull?: boolean;
   detail?: string;
 }
 

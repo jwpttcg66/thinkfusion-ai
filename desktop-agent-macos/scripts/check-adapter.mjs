@@ -17,8 +17,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, deleteChatScriptForSyntaxCheck, CITATIONS_SCRIPT } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, PROBE_SCRIPT, ContextLimitError, deleteChatScriptForSyntaxCheck, CITATIONS_SCRIPT } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
+);
+const { PageBrowserAdapter } = await import(
+  path.join(root, 'out/adapter/main/adapters/browser/page-adapter.js')
 );
 const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await import(
   path.join(root, 'out/adapter/main/adapters/providers/deepseek.js')
@@ -1028,11 +1031,142 @@ test('a real short answer is never mistaken for an echo', () => {
   assert.equal(isOwnPromptEcho('51'), false, '没发过问题就无从判断');
 });
 
+// ---------------------------------------------------------------------------
+// 会话上下文满：认出来，换一条会话，再说一次
+// ---------------------------------------------------------------------------
+
+function adapterStub(options = {}) {
+  const calls = { status: 0, newChat: 0, send: 0, wait: 0 };
+  return {
+    calls,
+    adapter: {
+      async getStatus() {
+        calls.status += 1;
+        // 开过新会话之后页面就是干净的——被测的行为正是这一点。
+        const contextFull = calls.newChat === 0 && options.contextFull === true;
+        return {
+          url: 'https://chatgpt.com/c/old-thread',
+          pageReady: true,
+          loggedIn: true,
+          hasInput: true,
+          hasSendButton: true,
+          generating: false,
+          messageCount: contextFull ? 2 : 0,
+          contextFull,
+          detail: contextFull ? '这条会话的上下文已满，下一次提问会先开一条新会话' : undefined
+        };
+      },
+      async threadCandidates() {
+        return [];
+      },
+      async sendMessage() {
+        calls.send += 1;
+        return {
+          submitted: true,
+          snapshotBefore: {
+            messageCount: 0,
+            lastText: '',
+            url: 'https://chatgpt.com/c/old-thread',
+            capturedAt: Date.now(),
+            conversationText: '',
+            composerText: ''
+          },
+          method: 'button',
+          signals: [],
+          waitedMs: 1
+        };
+      },
+      async waitForAnswer() {
+        calls.wait += 1;
+        if (options.failFirstWait === true && calls.wait === 1) throw new ContextLimitError('ChatGPT');
+        return options.answer ?? 'Go 更适合高并发的服务端。';
+      },
+      async settledUrl() {
+        return 'https://chatgpt.com/c/new-thread';
+      },
+      async newConversation() {
+        calls.newChat += 1;
+        return options.newChatOk === false
+          ? { ok: false, detail: '未找到「新对话」入口（NEW_CHAT_BUTTON_NOT_FOUND）' }
+          : { ok: true };
+      }
+    }
+  };
+}
+
+test('a probe that sees the banner reports a full thread, not a broken page', async () => {
+  const page = scriptedPage([state({ contextFull: true, messageCount: 2, conversationText: '前面已经问了十几轮' })]);
+  const driver = new ChatPageDriver(() => page, {
+    hosts: DEEPSEEK_HOSTS,
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'ChatGPT',
+    contextLimit: ['上下文窗口已达上限']
+  });
+
+  const status = await driver.getStatus();
+  assert.equal(status.contextFull, true);
+  assert.equal(status.pageReady, true, '输入框还在：这一页没坏，只是这条会话满了');
+  assert.match(status.detail, /上下文已满/, '状态里要说明下一次会发生什么');
+});
+
+test('the banner ends the wait at once instead of burning the whole timeout', async () => {
+  const page = scriptedPage([state({ contextFull: true, messageCount: 2, conversationText: '前面已经问了十几轮' })]);
+  const driver = adapterFor(page);
+  const started = Date.now();
+
+  await assert.rejects(
+    () => driver.waitForAnswer('r1', state({ messageCount: 0 }), 60_000, 'hello'),
+    error => {
+      assert.equal(error.name, 'ContextLimitError');
+      assert.match(error.message, /上下文已满/);
+      return true;
+    }
+  );
+  assert.ok(Date.now() - started < 1000, `不该等到超时，实际 ${String(Date.now() - started)}ms`);
+});
+
+test('a full thread is replaced before the question is sent', async () => {
+  const stub = adapterStub({ contextFull: true });
+  const adapter = new PageBrowserAdapter({ id: 'chatgpt', label: 'ChatGPT', adapter: stub.adapter });
+
+  const answer = await adapter.ask({ question: 'java 和 go 谁更适合做服务器', stage: 'initial' });
+
+  assert.equal(stub.calls.newChat, 1, '问之前就要换一条会话');
+  assert.equal(stub.calls.send, 1);
+  assert.equal(answer.text, 'Go 更适合高并发的服务端。');
+  assert.match(answer.attribution.note, /已自动开新会话/, '这一步要留痕，别让它变成看不见的绕路');
+});
+
+test('the banner appearing after the send resets once and asks again', async () => {
+  const stub = adapterStub({ failFirstWait: true });
+  const adapter = new PageBrowserAdapter({ id: 'chatgpt', label: 'ChatGPT', adapter: stub.adapter });
+
+  const answer = await adapter.ask({ question: '那延迟呢', stage: 'followup' });
+
+  assert.equal(stub.calls.wait, 2, '第一问被站点退回，重开之后要再问一次');
+  assert.equal(stub.calls.newChat, 1);
+  assert.equal(stub.calls.send, 2);
+  assert.equal(answer.text, 'Go 更适合高并发的服务端。');
+});
+
+test('a page that cannot start a new chat says so instead of waiting three minutes', async () => {
+  const stub = adapterStub({ contextFull: true, newChatOk: false });
+  const adapter = new PageBrowserAdapter({ id: 'chatgpt', label: 'ChatGPT', adapter: stub.adapter });
+
+  await assert.rejects(() => adapter.ask({ question: 'java 和 go 谁更适合做服务器', stage: 'initial' }), error => {
+    assert.match(error.message, /上下文已满/);
+    assert.match(error.message, /新对话/, '要说清楚下一步该做什么');
+    return true;
+  });
+  assert.equal(stub.calls.send, 0, '换不了会话就别把问题发进那条注定被退回的会话');
+});
+
 // 页面脚本是拼出来的字符串，写坏一个转义（`\/` 在模板里变成 `/`，把后半行变成
 // 注释）不会有任何编译期错误——它只会在用户点删除时以「Script failed to execute」
 // 出现，而那句话不指向任何位置。这条用例把每个页面脚本都真正编译一遍。
 test('every page script still compiles', () => {
   const sources = {
+    probe: PROBE_SCRIPT(DEEPSEEK_SELECTORS, [], [], [], ['上下文窗口已达上限']),
     deleteChat: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624'),
     deleteChatLocateOnly: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624', true),
     // 读引用是模板拼出来的脚本：拼接被转义吃掉时页面不会报错，只会静默返回空，

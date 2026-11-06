@@ -17,6 +17,7 @@
   },
   "include": [
     "src/main/adapters/browser/page-driver.ts",
+    "src/main/adapters/browser/page-adapter.ts",
     "src/main/adapters/providers/**/*.ts",
     "src/main/task-manager.ts",
     "src/shared/**/*.ts"

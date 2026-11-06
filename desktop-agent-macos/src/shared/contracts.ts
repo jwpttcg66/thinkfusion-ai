@@ -262,6 +262,8 @@ export interface DeepSeekStatus {
   hasSendButton: boolean;
   generating: boolean;
   messageCount: number;
+  /** 站点说这条会话的上下文已满（见 `ChannelStatus.contextFull`）。 */
+  contextFull?: boolean;
   detail?: string;
   diagnostics?: PageDiagnostics;
 }
