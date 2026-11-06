@@ -1,4 +1,5 @@
-import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, screen } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import type {
   AgentEvent,
@@ -53,6 +54,13 @@ import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
+import {
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  restoreWindowPlacement,
+  type WindowPlacement
+} from '../shared/window-state';
+import { writeFileAtomic } from './atomic-write';
 import {
   isAllowedSourceUrl,
   makeCustomSource,
@@ -119,6 +127,14 @@ let permissionPreset: PermissionPreset = 'workspace-write';
 let statusTimer: NodeJS.Timeout | null = null;
 /** Width the user dragged the page pane to, or null for the default ratio. */
 let preferredSplit: number | null = null;
+/**
+ * 上次关窗时的窗口位置、大小与分栏，下次启动照它开。
+ *
+ * 单独一个文件，理由和 sources.json 那些一样：读坏了最多退回默认大小，不该
+ * 把会话或通道一起带走。路径在 `whenReady` 里定（`userData` 那时才可靠）。
+ */
+let windowStateFile = '';
+let saveWindowStateTimer: NodeJS.Timeout | null = null;
 /**
  * True while the divider is being dragged.
  *
@@ -585,6 +601,58 @@ function layoutInfo(): LayoutInfo {
     split: pageCollapsed ? collapsedSplit() : computeSplit(width, preferredSplit),
     collapsed: pageCollapsed
   };
+}
+
+/**
+ * 上次的窗口状态。读不出来就是默认值——一个记不住尺寸的窗口，好过一个打不开的。
+ *
+ * 屏幕信息是现读的（`screen` 只能在 ready 之后问），所以「上次那块屏还在不在」
+ * 这件事在每次启动时重新判一次。
+ */
+function readWindowState(): WindowPlacement {
+  const displays = screen.getAllDisplays().map(display => display.workArea);
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(windowStateFile, 'utf8'));
+    return restoreWindowPlacement(raw, displays);
+  } catch {
+    return restoreWindowPlacement(null, displays);
+  }
+}
+
+/**
+ * 记住现在的窗口状态。
+ *
+ * 最大化时取 `getNormalBounds()`：要记的是「还原以后多大」，否则下次启动会先
+ * 出现一个铺满屏幕的窗口、再被 `maximize()` 一次，闪一下。
+ */
+function saveWindowState(): void {
+  if (saveWindowStateTimer) {
+    clearTimeout(saveWindowStateTimer);
+    saveWindowStateTimer = null;
+  }
+  if (!win || win.isDestroyed() || !windowStateFile) return;
+
+  const maximized = win.isMaximized();
+  const bounds = maximized ? win.getNormalBounds() : win.getBounds();
+  const state: WindowPlacement = {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    maximized,
+    split: preferredSplit ?? undefined
+  };
+  try {
+    writeFileAtomic(windowStateFile, JSON.stringify(state));
+  } catch {
+    // 写不进去不该挡住关闭窗口：这条记录只影响下次启动的大小。
+  }
+}
+
+/** 拖动时每一帧都会触发 resize/move；等手停下来再写盘。 */
+function saveWindowStateSoon(): void {
+  if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer);
+  saveWindowStateTimer = setTimeout(saveWindowState, 400);
 }
 
 /**
@@ -1428,11 +1496,17 @@ async function createWindow() {
     });
   });
 
+  // 上次关窗时的样子：大小、位置、分栏。`preferredSplit` 要在第一次 `layout()`
+  // 之前定好，否则第一帧按默认比例画出来再跳一下。
+  const saved = readWindowState();
+  preferredSplit = saved.split ?? null;
+
   win = new BrowserWindow({
-    width: 1560,
-    height: 960,
-    minWidth: 1180,
-    minHeight: 720,
+    width: saved.width,
+    height: saved.height,
+    ...(saved.x !== undefined && saved.y !== undefined ? { x: saved.x, y: saved.y } : {}),
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: 'ThinkFusion',
     // Shown after the views have been primed: see the startup order below.
     show: false,
@@ -1467,9 +1541,17 @@ async function createWindow() {
     await primeViewports();
     layout();
     win.on('resize', layout);
+    // 大小和位置一起记：只记大小的话，把窗口拖到另一块屏上，下次还是开回原处。
+    win.on('resize', saveWindowStateSoon);
+    win.on('move', saveWindowStateSoon);
+    win.on('maximize', saveWindowStateSoon);
+    win.on('unmaximize', saveWindowStateSoon);
+    // 关闭时立刻写一次，不等那个 400ms 的窗口——退出路径上它可能来不及跑。
+    win.on('close', saveWindowState);
     startStatusPolling();
   } finally {
     win.show();
+    if (saved.maximized) win.maximize();
   }
 
   // Only the enabled ones: a disabled source has no view, and asking for its
@@ -2066,6 +2148,8 @@ function registerIpc() {
     const [width] = win!.getContentSize();
     preferredSplit = computeSplit(width, value);
     layout();
+    // 拖完就记：分栏是「我看页面要多大」的判断，重启回到 42% 等于每次都重做一遍。
+    saveWindowStateSoon();
     return layoutInfo();
   });
 
@@ -2126,6 +2210,7 @@ app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  windowStateFile = path.join(app.getPath('userData'), 'window-state.json');
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
   // Before anything reads `sources`: the window's startup path decides which
   // views to create, and a source the user switched off must not be one of them.
