@@ -153,6 +153,9 @@ export function normalizeAnswerText(raw: string): string {
   return raw
     .replace(/[-–—][ \t]*\n[ \t]*\d{1,3}(?=\n|$)/g, '')
     .replace(/^[ \t]*[-–—•·][ \t]*$/gm, '')
+    // 只剩井号的行：说话人标签（「Gemini 说」）会被当成标题读出来，随后又被
+    // cutSpeakerLabels 切掉，留下一个空标题。留着它，界面上就是一行空的粗体。
+    .replace(/^[ \t]*#{1,6}[ \t]*$/gm, '')
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

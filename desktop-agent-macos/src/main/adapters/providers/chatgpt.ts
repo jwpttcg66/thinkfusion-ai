@@ -42,7 +42,21 @@ export const CHATGPT_SELECTORS: SelectorProfile = {
     'a[aria-label*="New chat"]',
     'a[href="/"][aria-label]'
   ],
-  assistant: ['[data-message-author-role="assistant"]', 'article .markdown', '[class*="markdown"]'],
+  /**
+   * 回答气泡。
+   *
+   * 前三条是旧版 DOM（`data-message-author-role` / `article .markdown`）。
+   * 2026-11 实测的新版把标记换成了哈希类名，前三条全部命中 0——`messageCount`
+   * 变成 0，读答案只能退回「转录尾部 diff」，于是回答里混进说话人标签和页脚。
+   * `MarkdownRoot-xxxxx` 是那个哈希类名的固定前缀，实测 5 条消息命中 5 个，
+   * 且只命中回答、不命中提问（用户消息不走 Markdown 渲染）。
+   */
+  assistant: [
+    '[data-message-author-role="assistant"]',
+    'article .markdown',
+    '[class*="markdown"]',
+    '[class*="MarkdownRoot"]'
+  ],
   passwordField: ['input[type="password"]']
 };
 

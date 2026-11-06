@@ -375,6 +375,132 @@ export const PROBE_SCRIPT = (
     );
   }
 
+  // 把一段 DOM 读成 Markdown。
+  //
+  // innerText 只在**块级布局**处插换行。站点一旦把消息列表改成 flex 列
+  // （ChatGPT 现在就长这样），整段转录会被读成一行两万字：标题、条目、表格
+  // 全黏在一起。用户看到的就是「没有网页那么工整，看着不舒服」——而落盘的
+  // 文本里换行数是 0，再怎么排版也救不回来。
+  //
+  // 所以这里按标签自己排：标题加井号，列表加短横，表格排成竖线分隔的行，
+  // 代码块用围栏，加粗用双星号。产物是 Markdown，界面按 Markdown 渲染，
+  // 综合与辩论照旧当纯文本读（Markdown 是纯文本的超集）。
+  //
+  // 只认标签，不猜样式：除了可见性之外不看 className，站点的类名是哈希，
+  // 而段落、列表项、单元格这些标签是它自己必须表达的结构。
+  const structuredText = (root) => {
+    const SKIP_TAGS = new Set([
+      'SCRIPT', 'STYLE', 'SVG', 'BUTTON', 'NOSCRIPT', 'TEXTAREA', 'INPUT',
+      'SELECT', 'CANVAS', 'IFRAME', 'VIDEO', 'AUDIO', 'TEMPLATE'
+    ]);
+    const SKIP_ROLES = new Set(['button', 'img', 'checkbox', 'radio', 'switch', 'tab', 'menu']);
+    const TICK = '\\u0060';
+    let out = '';
+
+    // 换行先记账、后落地。站点普遍把列表项的内容包在段落里，即列表项里面
+    // 又套一层段落，边遍历边拼会得到「一个短横线独占一行、内容在下一行」——
+    // Markdown 里那是一个空列表项，渲染出来只剩一个点。所以：只有在下一次真的
+    // 空列表项，渲染出来只剩一个点。所以：只有在下一次真的写出字符时，才把攒着
+    // 的换行补上；如果光标正停在「- 」或「| 」后面，那个换行就不该出现。
+    let pending = 0;
+    const flush = () => {
+      if (!pending) return;
+      if (out && !out.endsWith('\\n')) out += pending > 1 ? '\\n\\n' : '\\n';
+      pending = 0;
+    };
+    const write = (text) => {
+      if (!text) return;
+      flush();
+      out += text;
+    };
+    const breakAfter = (count) => {
+      pending = Math.max(pending, count);
+    };
+
+    const walk = (node, inPre) => {
+      if (node.nodeType === 3) {
+        // 空白压成一个空格：HTML 里的缩进与换行只是源码排版。
+        write((node.nodeValue || '').replace(/\\s+/g, ' '));
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const tag = node.tagName;
+      if (SKIP_TAGS.has(tag)) return;
+      const role = node.getAttribute && node.getAttribute('role');
+      if (role && SKIP_ROLES.has(role)) return;
+      if (node.getAttribute && node.getAttribute('aria-hidden') === 'true') return;
+      let style = null;
+      try { style = getComputedStyle(node); } catch { style = null; }
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) return;
+
+      if (tag === 'BR') { write('\\n'); return; }
+
+      const heading = /^H([1-6])$/.exec(tag);
+      const isBlock = /^(DIV|P|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|NAV|FIGURE|FIGCAPTION|DL|DT|DD)$/.test(tag);
+      const isList = tag === 'UL' || tag === 'OL';
+      const isItem = tag === 'LI';
+      const isRow = tag === 'TR';
+      const isCell = tag === 'TD' || tag === 'TH';
+      const isTable = tag === 'TABLE';
+      const isQuote = tag === 'BLOCKQUOTE';
+
+      if (tag === 'PRE') {
+        // 代码块要原样：内部的空白是代码，不是排版。
+        breakAfter(2);
+        write(TICK + TICK + TICK + '\\n' + (node.textContent || '').replace(/\\s+$/, '') + '\\n' + TICK + TICK + TICK);
+        breakAfter(2);
+        return;
+      }
+
+      // 光标正停在列表项或单元格的开头时，别急着换行。
+      const atMarker = out.endsWith('- ') || out.endsWith('| ') || out.endsWith('> ');
+      if (heading) { breakAfter(2); write('#'.repeat(Number(heading[1])) + ' '); }
+      else if (isItem) { breakAfter(1); write('- '); }
+      else if (isRow) { breakAfter(1); write('| '); }
+      else if (isCell) { if (out.endsWith('|')) write(' '); }
+      else if (isTable) breakAfter(2);
+      else if (isQuote) { breakAfter(2); write('> '); }
+      else if ((isBlock || isList) && !atMarker) breakAfter(1);
+
+      if (tag === 'STRONG' || tag === 'B') write('**');
+      if (tag === 'CODE' && !inPre) write(TICK);
+
+      for (const child of node.childNodes) walk(child, inPre);
+
+      if (tag === 'STRONG' || tag === 'B') write('**');
+      if (tag === 'CODE' && !inPre) write(TICK);
+      if (isCell) write(' |');
+      if (heading) breakAfter(2);
+      else if (isItem) breakAfter(1);
+      else if (isRow) breakAfter(1);
+      else if (isTable) breakAfter(1);
+      else if (isBlock) breakAfter(1);
+    };
+
+    walk(root, false);
+    flush();
+    return out
+      .replace(/[ \\t]+\\n/g, '\\n')
+      .replace(/\\n[ \\t]+/g, '\\n')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
+  };
+
+  // 读一段文本：优先带结构的版本，认不出结构就退回 innerText。
+  //
+  // 判据只看**内容**有没有丢，不看长度：结构遍历把每层 div 都当块，换行比
+  // innerText 多得多，拿总长度当尺子会把正确的排版判成错误。去掉所有空白之后
+  // 的字数才是「有没有少东西」——少了就说明这套规则漏掉了内容，退回原文更安全。
+  const bestText = (el) => {
+    const raw = (el.innerText || '').trim();
+    let rich = '';
+    try { rich = structuredText(el); } catch { rich = ''; }
+    if (!rich) return raw;
+    const squash = (value) => value.replace(/\\s+/g, '').length;
+    if (raw && squash(rich) < squash(raw) * 0.9) return raw;
+    return rich;
+  };
+
   // The answer, with the site's own noise cut out.
   //
   // A site that renders "thinking" inside the same bubble as the reply makes
@@ -388,12 +514,12 @@ export const PROBE_SCRIPT = (
   // off-screen at full size for the one read, then removed.
   const answerText = (el) => {
     const raw = (el.innerText || '').trim();
-    if (!reasoning.length) return raw;
+    if (!reasoning.length) return bestText(el);
     let hasNoise = false;
     for (const selector of reasoning) {
       try { if (el.querySelector(selector)) { hasNoise = true; break; } } catch { /* a bad selector is not a reason to cut */ }
     }
-    if (!hasNoise) return raw;
+    if (!hasNoise) return bestText(el);
     const clone = el.cloneNode(true);
     clone.style.cssText = 'position:fixed;left:-99999px;top:0;width:900px;height:1600px;pointer-events:none;';
     document.body.appendChild(clone);
@@ -402,7 +528,7 @@ export const PROBE_SCRIPT = (
       for (const selector of reasoning) {
         try { clone.querySelectorAll(selector).forEach(node => node.remove()); } catch { /* keep going */ }
       }
-      trimmed = (clone.innerText || '').trim();
+      trimmed = bestText(clone);
     } finally {
       clone.remove();
     }
@@ -434,7 +560,13 @@ export const PROBE_SCRIPT = (
     const matched = nodes
       .filter(visible)
       .filter((el) => !composer || !composer.contains(el));
-    const texts = matched.map(answerText).filter((text) => text.length > 0);
+    // 只有最后一条要交出去，所以只有它需要带结构的读法：一条会话可能有几十
+    // 个气泡，每个都走一遍结构遍历，探测就会从 5ms 变成几百毫秒。
+    const plain = matched.map((el) => (el.innerText || '').trim());
+    const lastReadable = plain.reduce((last, text, index) => (text.length ? index : last), -1);
+    const texts = plain
+      .map((text, index) => (index === lastReadable ? answerText(matched[index]) : text))
+      .filter((text) => text.length > 0);
     if (texts.length) {
       assistantNodes = matched.length;
       assistantTexts = texts;
@@ -480,10 +612,18 @@ export const PROBE_SCRIPT = (
   const scrollRoot = tallestScrollable(true) || tallestScrollable(false);
   if (scrollRoot) chosen.conversation = 'structural:tallest-scroll-container';
 
-  const rawText = ((scrollRoot || document.body).innerText || '').trim();
-  const conversationText = (composerText
-    ? rawText.split(composerText).join('')
-    : rawText).slice(-120000);
+  // 转录也走同一套读法：它是 diff 和「这句问题出现过没有」的依据，而这两件
+  // 事都要求换行是稳定的——flex 布局下 innerText 给出的是一行，diff 出来的
+  // 「新增部分」就成了整段对话。
+  const rawText = bestText(scrollRoot || document.body);
+  // 去掉输入框里那句回显。
+  //
+  // 判据是「输入框里有字」，不是「文字非空」：ChatGPT 的 contenteditable 空着
+  // 的时候 innerText 是一个换行符，于是按它 split 再 join 就把整段转录的换行全
+  // 删了——页面上明明有段落和表格，落盘的却是一行两万字。历史数据里 ChatGPT
+  // 那条回答换行数为 0，就是这个。
+  const echo = composerText && composerText.trim().length > 0 ? composerText : '';
+  const conversationText = (echo ? rawText.split(echo).join('') : rawText).slice(-120000);
 
   // 会话上下文满了没有。
   //

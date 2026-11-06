@@ -9,6 +9,7 @@ import {
 } from '../../../shared/conversation';
 import { splitSummarySections } from '../../../shared/text';
 import type { DebateView } from '../../../shared/contracts';
+import { MarkdownBody } from './MarkdownBody';
 
 /**
  * The conversation workspace: what the user reads and replies to.
@@ -348,7 +349,9 @@ function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; la
             <b>{labelOf(message.channelId, labels)}</b>
             <span className="channel-chars">{message.text.length} 字</span>
           </header>
-          <div className="channel-card-body">{message.text}</div>
+          <div className="channel-card-body">
+            <MarkdownBody text={message.text} />
+          </div>
         </article>
       ))}
     </div>

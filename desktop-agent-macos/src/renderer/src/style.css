@@ -1775,7 +1775,6 @@ button:disabled {
 .channel-card-body {
   font-size: 13px;
   line-height: 1.72;
-  white-space: pre-wrap;
   word-break: break-word;
   /* Takes the slack when the cards are stretched to the tallest answer, so the
      border encloses the space deliberately instead of leaving a gap below it. */
@@ -2849,4 +2848,141 @@ button:disabled {
   margin: 4px 0;
   font-size: 11.5px;
   color: #b25b00;
+}
+
+/* ---------------------------------------------------------------- *
+ * 来源回答的 Markdown 排版
+ *
+ * 站点给的答案本来有标题、条目、表格、代码块，落成纯文本就只剩一大段。
+ * 这里把结构还回来，用的是和综合卡同一套字色与间距，两张卡放在一起不打架。
+ * ---------------------------------------------------------------- */
+
+.md-body > *:first-child {
+  margin-top: 0;
+}
+
+.md-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-paragraph {
+  margin: 0 0 9px;
+  /* 认不出任何标记时，这一段就是原文：保留单换行和缩进，和旧的纯文本一致。 */
+  white-space: pre-wrap;
+}
+
+.md-heading {
+  margin: 14px 0 7px;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.md-h1,
+.md-h2 {
+  font-size: 14.5px;
+}
+
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 12.8px;
+  color: var(--text-2);
+}
+
+.md-list {
+  margin: 0 0 9px;
+  padding-left: 18px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-list li::marker {
+  color: var(--text-3);
+}
+
+.md-code {
+  margin: 0 0 9px;
+  padding: 9px 11px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-side);
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.md-inline-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.md-quote {
+  margin: 0 0 9px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-2);
+}
+
+.md-rule {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* 宽表在窄卡片里横向滚动，而不是把列挤成一字一行。 */
+.md-table-wrap {
+  margin: 0 0 10px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.md-table {
+  /* 表格不跟着卡片一起无限缩：三列挤进 170px 时，每一格只剩三四个字，读起来比
+     纯文本还费劲。给一个下限，装不下就横向滚动——网页自己也是这么处理的。
+     也不能用 max-content：那会让长句不换行，一张三列的表能撑到 550px。 */
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.md-table th,
+.md-table td {
+  min-width: 48px;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.md-table th {
+  background: var(--bg-side);
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.md-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.md-body a:hover {
+  text-decoration: underline;
 }
