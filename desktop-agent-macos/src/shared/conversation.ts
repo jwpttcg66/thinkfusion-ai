@@ -130,6 +130,16 @@ export interface Synthesis {
    */
   leadSummary?: boolean;
   /**
+   * 主导人读完辩论记录后给的最终意见。
+   *
+   * 和 `recommendation` 分开存：那是辩论**前**的五段汇总（结论/一致/
+   * 分歧/存疑/辩题），这是辩论**后**的判断。以前用最终意见直接覆盖汇总，
+   * 结果综合卡里只剩下最后一段话——分歧、答辩过程、辩题都看不见了。
+   *
+   * 可选：没有辩论的轮次、以及老会话都没有这个字段。
+   */
+  finalOpinion?: string;
+  /**
    * True when the answers could not be segmented into claims and the result is
    * just the answers side by side. The UI must say so rather than present it as
    * a real synthesis.

@@ -2782,3 +2782,71 @@ button:disabled {
 .verdict-dimension span { font-size: 11px; line-height: 1.45; color: var(--muted, #777); }
 .debate-report h3 { margin: 16px 0 6px; }
 .debate-report a { color: var(--accent, #4f6bed); word-break: break-all; }
+
+/* 辩后最终意见：和辩前五段汇总分开放。
+   合在一起时，最后一段话会盖掉【分歧】【辩题】，看起来像「什么都没辩」。 */
+.synthesis-final {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+
+.synthesis-final-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* 交锋过程：默认收起。展开后一轮一块、一句一条，谁说的写在上面。 */
+.debate-transcript {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.debate-transcript > summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.debate-round {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.debate-round h5 {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.5px;
+}
+
+.debate-message {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-side, #fafafa);
+}
+
+.debate-message-who {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.debate-message p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.debate-failure {
+  margin: 4px 0;
+  font-size: 11.5px;
+  color: #b25b00;
+}

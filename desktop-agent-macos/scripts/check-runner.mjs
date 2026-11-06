@@ -907,7 +907,7 @@ test('混合主导：先综合决定采用哪种方式，不借本地模型做�
   assert.match(synthesis?.fusion?.leadReason ?? '', /混合.*没有可用的本地\/云端模型/);
 });
 
-test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async () => {
+test('主导人指定辩题：辩前汇总与辩后意见分开存，前者不被覆盖', async () => {
   const channels = execChannels();
   const debateInputs = [];
   const localReplies = [];
@@ -953,7 +953,14 @@ test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async
   assert.equal(localReplies.length, 2, '主导人先汇总、再读辩论记录');
 
   const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
-  assert.equal(synthesis?.recommendation, '【最终意见】按证据看，涨的概率更高。');
+  // 汇总里有【分歧】【辩题】，最终意见里有对质疑的裁定。以前用最终意见覆盖
+  // 汇总，综合卡就只剩最后一段话——分歧和辩题在界面上都消失了。
+  assert.equal(
+    synthesis?.recommendation,
+    '【结论】两家结论不一致\n【分歧】a 说涨、b 说跌\n【辩题】价格到底会涨还是会跌？'
+  );
+  assert.equal(synthesis?.finalOpinion, '【最终意见】按证据看，涨的概率更高。');
+  assert.equal(synthesis?.leadSummary, true);
   assert.equal(synthesis?.fusion?.debateId, 'debate-1');
   assert.deepEqual(synthesis?.fusion?.debateTopics, ['价格到底会涨还是会跌？']);
   assert.match(synthesis?.fusion?.confidence?.why ?? '', /辩论跑了 1 轮/);
@@ -965,6 +972,14 @@ test('辩题解析：一行里挤了多条编号辩题也能拆开，且不吞�
   assert.deepEqual(parseTopics(summary), ['8杯水是否包括食物水分？', '每天该喝多少水？']);
   assert.deepEqual(parseTopics('【辩题】无'), [], '写「无」表示不辩');
   assert.deepEqual(parseTopics('【结论】没有分歧'), [], '没有这一节也表示不辩');
+  // 页面把站点自己的追问粘在回答末尾，读回来成了「无你喜欢这种回复风格吗？」。
+  // 这不是辩题；按行拆会当成一条，白跑一场辩论。
+  assert.deepEqual(parseTopics('【辩题】无你喜欢这种回复风格吗？'), [], '「无」后面跟着站点追问也不辩');
+  // 真正的「无X」构词不能一起误杀。
+  assert.deepEqual(
+    parseTopics('【辩题】无服务器架构是否比传统部署更适合小团队？'),
+    ['无服务器架构是否比传统部署更适合小团队？']
+  );
 });
 
 // ---------------------------------------------------------------------------

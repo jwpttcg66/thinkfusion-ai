@@ -691,12 +691,21 @@ export class ConversationRunner {
       }
       if (verdictText) parts.push('它读完辩论记录后给出最终意见');
 
-      const text = verdictText ?? summaryText;
+      // 汇总（辩前）与最终意见（辩后）各存一份。
+      //
+      // 以前这里是 `verdictText ?? summaryText`：辩论一跑成功，五段汇总就
+      // 被最终意见整段顶掉，界面只剩最后那段话——用户看到的「分歧、辩论、
+      // 总结都没了」就是这么来的。汇总里有【一致】【分歧】【存疑】【辩题】，
+      // 最终意见里有对质疑的裁定，两者不是同一件东西，不能互相替代。
+      const summary = summaryText?.trim() || null;
+      const verdict = verdictText?.trim() || null;
+      const text = summary ?? verdict;
       if (text) {
         synthesis = {
           ...synthesis,
           recommendation: text,
-          // 界面据此只显示这一段；和下面的清空是同一件事的两半。
+          ...(summary && verdict && verdict !== summary ? { finalOpinion: verdict } : {}),
+          // 五段结构由主导人写，规则版那套不再并列。界面按五段分段显示。
           leadSummary: true,
           // 主导人给了结论，这一轮的结构也归它：五段里就有【一致】和【分歧】。
           // 规则版那套「共同提到 / 分歧 / 覆盖缺口 / 只有一个通道提到的」是按

@@ -494,7 +494,18 @@ function SynthesisCard({
         </p>
       )}
 
-      {synthesis.fusion?.debateId && <DebateVerdictStrip debateId={synthesis.fusion.debateId} />}
+      {synthesis.fusion?.debateId && <DebateVerdictStrip debateId={synthesis.fusion.debateId} labels={labels} />}
+
+      {/* 辩后意见单独一块：它回答的是「辩完到底信哪个」，和上面那段辩前
+          汇总不是同一件东西。以前它被当成唯一结论，五段汇总因此整段消失。 */}
+      {synthesis.finalOpinion && (
+        <div className="synthesis-block synthesis-final">
+          <h4>辩后最终意见</h4>
+          <p className="synthesis-final-body">
+            <SourceRefText text={synthesis.finalOpinion} tags={opinionTags} />
+          </p>
+        </div>
+      )}
 
       {structured && synthesis.overlap && synthesis.overlap.length > 0 && (
         <p className="synthesis-overlap">
@@ -618,7 +629,13 @@ const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string>
  * 读不到辩论（记录被删、文件损坏）就整块不显示：综合卡本身仍然成立，
  * 不该为了一个附加块让整轮回答看起来失败了。
  */
-function DebateVerdictStrip({ debateId }: { debateId: string }) {
+function DebateVerdictStrip({
+  debateId,
+  labels
+}: {
+  debateId: string;
+  labels: ReadonlyMap<string, string>;
+}) {
   const [debate, setDebate] = useState<DebateView | null>(null);
 
   useEffect(() => {
@@ -661,9 +678,50 @@ function DebateVerdictStrip({ debateId }: { debateId: string }) {
           {' · '}{metrics.rounds} 轮 / {Math.round(metrics.latency.totalMs / 1000)} 秒
         </p>
       )}
+
+      {/* 交锋过程本身也要能看。以前只有一句「辩论跑了 3 轮（completed）」，
+          谁质疑了谁、质疑成立不成立，全在没有入口的记录文件里。默认收起，
+          想看的人展开，不想看的人不被几万字挡住。 */}
+      {debate.rounds.length > 0 && (
+        <details className="debate-transcript">
+          <summary>
+            辩论过程（{debate.rounds.length} 轮 ·{' '}
+            {debate.rounds.reduce((total, round) => total + round.messages.length, 0)} 次发言）
+          </summary>
+          {debate.rounds.map(round => (
+            <section key={round.index} className="debate-round">
+              <h5>
+                第 {round.index + 1} 轮
+                {round.converged ? ' · 已收敛' : ''}
+              </h5>
+              {round.messages.map(message => (
+                <article key={message.messageId} className="debate-message">
+                  <div className="debate-message-who">
+                    {labelOf(message.agentId, labels)} · {KIND_LABEL[message.kind] ?? message.kind}
+                  </div>
+                  <p>{message.text}</p>
+                </article>
+              ))}
+              {round.failures.map(failure => (
+                <p key={failure.agentId} className="debate-failure">
+                  {labelOf(failure.agentId, labels)} 没有发言：{failure.detail}
+                </p>
+              ))}
+            </section>
+          ))}
+        </details>
+      )}
     </div>
   );
 }
+
+/** 交锋里每种发言的读法。原样显示 `position` 只会让人以为界面没做完。 */
+const KIND_LABEL: Record<string, string> = {
+  position: '立论',
+  question: '质疑',
+  rebuttal: '回应',
+  revision: '修正'
+};
 
 const VERDICT_LABEL: Record<string, string> = {
   supported: '有证据支持',
