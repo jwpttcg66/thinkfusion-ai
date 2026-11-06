@@ -142,6 +142,18 @@ export interface ConversationDeps {
   fusionEnabled?: boolean;
   /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
   verdictFor?: (conversationId: string) => JudgeVerdict | null;
+  /**
+   * 追问前把各网页视图带回这条会话记录的会话地址。
+   *
+   * 只「不重置」是不够的：应用重启、页面刷新或用户手动点过别处之后，页面
+   * 可能停在首页或另一个会话上，这时追问会自然地在站点侧新建一条会话。
+   * 返回成功回到原地址的通道，runner 会把它们算作 continuing，避免随后
+   * 的提问流程又把刚恢复的页面重置掉。
+   */
+  restoreThreads?: (threads: Readonly<Record<string, string>>) => Promise<{
+    restored: string[];
+    failed: Array<{ agentId: string; detail: string }>;
+  }>;
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -551,6 +563,30 @@ export class ConversationRunner {
       cancelled: () => this.cancelled.has(conversationId)
     };
 
+    // 追问要落在原来的网页会话里。光有 continuing（不重置）不够：应用重启、
+    // 页面刷新或手动点过别处之后，页面可能停在首页，追问就会在站点侧新建
+    // 一条会话。先按这条会话记下的 threadUrl 把页面带回去。
+    const continuing = new Set(conversation.answered ?? []);
+    const threads = conversation.threads ?? {};
+    if (options.followup && Object.keys(threads).length > 0) {
+      try {
+        const result = await this.deps.restoreThreads?.(threads);
+        for (const agentId of result?.restored ?? []) continuing.add(agentId);
+        for (const item of result?.failed ?? []) {
+          this.addMessage(conversation, {
+            role: 'system',
+            text: `没能回到 ${item.agentId} 上一次的网页会话（${item.detail}）；这一轮可能在新会话里继续。`
+          });
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: `恢复原来的网页会话失败：${detail}；这一轮可能在新会话里继续。`
+        });
+      }
+    }
+
     const outcome = await master.research(
       {
         question,
@@ -559,7 +595,7 @@ export class ConversationRunner {
         // failed last turn is not holding this conversation's thread, so a
         // follow-up has to start it clean — otherwise its answer arrives with
         // whatever unrelated history the page was left on.
-        continuing: new Set(conversation.answered ?? [])
+        continuing
       },
       sink
     );

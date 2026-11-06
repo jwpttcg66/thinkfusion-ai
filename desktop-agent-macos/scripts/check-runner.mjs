@@ -112,7 +112,8 @@ function makeRunner(channels, options = {}) {
     budgetMs: options.budgetMs,
     submitWorkspace: options.submitWorkspace ?? (async () => {
       throw new Error('unexpected workspace hand-off');
-    })
+    }),
+    ...options.deps
   });
   return { runner, store, events, registry };
 }
@@ -370,6 +371,67 @@ test('a follow-up stays in the page session it was asked in', async () => {
   );
 
   assert.equal(registry.resets.length, 1, 'a follow-up must not clear the page it depends on');
+});
+
+test('追问前把网页视图带回上一轮记录的会话地址，恢复过的通道不再被重置', async () => {
+  const calls = [];
+  const { runner, registry, store } = makeRunner(
+    [
+      fakeChannel('a', () => answer('第一轮 a 的回答。')),
+      fakeChannel('b', () => answer('第一轮 b 的回答。'))
+    ],
+    {
+      deps: {
+        restoreThreads: async threads => {
+          calls.push(threads);
+          return { restored: Object.keys(threads), failed: [] };
+        }
+      }
+    }
+  );
+  const started = await runner.start({ text: '第一个问题' });
+  await settle(runner, started.conversationId);
+  const conversation = store.getConversation(started.conversationId);
+  conversation.threads = {
+    a: 'https://chatgpt.com/c/old-a',
+    b: 'https://chatgpt.com/c/old-b'
+  };
+  const resetsBefore = registry.resets.length;
+  const before = runner.messages(started.conversationId).filter(message => message.role === 'channel').length;
+
+  await runner.followup(started.conversationId, '接着问第二个问题');
+  await waitFor(() => calls.length === 1, 3000);
+  assert.deepEqual(calls[0], conversation.threads, '追问要拿到上一轮记下的网页地址');
+  assert.equal(registry.resets.length, resetsBefore, '已经回到原会话的页面不能再被重置');
+  await waitFor(
+    () => runner.messages(started.conversationId).filter(message => message.role === 'channel').length > before,
+    3000
+  );
+});
+
+test('回到原网页会话失败时如实写进系统消息', async () => {
+  const { runner, store } = makeRunner(
+    [fakeChannel('a', () => answer('第一轮回答。'))],
+    {
+      deps: {
+        restoreThreads: async () => ({
+          restored: [],
+          failed: [{ agentId: 'a', detail: '导航回原会话超时或失败' }]
+        })
+      }
+    }
+  );
+  const started = await runner.start({ text: '第一个问题' });
+  await settle(runner, started.conversationId);
+  store.getConversation(started.conversationId).threads = { a: 'https://chatgpt.com/c/old-a' };
+
+  await runner.followup(started.conversationId, '第二个问题');
+  await waitFor(
+    () => runner.messages(started.conversationId).some(
+      message => message.role === 'system' && /没能回到 a 上一次的网页会话/.test(message.text)
+    ),
+    3000
+  );
 });
 
 test('a channel that cannot open a new session is still asked, and the drift is recorded', async () => {

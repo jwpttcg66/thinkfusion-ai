@@ -1299,6 +1299,62 @@ function settleLoad(view: WebContentsView, action: () => void, timeoutMs: number
 }
 
 /**
+ * 追问前把网页视图带回这条会话记录的会话地址。
+ *
+ * `conversation.threads` 是上一轮回答后记下的 threadUrl。应用重启、页面刷新
+ * 或手动点过别处之后，视图会停在站点首页；只「不重置」是不够的，追问会自然
+ * 在站点侧栏多建一条会话。这里按记录地址导航回去，只在同一站点内、只认
+ * http(s)，失败如实回报，不假装已经回到原窗口。
+ */
+async function restoreThreadViews(threads: Readonly<Record<string, string>>): Promise<{
+  restored: string[];
+  failed: Array<{ agentId: string; detail: string }>;
+}> {
+  const restored: string[] = [];
+  const failed: Array<{ agentId: string; detail: string }> = [];
+  await Promise.all(Object.entries(threads).map(async ([agentId, raw]) => {
+    const view = views.get(agentId);
+    if (!view || view.webContents.isDestroyed()) {
+      failed.push({ agentId, detail: '网页视图不存在' });
+      return;
+    }
+    let target: URL;
+    try {
+      target = new URL(raw);
+    } catch {
+      failed.push({ agentId, detail: '记录的会话地址无效' });
+      return;
+    }
+    if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+      failed.push({ agentId, detail: '会话地址不是 http(s)' });
+      return;
+    }
+    let current: URL | null = null;
+    try {
+      current = new URL(view.webContents.getURL());
+    } catch {
+      current = null;
+    }
+    if (current && current.origin !== target.origin) {
+      failed.push({ agentId, detail: '会话地址与当前站点不同源，拒绝导航' });
+      return;
+    }
+    // Kimi 这类带 query 的地址按 origin + pathname 认同一条会话，别为了
+    // `?chat_enter_method=home` 的参数差异白白重载一次页面。
+    if (current && current.origin === target.origin && current.pathname === target.pathname) {
+      restored.push(agentId);
+      return;
+    }
+    const ok = await settleLoad(view, () => {
+      void view.webContents.loadURL(target.href).catch(() => undefined);
+    }, 12_000);
+    if (ok) restored.push(agentId);
+    else failed.push({ agentId, detail: '导航回原会话超时或失败' });
+  }));
+  return { restored, failed };
+}
+
+/**
  * 「刷新」: reload the page on screen, in place.
  *
  * In place, because the thread that is open has to stay open — a person presses
@@ -2076,6 +2132,7 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.answerIds, selection.executorIds);
     },
     executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
+    restoreThreads: restoreThreadViews,
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     agentSource: agentId => {
       const extra = extraAgents.find(agent => agent.id === agentId);
