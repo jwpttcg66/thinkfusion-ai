@@ -544,6 +544,62 @@ test('a fresh assistant bubble wins over the raw transcript tail', () => {
   assert.equal(selectAnswerText(probe, snapshot), '{"protocol":"desktop-agent/v1","type":"plan"}');
 });
 
+test('a virtualised list that drops old bubbles still reports the new answer', () => {
+  // ChatGPT 的真实形状：发送前 5 条，页面滚到底后顶部旧气泡被卸载，只剩 4 条。
+  // 计数比发送前少，所以「气泡数增长」这条捷径永远不成立——回答就停在页面上
+  // 没人认领，最后报 ANSWER_TIMEOUT（4 条 / 16667 字 vs 5 条 / 33937 字）。
+  const snapshot = {
+    messageCount: 5,
+    lastText: 'ThinkFusion AI Agent 搭建：最终意见',
+    url: '',
+    capturedAt: 0,
+    conversationText: 'old thread\n人的大脑会退化吗',
+    composerText: ''
+  };
+  const probe = state({
+    messageCount: 4,
+    lastText: '会。人的大脑确实会退化，但大脑退化不等于智力必然下降。',
+    conversationText: '后面的旧回答\n人的大脑会退化吗\n会。人的大脑确实会退化，但大脑退化不等于智力必然下降。'
+  });
+  assert.equal(
+    selectAnswerText(probe, snapshot, '人的大脑会退化吗'),
+    '会。人的大脑确实会退化，但大脑退化不等于智力必然下降。'
+  );
+});
+
+test('a re-rendered last bubble is not a new answer', () => {
+  const snapshot = {
+    messageCount: 4,
+    lastText: '会。人的大脑确实会退化。',
+    url: '',
+    capturedAt: 0,
+    conversationText: 'old thread',
+    composerText: ''
+  };
+
+  // 计数没变，文字只差缩进：这是重画，不是回答。
+  assert.equal(
+    selectAnswerText(state({ messageCount: 4, lastText: '会。人的大脑  确实会退化。' }), snapshot),
+    ''
+  );
+
+  // 计数没变、文字确实变了，但这句问题根本不在页面上：页面在重画旧内容。
+  assert.equal(
+    selectAnswerText(state({ messageCount: 4, lastText: '完全不同的旧回答' }), snapshot, '人的大脑会退化吗'),
+    ''
+  );
+
+  // 同一条路径：文字变了，问题也在页面上——这就是本轮的回答。
+  assert.equal(
+    selectAnswerText(
+      state({ messageCount: 4, lastText: '新的回答', conversationText: '人的大脑会退化吗\n新的回答' }),
+      snapshot,
+      '人的大脑会退化吗'
+    ),
+    '新的回答'
+  );
+});
+
 test('without a selectable bubble the stable tail is the answer', () => {
   const snapshot = {
     messageCount: 0,

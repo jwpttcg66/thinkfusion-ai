@@ -2191,6 +2191,11 @@ function commonPrefixLength(a: string, b: string): number {
   return index;
 }
 
+/** All whitespace out, for the places where only the words matter. */
+function squeezeText(value: string): string {
+  return (value ?? '').replace(/\s+/g, '');
+}
+
 /**
  * Whether the captured text looks like a finished answer.
  *
@@ -3277,9 +3282,27 @@ export function transcriptHasPrompt(conversationText: string, sentText?: string)
 
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
   const grew = probe.messageCount > snapshot.messageCount;
-  const bubbleFresh = grew && probe.lastText.trim().length > 0 && probe.lastText !== snapshot.lastText;
+  // 「新回答」的判据是**最后一条气泡的内容变了**，不是「气泡数变多了」。
+  //
+  // 计数增长是条捷径，但它假设页面上所有气泡都一直在。ChatGPT 的转录是虚拟
+  // 列表：发问后页面滚到底，顶部旧气泡被卸载，计数从 5 变成 4——比发送前还少。
+  // 于是「增长」永远不成立，回答在页面上放了两分半也没被认领，最后报
+  // ANSWER_TIMEOUT（真机：页面 4 条 / 16667 字，发送前 5 条 / 33937 字）。
+  // 要读的本来就只有最后一条，而它确实换了。
+  //
+  // 只差空白不算变化：重渲染改的常常只是缩进，把它当成新回答等于把上一轮
+  // 的回答再交一遍。
+  const lastChanged =
+    probe.lastText.trim().length > 0 && squeezeText(probe.lastText) !== squeezeText(snapshot.lastText);
 
-  if (probe.messageCount > 0) return bubbleFresh ? probe.lastText : '';
+  if (probe.messageCount > 0) {
+    if (!lastChanged) return '';
+    // 气泡数没有增加时，光「文字变了」还不足以说明这是本轮的回答：页面重画
+    // 旧气泡也会让它变。多要一条证据——这句问题确实在页面上。气泡数增加了
+    // 就不必查了，那本身已经证明页面多了一条。
+    if (!grew && sentText && sentText.trim() && !transcriptHasPrompt(probe.conversationText, sentText)) return '';
+    return probe.lastText;
+  }
 
   // 转录里根本没有这个问题，就不存在「这一轮的回答」。
   //
