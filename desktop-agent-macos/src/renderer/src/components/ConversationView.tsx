@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   normalizeExecutionConfig,
   type ChannelStatus,
@@ -84,15 +84,47 @@ export function ConversationView(props: {
   // 新一轮在转录最下面。不把它带到眼前，「这一轮谁在答」还是得自己往下滚。
   // 只在这一轮刚出现时对齐一次，之后回答流进来时不再动滚动位置——那会把
   // 正在往上读的人拽回来。
+  const rootRef = useRef<HTMLElement | null>(null);
   const lastTurnRef = useRef<HTMLElement | null>(null);
   const lastUserId = [...messages].reverse().find(message => message.role === 'user')?.messageId ?? '';
+
+  /**
+   * 打开一条会话时直接停在最底下，而不是从第一条开始往下拉。
+   *
+   * 原来用的是「把最后一轮顶到视口顶部」：老会话有十几轮，内容要比视口高得多，
+   * 顶上去看到的还是中间那段，而且平滑动画是从头往下滑过去的——点开一条几天前
+   * 的会话，先看到的是几天前那一问。打开会话要看的是「说到哪儿了」，所以这里
+   * 直接落到底、不做动画。
+   *
+   * 等一会儿再停手，是因为消息和会话不是同一次渲染到的：先切会话，消息随后
+   * 才塞进来；只在切会话那一刻落底，落的是上一屏的高度。
+   */
+  const [settling, setSettling] = useState(true);
   useEffect(() => {
-    if (!lastUserId) return;
+    setSettling(true);
+    const timer = setTimeout(() => setSettling(false), 1200);
+    return () => clearTimeout(timer);
+  }, [conversation.conversationId]);
+
+  const scrolledUser = useRef('');
+  useLayoutEffect(() => {
+    if (!settling) return;
+    const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+    // 这一句已经在眼前了，settling 结束以后不要再用平滑滚动把它拽一次。
+    scrolledUser.current = lastUserId;
+  }, [settling, messages, lastUserId]);
+
+  useEffect(() => {
+    if (!lastUserId || settling) return;
+    if (scrolledUser.current === lastUserId) return;
+    scrolledUser.current = lastUserId;
     lastTurnRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, [lastUserId]);
+  }, [lastUserId, settling]);
 
   return (
-    <section className="conversation" aria-label="对话">
+    <section className="conversation" aria-label="对话" ref={rootRef}>
       <header className="conversation-head">
         <div className="conversation-title">
           <h2>{conversation.title}</h2>
