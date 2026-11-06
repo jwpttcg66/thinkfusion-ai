@@ -29,6 +29,14 @@ export function TaskInput(props: {
    */
   researchLabel: string;
   researchDetail: string;
+  /**
+   * 开着某条会话时，这里写着它的标题；没有会话就是 null。
+   *
+   * 「接着上一条问」和「问个新问题」在输入框里长得一模一样，只有发出去之后才
+   * 知道进了哪条——用户看到答案里带着上一条的上下文，会以为进了旧对话。把归属
+   * 写在框上方，点一下就能改成新对话。
+   */
+  followupTitle?: string | null;
   disabled?: boolean;
   busy?: boolean;
   /** Lets the shell move the caret into the composer, e.g. after "新任务". */
@@ -37,6 +45,7 @@ export function TaskInput(props: {
   onPermissionChange: (preset: PermissionPreset) => void;
   onChooseWorkspace: () => void;
   onOpenResearch: () => void;
+  onNewConversation: () => void;
   onSubmit: () => void;
 }) {
   const [menu, setMenu] = useState<'none' | 'permission'>('none');
@@ -64,6 +73,23 @@ export function TaskInput(props: {
 
   return (
     <div className="composer" style={{ position: 'relative' }} ref={rootRef}>
+      {props.followupTitle && (
+        <div className="composer-scope">
+          <span className="scope-label" title={props.followupTitle}>
+            追问《{props.followupTitle}》
+          </span>
+          <button
+            className="scope-new"
+            type="button"
+            onClick={props.onNewConversation}
+            disabled={props.disabled}
+            title="不接这一条，按新对话提问"
+          >
+            新对话
+          </button>
+        </div>
+      )}
+
       <textarea
         className="composer-input"
         rows={2}

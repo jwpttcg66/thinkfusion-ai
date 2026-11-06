@@ -537,6 +537,21 @@ export default function App() {
     }, 400);
   }
 
+  /**
+   * 从输入框上方那个「新对话」开始一条新的。
+   *
+   * 侧栏的「新任务」连输入框一起清空；这里不清——用户往往是先把问题写好、看到
+   * 上面写着「追问《…》」才点的它，把他刚写的那句删掉是最糟的回应。
+   */
+  function startNewConversation() {
+    setActiveConversationId(null);
+    setMessages([]);
+    setPhases({});
+    setError('');
+    setNotice('');
+    setFocusRequest(n => n + 1);
+  }
+
   async function submit() {
     const text = prompt.trim();
     if (!text) {
@@ -1208,7 +1223,10 @@ export default function App() {
               // 研究设置的入口在输入框里（第三个胶囊），这里只把「下一条用什么」传下去。
               researchLabel={({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
               researchDetail={executionConfig.strategy ?? '默认并行'}
+              // 写着「追问《…》」的时候，这一句会进那条会话；点「新对话」就换一条。
+              followupTitle={showingConversation && activeConversation ? activeConversation.title : null}
               inputRef={composerRef}
+              onNewConversation={startNewConversation}
               // Disabled while a channel is answering and while the task waits
               // for an answer: in both cases a second prompt would race the
               // first against the same page and lose the question on screen.
