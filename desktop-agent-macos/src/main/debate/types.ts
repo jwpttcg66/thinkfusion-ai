@@ -550,7 +550,7 @@ export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined):
   const participants = Array.isArray(input?.participants)
     ? input.participants.filter((id): id is string => typeof id === 'string')
     : [];
-  const modes: DebateLeadMode[] = ['local', 'web', 'hybrid'];
+  const modes: DebateLeadMode[] = ['local', 'web', 'cloud', 'hybrid'];
   const normalized: DebateConfig = {
     strategy,
     maxRounds: typeof input?.maxRounds === 'number' && input.maxRounds >= 1 && input.maxRounds <= 10

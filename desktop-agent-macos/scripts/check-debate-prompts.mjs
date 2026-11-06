@@ -7,7 +7,8 @@
  * 2. `renderInstructions` 的三种轮次输出逐字等于搬迁前的文本（快照）；
  * 3. 版本号写进每场辩论的状态文件，读盘回来一致；
  * 4. 老文件没有 `promptVersion`，不补一个当前版本冒充记录过；
- * 5. **网页成员仍然只收用户原话**——模板模块的存在不能改变这条硬规则。
+ * 5. **网页成员第一轮只收用户原话**——按归属规则，网页主导的后续交锋把
+ *    材料拼进同一条用户消息，仍然不收 system / context，也不调用本地模型。
  *
  * Run with: npm run test:debate-prompts
  */
@@ -203,7 +204,7 @@ test('老辩论文件没有 promptVersion：不伪造，也不影响读取', () 
   }
 });
 
-test('模板模块上线后，网页成员依然只收用户原话', async () => {
+test('归属规则：网页主导只用网页，第一轮原话、后续材料拼进用户消息', async () => {
   const h = harness();
   try {
     const candidates = [
@@ -211,6 +212,7 @@ test('模板模块上线后，网页成员依然只收用户原话', async () =>
       { id: 'local', label: '本地', type: 'local', available: true }
     ];
     const plan = planLead({ mode: 'web', strategy: 'truth', candidates });
+    assert.deepEqual(plan.participants, ['chatgpt'], '网页主导不引入本地模型');
     const started = h.orchestrator.start(QUESTION, {
       strategy: 'truth', maxRounds: 2, leadMode: 'web', convergenceStop: false
     }, undefined, plan);
@@ -218,14 +220,15 @@ test('模板模块上线后，网页成员依然只收用户原话', async () =>
     assert.equal(saved?.status, 'completed');
 
     const webCalls = h.seen.filter(call => plan.webOnly.includes(call.agentId));
-    assert.ok(webCalls.length > 0);
+    assert.equal(webCalls.length, 2, '两轮都由同一个网页通道发言（自辩）');
+    assert.equal(webCalls[0].question, QUESTION, '第一轮页面收到的必须是用户原话');
+    assert.match(webCalls[1].question, /【问题】/, '交锋材料拼进用户消息');
+    assert.match(webCalls[1].question, /【观点】/, '交锋要看到上一轮观点');
     for (const call of webCalls) {
-      assert.equal(call.question, QUESTION, '页面收到的必须是用户原话');
       assert.deepEqual(call.system, [], '网页成员不得收到任何模板指令');
-      assert.deepEqual(call.context, [], '网页成员不得收到他人观点');
+      assert.deepEqual(call.context, [], '网页成员不得收到 context');
     }
-    const local = h.seen.find(call => call.agentId === 'local');
-    assert.ok(local?.system.length > 0, '本地成员要拿到 system 模板');
+    assert.equal(h.seen.filter(call => call.agentId === 'local').length, 0, '网页主导不得调用本地模型');
   } finally {
     h.cleanup();
   }

@@ -30,10 +30,10 @@ interface Props {
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
 
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
-  { id: 'web', label: '网页主导', hint: '由某个网页回答者当主导人：再发一条消息，把各家回答递进那个页面，由它汇总、定辩题、看辩论结果给最终意见' },
-  { id: 'local', label: '本地主导', hint: '由本机 Ollama 当主导人：汇总、定辩题、看辩论结果都在本机完成，不经网页' },
-  { id: 'cloud', label: '云端主导', hint: '由配置了 Key 的云端模型当主导人：它不参与第一轮回答，只读全部回答做汇总与裁决' },
-  { id: 'hybrid', label: '混合主导', hint: '不预先指定：由本地模型按「问题 + 答案质量」挑一位成员当主导人' }
+  { id: 'web', label: '网页主导', hint: '只用网页通道：汇总、交锋、最终意见都由网页完成，不引入本地/云端模型；材料拼成一条消息递进页面' },
+  { id: 'local', label: '本地主导', hint: '只用本机 Ollama：汇总、交锋、最终意见都在本机完成，不调云端 API' },
+  { id: 'cloud', label: '云端主导', hint: '只用配了 Key 的远程 API 模型：不占本机算力，不掺本地模型' },
+  { id: 'hybrid', label: '混合主导', hint: '先综合决定采用本地 / 网页 / 云端中的哪一种，再严格只用那一类成员' }
 ];
 
 /** 融合报告里「谁算的这份综合」。三种后端要能分辨。 */
@@ -45,9 +45,10 @@ const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string>
 };
 
 const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
-  { id: 'local', label: '本地主导', hint: '本地模型（或云端模型）给基准观点并交锋；网页通道不参与，内容不往网页发' },
-  { id: 'web', label: '网页主导', hint: '网页通道各自独立回答原问题，本地/云端读取全部观点做交叉质疑' },
-  { id: 'hybrid', label: '混合', hint: '网页与本地/云端第一轮都独立发言，不设单一主辩，由能读上下文的成员交锋' }
+  { id: 'local', label: '本地主导', hint: '只用本地模型：汇总、交锋、最终意见都在本机完成，内容不往网页发' },
+  { id: 'web', label: '网页主导', hint: '只用网页通道：不引入本地/云端模型，交锋材料拼成一条消息递进页面' },
+  { id: 'cloud', label: '云端主导', hint: '只用远程 API 模型：需要配好 Key，不占本机算力' },
+  { id: 'hybrid', label: '混合', hint: '先综合决定采用本地 / 网页 / 云端中的哪一种，再严格只用那一类成员' }
 ];
 
 const STRATEGIES: Array<{ id: NonNullable<ConversationExecutionConfig['strategy']>; label: string }> = [
@@ -155,17 +156,19 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const candidates = options?.debateCandidates ?? [];
   // 辩论页参与者就是全部可用候选（独立子系统，与执行模式无关）。
   const debateParticipants = candidates;
-  const selectedIds = debateSelected ?? debateParticipants.filter(item => item.available).map(item => item.id);
-  const leadChoices = candidates.filter(item => item.available && (
-    debateLeadMode === 'web' ? item.type === 'web' : debateLeadMode === 'local' ? item.type !== 'web' : false
-  ));
+  /** 归属规则：一种方式只用一类成员；混合先择一，界面不预先排除任何人。 */
+  const ownerType: 'web' | 'local' | 'cloud' | null = debateLeadMode === 'web' ? 'web'
+    : debateLeadMode === 'local' ? 'local'
+      : debateLeadMode === 'cloud' ? 'cloud' : null;
+  const selectedIds = debateSelected ?? debateParticipants
+    .filter(item => item.available && (ownerType === null || item.type === ownerType))
+    .map(item => item.id);
+  const leadChoices = candidates.filter(item => item.available && item.type === ownerType);
   const leadHint = debateLeadMode === 'hybrid'
-    ? '混合模式不设主辩：所有成员第一轮平等独立发言'
-    : debateLeadMode === 'local'
-      ? '不指定时，取第一个可用的本地模型为主辩'
-      : '不指定时，取第一个可用的网页通道为主辩';
-  // 会话执行模式 = 谁当主导人。主导人可选范围按模式收窄：网页主导只能挑
-  // 回答了的网页通道，本地/云端主导挑同类模型，混合由本地模型自动挑。
+    ? '混合先综合决定采用哪一种方式，主辩由系统按决定挑，不指定'
+    : `不指定时，取第一个可用的${ownerType === 'web' ? '网页通道' : ownerType === 'local' ? '本地模型' : '云端模型'}为主辩`;
+  // 会话执行模式 = 由哪一类成员执行。主导人可选范围按归属规则收窄：
+  // 网页主导挑网页通道，本地/云端主导挑同类模型，混合择一后由系统挑。
   const leadKind = config.executionMode === 'local'
     ? 'local'
     : config.executionMode === 'cloud'
@@ -201,11 +204,12 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
 
           {tab === 'mode' && (
             <>
-              <h3>执行模式 = 谁当主导人</h3>
+              <h3>执行模式 = 由哪一类成员执行</h3>
               <p className="muted">
-                回答永远来自网页通道。执行模式选的是<b>谁当主导人</b>——它不参与第一轮回答，
-                只负责回答之后的三件事：① 汇总全部网页回答（结论 / 一致 / 分歧 / 存疑）；
-                ② 从分歧里指定辩题；③ 读辩论记录，给出最终意见。没有实质分歧时它就不发起辩论。
+                回答永远来自网页通道。按<b>归属规则</b>，执行模式决定回答之后的三件事由哪一类成员做：
+                本地主导只用本地模型、网页主导只用网页、云端主导只用远程 API，混合先综合决定采用哪一种；
+                只有一个可用成员时由它一个主导（自辩）。三件事是：① 汇总全部网页回答（结论 / 一致 / 分歧 / 存疑）；
+                ② 从分歧里指定辩题；③ 读辩论记录，给出最终意见。没有实质分歧时不发起辩论。
               </p>
               <div className="research-modes">
                 {MODES.map(item => (
@@ -226,10 +230,10 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 <>
                   <p className="muted">
                     {config.executionMode === 'web'
-                      ? '由哪个网页通道当主导。它读不到别人的页面，只能由我们把各家答案拼成一条消息发进去——页面上会多出两段（汇总 + 最终意见），比第一次回答更慢。'
+                      ? '由哪个网页通道当主导。它读不到别人的页面，只能由我们把材料拼成一条用户消息发进去——汇总、交锋、最终意见都在网页侧完成，不会调用本地/云端模型。'
                       : config.executionMode === 'local'
-                        ? '由哪个本地模型当主导。汇总、定辩题、看辩论结果都在本机完成，内容不经过网页。'
-                        : '由哪个云端模型当主导。它不参与第一轮回答，只读全部回答做汇总与裁决。'}
+                        ? '由哪个本地模型当主导。汇总、定辩题、交锋与最终意见都在本机完成，不调云端 API。'
+                        : '由哪个云端模型当主导。汇总、交锋与最终意见都走远程 API，不掺本地模型。'}
                   </p>
                   <select
                     value={config.leadAgentId ?? ''}
@@ -245,7 +249,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 </>
               ) : (
                 <p className="muted">
-                  混合主导不预先指定人：本地模型先读「问题 + 各家回答」，按答案质量挑一位成员当主导人，再交给它做汇总、定辩题、看辩论结果。
+                  混合主导不预先指定人：先按可用成员与你的选择综合决定采用本地 / 网页 / 云端中的哪一种方式，再严格只用那一类成员，由它完成汇总、交锋与最终意见。
                 </p>
               )}
 
@@ -283,7 +287,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               )}
               <p className="muted">
                 不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
-                第一轮回答只问网页通道；本地与云端模型不回答问题，只在执行阶段出场——当主导人（汇总、定辩题、给最终意见）或当辩手。
+                第一轮回答只问网页通道。之后的汇总、交锋与最终意见按归属规则执行：网页主导只用网页，本地/云端主导只用各自模型，混合择一，不混用。
               </p>
 
               <h3>云端服务</h3>
@@ -384,7 +388,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               <div className="research-candidates">
                 {debateParticipants.length === 0 && <p className="muted">正在读取可用成员…</p>}
                 {debateParticipants.map(item => {
-                  const blocked = !item.available || (debateLeadMode === 'local' && item.type === 'web');
+                  const blocked = !item.available || (ownerType !== null && item.type !== ownerType);
                   return (
                     <label key={item.id} className={`research-candidate${blocked ? ' off' : ''}`} title={item.detail ?? ''}>
                       <input type="checkbox" disabled={blocked} checked={!blocked && selectedIds.includes(item.id)}
@@ -392,7 +396,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                       <span className="research-tag">{item.type === 'web' ? '网页' : item.type === 'local' ? '本地' : '云端'}</span>
                       <span>{item.label}</span>
                       {!item.available && <span className="research-tag">{item.detail ?? '不可用'}</span>}
-                      {item.available && debateLeadMode === 'local' && item.type === 'web' && <span className="research-tag">本地主导不参与</span>}
+                      {item.available && ownerType !== null && item.type !== ownerType && <span className="research-tag">归属方式不使用这一类</span>}
                     </label>
                   );
                 })}
@@ -460,7 +464,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     setRelated([]);
                   })}>开始</button>
               </div>
-              <p className="muted">{leadHint}。网页成员只收到用户原话，不接收任何指令，也只在第一轮发言：页面看不到别人的回答，让它每轮发言只是重复独立回答。</p>
+              <p className="muted">{leadHint}。归属规则：本地主导只用本地模型、网页主导只用网页、云端主导只用远程 API、混合先择一；只有一个可用成员时由它一个主导（自辩）。网页通道只收到用户消息，交锋材料拼在消息里，不发 system / context 指令。</p>
 
               {related.length > 0 && (
                 <>

@@ -764,27 +764,18 @@ test('云端主导：云端没参与回答，也能读全部回答当主导', as
   assert.equal(synthesis?.fusion?.leadAuto, false, '手动指定不算自动');
 });
 
-test('混合主导：本地模型挑一位成员当主导，理由写进报告', async () => {
-  const calls = { pickLead: 0 };
-  const { runner, store } = execRunner(execChannels(), {
-    fusionEnabled: true,
-    pickLead: async () => {
-      calls.pickLead += 1;
-      return { agentId: 'b', label: 'B', reason: 'B 的回答更完整' };
-    }
-  });
+test('混合主导：先综合决定采用哪种方式，不借本地模型做判断', async () => {
+  const { runner, store } = execRunner(execChannels(), { fusionEnabled: true });
   const conversation = await runner.start({
     text: '一个问题',
     executionConfig: { executionMode: 'hybrid' }
   });
   await settle(runner, conversation.conversationId);
 
-  assert.equal(calls.pickLead, 1, '混合主导恰好挑一次');
   const synthesis = store.listMessages(conversation.conversationId).find(message => message.synthesis)?.synthesis;
-  assert.equal(synthesis?.fusion?.leadAgentId, 'b');
+  assert.ok(['a', 'b'].includes(synthesis?.fusion?.leadAgentId), '没有可用本地/云端成员时，混合择一采用网页方式');
   assert.equal(synthesis?.fusion?.leadAuto, true);
-  assert.equal(synthesis?.fusion?.leadReason, 'B 的回答更完整');
-  assert.match(synthesis?.fusion?.confidence?.why ?? '', /自动选 b 当主导人/);
+  assert.match(synthesis?.fusion?.leadReason ?? '', /混合.*没有可用的本地\/云端模型/);
 });
 
 test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async () => {
@@ -814,7 +805,7 @@ test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async
             index: 0,
             messages: [
               { author: '本地', kind: 'position', text: '会涨' },
-              { author: '云端', kind: 'position', text: '会跌' }
+              { author: '本地', kind: 'question', text: '会跌？' }
             ]
           }
         ]
@@ -826,7 +817,9 @@ test('主导人指定辩题：辩手交锋后，最终意见覆盖汇总', async
 
   assert.equal(debateInputs.length, 1, '有辩题时应当发起辩论');
   assert.deepEqual(debateInputs[0].topics, ['价格到底会涨还是会跌？']);
-  assert.deepEqual(debateInputs[0].debaters.sort(), ['cloud', 'local']);
+  assert.deepEqual(debateInputs[0].debaters, ['local'], '本地主导只用本地模型，不掺云端');
+  assert.equal(debateInputs[0].mode, 'local');
+  assert.equal(debateInputs[0].effectiveMode, 'local');
   assert.equal(debateInputs[0].seeds.length, 2, '网页回答作为辩论的基准观点');
   assert.equal(localReplies.length, 2, '主导人先汇总、再读辩论记录');
 

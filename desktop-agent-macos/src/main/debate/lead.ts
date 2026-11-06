@@ -1,27 +1,31 @@
 /**
- * 辩论的「谁主导」。
+ * 辩论的「谁主导」——2026-11-06 起按**归属规则**执行。
  *
  * 这里说的主导不是「哪个模型主持流程」——流程永远由 DebateOrchestrator
  * 这段代码驱动，不是一个模型在发号施令（项目书 8.1 / 架构第 130 行）。
- * 主导回答的是另一个问题：**这一场的基准观点由谁给，其他成员围绕谁展开**。
+ * 主导回答的是：**这一场由哪一类成员执行**，汇总、交锋、最终意见全归它：
  *
- * 三种模式对应三种来源组合，也对应三种隐私边界：
+ * - local   只用本地模型（Ollama），不调云端、不用网页当辩手。
+ * - web     只用网页通道，**不引入本地 / 云端模型**。
+ * - cloud   只用远程 API 模型。
+ * - hybrid  先综合决定采用上面哪一种方式，再严格只用那一类，不混用。
  *
- * - local   基准观点与质疑都由本地/云端 API 给出，网页通道完全不参与。
- * - web     网页通道各自独立回答用户原话，它们的观点是基准；本地/云端
- *           成员读取全部观点做交叉质疑与修正。
- * - hybrid  网页与本地/云端都在第一轮独立发言，不设单一主辩，由能读
- *           上下文的成员做交锋。
+ * 只有一个可用成员时也照常开，由它分饰质疑与修正（自辩），如实写进
+ * warnings，不再拿「辩手不足两位」当理由跳过整场。
  *
- * 网页成员只能在第一轮发言，不是偷懒：页面收到的永远是用户原话，它看不到
- * 别人的回答（context/system 都不会发到页面），让它每轮发言只会得到一遍又
- * 一遍对同一问题的独立回答，看着像辩论其实没有交锋。把这件事写在 plan 里，
- * 而不是藏在 orchestrator 的某个 if 中，界面才能照实显示。
+ * 网页通道之间互相看不到，且提问链路硬规则不变（用户原话原样发页面、不套
+ * 角色行与引导语）。所以 web 方式的交锋由 orchestrator 把材料**拼进一条用户
+ * 消息**递进页面；`webOnly` 标记的是「材料只能走 question，不发 context /
+ * system」，不再是「只在第一轮发言」。
+ *
+ * 详见 docs/implementation/DEBATE_LEAD_MODES.md 开头「归属规则」节。
  */
 import type { DebateMessageKind, DebateRole, DebateStrategy } from './types';
 import { strategyProfile } from './strategies';
 
-export type DebateLeadMode = 'local' | 'web' | 'hybrid';
+export type DebateLeadMode = 'local' | 'web' | 'cloud' | 'hybrid';
+/** 归属方式：真正决定「用哪一类成员」的那三种，hybrid 会先收敛到这里。 */
+export type OwnershipMode = Exclude<DebateLeadMode, 'hybrid'>;
 
 /** 一个可以参加辩论的成员，以及它此刻到底能不能用。 */
 export interface DebateCandidate {
@@ -46,11 +50,11 @@ export interface LeadPlan {
   lead: DebateLead;
   /** 第一轮发言者，有序。 */
   openingSpeakers: string[];
-  /** 后续轮次的发言者：能读 context/system 的本地/云端成员。 */
+  /** 后续轮次的发言者：归属方式与 openingSpeakers 同源，不换人。 */
   debaters: string[];
   /** 全部参与成员，有序。 */
   participants: string[];
-  /** 只在第一轮出现的网页成员。 */
+  /** 材料只能拼进 question 的网页成员：不发 context / system。 */
   webOnly: string[];
   reason: string;
   /** 如实写出的限制，例如同一模型兼任多角色。 */
@@ -72,19 +76,58 @@ export interface LeadInput {
 const MODE_LABEL: Record<DebateLeadMode, string> = {
   local: '本地主导',
   web: '网页主导',
+  cloud: '云端主导',
   hybrid: '混合'
 };
 
+/** 归属方式对应的成员类别，报错与理由都用它，别再拼中文。 */
+const OWNER_LABEL: Record<OwnershipMode, string> = {
+  local: '本地模型',
+  web: '网页通道',
+  cloud: '远程 API 模型'
+};
+
 export function normalizeLeadMode(value: unknown): DebateLeadMode {
-  return value === 'local' || value === 'web' || value === 'hybrid' ? value : 'hybrid';
+  return value === 'local' || value === 'web' || value === 'cloud' || value === 'hybrid'
+    ? value
+    : 'hybrid';
+}
+
+/**
+ * 混合：综合决定采用哪一种归属方式。
+ *
+ * 纯函数，候选可用性由主进程 health() 算好。依据依次是：用户点名的主辩、
+ * 可用的远程 API、可用的本地模型、最后才轮到网页。理由原样落进
+ * `plan.reason` / `warnings`，界面能回答「为什么是这种方式」。
+ */
+export function decideHybridMode(
+  candidates: readonly DebateCandidate[],
+  leadAgentId?: string
+): { mode: OwnershipMode; reason: string } {
+  const named = leadAgentId ? candidates.find(item => item.id === leadAgentId) : undefined;
+  if (named) {
+    return { mode: named.type, reason: `你指定了 ${named.label}（${OWNER_LABEL[named.type]}）` };
+  }
+  const cloud = candidates.filter(item => item.type === 'cloud');
+  const local = candidates.filter(item => item.type === 'local');
+  const web = candidates.filter(item => item.type === 'web');
+  if (cloud.length > 0) {
+    return { mode: 'cloud', reason: `检测到 ${cloud.length} 个可用远程 API 成员，优先用云端，不占本机算力` };
+  }
+  if (local.length > 0) {
+    return { mode: 'local', reason: `没有可用云端，但有 ${local.length} 个可用本地模型` };
+  }
+  return { mode: 'web', reason: `没有可用的本地/云端模型（网页 ${web.length} 个），由网页通道全程执行` };
 }
 
 /**
  * 生成主导计划。纯函数：候选可用性由主进程用 health() 算好传进来，这里
  * 不做任何 I/O，也不猜模型在不在线。
+ *
+ * 归属规则：一种方式只用一类成员；混合先择一；单成员照常开。
  */
 export function planLead(input: LeadInput): LeadPlan {
-  const mode = normalizeLeadMode(input.mode);
+  const requested = normalizeLeadMode(input.mode);
   const selected = input.selected ? new Set(input.selected) : null;
   const excluded: LeadPlan['excluded'] = [];
   const usable = input.candidates.filter(candidate => {
@@ -99,98 +142,67 @@ export function planLead(input: LeadInput): LeadPlan {
   const web = usable.filter(item => item.type === 'web');
   const local = usable.filter(item => item.type === 'local');
   const cloud = usable.filter(item => item.type === 'cloud');
-  // 只有本地/云端能读 context 与 system 指令，交锋只能由它们完成。
-  const api = [...local, ...cloud];
-  const all = [...web, ...api];
 
   const warnings: string[] = [];
   if (excluded.length > 0) {
     warnings.push(`${excluded.length} 个成员当前不可用，已排除：${excluded.map(item => item.id).join('、')}`);
   }
 
-  let lead: DebateLead;
-  let openingSpeakers: string[];
-  let debaters: string[];
-  let participants: string[];
-  let webOnly: string[];
-  let reason: string;
+  // 混合先综合决定采用哪一种方式，之后就当那种方式执行，不再混用成员。
+  const decision = requested === 'hybrid' ? decideHybridMode(usable, input.leadAgentId) : null;
+  const effective: OwnershipMode = decision?.mode ?? (requested === 'hybrid' ? 'web' : requested);
+  const owned = effective === 'local' ? local : effective === 'cloud' ? cloud : web;
+  const ownedIds = new Set(owned.map(item => item.id));
 
-  if (mode === 'local') {
-    if (api.length === 0) {
-      throw new Error('本地主导需要至少一个可用的本地或云端模型');
-    }
-    openingSpeakers = api.map(item => item.id);
-    debaters = openingSpeakers;
-    participants = [...openingSpeakers];
-    webOnly = [];
-    // 网页成员即便被勾选也不进这一场：本地主导的定义就是内容不往网页发。
-    for (const item of web) excluded.push({ id: item.id, reason: '本地主导不向网页通道发送内容' });
-    const pick = api.find(item => item.id === input.leadAgentId) ?? local[0] ?? api[0];
-    lead = {
-      mode,
-      agentId: pick.id,
-      label: pick.label,
-      reason: input.leadAgentId === pick.id
-        ? '由你指定为这一场的主辩'
-        : `本地主导取第一个可用的${pick.type === 'local' ? '本地模型' : '云端模型'}（${pick.label}）作为主辩`,
-      drivenBy: 'orchestrator'
-    };
-    if (api.length < 2) {
-      warnings.push('只有一个可交锋的模型：后续轮次由同一模型分饰质疑与修正角色，不是两个独立模型的意见');
-    }
-    const hasLocal = local.length > 0;
-    const hasCloud = cloud.length > 0;
-    reason = `本地主导：${api.length} 个${hasLocal && hasCloud ? '本地 / 云端' : hasLocal ? '本地' : '云端'}模型给出基准观点并做交叉质疑，网页通道不参与，提问内容不发送到网页。`;
-  } else if (mode === 'web') {
-    if (web.length === 0) throw new Error('网页主导需要至少一个可用的网页通道');
-    if (web.length + api.length < 2) throw new Error('网页主导至少需要两个可用成员');
-    openingSpeakers = web.map(item => item.id);
-    debaters = api.map(item => item.id);
-    participants = [...openingSpeakers, ...debaters];
-    webOnly = [...openingSpeakers];
-    const pick = web.find(item => item.id === input.leadAgentId) ?? web[0];
-    lead = {
-      mode,
-      agentId: pick.id,
-      label: pick.label,
-      reason: input.leadAgentId === pick.id
-        ? '由你指定为这一场的主辩'
-        : `网页主导取第一个可用的网页通道（${pick.label}）作为主辩`,
-      drivenBy: 'orchestrator'
-    };
-    reason = api.length > 0
-      ? `网页主导：${web.length} 个网页通道各自独立回答用户原话，它们构成基准观点；${api.length} 个本地/云端模型读取全部观点后交叉质疑与修正。网页成员只收到用户原话，不看别人的回答，也不接收任何指令。`
-      : `网页主导：${web.length} 个网页通道各自独立回答用户原话，它们构成基准观点。当前没有可读上下文的本地/云端成员，因此只有第一轮独立回答，没有交叉质疑。`;
-    warnings.push('网页通道只在第一轮发言：页面收到的一直是用户原话，无法针对他人观点回应');
-    if (api.length === 0) {
-      warnings.push('没有可读上下文的本地/云端成员：这一场只有第一轮独立回答，网页之间不会互相看到或质疑');
-    }
-  } else {
-    if (all.length < 2) throw new Error('混合模式至少需要两个可用成员');
-    openingSpeakers = all.map(item => item.id);
-    debaters = api.map(item => item.id);
-    participants = [...openingSpeakers];
-    webOnly = web.map(item => item.id);
-    lead = {
-      mode,
-      agentId: null,
-      label: '不设主辩',
-      reason: '混合模式让所有成员在第一轮平等地独立发言，不把任何一方定为主辩',
-      drivenBy: 'orchestrator'
-    };
-    reason = api.length > 0
-      ? `混合：${all.length} 个成员（网页 ${web.length}、本地/云端 ${api.length}）都在第一轮独立给出观点，之后由能读上下文的 ${api.length} 个成员交叉质疑。没有单一主导方。`
-      : `混合：${all.length} 个网页通道在第一轮独立给出观点，当前没有可读上下文的本地/云端成员，因此没有后续交叉质疑。没有单一主导方。`;
-    warnings.push('网页通道只在第一轮发言：页面收到的一直是用户原话，无法针对他人观点回应');
-    if (api.length === 0) {
-      warnings.push('没有可读上下文的本地/云端成员：这一场只有第一轮独立回答，网页之间不会互相看到或质疑');
+  // 不属于这一类的成员一律不进场，原因写清楚，不静默丢掉。
+  for (const item of usable) {
+    if (!ownedIds.has(item.id)) {
+      excluded.push({ id: item.id, reason: `${MODE_LABEL[effective]}只使用${OWNER_LABEL[effective]}成员` });
     }
   }
+  if (owned.length === 0) {
+    throw new Error(`${MODE_LABEL[effective]}需要至少一个可用的${OWNER_LABEL[effective]}成员`);
+  }
 
-  return { lead, openingSpeakers, debaters, participants, webOnly, reason, warnings, excluded };
+  const pick = owned.find(item => item.id === input.leadAgentId) ?? owned[0];
+  const ids = owned.map(item => item.id);
+  const lead: DebateLead = {
+    mode: requested,
+    agentId: pick.id,
+    label: pick.label,
+    reason: decision
+      ? `混合先采用${MODE_LABEL[effective]}（${decision.reason}），由 ${pick.label} 主导`
+      : input.leadAgentId === pick.id
+        ? '由你指定为这一场的主辩'
+        : `${MODE_LABEL[effective]}取第一个可用的${OWNER_LABEL[effective]}（${pick.label}）作为主辩`,
+    drivenBy: 'orchestrator'
+  };
+
+  if (owned.length === 1) {
+    warnings.push('只有一个可用成员：后续轮次由同一成员分饰质疑与修正角色，不是独立的多方意见');
+  }
+  if (effective === 'web') {
+    warnings.push('网页通道只收到用户消息：交锋材料拼在消息里，不发送 system / context 指令');
+  }
+  if (decision) warnings.push(`混合综合决定：${decision.reason}`);
+
+  const reason = decision
+    ? `混合先综合决定采用${MODE_LABEL[effective]}（${decision.reason}），本场只用${OWNER_LABEL[effective]} ${ids.length} 位，不混用其他类型。`
+    : `${MODE_LABEL[effective]}：本场只用${OWNER_LABEL[effective]} ${ids.length} 位，汇总、交锋与最终意见都由这一类完成。`;
+
+  return {
+    lead,
+    openingSpeakers: [...ids],
+    debaters: [...ids],
+    participants: [...ids],
+    webOnly: effective === 'web' ? [...ids] : [],
+    reason,
+    warnings,
+    excluded
+  };
 }
 
-/** 第几轮谁发言。第一轮是基准观点，之后只有能交锋的成员。 */
+/** 第几轮谁发言。归属方式与第一轮同源，后续不换人。 */
 export function speakersFor(plan: LeadPlan, roundIndex: number): string[] {
   return roundIndex === 0 ? plan.openingSpeakers : plan.debaters;
 }

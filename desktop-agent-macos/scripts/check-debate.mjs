@@ -90,19 +90,40 @@ test('预算覆盖能一路传进来并落盘：非法值丢掉，不传就没�
   }
 });
 
-test('少于两个成员直接拒绝，不产出一场假辩论', () => {
+test('归属规则：只有一个成员也照常开（自辩），一个都没有才拒绝', async () => {
   const h = harness();
-  assert.throws(() => h.orchestrator.start(QUESTION, config({ participants: ['a'] })), /至少需要两个/);
-  h.cleanup();
+  try {
+    const started = h.orchestrator.start(QUESTION, config({
+      participants: ['a'], maxRounds: 2, convergenceStop: false
+    }));
+    assert.deepEqual(started.plan.participants, ['a']);
+    assert.deepEqual(started.plan.debaters, ['a'], '后续轮次仍是同一成员自辩');
+    assert.ok(started.plan.warnings.some(line => /只有一个可用成员/.test(line)));
+    const done = await h.orchestrator.waitFor(started.debateId, 8000);
+    assert.equal(done.status, 'completed');
+    assert.equal(done.rounds.length, 2);
+    assert.throws(
+      () => h.orchestrator.start(QUESTION, config({ participants: [] })),
+      /需要至少一个可用/
+    );
+  } finally {
+    h.cleanup();
+  }
 });
 
-test('eligible 过滤掉不能接受 system 指令的网页成员', () => {
+test('eligible 过滤后只剩一个成员，按归属规则照常自辩', async () => {
   const h = harness({ eligible: ids => ids.filter(id => id !== 'web') });
-  assert.throws(
-    () => h.orchestrator.start(QUESTION, config({ participants: ['web', 'a'] })),
-    /至少需要两个/
-  );
-  h.cleanup();
+  try {
+    const started = h.orchestrator.start(QUESTION, config({
+      participants: ['web', 'a'], maxRounds: 2, convergenceStop: false
+    }));
+    assert.deepEqual(started.plan.participants, ['a']);
+    const done = await h.orchestrator.waitFor(started.debateId, 8000);
+    assert.equal(done.status, 'completed');
+    assert.equal(done.rounds.length, 2);
+  } finally {
+    h.cleanup();
+  }
 });
 
 test('standard/deep/adversarial 的轮数，第一轮独立、后续轮带前序发言', async () => {

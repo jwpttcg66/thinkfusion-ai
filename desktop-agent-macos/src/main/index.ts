@@ -47,7 +47,6 @@ import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
-import { pickLeadLocally } from './synthesis/lead-selector';
 import { classifyIntent } from '../shared/intent';
 import type { ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -2084,50 +2083,40 @@ app.whenReady().then(async () => {
       return registry.get(agentId) ? 'web' : undefined;
     },
     fusionEnabled: true,
-    // 主导的自动选择也交给本地模型：它读「问题 + 各来源回答」挑一位来源来主导，
-    // 自己不在候选里（本地模型不是来源）。返回 null 时 runner 退回按完整度兜底。
-    pickLead: input => pickLeadLocally(localProvider, input.question, input.answers),
-    // 会话内辩论：主导人指定辩题后，由本地/云端模型读网页回答并交锋。
-    // 辩论是独立子系统，这里只负责起一场、等它跑完、把轮次记录交回 runner。
+    // 会话内辩论：归属方式决定用哪一类成员；这里只负责起一场、等它跑完、
+    // 把轮次记录交回 runner。混合择一由 runner 的纯规则完成，不再借本地模型。
     runDebate: async input => {
       if (!debates) return null;
       // 执行名单是按配置算的，不代表此刻真的可用：没配 Key 的云端模型也在名单里。
       // 用它去辩会得到一条「辩论跑了 2 轮」但只有一个人说话的假记录，所以先按
       // health() 筛一遍；不足两位就如实不辩。
-      const available = new Set(
-        (await debateCandidates()).filter(item => item.available).map(item => item.id)
-      );
+      const candidates = await debateCandidates();
+      const available = new Set(candidates.filter(item => item.available).map(item => item.id));
       const debaters = input.debaters.filter(id => available.has(id));
-      if (debaters.length < 2) return null;
+      // 归属规则：一个人也能主导（自辩），只有真的一个可用成员都没有才不辩。
+      if (debaters.length === 0) return null;
       const labelOf = (agentId: string) =>
         extraAgents.find(agent => agent.id === agentId)?.label ?? agentId;
-      const plan = {
-        lead: {
-          mode: 'hybrid' as const,
-          agentId: input.lead.agentId,
-          label: input.lead.label,
-          reason: `会话主导人 ${input.lead.label} 指定辩题后发起`,
-          drivenBy: 'orchestrator' as const
-        },
-        openingSpeakers: debaters,
-        debaters,
-        participants: debaters,
-        webOnly: [],
-        reason: `主导人 ${input.lead.label} 指定了 ${input.topics.length} 个辩题；辩手是本地/云端模型`,
-        warnings: [],
-        excluded: []
-      };
+      // 与手动辩论共用同一套计划生成：归属方式决定只用哪一类成员，网页方式
+      // 的 webOnly 会让编排器把交锋材料拼进用户消息，而不是拉本地模型补位。
+      const plan = planLead({
+        mode: input.effectiveMode,
+        strategy: normalizeDebateConfig({}).strategy,
+        candidates,
+        selected: debaters,
+        leadAgentId: input.lead.agentId
+      });
       const state = debates.start(
         input.question,
         {
           // 会话里这一场用哪种策略，由研究设置里选的来；没选过就是真理发现。
           strategy: input.debateStrategy ?? 'truth',
           // 三步各一轮：独立表态 → 质疑 → 回应修订。两轮的话「回应」那一轮
-          // 根本不存在，AC-06 要求的决策就永远记不到；多出的一轮只在真有两位
-          // 可用辩手时才发生。
+          // 根本不存在，AC-06 要求的决策就永远记不到。
           maxRounds: 3,
-          participants: debaters,
+          participants: plan.participants,
           convergenceStop: true,
+          leadMode: input.mode,
           seed: {
             positions: input.seeds.map(seed => `【${seed.label}】\n${seed.text}`),
             topics: input.topics

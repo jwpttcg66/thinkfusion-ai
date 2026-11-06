@@ -23,6 +23,52 @@ import {
 import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
 
+/**
+ * 归属规则（2026-11-06 用户裁决）：本地主导只用本地模型、网页主导只用网页、
+ * 云端主导只用远程 API；混合先综合决定采用哪一种，再严格只用那一类。
+ *
+ * 返回的是**实际**归属方式，不是界面上选的那一档。理由要落进主导人说明，
+ * 用户能回答「这一轮到底用了谁」。
+ */
+function ownershipOf(
+  config: ConversationExecutionConfig,
+  answers: ReadonlyArray<{ channelId: string }>,
+  executorIds: ReadonlySet<string>,
+  sourceOf: (agentId: string) => 'web' | 'local' | 'cloud' | undefined
+): { mode: 'web' | 'local' | 'cloud'; reason: string } {
+  const explicit = config.leadAgentId;
+  if (explicit) {
+    if (answers.some(answer => answer.channelId === explicit)) {
+      return { mode: 'web', reason: '你指定了网页通道主导' };
+    }
+    const source = sourceOf(explicit);
+    if (source === 'local') return { mode: 'local', reason: '你指定了本地模型主导' };
+    if (source === 'cloud') return { mode: 'cloud', reason: '你指定了云端模型主导' };
+  }
+  if (config.executionMode !== 'hybrid') {
+    return { mode: config.executionMode, reason: `执行模式指定${config.executionMode}` };
+  }
+  const ids = [...executorIds];
+  if (ids.some(id => sourceOf(id) === 'cloud')) {
+    return { mode: 'cloud', reason: '混合：检测到可用远程 API 成员，优先用云端，不占本机算力' };
+  }
+  if (ids.some(id => sourceOf(id) === 'local')) {
+    return { mode: 'local', reason: '混合：没有可用云端，但有本地模型' };
+  }
+  return { mode: 'web', reason: '混合：没有可用的本地/云端模型，由网页通道全程执行' };
+}
+
+/** 归属方式对应的辩手名单。网页方式直接用回答者，其余按成员来源过滤。 */
+function debatersFor(
+  mode: 'web' | 'local' | 'cloud',
+  answers: ReadonlyArray<{ channelId: string }>,
+  executorIds: ReadonlySet<string>,
+  sourceOf: (agentId: string) => 'web' | 'local' | 'cloud' | undefined
+): string[] {
+  if (mode === 'web') return answers.map(answer => answer.channelId);
+  return [...executorIds].filter(id => sourceOf(id) === mode);
+}
+
 export interface ConversationDeps {
   store: AgentStore;
   registry: SubAgentRegistry;
@@ -64,6 +110,9 @@ export interface ConversationDeps {
     seeds: Array<{ label: string; text: string }>;
     debaters: string[];
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud' };
+    /** 请求的执行模式，以及归属规则收敛后实际使用哪一类成员。 */
+    mode: ConversationExecutionConfig['executionMode'];
+    effectiveMode: 'web' | 'local' | 'cloud';
     /** 这一场用哪种协作策略；不传由调用方按默认（真理发现）处理。 */
     debateStrategy?: ConversationExecutionConfig['debateStrategy'];
   }) => Promise<{
@@ -93,15 +142,6 @@ export interface ConversationDeps {
   fusionEnabled?: boolean;
   /** 这一轮的独立裁决（如果有），给综合报告的 finalDecision 用。 */
   verdictFor?: (conversationId: string) => JudgeVerdict | null;
-  /**
-   * 主导的自动选择：本地模型不是来源，不参与被提问名单；它在这里作为中立的
-   * 评审，读「问题 + 各来源回答」挑出哪一份最适合主导辩论。返回 null（没装
-   * 模型、超时、解析不出编号）时 runner 退回到按回答完整度的确定性兜底。
-   */
-  pickLead?: (input: {
-    question: string;
-    answers: Array<{ agentId: string; label: string; text: string }>;
-  }) => Promise<{ agentId: string; label: string; reason: string } | null>;
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -591,7 +631,7 @@ export class ConversationRunner {
       if (debate) {
         parts.push(`辩论跑了 ${debate.rounds.length} 轮（${debate.status}）`);
       } else if (topics.length > 0) {
-        parts.push('但可用的本地/云端辩手不足两位，这一轮没有真的辩起来，只给了汇总');
+        parts.push('但辩论没有跑起来（归属成员不可用、引擎未就绪或等待超时），这一轮只给了汇总');
       }
       if (verdictText) parts.push('它读完辩论记录后给出最终意见');
 
@@ -686,7 +726,14 @@ export class ConversationRunner {
     if (answers.length < 2) return null;
 
     const lead = await this.resolveLead(config, question, answers, executorIds);
-    if (!lead) return null;
+    if (!lead) {
+      const ownership = ownershipOf(config, answers, executorIds, id => this.deps.agentSource?.(id));
+      this.addMessage(conversation, {
+        role: 'system',
+        text: `${ownership.mode} 归属方式下没有可用成员；按归属规则不借用其他类型的成员，这一轮只保留网页回答与规则版综合。`
+      });
+      return null;
+    }
     const isPage = lead.kind === 'web';
     const label = lead.label;
 
@@ -724,17 +771,21 @@ export class ConversationRunner {
 
     // —— 第二步：指定辩论 ————————————————————————————————
     const topics = parseTopics(summaryText);
-    const debaters = [...executorIds];
+    // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
+    // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
+    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const ownership = ownershipOf(config, answers, executorIds, sourceOf);
+    const debaters = debatersFor(ownership.mode, answers, executorIds, sourceOf);
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
     if (topics.length === 0) {
       this.addMessage(conversation, {
         role: 'system',
         text: `${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总、不发起辩论。`
       });
-    } else if (debaters.length < 2) {
+    } else if (debaters.length === 0) {
       this.addMessage(conversation, {
         role: 'system',
-        text: `${label} 列出了 ${topics.length} 个辩题（${topics.join('；')}），但可用的本地/云端辩手不足两位，这一轮只汇总、不发起辩论。`
+        text: `${label} 列出了 ${topics.length} 个辩题（${topics.join('；')}），但${ownership.mode}归属方式下没有可用成员，这一轮只汇总、不发起辩论。`
       });
     } else if (this.deps.runDebate) {
       this.addMessage(conversation, {
@@ -749,6 +800,8 @@ export class ConversationRunner {
           seeds: answers.map(answer => ({ label: answer.label, text: answer.text })),
           debaters,
           lead: { agentId: lead.agentId, label, kind: lead.kind },
+          mode: config.executionMode,
+          effectiveMode: ownership.mode,
           debateStrategy: config.debateStrategy
         });
       } catch (error) {
@@ -804,66 +857,37 @@ export class ConversationRunner {
     auto: boolean;
     reason: string | null;
   } | null> {
-    const answerById = new Map(answers.map(answer => [answer.channelId, answer] as const));
-    const kindOf = (agentId: string): 'web' | 'local' | 'cloud' => {
-      if (this.deps.isPageChannel?.(agentId)) return 'web';
-      const source = this.deps.agentSource?.(agentId);
-      if (source === 'local' || source === 'cloud') return source;
-      return answerById.has(agentId) ? 'web' : 'cloud';
-    };
-    const usable = (agentId: string) => answerById.has(agentId) || executorIds.has(agentId);
-    const labelOf = (agentId: string) => answerById.get(agentId)?.label ?? agentId;
+    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const ownership = ownershipOf(config, answers, executorIds, sourceOf);
+    // 归属规则：只在这一类成员里挑。这一类没人就如实不做执行阶段，不再
+    // 偷偷退回网页回答者冒充「本地主导」。
+    const pool = debatersFor(ownership.mode, answers, executorIds, sourceOf);
+    if (pool.length === 0) return null;
 
+    const labelOf = (agentId: string) =>
+      answers.find(answer => answer.channelId === agentId)?.label ?? agentId;
     const fixed = config.leadAgentId;
-    if (fixed && usable(fixed)) {
-      return { agentId: fixed, label: labelOf(fixed), kind: kindOf(fixed), auto: false, reason: null };
-    }
+    let agentId = fixed && pool.includes(fixed) ? fixed : pool[0];
+    let reason: string | null = ownership.reason;
 
-    const executors = [...executorIds];
-    const pickKind = (kind: 'local' | 'cloud') =>
-      executors.find(agentId => this.deps.agentSource?.(agentId) === kind);
-
-    if (config.executionMode === 'local' || config.executionMode === 'cloud') {
-      const wanted = config.executionMode;
-      const agentId = pickKind(wanted);
-      if (agentId) {
-        return { agentId, label: labelOf(agentId), kind: wanted, auto: false, reason: null };
-      }
-      const fallback = answers[0];
-      // 该模式没有可用成员：如实退回网页回答者，reason 会写进结论文案，
-      // 让用户看到「本地主导没成立」，而不是静默换成别人。
-      return fallback
-        ? {
-            agentId: fallback.channelId,
-            label: fallback.label,
-            kind: 'web',
-            auto: false,
-            reason: `没有可用的${wanted === 'local' ? '本地' : '云端'}模型，退回网页通道 ${fallback.label} 主导`
-          }
-        : null;
-    }
-
-    if (config.executionMode === 'hybrid') {
-      const candidates = answers.map(answer => ({
-        agentId: answer.channelId,
-        label: answer.label,
-        text: answer.text
-      }));
-      const picked = (await this.deps.pickLead?.({ question, answers: candidates })) ?? heuristicPick(candidates);
-      if (picked && usable(picked.agentId)) {
-        return {
-          agentId: picked.agentId,
-          label: labelOf(picked.agentId),
-          kind: kindOf(picked.agentId),
-          auto: true,
-          reason: picked.reason
-        };
+    // 混合且最终采用网页方式：不调模型，用答案完整度挑一位网页主辩。
+    if ((!fixed || !pool.includes(fixed)) && config.executionMode === 'hybrid' && ownership.mode === 'web') {
+      const picked = heuristicPick(answers.map(answer => ({
+        agentId: answer.channelId, label: answer.label, text: answer.text
+      })));
+      if (picked && pool.includes(picked.agentId)) {
+        agentId = picked.agentId;
+        reason = `${ownership.reason}；${picked.reason}`;
       }
     }
 
-    const first = answers[0];
-    if (!first) return null;
-    return { agentId: first.channelId, label: first.label, kind: 'web', auto: false, reason: null };
+    return {
+      agentId,
+      label: labelOf(agentId),
+      kind: ownership.mode,
+      auto: config.executionMode === 'hybrid',
+      reason
+    };
   }
 
   private setStatus(conversation: Conversation, status: Conversation['status']): void {

@@ -533,7 +533,7 @@ export interface JudgeVerdictView {
   fallbackReason?: string;
 }
 
-export type DebateLeadMode = 'local' | 'web' | 'hybrid';
+export type DebateLeadMode = 'local' | 'web' | 'cloud' | 'hybrid';
 
 /**
  * 协作策略（任务书 4.2）。六个可选值 + 两个只用于读旧记录的名字。
@@ -567,7 +567,7 @@ export interface DebateConfigInput {
     totalMs?: number;
     maxConcurrency?: number;
   };
-  /** 谁主导这一场：本地 / 网页 / 混合。 */
+  /** 谁主导这一场：本地 / 网页 / 云端 / 混合（混合会先综合决定采用哪一种）。 */
   leadMode?: DebateLeadMode;
   /** 用户指定的主辩；不传由 planLead 按模式挑。 */
   leadAgentId?: string;

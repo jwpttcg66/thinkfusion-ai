@@ -29,10 +29,11 @@ import {
 import { normalizeExecutionConfig } from '../out-test/shared/conversation.js';
 
 const QUESTION = '这个库支持并发写入吗？';
-const CANDIDATES = [
-  { id: 'web', label: 'ChatGPT', type: 'web', available: true },
-  { id: 'a', label: '本地模型', type: 'local', available: true },
-  { id: 'b', label: '云端模型', type: 'cloud', available: true }
+/** 归属规则：一种方式只用一类成员，角色分工要在同一类里凑够多人来验证。 */
+const ROLE_CANDIDATES = [
+  { id: 'a', label: '本地模型 A', type: 'local', available: true },
+  { id: 'b', label: '本地模型 B', type: 'local', available: true },
+  { id: 'c', label: '本地模型 C', type: 'local', available: true }
 ];
 
 function harness(responder = (agentId, task, call) => `${agentId} 第 ${call} 次发言：这个问题取决于版本。`) {
@@ -91,24 +92,26 @@ test('每种策略的第一轮指令不一样，而且说的是它自己那件�
 });
 
 test('角色按策略分配：专家都是领域专家，假设审查有人专门核对前提', () => {
-  const plan = planLead({ mode: 'hybrid', strategy: 'expert', candidates: CANDIDATES });
+  // 归属规则：不混用三类成员，角色分工在同一归属方式内部验证。
+  const plan = planLead({ mode: 'local', strategy: 'expert', candidates: ROLE_CANDIDATES });
   assert.ok(plan.participants.length >= 2);
   for (const id of plan.participants) {
     assert.equal(roleFor(plan, id, 0, 'expert'), 'domain_expert');
   }
 
-  const assumption = planLead({ mode: 'local', strategy: 'assumption', candidates: CANDIDATES });
+  const assumption = planLead({ mode: 'local', strategy: 'assumption', candidates: ROLE_CANDIDATES });
   assert.equal(roleFor(assumption, assumption.lead.agentId, 0, 'assumption'), 'proposer');
   const other = assumption.participants.find(id => id !== assumption.lead.agentId);
   assert.equal(roleFor(assumption, other, 0, 'assumption'), 'evidence_reviewer');
 
-  const adversarial = planLead({ mode: 'hybrid', strategy: 'adversarial', candidates: CANDIDATES });
+  const adversarial = planLead({ mode: 'local', strategy: 'adversarial', candidates: ROLE_CANDIDATES });
   assert.equal(roleFor(adversarial, adversarial.openingSpeakers[0], 0, 'adversarial'), 'proposer');
   assert.equal(roleFor(adversarial, adversarial.openingSpeakers[1], 0, 'adversarial'), 'critic');
 
-  // 平等策略不硬塞立场。
-  const truth = planLead({ mode: 'hybrid', strategy: 'truth', candidates: CANDIDATES });
-  assert.equal(roleFor(truth, truth.openingSpeakers[0], 0, 'truth'), 'peer');
+  // 平等策略不硬塞立场：归属规则下总有一位主辩，其余成员仍是 peer。
+  const truth = planLead({ mode: 'local', strategy: 'truth', candidates: ROLE_CANDIDATES });
+  const peer = truth.participants.find(id => id !== truth.lead.agentId);
+  assert.equal(roleFor(truth, peer, 0, 'truth'), 'peer');
 });
 
 test('争议按策略偏好排序：假设审查先看范围，对抗先看事实', () => {

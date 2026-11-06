@@ -97,10 +97,10 @@ export class DebateOrchestrator {
       selected: selection,
       leadAgentId: config.leadAgentId
     });
-    // local 主导在本机只有一个模型时允许自辩（同一模型分饰质疑与修正），
-    // 并在 plan.warnings 里如实写明；其余模式仍要求两个不同成员。
-    if (effectivePlan.participants.length < 2 && effectivePlan.lead.mode !== 'local') {
-      throw new Error('辩论至少需要两个参与成员');
+    // 归属规则：只有一个可用成员也照常开，由它分饰质疑与修正（自辩），
+    // plan.warnings 里如实写明，不再拿「不足两位」跳过整场。
+    if (effectivePlan.participants.length === 0) {
+      throw new Error('辩论至少需要一个可用参与成员');
     }
     const effectiveConfig: DebateConfig = { ...config, participants: [...effectivePlan.participants] };
     const at = this.now();
@@ -245,11 +245,11 @@ export class DebateOrchestrator {
         }
 
         if (!current()) return;
-        // 没有能读上下文的成员时，后续轮次只会把同一句原话再问一遍（网页
-        // 通道彼此看不到回答），不是交锋。跑完第一轮就收，别空转。
+        // 归属规则下计划总会给至少一位交锋成员；这条只兜住旧记录（旧计划的
+        // 后续轮次名单可能为空）。没人接第二棒就别空转。
         if (state.plan.debaters.length === 0) {
           state.status = 'completed';
-          state.stopReason = '只有第一轮独立回答：没有可读上下文的成员来做交叉质疑';
+          state.stopReason = '只有第一轮独立回答：计划里没有后续交锋成员';
           break;
         }
         if (state.config.convergenceStop && round.converged) {
@@ -418,10 +418,12 @@ export class DebateOrchestrator {
         previous.find(message => message.agentId !== agentId)?.messageId ?? previous[0]?.messageId;
       const isWebOnly = state.plan.webOnly.includes(agentId);
       const task: SubAgentTask = {
-        // 用户问题原样。质疑/修正的对象走 context，指令走 system。
-        // 网页成员两项都不给：页面收到的只有这一句原话，页面上不会出现
-        // 「请质疑以下观点」之类的包装文字。
-        question: state.question,
+        // 第一轮仍是用户原话（提问链路硬规则）。后续轮次里网页成员不能收
+        // context / system，交锋材料只能拼进这一条用户消息——归属规则要求
+        // 网页主导完全由网页完成，不靠本地模型补位。
+        question: isWebOnly && index > 0
+          ? webDebateQuestion(state.question, context, kind)
+          : state.question,
         stage: index === 0 ? 'initial' : 'followup',
         context: !isWebOnly && context.length > 0 ? context : undefined,
         system: isWebOnly ? undefined : renderInstructions(state.config.strategy, kind, role, state.lead, {
@@ -618,6 +620,28 @@ function converged(previous: DebateMessage[], current: DebateMessage[]): boolean
     const similarity = jaccard(features(prior.text), features(message.text));
     return similarity >= CONVERGED;
   });
+}
+
+/**
+ * 网页交锋消息（归属规则，2026-11-06）。
+ *
+ * 页面彼此看不到回答，也不接 context / system，所以质疑与修正只能把材料
+ * 拼进这一条用户消息。第一轮不走这条：那时页面收到的仍是用户原话。
+ * 文案刻意短——页面会把用户消息回显进转录，套话越长越难剥干净。
+ */
+function webDebateQuestion(
+  question: string,
+  context: readonly string[],
+  kind: DebateMessageKind
+): string {
+  const views = context.filter(Boolean).join('\n\n');
+  return [
+    `【问题】${question}`,
+    views ? `【观点】${views}` : '',
+    kind === 'question'
+      ? '【回应】指出上面哪一句证据不足或推理不成立，只写那一句和理由。'
+      : '【回应】看过质疑后，说明结论是否修改；不改就写明为什么不改。'
+  ].filter(Boolean).join('\n\n');
 }
 
 /**
