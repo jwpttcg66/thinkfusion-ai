@@ -8,7 +8,9 @@
  * 3. 版本号写进每场辩论的状态文件，读盘回来一致；
  * 4. 老文件没有 `promptVersion`，不补一个当前版本冒充记录过；
  * 5. **网页成员第一轮只收用户原话**——按归属规则，网页主导的后续交锋把
- *    材料拼进同一条用户消息，仍然不收 system / context，也不调用本地模型。
+ *    材料拼进同一条用户消息，仍然不收 system / context，也不调用本地模型；
+ * 6. 会话内网页主导（有 seed）第一轮直接用已经拿到的回答，交锋只由主辩
+ *    一个页面承担，避免把同一句原话再问一遍刚答过的页面。
  *
  * Run with: npm run test:debate-prompts
  */
@@ -229,6 +231,54 @@ test('归属规则：网页主导只用网页，第一轮原话、后续材料�
       assert.deepEqual(call.context, [], '网页成员不得收到 context');
     }
     assert.equal(h.seen.filter(call => call.agentId === 'local').length, 0, '网页主导不得调用本地模型');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('会话内网页主导：第一轮直接用已拿到的回答，交锋只由主导人一个页面承担', async () => {
+  const h = harness();
+  try {
+    const candidates = [
+      { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
+      { id: 'gemini', label: 'Gemini', type: 'web', available: true },
+      { id: 'kimi', label: 'Kimi', type: 'web', available: true }
+    ];
+    const plan = planLead({ mode: 'web', strategy: 'truth', candidates, leadAgentId: 'chatgpt' });
+    const entries = candidates.map(item => ({
+      agentId: item.id,
+      label: item.label,
+      text: `${item.label} 的回答：` + '条件不同结论不同。'.repeat(120)
+    }));
+    const started = h.orchestrator.start(QUESTION, {
+      strategy: 'truth',
+      maxRounds: 3,
+      participants: plan.participants,
+      convergenceStop: false,
+      seed: {
+        positions: entries.map(entry => `【${entry.label}】\n${entry.text}`),
+        topics: ['到底哪个结论成立'],
+        entries
+      },
+      budget: { stageTimeoutMs: 5000, totalMs: 20_000, maxConcurrency: 3 }
+    }, undefined, plan);
+    const saved = await h.orchestrator.waitFor(started.debateId, 8000);
+    assert.equal(saved?.status, 'completed');
+
+    const first = saved.rounds[0];
+    assert.equal(first.messages.length, 3, '三份网页回答就是第一轮的基准观点');
+    assert.deepEqual(first.messages.map(message => message.agentId).sort(), ['chatgpt', 'gemini', 'kimi']);
+    assert.equal(first.messages[0].text, entries[0].text, '存原文，不是第二遍重新生成的答案');
+    assert.equal(first.failures.length, 0);
+
+    assert.equal(h.seen.length, 2, '三轮里只有质疑、回应各问一次页面');
+    assert.deepEqual(h.seen.map(call => call.agentId), ['chatgpt', 'chatgpt'], '交锋只由主辩那一个页面承担');
+    for (const call of h.seen) {
+      assert.match(call.question, /【问题】/);
+      assert.ok(call.question.length < 2600, '拼接消息要有上限，不能把三份长回答全文塞进页面');
+      assert.deepEqual(call.system, [], '网页成员不收 system');
+      assert.deepEqual(call.context, [], '网页成员不收 context');
+    }
   } finally {
     h.cleanup();
   }

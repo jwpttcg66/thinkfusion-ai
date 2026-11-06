@@ -25,6 +25,7 @@ import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_
 import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
+import { isSameThread, navigateToThread } from './adapters/browser/thread-navigation';
 import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { OllamaProvider } from './providers/ollama';
@@ -1329,29 +1330,42 @@ async function restoreThreadViews(threads: Readonly<Record<string, string>>): Pr
       failed.push({ agentId, detail: '会话地址不是 http(s)' });
       return;
     }
-    let current: URL | null = null;
+    const before = view.webContents.getURL();
     try {
-      current = new URL(view.webContents.getURL());
+      const current = new URL(before);
+      if (current.origin !== target.origin) {
+        failed.push({ agentId, detail: '会话地址与当前站点不同源，拒绝导航' });
+        return;
+      }
     } catch {
-      current = null;
+      // 空地址 / about:blank：没有可比的同源信息，允许按记录地址导航。
     }
-    if (current && current.origin !== target.origin) {
-      failed.push({ agentId, detail: '会话地址与当前站点不同源，拒绝导航' });
-      return;
-    }
-    // Kimi 这类带 query 的地址按 origin + pathname 认同一条会话，别为了
-    // `?chat_enter_method=home` 的参数差异白白重载一次页面。
-    if (current && current.origin === target.origin && current.pathname === target.pathname) {
+    // 已经在这一条会话上（query 差异不算换会话）就什么都不做。
+    if (isSameThread(before, target)) {
       restored.push(agentId);
       return;
     }
-    const ok = await settleLoad(view, () => {
-      void view.webContents.loadURL(target.href).catch(() => undefined);
-    }, 12_000);
-    if (ok) restored.push(agentId);
-    else failed.push({ agentId, detail: '导航回原会话超时或失败' });
+    // 只看 did-finish-load 会误报：SPA 站点常常地址已经回到原会话，12 秒内
+    // 却没派发该事件。改成以最终 URL 判定，成功也不必白等满 12 秒。
+    const result = await navigateToThread(view, target, 12_000);
+    if (result.ok) restored.push(agentId);
+    else failed.push({
+      agentId,
+      detail: `页面停在 ${shortUrl(result.url) || shortUrl(before) || '空地址'}，没回到记录的地址 ${shortUrl(target.href)}`
+    });
   }));
   return { restored, failed };
+}
+
+/** 失败原因里给一段可读的地址，别把完整 URL 塞进会话消息。 */
+function shortUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    const path = url.pathname.length > 42 ? `${url.pathname.slice(0, 42)}…` : url.pathname;
+    return `${url.host}${path}`;
+  } catch {
+    return raw.slice(0, 60);
+  }
 }
 
 /**
@@ -2163,6 +2177,12 @@ app.whenReady().then(async () => {
         selected: debaters,
         leadAgentId: input.lead.agentId
       });
+      // 会话内网页主导：三家网页刚答过用户问题，别把同一句原话再问一遍、
+      // 也别让三个页面各写三轮独立文本（每轮都要等最慢的那个）。基准观点
+      // 直接注入第一轮，质疑与回应由主导人一个页面完成。
+      if (input.effectiveMode === 'web' && input.seeds.length > 0) {
+        plan.warnings.push('会话内网页主导：基准观点取本轮全部网页回答（不再重复提问），质疑与回应由主导人一个页面完成');
+      }
       const state = debates.start(
         input.question,
         {
@@ -2176,7 +2196,10 @@ app.whenReady().then(async () => {
           leadMode: input.mode,
           seed: {
             positions: input.seeds.map(seed => `【${seed.label}】\n${seed.text}`),
-            topics: input.topics
+            topics: input.topics,
+            ...(input.effectiveMode === 'web'
+              ? { entries: input.seeds.map(seed => ({ agentId: seed.agentId, label: seed.label, text: seed.text })) }
+              : {})
           },
           // 任务书第 10 节的默认预算：单次 90 秒、整场 4 分钟、同时问 3 位。
           budget: { stageTimeoutMs: 90_000, totalMs: 240_000, maxConcurrency: 3 }

@@ -106,8 +106,8 @@ export interface ConversationDeps {
     conversationId: string;
     question: string;
     topics: string[];
-    /** 网页通道的第一轮回答，作为辩论的基准观点。 */
-    seeds: Array<{ label: string; text: string }>;
+    /** 网页通道的第一轮回答，作为辩论的基准观点（带通道 id 才能原样落到发言者名下）。 */
+    seeds: Array<{ agentId: string; label: string; text: string }>;
     debaters: string[];
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud' };
     /** 请求的执行模式，以及归属规则收敛后实际使用哪一类成员。 */
@@ -833,7 +833,7 @@ export class ConversationRunner {
           conversationId: conversation.conversationId,
           question,
           topics,
-          seeds: answers.map(answer => ({ label: answer.label, text: answer.text })),
+          seeds: answers.map(answer => ({ agentId: answer.channelId, label: answer.label, text: answer.text })),
           debaters,
           lead: { agentId: lead.agentId, label, kind: lead.kind },
           mode: config.executionMode,

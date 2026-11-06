@@ -134,13 +134,24 @@ export interface DebateConfig {
    * 会话执行阶段发起辩论时的「基准材料」：网页通道已经给出的回答，以及
    * 主导人指定的辩题。第一轮辩手读到的就是这些，不是从零开始重复回答。
    * 独立辩论面板不传这个字段，行为不变。
+   *
+   * `entries` 是同一批回答的结构化形式。网页主导时页面互不可见、也不接
+   * context，编排器会把它们直接当作第一轮的发言落盘，避免把同一句用户
+   * 原话再问一遍刚答过的页面（既慢又会让辩论基于第二份答案）。
    */
-  seed?: { positions: string[]; topics: string[] };
+  seed?: { positions: string[]; topics: string[]; entries?: DebateSeedEntry[] };
   /**
    * 预算（任务书 10）。只在调用方真的传了的时候才存在，老调用方拿到的对象
    * 形状不变。不传时：单次调用 60 秒超时、整场不设时间上限、同时问 3 位。
    */
   budget?: DebateBudget;
+}
+
+/** 一条已经拿到的网页回答，作为会话内辩论第一轮的基准观点。 */
+export interface DebateSeedEntry {
+  agentId: string;
+  label: string;
+  text: string;
 }
 
 export interface DebateMessage {
@@ -567,6 +578,16 @@ export function normalizeDebateConfig(input: Partial<DebateConfig> | undefined):
       positions: input.seed.positions.filter((text): text is string => typeof text === 'string'),
       topics: input.seed.topics.filter((text): text is string => typeof text === 'string')
     };
+    const entries = Array.isArray(input.seed.entries)
+      ? input.seed.entries
+          .filter(entry => entry && typeof entry.agentId === 'string' && typeof entry.text === 'string' && entry.text.trim().length > 0)
+          .map(entry => ({
+            agentId: entry.agentId,
+            label: typeof entry.label === 'string' ? entry.label : entry.agentId,
+            text: entry.text
+          }))
+      : [];
+    if (entries.length > 0) normalized.seed.entries = entries;
   }
   // 预算同理：不传就没有这个字段，默认值在使用处兜（见 orchestrator 的 budgetOf）。
   if (input?.earlyStopOnStall === true) normalized.earlyStopOnStall = true;

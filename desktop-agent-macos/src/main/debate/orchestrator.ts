@@ -389,7 +389,16 @@ export class DebateOrchestrator {
         ].filter(Boolean)
       : previous.map(message => message.text);
     const kind: DebateMessageKind = kindFor(index);
-    const speakers = speakersFor(state.plan, index);
+    // 会话内网页主导：第一轮的观点在提问阶段已经由全部网页通道给出，直接
+    // 落盘即可，不再把同一句用户原话重问一遍（那会多出一轮页面生成，还让
+    // 辩论建立在第二份答案上）。后续交锋由主导人一个页面承担：网页彼此看
+    // 不到回答，三个页面各写一轮只是三份独立文本，却要按最慢的一个计时。
+    const seeded = index === 0
+      ? seededWebPositions(state, speakersFor(state.plan, index), this.now())
+      : [];
+    const speakers = seeded.length > 0
+      ? []
+      : webLeadSpeakers(state, index, speakersFor(state.plan, index));
     const budget = budgetOf(state.config);
     /**
      * 挑战指向具体两句。
@@ -454,6 +463,7 @@ export class DebateOrchestrator {
       }
     });
 
+    round.messages.push(...seeded);
     for (const result of results) {
       if (result.ok) round.messages.push(result.message);
       else round.failures.push(result.failure);
@@ -623,6 +633,57 @@ function converged(previous: DebateMessage[], current: DebateMessage[]): boolean
 }
 
 /**
+ * 会话内网页主导：把提问阶段已经拿到的回答作为第一轮发言落盘。
+ *
+ * 只在「结构化 seed + 这一场是网页归属」时生效。手工辩论面板没有 seed，
+ * 本地/云端主导的 plan.webOnly 为空，两条路都照旧由成员自己给观点。
+ * 注入的不是本轮新生成的网页内容，所以不写 threadUrl / citations。
+ */
+function seededWebPositions(
+  state: DebateState,
+  speakers: readonly string[],
+  at: number
+): DebateMessage[] {
+  if (state.plan.webOnly.length === 0) return [];
+  const entries = state.config.seed?.entries ?? [];
+  const seen = new Set<string>();
+  const messages: DebateMessage[] = [];
+  for (const entry of entries) {
+    if (!speakers.includes(entry.agentId) || seen.has(entry.agentId)) continue;
+    seen.add(entry.agentId);
+    messages.push({
+      messageId: randomUUID(),
+      roundIndex: 0,
+      agentId: entry.agentId,
+      role: roleForPlan(state.plan, entry.agentId, 0, state.config.strategy),
+      kind: 'position',
+      text: entry.text,
+      createdAt: at
+    });
+  }
+  return messages;
+}
+
+/** 有基准观点可注入的网页主导，质疑与回应只交给主辩那一个页面。 */
+function webLeadSpeakers(state: DebateState, index: number, speakers: readonly string[]): string[] {
+  if (index === 0 || state.plan.webOnly.length === 0 || !state.config.seed?.entries?.length) {
+    return [...speakers];
+  }
+  const lead = state.plan.lead.agentId;
+  return lead && speakers.includes(lead) ? [lead] : [...speakers];
+}
+
+/** 页面会把这条用户消息回显进转录：拼接越长越难剥干净，生成也越慢。 */
+const WEB_CONTEXT_CHARS = 1800;
+
+function webContextText(context: readonly string[]): string {
+  const items = context.filter(Boolean);
+  if (items.length === 0) return '';
+  const per = Math.max(240, Math.floor(WEB_CONTEXT_CHARS / items.length));
+  return items.map(item => (item.length > per ? `${item.slice(0, per)}…` : item)).join('\n\n');
+}
+
+/**
  * 网页交锋消息（归属规则，2026-11-06）。
  *
  * 页面彼此看不到回答，也不接 context / system，所以质疑与修正只能把材料
@@ -634,7 +695,7 @@ function webDebateQuestion(
   context: readonly string[],
   kind: DebateMessageKind
 ): string {
-  const views = context.filter(Boolean).join('\n\n');
+  const views = webContextText(context);
   return [
     `【问题】${question}`,
     views ? `【观点】${views}` : '',
