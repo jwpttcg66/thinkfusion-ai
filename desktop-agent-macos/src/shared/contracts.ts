@@ -9,6 +9,7 @@ import type {
   ConversationEvent,
   ConversationMessage,
   ExecutionMode,
+  FollowupConversationInput,
   SubmitConversationInput
 } from './conversation';
 
@@ -824,7 +825,7 @@ export interface AgentApi {
    * leaving a conversation behind on somebody's account.
    */
   classifyIntent(text: string): Promise<{ intent: IntentKind; reason: string }>;
-  followupConversation(input: { conversationId: string; text: string }): Promise<Conversation>;
+  followupConversation(input: FollowupConversationInput): Promise<Conversation>;
   getConversations(): Promise<Conversation[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;

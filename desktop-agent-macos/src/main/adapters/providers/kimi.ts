@@ -82,5 +82,27 @@ export const KIMI_PROFILE: ProviderProfile = {
   label: 'Kimi',
   selectors: KIMI_SELECTORS,
   hosts: KIMI_HOSTS,
-  reasoning: KIMI_REASONING
+  reasoning: KIMI_REASONING,
+  /**
+   * 未登录的三个现场，全部实测过：
+   *
+   * 1. `.login-button`（侧栏底部「登录」）；
+   * 2. `.next-sidebar-history-list__login`（「登录以同步历史会话」）；
+   * 3. `.login-modal-next-mask`（点发送时弹出来的手机号登录层）。
+   *
+   * 为什么必须认出来：Kimi 未登录时**输入框和发送键都还在、键还是亮的**，字也
+   * 能写进去，但点了没有任何反应——页面什么都没发生，字还留在框里。不认这个
+   * 状态，界面就会把这条通道当成「已登录、页面就绪」照常去问：填字、点发送、
+   * 按回车、再点一次，二十秒后报「SEND_UNCONFIRMED（输入框仍保留 N 字）」，
+   * 真正的原因（这条通道要重新登录）一个字都没有。实测两次，用户看到的就是
+   * 「又失败了」。
+   *
+   * 弹层关着时要么不在 DOM 里、要么量出来 0×0，探针的可见性判断会把它排除；
+   * 登录着时前两个也从渲染里消失，所以不会误报。
+   */
+  signedOut: [
+    '.login-modal-next-mask',
+    'button.login-button',
+    '.next-sidebar-history-list__login'
+  ]
 };

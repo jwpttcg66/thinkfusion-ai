@@ -520,7 +520,10 @@ export default function App() {
       try {
         const updated = await window.agentAPI.followupConversation({
           conversationId: activeConversation.conversationId,
-          text
+          text,
+          // 追问沿用会话里那份配置，只有把当前设置带上，用户刚改成「本地主导」
+          // 的下一条提问才会真的按本地主导跑。
+          executionConfig
         });
         setConversations(prev => [updated, ...prev.filter(item => item.conversationId !== updated.conversationId)]);
         setPrompt('');

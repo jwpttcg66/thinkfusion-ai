@@ -872,6 +872,47 @@ test('本地主导：本地模型当主导，汇总与辩题都由它出', async
   assert.equal(synthesis?.fusion?.leadAgentId, 'local');
 });
 
+test('追问按当前研究设置跑，而不是会话创建时存的那份', async () => {
+  // 真机（2026-11-06）：会话是网页主导时建的，用户随后把研究设置改成
+  // 「本地主导」——输入框的胶囊已经写着本地主导，追问却还是由 Kimi 汇总、
+  // 交锋、给最终意见。原因很具体：执行模式只在 start() 时写进会话，
+  // followup 一直沿用创建时那份。研究设置是给「下一条提问」用的。
+  const channels = execChannels();
+  const seen = [];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () =>
+      execPool(channels, {
+        local: task => {
+          seen.push(task.question);
+          return SUMMARY_REPLY;
+        }
+      }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined)
+  });
+
+  const started = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'web' } });
+  await settle(runner, started.conversationId);
+  const first = store.listMessages(started.conversationId).find(message => message.synthesis)?.synthesis;
+  assert.equal(first?.fusion?.backend, 'web', '第一轮是网页主导');
+
+  await runner.followup(started.conversationId, '再问一句', { executionMode: 'local' });
+  await waitFor(
+    () => store.listMessages(started.conversationId).filter(message => message.synthesis).length > 1,
+    3000
+  );
+
+  const syntheses = store.listMessages(started.conversationId).filter(message => message.synthesis);
+  assert.equal(syntheses[syntheses.length - 1].synthesis.fusion.backend, 'local-model', '这一条要按本地主导跑');
+  assert.ok(seen.length >= 1, '本地模型要真的被问到');
+  assert.equal(
+    store.getConversation(started.conversationId).executionConfig.executionMode,
+    'local',
+    '设置要落到会话上，别只在这一个进程里生效'
+  );
+});
+
 test('云端主导：云端没参与回答，也能读全部回答当主导', async () => {
   const channels = execChannels();
   const { runner, store } = execRunner(channels, {

@@ -1611,10 +1611,18 @@ function registerIpc() {
 
   ipcMain.handle('conversation:followup', async (event, raw: unknown) => {
     trustedUiSender(event);
-    const input = raw as { conversationId?: unknown; text?: unknown };
+    const input = raw as { conversationId?: unknown; text?: unknown; executionConfig?: unknown };
     if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想追问的内容。');
-    return conversations.followup(input.conversationId, input.text);
+    // 追问也要带上当前的研究设置：执行模式存在会话里，只按创建时那份跑的话，
+    // 用户后来改成「本地主导」，追问仍然由网页主导——界面上写着本地，实际照旧。
+    return conversations.followup(
+      input.conversationId,
+      input.text,
+      input.executionConfig && typeof input.executionConfig === 'object'
+        ? (input.executionConfig as Record<string, unknown>)
+        : undefined
+    );
   });
 
   ipcMain.handle('conversation:list', event => {

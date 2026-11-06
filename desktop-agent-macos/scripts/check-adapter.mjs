@@ -807,6 +807,38 @@ test('a leftover draft in the composer does not stop a reset', async () => {
   assert.equal(result.method, 'label');
 });
 
+test('没有上一条地址时，新会话空页上挂着的草稿不算「还在原会话里」', async () => {
+  // 真机（2026-11-06）：应用重启后 lastThreadUrl 是空的，ChatGPT 把上一轮
+  // 没发出去的句子恢复到输入框里。页面其实已经停在新会话的「我们从哪开始？」，
+  // 判定却按「输入框里有字」说「仍在原会话里」，于是自动换会话每次都失败，
+  // 整场都没有 ChatGPT 的回答。地址才是证据：根地址就是新会话界面。
+  const page = scriptedPage([state({ messageCount: 0, composerText: '用表格对比 HTTP 和 HTTPS 的三点区别' })], {
+    url: 'https://chat.deepseek.com/'
+  });
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 1500, emptyStableMs: 40 }).newConversation();
+
+  assert.equal(result.ok, true, '页面已经是新会话，不能因为草稿判成失败');
+  assert.equal(result.method, 'already-empty');
+  assert.equal(page.calls.newChat, 0);
+  assert.equal(page.calls.clear, 1, '新会话里挂着的草稿要清掉，否则看着像上一问还留着');
+});
+
+test('地址还指着某条会话时，空转录加草稿仍然不是新会话', async () => {
+  // 反过来的一面：地址里还带着会话 id，就还在那条会话里。这时草稿不是证据，
+  // 地址才是，不能因为「消息数 0」就当页面清空了。
+  const page = scriptedPage([state({ messageCount: 0, composerText: 'draft' })], {
+    url: 'https://chat.deepseek.com/a/chat/s/6aed7841-2380-83ec-a944-7d6262b58eed'
+  });
+  delete page.reloadHome;
+
+  const result = await adapterFor(page, { alreadyEmptyMs: 1500, afterClickMs: 300, emptyStableMs: 40 }).newConversation();
+
+  assert.equal(result.ok, false);
+  assert.match(result.detail, /没有清空/);
+  assert.equal(page.calls.newChat, 1);
+});
+
 test('a new conversation waits for the page to actually clear', async () => {
   // Before the click the transcript still holds the old thread; only after it
   // does the page go blank, and only then may the reset count as done.
@@ -1159,6 +1191,34 @@ test('a page that cannot start a new chat says so instead of waiting three minut
     return true;
   });
   assert.equal(stub.calls.send, 0, '换不了会话就别把问题发进那条注定被退回的会话');
+});
+
+// ---------------------------------------------------------------------------
+// 未登录：在提问前拦下，而不是等二十秒的发送确认
+// ---------------------------------------------------------------------------
+
+test('未登录的通道在提问前就被拦下，不往一个不会应答的页面里写字', async () => {
+  // 真机（Kimi，2026-11-06）：输入框在、发送键亮着、字也写得进去，点了却什么
+  // 都不发生——页面把这一问拦在门口。不认未登录，就会填字、点发送、按回车、
+  // 再点一次，二十秒后报「SEND_UNCONFIRMED（输入框仍保留 N 字）」，而真正该说
+  // 的那句「这条通道要重新登录」一个字都没有。
+  const page = scriptedPage([state({ signedOut: true, hasInput: true, messageCount: 0, composerText: '' })]);
+  const adapter = new PageBrowserAdapter({ id: 'kimi', label: 'Kimi', adapter: adapterFor(page) });
+
+  const status = await adapter.status();
+  assert.equal(status.loggedIn, false, '未登录要如实报出来');
+  assert.equal(status.available, false, '未登录的通道不该被算作可用');
+
+  await assert.rejects(() => adapter.ask({ question: '测试一句', stage: 'initial' }), /未登录：先在右侧/);
+  assert.equal(page.calls.fill, 0, '不该往一个不会应答的页面里写字');
+});
+
+test('Kimi 声明了未登录的现场，否则那个状态永远认不出来', async () => {
+  const { KIMI_PROFILE } = await import(path.join(root, 'out/adapter/main/adapters/providers/kimi.js'));
+  const declared = KIMI_PROFILE.signedOut ?? [];
+  for (const selector of ['button.login-button', '.next-sidebar-history-list__login', '.login-modal-next-mask']) {
+    assert.ok(declared.includes(selector), `缺少 ${selector}：Kimi 未登录就又会走成「发送未确认」`);
+  }
 });
 
 // 页面脚本是拼出来的字符串，写坏一个转义（`\/` 在模板里变成 `/`，把后半行变成

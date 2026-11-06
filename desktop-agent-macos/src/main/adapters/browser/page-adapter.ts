@@ -87,7 +87,12 @@ export class PageBrowserAdapter implements BrowserAdapter {
         // 上下文满不是不可用：页面的输入框还在，换一条会话就能答。但这是一件
         // 用户看得见的事实（下一条问题会落到一条新会话里），所以如实报上去。
         contextFull: status.contextFull === true,
-        detail: status.detail
+        // 未登录且站点不给访客用：页面自己的说明写的是「仍可使用」（那是给
+        // Gemini 那种访客可用的站点的），放在这里会让人以为还能问。
+        detail:
+          !status.loggedIn && this.spec.guestUsable !== true
+            ? `${this.label} 未登录：在右侧这条通道的页面里登录一次`
+            : status.detail
       };
     } catch (error) {
       return {
@@ -108,7 +113,18 @@ export class PageBrowserAdapter implements BrowserAdapter {
 
     const status = await this.status();
     if (!status.pageReady) throw new PageUnavailableError(this.id, status.detail ?? '页面未就绪');
-    if (!this.usable(status)) throw new PageUnavailableError(this.id, status.detail ?? '未登录');
+    // 未登录且这个站点不给访客用（Kimi 就是这样：输入框还在、发送键还亮着，
+    // 字也写得进去，点了却什么都不会发生）。状态里那句「仍可使用」是写给
+    // Gemini 这种访客可用的站点的，放在这里会把人引到错误的方向——真正该做的
+    // 只有一件事：在这条通道的页面里登录一次。
+    if (!this.usable(status)) {
+      throw new PageUnavailableError(
+        this.id,
+        status.loggedIn
+          ? (status.detail ?? '页面未就绪')
+          : `${this.label} 未登录：先在右侧这条通道的页面里登录一次，再问。`
+      );
+    }
 
     const requestId = randomUUID();
     this.inFlight.add(requestId);

@@ -1856,6 +1856,24 @@ function sameThreadAddress(a: string, b: string): boolean {
 }
 
 /**
+ * 这个地址里的会话 id；地址不指名某条会话时是空串。
+ *
+ * 三家站点都是把 id 放在最后一段路径上（`/c/<uuid>`、`/app/<hex>`、
+ * `/chat/<uuid>`），所以这一段就是「在不在会话里」的证据，且不随标记或语言
+ * 变化。太短或没有数字的最后一段不算：`/`、`/app`、`/chat/new` 都是站点自己的
+ * 新会话界面。
+ */
+function threadIdOf(url: string): string {
+  try {
+    const segments = new URL(url).pathname.split('/').filter(Boolean);
+    const last = segments[segments.length - 1] ?? '';
+    return /^[0-9a-zA-Z-]{16,}$/.test(last) && /[0-9]/.test(last) ? last : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * How long one call into a page may take before we stop waiting for it.
  *
  * `executeJavaScript` settles when the renderer answers. A renderer that is
@@ -2603,6 +2621,7 @@ export class ChatPageDriver {
     // does not depend on the site's markup, which is the part that keeps
     // changing.
     if (await this.pageIsEmpty(driver, this.tuning.alreadyEmptyMs, this.tuning.emptyStableMs, leaving)) {
+      await this.clearLeftoverDraft(driver);
       return { ok: true, method: 'already-empty' };
     }
 
@@ -2617,12 +2636,14 @@ export class ChatPageDriver {
     // found will not clear the page by itself, and waiting the full window for
     // it would delay the path that actually works.
     if (clicked.ok && (await this.pageIsEmpty(driver, this.tuning.afterClickMs, this.tuning.emptyStableMs, leaving))) {
+      await this.clearLeftoverDraft(driver);
       return { ok: true, method: clicked.method ?? 'button' };
     }
 
     if (driver.reloadHome) {
       const reloaded = await driver.reloadHome();
       if (reloaded.ok && (await this.pageIsEmpty(driver, this.tuning.newChatMs, this.tuning.emptyStableMs, leaving))) {
+        await this.clearLeftoverDraft(driver);
         return { ok: true, method: 'reload' };
       }
       if (!reloaded.ok) {
@@ -2630,10 +2651,22 @@ export class ChatPageDriver {
       }
     }
 
+    // 失败的理由要写它看到的东西。「仍在原会话里」在页面其实已经清空时会
+    // 把人指向完全错误的下一步（去点一次「新对话」——他已经点过了）。
+    const residue = await driver.probe().catch(() => null);
+    let where = '地址未知';
+    try {
+      where = residue?.url ? new URL(residue.url).pathname : '地址未知';
+    } catch {
+      where = '地址未知';
+    }
     return {
       ok: false,
       method: clicked.ok ? 'button' : 'none',
-      detail: clicked.ok ? '页面没有清空，仍在原会话里' : `未找到「新对话」入口（${clicked.reason ?? 'UNKNOWN'}）`
+      detail: clicked.ok
+        ? `页面没有清空（${where}，可见消息 ${String(residue?.messageCount ?? 0)} 条，` +
+          `输入框 ${String(residue?.composerText.trim().length ?? 0)} 字）`
+        : `未找到「新对话」入口（${clicked.reason ?? 'UNKNOWN'}）`
     };
   }
 
@@ -2749,15 +2782,7 @@ export class ChatPageDriver {
     question = '',
     timeoutMs = 6000
   ): Promise<string> {
-    const idOf = (url: string): string => {
-      try {
-        const segments = new URL(url).pathname.split('/').filter(Boolean);
-        const last = segments[segments.length - 1] ?? '';
-        return /^[0-9a-zA-Z-]{16,}$/.test(last) && /[0-9]/.test(last) ? last : '';
-      } catch {
-        return '';
-      }
-    };
+    const idOf = threadIdOf;
     const named = (url: string) => idOf(url) !== '';
     const appeared = (list: readonly ThreadCandidate[]): string => {
       const known = new Set(baseline.map(row => idOf(row.href)).filter(Boolean));
@@ -2826,7 +2851,37 @@ export class ChatPageDriver {
       // ChatGPT reset failing on a page that had already reset.
       return true;
     }
+
+    // 没有「上一条地址」可比的时候（应用刚启动，这个进程还没答过话），只能
+    // 看地址本身。
+    //
+    // 这里曾经用「输入框里有没有字」当判据，理由是空白页才叫新会话。那条
+    // 判据把我们自己的残留读成了历史：ChatGPT 会把草稿恢复到输入框里，上一轮
+    // 填进去却没发出去的那句也一直挂在上面，于是页面明明停在新会话的「我们
+    // 从哪开始？」，判定却说「仍在原会话里」——自动换会话每次都失败，整场
+    // 缺掉这个通道的回答。
+    //
+    // 一条会话地址（`/c/<id>`、`/app/<id>`、`/chat/<id>`）才是「还在某条会话
+    // 里」的证据；站点自己的新会话界面（根地址、`/app`）不管输入框里挂着什么，
+    // 都已经是新会话了。
+    if (!threadIdOf(driver.url())) return true;
     return probe.composerText.trim().length === 0;
+  }
+
+  /**
+   * 换完会话，把我们自己留在输入框里的字清掉。
+   *
+   * ChatGPT 会恢复草稿：上一轮填进去没发出去的那一句、以及站点从本地草稿里
+   * 恢复出来的一句，都会原样出现在一条全新的会话里。它已经不是待发送的提问
+   * （发送前 `fill` 本来也会先清），但挂在框里看着就像「这条会话还留着上一问」，
+   * 而且让人以为问题已经发出去了。所以新会话确认之后清一次；清不掉也不影响
+   * 这一次提问。
+   */
+  private async clearLeftoverDraft(driver: PageDriver): Promise<void> {
+    if (!driver.clearComposer) return;
+    const probe = await driver.probe().catch(() => null);
+    if (!probe || probe.composerText.trim().length === 0) return;
+    await driver.clearComposer().catch(() => undefined);
   }
 
   /**

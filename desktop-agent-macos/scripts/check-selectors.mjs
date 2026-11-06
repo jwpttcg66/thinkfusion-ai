@@ -248,8 +248,15 @@ test('the Gemini profile counts answers by turn and cuts the thinking panel', ()
   assert.equal(gemini.guestUsable, true);
   assert.equal(providers.guestUsableFor('chatgpt'), false);
   assert.equal(providers.guestUsableFor('kimi'), false);
+  // Kimi 未登录时输入框还在、发送键还亮着、字也写得进去，点了却什么都不发生
+  // （实测：点击被 `.login-modal-next-mask` 或页面自身的访客限制吃掉）。不声明
+  // 这个状态，提问路径就要白烧 20 秒并报成「发送未确认」。
+  assert.deepEqual(providers.signedOutFor('kimi'), [
+    '.login-modal-next-mask',
+    'button.login-button',
+    '.next-sidebar-history-list__login'
+  ]);
   // A site with nothing of its own to say opts out by saying nothing.
-  assert.deepEqual(providers.signedOutFor('kimi'), []);
   assert.deepEqual(providers.signedOutFor('chatgpt'), []);
   assert.deepEqual(providers.signedOutPathsFor('kimi'), []);
 });

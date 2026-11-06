@@ -204,6 +204,18 @@ export interface SubmitConversationInput {
 }
 
 /**
+ * 在已有会话里再问一句。
+ *
+ * `executionConfig` 是这一次用的研究设置。不传就沿用会话里存的那份；传了就以
+ * 这次为准——研究设置是给「下一条提问」用的，而那条提问可能就是追问。
+ */
+export interface FollowupConversationInput {
+  conversationId: string;
+  text: string;
+  executionConfig?: Partial<ConversationExecutionConfig>;
+}
+
+/**
  * What happened to the pages when a conversation was deleted.
  *
  * The local row is always gone by the time this exists. `failed` is the part

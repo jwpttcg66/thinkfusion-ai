@@ -11,7 +11,13 @@ import type {
   SourcesState,
   SubmitPromptInput
 } from '../shared/contracts';
-import type { Conversation, ConversationEvent, ConversationMessage, SubmitConversationInput } from '../shared/conversation';
+import type {
+  Conversation,
+  ConversationEvent,
+  ConversationMessage,
+  FollowupConversationInput,
+  SubmitConversationInput
+} from '../shared/conversation';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -20,7 +26,7 @@ import type { Conversation, ConversationEvent, ConversationMessage, SubmitConver
 const api: AgentApi = {
   submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
   classifyIntent: (text: string) => ipcRenderer.invoke('conversation:classify', text),
-  followupConversation: (input: { conversationId: string; text: string }) => ipcRenderer.invoke('conversation:followup', input),
+  followupConversation: (input: FollowupConversationInput) => ipcRenderer.invoke('conversation:followup', input),
   getConversations: () => ipcRenderer.invoke('conversation:list'),
   getConversation: (conversationId: string) => ipcRenderer.invoke('conversation:get', conversationId),
   getConversationMessages: (conversationId: string) => ipcRenderer.invoke('conversation:messages', conversationId),

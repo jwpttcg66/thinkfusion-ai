@@ -378,7 +378,20 @@ export class ConversationRunner {
     return conversation;
   }
 
-  async followup(conversationId: string, text: string): Promise<Conversation> {
+  /**
+   * 在已有会话里再问一句。
+   *
+   * `executionConfig` 是**这一次**用的研究设置，不是那个会话创建时的存档。
+   * 执行模式以前只在 `start()` 时写进会话，之后改「研究设置」对追问完全无效：
+   * 界面上的胶囊已经写着「本地主导」，跑起来还是按创建时的「网页主导」由 Kimi
+   * 汇总、交锋、给最终意见。设置是给下一条提问用的，那一条可能是追问，所以
+   * 这里要把当前设置收进来、落到会话上，再交给执行阶段。
+   */
+  async followup(
+    conversationId: string,
+    text: string,
+    executionConfig?: Partial<ConversationExecutionConfig>
+  ): Promise<Conversation> {
     const conversation = this.deps.store.getConversation(conversationId);
     if (!conversation) throw new Error('对话不存在');
     if (conversation.taskId) throw new Error('这是一次工作区任务，请到左侧任务里继续');
@@ -391,6 +404,15 @@ export class ConversationRunner {
     // survives in the history.
     if (this.running.has(conversationId)) {
       throw new Error('上一轮还在等回答。等它结束，或先点「停止等待」，再发下一句。');
+    }
+
+    if (executionConfig) {
+      // 整份替换，不做合并：界面里的「研究设置」本身就是完整的一份，合并会把
+      // 用户刚清掉的选项（比如从 Kimi 改回「自动」）从旧配置里悄悄带回来。
+      conversation.executionConfig = normalizeExecutionConfig(executionConfig);
+      // 立刻落盘：这一轮如果被拒（页面不可用、超时）也该保住用户刚改的设置，
+      // 否则界面写着本地主导、会话里仍是网页主导，下一次还得再猜一遍。
+      this.save(conversation);
     }
 
     this.cancelled.delete(conversationId);
