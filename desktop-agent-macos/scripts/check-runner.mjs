@@ -913,6 +913,52 @@ test('追问按当前研究设置跑，而不是会话创建时存的那份', as
   );
 });
 
+test('改研究设置当场存到会话上，下一句不带设置也按它跑', async () => {
+  // 面板改了设置只活在那个进程里的话：换个会话再回来、或者重开应用，胶囊就退回
+  // 默认的「网页主导」，下一条追问照着默认跑——用户看到的正是「设了没生效」。
+  // 所以改动要当场落盘，追问不带设置也得读到它。
+  const channels = execChannels();
+  const seen = [];
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () =>
+      execPool(channels, {
+        local: task => {
+          seen.push(task.question);
+          return SUMMARY_REPLY;
+        }
+      }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined)
+  });
+
+  const started = await runner.start({ text: '一个问题', executionConfig: { executionMode: 'web' } });
+  await settle(runner, started.conversationId);
+
+  const saved = runner.updateExecutionConfig(started.conversationId, { executionMode: 'local' });
+  assert.equal(saved.executionConfig.executionMode, 'local', '返回值要是存进去的那一份');
+  assert.equal(
+    store.getConversation(started.conversationId).executionConfig.executionMode,
+    'local',
+    '不落盘的话，下次打开这个会话又变回网页主导'
+  );
+
+  // 不带 executionConfig：模拟重开应用后渲染层手里只有默认值的那种追问。
+  await runner.followup(started.conversationId, '再问一句');
+  await waitFor(
+    () => store.listMessages(started.conversationId).filter(message => message.synthesis).length > 1,
+    3000
+  );
+
+  const syntheses = store.listMessages(started.conversationId).filter(message => message.synthesis);
+  assert.equal(
+    syntheses[syntheses.length - 1].synthesis.fusion.backend,
+    'local-model',
+    '存下来的设置要真的生效'
+  );
+  assert.ok(seen.length >= 1, '本地模型要真的被问到');
+});
+
 test('云端主导：云端没参与回答，也能读全部回答当主导', async () => {
   const channels = execChannels();
   const { runner, store } = execRunner(channels, {

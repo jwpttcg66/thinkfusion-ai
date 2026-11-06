@@ -39,6 +39,30 @@
 `{executionMode:'local'}`，这一轮的 `synthesis.fusion.backend` 必须是 `local-model`，
 且设置落到会话上。真机复核：会话存 `local`、追问带 `web`，这一轮 `fusion=web/chatgpt`。
 
+#### 只把设置带上还不够：它得先存住、还得读回来（同日第二轮）
+
+第一次修完仍有洞：设置只在**追问那一刻**存在，面板里那份是渲染层的 React state，
+换个会话再回来、或者重开应用就回到默认的「网页主导」。于是用户改了本地主导、
+在另一条会话里转了一圈，回来追问时带的是默认值——**看起来又是「设了不生效」**，
+而且这次连会话里存的那份也被默认值覆盖掉了。
+
+- `updateExecutionConfig(conversationId, config)`：面板每改一次就整份写进会话并落盘
+  （IPC `conversation:config`）。正在跑的时候也允许改：`run()` / `conduct()` 在开头
+  就把配置取成局部变量，半路改不会把这一轮掰弯。
+- `selectConversation()` 打开会话时把 `conversation.executionConfig` 读回面板：面板显示的、
+  追问用的、会话里存的是同一份。切走再切回来不会各自漂移。
+- 渲染层延迟 400ms 才写盘，只是为了让连点四个档位写一次；最后那一下照样落盘。
+
+验证（`check-runner` 38/38）：新增「改研究设置当场存到会话上，下一句不带设置也按它跑」
+——会话先以 `web` 建，`updateExecutionConfig` 之后**不带配置**追问，这一轮
+`fusion.backend` 必须是 `local-model`。
+
+真机（2026-11-06 16:41，测试会话 `bd573f98`）：建会话（`web`）→ 侧栏点开 → 面板点
+「本地主导」→ 芯片当场切换，IPC 读回 `executionMode: local`、`agent-store.json` 里也
+是 `local`，而用户自己那条 `f0c2ff70` 仍是 `web`；随后点回 `f0c2ff70`，面板读回
+「网页主导」。删除测试会话后 `cleaned: [chatgpt, gemini]`，三个站点无残留链接、
+输入框为空。
+
 ### 实施记录（2026-11-06）
 
 | 层 | 落地内容 |

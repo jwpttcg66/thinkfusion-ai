@@ -7,6 +7,7 @@ import type {
   Conversation,
   ConversationDeleteOutcome,
   ConversationEvent,
+  ConversationExecutionConfig,
   ConversationMessage,
   ExecutionMode,
   FollowupConversationInput,
@@ -826,6 +827,16 @@ export interface AgentApi {
    */
   classifyIntent(text: string): Promise<{ intent: IntentKind; reason: string }>;
   followupConversation(input: FollowupConversationInput): Promise<Conversation>;
+  /**
+   * 把当前的研究设置存到这个会话上。
+   *
+   * 追问本身会带上设置，但那份设置只活在提问那一刻：不存下来，换个会话再
+   * 回来（或重开应用）面板就退回默认值，下一条追问照着默认跑。
+   */
+  updateConversationConfig(input: {
+    conversationId: string;
+    executionConfig: Partial<ConversationExecutionConfig>;
+  }): Promise<Conversation>;
   getConversations(): Promise<Conversation[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;

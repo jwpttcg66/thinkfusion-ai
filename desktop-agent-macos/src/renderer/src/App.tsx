@@ -137,6 +137,19 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
+  /**
+   * 面板上这份设置的即时副本。
+   *
+   * 改一下要立刻存到会话上，但存的动作是延迟的（连点四个档位不该写四次盘），
+   * 而延迟回调里读 `executionConfig` 拿到的是它闭包创建时那一份。用 ref 读最新值，
+   * 不靠 setState 的函数式更新去取巧。
+   */
+  const executionConfigRef = useRef<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
+  executionConfigRef.current = executionConfig;
+  const configSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (configSaveTimer.current) clearTimeout(configSaveTimer.current);
+  }, []);
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
@@ -500,6 +513,30 @@ export default function App() {
     }
   }
 
+  /**
+   * 改研究设置。
+   *
+   * 两件事一起做：面板立刻显示新值；开着会话时把它存到这个会话上，不等下一句
+   * 提问。少了后半步，设置只活在内存里——打开别的会话再回来、或者重开应用，
+   * 胶囊就退回默认的「网页主导」，下一条追问照着默认跑，看起来正是「设了不生效」。
+   */
+  function changeExecutionConfig(patch: Partial<ConversationExecutionConfig>) {
+    const next = normalizeExecutionConfig({ ...executionConfigRef.current, ...patch });
+    executionConfigRef.current = next;
+    setExecutionConfig(next);
+
+    const conversationId = activeConversationRef.current;
+    if (!conversationId) return;
+    if (configSaveTimer.current) clearTimeout(configSaveTimer.current);
+    // 稍等一下只是为了让连点几个档位只写一次盘；不攒成一批，最后那一下必须落盘。
+    configSaveTimer.current = setTimeout(() => {
+      configSaveTimer.current = null;
+      void window.agentAPI
+        .updateConversationConfig({ conversationId, executionConfig: next })
+        .catch(error => setError(errorText(error)));
+    }, 400);
+  }
+
   async function submit() {
     const text = prompt.trim();
     if (!text) {
@@ -601,6 +638,13 @@ export default function App() {
         window.agentAPI.getConversation(conversationId)
       ]);
       setMessages(list);
+      // 面板跟着会话走。这个会话上次存的是「本地主导」，打开它就该显示本地主导，
+      // 下一条追问也按它跑——而不是停在另一个会话留下的那一份设置上。
+      if (conversation?.executionConfig) {
+        const stored = normalizeExecutionConfig(conversation.executionConfig);
+        executionConfigRef.current = stored;
+        setExecutionConfig(stored);
+      }
       if (conversation?.taskId) {
         setActiveId(conversation.taskId);
         await selectTask(conversation.taskId);
@@ -1330,7 +1374,7 @@ export default function App() {
       {researchOpen && (
         <ResearchPanel
           config={executionConfig}
-          onConfigChange={patch => setExecutionConfig(prev => normalizeExecutionConfig({ ...prev, ...patch }))}
+          onConfigChange={changeExecutionConfig}
           latestSynthesis={messages.find(item => item.role === 'synthesis' && item.synthesis)?.synthesis ?? null}
           onClose={() => setResearchOpen(false)}
         />

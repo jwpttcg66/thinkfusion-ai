@@ -424,6 +424,30 @@ export class ConversationRunner {
   }
 
   /**
+   * 把界面上这份研究设置存到这个会话上，不等下一句提问。
+   *
+   * 追问已经会把设置带进来，但设置本身还是会丢：打开别的会话再回来、或者重开
+   * 应用，面板退回默认的「网页主导」，下一条追问就照着默认跑——用户看到的是
+   * 「设了没生效」，而且没有任何地方说明为什么。所以面板每改一次就落一次盘，
+   * 打开会话时再读回来，界面显示的、追问用的、会话里存的是同一份。
+   *
+   * 正在跑的时候也可以改：`run()` / `conduct()` 在开头就把配置取成局部变量，
+   * 这一轮用的是取到的那一份，不会被半路改掉。
+   */
+  updateExecutionConfig(
+    conversationId: string,
+    executionConfig: Partial<ConversationExecutionConfig>
+  ): Conversation {
+    const conversation = this.deps.store.getConversation(conversationId);
+    if (!conversation) throw new Error('对话不存在');
+    // 整份替换，理由同 followup：合并会把用户刚清掉的选项从旧配置里带回来。
+    conversation.executionConfig = normalizeExecutionConfig(executionConfig);
+    conversation.updatedAt = Date.now();
+    this.save(conversation);
+    return conversation;
+  }
+
+  /**
    * Stop waiting.
    *
    * Two things have to happen and they are not the same: the conversation stops

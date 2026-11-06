@@ -14,6 +14,7 @@ import type {
 import type {
   Conversation,
   ConversationEvent,
+  ConversationExecutionConfig,
   ConversationMessage,
   FollowupConversationInput,
   SubmitConversationInput
@@ -27,6 +28,8 @@ const api: AgentApi = {
   submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
   classifyIntent: (text: string) => ipcRenderer.invoke('conversation:classify', text),
   followupConversation: (input: FollowupConversationInput) => ipcRenderer.invoke('conversation:followup', input),
+  updateConversationConfig: (input: { conversationId: string; executionConfig: Partial<ConversationExecutionConfig> }) =>
+    ipcRenderer.invoke('conversation:config', input),
   getConversations: () => ipcRenderer.invoke('conversation:list'),
   getConversation: (conversationId: string) => ipcRenderer.invoke('conversation:get', conversationId),
   getConversationMessages: (conversationId: string) => ipcRenderer.invoke('conversation:messages', conversationId),

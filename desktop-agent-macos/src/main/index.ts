@@ -1625,6 +1625,19 @@ function registerIpc() {
     );
   });
 
+  ipcMain.handle('conversation:config', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = raw as { conversationId?: unknown; executionConfig?: unknown };
+    if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
+    if (!input.executionConfig || typeof input.executionConfig !== 'object') {
+      throw new Error('缺少研究设置');
+    }
+    return conversations.updateExecutionConfig(
+      input.conversationId,
+      input.executionConfig as Record<string, unknown>
+    );
+  });
+
   ipcMain.handle('conversation:list', event => {
     trustedUiSender(event);
     return conversations.list();
