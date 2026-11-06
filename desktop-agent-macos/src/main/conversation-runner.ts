@@ -154,6 +154,12 @@ export interface ConversationDeps {
     restored: string[];
     failed: Array<{ agentId: string; detail: string }>;
   }>;
+  /**
+   * 各通道此刻的健康状态。追问恢复刚把页面导航回原会话，就绪探测要几秒
+   * 才能通过；提问名单是一次性筛的，不等就会静默少问几家。有了它 runner
+   * 才能在筛名单前把刚恢复的通道等到可用。
+   */
+  channelStatuses?: () => Promise<Array<{ id: string; available: boolean; generating?: boolean; pageReady?: boolean }>>;
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -577,6 +583,20 @@ export class ConversationRunner {
             role: 'system',
             text: `没能回到 ${item.agentId} 上一次的网页会话（${item.detail}）；这一轮可能在新会话里继续。`
           });
+        }
+        // 刚导航回原会话的页面，就绪探测要几秒才通过；上一轮的回答有时也
+        // 还没落定（generating 未回落）。提问名单是一次性筛的，这里不等，
+        // 那些通道就会被静默排除，状态条永远「待命」——2026-11-06 真机
+        // 复现过：三家只问了一家，另外两家连失败记录都没有。
+        const restored = result?.restored ?? [];
+        if (restored.length > 0 && this.deps.channelStatuses) {
+          const deadline = Date.now() + 12_000;
+          while (Date.now() < deadline) {
+            const statuses = await this.deps.channelStatuses();
+            const pending = restored.filter(id => !statuses.find(item => item.id === id)?.available);
+            if (pending.length === 0) break;
+            await new Promise(resolve => setTimeout(resolve, 700));
+          }
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

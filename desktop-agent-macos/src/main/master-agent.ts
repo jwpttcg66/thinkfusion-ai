@@ -150,6 +150,31 @@ export class MasterAgent {
   async research(request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome> {
     const participants = await this.pool.available();
 
+    // 名单之外还有开关开着的通道时，把它们为什么没被问写成可见的失败。
+    // 这里曾经是静默的：页面未就绪或上一轮的 generating 还没回落时，通道
+    // 直接从这一轮消失，状态条永远停在「待命」，用户只看到少了两家回答。
+    const skipped: ChannelOutcome[] = [];
+    if (participants.length > 0) {
+      const chosen = new Set(participants.map(agent => agent.id));
+      for (const agent of await this.pool.all()) {
+        if (chosen.has(agent.id) || sink.cancelled()) continue;
+        let detail: string;
+        try {
+          detail = (await agent.health()).detail ?? '页面未就绪，或上一轮的回答还没落定';
+        } catch (error) {
+          detail = error instanceof Error ? error.message : String(error);
+        }
+        sink.phase(agent.id, 'failed', `本轮未参与提问：${detail}`);
+        skipped.push({
+          kind: 'unanswered',
+          agentId: agent.id,
+          label: agent.label,
+          phase: 'failed',
+          detail: `本轮未参与提问：${detail}`
+        });
+      }
+    }
+
     if (participants.length === 0) {
       // 用户要知道每个来源具体缺什么，所以原因来自各自的 health()，
       // 不是把注册表里的名字拼成一句「请去登录」。
@@ -163,10 +188,10 @@ export class MasterAgent {
       answers: round.answers,
       messageIds: round.messageIds,
       synthesis: null,
-      failures: round.channels
+      failures: [...round.channels, ...skipped]
         .filter((item): item is Extract<ChannelOutcome, { kind: 'unanswered' }> => item.kind === 'unanswered')
         .map(item => `${item.label}：${item.detail}`),
-      channels: round.channels
+      channels: [...round.channels, ...skipped]
     };
 
     if (sink.cancelled()) return base;

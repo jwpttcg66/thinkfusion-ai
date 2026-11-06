@@ -74,7 +74,9 @@ function fakeRegistry(channels, options = {}) {
     // exactly one situation — a site is configured but its page is not usable —
     // and that is the situation the failure message has to get right.
     all: async () => channels,
-    available: async () => (options.noneUsable ? [] : channels),
+    // `unusable` 模拟「开关开着但此刻不可用」：在 all() 里、不在 available() 里。
+    available: async () =>
+      options.noneUsable ? [] : channels.filter(channel => !options.unusable?.includes(channel.id)),
     // `get` is how a channel's display name is found when a turn is abandoned
     // without an answer to take it from.
     get: id => channels.find(channel => channel.id === id),
@@ -431,6 +433,71 @@ test('回到原网页会话失败时如实写进系统消息', async () => {
       message => message.role === 'system' && /没能回到 a 上一次的网页会话/.test(message.text)
     ),
     3000
+  );
+});
+
+test('恢复后页面还没就绪就等它，而不是静默少问', async () => {
+  // 2026-11-06 真机复现：追问恢复刚导航回原会话，就绪探测要几秒才通过；
+  // 名单是一次性筛的，结果三家只问了一家，另外两家连失败记录都没有。
+  let statusCalls = 0;
+  const { runner, store } = makeRunner(
+    [
+      fakeChannel('a', () => answer('第二轮 a 的回答。')),
+      fakeChannel('b', () => answer('第二轮 b 的回答。'))
+    ],
+    {
+      deps: {
+        restoreThreads: async threads => ({ restored: Object.keys(threads), failed: [] }),
+        channelStatuses: async () => {
+          statusCalls += 1;
+          // 前两次 b 还没就绪（页面刚导航回来 / 上一轮 generating 未回落）。
+          const bReady = statusCalls > 2;
+          return [
+            { id: 'a', available: true },
+            { id: 'b', available: bReady, pageReady: bReady, generating: !bReady }
+          ];
+        }
+      }
+    }
+  );
+  const started = await runner.start({ text: '第一个问题' });
+  await settle(runner, started.conversationId);
+  store.getConversation(started.conversationId).threads = {
+    a: 'https://chatgpt.com/c/old-a',
+    b: 'https://chatgpt.com/c/old-b'
+  };
+  const before = runner.messages(started.conversationId).filter(message => message.role === 'channel').length;
+
+  await runner.followup(started.conversationId, '第二个问题');
+  await waitFor(
+    () => runner.messages(started.conversationId).filter(message => message.role === 'channel').length > before + 1,
+    5000
+  );
+  assert.ok(statusCalls > 2, 'runner 应该轮询健康状态等到 b 可用');
+  const followup = runner.messages(started.conversationId).slice(-4);
+  assert.ok(followup.some(m => m.role === 'channel' && m.channelId === 'b'), 'b 必须被问到，不能被静默排除');
+});
+
+test('开关开着但被排除的通道要写明原因，不能只显示待命', async () => {
+  const { runner, events } = makeRunner(
+    [
+      fakeChannel('a', () => answer('a 的回答。')),
+      fakeChannel('b', () => answer('b 不会被问到。'))
+    ],
+    { unusable: ['b'] }
+  );
+  const started = await runner.start({ text: '帮我分析 Redis 连接数过高的原因' });
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(done.status, 'answered', '一个通道不可用不该拖垮这一轮');
+  const note = runner.messages(started.conversationId).find(
+    message => message.role === 'system' && /没有给出回答/.test(message.text)
+  );
+  assert.ok(note, '排除原因要有系统消息');
+  assert.match(note.text, /b：本轮未参与提问/);
+  assert.ok(
+    events.some(event => event.type === 'channel.phase' && event.channelId === 'b' && /本轮未参与提问/.test(event.detail ?? '')),
+    '状态条要有 b 的失败相位，而不是停在待命'
   );
 });
 

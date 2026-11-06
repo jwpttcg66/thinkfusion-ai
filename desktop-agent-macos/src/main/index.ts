@@ -2147,6 +2147,7 @@ app.whenReady().then(async () => {
     },
     executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
     restoreThreads: restoreThreadViews,
+    channelStatuses: () => registry.statuses(),
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     agentSource: agentId => {
       const extra = extraAgents.find(agent => agent.id === agentId);
