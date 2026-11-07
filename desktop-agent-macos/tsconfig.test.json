@@ -12,6 +12,7 @@
     "src/main/selector-profile.ts",
     "src/main/source-store.ts",
     "src/main/profile-store.ts",
+    "src/main/engineering/**/*.ts",
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",
     "src/main/execution/**/*.ts",

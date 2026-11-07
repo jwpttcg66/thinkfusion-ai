@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
+import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
 import type {
   ChannelStatus,
@@ -24,8 +25,32 @@ import type {
 
 export const PROTOCOL = 'desktop-agent/v1';
 
-export const TOOL_NAMES = ['fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile'] as const;
+/**
+ * V2.1 扩展了工具集，但顺序与语义保持兼容：前四个是 v1 原有的，
+ * 老计划、老 grant、老 journal 里的工具名一个都没变。
+ *
+ * - `fs.tree` / `fs.search`：工程理解要能递归看目录、按内容搜代码（只读）。
+ * - `test.run`：工程实施要能拿到真实退出码，而不是模型自称「测试通过」。
+ * - `fs.writeFile` 新增 `overwrite` + `expectedHash`：改已有文件必须先证明
+ *   它还是当时读到的那一版，否则宁可拒绝，也不覆盖别人刚改的内容。
+ */
+export const TOOL_NAMES = [
+  'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
+  'fs.tree', 'fs.search', 'test.run'
+] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
+
+/** 只读工具。read-only 预设只允许这些，`test.run` 会写构建产物，不在其中。 */
+export const READ_ONLY_TOOLS: readonly ToolName[] = ['fs.list', 'fs.readFile', 'fs.tree', 'fs.search'];
+
+export const TEST_COMMANDS = [
+  'npm test',
+  'npm run typecheck',
+  'npm run build',
+  'npm run build:agent',
+  'npm run test:protocol'
+] as const;
+export type TestCommand = (typeof TEST_COMMANDS)[number];
 
 export type PermissionPreset = 'read-only' | 'workspace-write' | 'danger-full-access';
 
@@ -40,7 +65,44 @@ export const StepSchema = z.discriminatedUnion('tool', [
   z.object({ id: Id, tool: z.literal('fs.list'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
   z.object({ id: Id, tool: z.literal('fs.readFile'), args: z.object({ path: RelativePath, maxBytes: z.number().int().min(1).max(262144).optional() }).strict(), description: z.string().max(500).optional() }).strict(),
   z.object({ id: Id, tool: z.literal('fs.mkdir'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
-  z.object({ id: Id, tool: z.literal('fs.writeFile'), args: z.object({ path: RelativePath, content: z.string().max(1_000_000) }).strict(), description: z.string().max(500).optional() }).strict()
+  z.object({
+    id: Id,
+    tool: z.literal('fs.writeFile'),
+    args: z.object({
+      path: RelativePath,
+      content: z.string().max(1_000_000),
+      /** 要改已有文件，必须同时给出当时读到的 sha256。 */
+      overwrite: z.boolean().optional(),
+      expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.tree'),
+    args: z.object({
+      path: RelativePath,
+      maxDepth: z.number().int().min(1).max(6).optional(),
+      maxEntries: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.search'),
+    args: z.object({
+      query: z.string().min(1).max(200),
+      path: RelativePath.optional(),
+      maxResults: z.number().int().min(1).max(100).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('test.run'),
+    args: z.object({ command: z.enum(TEST_COMMANDS) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict()
 ]);
 
 export const PlanSchema = z
@@ -58,7 +120,13 @@ export const PlanSchema = z
   .strict()
   .refine(plan => new Set(plan.steps.map(step => step.id)).size === plan.steps.length, {
     message: 'step id 必须唯一'
-  });
+  })
+  .refine(
+    plan => plan.steps.every(step =>
+      step.tool !== 'fs.writeFile' || !step.args.overwrite || !!step.args.expectedHash
+    ),
+    { message: '覆盖已有文件的步骤必须带 expectedHash' }
+  );
 
 export type AgentPlan = z.infer<typeof PlanSchema>;
 export type PlanStep = z.infer<typeof StepSchema>;
@@ -191,7 +259,7 @@ export const TaskGrantSchema = z
     permissionPreset: z.enum(['read-only', 'workspace-write', 'danger-full-access']),
     approvalPolicy: z.literal('ask'),
     rootDir: z.string().min(1).max(2000),
-    allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(4),
+    allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(7),
     expiresAt: z.number().int().positive(),
     maxSteps: z.number().int().min(1).max(30),
     grantVersion: z.number().int().min(1).optional()
@@ -243,6 +311,17 @@ export type AgentEvent = AgentEventBase &
     | { type: 'step.completed'; taskId: string; stepId: string; tool: string; result: unknown }
     | { type: 'step.failed'; taskId: string; stepId: string; tool: string; error: string }
     | { type: 'report.ready'; taskId: string; roundId: string; report: ExecutionReport }
+    /** V2.1：执行之后由独立评审给出的结论。修复仍需用户重新批准计划。 */
+    | {
+        type: 'review.ready';
+        taskId: string;
+        roundId: string;
+        reviewer: string;
+        backend: 'model' | 'rules';
+        verdict: string;
+        issues: string[];
+        needsFix: boolean;
+      }
     | { type: 'report.sent'; taskId: string; roundId: string }
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }
@@ -826,6 +905,16 @@ export interface AgentApi {
    * leaving a conversation behind on somebody's account.
    */
   classifyIntent(text: string): Promise<{ intent: IntentKind; reason: string }>;
+  /** V2.1：纯函数式路由预览，无任何副作用。 */
+  routeConversation(input: {
+    text: string;
+    workspaceMode: WorkspaceMode;
+    hasProject: boolean;
+    override?: EngineeringTaskKind;
+  }): Promise<TaskRouting>;
+  /** V2.1：新会话默认用哪个空间、绑哪个项目。 */
+  getWorkspace(): Promise<WorkspaceState>;
+  setWorkspace(patch: Partial<WorkspaceState>): Promise<WorkspaceState>;
   followupConversation(input: FollowupConversationInput): Promise<Conversation>;
   /**
    * 把当前的研究设置存到这个会话上。

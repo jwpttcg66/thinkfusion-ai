@@ -4,6 +4,8 @@ import type { Conversation } from '../../../shared/conversation';
 import { ICON_GAUGE_PATHS, ICON_GEAR_PATHS } from '../../../shared/icons';
 import { Glyph } from './Glyph';
 
+import type { WorkspaceMode } from '../../../shared/workspace';
+
 function relTime(ts: number): string {
   const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60_000);
@@ -23,6 +25,9 @@ function workspaceLabel(task: AgentTask): string {
 }
 
 export function TaskSidebar(props: {
+  /** V2.1 双入口。切换只改筛选项，不删任何历史会话。 */
+  workspaceMode: WorkspaceMode;
+  onWorkspaceModeChange: (mode: WorkspaceMode) => void;
   tasks: AgentTask[];
   activeId: string | null;
   onSelect: (taskId: string) => void;
@@ -46,6 +51,13 @@ export function TaskSidebar(props: {
     }
     return [...map.entries()];
   }, [props.tasks]);
+  /** 老会话没有 workspaceMode，一律归到知识空间；历史不因为升级而消失。 */
+  const visibleConversations = React.useMemo(
+    () => props.conversations.filter(
+      item => (item.workspaceMode ?? 'knowledge') === props.workspaceMode
+    ),
+    [props.conversations, props.workspaceMode]
+  );
 
   return (
     <aside className="sidebar">
@@ -53,6 +65,24 @@ export function TaskSidebar(props: {
         <span className="brand-mark">◈</span>
         <span className="brand-name">ThinkFusion</span>
         <span className="brand-tag">v0.6</span>
+      </div>
+
+      <div className="workspace-tabs" role="tablist" aria-label="工作空间">
+        {([
+          { id: 'knowledge', label: '知识学习' },
+          { id: 'engineering', label: '工程工作' }
+        ] as const).map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={props.workspaceMode === tab.id}
+            className={`workspace-tab${props.workspaceMode === tab.id ? ' active' : ''}`}
+            onClick={() => props.onWorkspaceModeChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       <button className="new-task" onClick={props.onNew}>
@@ -64,13 +94,13 @@ export function TaskSidebar(props: {
         {/* Conversations first: they are the common case. Tasks are what a
             conversation turns into when the answer needs files changed, so they
             read as a subset rather than a separate product. */}
-        {props.conversations.length > 0 && (
+        {visibleConversations.length > 0 && (
           <div className="conv-group">
             <div className="group-label">
               <span className="folder">◈</span>
               <span>对话</span>
             </div>
-            {props.conversations.map(conversation => (
+            {visibleConversations.map(conversation => (
               <div
                 key={conversation.conversationId}
                 className={`task-item ${props.activeConversationId === conversation.conversationId ? 'active' : ''}`}
@@ -95,11 +125,15 @@ export function TaskSidebar(props: {
           </div>
         )}
 
-        {groups.length === 0 && props.conversations.length === 0 && (
-          <p className="empty">还没有内容。直接提问即可，需要改文件时才会走执行计划。</p>
+        {groups.length === 0 && visibleConversations.length === 0 && (
+          <p className="empty">
+            {props.workspaceMode === 'engineering'
+              ? '工程工作空间还没有内容。选择项目后，可以直接分析代码或提出修改需求。'
+              : '还没有内容。直接提问即可，需要改文件时才会走执行计划。'}
+          </p>
         )}
 
-        {groups.map(([workspace, tasks]) => (
+        {props.workspaceMode === 'engineering' && groups.map(([workspace, tasks]) => (
           <div key={workspace}>
             <div className="group-label">
               <span className="folder">▤</span>

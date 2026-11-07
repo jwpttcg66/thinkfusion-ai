@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { PermissionPreset } from '../../../shared/contracts';
+import type { EngineeringTaskKind, WorkspaceMode } from '../../../shared/workspace';
 
 const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string }> = [
   { value: 'read-only', label: '仅可查看', desc: '列目录、读文件，不允许写入' },
@@ -20,6 +21,12 @@ export function TaskInput(props: {
   value: string;
   workspace: string;
   permission: PermissionPreset;
+  /** V2.1：知识空间不要求工程目录与权限，工程空间才显示这两个胶囊。 */
+  workspaceMode: WorkspaceMode;
+  /** 路由预览：判成什么、依据是什么、是用户指定还是规则判的。 */
+  routing: { label: string; reason: string; source: 'user_selected' | 'rule' } | null;
+  taskKindOverride: EngineeringTaskKind | null;
+  onTaskKindChange: (kind: EngineeringTaskKind | null) => void;
   /**
    * 研究设置的口子就开在这个输入框里。
    *
@@ -90,6 +97,33 @@ export function TaskInput(props: {
         </div>
       )}
 
+      {props.workspaceMode === 'engineering' && props.routing && (
+        <div className="routing-preview">
+          <span className="routing-label" title={props.routing.reason}>
+            本次判为「{props.routing.label}」· {props.routing.reason}
+            {props.routing.source === 'user_selected' ? '（你指定的）' : ''}
+          </span>
+          <span className="routing-actions">
+            {([
+              { id: null, label: '自动' },
+              { id: 'analysis', label: '按分析' },
+              { id: 'execution', label: '按实施' }
+            ] as const).map(item => (
+              <button
+                key={item.label}
+                type="button"
+                className={`routing-btn${props.taskKindOverride === item.id ? ' active' : ''}`}
+                disabled={props.disabled}
+                onClick={() => props.onTaskKindChange(item.id)}
+                title={item.id === 'execution' ? '交去生成执行计划，仍需审批才可能改文件' : '按只读分析跑'}
+              >
+                {item.label}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+
       <textarea
         className="composer-input"
         rows={2}
@@ -103,22 +137,26 @@ export function TaskInput(props: {
 
       <div className="composer-bar">
         <div className="chips">
-          <button className="chip-btn" type="button" onClick={props.onChooseWorkspace} disabled={props.disabled}>
-            <span>▤</span>
-            <span className="label">{props.workspace ? shortPath(props.workspace) : '选择工作区'}</span>
-            <span className="caret">▾</span>
-          </button>
+          {props.workspaceMode === 'engineering' && (
+            <>
+              <button className="chip-btn" type="button" onClick={props.onChooseWorkspace} disabled={props.disabled}>
+                <span>▤</span>
+                <span className="label">{props.workspace ? shortPath(props.workspace) : '选择项目'}</span>
+                <span className="caret">▾</span>
+              </button>
 
-          <button
-            className="chip-btn"
-            type="button"
-            disabled={props.disabled}
-            onClick={() => setMenu(menu === 'permission' ? 'none' : 'permission')}
-          >
-            <span>◐</span>
-            <span className="label">{permission.label}</span>
-            <span className="caret">▾</span>
-          </button>
+              <button
+                className="chip-btn"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => setMenu(menu === 'permission' ? 'none' : 'permission')}
+              >
+                <span>◐</span>
+                <span className="label">{permission.label}</span>
+                <span className="caret">▾</span>
+              </button>
+            </>
+          )}
 
           {/* 和其他两个胶囊同一种形状、同样高度：这里放的是「下一条怎么问」，
               点开才是那块面板。设置项读完就收起来，不占正文一行。 */}

@@ -250,6 +250,17 @@ export function createMockApi(): AgentApi {
       updatedAt: Date.now()
     }),
     classifyIntent: async () => ({ intent: 'answer' as const, reason: '默认按问答处理' }),
+    routeConversation: async (input: { text: string; workspaceMode: 'knowledge' | 'engineering'; hasProject: boolean }) => ({
+      workspaceMode: input.workspaceMode,
+      taskKind: input.workspaceMode === 'knowledge' ? ('answer' as const) : input.hasProject ? ('engineering_analysis' as const) : ('clarify' as const),
+      reason: '（mock）预览',
+      source: 'rule' as const
+    }),
+    getWorkspace: async () => ({ workspaceMode: 'knowledge' as const, workspaceRoot: '' }),
+    setWorkspace: async (patch: { workspaceMode?: 'knowledge' | 'engineering'; workspaceRoot?: string }) => ({
+      workspaceMode: patch.workspaceMode ?? ('knowledge' as const),
+      workspaceRoot: patch.workspaceRoot ?? ''
+    }),
     updateConversationConfig: async (input: { conversationId: string; executionConfig?: unknown }) => ({
       conversationId: input.conversationId,
       title: '',

@@ -1,4 +1,29 @@
 import type { IntentKind } from './intent';
+import type { DebateMode, EngineeringTaskKind, TaskRouting, WorkspaceMode } from './workspace';
+
+/**
+ * 工程证据：一次工程分析里，**真实从磁盘读到过**的文件片段。
+ *
+ * 和 `Claim.evidence`（网页回答里的原话）是两件事：这里有确定路径、行号、
+ * 内容指纹与读取时间，能回答「这条分析到底看没看代码」。刻意不存全文，
+ * 只存展示需要的那几行；`sha256` 用来在复盘时确认当时读的是哪一版。
+ */
+export interface EngineeringEvidence {
+  /** 相对授权根目录的路径。 */
+  path: string;
+  /** 片段起始行（1 起）。 */
+  line: number;
+  /** 读到的片段，最多几行。 */
+  excerpt: string;
+  /** 整个文件内容的 sha256，不是片段的。 */
+  sha256: string;
+  /** 文件 mtime（毫秒）。 */
+  mtime: number;
+  /** 读取时间（毫秒）。 */
+  readAt: number;
+  /** 为什么把这一段挑出来：命中了哪个关键词，或来自目录概览。 */
+  why: string;
+}
 
 /**
  * A conversation is the unit the user actually thinks in: one question, some
@@ -68,6 +93,17 @@ export interface Conversation {
    * `normalizeExecutionConfig()`，不要直接访问。
    */
   executionConfig?: ConversationExecutionConfig;
+  /**
+   * V2.1 工作空间。老会话没有这个字段，读的时候按知识空间处理——历史会话
+   * 不因为升级就变成工程会话，也不要求用户补选项目。
+   */
+  workspaceMode?: WorkspaceMode;
+  /** 工程空间绑定的项目根目录。只有工程会话才写。 */
+  workspaceRoot?: string;
+  /** 这一轮的路由结果。存下来是为了「识别结果可见、可追溯」。 */
+  routing?: TaskRouting;
+  /** 工程分析真的读到过的文件片段。 */
+  engineeringEvidence?: EngineeringEvidence[];
 }
 
 export type MessageRole = 'user' | 'channel' | 'synthesis' | 'system';
@@ -201,6 +237,10 @@ export interface SubmitConversationInput {
   permissionPreset?: string;
   /** 可选。不给就是默认 web 模式，老会话保持原样。 */
   executionConfig?: Partial<ConversationExecutionConfig>;
+  /** V2.1：本次提问属于哪个工作空间。不给 = 知识空间（旧行为）。 */
+  workspaceMode?: WorkspaceMode;
+  /** V2.1：用户在输入框里手动选的「本次按分析 / 本次按实施」。 */
+  taskKindOverride?: EngineeringTaskKind;
 }
 
 /**
@@ -208,11 +248,17 @@ export interface SubmitConversationInput {
  *
  * `executionConfig` 是这一次用的研究设置。不传就沿用会话里存的那份；传了就以
  * 这次为准——研究设置是给「下一条提问」用的，而那条提问可能就是追问。
+ *
+ * 工作空间与项目目录**不在这里传**：一条会话属于哪个空间、绑的是哪个项目，
+ * 创建时就定了，追问跟着会话走。允许临时改只会让「这条会话到底读过哪些
+ * 文件」变成说不清的事。
  */
 export interface FollowupConversationInput {
   conversationId: string;
   text: string;
   executionConfig?: Partial<ConversationExecutionConfig>;
+  /** 追问时可以重新指定分析/实施，例如「先分析再修改」的第二阶段。 */
+  taskKindOverride?: EngineeringTaskKind;
 }
 
 /**
@@ -333,6 +379,17 @@ export interface ConversationExecutionConfig {
    * 策略回答怎么协作，四种执行模式都能配六种策略里的任意一种。
    */
   debateStrategy?: DebateStrategyChoice;
+  /**
+   * V2.1：辩论开关。
+   *
+   * - `auto`（老会话缺省）：主导人给出辩题才辩，和现在完全一致；
+   * - `off`：这一轮不辩，连辩题都不生成；
+   * - `on`：即使主导人没找到分歧，也拿问题本身当辩题辩一次。
+   *
+   * 任务书要求「用户明确关闭时不强制启动」，而原来辩论是自动触发、
+   * 没有任何开关的。字段可选，老数据读不到就按 auto，不需要迁移。
+   */
+  debateMode?: DebateMode;
 }
 
 /** 六种可选策略。旧名字（standard/deep）不接受新配置，只用于读旧记录。 */
@@ -404,6 +461,10 @@ export function normalizeExecutionConfig(
   ];
   if (input?.debateStrategy && debateStrategies.includes(input.debateStrategy)) {
     result.debateStrategy = input.debateStrategy;
+  }
+  const debateModes: DebateMode[] = ['auto', 'on', 'off'];
+  if (input?.debateMode && debateModes.includes(input.debateMode)) {
+    result.debateMode = input.debateMode;
   }
   return result;
 }

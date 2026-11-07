@@ -25,6 +25,18 @@ export interface OrchestratorDeps {
   adapter: ChatPageDriver;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
+  /**
+   * V2.1：执行后的独立 Review。可选——现有测试与「只跑 Runtime」的场景
+   * 不提供它时，整条执行链路和以前一模一样。
+   */
+  review?: (report: ExecutionReport, plan: AgentPlan) => Promise<{
+    reviewer: string;
+    backend: 'model' | 'rules';
+    verdict: string;
+    issues: string[];
+    needsFix: boolean;
+    at: number;
+  }>;
 }
 
 /**
@@ -161,6 +173,22 @@ export class AgentOrchestrator {
 
     this.deps.store.insertReport(report);
     this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });
+
+    // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
+    // 需要修复时只是给出结论，下一轮计划仍要用户重新批准。
+    if (this.deps.review) {
+      try {
+        const verdict = await this.deps.review(report, plan);
+        this.deps.emit({
+          type: 'review.ready', at: verdict.at, taskId: task.taskId, roundId: stored.roundId,
+          reviewer: verdict.reviewer, backend: verdict.backend, verdict: verdict.verdict,
+          issues: verdict.issues, needsFix: verdict.needsFix
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.deps.emit({ type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn', message: `独立评审没有完成：${detail}` });
+      }
+    }
 
     this.tasks.transition(task.taskId, 'verifying');
     this.tasks.transition(task.taskId, 'report_pending');

@@ -26,12 +26,27 @@ import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_GAUGE_PATHS, ICON_REFRESH
 import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage } from '../../shared/conversation';
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
+import {
+  routingLabel,
+  routeTask,
+  workspaceLabel,
+  type EngineeringTaskKind,
+  type WorkspaceMode
+} from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
+const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null };
 interface Derived {
   plan: PlanPreviewType | null;
   questions: string[];
   answer: string;
+  review: {
+    reviewer: string;
+    backend: 'model' | 'rules';
+    verdict: string;
+    issues: string[];
+    needsFix: boolean;
+  } | null;
 }
 
 /**
@@ -58,6 +73,7 @@ function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
   let answer = '';
+  let review: Derived['review'] = null;
 
   for (const event of events) {
     // A new round supersedes whatever the previous one asked. Without this a
@@ -67,11 +83,20 @@ function derive(events: AgentEvent[]): Derived {
     if (event.type === 'plan.ready') plan = event.plan;
     if (event.type === 'clarification.required') questions = event.questions;
     if (event.type === 'round.answer') answer = event.text;
+    if (event.type === 'review.ready') {
+      review = {
+        reviewer: event.reviewer,
+        backend: event.backend,
+        verdict: event.verdict,
+        issues: event.issues,
+        needsFix: event.needsFix
+      };
+    }
     if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
       questions = [];
     }
   }
-  return { plan, questions, answer };
+  return { plan, questions, answer, review };
 }
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
@@ -89,11 +114,15 @@ export default function App() {
   const [platform, setPlatform] = useState('');
   const [permission, setPermission] = useState<PermissionPreset>('workspace-write');
   const [workspace, setWorkspace] = useState('');
+  /** V2.1：本次新会话属于哪个空间。启动时从 workspace-state.json 读回。 */
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('knowledge');
+  /** 用户在输入框里手动指定的「本次按分析 / 本次按实施」。 */
+  const [taskKindOverride, setTaskKindOverride] = useState<EngineeringTaskKind | null>(null);
   const [prompt, setPrompt] = useState('');
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [derived, setDerived] = useState<Derived>({ plan: null, questions: [], answer: '' });
+  const [derived, setDerived] = useState<Derived>(EMPTY_DERIVED);
   const [status, setStatus] = useState<DeepSeekStatus | null>(null);
   const [clarifyText, setClarifyText] = useState('');
   const [error, setError] = useState('');
@@ -192,6 +221,19 @@ export default function App() {
    * pane with one system line next to a plan would be two half-answers.
    */
   const showingConversation = activeConversation !== null && !activeConversation.taskId;
+  /**
+   * 路由预览：纯函数算出来，不产生任何副作用（不发问、不建会话）。
+   * 输入框里显示「这句话会怎么走」，用户就能在发送前改判。
+   */
+  const routingPreview = useMemo(() => {
+    if (!prompt.trim()) return null;
+    return routeTask({
+      text: prompt,
+      workspaceMode,
+      hasProject: !!workspace,
+      override: taskKindOverride
+    });
+  }, [prompt, workspaceMode, workspace, taskKindOverride]);
   const conversationBusy =
     activeConversation !== null &&
     ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(activeConversation.status);
@@ -214,6 +256,10 @@ export default function App() {
   useEffect(() => {
     window.agentAPI.getPlatform().then(setPlatform).catch(() => undefined);
     window.agentAPI.getPermissionPreset().then(setPermission).catch(() => undefined);
+    window.agentAPI.getWorkspace().then(state => {
+      setWorkspaceMode(state.workspaceMode);
+      setWorkspace(state.workspaceRoot);
+    }).catch(() => undefined);
     window.agentAPI.getTaskHistory().then(setTasks).catch(() => undefined);
     window.agentAPI.getDeepSeekStatus().then(setStatus).catch(() => undefined);
 
@@ -507,10 +553,31 @@ export default function App() {
       if (dir) {
         setWorkspace(dir);
         setNotice('');
+        // 项目是工程空间的上下文，不是一次性的路径参数：重开应用还在。
+        void window.agentAPI.setWorkspace({ workspaceRoot: dir }).catch(() => undefined);
       }
     } catch (e) {
       setError(errorText(e));
     }
+  }
+
+  /**
+   * 切换顶层入口。
+   *
+   * 只做三件事：记住选择、写盘、退出当前会话（历史会话仍在侧栏，不删数据）。
+   * 「退出当前会话」是必要的：否则在一条知识会话里切到工程空间，下一句追问
+   * 会带着工程空间的配置落回原来的知识会话，用户看到的就是串台。
+   */
+  function changeWorkspaceMode(mode: WorkspaceMode) {
+    setWorkspaceMode(mode);
+    setTaskKindOverride(null);
+    setActiveConversationId(null);
+    setActiveId(null);
+    setMessages([]);
+    setPhases({});
+    setError('');
+    setNotice('');
+    void window.agentAPI.setWorkspace({ workspaceMode: mode }).catch(error => setError(errorText(error)));
   }
 
   /**
@@ -575,7 +642,9 @@ export default function App() {
           text,
           // 追问沿用会话里那份配置，只有把当前设置带上，用户刚改成「本地主导」
           // 的下一条提问才会真的按本地主导跑。
-          executionConfig
+          executionConfig,
+          // 「先分析再修改」的第二阶段：用户明确选了「本次按实施」才交去出计划。
+          ...(taskKindOverride ? { taskKindOverride } : {})
         });
         setConversations(prev => [updated, ...prev.filter(item => item.conversationId !== updated.conversationId)]);
         setPrompt('');
@@ -592,15 +661,21 @@ export default function App() {
     // every message — is the exact behaviour this rebuild removes.
     const intent = classifyIntent(text);
     let root = workspace;
-    if (intent.kind === 'workspace' && !root) {
+    // 工程空间没有项目就没有工程上下文，先让用户选，而不是发出一条注定
+    // 要被判成 clarify 的问题。知识空间仍只对 workspace 意图要目录。
+    const needsDirectory = workspaceMode === 'engineering' || intent.kind === 'workspace';
+    if (needsDirectory && !root) {
       try {
         const dir = await window.agentAPI.chooseDirectory();
         if (!dir) {
-          setNotice('这是一次工作区操作，但还没有选择目录，任务没有提交。');
+          setNotice(workspaceMode === 'engineering'
+            ? '工程工作空间还没有选择项目，任务没有提交。'
+            : '这是一次工作区操作，但还没有选择目录，任务没有提交。');
           return;
         }
         root = dir;
         setWorkspace(dir);
+        void window.agentAPI.setWorkspace({ workspaceRoot: dir }).catch(() => undefined);
       } catch (e) {
         setError(errorText(e));
         return;
@@ -615,7 +690,9 @@ export default function App() {
         text,
         workspaceRoot: root || undefined,
         permissionPreset: permission,
-        executionConfig
+        executionConfig,
+        workspaceMode,
+        ...(taskKindOverride ? { taskKindOverride } : {})
       });
       setConversations(prev => [
         conversation,
@@ -659,6 +736,12 @@ export default function App() {
         const stored = normalizeExecutionConfig(conversation.executionConfig);
         executionConfigRef.current = stored;
         setExecutionConfig(stored);
+      }
+      // V2.1：老会话没有 workspaceMode，一律按知识空间打开；新会话则把当时
+      // 绑定的项目一起带回来，否则追问会读到另一个工程的上下文。
+      if (conversation?.workspaceMode) {
+        setWorkspaceMode(conversation.workspaceMode);
+        if (conversation.workspaceRoot) setWorkspace(conversation.workspaceRoot);
       }
       if (conversation?.taskId) {
         setActiveId(conversation.taskId);
@@ -766,7 +849,7 @@ export default function App() {
       if (activeId === taskId) {
         setActiveId(null);
         setEvents([]);
-        setDerived({ plan: null, questions: [], answer: '' });
+        setDerived(EMPTY_DERIVED);
       }
     } catch (e) {
       setError(errorText(e));
@@ -996,6 +1079,8 @@ export default function App() {
   return (
     <div className="app">
       <TaskSidebar
+        workspaceMode={workspaceMode}
+        onWorkspaceModeChange={changeWorkspaceMode}
         tasks={tasks}
         activeId={activeId}
         onSelect={selectTask}
@@ -1016,7 +1101,7 @@ export default function App() {
           setMessages([]);
           setPhases({});
           setEvents([]);
-          setDerived({ plan: null, questions: [], answer: '' });
+          setDerived(EMPTY_DERIVED);
           setError('');
           setNotice('');
           setPrompt('');
@@ -1176,6 +1261,24 @@ export default function App() {
               />
             )}
 
+            {derived.review && activeTask && (
+              <section className={`card review-card${derived.review.needsFix ? ' needs-fix' : ''}`}>
+                <div className="review-head">
+                  <b>独立评审 · {derived.review.needsFix ? '需修复' : '通过'}</b>
+                  <span className="muted">
+                    {derived.review.backend === 'rules' ? '本机规则版' : derived.review.reviewer}
+                  </span>
+                </div>
+                <p>{derived.review.verdict}</p>
+                {derived.review.issues.length > 0 && (
+                  <ul>
+                    {derived.review.issues.map((issue, index) => <li key={index}>{issue}</li>)}
+                  </ul>
+                )}
+                <p className="muted">修复不会自动执行：如需继续，请重新提问生成计划并再次审批。</p>
+              </section>
+            )}
+
             {busy && !showPlan && (
               <section className="card running">
                 <span className="spinner" />
@@ -1220,6 +1323,14 @@ export default function App() {
               value={prompt}
               workspace={workspace}
               permission={permission}
+              workspaceMode={workspaceMode}
+              routing={routingPreview ? {
+                label: routingLabel(routingPreview),
+                reason: routingPreview.reason,
+                source: routingPreview.source
+              } : null}
+              taskKindOverride={taskKindOverride}
+              onTaskKindChange={setTaskKindOverride}
               // 研究设置的入口在输入框里（第三个胶囊），这里只把「下一条用什么」传下去。
               researchLabel={({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
               researchDetail={executionConfig.strategy ?? '默认并行'}

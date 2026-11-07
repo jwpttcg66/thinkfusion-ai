@@ -9,6 +9,7 @@ import {
 } from '../../../shared/conversation';
 import { splitSummarySections } from '../../../shared/text';
 import type { DebateView } from '../../../shared/contracts';
+import { routingLabel, workspaceLabel } from '../../../shared/workspace';
 import { MarkdownBody } from './MarkdownBody';
 
 /**
@@ -129,6 +130,12 @@ export function ConversationView(props: {
         <div className="conversation-title">
           <h2>{conversation.title}</h2>
           <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
+          {conversation.workspaceMode === 'engineering' && (
+            <span className="intent-badge workspace-badge" title={conversation.workspaceRoot ?? ''}>
+              {workspaceLabel('engineering')}
+              {conversation.routing ? ` · ${routingLabel(conversation.routing)}` : ''}
+            </span>
+          )}
           <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
         </div>
         <p className="conversation-why">
@@ -145,6 +152,24 @@ export function ConversationView(props: {
       </header>
 
       <div className="conversation-body">
+        {/* V2.1 工程证据卡：路径、行号、指纹都是本机真实读盘的结果。
+            放在最上面，读者能先核对「这轮到底看了哪些文件」，再读模型结论。 */}
+        {conversation.engineeringEvidence && conversation.engineeringEvidence.length > 0 && (
+          <section className="evidence-card" aria-label="工程证据">
+            <div className="evidence-head">
+              工程证据 · 实际读取 {conversation.engineeringEvidence.length} 个文件片段
+            </div>
+            <ul className="evidence-list">
+              {conversation.engineeringEvidence.map(item => (
+                <li key={`${item.path}:${item.line}:${item.sha256}`}>
+                  <span className="evidence-path">{item.path}:{item.line}</span>
+                  <span className="evidence-why">{item.why} · sha256 {item.sha256.slice(0, 12)}</span>
+                  <pre className="evidence-excerpt">{item.excerpt}</pre>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {messages.length === 0 && <p className="muted">还没有内容。</p>}
 
         {turns.map((turn, turnIndex) => {

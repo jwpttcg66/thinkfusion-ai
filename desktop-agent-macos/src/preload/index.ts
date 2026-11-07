@@ -20,6 +20,13 @@ import type {
   SubmitConversationInput
 } from '../shared/conversation';
 
+import type {
+  EngineeringTaskKind,
+  TaskRouting,
+  WorkspaceMode,
+  WorkspaceState
+} from '../shared/workspace';
+
 /**
  * The renderer gets exactly these calls and nothing else. No generic
  * `invoke(channel, ...)` escape hatch, no ipcRenderer passthrough.
@@ -27,6 +34,10 @@ import type {
 const api: AgentApi = {
   submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
   classifyIntent: (text: string) => ipcRenderer.invoke('conversation:classify', text),
+  routeConversation: (input: { text: string; workspaceMode: WorkspaceMode; hasProject: boolean; override?: EngineeringTaskKind }): Promise<TaskRouting> =>
+    ipcRenderer.invoke('conversation:route', input),
+  getWorkspace: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:get'),
+  setWorkspace: (patch: Partial<WorkspaceState>): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:set', patch),
   followupConversation: (input: FollowupConversationInput) => ipcRenderer.invoke('conversation:followup', input),
   updateConversationConfig: (input: { conversationId: string; executionConfig: Partial<ConversationExecutionConfig> }) =>
     ipcRenderer.invoke('conversation:config', input),

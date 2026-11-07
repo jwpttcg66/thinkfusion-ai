@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { filesystemTools } from './tools/filesystem';
+import { projectReadTools } from './tools/project-read';
+import { runTest } from './tools/test-run';
 import {
   PlanSchema,
   TaskGrantSchema,
@@ -103,6 +105,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       try {
         let result: unknown;
         let verified = true;
+        let testFailure: string | null = null;
 
         if (step.tool === 'fs.list') {
           result = await filesystemTools.list(grant, step.args as { path: string });
@@ -110,15 +113,36 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           result = await filesystemTools.readFile(grant, step.args as { path: string; maxBytes?: number });
         } else if (step.tool === 'fs.mkdir') {
           result = await filesystemTools.mkdir(grant, step.args as { path: string });
+        } else if (step.tool === 'fs.tree') {
+          result = await projectReadTools.tree(grant, step.args as { path: string; maxDepth?: number; maxEntries?: number });
+        } else if (step.tool === 'fs.search') {
+          result = await projectReadTools.search(grant, step.args as { query: string; path?: string; maxResults?: number });
+        } else if (step.tool === 'test.run') {
+          result = await runTest(grant, step.args as { command: string });
+          const run = result as { exitCode: number | null; timedOut: boolean };
+          // 非零退出码是事实，不是异常。但要按「失败」记进报告，否则
+          // 「测试跑过了」和「测试挂了」在界面上长得一模一样。
+          if (run.exitCode !== 0) {
+            testFailure = `命令退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
+          }
         } else {
-          const args = step.args as { path: string; content: string };
-          result = await filesystemTools.writeFile(grant, args);
+          const args = step.args as { path: string; content: string; overwrite?: boolean; expectedHash?: string };
+          result = args.overwrite
+            ? await filesystemTools.overwriteFile(grant, args as { path: string; content: string; expectedHash?: string })
+            : await filesystemTools.writeFile(grant, args);
           const verification = await verifyWrittenFile(grant, args.path, { content: args.content });
           verified = verification.ok;
           if (!verified) throw new Error(`写入后验证失败：${verification.reason ?? '内容不一致'}`);
         }
 
         const durationMs = Date.now() - stepStarted;
+        if (testFailure) {
+          results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: testFailure, durationMs });
+          errors.push({ stepId: step.id, code: 'TEST_FAILED', message: testFailure });
+          db.updateStep(journalId, { status: 'FAILED', error: testFailure, finished_at: Date.now() });
+          port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: testFailure });
+          break;
+        }
         results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs });
         db.updateStep(journalId, { status: 'COMPLETED', result_json: JSON.stringify(result), finished_at: Date.now() });
         port.postMessage({ type: 'step.completed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, result });

@@ -74,6 +74,9 @@ import {
 } from '../shared/sources';
 import { SourceStore } from './source-store';
 import { ProfileStore } from './profile-store';
+import { WorkspaceStore } from './workspace-store';
+import { reviewExecution } from './engineering/review';
+import { normalizeWorkspaceState, routeTask, type EngineeringTaskKind as WorkspaceTaskKind } from '../shared/workspace';
 import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
@@ -109,6 +112,8 @@ let sources: PageSource[] = resolveSources();
 let sourceStore: SourceStore | null = null;
 /** The display name in the sidebar's bottom row. Also created in `whenReady`. */
 let profileStore: ProfileStore | null = null;
+/** V2.1：上次使用的空间与项目。created in `whenReady`. */
+let workspaceStore: WorkspaceStore | null = null;
 /**
  * The source on screen. Only this view is visible; the rest are parked.
  *
@@ -1661,7 +1666,14 @@ function registerIpc() {
   ipcMain.handle('conversation:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
-    const input = raw as { text?: unknown; workspaceRoot?: unknown; permissionPreset?: unknown; executionConfig?: unknown };
+    const input = raw as {
+      text?: unknown;
+      workspaceRoot?: unknown;
+      permissionPreset?: unknown;
+      executionConfig?: unknown;
+      workspaceMode?: unknown;
+      taskKindOverride?: unknown;
+    };
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想研究或完成的事情。');
     return conversations.start({
       text: input.text,
@@ -1672,6 +1684,11 @@ function registerIpc() {
       executionConfig:
         input.executionConfig && typeof input.executionConfig === 'object'
           ? (input.executionConfig as Record<string, unknown>)
+          : undefined,
+      workspaceMode: normalizeWorkspaceState({ workspaceMode: input.workspaceMode }).workspaceMode,
+      taskKindOverride:
+        input.taskKindOverride === 'analysis' || input.taskKindOverride === 'execution'
+          ? (input.taskKindOverride as WorkspaceTaskKind)
           : undefined
     });
   });
@@ -1693,7 +1710,7 @@ function registerIpc() {
 
   ipcMain.handle('conversation:followup', async (event, raw: unknown) => {
     trustedUiSender(event);
-    const input = raw as { conversationId?: unknown; text?: unknown; executionConfig?: unknown };
+    const input = raw as { conversationId?: unknown; text?: unknown; executionConfig?: unknown; taskKindOverride?: unknown };
     if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想追问的内容。');
     // 追问也要带上当前的研究设置：执行模式存在会话里，只按创建时那份跑的话，
@@ -1703,8 +1720,50 @@ function registerIpc() {
       input.text,
       input.executionConfig && typeof input.executionConfig === 'object'
         ? (input.executionConfig as Record<string, unknown>)
+        : undefined,
+      input.taskKindOverride === 'analysis' || input.taskKindOverride === 'execution'
+        ? (input.taskKindOverride as WorkspaceTaskKind)
         : undefined
     );
+  });
+
+  // --- V2.1 workspace -----------------------------------------------------
+  //
+  // 纯状态读写与纯路由预览。路由预览不写任何东西、不碰网页：输入框要能实时
+  // 显示「这句话会被判成什么」，而不产生任何副作用。
+  ipcMain.handle('workspace:get', event => {
+    trustedUiSender(event);
+    return workspaceStore?.get() ?? normalizeWorkspaceState(null);
+  });
+
+  ipcMain.handle('workspace:set', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!workspaceStore) throw new Error('工作空间状态还没准备好');
+    if (!raw || typeof raw !== 'object') throw new Error('无效的工作空间设置');
+    const input = raw as { workspaceMode?: unknown; workspaceRoot?: unknown };
+    return workspaceStore.set({
+      ...(input.workspaceMode === 'engineering' || input.workspaceMode === 'knowledge'
+        ? { workspaceMode: input.workspaceMode }
+        : {}),
+      ...(typeof input.workspaceRoot === 'string' ? { workspaceRoot: input.workspaceRoot.slice(0, 2000) } : {})
+    });
+  });
+
+  ipcMain.handle('conversation:route', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as {
+      text?: unknown; workspaceMode?: unknown; hasProject?: unknown; override?: unknown;
+    };
+    return routeTask({
+      text: typeof input.text === 'string' ? input.text : '',
+      workspaceMode: normalizeWorkspaceState({ workspaceMode: input.workspaceMode }).workspaceMode,
+      hasProject: input.hasProject === true,
+      override:
+        input.override === 'analysis' || input.override === 'execution'
+          ? (input.override as WorkspaceTaskKind)
+          : undefined
+    });
   });
 
   ipcMain.handle('conversation:config', (event, raw: unknown) => {
@@ -2223,6 +2282,7 @@ app.whenReady().then(async () => {
   // Its own file: renaming yourself is not a property of which pages exist, and a
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
+  workspaceStore = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace-state.json'));
 
   verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
 
@@ -2241,7 +2301,27 @@ app.whenReady().then(async () => {
     store,
     adapter: planningAdapter(),
     emit,
-    dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json')
+    dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
+    // 独立评审优先用本地/云端模型，不用刚才做规划的那个网页通道。
+    // 一个可用模型都没有时 reviewExecution 会退回规则版并明写 backend。
+    review: async (report, plan) => {
+      let reviewer: (typeof extraAgents)[number] | null = null;
+      for (const agent of extraAgents) {
+        try {
+          if ((await agent.health()).available) { reviewer = agent; break; }
+        } catch { /* 这一家没就绪就换下一家 */ }
+      }
+      return reviewExecution(report, plan, reviewer
+        ? {
+            reviewer: reviewer.label,
+            ask: async material => (await reviewer!.ask({
+              question: material,
+              stage: 'challenge',
+              timeoutMs: 90_000
+            })).text
+          }
+        : {});
+    }
   });
 
   // The conversation runner gets the workspace hand-off as a function, not an

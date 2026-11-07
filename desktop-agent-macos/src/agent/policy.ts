@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import type { TaskGrant, PlanStep } from '../shared/contracts';
+import { READ_ONLY_TOOLS, type TaskGrant, type PlanStep } from '../shared/contracts';
 
 type ToolName = PlanStep['tool'];
 
@@ -56,7 +56,14 @@ export async function resolveGrantedPath(grant: TaskGrant, inputPath: string, al
 export function assertGrant(grant: TaskGrant, tool: ToolName, stepCount: number) {
   if (!grant || !grant.taskId || !grant.rootDir || !Array.isArray(grant.allowedTools)) throw new Error('授权凭据结构无效');
   if (!grant.allowedTools.includes(tool)) throw new Error(`未授权工具：${tool}`);
-  if (grant.permissionPreset === 'read-only' && !['fs.list', 'fs.readFile'].includes(tool)) throw new Error('当前权限为“仅可查看”，禁止文件修改操作');
+  if (grant.permissionPreset === 'read-only' && !(READ_ONLY_TOOLS as readonly ToolName[]).includes(tool)) {
+    throw new Error('当前权限为“仅可查看”，禁止文件修改与命令执行');
+  }
+  // test.run 会跑构建脚本、写临时产物，本质上是有副作用的操作。
+  // 即便有人手工塞进 allowedTools，也不能在 read-only 下放行。
+  if (tool === 'test.run' && grant.permissionPreset === 'read-only') {
+    throw new Error('当前权限为“仅可查看”，禁止执行测试命令');
+  }
   if (!['read-only', 'workspace-write', 'danger-full-access'].includes(grant.permissionPreset)) throw new Error('未知权限模式');
   if (stepCount < 1 || stepCount > grant.maxSteps || stepCount > 30) throw new Error('步骤数超过授权上限');
   if (!Number.isFinite(grant.expiresAt) || Date.now() > grant.expiresAt) throw new Error('任务授权已过期');

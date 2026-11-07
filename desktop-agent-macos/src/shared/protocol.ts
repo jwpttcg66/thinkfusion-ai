@@ -4,6 +4,7 @@ import {
   ClarificationSchema,
   TaskCompleteSchema,
   TOOL_NAMES,
+  READ_ONLY_TOOLS,
   type AgentPlan,
   type ExecutionReport,
   type PermissionPreset
@@ -368,7 +369,15 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - fs.list:      { "path": string }                                   列出目录
 - fs.readFile:  { "path": string, "maxBytes"?: number }              读取文本文件（上限 256KB）
 - fs.mkdir:     { "path": string }                                   创建目录
-- fs.writeFile: { "path": string, "content": string }                创建新文件（不会覆盖已有文件）
+- fs.writeFile: { "path": string, "content": string, "overwrite"?: boolean, "expectedHash"?: string }
+                 默认只创建新文件；要改已有文件必须 overwrite=true 并附上
+                 先前 fs.readFile 结果里的 sha256，不匹配会被拒绝。
+- fs.tree:      { "path": string, "maxDepth"?: number, "maxEntries"?: number }
+                 递归列出工程目录（忽略 node_modules / .git / 构建产物）。
+- fs.search:    { "query": string, "path"?: string, "maxResults"?: number }
+                 按内容搜索文本，返回 路径:行号 与命中的那一行。
+- test.run:     { "command": "npm test" | "npm run typecheck" | ... }
+                 在授权目录里真实执行白名单里的命令，返回退出码与输出。
 
 所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。`;
 
@@ -465,6 +474,6 @@ roundId：${input.roundId}`;
 }
 
 export function allowedToolsForPreset(preset: PermissionPreset): readonly string[] {
-  if (preset === 'read-only') return TOOL_NAMES.filter(tool => tool === 'fs.list' || tool === 'fs.readFile');
+  if (preset === 'read-only') return READ_ONLY_TOOLS;
   return TOOL_NAMES;
 }

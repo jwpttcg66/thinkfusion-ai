@@ -22,8 +22,13 @@
 
 | 通道 | 入参 | 返回 | 说明 |
 | --- | --- | --- | --- |
-| `conversation:submit` | `{ text, workspaceRoot?, permissionPreset? }` | `Conversation` | 立刻返回，答案通过事件流回来 |
-| `conversation:followup` | `{ conversationId, text }` | `Conversation` | 追问；网页保留上下文，问题原样发出 |
+| `conversation:submit` | `{ text, workspaceRoot?, permissionPreset?, executionConfig?, workspaceMode?, taskKindOverride? }` | `Conversation` | 立刻返回，答案通过事件流回来 |
+| `conversation:followup` | `{ conversationId, text, executionConfig?, taskKindOverride? }` | `Conversation` | 追问；网页保留上下文，问题原样发出 |
+| `conversation:classify` | `text` | `{ intent, reason }` | 旧五类意图的只读预览 |
+| `conversation:route` | `{ text, workspaceMode, hasProject, override? }` | `TaskRouting` | V2.1：纯函数路由预览，无副作用 |
+| `conversation:config` | `{ conversationId, executionConfig }` | `Conversation` | 把研究设置存到会话上 |
+| `workspace:get` | — | `WorkspaceState` | 上次使用的空间与项目 |
+| `workspace:set` | `{ workspaceMode?, workspaceRoot? }` | `WorkspaceState` | 写入 `workspace-state.json` |
 | `conversation:list` | — | `Conversation[]` | 按 `updatedAt` 倒序 |
 | `conversation:get` | `conversationId` | `Conversation \| null` | |
 | `conversation:messages` | `conversationId` | `ConversationMessage[]` | 切换对话时重建界面 |
@@ -33,7 +38,9 @@
 
 `conversation:submit` **不能**同步等回答：一个网页版 AI 的回答可能要一分钟，一个阻塞一分钟的 IPC 调用和卡死没有区别。它创建记录后立刻返回，进度通过 `conversation:event` 推。
 
-`workspaceRoot` / `permissionPreset` 只在路由判定为 `workspace` 时才会被用到。渲染进程传它们是因为同一次提交可能落到执行链路，而不是因为问答需要工作区。
+`workspaceRoot` / `permissionPreset` 只在需要执行链路时被用到。V2.1 之后，工程工作空间还会把 `workspaceRoot` 存进 `Conversation`，作为这条会话绑定的项目；知识空间不要求项目，也不要求权限。
+
+`Conversation` 新增的可选字段：`workspaceMode`、`workspaceRoot`、`routing`、`engineeringEvidence`。老会话读不到这些字段时按知识空间处理，不需要数据迁移。
 
 ## 任务
 

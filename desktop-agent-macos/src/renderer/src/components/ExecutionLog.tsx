@@ -35,6 +35,12 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
         text: `执行报告：${event.report.status}（成功 ${event.report.results.filter(r => r.status === 'completed').length} 步）`,
         tone: event.report.status === 'completed' ? 'ok' : 'warn'
       };
+    case 'review.ready':
+      return {
+        key,
+        text: `独立评审（${event.backend === 'rules' ? '规则版' : event.reviewer}）：${event.needsFix ? '需修复' : '通过'} · ${event.verdict.slice(0, 120)}`,
+        tone: event.needsFix ? 'warn' : 'ok'
+      };
     case 'report.sent':
       return { key, text: '执行报告已回传给模型', tone: 'muted' };
     case 'task.completed':

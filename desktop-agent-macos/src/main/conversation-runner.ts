@@ -3,6 +3,16 @@ import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
+import {
+  normalizeDebateMode,
+  normalizeWorkspaceMode,
+  routingLabel,
+  routeTask,
+  type EngineeringTaskKind,
+  type TaskRouting,
+  type WorkspaceMode
+} from '../shared/workspace';
+import { scanProject, engineeringMaterial } from './engineering/project';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool } from './agents/types';
@@ -323,11 +333,24 @@ export class ConversationRunner {
     workspaceRoot?: string;
     permissionPreset?: string;
     executionConfig?: Partial<ConversationExecutionConfig>;
+    /** V2.1：不给就是知识空间，旧调用（含全部老测试）行为完全不变。 */
+    workspaceMode?: WorkspaceMode;
+    taskKindOverride?: EngineeringTaskKind;
   }): Promise<Conversation> {
     const text = input.text.trim();
     if (!text) throw new Error('先写一句你想研究或完成的事情。');
 
     const intent = classifyIntent(text);
+    const workspaceMode = normalizeWorkspaceMode(input.workspaceMode);
+    const routing: TaskRouting | undefined =
+      workspaceMode === 'engineering'
+        ? routeTask({
+            text,
+            workspaceMode,
+            override: input.taskKindOverride,
+            hasProject: !!input.workspaceRoot
+          })
+        : undefined;
     const now = Date.now();
     const conversation: Conversation = {
       conversationId: randomUUID(),
@@ -338,17 +361,17 @@ export class ConversationRunner {
       channels: [],
       createdAt: now,
       updatedAt: now,
-      executionConfig: normalizeExecutionConfig(input.executionConfig)
+      executionConfig: normalizeExecutionConfig(input.executionConfig),
+      ...(workspaceMode === 'engineering'
+        ? { workspaceMode, workspaceRoot: input.workspaceRoot, routing }
+        : {})
     };
 
     this.save(conversation);
     this.deps.emit({ type: 'conversation.created', at: now, conversation });
     this.addMessage(conversation, { role: 'user', text });
 
-    // The one branch that leaves this file. Everything about it — approval,
-    // grants, the runtime — is the executor's business, and the conversation
-    // just records that it happened.
-    if (intent.kind === 'workspace') {
+    const handoff = async (label: string): Promise<Conversation> => {
       try {
         const task = await this.deps.submitWorkspace({
           prompt: text,
@@ -361,12 +384,55 @@ export class ConversationRunner {
         this.save(conversation);
         this.addMessage(conversation, {
           role: 'system',
-          text: `这是一次工作区操作，已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批。`
+          text: `${label}，已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
         });
       } catch (error) {
         this.fail(conversation, error);
       }
       return this.deps.store.getConversation(conversation.conversationId)!;
+    };
+
+    // The one branch that leaves this file. Everything about it — approval,
+    // grants, the runtime — is the executor's business, and the conversation
+    // just records that it happened.
+    if (intent.kind === 'workspace' && workspaceMode === 'knowledge') {
+      return handoff('这是一次工作区操作');
+    }
+
+    if (routing) {
+      if (routing.needsProject) {
+        return this.awaitUser(conversation, '工程工作空间还没有选择项目目录。先点输入框上的「选择项目」，再重新问一次。');
+      }
+      if (routing.taskKind === 'clarify') {
+        return this.awaitUser(
+          conversation,
+          `这次没有直接执行：${routing.reason}。可以在输入框上明确选「本次按分析」或「本次按实施」再发一次。`
+        );
+      }
+      if (routing.taskKind === 'engineering_execution') {
+        return handoff(`已识别为${routingLabel(routing)}（${routing.reason}）`);
+      }
+
+      // 工程分析：先真实读工程，再走和知识空间**完全相同**的提问链路。
+      // 用户原话仍原样发给所有已开启的网页通道；证据不进第一轮问题，
+      // 只在执行阶段作为主导人的附加材料出现。
+      try {
+        const scan = await scanProject(input.workspaceRoot!, text);
+        conversation.engineeringEvidence = scan.evidence;
+        conversation.updatedAt = Date.now();
+        this.save(conversation);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: [
+            `已读取工程目录，${routingLabel(routing)}依据来自真实文件：`,
+            scan.summary,
+            ...(scan.warnings.length > 0 ? [`注意：${scan.warnings.join('；')}`] : [])
+          ].join('\n')
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return this.awaitUser(conversation, `没能读取工程目录（${detail}）。没有真实证据时不会让模型猜架构，请重新选择项目。`);
+      }
     }
 
     // Returned immediately: a web answer can take a minute, and an IPC call
@@ -375,6 +441,35 @@ export class ConversationRunner {
     void this.run(conversation, text, { followup: false }).catch(error =>
       this.fail(conversation, error)
     );
+    return conversation;
+  }
+
+  /**
+   * 把会话里已经落盘的工程证据拼成主导人材料。
+   *
+   * 刻意不在这里重扫目录：证据是提问那一刻读到的版本，带 sha256；到执行
+   * 阶段再读一次，文件可能已经变了，汇总里就会混进两个版本的行号。
+   */
+  private engineeringMaterialFor(conversation: Conversation): string | null {
+    if (conversation.workspaceMode !== 'engineering') return null;
+    const evidence = conversation.engineeringEvidence;
+    if (!evidence || evidence.length === 0) return null;
+    return engineeringMaterial({
+      root: conversation.workspaceRoot ?? '',
+      summary: `本轮真实读取 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、')}`,
+      evidence,
+      filesScanned: evidence.length,
+      truncated: false,
+      warnings: []
+    });
+  }
+
+  /** 需要用户补信息/改判的一轮：留一行说明，不触发任何模型调用。 */
+  private awaitUser(conversation: Conversation, text: string): Conversation {
+    conversation.status = 'awaiting_user';
+    conversation.updatedAt = Date.now();
+    this.save(conversation);
+    this.addMessage(conversation, { role: 'system', text });
     return conversation;
   }
 
@@ -390,7 +485,8 @@ export class ConversationRunner {
   async followup(
     conversationId: string,
     text: string,
-    executionConfig?: Partial<ConversationExecutionConfig>
+    executionConfig?: Partial<ConversationExecutionConfig>,
+    taskKindOverride?: EngineeringTaskKind
   ): Promise<Conversation> {
     const conversation = this.deps.store.getConversation(conversationId);
     if (!conversation) throw new Error('对话不存在');
@@ -417,6 +513,55 @@ export class ConversationRunner {
 
     this.cancelled.delete(conversationId);
     this.addMessage(conversation, { role: 'user', text: question });
+
+    // V2.1：工程会话的追问沿用创建时的空间与项目，不允许临时换目录。
+    // 「先分析再修改」的第二阶段靠这里：用户在输入框明确选「本次按实施」，
+    // 才把这一句交去生成计划；没有明确指令绝不自动进入执行。
+    if (conversation.workspaceMode === 'engineering') {
+      const routing = routeTask({
+        text: question,
+        workspaceMode: 'engineering',
+        override: taskKindOverride,
+        hasProject: !!conversation.workspaceRoot
+      });
+      conversation.routing = routing;
+      conversation.updatedAt = Date.now();
+      this.save(conversation);
+      if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
+        try {
+          const task = await this.deps.submitWorkspace({
+            prompt: question,
+            permissionPreset: 'workspace-write',
+            workspaceRoot: conversation.workspaceRoot
+          });
+          conversation.taskId = task.taskId;
+          conversation.status = 'answered';
+          this.save(conversation);
+          this.addMessage(conversation, {
+            role: 'system',
+            text: `已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
+          });
+        } catch (error) {
+          this.fail(conversation, error);
+        }
+        return this.deps.store.getConversation(conversationId)!;
+      }
+      if (routing.taskKind === 'clarify') {
+        return this.awaitUser(conversation, `这次没有直接执行：${routing.reason}。可明确选「本次按分析」或「本次按实施」再发一次。`);
+      }
+      if (routing.taskKind === 'engineering_analysis' && conversation.workspaceRoot) {
+        try {
+          const scan = await scanProject(conversation.workspaceRoot, question);
+          conversation.engineeringEvidence = scan.evidence;
+          this.save(conversation);
+          this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          return this.awaitUser(conversation, `没能读取工程目录（${detail}），这一轮不凭猜测回答。`);
+        }
+      }
+    }
+
     void this.run(conversation, question, { followup: true }).catch(error =>
       this.fail(conversation, error)
     );
@@ -679,7 +824,8 @@ export class ConversationRunner {
       question,
       outcome,
       sink,
-      executorIds
+      executorIds,
+      this.engineeringMaterialFor(conversation)
     );
     if (this.cancelled.has(conversationId)) return;
 
@@ -817,7 +963,9 @@ export class ConversationRunner {
     question: string,
     outcome: ResearchOutcome,
     sink: ResearchSink,
-    executorIds: ReadonlySet<string>
+    executorIds: ReadonlySet<string>,
+    /** 只在工程分析链路有值；第一手网页提问不受影响，见 start()。 */
+    engineering: string | null = null
   ): Promise<{
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud'; auto: boolean; reason: string | null };
     summaryText: string | null;
@@ -858,15 +1006,23 @@ export class ConversationRunner {
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;
     try {
+      // 工程证据只在这里（执行阶段的汇总）追加，绝不进第一手网页问题。
+      // 网页主导时它同样拼进那一条用户消息，走的是既有的「把材料递进页面」
+      // 机制，页面上的第一段用户发言仍然只有原话。
+      const baseQuestion = isPage
+        ? inlineLeadInstructions(question, answers)
+        : buildLeadSummaryQuestion(question, answers);
       const answer = await pool.ask(lead.agentId, {
-        question: isPage
-          ? inlineLeadInstructions(question, answers)
-          : buildLeadSummaryQuestion(question, answers),
+        question: engineering ? `${baseQuestion}\n\n${engineering}` : baseQuestion,
         stage: 'challenge',
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
         timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
         // 只有 API 主导用得上 system；网页通道会忽略它。
-        system: isPage ? undefined : LEAD_SUMMARY_SYSTEM
+        system: isPage
+          ? undefined
+          : engineering
+            ? [...LEAD_SUMMARY_SYSTEM, '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+            : LEAD_SUMMARY_SYSTEM
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
@@ -881,14 +1037,23 @@ export class ConversationRunner {
     }
 
     // —— 第二步：指定辩论 ————————————————————————————————
-    const topics = parseTopics(summaryText);
+    // V2.1：辩论开关。auto 与老行为完全一致；off 连辩题都不生成；
+    // on 在主导人没找到分歧时拿原问题兜一个辩题，保证「开启」真的开了。
+    const debateMode = normalizeDebateMode(config.debateMode);
+    let topics = debateMode === 'off' ? [] : parseTopics(summaryText);
+    if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
     const sourceOf = (id: string) => this.deps.agentSource?.(id);
     const ownership = ownershipOf(config, answers, executorIds, sourceOf);
     const debaters = debatersFor(ownership.mode, answers, executorIds, sourceOf);
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
-    if (topics.length === 0) {
+    if (debateMode === 'off') {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: '这一轮按设置关闭了辩论：只汇总，不交锋、不出最终意见。'
+      });
+    } else if (topics.length === 0) {
       this.addMessage(conversation, {
         role: 'system',
         text: `${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总、不发起辩论。`

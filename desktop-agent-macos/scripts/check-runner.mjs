@@ -14,7 +14,10 @@
  * Run with: npm run test:runner
  */
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
 import { buildLeadSummaryQuestion, inlineLeadInstructions, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
@@ -1159,4 +1162,134 @@ test('主导人没成时，规则版综合还在（兜底不能被一起清掉�
   assert.equal(synthesis?.leadSummary ?? false, false, '没成就不算主导人结论');
   assert.equal(synthesis?.fusion?.leadAgentId, undefined, '没成就不记主导人');
   assert.ok((synthesis?.disputed?.length ?? 0) > 0, '规则版分歧保留');
+});
+
+// ---------------------------------------------------------------------------
+// V2.1：双工作空间接进会话链路。
+//
+// 老行为是底线：`start({text})` 不带 workspaceMode 时，一个字节都不能变。
+// 新分支全部由显式 `workspaceMode: 'engineering'` 触发。
+// ---------------------------------------------------------------------------
+
+const v21Root = mkdtempSync(join(tmpdir(), 'tf-v21-runner-'));
+mkdirSync(join(v21Root, 'src'), { recursive: true });
+writeFileSync(join(v21Root, 'src', 'index.ts'), 'export const virtualThread = 1;\n');
+after(() => rmSync(v21Root, { recursive: true, force: true }));
+
+test('V2.1：不带 workspaceMode 的旧调用仍然是旧会话', async () => {
+  const channels = execChannels();
+  const { runner, store } = execRunner(channels);
+  const conversation = await runner.start({ text: '什么是连接池' });
+  assert.equal(conversation.workspaceMode, undefined);
+  assert.equal(conversation.routing, undefined);
+  assert.equal(conversation.engineeringEvidence, undefined);
+  assert.equal(conversation.intent, 'answer');
+  await settle(runner, conversation.conversationId);
+  assert.ok(store.listMessages(conversation.conversationId).some(message => message.role === 'channel'));
+});
+
+test('V2.1：工程空间没选项目，停下来问，不触发任何模型调用', async () => {
+  const asked = [];
+  const channels = execChannels().map(channel => ({
+    ...channel,
+    ask: async input => { asked.push(input.question); return channel.ask(input); }
+  }));
+  const { runner, store } = execRunner(channels);
+  const conversation = await runner.start({
+    text: '分析当前项目结构', workspaceMode: 'engineering'
+  });
+  assert.equal(conversation.status, 'awaiting_user');
+  assert.equal(conversation.routing?.needsProject, true);
+  assert.equal(asked.length, 0);
+  assert.ok(store.listMessages(conversation.conversationId).some(
+    message => message.role === 'system' && message.text.includes('选择项目')
+  ));
+});
+
+test('V2.1：工程分析真的读文件，第一手网页提问仍是用户原话', async () => {
+  const questions = [];
+  const channels = [
+    fakeChannel('a', async input => { questions.push(input.question); return answer('a 的回答'); }),
+    fakeChannel('b', async input => { questions.push(input.question); return answer('b 的回答'); })
+  ];
+  const { runner, store } = execRunner(channels);
+  const text = '分析当前项目结构里的 virtualThread';
+  const conversation = await runner.start({
+    text, workspaceMode: 'engineering', workspaceRoot: v21Root
+  });
+  await settle(runner, conversation.conversationId);
+
+  assert.equal(conversation.routing?.taskKind, 'engineering_analysis');
+  assert.ok((conversation.engineeringEvidence?.length ?? 0) > 0, '证据要落到会话上');
+  assert.ok(conversation.engineeringEvidence?.some(item => item.path === 'src/index.ts'));
+  // 前两句是发给两个网页通道的第一手问题：问题原样，不套角色行、不塞工程材料。
+  assert.equal(questions[0], text);
+  assert.equal(questions[1], text);
+  assert.ok(questions.slice(0, 2).every(item => !item.includes('【工程证据')));
+  // 工程证据只允许出现在「回答之后」的主导人汇总里（这次主导人是网页通道）。
+  assert.ok(
+    questions.slice(2).some(item => item.includes('【工程证据')),
+    '工程证据要真的进主导人汇总材料，否则分析还是凭模型猜'
+  );
+  const system = store.listMessages(conversation.conversationId)
+    .filter(message => message.role === 'system').map(message => message.text).join('\n');
+  assert.match(system, /已读取工程目录/);
+});
+
+test('V2.1：工程实施交去出计划，识别结果和项目一起存下来', async () => {
+  let handed = null;
+  const { runner } = makeRunner(execChannels(), {
+    submitWorkspace: async input => { handed = input; return { taskId: 'task-v21' }; }
+  });
+  const conversation = await runner.start({
+    text: '实现一个功能', workspaceMode: 'engineering', workspaceRoot: v21Root
+  });
+  assert.equal(conversation.taskId, 'task-v21');
+  assert.equal(conversation.routing?.taskKind, 'engineering_execution');
+  assert.equal(conversation.workspaceRoot, v21Root);
+  assert.equal(handed.workspaceRoot, v21Root);
+});
+
+test('V2.1：表达含糊时待确认，不默认进高权限执行', async () => {
+  const { runner } = makeRunner(execChannels());
+  const conversation = await runner.start({
+    text: '嗯……这个怎么说', workspaceMode: 'engineering', workspaceRoot: v21Root
+  });
+  assert.equal(conversation.status, 'awaiting_user');
+  assert.equal(conversation.routing?.taskKind, 'clarify');
+});
+
+test('V2.1：用户手动改判优先于规则', async () => {
+  const { runner } = makeRunner(execChannels());
+  const conversation = await runner.start({
+    text: '实现一个功能', workspaceMode: 'engineering', workspaceRoot: v21Root,
+    taskKindOverride: 'analysis'
+  });
+  assert.equal(conversation.routing?.taskKind, 'engineering_analysis');
+  assert.equal(conversation.routing?.source, 'user_selected');
+});
+
+test('V2.1：辩论关闭时主导人只汇总，不发起交锋', async () => {
+  const channels = execChannels();
+  const seen = [];
+  let debateCalls = 0;
+  const { runner, store } = execRunner(channels, {
+    fusionEnabled: true,
+    poolFor: () => execPool(channels, {
+      local: task => { seen.push(task.question); return '【结论】好\n【一致】有\n【分歧】两种做法冲突吗？\n【存疑】没有\n【辩题】哪种做法更好？'; }
+    }),
+    executorIdsFor: () => new Set(['local']),
+    agentSource: id => (id === 'local' ? 'local' : undefined),
+    runDebate: async () => { debateCalls += 1; return { debateId: 'd', rounds: [], status: 'stopped' }; }
+  });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'local', debateMode: 'off' }
+  });
+  await settle(runner, conversation.conversationId);
+  assert.equal(debateCalls, 0, 'off 时不应发起辩论');
+  assert.equal(seen.length, 1, '只做一次汇总');
+  const system = store.listMessages(conversation.conversationId)
+    .filter(message => message.role === 'system').map(message => message.text).join('\n');
+  assert.match(system, /关闭了辩论/);
 });

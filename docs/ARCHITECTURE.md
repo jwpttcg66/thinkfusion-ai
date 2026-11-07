@@ -783,3 +783,19 @@ Score = w_e·Evidence + w_r·Reasoning + w_s·Source + w_i·Independence − w_a
 | `benchmarks/` | `scripts/bench/`（新建） | 和现有 `check-*.mjs` 同一套跑法，别造第二套 |
 
 `shared/synthesizer.ts` 的去向：它不删，降级成 `synthesis/claim-extractor.ts` 的规则兜底——**抽取失败要能退回今天这份能跑的东西**，而不是报错。这条和 2.3 第 3 点是同一条：降级不是错误，把降级呈现成结论才是。
+
+---
+
+## 12. V2.1 增量架构说明（2026-11-07）
+
+上面 1–11 节描述的是基线架构，本节只记录增量，不改写既有分层。
+
+- `src/shared/workspace.ts` 新增 `WorkspaceMode` / `TaskRouting` / `classifyEngineeringIntent()` / `routeTask()`，是纯规则层，与 `shared/intent.ts` 并存。知识空间仍走 `IntentKind` 五值；工程空间才用 `engineering_analysis` / `engineering_execution` / `clarify`。
+- `Conversation` 增加可选字段 `workspaceMode` / `workspaceRoot` / `routing` / `engineeringEvidence`；`ConversationExecutionConfig` 增加可选 `debateMode`。全部读时兜底，无 schema 版本、无迁移。
+- `ConversationRunner.start()` 只有显式 `workspaceMode: 'engineering'` 才进入新分支；不带该参数的调用逐字节沿用旧链路。
+- 工程证据由 `src/main/engineering/project.ts` 的 `scanProject()` 真实读盘产生，只在 `runExecutionStage()` 拼进主导人汇总材料，**不进 `MasterAgent.research()` 的第一手提问**。
+- `desktop-agent/v1` 工具从 4 个扩到 7 个：`fs.tree`、`fs.search`、`test.run`，以及 `fs.writeFile` 的 `overwrite` + `expectedHash`。前四个工具名和语义不变。
+- 新增 `src/main/engineering/review.ts` 做执行后独立评审，通过 `review.ready` 事件回传；没有可用模型时明确标 `backend: 'rules'`。
+- 全局默认空间与项目存 `userData/workspace-state.json`（`src/main/workspace-store.ts`），与会话级字段互相补充。
+
+详见 `docs/implementation/V2.1_IMPLEMENTATION_REPORT.md`。
