@@ -94,29 +94,83 @@ export function rewriteSourceRefs(text: string, answers: readonly LeadAnswer[]):
   return out;
 }
 
+/** V2.1：任务类型会影响汇总的写法，不影响五段结构。 */
+export type LeadTaskKind = 'answer' | 'research' | 'compare' | 'extract';
+
+export interface LeadSummaryOptions {
+  taskKind?: LeadTaskKind;
+  /**
+   * 附加材料：真正抓回来的网页正文、工程证据。
+   *
+   * 只在汇总阶段出现，**不进第一手提问**——用户原话仍然是原话，材料是用来
+   * 支撑结论的，不是用来改写问题的。
+   */
+  material?: string | null;
+}
+
+/**
+ * 按任务类型补的写法要求。
+ *
+ * compare 与 extract 以前只是标签：分类器认出来了，执行链却照旧按普通问答
+ * 汇总，用户看到的还是一段散文。这里把「比较要有对比、提取只依据正文」变成
+ * 对主导人的明确要求。
+ */
+function taskInstructions(taskKind: LeadTaskKind | undefined): string[] {
+  if (taskKind === 'compare') {
+    return [
+      '这是一次比较任务：先按被比较的对象逐项对比（对比维度 × 各观点），再给结论；不要只写成一段散文。',
+      '【一致】写各方都认可的判断；【分歧】写真正不同的选择，并说明在什么条件下各自成立。'
+    ];
+  }
+  if (taskKind === 'extract') {
+    return [
+      '这是一次网页内容提取任务：只依据【补充材料】里的网页正文整理，不要补充正文里没有的内容；正文没提到的就写「正文未提及」。',
+      '【结论】写这一页在讲什么；【一致】【分歧】写网页正文与各来源回答是否对得上，对不上的地方要点明。'
+    ];
+  }
+  return [];
+}
+
+/** 本地/云端模型当主导时用的 system；网页主导会忽略它，改用 inline 版。 */
+export function leadSummarySystem(taskKind?: LeadTaskKind): string[] {
+  return [...LEAD_SUMMARY_SYSTEM, ...taskInstructions(taskKind)];
+}
+
 export function buildLeadSummaryQuestion(
   question: string,
-  answers: readonly LeadAnswer[]
+  answers: readonly LeadAnswer[],
+  options: LeadSummaryOptions = {}
 ): string {
   const tags = sourceTags(answers);
   const body = answers
     .map((answer, index) => `${tags[index]}：\n${answer.text.trim()}`)
     .join('\n\n');
-  return `【用户的问题】\n${question.trim()}\n\n【各来源的回答】\n${body}`;
+  const sections = [`【用户的问题】\n${question.trim()}`];
+  const material = options.material?.trim();
+  if (material) sections.push(`【补充材料】\n${material}`);
+  sections.push(`【各来源的回答】\n${body}`);
+  const instructions = taskInstructions(options.taskKind);
+  if (instructions.length > 0) sections.push(`【请你做的事】\n${instructions.join('\n')}`);
+  return sections.join('\n\n');
 }
 
 /** 网页主导专用：页面不认 system，把同样的话作为用户消息的一部分发进去。 */
-export function inlineLeadInstructions(question: string, answers: readonly LeadAnswer[]): string {
+export function inlineLeadInstructions(
+  question: string,
+  answers: readonly LeadAnswer[],
+  options: LeadSummaryOptions = {}
+): string {
   const tags = sourceTags(answers);
   const body = answers
     .map((answer, index) => `${tags[index]}：\n${answer.text.trim()}`)
     .join('\n\n');
-  return [
-    `【用户的问题】\n${question.trim()}`,
-    `【各来源的回答】\n${body}`,
-    `【请你做的事】\n${LEAD_SUMMARY_SYSTEM.join('\n')}`,
-    '直接按【结论】【一致】【分歧】【存疑】【辩题】五段回答，不要复述上面的全部内容。'
-  ].join('\n\n');
+  const sections = [`【用户的问题】\n${question.trim()}`];
+  const material = options.material?.trim();
+  if (material) sections.push(`【补充材料】\n${material}`);
+  sections.push(`【各来源的回答】\n${body}`);
+  sections.push(`【请你做的事】\n${[...LEAD_SUMMARY_SYSTEM, ...taskInstructions(options.taskKind)].join('\n')}`);
+  sections.push('直接按【结论】【一致】【分歧】【存疑】【辩题】五段回答，不要复述上面的全部内容。');
+  return sections.join('\n\n');
 }
 
 /**

@@ -289,3 +289,18 @@ test('只有 Kimi 声明了付费墙路径', () => {
     assert.deepEqual(providers.blockedPathsFor(id), [], `${id} 没见过付费墙`);
   }
 });
+
+// 2026-11-07 真机：DeepSeek 连问多次后弹点图验证，页面写「点击图中最小的
+// 蓝色三棱柱」。只声明站点真正会用的短语，且不声明任何「答题」动作——识别
+// 只为请人去点，不为代替人去解。
+test('只有真人机验证声明了验证短语，且不含任何代答动作', () => {
+  assert.ok(providers.challengeTextFor('deepseek').length > 0);
+  assert.ok(providers.challengeTextFor('chatgpt').length > 0);
+  assert.deepEqual(providers.challengeTextFor('gemini'), []);
+  assert.deepEqual(providers.challengeTextFor('kimi'), []);
+  for (const id of ['deepseek', 'chatgpt']) {
+    const words = providers.challengeTextFor(id);
+    assert.ok(words.every(word => !/点击|click|solve|solveChallenge/i.test(word) || word.includes('点击图中')),
+      `${id} 的验证短语里不该出现动作指令`);
+  }
+});

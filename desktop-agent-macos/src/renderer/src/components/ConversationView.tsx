@@ -30,6 +30,14 @@ const INTENT_LABEL: Record<Conversation['intent'], string> = {
   workspace: '工作区任务'
 };
 
+/** Model Router 收敛后的模式名，和设置面板里的四档说法保持一致。 */
+function modeLabelOf(mode: 'web' | 'local' | 'cloud' | 'hybrid'): string {
+  if (mode === 'web') return '网页主导';
+  if (mode === 'local') return '本地主导';
+  if (mode === 'cloud') return '云端主导';
+  return '混合主导';
+}
+
 const STATUS_LABEL: Record<Conversation['status'], string> = {
   thinking: '思考中',
   collecting: '收集中',
@@ -147,6 +155,14 @@ export function ConversationView(props: {
               the line names them instead of describing a routing decision that
               no longer exists. */}
           {` · 同时问 ${askedLabel || '所有已开启的通道'}`}
+          {/* V2.1 Model Router：这一轮原本打算用哪些模型、为什么。和上面
+              「同时问」分开写，因为一个是事实（问了谁），一个是决定。 */}
+          {conversation.modelRoute && (
+            <>
+              {` · 路由：${conversation.modelRoute.answerers.length} 个回答者 / ${modeLabelOf(conversation.modelRoute.mode)}`}
+              {conversation.modelRoute.degraded ? `（${conversation.modelRoute.degraded}）` : ''}
+            </>
+          )}
           {conversation.error ? ` · ${conversation.error}` : ''}
         </p>
       </header>
@@ -167,6 +183,33 @@ export function ConversationView(props: {
                   <pre className="evidence-excerpt">{item.excerpt}</pre>
                 </li>
               ))}
+            </ul>
+          </section>
+        )}
+        {/* V2.1 网页证据卡：抓回来的正文，不是「回答里提到过一个链接」。
+            extract 以前只是给通道贴标签，用户并不知道正文到底有没有取到；
+            这里把标题、字数、状态码、抓取时间和指纹摆出来，能核对再读结论。 */}
+        {conversation.pageEvidence && (
+          <section className="evidence-card" aria-label="网页正文证据">
+            <div className="evidence-head">
+              网页正文 · {conversation.pageEvidence.title}（{conversation.pageEvidence.chars} 字）
+            </div>
+            <ul className="evidence-list">
+              <li>
+                <span className="evidence-path">{conversation.pageEvidence.url}</span>
+                <span className="evidence-why">
+                  HTTP {conversation.pageEvidence.status} · 抓取于{' '}
+                  {new Date(conversation.pageEvidence.fetchedAt).toLocaleString('zh-CN')} · sha256{' '}
+                  {conversation.pageEvidence.sha256.slice(0, 12)}
+                  {conversation.pageEvidence.notes.length > 0
+                    ? ` · ${conversation.pageEvidence.notes.join('；')}`
+                    : ''}
+                </span>
+                <pre className="evidence-excerpt">
+                  {conversation.pageEvidence.text.slice(0, 400)}
+                  {conversation.pageEvidence.text.length > 400 ? '…' : ''}
+                </pre>
+              </li>
             </ul>
           </section>
         )}

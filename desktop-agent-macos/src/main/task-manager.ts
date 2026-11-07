@@ -39,7 +39,13 @@ export class TaskManager {
     private readonly emit: (event: AgentEvent) => void
   ) {}
 
-  create(input: { prompt: string; permissionPreset: PermissionPreset; workspaceRoot?: string }): AgentTask {
+  create(input: {
+    prompt: string;
+    permissionPreset: PermissionPreset;
+    workspaceRoot?: string;
+    /** V2.1 D-03：默认 auto——小计划不辩，带写/测的多步计划才辩。 */
+    planDebate?: 'auto' | 'on' | 'off';
+  }): AgentTask {
     const now = Date.now();
     const firstLine = input.prompt.trim().split('\n')[0] ?? '';
     const task: AgentTask = {
@@ -49,6 +55,7 @@ export class TaskManager {
       status: 'created',
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot,
+      planDebate: input.planDebate ?? 'auto',
       createdAt: now,
       updatedAt: now,
       maxRounds: 20,

@@ -7,11 +7,13 @@ import type {
   ApprovePlanInput,
   ExecutionReport,
   PermissionPreset,
+  PlanDebate,
   PlanPreview,
   StoredPlan,
   TaskGrant
 } from '../shared/contracts';
-import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
+import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
+import { planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver } from './adapters/browser/page-driver';
@@ -37,6 +39,24 @@ export interface OrchestratorDeps {
     needsFix: boolean;
     at: number;
   }>;
+  /**
+   * V2.1 D-03：计划生成之后、审批之前，对这份方案开一场辩论。
+   *
+   * 不传表示没有接入辩论能力——那时计划照旧直接进审批，行为与升级前一致。
+   * 返回 `null` 表示没有可用成员，编排器会如实记下「没辩成」而不是假装辩过。
+   */
+  debatePlan?: (input: {
+    taskId: string;
+    roundId: string;
+    planId: string;
+    plan: AgentPlan;
+    topics: string[];
+  }) => Promise<{
+    debateId?: string;
+    status: 'completed' | 'stopped';
+    participants: string[];
+    summary: string;
+  } | null>;
 }
 
 /**
@@ -89,14 +109,25 @@ export class AgentOrchestrator {
   // Entry points
   // -------------------------------------------------------------------------
 
-  async submit(input: { prompt: string; permissionPreset: PermissionPreset; workspaceRoot?: string }): Promise<AgentTask> {
+  async submit(input: {
+    prompt: string;
+    permissionPreset: PermissionPreset;
+    workspaceRoot?: string;
+    /** V2.1 D-03：这份计划要不要先做方案评审辩论（默认 auto）。 */
+    planDebate?: 'auto' | 'on' | 'off';
+  }): Promise<AgentTask> {
     const site = this.deps.adapter.siteLabel;
     const status = await this.deps.adapter.getStatus();
     if (!status.loggedIn) throw new Error(`${site} 未登录：${status.detail ?? '请先在内嵌页面登录'}`);
     if (!status.pageReady) throw new Error(`${site} 页面不可用：${status.detail ?? '未找到输入框'}`);
     if (status.generating) throw new Error(`${site} 正在生成上一条回答，请等待完成后再提交`);
 
-    const task = this.tasks.create(input);
+    const task = this.tasks.create({
+      prompt: input.prompt,
+      permissionPreset: input.permissionPreset,
+      workspaceRoot: input.workspaceRoot,
+      planDebate: input.planDebate
+    });
     this.tasks.transition(task.taskId, 'planning');
 
     // The round id is part of the prompt, so create the round first and then
@@ -176,9 +207,16 @@ export class AgentOrchestrator {
 
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论，下一轮计划仍要用户重新批准。
+    let review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null;
     if (this.deps.review) {
       try {
         const verdict = await this.deps.review(report, plan);
+        review = {
+          reviewer: verdict.reviewer,
+          verdict: verdict.verdict,
+          issues: verdict.issues,
+          needsFix: verdict.needsFix
+        };
         this.deps.emit({
           type: 'review.ready', at: verdict.at, taskId: task.taskId, roundId: stored.roundId,
           reviewer: verdict.reviewer, backend: verdict.backend, verdict: verdict.verdict,
@@ -209,7 +247,7 @@ export class AgentOrchestrator {
       }
     }
 
-    await this.continueAfterReport(task.taskId, report);
+    await this.continueAfterReport(task.taskId, report, review);
   }
 
   async reject(input: { taskId: string; planId: string; reason?: string }): Promise<void> {
@@ -295,13 +333,13 @@ export class AgentOrchestrator {
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer });
 
-      this.handleAnswer(taskId, roundId, answer);
+      await this.handleAnswer(taskId, roundId, answer);
     } finally {
       this.busy.delete(taskId);
     }
   }
 
-  private handleAnswer(taskId: string, roundId: string, answer: string) {
+  private async handleAnswer(taskId: string, roundId: string, answer: string) {
     // The captured transcript can contain our own prompt, and the prompt
     // carries example protocol blocks with the real ids. Strip it before
     // parsing, or a clarification sample becomes a live clarification request
@@ -311,13 +349,16 @@ export class AgentOrchestrator {
 
     if (result.kind === 'none') {
       this.tasks.updateRound(roundId, { status: 'plan_invalid' });
-      this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error: '回答中没有找到 desktop-agent/v1 协议块' });
+      const error = '回答中没有找到 desktop-agent/v1 协议块';
+      this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error });
+      if (this.repairPlan(taskId, error)) return;
       throw new Error('回答中没有找到可执行计划，已停止自动执行');
     }
 
     if (result.kind === 'invalid') {
       this.tasks.updateRound(roundId, { status: 'plan_invalid' });
       this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error: result.error });
+      if (this.repairPlan(taskId, result.error)) return;
       throw new Error(`计划校验失败：${result.error}`);
     }
 
@@ -373,11 +414,116 @@ export class AgentOrchestrator {
     };
     this.deps.store.insertPlan(stored);
     this.tasks.updateRound(roundId, { status: 'plan_ready' });
-    this.tasks.transition(taskId, 'awaiting_approval', { currentPlanId: stored.planId });
+    // 这一份计划是哪一份：辩论期间也要能回答，所以现在就记，不等审批。
+    this.tasks.patch(taskId, { currentPlanId: stored.planId });
+    // 计划卡片先给出去：方案评审辩论可能要跑几分钟，让审批的人对着空白等
+    // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
+    // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     this.deps.emit({ type: 'plan.ready', at: Date.now(), taskId, roundId, plan: toPreview(stored) });
+
+    const debate = await this.reviewPlanWithDebate(taskId, roundId, stored);
+    this.tasks.transition(taskId, 'awaiting_approval', { currentPlanId: stored.planId });
+    if (debate) {
+      this.deps.emit({
+        type: 'plan.debated', at: debate.at, taskId, roundId, planId: stored.planId, debate
+      });
+    }
   }
 
-  private async continueAfterReport(taskId: string, report: ExecutionReport): Promise<void> {
+  /**
+   * 方案评审辩论（V2.1 D-03）。
+   *
+   * 没辩成也必须留下一条可读的记录：「关闭了辩论」「计划太小」「没有可用成员」
+   * 是三种不同的情况，审批的人需要知道自己看到的是一个没有被评审过的计划。
+   */
+  private async reviewPlanWithDebate(
+    taskId: string,
+    roundId: string,
+    stored: StoredPlan
+  ): Promise<PlanDebate | null> {
+    const task = this.tasks.get(taskId);
+    const decision = shouldDebatePlan(task.planDebate, stored.plan);
+    if (!decision.debate) {
+      if (!this.deps.debatePlan) return null;
+      return { status: 'skipped', topics: [], participants: [], summary: '', skippedReason: decision.reason, at: Date.now() };
+    }
+    if (!this.deps.debatePlan) {
+      return {
+        status: 'skipped', topics: [], participants: [], summary: '',
+        skippedReason: '这次运行没有接入辩论能力，计划未经评审', at: Date.now()
+      };
+    }
+
+    const topics = planDebateTopics(stored.plan);
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: `方案评审：就「${topics[0].slice(0, 40)}…」等 ${topics.length} 个议题开辩`
+    });
+    try {
+      const result = await this.deps.debatePlan({ taskId, roundId, planId: stored.planId, plan: stored.plan, topics });
+      if (!result) {
+        return {
+          status: 'skipped', topics, participants: [], summary: '',
+          skippedReason: '辩论没有可用成员，计划未经评审', at: Date.now()
+        };
+      }
+      return {
+        status: result.status,
+        debateId: result.debateId,
+        topics,
+        participants: result.participants,
+        summary: result.summary,
+        at: Date.now()
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: `方案评审辩论没有完成：${detail}；计划仍可审批，但要知道它没被辩过`
+      });
+      return {
+        status: 'skipped', topics, participants: [], summary: '',
+        skippedReason: `辩论失败：${detail}`, at: Date.now()
+      };
+    }
+  }
+
+  /**
+   * 计划没通过校验时，让模型自己改一轮（最多两次）。
+   *
+   * 一个占位符不该让整个任务死掉：模型不知道自己错在哪，用户看到的是一串
+   * zod 路径。把失败原因原样交回去，它通常一次就能改对（真机验证过）。
+   * 两次还不行才失败——无限重试等于把页面当成免费算力。
+   */
+  private repairPlan(taskId: string, error: string): boolean {
+    const task = this.tasks.get(taskId);
+    if (TERMINAL.includes(task.status)) return false;
+    const attempts = this.tasks.listRounds(taskId).filter(round => round.inputType === 'plan_repair').length;
+    if (attempts >= 2) return false;
+    if (this.tasks.listRounds(taskId).length >= task.maxRounds) return false;
+
+    this.tasks.transition(taskId, 'planning');
+    const round = this.tasks.createRound({ taskId, inputType: 'plan_repair', requestText: '' });
+    const prompt = buildPlanRepairPrompt({
+      taskId,
+      roundId: round.roundId,
+      error,
+      userPrompt: task.userPrompt
+    });
+    this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'warn',
+      message: `计划没通过校验（${error.slice(0, 120)}），已让模型修正后重出（第 ${attempts + 1}/2 次）`
+    });
+    void this.driveRound(taskId, round.roundId, prompt).catch(next => this.fail(taskId, next));
+    return true;
+  }
+
+  private async continueAfterReport(
+    taskId: string,
+    report: ExecutionReport,
+    review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null
+  ): Promise<void> {
     const task = this.tasks.get(taskId);
     const rounds = this.tasks.listRounds(taskId);
 
@@ -390,8 +536,17 @@ export class AgentOrchestrator {
     this.tasks.transition(taskId, 'awaiting_next_round');
     this.tasks.transition(taskId, 'planning');
 
+    // 修复任务：评审指出的问题必须进到下一轮计划请求里，否则「修复」只是把
+    // 同一个计划重新生成一遍。这里显式记一条，界面上能看出这一轮是修什么。
+    if (review && review.issues.length > 0) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: review.needsFix ? 'warn' : 'info',
+        message: `修复任务：${review.reviewer} 指出 ${review.issues.length} 项问题，已并入下一轮计划请求（仍需你重新批准）`
+      });
+    }
+
     const round = this.tasks.createRound({ taskId, inputType: 'execution_report', requestText: '' });
-    const prompt = buildReportPrompt({ taskId, roundId: round.roundId, report });
+    const prompt = buildReportPrompt({ taskId, roundId: round.roundId, report, review });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
 
     void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));

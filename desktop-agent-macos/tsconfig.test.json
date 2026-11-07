@@ -13,6 +13,7 @@
     "src/main/source-store.ts",
     "src/main/profile-store.ts",
     "src/main/engineering/**/*.ts",
+    "src/main/knowledge/**/*.ts",
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",
     "src/main/execution/**/*.ts",

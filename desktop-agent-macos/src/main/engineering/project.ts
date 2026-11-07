@@ -20,6 +20,7 @@ import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { EngineeringEvidence } from '../../shared/conversation';
+import { analyzeForQuestion } from './analysis';
 
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', '.svn', '.hg', 'dist', 'out', 'build', 'coverage',
@@ -51,6 +52,13 @@ export interface ProjectScan {
   /** 给人和给主导人看的工程概览。 */
   summary: string;
   evidence: EngineeringEvidence[];
+  /**
+   * 结构关系：符号索引、调用点、模块依赖、变更影响。
+   *
+   * 和 `evidence` 分开：证据是「读到了哪几段原文」，分析是「这些文件之间是什么
+   * 关系」。前者能逐字核对，后者是结构线索，材料里会写明识别方法。
+   */
+  analysis?: string;
   filesScanned: number;
   truncated: boolean;
   warnings: string[];
@@ -125,10 +133,11 @@ function excerptFor(content: string, terms: readonly string[]): { line: number; 
 
 /** 把证据变成主导人能引用的材料。 */
 export function engineeringMaterial(scan: ProjectScan): string {
-  if (scan.evidence.length === 0) return '';
+  if (scan.evidence.length === 0 && !scan.analysis) return '';
   const parts = [
     '【工程证据：以下由本机真实读取授权目录得到，不是模型推测】',
     scan.summary,
+    ...(scan.analysis ? ['', scan.analysis] : []),
     '',
     ...scan.evidence.map(
       (item, index) =>
@@ -269,5 +278,14 @@ export async function scanProject(
     `本轮取用 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、') || '无'}`
   ].join('\n');
 
-  return { root, summary, evidence, filesScanned: entries.length, truncated, warnings };
+  // 结构关系单独算一份：证据回答「读到了什么」，分析回答「它们怎么连起来」。
+  // 失败不影响证据——宁可只有证据，也不让一次正则异常把整个分析打掉。
+  let analysis: string | undefined;
+  try {
+    analysis = analyzeForQuestion(entries.map(item => ({ rel: item.rel, content: item.content })), question) || undefined;
+  } catch {
+    warnings.push('结构分析没有完成，本轮只有文件证据');
+  }
+
+  return { root, summary, evidence, analysis, filesScanned: entries.length, truncated, warnings };
 }

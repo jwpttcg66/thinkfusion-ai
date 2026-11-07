@@ -1386,3 +1386,47 @@ test('点发送后跳到付费墙：立刻停，不按回车、不再点一次',
   assert.equal(page.calls.click, 1, '只点了一次发送');
   assert.equal(page.calls.enter, 0, '不能按回车，那会误触付费按钮');
 });
+
+// 2026-11-07 真机：DeepSeek 弹「点击图中最小的蓝色三棱柱」，输入框照样能写、
+// 发送键照样亮。点下去页面把题目当成回答吐回来（17 个字），任务报「没找到
+// 协议块」——真正的原因（要人过验证）一个字都没有。
+test('人机验证状态立刻判不可用，并说清「请人手动过、我们不代做」', async () => {
+  const page = scriptedPage([state({
+    // 页面真实回报的挑战短语（PROBE_SCRIPT 从页面文本里认出来的就是这句）。
+    challenge: '点击图中最',
+    conversationText: '新对话\n点击图中最小的红色三棱柱'
+  })]);
+  const driver = new ChatPageDriver(() => page, {
+    hosts: new Set(['chat.deepseek.com']),
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'DeepSeek',
+    challengeText: ['点击图中最']
+  });
+  const status = await driver.getStatus();
+  assert.equal(status.pageReady, false, '这一页现在问不了');
+  assert.equal(status.loggedIn, true, '账号没问题，不能把人引去重新登录');
+  assert.match(status.detail, /人机验证/);
+  assert.match(status.detail, /不会代替你通过验证/);
+  assert.match(status.detail, /不是登录失效/);
+});
+
+test('弹着验证时不去打字、不去点发送，直接抛出可照做的说明', async () => {
+  const page = scriptedPage([
+    state({ challenge: '点击图中最', conversationText: '点击图中最小的蓝色三棱柱' })
+  ]);
+  const driver = new ChatPageDriver(() => page, {
+    hosts: new Set(['chat.deepseek.com']),
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'DeepSeek',
+    challengeText: ['点击图中最']
+  });
+  await assert.rejects(
+    () => driver.sendMessage('hello', 'r1'),
+    error => {
+      assert.match(error.message, /人机验证/);
+      return true;
+    }
+  );
+  assert.equal(page.calls.click, 0, '不能点发送：那会把验证当成提问');
+  assert.equal(page.calls.enter, 0);
+});

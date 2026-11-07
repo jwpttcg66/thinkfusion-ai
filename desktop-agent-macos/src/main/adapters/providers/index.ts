@@ -116,6 +116,10 @@ export function dismissTextFor(sourceId: string): readonly string[] {
 }
 
 /** 登录着也用不了的路径（付费墙 / 排队拦截页）。空列表是完整答案。 */
+export function challengeTextFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.challengeText ?? [];
+}
+
 export function blockedPathsFor(sourceId: string): readonly string[] {
   return providerFor(sourceId)?.blockedPaths ?? [];
 }

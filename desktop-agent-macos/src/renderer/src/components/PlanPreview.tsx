@@ -5,7 +5,10 @@ const TOOL_LABEL: Record<string, string> = {
   'fs.list': '列目录',
   'fs.readFile': '读文件',
   'fs.mkdir': '建目录',
-  'fs.writeFile': '写文件'
+  'fs.writeFile': '写文件',
+  'fs.tree': '看结构',
+  'fs.search': '搜代码',
+  'test.run': '跑测试'
 };
 
 function isWrite(tool: string) {
@@ -61,7 +64,30 @@ export function PlanPreview(props: {
 
       {writes.length > 0 && (
         <div className="notice">
-          计划包含 {writes.length} 个写入操作，落盘前会再次校验路径与内容摘要；写入采用独占创建，不会覆盖已有文件。
+          计划包含 {writes.length} 个写入操作，落盘前会再次校验路径与内容摘要；覆盖已有文件必须带上一版的内容指纹，对不上就拒绝。
+        </div>
+      )}
+
+      {props.plan.debate && (
+        <div className="plan-debate">
+          <div className="plan-debate-head">
+            <strong>方案评审</strong>
+            <span className="muted">
+              {props.plan.debate.status === 'skipped'
+                ? '未辩论'
+                : `${props.plan.debate.status === 'completed' ? '已辩完' : '没辩成（成员超时或忙碌）'}${props.plan.debate.participants.length > 0 ? ` · ${props.plan.debate.participants.join('、')}` : ''}`}
+            </span>
+          </div>
+          {props.plan.debate.skippedReason && (
+            <p className="plan-debate-skip">{props.plan.debate.skippedReason}</p>
+          )}
+          {props.plan.debate.topics.length > 0 && (
+            <p className="plan-debate-topics">辩题：{props.plan.debate.topics.join('；')}</p>
+          )}
+          {props.plan.debate.summary && (
+            <pre className="plan-debate-summary">{props.plan.debate.summary}</pre>
+          )}
+          <p className="muted small">辩论只给判断，不改变执行权限；确认之前不会动任何文件。</p>
         </div>
       )}
 

@@ -47,3 +47,14 @@ The split width is proposed by the renderer but clamped in the main process (`co
 - The embedded DeepSeek DOM adapter is heuristic and can break when the website changes.
 
 Use a dedicated working directory with no secrets for testing. Do not grant `danger-full-access` to untrusted plans. Before production distribution, implement and verify OS-level sandboxing, signed audit records, per-action approvals, code signing/notarization, and independent security review.
+
+## Human-verification challenges (2026-11-07)
+
+When a site serves a human-verification challenge (click-the-image, slider), the driver
+recognises it from profile-declared phrases (`ProviderProfile.challengeText`) and stops:
+`getStatus()` reports the page as not ready with an explanation, and `sendMessage()`
+throws before typing or clicking.
+
+The app **never attempts to solve the challenge**. Recognition exists only so the user is
+told what happened and where to click. Clicking through a challenge would be both
+unreliable and outside what an automation should do with someone's account.

@@ -73,5 +73,6 @@ export const CHATGPT_PROFILE: ProviderProfile = {
    * 只收标题这一句。正文那句「继续当前对话」出现在回答里也说得通，标题这种
    * 短断言不会——探测又是按「短块」判的，所以取窄不取宽。
    */
-  contextLimit: ['上下文窗口已达上限', '上下文长度已达上限', 'context window is full', 'context limit reached']
+  contextLimit: ['上下文窗口已达上限', '上下文长度已达上限', 'context window is full', 'context limit reached'],
+  challengeText: ['验证你是人类', 'verify you are human', '请完成安全验证', '完成以下验证']
 };

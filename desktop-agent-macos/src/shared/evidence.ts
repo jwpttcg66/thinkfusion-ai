@@ -43,6 +43,27 @@ export interface PageCitation {
   sourceId?: string;
 }
 
+/**
+ * 真正抓取回来的一页正文（Knowledge Workspace / Extract）。
+ *
+ * 和 `PageCitation` 的区别：那条是「回答里提到过一个链接」，这条是「我们确实
+ * 把正文取回来了」。前者只能证明有人提过，后者才能当分析依据，所以它带
+ * 状态码、正文字数、sha256 和抓取时间——复盘时要能确认当时读的是哪一版。
+ */
+export interface PageEvidence {
+  url: string;
+  title: string;
+  /** 抓取到的正文纯文本（已压缩空白）。 */
+  text: string;
+  chars: number;
+  /** 整段正文的 sha256。 */
+  sha256: string;
+  fetchedAt: number;
+  status: number;
+  /** 截断、取用 main/article 之类的事实说明。 */
+  notes: string[];
+}
+
 /** 去重后的一批链接，附上「为什么留下这几条」。 */
 export interface CitationDigest {
   citations: PageCitation[];

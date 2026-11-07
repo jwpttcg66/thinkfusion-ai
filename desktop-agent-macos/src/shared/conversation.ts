@@ -1,4 +1,6 @@
 import type { IntentKind } from './intent';
+import type { PageEvidence } from './evidence';
+import type { ModelRoute } from './model-route';
 import type { DebateMode, EngineeringTaskKind, TaskRouting, WorkspaceMode } from './workspace';
 
 /**
@@ -104,6 +106,35 @@ export interface Conversation {
   routing?: TaskRouting;
   /** 工程分析真的读到过的文件片段。 */
   engineeringEvidence?: EngineeringEvidence[];
+  /**
+   * V2.1：这一轮的结构关系（符号索引 / 调用点 / 模块依赖 / 变更影响）。
+   *
+   * 和 `engineeringEvidence` 一起存，而不是每次现算：分析是在提问那一刻基于
+   * 当时读到的文件算的，汇总时再算一遍会得到另一份行号。存下来也让「主导人
+   * 到底看到了什么」可以事后核对。
+   */
+  engineeringAnalysis?: string;
+  /**
+   * V2.1：`extract` 意图里用户点名的那个地址。
+   *
+   * 存在会话上而不是每次现算，是因为追问时用户不会再说一遍链接，而「这条会话
+   * 到底读的是哪一页」必须能回答。
+   */
+  extractUrl?: string;
+  /**
+   * 真正抓回来的那一页正文。
+   *
+   * 只在抓取成功时存在。没有它时界面不该假装做过提取——那会变成「让模型凭
+   * 常识讲这个网站」。正文只在主导人汇总时作为材料出现，不进第一手提问。
+   */
+  pageEvidence?: PageEvidence;
+  /**
+   * V2.1：这一轮用哪些模型、为什么（Model Router，产品定义第 8 节）。
+   *
+   * 路由是在提问之前算的，所以它记录的是**决定**，不是事后统计；真的问了谁
+   * 仍以 `channels` / `answered` 为准。两者对不上时界面要能看出来。
+   */
+  modelRoute?: ModelRoute;
 }
 
 export type MessageRole = 'user' | 'channel' | 'synthesis' | 'system';

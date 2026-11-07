@@ -344,8 +344,32 @@ export function parseAnswer(
 
     return { kind: 'invalid', error: `未知的协议 type：${String(type)}` };
   } catch (error) {
-    return { kind: 'invalid', error: error instanceof Error ? error.message : String(error) };
+    return { kind: 'invalid', error: describePlanIssues(error) };
   }
+}
+
+/**
+ * 把 zod 的校验错误翻成能照着做的话。
+ *
+ * 真机第一次改已有文件时，模型在同一份计划里给 `expectedHash` 填了占位符，用户
+ * 看到的是 `[{"validation":"regex","code":"invalid_string","path":["steps",1,"args","expectedHash"]}]`。
+ * 那条消息说不清「该怎么做」，而这里恰好有一个明确的下一步：先读，再写。
+ */
+export function describePlanIssues(error: unknown): string {
+  const issues = (error as { issues?: Array<{ path?: Array<string | number>; message?: string }> })?.issues;
+  if (!Array.isArray(issues)) return error instanceof Error ? error.message : String(error);
+  return issues
+    .map(issue => {
+      const path = (issue.path ?? []).join('.');
+      if (path.endsWith('expectedHash')) {
+        return '覆盖已有文件必须带 64 位十六进制的 sha256。同一份计划里拿不到它：先只输出 fs.readFile 的计划，下一轮拿到 sha256 再写';
+      }
+      if (path.endsWith('overwrite')) return 'overwrite 只能是 true 或 false';
+      if (path.endsWith('tool')) return '计划里出现了不受支持的工具名';
+      if (path === 'steps') return '计划的步骤格式不对（每步要有 id / tool / args）';
+      return `${path || '计划'}：${issue.message ?? '格式不正确'}`;
+    })
+    .join('；');
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +396,9 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - fs.writeFile: { "path": string, "content": string, "overwrite"?: boolean, "expectedHash"?: string }
                  默认只创建新文件；要改已有文件必须 overwrite=true 并附上
                  先前 fs.readFile 结果里的 sha256，不匹配会被拒绝。
+                 ⚠ 同一份计划里你还没读过文件，所以拿不到 sha256：
+                 改已有文件要分两轮——这一轮只输出 fs.readFile（必要时加 fs.list），
+                 下一轮看到执行报告里的 sha256 再写。不要填占位值或猜一个哈希。
 - fs.tree:      { "path": string, "maxDepth"?: number, "maxEntries"?: number }
                  递归列出工程目录（忽略 node_modules / .git / 构建产物）。
 - fs.search:    { "query": string, "path"?: string, "maxResults"?: number }
@@ -405,6 +432,8 @@ export function buildInitialPrompt(input: {
 8. taskId 和 roundId 必须原样回填，不能改写。
 9. 所有 path 都是相对工作区的相对路径，不要拼接下面的工作区路径，不要写绝对路径，也不要使用 ".."。
    写绝对路径会被本地 Runtime 直接拒绝，白白浪费一轮。
+10. 要修改已有文件，这一轮**只规划 fs.readFile**（必要时加 fs.list），把 sha256 留到下一轮：
+    计划阶段拿不到文件指纹，编一个会被 schema 拒绝，整个任务当场失败。
 
 ${TOOL_SPEC}
 
@@ -430,9 +459,35 @@ ${PLAN_SHAPE}
 ${input.prompt}`;
 }
 
-export function buildReportPrompt(input: { taskId: string; roundId: string; report: ExecutionReport }): string {
-  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。
+export function buildReportPrompt(input: {
+  taskId: string;
+  roundId: string;
+  report: ExecutionReport;
+  /**
+   * V2.1 Phase F：执行后的独立评审结论。
+   *
+   * 任务书要求「发现问题形成修复任务，修复后重新验证」。评审结论不进这条
+   * 提示时，下一轮计划只看到执行报告，会把「测试失败」当成「再试一次」，
+   * 而不是「先修评审指出的那一条」——两者产出的计划完全不同。
+   */
+  review?: { verdict: string; issues: string[]; needsFix: boolean; reviewer: string } | null;
+}): string {
+  const review = input.review;
+  const fixSection = review && review.issues.length > 0
+    ? `
+独立评审${review.needsFix ? '判定需要修复' : '给出了待改进项'}（${review.reviewer}）：
+${review.verdict}
 
+这一轮的定位是**修复任务**，不是重新做一遍：
+${review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')}
+
+修复要求：
+- 逐条对应上面的问题，说清哪一步解决哪一条；解决不了的要说明为什么。
+- 不要重做已经成功的步骤，也不要重复写入同样的内容。
+- 改动之后必须重新验证（测试或读回文件），验证结果要出现在执行报告里。
+`
+    : '';
+  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}
 请基于实际结果决定下一步：
 - 需要继续执行：输出下一轮 ${PROTOCOL} 计划（taskId 与 roundId 使用下方给出的新值）。
 - 任务已满足完成条件：输出 task_complete。
@@ -451,8 +506,36 @@ roundId：${input.roundId}
 只输出一个 JSON 对象，taskId 与 roundId 必须逐字使用上面这两个值；不要复用对话历史里其他消息中的 id。`;
 }
 
-export function buildClarificationAnswerPrompt(input: {
+/**
+ * 计划没通过校验时，把失败原因交回给模型让它改。
+ *
+ * 不这么做的话，一个占位符就会让整个任务当场失败——真机第一次「改已有文件」
+ * 就是这样：模型填了假的 expectedHash，用户看到一串 zod 路径，任务死掉，
+ * 而他其实只需要被告知「先读一遍」。
+ */
+export function buildPlanRepairPrompt(input: {
   taskId: string;
+  roundId: string;
+  error: string;
+  userPrompt: string;
+}): string {
+  return `上一份计划没有通过本地校验，任务没有执行。请修正后重新输出一份计划。
+
+失败原因：
+${input.error}
+
+原始任务：
+${input.userPrompt}
+
+请只输出一个符合 ${PROTOCOL} 的 JSON 对象（taskId 与 roundId 用下面的新值）。
+
+${TOOL_SPEC}
+
+taskId：${input.taskId}
+roundId：${input.roundId}`;
+}
+
+export function buildClarificationAnswerPrompt(input: {  taskId: string;
   roundId: string;
   questions: string[];
   answer: string;

@@ -41,6 +41,15 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
         text: `独立评审（${event.backend === 'rules' ? '规则版' : event.reviewer}）：${event.needsFix ? '需修复' : '通过'} · ${event.verdict.slice(0, 120)}`,
         tone: event.needsFix ? 'warn' : 'ok'
       };
+    case 'plan.debated':
+      // 「没辩」也要出现在日志里：审批的人需要知道这份计划有没有被评审过。
+      return event.debate.status === 'skipped'
+        ? { key, text: `方案评审未进行：${event.debate.skippedReason ?? '没有可用成员'}`, tone: 'muted' }
+        : {
+            key,
+            text: `方案评审已辩完（${event.debate.participants.join('、')}）：${event.debate.topics.length} 个辩题`,
+            tone: 'ok'
+          };
     case 'report.sent':
       return { key, text: '执行报告已回传给模型', tone: 'muted' };
     case 'task.completed':
@@ -61,6 +70,7 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
 function roundType(inputType: string) {
   if (inputType === 'user_prompt') return '任务';
   if (inputType === 'execution_report') return '执行报告';
+  if (inputType === 'plan_repair') return '计划修正';
   return '澄清回答';
 }
 

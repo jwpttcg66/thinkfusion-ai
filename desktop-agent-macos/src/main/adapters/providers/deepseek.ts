@@ -84,7 +84,10 @@ export const DEEPSEEK_PROFILE: ProviderProfile = {
   label: 'DeepSeek',
   selectors: DEEPSEEK_SELECTORS,
   hosts: DEEPSEEK_HOSTS,
-  signedOutPaths: DEEPSEEK_SIGNED_OUT_PATHS
+  signedOutPaths: DEEPSEEK_SIGNED_OUT_PATHS,
+  // 2026-11-07 真机：连续提问后出现点图验证，页面上写的是
+  // 「点击图中最小的蓝色三棱柱」，换一次会换成红色/圆柱体。
+  challengeText: ['点击图中最', '请完成安全验证', '拖动滑块', '验证你是人类']
 };
 
 export function isAllowedDeepSeekUrl(raw: string): boolean {

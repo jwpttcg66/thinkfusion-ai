@@ -1236,6 +1236,33 @@ test('V2.1：工程分析真的读文件，第一手网页提问仍是用户原�
   assert.match(system, /已读取工程目录/);
 });
 
+// 真机第一轮就踩到：结构分析在 scanProject 里算出来了，却只把 evidence 交给
+// 汇总，analysis 直接丢掉——主导人看到的还是零散几行，符号索引和调用点白算。
+test('V2.1：结构关系跟着证据一起进主导人材料，不是算完就丢', async () => {
+  const questions = [];
+  const channels = [
+    fakeChannel('a', async input => { questions.push(input.question); return answer('a 的回答'); }),
+    fakeChannel('b', async input => { questions.push(input.question); return answer('b 的回答'); })
+  ];
+  const { runner } = execRunner(channels);
+  const conversation = await runner.start({
+    text: '分析当前项目结构，并说明谁调用了 virtualThread',
+    workspaceMode: 'engineering',
+    workspaceRoot: v21Root
+  });
+  await settle(runner, conversation.conversationId);
+
+  assert.ok(conversation.engineeringAnalysis, '结构分析要落到会话上，汇总才能引用');
+  assert.match(conversation.engineeringAnalysis, /【结构概览】/);
+  assert.ok(
+    questions.slice(2).some(item => item.includes('【结构概览】')),
+    '结构分析必须进主导人材料'
+  );
+  // 第一手提问仍然只有原话：结构分析也不能塞进那一问。
+  assert.equal(questions[0], '分析当前项目结构，并说明谁调用了 virtualThread');
+  assert.ok(questions.slice(0, 2).every(item => !item.includes('【结构概览】')));
+});
+
 test('V2.1：工程实施交去出计划，识别结果和项目一起存下来', async () => {
   let handed = null;
   const { runner } = makeRunner(execChannels(), {

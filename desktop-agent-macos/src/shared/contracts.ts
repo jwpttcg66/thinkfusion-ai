@@ -205,6 +205,14 @@ export interface AgentTask {
   conversationId?: string;
   currentRoundId?: string;
   currentPlanId?: string;
+  /**
+   * V2.1：这份计划要不要先做方案评审辩论。
+   *
+   * 和会话里的 `debateMode` 是同一个开关，但在这里必须落一份：任务可能来自
+   * 没有会话的执行入口，而且审批发生在计划生成之后，那时已经不该再去读会话。
+   * 老任务没有这个字段，读到时按 `auto` 处理（小计划不辩）。
+   */
+  planDebate?: 'auto' | 'on' | 'off';
   createdAt: number;
   updatedAt: number;
   maxRounds: number;
@@ -219,7 +227,11 @@ export interface AgentRound {
   taskId: string;
   roundNumber: number;
   requestId: string;
-  inputType: 'user_prompt' | 'execution_report' | 'clarification_answer';
+  /**
+   * `plan_repair`：模型上一轮的计划没通过校验，这一轮带着失败原因让它改。
+   * 单独一类而不是复用 `user_prompt`，因为「问了几次才对」必须能数出来。
+   */
+  inputType: 'user_prompt' | 'execution_report' | 'clarification_answer' | 'plan_repair';
   requestText: string;
   answerText?: string;
   status: RoundStatus;
@@ -239,6 +251,28 @@ export interface StoredPlan {
   createdAt: number;
 }
 
+/**
+ * 方案评审辩论（V2.1 D-03 / 任务书 Phase F「任务拆分与方案评审（辩论可选）」）。
+ *
+ * 只影响「这份计划要不要辩、辩了什么」，不改变计划的执行语义：辩完仍要人
+ * 点确认。`skippedReason` 是刻意保留的——没辩和辩了没结论是两件不同的事，
+ * 界面不能都显示成空白。
+ */
+export interface PlanDebate {
+  /** 真的开了辩论才有；没开时空缺。 */
+  debateId?: string;
+  status: 'completed' | 'stopped' | 'skipped';
+  /** 辩题：从计划的步骤、风险、验收条件里取的争议点。 */
+  topics: string[];
+  /** 参与者（模型 id）。 */
+  participants: string[];
+  /** 辩论结论摘要，供审批前阅读。 */
+  summary: string;
+  /** 为什么没辩：模式是 off / 计划太小 / 没有可用成员。 */
+  skippedReason?: string;
+  at: number;
+}
+
 export interface PlanPreview {
   planId: string;
   taskId: string;
@@ -247,6 +281,8 @@ export interface PlanPreview {
   description: string;
   completion: string;
   steps: Array<{ id: string; tool: ToolName; description?: string; args: Record<string, unknown> }>;
+  /** V2.1：方案评审辩论结果。没开启辩论时为空。 */
+  debate?: PlanDebate;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +358,8 @@ export type AgentEvent = AgentEventBase &
         issues: string[];
         needsFix: boolean;
       }
+    /** V2.1 D-03：计划生成后、审批前的方案评审辩论。 */
+    | { type: 'plan.debated'; taskId: string; roundId: string; planId: string; debate: PlanDebate }
     | { type: 'report.sent'; taskId: string; roundId: string }
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }

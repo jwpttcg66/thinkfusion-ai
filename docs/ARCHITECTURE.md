@@ -799,3 +799,14 @@ Score = w_e·Evidence + w_r·Reasoning + w_s·Source + w_i·Independence − w_a
 - 全局默认空间与项目存 `userData/workspace-state.json`（`src/main/workspace-store.ts`），与会话级字段互相补充。
 
 详见 `docs/implementation/V2.1_IMPLEMENTATION_REPORT.md`。
+
+---
+
+## 13. V2.1 第二轮增量（2026-11-07）
+
+- `src/main/knowledge/page-extract.ts`：`fetchPageText()` 抓网页正文，`extractMaterial()` 拼成主导人材料。只进汇总，不进第一手提问；SSRF 防护（协议/内网/重定向/体积）。
+- `src/main/engineering/analysis.ts`：符号索引、调用点、模块依赖、变更影响、架构概览，全部正则 + 静态 import 解析，结论里标注识别方法。结果存 `Conversation.engineeringAnalysis`，与证据一起进主导人材料。
+- `src/main/engineering/plan-review.ts`：`shouldDebatePlan()` / `planDebateTopics()` / `reviewQuestion` / `summarizePlanDebate()`，配合 `OrchestratorDeps.debatePlan` 在 `plan.ready` 之后、`awaiting_approval` 之前插入评审辩论。
+- `src/shared/model-route.ts`：`routeModels()` 在提问前给出参与成员与理由，写进 `Conversation.modelRoute`；只记录不改选人。
+- `buildReportPrompt({ review })`：评审问题并进下一轮计划请求；`buildPlanRepairPrompt()` + `repairPlan()` 处理「计划没通过校验」的自修（≤2 次）。
+- 安全：写入类工具（`mkdir`/`writeFile`/`overwriteFile`）自带只读拦截，不再只依赖调用方 `assertGrant`。

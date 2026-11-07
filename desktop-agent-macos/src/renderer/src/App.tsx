@@ -81,6 +81,11 @@ function derive(events: AgentEvent[]): Derived {
     // the card stays on screen with a disabled box, which reads as stuck.
     if (event.type === 'round.started') questions = [];
     if (event.type === 'plan.ready') plan = event.plan;
+    // V2.1 D-03：方案评审辩论的结论挂回同一张计划卡。
+    // 辩论事件是后到的，别把计划替换掉——审批的人要同时看到计划与结论。
+    if (event.type === 'plan.debated' && plan && plan.planId === event.planId) {
+      plan = { ...plan, debate: event.debate };
+    }
     if (event.type === 'clarification.required') questions = event.questions;
     if (event.type === 'round.answer') answer = event.text;
     if (event.type === 'review.ready') {

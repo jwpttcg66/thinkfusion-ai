@@ -62,7 +62,7 @@ function isUnderPath(raw: string, prefix: string): boolean {
  * 8: the probe also reports `contextFull` — the site's own 「上下文窗口已达上限」
  *    banner, which is neither an answer nor something to wait for.
  */
-export const PROBE_VERSION = '8';
+export const PROBE_VERSION = '9';
 
 /**
  * Shortest tail considered an answer while the page is still generating.
@@ -131,6 +131,8 @@ export interface PageProbe {
    * the honest response is a fresh thread, never a longer wait.
    */
   contextFull?: boolean;
+  /** 站点要求人完成的验证（点图/滑块）里命中的那句话；没命中为空。 */
+  challenge?: string;
   hasInput: boolean;
   inputKind: string;
   hasSendButton: boolean;
@@ -257,13 +259,15 @@ export const PROBE_SCRIPT = (
   reasoning: readonly string[] = [],
   signedOutSelectors: readonly string[] = [],
   signedOutText: readonly string[] = [],
-  contextLimitText: readonly string[] = []
+  contextLimitText: readonly string[] = [],
+  challengeText: readonly string[] = []
 ) => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const reasoning = ${JSON.stringify(reasoning)};
   const signedOutSelectors = ${JSON.stringify(signedOutSelectors)};
   const signedOutText = ${JSON.stringify(signedOutText)};
   const contextLimitText = ${JSON.stringify(contextLimitText)};
+  const challengeText = ${JSON.stringify(challengeText)};
 
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -663,6 +667,16 @@ export const PROBE_SCRIPT = (
     }
   }
 
+  // 站点要求人机验证：只认声明过的短语，只为了说清楚，绝不去点。
+  // 这句话会同时出现在弹层和页面正文里（点下去之后它就成了「回答」），
+  // 所以只做包含判断，不要求在某个特定容器里。
+  let challenge = '';
+  if (challengeText.length) {
+    const flat = squeeze(rawText);
+    const hit = challengeText.find((marker) => flat.includes(squeeze(marker)));
+    if (hit) challenge = hit;
+  }
+
   return {
     url: location.href,
     title: document.title,
@@ -674,6 +688,7 @@ export const PROBE_SCRIPT = (
     hasPasswordField: firstMatch('passwordField').length > 0,
     signedOut,
     contextFull,
+    challenge,
     hasInput: !!composer,
     inputKind: kindOf(composer),
     hasSendButton: sendButtons.length > 0 || structuralSend,
@@ -2064,7 +2079,8 @@ export function createElectronDriver(
   signedOutSelectors: readonly string[] | (() => readonly string[]) = [],
   signedOutText: readonly string[] | (() => readonly string[]) = [],
   contextLimitText: readonly string[] | (() => readonly string[]) = [],
-  dismissText: readonly string[] | (() => readonly string[]) = []
+  dismissText: readonly string[] | (() => readonly string[]) = [],
+  challengeText: readonly string[] | (() => readonly string[]) = []
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
   const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
@@ -2072,6 +2088,7 @@ export function createElectronDriver(
   const signedOutWords = typeof signedOutText === 'function' ? signedOutText : () => signedOutText;
   const contextWords = typeof contextLimitText === 'function' ? contextLimitText : () => contextLimitText;
   const dismissWords = typeof dismissText === 'function' ? dismissText : () => dismissText;
+  const challengeWords = typeof challengeText === 'function' ? challengeText : () => challengeText;
   /**
    * Whether *we* attached the debugger, so detaching cannot take the user's own
    * DevTools session with it.
@@ -2107,7 +2124,7 @@ export function createElectronDriver(
       }
     },
     probe: async () => {
-      const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords(), contextWords());
+      const script = PROBE_SCRIPT(profile(), cut(), signedOut(), signedOutWords(), contextWords(), challengeWords());
       // A page that is still loading is not necessarily an unusable one: Gemini
       // draws its whole chat UI while a request keeps the load open, so the
       // status said 「页面正在加载」 over a page the user could already type in.
@@ -2402,11 +2419,31 @@ export class ChatPageDriver {
   private readonly signedOutOf: () => readonly string[];
   private readonly signedOutPathsOf: () => readonly string[];
   private readonly blockedPathsOf: () => readonly string[];
+  private readonly challengeWordsOf: () => readonly string[];
   /**
    * 页面落在站点自己声明的「不接受提问」路径上时，返回给用户看的那句话。
    * `getStatus()` 和 `submit()` 共用，避免一个说会员排队、另一个又退回
    * 「发送未确认」。
    */
+  /** 人机验证状态下的一句完整说明：发生了什么、该做什么、我们不会做什么。 */
+  private challengeStatus(probe: PageProbe) {
+    return {
+      url: probe.url,
+      pageReady: false,
+      loggedIn: true,
+      hasInput: probe.hasInput,
+      hasSendButton: probe.hasSendButton,
+      generating: false,
+      messageCount: probe.messageCount,
+      contextFull: false,
+      detail: this.challengeDetail(probe.challenge ?? '')
+    };
+  }
+
+  private challengeDetail(hit: string): string {
+    return `${this.siteLabel} 现在要求人机验证（页面上写着「${hit}」）。请在右侧这个页面里手动完成一次验证，再重新提问；应用不会代替你通过验证。这不是登录失效，也不是页面结构变了。`;
+  }
+
   private blockedDetail(url: string): string | null {
     if (!this.blockedPathsOf().some(prefix => isUnderPath(url, prefix))) return null;
     return `${this.siteLabel} 当前没有接受提问：站点把页面转到了会员/排队页面（${String(url).split('?')[0]}）。这不是登录失效，是站点账号侧的限制；可以稍后再试，或在通道设置里暂时关闭这条通道。`;
@@ -2477,6 +2514,11 @@ export class ChatPageDriver {
        * 给出路也不同：立刻停下并说明是站点侧限制。
        */
       blockedPaths?: readonly string[] | (() => readonly string[]);
+      /**
+       * 站点人机验证弹层里的固定短语（见 `ProviderProfile.challengeText`）。
+       * 认出来只为了说清楚，绝不去解验证。
+       */
+      challengeText?: readonly string[] | (() => readonly string[]);
     }
   ) {
     const hosts = options.hosts;
@@ -2494,6 +2536,8 @@ export class ChatPageDriver {
     this.contextLimitOf = typeof contextLimit === 'function' ? contextLimit : () => contextLimit;
     const blockedPaths = options.blockedPaths ?? [];
     this.blockedPathsOf = typeof blockedPaths === 'function' ? blockedPaths : () => blockedPaths;
+    const challengeText = options.challengeText ?? [];
+    this.challengeWordsOf = typeof challengeText === 'function' ? challengeText : () => challengeText;
     this.siteLabel = options.siteLabel;
   }
 
@@ -2566,6 +2610,9 @@ export class ChatPageDriver {
           detail: blocked
         };
       }
+      // 人机验证：输入框和发送键都还在，但点下去只会把题目本身当成回答。
+      // 这是给人做的验证——说清楚，请人去页面里点，绝不自作聪明代做。
+      if (probe.challenge) return this.challengeStatus(probe);
       const onSignInPath = this.signedOutPathsOf().some(prefix => isUnderPath(probe.url, prefix));
       const signedOut = probe.hasPasswordField || probe.signedOut || onSignInPath;
       const loggedIn = !signedOut;
@@ -3025,6 +3072,11 @@ export class ChatPageDriver {
   private async submit(text: string, requestId: string, driver: PageDriver): Promise<SendOutcome> {
     const before = await this.snapshot();
 
+    // 已经弹着人机验证就别往里打字：打进去的字会留在框里，点发送只会把
+    // 题目本身当成回答，20 秒后再报「发送未确认」——真正的原因一个字没有。
+    const gate = await driver.probe().catch(() => null);
+    if (gate?.challenge) throw new Error(this.challengeDetail(gate.challenge));
+
     const filled = await driver.fill(text);
     if (!filled?.ok) {
       throw new Error(`无法写入输入框：${filled?.reason ?? 'UNKNOWN'}（请求未提交，可安全重试）`);
@@ -3070,6 +3122,9 @@ export class ChatPageDriver {
       // 上下文满的横幅一出现，这一问就注定发不出去（站点把它拦在门口）。
       // 继续等提交迹象只会把 12 秒花在确认一件不会发生的事上。
       if (probe.contextFull === true) throw new ContextLimitError(this.siteLabel);
+      // 点发送之后才弹验证也停：这时候再按回车、再点一次，很可能落到验证
+      // 弹层自己的按钮上。
+      if (probe.challenge) throw new Error(this.challengeDetail(probe.challenge));
 
       // 付费墙是「点发送之后」才跳的：真机上 Kimi 一转身把整页转到
       // /membership/pricing，输入框没了，字却还留在旧页面的编辑器里。这时候

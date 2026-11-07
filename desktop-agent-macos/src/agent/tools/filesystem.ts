@@ -20,6 +20,18 @@ async function ensureSafeDirectory(grant: TaskGrant, relativePath: string) {
   return checked;
 }
 
+/**
+ * 写入工具自己再挡一次只读授权。
+ *
+ * 运行时会先 `assertGrant`，但工具是导出的、可以被别处调用；只靠调用方自觉
+ * 等于把「只读」变成约定而不是约束。两层都检查，任何一层漏了也写不进去。
+ */
+function assertWritable(grant: TaskGrant, action: string) {
+  if (grant.permissionPreset === 'read-only') {
+    throw new Error(`当前权限为“仅可查看”，禁止${action}`);
+  }
+}
+
 export const filesystemTools = {
   async list(grant: TaskGrant, args: { path: string }) {
     const target = await resolveGrantedPath(grant, args.path, false);
@@ -43,10 +55,12 @@ export const filesystemTools = {
     } finally { await handle.close(); }
   },
   async mkdir(grant: TaskGrant, args: { path: string }) {
+    assertWritable(grant, '创建目录');
     const target = await ensureSafeDirectory(grant, args.path);
     return { created: true, path: target };
   },
   async writeFile(grant: TaskGrant, args: { path: string; content: string }) {
+    assertWritable(grant, '写入文件');
     if (typeof args.content !== 'string' || Buffer.byteLength(args.content, 'utf8') > 1_000_000) throw new Error('文件内容超过 1 MB 限制');
     const target = await resolveGrantedPath(grant, args.path, true);
     let parent: string;
@@ -90,6 +104,7 @@ export const filesystemTools = {
     grant: TaskGrant,
     args: { path: string; content: string; expectedHash?: string }
   ) {
+    assertWritable(grant, '覆盖文件');
     if (typeof args.content !== 'string' || Buffer.byteLength(args.content, 'utf8') > 1_000_000) {
       throw new Error('文件内容超过 1 MB 限制');
     }

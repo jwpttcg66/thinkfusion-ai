@@ -27,7 +27,7 @@ import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
 import { isSameThread, navigateToThread } from './adapters/browser/thread-navigation';
-import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor, dismissTextFor, blockedPathsFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor, dismissTextFor, blockedPathsFor, challengeTextFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { OllamaProvider } from './providers/ollama';
 import { OpenAICompatibleProvider } from './providers/openai-compatible';
@@ -38,6 +38,7 @@ import type { ModelProvider } from './providers/types';
 import { ProviderBackedSubAgent } from './execution/provider-sub-agent';
 import { ExecutionPool } from './execution/execution-pool';
 import { selectParticipants } from './execution/policy';
+import { routeModels } from '../shared/model-route';
 import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
@@ -76,6 +77,7 @@ import { SourceStore } from './source-store';
 import { ProfileStore } from './profile-store';
 import { WorkspaceStore } from './workspace-store';
 import { reviewExecution } from './engineering/review';
+import { planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
 import { normalizeWorkspaceState, routeTask, type EngineeringTaskKind as WorkspaceTaskKind } from '../shared/workspace';
 import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
@@ -254,7 +256,9 @@ function adapterFor(id: string): ChatPageDriver {
             () => contextLimitFor(id),
             // 站点自己弹的纯提示层（Kimi 排队提示）会吃掉发送点击；填字和
             // 点发送前先关掉，别让一条本来可用的通道白等到超时。
-            () => dismissTextFor(id)
+            () => dismissTextFor(id),
+            // 人机验证：认出来是为了请用户手动过，不是为了替他去解。
+            () => challengeTextFor(id)
           )
         : null;
     },
@@ -280,6 +284,7 @@ function adapterFor(id: string): ChatPageDriver {
       // 站点说「这条会话装不下更多上下文了」时用的那句话。认出来才有出路：
       // 换一条会话再问，而不是把横幅当回答、或者白等到超时。
       contextLimit: () => contextLimitFor(id),
+      challengeText: () => challengeTextFor(id),
       // 站点把页面转到会员/排队页时立刻停，别让一条注定发不出去的问题
       // 白等 20 秒确认、再白等 180 秒回答，最后只报一句「发送未确认」。
       blockedPaths: () => blockedPathsFor(id),
@@ -2327,6 +2332,69 @@ app.whenReady().then(async () => {
             })).text
           }
         : {});
+    },
+    /**
+     * V2.1 D-03：方案评审辩论。
+     *
+     * 只用本地/云端模型，不用网页通道：此刻正有一条网页在当「计划生成器」，
+     * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
+     * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
+     */
+    debatePlan: async ({ plan, topics }) => {
+      if (!debates) return null;
+      const candidates = await debateCandidates();
+      const api = candidates.filter(item => item.type !== 'web' && item.available);
+      if (api.length === 0) return null;
+      const mode = api.some(item => item.type === 'local') ? 'local' : 'cloud';
+      const selected = api.map(item => item.id);
+      const leadPlan = planLead({
+        mode,
+        strategy: 'solution',
+        candidates,
+        selected,
+        leadAgentId: undefined
+      });
+      const state = debates.start(
+        planReviewQuestion(plan),
+        {
+          // 方案评审只需要「各自判断 → 互相质疑」两轮：再多也不会让计划本身
+          // 变得更可行，只会把审批拖长。
+          strategy: 'solution',
+          maxRounds: 2,
+          participants: leadPlan.participants,
+          convergenceStop: true,
+          leadMode: mode,
+          // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
+          seed: { positions: [], topics },
+          budget: { stageTimeoutMs: 120_000, totalMs: 180_000, maxConcurrency: 2 }
+        },
+        undefined,
+        leadPlan
+      );
+      const done = await debates.waitFor(state.debateId, 180_000);
+      if (!done) return null;
+      // 「跑完了」不等于「辩过了」：模型全部超时/忙碌时，引擎仍会把状态记成
+      // completed，但一句话都没说。真机第一轮就遇到两个本地模型一个在忙、
+      // 一个 90 秒没出话——那种记录不能显示成「已辩完」，否则审批的人会以为
+      // 这份计划被评审过。
+      const spoke = done.rounds.some(round => round.messages.length > 0);
+      return {
+        debateId: done.debateId,
+        status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
+        participants: leadPlan.participants,
+        summary: summarizePlanDebate({
+          topics,
+          rounds: done.rounds.map(round => ({
+            index: round.index,
+            messages: round.messages.map(message => ({
+              author: message.agentId,
+              kind: message.kind,
+              text: message.text
+            })),
+            failures: round.failures
+          }))
+        })
+      };
     }
   });
 
@@ -2342,6 +2410,25 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.answerIds, selection.executorIds);
     },
     executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
+    /**
+     * V2.1 Model Router：把「这一轮用哪些模型、为什么」在提问之前算出来。
+     *
+     * 只读当前可用成员，不主动探活：探活会给每个页面发一次探测，而这条路
+     * 每条消息都会走一遍。降级判断依赖的是「注册表里有没有」，真正的可用性
+     * 仍由提问链路自己报错，两件事不能混。
+     */
+    modelRoute: ({ config, taskKind }) =>
+      routeModels({
+        taskKind,
+        executionMode: config.executionMode,
+        available: {
+          web: registry.list().map(agent => agent.id),
+          local: extraAgents.filter(agent => agent.sourceType === 'local').map(agent => agent.id),
+          cloud: extraAgents.filter(agent => agent.sourceType === 'cloud').map(agent => agent.id)
+        },
+        selectedWebChannels: config.selectedWebChannels,
+        leadAgentId: config.leadAgentId
+      }),
     restoreThreads: restoreThreadViews,
     channelStatuses: () => registry.statuses(),
     isPageChannel: agentId => registry.get(agentId) !== undefined,
@@ -2437,7 +2524,8 @@ app.whenReady().then(async () => {
       orchestrator.submit({
         prompt: input.prompt,
         permissionPreset: input.permissionPreset as PermissionPreset,
-        workspaceRoot: input.workspaceRoot
+        workspaceRoot: input.workspaceRoot,
+        planDebate: input.planDebate
       })
   });
 

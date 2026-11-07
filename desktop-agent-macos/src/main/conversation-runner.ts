@@ -3,6 +3,7 @@ import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
+import { toRouteTaskKind, type ModelRoute, type RouteTaskKind } from '../shared/model-route';
 import {
   normalizeDebateMode,
   normalizeWorkspaceMode,
@@ -27,9 +28,12 @@ import {
   LEAD_SUMMARY_SYSTEM,
   LEAD_SUMMARY_TIMEOUT_MS,
   LEAD_VERDICT_SYSTEM,
+  leadSummarySystem,
   parseTopics,
-  rewriteSourceRefs
+  rewriteSourceRefs,
+  type LeadTaskKind
 } from './synthesis/lead-stage';
+import { extractMaterial, fetchPageText } from './knowledge/page-extract';
 import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
 
@@ -88,7 +92,23 @@ export interface ConversationDeps {
    * imported so this file cannot reach the runtime by accident — the whole
    * point of the split is that the conversation path has no execution in it.
    */
-  submitWorkspace: (input: { prompt: string; permissionPreset: string; workspaceRoot?: string }) => Promise<AgentTask>;
+  submitWorkspace: (input: {
+    prompt: string;
+    permissionPreset: string;
+    workspaceRoot?: string;
+    /** V2.1 D-03：会话里的辩论开关，决定计划要不要先辩一场。 */
+    planDebate?: 'auto' | 'on' | 'off';
+  }) => Promise<AgentTask>;
+  /**
+   * V2.1 Model Router（产品定义第 8 节）：这一轮用哪些模型、为什么。
+   *
+   * 交给外面实现，因为「此刻有哪个成员可用」是运行时信息；runner 只负责在
+   * 提问之前把它记下来，供界面显示与事后回溯。不传就不记录，行为不变。
+   */
+  modelRoute?: (input: {
+    config: ConversationExecutionConfig;
+    taskKind: RouteTaskKind;
+  }) => ModelRoute;
   /**
    * Test seam for the turn budget. Five minutes is a product number, not a
    * behaviour — a test that has to wait five minutes to see what happens when
@@ -362,10 +382,18 @@ export class ConversationRunner {
       createdAt: now,
       updatedAt: now,
       executionConfig: normalizeExecutionConfig(input.executionConfig),
+      // 用户点名的那个地址：追问时不会再给一遍，而「这条会话读的是哪一页」
+      // 必须能回答，所以随会话存下来。
+      ...(intent.kind === 'extract' && intent.url ? { extractUrl: intent.url } : {}),
       ...(workspaceMode === 'engineering'
         ? { workspaceMode, workspaceRoot: input.workspaceRoot, routing }
         : {})
     };
+
+    // V2.1 Model Router：在提问之前就把「这一轮用哪些模型、为什么」定下来并
+    // 写进会话。事后统计做不到这件事——事后只能说「问了谁」，说不出「本来
+    // 打算问谁、为什么是他」。
+    this.applyModelRoute(conversation, toRouteTaskKind(routing?.taskKind ?? intent.kind));
 
     this.save(conversation);
     this.deps.emit({ type: 'conversation.created', at: now, conversation });
@@ -376,7 +404,10 @@ export class ConversationRunner {
         const task = await this.deps.submitWorkspace({
           prompt: text,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
-          workspaceRoot: input.workspaceRoot
+          workspaceRoot: input.workspaceRoot,
+          // 方案评审辩论跟着这条会话的辩论开关走：用户关掉时不能因为「进入执行
+          // 链路」就自己开一场，那正是「不得无声扩大模型调用」要防的事。
+          planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
         });
         conversation.taskId = task.taskId;
         conversation.status = 'answered';
@@ -419,6 +450,7 @@ export class ConversationRunner {
       try {
         const scan = await scanProject(input.workspaceRoot!, text);
         conversation.engineeringEvidence = scan.evidence;
+        conversation.engineeringAnalysis = scan.analysis;
         conversation.updatedAt = Date.now();
         this.save(conversation);
         this.addMessage(conversation, {
@@ -457,11 +489,48 @@ export class ConversationRunner {
     return engineeringMaterial({
       root: conversation.workspaceRoot ?? '',
       summary: `本轮真实读取 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、')}`,
+      // 结构关系必须一起递过去，否则 Phase E 的符号索引/调用点算完就丢了：
+      // 真机第一轮就踩到了——材料里只有文件片段，主导人只能看到零散几行。
+      ...(conversation.engineeringAnalysis ? { analysis: conversation.engineeringAnalysis } : {}),
       evidence,
       filesScanned: evidence.length,
       truncated: false,
       warnings: []
     });
+  }
+
+  /**
+   * V2.1 Model Router：把「这一轮用哪些模型、为什么」记到会话上。
+   *
+   * 只记录，不改选人——真正问谁仍由 `poolFor` / `executorIdsFor` 决定。这样
+   * 路由算错时不会连带把提问链路改坏，而界面与复盘仍然看得见决定依据。
+   */
+  private applyModelRoute(
+    conversation: Conversation,
+    taskKind: RouteTaskKind
+  ): void {
+    if (!this.deps.modelRoute) return;
+    try {
+      conversation.modelRoute = this.deps.modelRoute({
+        config: normalizeExecutionConfig(conversation.executionConfig),
+        taskKind
+      });
+    } catch {
+      // 路由只是解释层：算不出来也不能把这一轮问题拦下来。
+    }
+  }
+
+  /**
+   * 把抓回来的网页正文拼成主导人材料。
+   *
+   * 和工程证据同一条原则：材料只进汇总，不进第一手提问。抓取失败时这里是
+   * 空的，汇总里就不该出现「据网页内容……」这种没有依据的话。
+   */
+  private pageMaterialFor(conversation: Conversation): string | null {
+    if (conversation.intent !== 'extract') return null;
+    const page = conversation.pageEvidence;
+    if (!page) return null;
+    return extractMaterial(page);
   }
 
   /** 需要用户补信息/改判的一轮：留一行说明，不触发任何模型调用。 */
@@ -532,7 +601,8 @@ export class ConversationRunner {
           const task = await this.deps.submitWorkspace({
             prompt: question,
             permissionPreset: 'workspace-write',
-            workspaceRoot: conversation.workspaceRoot
+            workspaceRoot: conversation.workspaceRoot,
+            planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
           });
           conversation.taskId = task.taskId;
           conversation.status = 'answered';
@@ -553,6 +623,7 @@ export class ConversationRunner {
         try {
           const scan = await scanProject(conversation.workspaceRoot, question);
           conversation.engineeringEvidence = scan.evidence;
+          conversation.engineeringAnalysis = scan.analysis;
           this.save(conversation);
           this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
         } catch (error) {
@@ -561,6 +632,14 @@ export class ConversationRunner {
         }
       }
     }
+
+    // 追问同样要重算路由：用户可能刚把研究设置从网页主导改成「本地主导」，
+    // 路由记录停在上一轮就是错的。
+    this.applyModelRoute(
+      conversation,
+      toRouteTaskKind(conversation.routing?.taskKind ?? conversation.intent)
+    );
+    this.save(conversation);
 
     void this.run(conversation, question, { followup: true }).catch(error =>
       this.fail(conversation, error)
@@ -798,6 +877,33 @@ export class ConversationRunner {
       }
     }
 
+    // V2.1 extract：先把用户点名的网页正文抓回来。
+    //
+    // 不做这件事时，extract 只是给网页通道贴了个标签——它们各自决定要不要打开
+    // 那个链接，打不开就回一句「我无法访问」，所谓「提取」根本没有发生。
+    // 抓不到也继续：网页通道自己的回答仍有价值，但要如实说没有正文可依。
+    if (conversation.intent === 'extract' && conversation.extractUrl && !conversation.pageEvidence) {
+      try {
+        const page = await fetchPageText(conversation.extractUrl);
+        conversation.pageEvidence = page;
+        conversation.updatedAt = Date.now();
+        this.save(conversation);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: [
+            `已抓取网页正文：${page.title}（${page.chars} 字，HTTP ${page.status}，sha256 ${page.sha256.slice(0, 12)}）`,
+            ...(page.notes.length > 0 ? [`说明：${page.notes.join('；')}`] : [])
+          ].join('\n')
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: `没能抓取网页正文（${detail}）；这一轮只依据各网页回答整理，没有页面正文作为依据。`
+        });
+      }
+    }
+
     const outcome = await master.research(
       {
         question,
@@ -825,7 +931,8 @@ export class ConversationRunner {
       outcome,
       sink,
       executorIds,
-      this.engineeringMaterialFor(conversation)
+      this.engineeringMaterialFor(conversation),
+      this.pageMaterialFor(conversation)
     );
     if (this.cancelled.has(conversationId)) return;
 
@@ -965,7 +1072,9 @@ export class ConversationRunner {
     sink: ResearchSink,
     executorIds: ReadonlySet<string>,
     /** 只在工程分析链路有值；第一手网页提问不受影响，见 start()。 */
-    engineering: string | null = null
+    engineering: string | null = null,
+    /** V2.1：extract 真正抓回来的网页正文；同样只进汇总，不进第一手提问。 */
+    page: string | null = null
   ): Promise<{
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud'; auto: boolean; reason: string | null };
     summaryText: string | null;
@@ -1006,14 +1115,18 @@ export class ConversationRunner {
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;
     try {
-      // 工程证据只在这里（执行阶段的汇总）追加，绝不进第一手网页问题。
-      // 网页主导时它同样拼进那一条用户消息，走的是既有的「把材料递进页面」
-      // 机制，页面上的第一段用户发言仍然只有原话。
+      // 工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第一手
+      // 网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递进
+      // 页面」机制，页面上第一段用户发言仍然只有原话。
+      const material = [engineering, page].filter(Boolean).join('\n\n') || null;
+      // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
+      const taskKind: LeadTaskKind | undefined =
+        conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
       const baseQuestion = isPage
-        ? inlineLeadInstructions(question, answers)
-        : buildLeadSummaryQuestion(question, answers);
+        ? inlineLeadInstructions(question, answers, { taskKind, material })
+        : buildLeadSummaryQuestion(question, answers, { taskKind, material });
       const answer = await pool.ask(lead.agentId, {
-        question: engineering ? `${baseQuestion}\n\n${engineering}` : baseQuestion,
+        question: baseQuestion,
         stage: 'challenge',
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
         timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
@@ -1021,8 +1134,8 @@ export class ConversationRunner {
         system: isPage
           ? undefined
           : engineering
-            ? [...LEAD_SUMMARY_SYSTEM, '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
-            : LEAD_SUMMARY_SYSTEM
+            ? [...leadSummarySystem(taskKind), '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+            : leadSummarySystem(taskKind)
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;

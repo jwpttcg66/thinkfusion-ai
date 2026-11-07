@@ -7,7 +7,7 @@
  *   npm run build:agent && node scripts/check-protocol.mjs
  */
 import assert from 'node:assert/strict';
-import { parseAnswer, buildInitialPrompt, buildReportPrompt } from '../out/shared/protocol.js';
+import { parseAnswer, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt } from '../out/shared/protocol.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -202,6 +202,71 @@ test('report prompt embeds the structured report', () => {
   });
   assert.match(prompt, /execution_report/);
   assert.match(prompt, /"verified": true/);
+});
+
+// 任务书 Phase F：「发现问题形成修复任务，修复后重新验证」。评审结论不进这条
+// 提示时，下一轮只会看到「测试失败」，然后把同一个计划再生成一遍——那不是修复。
+test('report prompt 带上评审问题，并明确要求重新验证', () => {
+  const report = {
+    protocol: 'desktop-agent/v1',
+    type: 'execution_report',
+    taskId: TASK,
+    roundId: 'round-0',
+    planId: 'plan-1',
+    status: 'completed',
+    results: [],
+    errors: [],
+    nextAction: 'continue',
+    createdAt: 1
+  };
+  const prompt = buildReportPrompt({
+    taskId: TASK,
+    roundId: ROUND,
+    report,
+    review: {
+      reviewer: '本地模型',
+      verdict: '改动只写了一半',
+      issues: ['notes/ 目录不存在，写入被拒绝', '没有跑测试'],
+      needsFix: true
+    }
+  });
+  assert.match(prompt, /修复任务/);
+  assert.match(prompt, /notes\/ 目录不存在/);
+  assert.match(prompt, /没有跑测试/);
+  assert.match(prompt, /重新验证/);
+  // 没有评审时一个字都不能多出来：老路径的输出必须保持原样。
+  const plain = buildReportPrompt({ taskId: TASK, roundId: ROUND, report });
+  assert.doesNotMatch(plain, /修复任务/);
+});
+
+
+// 真机第一次「改已有文件」：模型在同一份计划里给 expectedHash 填了占位值，
+// 用户看到一串 zod 路径，任务当场失败。这类错误必须说得出「下一步做什么」。
+test('占位 expectedHash 的报错能指导下一步：先读再写', () => {
+  const bad = plan({
+    steps: [
+      { id: 's1', tool: 'fs.writeFile', args: { path: 'README.md', content: 'x', overwrite: true, expectedHash: '读取后回填' } }
+    ]
+  });
+  const result = parseAnswer(JSON.stringify(bad), { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'invalid');
+  assert.match(result.error, /64 位十六进制/);
+  assert.match(result.error, /先只输出 fs\.readFile/);
+  assert.doesNotMatch(result.error, /invalid_string/);
+});
+
+test('计划修复提示带着失败原因和新 id，不夹带上一轮的 id', () => {
+  const prompt = buildPlanRepairPrompt({
+    taskId: 'task-new',
+    roundId: 'round-new',
+    error: '覆盖已有文件必须带 sha256',
+    userPrompt: '把 README.md 改掉'
+  });
+  assert.match(prompt, /覆盖已有文件必须带 sha256/);
+  assert.match(prompt, /taskId：task-new/);
+  assert.match(prompt, /roundId：round-new/);
+  assert.match(prompt, /把 README\.md 改掉/);
+  assert.match(prompt, /desktop-agent\/v1/);
 });
 
 // ---------------------------------------------------------------------------
