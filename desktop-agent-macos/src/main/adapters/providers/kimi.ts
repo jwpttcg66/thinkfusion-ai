@@ -104,5 +104,24 @@ export const KIMI_PROFILE: ProviderProfile = {
     '.login-modal-next-mask',
     'button.login-button',
     '.next-sidebar-history-list__login'
-  ]
+  ],
+  /**
+   * 已登录状态下的排队提示，2026-11-07 真机实测：
+   *
+   * 页面弹出 `.modal-mask` + `.modal-container`，正文是「和Kimi聊天的人太多了，
+   * 订阅会员可进入优先队列」，两个按钮「我知道了」「去升级」。这层盖住整页：
+   * 输入框能写、发送键亮着，但点击被吃掉，原话一直留在框里。那一轮三家通道
+   * 都问了，只有 Gemini / ChatGPT 回答，Kimi 白等 180 秒后报 ANSWER_TIMEOUT，
+   * 失败理由里一个字都没提到弹层。点一下「我知道了」后遮罩消失，发送键正常。
+   *
+   * 只关纯提示，不点「去升级」——那会把用户带进付费流程。
+   */
+  dismissText: ['我知道了'],
+  /**
+   * 排队高峰时站点直接把提问转到付费页，2026-11-07 真机连测三轮都是这个地址：
+   * `https://www.kimi.com/membership/pricing?from=paywall_unknown`。
+   * 这时页面连输入框都没有，任何发送尝试都注定失败；必须先说清楚是站点
+   * 要求会员/正在排队，而不是让用户对着「发送未确认」猜。
+   */
+  blockedPaths: ['/membership/pricing']
 };

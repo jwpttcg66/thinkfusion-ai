@@ -98,4 +98,32 @@ export interface ProviderProfile {
    * that answers, so the sign-in state becomes a hint instead of a gate.
    */
   guestUsable?: boolean;
+  /**
+   * 站点自己弹出来的纯提示层上，「我知道了」这类关闭按钮的**精确文案**。
+   *
+   * 和 `signedOut` 不是一回事：登录着也会弹，例如 Kimi 在排队高峰弹出
+   * 「和Kimi聊天的人太多了，订阅会员可进入优先队列」。这层 `.modal-mask`
+   * 盖住整页，输入框照样能写字、发送键照样是亮的，但点下去什么也不发生——
+   * 真机上表现为「三家问了，两家回答，Kimi 白等 180 秒」，而应用侧只看到
+   * 输入框里原话还在，报一个看不出原因的 ANSWER_TIMEOUT。
+   *
+   * 只在「页面上有可见的 modal/mask/dialog」且按钮文案**完全相等**时才点，
+   * 避免误关别的东西。关闭纯提示不触碰账号、不触碰历史会话，也不需要用户
+   * 介入；这正是用户会自己点的那一下。
+   */
+  dismissText?: readonly string[];
+  /**
+   * 路径前缀：站点把页面转到这些地址，就等于「这一问不会被接受」。
+   *
+   * 2026-11-07 真机实测，Kimi 在排队高峰把提问直接转到
+   * `/membership/pricing?from=paywall_unknown`：登录态还在、账号没错，但页面
+   * 连输入框都没有了。不认这个状态，驱动会照常填字、点发送、按回车、再点，
+   * 20 秒后报「SEND_UNCONFIRMED（输入框仍保留 35 字）」，或者干脆白等 180 秒
+   * 报 ANSWER_TIMEOUT——用户看到的都是「又失败了」，真正的原因（站点要求会员
+   * 或正在排队）一个字也没有。认出来就该立刻停，并把这句话原样告诉用户。
+   *
+   * 和 `signedOutPaths` 分开：那个是「没登录」，这个是「登录了也用不了」，
+   * 给出的出路完全不同。
+   */
+  blockedPaths?: readonly string[];
 }

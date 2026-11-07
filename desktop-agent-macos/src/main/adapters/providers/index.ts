@@ -106,6 +106,20 @@ export function guestUsableFor(sourceId: string): boolean {
   return providerFor(sourceId)?.guestUsable === true;
 }
 
+/**
+ * 关闭站点纯提示弹层的按钮文案。
+ *
+ * 空列表是完整答案：这个站点没有见过会挡住发送的提示层，驱动不该去猜按钮。
+ */
+export function dismissTextFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.dismissText ?? [];
+}
+
+/** 登录着也用不了的路径（付费墙 / 排队拦截页）。空列表是完整答案。 */
+export function blockedPathsFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.blockedPaths ?? [];
+}
+
 /** Hosts a source is allowed to be, when the source itself does not say. */
 export function hostsFor(sourceId: string): ReadonlySet<string> {
   return providerFor(sourceId)?.hosts ?? new Set<string>();

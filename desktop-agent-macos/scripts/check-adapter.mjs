@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, PROBE_SCRIPT, ContextLimitError, deleteChatScriptForSyntaxCheck, CITATIONS_SCRIPT } = await import(
+const { ChatPageDriver, callPage, DEFAULT_TUNING, selectAnswerText, answerLooksComplete, isOwnPromptEcho, transcriptHasPrompt, PROBE_VERSION, PROBE_SCRIPT, ContextLimitError, deleteChatScriptForSyntaxCheck, CITATIONS_SCRIPT, FILL_SCRIPT, CLICK_SEND_SCRIPT } = await import(
   path.join(root, 'out/adapter/main/adapters/browser/page-driver.js')
 );
 const { PageBrowserAdapter } = await import(
@@ -1287,9 +1287,102 @@ test('every page script still compiles', () => {
     deleteChatLocateOnly: deleteChatScriptForSyntaxCheck('https://chatgpt.com/c/6aec0dc3-5568-83ec-a1d1-7263d543e624', true),
     // 读引用是模板拼出来的脚本：拼接被转义吃掉时页面不会报错，只会静默返回空，
     // 所以这里至少要先过一遍编译。
-    citations: CITATIONS_SCRIPT(DEEPSEEK_SELECTORS)
+    citations: CITATIONS_SCRIPT(DEEPSEEK_SELECTORS),
+    fill: FILL_SCRIPT(DEEPSEEK_SELECTORS, '"hello"', ['我知道了']),
+    clickSend: CLICK_SEND_SCRIPT(DEEPSEEK_SELECTORS, ['我知道了'])
   };
   for (const [name, source] of Object.entries(sources)) {
     assert.doesNotThrow(() => new Function('return ' + source), `${name} 编译失败`);
   }
+});
+
+// 2026-11-07 真机：Kimi 在已登录状态下弹出「和Kimi聊天的人太多了」的
+// .modal-mask，输入框照样能写、发送键照样亮，点击却被遮罩吃掉。那轮三家都问了，
+// 只有两家回答，Kimi 白等 180 秒报 ANSWER_TIMEOUT，理由里完全没提弹层。
+// 修法是发问链路前后都点掉纯提示，这三重收窄（有可见弹层 / 控件可见 / 文案
+// 逐字相等）保证不会误关别的东西，也不能把用户带进付费流程。
+test('站点纯提示在写问题和点发送之前都会被关掉', () => {
+  const words = ['我知道了'];
+  const fill = FILL_SCRIPT(DEEPSEEK_SELECTORS, '"hello"', words);
+  const click = CLICK_SEND_SCRIPT(DEEPSEEK_SELECTORS, words);
+
+  for (const [name, source] of Object.entries({ fill, click })) {
+    assert.match(source, /dismissWords/, `${name} 没有注入关闭逻辑`);
+    assert.match(source, /hasModal/, `${name} 必须先确认页面上有可见弹层`);
+    assert.match(source, /hit\.click\(\)/, `${name} 必须真的点关闭按钮`);
+    assert.match(source, /我知道了/, `${name} 必须用站点自己的精确文案`);
+    assert.doesNotMatch(source, /去升级/, `${name} 绝不能把用户带进付费流程`);
+  }
+  assert.match(fill, /dismissed/, '填字结果要能看出关掉了哪一层');
+
+  // 没有声明过这种弹层的站点：关闭逻辑仍在脚本里，但文案清单是空的，
+  // 运行时 hasModal 那段整块不会执行，不会平白无故去点页面上的按钮。
+  const plainFill = FILL_SCRIPT(DEEPSEEK_SELECTORS, '"hello"');
+  const plainClick = CLICK_SEND_SCRIPT(DEEPSEEK_SELECTORS);
+  assert.match(plainFill, /const dismissWords = \[\];/);
+  assert.match(plainClick, /const dismissWords = \[\];/);
+  assert.doesNotMatch(plainFill, /我知道了/);
+  assert.doesNotMatch(plainClick, /我知道了/);
+});
+
+// 2026-11-07 真机连测三轮：Kimi 在排队高峰把提问直接转到
+// /membership/pricing?from=paywall_unknown，页面连输入框都没有。此前驱动会
+// 照常填字、点发送、按回车、再点，最后只报「SEND_UNCONFIRMED（输入框仍保留
+// 35 字）」或白等 180 秒，用户看到的就是「又失败了」。认出这个地址就该立刻
+// 停，并说清是站点账号侧的限制——尤其不能说成「未登录」，那会把人引去重复登录。
+test('付费墙/排队页直接报站点限制，不误报成未登录', async () => {
+  const url = 'https://www.kimi.com/membership/pricing?from=paywall_unknown';
+  const page = scriptedPage([state({ url, hasInput: false, hasSendButton: false })], { url });
+  const driver = new ChatPageDriver(() => page, {
+    hosts: new Set(['www.kimi.com']),
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'Kimi',
+    blockedPaths: ['/membership/pricing']
+  });
+  const status = await driver.getStatus();
+  assert.equal(status.pageReady, false, '这一页问不了，必须判不可用');
+  assert.equal(status.loggedIn, true, '账号没问题，不能把人引去重新登录');
+  assert.match(status.detail, /会员\/排队/, '失败理由要说清真正原因');
+  assert.match(status.detail, /不是登录失效/);
+});
+
+test('没有声明过付费路径的站点，同样的页面状态不会被误判', async () => {
+  const url = 'https://chat.example.com/membership/pricing';
+  const page = scriptedPage([state({ url, hasInput: false, hasSendButton: false })], { url });
+  const driver = new ChatPageDriver(() => page, {
+    hosts: new Set(['chat.example.com']),
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'Example'
+  });
+  const status = await driver.getStatus();
+  assert.equal(status.loggedIn, true);
+  assert.ok(!String(status.detail).includes('会员/排队'), '不该凭空猜站点状态');
+});
+
+// 付费墙往往不是提问前就在，而是点发送之后站点才把整页转过去。这时候继续
+// 按回车、再点一次，很可能误触页面上的「去升级」，把人带进付费流程。
+test('点发送后跳到付费墙：立刻停，不按回车、不再点一次', async () => {
+  const paywall = 'https://www.kimi.com/membership/pricing?from=paywall_unknown';
+  const page = scriptedPage([
+    state(), // 发送前快照
+    state({ composerText: 'hello' }), // 填完字
+    state({ composerText: 'hello', url: paywall, hasInput: false }) // 站点跳转
+  ], { url: 'https://www.kimi.com/' });
+  const driver = new ChatPageDriver(() => page, {
+    hosts: new Set(['www.kimi.com']),
+    selectors: DEEPSEEK_SELECTORS,
+    siteLabel: 'Kimi',
+    blockedPaths: ['/membership/pricing']
+  });
+  driver.configure({ ...FAST, confirmMs: 5000 });
+  await assert.rejects(
+    () => driver.sendMessage('hello', 'r1'),
+    error => {
+      assert.match(error.message, /会员\/排队/, '理由要说清是站点限制');
+      assert.match(error.message, /不是登录失效/);
+      return true;
+    }
+  );
+  assert.equal(page.calls.click, 1, '只点了一次发送');
+  assert.equal(page.calls.enter, 0, '不能按回车，那会误触付费按钮');
 });

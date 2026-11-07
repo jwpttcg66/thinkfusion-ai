@@ -997,9 +997,42 @@ export const DISCOVER_SCRIPT = `(() => {
   return { url: location.href, roles, composerEmpty };
 })()`;
 
-const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () => {
+/**
+ * 发问前关掉站点自己的纯提示弹层。
+ *
+ * 单独成段是因为两处都要用：填字之前（弹层已经在那儿、会吃掉后面的点击），
+ * 以及点发送之前（弹层可能恰好在这一刻弹出来）。注入的是页面脚本源码，不是
+ * 在这里执行的 JS，所以外层模板字符串里不能出现反引号或换行字面量。
+ *
+ * 三重收窄，避免误点：必须有可见的 modal/mask/dialog；控件必须可见；文案
+ * 必须逐字相等。关掉之后等一帧让站点把遮罩从 DOM 里摘掉再继续。
+ */
+const DISMISS_SNIPPET = (words: readonly string[]) => `
+  const dismissWords = ${JSON.stringify(words)};
+  const dismissed = [];
+  if (dismissWords.length) {
+    const isVisible = (el) => {
+      if (!el || !(el instanceof Element)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const hasModal = [...document.querySelectorAll('[class*="modal"], [class*="mask"], [role="dialog"]')]
+      .some(isVisible);
+    if (hasModal) {
+      const controls = [...document.querySelectorAll('button, a, [role="button"]')].filter(isVisible);
+      for (const word of dismissWords) {
+        const hit = controls.find((el) => (el.innerText || '').trim() === word);
+        if (hit) { hit.click(); dismissed.push(word); }
+      }
+    }
+  }
+  if (dismissed.length) await new Promise((resolve) => setTimeout(resolve, 150));
+`;
+
+export const FILL_SCRIPT = (selectors: SelectorProfile, payload: string, dismissWords: readonly string[] = []) => `(async () => {
   const selectors = ${JSON.stringify(selectors)};
   const value = ${payload};
+  ${DISMISS_SNIPPET(dismissWords)}
 
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
@@ -1090,7 +1123,8 @@ const FILL_SCRIPT = (selectors: SelectorProfile, payload: string) => `(async () 
   return {
     ok: written.trim().length > 0,
     reason: written.trim().length ? undefined : 'INPUT_NOT_FILLED',
-    kind: target.tagName.toLowerCase()
+    kind: target.tagName.toLowerCase(),
+    dismissed
   };
 })()`;
 
@@ -1155,9 +1189,10 @@ const CLEAR_SCRIPT = (selectors: SelectorProfile) => `(() => {
   return { ok: read().length === 0, left: read().slice(0, 80) };
 })()`;
 
-const CLICK_SEND_SCRIPT = (selectors: SelectorProfile) => `(async () => {
+export const CLICK_SEND_SCRIPT = (selectors: SelectorProfile, dismissWords: readonly string[] = []) => `(async () => {
   const selectors = ${JSON.stringify(selectors)};
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  ${DISMISS_SNIPPET(dismissWords)}
   const visible = (el) => {
     if (!el || !(el instanceof Element)) return false;
     const rect = el.getBoundingClientRect();
@@ -2028,13 +2063,15 @@ export function createElectronDriver(
   reasoning: readonly string[] | (() => readonly string[]) = [],
   signedOutSelectors: readonly string[] | (() => readonly string[]) = [],
   signedOutText: readonly string[] | (() => readonly string[]) = [],
-  contextLimitText: readonly string[] | (() => readonly string[]) = []
+  contextLimitText: readonly string[] | (() => readonly string[]) = [],
+  dismissText: readonly string[] | (() => readonly string[]) = []
 ): PageDriver {
   const profile = typeof selectors === 'function' ? selectors : () => selectors;
   const cut = typeof reasoning === 'function' ? reasoning : () => reasoning;
   const signedOut = typeof signedOutSelectors === 'function' ? signedOutSelectors : () => signedOutSelectors;
   const signedOutWords = typeof signedOutText === 'function' ? signedOutText : () => signedOutText;
   const contextWords = typeof contextLimitText === 'function' ? contextLimitText : () => contextLimitText;
+  const dismissWords = typeof dismissText === 'function' ? dismissText : () => dismissText;
   /**
    * Whether *we* attached the debugger, so detaching cannot take the user's own
    * DevTools session with it.
@@ -2083,10 +2120,11 @@ export function createElectronDriver(
       return (await callPage(view, '读取页面状态', script)) as PageProbe;
     },
     fill: async text =>
-      (await callPage(view, '写入输入框', FILL_SCRIPT(profile(), JSON.stringify(text)))) as {
+      (await callPage(view, '写入输入框', FILL_SCRIPT(profile(), JSON.stringify(text), dismissWords()))) as {
         ok: boolean;
         reason?: string;
         kind?: string;
+        dismissed?: string[];
       },
     clearComposer: async () =>
       (await callPage(view, '清空输入框', CLEAR_SCRIPT(profile()))) as {
@@ -2095,10 +2133,11 @@ export function createElectronDriver(
         left?: string;
       },
     clickSend: async () =>
-      (await callPage(view, '点击发送', CLICK_SEND_SCRIPT(profile()))) as {
+      (await callPage(view, '点击发送', CLICK_SEND_SCRIPT(profile(), dismissWords()))) as {
         ok: boolean;
         reason?: string;
         label?: string;
+        dismissed?: string[];
       },
     pressEnter: async () => {
       // Focus inside the page first: the keystroke has to land in the composer,
@@ -2362,6 +2401,16 @@ export class ChatPageDriver {
   private readonly reasoningOf: () => readonly string[];
   private readonly signedOutOf: () => readonly string[];
   private readonly signedOutPathsOf: () => readonly string[];
+  private readonly blockedPathsOf: () => readonly string[];
+  /**
+   * 页面落在站点自己声明的「不接受提问」路径上时，返回给用户看的那句话。
+   * `getStatus()` 和 `submit()` 共用，避免一个说会员排队、另一个又退回
+   * 「发送未确认」。
+   */
+  private blockedDetail(url: string): string | null {
+    if (!this.blockedPathsOf().some(prefix => isUnderPath(url, prefix))) return null;
+    return `${this.siteLabel} 当前没有接受提问：站点把页面转到了会员/排队页面（${String(url).split('?')[0]}）。这不是登录失效，是站点账号侧的限制；可以稍后再试，或在通道设置里暂时关闭这条通道。`;
+  }
   /**
    * The site's own wording for 「this thread is out of context」.
    *
@@ -2422,6 +2471,12 @@ export class ChatPageDriver {
        * recognised on this site", which is a complete answer.
        */
       contextLimit?: readonly string[] | (() => readonly string[]);
+      /**
+       * 站点把页面转到这些路径时就不再接受提问（见
+       * `ProviderProfile.blockedPaths`）。登录态仍然有效，所以这不是 signed-out，
+       * 给出路也不同：立刻停下并说明是站点侧限制。
+       */
+      blockedPaths?: readonly string[] | (() => readonly string[]);
     }
   ) {
     const hosts = options.hosts;
@@ -2437,6 +2492,8 @@ export class ChatPageDriver {
       typeof signedOutPaths === 'function' ? signedOutPaths : () => signedOutPaths;
     const contextLimit = options.contextLimit ?? [];
     this.contextLimitOf = typeof contextLimit === 'function' ? contextLimit : () => contextLimit;
+    const blockedPaths = options.blockedPaths ?? [];
+    this.blockedPathsOf = typeof blockedPaths === 'function' ? blockedPaths : () => blockedPaths;
     this.siteLabel = options.siteLabel;
   }
 
@@ -2492,6 +2549,23 @@ export class ChatPageDriver {
       // where the signed-out page is either usable with a hint or a `/signin`
       // page with no composer at all — the password-field check called both
       // logged in / broken respectively.
+      // 站点把整页转到会员/排队页时，探针看到的是「没有输入框」，但真正该说的
+      // 不是「页面结构可能已变化」：账号登录得好好的，是站点这一刻不接受提问。
+      // 早一点停，用户就不用对着「发送未确认」或 180 秒超时猜原因。
+      const blocked = this.blockedDetail(probe.url);
+      if (blocked) {
+        return {
+          url: probe.url,
+          pageReady: false,
+          loggedIn: true,
+          hasInput: probe.hasInput,
+          hasSendButton: probe.hasSendButton,
+          generating: false,
+          messageCount: probe.messageCount,
+          contextFull: false,
+          detail: blocked
+        };
+      }
       const onSignInPath = this.signedOutPathsOf().some(prefix => isUnderPath(probe.url, prefix));
       const signedOut = probe.hasPasswordField || probe.signedOut || onSignInPath;
       const loggedIn = !signedOut;
@@ -2997,6 +3071,13 @@ export class ChatPageDriver {
       // 继续等提交迹象只会把 12 秒花在确认一件不会发生的事上。
       if (probe.contextFull === true) throw new ContextLimitError(this.siteLabel);
 
+      // 付费墙是「点发送之后」才跳的：真机上 Kimi 一转身把整页转到
+      // /membership/pricing，输入框没了，字却还留在旧页面的编辑器里。这时候
+      // 继续按回车、再点一次只会误触页面上的「去升级」，把用户带进付费流程。
+      // 地址一变就停，理由直接说清是站点限制。
+      const blocked = this.blockedDetail(probe.url);
+      if (blocked) throw new Error(blocked);
+
       const composerCleared = composerBaseline.length > 0 && probe.composerText.trim().length === 0;
       const countGrew = probe.messageCount > before.messageCount;
       const generating = probe.generating;
@@ -3062,9 +3143,15 @@ export class ChatPageDriver {
     }
 
     const remaining = (await driver.probe().catch(() => null))?.composerText.trim().length ?? -1;
+    // 站点可能是在确认窗口快结束时才把整页转走的（Kimi 的付费墙就是这样），
+    // 循环里每一帧都没看见，窗口一过地址已经变了。这里再认一次，并且无论如何
+    // 把地址写进理由：只说「输入框仍保留 N 字」时，用户根本看不出页面去了哪里。
+    const currentUrl = this.getDriver()?.url() ?? '';
+    const blocked = this.blockedDetail(currentUrl);
+    if (blocked) throw new Error(blocked);
     throw new Error(
       `SEND_UNCONFIRMED：${String(this.tuning.confirmMs)}ms 内未观察到页面提交迹象，未自动重发以免重复提问。` +
-        `（输入框仍保留 ${String(remaining)} 字，已尝试：${signals.join(', ')}）`
+        `（输入框仍保留 ${String(remaining)} 字，已尝试：${signals.join(', ')}，页面地址：${currentUrl || '未知'}）`
     );
   }
 

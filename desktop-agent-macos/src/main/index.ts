@@ -27,7 +27,7 @@ import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
 import { isSameThread, navigateToThread } from './adapters/browser/thread-navigation';
-import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor, dismissTextFor, blockedPathsFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { OllamaProvider } from './providers/ollama';
 import { OpenAICompatibleProvider } from './providers/openai-compatible';
@@ -251,7 +251,10 @@ function adapterFor(id: string): ChatPageDriver {
             () => reasoningFor(id),
             () => signedOutFor(id),
             () => signedOutTextFor(id),
-            () => contextLimitFor(id)
+            () => contextLimitFor(id),
+            // 站点自己弹的纯提示层（Kimi 排队提示）会吃掉发送点击；填字和
+            // 点发送前先关掉，别让一条本来可用的通道白等到超时。
+            () => dismissTextFor(id)
           )
         : null;
     },
@@ -277,6 +280,9 @@ function adapterFor(id: string): ChatPageDriver {
       // 站点说「这条会话装不下更多上下文了」时用的那句话。认出来才有出路：
       // 换一条会话再问，而不是把横幅当回答、或者白等到超时。
       contextLimit: () => contextLimitFor(id),
+      // 站点把页面转到会员/排队页时立刻停，别让一条注定发不出去的问题
+      // 白等 20 秒确认、再白等 180 秒回答，最后只报一句「发送未确认」。
+      blockedPaths: () => blockedPathsFor(id),
       siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
     }
   );

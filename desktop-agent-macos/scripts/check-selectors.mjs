@@ -269,3 +269,23 @@ test('every built-in profile covers all six roles', () => {
     }
   }
 });
+
+// 已登录也会弹的排队提示：2026-11-07 真机实测，Kimi 的 .modal-mask 盖住整页，
+// 字写得进去、发送键亮着，点击却被吃掉，最后只报一个看不出原因的 180 秒超时。
+// 只声明「我知道了」，不声明「去升级」——后者会把用户带进付费流程。
+test('只有 Kimi 声明了要关掉的纯提示弹层', () => {
+  assert.deepEqual(providers.dismissTextFor('kimi'), ['我知道了']);
+  for (const id of ['chatgpt', 'gemini', 'deepseek', 'workbuddy']) {
+    assert.deepEqual(providers.dismissTextFor(id), [], `${id} 没见过这种弹层，不该去猜按钮`);
+  }
+  assert.ok(!providers.dismissTextFor('kimi').includes('去升级'));
+});
+
+// 登录着也用不了：Kimi 排队高峰把整页转到 /membership/pricing，连输入框都没有。
+// 和 signedOutPaths 分开声明，因为给出路完全不同（稍后再试 / 关闭通道，不是去登录）。
+test('只有 Kimi 声明了付费墙路径', () => {
+  assert.deepEqual(providers.blockedPathsFor('kimi'), ['/membership/pricing']);
+  for (const id of ['chatgpt', 'gemini', 'deepseek', 'workbuddy']) {
+    assert.deepEqual(providers.blockedPathsFor(id), [], `${id} 没见过付费墙`);
+  }
+});
