@@ -9,15 +9,35 @@
  * - `md`   纯文本、可 diff、能被任何工具读，缺点是排版要靠读的人自己渲染；
  * - `docx` 版式由模板决定（字体、标题层级、表格边框、页脚页码），正文内容
  *          照原样进来，不因为换格式而改写任何一句话。
+ *
+ * 默认是 `md`：不点名要 Word，就不生成 Word。会话里存的就是文字，Markdown
+ * 是它最直接的落地形式，也不会因为模板升级而变样；Word 是「用户明确要交一份
+ * 排好版的文档」时才走的分支。
  */
 
 import type { ConversationExecutionConfig } from './conversation';
 
 export type ExportFormat = 'md' | 'docx';
 
+/** 不指定格式时存成什么。 */
+export const DEFAULT_EXPORT_FORMAT: ExportFormat = 'md';
+
+/**
+ * 把外面传进来的格式收敛成一个确定值。
+ *
+ * 只有明确说 Word 才给 docx（`docx` / `doc` / `word` 都算，大小写不敏感——
+ * 用户嘴里和文件名里更常写 `.doc`）；其余一律 md，包括没传、传了不认识的
+ * 值。宁可存一份能打开的文本文档，也不要因为格式名写错而生成一个空的 Word。
+ */
+export function resolveExportFormat(value: unknown): ExportFormat {
+  if (typeof value !== 'string') return DEFAULT_EXPORT_FORMAT;
+  return /^(docx?|word)$/i.test(value.trim()) ? 'docx' : DEFAULT_EXPORT_FORMAT;
+}
+
 export interface ExportConversationInput {
   conversationId: string;
-  format: ExportFormat;
+  /** 省略就是 md。 */
+  format?: ExportFormat;
   /**
    * 目标路径。不给就弹系统保存对话框。
    *

@@ -1809,6 +1809,18 @@ button:disabled {
   color: var(--text);
 }
 
+/* 次要动作：默认导出是 Markdown，Word 是「单独指定才走」的分支，
+   长得比主按钮轻一点，但不藏起来。 */
+.export-btn.is-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.export-btn.is-ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
 .export-note {
   margin: 0;
   font-size: 11px;

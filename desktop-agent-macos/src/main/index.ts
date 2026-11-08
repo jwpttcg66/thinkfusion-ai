@@ -95,7 +95,7 @@ import type {
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
 import { exportConversation, type ExportDeps } from './export';
-import type { ExportConversationInput } from '../shared/export';
+import { resolveExportFormat, type ExportConversationInput } from '../shared/export';
 
 let win: BrowserWindow | null = null;
 
@@ -1949,7 +1949,8 @@ function registerIpc() {
     trustedUiSender(event);
     const input = raw as ExportConversationInput | undefined;
     if (!input || typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
-    const format = input.format === 'docx' ? 'docx' : 'md';
+    // 默认 md：只有点名要 Word 才生成 docx，格式名写错也退回 md。
+    const format = resolveExportFormat(input.format);
 
     const labels: Record<string, string> = {};
     for (const agent of registry.list()) labels[agent.id] = agent.label;

@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { buildConversationMarkdown } from '../out-test/main/export/markdown.js';
 import { markdownToDocx, parseMarkdown } from '../out-test/main/export/docx.js';
 import { exportConversation } from '../out-test/main/export/index.js';
-import { defaultExportName, ensureExtension } from '../out-test/shared/export.js';
+import { defaultExportName, ensureExtension, resolveExportFormat } from '../out-test/shared/export.js';
 
 const work = mkdtempSync(join(tmpdir(), 'tf-export-'));
 after(() => rmSync(work, { recursive: true, force: true }));
@@ -226,6 +226,16 @@ test('docx 是合法 zip，正文、表格、页眉页脚都在', async () => {
 // 落盘
 // ---------------------------------------------------------------------------
 
+test('格式名只有明确写 Word 才算 docx，其余（含写错）一律 md', () => {
+  assert.equal(resolveExportFormat(undefined), 'md', '不传格式就是默认 md');
+  assert.equal(resolveExportFormat(''), 'md');
+  assert.equal(resolveExportFormat('pdf'), 'md', '认不出来的格式退回 md，不生成空 Word');
+  assert.equal(resolveExportFormat('md'), 'md');
+  assert.equal(resolveExportFormat('doc'), 'docx', '用户嘴上说的是 doc');
+  assert.equal(resolveExportFormat('DOCX'), 'docx');
+  assert.equal(resolveExportFormat(' word '), 'docx');
+});
+
 test('导出 md：写到指定路径，返回大小与轮数', async () => {
   const target = join(work, 'conv.md');
   const result = await exportConversation(
@@ -242,6 +252,39 @@ test('导出 md：写到指定路径，返回大小与轮数', async () => {
   assert.equal(result.turns, 1);
   assert.equal(result.bytes, statSync(target).size);
   assert.match(readFileSync(target, 'utf8'), /# 统计这份日志里的标签/);
+});
+
+test('不指定格式默认存 md：磁盘上不会多出一份 Word', async () => {
+  const target = join(work, 'conv-default');
+  const result = await exportConversation(
+    { conversationId: 'conv-1', path: target },
+    {
+      conversation: () => conversation(),
+      messages: () => [message('user', '问'), message('channel', '答', { channelId: 'chatgpt' })],
+      labels: () => labels,
+      defaultDir: () => work
+    }
+  );
+  assert.equal(result.format, 'md', '返回的格式要是实际落盘的格式');
+  assert.equal(result.path, `${target}.md`);
+  assert.ok(existsSync(`${target}.md`));
+  assert.ok(!existsSync(`${target}.docx`), '没点名要 Word 就不该有 docx');
+});
+
+test('点名要 doc：按 Word 生成，后缀是 .docx', async () => {
+  const target = join(work, 'conv-doc');
+  const result = await exportConversation(
+    { conversationId: 'conv-1', format: 'doc', path: target },
+    {
+      conversation: () => conversation(),
+      messages: () => [message('user', '问'), message('channel', '答', { channelId: 'chatgpt' })],
+      labels: () => labels,
+      defaultDir: () => work
+    }
+  );
+  assert.equal(result.format, 'docx');
+  assert.equal(result.path, `${target}.docx`);
+  assert.equal(readFileSync(`${target}.docx`).subarray(0, 2).toString(), 'PK');
 });
 
 test('导出 docx：后缀自动补，文件真的落在磁盘上', async () => {

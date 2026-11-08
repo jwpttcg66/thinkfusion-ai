@@ -185,25 +185,27 @@ export function ConversationView(props: {
             )}
             <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
           </div>
-          {/* 导出：内容来自主进程存的这条会话，排版由导出模板定，不经过模型。 */}
+          {/* 导出：内容来自主进程存的这条会话，排版由导出模板定，不经过模型。
+              默认存 Markdown；Word 要单独点，因为那是一条「排好版的文档」分支，
+              不点就不会生成。 */}
           <div className="export-bar">
             <button
               type="button"
               className="export-btn"
               disabled={exporting !== null}
               onClick={() => void handleExport('md')}
-              title="把这条会话存成 Markdown（纯文本，可 diff）"
+              title="存成 Markdown（默认格式，纯文本，可 diff）"
             >
-              {exporting === 'md' ? '导出中…' : '导出 MD'}
+              {exporting === 'md' ? '导出中…' : '导出'}
             </button>
             <button
               type="button"
-              className="export-btn"
+              className="export-btn is-ghost"
               disabled={exporting !== null}
               onClick={() => void handleExport('docx')}
-              title="把这条会话存成 Word 文档（版式由模板定）"
+              title="单独指定才生成 Word 文档（版式由模板定）"
             >
-              {exporting === 'docx' ? '导出中…' : '导出 Word'}
+              {exporting === 'docx' ? '生成中…' : 'Word'}
             </button>
           </div>
         </div>

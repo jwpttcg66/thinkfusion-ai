@@ -15,11 +15,12 @@ import type { Conversation, ConversationMessage } from '../../shared/conversatio
 import {
   defaultExportName,
   ensureExtension,
+  resolveExportFormat,
   type ExportConversationInput,
-  type ExportConversationResult
+  type ExportConversationResult,
+  type ExportFormat
 } from '../../shared/export';
 import { writeBufferAtomic, writeFileAtomic } from '../atomic-write';
-import { markdownToDocx } from './docx';
 import { buildConversationMarkdown } from './markdown';
 
 export interface ExportDeps {
@@ -30,7 +31,7 @@ export interface ExportDeps {
   /** 保存对话框的起始目录（一般是「下载」）。 */
   defaultDir(): string;
   /** 弹保存对话框；返回 null 表示用户取消。 */
-  pickPath?(defaultName: string, format: ExportConversationInput['format']): Promise<string | null>;
+  pickPath?(defaultName: string, format: ExportFormat): Promise<string | null>;
 }
 
 export async function exportConversation(
@@ -41,6 +42,9 @@ export async function exportConversation(
   if (!conversation) throw new Error('这条会话已经不在了，没法导出');
   const messages = deps.messages(input.conversationId);
 
+  // 默认 md。没点名要 Word 就不排 Word，连 docx 那套模板都不加载。
+  const format = resolveExportFormat(input.format);
+
   const markdown = buildConversationMarkdown({
     conversation,
     messages,
@@ -48,19 +52,20 @@ export async function exportConversation(
     includeEvidence: input.includeEvidence
   });
 
-  const name = defaultExportName(conversation.title, Date.now(), input.format);
+  const name = defaultExportName(conversation.title, Date.now(), format);
   let target: string;
   if (input.path) {
     target = path.isAbsolute(input.path) ? input.path : path.join(deps.defaultDir(), input.path);
   } else {
-    const picked = await deps.pickPath?.(name, input.format);
+    const picked = await deps.pickPath?.(name, format);
     if (!picked) return null;
     target = picked;
   }
-  target = ensureExtension(target, input.format);
+  target = ensureExtension(target, format);
 
   let bytes: number;
-  if (input.format === 'docx') {
+  if (format === 'docx') {
+    const { markdownToDocx } = await import('./docx');
     const buffer = await markdownToDocx(markdown, {
       header: conversation.title,
       footer: 'ThinkFusion 本机导出'
@@ -74,7 +79,7 @@ export async function exportConversation(
 
   return {
     path: target,
-    format: input.format,
+    format,
     bytes,
     turns: messages.filter(message => message.role === 'user').length
   };
