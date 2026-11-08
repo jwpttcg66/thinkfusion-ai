@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-import { TOOL_NAMES, READ_ONLY_TOOLS, MUTATING_TOOLS } from '../out/shared/contracts.js';
+import { TOOL_NAMES, READ_ONLY_TOOLS, MUTATING_TOOLS, PlanSchema } from '../out/shared/contracts.js';
 import { CAPABILITY_CATALOG } from '../out/shared/capabilities.js';
 import { localCapabilities } from '../out/agent/local-plugins.js';
 import { gitTools } from '../out/agent/tools/git-tools.js';
@@ -90,6 +90,56 @@ test('清单与注册表：23 个新能力都在，合计 60 个，Runtime 全�
     assert.ok(localCapabilities.has(id), `${id} 没有注册到 Runtime 宿主`);
   }
   assert.deepEqual([...localCapabilities.ids()].sort(), [...TOOL_NAMES].sort());
+});
+
+test('每个新工具都能写进计划——StepSchema 是逐工具手写的，只进 TOOL_NAMES 不够', () => {
+  // 真机 s32 就是栽在这里：模型写了 `git.status` / `fs.du`，但 StepSchema 里没有
+  // 对应分支，计划被判「不受支持的工具名」，用户看到的是一次失败的任务。
+  const minimal = {
+    'git.status': {},
+    'git.diff': {},
+    'git.log': {},
+    'git.show': { commit: 'HEAD' },
+    'git.stash': { action: 'list' },
+    'git.branch': { action: 'list' },
+    'json.query': { path: 'a.json' },
+    'csv.summary': { path: 'a.csv' },
+    'sqlite.query': { path: 'a.db', sql: 'select 1' },
+    'archive.list': { path: 'a.zip' },
+    'archive.extract': { path: 'a.zip' },
+    'archive.create': { output: 'a.zip', sources: ['a.txt'] },
+    'text.diff': { pathA: 'a.txt', pathB: 'b.txt' },
+    'text.base64': { action: 'encode', path: 'a.txt' },
+    'image.resize': { path: 'a.png', output: 'b.png' },
+    'env.read': {},
+    'port.list': {},
+    'app.list': {},
+    'window.list': {},
+    'dns.lookup': { host: 'example.com' },
+    'time.now': {},
+    'process.tree': {},
+    'fs.du': {}
+  };
+
+  for (const [tool, args] of Object.entries(minimal)) {
+    const plan = {
+      protocol: 'desktop-agent/v1',
+      type: 'plan',
+      taskId: 'task-schema',
+      roundId: 'round-schema',
+      title: '接线检查',
+      description: '',
+      steps: [{ id: 'step-1', tool, args, description: '检查' }],
+      completion: { condition: '完成' }
+    };
+    const parsed = PlanSchema.parse(plan);
+    assert.equal(parsed.steps[0].tool, tool, `${tool} 没通过计划校验`);
+    // 多余参数必须被拒：schema 是 strict 的，写错字段名要立刻报错。
+    assert.throws(
+      () => PlanSchema.parse({ ...plan, steps: [{ id: 'step-1', tool, args: { ...args, nope: 1 } }] }),
+      `${tool} 的 args 没有限制未知字段`
+    );
+  }
 });
 
 test('权限分层：只读与可写不重叠，且覆盖全部工具', () => {

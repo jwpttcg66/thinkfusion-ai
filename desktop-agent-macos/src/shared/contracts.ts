@@ -401,6 +401,221 @@ export const StepSchema = z.discriminatedUnion('tool', [
   }).strict(),
   z.object({
     id: Id,
+    tool: z.literal('git.status'),
+    args: z.object({
+      path: RelativePath.optional(),
+      maxEntries: z.number().int().min(1).max(10_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.diff'),
+    args: z.object({
+      path: RelativePath.optional(),
+      /** true 看暂存区（--cached）。 */
+      staged: z.boolean().optional(),
+      /** 看某次提交与当前工作区的差异；只接受普通引用名。 */
+      commit: z.string().min(1).max(160).optional(),
+      maxBytes: z.number().int().min(1024).max(262_144).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.log'),
+    args: z.object({
+      path: RelativePath.optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+      maxEntries: z.number().int().min(1).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.show'),
+    args: z.object({
+      commit: z.string().min(1).max(160),
+      /** true 只看每条文件的增删行数。 */
+      stat: z.boolean().optional(),
+      maxBytes: z.number().int().min(1024).max(262_144).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.stash'),
+    args: z.object({
+      action: z.enum(['list', 'push', 'pop', 'drop']),
+      message: z.string().max(200).optional(),
+      /** drop / pop 指定第几条；drop 必须给。 */
+      index: z.number().int().min(0).max(1000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.branch'),
+    args: z.object({
+      action: z.enum(['list', 'create', 'switch']),
+      name: z.string().min(1).max(120).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('json.query'),
+    args: z.object({
+      path: RelativePath,
+      /** `a.b[0].c` 或 JSON Pointer `/a/0/b`；不给就是整个文档。 */
+      pointer: z.string().max(400).optional(),
+      maxChars: z.number().int().min(200).max(20_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('csv.summary'),
+    args: z.object({
+      path: RelativePath,
+      /** 不给就按首行猜（, / 制表符 / ; / |）。 */
+      delimiter: z.string().length(1).optional(),
+      maxRows: z.number().int().min(1).max(100_000).optional(),
+      samples: z.number().int().min(0).max(10).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('sqlite.query'),
+    args: z.object({
+      path: RelativePath,
+      sql: z.string().min(1).max(4000),
+      maxRows: z.number().int().min(1).max(2000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('archive.list'),
+    args: z.object({
+      path: RelativePath,
+      maxEntries: z.number().int().min(1).max(5000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('archive.extract'),
+    args: z.object({
+      path: RelativePath,
+      destination: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('archive.create'),
+    args: z.object({
+      output: RelativePath,
+      sources: z.array(RelativePath).min(1).max(100)
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('text.diff'),
+    args: z.object({ pathA: RelativePath, pathB: RelativePath }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('text.base64'),
+    args: z.object({
+      action: z.enum(['encode', 'decode']),
+      path: RelativePath,
+      /** decode 时可选：落盘路径，已存在会被拒绝。 */
+      output: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('image.resize'),
+    args: z.object({
+      path: RelativePath,
+      output: RelativePath,
+      maxDimension: z.number().int().min(1).max(8192).optional(),
+      width: z.number().int().min(1).max(8192).optional(),
+      height: z.number().int().min(1).max(8192).optional(),
+      format: z.enum(['jpeg', 'png']).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('env.read'),
+    args: z.object({
+      names: z.array(z.string().min(1).max(200)).max(200).optional(),
+      maxEntries: z.number().int().min(1).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('port.list'),
+    args: z.object({
+      port: z.number().int().min(1).max(65_535).optional(),
+      maxEntries: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('app.list'),
+    args: z.object({ maxEntries: z.number().int().min(1).max(1000).optional() }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('window.list'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('dns.lookup'),
+    args: z.object({ host: z.string().min(3).max(253) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('time.now'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('process.tree'),
+    args: z.object({
+      pid: z.number().int().min(1).optional(),
+      filter: z.string().max(200).optional(),
+      maxEntries: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.du'),
+    args: z.object({
+      path: RelativePath.optional(),
+      maxEntries: z.number().int().min(1).max(500).optional(),
+      maxNodes: z.number().int().min(100).max(200_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
     tool: z.literal('code.run'),
     args: z.object({
       language: z.enum(CODE_LANGUAGES),
