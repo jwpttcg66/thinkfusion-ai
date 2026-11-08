@@ -14,9 +14,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
+import { runGit } from './git-run';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PATCH_BYTES = 512 * 1024;
@@ -174,19 +174,6 @@ async function applyPatch(
 // ---------------------------------------------------------------------------
 
 const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/;
-
-function runGit(cwd: string, argv: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', argv, { cwd, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? '' } });
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
-    child.stdout.on('data', chunk => { stdout = (stdout + String(chunk)).slice(0, 64 * 1024); });
-    child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(0, 16 * 1024); });
-    child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', code => { clearTimeout(timer); resolve({ exitCode: code ?? 1, stdout, stderr }); });
-  });
-}
 
 function parseWorktrees(porcelain: string): Array<{ path: string; head: string; branch: string }> {
   const out: Array<{ path: string; head: string; branch: string }> = [];

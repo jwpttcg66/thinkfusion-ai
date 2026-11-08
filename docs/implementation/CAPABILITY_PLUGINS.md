@@ -24,9 +24,9 @@ DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服�
 ## 2. 一套契约、一份清单、两个宿主
 
 ```
-src/shared/capabilities.ts        契约 + 全量清单（33 条）+ CapabilityRegistry
+src/shared/capabilities.ts        契约 + 全量清单（60 条）+ CapabilityRegistry
         │
-        ├── src/agent/local-plugins.ts        Runtime：27 个本地工具 + 2 个联网工具
+        ├── src/agent/local-plugins.ts        Runtime：53 个本地工具 + 3 个联网工具
         │        └── src/agent/index.ts       只剩 localCapabilities.execute(step.tool, …)
         │
         └── src/main/capabilities/index.ts    主进程：project.scan / web.search.browser /
@@ -52,8 +52,8 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 | 宿主 | 类别 | 数量 | 例子 |
 | --- | --- | --- | --- |
-| `runtime` | 本地能力 | 27 | `fs.readFile` / `fs.edit` / `shell.run` / `code.run` … |
-| `runtime` | 联网 | 2 | `web.fetch`（抓网页）、`web.search`（结构化搜索） |
+| `runtime` | 本地能力 | 53 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
+| `runtime` | 联网 | 3 | `web.fetch`（抓网页）、`web.search`（结构化搜索）、`dns.lookup`（域名解析） |
 | `main` | 本地能力 | 1 | `project.scan`（工程证据读取） |
 | `main` | 联网 | 1 | `web.search.browser`（免凭据的浏览器搜索后端） |
 | `main` | 保存 | 2 | `document.export`（会话 md/docx）、`page.save-document`（网页文档与计划） |
@@ -61,7 +61,7 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 `web.fetch` / `web.search` 跑在 Runtime，干的却是联网的活，所以单独成组；
 工具 id 一个没改，旧计划不会失效。
 
-权限也进了清单：工具里 10 个只读（`READ_ONLY_TOOLS`）、其余为工作区可写，
+权限也进了清单：56 个工具里 28 个只读（`READ_ONLY_TOOLS`）、另 28 个为工作区可写，
 `process.kill` 是完全权限；主进程侧 `project.scan` 与 `web.search.browser` 只读，
 两个保存是工作区可写。这层是清单展示；
 真正的强制仍由 `assertGrant` / `resolveGrantedPath` 在每一步执行时做，没有因为插件化而放宽。
@@ -90,7 +90,7 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 ## 4. 开关
 
-- 设置 → 内置插件：按「本地能力 / 联网 / 保存」分组列出 33 条，每条有名字、id、
+- 设置 → 内置插件：按「本地能力 / 联网 / 保存」分组列出 60 条，每条有名字、id、
   说明、权限与开关，分组标题显示 `已启用 / 总数`。
 - 状态存 `userData/capabilities.json`，只记「被停用的 id」——新增插件默认就是开的。
   文件坏了按全启用处理，不猜半截 JSON。
@@ -187,3 +187,33 @@ Wikipedia，`degraded` 里能看见。要把联网整个关掉，得连 `web.fet
 也不是新的 agent 成员。它们有独立的设置页分区与开关文件（`expertise.json`）。
 判断标准很简单：会不会「干活」——读写文件、出网、保存文档是能力；告诉模型
 「以什么身份、按什么流程写」是内容。
+
+## 9. 第二批 23 个能力（同日，清单到 60）
+
+用户要求「把 60 个能力都做了吧」。第一批 4 个（`a866972`）之后，这一批补齐
+剩下 23 个，全部按同一套契约登记，**没有一个走 `switch` 或散装 IPC**：
+
+| 组 | 工具 | 关键边界 |
+| --- | --- | --- |
+| git 读 | `git.status` / `git.diff` / `git.log` / `git.show` | 只读；引用名过 `assertSafeRef`，`-` 开头直接拒；输出有上限且带 `truncated` |
+| git 轻写 | `git.stash` / `git.branch` | 需 `workspace-write`；`drop` 必须指明第几条；`push` 的 message 只当 argv |
+| 数据文件 | `json.query` / `csv.summary` / `sqlite.query` | 只读；JSON 支持 `a.b[0].c` 与 JSON Pointer；SQLite 用 `-readonly` 且只放行 SELECT/WITH/PRAGMA/EXPLAIN |
+| 压缩包 | `archive.list` / `archive.extract` / `archive.create` | 解压前先读条目名，绝对路径或 `..` **整包拒绝**（zip-slip）；输出已存在不覆盖 |
+| 文本 | `text.diff` / `text.base64` | `diff` 退出码 1 是「有差异」不是失败；输出可直接喂 `fs.applyPatch` |
+| 图片 | `image.resize` | 系统 `sips`；不覆盖原图与已有输出；`-z` 参数顺序是 **高 宽** |
+| 宿主 | `env.read` / `port.list` / `app.list` / `window.list` / `time.now` | 环境变量里 KEY/TOKEN/SECRET 一律打码；窗口标题缺辅助功能授权时给 note，不当崩溃 |
+| 联网 | `dns.lookup` | 只接受域名形状；归 `network` 组，只读档位下不可用 |
+| 进程/体积 | `process.tree` / `fs.du` | `ps` 被挡时退 `pgrep` 并写明「没有父子关系」；`fs.du` 不跟随符号链接 |
+
+同时收掉一处重复实现：`extended.ts` 里原本自己写了一份 `runGit`，现在与
+`git-tools.ts` 共用 `git/tools/git-run.ts`——超时、截断、环境变量白名单只有一处。
+
+清单变成 **56 个 Runtime 工具（53 本地 + 3 联网）+ 4 个主进程能力 = 60**，
+只读 28 / 可写 28（Runtime 侧）。`TOOL_SPEC` 里 23 条说明同时补进给模型看的
+工具面，模型才知道它们存在。
+
+验证：`scripts/check-capability-batch2.mjs` **17 条**（真建 git 仓库跑
+status/diff/log/show/stash/branch、JSON/CSV/SQLite 真读、压缩包 round-trip 与
+zip-slip 拒绝、文本 base64 往返、`sips` 真缩放 1×1→8×8、环境变量打码、
+`fs.du` 字节数、`dns.lookup` 输入校验），已接进 `npm test`。
+

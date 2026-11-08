@@ -253,6 +253,76 @@ export const fsExtraTools = {
       sha256: sha256(buffer),
       base64: buffer.toString('base64')
     };
+  },
+
+  /**
+   * 目录体积：回答「为什么这个仓库这么大」时，`fs.tree` 只给名字，给不了体积。
+   * 只统计直接子项各自的总量（含其中所有层级），不逐层返回——否则一个
+   * node_modules 就能把结果撑爆。符号链接一律不跟随，避免顺着链接跑进别的盘。
+   */
+  async diskUsage(grant: TaskGrant, args: { path?: string; maxEntries?: number; maxNodes?: number }) {
+    const root = await resolveGrantedPath(grant, args.path ?? '.', false);
+    const maxEntries = Math.min(Math.max(args.maxEntries ?? 40, 1), 500);
+    const maxNodes = Math.min(Math.max(args.maxNodes ?? 20_000, 100), 200_000);
+
+    let scanned = 0;
+    let truncated = false;
+
+    const measure = async (target: string): Promise<{ bytes: number; files: number }> => {
+      const stack = [target];
+      let bytes = 0;
+      let files = 0;
+      while (stack.length > 0) {
+        if (scanned >= maxNodes) { truncated = true; break; }
+        const current = stack.pop()!;
+        let stat;
+        try {
+          stat = await fs.lstat(current);
+        } catch {
+          continue;
+        }
+        scanned += 1;
+        if (stat.isSymbolicLink()) continue;
+        if (stat.isDirectory()) {
+          let children: string[];
+          try {
+            children = await fs.readdir(current);
+          } catch {
+            continue;
+          }
+          for (const child of children) stack.push(path.join(current, child));
+          continue;
+        }
+        if (stat.isFile()) {
+          bytes += stat.size;
+          files += 1;
+        }
+      }
+      return { bytes, files };
+    };
+
+    const children = await fs.readdir(root, { withFileTypes: true });
+    const rows: Array<{ path: string; kind: 'directory' | 'file'; bytes: number; files: number }> = [];
+    for (const child of children) {
+      const target = path.join(root, child.name);
+      const result = await measure(target);
+      rows.push({
+        path: child.name,
+        kind: child.isDirectory() ? 'directory' : 'file',
+        bytes: result.bytes,
+        files: result.files
+      });
+    }
+
+    rows.sort((a, b) => b.bytes - a.bytes);
+    const total = rows.reduce((sum, row) => sum + row.bytes, 0);
+    return {
+      path: root,
+      totalBytes: total,
+      scannedNodes: scanned,
+      truncated,
+      entries: rows.slice(0, maxEntries)
+    };
   }
 };
 

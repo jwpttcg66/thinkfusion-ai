@@ -54,6 +54,14 @@ export const TOOL_NAMES = [
   'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
   'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.readImage',
   'fs.applyPatch', 'git.worktree', 'project.dependencies', 'project.outline',
+  'git.status', 'git.diff', 'git.log', 'git.show', 'git.stash', 'git.branch',
+  'json.query', 'csv.summary', 'sqlite.query',
+  'archive.list', 'archive.extract', 'archive.create',
+  'text.diff', 'text.base64',
+  'image.resize',
+  'env.read', 'port.list', 'app.list', 'window.list', 'dns.lookup', 'time.now',
+  'process.tree',
+  'fs.du',
   'test.run', 'shell.run',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
@@ -72,17 +80,20 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  */
 export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.readImage',
-  'project.dependencies', 'project.outline',
+  'project.dependencies', 'project.outline', 'git.status', 'git.diff', 'git.log', 'git.show',
+  'json.query', 'csv.summary', 'sqlite.query', 'archive.list', 'text.diff',
+  'env.read', 'port.list', 'app.list', 'window.list', 'time.now', 'process.tree', 'fs.du',
   'system.info', 'process.list', 'clipboard.read'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
 export const MUTATING_TOOLS: readonly ToolName[] = [
   'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.applyPatch',
-  'git.worktree',
+  'git.worktree', 'git.stash', 'git.branch',
+  'archive.extract', 'archive.create', 'text.base64', 'image.resize',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
-  'clipboard.write', 'notify', 'process.kill', 'web.fetch', 'web.search', 'code.run'
+  'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run'
 ];
 
 /** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */

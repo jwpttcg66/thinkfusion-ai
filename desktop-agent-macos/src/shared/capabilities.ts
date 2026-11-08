@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 33 个工具（31 个本地 + 2 个联网），主进程装载工程证据
+ * Runtime 进程装载 56 个工具（53 个本地 + 3 个联网），主进程装载工程证据
  * 读取、浏览器联网搜索与两个保存动作。清单是共享的，所以两个进程和界面
- * 看到的是同一批 id、同一套权限说明。
+ * 看到的是同一批 id、同一套权限说明。合计 60 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -91,6 +91,29 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'git.worktree': ['管理 git worktree', '列出、新增或移除工作树，参数逐个构造不拼 shell'],
   'project.dependencies': ['依赖概览', '读 package.json 与锁文件，给出依赖数量、脚本与包管理器'],
   'project.outline': ['源码骨架', '只读扫描源码，列出导出符号与所在行号，有文件数上限'],
+  'git.status': ['git 状态', '当前分支、与上游的领先/落后提交数、逐文件改动'],
+  'git.diff': ['git 差异', '工作区、暂存区或某次提交的差异，超大有截断标记'],
+  'git.log': ['git 提交记录', '最近若干条提交的哈希、作者、时间与标题'],
+  'git.show': ['看某次提交', '某次提交的说明与改动内容，可只给统计'],
+  'git.stash': ['git 暂存栈', '列出、暂存、恢复或丢弃 stash，丢弃必须指明第几条'],
+  'git.branch': ['git 分支', '列出、新建或切换分支，分支名逐个校验'],
+  'json.query': ['查 JSON 取值', '按 a.b[0].c 或 JSON Pointer 取一个值，不用整份读进上下文'],
+  'csv.summary': ['CSV 概要', '列名、空值数、去重数、样例与数值统计，自动识别分隔符'],
+  'sqlite.query': ['查 SQLite', '只读打开数据库，只放行 SELECT / WITH / PRAGMA / EXPLAIN'],
+  'archive.list': ['看压缩包内容', '列出 zip / tar.gz 里的条目，不写盘'],
+  'archive.extract': ['解压', '解压到授权目录内，条目含绝对路径或 .. 时整包拒绝'],
+  'archive.create': ['打包', '把授权目录里的文件打成 zip / tar.gz，不覆盖已有文件'],
+  'text.diff': ['比对两份文件', '交给 diff -u，输出可直接喂给 fs.applyPatch'],
+  'text.base64': ['base64 编解码', '把文件编成 base64，或把 base64 解码后落盘'],
+  'image.resize': ['缩放图片', '用系统 sips 按长边等比缩放或指定宽高，不覆盖原图'],
+  'env.read': ['读环境变量', '只读名字与值；KEY/TOKEN/SECRET 这类名字一律打码'],
+  'port.list': ['监听端口', '哪个进程占着哪个端口，带 pid'],
+  'app.list': ['已装应用', '列出 /Applications 等目录里的应用名，不启动任何程序'],
+  'window.list': ['窗口列表', '当前可见窗口的应用名与标题，需要辅助功能授权'],
+  'dns.lookup': ['域名解析', '把域名解析成 IP，属于联网动作'],
+  'time.now': ['当前时间', '本机时区、ISO 时间、时间戳与星期'],
+  'process.tree': ['进程树', '按父子关系展开进程，depth 表示层级'],
+  'fs.du': ['目录体积', '各直接子项占多少字节与文件数，符号链接不跟随'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 
@@ -100,7 +123,7 @@ function permissionOf(id: ToolName): CapabilityPermission {
 }
 
 /** 联网工具的 id 不混进「本地能力」：跑在 Runtime 不代表在本机干活。 */
-const NETWORK_TOOL_IDS: readonly string[] = ['web.fetch', 'web.search'];
+const NETWORK_TOOL_IDS: readonly string[] = ['web.fetch', 'web.search', 'dns.lookup'];
 
 function kindOf(id: string): CapabilityKind {
   return NETWORK_TOOL_IDS.includes(id) || id === 'web.search.browser' ? 'network' : 'local';
@@ -146,7 +169,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：33 个 Runtime 工具 + 4 个主进程能力。设置页只认这一份。 */
+/** 全量清单：56 个 Runtime 工具 + 4 个主进程能力，合计 60。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

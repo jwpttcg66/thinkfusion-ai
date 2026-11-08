@@ -193,6 +193,86 @@ export const systemTools = {
     };
   },
 
+  /**
+   * 进程树：`process.list` 只给平铺列表，父子关系一断，模型就容易把
+   * 「Electron 主进程被 helper 拉起」看成一堆无关进程。这里按 ppid 连起来，
+   * 并用 depth 表示层级，不返回嵌套对象——扁平结构更好截断、更好读。
+   */
+  async processTree(grant: TaskGrant, args: { pid?: number; filter?: string; maxEntries?: number }) {
+    const limit = Math.min(Math.max(args.maxEntries ?? 120, 1), 500);
+    const ps = await run('/bin/ps', ['-axo', 'pid=,ppid=,comm=']);
+    if (ps.code !== 0 || !ps.stdout.trim()) {
+      // 有的宿主环境拦住 ps（沙箱、缺少执行权限）。退回 pgrep 只能拿到平铺
+      // 列表，父子关系就没了——如实说明，别让模型以为这是整棵树。
+      const pgrep = await run('/usr/bin/pgrep', ['-fl', '.']);
+      if (pgrep.code !== 0 && !pgrep.stdout.trim()) throw new Error('无法读取进程树（ps 与 pgrep 都不可用）');
+      const flat = pgrep.stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const match = line.match(/^(\d+)\s+(.*)$/);
+          return { pid: Number(match?.[1] ?? 0), ppid: 0, depth: 0, command: match?.[2] ?? line };
+        })
+        .filter(entry => entry.pid > 0);
+      const needle = (args.filter ?? '').toLowerCase();
+      const matched = needle ? flat.filter(entry => entry.command.toLowerCase().includes(needle)) : flat;
+      return {
+        total: flat.length,
+        matched: matched.length,
+        truncated: matched.length > limit,
+        note: 'ps 不可用，已退回 pgrep：这些进程没有父子关系',
+        processes: matched.slice(0, limit)
+      };
+    }
+
+    const nodes = ps.stdout
+      .split('\n')
+      .map(line => line.trim().split(/\s+/))
+      .filter(parts => parts.length >= 3 && Number(parts[0]) > 0)
+      .map(parts => ({ pid: Number(parts[0]), ppid: Number(parts[1]), command: parts.slice(2).join(' ') }));
+
+    const byParent = new Map<number, typeof nodes>();
+    const pids = new Set(nodes.map(node => node.pid));
+    for (const node of nodes) {
+      const siblings = byParent.get(node.ppid) ?? [];
+      siblings.push(node);
+      byParent.set(node.ppid, siblings);
+    }
+
+    const needle = (args.filter ?? '').toLowerCase();
+    const roots = args.pid !== undefined
+      ? nodes.filter(node => node.pid === args.pid)
+      : nodes.filter(node => !pids.has(node.ppid));
+    if (roots.length === 0) throw new Error(`找不到 pid ${args.pid ?? ''}`.trim());
+
+    const out: Array<{ pid: number; ppid: number; depth: number; command: string }> = [];
+    const walk = (pid: number, ppid: number, depth: number): void => {
+      if (out.length >= limit) return;
+      const siblings = byParent.get(pid) ?? [];
+      for (const node of siblings) {
+        if (needle && !node.command.toLowerCase().includes(needle)) {
+          // 过滤命中才收，但子树仍要往下走：命中的可能是孙子进程。
+          walk(node.pid, node.ppid, depth);
+          continue;
+        }
+        out.push({ pid: node.pid, ppid, depth, command: node.command });
+        walk(node.pid, node.ppid, depth + 1);
+      }
+    };
+    for (const root of roots) {
+      if (needle && !root.command.toLowerCase().includes(needle)) {
+        // 根节点没命中不代表子树没有，照样往下走。
+        walk(root.pid, root.ppid, 0);
+        continue;
+      }
+      out.push({ pid: root.pid, ppid: root.ppid, depth: 0, command: root.command });
+      walk(root.pid, root.ppid, 1);
+    }
+
+    return { total: nodes.length, matched: out.length, truncated: out.length >= limit, processes: out };
+  },
+
   async processKill(grant: TaskGrant, args: { pid: number; signal?: 'TERM' | 'KILL' }) {
     if (grant.permissionPreset === 'read-only') throw new Error('当前权限为“仅可查看”，禁止结束进程');
     if (grant.permissionPreset !== 'danger-full-access') {

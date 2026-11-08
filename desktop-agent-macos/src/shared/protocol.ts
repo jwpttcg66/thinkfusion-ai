@@ -465,6 +465,52 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - project.outline: { "path"?: string, "maxFiles"?: number, "maxSymbols"?: number }
                  只读。扫描 .ts/.tsx/.js/.mjs/.py（跳过 node_modules 等），
                  列出导出符号及行号；超过上限会在 truncated 里说明。
+- git.status:    { "path"?: string, "maxEntries"?: number }
+                 只读。当前分支、与上游的领先/落后提交数、逐文件改动（index/worktree 状态字母）。
+- git.diff:      { "path"?: string, "staged"?: boolean, "commit"?: string, "maxBytes"?: number }
+                 只读。看工作区/暂存区/某次提交的差异；超过上限时 truncated=true。
+- git.log:       { "path"?: string, "limit"?: number }
+                 只读。最近若干条提交：hash、作者、ISO 时间、标题。
+- git.show:      { "commit": string, "stat"?: boolean, "maxBytes"?: number }
+                 只读。看某次提交的说明与改动，stat=true 只看每条文件的增删行数。
+- git.stash:     { "action": "list" | "push" | "pop" | "drop", "message"?: string, "index"?: number }
+                 列出/暂存/恢复/丢弃。drop 必须给 index 说明丢第几条。
+- git.branch:    { "action": "list" | "create" | "switch", "name"?: string }
+                 列出/新建/切换分支；name 不能以 - 开头。
+- json.query:    { "path": string, "pointer"?: string, "maxChars"?: number }
+                 只读。按 "a.b[0].c" 或 JSON Pointer "/a/0/b" 取一个值，不整份读进上下文。
+- csv.summary:   { "path": string, "delimiter"?: string, "maxRows"?: number, "samples"?: number }
+                 只读。列名、空值数、去重数、样例与纯数字列的 min/max/mean；自动识别分隔符。
+- sqlite.query:  { "path": string, "sql": string, "maxRows"?: number }
+                 只读。以 -readonly 打开数据库，只放行 SELECT / WITH / PRAGMA / EXPLAIN。
+- archive.list:  { "path": string, "maxEntries"?: number }
+                 只读。列出 zip / tar.gz / tgz 里的条目名。
+- archive.extract: { "path": string, "destination"?: string }
+                 解压到授权目录内（默认 extracted/）。条目含绝对路径或 .. 时整包拒绝。
+- archive.create: { "output": string, "sources": string[] }
+                 打包成 zip / tar.gz / tgz；输出已存在会被拒绝，不会覆盖。
+- text.diff:     { "pathA": string, "pathB": string }
+                 只读。diff -u 两份文件，输出可直接交给 fs.applyPatch。
+- text.base64:   { "action": "encode" | "decode", "path": string, "output"?: string }
+                 encode 读文件出 base64；decode 可给 output 落盘，已存在会被拒绝。
+- image.resize:  { "path": string, "output": string, "maxDimension"?: number, "width"?: number, "height"?: number, "format"?: "jpeg" | "png" }
+                 用系统 sips 缩放；不给宽高就按长边等比。输出不能是原图、不能已存在。
+- env.read:      { "names"?: string[], "maxEntries"?: number }
+                 只读。读环境变量；KEY/TOKEN/SECRET/PASSWORD 这类名字的值一律打码。
+- port.list:     { "port"?: number, "maxEntries"?: number }
+                 只读。当前监听端口与占用它的进程、pid。
+- app.list:      { "maxEntries"?: number }
+                 只读。列出已安装应用名，不启动任何程序。
+- window.list:   { }
+                 只读。当前可见窗口的应用名与标题；无辅助功能授权时返回 note 说明。
+- dns.lookup:    { "host": string }
+                 联网。把域名解析成 IP；只接受域名形状的 host。
+- time.now:      { }
+                 只读。本机时区、ISO 时间、时间戳与星期。
+- process.tree:  { "pid"?: number, "filter"?: string, "maxEntries"?: number }
+                 只读。按父子关系展开进程，depth 表示层级；不给 pid 就从根进程展开。
+- fs.du:         { "path"?: string, "maxEntries"?: number, "maxNodes"?: number }
+                 只读。各直接子项占多少字节与文件数，按体积降序；符号链接不跟随。
 - test.run:     { "command": "npm test" | "npm run typecheck" | ... }
                  在授权目录里真实执行白名单里的命令，返回退出码与输出。
 - shell.run:    { "command": string, "cwd"?: string, "timeoutMs"?: number, "background"?: boolean }
