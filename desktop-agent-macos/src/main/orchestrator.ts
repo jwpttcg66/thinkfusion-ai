@@ -13,6 +13,7 @@ import type {
   TaskGrant
 } from '../shared/contracts';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
+import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
@@ -168,8 +169,11 @@ export class AgentOrchestrator {
     const plan = stored.plan;
 
     if (task.permissionPreset === 'read-only') {
-      const writes = plan.steps.filter(step => step.tool !== 'fs.list' && step.tool !== 'fs.readFile');
-      if (writes.length > 0) throw new Error('计划包含写入操作，但当前权限为「仅可查看」');
+      // 以前这里写死「只允许 fs.list / fs.readFile」，把 fs.tree / fs.search
+      // 也当成写入拒绝了——只读权限下连看结构都做不到。判据必须和 Runtime
+      // 用同一份清单，否则界面允许的、执行时又拒绝，用户只会看到一条假报错。
+      const writes = plan.steps.filter(step => !(READ_ONLY_TOOLS as readonly string[]).includes(step.tool));
+      if (writes.length > 0) throw new Error('计划包含写入或系统操作，但当前权限为「仅可查看」');
     }
 
     const grant: TaskGrant = {
@@ -290,7 +294,9 @@ export class AgentOrchestrator {
       taskId: input.taskId,
       roundId: round.roundId,
       questions: questions.length ? questions : ['（上一轮提出的澄清问题）'],
-      answer: input.answer
+      answer: input.answer,
+      permissionPreset: this.tasks.get(input.taskId).permissionPreset,
+      allowedTools: allowedToolsForPreset(this.tasks.get(input.taskId).permissionPreset)
     });
     this.tasks.updateRound(round.roundId, { requestText: prompt });
     void this.driveRound(input.taskId, round.roundId, prompt).catch(error => this.fail(input.taskId, error));
@@ -508,7 +514,9 @@ export class AgentOrchestrator {
       taskId,
       roundId: round.roundId,
       error,
-      userPrompt: task.userPrompt
+      userPrompt: task.userPrompt,
+      permissionPreset: task.permissionPreset,
+      allowedTools: allowedToolsForPreset(task.permissionPreset)
     });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
     this.deps.emit({

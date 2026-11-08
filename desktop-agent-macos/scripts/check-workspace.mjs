@@ -100,3 +100,16 @@ test('识别不出来时待确认，绝不默认执行', () => {
   assert.equal(routingLabel(routing), '待确认');
   assert.equal(routingLabel(routeTask({ text: '解释某个方法', workspaceMode: 'engineering', hasProject: true })), '工程分析');
 });
+
+test('系统动作类请求算工程实施（shell / 截屏 / 打开应用 / 找文件）', () => {
+  const cases = [
+    '执行命令 pwd 并告诉我输出',
+    '帮我截屏，看看当前界面',
+    '打开应用 TextEdit 写个便签',
+    '搜索文件，找出所有 .ts'
+  ];
+  for (const text of cases) {
+    const routing = routeTask({ text, workspaceMode: 'engineering', hasProject: true });
+    assert.equal(routing.taskKind, 'engineering_execution', `应当判为实施：${text}`);
+  }
+});
