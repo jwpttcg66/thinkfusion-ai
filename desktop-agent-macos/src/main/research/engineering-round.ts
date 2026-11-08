@@ -70,7 +70,7 @@ export function planEngineeringAnswer(input: {
   if (local.length > 0) {
     return {
       targets: local.slice(0, 1),
-      reason: '工程空间：本地模型读工程证据回答，本轮不发网页',
+      reason: '工程空间：本地模型读工程证据，给第一意见',
       fallback: false
     };
   }

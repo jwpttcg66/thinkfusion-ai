@@ -44,7 +44,7 @@ test('本地可用就本地回答，哪怕界面上选的是网页主导', () =>
   const plan = planEngineeringAnswer({ mode: 'web', members: [local(), cloud()] });
   assert.deepEqual(plan.targets.map(item => item.agentId), ['ollama:qwen']);
   assert.equal(plan.fallback, false);
-  assert.match(plan.reason, /本地模型读工程证据回答/);
+  assert.match(plan.reason, /本地模型读工程证据/);
 });
 
 test('没有本地模型时改用云端，并说明为什么', () => {
@@ -264,7 +264,7 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
     '模型的回答要以回答消息落库'
   );
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('本地模型读工程证据回答')),
+    messages.some(message => message.role === 'system' && message.text.includes('本地模型读工程证据')),
     '要写清楚这一轮谁回答、没发网页'
   );
 });

@@ -52,6 +52,11 @@ import {
   planEngineeringAnswer,
   type ModelMemberView
 } from './research/engineering-round';
+import {
+  buildSecondOpinionQuestion,
+  planSecondOpinion,
+  SECOND_OPINION_BUDGET_MS
+} from './research/second-opinion';
 import type { JudgeVerdict } from './judge/types';
 
 /**
@@ -98,6 +103,18 @@ function debatersFor(
 ): string[] {
   if (mode === 'web') return answers.map(answer => answer.channelId);
   return [...executorIds].filter(id => sourceOf(id) === mode);
+}
+
+/**
+ * 工程空间这一轮拿到的东西：模型的第一意见，以及（决策类问题上）网页的第二意见。
+ *
+ * 之所以要包一层而不是直接返回 `ResearchOutcome`：调用方得知道这一轮是不是
+ * 追加过第二意见。追加过就跳过执行阶段——工程空间要的是两份意见并列，不是
+ * 让主导人再写第三份汇总。
+ */
+interface EngineeringRound {
+  outcome: ResearchOutcome;
+  secondOpinion: boolean;
 }
 
 export interface ConversationDeps {
@@ -816,7 +833,17 @@ export class ConversationRunner {
 
     // 追加研究要再问一遍网页、再让主导人写一次汇总，五分钟挡不住：预算按轮数
     // 顺延，否则「开了深挖」的结果是被外层预算砍掉，用户拿到的比单轮还少。
-    const budget = this.budgetMs + followUpBudget(config) * FOLLOW_UP_ROUND_BUDGET_MS;
+    //
+    // 工程空间的网页第二意见同样要顺延：它要加载页面、键入整段、等它写完。
+    // 判定在拿到第一意见之后才做，预算却在开跑时就定，所以只要没关掉就按
+    // 「可能会问」给足——被预算砍掉的第二意见比不问更糟：用户等了几分钟，
+    // 拿到的是「超时」。
+    const possibleSecondOpinion =
+      conversation.workspaceMode === 'engineering' && (config.webSecondOpinion ?? 'auto') !== 'off';
+    const budget =
+      this.budgetMs +
+      followUpBudget(config) * FOLLOW_UP_ROUND_BUDGET_MS +
+      (possibleSecondOpinion ? SECOND_OPINION_BUDGET_MS : 0);
 
     this.running.set(
       conversationId,
@@ -830,9 +857,9 @@ export class ConversationRunner {
   }
 
   /**
-   * 工程空间的第一手回答：模型直接读工程证据回答（2026-11-08 用户裁决）。
+   * 工程空间的第一轮：模型读证据给第一意见，重大决策再问一个网页拿第二意见。
    *
-   * 不是「多一条链路」，而是把回答这件事交回给唯一能拿到证据的一方：
+   * 第一意见交给唯一能拿到证据的一方（2026-11-08 用户裁决）：
    *
    * - 本地模型优先，云端主导且云端可用时才用云端；用户点名了成员就用它；
    * - 问题 = 用户原话 + 程序真实读到的工程证据，没有角色开场；
@@ -840,15 +867,18 @@ export class ConversationRunner {
    *   消息说明「退回网页」以及网页读不到本地文件，免得用户以为是模型坏了。
    *
    * 只问一个模型：读证据回答是确定性任务，同一份证据问两个模型只会把等待时间
-   * 翻倍，还会接着触发汇总与辩论。只有一份回答时执行阶段本来就跳过（没有可汇总
-   * 的分歧），用户直接看到模型读证据后的回答。
+   * 翻倍，还会接着触发汇总与辩论。
+   *
+   * 第二意见（同一句裁决的后半句「网页是辅导重大决策用的第二意见」）在这里
+   * 追加：带着第一意见与证据摘录去问**一个**网页通道。判定与边界全在
+   * research/second-opinion.ts，这里只负责发出去、把回答落库。
    */
   private async researchEngineering(
     conversation: Conversation,
     question: string,
     pool: SubAgentPool,
     sink: ResearchSink
-  ): Promise<ResearchOutcome | null> {
+  ): Promise<EngineeringRound | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const material = this.engineeringMaterialFor(conversation);
     const members = (await this.deps.modelMembers?.(config)) ?? [];
@@ -918,7 +948,94 @@ export class ConversationRunner {
 
     // 综合留给既有链路：两份以上回答会走融合引擎，再由主导人汇总；一份时
     // 现状就是「只有回答、没有综合」，不为工程空间单独造一份假综合。
-    return { answers, synthesis: null, failures, channels, messageIds };
+    const outcome: ResearchOutcome = { answers, synthesis: null, failures, channels, messageIds };
+    const secondOpinion = await this.askSecondOpinion(conversation, question, outcome, messageIds, sink);
+    return { outcome, secondOpinion };
+  }
+
+  /**
+   * 网页第二意见：带着第一意见与证据摘录，去问一个网页通道。
+   *
+   * 为什么要把第一意见一起递过去：没有靶子就只是「另一份并列的看法」，而用户
+   * 要的是「复核」。为什么只问一个：每个网页都要重新加载、键入整段、等它写完，
+   * 两分钟起步，多问一家只是把这个等待翻倍。
+   *
+   * 无论问不问，都写一条系统消息：用户需要知道这一轮网页为什么出现 / 为什么
+   * 没出现，而不是从沉默里猜。
+   *
+   * 返回 true 表示真的拿到（或尝试过）第二意见——调用方据此跳过执行阶段：
+   * 工程空间要的是两份意见并列，不让主导人再写第三份汇总。
+   */
+  private async askSecondOpinion(
+    conversation: Conversation,
+    question: string,
+    outcome: ResearchOutcome,
+    messageIds: Map<string, string>,
+    sink: ResearchSink
+  ): Promise<boolean> {
+    const config = normalizeExecutionConfig(conversation.executionConfig);
+    const first = outcome.answers[0];
+    const material = this.engineeringMaterialFor(conversation) ?? '';
+
+    // 可用性来自网页注册表，不走执行池：本地主导时池里只有本地模型，
+    // 而第二意见按裁决就该由网页提供（这是「第一手回答发网页」那条规则
+    // 收窄之后，网页唯一还在工程空间出现的场合）。
+    let channels: Array<{ agentId: string; label: string; available: boolean; detail?: string }> = [];
+    try {
+      const usable = await this.deps.registry.available();
+      channels = usable.map(agent => ({ agentId: agent.id, label: agent.label, available: true }));
+    } catch {
+      channels = [];
+    }
+
+    const plan = planSecondOpinion({
+      mode: config.webSecondOpinion ?? 'auto',
+      question,
+      hasFirstOpinion: Boolean(first),
+      channels,
+      selected: config.selectedWebChannels
+    });
+
+    sink.note(plan.reason);
+    if (!plan.ask || !plan.target || !first) return false;
+    if (this.cancelled.has(conversation.conversationId)) return false;
+
+    const target = plan.target;
+    sink.status('collecting');
+    sink.join(target.agentId);
+    sink.phase(target.agentId, 'asking', '以第二意见复核这个决定');
+    try {
+      const answer = await this.deps.registry.ask(target.agentId, {
+        question: buildSecondOpinionQuestion({
+          question,
+          firstOpinion: first.text,
+          material
+        }),
+        stage: 'initial',
+        // 网页侧要重新加载、键入一整段再等它写完，和网页主导的汇总同一量级。
+        timeoutMs: SECOND_OPINION_BUDGET_MS
+      });
+      if (this.cancelled.has(conversation.conversationId)) return false;
+      const messageId = sink.record(answer);
+      messageIds.set(target.agentId, messageId);
+      sink.phase(target.agentId, 'answered', '给出第二意见');
+      outcome.answers.push(answer);
+      outcome.channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
+      return true;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      sink.phase(target.agentId, 'failed', detail);
+      const failure = `${target.label}（第二意见）：${detail}`;
+      outcome.failures.push(failure);
+      outcome.channels.push({
+        kind: 'unanswered',
+        agentId: target.agentId,
+        label: target.label,
+        phase: 'failed',
+        detail
+      });
+      return false;
+    }
   }
 
   private async conduct(
@@ -1042,9 +1159,9 @@ export class ConversationRunner {
       }
     }
 
-    // 工程空间：回答由模型直接读工程证据给出（本地优先），不问网页——
-    // 网页读不到本机文件，问它们只会得到「请上传文件」（2026-11-08 用户裁决）。
-    // 没有可用模型时这个方法返回 null，下面照旧走网页链路并已写过原因。
+    // 工程空间：第一意见由模型读证据给出（本地优先）。决策类问题上再追加一个
+    // 网页通道的第二意见（2026-11-08 用户裁决）；没有可用模型时这个方法返回
+    // null，下面照旧走网页链路并已写过原因。
     const engineeringRound =
       conversation.workspaceMode === 'engineering'
         ? await this.researchEngineering(conversation, question, pool, sink)
@@ -1052,7 +1169,7 @@ export class ConversationRunner {
     if (this.cancelled.has(conversationId)) return;
 
     const outcome =
-      engineeringRound ??
+      engineeringRound?.outcome ??
       (await master.research(
         {
           question,
@@ -1069,23 +1186,32 @@ export class ConversationRunner {
     if (this.cancelled.has(conversationId)) return;
 
     // 执行阶段（回答之后）：执行模式 = 谁当主导人，不决定谁回答。
-    // 知识空间的第一手回答来自网页通道（上面那轮）；工程空间例外——回答由
-    // 本地/云端模型读工程证据给出，见 researchEngineering()。主导人做三件事：
+    // 知识空间的第一手回答来自网页通道（上面那轮）；工程空间例外——第一意见
+    // 由本地/云端模型读工程证据给出，第二意见由网页复核，见 researchEngineering()。
+    // 主导人做三件事：
     //   1. 汇总全部回答，写【结论/一致/分歧/存疑】；
     //   2. 从分歧里指定辩题（没有实质分歧就不辩）；
     //   3. 读辩论记录，给最终意见。
-    const execution = await this.runExecutionStage(
-      pool,
-      conversation,
-      question,
-      outcome,
-      sink,
-      executorIds,
-      this.engineeringMaterialFor(conversation),
-      this.pageMaterialFor(conversation),
-      followUpBudget(config) > 0
-    );
-    if (this.cancelled.has(conversationId)) return;
+    //
+    // 工程空间追加了第二意见时不走这一步：两份意见并列就是这一轮的产物，
+    // 再让主导人写一份汇总，等于把「模型意见 + 网页意见」糊成第三份文本。
+    let execution: ExecutionStageResult | null = null;
+    if (engineeringRound?.secondOpinion) {
+      sink.note('这一轮不再做汇总：模型的第一意见与网页的第二意见都在上面，两份并列供你判断。');
+    } else {
+      execution = await this.runExecutionStage(
+        pool,
+        conversation,
+        question,
+        outcome,
+        sink,
+        executorIds,
+        this.engineeringMaterialFor(conversation),
+        this.pageMaterialFor(conversation),
+        followUpBudget(config) > 0
+      );
+      if (this.cancelled.has(conversationId)) return;
+    }
 
     // P6 多轮自主研究：主导人指出「还缺什么」之后，把缺口再问一遍所有网页
     // 通道，然后让它更新汇总。默认 0 轮，所以默认行为与以前完全一致。
@@ -1106,8 +1232,12 @@ export class ConversationRunner {
 
     // 融合引擎失败时保留原来的规则版综合，不抛错（ARCHITECTURE 11.9）。
     // 规则版本身已经是各通道回答的合成，降级后界面仍有东西可看。
+    //
+    // 工程空间的两份意见不融合：规则版是按文本相似度拼的，判断「这两条意见
+    // 算一致还是分歧」靠的是词面重合，对「该不该迁移」这种问题只会给出一个
+    // 看着像结论、其实是统计的段落。
     let synthesis = outcome.synthesis;
-    if (this.deps.fusionEnabled && outcome.answers.length >= 2) {
+    if (this.deps.fusionEnabled && outcome.answers.length >= 2 && !engineeringRound?.secondOpinion) {
       try {
         const fused = synthesizeWithFusion(
           outcome.answers.map(answer => ({

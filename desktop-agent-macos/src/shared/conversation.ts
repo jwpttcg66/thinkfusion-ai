@@ -439,7 +439,27 @@ export interface ConversationExecutionConfig {
    * 「这一轮会多问几遍」。
    */
   followUpRounds?: number;
+  /**
+   * 工程空间的网页第二意见（2026-11-08 用户裁决）。
+   *
+   * 工程空间里模型是第一意见：它读本机证据回答。网页读不到本机文件，所以只
+   * 在决策类问题上，把「问题 + 第一意见 + 证据摘录」发给**一个**网页通道，
+   * 换一个独立判断。事实查询不问——它们只能复述我们递过去的摘录。
+   *
+   * - `auto`（缺省）：只在判定为决策类问题时问；
+   * - `always`：每个工程问题都问一次；
+   * - `off`：只留模型的第一意见。
+   *
+   * 缺省 auto 是这次裁决的落点，不是历史行为：升级前工程空间完全不问网页，
+   * 原因是那时把「第一手回答永远来自网页」照搬到工程空间，得出的结论是网页
+   * 只会回「请上传文件」。既然网页现在有明确职责（复核决策），它就该在
+   * 决策上出现，不必再等用户手动开一次。
+   */
+  webSecondOpinion?: SecondOpinionMode;
 }
+
+/** 工程空间第二意见的三档。 */
+export type SecondOpinionMode = 'auto' | 'always' | 'off';
 
 /** 六种可选策略。旧名字（standard/deep）不接受新配置，只用于读旧记录。 */
 export type DebateStrategyChoice =
@@ -523,6 +543,12 @@ export function normalizeExecutionConfig(
   const rounds = Number(input?.followUpRounds);
   if (Number.isFinite(rounds) && rounds > 0) {
     result.followUpRounds = Math.min(Math.floor(rounds), MAX_FOLLOW_UP_ROUNDS);
+  }
+  // 网页第二意见：只收三档，非法值按缺省的 auto 处理（不写进结果，读的时候
+  // 也按 auto 兜底）。`off` 要能被持久化，所以三个值都要显式记下来。
+  const secondOpinions: SecondOpinionMode[] = ['auto', 'always', 'off'];
+  if (input?.webSecondOpinion && secondOpinions.includes(input.webSecondOpinion)) {
+    result.webSecondOpinion = input.webSecondOpinion;
   }
   return result;
 }

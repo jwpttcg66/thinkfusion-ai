@@ -212,9 +212,29 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 ② 从分歧里指定辩题；③ 读辩论记录，给出最终意见。没有实质分歧时不发起辩论。
               </p>
               <p className="muted">
-                <b>工程空间不同</b>：那里要读本机文件，网页读不到，所以提问直接由模型读工程证据回答
+                <b>工程空间不同</b>：那里要读本机文件，网页读不到，所以<b>第一意见</b>由模型读工程证据给出
                 （本地优先，云端主导时才用云端），一个可用模型都没有才退回网页。知识空间的网页提问不受影响。
               </p>
+
+              <h3>工程空间：网页第二意见</h3>
+              <p className="muted">
+                模型是<b>第一意见</b>：它读得到你的文件，回答快。网页看不到文件，但有另一套判断，
+                适合在<b>重大决策</b>上复核一次（选型、迁移、重构、要不要删、风险取舍）。
+                规则判定为决策类问题时，才把「你的问题 + 第一意见 + 证据摘录（最多 6000 字）」
+                发给<b>一个</b>网页通道；事实查询（多少条记录、报错在哪一行）不问，它们只能复述摘录。
+                每个网页都要重新加载并等它写完，这一轮会多花 1–3 分钟。
+              </p>
+              <select
+                value={config.webSecondOpinion ?? 'auto'}
+                onChange={event => onConfigChange({
+                  webSecondOpinion: event.target.value as ConversationExecutionConfig['webSecondOpinion']
+                })}
+              >
+                <option value="auto">自动（只在重大决策时问网页）</option>
+                <option value="always">总是（每次工程提问都问一次）</option>
+                <option value="off">关闭（只留模型的第一意见）</option>
+              </select>
+
               <div className="research-modes">
                 {MODES.map(item => (
                   <button
@@ -323,7 +343,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               )}
               <p className="muted">
                 不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
-                第一轮回答只问网页通道。之后的汇总、交锋与最终意见按归属规则执行：网页主导只用网页，本地/云端主导只用各自模型，混合择一，不混用。
+                知识空间的第一轮回答只问网页通道。之后的汇总、交锋与最终意见按归属规则执行：网页主导只用网页，本地/云端主导只用各自模型，混合择一，不混用。
+                工程空间的第一意见由模型读证据给出；网页第二意见取上面勾选通道里的第一个。
               </p>
 
               <h3>云端服务</h3>
