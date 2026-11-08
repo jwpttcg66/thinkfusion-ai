@@ -19,7 +19,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import { createHash } from 'node:crypto';
-import type { EngineeringEvidence } from '../../shared/conversation';
+import type {
+  AttributeStat,
+  EngineeringEvidence,
+  FileStructureStats,
+  TagCount
+} from '../../shared/conversation';
 import { analyzeForQuestion } from './analysis';
 
 const IGNORED_DIRS = new Set([
@@ -81,6 +86,8 @@ interface FileEntry {
   totalLines?: number;
   /** 点名文件超过单文件上限时：实际读了前 bytes 字节 / 文件共 totalBytes 字节。 */
   partial?: { bytes: number; totalBytes: number };
+  /** 点名文件才有：整份文件读完后的结构统计（标签 / 属性 / 级别各多少）。 */
+  structure?: FileStructureStats;
 }
 
 /**
@@ -118,6 +125,116 @@ function countLines(buffer: Buffer): number {
 
 /** 点名文件允许整读的最大体积；再大的文件逐行数数也不划算了。 */
 const NAMED_MAX_BYTES = 32 * 1024 * 1024;
+
+/** 结构统计最多扫这么多字节：32MB 的行正则要几百毫秒，宁可只统计前缀并注明。 */
+const STRUCTURE_MAX_BYTES = 8 * 1024 * 1024;
+/** 材料里最多列这么多种标签；总数与种类数仍是精确值。 */
+const STRUCTURE_TAG_LIMIT = 24;
+const STRUCTURE_ATTR_LIMIT = 12;
+const STRUCTURE_LEVEL_LIMIT = 8;
+const STRUCTURE_SAMPLES = 3;
+
+const BRACKET_TAG = /\[([^[\]\n]{1,60})\]/g;
+const BRACKET_KV = /^([A-Za-z][A-Za-z0-9_.-]{0,40})=(.*)$/;
+const LEVEL_FIELD = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T][\d:.,]+\s+([A-Z]{3,10})\b/;
+/**
+ * 日志行首：时间戳 + 级别 + logger + `-` + 方括号标签。
+ *
+ * 认这一层是因为「模块标签」和「正文里的方括号」必须分开数——日志正文里
+ * 出现 `[513029306, 113168373]` 这种玩家列表时，把它算成标签会让种类数从 14 变 17。
+ */
+const LINE_PREFIX =
+  /^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T][\d:.,]+\s+([A-Z]{3,10})\s+\S+\s+-\s+\[([^[\]\n]{1,60})\]/;
+
+/**
+ * 数一份文本的结构：方括号标签、`[key=value]` 属性、行级字段（日志级别）。
+ *
+ * 只做计数，不做语义判断——`[CarromStream]` 和 `[TODO]` 一视同仁。这样它
+ * 对任何日志/清单类文件都成立，不用为某种格式写死规则。
+ */
+export function structureStatsOf(
+  text: string,
+  coverage?: { bytes: number; totalBytes: number }
+): FileStructureStats {
+  const headTags = new Map<string, number>();
+  const bracketTags = new Map<string, number>();
+  const attrs = new Map<string, { count: number; values: Map<string, number> }>();
+  const levels = new Map<string, number>();
+  let lines = 0;
+  let prefixLines = 0;
+  let bracketTotal = 0;
+  let attributeTotal = 0;
+
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    lines += 1;
+
+    const prefix = LINE_PREFIX.exec(line);
+    if (prefix) {
+      prefixLines += 1;
+      levels.set(prefix[1], (levels.get(prefix[1]) ?? 0) + 1);
+      const tag = prefix[2].trim();
+      if (tag) headTags.set(tag, (headTags.get(tag) ?? 0) + 1);
+    } else {
+      const level = LEVEL_FIELD.exec(line);
+      if (level) levels.set(level[1], (levels.get(level[1]) ?? 0) + 1);
+    }
+
+    BRACKET_TAG.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = BRACKET_TAG.exec(line)) !== null) {
+      const body = match[1].trim();
+      if (!body) continue;
+      const kv = BRACKET_KV.exec(body);
+      if (kv) {
+        attributeTotal += 1;
+        const entry = attrs.get(kv[1]) ?? { count: 0, values: new Map<string, number>() };
+        entry.count += 1;
+        entry.values.set(kv[2], (entry.values.get(kv[2]) ?? 0) + 1);
+        attrs.set(kv[1], entry);
+      } else {
+        bracketTotal += 1;
+        bracketTags.set(body, (bracketTags.get(body) ?? 0) + 1);
+      }
+    }
+  }
+
+  const byCount = (map: Map<string, number>): TagCount[] =>
+    [...map.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+
+  const attributes: AttributeStat[] = [...attrs.entries()]
+    .map(([key, entry]) => ({
+      key,
+      count: entry.count,
+      distinct: entry.values.size,
+      samples: [...entry.values.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, STRUCTURE_SAMPLES)
+        .map(([value]) => value)
+    }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+
+  // 一半以上的行都能认出「时间戳 + 级别 + logger - [标签]」，就按行首标签数；
+  // 否则退回「全文所有方括号」，至少不会一个标签都没有。
+  const useHead = prefixLines > 0 && prefixLines * 2 >= lines;
+  const chosen = useHead ? headTags : bracketTags;
+  const chosenTotal = useHead ? prefixLines : bracketTotal;
+
+  return {
+    lines,
+    tagScope: useHead ? 'line-head' : 'bracket',
+    tags: byCount(chosen).slice(0, STRUCTURE_TAG_LIMIT),
+    tagTotal: chosenTotal,
+    tagDistinct: chosen.size,
+    attributes: attributes.slice(0, STRUCTURE_ATTR_LIMIT),
+    attributeTotal,
+    attributeDistinct: attrs.size,
+    levels: byCount(levels).slice(0, STRUCTURE_LEVEL_LIMIT),
+    ...(coverage ? { truncated: coverage } : {})
+  };
+}
 
 function sha256Of(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -181,6 +298,55 @@ function excerptFor(
   };
 }
 
+/** 把点名文件的结构统计写成一段材料：数字全部来自本机计数。 */
+export function structureSection(item: EngineeringEvidence): string {
+  const stats = item.structure;
+  if (!stats) return '';
+  const join = (rows: TagCount[]): string => rows.map(row => `${row.value}×${row.count}`).join('、');
+  const listed = (rows: TagCount[]): number => rows.reduce((sum, row) => sum + row.count, 0);
+
+  const levelSum = listed(stats.levels);
+  const levelLine =
+    stats.levels.length === 0
+      ? '- 行级字段分布：没有识别到（时间戳后面的第一个字段不是全大写词）'
+      : `- 行级字段分布（时间戳后第一个全大写词，如日志级别）：${join(stats.levels)}（合计 ${levelSum} 行）` +
+        (levelSum < stats.lines ? `，另有 ${stats.lines - levelSum} 行没有这个字段` : '');
+
+  const tagRest = stats.tagTotal - listed(stats.tags);
+  const tagLabel =
+    stats.tagScope === 'line-head'
+      ? '行首方括号标签（时间戳+级别+logger 之后的那个 `[标签]`，正文里的方括号不算）'
+      : '方括号标签（文件没有可识别的日志行首，按全文所有 `[..]` 计）';
+  const tagLine =
+    stats.tags.length === 0
+      ? `- ${tagLabel}：0 个`
+      : `- ${tagLabel}共 ${stats.tagTotal} 个 / ${stats.tagDistinct} 种：${join(stats.tags)}` +
+        (tagRest > 0 ? `；另有 ${stats.tagDistinct - stats.tags.length} 种共 ${tagRest} 个未列出` : '');
+
+  const attrLine =
+    stats.attributes.length === 0
+      ? '- 方括号属性标签 [key=value]：0 个'
+      : `- 方括号属性标签 [key=value] 共 ${stats.attributeTotal} 个 / ${stats.attributeDistinct} 种：` +
+        stats.attributes
+          .map(attr =>
+            `${attr.key}×${attr.count}（${attr.distinct} 种取值${
+              attr.distinct <= 3 ? `：${attr.samples.join('、')}` : `，如 ${attr.samples.join('、')}`
+            }）`
+          )
+          .join('；');
+
+  return [
+    `【点名文件结构统计】${item.path} —— 以下每个数字都是本机把整份文件读完后数出来的（不是模型估计），聚合类问题直接按这里回答：`,
+    `- 统计行数：${stats.lines} 行${item.totalLines != null && item.totalLines !== stats.lines ? `（文件共 ${item.totalLines} 行）` : ''}`,
+    stats.truncated
+      ? `- 覆盖范围：文件共 ${Math.round(stats.truncated.totalBytes / 1024)} KB，只统计了前 ${Math.round(stats.truncated.bytes / 1024)} KB`
+      : '- 覆盖范围：全文，未截断',
+    levelLine,
+    tagLine,
+    attrLine
+  ].join('\n');
+}
+
 /** 把证据变成主导人能引用的材料。 */
 export function engineeringMaterial(scan: ProjectScan): string {
   if (scan.evidence.length === 0 && !scan.analysis) return '';
@@ -216,6 +382,13 @@ export function engineeringMaterial(scan: ProjectScan): string {
             : '上面的片段只是节选，行数以这条统计为准。') +
           '用户问「总共多少条 / 多少行 / 有多大」时直接引用这条统计。'
       ];
+    })(),
+    // 聚合型问题（标签各多少、级别各多少）模型对着片段数不准，这里把本机数好的
+    // 结构统计单独成段递过去——数字是计数结果，不随片段截断。
+    ...(() => {
+      const named = scan.evidence.find(item => item.structure);
+      if (!named?.structure) return [];
+      return ['', structureSection(named)];
     })(),
     '',
     '分析结论必须写明依据的是哪一条证据（路径:行号）；证据不足以支撑的地方写「无法确定」，不要凭常识补。'
@@ -334,6 +507,16 @@ export async function scanProject(
       if (isNamed) {
         item.named = true;
         item.totalLines = countLines(buffer);
+        // 结构统计读的是**整份文件**，不是证据片段：大文件也只喂模型 256KB，
+        // 但「标签各出现多少次」必须按全量数，否则答案会系统性偏小。
+        const scanBytes = Math.min(buffer.byteLength, STRUCTURE_MAX_BYTES);
+        const scanText = buffer.subarray(0, scanBytes).toString('utf8');
+        item.structure = structureStatsOf(
+          scanText,
+          scanBytes < buffer.byteLength
+            ? { bytes: scanBytes, totalBytes: buffer.byteLength }
+            : undefined
+        );
         if (buffer.byteLength > maxFileBytes) {
           item.partial = { bytes: maxFileBytes, totalBytes: buffer.byteLength };
           warnings.push(
@@ -363,7 +546,8 @@ export async function scanProject(
       readAt,
       why: snippet.why,
       ...(item.totalLines != null ? { totalLines: item.totalLines } : {}),
-      ...(item.partial ? { partial: item.partial } : {})
+      ...(item.partial ? { partial: item.partial } : {}),
+      ...(item.structure ? { structure: item.structure } : {})
     };
   });
 

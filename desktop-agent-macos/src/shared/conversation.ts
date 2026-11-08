@@ -32,6 +32,53 @@ export interface EngineeringEvidence {
   totalLines?: number;
   /** 只有点名文件超过单文件上限才有：实际只读了前 bytes 字节 / 文件共 totalBytes 字节。 */
   partial?: { bytes: number; totalBytes: number };
+  /**
+   * 只有点名文件才有：本机把整个文件读完之后的**结构统计**。
+   *
+   * 「标签各出现多少次 / 级别各多少条」这类聚合问题，模型对着几百行片段是数不准的
+   * （大文件还只喂前 256 KB），所以由本机数好再给它——和 `totalLines` 同一个思路，
+   * 只是从「多少行」扩到「标签、属性、级别各多少」。
+   */
+  structure?: FileStructureStats;
+}
+
+/** 点名文件的结构统计。全部是本机数出来的整数，不含任何推测。 */
+export interface FileStructureStats {
+  /** 真正参与统计的行数（末尾空行不计）。 */
+  lines: number;
+  /**
+   * 标签怎么数的：`line-head` 是「时间戳+级别+logger- [标签]」的行首标签
+   * （日志类文件的主流情况，正文里的方括号不算）；`bracket` 是全文所有方括号
+   * （文件没有可识别的行首格式时的兜底）。
+   */
+  tagScope: 'line-head' | 'bracket';
+  /** 方括号标签（不是 key=value 的那些，如 `[CarromStream]`），按次数降序，最多 24 种。 */
+  tags: TagCount[];
+  /** 标签总次数与种类数——精确值，不受上面 24 种截断影响。 */
+  tagTotal: number;
+  tagDistinct: number;
+  /** 方括号属性标签 `[key=value]`，按 key 归并。 */
+  attributes: AttributeStat[];
+  attributeTotal: number;
+  attributeDistinct: number;
+  /** 时间戳后面第一个全大写词（日志级别）的分布。 */
+  levels: TagCount[];
+  /** 文件过大只统计了前缀时，注明覆盖范围。 */
+  truncated?: { bytes: number; totalBytes: number };
+}
+
+export interface TagCount {
+  value: string;
+  count: number;
+}
+
+export interface AttributeStat {
+  key: string;
+  count: number;
+  /** 这个 key 有多少种不同取值。 */
+  distinct: number;
+  /** 取值样本，最多 3 个（按次数降序）。 */
+  samples: string[];
 }
 
 /**

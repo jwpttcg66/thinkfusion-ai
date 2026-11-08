@@ -90,6 +90,56 @@ test('问题点名的文件即使超过单文件上限也进证据，带上全�
   assert.match(material, /行数统计用的是完整文件/);
 });
 
+test('点名文件的结构统计由本机数好：标签、属性、级别都是精确计数', async () => {
+  // 真机 s24：用户要「统计这份日志里的标签」，可证据只喂模型前 256 KB，
+  // 664 行里它只看到一半多，任何自己数出来的数都系统性偏小。
+  const logName = 'struct-20261108.log';
+  const body =
+    [
+      '2026/11/05 09:00:00.001 INFO otlp - [Alpha] a1 [k1=v1] [k2=v2]',
+      '2026/11/05 09:00:00.002 WARN otlp - [Beta] b1 [k1=v1] [k2=v3]',
+      '2026/11/05 09:00:00.003 INFO otlp - [Alpha] a2 [k1=v1] [k2=v2]',
+      'no timestamp line [Alpha] tail [k9=v9]'
+    ].join('\n') + '\n';
+  writeFileSync(join(root, logName), body);
+
+  const scan = await scanProject(root, `统计 ${logName} 里的标签分布`);
+  const hit = scan.evidence.find(item => item.path === logName);
+  assert.ok(hit?.structure, '点名文件必须带结构统计');
+  const stats = hit.structure;
+  assert.equal(stats.lines, 4);
+  assert.equal(stats.tagScope, 'line-head', '有日志行首格式时只数行首标签');
+  assert.deepEqual(stats.tags.map(t => [t.value, t.count]), [['Alpha', 2], ['Beta', 1]]);
+  assert.equal(stats.tagTotal, 3);
+  assert.equal(stats.tagDistinct, 2, '正文里的 [Alpha] 不算模块标签');
+  assert.equal(stats.attributeTotal, 7, 'k1×3 + k2×3 + k9×1');
+  assert.equal(stats.attributeDistinct, 3);
+  assert.deepEqual(
+    stats.attributes.map(a => [a.key, a.count, a.distinct]),
+    [['k1', 3, 1], ['k2', 3, 2], ['k9', 1, 1]]
+  );
+  assert.deepEqual(stats.levels.map(l => [l.value, l.count]), [['INFO', 2], ['WARN', 1]]);
+
+  const material = engineeringMaterial(scan);
+  assert.match(material, /【点名文件结构统计】/);
+  assert.match(material, /行首方括号标签/);
+  assert.match(material, /Alpha×2、Beta×1/);
+  assert.match(material, /INFO×2、WARN×1/);
+  assert.match(material, /k1×3（1 种取值：v1）/);
+  assert.match(material, /另有 1 行没有这个字段/, '没有级别字段的行要如实说明');
+});
+
+test('文件没有日志行首格式时，退回全文方括号统计', async () => {
+  const plain = 'plain-20261108.txt';
+  writeFileSync(join(root, plain), '见面记录 [TODO] 一条\n[A] 与 [TODO] 两条\n');
+  const scan = await scanProject(root, `看一下 ${plain} 里的标签`);
+  const stats = scan.evidence.find(item => item.path === plain)?.structure;
+  assert.equal(stats.tagScope, 'bracket');
+  assert.equal(stats.tagTotal, 3);
+  assert.equal(stats.tagDistinct, 2);
+  assert.deepEqual(stats.tags.map(t => [t.value, t.count]), [['TODO', 2], ['A', 1]]);
+});
+
 test('点名的小文件排进证据第一位，即使别的文件关键词分更高', async () => {
   writeFileSync(join(root, 'notes-20261108.md'), '只有一句话，不含任何问题关键词。\n');
   const scan = await scanProject(root, '帮我读 notes-20261108.md，virtualThread 在里面吗');
@@ -106,6 +156,7 @@ test('点名也不会越过凭证与二进制边界', async () => {
 test('不点名时行为与以前完全一致', async () => {
   const scan = await scanProject(root, 'virtualThread 在哪里实现');
   assert.ok(scan.evidence.every(item => item.totalLines === undefined && item.partial === undefined));
+  assert.ok(scan.evidence.every(item => item.structure === undefined), '不点名就不做结构统计');
 });
 
 test('凭证、依赖目录不会被读进证据', async () => {
