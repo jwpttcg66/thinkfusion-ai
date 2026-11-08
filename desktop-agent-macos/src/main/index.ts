@@ -2310,7 +2310,7 @@ app.whenReady().then(async () => {
   orchestrator = new AgentOrchestrator({
     tasks,
     store,
-    adapter: planningAdapter(),
+    adapter: () => planningAdapter(),
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
     // 独立评审优先用本地/云端模型，不用刚才做规划的那个网页通道。

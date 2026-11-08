@@ -25,7 +25,8 @@ const GRANT_TTL_MS = 30 * 60 * 1000;
 export interface OrchestratorDeps {
   tasks: TaskManager;
   store: AgentStore;
-  adapter: ChatPageDriver;
+  /** 每次取用时都重新解析：运行时切换规划源后，执行链路不能还连着旧页面。 */
+  adapter: () => ChatPageDriver;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
   /**
@@ -92,6 +93,17 @@ export class AgentOrchestrator {
     return this.deps.tasks;
   }
 
+  /**
+   * 规划页面按需取，不在构造时锁死。
+   *
+   * 规划源可以在设置里切换；如果这里缓存了构造那一刻的适配器，切换后界面显示
+   * 已经换了，真正发问题的却还是旧页面——DeepSeek 掉登录时，整个工程执行会
+   * 一直报「DeepSeek 未登录」，而用户看到的规划源是 ChatGPT。
+   */
+  private get adapter() {
+    return this.deps.adapter();
+  }
+
   private async withPage<T>(work: () => Promise<T>): Promise<T> {
     const previous = this.pageQueue;
     let release = () => {};
@@ -117,8 +129,8 @@ export class AgentOrchestrator {
     /** V2.1 D-03：这份计划要不要先做方案评审辩论（默认 auto）。 */
     planDebate?: 'auto' | 'on' | 'off';
   }): Promise<AgentTask> {
-    const site = this.deps.adapter.siteLabel;
-    const status = await this.deps.adapter.getStatus();
+    const site = this.adapter.siteLabel;
+    const status = await this.adapter.getStatus();
     if (!status.loggedIn) throw new Error(`${site} 未登录：${status.detail ?? '请先在内嵌页面登录'}`);
     if (!status.pageReady) throw new Error(`${site} 页面不可用：${status.detail ?? '未找到输入框'}`);
     if (status.generating) throw new Error(`${site} 正在生成上一条回答，请等待完成后再提交`);
@@ -162,7 +174,7 @@ export class AgentOrchestrator {
     if (hashPlan(stored.plan) !== stored.contentHash) throw new Error('计划内容已变化，请重新审阅');
     if (Date.now() > stored.createdAt + 10 * 60 * 1000) {
       this.deps.store.updatePlan(stored.planId, { approvalStatus: 'expired' });
-      throw new Error(`计划已过期，请让 ${this.deps.adapter.siteLabel} 重新生成`);
+      throw new Error(`计划已过期，请让 ${this.adapter.siteLabel} 重新生成`);
     }
 
     const rootDir = await this.resolveWorkspace(task);
@@ -267,7 +279,7 @@ export class AgentOrchestrator {
     if (TERMINAL.includes(task.status)) return;
 
     const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
-    if (round) this.deps.adapter.cancelWait(round.requestId);
+    if (round) this.adapter.cancelWait(round.requestId);
 
     this.tasks.transition(taskId, 'cancelled', { error: '用户取消任务' });
     this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId });
@@ -327,9 +339,9 @@ export class AgentOrchestrator {
         const queued = this.tasks.get(taskId);
         if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
 
-        const { snapshotBefore } = await this.deps.adapter.sendMessage(prompt, round.requestId);
+        const { snapshotBefore } = await this.adapter.sendMessage(prompt, round.requestId);
         this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
-        return this.deps.adapter.waitForAnswer(
+        return this.adapter.waitForAnswer(
           round.requestId,
           snapshotBefore,
           this.tasks.get(taskId).timeoutMs,
@@ -395,7 +407,7 @@ export class AgentOrchestrator {
           at: Date.now(),
           taskId,
           level: 'warn',
-          message: `${this.deps.adapter.siteLabel} 声明完成，但本地仍有未处理的轮次，拒绝标记完成`
+          message: `${this.adapter.siteLabel} 声明完成，但本地仍有未处理的轮次，拒绝标记完成`
         });
         throw new Error('本地状态与完成声明不一致，已停止并等待人工处理');
       }
