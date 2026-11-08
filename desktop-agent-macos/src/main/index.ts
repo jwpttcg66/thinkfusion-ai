@@ -103,6 +103,12 @@ import { describeCapabilities, RUNTIME_CAPABILITY_IDS } from '../shared/capabili
 import { mainCapabilities, type MainCapabilityContext } from './capabilities';
 import { CapabilityStore } from './capability-store';
 import { disabledCapabilities, setDisabledCapabilities } from './capability-state';
+import {
+  buildEngineeringExpertise,
+  describeExpertise,
+  ExpertiseStore,
+  loadExpertise
+} from './expertise';
 
 let win: BrowserWindow | null = null;
 
@@ -129,6 +135,21 @@ let profileStore: ProfileStore | null = null;
 let workspaceStore: WorkspaceStore | null = null;
 /** 内置插件的开关。created in `whenReady`, next to the other stores. */
 let capabilityStore: CapabilityStore | null = null;
+/** 专家 / 技能的开关与文件目录。created in `whenReady`. */
+let expertiseStore: ExpertiseStore | null = null;
+let expertiseUserDir = '';
+let expertiseBuiltinDirs: string[] = [];
+
+/**
+ * 每次用都重新读盘：用户改完 md 不用重启应用，下一次提问就是新内容。
+ * 开关从自己的 store 读，不写进 .md，也不进 capabilities.json。
+ */
+function currentExpertise() {
+  return {
+    state: loadExpertise({ builtinDirs: expertiseBuiltinDirs, userDir: expertiseUserDir }),
+    disabled: expertiseStore?.disabledIds() ?? []
+  };
+}
 /**
  * The source on screen. Only this view is visible; the rest are parked.
  *
@@ -2072,6 +2093,28 @@ function registerIpc() {
     ]);
   });
 
+  /**
+   * 设置页「专家与技能」看到的是磁盘上真实读到的两份文件，不是界面抄的名单。
+   * 用户替换了 md、或者把文件写坏了，这里立刻能看到来源与原因。
+   */
+  ipcMain.handle('expertise:list', event => {
+    trustedUiSender(event);
+    const { state, disabled } = currentExpertise();
+    return describeExpertise(state, disabled);
+  });
+
+  ipcMain.handle('expertise:set', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = raw as { id?: unknown; enabled?: unknown } | null;
+    if (!input || typeof input.id !== 'string' || typeof input.enabled !== 'boolean') {
+      throw new Error('开关参数无效');
+    }
+    if (!expertiseStore) throw new Error('专家与技能开关还没初始化');
+    expertiseStore.setEnabled(input.id, input.enabled);
+    const { state, disabled } = currentExpertise();
+    return describeExpertise(state, disabled);
+  });
+
   ipcMain.handle('channel:statuses', async event => {
     trustedUiSender(event);
     return registry.statuses();
@@ -2569,6 +2612,14 @@ app.whenReady().then(async () => {
   // Runtime 在每次 task.run 时随消息收到同一份列表。
   capabilityStore = new CapabilityStore(path.join(app.getPath('userData'), 'capabilities.json'));
   setDisabledCapabilities(capabilityStore.disabledIds());
+  // 开发态从项目 resources/ 读；打包后这些 .md 由 extraResources 放到
+  // Contents/Resources/expertise/，两个候选都列上，哪个先找到用哪个。
+  expertiseUserDir = path.join(app.getPath('userData'), 'expertise');
+  expertiseBuiltinDirs = [
+    path.join(app.getAppPath(), 'resources', 'expertise'),
+    path.join(process.resourcesPath, 'expertise')
+  ];
+  expertiseStore = new ExpertiseStore(path.join(app.getPath('userData'), 'expertise.json'));
 
   verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
 
@@ -2685,6 +2736,15 @@ app.whenReady().then(async () => {
       return new ExecutionPool(base, extraAgents, selection.answerIds, selection.executorIds);
     },
     executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
+    /**
+     * 专家常驻、技能按场景加载，拼出来的 system 段只给工程空间第一意见。
+     * 知识空间、网页通道、汇总与裁决都拿不到它们（buildEngineeringExpertise
+     * 在非 engineering 时直接返回空）。
+     */
+    expertiseFor: ({ workspaceMode, question }) => {
+      const { state, disabled } = currentExpertise();
+      return buildEngineeringExpertise({ workspaceMode, question, state, disabled });
+    },
     /**
      * 工程空间「模型直答」的候选名单（2026-11-08 用户裁决：工程模式不优先问
      * 网页，读取本地由模型做）。这里必须带真实的可用性：没启动的 Ollama 和

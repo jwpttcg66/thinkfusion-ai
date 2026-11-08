@@ -13,6 +13,7 @@ import type { SearchSettingsView } from '../../shared/search';
 const PAGE_SOURCES = [...BUILTIN_SOURCES];
 import { computeSplit } from '../../shared/layout';
 import { describeCapabilities } from '../../shared/capabilities';
+import { EXPERTISE_IDS, expertiseFallback, type ExpertiseView } from '../../shared/expertise';
 
 /**
  * Dev-only stand-in for the preload API so the renderer can be opened in a plain
@@ -106,6 +107,17 @@ const events: Record<string, AgentEvent[]> = {
 
 export function createMockApi(): AgentApi {
   let capabilityDisabled: string[] = [];
+  let expertiseDisabled: string[] = [];
+  /** 浏览器预览读不到 .md：给一份静态清单让设置页能看，不假装有文件内容。 */
+  const previewExpertise = (): ExpertiseView[] =>
+    EXPERTISE_IDS.map(id => ({
+      ...expertiseFallback(id),
+      enabled: !expertiseDisabled.includes(id),
+      source: 'builtin' as const,
+      filePath: '（浏览器预览不读磁盘）',
+      userPath: '（浏览器预览不读磁盘）',
+      chars: 0
+    }));
   let preset: PermissionPreset = 'workspace-write';
   // 预览环境不读盘：这里给的是「没配凭据」的真实形态，不是假的可搜状态。
   let searchSettings: SearchSettingsView = {
@@ -316,6 +328,13 @@ export function createMockApi(): AgentApi {
         ? capabilityDisabled.filter(item => item !== id)
         : [...new Set([...capabilityDisabled, id])];
       return describeCapabilities(capabilityDisabled);
+    },
+    getExpertise: async () => previewExpertise(),
+    setExpertiseEnabled: async (id: string, enabled: boolean) => {
+      expertiseDisabled = enabled
+        ? expertiseDisabled.filter(item => item !== id)
+        : [...new Set([...expertiseDisabled, id])];
+      return previewExpertise();
     },
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },

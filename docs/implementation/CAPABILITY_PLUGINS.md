@@ -178,3 +178,12 @@ Wikipedia，`degraded` 里能看见。要把联网整个关掉，得连 `web.fet
 
 其余一个字没改：四家凭据 provider、`browser → RSS → 摘要` 的兜底顺序、结果
 结构、40 秒回包超时、搜索窗串行化与 `persist:thinkfusion-search` 独立分区。
+
+## 8. 边界：专家与技能不是能力插件
+
+2026-11-08 后加的「专家与技能」（`docs/implementation/ENGINEERING_EXPERTISE.md`）
+**不登记进 `CAPABILITY_CATALOG`**：那两份 `.md` 只往工程空间第一意见的 `system`
+轮次里添内容，不执行动作、不需要权限、不该被 `CapabilityRegistry.execute` 分派，
+也不是新的 agent 成员。它们有独立的设置页分区与开关文件（`expertise.json`）。
+判断标准很简单：会不会「干活」——读写文件、出网、保存文档是能力；告诉模型
+「以什么身份、按什么流程写」是内容。

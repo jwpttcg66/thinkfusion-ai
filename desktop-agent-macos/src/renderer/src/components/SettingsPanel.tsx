@@ -16,16 +16,18 @@ import {
   CAPABILITY_PERMISSION_LABELS,
   type CapabilityView
 } from '../../../shared/capabilities';
+import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/expertise';
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
-type Section = 'general' | 'models' | 'search' | 'plugins' | 'agents';
+type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> = [
   { id: 'general', label: '通用设置', icon: ICON_GEAR_PATHS },
   { id: 'models', label: '模型', icon: ['M3 5h10M3 8h10M3 11h6'] },
   { id: 'search', label: '联网搜索', icon: ['M7.2 3.2a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M10.4 10.4 13.6 13.6'] },
   { id: 'plugins', label: '内置插件', icon: ['M8 2.4 13 5.2v5.6L8 13.6 3 10.8V5.2z', 'M3 5.2 8 8l5-2.8'] },
+  { id: 'expertise', label: '专家与技能', icon: ['M4 2.8h8v10.4H4z', 'M6.4 5.6h3.2', 'M6.4 8h3.2'] },
   { id: 'agents', label: 'Agent 预设', icon: ['M5.2 3.2h5.6v2.4H5.2zM3.2 8.4h9.6v4.4H3.2z'] }
 ];
 
@@ -116,6 +118,10 @@ export function SettingsPanel(props: {
   const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [capabilityBusy, setCapabilityBusy] = useState<string | null>(null);
   const [capabilityNote, setCapabilityNote] = useState('');
+  /** 专家与技能：清单也是主进程读盘给的，界面不假装知道 .md 里写了什么。 */
+  const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
+  const [expertiseBusy, setExpertiseBusy] = useState<string | null>(null);
+  const [expertiseNote, setExpertiseNote] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -143,6 +149,33 @@ export function SettingsPanel(props: {
       setCapabilityBusy(null);
     }
   }
+
+  async function toggleExpertise(id: string, enabled: boolean) {
+    setExpertiseBusy(id);
+    setExpertiseNote('');
+    try {
+      setExpertise(await window.agentAPI.setExpertiseEnabled(id, enabled));
+    } catch (error) {
+      setExpertiseNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExpertiseBusy(null);
+    }
+  }
+
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI
+      .getExpertise()
+      .then(list => {
+        if (alive) setExpertise(list);
+      })
+      .catch(error => {
+        if (alive) setExpertiseNote(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -716,6 +749,69 @@ export function SettingsPanel(props: {
                                 </span>
                               </div>
                               <p>{item.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+
+            {section === 'expertise' && (
+              <section className="settings-section">
+                <h3>专家与技能</h3>
+                <p className="settings-lead">
+                  工程空间的第一意见由本地 / 云端模型读工程证据给出。这两份 .md 只往它的 system 轮次里添内容：
+                  专家是常驻人设，技能只在设计、实施、改造类问题上加载。知识空间、网页通道和用户原话都不受影响。
+                </p>
+                <p className="settings-lead">
+                  它们不是新的 agent，也不占成员名额，和「Agent 预设」里的通道配置是两回事。
+                  把同名文件放进「可替换路径」就能覆盖内置版本，改完不用重启应用；写坏了会在这里显示原因，并且不会注入。
+                </p>
+                {expertiseNote && <p className="settings-error">{expertiseNote}</p>}
+                {(['expert', 'skill'] as const).map(kind => {
+                  const items = expertise.filter(item => item.kind === kind);
+                  const on = items.filter(item => item.enabled).length;
+                  return (
+                    <div className="capability-group" key={kind}>
+                      <h4 className="capability-group-title">
+                        {EXPERTISE_KIND_LABELS[kind]}
+                        <span>{on}/{items.length} 已启用</span>
+                      </h4>
+                      <div className="settings-list">
+                        {items.map(item => (
+                          <div className={`capability-row${item.enabled ? '' : ' off'}`} key={item.id}>
+                            <button
+                              type="button"
+                              className="settings-switch"
+                              role="switch"
+                              aria-checked={item.enabled}
+                              aria-label={`${item.title}：${item.enabled ? '已启用' : '已停用'}`}
+                              disabled={expertiseBusy === item.id}
+                              onClick={() => void toggleExpertise(item.id, !item.enabled)}
+                            />
+                            <div className="capability-body">
+                              <div className="capability-head">
+                                <b>{item.title}</b>
+                                <code>{item.id}</code>
+                                <span className="capability-permission">
+                                  {item.source === 'user' ? '用户替换' : '内置'} · {item.version}
+                                </span>
+                              </div>
+                              <p>{item.description}</p>
+                              <p className="settings-muted">
+                                触发：{item.trigger}；不触发：{item.doNotTrigger}
+                              </p>
+                              {item.error ? (
+                                <p className="settings-error">{item.error}</p>
+                              ) : (
+                                <p className="settings-muted">
+                                  正文 {item.chars} 字 · 生效文件 {item.filePath}
+                                </p>
+                              )}
+                              <p className="settings-muted">可替换路径：{item.userPath}</p>
                             </div>
                           </div>
                         ))}

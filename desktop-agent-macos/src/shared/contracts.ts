@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { CapabilityView } from './capabilities';
+import type { ExpertiseView } from './expertise';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
@@ -1248,6 +1249,13 @@ export interface AgentApi {
   getCapabilities(): Promise<CapabilityView[]>;
   /** 启用 / 停用一个插件，返回更新后的清单。停用的插件执行时会明确报错。 */
   setCapabilityEnabled(id: string, enabled: boolean): Promise<CapabilityView[]>;
+  /**
+   * 专家与技能的清单：主进程从磁盘读到的两份 .md，含来源、状态与可替换路径。
+   * 它们是内容，不是能力插件——只影响工程空间第一意见的 system 轮次。
+   */
+  getExpertise(): Promise<ExpertiseView[]>;
+  /** 启用 / 停用一位专家或一个技能，返回更新后的清单。 */
+  setExpertiseEnabled(id: string, enabled: boolean): Promise<ExpertiseView[]>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
 

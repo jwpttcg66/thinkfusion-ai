@@ -170,6 +170,18 @@ export interface ConversationDeps {
    */
   modelMembers?: (config: ConversationExecutionConfig) => Promise<readonly ModelMemberView[]>;
   /**
+   * 工程空间第一意见要附加的专家 / 技能 system 段。
+   *
+   * 注入而不 import：加载 .md、判场景、读开关都是主进程的事，runner 只拿到
+   * 拼好的几行字。不传就是老行为（只有工程证据那三条纪律），现有测试不受影响。
+   * 这些字只进本地/云端 API 的 system，question 保持用户原话 + 证据，一字不改。
+   */
+  expertiseFor?: (input: { workspaceMode: WorkspaceMode | undefined; question: string }) => {
+    system: string[];
+    note: string;
+    loaded: string[];
+  };
+  /**
    * 跑一场「会话内辩论」：主导人指定辩题后，由本地/云端模型多轮交锋。
    *
    * 辩论是独立子系统（`debate/`），runner 不认识它的调度；这里只拿回一份
@@ -909,6 +921,14 @@ export class ConversationRunner {
     sink.note(`${plan.reason}：${plan.targets.map(item => item.label).join('、')}。`);
     sink.status(plan.targets.length > 1 ? 'collecting' : 'thinking');
 
+    // 专家常驻、技能按场景加载。只有真正加载了技能才补一条系统消息，
+    // 读数 / 查事实那类问题保持原来的安静。
+    const expertise = this.deps.expertiseFor?.({
+      workspaceMode: conversation.workspaceMode,
+      question
+    }) ?? { system: [], note: '', loaded: [] };
+    if (expertise.note) sink.note(expertise.note);
+
     const engineered = buildEngineeringAnswerQuestion(question, material);
     const answers: SubAgentAnswer[] = [];
     const channels: ChannelOutcome[] = [];
@@ -927,7 +947,8 @@ export class ConversationRunner {
             // 证据可能有几万字，本地模型逐段读完再写，和网页主导的汇总同一量级。
             timeoutMs: 180_000,
             // 只对本地/云端 API 生效；工程空间不发网页，所以不涉及「包装话术」。
-            system: engineeringAnswerSystem()
+            // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
+            system: [...engineeringAnswerSystem(), ...expertise.system]
           });
           if (sink.cancelled()) return;
           messageIds.set(target.agentId, sink.record(answer));
