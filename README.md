@@ -158,7 +158,7 @@ This is not a tool that trusts model output. The boundaries are explicit:
 | Renderer | No Node integration, `contextIsolation`, sandbox; IPC accepts the main frame only |
 | Embedded page | One `WebContentsView` per source, each with its own persistent partition; all permission requests denied; host allow-list enforced on navigate, redirect and `window.open` |
 | Execution process | Separate `UtilityProcess`; authorization re-checked before every step |
-| Tool surface | Whitelist: list directory, read file, create directory, exclusive file create. No shell, no delete, no overwrite |
+| Tool surface | Eleven allow-listed tools: list/read/tree/search/find, mkdir, exclusive create, hash-checked overwrite, fixed test commands, tiered `shell.run`, `screen.capture`, `app.open`. No delete, no upload. Shell is allow-listed read/build only under `workspace-write`; `danger-full-access` gives a real shell but still blocks unrecoverable operations |
 | Approval | Every plan needs a human click; grants expire in 30 minutes, plans in 10 |
 
 Details in [`SECURITY.md`](desktop-agent-macos/SECURITY.md).

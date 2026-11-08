@@ -24,11 +24,13 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
       // by. A hardcoded name here is simply wrong once the setting changes.
       return { key, text: `模型需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
     case 'step.started':
-      return { key, text: `执行 ${event.tool}`, tone: 'muted' };
+      return { key, text: `执行 ${toolLabel(event.tool)}`, tone: 'muted' };
     case 'step.completed':
-      return { key, text: `完成 ${event.tool}`, tone: 'ok' };
+      // 「完成 shell.run」看不出到底跑了什么、成功没有。退出码、截图尺寸、
+      // 进程 pid 都是执行结果的一部分，日志里必须能直接读到。
+      return { key, text: `完成 ${toolLabel(event.tool)}${stepSummary(event.tool, event.result)}`, tone: 'ok' };
     case 'step.failed':
-      return { key, text: `失败 ${event.tool}：${event.error}`, tone: 'error' };
+      return { key, text: `失败 ${toolLabel(event.tool)}：${event.error}`, tone: 'error' };
     case 'report.ready':
       return {
         key,
@@ -72,6 +74,46 @@ function roundType(inputType: string) {
   if (inputType === 'execution_report') return '执行报告';
   if (inputType === 'plan_repair') return '计划修正';
   return '澄清回答';
+}
+
+const TOOL_NAME: Record<string, string> = {
+  'fs.list': '列目录',
+  'fs.readFile': '读文件',
+  'fs.mkdir': '建目录',
+  'fs.writeFile': '写文件',
+  'fs.tree': '看结构',
+  'fs.search': '搜代码',
+  'fs.find': '找文件',
+  'test.run': '跑测试',
+  'shell.run': '执行命令',
+  'screen.capture': '截屏',
+  'app.open': '打开应用'
+};
+
+function toolLabel(tool: string) {
+  return TOOL_NAME[tool] ?? tool;
+}
+
+function stepSummary(tool: string, result: unknown): string {
+  const data = result as Record<string, unknown> | null;
+  if (!data || typeof data !== 'object') return '';
+  if (tool === 'test.run' || tool === 'shell.run') {
+    const timeout = data.timedOut ? '（超时）' : '';
+    return ` · 退出码 ${String(data.exitCode)}${timeout} · ${String(data.durationMs)}ms`;
+  }
+  if (tool === 'screen.capture') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.path)}`;
+  if (tool === 'app.open') {
+    if (data.running === true) return ` · ${String(data.app ?? data.path)} · 已启动（pid ${String(data.pid)}）`;
+    if (data.running === false) return ` · ${String(data.app ?? data.path)} · 进程未检测到`;
+    return ` · ${String(data.path)}`;
+  }
+  if (tool === 'fs.find' || tool === 'fs.search') {
+    const matches = Array.isArray(data.matches) ? data.matches.length : 0;
+    return ` · ${matches} 个命中`;
+  }
+  if (tool === 'fs.readFile') return ` · ${String(data.bytes)} 字节`;
+  if (typeof data.path === 'string') return ` · ${data.path}`;
+  return '';
 }
 
 export function ExecutionLog(props: { events: AgentEvent[] }) {

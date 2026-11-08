@@ -23,6 +23,10 @@ export function planDebateTopics(plan: AgentPlan): string[] {
     return args.overwrite === true;
   });
   const runsTests = tools.includes('test.run');
+  const runsShell = steps.filter(step => step.tool === 'shell.run');
+  const systemSteps = steps.filter(step =>
+    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open'
+  );
   const topics: string[] = [];
 
   if (overwrites.length > 0) {
@@ -41,6 +45,17 @@ export function planDebateTopics(plan: AgentPlan): string[] {
     topics.push(
       `步骤拆分是否合理：${steps.length} 步里哪些可以合并、哪些顺序可调整，` +
         '哪一步失败会让后面全部作废。'
+    );
+  }
+  if (runsShell.length > 0 && !runsTests) {
+    topics.push(
+      `这 ${runsShell.length} 条 shell 命令凭什么安全：逐条说明它会读还是写、` +
+        '作用范围是否只在工作区内、失败时会不会留下半成品。'
+    );
+  } else if (systemSteps.length > 0) {
+    topics.push(
+      `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用）有没有更小的影响面：` +
+        '是否真的需要，以及失败了怎么收尾。'
     );
   }
   if (topics.length === 0) {
@@ -66,7 +81,9 @@ export function shouldDebatePlan(
   if (effective === 'on') return { debate: true };
   const steps = plan.steps ?? [];
   const risky = steps.some(step =>
-    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run'
+    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
+    // shell / 截屏 / 启动应用的影响面在工作区之外，auto 下同样值得先辩一轮。
+    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open'
   );
   if (steps.length >= 3 || risky) return { debate: true };
   return { debate: false, reason: `计划只有 ${steps.length} 步且都是只读操作，按 auto 不单独开辩` };

@@ -37,19 +37,23 @@
 
 ## 本地工具
 
-- `fs.list`：列目录，最多 1000 项
-- `fs.readFile`：读文本，上限 256 KiB，`O_NOFOLLOW`
-- `fs.mkdir`：建目录，创建后重新解析校验
-- `fs.writeFile`：独占创建（不覆盖），写入后重新读取并比对 sha256
+共 11 个，前 4 个与 v1 兼容：
 
-没有任意 Shell、进程执行、删除或覆盖能力。
+- `fs.list` / `fs.readFile` / `fs.mkdir` / `fs.writeFile`：列目录、读文本（≤256 KiB，`O_NOFOLLOW`）、建目录、独占创建；覆盖已有文件必须带上一版 sha256
+- `fs.tree` / `fs.search` / `fs.find`：递归看结构、按内容搜、按文件名通配找（只读）
+- `test.run`：固定命令 → 固定 argv，`shell:false`，真实退出码
+- `shell.run`：真实 shell。`workspace-write` 只放行只读/构建类命令且禁止组合符；`danger-full-access` 才给真 shell，并拦截 `sudo`/`mkfs`/`rm -rf /` 等
+- `screen.capture`：真实截屏落盘，校验 PNG 与尺寸，返回 sha256
+- `app.open`：真实启动应用或打开文件，并回读进程是否存在
+
+没有删除工具、没有上传工具。shell 的权限分层与拦截规则见 `SECURITY.md`。
 
 ## 安装与验证
 
 ```bash
 npm install --no-audit --no-fund
 npm run typecheck        # 主进程 / preload / renderer / runtime 全量类型检查
-npm test                 # 协议 24 项 + 适配器 27 项 + 状态机 8 项
+npm test                 # 44 个子脚本：协议 27 项 + 单元/集成用例 622 项
 npm run doctor:electron
 npm run dev
 ```

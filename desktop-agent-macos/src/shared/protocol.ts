@@ -403,10 +403,28 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  递归列出工程目录（忽略 node_modules / .git / 构建产物）。
 - fs.search:    { "query": string, "path"?: string, "maxResults"?: number }
                  按内容搜索文本，返回 路径:行号 与命中的那一行。
+- fs.find:      { "pattern": string, "path"?: string, "maxResults"?: number }
+                 按文件名/相对路径通配找文件：* 匹配一段、** 匹配多级、? 匹配一个字符，
+                 例如 "*.md"、"src/**/*.ts"。只返回路径，不读内容。
 - test.run:     { "command": "npm test" | "npm run typecheck" | ... }
                  在授权目录里真实执行白名单里的命令，返回退出码与输出。
+- shell.run:    { "command": string, "cwd"?: string, "timeoutMs"?: number }
+                 在真实 shell 里执行一条命令（/bin/sh -c），返回真实退出码、输出与耗时。
+                 · workspace-write：只放行只读与构建类命令（ls、cat、grep、git status、
+                   npm run test 之类）。写文件请用 fs.writeFile，那里能核对指纹。
+                 · danger-full-access：放行任意命令，但仍会拒绝 sudo / mkfs /
+                   rm -rf / 这类不可回收的操作。
+                 · 退出码非 0 视为这一步失败，后面的步骤不会继续执行。
+- screen.capture: { "target"?: "screen" | "region", "region"?: { "x": number, "y": number, "width": number, "height": number }, "path"?: string }
+                 真实截屏并落盘，返回文件路径、字节数、尺寸与 sha256。
+                 不给 path 时落在应用缓存目录；target=region 时必须给 region。
+                 第一次使用可能需要用户在系统设置里允许屏幕录制。
+- app.open:     { "app"?: string, "path"?: string }
+                 真实打开应用（如 "TextEdit"）或文件/目录路径，两者必须给且只给一个。
+                 返回是否已启动，以及进程是否真的存在（running）。
 
-所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。`;
+所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。
+绝对路径只在 danger-full-access 下允许。`;
 
 export function buildInitialPrompt(input: {
   prompt: string;
@@ -422,8 +440,10 @@ export function buildInitialPrompt(input: {
 请分析下面的用户任务，并输出一份符合 ${PROTOCOL} 协议的执行计划。
 
 规则：
-1. 你只负责规划，不负责执行；本地 Runtime 才会真正操作文件。
-2. 不要要求执行任意 Shell 命令，也不存在这样的工具。
+1. 你只负责规划，不负责执行；本地 Runtime 才会真正操作文件、执行命令、截屏、启动应用。
+2. 需要用 shell、截屏、打开应用、按文件名找文件时，直接把对应工具写进计划——
+   不要因为「可能被拒绝」就降级成让用户自己去做，也不要用文字描述代替真实动作。
+   权限不足时 Runtime 会明确拒绝，并告诉你原因。
 3. 只能使用下面列出的工具，参数必须完整且符合格式。
 4. 计划最多 ${input.maxSteps} 步。
 5. 必须使用指定的 JSON 结构，放在一个 \`\`\`json 代码块中。
@@ -438,6 +458,7 @@ export function buildInitialPrompt(input: {
 ${TOOL_SPEC}
 
 当前权限：${input.permissionPreset}
+本次可用工具（不在这个列表里的不要写进计划，审批会被拒绝）：${input.allowedTools.join('、')}
 工作区（path 的基准目录，本身不要写进 path）：${input.workspaceRoot}
 taskId：${input.taskId}
 roundId：${input.roundId}
@@ -518,7 +539,15 @@ export function buildPlanRepairPrompt(input: {
   roundId: string;
   error: string;
   userPrompt: string;
+  permissionPreset?: PermissionPreset;
+  allowedTools?: readonly string[];
 }): string {
+  const scope = input.allowedTools && input.allowedTools.length > 0
+    ? `当前权限：${input.permissionPreset ?? 'workspace-write'}
+本次可用工具（不在这个列表里的不要写进计划）：${input.allowedTools.join('、')}
+
+`
+    : '';
   return `上一份计划没有通过本地校验，任务没有执行。请修正后重新输出一份计划。
 
 失败原因：
@@ -531,7 +560,7 @@ ${input.userPrompt}
 
 ${TOOL_SPEC}
 
-taskId：${input.taskId}
+${scope}taskId：${input.taskId}
 roundId：${input.roundId}`;
 }
 
@@ -539,7 +568,15 @@ export function buildClarificationAnswerPrompt(input: {  taskId: string;
   roundId: string;
   questions: string[];
   answer: string;
+  permissionPreset?: PermissionPreset;
+  allowedTools?: readonly string[];
 }): string {
+  const scope = input.allowedTools && input.allowedTools.length > 0
+    ? `当前权限：${input.permissionPreset ?? 'workspace-write'}
+本次可用工具（不在这个列表里的不要写进计划）：${input.allowedTools.join('、')}
+
+`
+    : '';
   return `用户已回答你的澄清问题，请据此继续规划。
 
 问题：
@@ -552,7 +589,7 @@ ${input.answer}
 
 ${TOOL_SPEC}
 
-taskId：${input.taskId}
+${scope}taskId：${input.taskId}
 roundId：${input.roundId}`;
 }
 

@@ -126,8 +126,8 @@ test('只读预设允许搜索，但绝不允许测试命令', () => {
   assert.ok(!allowedToolsForPreset('read-only').includes('test.run'));
 });
 
-test('新工具进得了协议，任意 Shell 仍然进不来', () => {
-  assert.equal(TOOL_NAMES.length, 7);
+test('新工具进得了协议，未登记的工具与越权调用仍然进不来', () => {
+  assert.equal(TOOL_NAMES.length, 11);
   const base = {
     protocol: 'desktop-agent/v1', type: 'plan', taskId: 't1', roundId: 'r1',
     title: '改文件', description: '演示', completion: { condition: '测试通过' }
@@ -139,6 +139,12 @@ test('新工具进得了协议，任意 Shell 仍然进不来', () => {
       { id: 's2', tool: 'test.run', args: { command: 'npm test' } }
     ]
   }));
+  // shell 现在是登记过的工具：能进协议，但是否真的执行由授权决定。
+  const readOnly = grant({ permissionPreset: 'read-only', allowedTools: [...READ_ONLY_TOOLS] });
+  assert.doesNotThrow(() => PlanSchema.parse({
+    ...base, steps: [{ id: 's1', tool: 'shell.run', args: { command: 'ls -la' } }]
+  }));
+  assert.throws(() => assertGrant(readOnly, 'shell.run', 1), /仅可查看|未授权工具/);
   assert.throws(() => PlanSchema.parse({
     ...base, steps: [{ id: 's1', tool: 'shell.exec', args: { command: 'rm -rf /' } }]
   }));

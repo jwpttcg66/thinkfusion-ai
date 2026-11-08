@@ -108,5 +108,78 @@ export const projectReadTools = {
 
     await walk(root, 0);
     return { query: args.query, matches, filesRead, truncated };
+  },
+
+  /**
+   * 按文件名/相对路径找文件（对齐 harness 的 glob 搜索）。
+   *
+   * 与 `search` 的区别：这里只看名字，不读内容，所以能覆盖不认识的扩展名，
+   * 也不会因为二进制文件而中断。`*.md` 这种不带目录的写法按「任意深度」处理，
+   * 因为让模型每次都写带目录的完整形式只会多一轮失败。
+   */
+  async find(grant: TaskGrant, args: { pattern: string; path?: string; maxResults?: number }) {
+    const root = await resolveGrantedPath(grant, args.path ?? '.', false);
+    const rootStat = await fs.stat(root);
+    if (!rootStat.isDirectory()) throw new Error('查找起点必须是目录');
+    const maxResults = Math.min(args.maxResults ?? 80, 200);
+    const matcher = globToRegExp(args.pattern);
+    const matches: Array<{ path: string; type: 'directory' | 'file'; bytes?: number }> = [];
+    let scanned = 0;
+    let truncated = false;
+
+    async function walk(dir: string, depth: number): Promise<void> {
+      if (truncated || depth > 8 || scanned >= 4000) return;
+      const listed = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const item of listed) {
+        if (matches.length >= maxResults || scanned >= 4000) { truncated = true; return; }
+        const abs = path.join(dir, item.name);
+        const rel = path.relative(root, abs).split(path.sep).join('/');
+        if (IGNORED_FILES.test(item.name)) continue;
+        let stat;
+        try { stat = await fs.lstat(abs); } catch { continue; }
+        if (stat.isSymbolicLink()) continue;
+        scanned += 1;
+        const type = stat.isDirectory() ? 'directory' : 'file';
+        if (matcher.test(rel) || matcher.test(item.name)) {
+          matches.push(type === 'directory' ? { path: rel, type } : { path: rel, type, bytes: stat.size });
+          if (matches.length >= maxResults) { truncated = true; return; }
+        }
+        if (stat.isDirectory()) {
+          if (IGNORED_DIRS.has(item.name) || item.name.startsWith('.git')) continue;
+          await walk(abs, depth + 1);
+        }
+      }
+    }
+
+    await walk(root, 0);
+    return { pattern: args.pattern, root: args.path ?? '.', matches, scanned, truncated };
   }
 };
+
+/**
+ * 极简 glob：`*` 匹配一段、`**` 匹配多级、`?` 匹配一个字符。
+ * 不处理字符类（`[abc]`）与花括号——计划里用到它们说明需要一个真正的
+ * glob 库，而现在没必要为此放宽输入面。
+ */
+export function globToRegExp(pattern: string): RegExp {
+  const normalized = pattern.trim().replace(/^\.?\//, '');
+  const hasSlash = normalized.includes('/');
+  let out = '';
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+    if (char === '*') {
+      if (normalized[i + 1] === '*') {
+        out += '.*';
+        i += 1;
+        if (normalized[i + 1] === '/') i += 1;
+      } else {
+        out += '[^/]*';
+      }
+    } else if (char === '?') {
+      out += '[^/]';
+    } else {
+      out += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(hasSlash ? `^${out}$` : `(^|/)${out}$`, 'i');
+}

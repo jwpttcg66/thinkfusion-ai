@@ -952,6 +952,11 @@ button:disabled {
   color: #b54708;
 }
 
+.steps li.system .tool {
+  background: #eef2ff;
+  color: #3538cd;
+}
+
 .step-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

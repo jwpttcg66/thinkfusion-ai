@@ -6,14 +6,37 @@
 2. The renderer has no Node integration and uses context-isolated preload IPC. Main-process IPC accepts calls only from the trusted main frame.
 3. The embedded web workspace is restricted to `https://chat.deepseek.com`; popups and navigation to other origins are denied.
 4. Agent execution is separated into an Electron UtilityProcess. The Runtime validates a strict task grant again before executing each step.
-5. Tool names are allow-listed. This build has bounded directory listing, file reading, recursive tree listing, content search, directory creation, exclusive file creation, hash-checked file replacement, and a fixed set of test commands. It has **no arbitrary shell, no pipe/redirection, no free-form command arguments, no delete, no upload tool**.
+5. Tool names are allow-listed. This build has bounded directory listing, file reading, recursive tree listing, content search, filename glob search, directory creation, exclusive file creation, hash-checked file replacement, a fixed set of test commands, a permission-tiered shell, screen capture, and application launch. It has **no delete tool, no upload tool, and no way for the model to name a shell command outside the documented policy** (see "Local harness tools" below). Page text still never becomes a command: the model can only emit a `shell.run` step with a `command` string, the Runtime re-validates that string against the preset policy before spawning anything, and the user approves the whole plan first.
 6. Every permission preset requires a user confirmation before a plan starts. A grant expires after 30 minutes; staged plans expire after 10 minutes.
 
 ## Permission presets
 
-- `read-only`: `fs.list`, `fs.readFile`, `fs.tree`, `fs.search` only. File reads are capped at 256 KiB. `test.run` is rejected: build/test scripts write artifacts and are not a read-only operation.
-- `workspace-write`: all seven tools inside the selected directory; traversal and observed symlink components are rejected. New files use exclusive creation; replacing an existing file requires the exact sha256 returned by the earlier `fs.readFile`, and lands via a same-directory temp file + atomic rename.
-- `danger-full-access`: removes the app-level workspace path boundary for the allow-listed filesystem tools. It does not elevate the process, bypass POSIX permissions, or grant macOS TCC permissions. The user must still confirm the plan.
+- `read-only`: `fs.list`, `fs.readFile`, `fs.tree`, `fs.search`, `fs.find` only. File reads are capped at 256 KiB. Every command, capture, launch, write and `test.run` step is rejected twice: once by `assertGrant` (tool not in `READ_ONLY_TOOLS`) and once by the tool itself.
+- `workspace-write`: all eleven tools inside the selected directory; traversal and observed symlink components are rejected. New files use exclusive creation; replacing an existing file requires the exact sha256 returned by the earlier `fs.readFile`, and lands via a same-directory temp file + atomic rename. `shell.run` is restricted to an allow-list of read/build commands with **no shell composition characters** (`;`, `&`, `|`, `>`, `<`, backticks, `$(`), so `ls $(rm -rf .)` cannot borrow the prefix of a permitted command. `app.open` can only launch a short list of common GUI apps, and only open files inside the workspace.
+- `danger-full-access`: removes the app-level workspace path boundary and runs `shell.run` through a real `/bin/sh -c`. It still refuses unrecoverable operations (`sudo`, `mkfs`, `dd of=/dev/…`, `rm -rf /` or `~`, fork bombs, `shutdown`/`reboot`, `killall`, `chmod -R 777 /`). It does not elevate the process, bypass POSIX permissions, or grant macOS TCC permissions. The user must still confirm the plan.
+
+## V2.1 local harness tools
+
+`shell.run`, `screen.capture` and `app.open` exist because "read a file" is not enough to
+be useful on a real machine. They are the largest attack surface in the app, so their
+rules are stated here rather than only in code:
+
+- **`shell.run`** — argv is always `/bin/sh -c <command>`, in an authorized `cwd`, with a
+  minimal environment (no API keys) and a 300 s ceiling; the whole process group is killed
+  on timeout and output is capped at 64 KiB. The command string is first checked against
+  `ALWAYS_FORBIDDEN` (unrecoverable operations) in **every** preset, then:
+  `read-only` rejects outright; `workspace-write` requires an allow-list prefix and rejects
+  shell composition characters; `danger-full-access` runs it. A non-zero exit code is
+  reported as a failed step, never as success.
+- **`screen.capture`** — writes a PNG through `/usr/sbin/screencapture`, then verifies the
+  file exists, is non-empty, and has a valid PNG header before reporting width/height/sha256.
+  A missing Screen Recording TCC grant produces a real error with the fix path, not a fake
+  success. Default output goes to `~/Library/Application Support/ThinkFusion/captures`.
+- **`app.open`** — `/usr/bin/open` only, no shell. In `workspace-write` the app must be on a
+  short GUI allow-list and any path must resolve inside the workspace; terminal-style apps
+  are deliberately excluded because launching one would bypass the `shell.run` policy. The
+  result includes whether the process is actually running (`pgrep`), so "the command exited
+  zero" is not mistaken for "the app opened".
 
 ## V2.1 test execution
 
@@ -25,7 +48,7 @@
 
 ## macOS privacy permissions
 
-Accessibility, Screen Recording, Automation, and Full Disk Access are separate macOS TCC permissions. This application does not silently grant or bypass them. The current Accessibility helper only reads the frontmost app and its accessibility tree.
+Accessibility, Screen Recording, Automation, and Full Disk Access are separate macOS TCC permissions. This application does not silently grant or bypass them. The Accessibility helper only reads the frontmost app and its accessibility tree. `screen.capture` requires Screen Recording; when it is missing, the step fails with the System Settings path instead of returning a blank or wallpaper-only image.
 
 ## Embedded page isolation
 

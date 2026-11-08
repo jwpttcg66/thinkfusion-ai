@@ -29,19 +29,36 @@ export const PROTOCOL = 'desktop-agent/v1';
  * V2.1 扩展了工具集，但顺序与语义保持兼容：前四个是 v1 原有的，
  * 老计划、老 grant、老 journal 里的工具名一个都没变。
  *
- * - `fs.tree` / `fs.search`：工程理解要能递归看目录、按内容搜代码（只读）。
+ * - `fs.tree` / `fs.search` / `fs.find`：工程理解要能递归看目录、按内容搜
+ *   代码、按文件名/通配符找文件（只读）。
  * - `test.run`：工程实施要能拿到真实退出码，而不是模型自称「测试通过」。
+ * - `shell.run`：对齐本地 harness 的 shell 能力。不是「再包一层白名单命令」——
+ *   `workspace-write` 只放行只读与构建类命令，`danger-full-access` 才给真
+ *   shell（仍然拦 `sudo` / `mkfs` / `rm -rf /` 这类不可回收的操作）。
+ * - `screen.capture`：真实调用系统截图，产物落盘并带指纹，不是让模型描述
+ *   一张「我想象的屏幕」。
+ * - `app.open`：真实启动应用或打开文件，并回读进程是否存在。
  * - `fs.writeFile` 新增 `overwrite` + `expectedHash`：改已有文件必须先证明
  *   它还是当时读到的那一版，否则宁可拒绝，也不覆盖别人刚改的内容。
  */
 export const TOOL_NAMES = [
   'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
-  'fs.tree', 'fs.search', 'test.run'
+  'fs.tree', 'fs.search', 'fs.find', 'test.run',
+  'shell.run', 'screen.capture', 'app.open'
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
-/** 只读工具。read-only 预设只允许这些，`test.run` 会写构建产物，不在其中。 */
-export const READ_ONLY_TOOLS: readonly ToolName[] = ['fs.list', 'fs.readFile', 'fs.tree', 'fs.search'];
+/**
+ * 只读工具。read-only 预设只允许这些。
+ *
+ * `test.run` / `shell.run` / `screen.capture` / `app.open` 都会产生副作用
+ * （构建产物、系统命令、截图文件、启动进程），一个都不能放进来——只读就是
+ * 只读，不能因为「它看起来像查看」就放宽。
+ */
+export const READ_ONLY_TOOLS: readonly ToolName[] = ['fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find'];
+
+/** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
+export const MUTATING_TOOLS: readonly ToolName[] = ['fs.mkdir', 'fs.writeFile', 'test.run', 'shell.run', 'screen.capture', 'app.open'];
 
 export const TEST_COMMANDS = [
   'npm test',
@@ -99,8 +116,58 @@ export const StepSchema = z.discriminatedUnion('tool', [
   }).strict(),
   z.object({
     id: Id,
+    tool: z.literal('fs.find'),
+    args: z.object({
+      /** 文件名通配：`*.ts`、`src/**\/*.test.ts`、`README*`。 */
+      pattern: z.string().min(1).max(200),
+      path: RelativePath.optional(),
+      maxResults: z.number().int().min(1).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
     tool: z.literal('test.run'),
     args: z.object({ command: z.enum(TEST_COMMANDS) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('shell.run'),
+    args: z.object({
+      command: z.string().min(1).max(2000),
+      /** 相对工作区的目录；不给就是工作区根目录。 */
+      cwd: RelativePath.optional(),
+      timeoutMs: z.number().int().min(1000).max(300_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('screen.capture'),
+    args: z.object({
+      target: z.enum(['screen', 'region']).optional(),
+      /** target=region 时必须给，单位是屏幕像素点。 */
+      region: z.object({
+        x: z.number().int().min(0).max(20_000),
+        y: z.number().int().min(0).max(20_000),
+        width: z.number().int().min(1).max(20_000),
+        height: z.number().int().min(1).max(20_000)
+      }).strict().optional(),
+      /** 相对工作区（或完全权限下的绝对路径）；不给就落在应用缓存目录。 */
+      path: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('app.open'),
+    args: z.object({
+      /** 应用名，例如 "TextEdit"、"Safari"。与 path 二选一。 */
+      app: z.string().min(1).max(200).optional(),
+      /** 要打开的文件/目录。与 app 二选一。 */
+      path: RelativePath.optional()
+    }).strict(),
     description: z.string().max(500).optional()
   }).strict()
 ]);
@@ -126,6 +193,14 @@ export const PlanSchema = z
       step.tool !== 'fs.writeFile' || !step.args.overwrite || !!step.args.expectedHash
     ),
     { message: '覆盖已有文件的步骤必须带 expectedHash' }
+  )
+  .refine(
+    plan => plan.steps.every(step => {
+      if (step.tool === 'app.open') return Boolean(step.args.app) !== Boolean(step.args.path);
+      if (step.tool === 'screen.capture') return step.args.target !== 'region' || Boolean(step.args.region);
+      return true;
+    }),
+    { message: 'app.open 必须且只能给 app 或 path 之一；截图 target=region 时必须给 region' }
   );
 
 export type AgentPlan = z.infer<typeof PlanSchema>;
@@ -295,7 +370,7 @@ export const TaskGrantSchema = z
     permissionPreset: z.enum(['read-only', 'workspace-write', 'danger-full-access']),
     approvalPolicy: z.literal('ask'),
     rootDir: z.string().min(1).max(2000),
-    allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(7),
+    allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(TOOL_NAMES.length),
     expiresAt: z.number().int().positive(),
     maxSteps: z.number().int().min(1).max(30),
     grantVersion: z.number().int().min(1).optional()
