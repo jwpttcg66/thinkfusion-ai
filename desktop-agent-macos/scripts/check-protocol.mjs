@@ -343,6 +343,29 @@ test('prose containing braces is not mistaken for a protocol message', () => {
   assert.equal(parseAnswer(prose, { taskId: TASK, roundId: ROUND }).kind, 'none');
 });
 
+test('completion 写成一句话、一个数组或 criteria 都能收敛成完成条件', () => {
+  // 这三种写法在真机上都出现过：网页模型把「怎样算做完」写成了列表或换了键名。
+  // 语义完全一样，拒绝的代价是整条任务失败，所以这里收敛而不是报错。
+  const variants = [
+    '文件已写入并且代码打印出条数',
+    ['文件已写入', '代码打印出条数'],
+    { criteria: ['文件已写入', '代码打印出条数'] },
+    { conditions: '文件已写入并且代码打印出条数' }
+  ];
+  for (const completion of variants) {
+    const result = parseAnswer(fenced(plan({ completion })), { taskId: TASK, roundId: ROUND });
+    assert.equal(result.kind, 'plan', `completion=${JSON.stringify(completion)} 应当被接受`);
+    assert.match(result.plan.completion.condition, /文件已写入/);
+  }
+});
+
+test('completion 缺失时仍然拒绝，不拿别的东西顶替', () => {
+  const broken = plan();
+  delete broken.completion;
+  const result = parseAnswer(fenced(broken), { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'invalid');
+});
+
 test('a protocol block that cannot be parsed reports why', () => {
   const broken = '{ "protocol": "desktop-agent/v1", "type": "plan", }';
   const result = parseAnswer(broken, { taskId: TASK, roundId: ROUND });

@@ -51,7 +51,7 @@ import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
 import { classifyIntent } from '../shared/intent';
-import type { ConversationEvent } from '../shared/conversation';
+import type { ChannelStatus, ConversationEvent } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
@@ -76,6 +76,8 @@ import {
 import { SourceStore } from './source-store';
 import { ProfileStore } from './profile-store';
 import { WorkspaceStore } from './workspace-store';
+import { runSearchTest, saveSearchSettings, viewSearchSettings } from './search-settings';
+import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
 import { planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
 import { normalizeWorkspaceState, routeTask, type EngineeringTaskKind as WorkspaceTaskKind } from '../shared/workspace';
@@ -297,7 +299,61 @@ function adapterFor(id: string): ChatPageDriver {
 
 /** The adapter the agent plans through. */
 function planningAdapter(): ChatPageDriver {
-  return adapterFor(planningSource(sources)?.id ?? 'deepseek');
+  return adapterFor(planningChannelId());
+}
+
+/**
+ * 这次规划用哪条通道的页面。
+ *
+ * 为什么不在提交时才报错：DeepSeek 掉登录之后，界面上 ChatGPT 明明可用，
+ * 用户点一下却收到「DeepSeek 未登录」，任务连计划都没生成。那条通道是
+ * `planning: true` 的默认值，不是用户这一次的选择——默认值坏掉不该让整个
+ * 功能停摆。
+ *
+ * 顺序仍然「设置里的规划源优先」，所以没坏时行为不变；全都不可用时退回原首选，
+ * 让报错保持准确（那时候该说的是「去登录」，不是「换一个」）。
+ *
+ * 判据必须是「能真的发出问题」，所以除了 `available` 还要看 `loggedIn`：
+ * DeepSeek 掉登录时页面本身是活的（`available: true`），只有 `loggedIn` 为假，
+ * 而编排器在提交开头就卡这一条——只认 `available` 的话，掉登录的通道会被当成
+ * 可用通道挑回来，然后任务在第一步死掉。
+ *
+ * 判断依据是最近一次探活快照：这个函数必须同步返回，而探活是异步的。
+ * 快照为空（刚启动、界面还没轮询）时不做判断，退化为旧行为；提交前
+ * `ensureChannelSnapshot()` 会把快照补上，所以这个退化只在非用户路径上出现。
+ */
+function planningChannelId(): string {
+  const preferred = planningSource(sources);
+  if (lastChannelStatuses.length === 0) return preferred?.id ?? 'deepseek';
+
+  const blocked = new Set(
+    lastChannelStatuses.filter(status => !status.available || !status.loggedIn).map(status => status.id)
+  );
+  const usable = sources.filter(source => source.enabled && !blocked.has(source.id));
+  // 能用的里面，仍然是「规划源优先」，其次按来源栏顺序。
+  const pick = usable.find(source => source.planning) ?? usable[0];
+  return pick?.id ?? preferred?.id ?? 'deepseek';
+}
+
+/**
+ * 提交前把通道快照探一次（只在没有快照、或快照超过 15 秒时）。
+ *
+ * 快照原本只由界面轮询写入，而 `conversation:submit` 可以从任何地方来：
+ * 应用刚启动时界面还没轮询，快照为空，`planningChannelId()` 只能退化为
+ * 「按设置里的规划源挑」——于是「跳过掉线通道」在真正需要它的那一刻失效。
+ * 这一步把「读一份可能过期的快照」补成「读一份刚测过的快照」。
+ *
+ * 探活失败不抛：探不通的时候该报的是执行链路里的具体原因（未登录 / 找不到
+ * 输入框），而不是这里一句笼统的「状态获取失败」。
+ */
+async function ensureChannelSnapshot(maxAgeMs = 15_000): Promise<void> {
+  if (lastChannelStatuses.length > 0 && Date.now() - lastChannelSnapshotAt < maxAgeMs) return;
+  try {
+    lastChannelStatuses = await registry.statuses();
+    lastChannelSnapshotAt = Date.now();
+  } catch {
+    /* 沿用旧快照 */
+  }
 }
 
 /**
@@ -316,6 +372,18 @@ function diagnosedSource(id: unknown): PageSource | undefined {
 }
 
 const registry = new SubAgentRegistry([]);
+
+/**
+ * 最近一次通道探活结果。
+ *
+ * 存在的唯一理由是 `planningChannelId()` 必须同步返回：挑通道发生在一次
+ * 提交的开头，而探活要等页面回答。没有快照时按「都可用」处理（旧行为），
+ * 有快照时才知道该跳过谁。界面会轮询，提交前也会再探一次（见
+ * `ensureChannelSnapshot`），所以快照不会停留在启动那一刻。
+ */
+let lastChannelStatuses: ChannelStatus[] = [];
+/** 上面那份快照是什么时候测的。用来判断该不该在提交前重探。 */
+let lastChannelSnapshotAt = 0;
 
 /**
  * Phase E：三种来源共用一份名单。
@@ -558,6 +626,44 @@ function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
   const url = event.senderFrame?.url ?? '';
   const isDev = url.startsWith('http://localhost:') || url.startsWith('http://127.0.0.1:');
   if (!isDev && !url.startsWith('file://')) throw new Error('Untrusted renderer origin');
+}
+
+/**
+ * 渲染进程递上来的搜索设置，只认这三个字段。
+ *
+ * 不直接 `as SearchSettings` 是有原因的：渲染进程是网页环境，任何字段都可能
+ * 是 `{ toString: ... }` 之类的怪东西，写进 JSON 就成了脏数据；而这里多接受
+ * 一个字段（比如未来某人加了 `configPath`）就等于让它能改文件路径。
+ */
+function sanitizeSearchPatch(raw: unknown): {
+  provider?: SearchProvider | null;
+  apiKey?: string;
+  searxngUrl?: string;
+} {
+  if (!raw || typeof raw !== 'object') throw new Error('搜索设置格式不正确');
+  const input = raw as Record<string, unknown>;
+  const out: { provider?: SearchProvider | null; apiKey?: string; searxngUrl?: string } = {};
+
+  if ('provider' in input) {
+    const value = input.provider;
+    if (value === null) out.provider = null;
+    else if (typeof value === 'string' && (SEARCH_PROVIDERS as readonly string[]).includes(value)) {
+      out.provider = value as SearchProvider;
+    } else {
+      throw new Error('未知的搜索提供方');
+    }
+  }
+  if ('apiKey' in input) {
+    if (typeof input.apiKey !== 'string') throw new Error('API key 必须是字符串');
+    out.apiKey = input.apiKey.trim().slice(0, 400);
+  }
+  if ('searxngUrl' in input) {
+    if (typeof input.searxngUrl !== 'string') throw new Error('实例地址必须是字符串');
+    const url = input.searxngUrl.trim();
+    if (url && !/^https?:\/\//i.test(url)) throw new Error('实例地址要以 http:// 或 https:// 开头');
+    out.searxngUrl = url.slice(0, 2000);
+  }
+  return out;
 }
 
 /**
@@ -1601,6 +1707,7 @@ function registerIpc() {
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = SubmitPromptSchema.parse(raw);
+    await ensureChannelSnapshot();
     return orchestrator.submit(input);
   });
 
@@ -1686,6 +1793,8 @@ function registerIpc() {
       taskKindOverride?: unknown;
     };
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想研究或完成的事情。');
+    // 规划通道是在这一步挑的，所以探活必须发生在这一步之前。
+    await ensureChannelSnapshot();
     return conversations.start({
       text: input.text,
       workspaceRoot: typeof input.workspaceRoot === 'string' ? input.workspaceRoot : undefined,
@@ -2126,6 +2235,22 @@ function registerIpc() {
     return saveSource(raw);
   });
 
+  // 联网搜索的凭据。三个通道都在主进程校验：渲染进程只能提议，不能直接写盘。
+  ipcMain.handle('search:get', (event) => {
+    trustedUiSender(event);
+    return viewSearchSettings();
+  });
+
+  ipcMain.handle('search:save', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return saveSearchSettings(sanitizeSearchPatch(raw));
+  });
+
+  ipcMain.handle('search:test', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return runSearchTest(sanitizeSearchPatch(raw));
+  });
+
   ipcMain.handle('sources:add', (event, raw: unknown) => {
     trustedUiSender(event);
     return addSource(raw);
@@ -2430,7 +2555,12 @@ app.whenReady().then(async () => {
         leadAgentId: config.leadAgentId
       }),
     restoreThreads: restoreThreadViews,
-    channelStatuses: () => registry.statuses(),
+    channelStatuses: async () => {
+      const statuses = await registry.statuses();
+      lastChannelStatuses = statuses;
+      lastChannelSnapshotAt = Date.now();
+      return statuses;
+    },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     agentSource: agentId => {
       const extra = extraAgents.find(agent => agent.id === agentId);
@@ -2520,13 +2650,15 @@ app.whenReady().then(async () => {
       if (index >= 0) collaborationRecords[index] = record;
       else collaborationRecords.push(record);
     },
-    submitWorkspace: input =>
-      orchestrator.submit({
+    submitWorkspace: async input => {
+      await ensureChannelSnapshot();
+      return orchestrator.submit({
         prompt: input.prompt,
         permissionPreset: input.permissionPreset as PermissionPreset,
         workspaceRoot: input.workspaceRoot,
         planDebate: input.planDebate
-      })
+      });
+    }
   });
 
   // A turn that was running when the last process ended has nobody left to

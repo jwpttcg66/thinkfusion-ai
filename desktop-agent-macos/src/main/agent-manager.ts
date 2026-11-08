@@ -2,6 +2,7 @@ import { utilityProcess, type UtilityProcess } from 'electron';
 import path from 'node:path';
 import type { AgentEvent, AgentPlan, ExecutionReport, TaskGrant } from '../shared/contracts';
 import { ExecutionReportSchema } from '../shared/schemas';
+import { searchInBrowser } from './browser-search';
 
 interface PendingRun {
   resolve: (report: ExecutionReport) => void;
@@ -34,6 +35,31 @@ export function startAgentProcess() {
       clearTimeout(pending.timer);
       if (parsed.success) pending.resolve(parsed.data as ExecutionReport);
       else pending.reject(new Error(`Runtime 返回的执行报告无效：${parsed.error.message}`));
+      return;
+    }
+
+    /**
+     * 搜索要借主进程的浏览器：Runtime 是 UtilityProcess，开不了窗口。
+     *
+     * 回包一定发（成功或失败都发）：Runtime 那边在等一个 requestId 的答复，
+     * 没有答复它只能等到超时——那会让一次「其实立刻失败了」的搜索看起来像
+     * 「网络很慢」。
+     */
+    if (typed.type === 'search.browser.request') {
+      const runner = child;
+      const requestId = String(typed.requestId);
+      const query = typeof typed.query === 'string' ? typed.query : '';
+      const limit = Number(typed.limit) || 8;
+      if (!runner) return;
+      void searchInBrowser(query, limit)
+        .then(result => runner.postMessage({ type: 'search.browser.result', requestId, result }))
+        .catch(error =>
+          runner.postMessage({
+            type: 'search.browser.result',
+            requestId,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        );
       return;
     }
 

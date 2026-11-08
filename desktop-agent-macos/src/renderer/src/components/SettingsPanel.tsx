@@ -4,14 +4,22 @@ import type { Identity, PermissionPreset, SourcesState } from '../../../shared/c
 import type { PageSource } from '../../../shared/sources';
 import { ICON_GEAR_PATHS } from '../../../shared/icons';
 import { DEFAULT_DISPLAY_NAME, MAX_DISPLAY_NAME_LENGTH, initialOf } from '../../../shared/identity';
+import {
+  SEARCH_PROVIDERS,
+  SEARCH_PROVIDER_FIELD,
+  SEARCH_PROVIDER_LABEL,
+  type SearchProvider,
+  type SearchSettingsView
+} from '../../../shared/search';
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
-type Section = 'general' | 'models' | 'plugins' | 'agents';
+type Section = 'general' | 'models' | 'search' | 'plugins' | 'agents';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> = [
   { id: 'general', label: '通用设置', icon: ICON_GEAR_PATHS },
   { id: 'models', label: '模型', icon: ['M3 5h10M3 8h10M3 11h6'] },
+  { id: 'search', label: '联网搜索', icon: ['M7.2 3.2a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M10.4 10.4 13.6 13.6'] },
   { id: 'plugins', label: '内置插件', icon: ['M8 2.4 13 5.2v5.6L8 13.6 3 10.8V5.2z', 'M3 5.2 8 8l5-2.8'] },
   { id: 'agents', label: 'Agent 预设', icon: ['M5.2 3.2h5.6v2.4H5.2zM3.2 8.4h9.6v4.4H3.2z'] }
 ];
@@ -83,6 +91,42 @@ export function SettingsPanel(props: {
    */
   const [draftName, setDraftName] = useState('');
   const [nameError, setNameError] = useState('');
+
+  /**
+   * 搜索设置自带一套状态，不复用上面的 `error`/`busy`。
+   *
+   * 理由和名字字段一样：面板切换时两套表单不会同时在屏幕上，共用一条错误
+   * 信息只会让「刚才那句红字在说哪件事」变成猜谜。另外这里要保存的是
+   * 「已填但还没保存」的草稿——key 一旦保存就不再回传原文，界面拿不到它。
+   */
+  const [search, setSearch] = useState<SearchSettingsView | null>(null);
+  const [searchProvider, setSearchProvider] = useState<SearchProvider | null>(null);
+  const [searchKey, setSearchKey] = useState('');
+  const [searchUrl, setSearchUrl] = useState('');
+  const [searchNote, setSearchNote] = useState('');
+  const [searchTone, setSearchTone] = useState<'ok' | 'error' | 'muted'>('muted');
+  const [searchBusy, setSearchBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI
+      .getSearchSettings()
+      .then(view => {
+        if (!alive) return;
+        setSearch(view);
+        setSearchProvider(view.provider ?? null);
+        setSearchUrl(view.searxngUrl ?? '');
+      })
+      .catch(error => {
+        if (alive) {
+          setSearchTone('error');
+          setSearchNote(error instanceof Error ? error.message : String(error));
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // The identity arrives after the first render, and 「恢复默认」 changes it from
   // the main process — so the draft follows the stored value, not the other way
@@ -191,6 +235,58 @@ export function SettingsPanel(props: {
     const problem = await props.onRename(next);
     setBusy(false);
     if (problem) setNameError(problem);
+  }
+
+  /**
+   * 保存搜索凭据。
+   *
+   * 只发用户真的动过的那几个字段：key 留空表示「不改」，不是「清空」——
+   * 界面上根本看不到已存的 key，一次误触「保存」不该把凭据抹掉。
+   */
+  async function saveSearch(patch: {
+    provider?: SearchProvider | null;
+    apiKey?: string;
+    searxngUrl?: string;
+  }) {
+    if (searchBusy) return;
+    setSearchBusy(true);
+    setSearchNote('');
+    try {
+      const view = await window.agentAPI.saveSearchSettings(patch);
+      setSearch(view);
+      setSearchProvider(view.provider ?? null);
+      setSearchUrl(view.searxngUrl ?? '');
+      setSearchKey('');
+      setSearchTone('ok');
+      setSearchNote('已保存');
+    } catch (error) {
+      setSearchTone('error');
+      setSearchNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSearchBusy(false);
+    }
+  }
+
+  /** 真发一次请求。凭据对不对，只有服务端的回答算数。 */
+  async function testSearch() {
+    if (searchBusy) return;
+    setSearchBusy(true);
+    setSearchNote('正在请求搜索服务…');
+    setSearchTone('muted');
+    try {
+      const result = await window.agentAPI.testSearchSettings({
+        provider: searchProvider,
+        ...(searchKey.trim() ? { apiKey: searchKey.trim() } : {}),
+        ...(searchUrl.trim() ? { searxngUrl: searchUrl.trim() } : {})
+      });
+      setSearchTone(result.ok ? 'ok' : 'error');
+      setSearchNote(result.ok ? `${result.note}${result.sample ? `，例如「${result.sample}」` : ''}` : result.note);
+    } catch (error) {
+      setSearchTone('error');
+      setSearchNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSearchBusy(false);
+    }
   }
 
   const statusOf = (id: string) => props.channelStatuses.find(status => status.id === id) ?? null;
@@ -425,6 +521,125 @@ export function SettingsPanel(props: {
               </section>
             )}
 
+            {section === 'search' && (
+              <section className="settings-section">
+                <h3>联网搜索</h3>
+                <p className="settings-lead">
+                  搜索要落到一个外部服务上：配了凭据就用它的完整结果列表；没配也能用——应用会用自己的
+                  浏览器打开 Bing 结果页把标题和链接取回来（免凭据），结果里会写明这次是哪种。
+                </p>
+
+                <div className="settings-field">
+                  <span className="settings-field-label">搜索服务</span>
+                  <div className="settings-choices">
+                    {SEARCH_PROVIDERS.map(id => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`settings-choice${searchProvider === id ? ' active' : ''}`}
+                        onClick={() => {
+                          setSearchProvider(id);
+                          setSearchNote('');
+                          setSearchTone('muted');
+                          setSearchKey('');
+                        }}
+                      >
+                        <b>{SEARCH_PROVIDER_LABEL[id]}</b>
+                        <span>{SEARCH_PROVIDER_FIELD[id] === 'searxngUrl' ? '填实例地址' : '填 API key'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {searchProvider && SEARCH_PROVIDER_FIELD[searchProvider] === 'searxngUrl' && (
+                  <div className="settings-field">
+                    <span className="settings-field-label">SearXNG 实例地址</span>
+                    <div className="settings-account">
+                      <input
+                        className="settings-name-input"
+                        value={searchUrl}
+                        spellCheck={false}
+                        placeholder="https://searx.example.com"
+                        aria-label="SearXNG 实例地址"
+                        onChange={event => setSearchUrl(event.target.value)}
+                      />
+                    </div>
+                    <p className="settings-hint">
+                      实例要开了 JSON 输出（`search.formats` 里带 `json`），否则只会返回 HTML，这里会报「不是 JSON」。
+                    </p>
+                  </div>
+                )}
+
+                {searchProvider && SEARCH_PROVIDER_FIELD[searchProvider] === 'apiKey' && (
+                  <div className="settings-field">
+                    <span className="settings-field-label">API key</span>
+                    <div className="settings-account">
+                      <input
+                        className="settings-name-input"
+                        value={searchKey}
+                        type="password"
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder={search?.hasKey ? `已保存 ${search.keyHint ?? ''}，留空表示不改` : '粘贴 key'}
+                        aria-label="搜索 API key"
+                        onChange={event => setSearchKey(event.target.value)}
+                      />
+                    </div>
+                    <p className="settings-hint">
+                      key 存在本机、只用于搜索请求；保存后不再回传到这里，界面只记得末四位。
+                    </p>
+                  </div>
+                )}
+
+                <div className="settings-field">
+                  <div className="settings-account">
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={searchBusy || !searchProvider}
+                      onClick={() =>
+                        void saveSearch({
+                          provider: searchProvider,
+                          ...(searchKey.trim() ? { apiKey: searchKey.trim() } : {}),
+                          ...(searchUrl.trim() ? { searxngUrl: searchUrl.trim() } : {})
+                        })
+                      }
+                    >
+                      {searchBusy ? '处理中…' : '保存'}
+                    </button>
+                    <button className="btn secondary" type="button" disabled={searchBusy} onClick={() => void testSearch()}>
+                      测试连接
+                    </button>
+                    <button
+                      className="btn ghost"
+                      type="button"
+                      disabled={searchBusy || !search?.provider}
+                      onClick={() => void saveSearch({ provider: null })}
+                    >
+                      清除
+                    </button>
+                  </div>
+                  {searchNote && (
+                    <p className={searchTone === 'error' ? 'settings-error' : 'settings-hint'}>{searchNote}</p>
+                  )}
+                </div>
+
+                <div className="settings-field">
+                  <span className="settings-field-label">当前状态</span>
+                  <p className="settings-hint">
+                    {search?.fromEnv
+                      ? '配置文件不生效：环境变量里配了搜索凭据，环境变量优先。'
+                      : search?.fallbackOnly
+                        ? '还没配凭据：搜索走应用内浏览器打开的 Bing 结果页，能拿到标题与链接；再不行才退回 DuckDuckGo / Wikipedia 摘要。'
+                        : `已配置 ${SEARCH_PROVIDER_LABEL[search?.provider ?? ''] ?? search?.provider}。`}
+                  </p>
+                  <p className="settings-muted">
+                    配置文件：{search?.configPath ?? '（未读取）'}（也可以直接编辑它，格式是 JSON）
+                  </p>
+                </div>
+              </section>
+            )}
+
             {section === 'plugins' && (
               <section className="settings-section">
                 <h3>内置插件</h3>
@@ -442,7 +657,8 @@ export function SettingsPanel(props: {
                   规划用的提示词和工具白名单目前写在构建里，还没有可编辑的预设。执行权限在「通用设置」里改。
                 </p>
                 <p className="settings-lead">
-                  工具面是刻意收窄的：列目录、读文件、建目录、新建文件。没有 shell，没有删除，没有覆盖。
+                  工具面是明面上的 29 个：文件读写与编辑、按名/按内容查找、跑命令与跑代码、截图、
+                  打开应用、剪贴板、通知、进程、系统信息、抓网页与联网搜索。执行权限决定哪些能真跑。
                 </p>
               </section>
             )}

@@ -275,6 +275,43 @@ export function containsEcho(text: string, echo?: string): boolean {
   return findIgnoringWhitespace(text, head) !== null;
 }
 
+/**
+ * 把 `completion` 的几种等价写法收敛成 `{ condition: string }`。
+ *
+ * 为什么值得容忍：网页里的模型经常把「完成条件」写成一句话、一个数组，
+ * 或者一个 `{ criteria: [...] }` 的对象——语义完全一样，都是「怎样算做完」。
+ * 严格拒绝的代价不是「让它重写一次」，而是**整条任务直接失败**：实测三次
+ * 里有一次就连续写错三遍（`completion: []` → `{criteria: []}` → 再错），
+ * 用户看到的是「任务失败」，而不是「搜索和跑代码不能用」。
+ *
+ * 只做这一处收敛，其它字段一律照旧严格：`steps` 的工具名与参数直接决定
+ * 真机要跑什么，容错在那里就是把「模型写错了」变成「机器做错事」。
+ */
+function normalizePlanShape(value: Record<string, unknown>): Record<string, unknown> {
+  const completion = value.completion;
+  const asCondition = (raw: unknown): string | null => {
+    if (typeof raw === 'string') return raw.trim() || null;
+    if (Array.isArray(raw)) {
+      const parts = raw.map(item => String(item ?? '').trim()).filter(Boolean);
+      return parts.length > 0 ? parts.join('；') : null;
+    }
+    return null;
+  };
+
+  const direct = asCondition(completion);
+  if (direct) return { ...value, completion: { condition: direct } };
+
+  if (completion && typeof completion === 'object' && !Array.isArray(completion)) {
+    const record = completion as Record<string, unknown>;
+    if (typeof record.condition === 'string' && record.condition.trim()) return value;
+    for (const key of ['criteria', 'conditions', 'when', 'done']) {
+      const alt = asCondition(record[key]);
+      if (alt) return { ...value, completion: { condition: alt } };
+    }
+  }
+  return value;
+}
+
 export function parseAnswer(
   text: string,
   expected: { taskId: string; roundId: string },
@@ -316,7 +353,7 @@ export function parseAnswer(
 
   try {
     if (type === 'plan') {
-      const plan = PlanSchema.parse(value);
+      const plan = PlanSchema.parse(normalizePlanShape(value));
       if (plan.taskId !== expected.taskId) {
         return { kind: 'invalid', error: `计划 taskId 不匹配（期望 ${expected.taskId}，实际 ${plan.taskId}）` };
       }
@@ -456,6 +493,19 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - web.fetch:    { "url": string, "method"?: "GET" | "POST", "headers"?: object, "body"?: string, "maxBytes"?: number }
                  真实抓取 http/https：返回状态码、content-type、字节、sha256 与正文
                  （HTML 会去标签）。拒环回/私网/元数据地址，重定向逐跳校验，10s 超时。
+- web.search:   { "query": string, "maxResults"?: number, "site"?: string }
+                 真实联网搜索，返回 title / url / snippet 列表（已按地址去重）。
+                 需要先查资料、找官网、确认版本或新闻时用它，不要用 web.fetch 去抓
+                 搜索页——搜索页返回的是给人看的 HTML 或人机验证，不是结果。
+                 · 引用结果时必须带上它返回的 url，不能只写「根据网上资料」。
+                 · 结果为空就如实说没查到；不要凭印象补几条看起来合理的链接。
+                 · 返回里的 degraded 字段说明这次为什么只有摘要，要一并告诉用户。
+- code.run:     { "language": "node" | "python3" | "bash", "code": string, "timeoutMs"?: number, "cwd"?: string }
+                 在本地真实解释器里跑一段代码，返回真实退出码、stdout、stderr 与耗时。
+                 写完代码要立刻验证、算一段数据、试一个正则，用它；不要用 shell.run
+                 拼 node -e 一行命令（引号一错就变成另一段程序）。
+                 · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
+                 · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
 
 所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。
 绝对路径只在 danger-full-access 下允许。`;
@@ -474,11 +524,11 @@ export function buildInitialPrompt(input: {
 请分析下面的用户任务，并输出一份符合 ${PROTOCOL} 协议的执行计划。
 
 规则：
-1. 你只负责规划，不负责执行；本地 Runtime 才会真正读写文件、执行命令、截屏、启动应用、
-   操作剪贴板、发通知、抓网页、起后台作业。
-2. 需要在本机做任何事时（跑命令、截屏、开应用、改/移/删文件、读剪贴板、发通知、
-   抓网页、起后台任务），直接把对应工具写进计划——不要因为「可能被拒绝」就降级成
-   让用户自己去做，也不要用文字描述代替真实动作。权限不足时 Runtime 会明确拒绝，
+1. 你只负责规划，不负责执行；本地 Runtime 才会真正读写文件、执行命令与代码、截屏、
+   启动应用、操作剪贴板、发通知、抓网页、联网搜索、起后台作业。
+2. 需要在本机做任何事时（跑命令、跑一段代码、截屏、开应用、改/移/删文件、读剪贴板、
+   发通知、抓网页、搜资料、起后台任务），直接把对应工具写进计划——不要因为「可能被拒绝」
+   就降级成让用户自己去做，也不要用文字描述代替真实动作。权限不足时 Runtime 会明确拒绝，
    并告诉你原因。
 3. 只能使用下面列出的工具，参数必须完整且符合格式。
 4. 计划最多 ${input.maxSteps} 步。
@@ -490,6 +540,10 @@ export function buildInitialPrompt(input: {
    写绝对路径会被本地 Runtime 直接拒绝，白白浪费一轮。
 10. 要修改已有文件，这一轮**只规划 fs.readFile**（必要时加 fs.list），把 sha256 留到下一轮：
     计划阶段拿不到文件指纹，编一个会被 schema 拒绝，整个任务当场失败。
+11. 需要外部事实（最新版本、官方文档地址、某个库怎么用、最近发生了什么）时，先规划
+    web.search；拿到结果后再决定是否 web.fetch 读正文。引用必须带 url。
+    搜索返回 0 条就如实说没查到，不要用记忆里的链接凑数——链接失效比没有链接更糟。
+12. 写完代码要验证时用 code.run 跑一遍真实的解释器，不要只描述「理论上可行」。
 
 ${TOOL_SPEC}
 

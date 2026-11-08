@@ -7,6 +7,7 @@ import type {
   PlanPreview
 } from '../../shared/contracts';
 import { BUILTIN_SOURCES } from '../../shared/sources';
+import type { SearchSettingsView } from '../../shared/search';
 
 /** The shipped list, as the preview's starting point. */
 const PAGE_SOURCES = [...BUILTIN_SOURCES];
@@ -104,8 +105,27 @@ const events: Record<string, AgentEvent[]> = {
 
 export function createMockApi(): AgentApi {
   let preset: PermissionPreset = 'workspace-write';
+  // 预览环境不读盘：这里给的是「没配凭据」的真实形态，不是假的可搜状态。
+  let searchSettings: SearchSettingsView = {
+    hasKey: false,
+    fromEnv: false,
+    configPath: '/Users/example/Library/Application Support/ThinkFusion/search-config.json',
+    fallbackOnly: true
+  };
 
   return {
+    getSearchSettings: async () => searchSettings,
+    saveSearchSettings: async patch => {
+      searchSettings = {
+        ...searchSettings,
+        provider: patch.provider ?? undefined,
+        hasKey: !!patch.apiKey,
+        fromEnv: false,
+        fallbackOnly: !patch.provider
+      };
+      return searchSettings;
+    },
+    testSearchSettings: async () => ({ ok: false, note: '预览环境不发真实请求' }),
     submitPrompt: async () => tasks[0],
     getTask: async taskId => tasks.find(task => task.taskId === taskId) ?? null,
     getTaskHistory: async () => tasks,

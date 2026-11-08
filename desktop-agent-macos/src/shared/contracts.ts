@@ -3,6 +3,7 @@ import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
+import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from './search';
 import type {
   ChannelStatus,
   Conversation,
@@ -48,7 +49,7 @@ export const TOOL_NAMES = [
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
-  'web.fetch'
+  'web.fetch', 'web.search', 'code.run'
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -70,8 +71,12 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
-  'clipboard.write', 'notify', 'process.kill', 'web.fetch'
+  'clipboard.write', 'notify', 'process.kill', 'web.fetch', 'web.search', 'code.run'
 ];
+
+/** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */
+export const CODE_LANGUAGES = ['node', 'python3', 'bash'] as const;
+export type CodeLanguage = (typeof CODE_LANGUAGES)[number];
 
 export const TEST_COMMANDS = [
   'npm test',
@@ -316,6 +321,29 @@ export const StepSchema = z.discriminatedUnion('tool', [
       headers: z.record(z.string().max(200)).optional(),
       body: z.string().max(100_000).optional(),
       maxBytes: z.number().int().min(1024).max(2_000_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('web.search'),
+    args: z.object({
+      query: z.string().min(1).max(300),
+      maxResults: z.number().int().min(1).max(20).optional(),
+      /** 限定站点，例如 `github.com`。 */
+      site: z.string().min(1).max(120).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.run'),
+    args: z.object({
+      language: z.enum(CODE_LANGUAGES),
+      code: z.string().min(1).max(200_000),
+      timeoutMs: z.number().int().min(1000).max(300_000).optional(),
+      /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
+      cwd: RelativePath.optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict()
@@ -1177,6 +1205,11 @@ export interface AgentApi {
   /** V2.1：新会话默认用哪个空间、绑哪个项目。 */
   getWorkspace(): Promise<WorkspaceState>;
   setWorkspace(patch: Partial<WorkspaceState>): Promise<WorkspaceState>;
+  /** 联网搜索的凭据。key 只回传「是否已填」，不回传原文。 */
+  getSearchSettings(): Promise<SearchSettingsView>;
+  saveSearchSettings(patch: SearchSettingsPatch): Promise<SearchSettingsView>;
+  /** 用当前凭据真发一次请求，验证能不能搜到。 */
+  testSearchSettings(patch: SearchSettingsPatch): Promise<SearchTestResult>;
   followupConversation(input: FollowupConversationInput): Promise<Conversation>;
   /**
    * 把当前的研究设置存到这个会话上。

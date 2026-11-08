@@ -26,6 +26,7 @@ import type {
   WorkspaceMode,
   WorkspaceState
 } from '../shared/workspace';
+import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -38,6 +39,11 @@ const api: AgentApi = {
     ipcRenderer.invoke('conversation:route', input),
   getWorkspace: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:get'),
   setWorkspace: (patch: Partial<WorkspaceState>): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:set', patch),
+  getSearchSettings: (): Promise<SearchSettingsView> => ipcRenderer.invoke('search:get'),
+  saveSearchSettings: (patch: SearchSettingsPatch): Promise<SearchSettingsView> =>
+    ipcRenderer.invoke('search:save', patch),
+  testSearchSettings: (patch: SearchSettingsPatch): Promise<SearchTestResult> =>
+    ipcRenderer.invoke('search:test', patch),
   followupConversation: (input: FollowupConversationInput) => ipcRenderer.invoke('conversation:followup', input),
   updateConversationConfig: (input: { conversationId: string; executionConfig: Partial<ConversationExecutionConfig> }) =>
     ipcRenderer.invoke('conversation:config', input),

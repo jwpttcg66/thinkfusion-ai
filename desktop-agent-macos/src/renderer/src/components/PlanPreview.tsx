@@ -28,7 +28,9 @@ const TOOL_LABEL: Record<string, string> = {
   'system.info': '系统信息',
   'process.list': '列进程',
   'process.kill': '结束进程',
-  'web.fetch': '抓网页'
+  'web.fetch': '抓网页',
+  'web.search': '联网搜索',
+  'code.run': '跑代码'
 };
 
 function isWrite(tool: string) {
@@ -36,16 +38,24 @@ function isWrite(tool: string) {
     tool === 'fs.remove' || tool === 'fs.move' || tool === 'fs.copy';
 }
 
-/** 会动到工作区之外（系统命令、屏幕、进程、剪贴板、网络）的步骤。 */
+/** 会动到工作区之外（系统命令、屏幕、进程、剪贴板、网络、代码执行）的步骤。 */
 function isSystem(tool: string) {
   return tool === 'shell.run' || tool === 'test.run' || tool === 'screen.capture' ||
     tool === 'app.open' || tool === 'job.kill' || tool === 'process.kill' ||
-    tool === 'clipboard.write' || tool === 'notify' || tool === 'web.fetch';
+    tool === 'clipboard.write' || tool === 'notify' || tool === 'web.fetch' ||
+    tool === 'web.search' || tool === 'code.run';
 }
 
 function argSummary(args: Record<string, unknown>): string {
   const command = typeof args.command === 'string' ? args.command : '';
   if (command) return command;
+  const query = typeof args.query === 'string' ? args.query : '';
+  if (query) return `${query}${typeof args.site === 'string' ? `（限 ${args.site}）` : ''}`;
+  const code = typeof args.code === 'string' ? args.code : '';
+  if (code) {
+    const lines = code.split('\n').length;
+    return `${String(args.language ?? '')} · ${lines} 行`;
+  }
   const pattern = typeof args.pattern === 'string' ? args.pattern : '';
   if (pattern) return `${pattern}${typeof args.path === 'string' ? `（在 ${args.path}）` : ''}`;
   const from = typeof args.from === 'string' ? args.from : '';

@@ -103,7 +103,9 @@ const TOOL_NAME: Record<string, string> = {
   'system.info': '系统信息',
   'process.list': '列进程',
   'process.kill': '结束进程',
-  'web.fetch': '抓网页'
+  'web.fetch': '抓网页',
+  'web.search': '联网搜索',
+  'code.run': '跑代码'
 };
 
 function toolLabel(tool: string) {
@@ -145,6 +147,17 @@ function stepSummary(tool: string, result: unknown): string {
   if (tool === 'process.list') return ` · 匹配 ${String(data.matched)}/${String(data.total)}`;
   if (tool === 'process.kill') return ` · pid ${String(data.pid)} · ${data.stillRunning ? '仍在运行' : '已结束'}`;
   if (tool === 'web.fetch') return ` · HTTP ${String(data.status)} · ${String(data.bytes)} 字节`;
+  if (tool === 'web.search') {
+    const count = Array.isArray(data.results) ? data.results.length : 0;
+    // provider=ddg 说明这是免凭据摘要，不是完整结果列表。日志里要能分辨，
+    // 否则「搜到 2 条」会一直被当成「搜到了」。
+    const via = data.provider === 'ddg' ? '（免凭据摘要）' : data.provider === 'none' ? '（无结果）' : `（${String(data.provider)}）`;
+    return ` · ${count} 条${via}`;
+  }
+  if (tool === 'code.run') {
+    const timeout = data.timedOut ? '（超时）' : '';
+    return ` · ${String(data.language)} · 退出码 ${String(data.exitCode)}${timeout} · ${String(data.durationMs)}ms`;
+  }
   if (tool === 'screen.capture') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.path)}`;
   if (tool === 'app.open') {
     if (data.running === true) return ` · ${String(data.app ?? data.path)} · 已启动（pid ${String(data.pid)}）`;

@@ -26,7 +26,8 @@ export function planDebateTopics(plan: AgentPlan): string[] {
   const runsTests = tools.includes('test.run');
   const runsShell = steps.filter(step => step.tool === 'shell.run');
   const systemSteps = steps.filter(step =>
-    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open'
+    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
+    step.tool === 'code.run'
   );
   const topics: string[] = [];
 
@@ -55,7 +56,7 @@ export function planDebateTopics(plan: AgentPlan): string[] {
     );
   } else if (systemSteps.length > 0) {
     topics.push(
-      `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用）有没有更小的影响面：` +
+      `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用/跑代码）有没有更小的影响面：` +
         '是否真的需要，以及失败了怎么收尾。'
     );
   }
@@ -87,7 +88,9 @@ export function shouldDebatePlan(
     step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
     // 删除、结束进程、抓网页会改变磁盘或把内容发到外网，不能按"小计划"跳过评审。
     step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy' ||
-    step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch'
+    step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch' ||
+    // 跑一段代码等于跑一段任意逻辑（能读能写能联网），风险不低于 shell。
+    step.tool === 'code.run'
   );
   if (steps.length >= 3 || risky) return { debate: true };
   return { debate: false, reason: `计划只有 ${steps.length} 步且都是只读操作，按 auto 不单独开辩` };

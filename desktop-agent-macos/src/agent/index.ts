@@ -10,6 +10,9 @@ import { openApp } from './tools/app-open';
 import { fsExtraTools } from './tools/fs-extra';
 import { systemTools } from './tools/system';
 import { webFetch } from './tools/web-fetch';
+import { webSearch } from './tools/web-search';
+import { browserSearchCapability } from './browser-search-bridge';
+import { runCode } from './tools/code-run';
 import { jobOutput, killJob, listJobs } from './tools/jobs';
 import {
   PlanSchema,
@@ -209,6 +212,23 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           case 'web.fetch':
             result = await webFetch(step.args);
             break;
+          case 'web.search':
+            // 搜到 0 条不记失败：这是「没资料」，不是「操作失败」。
+            // 后面的 web.fetch 或换词再搜仍然值得执行，所以原样把空结果和
+            // degraded 说明交给模型，而不是让整份计划停在这一步。
+            //
+            // 带上浏览器搜索能力：Runtime 自己开不了窗口，免凭据的搜索只能
+            // 借主进程的 Chromium（受限网络下 HTTP 搜索端点全被挡）。
+            result = await webSearch(step.args, { browserSearch: browserSearchCapability() ?? undefined });
+            break;
+          case 'code.run': {
+            const run = await runCode(grant, step.args);
+            result = run;
+            if (run.exitCode !== 0) {
+              stepFailure = `代码退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
+            }
+            break;
+          }
           case 'fs.writeFile': {
             const args = step.args;
             result = args.overwrite

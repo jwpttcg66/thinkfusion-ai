@@ -478,3 +478,231 @@ test('后台作业的 id 不能被用来读别的文件', async () => {
 function jobsDirForTest() {
   return join(homedir(), 'Library', 'Application Support', 'ThinkFusion', 'jobs');
 }
+
+// ---------------------------------------------------------------------------
+// 11. 联网搜索
+// ---------------------------------------------------------------------------
+
+import { webSearch, dedupe as dedupeHits } from '../out/agent/tools/web-search.js';
+import { runCode } from '../out/agent/tools/code-run.js';
+
+function jsonResponse(body, status = 200) {
+  return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' }
+  });
+}
+
+test('四个带凭据的提供方都能解析成同一形状的结果', async () => {
+  const cases = [
+    ['brave', { web: { results: [{ title: 'A', url: 'https://a.example/1', description: 'da' }] } }],
+    ['tavily', { results: [{ title: 'A', url: 'https://a.example/1', content: 'da' }], answer: '结论' }],
+    ['serper', { organic: [{ title: 'A', link: 'https://a.example/1', snippet: 'da' }] }],
+    ['searxng', { results: [{ title: 'A', url: 'https://a.example/1', content: 'da' }] }]
+  ];
+  for (const [provider, body] of cases) {
+    const result = await webSearch(
+      { query: 'electron' },
+      {
+        settings: { provider, apiKey: 'k'.repeat(32), searxngUrl: 'https://searx.example.com' },
+        fetchImpl: async () => jsonResponse(body)
+      }
+    );
+    assert.equal(result.provider, provider, `${provider} 应当被认成出结果的提供方`);
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].url, 'https://a.example/1');
+    assert.equal(result.results[0].rank, 1);
+  }
+});
+
+test('有浏览器可用时先用浏览器——受限网络里只有它还能拿到结果列表', async () => {
+  let fetched = 0;
+  const result = await webSearch(
+    { query: 'Electron WebContentsView 用法', maxResults: 3 },
+    {
+      settings: {},
+      // 关键：这条兜底在受限网络下是废的（Bing 无限重定向）。如果实现先打
+      // HTTP，这里就会被调用，断言随之失败。
+      fetchImpl: async () => {
+        fetched += 1;
+        return new Response('should not be called', { status: 500 });
+      },
+      browserSearch: async (query, limit) => {
+        assert.equal(query, 'Electron WebContentsView 用法');
+        assert.equal(limit, 3);
+        return {
+          results: [
+            { title: 'WebContentsView | Electron', url: 'https://www.electronjs.org/docs/latest/api/web-contents-view', snippet: '文档', rank: 1 },
+            { title: '菜鸟教程', url: 'https://www.runoob.com/electron/electron-intro.html', snippet: '简介', rank: 2 }
+          ],
+          finalUrl: 'https://cn.bing.com/search?q=…',
+          pageTitle: 'Electron WebContentsView 用法 - 搜索'
+        };
+      }
+    }
+  );
+  assert.equal(fetched, 0, '浏览器已经给出结果时不该再去打 HTTP 兜底');
+  assert.equal(result.provider, 'browser');
+  assert.equal(result.results.length, 2);
+  assert.match(result.degraded ?? '', /应用内浏览器/);
+  assert.equal(result.attempts.length, 0);
+});
+
+test('浏览器搜索失败时如实记下原因，并继续走后续兜底', async () => {
+  const rss = `<rss><channel><item><title>RSS 兜底</title><link>https://r.example/</link><description>说明</description></item></channel></rss>`;
+  const result = await webSearch(
+    { query: 'electron' },
+    {
+      settings: {},
+      fetchImpl: async () => new Response(rss, { status: 200, headers: { 'content-type': 'application/rss+xml' } }),
+      browserSearch: async () => {
+        throw new Error('搜索页面加载超时（25000ms）');
+      }
+    }
+  );
+  assert.equal(result.provider, 'bing');
+  const browserAttempt = result.attempts.find(item => item.provider === 'browser');
+  assert.ok(browserAttempt, '失败也要留下「试过浏览器」这条记录');
+  assert.equal(browserAttempt.ok, false);
+  assert.match(browserAttempt.note ?? '', /超时/);
+});
+
+test('没有凭据时退回 Bing RSS，并在结果里说明这是免凭据来源', async () => {
+  const rss = `<?xml version="1.0"?><rss><channel>
+    <item><title><![CDATA[Electron 文档]]></title><link>https://www.electronjs.org/</link>
+      <description>&lt;b&gt;跨平台&lt;/b&gt; 桌面应用</description></item>
+    <item><title>第二个</title><link>https://b.example/</link><description>说明</description></item>
+  </channel></rss>`;
+  const result = await webSearch(
+    { query: 'electron', maxResults: 5 },
+    {
+      settings: {},
+      fetchImpl: async url => {
+        assert.match(String(url), /bing\.com\/search/);
+        return new Response(rss, { status: 200, headers: { 'content-type': 'application/rss+xml' } });
+      }
+    }
+  );
+  assert.equal(result.provider, 'bing');
+  assert.equal(result.results.length, 2);
+  assert.equal(result.results[0].title, 'Electron 文档');
+  assert.equal(result.results[0].url, 'https://www.electronjs.org/');
+  assert.match(result.results[0].snippet, /跨平台/);
+  assert.match(result.degraded ?? '', /免凭据/);
+});
+
+test('所有来源都失败时给空结果和可执行的说明，不编造条目', async () => {
+  const result = await webSearch(
+    { query: '完全搜不到的东西' },
+    { settings: {}, fetchImpl: async () => new Response('blocked', { status: 500 }) }
+  );
+  assert.equal(result.results.length, 0);
+  assert.equal(result.provider, 'none');
+  assert.match(result.degraded ?? '', /没有搜到/);
+  assert.match(result.degraded ?? '', /设置 → 联网搜索/);
+  assert.ok(result.attempts.length >= 1);
+});
+
+test('同一个地址只留最靠前的一条', () => {
+  const hits = [
+    { title: 'A', url: 'https://x.example/a/', snippet: '', rank: 1 },
+    { title: 'A2', url: 'https://x.example/a#frag', snippet: '', rank: 2 },
+    { title: 'B', url: 'https://x.example/b', snippet: '', rank: 3 }
+  ];
+  const out = dedupeHits(hits, 10);
+  assert.equal(out.length, 2);
+  assert.deepEqual(out.map(h => h.title), ['A', 'B']);
+  assert.deepEqual(out.map(h => h.rank), [1, 2]);
+});
+
+test('凭据不进结果与错误说明', async () => {
+  const secret = `sk-${'a'.repeat(40)}`;
+  const result = await webSearch(
+    { query: 'electron' },
+    {
+      settings: { provider: 'brave', apiKey: secret },
+      fetchImpl: async () => jsonResponse(`invalid token ${secret}`, 401)
+    }
+  );
+  assert.ok(!JSON.stringify(result).includes(secret), '错误说明里不能出现完整 key');
+  assert.match(JSON.stringify(result.attempts), /HTTP 401/);
+});
+
+test('SearXNG 指向本机时直接拒绝（不把内网当搜索服务）', async () => {
+  const result = await webSearch(
+    { query: 'electron' },
+    {
+      settings: { provider: 'searxng', searxngUrl: 'http://127.0.0.1:8080' },
+      fetchImpl: async () => {
+        throw new Error('不该真的发出请求');
+      }
+    }
+  );
+  assert.equal(result.provider, 'none');
+  assert.match(JSON.stringify(result.attempts), /本机|私网/);
+});
+
+test('真实搜索：要么拿到带 url 的结果，要么如实说没查到', async () => {
+  const result = await webSearch({ query: 'Electron WebContentsView', maxResults: 3 });
+  if (result.results.length === 0) {
+    assert.match(result.degraded ?? '', /没有搜到/);
+    return;
+  }
+  for (const hit of result.results) {
+    assert.match(hit.url, /^https?:\/\//, '每条结果都要有可点开的地址');
+    assert.ok(hit.title.length > 0);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 12. 跑代码
+// ---------------------------------------------------------------------------
+
+test('code.run 真的跑 node / python3 / bash，退出码与输出都来自子进程', async () => {
+  const g = grant('workspace-write', ['code.run']);
+
+  const node = await runCode(g, { language: 'node', code: 'console.log(2 + 3)' });
+  assert.equal(node.exitCode, 0);
+  assert.equal(node.stdout.trim(), '5');
+  assert.ok(existsSync(join(root, node.scriptPath)), '脚本要真的落盘，报告里的路径得能打开');
+  assert.ok(node.scriptPath.endsWith('.mjs'));
+
+  const py = await runCode(g, { language: 'python3', code: 'print(6 * 7)' });
+  assert.equal(py.exitCode, 0);
+  assert.equal(py.stdout.trim(), '42');
+
+  const sh = await runCode(g, { language: 'bash', code: 'echo from-bash' });
+  assert.equal(sh.exitCode, 0);
+  assert.equal(sh.stdout.trim(), 'from-bash');
+});
+
+test('代码报错是非零退出码，不是抛出异常', async () => {
+  const g = grant('workspace-write', ['code.run']);
+  const run = await runCode(g, { language: 'node', code: 'throw new Error("boom")' });
+  assert.equal(run.exitCode, 1);
+  assert.match(run.stderr, /boom/);
+});
+
+test('超时会把进程组杀掉，而不是一直等', async () => {
+  const g = grant('workspace-write', ['code.run']);
+  const started = Date.now();
+  const run = await runCode(g, { language: 'bash', code: 'sleep 5', timeoutMs: 1000 });
+  assert.equal(run.timedOut, true);
+  assert.ok(Date.now() - started < 4000, '超时后要立刻返回');
+});
+
+test('只读权限下不能执行代码', async () => {
+  const g = grant('read-only', [...READ_ONLY_TOOLS]);
+  await assert.rejects(() => runCode(g, { language: 'node', code: 'console.log(1)' }), /仅可查看/);
+});
+
+test('脚本的 HOME 与临时目录指向运行目录，不写到用户家目录', async () => {
+  const g = grant('workspace-write', ['code.run']);
+  const run = await runCode(g, {
+    language: 'node',
+    code: 'console.log(process.env.HOME); console.log(process.env.TMPDIR)'
+  });
+  const [home, tmp] = run.stdout.trim().split('\n');
+  assert.ok(home.includes('.thinkfusion'), `HOME 应当落在工作区里，实际 ${home}`);
+  assert.ok(tmp.startsWith(home));
+});

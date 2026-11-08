@@ -17,7 +17,7 @@ import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
-import { ChatPageDriver } from './adapters/browser/page-driver';
+import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
 import { runPlan } from './agent-manager';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
@@ -339,14 +339,7 @@ export class AgentOrchestrator {
         const queued = this.tasks.get(taskId);
         if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
 
-        const { snapshotBefore } = await this.adapter.sendMessage(prompt, round.requestId);
-        this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
-        return this.adapter.waitForAnswer(
-          round.requestId,
-          snapshotBefore,
-          this.tasks.get(taskId).timeoutMs,
-          prompt
-        );
+        return this.askPage(taskId, roundId, prompt);
       });
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer });
@@ -354,6 +347,59 @@ export class AgentOrchestrator {
       await this.handleAnswer(taskId, roundId, answer);
     } finally {
       this.busy.delete(taskId);
+    }
+  }
+
+  /**
+   * 把一问发出去并等回答；会话装不下时换一条会话重问一次。
+   *
+   * 为什么要在这里恢复：网页通道那条路（PageAdapter.ask）早就做了这件事，
+   * 但工程执行走的是编排器，直接调 driver 的 `sendMessage`——于是同一个
+   * 「上下文已满」在两条路上有两种下场：问答能自己换会话继续，任务却在
+   * 发送的第一步就失败，用户看到的是「ChatGPT 这条会话的上下文已满」，
+   * 而他刚刚才开过新会话。
+   *
+   * 只重试一次：第二次还满就是真的满了（或站点不让开新会话），如实失败，
+   * 不要在这里循环重开把页面刷爆。
+   */
+  private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
+    const attempt = async (requestId: string) => {
+      const { snapshotBefore } = await this.adapter.sendMessage(prompt, requestId);
+      this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
+      return this.adapter.waitForAnswer(
+        requestId,
+        snapshotBefore,
+        this.tasks.get(taskId).timeoutMs,
+        prompt
+      );
+    };
+
+    const current = this.tasks.getRound(roundId)?.requestId;
+    const first = typeof current === 'string' && current ? current : randomUUID();
+    try {
+      return await attempt(first);
+    } catch (error) {
+      if (!(error instanceof ContextLimitError)) throw error;
+
+      const reset = await this.adapter.newConversation();
+      if (!reset.ok) {
+        throw new Error(
+          `${this.adapter.siteLabel} 这条会话的上下文已满，自动开新会话也没成功（${reset.detail ?? '原因未知'}）。` +
+            '在右侧页面点一次「新对话」，再重新提交。'
+        );
+      }
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: `${this.adapter.siteLabel} 这条会话的上下文已满，已自动开新会话后重问`
+      });
+      // 换一条新 requestId：上一问即使没发出去，也可能已经在页面侧留下了
+      // 一个等待句柄，复用同一个 id 会让「这一问的回答」和上一问撞在一起。
+      const retried = randomUUID();
+      this.tasks.updateRound(roundId, { requestId: retried });
+      return attempt(retried);
     }
   }
 
