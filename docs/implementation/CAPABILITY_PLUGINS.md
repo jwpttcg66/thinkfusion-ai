@@ -125,6 +125,16 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
   设置页 33 行 33 开关，分组标题「本地能力 28/28 已启用」「联网 3/3 已启用」
   「保存 2/2 已启用」；测后 `capabilities.json` 为 `{"disabled":[]}`。
 - 全量 `npm test` 756 条全绿（既有 739 + 插件测试 17）。
+- **真机 s31 / s31b**（同日补测，端到端真的跑 `web.search`，补上 s30 只核对清单
+  没覆盖的那段链路）：启用态 `provider=browser`，返回 3 条真实 http(s) 链接，
+  与历史 s19 基线一致——说明请求确实经 `mainCapabilities.execute` 走到主进程的
+  真 Chromium 并回了包；停用 `web.search.browser` 后，`attempts` 里明确出现
+  `{provider:'browser', ok:false, note:'能力插件已停用：浏览器联网搜索（web.search.browser）'}`，
+  结果退回 `provider=bing`，`degraded` 写明来自 Bing RSS，任务仍正常完成（12/12）。
+  两次测试会话与任务已删除，侧栏只剩用户自己的两条；开关恢复，
+  `capabilities.json` 为 `{"disabled":[]}`。
+  第一次 B 场景没跑起来是测试脚本的问题：同一段任务文本被模型判成「与刚完成的
+  验收完全相同」直接 `task_complete`，换成独立的问题文本与搜索词后重跑通过。
 
 ## 6. 刻意不做
 
