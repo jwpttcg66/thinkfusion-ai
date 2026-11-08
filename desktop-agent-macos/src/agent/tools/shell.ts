@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
+import { startJob, type JobMeta } from './jobs';
 
 const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -80,6 +81,8 @@ export interface ShellRunResult {
   durationMs: number;
   timedOut: boolean;
   truncated: boolean;
+  /** 后台运行时存在，此时没有退出码。 */
+  job?: JobMeta;
 }
 
 export function checkShellCommand(command: string, preset: TaskGrant['permissionPreset']): 'allowlist' | 'full' {
@@ -113,7 +116,7 @@ export function checkShellCommand(command: string, preset: TaskGrant['permission
 
 export async function runShell(
   grant: TaskGrant,
-  args: { command: string; cwd?: string; timeoutMs?: number }
+  args: { command: string; cwd?: string; timeoutMs?: number; background?: boolean }
 ): Promise<ShellRunResult> {
   const policy = checkShellCommand(args.command, grant.permissionPreset);
   const cwd = await resolveGrantedPath(grant, args.cwd ?? '.', false);
@@ -125,6 +128,24 @@ export async function runShell(
     const real = await fs.realpath(cwd);
     const relative = real.startsWith(root.endsWith('/') ? root : `${root}/`);
     if (!relative && real !== root) throw new Error('workspace-write 下命令必须在工作区内执行');
+  }
+
+  if (args.background) {
+    const startedAt = Date.now();
+    const job = await startJob(grant, { command: args.command, cwd });
+    return {
+      command: args.command,
+      cwd,
+      policy,
+      shell: '/bin/sh',
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      durationMs: Date.now() - startedAt,
+      timedOut: false,
+      truncated: false,
+      job
+    };
   }
 
   const timeoutMs = Math.min(Math.max(args.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);

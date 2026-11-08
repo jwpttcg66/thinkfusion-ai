@@ -113,3 +113,15 @@ test('系统动作类请求算工程实施（shell / 截屏 / 打开应用 / 找
     assert.equal(routing.taskKind, 'engineering_execution', `应当判为实施：${text}`);
   }
 });
+
+test('shell 之外的系统动作也判为实施（抓取 / 通知 / 列进程）', () => {
+  const cases = [
+    '用 web.fetch 抓取 https://example.com 并告诉我状态码',
+    '发一条系统通知，标题写完成',
+    '列出命令名里含 sleep 的进程'
+  ];
+  for (const text of cases) {
+    const routing = routeTask({ text, workspaceMode: 'engineering', hasProject: true });
+    assert.equal(routing.taskKind, 'engineering_execution', `应当判为实施：${text}`);
+  }
+});

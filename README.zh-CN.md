@@ -138,7 +138,7 @@ README 许的愿超过仓库能兑现的东西，那就只是宣传：
 | 渲染进程 | 无 Node 集成、`contextIsolation`、sandbox；IPC 只接受主 frame |
 | 内嵌页面 | 每个来源一个独立 `WebContentsView`、独立持久分区；拒绝一切权限请求；主机白名单在跳转、重定向、`window.open` 三处都拦 |
 | 执行进程 | 独立 `UtilityProcess`；每步执行前重新校验授权凭据 |
-| 工具面 | 11 个白名单工具：列目录/读文件/看结构/搜内容/找文件、建目录、独占创建、带指纹的覆盖写、固定测试命令、分层 `shell.run`、`screen.capture`、`app.open`。没有删除、没有上传。`workspace-write` 下 shell 只放行只读与构建类命令；`danger-full-access` 给真 shell，但仍拦不可回收的操作 |
+| 工具面 | 27 个白名单工具：文件读/写/属性/树/搜内容/找文件/读图/字面量编辑/移动/复制/移除（默认进废纸篓）、固定测试命令、分层 `shell.run` 与后台作业、截屏、打开应用、剪贴板、系统通知、系统信息、进程查看/结束、`web.fetch`。没有上传。`workspace-write` 下 shell 只放行只读与构建类命令；`danger-full-access` 给真 shell，但仍拦不可回收的操作 |
 | 审批 | 每一份计划都要人点确认；授权 30 分钟过期，计划 10 分钟过期 |
 
 细节见 [`SECURITY.md`](desktop-agent-macos/SECURITY.md)。

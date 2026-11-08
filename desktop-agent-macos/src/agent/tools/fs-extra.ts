@@ -1,0 +1,262 @@
+/**
+ * 文件系统的其余本地能力：元数据、字面量编辑、移动、复制、删除、读图。
+ *
+ * 为什么不能只有 readFile / writeFile：
+ * - 改一行要重写整个文件，模型的输出量与出错面都被放大；`fs.edit` 对齐
+ *   DSH 的 `edit`：给唯一字面量就替换，出现多次直接拒绝，不会"猜你要改哪一处"。
+ * - 没有移动/复制/删除，等于把一个文件管理器降级成只能新建文件。
+ * - 读图不是"看看文件名"：返回尺寸、指纹和 base64，才能确认拿到的是哪张图。
+ *
+ * 删除的默认语义是**移入废纸篓**，不是 unlink。真正不可恢复的删除只有
+ * `danger-full-access` 下的 `permanent: true` 才能触发。
+ */
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import type { TaskGrant } from '../../shared/contracts';
+import { resolveGrantedPath } from '../policy';
+
+const MAX_EDIT_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
+const TRASH_DIR = path.join(os.homedir(), '.Trash');
+
+function sha256(buffer: Buffer | string): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+function assertMutable(grant: TaskGrant, action: string) {
+  if (grant.permissionPreset === 'read-only') {
+    throw new Error(`当前权限为“仅可查看”，禁止${action}`);
+  }
+}
+
+export interface StatResult {
+  path: string;
+  type: 'file' | 'directory' | 'symlink' | 'other';
+  bytes: number;
+  mode: string;
+  mtimeMs: number;
+  sha256?: string;
+}
+
+export interface EditResult {
+  path: string;
+  replaced: number;
+  previousSha256: string;
+  sha256: string;
+  bytes: number;
+}
+
+export interface RemoveResult {
+  path: string;
+  trashed: boolean;
+  trashPath?: string;
+  deleted: boolean;
+}
+
+/** PNG / JPEG / GIF 的尺寸；WebP 与其它格式返回 null，但仍然给出字节与指纹。 */
+function imageSize(buffer: Buffer, ext: string): { width: number; height: number } | null {
+  if (ext === '.png' && buffer.length > 24 && buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (ext === '.gif' && buffer.length > 10) {
+    return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+  }
+  if (ext === '.jpg' || ext === '.jpeg') {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      // SOF0..SOF3 / SOF5..SOF7 / SOF9..SOF11 / SOF13..SOF15
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+      }
+      offset += 2 + length;
+    }
+  }
+  return null;
+}
+
+export const fsExtraTools = {
+  async stat(grant: TaskGrant, args: { path: string }): Promise<StatResult> {
+    const target = await resolveGrantedPath(grant, args.path, false);
+    const stat = await fs.lstat(target);
+    const type = stat.isSymbolicLink() ? 'symlink' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other';
+    const result: StatResult = {
+      path: target,
+      type,
+      bytes: stat.size,
+      mode: `0o${(stat.mode & 0o777).toString(8)}`,
+      mtimeMs: stat.mtimeMs
+    };
+    // 小文本文件顺带给出指纹，省一轮 readFile。
+    if (type === 'file' && stat.size <= 262_144) {
+      const buffer = await fs.readFile(target);
+      result.sha256 = buffer.includes(0) ? sha256(buffer) : sha256(buffer.toString('utf8'));
+    }
+    return result;
+  },
+
+  /**
+   * 唯一字面量替换。`replaceAll` 为 false（默认）时，`oldString` 必须恰好出现
+   * 一次——出现两次说明计划里没写清要改哪一处，这时替换任何一处都是猜。
+   */
+  async edit(
+    grant: TaskGrant,
+    args: { path: string; oldString: string; newString: string; replaceAll?: boolean; expectedHash?: string }
+  ): Promise<EditResult> {
+    assertMutable(grant, '编辑文件');
+    const target = await resolveGrantedPath(grant, args.path, false);
+    const stat = await fs.lstat(target);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('编辑目标必须是普通文件');
+    if (stat.size > MAX_EDIT_BYTES) throw new Error(`文件超过编辑上限 ${MAX_EDIT_BYTES} bytes`);
+
+    const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let content: string;
+    try {
+      content = await handle.readFile({ encoding: 'utf8' });
+    } finally {
+      await handle.close();
+    }
+
+    const previous = sha256(content);
+    if (args.expectedHash && args.expectedHash !== previous) {
+      throw new Error('文件在读取之后已经变化，拒绝编辑（请重新读取再生成计划）');
+    }
+
+    const occurrences = content.split(args.oldString).length - 1;
+    if (occurrences === 0) throw new Error('要替换的文本在文件里不存在');
+    if (occurrences > 1 && !args.replaceAll) {
+      throw new Error(`要替换的文本出现了 ${occurrences} 次；请给更长的上下文，或显式声明 replaceAll`);
+    }
+
+    const next = args.replaceAll
+      ? content.split(args.oldString).join(args.newString)
+      : content.replace(args.oldString, args.newString);
+
+    const temp = path.join(path.dirname(target), `.thinkfusion-${randomUUID()}.tmp`);
+    try {
+      const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+      try {
+        await tempHandle.writeFile(next, { encoding: 'utf8' });
+        await tempHandle.sync();
+      } finally {
+        await tempHandle.close();
+      }
+      await fs.rename(temp, target);
+    } catch (error) {
+      await fs.unlink(temp).catch(() => undefined);
+      throw error;
+    }
+
+    const after = await fs.lstat(target);
+    return {
+      path: target,
+      replaced: args.replaceAll ? occurrences : 1,
+      previousSha256: previous,
+      sha256: sha256(next),
+      bytes: after.size
+    };
+  },
+
+  async remove(grant: TaskGrant, args: { path: string; recursive?: boolean; permanent?: boolean }): Promise<RemoveResult> {
+    assertMutable(grant, '删除');
+    const target = await resolveGrantedPath(grant, args.path, false);
+    const stat = await fs.lstat(target);
+    if (stat.isDirectory() && !args.recursive) {
+      throw new Error('删除目录必须显式声明 recursive: true');
+    }
+    if (args.permanent && grant.permissionPreset !== 'danger-full-access') {
+      throw new Error('永久删除只在完全权限下可用；当前会移入废纸篓');
+    }
+
+    if (args.permanent) {
+      await fs.rm(target, { recursive: !!args.recursive, force: false });
+      return { path: target, trashed: false, deleted: true };
+    }
+
+    await fs.mkdir(TRASH_DIR, { recursive: true });
+    const base = path.basename(target);
+    let destination = path.join(TRASH_DIR, base);
+    if (await fs.stat(destination).then(() => true).catch(() => false)) {
+      destination = path.join(TRASH_DIR, `${base}-${Date.now()}`);
+    }
+    try {
+      await fs.rename(target, destination);
+    } catch (error) {
+      // 跨卷（工作区在外部磁盘）时 rename 会 EXDEV，退回复制 + 删除。
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+      await fs.cp(target, destination, { recursive: true, errorOnExist: true, force: false });
+      await fs.rm(target, { recursive: !!args.recursive, force: false });
+    }
+    return { path: target, trashed: true, trashPath: destination, deleted: false };
+  },
+
+  async move(grant: TaskGrant, args: { from: string; to: string }) {
+    assertMutable(grant, '移动文件');
+    const source = await resolveGrantedPath(grant, args.from, false);
+    const destination = await resolveGrantedPath(grant, args.to, true);
+    await assertAbsent(destination);
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    try {
+      await fs.rename(source, destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+      await fs.cp(source, destination, { recursive: true, errorOnExist: true, force: false });
+      await fs.rm(source, { recursive: true, force: false });
+    }
+    const stat = await fs.lstat(destination);
+    return { from: source, to: destination, bytes: stat.size };
+  },
+
+  async copy(grant: TaskGrant, args: { from: string; to: string }) {
+    assertMutable(grant, '复制文件');
+    const source = await resolveGrantedPath(grant, args.from, false);
+    const destination = await resolveGrantedPath(grant, args.to, true);
+    const stat = await fs.lstat(source);
+    if (stat.isSymbolicLink()) throw new Error('不复制符号链接');
+    await assertAbsent(destination);
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    await fs.cp(source, destination, { recursive: stat.isDirectory(), errorOnExist: true, force: false });
+    const after = await fs.lstat(destination);
+    return {
+      from: source,
+      to: destination,
+      type: after.isDirectory() ? 'directory' : 'file',
+      bytes: after.size
+    };
+  },
+
+  async readImage(grant: TaskGrant, args: { path: string }) {
+    const target = await resolveGrantedPath(grant, args.path, false);
+    const ext = path.extname(target).toLowerCase();
+    const mime: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.webp': 'image/webp'
+    };
+    if (!mime[ext]) throw new Error(`不支持的图片格式：${ext || '(无扩展名)'}`);
+    const stat = await fs.lstat(target);
+    if (!stat.isFile()) throw new Error('读取目标必须是普通文件');
+    if (stat.size > MAX_IMAGE_BYTES) throw new Error(`图片超过 ${MAX_IMAGE_BYTES} bytes 上限`);
+    const buffer = await fs.readFile(target);
+    const size = imageSize(buffer, ext);
+    return {
+      path: target,
+      mime: mime[ext],
+      bytes: stat.size,
+      width: size?.width ?? null,
+      height: size?.height ?? null,
+      sha256: sha256(buffer),
+      base64: buffer.toString('base64')
+    };
+  }
+};
+
+async function assertAbsent(target: string) {
+  const exists = await fs.lstat(target).then(() => true).catch(() => false);
+  if (exists) throw new Error('目标已存在，拒绝覆盖（先删除或换一个名字）');
+}

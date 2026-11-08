@@ -15,7 +15,8 @@ export function planDebateTopics(plan: AgentPlan): string[] {
   const steps = plan.steps ?? [];
   const tools = steps.map(step => step.tool);
   const writes = steps.filter(step =>
-    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir'
+    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
+    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
   );
   const overwrites = steps.filter(step => {
     if (step.tool !== 'fs.writeFile') return false;
@@ -83,7 +84,10 @@ export function shouldDebatePlan(
   const risky = steps.some(step =>
     step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
     // shell / 截屏 / 启动应用的影响面在工作区之外，auto 下同样值得先辩一轮。
-    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open'
+    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
+    // 删除、结束进程、抓网页会改变磁盘或把内容发到外网，不能按"小计划"跳过评审。
+    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy' ||
+    step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch'
   );
   if (steps.length >= 3 || risky) return { debate: true };
   return { debate: false, reason: `计划只有 ${steps.length} 步且都是只读操作，按 auto 不单独开辩` };

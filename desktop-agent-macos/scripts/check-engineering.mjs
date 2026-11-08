@@ -127,7 +127,11 @@ test('只读预设允许搜索，但绝不允许测试命令', () => {
 });
 
 test('新工具进得了协议，未登记的工具与越权调用仍然进不来', () => {
-  assert.equal(TOOL_NAMES.length, 11);
+  // 别再写死工具数量：每补一个本地能力就要改一次断言，改的人只会顺手把数字调大。
+  // 这里断言"存在"与"越权仍被拒"，那才是这条用例真正关心的。
+  for (const tool of ['fs.search', 'test.run', 'shell.run', 'fs.edit']) {
+    assert.ok(TOOL_NAMES.includes(tool), `${tool} 应当登记在工具集里`);
+  }
   const base = {
     protocol: 'desktop-agent/v1', type: 'plan', taskId: 't1', roundId: 'r1',
     title: '改文件', description: '演示', completion: { condition: '测试通过' }

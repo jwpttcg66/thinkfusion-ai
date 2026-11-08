@@ -37,16 +37,15 @@
 
 ## 本地工具
 
-共 11 个，前 4 个与 v1 兼容：
+共 27 个，前 4 个与 v1 兼容。完整对照与「刻意不做」见 `../docs/implementation/LOCAL_HARNESS_TOOLS.md`。
 
-- `fs.list` / `fs.readFile` / `fs.mkdir` / `fs.writeFile`：列目录、读文本（≤256 KiB，`O_NOFOLLOW`）、建目录、独占创建；覆盖已有文件必须带上一版 sha256
-- `fs.tree` / `fs.search` / `fs.find`：递归看结构、按内容搜、按文件名通配找（只读）
-- `test.run`：固定命令 → 固定 argv，`shell:false`，真实退出码
-- `shell.run`：真实 shell。`workspace-write` 只放行只读/构建类命令且禁止组合符；`danger-full-access` 才给真 shell，并拦截 `sudo`/`mkfs`/`rm -rf /` 等
-- `screen.capture`：真实截屏落盘，校验 PNG 与尺寸，返回 sha256
-- `app.open`：真实启动应用或打开文件，并回读进程是否存在
+- 文件：`fs.list` / `fs.readFile` / `fs.stat` / `fs.tree` / `fs.search` / `fs.find` / `fs.readImage` / `fs.mkdir` / `fs.writeFile` / `fs.edit` / `fs.move` / `fs.copy` / `fs.remove`
+- 命令：`test.run`（固定命令→固定 argv，`shell:false`）、`shell.run`（真 shell，按权限分层）、`job.list` / `job.output` / `job.kill`（后台作业）
+- 桌面：`screen.capture` / `app.open` / `clipboard.read` / `clipboard.write` / `notify` / `system.info` / `process.list` / `process.kill`
+- 网络：`web.fetch`（http/https，SSRF 防护、10s 超时、2 MB 上限）
 
-没有删除工具、没有上传工具。shell 的权限分层与拦截规则见 `SECURITY.md`。
+没有上传工具。删除默认进废纸篓，永久删除只在完全权限下可用；`process.kill` 也只在完全权限下允许，
+普通权限用 `job.kill` 停自己起的作业。shell 的权限分层与拦截规则见 `SECURITY.md`。
 
 ## 安装与验证
 

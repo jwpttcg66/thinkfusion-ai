@@ -9,19 +9,38 @@ const TOOL_LABEL: Record<string, string> = {
   'fs.tree': '看结构',
   'fs.search': '搜代码',
   'fs.find': '找文件',
+  'fs.stat': '看属性',
+  'fs.edit': '改文件',
+  'fs.remove': '删除',
+  'fs.move': '移动',
+  'fs.copy': '复制',
+  'fs.readImage': '读图片',
   'test.run': '跑测试',
   'shell.run': '执行命令',
+  'job.list': '列作业',
+  'job.output': '读作业输出',
+  'job.kill': '停作业',
   'screen.capture': '截屏',
-  'app.open': '打开应用'
+  'app.open': '打开应用',
+  'clipboard.read': '读剪贴板',
+  'clipboard.write': '写剪贴板',
+  notify: '发通知',
+  'system.info': '系统信息',
+  'process.list': '列进程',
+  'process.kill': '结束进程',
+  'web.fetch': '抓网页'
 };
 
 function isWrite(tool: string) {
-  return tool === 'fs.writeFile' || tool === 'fs.mkdir';
+  return tool === 'fs.writeFile' || tool === 'fs.mkdir' || tool === 'fs.edit' ||
+    tool === 'fs.remove' || tool === 'fs.move' || tool === 'fs.copy';
 }
 
-/** 会动到工作区之外（系统命令、屏幕、进程）的步骤。 */
+/** 会动到工作区之外（系统命令、屏幕、进程、剪贴板、网络）的步骤。 */
 function isSystem(tool: string) {
-  return tool === 'shell.run' || tool === 'screen.capture' || tool === 'app.open' || tool === 'test.run';
+  return tool === 'shell.run' || tool === 'test.run' || tool === 'screen.capture' ||
+    tool === 'app.open' || tool === 'job.kill' || tool === 'process.kill' ||
+    tool === 'clipboard.write' || tool === 'notify' || tool === 'web.fetch';
 }
 
 function argSummary(args: Record<string, unknown>): string {
@@ -29,15 +48,28 @@ function argSummary(args: Record<string, unknown>): string {
   if (command) return command;
   const pattern = typeof args.pattern === 'string' ? args.pattern : '';
   if (pattern) return `${pattern}${typeof args.path === 'string' ? `（在 ${args.path}）` : ''}`;
+  const from = typeof args.from === 'string' ? args.from : '';
+  const to = typeof args.to === 'string' ? args.to : '';
+  if (from && to) return `${from} → ${to}`;
+  const url = typeof args.url === 'string' ? args.url : '';
+  if (url) return url;
   const app = typeof args.app === 'string' ? args.app : '';
   if (app) return app;
+  const oldString = typeof args.oldString === 'string' ? args.oldString : '';
+  if (oldString) return `${typeof args.path === 'string' ? args.path : ''}（替换 ${oldString.length} 字符）`;
   const path = typeof args.path === 'string' ? args.path : '';
   const content = typeof args.content === 'string' ? args.content : '';
   if (content) return `${path}（写入 ${content.length} 字符）`;
   if (path) return path;
+  if (typeof args.pid === 'number') return `pid ${args.pid}`;
+  if (typeof args.id === 'string') return args.id;
+  if (typeof args.text === 'string') return `${args.text.length} 字符`;
+  if (typeof args.title === 'string') return args.title;
   const region = args.region as { width?: number; height?: number } | undefined;
   if (region?.width) return `区域 ${region.width}×${region.height ?? '?'}`;
-  return '全屏';
+  if (typeof args.scope === 'string') return args.scope;
+  if (typeof args.filter === 'string') return `过滤：${args.filter}`;
+  return '';
 }
 
 export function PlanPreview(props: {
@@ -63,7 +95,7 @@ export function PlanPreview(props: {
           <li key={step.id} className={isWrite(step.tool) ? 'write' : isSystem(step.tool) ? 'system' : ''}>
             <div className="step-line">
               <code className="tool">{TOOL_LABEL[step.tool] ?? step.tool}</code>
-              <span className="step-path">{argSummary(step.args)}</span>
+              <span className="step-path">{argSummary(step.args) || (step.tool === 'screen.capture' ? '全屏' : '')}</span>
             </div>
             {step.description && <div className="step-desc">{step.description}</div>}
           </li>

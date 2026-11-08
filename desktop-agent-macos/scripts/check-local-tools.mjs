@@ -14,8 +14,9 @@
  */
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync, existsSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 import { PlanSchema, READ_ONLY_TOOLS } from '../out/shared/contracts.js';
@@ -272,3 +273,208 @@ test('打开工作区外的路径会被拒', async () => {
   const g = grant('workspace-write', ['app.open']);
   await assert.rejects(() => openApp(g, { path: '/etc/hosts' }), /相对路径|越过/);
 });
+
+// ---------------------------------------------------------------------------
+// 7. 文件系统：元数据 / 字面量编辑 / 移动 / 复制 / 删除 / 读图
+// ---------------------------------------------------------------------------
+
+import { fsExtraTools } from '../out/agent/tools/fs-extra.js';
+import { systemTools } from '../out/agent/tools/system.js';
+import { webFetch, isFetchableUrl } from '../out/agent/tools/web-fetch.js';
+import { jobOutput, killJob, listJobs, startJob } from '../out/agent/tools/jobs.js';
+
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64'
+);
+
+test('元数据带类型与指纹，不必先读一遍', async () => {
+  const g = grant('read-only', ['fs.stat']);
+  const result = await fsExtraTools.stat(g, { path: 'README.md' });
+  assert.equal(result.type, 'file');
+  assert.ok(result.bytes > 0);
+  assert.match(result.sha256 ?? '', /^[a-f0-9]{64}$/);
+});
+
+test('字面量编辑只改目标，且拒绝含糊的多处命中', async () => {
+  const g = grant('workspace-write', ['fs.edit']);
+  writeFileSync(join(root, 'edit.txt'), 'alpha beta gamma\n');
+  const ok = await fsExtraTools.edit(g, { path: 'edit.txt', oldString: 'beta', newString: 'BETA' });
+  assert.equal(ok.replaced, 1);
+  assert.match(readFileSync(join(root, 'edit.txt'), 'utf8'), /alpha BETA gamma/);
+
+  writeFileSync(join(root, 'dup.txt'), 'x x x\n');
+  await assert.rejects(
+    () => fsExtraTools.edit(g, { path: 'dup.txt', oldString: 'x', newString: 'y' }),
+    /出现了 3 次/
+  );
+  const all = await fsExtraTools.edit(g, { path: 'dup.txt', oldString: 'x', newString: 'y', replaceAll: true });
+  assert.equal(all.replaced, 3);
+});
+
+test('编辑时 hash 不符就拒绝，不会盖掉别人刚改的内容', async () => {
+  const g = grant('workspace-write', ['fs.edit']);
+  writeFileSync(join(root, 'hash.txt'), 'one\n');
+  await assert.rejects(
+    () => fsExtraTools.edit(g, {
+      path: 'hash.txt', oldString: 'one', newString: 'two',
+      expectedHash: '0'.repeat(64)
+    }),
+    /已经变化/
+  );
+});
+
+test('只读权限下编辑、移动、复制、删除全部拒绝', async () => {
+  const g = grant('read-only', [...READ_ONLY_TOOLS]);
+  await assert.rejects(() => fsExtraTools.edit(g, { path: 'README.md', oldString: '#', newString: '#' }), /仅可查看/);
+  await assert.rejects(() => fsExtraTools.move(g, { from: 'README.md', to: 'r.md' }), /仅可查看/);
+  await assert.rejects(() => fsExtraTools.copy(g, { from: 'README.md', to: 'r.md' }), /仅可查看/);
+  await assert.rejects(() => fsExtraTools.remove(g, { path: 'README.md' }), /仅可查看/);
+});
+
+test('移动与复制真的改了磁盘，目标已存在就拒绝', async () => {
+  const g = grant('workspace-write', ['fs.move', 'fs.copy']);
+  writeFileSync(join(root, 'a.txt'), 'A\n');
+  const moved = await fsExtraTools.move(g, { from: 'a.txt', to: 'docs/a.txt' });
+  assert.equal(moved.to, realpathSync(join(root, 'docs/a.txt')));
+  assert.equal(readFileSync(join(root, 'docs/a.txt'), 'utf8'), 'A\n');
+
+  writeFileSync(join(root, 'b.txt'), 'B\n');
+  await fsExtraTools.copy(g, { from: 'b.txt', to: 'docs/b.txt' });
+  assert.equal(readFileSync(join(root, 'docs/b.txt'), 'utf8'), 'B\n');
+  await assert.rejects(() => fsExtraTools.copy(g, { from: 'b.txt', to: 'docs/b.txt' }), /目标已存在/);
+});
+
+test('删除默认进废纸篓，目录必须显式 recursive', async () => {
+  const g = grant('workspace-write', ['fs.remove']);
+  writeFileSync(join(root, 'trash-me.txt'), 'bye\n');
+  mkdirSync(join(root, 'tree'), { recursive: true });
+  writeFileSync(join(root, 'tree', 'x.txt'), 'x\n');
+
+  await assert.rejects(() => fsExtraTools.remove(g, { path: 'tree' }), /recursive/);
+  const result = await fsExtraTools.remove(g, { path: 'trash-me.txt' });
+  assert.equal(result.trashed, true);
+  assert.ok(result.trashPath && existsSync(result.trashPath));
+  // 废纸篓里的文件不直接用 rmSync 删（会触发安全删除策略）；移回临时目录由 after() 收尾。
+  spawnSync('/bin/mv', [result.trashPath, join(base, `restored-${Date.now()}.txt`)], { stdio: 'ignore' });
+});
+
+test('永久删除只在完全权限下允许', async () => {
+  const limited = grant('workspace-write', ['fs.remove']);
+  writeFileSync(join(root, 'perm.txt'), 'x\n');
+  await assert.rejects(() => fsExtraTools.remove(limited, { path: 'perm.txt', permanent: true }), /完全权限/);
+  const full = grant('danger-full-access', ['fs.remove']);
+  const result = await fsExtraTools.remove(full, { path: 'perm.txt', permanent: true });
+  assert.equal(result.deleted, true);
+  assert.equal(existsSync(join(root, 'perm.txt')), false);
+});
+
+test('读图返回尺寸、指纹与 base64', async () => {
+  writeFileSync(join(root, 'dot.png'), PNG_1X1);
+  const g = grant('read-only', ['fs.readImage']);
+  const image = await fsExtraTools.readImage(g, { path: 'dot.png' });
+  assert.equal(image.mime, 'image/png');
+  assert.equal(image.width, 1);
+  assert.equal(image.height, 1);
+  assert.match(image.sha256, /^[a-f0-9]{64}$/);
+  assert.ok(image.base64.length > 20);
+  await assert.rejects(() => fsExtraTools.readImage(g, { path: 'README.md' }), /不支持的图片格式/);
+});
+
+// ---------------------------------------------------------------------------
+// 8. 系统：剪贴板 / 系统信息 / 进程
+// ---------------------------------------------------------------------------
+
+test('剪贴板能写能读，且只读权限拒绝写入', async () => {
+  const reader = grant('read-only', ['clipboard.read']);
+  const writer = grant('workspace-write', ['clipboard.write']);
+  const before = await systemTools.clipboardRead(reader);
+
+  await systemTools.clipboardWrite(writer, { text: 'thinkfusion-clipboard-check' });
+  const after = await systemTools.clipboardRead(reader);
+  assert.equal(after.text, 'thinkfusion-clipboard-check');
+
+  await assert.rejects(
+    () => systemTools.clipboardWrite(grant('read-only', ['clipboard.write']), { text: 'x' }),
+    /仅可查看/
+  );
+  // 还原用户原来的剪贴板。
+  await systemTools.clipboardWrite(writer, { text: before.text });
+});
+
+test('系统信息给的是本机真实指标', async () => {
+  const g = grant('read-only', ['system.info']);
+  const info = await systemTools.info(g, { scope: 'all' });
+  assert.ok(typeof info.os === 'object' && info.os !== null);
+  assert.ok(info.cpu.cores > 0);
+  assert.ok(info.memory.totalGb > 0);
+  assert.ok(Array.isArray(info.disk));
+});
+
+test('进程列表能列出并过滤（被宿主环境挡住时如实拒绝）', async () => {
+  const g = grant('read-only', ['process.list']);
+  try {
+    const all = await systemTools.processList(g, { limit: 10 });
+    assert.ok(all.total > 0);
+    assert.ok(all.processes.length > 0);
+    const filtered = await systemTools.processList(g, { filter: 'definitely-not-a-process-name' });
+    assert.equal(filtered.matched, 0);
+  } catch (error) {
+    // 某些受管环境会拦住 ps/pgrep 的 spawn；这时工具必须明说"读不到"，
+    // 而不是返回空列表让模型以为机器上没有进程。真实枚举在真机场景验证。
+    assert.match(error.message, /无法读取进程列表/);
+  }
+});
+
+test('结束任意进程需要完全权限', async () => {
+  await assert.rejects(
+    () => systemTools.processKill(grant('workspace-write', ['process.kill']), { pid: process.pid }),
+    /完全权限/
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 9. 网络抓取
+// ---------------------------------------------------------------------------
+
+test('抓取前先拒本机、私网与非 http 协议', async () => {
+  assert.equal(isFetchableUrl('http://127.0.0.1:9222/json').ok, false);
+  assert.equal(isFetchableUrl('http://192.168.1.1/').ok, false);
+  assert.equal(isFetchableUrl('http://169.254.169.254/latest/meta-data').ok, false);
+  assert.equal(isFetchableUrl('file:///etc/passwd').ok, false);
+  assert.equal(isFetchableUrl('https://example.com').ok, true);
+  await assert.rejects(() => webFetch({ url: 'http://127.0.0.1:9222/json' }), /拒绝抓取/);
+});
+
+// ---------------------------------------------------------------------------
+// 10. 后台作业
+// ---------------------------------------------------------------------------
+
+test('后台作业：启动、读输出、列出来、结束后拒绝 kill', async () => {
+  const g = grant('workspace-write', ['shell.run']);
+  const job = await startJob(g, { command: 'echo job-hello; sleep 0.2', cwd: root });
+  assert.match(job.id, /^job-/);
+  assert.ok(job.pid && job.pid > 0);
+
+  await new Promise(resolve => setTimeout(resolve, 600));
+  const output = await jobOutput({ id: job.id });
+  assert.match(output.output, /job-hello/);
+  assert.equal(output.running, false);
+
+  const jobs = await listJobs();
+  assert.ok(jobs.some(item => item.id === job.id));
+  await assert.rejects(() => killJob({ id: job.id }), /已经退出/);
+
+  // 作业元数据与日志是本次测试产生的，删掉。
+  rmSync(job.logPath, { force: true });
+  rmSync(join(jobsDirForTest(), `${job.id}.json`), { force: true });
+});
+
+test('后台作业的 id 不能被用来读别的文件', async () => {
+  await assert.rejects(() => jobOutput({ id: '../../etc/passwd' }), /格式不正确/);
+  await assert.rejects(() => killJob({ id: 'job-../x' }), /格式不正确/);
+});
+
+function jobsDirForTest() {
+  return join(homedir(), 'Library', 'Application Support', 'ThinkFusion', 'jobs');
+}

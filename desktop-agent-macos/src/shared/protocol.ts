@@ -406,15 +406,34 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - fs.find:      { "pattern": string, "path"?: string, "maxResults"?: number }
                  按文件名/相对路径通配找文件：* 匹配一段、** 匹配多级、? 匹配一个字符，
                  例如 "*.md"、"src/**/*.ts"。只返回路径，不读内容。
+- fs.stat:      { "path": string }
+                 文件元数据：类型、字节、权限、修改时间；小文本文件还带 sha256。
+- fs.edit:      { "path": string, "oldString": string, "newString": string, "replaceAll"?: boolean, "expectedHash"?: string }
+                 按字面量替换已有文件。oldString 必须逐字一致，默认只允许出现一次；
+                 出现多次就补上下文或显式 replaceAll。要严格就带上读到的 sha256。
+- fs.remove:    { "path": string, "recursive"?: boolean, "permanent"?: boolean }
+                 默认移入废纸篓；目录必须 recursive。permanent 只有完全权限才生效。
+- fs.move:      { "from": string, "to": string }      移动/改名；目标已存在会被拒绝。
+- fs.copy:      { "from": string, "to": string }      复制文件或目录；目标已存在会被拒绝。
+- fs.readImage: { "path": string }
+                 读 PNG/JPEG/GIF/WebP，返回 mime、字节、宽高、sha256 与 base64。
 - test.run:     { "command": "npm test" | "npm run typecheck" | ... }
                  在授权目录里真实执行白名单里的命令，返回退出码与输出。
-- shell.run:    { "command": string, "cwd"?: string, "timeoutMs"?: number }
+- shell.run:    { "command": string, "cwd"?: string, "timeoutMs"?: number, "background"?: boolean }
                  在真实 shell 里执行一条命令（/bin/sh -c），返回真实退出码、输出与耗时。
                  · workspace-write：只放行只读与构建类命令（ls、cat、grep、git status、
                    npm run test 之类）。写文件请用 fs.writeFile，那里能核对指纹。
                  · danger-full-access：放行任意命令，但仍会拒绝 sudo / mkfs /
                    rm -rf / 这类不可回收的操作。
-                 · 退出码非 0 视为这一步失败，后面的步骤不会继续执行。
+                 · background=true 时立刻返回作业 id，用 job.output 读、job.kill 停；
+                   适合 dev server、长轮询、watch 这类不会自己结束的命令。
+                 · 前台命令退出码非 0 视为这一步失败，后面的步骤不会继续执行。
+- job.list:     { }
+                 列出后台作业：id、命令、pid、状态（running/exited/killed）。
+- job.output:   { "id": string, "tailBytes"?: number }
+                 读作业日志尾部（默认 32KB），真实输出，不是转述。
+- job.kill:     { "id": string, "signal"?: "TERM" | "KILL" }
+                 结束作业的整个进程组。
 - screen.capture: { "target"?: "screen" | "region", "region"?: { "x": number, "y": number, "width": number, "height": number }, "path"?: string }
                  真实截屏并落盘，返回文件路径、字节数、尺寸与 sha256。
                  不给 path 时落在应用缓存目录；target=region 时必须给 region。
@@ -422,6 +441,21 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - app.open:     { "app"?: string, "path"?: string }
                  真实打开应用（如 "TextEdit"）或文件/目录路径，两者必须给且只给一个。
                  返回是否已启动，以及进程是否真的存在（running）。
+- clipboard.read:  { }
+                 读系统剪贴板文本（上限 256KB）。
+- clipboard.write: { "text": string }
+                 写系统剪贴板文本。
+- notify:       { "title": string, "message"?: string, "subtitle"?: string }
+                 发一条系统通知。
+- system.info:  { "scope"?: "all" | "os" | "cpu" | "memory" | "disk" | "battery" }
+                 系统信息：OS/内核、CPU 型号与核数、内存、磁盘占用、电池状态。
+- process.list: { "filter"?: string, "limit"?: number }
+                 列进程（pid/ppid/cpu/内存/命令），可按关键字过滤。
+- process.kill: { "pid": number, "signal"?: "TERM" | "KILL" }
+                 结束进程；只有完全权限允许，普通权限用 job.kill 停自己起的作业。
+- web.fetch:    { "url": string, "method"?: "GET" | "POST", "headers"?: object, "body"?: string, "maxBytes"?: number }
+                 真实抓取 http/https：返回状态码、content-type、字节、sha256 与正文
+                 （HTML 会去标签）。拒环回/私网/元数据地址，重定向逐跳校验，10s 超时。
 
 所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。
 绝对路径只在 danger-full-access 下允许。`;
@@ -440,10 +474,12 @@ export function buildInitialPrompt(input: {
 请分析下面的用户任务，并输出一份符合 ${PROTOCOL} 协议的执行计划。
 
 规则：
-1. 你只负责规划，不负责执行；本地 Runtime 才会真正操作文件、执行命令、截屏、启动应用。
-2. 需要用 shell、截屏、打开应用、按文件名找文件时，直接把对应工具写进计划——
-   不要因为「可能被拒绝」就降级成让用户自己去做，也不要用文字描述代替真实动作。
-   权限不足时 Runtime 会明确拒绝，并告诉你原因。
+1. 你只负责规划，不负责执行；本地 Runtime 才会真正读写文件、执行命令、截屏、启动应用、
+   操作剪贴板、发通知、抓网页、起后台作业。
+2. 需要在本机做任何事时（跑命令、截屏、开应用、改/移/删文件、读剪贴板、发通知、
+   抓网页、起后台任务），直接把对应工具写进计划——不要因为「可能被拒绝」就降级成
+   让用户自己去做，也不要用文字描述代替真实动作。权限不足时 Runtime 会明确拒绝，
+   并告诉你原因。
 3. 只能使用下面列出的工具，参数必须完整且符合格式。
 4. 计划最多 ${input.maxSteps} 步。
 5. 必须使用指定的 JSON 结构，放在一个 \`\`\`json 代码块中。

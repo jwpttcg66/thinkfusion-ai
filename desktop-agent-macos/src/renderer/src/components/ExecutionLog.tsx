@@ -84,10 +84,26 @@ const TOOL_NAME: Record<string, string> = {
   'fs.tree': '看结构',
   'fs.search': '搜代码',
   'fs.find': '找文件',
+  'fs.stat': '看属性',
+  'fs.edit': '改文件',
+  'fs.remove': '删除',
+  'fs.move': '移动',
+  'fs.copy': '复制',
+  'fs.readImage': '读图片',
   'test.run': '跑测试',
   'shell.run': '执行命令',
+  'job.list': '列作业',
+  'job.output': '读作业输出',
+  'job.kill': '停作业',
   'screen.capture': '截屏',
-  'app.open': '打开应用'
+  'app.open': '打开应用',
+  'clipboard.read': '读剪贴板',
+  'clipboard.write': '写剪贴板',
+  notify: '发通知',
+  'system.info': '系统信息',
+  'process.list': '列进程',
+  'process.kill': '结束进程',
+  'web.fetch': '抓网页'
 };
 
 function toolLabel(tool: string) {
@@ -98,9 +114,37 @@ function stepSummary(tool: string, result: unknown): string {
   const data = result as Record<string, unknown> | null;
   if (!data || typeof data !== 'object') return '';
   if (tool === 'test.run' || tool === 'shell.run') {
+    if (data.job && typeof data.job === 'object') {
+      const job = data.job as Record<string, unknown>;
+      return ` · 后台 ${String(job.id)}（pid ${String(job.pid)}）`;
+    }
     const timeout = data.timedOut ? '（超时）' : '';
     return ` · 退出码 ${String(data.exitCode)}${timeout} · ${String(data.durationMs)}ms`;
   }
+  if (tool === 'job.list') {
+    const jobs = data.jobs;
+    return ` · ${Array.isArray(jobs) ? jobs.length : 0} 个作业`;
+  }
+  if (tool === 'job.output') return ` · ${String(data.bytes)} 字节${data.truncated ? '（已截断）' : ''}`;
+  if (tool === 'job.kill') return ` · 信号 ${String(data.signal)} · ${data.stillRunning ? '仍在运行' : '已结束'}`;
+  if (tool === 'fs.edit') return ` · 替换 ${String(data.replaced)} 处 · ${String(data.bytes)} 字节`;
+  if (tool === 'fs.remove') return data.trashed ? ` · 已移入废纸篓 ${String(data.trashPath)}` : ' · 已永久删除';
+  if (tool === 'fs.move' || tool === 'fs.copy') return ` · → ${String(data.to)}`;
+  if (tool === 'fs.stat') return ` · ${String(data.type)} · ${String(data.bytes)} 字节`;
+  if (tool === 'fs.readImage') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.mime)}`;
+  if (tool === 'clipboard.read') return ` · ${String(data.chars)} 字符`;
+  if (tool === 'clipboard.write') return ` · 写入 ${String(data.written)} 字符`;
+  if (tool === 'notify') return ` · ${String(data.title)}`;
+  if (tool === 'system.info') {
+    const osInfo = data.os as Record<string, unknown> | undefined;
+    const memory = data.memory as Record<string, unknown> | undefined;
+    return osInfo
+      ? ` · ${String(osInfo.type)} ${String(osInfo.release)} · 内存 ${String(memory?.totalGb ?? '?')}GB`
+      : '';
+  }
+  if (tool === 'process.list') return ` · 匹配 ${String(data.matched)}/${String(data.total)}`;
+  if (tool === 'process.kill') return ` · pid ${String(data.pid)} · ${data.stillRunning ? '仍在运行' : '已结束'}`;
+  if (tool === 'web.fetch') return ` · HTTP ${String(data.status)} · ${String(data.bytes)} 字节`;
   if (tool === 'screen.capture') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.path)}`;
   if (tool === 'app.open') {
     if (data.running === true) return ` · ${String(data.app ?? data.path)} · 已启动（pid ${String(data.pid)}）`;

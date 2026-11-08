@@ -43,8 +43,12 @@ export const PROTOCOL = 'desktop-agent/v1';
  */
 export const TOOL_NAMES = [
   'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
-  'fs.tree', 'fs.search', 'fs.find', 'test.run',
-  'shell.run', 'screen.capture', 'app.open'
+  'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.readImage',
+  'test.run', 'shell.run',
+  'job.list', 'job.output', 'job.kill',
+  'screen.capture', 'app.open',
+  'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
+  'web.fetch'
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -53,12 +57,21 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  *
  * `test.run` / `shell.run` / `screen.capture` / `app.open` 都会产生副作用
  * （构建产物、系统命令、截图文件、启动进程），一个都不能放进来——只读就是
- * 只读，不能因为「它看起来像查看」就放宽。
+ * 只读，不能因为「它看起来像查看」就放宽。`web.fetch` 虽然不改本机，但会把
+ * 工作区内容发到外网，同样不算只读。
  */
-export const READ_ONLY_TOOLS: readonly ToolName[] = ['fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find'];
+export const READ_ONLY_TOOLS: readonly ToolName[] = [
+  'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.readImage',
+  'system.info', 'process.list', 'clipboard.read'
+];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
-export const MUTATING_TOOLS: readonly ToolName[] = ['fs.mkdir', 'fs.writeFile', 'test.run', 'shell.run', 'screen.capture', 'app.open'];
+export const MUTATING_TOOLS: readonly ToolName[] = [
+  'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy',
+  'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
+  'screen.capture', 'app.open',
+  'clipboard.write', 'notify', 'process.kill', 'web.fetch'
+];
 
 export const TEST_COMMANDS = [
   'npm test',
@@ -127,6 +140,56 @@ export const StepSchema = z.discriminatedUnion('tool', [
   }).strict(),
   z.object({
     id: Id,
+    tool: z.literal('fs.stat'),
+    args: z.object({ path: RelativePath }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.edit'),
+    args: z.object({
+      path: RelativePath,
+      /** 必须与文件里的文本逐字一致；默认要求只出现一次。 */
+      oldString: z.string().min(1).max(20_000),
+      newString: z.string().max(200_000),
+      replaceAll: z.boolean().optional(),
+      /** 读到的 sha256，用于确认改的是当时那一版。 */
+      expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.remove'),
+    args: z.object({
+      path: RelativePath,
+      /** 目录必须显式声明，避免一次误删整棵树。 */
+      recursive: z.boolean().optional(),
+      /** 直接删除而不是移到废纸篓；只有完全权限才会执行。 */
+      permanent: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.move'),
+    args: z.object({ from: RelativePath, to: RelativePath }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.copy'),
+    args: z.object({ from: RelativePath, to: RelativePath }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.readImage'),
+    args: z.object({ path: RelativePath }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
     tool: z.literal('test.run'),
     args: z.object({ command: z.enum(TEST_COMMANDS) }).strict(),
     description: z.string().max(500).optional()
@@ -138,7 +201,33 @@ export const StepSchema = z.discriminatedUnion('tool', [
       command: z.string().min(1).max(2000),
       /** 相对工作区的目录；不给就是工作区根目录。 */
       cwd: RelativePath.optional(),
-      timeoutMs: z.number().int().min(1000).max(300_000).optional()
+      timeoutMs: z.number().int().min(1000).max(300_000).optional(),
+      /** 放到后台跑，立刻返回作业 id；后续用 job.output / job.kill。 */
+      background: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('job.list'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('job.output'),
+    args: z.object({
+      id: z.string().min(1).max(120),
+      tailBytes: z.number().int().min(1000).max(262_144).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('job.kill'),
+    args: z.object({
+      id: z.string().min(1).max(120),
+      signal: z.enum(['TERM', 'KILL']).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
@@ -167,6 +256,66 @@ export const StepSchema = z.discriminatedUnion('tool', [
       app: z.string().min(1).max(200).optional(),
       /** 要打开的文件/目录。与 app 二选一。 */
       path: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('clipboard.read'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('clipboard.write'),
+    args: z.object({ text: z.string().max(262_144) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('notify'),
+    args: z.object({
+      title: z.string().min(1).max(120),
+      message: z.string().max(1000).optional(),
+      subtitle: z.string().max(120).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('system.info'),
+    args: z.object({
+      scope: z.enum(['all', 'os', 'cpu', 'memory', 'disk', 'battery']).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('process.list'),
+    args: z.object({
+      filter: z.string().max(120).optional(),
+      limit: z.number().int().min(1).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('process.kill'),
+    args: z.object({
+      pid: z.number().int().min(1).max(999_999),
+      signal: z.enum(['TERM', 'KILL']).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('web.fetch'),
+    args: z.object({
+      url: z.string().min(1).max(2000),
+      method: z.enum(['GET', 'POST']).optional(),
+      headers: z.record(z.string().max(200)).optional(),
+      body: z.string().max(100_000).optional(),
+      maxBytes: z.number().int().min(1024).max(2_000_000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict()

@@ -7,6 +7,10 @@ import { runTest } from './tools/test-run';
 import { runShell } from './tools/shell';
 import { captureScreen } from './tools/screen';
 import { openApp } from './tools/app-open';
+import { fsExtraTools } from './tools/fs-extra';
+import { systemTools } from './tools/system';
+import { webFetch } from './tools/web-fetch';
+import { jobOutput, killJob, listJobs } from './tools/jobs';
 import {
   PlanSchema,
   TaskGrantSchema,
@@ -131,6 +135,24 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           case 'fs.find':
             result = await projectReadTools.find(grant, step.args);
             break;
+          case 'fs.stat':
+            result = await fsExtraTools.stat(grant, step.args);
+            break;
+          case 'fs.edit':
+            result = await fsExtraTools.edit(grant, step.args);
+            break;
+          case 'fs.remove':
+            result = await fsExtraTools.remove(grant, step.args);
+            break;
+          case 'fs.move':
+            result = await fsExtraTools.move(grant, step.args);
+            break;
+          case 'fs.copy':
+            result = await fsExtraTools.copy(grant, step.args);
+            break;
+          case 'fs.readImage':
+            result = await fsExtraTools.readImage(grant, step.args);
+            break;
           case 'test.run': {
             const run = await runTest(grant, step.args);
             result = run;
@@ -142,11 +164,21 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           case 'shell.run': {
             const run = await runShell(grant, step.args);
             result = run;
-            if (run.exitCode !== 0) {
+            // 后台作业没有退出码：此刻"跑起来了"才是事实，退出码要等 job.output。
+            if (!run.job && run.exitCode !== 0) {
               stepFailure = `命令退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
             }
             break;
           }
+          case 'job.list':
+            result = { jobs: await listJobs() };
+            break;
+          case 'job.output':
+            result = await jobOutput(step.args);
+            break;
+          case 'job.kill':
+            result = await killJob(step.args);
+            break;
           case 'screen.capture':
             result = await captureScreen(grant, step.args);
             break;
@@ -156,6 +188,27 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
             verified = opened.verified;
             break;
           }
+          case 'clipboard.read':
+            result = await systemTools.clipboardRead(grant);
+            break;
+          case 'clipboard.write':
+            result = await systemTools.clipboardWrite(grant, step.args);
+            break;
+          case 'notify':
+            result = await systemTools.notify(grant, step.args);
+            break;
+          case 'system.info':
+            result = await systemTools.info(grant, step.args);
+            break;
+          case 'process.list':
+            result = await systemTools.processList(grant, step.args);
+            break;
+          case 'process.kill':
+            result = await systemTools.processKill(grant, step.args);
+            break;
+          case 'web.fetch':
+            result = await webFetch(step.args);
+            break;
           case 'fs.writeFile': {
             const args = step.args;
             result = args.overwrite
