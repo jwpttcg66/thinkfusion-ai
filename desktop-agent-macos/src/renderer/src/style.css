@@ -1776,6 +1776,48 @@ button:disabled {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 标题和导出按钮一行：标题很长时先压标题，按钮不被挤走。 */
+.conversation-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-bar {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.export-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.export-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.export-note.is-error {
+  color: #c0392b;
 }
 
 .conversation-title h2 {

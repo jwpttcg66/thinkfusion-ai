@@ -307,6 +307,7 @@ export function createMockApi(): AgentApi {
     getConversationMessages: async () => [],
     cancelConversation: async () => undefined,
     deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
+    exportConversation: async () => null,
     getChannelStatuses: async () => [],
     getExecutionOptions: async () => ({
       modes: ['web', 'local', 'cloud', 'hybrid'],

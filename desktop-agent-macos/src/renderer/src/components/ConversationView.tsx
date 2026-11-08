@@ -49,6 +49,13 @@ const STATUS_LABEL: Record<Conversation['status'], string> = {
   cancelled: '已取消'
 };
 
+/** 导出结果里那句「12.4 KB」，比一串字节数好读。 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /**
  * 这条会话自己用的执行模式。
  *
@@ -90,9 +97,41 @@ export function ConversationView(props: {
   const turns = groupTurns(messages);
   const liveStatus: ReadonlyArray<Conversation['status']> = ['thinking', 'collecting', 'comparing', 'synthesizing'];
 
-  // 新一轮在转录最下面。不把它带到眼前，「这一轮谁在答」还是得自己往下滚。
-  // 只在这一轮刚出现时对齐一次，之后回答流进来时不再动滚动位置——那会把
+  // 新一轮在转录最下面。不把它带到眼前，「这一轮谁在答」还是得自己往下滚。  // 只在这一轮刚出现时对齐一次，之后回答流进来时不再动滚动位置——那会把
   // 正在往上读的人拽回来。
+  /**
+   * 导出：两种格式同一份内容，只是排版不同。
+   *
+   * 这里只负责叫主进程写文件——正文和排版都在主进程里完成（它自己读存的
+   * 消息）。界面不把正文抄出来再传一遍，那样导出的东西就有可能和存的对不上。
+   */
+  const [exporting, setExporting] = useState<'md' | 'docx' | null>(null);
+  const [exportNote, setExportNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function handleExport(format: 'md' | 'docx') {
+    if (exporting) return;
+    setExporting(format);
+    setExportNote(null);
+    try {
+      const result = await window.agentAPI.exportConversation({
+        conversationId: conversation.conversationId,
+        format
+      });
+      setExportNote(
+        result
+          ? { ok: true, text: `已保存：${result.path}（${formatBytes(result.bytes)}，${result.turns} 轮）` }
+          : { ok: true, text: '已取消保存' }
+      );
+    } catch (error) {
+      setExportNote({
+        ok: false,
+        text: `导出失败：${error instanceof Error ? error.message : String(error)}`
+      });
+    } finally {
+      setExporting(null);
+    }
+  }
+
   const rootRef = useRef<HTMLElement | null>(null);
   const lastTurnRef = useRef<HTMLElement | null>(null);
   const lastUserId = [...messages].reverse().find(message => message.role === 'user')?.messageId ?? '';
@@ -108,8 +147,7 @@ export function ConversationView(props: {
    * 等一会儿再停手，是因为消息和会话不是同一次渲染到的：先切会话，消息随后
    * 才塞进来；只在切会话那一刻落底，落的是上一屏的高度。
    */
-  const [settling, setSettling] = useState(true);
-  useEffect(() => {
+  const [settling, setSettling] = useState(true);  useEffect(() => {
     setSettling(true);
     const timer = setTimeout(() => setSettling(false), 1200);
     return () => clearTimeout(timer);
@@ -135,17 +173,46 @@ export function ConversationView(props: {
   return (
     <section className="conversation" aria-label="对话" ref={rootRef}>
       <header className="conversation-head">
-        <div className="conversation-title">
-          <h2>{conversation.title}</h2>
-          <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
-          {conversation.workspaceMode === 'engineering' && (
-            <span className="intent-badge workspace-badge" title={conversation.workspaceRoot ?? ''}>
-              {workspaceLabel('engineering')}
-              {conversation.routing ? ` · ${routingLabel(conversation.routing)}` : ''}
-            </span>
-          )}
-          <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
+        <div className="conversation-top">
+          <div className="conversation-title">
+            <h2>{conversation.title}</h2>
+            <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
+            {conversation.workspaceMode === 'engineering' && (
+              <span className="intent-badge workspace-badge" title={conversation.workspaceRoot ?? ''}>
+                {workspaceLabel('engineering')}
+                {conversation.routing ? ` · ${routingLabel(conversation.routing)}` : ''}
+              </span>
+            )}
+            <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
+          </div>
+          {/* 导出：内容来自主进程存的这条会话，排版由导出模板定，不经过模型。 */}
+          <div className="export-bar">
+            <button
+              type="button"
+              className="export-btn"
+              disabled={exporting !== null}
+              onClick={() => void handleExport('md')}
+              title="把这条会话存成 Markdown（纯文本，可 diff）"
+            >
+              {exporting === 'md' ? '导出中…' : '导出 MD'}
+            </button>
+            <button
+              type="button"
+              className="export-btn"
+              disabled={exporting !== null}
+              onClick={() => void handleExport('docx')}
+              title="把这条会话存成 Word 文档（版式由模板定）"
+            >
+              {exporting === 'docx' ? '导出中…' : '导出 Word'}
+            </button>
+          </div>
         </div>
+        {exportNote && (
+          <p className={`export-note ${exportNote.ok ? '' : 'is-error'}`}>
+            {exportNote.ok ? '' : '⚠ '}
+            {exportNote.text}
+          </p>
+        )}
         <p className="conversation-why">
           {`这条用「${mode}」模式跑`}
           {' · '}

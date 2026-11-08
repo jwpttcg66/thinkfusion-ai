@@ -94,6 +94,8 @@ import type {
   SelectorRole
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
+import { exportConversation, type ExportDeps } from './export';
+import type { ExportConversationInput } from '../shared/export';
 
 let win: BrowserWindow | null = null;
 
@@ -1936,11 +1938,50 @@ function registerIpc() {
     return outcome;
   });
 
+  /**
+   * 会话导出：Markdown / Word，写在本机。
+   *
+   * 内容全部来自主进程自己存的会话与消息（`conversations.get/messages`），
+   * 所以导出的字和界面上看到的一致，也不会因为模型换了、网页关了而变。
+   * 保存位置默认交给系统对话框；传了 `path` 就直接写（自动化与真机验收）。
+   */
+  ipcMain.handle('document:export', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = raw as ExportConversationInput | undefined;
+    if (!input || typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
+    const format = input.format === 'docx' ? 'docx' : 'md';
+
+    const labels: Record<string, string> = {};
+    for (const agent of registry.list()) labels[agent.id] = agent.label;
+    for (const item of cloudCatalog) {
+      for (const model of item.models) labels[`${item.id}:${model}`] = `${item.label} · ${model}`;
+    }
+
+    const deps: ExportDeps = {
+      conversation: id => conversations.get(id),
+      messages: id => conversations.messages(id),
+      labels: () => labels,
+      defaultDir: () => app.getPath('downloads'),
+      pickPath: async (name, fmt) => {
+        const target = await dialog.showSaveDialog({
+          title: fmt === 'docx' ? '导出为 Word 文档' : '导出为 Markdown',
+          defaultPath: path.join(app.getPath('downloads'), name),
+          filters:
+            fmt === 'docx'
+              ? [{ name: 'Word 文档', extensions: ['docx'] }]
+              : [{ name: 'Markdown', extensions: ['md'] }]
+        });
+        return target.canceled || !target.filePath ? null : target.filePath;
+      }
+    };
+
+    return exportConversation({ ...input, format }, deps);
+  });
+
   ipcMain.handle('channel:statuses', async event => {
     trustedUiSender(event);
     return registry.statuses();
   });
-
   ipcMain.handle('deepseek:status', async event => {
     trustedUiSender(event);
     return planningAdapter().getStatus();

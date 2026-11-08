@@ -20,6 +20,16 @@ import path from 'node:path';
  * while the person is still looking at the button they pressed.
  */
 export function writeFileAtomic(file: string, contents: string, mode = 0o600): void {
+  writeBufferAtomic(file, Buffer.from(contents, 'utf8'), mode);
+}
+
+/**
+ * 二进制版本。导出的 docx 是 zip，按字符串写会被 UTF-8 编一遍，文件就打不开了。
+ *
+ * 和上面同一个道理：先写同目录临时文件、fsync、rename，读者要么看到旧文件、
+ * 要么看到完整的新文件，不会看到写了一半的导出。
+ */
+export function writeBufferAtomic(file: string, contents: Buffer, mode = 0o644): void {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
 

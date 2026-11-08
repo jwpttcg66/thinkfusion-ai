@@ -27,6 +27,7 @@ import type {
   WorkspaceState
 } from '../shared/workspace';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
+import type { ExportConversationInput } from '../shared/export';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -52,6 +53,7 @@ const api: AgentApi = {
   getConversationMessages: (conversationId: string) => ipcRenderer.invoke('conversation:messages', conversationId),
   cancelConversation: (conversationId: string) => ipcRenderer.invoke('conversation:cancel', conversationId),
   deleteConversation: (conversationId: string) => ipcRenderer.invoke('conversation:delete', conversationId),
+  exportConversation: (input: ExportConversationInput) => ipcRenderer.invoke('document:export', input),
   getChannelStatuses: () => ipcRenderer.invoke('channel:statuses'),
   getExecutionOptions: () => ipcRenderer.invoke('app:execution-options'),
   setApiKey: (input: { id: string; key: string }) => ipcRenderer.invoke('app:set-api-key', input),

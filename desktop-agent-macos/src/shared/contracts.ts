@@ -4,6 +4,7 @@ import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from './search';
+import type { ExportConversationInput, ExportConversationResult } from './export';
 import type {
   ChannelStatus,
   Conversation,
@@ -1226,6 +1227,14 @@ export interface AgentApi {
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;
   cancelConversation(conversationId: string): Promise<void>;
   deleteConversation(conversationId: string): Promise<ConversationDeleteOutcome>;
+  /**
+   * 把这条会话导出成本机文件（Markdown / Word）。
+   *
+   * 内容由主进程从自己的存盘里读，排版由模板定，全程不经过模型——导出的
+   * 是会话里已经写好的那段话，不是重新总结一遍。返回 `null` 表示用户在
+   * 保存对话框里点了取消（不是失败，界面上不该报错）。
+   */
+  exportConversation(input: ExportConversationInput): Promise<ExportConversationResult | null>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
 
