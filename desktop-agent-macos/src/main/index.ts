@@ -2536,6 +2536,36 @@ app.whenReady().then(async () => {
     },
     executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
     /**
+     * 工程空间「模型直答」的候选名单（2026-11-08 用户裁决：工程模式不优先问
+     * 网页，读取本地由模型做）。这里必须带真实的可用性：没启动的 Ollama 和
+     * 没配 Key 的云端模型都在 executorIds 里，直接拿名单去问只会得到一条
+     * 报错，用户看到的就是「模型不能用」而不是「网页读不了本地文件」。
+     */
+    modelMembers: async config => {
+      const selection = selectParticipants(config, registry.list(), extraAgents);
+      const members = extraAgents.filter(agent => selection.executorIds.has(agent.id));
+      return Promise.all(
+        members.map(async agent => {
+          let available = false;
+          let detail: string | undefined;
+          try {
+            const health = await agent.health();
+            available = health.available;
+            detail = health.detail;
+          } catch (error) {
+            detail = error instanceof Error ? error.message : String(error);
+          }
+          return {
+            agentId: agent.id,
+            label: agent.label,
+            kind: (agent.sourceType === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
+            available,
+            detail
+          };
+        })
+      );
+    },
+    /**
      * V2.1 Model Router：把「这一轮用哪些模型、为什么」在提问之前算出来。
      *
      * 只读当前可用成员，不主动探活：探活会给每个页面发一次探测，而这条路

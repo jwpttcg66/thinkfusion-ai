@@ -17,7 +17,7 @@ import { scanProject, engineeringMaterial } from './engineering/project';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool } from './agents/types';
-import { MasterAgent, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
+import { MasterAgent, type ChannelOutcome, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
 import {
@@ -46,6 +46,12 @@ import {
   parseFollowUps
 } from './research/follow-up';
 import { heuristicPick } from './synthesis/lead-selector';
+import {
+  buildEngineeringAnswerQuestion,
+  engineeringAnswerSystem,
+  planEngineeringAnswer,
+  type ModelMemberView
+} from './research/engineering-round';
 import type { JudgeVerdict } from './judge/types';
 
 /**
@@ -137,6 +143,14 @@ export interface ConversationDeps {
    * 也可以当辩手。不传表示没有执行阶段成员。
    */
   executorIdsFor?: (config: ConversationExecutionConfig) => ReadonlySet<string>;
+  /**
+   * 工程空间「模型直答」的候选名单，带此刻的可用性。
+   *
+   * 2026-11-08 用户裁决：工程模式不优先问网页，读取本地由模型做。所以工程空间
+   * 的第一手回答要在这里挑人（本地优先），而不是走 `pool.available()`——那里
+   * 只有网页通道。不传 = 没有模型，工程空间退回网页并说明原因。
+   */
+  modelMembers?: (config: ConversationExecutionConfig) => Promise<readonly ModelMemberView[]>;
   /**
    * 跑一场「会话内辩论」：主导人指定辩题后，由本地/云端模型多轮交锋。
    *
@@ -472,9 +486,10 @@ export class ConversationRunner {
         return handoff(`已识别为${routingLabel(routing)}（${routing.reason}）`);
       }
 
-      // 工程分析：先真实读工程，再走和知识空间**完全相同**的提问链路。
-      // 用户原话仍原样发给所有已开启的网页通道；证据不进第一轮问题，
-      // 只在执行阶段作为主导人的附加材料出现。
+      // 工程分析：先真实读工程，然后把回答交给能拿到证据的成员——
+      // 工程空间的第一手回答由本地/云端模型直接读证据给出（2026-11-08 用户
+      // 裁决：工程模式不优先问网页）；网页读不到本机文件，只在没有可用模型
+      // 时兜底。证据只进模型的那条问题，不改变用户的提问原话。
       try {
         const scan = await scanProject(input.workspaceRoot!, text);
         conversation.engineeringEvidence = scan.evidence;
@@ -814,6 +829,98 @@ export class ConversationRunner {
     }
   }
 
+  /**
+   * 工程空间的第一手回答：模型直接读工程证据回答（2026-11-08 用户裁决）。
+   *
+   * 不是「多一条链路」，而是把回答这件事交回给唯一能拿到证据的一方：
+   *
+   * - 本地模型优先，云端主导且云端可用时才用云端；用户点名了成员就用它；
+   * - 问题 = 用户原话 + 程序真实读到的工程证据，没有角色开场；
+   * - 一个可用模型都没有时返回 null，调用方照旧走网页链路——但先写一条系统
+   *   消息说明「退回网页」以及网页读不到本地文件，免得用户以为是模型坏了。
+   *
+   * 只问一个模型：读证据回答是确定性任务，同一份证据问两个模型只会把等待时间
+   * 翻倍，还会接着触发汇总与辩论。只有一份回答时执行阶段本来就跳过（没有可汇总
+   * 的分歧），用户直接看到模型读证据后的回答。
+   */
+  private async researchEngineering(
+    conversation: Conversation,
+    question: string,
+    pool: SubAgentPool,
+    sink: ResearchSink
+  ): Promise<ResearchOutcome | null> {
+    const config = normalizeExecutionConfig(conversation.executionConfig);
+    const material = this.engineeringMaterialFor(conversation);
+    const members = (await this.deps.modelMembers?.(config)) ?? [];
+    const plan = planEngineeringAnswer({
+      mode: config.executionMode,
+      leadAgentId: config.leadAgentId,
+      members
+    });
+
+    if (!material) {
+      sink.note('这一轮没有读到任何工程证据（目录未选或扫描失败），工程空间没有可依据的本地材料，改问网页通道。');
+      return null;
+    }
+    if (plan.fallback) {
+      sink.note(`${plan.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`);
+      return null;
+    }
+
+    sink.note(`${plan.reason}：${plan.targets.map(item => item.label).join('、')}。`);
+    sink.status(plan.targets.length > 1 ? 'collecting' : 'thinking');
+
+    const engineered = buildEngineeringAnswerQuestion(question, material);
+    const answers: SubAgentAnswer[] = [];
+    const channels: ChannelOutcome[] = [];
+    const failures: string[] = [];
+    const messageIds = new Map<string, string>();
+
+    await Promise.all(
+      plan.targets.map(async target => {
+        if (sink.cancelled()) return;
+        sink.join(target.agentId);
+        sink.phase(target.agentId, 'asking', '读工程证据后回答');
+        try {
+          const answer = await pool.ask(target.agentId, {
+            question: engineered,
+            stage: 'initial',
+            // 证据可能有几万字，本地模型逐段读完再写，和网页主导的汇总同一量级。
+            timeoutMs: 180_000,
+            // 只对本地/云端 API 生效；工程空间不发网页，所以不涉及「包装话术」。
+            system: engineeringAnswerSystem()
+          });
+          if (sink.cancelled()) return;
+          messageIds.set(target.agentId, sink.record(answer));
+          sink.phase(target.agentId, 'answered', '读完证据后回答');
+          answers.push(answer);
+          channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          sink.phase(target.agentId, 'failed', detail);
+          failures.push(`${target.label}：${detail}`);
+          channels.push({
+            kind: 'unanswered',
+            agentId: target.agentId,
+            label: target.label,
+            phase: 'failed',
+            detail
+          });
+        }
+      })
+    );
+
+    // 一个都没答：交给调用方退回网页，并说明是模型这边没成，不是没读文件。
+    if (answers.length === 0) {
+      sink.note(`本机模型没有给出回答（${failures.join('；')}），这一轮改问网页通道。`);
+      return null;
+    }
+
+    // 综合留给既有链路：两份以上回答会走融合引擎，再由主导人汇总；一份时
+    // 现状就是「只有回答、没有综合」，不为工程空间单独造一份假综合。
+    return { answers, synthesis: null, failures, channels, messageIds };
+  }
+
   private async conduct(
     conversation: Conversation,
     master: ResearchRunner,
@@ -935,23 +1042,35 @@ export class ConversationRunner {
       }
     }
 
-    const outcome = await master.research(
-      {
-        question,
-        followup: options.followup,
-        // Continuity is per answered channel, not per asked one. A channel that
-        // failed last turn is not holding this conversation's thread, so a
-        // follow-up has to start it clean — otherwise its answer arrives with
-        // whatever unrelated history the page was left on.
-        continuing
-      },
-      sink
-    );
+    // 工程空间：回答由模型直接读工程证据给出（本地优先），不问网页——
+    // 网页读不到本机文件，问它们只会得到「请上传文件」（2026-11-08 用户裁决）。
+    // 没有可用模型时这个方法返回 null，下面照旧走网页链路并已写过原因。
+    const engineeringRound =
+      conversation.workspaceMode === 'engineering'
+        ? await this.researchEngineering(conversation, question, pool, sink)
+        : null;
+    if (this.cancelled.has(conversationId)) return;
+
+    const outcome =
+      engineeringRound ??
+      (await master.research(
+        {
+          question,
+          followup: options.followup,
+          // Continuity is per answered channel, not per asked one. A channel that
+          // failed last turn is not holding this conversation's thread, so a
+          // follow-up has to start it clean — otherwise its answer arrives with
+          // whatever unrelated history the page was left on.
+          continuing
+        },
+        sink
+      ));
 
     if (this.cancelled.has(conversationId)) return;
 
-    // 执行阶段（回答之后）：执行模式 = 谁当主导人，不决定谁回答——
-    // 第一手回答永远来自网页通道（上面那轮）。主导人做三件事：
+    // 执行阶段（回答之后）：执行模式 = 谁当主导人，不决定谁回答。
+    // 知识空间的第一手回答来自网页通道（上面那轮）；工程空间例外——回答由
+    // 本地/云端模型读工程证据给出，见 researchEngineering()。主导人做三件事：
     //   1. 汇总全部回答，写【结论/一致/分歧/存疑】；
     //   2. 从分歧里指定辩题（没有实质分歧就不辩）；
     //   3. 读辩论记录，给最终意见。

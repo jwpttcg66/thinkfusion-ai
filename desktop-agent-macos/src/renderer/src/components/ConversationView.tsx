@@ -354,7 +354,12 @@ function groupTurns(messages: ConversationMessage[]): Array<{
  */
 function labelOf(channelId: string | undefined, labels: ReadonlyMap<string, string>): string {
   if (!channelId) return '通道';
-  return labels.get(channelId) ?? channelId;
+  const known = labels.get(channelId);
+  if (known) return known;
+  // 本地/云端成员的 id 形如 `ollama:deepseek-r1:14b`，不在网页通道的状态表里。
+  // 直接显示整串等于把内部 id 摊给用户，去掉提供方前缀后至少是模型名。
+  const parts = channelId.split(':');
+  return parts.length > 1 && parts[0].length > 0 ? parts.slice(1).join(':') : channelId;
 }
 
 /** 「观点A/B/C」和具体是谁的对应关系，一条一枚。 */
