@@ -1,13 +1,19 @@
 /**
  * 主进程这一半的能力插件。
  *
- * 三个都是「在本机干活」的能力：读工程证据（本地能力）、导出会话、保存网页
+ * 四个能力：读工程证据（本地）、浏览器联网搜索（联网）、导出会话与保存网页
  * 文档（保存）。它们需要主进程才有的东西——会话存盘、保存对话框、
- * `WebContentsView` 里的页面——所以没有塞进 Runtime 的工具表里，而是同一份
- * 契约下的另一个宿主，跟 harness 的 host / client 双半包是同一种分法。
+ * `WebContentsView` 里的页面、`BrowserWindow`——所以没有塞进 Runtime 的工具表，
+ * 而是同一份契约下的另一个宿主，跟 harness 的 host / client 双半包同理。
  *
  * 依赖通过 `MainCapabilityContext` 注入，插件本身不 import Electron：这样
  * 行为测试能在 node 里直接跑，宿主换成别的实现也不用改插件。
+ *
+ * 联网搜索特别说明：`web.search` 跑在 Runtime，但免凭据那条兜底要靠主进程
+ * 的真浏览器开一次 Bing。以前 `agent-manager` 直接 import `searchInBrowser`，
+ * 这半边绕过注册表——清单里没有、开关管不到、也不走 `execute`。现在它单独
+ * 登记成 `web.search.browser`，由 agent-manager 查表执行；停用会明确报错，
+ * 错误原样回给 Runtime，被 `webSearch` 记成「browser 这次失败」再走 HTTP 兜底。
  */
 
 import { CapabilityRegistry, capabilityMeta } from '../../shared/capabilities';
@@ -16,6 +22,15 @@ import { resolveExportFormat, type ExportConversationInput, type PageDocumentCon
 import { scanProject, type ScanOptions } from '../engineering/project';
 import { exportConversation, type ExportDeps } from '../export';
 import { savePageDocument, type SavePageDocumentDeps } from '../export/page';
+import type { SearchHit } from '../../shared/search';
+
+/** 浏览器搜索后端要交回的结构化结果。与 `browser-search.ts` 的返回一致。 */
+export interface BrowserSearchOutcome {
+  results: SearchHit[];
+  finalUrl: string;
+  pageTitle: string;
+  emptyNote?: string;
+}
 
 export interface MainCapabilityContext {
   /** 会话导出要用的存盘读取与对话框。 */
@@ -24,6 +39,8 @@ export interface MainCapabilityContext {
   savePageDeps?: () => SavePageDocumentDeps;
   /** 从指定网页源的 DOM 里读出文档与计划。 */
   readPage?: (sourceId?: string) => Promise<PageDocumentContent>;
+  /** 用主进程的浏览器搜一次（只有主进程能开 BrowserWindow）。 */
+  browserSearch?: (query: string, limit: number) => Promise<BrowserSearchOutcome>;
 }
 
 // Each plugin has its own argument/result shape; the registry only sees `any`.
@@ -47,6 +64,13 @@ const MAIN_PLUGINS = [
       throw new Error('读取工程证据需要工程目录与问题');
     }
     return scanProject(args.root, args.question, args.options ?? {});
+  }),
+  plugin('web.search.browser', (args: { query: string; limit: number }, context: MainCapabilityContext) => {
+    const search = requireDeps(context?.browserSearch, '浏览器联网搜索');
+    const query = typeof args?.query === 'string' ? args.query.trim() : '';
+    if (!query) throw new Error('联网搜索词不能为空');
+    const limit = Math.min(Math.max(Number(args?.limit) || 8, 1), 20);
+    return search(query, limit);
   }),
   plugin('document.export', (args: ExportConversationInput, context: MainCapabilityContext) => {
     const deps = requireDeps(context?.exportDeps?.(), '导出会话文档');

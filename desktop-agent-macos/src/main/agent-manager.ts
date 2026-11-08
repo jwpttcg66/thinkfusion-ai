@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { AgentEvent, AgentPlan, ExecutionReport, TaskGrant } from '../shared/contracts';
 import { ExecutionReportSchema } from '../shared/schemas';
 import { searchInBrowser } from './browser-search';
+import { mainCapabilities, type BrowserSearchOutcome } from './capabilities';
 import { disabledCapabilities } from './capability-state';
 
 interface PendingRun {
@@ -42,6 +43,10 @@ export function startAgentProcess() {
     /**
      * 搜索要借主进程的浏览器：Runtime 是 UtilityProcess，开不了窗口。
      *
+     * 这半边也是插件（`web.search.browser`），实现由宿主注入，所以停用开关
+     * 在这里就拦得住——抛出的「能力插件已停用」会作为 error 回包，被
+     * `webSearch` 记成 browser 这一次失败，再按既有顺序退到 HTTP 兜底。
+     *
      * 回包一定发（成功或失败都发）：Runtime 那边在等一个 requestId 的答复，
      * 没有答复它只能等到超时——那会让一次「其实立刻失败了」的搜索看起来像
      * 「网络很慢」。
@@ -52,7 +57,12 @@ export function startAgentProcess() {
       const query = typeof typed.query === 'string' ? typed.query : '';
       const limit = Number(typed.limit) || 8;
       if (!runner) return;
-      void searchInBrowser(query, limit)
+      void mainCapabilities
+        .execute<BrowserSearchOutcome>(
+          'web.search.browser',
+          { query, limit },
+          { browserSearch: searchInBrowser }
+        )
         .then(result => runner.postMessage({ type: 'search.browser.result', requestId, result }))
         .catch(error =>
           runner.postMessage({

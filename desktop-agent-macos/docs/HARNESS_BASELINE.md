@@ -109,8 +109,9 @@ type StreamChunk =
 - **采用的是 dsh 的形状**：每个能力是一个插件（`run` + 登记信息 + 声明式依赖），
   宿主按 id 查表分派，注册可逆，清单可见、可单独停用。
 - 自研的 `CapabilityRegistry` 只有注册、查表、执行、开关四件事，在
-  `src/shared/capabilities.ts`；Runtime 与主进程各装载一半。32 个内置能力
-  （29 个本地工具 + 工程证据读取 + 2 个保存动作）全部登记。
+  `src/shared/capabilities.ts`；Runtime 与主进程各装载一半。33 个内置能力
+  （27 个本地工具 + 2 个联网工具 + 工程证据读取 + 浏览器联网搜索 + 2 个保存动作）
+  全部登记，按「本地 / 联网 / 保存」分组。
 - 仍然**不开放第三方插件**，理由见 ROADMAP「明确不排期的事」。
 
 实现与验证见 `docs/implementation/CAPABILITY_PLUGINS.md`。

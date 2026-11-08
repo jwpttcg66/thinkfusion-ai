@@ -681,12 +681,12 @@ export function SettingsPanel(props: {
               <section className="settings-section">
                 <h3>内置插件</h3>
                 <p className="settings-lead">
-                  本机能力和保存能力都按插件登记，和 DeepSeek Harness 一样一条一行：读哪个文件、
-                  写哪份文档、需要什么权限都能看清。停用的能力执行时会明确报错，不会悄悄跳过。
+                  本地能力、联网能力和保存能力都按插件登记，和 DeepSeek Harness 一样一条一行：读哪个文件、
+                  搜哪个网、写哪份文档、需要什么权限都能看清。停用的能力执行时会明确报错，不会悄悄跳过。
                 </p>
                 <p className="settings-lead">开关在下次执行时生效，已经跑起来的计划不受影响。</p>
                 {capabilityNote && <p className="settings-error">{capabilityNote}</p>}
-                {(['local', 'save'] as const).map(kind => {
+                {(['local', 'network', 'save'] as const).map(kind => {
                   const items = capabilities.filter(item => item.kind === kind);
                   const on = items.filter(item => item.enabled).length;
                   return (
@@ -733,8 +733,9 @@ export function SettingsPanel(props: {
                   规划用的提示词和工具白名单目前写在构建里，还没有可编辑的预设。执行权限在「通用设置」里改。
                 </p>
                 <p className="settings-lead">
-                  工具面是 29 个本地能力，另有 3 个主进程插件（读工程证据、导出会话、保存网页文档），
-                  全部列在「内置插件」里，可以逐条启用或停用。执行权限决定哪些能真跑。
+                  工具面是 29 个 Runtime 能力（27 个本地、2 个联网），另有 4 个主进程插件
+                  （读工程证据、浏览器联网搜索、导出会话、保存网页文档），全部列在「内置插件」里，
+                  可以逐条启用或停用。执行权限决定哪些能真跑。
                 </p>
               </section>
             )}

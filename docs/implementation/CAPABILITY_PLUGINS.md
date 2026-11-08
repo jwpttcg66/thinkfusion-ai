@@ -1,7 +1,8 @@
-# 所有本地能力与保存都是插件
+# 本地、联网与保存能力都是插件
 
-> 2026-11-08，分支 `0.1.3`。用户裁决：「所有本地能力和保存，都看齐 deepseek harness 都是插件」。
-> 形态确认：自研轻量插件注册表，覆盖全部本地能力与全部保存；不引入 cordis、不开放第三方包。
+> 2026-11-08，分支 `0.1.3`。用户裁决：「所有本地能力和保存，都看齐 deepseek harness 都是插件」，
+> 随后补充「应该还有联网搜索能力吧」——联网那一半也要按插件登记，详见第 7 节。
+> 形态确认：自研轻量插件注册表，覆盖全部本地、联网与保存能力；不引入 cordis、不开放第三方包。
 
 ## 1. 原来错在哪
 
@@ -23,14 +24,16 @@ DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服�
 ## 2. 一套契约、一份清单、两个宿主
 
 ```
-src/shared/capabilities.ts        契约 + 全量清单（32 条）+ CapabilityRegistry
+src/shared/capabilities.ts        契约 + 全量清单（33 条）+ CapabilityRegistry
         │
-        ├── src/agent/local-plugins.ts        Runtime：29 个本地工具
+        ├── src/agent/local-plugins.ts        Runtime：27 个本地工具 + 2 个联网工具
         │        └── src/agent/index.ts       只剩 localCapabilities.execute(step.tool, …)
         │
-        └── src/main/capabilities/index.ts    主进程：project.scan / document.export / page.save-document
+        └── src/main/capabilities/index.ts    主进程：project.scan / web.search.browser /
+                 │                             document.export / page.save-document
                  ├── src/main/conversation-runner.ts  工程证据改走 project.scan 插件
-                 └── src/main/index.ts                两个保存 IPC 改成查表执行
+                 ├── src/main/agent-manager.ts       浏览器搜索改走 web.search.browser 插件
+                 └── src/main/index.ts               两个保存 IPC 改成查表执行
 ```
 
 - `CapabilityPlugin` 只有 `run(args, context)` 是必须实现的，其余是登记信息
@@ -49,13 +52,19 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 | 宿主 | 类别 | 数量 | 例子 |
 | --- | --- | --- | --- |
-| `runtime` | 本地能力 | 29 | `fs.readFile` / `fs.edit` / `shell.run` / `web.fetch` / `code.run` … |
+| `runtime` | 本地能力 | 27 | `fs.readFile` / `fs.edit` / `shell.run` / `code.run` … |
+| `runtime` | 联网 | 2 | `web.fetch`（抓网页）、`web.search`（结构化搜索） |
 | `main` | 本地能力 | 1 | `project.scan`（工程证据读取） |
+| `main` | 联网 | 1 | `web.search.browser`（免凭据的浏览器搜索后端） |
 | `main` | 保存 | 2 | `document.export`（会话 md/docx）、`page.save-document`（网页文档与计划） |
 
-权限也进了清单：只读 10 个（`READ_ONLY_TOOLS`）、工作区可写、`process.kill` 是完全权限。
-`project.scan` 只读，两个保存是工作区可写。这层是清单展示；真正的强制仍由
-`assertGrant` / `resolveGrantedPath` 在每一步执行时做，没有因为插件化而放宽。
+`web.fetch` / `web.search` 跑在 Runtime，干的却是联网的活，所以单独成组；
+工具 id 一个没改，旧计划不会失效。
+
+权限也进了清单：工具里 10 个只读（`READ_ONLY_TOOLS`）、其余为工作区可写，
+`process.kill` 是完全权限；主进程侧 `project.scan` 与 `web.search.browser` 只读，
+两个保存是工作区可写。这层是清单展示；
+真正的强制仍由 `assertGrant` / `resolveGrantedPath` 在每一步执行时做，没有因为插件化而放宽。
 
 ## 3. 执行链路改了什么
 
@@ -81,8 +90,8 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 ## 4. 开关
 
-- 设置 → 内置插件：按「本地能力 / 保存」分组列出 32 条，每条有名字、id、说明、
-  权限与开关，分组标题显示 `已启用 / 总数`。
+- 设置 → 内置插件：按「本地能力 / 联网 / 保存」分组列出 33 条，每条有名字、id、
+  说明、权限与开关，分组标题显示 `已启用 / 总数`。
 - 状态存 `userData/capabilities.json`，只记「被停用的 id」——新增插件默认就是开的。
   文件坏了按全启用处理，不猜半截 JSON。
 - `capabilities:set` 更新磁盘后同步 `mainCapabilities`；Runtime 读不到 userData，
@@ -92,11 +101,12 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 ## 5. 验证
 
-- `scripts/check-capabilities.mjs`（15 条）：清单与权限、注册表可逆与报错、
-  两个宿主的注册集合、四类插件真干活（读目录、扫工程、导出会话 md、
-  保存网页文档都落盘回读）、开关落盘与下发、防回归断言（源码里没有
-  `switch (step.tool)`、设置页不再写「还没有插件」）。
-- 全量 `npm test` 在原有 739 条之外叠加这 15 条；`npm run typecheck` 三套通过。
+- `scripts/check-capabilities.mjs`：清单与权限、注册表可逆与报错、
+  两个宿主的注册集合、五类插件真干活（读目录、扫工程、浏览器联网搜索、
+  导出会话 md、保存网页文档都落盘回读）、开关落盘与下发、防回归断言
+  （源码里没有 `switch (step.tool)`、浏览器搜索不再直调 `searchInBrowser`、
+  设置页不再写「还没有插件」）。
+- `npm run typecheck` 三套通过，`npm run build` 通过。
 - 既有验收脚本对导出的格式默认值、页面探针开关、工程证据统计都继续全绿，
   说明插件化没有改变这些能力的对外行为。
 - **真机 s29**（2026-11-08，最新 `npm run build` 重启应用后，用应用自己的
@@ -107,6 +117,14 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
   设置页 DOM 里 32 行插件、32 个开关，分组标题「本地能力 30/30 已启用」
   「保存 2/2 已启用」，不再有「还没有插件」；测完开关全部恢复，
   `capabilities.json` 为 `{"disabled":[]}`，没有留下测试状态。
+- **真机 s30**（同日，补进联网能力后重新 `npm run build` 并重启，
+  `/tmp/tf21/s30-network-capabilities.mjs`）**16/16**：清单 33 条 /
+  本地 28 + 联网 3 + 保存 2 / Runtime 29 + 主进程 4；联网三条的 id 与宿主
+  正确，`web.search.browser` 只读、默认启用、已装载；新插件停用与重新启用
+  回显正确；`document.export` 停用仍被明确拦下、启用后走到导出实现；
+  设置页 33 行 33 开关，分组标题「本地能力 28/28 已启用」「联网 3/3 已启用」
+  「保存 2/2 已启用」；测后 `capabilities.json` 为 `{"disabled":[]}`。
+- 全量 `npm test` 756 条全绿（既有 739 + 插件测试 17）。
 
 ## 6. 刻意不做
 
@@ -115,3 +133,38 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
   这条仍然成立；这里做的是把**内置**能力收进插件契约。
 - **开关不卸载实现**：卸载了就没法一眼看出少的是谁；停用只拦截执行。
 - **不给插件发模型、发提示词**：能力插件只在本机干活，回答仍由提问链路产生。
+
+## 7. 补记：联网搜索那半边（同日）
+
+用户随后一句「应该还有联网搜索能力吧」点出了上一轮的漏项。核对下来，联网
+搜索被分成了三个地方：
+
+| 位置 | 上一轮的状态 | 问题 |
+| --- | --- | --- |
+| `web.fetch` / `web.search` | 在 Runtime 的 29 个工具里，但 `kind` 一律是 `local` | 联网的活被列在「本地能力」组，界面上看不出它会出网 |
+| `src/main/browser-search.ts` 的 `searchInBrowser` | `agent-manager` 收到 `search.browser.request` 后直接 import 调用 | 真正开 Chromium 窗口搜 Bing 的这半边**不在清单里**、开关管不到、也不走 `execute` |
+
+`web.search` 的免凭据路径本来就是双半包：Runtime 里的 `webSearch()` 负责
+四家凭据服务与 HTTP 兜底，遇到受限网络就通过 `browser-search-bridge` 向主进程
+要一次真浏览器结果。上一轮只把 Runtime 那半登记成插件，另一半漏了。
+
+改法：
+
+- `CapabilityKind` 增加 `network`，`web.fetch` / `web.search` 改归「联网」；
+  **工具 id 一个没改**，旧计划不受影响。
+- 新增主进程插件 `web.search.browser`（只读、默认启用）。插件不 import Electron，
+  真正的 `searchInBrowser` 由 `MainCapabilityContext.browserSearch` 注入，和另外
+  三个主进程插件一样能在 node 里单独测。
+- `agent-manager` 的 `search.browser.request` 从 `void searchInBrowser(...)` 改成
+  `mainCapabilities.execute<BrowserSearchOutcome>('web.search.browser', {query, limit}, { browserSearch: searchInBrowser })`。
+  成功/失败**仍然都回包**：Runtime 那边在等 requestId，一次「其实立刻失败了」
+  的搜索不能表现成「网络很慢」。
+
+停用的语义要说清楚：关掉 `web.search.browser` 只关掉浏览器后端。主进程插件抛
+「能力插件已停用：浏览器联网搜索」，错误原样回给 Runtime，`webSearch` 把它记成
+`attempts` 里 browser 的一次失败，再按既有顺序退到 Bing RSS / DuckDuckGo /
+Wikipedia，`degraded` 里能看见。要把联网整个关掉，得连 `web.fetch` 与
+`web.search` 一起停用——它们是三个独立插件，不是一个开关管一条链。
+
+其余一个字没改：四家凭据 provider、`browser → RSS → 摘要` 的兜底顺序、结果
+结构、40 秒回包超时、搜索窗串行化与 `persist:thinkfusion-search` 独立分区。

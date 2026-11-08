@@ -6,10 +6,15 @@
  * `agent/index.ts` 一整段 `switch (step.tool)`，加上主进程里两处散装的保存
  * IPC——能力明明都在，设置里的「内置插件」却写着「还没有插件」。
  *
- * 现在所有本地能力与所有保存能力都是插件：一套契约（`CapabilityPlugin`）、
- * 一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。Runtime 进程装载 29 个本地
- * 工具，主进程装载工程证据读取与两个保存动作。清单是共享的，所以两个进程
- * 和界面看到的是同一批 id、同一套权限说明。
+ * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
+ * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
+ * Runtime 进程装载 29 个工具（27 个本地 + 2 个联网），主进程装载工程证据
+ * 读取、浏览器联网搜索与两个保存动作。清单是共享的，所以两个进程和界面
+ * 看到的是同一批 id、同一套权限说明。
+ *
+ * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
+ * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
+ * 那半边以前绕过注册表直接被 `agent-manager` 调，现在也登记成插件。
  *
  * 刻意不做的：不装 cordis、不加载第三方包、不支持运行时下载插件。开关只
  * 决定「这次执行要不要放行」，不卸载实现——卸载了就没法一眼看出少的是谁。
@@ -17,7 +22,7 @@
 
 import { READ_ONLY_TOOLS, TOOL_NAMES, type ToolName } from './contracts';
 
-export type CapabilityKind = 'local' | 'save';
+export type CapabilityKind = 'local' | 'network' | 'save';
 /** 哪一半宿主装载这个插件。与 dsh 的 host / client 双半包同理。 */
 export type CapabilityHost = 'runtime' | 'main';
 export type CapabilityPermission = 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -90,7 +95,14 @@ function permissionOf(id: ToolName): CapabilityPermission {
   return (READ_ONLY_TOOLS as readonly string[]).includes(id) ? 'read-only' : 'workspace-write';
 }
 
-/** 主进程这一半的插件：工程证据读取 + 两个保存动作。 */
+/** 联网工具的 id 不混进「本地能力」：跑在 Runtime 不代表在本机干活。 */
+const NETWORK_TOOL_IDS: readonly string[] = ['web.fetch', 'web.search'];
+
+function kindOf(id: string): CapabilityKind {
+  return NETWORK_TOOL_IDS.includes(id) || id === 'web.search.browser' ? 'network' : 'local';
+}
+
+/** 主进程这一半的插件：工程证据读取 + 浏览器搜索 + 两个保存动作。 */
 const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   {
     id: 'project.scan',
@@ -98,6 +110,15 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
     host: 'main',
     title: '读取工程证据',
     description: '扫描工作区文件、统计行数与标签，给工程空间的第一意见当材料',
+    permission: 'read-only',
+    enabledByDefault: true
+  },
+  {
+    id: 'web.search.browser',
+    kind: 'network',
+    host: 'main',
+    title: '浏览器联网搜索',
+    description: '联网搜索的免凭据后端：用应用自己的 Chromium 打开 Bing 结果页，读回标题、链接与摘要',
     permission: 'read-only',
     enabledByDefault: true
   },
@@ -121,11 +142,11 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：29 个本地工具 + 3 个主进程能力。设置页只认这一份。 */
+/** 全量清单：29 个 Runtime 工具 + 4 个主进程能力。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,
-    kind: 'local',
+    kind: kindOf(id),
     host: 'runtime',
     title: LOCAL_TOOL_INFO[id][0],
     description: LOCAL_TOOL_INFO[id][1],
@@ -142,6 +163,7 @@ export const MAIN_CAPABILITY_IDS: readonly string[] = CAPABILITY_CATALOG.filter(
 
 export const CAPABILITY_KIND_LABELS: Record<CapabilityKind, string> = {
   local: '本地能力',
+  network: '联网',
   save: '保存'
 };
 export const CAPABILITY_PERMISSION_LABELS: Record<CapabilityPermission, string> = {

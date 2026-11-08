@@ -4,8 +4,8 @@
  * 要钉住的是五件事：
  * 1. 清单——所有本地能力与所有保存能力都在同一份清单里，权限与宿主写清楚；
  * 2. 注册表——注册可逆、重复注册拒绝、未装载/被停用都明确报错；
- * 3. 宿主——29 个本地工具在 Runtime 注册、3 个主进程能力在主进程注册，
- *    都能真的干活（读文件、扫工程、导出文档、保存网页文档都落盘回读）；
+ * 3. 宿主——29 个 Runtime 工具与 4 个主进程能力各自注册，都能真的干活
+ *    （读文件、扫工程、联网搜索、导出文档、保存网页文档）；
  * 4. 开关——停用落到磁盘、同步给两个宿主、下次执行生效；
  * 5. 防回归——执行主链路不再有 switch 分派，设置页不再写「还没有插件」。
  *
@@ -45,11 +45,18 @@ const source = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'u
 // 1. 清单
 // ---------------------------------------------------------------------------
 
-test('一份清单收齐 29 个本地工具与 3 个主进程能力，id 不重复', () => {
-  assert.equal(CAPABILITY_CATALOG.length, 32);
+test('一份清单收齐 29 个 Runtime 工具与 4 个主进程能力，id 不重复', () => {
+  assert.equal(CAPABILITY_CATALOG.length, 33);
   assert.equal(new Set(CAPABILITY_IDS).size, CAPABILITY_IDS.length);
   assert.deepEqual([...RUNTIME_CAPABILITY_IDS], [...TOOL_NAMES]);
-  assert.deepEqual([...MAIN_CAPABILITY_IDS], ['project.scan', 'document.export', 'page.save-document']);
+  assert.deepEqual([...MAIN_CAPABILITY_IDS], [
+    'project.scan',
+    'web.search.browser',
+    'document.export',
+    'page.save-document'
+  ]);
+  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 28);
+  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'network').length, 3);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'save').length, 2);
   for (const meta of CAPABILITY_CATALOG) {
     assert.ok(meta.title && meta.description, `${meta.id} 没有名字或说明`);
@@ -57,6 +64,24 @@ test('一份清单收齐 29 个本地工具与 3 个主进程能力，id 不重�
     assert.equal(meta.enabledByDefault, true);
   }
 });
+
+test('联网能力单独成组：两个 Runtime 工具与主进程的浏览器搜索后端', () => {
+  assert.equal(capabilityMeta('web.fetch').kind, 'network');
+  assert.equal(capabilityMeta('web.fetch').host, 'runtime');
+  assert.equal(capabilityMeta('web.search').kind, 'network');
+  assert.equal(capabilityMeta('web.search').host, 'runtime');
+  const browser = capabilityMeta('web.search.browser');
+  assert.equal(browser.kind, 'network');
+  assert.equal(browser.host, 'main');
+  assert.equal(browser.permission, 'read-only');
+  assert.equal(capabilityMeta('project.scan').kind, 'local');
+  assert.equal(capabilityMeta('document.export').kind, 'save');
+  assert.deepEqual(
+    CAPABILITY_CATALOG.filter(m => m.kind === 'network').map(m => m.id),
+    ['web.fetch', 'web.search', 'web.search.browser']
+  );
+});
+
 
 test('权限与能力相符，不是所有插件一个档', () => {
   assert.equal(capabilityMeta('fs.readFile').permission, 'read-only');
@@ -82,7 +107,7 @@ test('停用列表只认清单里的 id，未知项与重复项都丢掉', () =>
 
 test('设置页视图带开关与装载状态，默认全开', () => {
   const all = describeCapabilities([]);
-  assert.equal(all.length, 32);
+  assert.equal(all.length, 33);
   assert.ok(all.every(item => item.enabled && item.registered));
   const off = describeCapabilities(['document.export'], ['fs.readFile']);
   const exported = off.find(item => item.id === 'document.export');
@@ -144,8 +169,44 @@ test('Runtime 注册了全部 29 个本地工具，插件能真读本机目录',
   assert.ok(JSON.stringify(outcome.result).includes('README.md'));
 });
 
-test('主进程注册了工程读取与两个保存插件', () => {
+test('主进程注册了工程读取、浏览器联网搜索与两个保存插件', () => {
   assert.deepEqual([...mainCapabilities.ids()].sort(), [...MAIN_CAPABILITY_IDS].sort());
+});
+
+test('web.search.browser 插件按宿主注入的浏览器后端执行，停用即明确报错', async () => {
+  const calls = [];
+  const context = {
+    browserSearch: async (query, limit) => {
+      calls.push({ query, limit });
+      return {
+        results: [{ title: '一条真实结果', url: 'https://example.com/a', snippet: '摘要', rank: 1 }],
+        finalUrl: `https://cn.bing.com/search?q=${encodeURIComponent(query)}`,
+        pageTitle: '搜索结果',
+        emptyNote: undefined
+      };
+    }
+  };
+  const hit = await mainCapabilities.execute('web.search.browser', { query: '  ThinkFusion  ', limit: 8 }, context);
+  assert.deepEqual(calls, [{ query: 'ThinkFusion', limit: 8 }]);
+  assert.equal(hit.results[0].url, 'https://example.com/a');
+  await assert.rejects(
+    mainCapabilities.execute('web.search.browser', { query: '', limit: 8 }, context),
+    /搜索词不能为空/
+  );
+  // 没注入实现的宿主也必须报错，不能悄悄当成「搜到 0 条」。
+  await assert.rejects(
+    mainCapabilities.execute('web.search.browser', { query: 'x', limit: 8 }, {}),
+    /宿主没有提供所需依赖/
+  );
+
+  setDisabledCapabilities(['web.search.browser']);
+  assert.equal(mainCapabilities.isEnabled('web.search.browser'), false);
+  await assert.rejects(
+    mainCapabilities.execute('web.search.browser', { query: 'ThinkFusion', limit: 8 }, context),
+    /已停用：浏览器联网搜索/
+  );
+  setDisabledCapabilities([]);
+  assert.equal(mainCapabilities.isEnabled('web.search.browser'), true);
 });
 
 test('project.scan 插件真读工程目录', async () => {
@@ -279,6 +340,10 @@ test('执行主链路按插件 id 分派，不再有工具 switch', () => {
   const runner = source('main/conversation-runner.ts');
   assert.match(runner, /mainCapabilities\.execute<ProjectScan>\(\s*'project\.scan'/);
   assert.ok(!runner.includes('scanProject('));
+  // 浏览器搜索那半边也不能再绕过注册表直接调实现。
+  const manager = source('main/agent-manager.ts');
+  assert.match(manager, /mainCapabilities\s*\.execute<BrowserSearchOutcome>\(\s*'web\.search\.browser'/);
+  assert.ok(!manager.includes('void searchInBrowser('));
 });
 
 test('设置页列出真实清单，不再写着「还没有插件」', () => {
@@ -287,4 +352,5 @@ test('设置页列出真实清单，不再写着「还没有插件」', () => {
   assert.ok(panel.includes('getCapabilities()'));
   assert.ok(panel.includes('setCapabilityEnabled(id, enabled)'));
   assert.ok(panel.includes('capability-row'));
+  assert.ok(panel.includes("'local', 'network', 'save'"));
 });
