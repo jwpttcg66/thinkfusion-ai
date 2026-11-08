@@ -64,6 +64,50 @@ test('工程扫描真的读到文件，带路径、行号、指纹与时间', as
   assert.match(material, /真实读取/);
 });
 
+test('问题点名的文件即使超过单文件上限也进证据，带上全文行数', async () => {
+  // 真机事故：_log_details_20261105_123537.txt_ 有 414KB，超过 256KB 单文件
+  // 上限被直接跳过，用户问「总共多少条记录」时主导人根本没拿到这个文件。
+  const bigName = '_log_details_20261105_123537.txt_';
+  const lines = Array.from({ length: 5000 }, (_, i) => `record-${i} 第${i}条日志 无关词汇 zzqq ${'x'.repeat(40)}`);
+  const bigBody = lines.join('\n') + '\n';
+  assert.ok(Buffer.byteLength(bigBody) > 262144, '测试文件必须真的超过单文件上限');
+  writeFileSync(join(root, bigName), bigBody);
+
+  const scan = await scanProject(root, `读取  /Users/yalla/Downloads/${bigName} 文档 告诉我总共有多少条记录`);
+  const hit = scan.evidence.find(item => item.path === bigName);
+  assert.ok(hit, '点名文件必须出现在证据里');
+  assert.equal(scan.evidence[0].path, bigName, '点名文件排证据第一位');
+  assert.equal(hit.totalLines, 5000, '全文行数要按整个文件统计，不是片段');
+  assert.ok(hit.partial, '超过上限的点名文件要标记 partial');
+  assert.equal(hit.partial.totalBytes, Buffer.byteLength(bigBody));
+  assert.ok(scan.warnings.some(w => w.includes(bigName) && w.includes('只取前')), '截断要写进警告');
+
+  const material = engineeringMaterial(scan);
+  assert.match(material, /全文共 5000 行/);
+  assert.match(material, /只读了前 256 KB/);
+  // 真机 s21：统计埋在括号里主导人看不见，点名文件统计必须独立成段。
+  assert.match(material, /【点名文件统计】/);
+  assert.match(material, /行数统计用的是完整文件/);
+});
+
+test('点名的小文件排进证据第一位，即使别的文件关键词分更高', async () => {
+  writeFileSync(join(root, 'notes-20261108.md'), '只有一句话，不含任何问题关键词。\n');
+  const scan = await scanProject(root, '帮我读 notes-20261108.md，virtualThread 在里面吗');
+  assert.equal(scan.evidence[0].path, 'notes-20261108.md');
+  assert.ok(scan.evidence.some(item => item.path === 'src/index.ts'), '其余证据照常保留');
+});
+
+test('点名也不会越过凭证与二进制边界', async () => {
+  // 「.env」太短不会被当成点名文件；就算写全路径，IGNORED_FILES 也照样拦。
+  const scan = await scanProject(root, '读取 /Users/yalla/Downloads/.env 告诉我 API_KEY 是多少');
+  assert.ok(!scan.evidence.some(item => item.path === '.env'), '凭证文件永远不进证据');
+});
+
+test('不点名时行为与以前完全一致', async () => {
+  const scan = await scanProject(root, 'virtualThread 在哪里实现');
+  assert.ok(scan.evidence.every(item => item.totalLines === undefined && item.partial === undefined));
+});
+
 test('凭证、依赖目录不会被读进证据', async () => {
   const scan = await scanProject(root, 'API_KEY 是什么');
   const paths = scan.evidence.map(item => item.path);

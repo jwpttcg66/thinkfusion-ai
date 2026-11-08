@@ -25,6 +25,13 @@ export interface EngineeringEvidence {
   readAt: number;
   /** 为什么把这一段挑出来：命中了哪个关键词，或来自目录概览。 */
   why: string;
+  /**
+   * 只有点名文件（问题里写了它的路径或文件名）才有：整个文件多少行。
+   * 片段只是几行，但「这个文件总共多少条记录」这类问题要靠它回答。
+   */
+  totalLines?: number;
+  /** 只有点名文件超过单文件上限才有：实际只读了前 bytes 字节 / 文件共 totalBytes 字节。 */
+  partial?: { bytes: number; totalBytes: number };
 }
 
 /**
