@@ -12,6 +12,7 @@ import type { SearchSettingsView } from '../../shared/search';
 /** The shipped list, as the preview's starting point. */
 const PAGE_SOURCES = [...BUILTIN_SOURCES];
 import { computeSplit } from '../../shared/layout';
+import { describeCapabilities } from '../../shared/capabilities';
 
 /**
  * Dev-only stand-in for the preload API so the renderer can be opened in a plain
@@ -104,6 +105,7 @@ const events: Record<string, AgentEvent[]> = {
 };
 
 export function createMockApi(): AgentApi {
+  let capabilityDisabled: string[] = [];
   let preset: PermissionPreset = 'workspace-write';
   // 预览环境不读盘：这里给的是「没配凭据」的真实形态，不是假的可搜状态。
   let searchSettings: SearchSettingsView = {
@@ -308,6 +310,13 @@ export function createMockApi(): AgentApi {
     cancelConversation: async () => undefined,
     deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
     exportConversation: async () => null,
+    getCapabilities: async () => describeCapabilities(capabilityDisabled),
+    setCapabilityEnabled: async (id: string, enabled: boolean) => {
+      capabilityDisabled = enabled
+        ? capabilityDisabled.filter(item => item !== id)
+        : [...new Set([...capabilityDisabled, id])];
+      return describeCapabilities(capabilityDisabled);
+    },
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     getChannelStatuses: async () => [],

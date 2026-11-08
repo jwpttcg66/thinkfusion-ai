@@ -94,14 +94,15 @@ import type {
   SelectorRole
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
-import { exportConversation, type ExportDeps } from './export';
-import { savePageDocument } from './export/page';
 import {
-  resolveExportFormat,
   type ExportConversationInput,
   type PageDocumentContent,
   type SavePageDocumentInput
 } from '../shared/export';
+import { describeCapabilities, RUNTIME_CAPABILITY_IDS } from '../shared/capabilities';
+import { mainCapabilities, type MainCapabilityContext } from './capabilities';
+import { CapabilityStore } from './capability-store';
+import { disabledCapabilities, setDisabledCapabilities } from './capability-state';
 
 let win: BrowserWindow | null = null;
 
@@ -126,6 +127,8 @@ let sourceStore: SourceStore | null = null;
 let profileStore: ProfileStore | null = null;
 /** V2.1：上次使用的空间与项目。created in `whenReady`. */
 let workspaceStore: WorkspaceStore | null = null;
+/** 内置插件的开关。created in `whenReady`, next to the other stores. */
+let capabilityStore: CapabilityStore | null = null;
 /**
  * The source on screen. Only this view is visible; the rest are parked.
  *
@@ -1712,6 +1715,95 @@ function startStatusPolling() {
 }
 
 function registerIpc() {
+  /**
+   * 主进程插件的环境依赖。
+   *
+   * 插件自己不碰 Electron：会话存盘、保存对话框、网页探针都由这里注入。
+   * 这与 harness 的 `inject` 是同一种意思——插件声明「我要什么」，宿主决定
+   * 「怎么给」，于是插件在 node 里也能被单独测试。
+   */
+  const capabilityContext: MainCapabilityContext = {
+    exportDeps: () => {
+      const labels: Record<string, string> = {};
+      for (const agent of registry.list()) labels[agent.id] = agent.label;
+      for (const item of cloudCatalog) {
+        for (const model of item.models) labels[`${item.id}:${model}`] = `${item.label} · ${model}`;
+      }
+      return {
+        conversation: id => conversations.get(id),
+        messages: id => conversations.messages(id),
+        labels: () => labels,
+        defaultDir: () => app.getPath('downloads'),
+        pickPath: async (name, format) => {
+          const target = await dialog.showSaveDialog({
+            title: format === 'docx' ? '导出为 Word 文档' : '导出为 Markdown',
+            defaultPath: path.join(app.getPath('downloads'), name),
+            filters:
+              format === 'docx'
+                ? [{ name: 'Word 文档', extensions: ['docx'] }]
+                : [{ name: 'Markdown', extensions: ['md'] }]
+          });
+          return target.canceled || !target.filePath ? null : target.filePath;
+        }
+      };
+    },
+    savePageDeps: () => ({
+      defaultDir: () => app.getPath('downloads'),
+      pickPath: async (name, format) => {
+        const target = await dialog.showSaveDialog({
+          title: format === 'docx' ? '把网页文档保存为 Word' : '把网页文档保存为 Markdown',
+          defaultPath: path.join(app.getPath('downloads'), name),
+          filters:
+            format === 'docx'
+              ? [{ name: 'Word 文档', extensions: ['docx'] }]
+              : [{ name: 'Markdown', extensions: ['md'] }]
+        });
+        return target.canceled || !target.filePath ? null : target.filePath;
+      }
+    }),
+    readPage: async sourceId => {
+      const id = typeof sourceId === 'string' && sourceById(sources, sourceId) ? sourceId : activeSourceId;
+      const source = sourceById(sources, id);
+      if (!source) throw new Error('这个网页源已经不在了');
+      const view = views.get(id);
+      if (!view || view.webContents.isDestroyed()) {
+        throw new Error(`${source.label}：这个网页源还没打开，先切到它再保存`);
+      }
+      if (view.webContents.isLoading()) {
+        throw new Error(`${source.label}：页面还在加载，等它显示出来再保存`);
+      }
+
+      // 探针就是提问链路用的那个，只在末尾多要一份「全部回答」。默认不带
+      // 这个开关，轮询照旧只读最后一条，保存动作不会拖慢正在进行的问答。
+      const probe = await runInPage<PageProbe>(
+        view,
+        PROBE_SCRIPT(
+          baseProfile(id),
+          reasoningFor(id),
+          signedOutFor(id),
+          signedOutTextFor(id),
+          contextLimitFor(id),
+          challengeTextFor(id),
+          true
+        ),
+        '读取网页文档',
+        12000
+      );
+      const documents = probe.allAnswers?.length ? probe.allAnswers : probe.lastText ? [probe.lastText] : [];
+      if (documents.length === 0) {
+        throw new Error(`${source.label}：这一页还没有可保存的文档（可能停在登录页或空会话）`);
+      }
+      const content: PageDocumentContent = {
+        sourceLabel: source.label,
+        pageTitle: probe.title || view.webContents.getTitle() || source.label,
+        url: probe.url || view.webContents.getURL(),
+        documents,
+        transcript: probe.conversationText || ''
+      };
+      return content;
+    }
+  };
+
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = SubmitPromptSchema.parse(raw);
@@ -1945,44 +2037,39 @@ function registerIpc() {
   });
 
   /**
-   * 会话导出：Markdown / Word，写在本机。
-   *
-   * 内容全部来自主进程自己存的会话与消息（`conversations.get/messages`），
-   * 所以导出的字和界面上看到的一致，也不会因为模型换了、网页关了而变。
-   * 保存位置默认交给系统对话框；传了 `path` 就直接写（自动化与真机验收）。
+   * 会话导出走内置插件 `document.export`。内容全部来自主进程自己存的会话与
+   * 消息，所以导出的字和界面上看到的一致；插件停用时注册表会明确报错。
    */
   ipcMain.handle('document:export', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = raw as ExportConversationInput | undefined;
     if (!input || typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
-    // 默认 md：只有点名要 Word 才生成 docx，格式名写错也退回 md。
-    const format = resolveExportFormat(input.format);
+    return mainCapabilities.execute('document.export', input, capabilityContext);
+  });
 
-    const labels: Record<string, string> = {};
-    for (const agent of registry.list()) labels[agent.id] = agent.label;
-    for (const item of cloudCatalog) {
-      for (const model of item.models) labels[`${item.id}:${model}`] = `${item.label} · ${model}`;
+  /** 设置页「内置插件」看到的是同一份清单，不是界面自己抄的一串名字。 */
+  ipcMain.handle('capabilities:list', event => {
+    trustedUiSender(event);
+    return describeCapabilities(disabledCapabilities(), [
+      ...mainCapabilities.ids(),
+      ...RUNTIME_CAPABILITY_IDS
+    ]);
+  });
+
+  /** 开关落盘，并同步给主进程注册表；Runtime 在下次执行时收到。 */
+  ipcMain.handle('capabilities:set', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = raw as { id?: unknown; enabled?: unknown } | null;
+    if (!input || typeof input.id !== 'string' || typeof input.enabled !== 'boolean') {
+      throw new Error('开关参数无效');
     }
-
-    const deps: ExportDeps = {
-      conversation: id => conversations.get(id),
-      messages: id => conversations.messages(id),
-      labels: () => labels,
-      defaultDir: () => app.getPath('downloads'),
-      pickPath: async (name, fmt) => {
-        const target = await dialog.showSaveDialog({
-          title: fmt === 'docx' ? '导出为 Word 文档' : '导出为 Markdown',
-          defaultPath: path.join(app.getPath('downloads'), name),
-          filters:
-            fmt === 'docx'
-              ? [{ name: 'Word 文档', extensions: ['docx'] }]
-              : [{ name: 'Markdown', extensions: ['md'] }]
-        });
-        return target.canceled || !target.filePath ? null : target.filePath;
-      }
-    };
-
-    return exportConversation({ ...input, format }, deps);
+    if (!capabilityStore) throw new Error('插件开关还没初始化');
+    const disabled = capabilityStore.setEnabled(input.id, input.enabled);
+    setDisabledCapabilities(disabled);
+    return describeCapabilities(disabledCapabilities(), [
+      ...mainCapabilities.ids(),
+      ...RUNTIME_CAPABILITY_IDS
+    ]);
   });
 
   ipcMain.handle('channel:statuses', async event => {
@@ -2369,68 +2456,14 @@ function registerIpc() {
   });
 
   /**
-   * 「保存文档」：把指定网页源当前页面里的助手回答（文档与其中的计划条目）
-   * 读出来，存成本地文件。
-   *
-   * 探针就是提问链路用的那个，只在末尾多要一份「全部回答」——默认不带这个
-   * 开关，轮询照旧只读最后一条，保存动作不会拖慢正在进行的问答。内容不经过
-   * 模型，也不改写；页面没打开、还在加载、停在登录页都明确报错，不写空文件。
+   * 「保存文档」走内置插件 `page.save-document`：页面探针由宿主注入，插件
+   * 只管把读到的内容落盘。内容不经过模型，也不改写；页面没打开、还在加载、
+   * 停在登录页都在探针里明确报错，不写空文件。
    */
   ipcMain.handle('page:save-document', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = (raw && typeof raw === 'object' ? raw : {}) as SavePageDocumentInput;
-    const id = typeof input.sourceId === 'string' && sourceById(sources, input.sourceId) ? input.sourceId : activeSourceId;
-    const source = sourceById(sources, id);
-    if (!source) throw new Error('这个网页源已经不在了');
-    const view = views.get(id);
-    if (!view || view.webContents.isDestroyed()) {
-      throw new Error(`${source.label}：这个网页源还没打开，先切到它再保存`);
-    }
-    if (view.webContents.isLoading()) {
-      throw new Error(`${source.label}：页面还在加载，等它显示出来再保存`);
-    }
-
-    const probe = await runInPage<PageProbe>(
-      view,
-      PROBE_SCRIPT(
-        baseProfile(id),
-        reasoningFor(id),
-        signedOutFor(id),
-        signedOutTextFor(id),
-        contextLimitFor(id),
-        challengeTextFor(id),
-        true
-      ),
-      '读取网页文档',
-      12000
-    );
-    const documents = probe.allAnswers?.length ? probe.allAnswers : probe.lastText ? [probe.lastText] : [];
-    if (documents.length === 0) {
-      throw new Error(`${source.label}：这一页还没有可保存的文档（可能停在登录页或空会话）`);
-    }
-
-    const content: PageDocumentContent = {
-      sourceLabel: source.label,
-      pageTitle: probe.title || view.webContents.getTitle() || source.label,
-      url: probe.url || view.webContents.getURL(),
-      documents,
-      transcript: probe.conversationText || ''
-    };
-
-    return savePageDocument(input, content, {
-      defaultDir: () => app.getPath('downloads'),
-      pickPath: async (name, format) => {
-        const target = await dialog.showSaveDialog({
-          title: format === 'docx' ? '把网页文档保存为 Word' : '把网页文档保存为 Markdown',
-          defaultPath: path.join(app.getPath('downloads'), name),
-          filters:
-            format === 'docx'
-              ? [{ name: 'Word 文档', extensions: ['docx'] }]
-              : [{ name: 'Markdown', extensions: ['md'] }]
-        });
-        return target.canceled || !target.filePath ? null : target.filePath;
-      }
-    });
+    return mainCapabilities.execute('page.save-document', input, capabilityContext);
   });
 
   // The page views are native, so this is the only honest answer to "is the
@@ -2532,6 +2565,10 @@ app.whenReady().then(async () => {
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
   workspaceStore = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace-state.json'));
+  // 开关要在任何能力被调用之前同步给两个宿主：主进程注册表现在就生效，
+  // Runtime 在每次 task.run 时随消息收到同一份列表。
+  capabilityStore = new CapabilityStore(path.join(app.getPath('userData'), 'capabilities.json'));
+  setDisabledCapabilities(capabilityStore.disabledIds());
 
   verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
 

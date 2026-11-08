@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { AgentEvent, AgentPlan, ExecutionReport, TaskGrant } from '../shared/contracts';
 import { ExecutionReportSchema } from '../shared/schemas';
 import { searchInBrowser } from './browser-search';
+import { disabledCapabilities } from './capability-state';
 
 interface PendingRun {
   resolve: (report: ExecutionReport) => void;
@@ -112,7 +113,9 @@ export function runPlan(
       planId: ids.planId,
       plan,
       grant,
-      dbPath
+      dbPath,
+      // 开关只对这次执行生效；运行中的计划不会被中途改掉。
+      disabledCapabilities: disabledCapabilities()
     });
   });
 }

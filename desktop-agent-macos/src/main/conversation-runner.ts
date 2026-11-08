@@ -13,7 +13,8 @@ import {
   type TaskRouting,
   type WorkspaceMode
 } from '../shared/workspace';
-import { scanProject, engineeringMaterial } from './engineering/project';
+import { engineeringMaterial, type ProjectScan } from './engineering/project';
+import { mainCapabilities } from './capabilities';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool } from './agents/types';
@@ -508,7 +509,11 @@ export class ConversationRunner {
       // 裁决：工程模式不优先问网页）；网页读不到本机文件，只在没有可用模型
       // 时兜底。证据只进模型的那条问题，不改变用户的提问原话。
       try {
-        const scan = await scanProject(input.workspaceRoot!, text);
+        const scan = await mainCapabilities.execute<ProjectScan>(
+          'project.scan',
+          { root: input.workspaceRoot!, question: text },
+          {}
+        );
         conversation.engineeringEvidence = scan.evidence;
         conversation.engineeringAnalysis = scan.analysis;
         conversation.updatedAt = Date.now();
@@ -681,7 +686,11 @@ export class ConversationRunner {
       }
       if (routing.taskKind === 'engineering_analysis' && conversation.workspaceRoot) {
         try {
-          const scan = await scanProject(conversation.workspaceRoot, question);
+          const scan = await mainCapabilities.execute<ProjectScan>(
+            'project.scan',
+            { root: conversation.workspaceRoot, question },
+            {}
+          );
           conversation.engineeringEvidence = scan.evidence;
           conversation.engineeringAnalysis = scan.analysis;
           this.save(conversation);

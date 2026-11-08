@@ -7,6 +7,9 @@
   "include": [
     "src/shared/**/*.ts",
     "src/main/atomic-write.ts",
+    "src/main/capabilities/**/*.ts",
+    "src/main/capability-state.ts",
+    "src/main/capability-store.ts",
     "src/main/export/**/*.ts",
     "src/main/conversation-runner.ts",
     "src/main/master-agent.ts",

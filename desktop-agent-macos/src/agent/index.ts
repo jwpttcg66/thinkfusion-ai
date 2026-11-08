@@ -1,19 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openDb } from './db';
 import { assertGrant } from './policy';
-import { filesystemTools } from './tools/filesystem';
-import { projectReadTools } from './tools/project-read';
-import { runTest } from './tools/test-run';
-import { runShell } from './tools/shell';
-import { captureScreen } from './tools/screen';
-import { openApp } from './tools/app-open';
-import { fsExtraTools } from './tools/fs-extra';
-import { systemTools } from './tools/system';
-import { webFetch } from './tools/web-fetch';
-import { webSearch } from './tools/web-search';
-import { browserSearchCapability } from './browser-search-bridge';
-import { runCode } from './tools/code-run';
-import { jobOutput, killJob, listJobs } from './tools/jobs';
+import { localCapabilities, type LocalStepOutcome } from './local-plugins';
 import {
   PlanSchema,
   TaskGrantSchema,
@@ -22,7 +10,6 @@ import {
   type StepResult,
   type TaskGrant
 } from '../shared/contracts';
-import { verifyWrittenFile } from './verify';
 
 const port = process.parentPort;
 if (!port) throw new Error('Agent must run as Electron UtilityProcess');
@@ -40,7 +27,17 @@ port.on('message', (event: { data: unknown }) => {
   }
 
   if (message.type === 'task.run') {
-    void runTask(message as { taskId: string; plan: unknown; grant: unknown; dbPath: string });
+    const request = message as {
+      taskId: string;
+      plan: unknown;
+      grant: unknown;
+      dbPath: string;
+      disabledCapabilities?: unknown;
+    };
+    // 开关从主进程随每次执行下发（Runtime 自己读不到 userData）。缺字段
+    // 表示全部启用，老计划、老验收脚本因此不用改。
+    localCapabilities.setDisabled(request.disabledCapabilities ?? []);
+    void runTask(request);
   }
 });
 
@@ -113,140 +110,16 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool });
 
       try {
-        let result: unknown;
-        let verified = true;
-        // 非零退出码是事实，不是异常。但要按「失败」记进报告，否则
-        // 「命令跑过了」和「命令挂了」在界面上长得一模一样。
-        let stepFailure: string | null = null;
-
-        switch (step.tool) {
-          case 'fs.list':
-            result = await filesystemTools.list(grant, step.args);
-            break;
-          case 'fs.readFile':
-            result = await filesystemTools.readFile(grant, step.args);
-            break;
-          case 'fs.mkdir':
-            result = await filesystemTools.mkdir(grant, step.args);
-            break;
-          case 'fs.tree':
-            result = await projectReadTools.tree(grant, step.args);
-            break;
-          case 'fs.search':
-            result = await projectReadTools.search(grant, step.args);
-            break;
-          case 'fs.find':
-            result = await projectReadTools.find(grant, step.args);
-            break;
-          case 'fs.stat':
-            result = await fsExtraTools.stat(grant, step.args);
-            break;
-          case 'fs.edit':
-            result = await fsExtraTools.edit(grant, step.args);
-            break;
-          case 'fs.remove':
-            result = await fsExtraTools.remove(grant, step.args);
-            break;
-          case 'fs.move':
-            result = await fsExtraTools.move(grant, step.args);
-            break;
-          case 'fs.copy':
-            result = await fsExtraTools.copy(grant, step.args);
-            break;
-          case 'fs.readImage':
-            result = await fsExtraTools.readImage(grant, step.args);
-            break;
-          case 'test.run': {
-            const run = await runTest(grant, step.args);
-            result = run;
-            if (run.exitCode !== 0) {
-              stepFailure = `命令退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
-            }
-            break;
-          }
-          case 'shell.run': {
-            const run = await runShell(grant, step.args);
-            result = run;
-            // 后台作业没有退出码：此刻"跑起来了"才是事实，退出码要等 job.output。
-            if (!run.job && run.exitCode !== 0) {
-              stepFailure = `命令退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
-            }
-            break;
-          }
-          case 'job.list':
-            result = { jobs: await listJobs() };
-            break;
-          case 'job.output':
-            result = await jobOutput(step.args);
-            break;
-          case 'job.kill':
-            result = await killJob(step.args);
-            break;
-          case 'screen.capture':
-            result = await captureScreen(grant, step.args);
-            break;
-          case 'app.open': {
-            const opened = await openApp(grant, step.args);
-            result = opened;
-            verified = opened.verified;
-            break;
-          }
-          case 'clipboard.read':
-            result = await systemTools.clipboardRead(grant);
-            break;
-          case 'clipboard.write':
-            result = await systemTools.clipboardWrite(grant, step.args);
-            break;
-          case 'notify':
-            result = await systemTools.notify(grant, step.args);
-            break;
-          case 'system.info':
-            result = await systemTools.info(grant, step.args);
-            break;
-          case 'process.list':
-            result = await systemTools.processList(grant, step.args);
-            break;
-          case 'process.kill':
-            result = await systemTools.processKill(grant, step.args);
-            break;
-          case 'web.fetch':
-            result = await webFetch(step.args);
-            break;
-          case 'web.search':
-            // 搜到 0 条不记失败：这是「没资料」，不是「操作失败」。
-            // 后面的 web.fetch 或换词再搜仍然值得执行，所以原样把空结果和
-            // degraded 说明交给模型，而不是让整份计划停在这一步。
-            //
-            // 带上浏览器搜索能力：Runtime 自己开不了窗口，免凭据的搜索只能
-            // 借主进程的 Chromium（受限网络下 HTTP 搜索端点全被挡）。
-            result = await webSearch(step.args, { browserSearch: browserSearchCapability() ?? undefined });
-            break;
-          case 'code.run': {
-            const run = await runCode(grant, step.args);
-            result = run;
-            if (run.exitCode !== 0) {
-              stepFailure = `代码退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`;
-            }
-            break;
-          }
-          case 'fs.writeFile': {
-            const args = step.args;
-            result = args.overwrite
-              ? await filesystemTools.overwriteFile(grant, args)
-              : await filesystemTools.writeFile(grant, args);
-            const verification = await verifyWrittenFile(grant, args.path, { content: args.content });
-            verified = verification.ok;
-            if (!verified) throw new Error(`写入后验证失败：${verification.reason ?? '内容不一致'}`);
-            break;
-          }
-          default:
-            throw new Error(`不支持的工具：${String((step as { tool?: string }).tool)}`);
-        }
+        // 能力插件是唯一的分派入口：宿主不认识任何具体工具，未装载与已停用
+        // 都由注册表明确报错。退出码算不算失败、写文件要不要回读，由插件自己
+        // 在 LocalStepOutcome 里交代。
+        const outcome = await localCapabilities.execute<LocalStepOutcome>(step.tool, step.args, { grant });
+        const { result, verified, failure: stepFailure } = outcome;
 
         const durationMs = Date.now() - stepStarted;
         if (stepFailure) {
           results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs });
-          errors.push({ stepId: step.id, code: step.tool === 'test.run' ? 'TEST_FAILED' : 'COMMAND_FAILED', message: stepFailure });
+          errors.push({ stepId: step.id, code: outcome.errorCode, message: stepFailure });
           db.updateStep(journalId, { status: 'FAILED', error: stepFailure, finished_at: Date.now() });
           port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure });
           break;

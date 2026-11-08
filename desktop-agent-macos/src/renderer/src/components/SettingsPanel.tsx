@@ -11,6 +11,11 @@ import {
   type SearchProvider,
   type SearchSettingsView
 } from '../../../shared/search';
+import {
+  CAPABILITY_KIND_LABELS,
+  CAPABILITY_PERMISSION_LABELS,
+  type CapabilityView
+} from '../../../shared/capabilities';
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
@@ -106,6 +111,38 @@ export function SettingsPanel(props: {
   const [searchNote, setSearchNote] = useState('');
   const [searchTone, setSearchTone] = useState<'ok' | 'error' | 'muted'>('muted');
   const [searchBusy, setSearchBusy] = useState(false);
+
+  /** 内置插件清单由主进程给，界面不另抄一份名字或权限。 */
+  const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
+  const [capabilityBusy, setCapabilityBusy] = useState<string | null>(null);
+  const [capabilityNote, setCapabilityNote] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI
+      .getCapabilities()
+      .then(list => {
+        if (alive) setCapabilities(list);
+      })
+      .catch(error => {
+        if (alive) setCapabilityNote(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function toggleCapability(id: string, enabled: boolean) {
+    setCapabilityBusy(id);
+    setCapabilityNote('');
+    try {
+      setCapabilities(await window.agentAPI.setCapabilityEnabled(id, enabled));
+    } catch (error) {
+      setCapabilityNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCapabilityBusy(null);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -643,10 +680,49 @@ export function SettingsPanel(props: {
             {section === 'plugins' && (
               <section className="settings-section">
                 <h3>内置插件</h3>
-                <p className="settings-lead">还没有插件。现在能用的只有网页通道，它们在上面的「模型」里配置。</p>
                 <p className="settings-lead">
-                  一个插件要能做的事是确定的：读哪个文件、跑哪条命令、什么时候停下来问人。在这些能写清楚之前，摆一排开关只会让人以为它们有用。
+                  本机能力和保存能力都按插件登记，和 DeepSeek Harness 一样一条一行：读哪个文件、
+                  写哪份文档、需要什么权限都能看清。停用的能力执行时会明确报错，不会悄悄跳过。
                 </p>
+                <p className="settings-lead">开关在下次执行时生效，已经跑起来的计划不受影响。</p>
+                {capabilityNote && <p className="settings-error">{capabilityNote}</p>}
+                {(['local', 'save'] as const).map(kind => {
+                  const items = capabilities.filter(item => item.kind === kind);
+                  const on = items.filter(item => item.enabled).length;
+                  return (
+                    <div className="capability-group" key={kind}>
+                      <h4 className="capability-group-title">
+                        {CAPABILITY_KIND_LABELS[kind]}
+                        <span>{on}/{items.length} 已启用</span>
+                      </h4>
+                      <div className="settings-list">
+                        {items.map(item => (
+                          <div className={`capability-row${item.enabled ? '' : ' off'}`} key={item.id}>
+                            <button
+                              type="button"
+                              className="settings-switch"
+                              role="switch"
+                              aria-checked={item.enabled}
+                              aria-label={`${item.title}：${item.enabled ? '已启用' : '已停用'}`}
+                              disabled={capabilityBusy === item.id}
+                              onClick={() => void toggleCapability(item.id, !item.enabled)}
+                            />
+                            <div className="capability-body">
+                              <div className="capability-head">
+                                <b>{item.title}</b>
+                                <code>{item.id}</code>
+                                <span className="capability-permission">
+                                  {CAPABILITY_PERMISSION_LABELS[item.permission]}
+                                </span>
+                              </div>
+                              <p>{item.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </section>
             )}
 
@@ -657,8 +733,8 @@ export function SettingsPanel(props: {
                   规划用的提示词和工具白名单目前写在构建里，还没有可编辑的预设。执行权限在「通用设置」里改。
                 </p>
                 <p className="settings-lead">
-                  工具面是明面上的 29 个：文件读写与编辑、按名/按内容查找、跑命令与跑代码、截图、
-                  打开应用、剪贴板、通知、进程、系统信息、抓网页与联网搜索。执行权限决定哪些能真跑。
+                  工具面是 29 个本地能力，另有 3 个主进程插件（读工程证据、导出会话、保存网页文档），
+                  全部列在「内置插件」里，可以逐条启用或停用。执行权限决定哪些能真跑。
                 </p>
               </section>
             )}

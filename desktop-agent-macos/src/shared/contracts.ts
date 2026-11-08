@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CapabilityView } from './capabilities';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
@@ -1240,6 +1241,13 @@ export interface AgentApi {
    * 保存对话框里点了取消（不是失败，界面上不该报错）。
    */
   exportConversation(input: ExportConversationInput): Promise<ExportConversationResult | null>;
+  /**
+   * 内置插件的全量清单：本地能力与保存能力，含权限与当前开关。
+   * 清单由主进程给，界面不另抄一份名字。
+   */
+  getCapabilities(): Promise<CapabilityView[]>;
+  /** 启用 / 停用一个插件，返回更新后的清单。停用的插件执行时会明确报错。 */
+  setCapabilityEnabled(id: string, enabled: boolean): Promise<CapabilityView[]>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
 
