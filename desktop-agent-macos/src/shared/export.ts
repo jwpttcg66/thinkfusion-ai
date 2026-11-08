@@ -61,6 +61,45 @@ export const EXPORT_EXTENSIONS: Record<ExportFormat, string> = { md: '.md', docx
 /** 对话框里的格式名。文件名后缀另算，这里说的是「另存为」那一栏写什么。 */
 export const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = { md: 'Markdown', docx: 'Word' };
 
+/**
+ * 「保存文档」：把某个网页源当前页面里的文档与计划提取出来存成本地文件。
+ *
+ * 和会话导出是两条独立的内容来源：那条读的是应用自己存的会话，这条读的是
+ * 网页里正在显示的回答。格式规则沿用同一套——默认 md，点名要 doc 才 docx。
+ */
+export interface SavePageDocumentInput {
+  /** 省略就是当前显示在页面栏里的那个网页源。 */
+  sourceId?: string;
+  format?: ExportFormat;
+  /** 不给就弹系统保存对话框；给绝对路径是给自动化与真机验收用的。 */
+  path?: string;
+  /** 是否附「页面转录」附录。默认附。 */
+  includeTranscript?: boolean;
+}
+
+/** 主进程从网页 DOM 里读出来的原始内容，UI 不填这一份。 */
+export interface PageDocumentContent {
+  sourceLabel: string;
+  pageTitle: string;
+  url: string;
+  /** 每条助手回答，已经由页面脚本读成 Markdown。 */
+  documents: string[];
+  /** 页面完整转录，只用于附录节选。 */
+  transcript: string;
+}
+
+export interface SavePageDocumentResult {
+  path: string;
+  format: ExportFormat;
+  bytes: number;
+  /** 存下来几份文档（助手回答）。 */
+  documents: number;
+  /** 从文档里识别到的计划类条目数。 */
+  planItems: number;
+  /** 文档正文的总字数。 */
+  chars: number;
+}
+
 export const EXECUTION_MODE_LABELS: Record<ConversationExecutionConfig['executionMode'], string> = {
   web: '网页主导',
   local: '本地主导',

@@ -139,6 +139,8 @@ export interface PageProbe {
   generating: boolean;
   messageCount: number;
   lastText: string;
+  /** 只有 PROBE_SCRIPT(..., allAnswers=true) 才填：每条助手回答的结构化 Markdown。 */
+  allAnswers?: string[];
   conversationText: string;
   composerText: string;
   selectorHits: Record<string, number>;
@@ -260,8 +262,11 @@ export const PROBE_SCRIPT = (
   signedOutSelectors: readonly string[] = [],
   signedOutText: readonly string[] = [],
   contextLimitText: readonly string[] = [],
-  challengeText: readonly string[] = []
+  challengeText: readonly string[] = [],
+  /** 「保存文档」才要：把每一条回答都读成结构化 Markdown，而不只是最后一条。 */
+  allAnswers = false
 ) => `(() => {
+  const allAnswers = ${JSON.stringify(Boolean(allAnswers))};
   const selectors = ${JSON.stringify(selectors)};
   const reasoning = ${JSON.stringify(reasoning)};
   const signedOutSelectors = ${JSON.stringify(signedOutSelectors)};
@@ -558,6 +563,7 @@ export const PROBE_SCRIPT = (
   // finished on the page for a minute and a half.
   let assistantNodes = 0;
   let assistantTexts = [];
+  let assistantEls = [];
   for (const selector of selectors.assistant) {
     let nodes;
     try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
@@ -574,6 +580,7 @@ export const PROBE_SCRIPT = (
     if (texts.length) {
       assistantNodes = matched.length;
       assistantTexts = texts;
+      assistantEls = matched;
       chosen.assistant = selector;
       break;
     }
@@ -701,6 +708,14 @@ export const PROBE_SCRIPT = (
     // transcript-tail path has to take over.
     messageCount: assistantTexts.length ? assistantNodes : 0,
     lastText: assistantTexts.length ? assistantTexts[assistantTexts.length - 1].slice(0, 200000) : '',
+    // 默认不跑这一段：轮询里每 4 秒都要探测一次，把几十个气泡逐个做结构化
+    // 遍历会把页面读成卡顿。只有用户按「保存文档」时 allAnswers 才为真。
+    ...(allAnswers ? {
+      allAnswers: assistantEls
+        .map((el) => { try { return answerText(el); } catch { return ''; } })
+        .map((text) => text.slice(0, 200000))
+        .filter((text) => text.trim().length > 0)
+    } : {}),
     conversationText,
     composerText,
     selectorHits: hits,

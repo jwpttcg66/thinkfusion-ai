@@ -22,7 +22,13 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
-import { ICON_DOCK_BACK_PATHS, ICON_EXPAND_PATHS, ICON_GAUGE_PATHS, ICON_REFRESH_PATHS } from '../../shared/icons';
+import {
+  ICON_DOCK_BACK_PATHS,
+  ICON_EXPAND_PATHS,
+  ICON_GAUGE_PATHS,
+  ICON_REFRESH_PATHS,
+  ICON_SAVE_PATHS
+} from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage } from '../../shared/conversation';
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
 import { classifyIntent } from '../../shared/intent';
@@ -69,6 +75,8 @@ const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
 const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
 /** 诊断：这一页到底找到了什么。 */
 const IconGauge = () => <Glyph paths={ICON_GAUGE_PATHS} />;
+/** 保存文档：把这一页里的文档与计划落到本机文件。 */
+const IconSave = () => <Glyph paths={ICON_SAVE_PATHS} />;
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
@@ -154,6 +162,8 @@ export default function App() {
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
   const [refreshing, setRefreshing] = useState(false);
+  /** True while 「保存文档」 is reading the page and writing the file. */
+  const [savingPage, setSavingPage] = useState<'md' | 'docx' | null>(null);
   /**
    * The last repair result, shown inside the diagnostics panel.
    *
@@ -1067,6 +1077,37 @@ export default function App() {
     }
   }
 
+  /**
+   * 「保存文档」：把当前网页源里显示的助手回答（文档与计划条目）提取出来，
+   * 由主进程写成一份本机文件。
+   *
+   * 默认 Markdown；旁边那个 Word 是「单独指定」的分支，不点不会生成。
+   * 按钮只传网页源 id 与格式——正文一律由主进程去页面里读，界面不把网页
+   * 内容抄出来再传一遍，那样存下来的就不是页面当场显示的那一版了。
+   */
+  async function savePageDocument(format: 'md' | 'docx') {
+    if (savingPage) return;
+    setSavingPage(format);
+    if (notice) setNotice('');
+    try {
+      const result = await window.agentAPI.savePageDocument({ sourceId: sources.activeId, format });
+      if (!result) {
+        setNotice('已取消保存');
+        return;
+      }
+      const label = sources.sources.find(source => source.id === sources.activeId)?.label ?? '这个网页源';
+      setNotice(
+        `已把「${label}」的文档存到 ${result.path}：` +
+          `${result.documents} 份文档 / ${result.planItems} 条计划条目 / ${result.chars} 字` +
+          (format === 'docx' ? '（Word）' : '（Markdown）')
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSavingPage(null);
+    }
+  }
+
   const showPlan = derived.plan !== null && activeTask?.status === 'awaiting_approval';
 
   const activeSource = sources.sources.find(source => source.id === sources.activeId) ?? null;
@@ -1395,6 +1436,28 @@ export default function App() {
             <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
             <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
             <span className="page-actions">
+              <button
+                className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
+                type="button"
+                onClick={() => void savePageDocument('md')}
+                disabled={savingPage !== null}
+                data-action="save-document"
+                aria-label="保存文档"
+                title="保存文档：提取这一页里的文档和计划，默认存成 Markdown"
+              >
+                <IconSave />
+              </button>
+              <button
+                className="page-btn is-ghost"
+                type="button"
+                onClick={() => void savePageDocument('docx')}
+                disabled={savingPage !== null}
+                data-action="save-document-word"
+                aria-label="保存为 Word"
+                title="单独指定才生成 Word 文档（版式沿用导出模板）"
+              >
+                {savingPage === 'docx' ? '…' : 'Word'}
+              </button>
               <button
                 className={`page-btn icon${refreshing ? ' spinning' : ''}`}
                 type="button"

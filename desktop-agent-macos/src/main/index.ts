@@ -95,7 +95,13 @@ import type {
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
 import { exportConversation, type ExportDeps } from './export';
-import { resolveExportFormat, type ExportConversationInput } from '../shared/export';
+import { savePageDocument } from './export/page';
+import {
+  resolveExportFormat,
+  type ExportConversationInput,
+  type PageDocumentContent,
+  type SavePageDocumentInput
+} from '../shared/export';
 
 let win: BrowserWindow | null = null;
 
@@ -2360,6 +2366,71 @@ function registerIpc() {
     trustedUiSender(event);
     const id = typeof raw === 'string' && sourceById(sources, raw) ? raw : activeSourceId;
     return learnSelectorsFor(id);
+  });
+
+  /**
+   * 「保存文档」：把指定网页源当前页面里的助手回答（文档与其中的计划条目）
+   * 读出来，存成本地文件。
+   *
+   * 探针就是提问链路用的那个，只在末尾多要一份「全部回答」——默认不带这个
+   * 开关，轮询照旧只读最后一条，保存动作不会拖慢正在进行的问答。内容不经过
+   * 模型，也不改写；页面没打开、还在加载、停在登录页都明确报错，不写空文件。
+   */
+  ipcMain.handle('page:save-document', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = (raw && typeof raw === 'object' ? raw : {}) as SavePageDocumentInput;
+    const id = typeof input.sourceId === 'string' && sourceById(sources, input.sourceId) ? input.sourceId : activeSourceId;
+    const source = sourceById(sources, id);
+    if (!source) throw new Error('这个网页源已经不在了');
+    const view = views.get(id);
+    if (!view || view.webContents.isDestroyed()) {
+      throw new Error(`${source.label}：这个网页源还没打开，先切到它再保存`);
+    }
+    if (view.webContents.isLoading()) {
+      throw new Error(`${source.label}：页面还在加载，等它显示出来再保存`);
+    }
+
+    const probe = await runInPage<PageProbe>(
+      view,
+      PROBE_SCRIPT(
+        baseProfile(id),
+        reasoningFor(id),
+        signedOutFor(id),
+        signedOutTextFor(id),
+        contextLimitFor(id),
+        challengeTextFor(id),
+        true
+      ),
+      '读取网页文档',
+      12000
+    );
+    const documents = probe.allAnswers?.length ? probe.allAnswers : probe.lastText ? [probe.lastText] : [];
+    if (documents.length === 0) {
+      throw new Error(`${source.label}：这一页还没有可保存的文档（可能停在登录页或空会话）`);
+    }
+
+    const content: PageDocumentContent = {
+      sourceLabel: source.label,
+      pageTitle: probe.title || view.webContents.getTitle() || source.label,
+      url: probe.url || view.webContents.getURL(),
+      documents,
+      transcript: probe.conversationText || ''
+    };
+
+    return savePageDocument(input, content, {
+      defaultDir: () => app.getPath('downloads'),
+      pickPath: async (name, format) => {
+        const target = await dialog.showSaveDialog({
+          title: format === 'docx' ? '把网页文档保存为 Word' : '把网页文档保存为 Markdown',
+          defaultPath: path.join(app.getPath('downloads'), name),
+          filters:
+            format === 'docx'
+              ? [{ name: 'Word 文档', extensions: ['docx'] }]
+              : [{ name: 'Markdown', extensions: ['md'] }]
+        });
+        return target.canceled || !target.filePath ? null : target.filePath;
+      }
+    });
   });
 
   // The page views are native, so this is the only honest answer to "is the

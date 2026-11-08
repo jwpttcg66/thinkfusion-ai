@@ -1,0 +1,70 @@
+# 网页源「保存文档」
+
+2026-11-08 实现。需求：「网页源顶部增加保存文档功能，每个网页源可以提取网页的里面的文档和计划，保存到本地文档里面」。
+
+## 放在哪儿、作用于哪个源
+
+按钮在网页栏（`.page-bar`）的动作组：一个「保存文档」图标（默认存 Markdown）+ 一个次要的
+「Word」按钮（单独指定才生成 Word）。网页栏是 DOM，页面本身是 native view，画在页面上的
+按钮看不见，所以只能放这一条栏里。
+
+动作接受 `sourceId`：界面传当前显示的那个源，调用方也可以指定别的源，只要它的页面
+view 已经创建过。「网页源没打开 / 还在加载 / 停在登录页或空会话」都明确报错，不写空文件。
+
+## 提取什么
+
+**文档**＝页面里每条助手回答的原文。复用提问链路的 `PROBE_SCRIPT`，加了一个默认关闭的
+`allAnswers` 开关：打开时把每个回答气泡都用同一套 `structuredText` 读成 Markdown（标题、
+列表、表格、代码块、粗体），而不只是最后一条。默认关闭是硬要求——轮询每几秒探测一次，
+把几十个气泡逐个结构化遍历会把页面读成卡顿。
+
+**计划**＝从这些原文里挑出的步骤条目，是同一份文字的索引视图，不是新写出来的计划：
+
+- 只有先看到带「计划 / 步骤 / 待办 / checklist / roadmap…」字样的标题，或带 `- [ ]`
+  复选框的行，才把后面连续的列表行收进来；
+- 普通文档里的项目符号不会被算成待办（真机里一份说明书能凭空多出几十条「计划」）；
+- 完全相同的条目只留一条（同一页常把一问重发一轮，计划块整段重复）；
+- 一条都没认出来就写「没有识别到计划类条目」，不硬凑。
+
+全程不经过模型、不改写一个字、不做第二次总结。
+
+## 成稿结构
+
+```
+# 页面标题
+> 由 ThinkFusion 从「<网页源>」网页提取于 …；下面的文档与计划是页面原文，未经改写或总结
+## 提取概览        （网页源 / 页面标题 / 地址 / 文档数·字数 / 计划条目数，单元格转义竖线）
+## 文档            ### 文档 1…N，逐条原文
+## 计划            （挑出的条目，照原样带 - / - [ ] / 1. 标记，不再套一层短横）
+## 附录　页面转录（节选）   （默认附，节选 6000 字并注明剩余；includeTranscript:false 可关）
+```
+
+格式沿用会话导出的裁决：**默认 md，只有明确写 `doc` / `docx` / `word` 才生成 Word**；
+docx 模块按需动态加载。文件名取页面标题清洗后加时间戳，保存位置默认弹系统对话框
+（起始目录「下载」），`path` 直写留给自动化与真机验收。
+
+## 链路
+
+```
+page-bar 按钮（App.tsx）
+  → window.agentAPI.savePageDocument({ sourceId, format?, path? })
+  → ipcMain 'page:save-document'                    src/main/index.ts
+      ├─ PROBE_SCRIPT(profile, …, allAnswers=true)  src/main/adapters/browser/page-driver.ts
+      └─ savePageDocument()                        src/main/export/page.ts
+           ├─ buildPageDocument()                  src/main/export/page-document.ts
+           └─ writeFileAtomic / markdownToDocx（仅 docx）
+  → { path, format, bytes, documents, planItems, chars }（null = 用户取消）
+```
+
+## 测试与真机
+
+- `npm run test:page-document`（scripts/check-page-document.mjs，12 条）：计划块边界、
+  复选框、去重、原文照搬、表格转义、转录截断与开关、空页面、默认 md / 点名 doc、
+  取消对话框、探针开关默认关闭且两种脚本都能编译。
+- 真机 s28（2026-11-08）：知识空间问「写一份《发布前检查》文档…实施计划」→
+  ChatGPT / Gemini 回答后，网页栏 IPC 分别存出 `ChatGPT-文档.md`（默认，2 份文档 /
+  3 条计划，6.9KB）、`ChatGPT-文档-Word.docx`（点名 doc，14.9KB，unzip 验证正文/表格/
+  页眉齐全）、`Gemini-文档.md`（换源，1 份文档 / 3 条计划）。
+- 真机第一轮暴露两个排版问题并已修复：计划条目被套成 `- - …`、重复轮次的条目列两遍。
+- 重启后页面停在首页时再点保存，明确报「这一页还没有可保存的文档」，没有生成空文件。
+- 两条测试会话已删（连带清理网页侧），侧栏只剩用户自己的两条。

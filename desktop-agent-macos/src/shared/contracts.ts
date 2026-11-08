@@ -4,7 +4,12 @@ import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from './search';
-import type { ExportConversationInput, ExportConversationResult } from './export';
+import type {
+  ExportConversationInput,
+  ExportConversationResult,
+  SavePageDocumentInput,
+  SavePageDocumentResult
+} from './export';
 import type {
   ChannelStatus,
   Conversation,
@@ -1381,6 +1386,14 @@ export interface AgentApi {
    * reports that nothing needed changing.
    */
   learnSelectors(sourceId?: string): Promise<LearnSelectorsReport>;
+  /**
+   * 「保存文档」: read the live page's assistant answers (documents and the
+   * plan/checklist lines inside them) and write them to a local file.
+   *
+   * Defaults to Markdown; Word is produced only when explicitly requested.
+   * Returns null when the user cancels the save dialog.
+   */
+  savePageDocument(input: SavePageDocumentInput): Promise<SavePageDocumentResult | null>;
 
   // streams
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;

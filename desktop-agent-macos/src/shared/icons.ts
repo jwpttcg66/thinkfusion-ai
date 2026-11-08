@@ -81,6 +81,18 @@ export const ICON_GEAR_PATHS = [
 export const ICON_GAUGE_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8', 'M8 8l3.4-3.8'];
 
 /**
+ * 一张纸加一支朝下的箭头：保存文档。
+ *
+ * 不是磁盘——磁盘在 13px 上会糊成一格方块，而且这台机器上「保存」的结果
+ * 是一份文件，不是写回某个站点。折角说明是文档，箭头说明落到本机。
+ */
+export const ICON_SAVE_PATHS = [
+  'M3 1.9h6.1L13 5.8v8.3H3z',
+  'M9.1 1.9v3.9H13',
+  'M8 7.1v5.2M5.9 10.2 8 12.3l2.1-2.1'
+];
+
+/**
  * One `<svg>` for a path list, so both surfaces draw byte-identical glyphs.
  *
  * `filled` paths are drawn with `fill` instead of a stroke — a shape that is

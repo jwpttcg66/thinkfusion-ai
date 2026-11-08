@@ -27,7 +27,7 @@ import type {
   WorkspaceState
 } from '../shared/workspace';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
-import type { ExportConversationInput } from '../shared/export';
+import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -107,6 +107,7 @@ const api: AgentApi = {
   reattachPage: () => ipcRenderer.invoke('page:reattach'),
   setPageCollapsed: (collapsed: boolean) => ipcRenderer.invoke('page:set-collapsed', collapsed),
   learnSelectors: (sourceId?: string) => ipcRenderer.invoke('page:learn-selectors', sourceId),
+  savePageDocument: (input: SavePageDocumentInput) => ipcRenderer.invoke('page:save-document', input),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);

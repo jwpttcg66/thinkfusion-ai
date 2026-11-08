@@ -308,6 +308,8 @@ export function createMockApi(): AgentApi {
     cancelConversation: async () => undefined,
     deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
     exportConversation: async () => null,
+    // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
+    savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     getChannelStatuses: async () => [],
     getExecutionOptions: async () => ({
       modes: ['web', 'local', 'cloud', 'hybrid'],
