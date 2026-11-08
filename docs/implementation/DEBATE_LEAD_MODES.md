@@ -23,6 +23,17 @@
 
 > 下文 2026-11-04 的记录里「`web` 由本地/云端成员读取全部观点后交叉质疑」「`hybrid` 网页与本地/云端都在第一轮独立发言」「没有两位辩手就不辩」等描述，均已被本节覆盖，保留仅作历史背景。
 
+### 适用范围：本节只管知识空间（2026-11-08 补充）
+
+同日更晚的裁决把**工程空间**改成默认多 agent 编排：所有可用的本地 + 云端模型一起读工程证据，
+只有 `hybrid` 才允许网页作为编排成员。工程空间的交锋名单直接来自编排计划，**不经过**
+`ownershipOf` / `debatersFor` / `planLead` 的归属收敛——否则 `cloud` 档会把本地模型剔掉，
+`local` 档会把云端模型剔掉，用户要的「本地和远程模型优先」就不成立。
+
+`src/main/index.ts` 里 `runDebate` 收到 `input.orchestration` 时直接组 `LeadPlan`，就是这条边界。
+知识空间的归属规则**没有因此改动**，本文其余各节仍然有效。详见
+[ENGINEERING_MULTI_AGENT_ORCHESTRATION.md](./ENGINEERING_MULTI_AGENT_ORCHESTRATION.md)。
+
 ### 研究设置属于「下一条提问」，追问也算（2026-11-06 修复）
 
 执行模式存在 `Conversation.executionConfig` 里，而它以前只在 `start()`（新会话第一问）

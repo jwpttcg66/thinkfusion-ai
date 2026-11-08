@@ -1,4 +1,17 @@
-# 工程空间：模型第一意见 + 网页第二意见（2026-11-08）
+# 工程空间：模型第一意见 + 网页第二意见（2026-11-08，已被后续裁决覆盖）
+
+> **状态：历史存档，这条链路已删除。** 同日更晚的裁决「工程默认改成多agent编排，
+> 优先本地和远程模型，除非采用混合模式，才可以进行网页编排」取消了「事后追加一个
+> 网页第二意见、两份并列不汇总」。现行规则见
+> [ENGINEERING_MULTI_AGENT_ORCHESTRATION.md](./ENGINEERING_MULTI_AGENT_ORCHESTRATION.md)。
+>
+> 两套通用工具保留并换了用途：`classifyDecision()` 现在给混合档 `auto` 判定网页要不要
+> 加入编排；`secondOpinionExcerpt()` 现在给**并列的网页编排成员**做 6000 字证据摘录。
+> `planSecondOpinion()` 与 `buildSecondOpinionQuestion()` 已删除。
+>
+> 现行行为一句话：非混合档一个网页都不问（哪怕 `always` + 重大决策）；只有 `hybrid`
+> 才把**所有**已开启且可用的网页通道作为第一轮并列成员编进来，随后照常汇总、交锋、
+> 给最终意见。
 
 ## 1. 裁决
 
@@ -76,21 +89,21 @@
 
 ## 6. 代码位置
 
+> 下表是**当时**的代码位置，标「已删」的函数现在都不存在。
+
 | 文件 | 职责 |
 | --- | --- |
-| `src/main/research/second-opinion.ts` | `classifyDecision`（算不算决策）、`planSecondOpinion`（问不问/问谁）、`buildSecondOpinionQuestion`（递过去的材料）、`SECOND_OPINION_BUDGET_MS` |
-| `src/main/conversation-runner.ts` | `researchEngineering()` 末尾调 `askSecondOpinion()`；追加了第二意见就跳过执行阶段与规则版融合；`run()` 里预算 +3 分钟 |
-| `src/shared/conversation.ts` | `webSecondOpinion?: 'auto' \| 'always' \| 'off'`，`normalizeExecutionConfig` 收三档 |
-| `src/renderer/.../ResearchPanel.tsx` | 「工程空间：网页第二意见」下拉 + 说明 |
+| `src/main/research/second-opinion.ts` | `classifyDecision`（保留）、`planSecondOpinion`（已删）、`buildSecondOpinionQuestion`（已删）、`SECOND_OPINION_BUDGET_MS`（保留，现在是网页编排成员的额外预算） |
+| `src/main/research/engineering-orchestration.ts` | **新增**，接手「问不问网页、问哪些」 |
+| `src/main/conversation-runner.ts` | 旧的 `askSecondOpinion()`、跳过执行阶段/融合的分支全部删除；`run()` 里预算 +3 分钟只在混合档生效 |
+| `src/shared/conversation.ts` | `webSecondOpinion?: 'auto' \| 'always' \| 'off'` 保留（老会话不迁移），语义改为「工程空间网页编排开关」，只在混合档生效 |
+| `src/renderer/.../ResearchPanel.tsx` | 下拉文案改为「混合档下…」 |
 
-## 7. 验证
+## 7. 验证（当时）
 
-- `scripts/check-second-opinion.mjs`：**21 条**（12 条纯函数 + 9 条链路）
-  - 判定：读数不算、定位错误不算、单独「比较」不算、两处取舍算、「要不要」算、
-    重构/迁移/删除算、点名网页算；
-  - 计划：off 不问、auto 非决策不问、auto 决策问且只问一个、always 都问、
-    无可用通道不问、无第一意见不问、勾选范围生效；
-  - 材料：三段结构 + 一句要求、6000 字截断标记、短材料原样；
-  - 链路：决策问题问一个网页且两份意见按序落库、不生成第三份综合、事实问题零网页、
-    off 零网页、always 问一次、网页失败如实记。
-- 真机 s23：见 `docs/testing/V2.1_LIVE_ACCEPTANCE_REPORT.md` 第 13 节。
+- `scripts/check-second-opinion.mjs`：当时 21 条，已重命名为
+  `scripts/check-web-orchestration.mjs` 并重写为 15 条：决策判定与摘录断言保留，
+  旧的「只问一个通道 / 两份并列不汇总」断言改为「非混合档零网页 / 混合档所有网页并列 /
+  编排产物照常汇总」。
+- 真机 s23：见 `docs/testing/V2.1_LIVE_ACCEPTANCE_REPORT.md` 第 13 节（记录的是当时的链路，
+  不再代表当前行为）。

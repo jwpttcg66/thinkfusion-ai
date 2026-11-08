@@ -30,10 +30,10 @@ interface Props {
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
 
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
-  { id: 'web', label: '网页主导', hint: '只用网页通道：汇总、交锋、最终意见都由网页完成，不引入本地/云端模型；材料拼成一条消息递进页面' },
-  { id: 'local', label: '本地主导', hint: '只用本机 Ollama：汇总、交锋、最终意见都在本机完成，不调云端 API' },
-  { id: 'cloud', label: '云端主导', hint: '只用配了 Key 的远程 API 模型：不占本机算力，不掺本地模型' },
-  { id: 'hybrid', label: '混合主导', hint: '先综合决定采用本地 / 网页 / 云端中的哪一种，再严格只用那一类成员' }
+  { id: 'web', label: '网页主导', hint: '知识空间：只用网页通道汇总交锋。工程空间：本地+云端模型编排，不问网页' },
+  { id: 'local', label: '本地主导', hint: '知识空间：只用本机 Ollama。工程空间：本地+云端模型编排，本地优先主导' },
+  { id: 'cloud', label: '云端主导', hint: '知识空间：只用远程 API 模型。工程空间：本地+云端模型编排，不按归属挑人' },
+  { id: 'hybrid', label: '混合主导', hint: '知识空间：先择一类再严格只用那一类。工程空间：唯一允许网页加入编排的模式' }
 ];
 
 /** 融合报告里「谁算的这份综合」。三种后端要能分辨。 */
@@ -216,13 +216,14 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 （本地优先，云端主导时才用云端），一个可用模型都没有才退回网页。知识空间的网页提问不受影响。
               </p>
 
-              <h3>工程空间：网页第二意见</h3>
+              <h3>工程空间：网页编排（仅混合档）</h3>
               <p className="muted">
-                模型是<b>第一意见</b>：它读得到你的文件，回答快。网页看不到文件，但有另一套判断，
-                适合在<b>重大决策</b>上复核一次（选型、迁移、重构、要不要删、风险取舍）。
-                规则判定为决策类问题时，才把「你的问题 + 第一意见 + 证据摘录（最多 6000 字）」
-                发给<b>一个</b>网页通道；事实查询（多少条记录、报错在哪一行）不问，它们只能复述摘录。
-                每个网页都要重新加载并等它写完，这一轮会多花 1–3 分钟。
+                工程空间默认是<b>多 agent 编排</b>：可用的本地模型 + 云端模型并行读你的文件，
+                各给一份意见，再由本地优先的主导人汇总、指定辩题交锋、给最终意见。
+                网页看不到本机文件，<b>只有下面的执行模式选「混合」时</b>才被允许作为编排成员
+                一起进场（带用户原话 + 证据摘录，最多 6000 字）；本地 / 网页 / 云端三档一个网页都不问。
+                混合档下的开关决定网页什么时候加入：自动只在重大决策（选型、迁移、重构、风险取舍）
+                时加入，读数 / 查事实类问题不加。每个网页都要重新加载并等它写完，会多花 1–3 分钟。
               </p>
               <select
                 value={config.webSecondOpinion ?? 'auto'}
@@ -230,9 +231,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   webSecondOpinion: event.target.value as ConversationExecutionConfig['webSecondOpinion']
                 })}
               >
-                <option value="auto">自动（只在重大决策时问网页）</option>
-                <option value="always">总是（每次工程提问都问一次）</option>
-                <option value="off">关闭（只留模型的第一意见）</option>
+                <option value="auto">自动（混合档下只在重大决策时编排网页）</option>
+                <option value="always">总是（混合档下每次都编排网页）</option>
+                <option value="off">关闭（混合档也只用本地/云端模型）</option>
               </select>
 
               <div className="research-modes">

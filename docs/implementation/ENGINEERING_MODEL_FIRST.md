@@ -1,4 +1,13 @@
-# 工程空间：模型直接读证据回答（2026-11-08）
+# 工程空间：模型直接读证据回答（2026-11-08，已被后续裁决覆盖）
+
+> **状态：历史存档。** 同日更晚的裁决「工程默认改成多agent编排，优先本地和远程模型，
+> 除非采用混合模式，才可以进行网页编排」已覆盖本文第 3、4 节的**选人规则**与
+> 「只问一个模型 / 跳过执行阶段」。现行规则见
+> [ENGINEERING_MULTI_AGENT_ORCHESTRATION.md](./ENGINEERING_MULTI_AGENT_ORCHESTRATION.md)。
+>
+> 仍然成立的部分：工程空间第一手回答由能拿到本机证据的模型给出、用户原话原样不带角色行、
+> 知识空间零改动、没有可用模型时如实退回网页。「模型读工程证据」这条根没变，
+> 变的是「几个模型读」以及「读完还要不要汇总交锋」。
 
 ## 1. 裁决
 
@@ -52,16 +61,20 @@
 
 ## 5. 代码位置
 
+> 下表是**当时**的代码位置；`planEngineeringAnswer` 已删除，选人搬到
+> `src/main/research/engineering-orchestration.ts`。现行清单见新文档第 4 节。
+
 | 文件 | 职责 |
 | --- | --- |
-| `src/main/research/engineering-round.ts` | 选谁回答（`planEngineeringAnswer`）、拼问题（`buildEngineeringAnswerQuestion`）、system（`engineeringAnswerSystem`） |
+| `src/main/research/engineering-round.ts` | 当时在这里选人（`planEngineeringAnswer`，已删）；现在只留拼问题（`buildEngineeringAnswerQuestion`）与 system（`engineeringAnswerSystem`） |
 | `src/main/conversation-runner.ts` | `researchEngineering()`：工程空间走它；回落网页时写原因 |
 | `src/main/index.ts` | `modelMembers`：带上 `health()` 的真实可用性 |
 | `src/renderer/.../ConversationView.tsx` | `labelOf` 对 `ollama:deepseek-r1:14b` 这类 id 去掉提供方前缀，不再把内部 id 摊给用户 |
 
-## 6. 验证
+## 6. 验证（当时）
 
-- `scripts/check-engineering-round.mjs`：12 条（8 条选人/拼问题纯函数 + 4 条链路：
-  工程空间零网页调用、知识空间不变、没有模型退回网页、模型报错如实说明）。
+- `scripts/check-engineering-round.mjs`：当时 12 条；现在重写为 6 条，只钉「问什么」与「如实兜底」，
+  选人断言搬到 `scripts/check-engineering-orchestration.mjs`。
 - 真机 s22（Downloads + 本地主导 deepseek-r1:14b）：**8/8**，+52s answered，
   通道列表只有 `ollama:deepseek-r1:14b`，网页一个都没被问，回答给出 664 行 / 664 条。
+  这次验收证明的是「本地模型能读真实文件」，该能力在新编排里仍然保留。

@@ -50,14 +50,14 @@ import { heuristicPick } from './synthesis/lead-selector';
 import {
   buildEngineeringAnswerQuestion,
   engineeringAnswerSystem,
-  planEngineeringAnswer,
   type ModelMemberView
 } from './research/engineering-round';
+import { SECOND_OPINION_BUDGET_MS } from './research/second-opinion';
 import {
-  buildSecondOpinionQuestion,
-  planSecondOpinion,
-  SECOND_OPINION_BUDGET_MS
-} from './research/second-opinion';
+  buildWebOrchestrationQuestion,
+  planEngineeringOrchestration,
+  type EngineeringOrchestrationPlan
+} from './research/engineering-orchestration';
 import type { JudgeVerdict } from './judge/types';
 
 /**
@@ -107,15 +107,15 @@ function debatersFor(
 }
 
 /**
- * 工程空间这一轮拿到的东西：模型的第一意见，以及（决策类问题上）网页的第二意见。
+ * 工程空间这一轮拿到的东西：多 agent 的并行回答，以及这一场的编排计划。
  *
- * 之所以要包一层而不是直接返回 `ResearchOutcome`：调用方得知道这一轮是不是
- * 追加过第二意见。追加过就跳过执行阶段——工程空间要的是两份意见并列，不是
- * 让主导人再写第三份汇总。
+ * 之所以要包一层而不是直接返回 `ResearchOutcome`：执行阶段得知道主导人是谁、
+ * 哪些成员同场。工程编排不按归属过滤（本地+云端+混合档网页一起进场），
+ * 这些不能从 `executionMode` 反推。
  */
 interface EngineeringRound {
   outcome: ResearchOutcome;
-  secondOpinion: boolean;
+  orchestration: EngineeringOrchestrationPlan;
 }
 
 export interface ConversationDeps {
@@ -200,6 +200,12 @@ export interface ConversationDeps {
     effectiveMode: 'web' | 'local' | 'cloud';
     /** 这一场用哪种协作策略；不传由调用方按默认（真理发现）处理。 */
     debateStrategy?: ConversationExecutionConfig['debateStrategy'];
+    /**
+     * 工程空间多 agent 编排：主进程据此直接组 LeadPlan，跳过 planLead 的归属
+     * 收敛（那会把本地/云端模型按 executionMode 剔成一类）。不传 = 知识空间，
+     * 完全按原有的归属规则走。
+     */
+    orchestration?: { reason: string; warnings: string[] };
   }) => Promise<{
     debateId: string;
     rounds: Array<{
@@ -855,16 +861,17 @@ export class ConversationRunner {
     // 追加研究要再问一遍网页、再让主导人写一次汇总，五分钟挡不住：预算按轮数
     // 顺延，否则「开了深挖」的结果是被外层预算砍掉，用户拿到的比单轮还少。
     //
-    // 工程空间的网页第二意见同样要顺延：它要加载页面、键入整段、等它写完。
-    // 判定在拿到第一意见之后才做，预算却在开跑时就定，所以只要没关掉就按
-    // 「可能会问」给足——被预算砍掉的第二意见比不问更糟：用户等了几分钟，
-    // 拿到的是「超时」。
-    const possibleSecondOpinion =
-      conversation.workspaceMode === 'engineering' && (config.webSecondOpinion ?? 'auto') !== 'off';
+    // 工程空间混合档的网页编排成员同样要顺延：页面要加载、键入整段、等它
+    // 写完。判定在开跑后才做，预算却要提前定，所以只要「可能会问网页」就
+    // 给足——被预算砍掉的网页意见比不问更糟：用户等了几分钟拿到「超时」。
+    const possibleWebOrchestration =
+      conversation.workspaceMode === 'engineering' &&
+      config.executionMode === 'hybrid' &&
+      (config.webSecondOpinion ?? 'auto') !== 'off';
     const budget =
       this.budgetMs +
       followUpBudget(config) * FOLLOW_UP_ROUND_BUDGET_MS +
-      (possibleSecondOpinion ? SECOND_OPINION_BUDGET_MS : 0);
+      (possibleWebOrchestration ? SECOND_OPINION_BUDGET_MS : 0);
 
     this.running.set(
       conversationId,
@@ -878,21 +885,22 @@ export class ConversationRunner {
   }
 
   /**
-   * 工程空间的第一轮：模型读证据给第一意见，重大决策再问一个网页拿第二意见。
+   * 工程空间的第一轮：多 agent 编排（2026-11-08 用户裁决）。
    *
-   * 第一意见交给唯一能拿到证据的一方（2026-11-08 用户裁决）：
+   * 原话：「工程默认改成多agent编排，优先本地和远程模型，除非采用混合模式，
+   * 才可以进行网页编排。」这条覆盖了同一天更早的「只问一个模型的第一意见 +
+   * 决策类问题追加一个网页第二意见」。
    *
-   * - 本地模型优先，云端主导且云端可用时才用云端；用户点名了成员就用它；
-   * - 问题 = 用户原话 + 程序真实读到的工程证据，没有角色开场；
-   * - 一个可用模型都没有时返回 null，调用方照旧走网页链路——但先写一条系统
-   *   消息说明「退回网页」以及网页读不到本地文件，免得用户以为是模型坏了。
+   * - 所有可用的本地 + 云端模型并行读同一份工程证据，本地优先、云端补充；
+   *   local / web / cloud 三档不再按归属挑人，网页默认一个都不问；
+   * - 只有 executionMode === 'hybrid' 才把网页通道作为**并列的编排成员**一起问，
+   *   开关沿用 webSecondOpinion（auto 用决策判定 / always / off）；
+   * - 问题永远是「用户原话 + 本机真实读到的证据」，没有角色开场。网页成员
+   *   收到的是同一形状、证据按 6000 字摘录，不发 system；
+   * - 没有可用模型 / 没有证据 / 模型全失败时返回 null，调用方如实退回网页链路。
    *
-   * 只问一个模型：读证据回答是确定性任务，同一份证据问两个模型只会把等待时间
-   * 翻倍，还会接着触发汇总与辩论。
-   *
-   * 第二意见（同一句裁决的后半句「网页是辅导重大决策用的第二意见」）在这里
-   * 追加：带着第一意见与证据摘录去问**一个**网页通道。判定与边界全在
-   * research/second-opinion.ts，这里只负责发出去、把回答落库。
+   * 编排计划随 outcome 一起返回：执行阶段要用它绕开知识空间的归属过滤，
+   * 让本地 + 云端模型同场汇总、交锋、给最终意见。
    */
   private async researchEngineering(
     conversation: Conversation,
@@ -902,24 +910,44 @@ export class ConversationRunner {
   ): Promise<EngineeringRound | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const material = this.engineeringMaterialFor(conversation);
-    const members = (await this.deps.modelMembers?.(config)) ?? [];
-    const plan = planEngineeringAnswer({
+    const models = (await this.deps.modelMembers?.(config)) ?? [];
+
+    // 网页可用性只在混合档探测：非混合档根本不该碰页面（真机探活本身就会
+    // 给每个页面发一次请求），这也是「网页默认不进场」的实现保障。
+    let webChannels: Array<{ agentId: string; label: string; available: boolean }> = [];
+    if (config.executionMode === 'hybrid') {
+      try {
+        webChannels = (await this.deps.registry.available()).map(agent => ({
+          agentId: agent.id,
+          label: agent.label,
+          available: true
+        }));
+      } catch {
+        webChannels = [];
+      }
+    }
+
+    const orchestration = planEngineeringOrchestration({
       mode: config.executionMode,
       leadAgentId: config.leadAgentId,
-      members
+      models,
+      webChannels,
+      question,
+      webSecondOpinion: config.webSecondOpinion,
+      selectedWebChannels: config.selectedWebChannels
     });
 
     if (!material) {
       sink.note('这一轮没有读到任何工程证据（目录未选或扫描失败），工程空间没有可依据的本地材料，改问网页通道。');
       return null;
     }
-    if (plan.fallback) {
-      sink.note(`${plan.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`);
+    if (orchestration.fallback) {
+      sink.note(`${orchestration.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`);
       return null;
     }
 
-    sink.note(`${plan.reason}：${plan.targets.map(item => item.label).join('、')}。`);
-    sink.status(plan.targets.length > 1 ? 'collecting' : 'thinking');
+    sink.note(orchestration.reason);
+    sink.status(orchestration.members.length > 1 ? 'collecting' : 'thinking');
 
     // 专家常驻、技能按场景加载。只有真正加载了技能才补一条系统消息，
     // 读数 / 查事实那类问题保持原来的安静。
@@ -930,26 +958,37 @@ export class ConversationRunner {
     if (expertise.note) sink.note(expertise.note);
 
     const engineered = buildEngineeringAnswerQuestion(question, material);
+    const webQuestion = orchestration.webIncluded
+      ? buildWebOrchestrationQuestion(question, material)
+      : null;
     const answers: SubAgentAnswer[] = [];
     const channels: ChannelOutcome[] = [];
     const failures: string[] = [];
     const messageIds = new Map<string, string>();
 
     await Promise.all(
-      plan.targets.map(async target => {
+      orchestration.members.map(async target => {
         if (sink.cancelled()) return;
+        const isWeb = target.kind === 'web';
         sink.join(target.agentId);
         sink.phase(target.agentId, 'asking', '读工程证据后回答');
         try {
-          const answer = await pool.ask(target.agentId, {
-            question: engineered,
-            stage: 'initial',
-            // 证据可能有几万字，本地模型逐段读完再写，和网页主导的汇总同一量级。
-            timeoutMs: 180_000,
-            // 只对本地/云端 API 生效；工程空间不发网页，所以不涉及「包装话术」。
-            // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
-            system: [...engineeringAnswerSystem(), ...expertise.system]
-          });
+          const answer = isWeb
+            ? await this.deps.registry.ask(target.agentId, {
+                question: webQuestion ?? engineered,
+                stage: 'initial',
+                // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
+                timeoutMs: SECOND_OPINION_BUDGET_MS
+              })
+            : await pool.ask(target.agentId, {
+                question: engineered,
+                stage: 'initial',
+                // 证据可能有几万字，本地模型逐段读完再写，同一量级。
+                timeoutMs: 180_000,
+                // 只对本地/云端 API 生效；网页成员上面那条不发 system。
+                // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
+                system: [...engineeringAnswerSystem(), ...expertise.system]
+              });
           if (sink.cancelled()) return;
           messageIds.set(target.agentId, sink.record(answer));
           sink.phase(target.agentId, 'answered', '读完证据后回答');
@@ -976,96 +1015,8 @@ export class ConversationRunner {
       return null;
     }
 
-    // 综合留给既有链路：两份以上回答会走融合引擎，再由主导人汇总；一份时
-    // 现状就是「只有回答、没有综合」，不为工程空间单独造一份假综合。
     const outcome: ResearchOutcome = { answers, synthesis: null, failures, channels, messageIds };
-    const secondOpinion = await this.askSecondOpinion(conversation, question, outcome, messageIds, sink);
-    return { outcome, secondOpinion };
-  }
-
-  /**
-   * 网页第二意见：带着第一意见与证据摘录，去问一个网页通道。
-   *
-   * 为什么要把第一意见一起递过去：没有靶子就只是「另一份并列的看法」，而用户
-   * 要的是「复核」。为什么只问一个：每个网页都要重新加载、键入整段、等它写完，
-   * 两分钟起步，多问一家只是把这个等待翻倍。
-   *
-   * 无论问不问，都写一条系统消息：用户需要知道这一轮网页为什么出现 / 为什么
-   * 没出现，而不是从沉默里猜。
-   *
-   * 返回 true 表示真的拿到（或尝试过）第二意见——调用方据此跳过执行阶段：
-   * 工程空间要的是两份意见并列，不让主导人再写第三份汇总。
-   */
-  private async askSecondOpinion(
-    conversation: Conversation,
-    question: string,
-    outcome: ResearchOutcome,
-    messageIds: Map<string, string>,
-    sink: ResearchSink
-  ): Promise<boolean> {
-    const config = normalizeExecutionConfig(conversation.executionConfig);
-    const first = outcome.answers[0];
-    const material = this.engineeringMaterialFor(conversation) ?? '';
-
-    // 可用性来自网页注册表，不走执行池：本地主导时池里只有本地模型，
-    // 而第二意见按裁决就该由网页提供（这是「第一手回答发网页」那条规则
-    // 收窄之后，网页唯一还在工程空间出现的场合）。
-    let channels: Array<{ agentId: string; label: string; available: boolean; detail?: string }> = [];
-    try {
-      const usable = await this.deps.registry.available();
-      channels = usable.map(agent => ({ agentId: agent.id, label: agent.label, available: true }));
-    } catch {
-      channels = [];
-    }
-
-    const plan = planSecondOpinion({
-      mode: config.webSecondOpinion ?? 'auto',
-      question,
-      hasFirstOpinion: Boolean(first),
-      channels,
-      selected: config.selectedWebChannels
-    });
-
-    sink.note(plan.reason);
-    if (!plan.ask || !plan.target || !first) return false;
-    if (this.cancelled.has(conversation.conversationId)) return false;
-
-    const target = plan.target;
-    sink.status('collecting');
-    sink.join(target.agentId);
-    sink.phase(target.agentId, 'asking', '以第二意见复核这个决定');
-    try {
-      const answer = await this.deps.registry.ask(target.agentId, {
-        question: buildSecondOpinionQuestion({
-          question,
-          firstOpinion: first.text,
-          material
-        }),
-        stage: 'initial',
-        // 网页侧要重新加载、键入一整段再等它写完，和网页主导的汇总同一量级。
-        timeoutMs: SECOND_OPINION_BUDGET_MS
-      });
-      if (this.cancelled.has(conversation.conversationId)) return false;
-      const messageId = sink.record(answer);
-      messageIds.set(target.agentId, messageId);
-      sink.phase(target.agentId, 'answered', '给出第二意见');
-      outcome.answers.push(answer);
-      outcome.channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
-      return true;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      sink.phase(target.agentId, 'failed', detail);
-      const failure = `${target.label}（第二意见）：${detail}`;
-      outcome.failures.push(failure);
-      outcome.channels.push({
-        kind: 'unanswered',
-        agentId: target.agentId,
-        label: target.label,
-        phase: 'failed',
-        detail
-      });
-      return false;
-    }
+    return { outcome, orchestration };
   }
 
   private async conduct(
@@ -1189,9 +1140,10 @@ export class ConversationRunner {
       }
     }
 
-    // 工程空间：第一意见由模型读证据给出（本地优先）。决策类问题上再追加一个
-    // 网页通道的第二意见（2026-11-08 用户裁决）；没有可用模型时这个方法返回
-    // null，下面照旧走网页链路并已写过原因。
+    // 工程空间：多 agent 编排（本地+云端模型，混合档再加网页）并行读证据。
+    // 2026-11-08 用户裁决，覆盖了同一天更早的「一个模型第一意见 + 一个网页
+    // 第二意见、两份并列不汇总」。没有可用模型时返回 null，下面照旧走网页
+    // 链路并已写过原因。
     const engineeringRound =
       conversation.workspaceMode === 'engineering'
         ? await this.researchEngineering(conversation, question, pool, sink)
@@ -1215,33 +1167,28 @@ export class ConversationRunner {
 
     if (this.cancelled.has(conversationId)) return;
 
-    // 执行阶段（回答之后）：执行模式 = 谁当主导人，不决定谁回答。
-    // 知识空间的第一手回答来自网页通道（上面那轮）；工程空间例外——第一意见
-    // 由本地/云端模型读工程证据给出，第二意见由网页复核，见 researchEngineering()。
-    // 主导人做三件事：
+    // 执行阶段（回答之后）：主导人做三件事——
     //   1. 汇总全部回答，写【结论/一致/分歧/存疑】；
     //   2. 从分歧里指定辩题（没有实质分歧就不辩）；
     //   3. 读辩论记录，给最终意见。
     //
-    // 工程空间追加了第二意见时不走这一步：两份意见并列就是这一轮的产物，
-    // 再让主导人写一份汇总，等于把「模型意见 + 网页意见」糊成第三份文本。
+    // 工程空间现在也走这一步：2026-11-08 裁决把工程默认改成多 agent 编排，
+    // 编排的产物就是「汇总 → 交锋 → 最终意见」，不再让两份意见并列了事。
+    // 工程编排的成员名单不按归属过滤，随编排计划一起传下去。
     let execution: ExecutionStageResult | null = null;
-    if (engineeringRound?.secondOpinion) {
-      sink.note('这一轮不再做汇总：模型的第一意见与网页的第二意见都在上面，两份并列供你判断。');
-    } else {
-      execution = await this.runExecutionStage(
-        pool,
-        conversation,
-        question,
-        outcome,
-        sink,
-        executorIds,
-        this.engineeringMaterialFor(conversation),
-        this.pageMaterialFor(conversation),
-        followUpBudget(config) > 0
-      );
-      if (this.cancelled.has(conversationId)) return;
-    }
+    execution = await this.runExecutionStage(
+      pool,
+      conversation,
+      question,
+      outcome,
+      sink,
+      executorIds,
+      this.engineeringMaterialFor(conversation),
+      this.pageMaterialFor(conversation),
+      followUpBudget(config) > 0,
+      engineeringRound?.orchestration ?? null
+    );
+    if (this.cancelled.has(conversationId)) return;
 
     // P6 多轮自主研究：主导人指出「还缺什么」之后，把缺口再问一遍所有网页
     // 通道，然后让它更新汇总。默认 0 轮，所以默认行为与以前完全一致。
@@ -1263,11 +1210,12 @@ export class ConversationRunner {
     // 融合引擎失败时保留原来的规则版综合，不抛错（ARCHITECTURE 11.9）。
     // 规则版本身已经是各通道回答的合成，降级后界面仍有东西可看。
     //
-    // 工程空间的两份意见不融合：规则版是按文本相似度拼的，判断「这两条意见
-    // 算一致还是分歧」靠的是词面重合，对「该不该迁移」这种问题只会给出一个
-    // 看着像结论、其实是统计的段落。
+    // 工程编排也走融合：主导人的汇总要盖过规则版综合才落得进综合卡，所以
+    // 这里需要一份 synthesis 作为容器（哪怕只有一位成员，也要有这个容器）。
+    // 主导产物会把共识/分歧/缺口全部清空，规则版那套统计不会并列显示。
     let synthesis = outcome.synthesis;
-    if (this.deps.fusionEnabled && outcome.answers.length >= 2 && !engineeringRound?.secondOpinion) {
+    const fusionFloor = engineeringRound?.orchestration ? 1 : 2;
+    if (this.deps.fusionEnabled && outcome.answers.length >= fusionFloor) {
       try {
         const fused = synthesizeWithFusion(
           outcome.answers.map(answer => ({
@@ -1283,17 +1231,33 @@ export class ConversationRunner {
       }
     }
 
+    // 工程编排只有一位成员、或融合引擎没开时，上面不会产出 synthesis。但
+    // 主导人照样写了汇总/最终意见——总不能因为缺个容器就把它的产物丢掉。
+    // 造一个空壳，下面的主导产物会把内容填进去、把规则版结构清空。
+    if (execution && !synthesis && engineeringRound?.orchestration) {
+      synthesis = {
+        consensus: [],
+        disputed: [],
+        unique: [],
+        gaps: [],
+        overlap: [],
+        recommendation: '',
+        degraded: false
+      };
+    }
+
     // 主导人的产物盖过默认综合：结论、以及「哪些一致、哪里有分歧」这套结构，
     // 都由读过全部回答的主导人来说，规则版那套不再并列展示。
     if (execution && synthesis) {
       const { lead, summaryText, topics, debate, verdictText } = execution;
       const backend: NonNullable<Synthesis['fusion']>['backend'] =
         lead.kind === 'web' ? 'web' : lead.kind === 'local' ? 'local-model' : 'remote';
+      const sourceLabel = engineeringRound?.orchestration ? '份编排成员的回答' : '份网页回答';
       const parts: string[] = [];
       parts.push(
         lead.auto
-          ? `系统按「问题 + 答案质量」自动选 ${lead.label} 当主导人（${lead.reason ?? '本地模型判定'}）：它汇总了 ${outcome.answers.length} 份网页回答`
-          : `由主导人 ${lead.label} 汇总了 ${outcome.answers.length} 份网页回答`
+          ? `系统按「问题 + 答案质量」自动选 ${lead.label} 当主导人（${lead.reason ?? '本地模型判定'}）：它汇总了 ${outcome.answers.length} ${sourceLabel}`
+          : `由主导人 ${lead.label} 汇总了 ${outcome.answers.length} ${sourceLabel}`
       );
       if (topics.length > 0) {
         parts.push(`它指定了 ${topics.length} 个辩题（${topics.join('；')}）`);
@@ -1398,7 +1362,9 @@ export class ConversationRunner {
     /** V2.1：extract 真正抓回来的网页正文；同样只进汇总，不进第一手提问。 */
     page: string | null = null,
     /** P6：要不要在汇总里多要一段【待补】。默认 false，单轮提示词不变。 */
-    followUp = false
+    followUp = false,
+    /** 工程空间的多 agent 编排计划：绕开知识空间的归属过滤。 */
+    orchestration: EngineeringOrchestrationPlan | null = null
   ): Promise<ExecutionStageResult | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
@@ -1407,11 +1373,20 @@ export class ConversationRunner {
       label: labels.get(answer.agentId) ?? answer.agentId,
       text: answer.text
     }));
-    // 一份回答没有可汇总的分歧，也没有可辩的对象：执行阶段直接跳过，
-    // 保留规则版综合。只有多个来源时才需要主导人。
-    if (answers.length < 2) return null;
+    // 知识空间：一份回答没有可汇总的分歧，也没有可辩的对象，跳过执行阶段。
+    // 工程编排：哪怕只有一个可用成员也照常开（同一模型自辩），不再因
+    // 「不足两位」跳过——这是归属规则里明确要求过的。
+    if (answers.length < (orchestration ? 1 : 2)) return null;
 
-    const lead = await this.resolveLead(config, question, answers, executorIds);
+    const lead = orchestration?.lead
+      ? {
+          agentId: orchestration.lead.agentId,
+          label: orchestration.lead.label,
+          kind: orchestration.lead.kind,
+          auto: false,
+          reason: orchestration.reason
+        }
+      : await this.resolveLead(config, question, answers, executorIds);
     if (!lead) {
       const ownership = ownershipOf(config, answers, executorIds, id => this.deps.agentSource?.(id));
       this.addMessage(conversation, {
@@ -1476,8 +1451,14 @@ export class ConversationRunner {
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
     const sourceOf = (id: string) => this.deps.agentSource?.(id);
-    const ownership = ownershipOf(config, answers, executorIds, sourceOf);
-    const debaters = debatersFor(ownership.mode, answers, executorIds, sourceOf);
+    // 知识空间：归属规则限定主导人与辩手同类。工程编排：名单直接来自编排
+    // 计划（本地 + 云端模型全进场），不按 executionMode 收敛成一类。
+    const ownership = orchestration
+      ? { mode: lead.kind, reason: orchestration.reason }
+      : ownershipOf(config, answers, executorIds, sourceOf);
+    const debaters = orchestration
+      ? orchestration.debaters
+      : debatersFor(ownership.mode, answers, executorIds, sourceOf);
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
     if (debateMode === 'off') {
       this.addMessage(conversation, {
@@ -1509,7 +1490,12 @@ export class ConversationRunner {
           lead: { agentId: lead.agentId, label, kind: lead.kind },
           mode: config.executionMode,
           effectiveMode: ownership.mode,
-          debateStrategy: config.debateStrategy
+          debateStrategy: config.debateStrategy,
+          // 工程编排：主进程直接用这份名单组 LeadPlan，不再过 planLead 的
+          // 归属收敛（那会把云端模型或本地模型按 executionMode 剔掉）。
+          ...(orchestration
+            ? { orchestration: { reason: orchestration.reason, warnings: [] as string[] } }
+            : {})
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

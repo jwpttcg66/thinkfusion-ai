@@ -1,12 +1,16 @@
 /**
- * 工程空间「模型读证据回答」的行为测试（2026-11-08 用户裁决）。
+ * 工程空间「模型读证据回答」的行为测试（2026-11-08 用户裁决链）。
  *
- * 这条裁决是：「工程模式，不需要优先问网页，读取本地应该是模型所做的」。
- * 所以有两半必须逐条钉住：
+ * 最早的一条是：「工程模式，不需要优先问网页，读取本地应该是模型所做的」。
+ * 后来同一天又改成多 agent 编排（见 check-engineering-orchestration.mjs）：
+ * 所有可用的本地 + 云端模型并行读证据，网页默认不进场。
  *
- * 1. 选人——本地优先，云端主导才用云端，点名就用点名的，全不可用才退回网页；
- * 2. 链路——工程空间一个网页都不问，模型收到的就是「用户原话 + 真实证据」；
- *    知识空间一个字节都没变；没有模型时如实退回网页并写明原因。
+ * 这个文件只钉住两件与「选几个人」无关、且不能退让的事：
+ *
+ * 1. 问什么——模型收到的永远是「用户原话 + 本机真实读到的证据」，没有角色
+ *    开场；证据纪律只进 system；
+ * 2. 兜底——一个模型都没有、或模型全失败时，如实退回网页并写明原因，
+ *    不把「没读到证据」和「模型没答」混成一句话。
  *
  * Run with: npm run test:engineering-round
  */
@@ -19,91 +23,34 @@ import { join } from 'node:path';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import {
   buildEngineeringAnswerQuestion,
-  engineeringAnswerSystem,
-  planEngineeringAnswer
+  engineeringAnswerSystem
 } from '../out-test/main/research/engineering-round.js';
 
 // ---------------------------------------------------------------------------
-// 纯函数：谁回答
+// 纯函数：问什么、system 里说什么
 // ---------------------------------------------------------------------------
 
-const local = (id = 'ollama:qwen', label = 'Ollama Qwen') => ({
-  agentId: id,
-  label,
-  kind: 'local',
-  available: true
-});
-const cloud = (id = 'openai:gpt', label = 'GPT') => ({
-  agentId: id,
-  label,
-  kind: 'cloud',
-  available: true
-});
-
-test('本地可用就本地回答，哪怕界面上选的是网页主导', () => {
-  const plan = planEngineeringAnswer({ mode: 'web', members: [local(), cloud()] });
-  assert.deepEqual(plan.targets.map(item => item.agentId), ['ollama:qwen']);
-  assert.equal(plan.fallback, false);
-  assert.match(plan.reason, /本地模型读工程证据/);
-});
-
-test('没有本地模型时改用云端，并说明为什么', () => {
-  const plan = planEngineeringAnswer({ mode: 'local', members: [cloud()] });
-  assert.deepEqual(plan.targets.map(item => item.agentId), ['openai:gpt']);
-  assert.equal(plan.fallback, false);
-  assert.match(plan.reason, /没有可用本地模型/);
-});
-
-test('云端主导且云端可用时才用云端', () => {
-  const plan = planEngineeringAnswer({ mode: 'cloud', members: [local(), cloud()] });
-  assert.deepEqual(plan.targets.map(item => item.agentId), ['openai:gpt']);
-  assert.match(plan.reason, /云端主导/);
-});
-
-test('用户点名了成员就只问它', () => {
-  const plan = planEngineeringAnswer({
-    mode: 'hybrid',
-    leadAgentId: 'openai:gpt',
-    members: [local(), cloud()]
-  });
-  assert.deepEqual(plan.targets.map(item => item.agentId), ['openai:gpt']);
-  assert.match(plan.reason, /你指定了/);
-});
-
-test('多个本地模型只问第一个：同一份证据问两遍只是把等待翻倍', () => {
-  const plan = planEngineeringAnswer({
-    mode: 'local',
-    members: [local('ollama:a', 'A'), local('ollama:b', 'B')]
-  });
-  assert.deepEqual(plan.targets.map(item => item.agentId), ['ollama:a']);
-});
-
-test('一个可用模型都没有时退回网页，原因写清楚', () => {
-  const plan = planEngineeringAnswer({
-    mode: 'local',
-    members: [{ ...local(), available: false }, { ...cloud(), available: false }]
-  });
-  assert.deepEqual(plan.targets, []);
-  assert.equal(plan.fallback, true);
-  assert.match(plan.reason, /没有可用的本地\/云端模型/);
-});
-
 test('发给模型的问题：用户原话在前，证据在后，没有角色开场', () => {
-  const question = buildEngineeringAnswerQuestion('读取 log.txt 有多少条记录', '【工程证据：以下由本机真实读取获得】\n[证据1] log.txt:1');
+  const question = buildEngineeringAnswerQuestion(
+    '读取 log.txt 有多少条记录',
+    '【工程证据：以下由本机真实读取获得】\n[证据1] log.txt:1'
+  );
   assert.ok(question.startsWith('【用户的问题】\n读取 log.txt 有多少条记录'));
   assert.ok(question.includes('【工程证据'));
   assert.ok(!question.includes('你是一位'));
   assert.ok(!question.includes('研究伙伴'));
+  assert.ok(!question.includes('几点要求'));
 });
 
-test('system 只对模型说两条：依据证据、写明路径行号、不足就说无法确定', () => {
+test('system 只对模型说三条：依据证据、写明路径行号、不足就说无法确定', () => {
   const system = engineeringAnswerSystem().join('\n');
   assert.match(system, /路径:行号/);
   assert.match(system, /无法确定/);
+  assert.equal(engineeringAnswerSystem().length, 3);
 });
 
 // ---------------------------------------------------------------------------
-// 链路：工程空间不问网页
+// 链路：工程空间不问网页 / 知识空间不变 / 兜底如实
 // ---------------------------------------------------------------------------
 
 const root = mkdtempSync(join(tmpdir(), 'tf-eng-round-'));
@@ -133,7 +80,11 @@ function fakeWebChannel(id, log) {
     },
     async ask(input) {
       log.web.push({ id, question: input.question, stage: input.stage });
-      return { agentId: id, channelId: id, stage: input.stage, text: `${id} 说：读不到本地文件，请上传。`, receivedAt: Date.now() };
+      return {
+        agentId: id, channelId: id, stage: input.stage,
+        text: `${id} 说：读不到本地文件，请上传。`,
+        receivedAt: Date.now()
+      };
     },
     cancel() {}
   };
@@ -141,9 +92,7 @@ function fakeWebChannel(id, log) {
 
 function fakeModel(id, label, kind, options = {}) {
   return {
-    id,
-    label,
-    kind,
+    id, label, kind,
     available: options.available ?? true,
     asks: [],
     identity: { id, label, kind: 'provider', role: label },
@@ -153,10 +102,15 @@ function fakeModel(id, label, kind, options = {}) {
     async ask(input) {
       this.asks.push(input);
       if (options.fail) throw new Error(options.fail);
+      if (input.stage === 'challenge') {
+        return {
+          agentId: id, channelId: id, stage: input.stage,
+          text: '【结论】共 3 条记录\n【一致】没有\n【分歧】没有\n【存疑】没有\n【辩题】无',
+          receivedAt: Date.now()
+        };
+      }
       return {
-        agentId: id,
-        channelId: id,
-        stage: input.stage,
+        agentId: id, channelId: id, stage: input.stage,
         text: `${label}：依据 log.txt:1，全文共 3 行，因此 3 条记录。`,
         receivedAt: Date.now()
       };
@@ -264,7 +218,7 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
     '模型的回答要以回答消息落库'
   );
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('本地模型读工程证据')),
+    messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
     '要写清楚这一轮谁回答、没发网页'
   );
 });
@@ -298,10 +252,16 @@ test('工程空间没有可用模型：退回网页，并写明网页读不到�
     messages.some(message => message.role === 'system' && message.text.includes('退回网页通道')),
     '退回网页要写明原因'
   );
+  assert.ok(
+    messages.some(message => message.role === 'system' && message.text.includes('没有可用的本地/云端模型')),
+    '要说清是本机没有模型，不是没读到证据'
+  );
 });
 
 test('工程空间模型报错：不假装答过，退回网页并写明是谁没成', async () => {
-  const model = fakeModel('ollama:qwen', 'Ollama Qwen', 'local', { fail: '连不上 http://127.0.0.1:11434' });
+  const model = fakeModel('ollama:qwen', 'Ollama Qwen', 'local', {
+    fail: '连不上 http://127.0.0.1:11434'
+  });
   const { runner, log } = makeRunner({ web: ['chatgpt'], models: [model] });
 
   const started = await runner.start(engineeringInput('读取 log.txt 有多少条记录'));
@@ -313,5 +273,9 @@ test('工程空间模型报错：不假装答过，退回网页并写明是谁�
   assert.ok(
     messages.some(message => message.role === 'system' && message.text.includes('本机模型没有给出回答')),
     '模型失败要如实说，而不是当成「没有证据」'
+  );
+  assert.ok(
+    messages.some(message => message.role === 'system' && message.text.includes('连不上 http://127.0.0.1:11434')),
+    '把失败原因原样写进会话'
   );
 });

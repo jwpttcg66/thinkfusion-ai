@@ -44,7 +44,7 @@ import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { normalizeDebateConfig } from './debate/types';
-import { normalizeLeadMode, planLead, type DebateCandidate } from './debate/lead';
+import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
 import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset, type CloudPreset } from './providers/cloud-presets';
 import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
@@ -2824,13 +2824,35 @@ app.whenReady().then(async () => {
         extraAgents.find(agent => agent.id === agentId)?.label ?? agentId;
       // 与手动辩论共用同一套计划生成：归属方式决定只用哪一类成员，网页方式
       // 的 webOnly 会让编排器把交锋材料拼进用户消息，而不是拉本地模型补位。
-      const plan = planLead({
-        mode: input.effectiveMode,
-        strategy: normalizeDebateConfig({}).strategy,
-        candidates,
-        selected: debaters,
-        leadAgentId: input.lead.agentId
-      });
+      //
+      // 例外：工程空间的多 agent 编排（2026-11-08 裁决）本地 + 云端模型同场，
+      // 归属收敛会把其中一类剔掉，所以这里直接组一份「名单即计划」的
+      // LeadPlan，跳过 planLead。网页成员不进交锋（webOnly 为空），它们第一
+      // 轮的并列意见已经作为 seed 交给模型读了。知识空间仍然走 planLead。
+      const plan: LeadPlan = input.orchestration
+        ? {
+            lead: {
+              mode: normalizeLeadMode(input.effectiveMode),
+              agentId: input.lead.agentId,
+              label: input.lead.label,
+              reason: input.orchestration.reason,
+              drivenBy: 'orchestrator'
+            },
+            openingSpeakers: [...debaters],
+            debaters: [...debaters],
+            participants: [...debaters],
+            webOnly: [],
+            reason: input.orchestration.reason,
+            warnings: input.orchestration.warnings,
+            excluded: []
+          }
+        : planLead({
+            mode: input.effectiveMode,
+            strategy: normalizeDebateConfig({}).strategy,
+            candidates,
+            selected: debaters,
+            leadAgentId: input.lead.agentId
+          });
       // 会话内网页主导：三家网页刚答过用户问题，别把同一句原话再问一遍、
       // 也别让三个页面各写三轮独立文本（每轮都要等最慢的那个）。基准观点
       // 直接注入第一轮，质疑与回应由主导人一个页面完成。

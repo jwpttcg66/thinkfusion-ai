@@ -1,28 +1,20 @@
 /**
- * 工程空间的第二意见（2026-11-08 用户裁决）。
+ * 「这是不是要拍板的决策」的规则判定，以及网页编排成员的证据摘录工具。
  *
- * 原话：「工程模式模型为第一意见，网页是辅导重大决策用的第二意见。」
+ * 历史：2026-11-08 早些时候这里还负责「工程空间只问一个网页、事后做第二意见」。
+ * 同一天用户改了裁决：「工程默认改成多agent编排，优先本地和远程模型，除非采用
+ * 混合模式，才可以进行网页编排」。第二意见那条链路已经删掉，网页现在是混合档
+ * 里**并列的编排成员**，选人在 research/engineering-orchestration.ts。
  *
- * 第一意见由模型读工程证据给出（见 engineering-round.ts）：它快，而且是唯一
- * 真正读得到本机文件的一方。但模型读证据有它自己的盲点——证据有什么它说什么，
- * 看不出「这个改法三个月后会痛」「这个依赖明年会停止维护」。网页那边看不到本机
- * 文件，却带着另一套训练出来的判断与更宽的经验面，适合在**决策**上复核一次。
+ * 这里保留两件仍然通用的东西：
  *
- * 所以第二意见有两个硬边界：
- *
- * - 只在决策类问题上问。事实查询（多少条记录、这个函数干什么、报错在哪一行）
- *   问网页没有意义：它们看不到文件，只能把我们递过去的摘录复述一遍。判定用
- *   规则（classifyDecision），不交给模型——那要多一次生成，而且判错时被静默
- *   放过的那条恰恰是本该复核的决策。
- * - 只问**一个**通道。每个网页都要重新加载、键入一整段、等它写完，两分钟起步；
- *   多问一家只是把这个等待翻倍，不会让决策更清楚。第二意见要的是「另一个判断」，
- *   不是「又一次多方投票」。
- *
- * 递过去的材料里带上第一意见：没有第一意见做靶子，网页给的只是另一份并列看法，
- * 而不是「第二意见」。
+ * - `classifyDecision`：判断问题是不是决策类。工程编排在 auto 档用它决定网页
+ *   要不要加入，专家/技能的加载判定（expertise/trigger.ts）也复用它。
+ *   判定用规则，不交给模型——那要多一次生成，而且判错时被静默放过的那条
+ *   恰恰是本该交叉验证的决策。
+ * - `secondOpinionExcerpt`：整段工程证据可达几万字，页面读完反而答得更散，
+ *   发给网页成员前按固定上限摘录。
  */
-
-import type { SecondOpinionMode } from '../../shared/conversation';
 
 /** 命中即算：这些词出现在问句里，说明用户在要一个决定，而不是一条事实。 */
 const DECISION_VERBS = [
@@ -142,60 +134,6 @@ export interface WebChannelView {
   detail?: string;
 }
 
-export interface SecondOpinionPlan {
-  ask: boolean;
-  /** 为什么问 / 为什么不问。写进系统消息。 */
-  reason: string;
-  target: WebChannelView | null;
-  decision: DecisionSignal;
-}
-
-/**
- * 要不要问第二意见、问谁。
- *
- * 「不问」的每一种理由都和「问」一样要说清楚：用户看到的要不是一条沉默，
- * 而是「这一轮为什么没有网页的事」。
- */
-export function planSecondOpinion(input: {
-  mode: SecondOpinionMode;
-  question: string;
-  /** 这一轮有没有拿到模型的第一意见。没有靶子就不发网页。 */
-  hasFirstOpinion: boolean;
-  channels: readonly WebChannelView[];
-  /** 用户在研究设置里勾选的网页通道；空 / 未设置表示全部。 */
-  selected?: readonly string[];
-}): SecondOpinionPlan {
-  const decision = classifyDecision(input.question);
-  const skip = (reason: string): SecondOpinionPlan => ({ ask: false, reason, target: null, decision });
-
-  if (input.mode === 'off') {
-    return skip('研究设置里关掉了网页第二意见：这一轮只有模型的第一意见');
-  }
-  if (!input.hasFirstOpinion) {
-    return skip('这一轮没有第一意见可以复核，不发网页');
-  }
-  if (input.mode === 'auto' && !decision.major) {
-    return skip(`不需要网页复核：${decision.reason}`);
-  }
-
-  const selected = input.selected && input.selected.length > 0 ? new Set(input.selected) : null;
-  const permitted = input.channels.filter(
-    channel => channel.available && (selected === null || selected.has(channel.agentId))
-  );
-  if (permitted.length === 0) {
-    return skip('没有可用的网页通道（未登录或页面未就绪），第二意见跳过');
-  }
-
-  const target = permitted[0];
-  const why = input.mode === 'always' ? '研究设置要求每个工程问题都问一次网页' : decision.reason;
-  return {
-    ask: true,
-    reason: `网页第二意见：${target.label}（${why}）`,
-    target,
-    decision
-  };
-}
-
 /** 发给网页的证据摘录上限。整段工程材料可达数万字，页面读完反而答得更散。 */
 export const SECOND_OPINION_MATERIAL_LIMIT = 6000;
 
@@ -206,31 +144,10 @@ export function secondOpinionExcerpt(material: string, limit = SECOND_OPINION_MA
 }
 
 /**
- * 递给网页的那一条消息。
- *
- * 页面上它表现为用户说的另一段话，所以不写角色行、不写协议标记：就是「问题 +
- * 第一意见 + 证据摘录 + 一句要它做什么」。最后那句不是客套，没有它网页会把
- * 第一意见复述一遍。
- */
-export function buildSecondOpinionQuestion(input: {
-  question: string;
-  firstOpinion: string;
-  material: string;
-  limit?: number;
-}): string {
-  return [
-    `【用户的问题】\n${input.question.trim()}`,
-    `【本机模型的意见（第一意见）】\n${input.firstOpinion.trim()}`,
-    `【本机读到的工程证据摘录】\n${secondOpinionExcerpt(input.material, input.limit)}`,
-    '请给第二意见：第一意见哪里判断错了、漏了什么风险或代价、还需要补哪些证据。证据不够的地方直接说不够，不要猜；同意就只说同意，不要复述。'
-  ].join('\n\n');
-}
-
-/**
- * 等第二意见的额外预算。
+ * 网页编排成员的额外预算。
  *
  * 网页要走「加载页面 → 键入整段 → 等它写完」，和网页主导的汇总同一量级。
- * 原来工程空间的预算只有五分钟，加了第二意见之后会被外层预算砍掉——那比不问更糟：
- * 用户等了五分钟，拿到的是「超时」而不是第二意见。
+ * 混合档开跑时还不知道这一轮到底会不会编网页，所以预算按「可能会问」提前给足：
+ * 被预算砍掉的网页意见比不问更糟——用户等了几分钟，拿到的是「超时」。
  */
 export const SECOND_OPINION_BUDGET_MS = 180_000;
