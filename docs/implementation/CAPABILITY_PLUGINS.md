@@ -212,8 +212,21 @@ Wikipedia，`degraded` 里能看见。要把联网整个关掉，得连 `web.fet
 只读 28 / 可写 28（Runtime 侧）。`TOOL_SPEC` 里 23 条说明同时补进给模型看的
 工具面，模型才知道它们存在。
 
-验证：`scripts/check-capability-batch2.mjs` **17 条**（真建 git 仓库跑
+**接线有三处，少一处就是「模型写了却执行不了」**（真机 s32 就在这里栽过）：
+
+1. `TOOL_NAMES`（计划 schema 的 id 白名单）——只决定名字合不合法；
+2. `StepSchema` 的逐工具分支——决定**这一步的 args 怎么校验**。它是手写的
+   `z.discriminatedUnion`，没补分支时会长成「不受支持的工具名」，模型连改三轮
+   都过不去；
+3. `local-plugins.ts` 的注册——决定 Runtime 找不找得到实现。
+
+`StepSchema` 里的数值上限要按**实现里的钳制值**写（`git.status` 的
+`maxEntries` 实现钳到 2000、`fs.du` 钳到 500），否则模型照着说明写一个更大的
+数就被拒，白跑一轮修复。
+
+验证：`scripts/check-capability-batch2.mjs` **18 条**（真建 git 仓库跑
 status/diff/log/show/stash/branch、JSON/CSV/SQLite 真读、压缩包 round-trip 与
 zip-slip 拒绝、文本 base64 往返、`sips` 真缩放 1×1→8×8、环境变量打码、
-`fs.du` 字节数、`dns.lookup` 输入校验），已接进 `npm test`。
+`fs.du` 字节数、`dns.lookup` 输入校验，外加「23 个工具都能写进计划且拒绝未知
+字段」这条接线回归），已接进 `npm test`。
 
