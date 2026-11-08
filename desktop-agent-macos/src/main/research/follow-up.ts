@@ -63,10 +63,20 @@ export function parseFollowUps(summary: string, limit = MAX_FOLLOW_UP_ITEMS): st
   const items = normalized
     .split(/\n|\s(?=\d{1,2}[.、)）](?!\d))/)
     .map(line => line.replace(/^(?:[\s\-*]+|\d{1,2}[.、)）]\s*)+/, '').trim())
+    // 真机上主导人写的是 markdown：`- **硬件条件**：测试机器具体 CPU 是多少？`。
+    // 行首的项目符号被去掉之后，** 还留在原地，发到页面上的问题就带着星号。
+    // 这里把强调、行内代码、引号一并剥掉——发出去的应该是一句干净的中文问句。
+    .map(line => line
+      .replace(/\*\*|__|`/g, '')
+      .replace(/^["'“”『「]+|["'“”』」]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim())
     .filter(line => line.length >= 4)
     .filter(line => !/^(无|没有|无需|不需要|none|n\/a)[。.]?$/i.test(line))
     // 站点追问：问「要不要我继续」的那种句子不是缺口。
-    .filter(line => !/^(需要|要不要|是否)(我|我们)?(继续|再|进一步)/.test(line));
+    .filter(line => !/^(需要|要不要|是否)(我|我们)?(继续|再|进一步)/.test(line))
+    // 一条缺口问成一整段，页面答得反而更散；超过 160 字就截断。
+    .map(line => (line.length > 160 ? `${line.slice(0, 159)}…` : line));
 
   const seen = new Set<string>();
   const unique: string[] = [];

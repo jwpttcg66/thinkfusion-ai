@@ -1357,7 +1357,14 @@ export class ConversationRunner {
         if (index >= 0) outcome.answers[index] = answer;
         else outcome.answers.push(answer);
       }
-      outcome.failures.push(...roundOutcome.failures);
+      // 失败行去重：一直掉登录的通道每一轮都会被记一次「本轮未参与提问」，
+      // 真机上一句 DeepSeek 未登录在会话里出现了两次。同一句话只留一次。
+      const knownFailure = new Set(outcome.failures);
+      for (const failure of roundOutcome.failures) {
+        if (knownFailure.has(failure)) continue;
+        knownFailure.add(failure);
+        outcome.failures.push(failure);
+      }
 
       // 更新汇总：交给同一个主导人。标签沿用「观点A/B」，与第一轮一致。
       const tags = sourceTags(

@@ -70,6 +70,22 @@ test('多条缺口挤在同一行也能拆开，且最多取三条', () => {
   assert.equal(items[0], '具体数字是多少？');
 });
 
+test('缺口里的 markdown 会被剥掉——发到页面上的应该是干净的中文问句', () => {
+  // 真机实测：主导人写的是 `- **硬件条件**：测试机器具体 CPU 是多少？`，
+  // 行首项目符号去掉后 ** 还留着，问句里就带着星号发出去了。
+  const summary = '【待补】\n- **硬件条件**：测试机器具体 CPU、内存是多少？\n- `数据量`：100 万行还是 1000 万行？';
+  const items = parseFollowUps(summary);
+  assert.deepEqual(items, ['硬件条件：测试机器具体 CPU、内存是多少？', '数据量：100 万行还是 1000 万行？']);
+  assert.ok(items.every(item => !item.includes('**') && !item.includes('`')));
+});
+
+test('一条缺口过长会被截断，不至于变成一整段话', () => {
+  const long = `【待补】${'很长的缺口描述'.repeat(40)}？`;
+  const [item] = parseFollowUps(long);
+  assert.ok(item.length <= 160, `expected <=160 chars, got ${String(item.length)}`);
+  assert.ok(item.endsWith('…'));
+});
+
 test('预算默认 0，且被夹在 0–3', () => {
   assert.equal(followUpBudget(undefined), 0);
   assert.equal(followUpBudget(normalizeExecutionConfig({})), 0);
@@ -173,10 +189,12 @@ function fakeChannel(id, behaviour) {
   };
 }
 
-function fakeRegistry(channels) {
+function fakeRegistry(channels, options = {}) {
   return {
     all: async () => channels,
-    available: async () => channels,
+    // `unusable` 模拟「开关开着但此刻不可用」（掉登录的站点）：在 all() 里、
+    // 不在 available() 里。每一轮都会记一条「本轮未参与提问」。
+    available: async () => channels.filter(channel => !options.unusable?.includes(channel.id)),
     get: id => channels.find(channel => channel.id === id),
     ask: async (id, input) => {
       const channel = channels.find(item => item.id === id);
@@ -196,7 +214,7 @@ function makeRunner(channels, deps = {}) {
     store,
     runner: new ConversationRunner({
       store,
-      registry: fakeRegistry(channels),
+      registry: fakeRegistry(channels, deps.registryOptions ?? {}),
       emit: () => {},
       submitWorkspace: async () => {
         throw new Error('unexpected workspace hand-off');
@@ -400,6 +418,25 @@ test('追加阶段的通道全部失败时，结论停在上一版并写明', as
       .some(message => message.role === 'system' && message.text.includes('没有拿到回答')),
     '应该说明追加研究失败'
   );
+});
+
+test('掉登录的通道每一轮都会被记一次，但会话里只写一遍', async () => {
+  const log = { asks: [] };
+  const wayward = fakeChannel('c', () => ({ text: '不该被问到' }));
+  const { runner } = makeRunner([scriptedChannel('a', log), scriptedChannel('b', log), wayward], {
+    registryOptions: { unusable: ['c'] }
+  });
+  const started = await runner.start({
+    text: '帮我看看 Redis 连接数过高的原因',
+    executionConfig: { followUpRounds: 1 }
+  });
+  await settle(runner, started.conversationId);
+
+  const texts = runner.messages(started.conversationId).filter(message => message.role === 'system').map(m => m.text);
+  const failureLines = texts.filter(text => text.startsWith('以下通道没有给出回答'));
+  assert.equal(failureLines.length, 1, '失败汇总只写一条');
+  const mentions = failureLines[0].split('c：').length - 1;
+  assert.equal(mentions, 1, `同一条失败只出现一次，实际：${failureLines[0]}`);
 });
 
 test('用户停手后不再追加', async () => {
