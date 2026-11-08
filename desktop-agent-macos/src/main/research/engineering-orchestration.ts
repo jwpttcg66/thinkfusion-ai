@@ -7,9 +7,11 @@
  * 这条裁决覆盖了同一天更早的两条工程空间规则（只问一个模型的第一意见、
  * 网页只在决策类问题做并列的第二意见）。新的分工是：
  *
- * - **默认多 agent**：可用的本地模型 + 云端模型**全部**并行读同一份工程证据，
+ * - **默认多 agent**：可用的本地模型 + 云端模型**全部**读同一份工程证据，
  *   本地优先、云端补充。local / web / cloud 三档在工程空间不再按归属挑人——
  *   它们原本描述的是「回答之后由谁汇总」，不该决定谁读得动本机文件。
+ *   「全部」不等于「同时」：本地模型共用机器上的单名额推理闸门，调用方按名单
+ *   逐个问，云端 / 网页则并发；否则第二个本地模型会在排队超时里被丢掉。
  * - **网页默认不进场**：网页通道读不到本机文件（真机 s20/s21），非混合档一个
  *   都不问，连原来那个「决策类问题的单独第二意见」也不再发。
  * - **只有混合模式才允许网页编排**：`executionMode === 'hybrid'` 时，网页通道
@@ -41,7 +43,7 @@ export interface OrchestrationMember {
 }
 
 export interface EngineeringOrchestrationPlan {
-  /** 第一轮并行读证据、各给一份意见的全部成员（混合档含网页）。 */
+  /** 第一轮读证据、各给一份意见的全部成员（混合档含网页）。 */
   members: OrchestrationMember[];
   /** 主导人：本地优先、云端补充；用户点名且在名单里时用它。 */
   lead: OrchestrationMember | null;
@@ -136,7 +138,7 @@ export function planEngineeringOrchestration(input: {
   const lead = pinned ?? models[0];
 
   const parts = [
-    `工程空间多 agent 编排：${models.filter(item => item.kind === 'local').length} 位本地模型 + ${models.filter(item => item.kind === 'cloud').length} 位云端模型并行读工程证据`,
+    `工程空间多 agent 编排：${models.filter(item => item.kind === 'local').length} 位本地模型 + ${models.filter(item => item.kind === 'cloud').length} 位云端模型读工程证据`,
     webNote,
     ...(pinnedWeb ? ['你点名的网页通道不能主导工程汇总（读不到本机文件），仍由本地/云端模型主导'] : []),
     `由 ${lead.label} 汇总、指定辩题并给最终意见`

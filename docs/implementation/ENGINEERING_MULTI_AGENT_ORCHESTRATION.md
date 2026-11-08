@@ -46,6 +46,11 @@
 
 - **本地优先、云端补充**：名单里本地在前；主导人取第一个本地模型，用户点名了某个本地/云端模型就用它。
 - **点名网页通道不能主导**：它读不到本机文件，且执行阶段用 `pool.ask` 找模型，网页 id 在那里不存在。系统消息会明写「你点名的网页通道不能主导工程汇总」。
+- **本地模型逐个问，不是一起发**：这是同日真机抓到的。两个 Ollama 模型同时请求时，
+  `LocalAdmission`（24GB 统一内存只允许 1 个本地推理）让第二个在 30 秒排队上限里超时，
+  系统消息如实记了「本地模型正忙：生成（gpt-oss:20b） 排队超过 30 秒」，编排只剩一份回答。
+  因此 `researchEngineering()` 把本地成员排成一条串行链，云端 / 网页与这条链并行发；
+  「全部进场」不等于「同时占用 GPU」。回归测试用并发计数器钉住 `max === 1`。
 - **只有一个可用模型也照常编排**：`debaters` 长度 1，允许自辩；不再用「不足两位辩手」跳过整场。
 - **一个可用模型都没有** → 如实退回网页链路，写「本机没有可用的本地/云端模型（Ollama 未启动，或没有配 API Key）」，并提醒网页多半只能回「请上传文件」。
 - **模型全失败** → 写「本机模型没有给出回答（各家原因），这一轮改问网页通道」，不假装答过。
@@ -98,7 +103,7 @@
 | `src/main/research/engineering-orchestration.ts` | **新增**。`planEngineeringOrchestration()` 出计划（members / lead / debaters / webIncluded / reason / fallback）；`buildWebOrchestrationQuestion()` 拼网页成员的消息 |
 | `src/main/research/engineering-round.ts` | 只留与成员无关的 `ModelMemberView`、`buildEngineeringAnswerQuestion()`、`engineeringAnswerSystem()`；旧的 `planEngineeringAnswer()` 已删 |
 | `src/main/research/second-opinion.ts` | 只留通用的 `classifyDecision()`、`secondOpinionExcerpt()`、`WebChannelView`、`SECOND_OPINION_MATERIAL_LIMIT`、`SECOND_OPINION_BUDGET_MS`；`planSecondOpinion()` / `buildSecondOpinionQuestion()` 已删 |
-| `src/main/conversation-runner.ts` | `researchEngineering()` 并行问全部编排成员；`conduct()` 不再跳过执行阶段；`runExecutionStage(..., orchestration)` 用编排名单绕过归属过滤 |
+| `src/main/conversation-runner.ts` | `researchEngineering()` 问全部编排成员（本地串行链 + 云端/网页并发）；`conduct()` 不再跳过执行阶段；`runExecutionStage(..., orchestration)` 用编排名单绕过归属过滤 |
 | `src/main/index.ts` | `runDebate` 见到 `input.orchestration` 时直接组 `LeadPlan`，不走 `planLead` |
 | `src/shared/conversation.ts` | `webSecondOpinion` 注释改为「工程空间网页编排开关」，说明只在混合档生效 |
 | `src/renderer/src/components/ResearchPanel.tsx` | 四档 hints 区分知识空间/工程空间；下拉文案改成「混合档下…」 |
@@ -108,7 +113,7 @@
 - `scripts/check-engineering-orchestration.mjs`：**21 条**（15 条编排计划/消息纯函数 + 6 条链路）
   - 选人：三档都不按归属挑人、本地优先主导、点名云端、点名网页不主导、单模型自辩、无模型兜底、
     hybrid 五种子场景、勾选范围、网页不进 debaters；
-  - 链路：三模型并行且零网页零探活、知识空间零改动、单模型也写汇总、
+  - 链路：三模型全进场且零网页零探活、本地模型不并发抢闸门、知识空间零改动、单模型也写汇总、
     **汇总→辩题→交锋→最终意见**且交锋名单不被 `cloud` 档收敛、混合档网页并列进场、网页失败如实记。
 - `scripts/check-engineering-round.mjs`：**6 条**，只钉「问什么」与「如实兜底」。
 - `scripts/check-web-orchestration.mjs`（原 `check-second-opinion.mjs`）：**15 条**，
@@ -119,7 +124,7 @@
 
 | 旧说法 | 现在 |
 | --- | --- |
-| 工程空间只问一个模型，问两个只是把等待翻倍 | 默认**全部**本地 + 云端模型并行；多份意见正是编排的输入 |
+| 工程空间只问一个模型，问两个只是把等待翻倍 | 默认**全部**本地 + 云端模型都给一份意见（本地按闸门逐个问）；多份意见正是编排的输入 |
 | 决策类问题追加一个网页做第二意见 | 非混合档零网页；混合档是**所有**网页通道并列进场 |
 | 两份意见并列，不汇总、不融合 | 恢复汇总 → 交锋 → 最终意见 |
 | `webSecondOpinion` 管所有工程会话 | 只在 `executionMode === 'hybrid'` 生效 |

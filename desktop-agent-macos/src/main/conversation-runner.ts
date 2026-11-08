@@ -107,7 +107,7 @@ function debatersFor(
 }
 
 /**
- * 工程空间这一轮拿到的东西：多 agent 的并行回答，以及这一场的编排计划。
+ * 工程空间这一轮拿到的东西：多 agent 的回答，以及这一场的编排计划。
  *
  * 之所以要包一层而不是直接返回 `ResearchOutcome`：执行阶段得知道主导人是谁、
  * 哪些成员同场。工程编排不按归属过滤（本地+云端+混合档网页一起进场），
@@ -891,8 +891,10 @@ export class ConversationRunner {
    * 才可以进行网页编排。」这条覆盖了同一天更早的「只问一个模型的第一意见 +
    * 决策类问题追加一个网页第二意见」。
    *
-   * - 所有可用的本地 + 云端模型并行读同一份工程证据，本地优先、云端补充；
-   *   local / web / cloud 三档不再按归属挑人，网页默认一个都不问；
+ * - 所有可用的本地 + 云端模型读同一份工程证据，本地优先、云端补充；
+ *   local / web / cloud 三档不再按归属挑人，网页默认一个都不问。
+ *   本地模型按名单**逐个问**（同一台机器的推理闸门只让一个生成跑，一起发会让
+ *   第二个排队超时）；云端与网页没有这个闸门，与本地那条链并行发；
    * - 只有 executionMode === 'hybrid' 才把网页通道作为**并列的编排成员**一起问，
    *   开关沿用 webSecondOpinion（auto 用决策判定 / always / off）；
    * - 问题永远是「用户原话 + 本机真实读到的证据」，没有角色开场。网页成员
@@ -966,48 +968,62 @@ export class ConversationRunner {
     const failures: string[] = [];
     const messageIds = new Map<string, string>();
 
-    await Promise.all(
-      orchestration.members.map(async target => {
+    const askMember = async (target: (typeof orchestration.members)[number]): Promise<void> => {
+      if (sink.cancelled()) return;
+      const isWeb = target.kind === 'web';
+      sink.join(target.agentId);
+      sink.phase(target.agentId, 'asking', '读工程证据后回答');
+      try {
+        const answer = isWeb
+          ? await this.deps.registry.ask(target.agentId, {
+              question: webQuestion ?? engineered,
+              stage: 'initial',
+              // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
+              timeoutMs: SECOND_OPINION_BUDGET_MS
+            })
+          : await pool.ask(target.agentId, {
+              question: engineered,
+              stage: 'initial',
+              // 证据可能有几万字，本地模型逐段读完再写，同一量级。
+              timeoutMs: 180_000,
+              // 只对本地/云端 API 生效；网页成员上面那条不发 system。
+              // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
+              system: [...engineeringAnswerSystem(), ...expertise.system]
+            });
         if (sink.cancelled()) return;
-        const isWeb = target.kind === 'web';
-        sink.join(target.agentId);
-        sink.phase(target.agentId, 'asking', '读工程证据后回答');
-        try {
-          const answer = isWeb
-            ? await this.deps.registry.ask(target.agentId, {
-                question: webQuestion ?? engineered,
-                stage: 'initial',
-                // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
-                timeoutMs: SECOND_OPINION_BUDGET_MS
-              })
-            : await pool.ask(target.agentId, {
-                question: engineered,
-                stage: 'initial',
-                // 证据可能有几万字，本地模型逐段读完再写，同一量级。
-                timeoutMs: 180_000,
-                // 只对本地/云端 API 生效；网页成员上面那条不发 system。
-                // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
-                system: [...engineeringAnswerSystem(), ...expertise.system]
-              });
+        messageIds.set(target.agentId, sink.record(answer));
+        sink.phase(target.agentId, 'answered', '读完证据后回答');
+        answers.push(answer);
+        channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        sink.phase(target.agentId, 'failed', detail);
+        failures.push(`${target.label}：${detail}`);
+        channels.push({
+          kind: 'unanswered',
+          agentId: target.agentId,
+          label: target.label,
+          phase: 'failed',
+          detail
+        });
+      }
+    };
+
+    // 本地模型要**逐个问**，不能一起发。真机 2026-11-08 抓到：两个 Ollama
+    // 模型同时请求时，`LocalAdmission`（24GB 统一内存只让一个推理跑）会让
+    // 第二个在 30 秒排队上限里超时，编排于是只剩一份回答、还多一条失败。
+    // 云端 API 与网页通道没有这个闸门，和本地那条链并行发，不必陪着等。
+    const localMembers = orchestration.members.filter(member => member.kind === 'local');
+    const concurrentMembers = orchestration.members.filter(member => member.kind !== 'local');
+    await Promise.all([
+      ...concurrentMembers.map(target => askMember(target)),
+      (async () => {
+        for (const target of localMembers) {
           if (sink.cancelled()) return;
-          messageIds.set(target.agentId, sink.record(answer));
-          sink.phase(target.agentId, 'answered', '读完证据后回答');
-          answers.push(answer);
-          channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          sink.phase(target.agentId, 'failed', detail);
-          failures.push(`${target.label}：${detail}`);
-          channels.push({
-            kind: 'unanswered',
-            agentId: target.agentId,
-            label: target.label,
-            phase: 'failed',
-            detail
-          });
+          await askMember(target);
         }
-      })
-    );
+      })()
+    ]);
 
     // 一个都没答：交给调用方退回网页，并说明是模型这边没成，不是没读文件。
     if (answers.length === 0) {
@@ -1140,7 +1156,7 @@ export class ConversationRunner {
       }
     }
 
-    // 工程空间：多 agent 编排（本地+云端模型，混合档再加网页）并行读证据。
+    // 工程空间：多 agent 编排（本地+云端模型，混合档再加网页）读证据。
     // 2026-11-08 用户裁决，覆盖了同一天更早的「一个模型第一意见 + 一个网页
     // 第二意见、两份并列不汇总」。没有可用模型时返回 null，下面照旧走网页
     // 链路并已写过原因。

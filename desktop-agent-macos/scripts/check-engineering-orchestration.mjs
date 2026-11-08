@@ -242,6 +242,16 @@ function fakeModel(id, label, kind, options = {}) {
     },
     async ask(input) {
       this.asks.push(input);
+      // 真机回归用：本地模型共用单名额推理闸门，两个同时进来就是 bug。
+      if (options.concurrency && input.stage === 'initial') {
+        options.concurrency.active += 1;
+        options.concurrency.max = Math.max(options.concurrency.max, options.concurrency.active);
+        try {
+          await new Promise(resolve => setTimeout(resolve, options.delayMs ?? 30));
+        } finally {
+          options.concurrency.active -= 1;
+        }
+      }
       if (input.stage === 'challenge') {
         this.challengeCount += 1;
         const text = options.challengeReply
@@ -344,7 +354,7 @@ function engineeringInput(text, executionConfig = {}) {
   };
 }
 
-test('非混合档：所有模型并行读证据，网页零调用、连探活都不做', async () => {
+test('非混合档：所有模型都进场读证据，网页零调用、连探活都不做', async () => {
   const a = fakeModel('ollama:a', 'A', 'local');
   const b = fakeModel('ollama:b', 'B', 'local');
   const c = fakeModel('openai:c', 'C', 'cloud');
@@ -372,6 +382,35 @@ test('非混合档：所有模型并行读证据，网页零调用、连探活�
   assert.ok(
     messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
     '要写清楚这一轮谁回答、为什么没发网页'
+  );
+});
+
+test('本地模型逐个问，不抢同一个推理闸门；云端模型照样进场', async () => {
+  // 真机 2026-11-08：两个 Ollama 模型同时发，第二个在 LocalAdmission 的
+  // 30 秒排队上限里超时，编排只剩一份回答。回归要钉住「不重叠」而不是
+  // 「都问了」——旧代码也「都问了」，只是把第二个问丢了。
+  const gate = { active: 0, max: 0 };
+  const a = fakeModel('ollama:a', 'A', 'local', { concurrency: gate, delayMs: 40 });
+  const b = fakeModel('ollama:b', 'B', 'local', { concurrency: gate, delayMs: 40 });
+  const c = fakeModel('openai:c', 'C', 'cloud');
+  const { runner } = makeRunner({ models: [a, b, c] });
+
+  const started = await runner.start(engineeringInput(FACT));
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(done.status, 'answered');
+  assert.equal(gate.max, 1, '同一时刻只能有一个本地生成在飞');
+  for (const model of [a, b, c]) {
+    assert.equal(
+      model.asks.filter(item => item.stage === 'initial').length,
+      1,
+      `${model.label} 要各自拿到一份第一手问题`
+    );
+  }
+  assert.equal(
+    runner.messages(started.conversationId).filter(message => message.role === 'channel').length,
+    3,
+    '三位成员的回答都要落库，不能因为排队丢一份'
   );
 });
 
