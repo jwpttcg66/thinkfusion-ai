@@ -31,9 +31,20 @@ import {
   leadSummarySystem,
   parseTopics,
   rewriteSourceRefs,
+  sourceTags,
   type LeadTaskKind
 } from './synthesis/lead-stage';
 import { extractMaterial, fetchPageText } from './knowledge/page-extract';
+import {
+  buildFollowUpQuestion,
+  buildFollowUpSummaryQuestion,
+  decideFollowUp,
+  FOLLOW_UP_ROUND_BUDGET_MS,
+  followUpBudget,
+  followUpKey,
+  followUpNote,
+  parseFollowUps
+} from './research/follow-up';
 import { heuristicPick } from './synthesis/lead-selector';
 import type { JudgeVerdict } from './judge/types';
 
@@ -195,6 +206,23 @@ export interface ConversationDeps {
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
 export interface ResearchRunner {
   research(request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome>;
+}
+
+/** 执行阶段（汇总 → 定辩题 → 读辩论）的产物。追加研究要在这份产物上续写汇总。 */
+export interface ExecutionStageResult {
+  lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud'; auto: boolean; reason: string | null };
+  summaryText: string | null;
+  topics: string[];
+  debate: {
+    debateId: string;
+    rounds: Array<{
+      index: number;
+      messages: Array<{ author: string; kind: string; text: string }>;
+      failures?: Array<{ agentId: string; detail: string }>;
+    }>;
+    status: string;
+  } | null;
+  verdictText: string | null;
 }
 
 const TITLE_CHARS = 42;
@@ -732,7 +760,7 @@ export class ConversationRunner {
    * over. Without the second part the failure card would grow an answer minutes
    * after the fact.
    */
-  private abandon(conversation: Conversation): void {
+  private abandon(conversation: Conversation, budget = this.budgetMs): void {
     const conversationId = conversation.conversationId;
     if (!this.running.has(conversationId)) return;
 
@@ -745,7 +773,6 @@ export class ConversationRunner {
     const waiting = conversation.channels
       .map(id => this.deps.registry.get(id)?.label ?? id)
       .join('、');
-    const budget = this.budgetMs;
     const spent = budget >= 60_000 ? `${String(Math.round(budget / 60_000))} 分钟` : `${String(Math.round(budget / 1000))} 秒`;
     this.fail(
       conversation,
@@ -772,9 +799,13 @@ export class ConversationRunner {
         ? new CollaborationResearch(pool, config.strategy, question, undefined, this.deps.onCollaborationRecord)
         : new MasterAgent(pool);
 
+    // 追加研究要再问一遍网页、再让主导人写一次汇总，五分钟挡不住：预算按轮数
+    // 顺延，否则「开了深挖」的结果是被外层预算砍掉，用户拿到的比单轮还少。
+    const budget = this.budgetMs + followUpBudget(config) * FOLLOW_UP_ROUND_BUDGET_MS;
+
     this.running.set(
       conversationId,
-      setTimeout(() => this.abandon(conversation), this.budgetMs)
+      setTimeout(() => this.abandon(conversation, budget), budget)
     );
     try {
       await this.conduct(conversation, master, question, options, pool, executorIds);
@@ -932,9 +963,16 @@ export class ConversationRunner {
       sink,
       executorIds,
       this.engineeringMaterialFor(conversation),
-      this.pageMaterialFor(conversation)
+      this.pageMaterialFor(conversation),
+      followUpBudget(config) > 0
     );
     if (this.cancelled.has(conversationId)) return;
+
+    // P6 多轮自主研究：主导人指出「还缺什么」之后，把缺口再问一遍所有网页
+    // 通道，然后让它更新汇总。默认 0 轮，所以默认行为与以前完全一致。
+    const deepened = await this.deepenResearch(pool, master, conversation, question, outcome, execution, sink);
+    if (this.cancelled.has(conversationId)) return;
+    if (execution && deepened.summaryText) execution.summaryText = deepened.summaryText;
 
     // A channel that stayed silent is a fact the user needs. It used to be
     // dropped on the floor: two answers arrived out of three, the pane showed
@@ -989,6 +1027,11 @@ export class ConversationRunner {
         parts.push('但辩论没有跑起来（归属成员不可用、引擎未就绪或等待超时），这一轮只给了汇总');
       }
       if (verdictText) parts.push('它读完辩论记录后给出最终意见');
+      if (deepened.rounds > 0) {
+        parts.push(
+          `追加研究了 ${deepened.rounds} 轮：把主导人指出的 ${deepened.items.length} 个缺口重新问了一遍所有网页通道，并据此更新了汇总`
+        );
+      }
 
       // 汇总（辩前）与最终意见（辩后）各存一份。
       //
@@ -1074,14 +1117,10 @@ export class ConversationRunner {
     /** 只在工程分析链路有值；第一手网页提问不受影响，见 start()。 */
     engineering: string | null = null,
     /** V2.1：extract 真正抓回来的网页正文；同样只进汇总，不进第一手提问。 */
-    page: string | null = null
-  ): Promise<{
-    lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud'; auto: boolean; reason: string | null };
-    summaryText: string | null;
-    topics: string[];
-    debate: { debateId: string; rounds: Array<{ index: number; messages: Array<{ author: string; kind: string; text: string }>; failures?: Array<{ agentId: string; detail: string }> }>; status: string } | null;
-    verdictText: string | null;
-  } | null> {
+    page: string | null = null,
+    /** P6：要不要在汇总里多要一段【待补】。默认 false，单轮提示词不变。 */
+    followUp = false
+  ): Promise<ExecutionStageResult | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
     const answers = outcome.answers.map(answer => ({
@@ -1123,8 +1162,8 @@ export class ConversationRunner {
       const taskKind: LeadTaskKind | undefined =
         conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
       const baseQuestion = isPage
-        ? inlineLeadInstructions(question, answers, { taskKind, material })
-        : buildLeadSummaryQuestion(question, answers, { taskKind, material });
+        ? inlineLeadInstructions(question, answers, { taskKind, material, followUp })
+        : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
       const answer = await pool.ask(lead.agentId, {
         question: baseQuestion,
         stage: 'challenge',
@@ -1134,8 +1173,8 @@ export class ConversationRunner {
         system: isPage
           ? undefined
           : engineering
-            ? [...leadSummarySystem(taskKind), '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
-            : leadSummarySystem(taskKind)
+            ? [...leadSummarySystem(taskKind, followUp), '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+            : leadSummarySystem(taskKind, followUp)
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
@@ -1225,6 +1264,159 @@ export class ConversationRunner {
   }
 
   /**
+   * P6：追加研究。
+   *
+   * 主导人在【待补】里指出「还缺哪个事实」，这里把它变成一条发给**所有**
+   * 网页通道的普通问题，拿回新回答，再让主导人把新回答并进汇总。最多跑
+   * `followUpRounds` 轮，默认 0 轮（完全等于老行为）。
+   *
+   * 几条刻意的边界：
+   * - 只补充事实，不重开辩论。辩论已经在第一轮跑过，为「补了一个数字」再辩
+   *   一场是把成本翻倍而结论不变；需要辩的分歧第一轮就会列出来。
+   * - 缺口只能来自主导人的【待补】。程序不按关键词猜「可能还想知道什么」——
+   *   那是替用户定研究方向。
+   * - 用户停手、没有新回答、汇总更新失败，都就地停下并写明原因，不把上一轮
+   *   的结论当成「补充后」的结论。
+   */
+  private async deepenResearch(
+    pool: SubAgentPool,
+    master: ResearchRunner,
+    conversation: Conversation,
+    question: string,
+    outcome: ResearchOutcome,
+    execution: ExecutionStageResult | null,
+    sink: ResearchSink
+  ): Promise<{ rounds: number; items: string[]; budget: number; summaryText: string | null }> {
+    const budget = followUpBudget(normalizeExecutionConfig(conversation.executionConfig));
+    const stop = { rounds: 0, items: [], budget, summaryText: null };
+    // 没有执行阶段就没有【待补】：单通道回答没有主导人，这一轮到此为止。
+    if (budget <= 0 || !execution || !execution.summaryText) return stop;
+    if (sink.cancelled()) return stop;
+
+    const asked = new Set<string>();
+    const items: string[] = [];
+    let rounds = 0;
+    let current = execution.summaryText;
+    const isPage = execution.lead.kind === 'web';
+
+    for (let round = 1; round <= budget; round += 1) {
+      const found = parseFollowUps(current);
+      const decision = decideFollowUp({
+        round,
+        budget,
+        items: found,
+        asked,
+        cancelled: sink.cancelled()
+      });
+      if (!decision.go) {
+        this.addMessage(conversation, { role: 'system', text: `追加研究在这里停下：${decision.reason}。` });
+        break;
+      }
+
+      const fresh = found.filter(item => !asked.has(followUpKey(item)));
+      for (const item of fresh) asked.add(followUpKey(item));
+      items.push(...fresh);
+
+      // 发出去的是普通问题：没有角色行，没有协议标记。页面上看到的应该是
+      // 用户自己会问的那种句子。
+      const followQuestion = buildFollowUpQuestion(question, fresh, round);
+      this.addMessage(conversation, { role: 'system', text: followUpNote(round, budget, fresh) });
+      this.setStatus(conversation, 'collecting');
+
+      let roundOutcome: ResearchOutcome;
+      try {
+        roundOutcome = await master.research(
+          {
+            question: followQuestion,
+            followup: true,
+            // 第一轮答过的通道，页面里正拿着这条会话；不重置才能接着上一轮说。
+            continuing: new Set(outcome.answers.map(answer => answer.agentId))
+          },
+          sink
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: `第 ${round} 轮追加研究没有拿到回答：${detail}。下面的结论仍然是上一轮的汇总。`
+        });
+        break;
+      }
+      if (sink.cancelled()) return { rounds, items, budget, summaryText: rounds > 0 ? current : null };
+      if (roundOutcome.answers.length === 0) {
+        this.addMessage(conversation, {
+          role: 'system',
+          text: `第 ${round} 轮追加研究没有通道回答，结论停在上一轮的汇总上。`
+        });
+        break;
+      }
+
+      // 合并进这一轮的答案集合：同一通道以最新回答为准，旧回答仍然留在消息里。
+      for (const answer of roundOutcome.answers) {
+        const index = outcome.answers.findIndex(item => item.agentId === answer.agentId);
+        if (index >= 0) outcome.answers[index] = answer;
+        else outcome.answers.push(answer);
+      }
+      outcome.failures.push(...roundOutcome.failures);
+
+      // 更新汇总：交给同一个主导人。标签沿用「观点A/B」，与第一轮一致。
+      const tags = sourceTags(
+        roundOutcome.answers.map(answer => ({ channelId: answer.agentId, label: answer.agentId, text: answer.text }))
+      );
+      const roundAnswers = roundOutcome.answers.map((answer, index) => ({
+        channelId: answer.agentId,
+        label: tags[index] ?? `观点${String(index + 1)}`,
+        text: answer.text
+      }));
+
+      this.setStatus(conversation, 'synthesizing');
+      sink.phase(execution.lead.agentId, 'asking', `第 ${round} 轮补充后更新汇总`);
+      try {
+        const answer = await pool.ask(execution.lead.agentId, {
+          question: buildFollowUpSummaryQuestion({
+            question,
+            previousSummary: current,
+            round,
+            answers: roundAnswers,
+            // 还有下一轮时继续要【待补】，最后一轮就不必再要了。
+            followUp: round < budget
+          }),
+          stage: 'challenge',
+          timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
+          system: isPage
+            ? undefined
+            : [
+                ...leadSummarySystem(undefined, round < budget),
+                '这是追加研究之后的汇总更新：把新回答并进去，已经成立的部分不要重写；新回答推翻了什么，要明说。'
+              ]
+        });
+        const text = rewriteSourceRefs(answer.text.trim(), roundAnswers);
+        if (text) {
+          current = text;
+          rounds += 1;
+          sink.phase(execution.lead.agentId, 'answered', '汇总已更新');
+        } else {
+          this.addMessage(conversation, {
+            role: 'system',
+            text: `${execution.lead.label} 这一轮没有给出更新后的汇总，结论停在上一版。`
+          });
+          break;
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        sink.phase(execution.lead.agentId, 'failed', detail);
+        this.addMessage(conversation, {
+          role: 'system',
+          text: `${execution.lead.label} 没能更新汇总：${detail}。下面仍然是上一轮的结论。`
+        });
+        break;
+      }
+    }
+
+    return { rounds, items, budget, summaryText: rounds > 0 ? current : null };
+  }
+
+  /**
    * 谁当主导人。
    *
    * - 手动指定且名额合法：就用它；
@@ -1280,6 +1472,10 @@ export class ConversationRunner {
   }
 
   private setStatus(conversation: Conversation, status: Conversation['status']): void {
+    // 用户已经点了停止：此后到达的状态更新一律不写回去。
+    // 原来是反过来的——cancel() 把状态改成已停止，可还在飞的那一轮随后又
+    // 按自己的节奏写「收集中」，界面上就变成「点了停止，卡片又转起来」。
+    if (this.cancelled.has(conversation.conversationId) && status !== 'cancelled') return;
     conversation.status = status;
     conversation.updatedAt = Date.now();
     this.save(conversation);

@@ -39,6 +39,16 @@ export const LEAD_SUMMARY_SYSTEM: string[] = [
 export const LEAD_SUMMARY_TIMEOUT_MS = 120_000;
 
 /**
+ * P6：开了追加研究时，五段之后多要一段【待补】。
+ *
+ * 只在用户把「研究轮次」调成多轮时出现，单轮（默认）的提示词一个字都不变——
+ * 多要一段就多一段被模型自由发挥的空间，没开的功能不该悄悄改口径。
+ */
+export const LEAD_FOLLOWUP_SECTION =
+  '【待补】要把结论说实，还缺哪些具体事实？一行一条，用问句，写清需要数字、版本、出处还是条件；'
+  + '没有就只写「无」。不要写「需要更多研究」这种空话。';
+
+/**
  * 各来源在提示词与结论里的标签：观点A、观点B……
  *
  * 不写站点名字。结论是给人读的对比，读者要看的是「这两份观点哪里不一样」，
@@ -106,6 +116,8 @@ export interface LeadSummaryOptions {
    * 支撑结论的，不是用来改写问题的。
    */
   material?: string | null;
+  /** P6：开了追加研究时，多要求一段【待补】（缺哪些具体事实）。 */
+  followUp?: boolean;
 }
 
 /**
@@ -132,8 +144,12 @@ function taskInstructions(taskKind: LeadTaskKind | undefined): string[] {
 }
 
 /** 本地/云端模型当主导时用的 system；网页主导会忽略它，改用 inline 版。 */
-export function leadSummarySystem(taskKind?: LeadTaskKind): string[] {
-  return [...LEAD_SUMMARY_SYSTEM, ...taskInstructions(taskKind)];
+export function leadSummarySystem(taskKind?: LeadTaskKind, followUp = false): string[] {
+  return [
+    ...LEAD_SUMMARY_SYSTEM,
+    ...taskInstructions(taskKind),
+    ...(followUp ? [LEAD_FOLLOWUP_SECTION] : [])
+  ];
 }
 
 export function buildLeadSummaryQuestion(
@@ -150,6 +166,7 @@ export function buildLeadSummaryQuestion(
   if (material) sections.push(`【补充材料】\n${material}`);
   sections.push(`【各来源的回答】\n${body}`);
   const instructions = taskInstructions(options.taskKind);
+  if (options.followUp) instructions.push(LEAD_FOLLOWUP_SECTION);
   if (instructions.length > 0) sections.push(`【请你做的事】\n${instructions.join('\n')}`);
   return sections.join('\n\n');
 }
@@ -168,8 +185,18 @@ export function inlineLeadInstructions(
   const material = options.material?.trim();
   if (material) sections.push(`【补充材料】\n${material}`);
   sections.push(`【各来源的回答】\n${body}`);
-  sections.push(`【请你做的事】\n${[...LEAD_SUMMARY_SYSTEM, ...taskInstructions(options.taskKind)].join('\n')}`);
-  sections.push('直接按【结论】【一致】【分歧】【存疑】【辩题】五段回答，不要复述上面的全部内容。');
+  sections.push(
+    `【请你做的事】\n${[
+      ...LEAD_SUMMARY_SYSTEM,
+      ...taskInstructions(options.taskKind),
+      ...(options.followUp ? [LEAD_FOLLOWUP_SECTION] : [])
+    ].join('\n')}`
+  );
+  sections.push(
+    options.followUp
+      ? '直接按【结论】【一致】【分歧】【存疑】【辩题】【待补】回答，不要复述上面的全部内容。'
+      : '直接按【结论】【一致】【分歧】【存疑】【辩题】五段回答，不要复述上面的全部内容。'
+  );
   return sections.join('\n\n');
 }
 

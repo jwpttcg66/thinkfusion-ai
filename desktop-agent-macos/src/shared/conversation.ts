@@ -421,6 +421,15 @@ export interface ConversationExecutionConfig {
    * 没有任何开关的。字段可选，老数据读不到就按 auto，不需要迁移。
    */
   debateMode?: DebateMode;
+  /**
+   * P6：追加研究轮数（0 = 单轮，老行为）。
+   *
+   * 一轮追加 = 把主导人指出的缺口重新拼成一个问题，再问一遍所有网页通道，
+   * 然后让主导人更新汇总。它**不是**默认开启的：每多一轮就多一轮网页生成，
+   * 且用户看不到那些页面在替谁干活。所以默认 0，上限 3，界面上必须能看见
+   * 「这一轮会多问几遍」。
+   */
+  followUpRounds?: number;
 }
 
 /** 六种可选策略。旧名字（standard/deep）不接受新配置，只用于读旧记录。 */
@@ -431,6 +440,9 @@ export type DebateStrategyChoice =
   | 'assumption'
   | 'solution'
   | 'discovery';
+
+/** 追加研究轮数上限。三档之外再多就是拿用户的等待时间换边际收益。 */
+export const MAX_FOLLOW_UP_ROUNDS = 3;
 
 /**
  * 老会话 / 缺省配置的唯一入口。
@@ -496,6 +508,12 @@ export function normalizeExecutionConfig(
   const debateModes: DebateMode[] = ['auto', 'on', 'off'];
   if (input?.debateMode && debateModes.includes(input.debateMode)) {
     result.debateMode = input.debateMode;
+  }
+  // 追加研究轮数：只接受 0–3 的整数。老会话没有这个字段 → 0（单轮），
+  // 与升级前行为完全一致；写成 "2" 这种字符串也收，省得界面多一处转换。
+  const rounds = Number(input?.followUpRounds);
+  if (Number.isFinite(rounds) && rounds > 0) {
+    result.followUpRounds = Math.min(Math.floor(rounds), MAX_FOLLOW_UP_ROUNDS);
   }
   return result;
 }

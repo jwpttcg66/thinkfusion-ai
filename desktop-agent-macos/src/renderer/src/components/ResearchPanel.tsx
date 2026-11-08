@@ -277,6 +277,22 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 <option value="off">关闭（不辩）</option>
               </select>
 
+              <h3>研究轮次（P6）</h3>
+              <p className="muted">
+                单轮＝问一遍就汇总，和以前一样。选了多轮后，主导人汇总时要多写一段【待补】——
+                还缺哪些具体事实；系统把这些缺口拼成一个问题，重新问一遍<b>所有</b>网页通道，再让主导人更新汇总。
+                每多一轮＝所有网页通道各多答一次 + 主导人多写一次汇总，等待时间也相应变长；没有缺口时这一轮不会发生。
+              </p>
+              <select
+                value={String(config.followUpRounds ?? 0)}
+                onChange={event => onConfigChange({ followUpRounds: Number(event.target.value) })}
+              >
+                <option value="0">单轮（默认，不追加）</option>
+                <option value="1">最多 1 轮追加</option>
+                <option value="2">最多 2 轮追加</option>
+                <option value="3">最多 3 轮追加</option>
+              </select>
+
               <h3>辩论策略</h3>
               <p className="muted">
                 主导人指定辩题后，辩手按这套策略交锋。它和执行模式相互独立：
