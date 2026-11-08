@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：29 个工具（27 个本地 + `web.fetch` / `web.search`
+ * Runtime 这一半的能力插件：33 个工具（31 个本地 + `web.fetch` / `web.search`
  * 两个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -17,6 +17,7 @@ import type { TaskGrant } from '../shared/contracts';
 import { filesystemTools } from './tools/filesystem';
 import { projectReadTools } from './tools/project-read';
 import { fsExtraTools } from './tools/fs-extra';
+import { extendedTools } from './tools/extended';
 import { runTest } from './tools/test-run';
 import { runShell } from './tools/shell';
 import { captureScreen } from './tools/screen';
@@ -117,6 +118,10 @@ const PLUGINS = [
     }
     return ok(run);
   }),
+  local('fs.applyPatch', async (args, ctx) => ok(await extendedTools.applyPatch(ctx.grant, args))),
+  local('git.worktree', async (args, ctx) => ok(await extendedTools.gitWorktree(ctx.grant, args))),
+  local('project.dependencies', async (args, ctx) => ok(await extendedTools.projectDependencies(ctx.grant, args))),
+  local('project.outline', async (args, ctx) => ok(await extendedTools.projectOutline(ctx.grant, args))),
   local('code.run', async (args, ctx) => {
     const run = await runCode(ctx.grant, args);
     if (run.exitCode !== 0) {

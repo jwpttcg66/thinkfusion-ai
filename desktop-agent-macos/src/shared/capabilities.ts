@@ -8,7 +8,7 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 29 个工具（27 个本地 + 2 个联网），主进程装载工程证据
+ * Runtime 进程装载 33 个工具（31 个本地 + 2 个联网），主进程装载工程证据
  * 读取、浏览器联网搜索与两个保存动作。清单是共享的，所以两个进程和界面
  * 看到的是同一批 id、同一套权限说明。
  *
@@ -87,6 +87,10 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'process.kill': ['结束进程', '仅完全权限可用'],
   'web.fetch': ['抓取网页', '给定 URL 取回正文，逐跳拦截本机与私网地址'],
   'web.search': ['联网搜索', '用凭据或应用内浏览器取回真实搜索结果'],
+  'fs.applyPatch': ['应用补丁', '按 unified diff 一次改多处，逐行校验上下文，带指纹校验'],
+  'git.worktree': ['管理 git worktree', '列出、新增或移除工作树，参数逐个构造不拼 shell'],
+  'project.dependencies': ['依赖概览', '读 package.json 与锁文件，给出依赖数量、脚本与包管理器'],
+  'project.outline': ['源码骨架', '只读扫描源码，列出导出符号与所在行号，有文件数上限'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 
@@ -142,7 +146,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：29 个 Runtime 工具 + 4 个主进程能力。设置页只认这一份。 */
+/** 全量清单：33 个 Runtime 工具 + 4 个主进程能力。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

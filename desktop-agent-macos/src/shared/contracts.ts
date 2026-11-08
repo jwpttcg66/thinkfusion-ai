@@ -53,6 +53,7 @@ export const PROTOCOL = 'desktop-agent/v1';
 export const TOOL_NAMES = [
   'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
   'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.readImage',
+  'fs.applyPatch', 'git.worktree', 'project.dependencies', 'project.outline',
   'test.run', 'shell.run',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
@@ -71,12 +72,14 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  */
 export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.readImage',
+  'project.dependencies', 'project.outline',
   'system.info', 'process.list', 'clipboard.read'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
 export const MUTATING_TOOLS: readonly ToolName[] = [
-  'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy',
+  'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.applyPatch',
+  'git.worktree',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.write', 'notify', 'process.kill', 'web.fetch', 'web.search', 'code.run'
@@ -340,6 +343,48 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxResults: z.number().int().min(1).max(20).optional(),
       /** 限定站点，例如 `github.com`。 */
       site: z.string().min(1).max(120).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.applyPatch'),
+    args: z.object({
+      path: RelativePath,
+      /** 单文件 unified diff（含 @@ hunk 头）；上下文对不上就整份拒绝。 */
+      patch: z.string().min(1).max(512_000),
+      expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('git.worktree'),
+    args: z.object({
+      action: z.enum(['list', 'add', 'remove']),
+      /** add / remove 必填，相对授权目录。 */
+      path: RelativePath.optional(),
+      /** add 必填，只允许普通分支名，不接受以 - 开头的选项。 */
+      branch: z.string().min(1).max(120).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('project.dependencies'),
+    args: z.object({
+      path: RelativePath.optional(),
+      maxEntries: z.number().int().min(1).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('project.outline'),
+    args: z.object({
+      path: RelativePath.optional(),
+      maxFiles: z.number().int().min(1).max(500).optional(),
+      maxSymbols: z.number().int().min(1).max(1000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),

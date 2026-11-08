@@ -454,6 +454,17 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - fs.copy:      { "from": string, "to": string }      复制文件或目录；目标已存在会被拒绝。
 - fs.readImage: { "path": string }
                  读 PNG/JPEG/GIF/WebP，返回 mime、字节、宽高、sha256 与 base64。
+- fs.applyPatch: { "path": string, "patch": string, "expectedHash"?: string }
+                 按单文件 unified diff 一次改多处。patch 必须含 @@ hunk 头；
+                 上下文与原文件对不上就整份拒绝，不会写入一半。可带读到的 sha256。
+- git.worktree: { "action": "list" | "add" | "remove", "path"?: string, "branch"?: string }
+                 列出/新增/移除 git 工作树。add 要 path 与 branch，remove 要 path。
+                 参数是逐个构造的白名单，不接受 shell 语法与以 - 开头的分支名。
+- project.dependencies: { "path"?: string, "maxEntries"?: number }
+                 只读。读 package.json，返回包管理器、锁文件、脚本名、各类依赖数量与前若干项。
+- project.outline: { "path"?: string, "maxFiles"?: number, "maxSymbols"?: number }
+                 只读。扫描 .ts/.tsx/.js/.mjs/.py（跳过 node_modules 等），
+                 列出导出符号及行号；超过上限会在 truncated 里说明。
 - test.run:     { "command": "npm test" | "npm run typecheck" | ... }
                  在授权目录里真实执行白名单里的命令，返回退出码与输出。
 - shell.run:    { "command": string, "cwd"?: string, "timeoutMs"?: number, "background"?: boolean }
