@@ -1701,6 +1701,10 @@ export default function App() {
               onPermissionChange={changePermission}
               onChooseWorkspace={chooseWorkspace}
               onOpenResearch={() => setResearchOpen(true)}
+              // 保存文档的主路径在页面栏；输入框边上这一个调同一个函数，
+              // 不另读一遍页面——两处存下来的必须是同一版内容。
+              onSaveDocument={() => void savePageDocument('md')}
+              savingDocument={savingPage}
               onSubmit={submit}
             />
           </div>
