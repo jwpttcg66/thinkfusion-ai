@@ -23,6 +23,7 @@ import type {
 import type {
   EngineeringTaskKind,
   TaskRouting,
+  WorkspaceEntry,
   WorkspaceMode,
   WorkspaceState
 } from '../shared/workspace';
@@ -40,6 +41,10 @@ const api: AgentApi = {
     ipcRenderer.invoke('conversation:route', input),
   getWorkspace: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:get'),
   setWorkspace: (patch: Partial<WorkspaceState>): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:set', patch),
+  getWorkspaces: (): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace:list'),
+  addWorkspace: (input: { root: string; name?: string }) => ipcRenderer.invoke('workspace:add', input),
+  renameWorkspace: (input: { workspaceId: string; name: string }) => ipcRenderer.invoke('workspace:rename', input),
+  removeWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:remove', { workspaceId }),
   getSearchSettings: (): Promise<SearchSettingsView> => ipcRenderer.invoke('search:get'),
   saveSearchSettings: (patch: SearchSettingsPatch): Promise<SearchSettingsView> =>
     ipcRenderer.invoke('search:save', patch),

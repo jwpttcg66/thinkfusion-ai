@@ -157,6 +157,14 @@ export interface Conversation {
   workspaceMode?: WorkspaceMode;
   /** 工程空间绑定的项目根目录。只有工程会话才写。 */
   workspaceRoot?: string;
+  /**
+   * 这条会话归在哪个工作区（`WorkspaceEntry.workspaceId`）。
+   *
+   * 和 `workspaceRoot` 分开：知识会话也属于某个工作区，但它不读目录。
+   * 老会话没有这个字段，侧栏按 `workspaceRoot` 找同目录的工作区，找不到就
+   * 放进「未分组」——升级不会把历史会话变成看不见的东西。
+   */
+  workspaceId?: string;
   /** 这一轮的路由结果。存下来是为了「识别结果可见、可追溯」。 */
   routing?: TaskRouting;
   /** 工程分析真的读到过的文件片段。 */
@@ -341,6 +349,8 @@ export interface SubmitConversationInput {
   executionConfig?: Partial<ConversationExecutionConfig>;
   /** V2.1：本次提问属于哪个工作空间。不给 = 知识空间（旧行为）。 */
   workspaceMode?: WorkspaceMode;
+  /** 本次提问归到哪个工作区（侧栏分组）。不给 = 未分组。 */
+  workspaceId?: string;
   /** V2.1：用户在输入框里手动选的「本次按分析 / 本次按实施」。 */
   taskKindOverride?: EngineeringTaskKind;
   /**

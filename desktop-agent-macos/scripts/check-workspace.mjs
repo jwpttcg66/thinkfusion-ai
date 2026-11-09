@@ -7,15 +7,22 @@
  * Run with: npm run test:workspace
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { WorkspaceListStore } from '../out-test/main/workspace-list-store.js';
 import {
   DEFAULT_WORKSPACE_STATE,
   classifyEngineeringIntent,
+  groupByWorkspace,
   normalizeDebateMode,
+  normalizeWorkspaceEntries,
   normalizeWorkspaceMode,
   normalizeWorkspaceState,
   routeTask,
-  routingLabel
+  routingLabel,
+  workspaceNameFromRoot
 } from '../out/shared/workspace.js';
 
 test('坏的工作空间状态退回出厂值，不猜半个对象', () => {
@@ -25,6 +32,31 @@ test('坏的工作空间状态退回出厂值，不猜半个对象', () => {
   assert.equal(normalizeWorkspaceMode(undefined), 'knowledge');
   assert.equal(normalizeWorkspaceState({ workspaceRoot: '/tmp/project' }).workspaceRoot, '/tmp/project');
   assert.equal(normalizeWorkspaceState({ workspaceRoot: 'x'.repeat(5000) }).workspaceRoot.length, 2000);
+  // 老文件没有 activeWorkspaceId：读回来的默认值必须是空，而不是 undefined。
+  assert.equal(normalizeWorkspaceState({ workspaceRoot: '/tmp/project' }).activeWorkspaceId, '');
+  assert.equal(normalizeWorkspaceState({ activeWorkspaceId: 'w'.repeat(100) }).activeWorkspaceId.length, 64);
+});
+
+test('工作区列表：坏条目跳过、同目录去重、名字取目录末段', () => {
+  assert.deepEqual(normalizeWorkspaceEntries(null), []);
+  assert.deepEqual(normalizeWorkspaceEntries({}), []);
+  assert.equal(workspaceNameFromRoot('/Users/example/yalla-project/'), 'yalla-project');
+  assert.equal(workspaceNameFromRoot('/'), '/');
+  assert.equal(workspaceNameFromRoot(''), '');
+
+  const list = normalizeWorkspaceEntries([
+    { workspaceId: 'a', name: '', root: '/tmp/one/', createdAt: 1, updatedAt: 2 },
+    { workspaceId: 'b', name: '重复目录', root: '/tmp/one', createdAt: 3, updatedAt: 3 },
+    { workspaceId: 'c', root: '/tmp/two' },
+    { workspaceId: '', root: '/tmp/three' },
+    { workspaceId: 'd', root: '   ' },
+    null,
+    'nope'
+  ]);
+  assert.deepEqual(list.map(item => item.workspaceId), ['a', 'c']);
+  assert.equal(list[0].name, 'one', '空名字用目录末段补，不空白');
+  assert.equal(list[0].root, '/tmp/one', '末尾斜杠去掉，/tmp/one/ 与 /tmp/one 是同一个目录');
+  assert.equal(list[1].name, 'two');
 });
 
 test('辩论开关只有三档，坏值退回 auto', () => {
@@ -146,4 +178,114 @@ test('shell 之外的系统动作也判为实施（抓取 / 通知 / 列进程�
     const routing = routeTask({ text, workspaceMode: 'engineering', hasProject: true });
     assert.equal(routing.taskKind, 'engineering_execution', `应当判为实施：${text}`);
   }
+});
+
+const WORKSPACES = [
+  { workspaceId: 'w-one', name: 'alpha', root: '/tmp/alpha', createdAt: 1, updatedAt: 10 },
+  { workspaceId: 'w-two', name: 'beta', root: '/tmp/beta', createdAt: 2, updatedAt: 20 }
+];
+
+test('侧栏分组：先按 id，老会话再按目录，最后才落「未分组」', () => {
+  const groups = groupByWorkspace(
+    [
+      { title: '新会话', workspaceId: 'w-one', updatedAt: 100 },
+      // 升级前的会话只有 workspaceRoot，也要回到同一个目录的组。
+      { title: '老会话', workspaceRoot: '/tmp/beta/', updatedAt: 90 },
+      { title: '没有归属', updatedAt: 80 }
+    ],
+    WORKSPACES
+  );
+  const byName = new Map(groups.map(group => [group.name, group]));
+  assert.deepEqual(byName.get('alpha')?.items.map(item => item.title), ['新会话']);
+  assert.deepEqual(byName.get('beta')?.items.map(item => item.title), ['老会话']);
+  assert.deepEqual(byName.get('未分组')?.items.map(item => item.title), ['没有归属']);
+  // 会话多的、最近的排前面；未分组固定末尾。
+  assert.equal(groups[groups.length - 1].workspaceId, '');
+  assert.equal(groups[0].workspaceId, 'w-one');
+});
+
+test('侧栏分组：空工作区也列出来，未分组只在有内容时出现', () => {
+  const groups = groupByWorkspace([{ title: '一个会话', workspaceId: 'w-two', updatedAt: 1 }], WORKSPACES);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map(group => group.items.length), [1, 0]);
+  assert.ok(!groups.some(group => group.workspaceId === ''), '没有未归属内容时不凭空造一个「未分组」');
+});
+
+test('侧栏分组：工作区被移除后，会话落到未分组而不是消失', () => {
+  const groups = groupByWorkspace(
+    [{ title: '挂在已删除工作区上的会话', workspaceId: 'w-gone', updatedAt: 5 }],
+    WORKSPACES
+  );
+  const loose = groups.find(group => group.workspaceId === '');
+  assert.ok(loose, '找不到工作区时必须留下一个「未分组」');
+  assert.deepEqual(loose.items.map(item => item.title), ['挂在已删除工作区上的会话']);
+  // 空工作区仍然保留在列表里，用户可以继续往里面放东西。
+  assert.equal(groups.filter(group => group.workspaceId).length, 2);
+});
+
+// --- 工作区清单的真实落盘 ---------------------------------------------------
+//
+// 上面的分组是纯函数；这一组碰磁盘，因为「加了一个目录、重启还在不在」只能
+// 通过真的读写一个临时目录来回答。用 mkdtemp 而不是写死路径，测试之间不共享
+// 状态，也不会碰到用户的 userData。
+
+function tempStoreFile() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-workspace-'));
+  return path.join(dir, 'workspaces.json');
+}
+
+test('工作区清单：加目录落盘、同目录去重、重启读回', () => {
+  const file = tempStoreFile();
+  const store = new WorkspaceListStore(file);
+
+  const first = store.add({ root: '/tmp/alpha' });
+  assert.equal(first.created, true);
+  assert.equal(first.workspace.name, 'alpha', '名字默认取目录末段');
+  assert.equal(store.all().length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).length, 1, '加完必须真的写进文件');
+
+  // 末尾斜杠不是另一个目录：同一路径第二次添加只返回原条目。
+  const again = store.add({ root: '/tmp/alpha/' });
+  assert.equal(again.created, false);
+  assert.equal(again.workspace.workspaceId, first.workspace.workspaceId);
+  assert.equal(store.all().length, 1);
+
+  assert.throws(() => store.add({ root: 'relative/dir' }), /绝对路径/);
+  assert.throws(() => store.add({ root: '   ' }), /不能为空/);
+
+  // 重启：新建 store 从同一个文件读回，id 与名字都不变。
+  const reopened = new WorkspaceListStore(file);
+  assert.deepEqual(
+    reopened.all().map(item => [item.workspaceId, item.name, item.root]),
+    [[first.workspace.workspaceId, 'alpha', '/tmp/alpha']]
+  );
+});
+
+test('工作区清单：改名拒绝空名字，移除只删分组', () => {
+  const file = tempStoreFile();
+  const store = new WorkspaceListStore(file);
+  const { workspace } = store.add({ root: '/tmp/beta', name: '  项目乙  ' });
+  assert.equal(workspace.name, '项目乙', '加的时候也去掉首尾空白');
+
+  assert.throws(() => store.rename(workspace.workspaceId, '   '), /不能是空的/);
+  assert.equal(store.get(workspace.workspaceId)?.name, '项目乙', '失败的改名不能留下半个新名字');
+
+  assert.throws(() => store.rename('not-there', '新名字'), /已经不在了/);
+
+  const renamed = store.rename(workspace.workspaceId, '乙项目');
+  assert.equal(renamed.name, '乙项目');
+  assert.equal(new WorkspaceListStore(file).get(workspace.workspaceId)?.name, '乙项目');
+
+  const removed = store.remove(workspace.workspaceId);
+  assert.equal(removed.workspaceId, workspace.workspaceId);
+  assert.equal(store.all().length, 0);
+  assert.equal(new WorkspaceListStore(file).all().length, 0, '移除也要落盘');
+  assert.throws(() => store.remove(workspace.workspaceId), /已经不在了/);
+});
+
+test('工作区清单：坏文件退回空列表', () => {
+  const file = tempStoreFile();
+  fs.writeFileSync(file, '{ 这不是 json');
+  assert.deepEqual(new WorkspaceListStore(file).all(), []);
+  assert.equal(fs.existsSync(file), true, '读坏了不主动删用户的文件');
 });

@@ -4,7 +4,7 @@ import type { CapabilityView } from './capabilities';
 import type { ExpertiseView } from './expertise';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
-import type { EngineeringTaskKind, TaskRouting, WorkspaceMode, WorkspaceState } from './workspace';
+import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from './search';
 import type {
@@ -1550,6 +1550,23 @@ export interface AgentApi {
   /** V2.1：新会话默认用哪个空间、绑哪个项目。 */
   getWorkspace(): Promise<WorkspaceState>;
   setWorkspace(patch: Partial<WorkspaceState>): Promise<WorkspaceState>;
+  /** 多项目工作区清单：侧栏按它分组，会话记住自己属于哪一组。 */
+  getWorkspaces(): Promise<WorkspaceEntry[]>;
+  addWorkspace(input: { root: string; name?: string }): Promise<{
+    workspace: WorkspaceEntry;
+    created: boolean;
+    workspaces: WorkspaceEntry[];
+  }>;
+  renameWorkspace(input: { workspaceId: string; name: string }): Promise<{
+    workspace: WorkspaceEntry;
+    workspaces: WorkspaceEntry[];
+  }>;
+  /** 移除分组，不删会话：它们会出现在「未分组」里，历史一条不少。 */
+  removeWorkspace(workspaceId: string): Promise<{
+    workspaces: WorkspaceEntry[];
+    removed: WorkspaceEntry;
+    clearedConversations: number;
+  }>;
   /** 联网搜索的凭据。key 只回传「是否已填」，不回传原文。 */
   getSearchSettings(): Promise<SearchSettingsView>;
   saveSearchSettings(patch: SearchSettingsPatch): Promise<SearchSettingsView>;

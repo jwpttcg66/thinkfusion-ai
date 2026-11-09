@@ -221,4 +221,21 @@ export class AgentStore {
   listMessages(conversationId: string): ConversationMessage[] {
     return this.state.messages.filter(item => item.conversationId === conversationId).sort((a, b) => a.at - b.at);
   }
+
+  /**
+   * 移除一个工作区分组时调用：会话留下，只把归属清掉。
+   *
+   * 返回被改动的条数。一次写入而不是逐条 persist——侧栏上按一次「移除」不该
+   * 产生 N 次磁盘替换，也不该在中途崩溃时留下一半已清、一半还挂着的状态。
+   */
+  clearConversationWorkspace(workspaceId: string): number {
+    let changed = 0;
+    for (const conversation of this.state.conversations) {
+      if (conversation.workspaceId !== workspaceId) continue;
+      delete conversation.workspaceId;
+      changed += 1;
+    }
+    if (changed > 0) this.persist();
+    return changed;
+  }
 }

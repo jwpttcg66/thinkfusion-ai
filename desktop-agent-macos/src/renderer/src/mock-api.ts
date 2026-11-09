@@ -8,6 +8,8 @@ import type {
 } from '../../shared/contracts';
 import { BUILTIN_SOURCES } from '../../shared/sources';
 import type { SearchSettingsView } from '../../shared/search';
+import type { Conversation } from '../../shared/conversation';
+import type { WorkspaceEntry } from '../../shared/workspace';
 
 /** The shipped list, as the preview's starting point. */
 const PAGE_SOURCES = [...BUILTIN_SOURCES];
@@ -119,6 +121,78 @@ export function createMockApi(): AgentApi {
       chars: 0
     }));
   let preset: PermissionPreset = 'workspace-write';
+  // 预览里的工作区：一个真实目录名，让侧栏的分组标题不是占位符。第二个空
+  // 工作区是为了能看到「还没有会话」那一行——只放一个有内容的组，折叠与空
+  // 状态在预览里就永远走不到。
+  let workspaces: WorkspaceEntry[] = [
+    {
+      workspaceId: 'ws-example',
+      name: 'workspace',
+      root: '/Users/example/workspace',
+      createdAt: now - 1000 * 60 * 60 * 24 * 30,
+      updatedAt: now - 1000 * 60 * 60 * 2
+    },
+    {
+      workspaceId: 'ws-notes',
+      name: '笔记整理',
+      root: '/Users/example/notes',
+      createdAt: now - 1000 * 60 * 60 * 24 * 7,
+      updatedAt: now - 1000 * 60 * 60 * 24 * 7
+    }
+  ];
+  let activeWorkspaceId = 'ws-example';
+  let workspaceMode: 'knowledge' | 'engineering' = 'knowledge';
+  let workspaceRoot = '/Users/example/workspace';
+  // 侧栏分组在预览里也要有东西可分：三问落在第一个工作区，一问故意不给归属，
+  // 这样「未分组」那条回退路径也能看见，而不是只存在于单元测试里。
+  let conversations: Conversation[] = [
+    {
+      conversationId: 'conv-1',
+      title: 'Java 和 Go 谁更适合做网关',
+      intent: 'answer',
+      intentReason: '默认按问答处理',
+      status: 'answered',
+      channels: ['deepseek', 'chatgpt', 'gemini'],
+      workspaceId: 'ws-example',
+      workspaceMode: 'knowledge',
+      createdAt: now - 1000 * 60 * 12,
+      updatedAt: now - 1000 * 60 * 4
+    },
+    {
+      conversationId: 'conv-2',
+      title: '整理这周的阅读笔记',
+      intent: 'answer',
+      intentReason: '默认按问答处理',
+      status: 'answered',
+      channels: ['deepseek'],
+      workspaceId: 'ws-example',
+      workspaceMode: 'knowledge',
+      createdAt: now - 1000 * 60 * 60 * 26,
+      updatedAt: now - 1000 * 60 * 60 * 25
+    },
+    {
+      conversationId: 'conv-3',
+      title: '向量数据库的索引怎么选',
+      intent: 'answer',
+      intentReason: '默认按问答处理',
+      status: 'answered',
+      channels: ['deepseek', 'kimi'],
+      workspaceId: 'ws-example',
+      workspaceMode: 'knowledge',
+      createdAt: now - 1000 * 60 * 60 * 24 * 3,
+      updatedAt: now - 1000 * 60 * 60 * 24 * 3
+    },
+    {
+      conversationId: 'conv-loose',
+      title: '一个还没归类的问题',
+      intent: 'answer',
+      intentReason: '默认按问答处理',
+      status: 'answered',
+      channels: ['deepseek'],
+      createdAt: now - 1000 * 60 * 60 * 24 * 5,
+      updatedAt: now - 1000 * 60 * 60 * 24 * 5
+    }
+  ];
   // 预览环境不读盘：这里给的是「没配凭据」的真实形态，不是假的可搜状态。
   let searchSettings: SearchSettingsView = {
     hasKey: false,
@@ -292,11 +366,64 @@ export function createMockApi(): AgentApi {
       reason: '（mock）预览',
       source: 'rule' as const
     }),
-    getWorkspace: async () => ({ workspaceMode: 'knowledge' as const, workspaceRoot: '' }),
-    setWorkspace: async (patch: { workspaceMode?: 'knowledge' | 'engineering'; workspaceRoot?: string }) => ({
-      workspaceMode: patch.workspaceMode ?? ('knowledge' as const),
-      workspaceRoot: patch.workspaceRoot ?? ''
-    }),
+    getWorkspace: async () => ({ workspaceMode, workspaceRoot, activeWorkspaceId }),
+    setWorkspace: async (patch: { workspaceMode?: 'knowledge' | 'engineering'; workspaceRoot?: string; activeWorkspaceId?: string }) => {
+      if (patch.workspaceMode) workspaceMode = patch.workspaceMode;
+      if (typeof patch.workspaceRoot === 'string') workspaceRoot = patch.workspaceRoot;
+      if (typeof patch.activeWorkspaceId === 'string') activeWorkspaceId = patch.activeWorkspaceId;
+      return { workspaceMode, workspaceRoot, activeWorkspaceId };
+    },
+    getWorkspaces: async () => [...workspaces],
+    addWorkspace: async (input: { root: string; name?: string }) => {
+      const existing = workspaces.find(item => item.root === input.root);
+      if (existing) {
+        activeWorkspaceId = existing.workspaceId;
+        workspaceRoot = existing.root;
+        return { workspace: existing, created: false, workspaces: [...workspaces] };
+      }
+      const entry: WorkspaceEntry = {
+        workspaceId: `ws-${String(Date.now())}`,
+        name: input.name ?? input.root.split('/').filter(Boolean).pop() ?? input.root,
+        root: input.root,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      workspaces = [...workspaces, entry];
+      activeWorkspaceId = entry.workspaceId;
+      workspaceRoot = entry.root;
+      return { workspace: entry, created: true, workspaces: [...workspaces] };
+    },
+    renameWorkspace: async (input: { workspaceId: string; name: string }) => {
+      // 和主进程保持同一条规则：空名字拒绝。预览若默默接受，界面上就看不出
+      // 「重命名失败要就地报错」这条路径。
+      const name = input.name.trim();
+      if (!name) throw new Error('工作区名字不能是空的。');
+      const existing = workspaces.find(item => item.workspaceId === input.workspaceId);
+      if (!existing) throw new Error('这个工作区已经不在了。');
+      workspaces = workspaces.map(item =>
+        item.workspaceId === input.workspaceId ? { ...item, name, updatedAt: Date.now() } : item
+      );
+      return { workspace: workspaces.find(item => item.workspaceId === input.workspaceId)!, workspaces: [...workspaces] };
+    },
+    removeWorkspace: async (workspaceId: string) => {
+      const removed = workspaces.find(item => item.workspaceId === workspaceId);
+      if (!removed) throw new Error('这个工作区已经不在了。');
+      workspaces = workspaces.filter(item => item.workspaceId !== workspaceId);
+      // 会话不删，只掉出分组：和主进程一样返回被清掉归属的条数。
+      let clearedConversations = 0;
+      conversations = conversations.map(item => {
+        if (item.workspaceId !== workspaceId) return item;
+        clearedConversations += 1;
+        const next = { ...item };
+        delete next.workspaceId;
+        return next;
+      });
+      if (activeWorkspaceId === workspaceId) {
+        activeWorkspaceId = '';
+        workspaceRoot = '';
+      }
+      return { workspaces: [...workspaces], removed, clearedConversations };
+    },
     updateConversationConfig: async (input: { conversationId: string; executionConfig?: unknown }) => ({
       conversationId: input.conversationId,
       title: '',
@@ -318,11 +445,14 @@ export function createMockApi(): AgentApi {
       createdAt: Date.now(),
       updatedAt: Date.now()
     }),
-    getConversations: async () => [],
-    getConversation: async () => null,
+    getConversations: async () => conversations,
+    getConversation: async conversationId => conversations.find(item => item.conversationId === conversationId) ?? null,
     getConversationMessages: async () => [],
     cancelConversation: async () => undefined,
-    deleteConversation: async () => ({ cleaned: [], reset: [], failed: [] }),
+    deleteConversation: async (conversationId: string) => {
+      conversations = conversations.filter(item => item.conversationId !== conversationId);
+      return { cleaned: [], reset: [], failed: [] };
+    },
     exportConversation: async () => null,
     getCapabilities: async () => describeCapabilities(capabilityDisabled),
     setCapabilityEnabled: async (id: string, enabled: boolean) => {

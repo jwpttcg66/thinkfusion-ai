@@ -96,11 +96,17 @@ import {
 import { SourceStore } from './source-store';
 import { ProfileStore } from './profile-store';
 import { WorkspaceStore } from './workspace-store';
+import { WorkspaceListStore } from './workspace-list-store';
 import { runSearchTest, saveSearchSettings, viewSearchSettings } from './search-settings';
 import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
 import { planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
-import { normalizeWorkspaceState, routeTask, type EngineeringTaskKind as WorkspaceTaskKind } from '../shared/workspace';
+import {
+  normalizeWorkspaceState,
+  routeTask,
+  type EngineeringTaskKind as WorkspaceTaskKind,
+  type WorkspaceEntry
+} from '../shared/workspace';
 import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
@@ -164,6 +170,8 @@ let sourceStore: SourceStore | null = null;
 let profileStore: ProfileStore | null = null;
 /** V2.1：上次使用的空间与项目。created in `whenReady`. */
 let workspaceStore: WorkspaceStore | null = null;
+/** 多项目工作区清单（侧栏分组）。created in `whenReady`. */
+let workspaceList: WorkspaceListStore | null = null;
 /** 内置插件的开关。created in `whenReady`, next to the other stores. */
 let capabilityStore: CapabilityStore | null = null;
 /** 专家 / 技能的开关与文件目录。created in `whenReady`. */
@@ -2079,6 +2087,7 @@ function registerIpc() {
       permissionPreset?: unknown;
       executionConfig?: unknown;
       workspaceMode?: unknown;
+      workspaceId?: unknown;
       taskKindOverride?: unknown;
       attachments?: unknown;
     };
@@ -2096,6 +2105,11 @@ function registerIpc() {
           ? (input.executionConfig as Record<string, unknown>)
           : undefined,
       workspaceMode: normalizeWorkspaceState({ workspaceMode: input.workspaceMode }).workspaceMode,
+      // 只接受真实存在的组：消失的工作区不能悄悄挂到「未分组」之外的别处。
+      workspaceId:
+        typeof input.workspaceId === 'string' && workspaceList?.get(input.workspaceId)
+          ? input.workspaceId
+          : undefined,
       taskKindOverride:
         input.taskKindOverride === 'analysis' || input.taskKindOverride === 'execution'
           ? (input.taskKindOverride as WorkspaceTaskKind)
@@ -2176,13 +2190,72 @@ function registerIpc() {
     trustedUiSender(event);
     if (!workspaceStore) throw new Error('工作空间状态还没准备好');
     if (!raw || typeof raw !== 'object') throw new Error('无效的工作空间设置');
-    const input = raw as { workspaceMode?: unknown; workspaceRoot?: unknown };
+    const input = raw as { workspaceMode?: unknown; workspaceRoot?: unknown; activeWorkspaceId?: unknown };
+    // 指向不存在的工作区是界面 bug，不是用户输入：宁可报错，也不假装切过去了。
+    if (typeof input.activeWorkspaceId === 'string' && input.activeWorkspaceId && !workspaceList?.get(input.activeWorkspaceId)) {
+      throw new Error('这个工作区已经不在了。');
+    }
     return workspaceStore.set({
       ...(input.workspaceMode === 'engineering' || input.workspaceMode === 'knowledge'
         ? { workspaceMode: input.workspaceMode }
         : {}),
-      ...(typeof input.workspaceRoot === 'string' ? { workspaceRoot: input.workspaceRoot.slice(0, 2000) } : {})
+      ...(typeof input.workspaceRoot === 'string' ? { workspaceRoot: input.workspaceRoot.slice(0, 2000) } : {}),
+      ...(typeof input.activeWorkspaceId === 'string' ? { activeWorkspaceId: input.activeWorkspaceId.slice(0, 64) } : {})
     });
+  });
+
+  // --- 工作区（多项目） ---------------------------------------------------
+  //
+  // 工作区只决定「会话归哪一组」和「新会话默认项目」，不授权任何目录访问：
+  // 真正读写文件仍要走计划审批与 `TaskGrant`。
+  ipcMain.handle('workspace:list', event => {
+    trustedUiSender(event);
+    return workspaceList?.all() ?? ([] as WorkspaceEntry[]);
+  });
+
+  ipcMain.handle('workspace:add', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!workspaceList || !workspaceStore) throw new Error('工作区还没准备好');
+    const input = (raw ?? {}) as { root?: unknown; name?: unknown };
+    if (typeof input.root !== 'string' || !input.root.trim()) throw new Error('先选择一个工作区目录。');
+    const result = workspaceList.add({
+      root: input.root,
+      ...(typeof input.name === 'string' ? { name: input.name } : {})
+    });
+    // 添加即切过去：用户点「＋」挑完目录，期待下一句话就在这个组里。
+    workspaceStore.set({
+      activeWorkspaceId: result.workspace.workspaceId,
+      workspaceRoot: result.workspace.root
+    });
+    return { ...result, workspaces: workspaceList.all() };
+  });
+
+  ipcMain.handle('workspace:rename', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!workspaceList) throw new Error('工作区还没准备好');
+    const input = (raw ?? {}) as { workspaceId?: unknown; name?: unknown };
+    if (typeof input.workspaceId !== 'string' || !input.workspaceId) throw new Error('缺少工作区 id');
+    if (typeof input.name !== 'string') throw new Error('缺少工作区名字');
+    const workspace = workspaceList.rename(input.workspaceId, input.name);
+    return { workspace, workspaces: workspaceList.all() };
+  });
+
+  ipcMain.handle('workspace:remove', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!workspaceList || !workspaceStore) throw new Error('工作区还没准备好');
+    const input = (raw ?? {}) as { workspaceId?: unknown };
+    if (typeof input.workspaceId !== 'string' || !input.workspaceId) throw new Error('缺少工作区 id');
+    const removed = workspaceList.remove(input.workspaceId);
+    // 会话不删，只掉出这个分组；历史一条都不能因为删一个目录名而消失。
+    const clearedConversations = store?.clearConversationWorkspace(removed.workspaceId) ?? 0;
+    const state = workspaceStore.get();
+    if (state.activeWorkspaceId === removed.workspaceId) {
+      workspaceStore.set({
+        activeWorkspaceId: '',
+        ...(state.workspaceRoot === removed.root ? { workspaceRoot: '' } : {})
+      });
+    }
+    return { workspaces: workspaceList.all(), removed, clearedConversations };
   });
 
   ipcMain.handle('conversation:route', (event, raw: unknown) => {
@@ -2925,6 +2998,23 @@ app.whenReady().then(async () => {
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
   workspaceStore = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace-state.json'));
+  workspaceList = new WorkspaceListStore(path.join(app.getPath('userData'), 'workspaces.json'));
+  // 升级迁移：老版本只记了一个项目目录，没有工作区。把它变成第一个工作区，
+  // 否则升级后侧栏会突然「未分组」，用户会以为历史丢了。只在列表为空时做一次。
+  {
+    const state = workspaceStore.get();
+    if (workspaceList.all().length === 0 && state.workspaceRoot) {
+      try {
+        const { workspace } = workspaceList.add({ root: state.workspaceRoot });
+        workspaceStore.set({ activeWorkspaceId: workspace.workspaceId });
+      } catch {
+        /* 目录已经不是绝对路径之类：留空列表，界面上仍可手动添加 */
+      }
+    } else if (state.activeWorkspaceId && !workspaceList.get(state.activeWorkspaceId)) {
+      // 工作区文件被删过/换过机器：指向一个不存在的组会让侧栏一直显示「当前」却找不到。
+      workspaceStore.set({ activeWorkspaceId: '' });
+    }
+  }
   // 开关要在任何能力被调用之前同步给两个宿主：主进程注册表现在就生效，
   // Runtime 在每次 task.run 时随消息收到同一份列表。
   capabilityStore = new CapabilityStore(path.join(app.getPath('userData'), 'capabilities.json'));

@@ -79,7 +79,7 @@
     "test:debate-prompts": "npm run build:test && node --test scripts/check-debate-prompts.mjs",
     "quality:debate": "npm run build:test && TF_REPORT=1 node --test scripts/check-debate-eval.mjs",
     "test:markdown": "npm run build:test && node --test scripts/check-markdown.mjs",
-    "test:workspace": "npm run build:agent && node --test scripts/check-workspace.mjs",
+    "test:workspace": "npm run build:agent && npm run build:test && node --test scripts/check-workspace.mjs",
     "test:engineering": "npm run build:test && npm run build:agent && node --test scripts/check-engineering.mjs",
     "test:extract": "npm run build:test && node --test scripts/check-extract.mjs",
     "test:analysis": "npm run build:test && node --test scripts/check-analysis.mjs",

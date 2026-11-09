@@ -7,6 +7,7 @@
   "include": [
     "src/shared/**/*.ts",
     "src/main/atomic-write.ts",
+    "src/main/workspace-list-store.ts",
     "src/main/attachments.ts",
     "src/main/capabilities/**/*.ts",
     "src/main/capability-state.ts",

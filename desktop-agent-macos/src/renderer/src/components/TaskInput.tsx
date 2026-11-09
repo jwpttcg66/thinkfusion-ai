@@ -22,6 +22,8 @@ function shortPath(path: string): string {
 export function TaskInput(props: {
   value: string;
   workspace: string;
+  /** 当前工作区的名字。有它时胶囊显示名字，没有才退回目录末段。 */
+  workspaceName?: string;
   permission: PermissionPreset;
   /** V2.1：知识空间不要求工程目录与权限，工程空间才显示这两个胶囊。 */
   workspaceMode: WorkspaceMode;
@@ -198,7 +200,9 @@ export function TaskInput(props: {
             <>
               <button className="chip-btn" type="button" onClick={props.onChooseWorkspace} disabled={props.disabled}>
                 <span>▤</span>
-                <span className="label">{props.workspace ? shortPath(props.workspace) : '选择项目'}</span>
+                <span className="label">
+                  {props.workspaceName || (props.workspace ? shortPath(props.workspace) : '选择项目')}
+                </span>
                 <span className="caret">▾</span>
               </button>
 

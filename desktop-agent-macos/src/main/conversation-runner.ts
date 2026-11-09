@@ -476,6 +476,8 @@ export class ConversationRunner {
     executionConfig?: Partial<ConversationExecutionConfig>;
     /** V2.1：不给就是知识空间，旧调用（含全部老测试）行为完全不变。 */
     workspaceMode?: WorkspaceMode;
+    /** 侧栏工作区分组。只影响归属与展示，不改变工程读取哪个目录。 */
+    workspaceId?: string;
     taskKindOverride?: EngineeringTaskKind;
     /** 「＋ · 添加文件」挑中的文件路径；不传就是纯文字提问。 */
     attachments?: string[];
@@ -515,6 +517,8 @@ export class ConversationRunner {
       // 用户点名的那个地址：追问时不会再给一遍，而「这条会话读的是哪一页」
       // 必须能回答，所以随会话存下来。
       ...(intent.kind === 'extract' && intent.url ? { extractUrl: intent.url } : {}),
+      // 工作区归属对两个空间都成立：知识会话也挂在工作区下，只是不读目录。
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(workspaceMode === 'engineering'
         ? { workspaceMode, workspaceRoot: input.workspaceRoot, routing }
         : {})

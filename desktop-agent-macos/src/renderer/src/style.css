@@ -617,6 +617,287 @@ button:disabled {
   color: var(--text);
 }
 
+/* 工作区（多项目）侧栏 ------------------------------------------------ */
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.brand-mini {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+  color: var(--text-2);
+  user-select: none;
+}
+
+.brand-mini .brand-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.more-wrap {
+  position: relative;
+}
+
+.more-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.more-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.more-btn .caret {
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.side-menu {
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+}
+
+.more-menu {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  z-index: 30;
+}
+
+.side-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.side-menu-item.danger {
+  color: #b42318;
+}
+
+.side-menu-note {
+  margin: 4px 8px 2px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.sidebar .side-section {
+  padding: 6px 6px 2px;
+}
+
+.side-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-count {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.side-icon.on {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.workspace-search {
+  width: calc(100% - 12px);
+  height: 26px;
+  margin: 4px 6px 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.workspace-search:focus {
+  border-color: var(--accent);
+}
+
+.ws-group {
+  margin-bottom: 2px;
+}
+
+.ws-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.ws-row:hover {
+  background: var(--bg-hover);
+}
+
+.ws-row.active {
+  background: var(--bg-active);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ws-caret {
+  width: 10px;
+  flex: none;
+  font-size: 9px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.ws-folder {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.ws-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-count {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.ws-more {
+  display: none;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ws-row:hover .ws-count,
+.ws-row.active .ws-count {
+  display: none;
+}
+
+.ws-row:hover .ws-more,
+.ws-row.active .ws-more {
+  display: grid;
+  place-items: center;
+}
+
+.ws-more:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.ws-menu {
+  position: absolute;
+  top: 100%;
+  right: 4px;
+  z-index: 25;
+}
+
+.ws-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 6px 24px;
+}
+
+.ws-rename input {
+  flex: 1;
+  min-width: 80px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.ws-rename input:focus {
+  border-color: var(--accent);
+}
+
+.ws-rename .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.ws-error {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  color: #b42318;
+}
+
+.ws-rows {
+  padding-left: 18px;
+}
+
+.ws-rows .task-item {
+  padding: 6px 8px;
+}
+
+.ws-empty {
+  margin: 2px 0 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
 /* V2.1 双入口与路由预览 ------------------------------------------------- */
 .workspace-tabs {
   display: flex;

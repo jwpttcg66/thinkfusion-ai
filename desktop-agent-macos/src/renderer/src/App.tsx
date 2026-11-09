@@ -39,6 +39,7 @@ import {
   routeTask,
   workspaceLabel,
   type EngineeringTaskKind,
+  type WorkspaceEntry,
   type WorkspaceMode
 } from '../../shared/workspace';
 
@@ -134,6 +135,9 @@ export default function App() {
   const [workspace, setWorkspace] = useState('');
   /** V2.1：本次新会话属于哪个空间。启动时从 workspace-state.json 读回。 */
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('knowledge');
+  /** 用户维护的工作区清单；侧栏按它分组，新会话归到当前工作区。 */
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
   /** 用户在输入框里手动指定的「本次按分析 / 本次按实施」。 */
   const [taskKindOverride, setTaskKindOverride] = useState<EngineeringTaskKind | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -296,10 +300,18 @@ export default function App() {
   useEffect(() => {
     window.agentAPI.getPlatform().then(setPlatform).catch(() => undefined);
     window.agentAPI.getPermissionPreset().then(setPermission).catch(() => undefined);
-    window.agentAPI.getWorkspace().then(state => {
-      setWorkspaceMode(state.workspaceMode);
-      setWorkspace(state.workspaceRoot);
-    }).catch(() => undefined);
+    Promise.all([window.agentAPI.getWorkspace(), window.agentAPI.getWorkspaces()])
+      .then(([state, list]) => {
+        setWorkspaceMode(state.workspaceMode);
+        setWorkspaces(list);
+        // 当前工作区的根目录才是「这次工程分析读哪里」。两个字段分开存，但
+        // 界面上必须同源：读回一个指向别处的旧 workspaceRoot，会让第一问
+        // 在读 A 目录、侧栏却显示 B 工作区。
+        const active = list.find(item => item.workspaceId === state.activeWorkspaceId) ?? null;
+        setActiveWorkspaceId(active?.workspaceId ?? '');
+        setWorkspace(active?.root ?? state.workspaceRoot);
+      })
+      .catch(() => undefined);
     window.agentAPI.getTaskHistory().then(setTasks).catch(() => undefined);
     window.agentAPI.getDeepSeekStatus().then(setStatus).catch(() => undefined);
 
@@ -605,17 +617,69 @@ export default function App() {
     }
   }
 
+  /**
+   * 把一个目录变成工作区并切过去。
+   *
+   * 添加和切换是一步：用户点「＋」挑完目录，期待的就是下一句话落在这个组里。
+   * 主进程同时写 `activeWorkspaceId` 与 `workspaceRoot`，界面这里只镜像结果。
+   */
+  async function useDirectoryAsWorkspace(dir: string) {
+    const result = await window.agentAPI.addWorkspace({ root: dir });
+    setWorkspaces(result.workspaces);
+    setActiveWorkspaceId(result.workspace.workspaceId);
+    setWorkspace(result.workspace.root);
+    if (!result.created) setNotice(`这个目录已经是工作区「${result.workspace.name}」，已切换过去。`);
+  }
+
   async function chooseWorkspace() {
     try {
       const dir = await window.agentAPI.chooseDirectory();
       if (dir) {
-        setWorkspace(dir);
         setNotice('');
-        // 项目是工程空间的上下文，不是一次性的路径参数：重开应用还在。
-        void window.agentAPI.setWorkspace({ workspaceRoot: dir }).catch(() => undefined);
+        await useDirectoryAsWorkspace(dir);
       }
     } catch (e) {
       setError(errorText(e));
+    }
+  }
+
+  function selectWorkspace(workspaceId: string) {
+    const entry = workspaces.find(item => item.workspaceId === workspaceId);
+    if (!entry) return;
+    setActiveWorkspaceId(workspaceId);
+    setWorkspace(entry.root);
+    void window.agentAPI
+      .setWorkspace({ activeWorkspaceId: workspaceId, workspaceRoot: entry.root })
+      .catch(error => setError(errorText(error)));
+  }
+
+  /** 返回空串表示成功；组件把失败原因显示在输入框下面，不丢到应用底栏。 */
+  async function renameWorkspace(workspaceId: string, name: string): Promise<string> {
+    try {
+      const result = await window.agentAPI.renameWorkspace({ workspaceId, name });
+      setWorkspaces(result.workspaces);
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
+  async function removeWorkspace(workspaceId: string): Promise<string> {
+    try {
+      const result = await window.agentAPI.removeWorkspace(workspaceId);
+      setWorkspaces(result.workspaces);
+      if (activeWorkspaceId === workspaceId) {
+        setActiveWorkspaceId('');
+        setWorkspace('');
+      }
+      setNotice(
+        result.clearedConversations > 0
+          ? `已移除工作区「${result.removed.name}」，${String(result.clearedConversations)} 条会话移到「未分组」；工作区里的文件没有改动。`
+          : `已移除工作区「${result.removed.name}」；没有会话挂在它下面，工作区里的文件没有改动。`
+      );
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
     }
   }
 
@@ -788,8 +852,14 @@ export default function App() {
           return;
         }
         root = dir;
-        setWorkspace(dir);
-        void window.agentAPI.setWorkspace({ workspaceRoot: dir }).catch(() => undefined);
+        // 这次新挑的目录也成为一个工作区：不然会话有了 root 却没有分组，
+        // 侧栏会把它放进「未分组」，用户刚做的选择当场就不见了。
+        try {
+          await useDirectoryAsWorkspace(dir);
+        } catch (error) {
+          // 建组失败不该拦住这次提问：目录已经选好，工程证据照样读得到。
+          setError(errorText(error));
+        }
       } catch (e) {
         setError(errorText(e));
         return;
@@ -806,6 +876,8 @@ export default function App() {
         permissionPreset: permission,
         executionConfig,
         workspaceMode,
+        // 会话归到当前工作区。没有工作区时不传，侧栏会把它放进「未分组」。
+        ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
         ...(taskKindOverride ? { taskKindOverride } : {}),
         ...(attachmentPaths.length > 0 ? { attachments: attachmentPaths } : {})
       });
@@ -860,6 +932,11 @@ export default function App() {
       if (conversation?.workspaceMode) {
         setWorkspaceMode(conversation.workspaceMode);
         if (conversation.workspaceRoot) setWorkspace(conversation.workspaceRoot);
+      }
+      // 打开一条会话时，侧栏的当前工作区跟着它走：下一次追问落在同一条线程，
+      // 而下一句「新对话」应该默认留在用户正在看的这个组里。
+      if (conversation?.workspaceId && workspaces.some(item => item.workspaceId === conversation.workspaceId)) {
+        setActiveWorkspaceId(conversation.workspaceId);
       }
       if (conversation?.taskId) {
         setActiveId(conversation.taskId);
@@ -1239,6 +1316,8 @@ export default function App() {
 
   const showPlan = derived.plan !== null && activeTask?.status === 'awaiting_approval';
 
+  /** 当前工作区。名字由用户起，界面优先显示它；路径只作为兜底。 */
+  const activeWorkspace = workspaces.find(item => item.workspaceId === activeWorkspaceId) ?? null;
   const activeSource = sources.sources.find(source => source.id === sources.activeId) ?? null;
   const activeChannel = channelStatuses.find(channel => channel.id === sources.activeId) ?? null;
   /** The page in the pane is the one living in its own window. */
@@ -1256,6 +1335,12 @@ export default function App() {
       <TaskSidebar
         workspaceMode={workspaceMode}
         onWorkspaceModeChange={changeWorkspaceMode}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSelectWorkspace={selectWorkspace}
+        onAddWorkspace={() => void chooseWorkspace()}
+        onRenameWorkspace={renameWorkspace}
+        onRemoveWorkspace={removeWorkspace}
         tasks={tasks}
         activeId={activeId}
         onSelect={selectTask}
@@ -1297,7 +1382,7 @@ export default function App() {
         <header className="topbar">
           <div className="crumb">
             <span>▤</span>
-            <b>{activeTask ? baseName(activeTask.workspaceRoot) : baseName(workspace)}</b>
+            <b>{activeTask ? baseName(activeTask.workspaceRoot) : activeWorkspace?.name ?? baseName(workspace)}</b>
             {activeTask && (
               <>
                 <span className="sep">/</span>
@@ -1528,6 +1613,8 @@ export default function App() {
             <TaskInput
               value={prompt}
               workspace={workspace}
+              // 输入框上的胶囊显示工作区名字（用户起的），不显示目录末段。
+              workspaceName={activeWorkspace?.name}
               permission={permission}
               workspaceMode={workspaceMode}
               routing={routingPreview ? {

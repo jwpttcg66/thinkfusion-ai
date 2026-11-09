@@ -58,21 +58,176 @@ export const DEFAULT_DEBATE_MODE: DebateMode = 'auto';
 export interface WorkspaceState {
   workspaceMode: WorkspaceMode;
   workspaceRoot: string;
+  /**
+   * 当前使用的工作区（侧栏分组里的那一个）。
+   *
+   * 和 `workspaceRoot` 分开存：工作区是「这条会话/下一问归在哪一组」，根目录
+   * 是「工程分析读哪个目录」。知识空间也会挂在某个工作区下，但它不读目录，
+   * 所以两者不能合并成一个字段。老文件没有它时为空，界面按未分组处理。
+   */
+  activeWorkspaceId: string;
 }
 
 export const DEFAULT_WORKSPACE_STATE: WorkspaceState = {
   workspaceMode: DEFAULT_WORKSPACE_MODE,
-  workspaceRoot: ''
+  workspaceRoot: '',
+  activeWorkspaceId: ''
 };
 
 /** 坏文件、旧版本、不可信 IPC 输入统一收敛到这里。 */
 export function normalizeWorkspaceState(raw: unknown): WorkspaceState {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_WORKSPACE_STATE };
-  const value = raw as { workspaceMode?: unknown; workspaceRoot?: unknown };
+  const value = raw as { workspaceMode?: unknown; workspaceRoot?: unknown; activeWorkspaceId?: unknown };
   return {
     workspaceMode: normalizeWorkspaceMode(value.workspaceMode),
-    workspaceRoot: typeof value.workspaceRoot === 'string' ? value.workspaceRoot.slice(0, 2000) : ''
+    workspaceRoot: typeof value.workspaceRoot === 'string' ? value.workspaceRoot.slice(0, 2000) : '',
+    activeWorkspaceId: typeof value.activeWorkspaceId === 'string' ? value.activeWorkspaceId.slice(0, 64) : ''
   };
+}
+
+// --- 工作区（多项目） -------------------------------------------------------
+
+/**
+ * 侧栏里的一个工作区：一个名字 + 一个本地目录。
+ *
+ * 这是 V2.1 之后新增的一层。此前只有「空间」（知识/工程）和「项目目录」，
+ * 会话平铺在空间里；一旦同时做两个工程，历史就没有任何分组依据。工作区把
+ * 同一目录下的会话收在一起，切换时只换分组，不删任何记录。
+ *
+ * `workspaceId` 是随机的、与目录无关的稳定 id：目录可以改名、移动，但已经
+ * 归到这个名字下的会话不会因此丢掉分组。
+ */
+export interface WorkspaceEntry {
+  workspaceId: string;
+  name: string;
+  root: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const WORKSPACE_NAME_MAX = 60;
+
+/** 目录名去掉末尾斜杠。工作区比较、分组都靠它，避免 `/a/b` 与 `/a/b/` 分成两组。 */
+export function normalizeWorkspaceRoot(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  // 只剪末尾斜杠：根目录 `/` 要保留。
+  return trimmed.length > 1 ? trimmed.replace(/\/+$/, '') : trimmed;
+}
+
+export function sameWorkspaceRoot(left: string, right: string): boolean {
+  const normalized = normalizeWorkspaceRoot(left);
+  return normalized !== '' && normalized === normalizeWorkspaceRoot(right);
+}
+
+/** 默认名字取目录最后一段；取不到就退回完整路径，不凭空造一个名字。 */
+export function workspaceNameFromRoot(root: string): string {
+  const normalized = normalizeWorkspaceRoot(root);
+  if (!normalized) return '';
+  const parts = normalized.split('/').filter(Boolean);
+  return (parts[parts.length - 1] ?? normalized).slice(0, WORKSPACE_NAME_MAX);
+}
+
+export function normalizeWorkspaceName(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, WORKSPACE_NAME_MAX) : '';
+}
+
+/**
+ * 读盘/读 IPC 的统一入口。
+ *
+ * 坏条目跳过而不是让整份列表失效——一个手改坏的工作区不该把其他工作区一起
+ * 藏起来。同一个目录只留第一条，否则侧栏会出现两个同名分组。
+ */
+export function normalizeWorkspaceEntries(raw: unknown): WorkspaceEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const seenRoots = new Set<string>();
+  const seenIds = new Set<string>();
+  const out: WorkspaceEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const value = item as Record<string, unknown>;
+    const workspaceId = typeof value.workspaceId === 'string' ? value.workspaceId.trim().slice(0, 64) : '';
+    const root = typeof value.root === 'string' ? normalizeWorkspaceRoot(value.root) : '';
+    if (!workspaceId || !root || seenRoots.has(root) || seenIds.has(workspaceId)) continue;
+    seenRoots.add(root);
+    seenIds.add(workspaceId);
+    const name = normalizeWorkspaceName(value.name) || workspaceNameFromRoot(root);
+    const createdAt = Number.isFinite(value.createdAt) ? Number(value.createdAt) : 0;
+    const updatedAt = Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : createdAt;
+    out.push({ workspaceId, name, root, createdAt, updatedAt });
+  }
+  return out;
+}
+
+/**
+ * 把会话（或任务）按工作区分组。
+ *
+ * 三级回退，顺序是刻意的：
+ * 1. 会话自己记着 `workspaceId` —— 新数据，最准确；
+ * 2. 没有 id 时按 `workspaceRoot` 找同名目录 —— 这次升级前的会话仍能归位，
+ *    不需要改一次盘；
+ * 3. 都找不到 —— 归到「未分组」，而不是塞进第一个工作区。
+ *
+ * 空工作区也返回，这样用户能看到自己添加过它；「未分组」只在有内容时返回。
+ */
+export interface WorkspaceGroupable {
+  workspaceId?: string;
+  workspaceRoot?: string;
+  updatedAt?: number;
+}
+
+export interface WorkspaceGroup<T> {
+  /** 空串代表「未分组」。 */
+  workspaceId: string;
+  name: string;
+  root: string;
+  items: T[];
+  updatedAt: number;
+}
+
+export function groupByWorkspace<T extends WorkspaceGroupable>(
+  items: readonly T[],
+  workspaces: readonly WorkspaceEntry[],
+  ungroupedName = '未分组'
+): Array<WorkspaceGroup<T>> {
+  const byId = new Map<string, WorkspaceEntry>();
+  const byRoot = new Map<string, WorkspaceEntry>();
+  const groups = new Map<string, WorkspaceGroup<T>>();
+  for (const workspace of workspaces) {
+    byId.set(workspace.workspaceId, workspace);
+    byRoot.set(normalizeWorkspaceRoot(workspace.root), workspace);
+    groups.set(workspace.workspaceId, {
+      workspaceId: workspace.workspaceId,
+      name: workspace.name,
+      root: workspace.root,
+      items: [],
+      updatedAt: workspace.updatedAt
+    });
+  }
+
+  const loose: WorkspaceGroup<T> = { workspaceId: '', name: ungroupedName, root: '', items: [], updatedAt: 0 };
+  for (const item of items) {
+    const byIdMatch = item.workspaceId ? byId.get(item.workspaceId) : undefined;
+    const byRootMatch = !byIdMatch && item.workspaceRoot
+      ? byRoot.get(normalizeWorkspaceRoot(item.workspaceRoot))
+      : undefined;
+    const matched = byIdMatch ?? byRootMatch;
+    const group = matched ? groups.get(matched.workspaceId) ?? loose : loose;
+    group.items.push(item);
+    if ((item.updatedAt ?? 0) > group.updatedAt) group.updatedAt = item.updatedAt ?? 0;
+  }
+
+  const list = [...groups.values()];
+  if (loose.items.length > 0) list.push(loose);
+  // 最近用过的排前面；空工作区排在最后（按创建/更新时间），未分组固定末尾。
+  return list.sort((left, right) => {
+    if (!left.workspaceId) return 1;
+    if (!right.workspaceId) return -1;
+    const leftEmpty = left.items.length === 0;
+    const rightEmpty = right.items.length === 0;
+    if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+    return right.updatedAt - left.updatedAt || left.name.localeCompare(right.name);
+  });
 }
 
 export function normalizeWorkspaceMode(value: unknown): WorkspaceMode {
