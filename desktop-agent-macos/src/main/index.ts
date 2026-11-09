@@ -49,6 +49,13 @@ import { relatedDebates } from './debate/history';
 import { normalizeDebateConfig } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
 import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset, type CloudPreset } from './providers/cloud-presets';
+import {
+  buildRoutingQuestion,
+  parseRoutingVerdict,
+  ROUTING_SYSTEM,
+  ROUTING_TIMEOUT_MS,
+  type RoutingVerdict
+} from './research/routing-classifier';
 import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
@@ -627,6 +634,49 @@ function rebuildProviders() {
       : cloudCatalog.find(item => item.id === provider.id)?.models ?? [];
     for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
   }
+}
+
+/**
+ * 工程空间的路由判定：本地最小模型优先，云端兜底。
+ *
+ * 为什么不用网页通道：网页读不到别人的回答，把「这句是分析还是实施」发进去
+ * 会在用户账号里留下一条无意义会话，且要走 5-20 秒。所以这里只碰模型。
+ *
+ * 任何一步失败（Ollama 没起、没有 Key、超时、回的不是 JSON）都返回 null，
+ * 由 runner 退回 `routeTask()` 的规则结论——判定失败不该让提问卡住。
+ */
+async function routeEngineeringWithModel(input: {
+  text: string;
+  attachmentNames: readonly string[];
+  hasProject: boolean;
+}): Promise<RoutingVerdict | null> {
+  const question = buildRoutingQuestion(input);
+  const request = { question, system: [ROUTING_SYSTEM] };
+  const signal = AbortSignal.timeout(ROUTING_TIMEOUT_MS);
+
+  if (localProvider) {
+    try {
+      const answer = await localProvider.generate(request, signal);
+      const verdict = parseRoutingVerdict(answer.text);
+      if (verdict) return verdict;
+    } catch {
+      // 本地不可用就试云端，不在这里报错：路由判定是辅助判断，不是用户要的结果。
+    }
+  }
+
+  for (const provider of cloudProviders) {
+    if (!apiKeys?.has(provider.id)) continue;
+    const model = cloudCatalog.find(item => item.id === provider.id)?.models[0];
+    if (!model) continue;
+    try {
+      const answer = await provider.generate({ ...request, modelId: model }, signal);
+      const verdict = parseRoutingVerdict(answer.text);
+      if (verdict) return verdict;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /**
@@ -2860,6 +2910,11 @@ app.whenReady().then(async () => {
       if (!attachmentReader) throw new Error('附件读取还没初始化，这一问没有发出文件内容。');
       return attachmentReader(paths);
     },
+    /**
+     * 工程空间的路由判定：模型主导（本地/云端/混合）时由模型判，网页主导按规则。
+     * 只回一个标签，不读文件、不执行；判不了就返回 null，让规则兜底。
+     */
+    routeWithModel: routeEngineeringWithModel,
     /**
      * 工程空间「模型直答」的候选名单（2026-11-08 用户裁决：工程模式不优先问
      * 网页，读取本地由模型做）。这里必须带真实的可用性：没启动的 Ollama 和

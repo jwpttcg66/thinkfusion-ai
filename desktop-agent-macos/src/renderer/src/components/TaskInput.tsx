@@ -26,7 +26,12 @@ export function TaskInput(props: {
   /** V2.1：知识空间不要求工程目录与权限，工程空间才显示这两个胶囊。 */
   workspaceMode: WorkspaceMode;
   /** 路由预览：判成什么、依据是什么、是用户指定还是规则判的。 */
-  routing: { label: string; reason: string; source: 'user_selected' | 'rule' } | null;
+  routing: { label: string; reason: string; source: 'user_selected' | 'rule' | 'model' } | null;
+  /**
+   * 模型主导时，输入框里这份只是规则预估：真正的判定在发送时由模型给出。
+   * 不标出来就会变成「面板写着工程分析、跑起来却是实施」。
+   */
+  routingByModel?: boolean;
   taskKindOverride: EngineeringTaskKind | null;
   onTaskKindChange: (kind: EngineeringTaskKind | null) => void;
   /**
@@ -112,8 +117,12 @@ export function TaskInput(props: {
       {props.workspaceMode === 'engineering' && props.routing && (
         <div className="routing-preview">
           <span className="routing-label" title={props.routing.reason}>
-            本次判为「{props.routing.label}」· {props.routing.reason}
-            {props.routing.source === 'user_selected' ? '（你指定的）' : ''}
+            {props.routingByModel && props.routing.source !== 'user_selected'
+              ? '发送后由模型判定这一句是分析还是实施'
+              : <>
+                  本次判为「{props.routing.label}」· {props.routing.reason}
+                  {props.routing.source === 'user_selected' ? '（你指定的）' : ''}
+                </>}
           </span>
           <span className="routing-actions">
             {([

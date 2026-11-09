@@ -116,3 +116,7 @@ npm run test:prompt-policy # 固定提示词仍不存在
 
 界面的路由预览（输入框上那个「工程分析 / 待确认」小标）用同一个函数、同一份
 `attachmentCount`，所以发送前看到的就是发送后的判定。
+
+> 补充（2026-11-09）：上面那张表现在是**兜底**。模型主导（本地/云端/混合）时，
+> 路由改由模型判定，附件规则只在网页主导或模型判不了时生效，见
+> [ENGINEERING_ROUTING.md](ENGINEERING_ROUTING.md)。

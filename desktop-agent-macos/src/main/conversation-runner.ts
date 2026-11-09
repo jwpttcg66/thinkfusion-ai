@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describeAttachments, composeQuestionWithAttachments, dedupeAttachments, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import type { AgentTask } from '../shared/contracts';
-import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, Synthesis } from '../shared/conversation';
+import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, ExecutionMode, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
 import { toRouteTaskKind, type ModelRoute, type RouteTaskKind } from '../shared/model-route';
@@ -60,6 +60,7 @@ import {
   type EngineeringOrchestrationPlan
 } from './research/engineering-orchestration';
 import type { JudgeVerdict } from './judge/types';
+import { applyRoutingVerdict, type RoutingVerdict } from './research/routing-classifier';
 
 /**
  * 归属规则（2026-11-06 用户裁决）：本地主导只用本地模型、网页主导只用网页、
@@ -145,6 +146,18 @@ export interface ConversationDeps {
     config: ConversationExecutionConfig;
     taskKind: RouteTaskKind;
   }) => ModelRoute;
+  /**
+   * 工程空间的路由判定：模型主导时交给模型，网页主导按规则。
+   *
+   * 注入而不 import 实现：挑哪家模型、此刻有没有 Key、本地推理槽空不空，
+   * 都是运行时信息。返回 null 表示「判不了」，runner 退回规则。
+   * 不传 = 只有规则（现有全部老测试行为不变）。
+   */
+  routeWithModel?: (input: {
+    text: string;
+    attachmentNames: readonly string[];
+    hasProject: boolean;
+  }) => Promise<RoutingVerdict | null>;
   /**
    * Test seam for the turn budget. Five minutes is a product number, not a
    * behaviour — a test that has to wait five minutes to see what happens when
@@ -456,14 +469,15 @@ export class ConversationRunner {
 
     const intent = classifyIntent(text);
     const workspaceMode = normalizeWorkspaceMode(input.workspaceMode);
+    const executionConfig = normalizeExecutionConfig(input.executionConfig);
     const routing: TaskRouting | undefined =
       workspaceMode === 'engineering'
-        ? routeTask({
+        ? await this.engineeringRouting({
             text,
-            workspaceMode,
+            attachments,
             override: input.taskKindOverride,
             hasProject: !!input.workspaceRoot,
-            attachmentCount: attachments.length
+            executionMode: executionConfig.executionMode
           })
         : undefined;
     const now = Date.now();
@@ -476,7 +490,7 @@ export class ConversationRunner {
       channels: [],
       createdAt: now,
       updatedAt: now,
-      executionConfig: normalizeExecutionConfig(input.executionConfig),
+      executionConfig,
       // 用户点名的那个地址：追问时不会再给一遍，而「这条会话读的是哪一页」
       // 必须能回答，所以随会话存下来。
       ...(intent.kind === 'extract' && intent.url ? { extractUrl: intent.url } : {}),
@@ -580,6 +594,50 @@ export class ConversationRunner {
       this.fail(conversation, error)
     );
     return conversation;
+  }
+
+  /**
+   * 工程空间的路由：模型主导时交给模型判，其余按规则。
+   *
+   * 2026-11-09 用户裁决：「模型的时候模型判定，混合模式模型自己判断」。所以
+   * 本地 / 云端 / 混合三档都先问模型；网页主导不问——网页通道读不到别人的
+   * 回答，把分类问题发进去还会在用户账号里留下一条无意义会话。
+   *
+   * 四道闸门，按顺序：
+   * 1. 用户明确选了「本次按分析/实施」→ 直接用，不问模型；
+   * 2. 还没选工程目录 → 先让用户选，判了也跑不了；
+   * 3. 网页主导或没接线 → 规则；
+   * 4. 模型超时 / 报错 / 回不合法的 JSON → 规则（`routeTask` 的结论）。
+   *
+   * 规则在这里不是「主判」，而是**兜底**：模型永远不给 null 之外的惊喜。
+   */
+  private async engineeringRouting(input: {
+    text: string;
+    attachments: readonly AttachmentText[];
+    override?: EngineeringTaskKind;
+    hasProject: boolean;
+    executionMode: ExecutionMode;
+  }): Promise<TaskRouting> {
+    const rule = routeTask({
+      text: input.text,
+      workspaceMode: 'engineering',
+      override: input.override,
+      hasProject: input.hasProject,
+      attachmentCount: input.attachments.length
+    });
+    if (input.override || rule.needsProject) return rule;
+    if (input.executionMode === 'web' || !this.deps.routeWithModel) return rule;
+    try {
+      const verdict = await this.deps.routeWithModel({
+        text: input.text,
+        attachmentNames: input.attachments.map(item => item.name),
+        hasProject: input.hasProject
+      });
+      return verdict ? applyRoutingVerdict(rule, verdict) : rule;
+    } catch {
+      // 判定失败不能把提问拦下来：退回规则，用户顶多看到「待确认」。
+      return rule;
+    }
   }
 
   /**
@@ -734,12 +792,12 @@ export class ConversationRunner {
     // 「先分析再修改」的第二阶段靠这里：用户在输入框明确选「本次按实施」，
     // 才把这一句交去生成计划；没有明确指令绝不自动进入执行。
     if (conversation.workspaceMode === 'engineering') {
-      const routing = routeTask({
+      const routing = await this.engineeringRouting({
         text: question,
-        workspaceMode: 'engineering',
+        attachments,
         override: taskKindOverride,
         hasProject: !!conversation.workspaceRoot,
-        attachmentCount: attachments.length
+        executionMode: normalizeExecutionConfig(conversation.executionConfig).executionMode
       });
       conversation.routing = routing;
       conversation.updatedAt = Date.now();

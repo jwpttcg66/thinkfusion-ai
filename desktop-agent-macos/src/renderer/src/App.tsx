@@ -1535,6 +1535,8 @@ export default function App() {
                 reason: routingPreview.reason,
                 source: routingPreview.source
               } : null}
+              // 模型主导时，这一份只是规则预估：真正判定在发送时由模型给出。
+              routingByModel={workspaceMode === 'engineering' && executionConfig.executionMode !== 'web'}
               taskKindOverride={taskKindOverride}
               onTaskKindChange={setTaskKindOverride}
               // 研究设置的入口在输入框里（第三个胶囊），这里只把「下一条用什么」传下去。

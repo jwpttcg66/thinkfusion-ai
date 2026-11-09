@@ -31,8 +31,8 @@ export interface TaskRouting {
   workspaceMode: WorkspaceMode;
   taskKind: TaskRoutingKind;
   reason: string;
-  /** 用户本轮明确指定，还是规则判的。界面上要能看出区别。 */
-  source: 'user_selected' | 'rule';
+  /** 用户本轮明确指定、规则判的，还是模型判的。界面上要能看出区别。 */
+  source: 'user_selected' | 'rule' | 'model';
   /** 只在工程空间有值。 */
   engineeringKind?: EngineeringTaskKind | 'clarify';
   /** 规则命中的词，供界面解释判据。 */
