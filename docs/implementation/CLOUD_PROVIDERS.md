@@ -12,6 +12,8 @@
 
 上游事实来自 DeepSeek 官方文档（2026-11 版本）与 OpenCode Zen 端点表。两家的模型名都还在变，所以**模型列表在界面上可改**，改完立刻生效并持久化到 `cloud-config.json`。
 
+要买 OpenCode Zen 或第一次接真实 Key，看 [OPENCODE_ZEN.md](OPENCODE_ZEN.md)：里面是接入步骤、探活回执对照、验收清单与已知限制。
+
 ### OpenCode 有一条明确的能力边界
 
 Zen 的不同模型走不同协议：
