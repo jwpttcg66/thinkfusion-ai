@@ -19,6 +19,7 @@ import { join } from 'node:path';
 
 import {
   attachmentCharBudget,
+  buildAttachmentMaterial,
   composeQuestionWithAttachments,
   dedupeAttachments,
   describeAttachments,
@@ -314,4 +315,34 @@ test('目录当成附件会被拒绝', async () => {
   const runner = makeRunner(() => undefined);
   mkdirSync(join(work, 'a-dir'), { recursive: true });
   await assert.rejects(runner.start({ text: '看看', attachments: [join(work, 'a-dir')] }), /不是文件/);
+});
+
+test('附件正文单独成材料，不是只能混在问题里', () => {
+  // 真机 2026-11-09：用户附一份日志问「分析总行数」，日志开头写着总行数，
+  // 第一手成员也答出来了，但最终结论是「无法确定」——附件正文只拼在
+  // 【用户的问题】里，汇总纪律「只依据各来源的回答」就把它排除了。
+  const text = {
+    id: 'p1', name: 'run.log', path: '/tmp/run.log', bytes: 120,
+    addedAt: 1, text: 'total lines: 414068\nstatus: ok', chars: 32, totalChars: 32, truncated: false
+  };
+  const material = buildAttachmentMaterial([text]);
+  assert.ok(material.includes('run.log'));
+  assert.ok(material.includes('414068'), '材料里必须有文件正文');
+  assert.match(material, /不是模型推测/, '要说明这是用户亲手挑的原文，否则汇总不当作可引用依据');
+  assert.equal(buildAttachmentMaterial([]), '', '没有附件时不产生任何材料段');
+});
+
+test('材料段与问题段分工清楚：原话只在问题里，正文两边都在但语义不同', () => {
+  // 「原话只出现一次」是硬规则：材料段不重复用户的话，否则执行阶段会看到
+  // 两份问题，主导人容易把材料当成第二段指令。
+  const text = {
+    id: 'p2', name: 'notes.md', path: '/tmp/notes.md', bytes: 40,
+    addedAt: 1, text: '总行数是 414068', chars: 12, totalChars: 12, truncated: false
+  };
+  const question = composeQuestionWithAttachments('分析总行数', [text]);
+  const material = buildAttachmentMaterial([text]);
+
+  assert.ok(question.startsWith('分析总行数'), '问题段必须以用户原话开头');
+  assert.ok(!material.includes('分析总行数'), '材料段不重复用户原话');
+  assert.ok(material.includes('414068') && question.includes('414068'));
 });

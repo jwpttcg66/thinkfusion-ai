@@ -118,6 +118,13 @@ export interface LeadSummaryOptions {
   material?: string | null;
   /** P6：开了追加研究时，多要求一段【待补】（缺哪些具体事实）。 */
   followUp?: boolean;
+  /**
+   * 额外的纪律句（例如「用户附上的文件是可引用依据」）。
+   *
+   * 网页主导时页面不认 system，这些句子只能拼进 question；本地/云端主导时
+   * 走 system。两边共用同一份内容，避免同一轮里两套口径。
+   */
+  extraInstructions?: string[];
 }
 
 /**
@@ -165,7 +172,7 @@ export function buildLeadSummaryQuestion(
   const material = options.material?.trim();
   if (material) sections.push(`【补充材料】\n${material}`);
   sections.push(`【各来源的回答】\n${body}`);
-  const instructions = taskInstructions(options.taskKind);
+  const instructions = [...taskInstructions(options.taskKind), ...(options.extraInstructions ?? [])];
   if (options.followUp) instructions.push(LEAD_FOLLOWUP_SECTION);
   if (instructions.length > 0) sections.push(`【请你做的事】\n${instructions.join('\n')}`);
   return sections.join('\n\n');
@@ -189,6 +196,7 @@ export function inlineLeadInstructions(
     `【请你做的事】\n${[
       ...LEAD_SUMMARY_SYSTEM,
       ...taskInstructions(options.taskKind),
+      ...(options.extraInstructions ?? []),
       ...(options.followUp ? [LEAD_FOLLOWUP_SECTION] : [])
     ].join('\n')}`
   );

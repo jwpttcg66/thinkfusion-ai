@@ -648,6 +648,7 @@ function rebuildProviders() {
 async function routeEngineeringWithModel(input: {
   text: string;
   attachmentNames: readonly string[];
+  attachmentExcerpts?: ReadonlyArray<{ name: string; text: string }>;
   hasProject: boolean;
 }): Promise<RoutingVerdict | null> {
   const question = buildRoutingQuestion(input);

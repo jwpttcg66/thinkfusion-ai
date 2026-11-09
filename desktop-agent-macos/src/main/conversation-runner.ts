@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { describeAttachments, composeQuestionWithAttachments, dedupeAttachments, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
+import { buildAttachmentMaterial, describeAttachments, composeQuestionWithAttachments, dedupeAttachments, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, ExecutionMode, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
@@ -156,6 +156,8 @@ export interface ConversationDeps {
   routeWithModel?: (input: {
     text: string;
     attachmentNames: readonly string[];
+    /** 附件开头（判定用）。有它时分类器看得到「文件里到底是什么」。 */
+    attachmentExcerpts?: ReadonlyArray<{ name: string; text: string }>;
     hasProject: boolean;
   }) => Promise<RoutingVerdict | null>;
   /**
@@ -334,6 +336,21 @@ const IN_FLIGHT_STATUSES = new Set<Conversation['status']>([
  * runtime in this file — a question that needs none of those should not pass
  * through any of them.
  */
+export interface RunOptions {
+  followup: boolean;
+  /**
+   * 不含附件正文的用户原话。
+   *
+   * 第一手提问必须是含附件的完整问题（用户挑的文件要发给网页/模型），但执行
+   * 阶段不能再用它：附件正文混在【用户的问题】里会被汇总纪律当成「用户的附注」
+   * 而不是可引用材料——真机 2026-11-09 因此把日志里写明的总行数判成「无法确定」。
+   * 执行阶段用原话提问，附件正文改走材料。
+   */
+  plainQuestion?: string;
+  /** 附件正文材料，只进执行阶段（汇总 / 交锋 / 最终意见）。 */
+  attachmentMaterial?: string | null;
+}
+
 export class ConversationRunner {
   /** Conversations the user pressed stop on. The Master checks this between steps. */
   private readonly cancelled = new Set<string>();
@@ -590,7 +607,15 @@ export class ConversationRunner {
     // Returned immediately: a web answer can take a minute, and an IPC call
     // that blocks for a minute is indistinguishable from a hung app. Progress
     // arrives as events.
-    void this.run(conversation, outgoing, { followup: false }).catch(error =>
+    void this.run(conversation, outgoing, {
+      followup: false,
+      // 只有工程空间需要把附件从「问题」挪到「材料」：那里执行阶段的汇总按
+      // 工程证据的口径读材料，附件留在问题里就会被判成用户附注。知识空间的
+      // 第一手与汇总都走网页，附件本来就该随问题一起发出去，不重复塞第二份。
+      ...(workspaceMode === 'engineering'
+        ? { plainQuestion: text, attachmentMaterial: buildAttachmentMaterial(attachments) }
+        : {})
+    }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;
@@ -631,6 +656,9 @@ export class ConversationRunner {
       const verdict = await this.deps.routeWithModel({
         text: input.text,
         attachmentNames: input.attachments.map(item => item.name),
+        // 附上开头，否则「按这个文件执行」和「这个方案」在判定时没有区别，
+        // 模型只能凭句子里的词猜，又回到补动词表那条路。
+        attachmentExcerpts: input.attachments.map(item => ({ name: item.name, text: item.text })),
         hasProject: input.hasProject
       });
       return verdict ? applyRoutingVerdict(rule, verdict) : rule;
@@ -851,7 +879,12 @@ export class ConversationRunner {
     );
     this.save(conversation);
 
-    void this.run(conversation, outgoing, { followup: true }).catch(error =>
+    void this.run(conversation, outgoing, {
+      followup: true,
+      ...(conversation.workspaceMode === 'engineering'
+        ? { plainQuestion: question, attachmentMaterial: buildAttachmentMaterial(attachments) }
+        : {})
+    }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;
@@ -968,7 +1001,7 @@ export class ConversationRunner {
   private async run(
     conversation: Conversation,
     question: string,
-    options: { followup: boolean }
+    options: RunOptions
   ): Promise<void> {
     const conversationId = conversation.conversationId;
     const config = normalizeExecutionConfig(conversation.executionConfig);
@@ -1162,7 +1195,7 @@ export class ConversationRunner {
     conversation: Conversation,
     master: ResearchRunner,
     question: string,
-    options: { followup: boolean },
+    options: RunOptions,
     pool: SubAgentPool,
     executorIds: ReadonlySet<string>
   ): Promise<void> {
@@ -1318,14 +1351,17 @@ export class ConversationRunner {
     execution = await this.runExecutionStage(
       pool,
       conversation,
-      question,
+      // 执行阶段用不含附件正文的原话：附件正文以材料身份出现，避免它被当成
+      // 「用户的问题」里的一段附注，被汇总纪律排除在可用依据之外。
+      options.plainQuestion ?? question,
       outcome,
       sink,
       executorIds,
       this.engineeringMaterialFor(conversation),
       this.pageMaterialFor(conversation),
       followUpBudget(config) > 0,
-      engineeringRound?.orchestration ?? null
+      engineeringRound?.orchestration ?? null,
+      options.attachmentMaterial ?? null
     );
     if (this.cancelled.has(conversationId)) return;
 
@@ -1503,7 +1539,12 @@ export class ConversationRunner {
     /** P6：要不要在汇总里多要一段【待补】。默认 false，单轮提示词不变。 */
     followUp = false,
     /** 工程空间的多 agent 编排计划：绕开知识空间的归属过滤。 */
-    orchestration: EngineeringOrchestrationPlan | null = null
+    orchestration: EngineeringOrchestrationPlan | null = null,
+    /**
+     * 附件正文材料。和工程证据同级：用户亲手挑的文件原文，不是模型推测。
+     * 只有这一问带了附件时才非空；空串按「没有」处理。
+     */
+    attachments: string | null = null
   ): Promise<ExecutionStageResult | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
@@ -1547,15 +1588,34 @@ export class ConversationRunner {
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;
     try {
-      // 工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第一手
-      // 网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递进
-      // 页面」机制，页面上第一段用户发言仍然只有原话。
-      const material = [engineering, page].filter(Boolean).join('\n\n') || null;
+      // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
+      // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
+      // 进页面」机制，页面上第一段用户发言仍然只有原话。
+      //
+      // 附件排在最前：它是用户这一问亲手递过来的原文，优先级不低于程序扫描
+      // 到的工程证据。真机 2026-11-09 的教训——附件排在问题里时，汇总会用
+      // 工程证据把它否掉，用户看到的结论跟文件内容相反。
+      const material = [attachments, engineering, page].filter(Boolean).join('\n\n') || null;
       // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
       const taskKind: LeadTaskKind | undefined =
         conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
+      // 附件与工程证据都是真实材料，必须明确写进纪律里。否则「只依据这些回答」
+      // 会被理解为「不能引用用户给的文件」，出现真机那种「文件里明明写着，
+      // 结论却说无法确定」。API 主导时这些句子进 system，网页主导时（页面不认
+      // system）拼进同一条用户消息，两边口径一致。
+      const materialInstructions = [
+        ...(attachments
+          ? ['【用户随这一问附上的文件】是用户亲手挑的本机文件原文，和各家回答一样是可引用的依据；文件里写明的事实（数字、行数、命令、清单）优先于任何人的推测。']
+          : []),
+        ...(engineering
+          ? ['工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+          : []),
+        ...(attachments && engineering
+          ? ['附件与工程证据冲突时，指出冲突本身（各自写了什么），不要默默采用其中一份。']
+          : [])
+      ];
       const baseQuestion = isPage
-        ? inlineLeadInstructions(question, answers, { taskKind, material, followUp })
+        ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
         : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
       const answer = await pool.ask(lead.agentId, {
         question: baseQuestion,
@@ -1563,11 +1623,7 @@ export class ConversationRunner {
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
         timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
         // 只有 API 主导用得上 system；网页通道会忽略它。
-        system: isPage
-          ? undefined
-          : engineering
-            ? [...leadSummarySystem(taskKind, followUp), '工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
-            : leadSummarySystem(taskKind, followUp)
+        system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;

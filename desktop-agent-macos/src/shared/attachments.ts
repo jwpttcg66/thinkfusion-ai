@@ -87,16 +87,36 @@ export function composeQuestionWithAttachments(
 ): string {
   const head = question.trim();
   if (attachments.length === 0) return head;
+  return [head, ...attachmentBlocks(attachments)].join('\n\n');
+}
 
-  const blocks = attachments.map((item, index) => {
+/** 每份附件一段：标题行说明文件与是否截断，正文原样跟在后面。 */
+export function attachmentBlocks(attachments: readonly AttachmentText[]): string[] {
+  return attachments.map((item, index) => {
     const size = item.truncated
       ? `${describeBytes(item.bytes)}，已带前 ${String(item.chars)} 字 / 全文 ${String(item.totalChars)} 字`
       : `${describeBytes(item.bytes)}，全文`;
     const body = item.text.replace(/\s+$/, '');
     return `【附件 ${String(index + 1)}】${item.name}（${size}）\n${body}`;
   });
+}
 
-  return [head, ...blocks].join('\n\n');
+/**
+ * 附件正文单独作为「材料」递进执行阶段（汇总 / 交锋 / 最终意见）。
+ *
+ * 为什么要单独一份：真机 2026-11-09 抓到——用户附了一份日志并问「分析总行数」，
+ * 日志开头就写着总行数，第一手成员也答出了这个数，但最终结论却是「无法确定」。
+ * 原因是附件正文只拼在【用户的问题】里，而汇总的纪律写着「只依据各来源的回答」，
+ * 于是主导人把它当成「用户的附注」而不是可引用的材料，直接用工程证据把附件
+ * 内容否掉了。附件是用户亲手挑的本机文件原文，和工程证据同级，必须作为材料
+ * 出现，而不是混在问题里。
+ */
+export function buildAttachmentMaterial(attachments: readonly AttachmentText[]): string {
+  if (attachments.length === 0) return '';
+  return [
+    '【用户随这一问附上的文件：正文来自用户亲手挑选的本机文件，不是模型推测】',
+    ...attachmentBlocks(attachments)
+  ].join('\n\n');
 }
 
 /** 系统消息里那一行：让用户在会话里看得见「这一问带了哪些文件」。 */

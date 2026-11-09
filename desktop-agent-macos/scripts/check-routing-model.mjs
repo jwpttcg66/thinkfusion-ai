@@ -38,6 +38,25 @@ test('问句里用户原话逐字在，附件只报名字不塞正文', () => {
   assert.ok(!buildRoutingQuestion({ text: 'x', hasProject: false }).includes('附了'));
 });
 
+test('判定时能看到附件开头，但只带一小段', () => {
+  // 只报文件名时，「把这个 run.sh 跑一遍」和「这个方案」在模型眼里一样，
+  // 判定只能靠句子里的词猜——等于又回到补动词表那条路。
+  const long = 'x'.repeat(5000);
+  const question = buildRoutingQuestion({
+    text: '按这个文件执行',
+    attachmentNames: ['deploy.md'],
+    attachmentExcerpts: [
+      { name: 'deploy.md', text: '# 部署步骤\n1. npm run build\n2. pm2 restart app' },
+      { name: 'huge.log', text: long }
+    ],
+    hasProject: true
+  });
+  assert.ok(question.includes('pm2 restart app'), '附件开头要进判定问句');
+  assert.ok(question.includes('deploy.md'));
+  assert.ok(question.length < 3000, `判定问句不能被附件撑爆，实际 ${String(question.length)} 字`);
+  assert.ok(!/研究伙伴|你是|请以/.test(question), '分类调用不套角色话术');
+});
+
 test('分类器的 system 只讲三类与输出格式，不含例子堆砌', () => {
   assert.match(ROUTING_SYSTEM, /analysis/);
   assert.match(ROUTING_SYSTEM, /execution/);

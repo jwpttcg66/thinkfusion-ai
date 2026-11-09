@@ -45,20 +45,34 @@ export const ROUTING_SYSTEM = [
   '{"kind":"analysis|execution|clarify","reason":"不超过20个字的中文理由"}'
 ].join('\n');
 
+/** 判定时每份附件最多带多少字。判定只需要看出「这是命令清单 / 需求 / 日志」。 */
+export const ROUTING_EXCERPT_CHARS = 800;
+
 /**
  * 给模型的那一问。
  *
- * 用户的句子原样放在里面（不改写、不套引导语）；附件只报名字，不塞正文——
- * 判定不需要内容，塞进去只会让这次调用变慢变贵。
+ * 用户的句子原样放在里面（不改写、不套引导语）。附件报名字，并各带一小段
+ * 开头——只报名字时，「把这个 run.sh 跑一遍」和「这个方案」在模型眼里一样，
+ * 判定只能靠猜；800 字足够看出文件是命令清单、需求还是日志。
  */
 export function buildRoutingQuestion(input: {
   text: string;
   attachmentNames?: readonly string[];
+  attachmentExcerpts?: ReadonlyArray<{ name: string; text: string }>;
   hasProject?: boolean;
 }): string {
   const lines = [`用户的这句话：${input.text}`];
+  const excerpts = (input.attachmentExcerpts ?? []).filter(item => item && item.name);
   const names = (input.attachmentNames ?? []).filter(Boolean);
-  if (names.length > 0) lines.push(`随这句话附了 ${names.length} 个文件：${names.join('、')}`);
+  if (excerpts.length > 0) {
+    lines.push(`随这句话附了 ${String(excerpts.length)} 个文件，文件名与开头如下：`);
+    for (const item of excerpts) {
+      const body = item.text.replace(/\s+/g, ' ').trim().slice(0, ROUTING_EXCERPT_CHARS);
+      lines.push(`—— ${item.name} ——\n${body || '（空文件）'}`);
+    }
+  } else if (names.length > 0) {
+    lines.push(`随这句话附了 ${names.length} 个文件：${names.join('、')}`);
+  }
   lines.push(`工程目录：${input.hasProject ? '已选择' : '未选择'}`);
   return lines.join('\n');
 }
