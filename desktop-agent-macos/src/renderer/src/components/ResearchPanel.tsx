@@ -32,7 +32,7 @@ type Tab = 'mode' | 'collab' | 'debate' | 'report';
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
   { id: 'web', label: '网页主导', hint: '知识空间：只用网页通道汇总交锋。工程空间：本地+云端模型编排，不问网页' },
   { id: 'local', label: '本地主导', hint: '知识空间：只用本机 Ollama。工程空间：本地+云端模型编排，本地优先主导' },
-  { id: 'cloud', label: '云端主导', hint: '知识空间：只用远程 API 模型。工程空间：本地+云端模型编排，不按归属挑人' },
+  { id: 'cloud', label: '云端主导', hint: '知识空间：只用勾选的远程 API 模型。可点名主导人与参与模型，不必全上' },
   { id: 'hybrid', label: '混合主导', hint: '知识空间：先择一类再严格只用那一类。工程空间：唯一允许网页加入编排的模式' }
 ];
 
@@ -172,8 +172,65 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     : config.executionMode === 'cloud'
       ? 'cloud'
       : 'web';
-  const leadOptions = candidates.filter(item => item.available && item.type === leadKind);
+  /**
+   * 主导人必须落在「参与成员」里：用户先勾了参与模型，再在这些里点名主导。
+   * 没勾过（undefined）= 全部可用；明确清空（[]）= 没有候选可点。
+   */
+  const cloudPool = config.selectedCloudModels;
+  const webPool = config.selectedWebChannels;
+  const leadInPool = candidates.filter(item => {
+    if (!item.available || item.type !== leadKind) return false;
+    if (leadKind === 'cloud' && cloudPool !== undefined) return cloudPool.includes(item.id);
+    if (leadKind === 'web' && webPool !== undefined) return webPool.includes(item.id);
+    return true;
+  });
+  // 点名还在、但已被移出参与名单时，仍显示这一项并标出来——否则下拉会变成
+  // 空白，人不知道配置里还挂着一个这一轮进不了场的主导。
+  const orphanLead = config.leadAgentId && !leadInPool.some(item => item.id === config.leadAgentId)
+    ? candidates.find(item => item.id === config.leadAgentId)
+    : undefined;
+  const leadOptions = orphanLead ? [orphanLead, ...leadInPool] : leadInPool;
   const showLeadPicker = config.executionMode !== 'hybrid';
+  const cloudMembers = options?.cloudMembers ?? [];
+  const webChannels = options?.webChannels ?? [];
+
+  /** 换主导人：人必须能参与。勾选名单里没有它时，顺手把它加进去。 */
+  function changeLead(next: string) {
+    if (!next) {
+      onConfigChange({ leadAgentId: undefined });
+      return;
+    }
+    if (config.executionMode === 'cloud' && cloudPool !== undefined && !cloudPool.includes(next)) {
+      onConfigChange({ leadAgentId: next, selectedCloudModels: [...cloudPool, next] });
+      return;
+    }
+    if (config.executionMode === 'web' && webPool !== undefined && !webPool.includes(next)) {
+      onConfigChange({ leadAgentId: next, selectedWebChannels: [...webPool, next] });
+      return;
+    }
+    onConfigChange({ leadAgentId: next });
+  }
+
+  /**
+   * 改参与名单：主导人被取消勾选时一并清掉点名——否则配置里写着一个
+   * 这一轮根本不进场的「主导」，界面和下一次提问会对不上。
+   */
+  function changeCloudParticipants(next: string[]) {
+    const patch: Partial<ConversationExecutionConfig> = { selectedCloudModels: next };
+    if (config.leadAgentId && config.executionMode === 'cloud' && !next.includes(config.leadAgentId)) {
+      patch.leadAgentId = undefined;
+    }
+    onConfigChange(patch);
+  }
+
+  function changeWebParticipants(next: string[]) {
+    const patch: Partial<ConversationExecutionConfig> = { selectedWebChannels: next };
+    if (config.leadAgentId && config.executionMode === 'web' && !next.includes(config.leadAgentId)) {
+      patch.leadAgentId = undefined;
+    }
+    onConfigChange(patch);
+  }
+
   function toggleCandidate(id: string) {
     const next = selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id];
     setDebateSelected(next);
@@ -256,24 +313,80 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                       ? '由哪个网页通道当主导。它读不到别人的页面，只能由我们把材料拼成一条用户消息发进去——汇总、交锋、最终意见都在网页侧完成，不会调用本地/云端模型。'
                       : config.executionMode === 'local'
                         ? '由哪个本地模型当主导。汇总、定辩题、交锋与最终意见都在本机完成，不调云端 API。'
-                        : '由哪个云端模型当主导。汇总、交锋与最终意见都走远程 API，不掺本地模型。'}
+                        : '由哪个云端模型当主导。汇总、交锋与最终意见都走远程 API，不掺本地模型。主导人必须在下面勾选的参与模型里。'}
                   </p>
                   <select
                     value={config.leadAgentId ?? ''}
-                    onChange={event => onConfigChange({ leadAgentId: event.target.value })}
+                    onChange={event => changeLead(event.target.value)}
                   >
                     <option value="">不指定：取第一个可用的{config.executionMode === 'web' ? '网页通道' : config.executionMode === 'local' ? '本地模型' : '云端模型'}</option>
                     {leadOptions.map(item => (
                       <option key={item.id} value={item.id}>
-                        {item.label}{item.available ? '' : '（不可用）'}
+                        {item.label}
+                        {!item.available ? '（不可用）' : ''}
+                        {orphanLead && item.id === orphanLead.id ? '（不在参与名单）' : ''}
                       </option>
                     ))}
                   </select>
+                  {config.executionMode === 'cloud' && cloudPool !== undefined && cloudPool.length === 0 && (
+                    <p className="muted">参与的云端模型是空的——先在下面勾几个，再点名主导人。</p>
+                  )}
                 </>
               ) : (
                 <p className="muted">
                   混合主导不预先指定人：先按可用成员与你的选择综合决定采用本地 / 网页 / 云端中的哪一种方式，再严格只用那一类成员，由它完成汇总、交锋与最终意见。
                 </p>
+              )}
+
+              {/* 云端主导：参与模型紧挨主导人。OpenCode Go 一家就有几十个模型，
+                  不该默认全上；勾选写进 selectedCloudModels，和输入框「模型」
+                  胶囊是同一份。放这里是因为人先定「谁主导」，紧接着就要定
+                  「谁一起给意见」——埋到页面最底下等于没让选。 */}
+              {config.executionMode === 'cloud' && (
+                <>
+                  <h3>参与的云端模型</h3>
+                  <p className="muted">
+                    勾选这一轮要一起给意见 / 参与交锋的云端模型。不勾任何一项 = 全部可用；
+                    明确清空 = 这一轮不用云端模型。主导人若被取消勾选，点名会一并清掉。
+                  </p>
+                  {options ? (
+                    <Picker
+                      title="云端模型"
+                      items={cloudMembers.map(item => ({
+                        ...item,
+                        note: item.hasKey
+                          ? (item.id === config.leadAgentId ? '主导人' : undefined)
+                          : '无 Key'
+                      }))}
+                      selected={config.selectedCloudModels}
+                      all={cloudMembers.map(item => item.id)}
+                      onChange={changeCloudParticipants}
+                    />
+                  ) : (
+                    <p className="muted">正在读取可用模型…</p>
+                  )}
+                </>
+              )}
+
+              {/* 网页主导同理：通道名单贴着主导人，别让人滚到「参与成员」才找。 */}
+              {config.executionMode === 'web' && (
+                <>
+                  <h3>参与的网页通道</h3>
+                  <p className="muted">
+                    勾选这一轮要问的网页通道。不勾 = 全部已开启；清空 = 这一轮不问网页。
+                  </p>
+                  {options ? (
+                    <Picker
+                      title="网页通道"
+                      items={webChannels}
+                      selected={config.selectedWebChannels}
+                      all={webChannels.map(item => item.id)}
+                      onChange={changeWebParticipants}
+                    />
+                  ) : (
+                    <p className="muted">正在读取通道…</p>
+                  )}
+                </>
               )}
 
               <h3>协作策略</h3>
@@ -328,27 +441,41 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 {DEBATE_STRATEGIES.map(item => <option key={item.id} value={item.id}>{item.label} · {item.summary}</option>)}
               </select>
 
-              <h3>参与成员</h3>
-              {options && (
-                <div className="research-lists">
-                  <Picker title="网页通道（回答者）" items={options.webChannels}
-                    selected={config.selectedWebChannels} all={options.webChannels.map(item => item.id)}
-                    onChange={next => onConfigChange({ selectedWebChannels: next })} />
-                  <Picker title="云端模型（可当主导/辩手）"
-                    items={options.cloudMembers.map(item => ({ ...item, note: item.hasKey ? undefined : '无 Key' }))}
-                    selected={config.selectedCloudModels} all={options.cloudMembers.map(item => item.id)}
-                    onChange={next => onConfigChange({ selectedCloudModels: next })} />
-                </div>
+              {/* 云端 / 网页主导的参与名单已经贴在主导人下面；这里只补另一类，
+                  以及本地 / 混合档要同时看见两份名单的情况。 */}
+              {(config.executionMode === 'local' || config.executionMode === 'hybrid') && (
+                <>
+                  <h3>参与成员</h3>
+                  {options && (
+                    <div className="research-lists">
+                      <Picker title="网页通道（回答者）" items={webChannels}
+                        selected={config.selectedWebChannels} all={webChannels.map(item => item.id)}
+                        onChange={changeWebParticipants} />
+                      <Picker title="云端模型（可当主导/辩手）"
+                        items={cloudMembers.map(item => ({ ...item, note: item.hasKey ? undefined : '无 Key' }))}
+                        selected={config.selectedCloudModels} all={cloudMembers.map(item => item.id)}
+                        onChange={changeCloudParticipants} />
+                    </div>
+                  )}
+                  <p className="muted">
+                    不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
+                    知识空间的第一轮回答只问网页通道。之后的汇总、交锋与最终意见按归属规则执行。
+                    工程空间的第一意见由模型读证据给出；混合档下网页编排取上面勾选通道。
+                  </p>
+                </>
               )}
-              <p className="muted">
-                不勾任何一项表示「全部」；明确清空某一组表示这一轮不选它。
-                知识空间的第一轮回答只问网页通道。之后的汇总、交锋与最终意见按归属规则执行：网页主导只用网页，本地/云端主导只用各自模型，混合择一，不混用。
-                工程空间的第一意见由模型读证据给出；网页第二意见取上面勾选通道里的第一个。
-              </p>
-              <p className="muted">
-                云端服务的端点、模型和 API Key 统一在「设置 → 模型 → 云端 API 模型」里配；这一页只决定哪些成员参与，
-                没配 Key 的服务会标成不可用，不在这里填凭据。
-              </p>
+              {config.executionMode === 'cloud' && (
+                <p className="muted">
+                  云端服务的端点、模型和 API Key 在「设置 → 模型 → 云端 API 模型」里配；
+                  上面「参与的云端模型」只决定这一轮谁进场，没配 Key 的会标成不可用。
+                  工程空间里本地模型仍会按编排规则一起读证据；知识空间则只用上面勾选的云端模型做汇总与交锋。
+                </p>
+              )}
+              {config.executionMode === 'web' && (
+                <p className="muted">
+                  知识空间第一轮只问上面勾选的网页通道；汇总 / 交锋 / 最终意见也只用网页，不调本地或云端模型。
+                </p>
+              )}
             </>
           )}
 
@@ -836,13 +963,13 @@ function toggle(list: string[] | undefined, id: string, all: string[]): string[]
   return current.includes(id) ? current.filter(item => item !== id) : [...current, id];
 }
 
-  /**
-   * 勾选清单。
-   *
-   * `id` 是真正发给主进程的值，`label` 只是显示用的——云端同名模型出现在
-   * 两个服务里时必须能分开勾。
-   */
-  function Picker({ title, items, selected, all, onChange }: {
+/**
+ * 勾选清单。
+ *
+ * `id` 是真正发给主进程的值，`label` 只是显示用的——云端同名模型出现在
+ * 两个服务里时必须能分开勾。
+ */
+function Picker({ title, items, selected, all, onChange }: {
   title: string;
   items: Array<{ id: string; label: string; note?: string }>;
   selected: string[] | undefined;
