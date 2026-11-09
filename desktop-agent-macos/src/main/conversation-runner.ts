@@ -597,6 +597,7 @@ export class ConversationRunner {
         // 是最坏的谎。这一问的附件正文仍会作为材料进执行阶段。
         conversation.engineeringEvidence = [];
         conversation.engineeringAnalysis = undefined;
+        conversation.engineeringFileStats = [];
         conversation.updatedAt = Date.now();
         this.save(conversation);
         this.addMessage(conversation, {
@@ -612,6 +613,7 @@ export class ConversationRunner {
           );
           conversation.engineeringEvidence = scan.evidence;
           conversation.engineeringAnalysis = scan.analysis;
+          conversation.engineeringFileStats = scan.fileStats ?? [];
           conversation.updatedAt = Date.now();
           this.save(conversation);
           this.addMessage(conversation, {
@@ -772,6 +774,9 @@ export class ConversationRunner {
       // 结构关系必须一起递过去，否则 Phase E 的符号索引/调用点算完就丢了：
       // 真机第一轮就踩到了——材料里只有文件片段，主导人只能看到零散几行。
       ...(conversation.engineeringAnalysis ? { analysis: conversation.engineeringAnalysis } : {}),
+      // 行数/字节也必须带过去：材料是这里现拼的，扫描结果里的统计不落盘就会
+      // 在汇总阶段消失——真机 2026-11-09 因此「第一手答 213 行、汇总写无法确定」。
+      ...(conversation.engineeringFileStats ? { fileStats: conversation.engineeringFileStats } : {}),
       evidence,
       filesScanned: evidence.length,
       truncated: false,
@@ -951,6 +956,7 @@ export class ConversationRunner {
         if (!read.read) {
           conversation.engineeringEvidence = [];
           conversation.engineeringAnalysis = undefined;
+          conversation.engineeringFileStats = [];
           this.save(conversation);
           this.addMessage(conversation, {
             role: 'system',
@@ -965,6 +971,7 @@ export class ConversationRunner {
             );
             conversation.engineeringEvidence = scan.evidence;
             conversation.engineeringAnalysis = scan.analysis;
+            conversation.engineeringFileStats = scan.fileStats ?? [];
             this.save(conversation);
             this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
           } catch (error) {

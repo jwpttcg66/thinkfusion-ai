@@ -325,3 +325,75 @@ test('目录不像单个工程时，摘要不逐条列顶层文件', async () =>
   assert.match(normal.summary, /顶层：/);
   assert.match(normal.summary, /README\.md/);
 });
+
+test('数据格式的文本文件会被读，且材料里给出精确行数', async () => {
+  // 真机 2026-11-09：目录里只有 data.tsv，扫描按扩展名把它跳过了，模型只看到
+  // readme 里「这里没有 tsv」，于是答「无法确定」。表格/日志都是纯文本。
+  const data = mkdtempSync(join(tmpdir(), 'tf-data-'));
+  try {
+    const rows = ['id\tname'];
+    for (let index = 1; index <= 212; index += 1) rows.push(`${String(index)}\titem-${String(index)}`);
+    writeFileSync(join(data, 'data.tsv'), `${rows.join('\n')}\n`);
+    writeFileSync(join(data, 'run.log'), 'line-1\nline-2\n');
+
+    const scan = await scanProject(data, '这个 tsv 有多少行', {});
+    assert.ok(scan.fileStats?.some(item => item.path === 'data.tsv'), 'tsv 必须被当成文本读取');
+    const tsv = scan.fileStats.find(item => item.path === 'data.tsv');
+    assert.equal(tsv.lines, 213, '行数必须按整份文件算');
+
+    const material = engineeringMaterial(scan);
+    assert.match(material, /【本机文件统计】/);
+    assert.match(material, /data\.tsv：213 行/);
+    assert.match(material, /run\.log：2 行/);
+    assert.match(material, /不要说无法确定/);
+  } finally {
+    rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('问题里的具体标识由本机定位，补进证据', async () => {
+  // 真机 2026-11-09：问「item-137 的 amount 是多少」，本地模型只看到文件开头
+  // 7 行，答「无法确定」——它不会主动请求读文件。所以本机按标识先找。
+  const data = mkdtempSync(join(tmpdir(), 'tf-hit-'));
+  try {
+    const rows = ['id\tname\tamount'];
+    for (let index = 1; index <= 200; index += 1) rows.push(`${String(index)}\titem-${String(index)}\t${String(index * 7)}`);
+    writeFileSync(join(data, 'data.tsv'), `${rows.join('\n')}\n`);
+    writeFileSync(join(data, 'notes.md'), '# 说明\n这里只讲流程。\n');
+
+    // maxEvidence 设 0：不靠常规排名，才能单独证明「按标识定位」这一段逻辑。
+    const scan = await scanProject(data, 'item-137 的 amount 是多少', { maxEvidence: 0 });
+    const hit = scan.evidence.find(item => /本机按问题里的/.test(item.why));
+    assert.ok(hit, '带数字的标识必须由本机定位出一段证据');
+    assert.equal(hit.path, 'data.tsv');
+    assert.match(hit.excerpt, /item-137/);
+    assert.match(hit.excerpt, /959/, '命中那一段要包含这一行的值');
+    assert.match(scan.summary, /已由本机按内容定位/);
+
+    // 普通词不当标识，避免满目录命中
+    const plain = await scanProject(data, '这个表的 am 是多少', { maxEvidence: 0 });
+    assert.ok(!(plain.evidence ?? []).some(item => /本机按问题里的/.test(item.why)));
+  } finally {
+    rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('点名的文件也会把片段挪到标识那一行', async () => {
+  // 真机 2026-11-09：问「data.tsv 里 item-137 的 amount」，文件被点名选中了，
+  // 但片段取在第 1 行表头（表头里也有 amount），模型只能答「只看到前 7 行」。
+  const data = mkdtempSync(join(tmpdir(), 'tf-move-'));
+  try {
+    const rows = ['id\tname\tamount'];
+    for (let index = 1; index <= 200; index += 1) rows.push(`${String(index)}\titem-${String(index)}\t${String(index * 7)}`);
+    writeFileSync(join(data, 'data.tsv'), `${rows.join('\n')}\n`);
+
+    const scan = await scanProject(data, 'data.tsv 里 item-137 的 amount 是多少', {});
+    const item = scan.evidence.find(entry => entry.path === 'data.tsv');
+    assert.ok(item);
+    assert.match(item.excerpt, /item-137/, '片段必须落在标识那一行');
+    assert.match(item.excerpt, /959/);
+    assert.match(scan.summary, /已由本机按内容定位/);
+  } finally {
+    rmSync(data, { recursive: true, force: true });
+  }
+});

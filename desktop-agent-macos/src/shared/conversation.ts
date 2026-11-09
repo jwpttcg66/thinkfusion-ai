@@ -162,6 +162,14 @@ export interface Conversation {
   /** 工程分析真的读到过的文件片段。 */
   engineeringEvidence?: EngineeringEvidence[];
   /**
+   * 这一轮扫描到的每个文本文件的行数与字节数，由本机直接算出。
+   *
+   * 必须跟证据一起存：材料是执行阶段现拼的，不存下来「213 行」就在扫描结果
+   * 里活不过一轮——真机 2026-11-09 因此出现「第一手答了 213 行、汇总写成
+   * 无法确定」。
+   */
+  engineeringFileStats?: Array<{ path: string; lines: number; bytes: number }>;
+  /**
    * 这条会话里用户用「＋ · 添加文件」带过的文件（只存引用，不存正文）。
    *
    * 存下来是为了「＋ · 引用对话中的文件」能列出来：追问时用户不会把同一份

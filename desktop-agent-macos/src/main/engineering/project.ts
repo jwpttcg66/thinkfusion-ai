@@ -40,8 +40,32 @@ const TEXT_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.md', '.markdown',
   '.py', '.go', '.java', '.kt', '.rs', '.rb', '.php', '.c', '.h', '.cc', '.cpp',
   '.swift', '.sh', '.yml', '.yaml', '.toml', '.css', '.scss', '.html', '.vue',
-  '.sql', '.gradle', '.xml', '.txt', '.proto', '.graphql'
+  '.sql', '.gradle', '.xml', '.txt', '.proto', '.graphql',
+  // 数据与日志（2026-11-09 真机：目录里只有 data.tsv，扫描把整份文件跳过了，
+  // 模型只看到一句「这里没有 tsv」，于是答「无法确定」。表格、日志、结构化
+  // 文本都是可读的纯文本，不该按扩展名排除。）
+  '.tsv', '.csv', '.log', '.jsonl', '.ndjson', '.ini', '.conf', '.cfg', '.properties',
+  '.rst', '.tex', '.cs', '.dart', '.lua', '.scala', '.r', '.jl', '.ex', '.exs',
+  '.srt', '.vtt', '.diff', '.patch', '.ipynb'
 ]);
+
+/**
+ * 材料里最多列多少个文件的统计。
+ *
+ * 「这个文件有多少行」这类问题，正确做法不是让模型去估，而是把本机算好的
+ * 数字直接递过去；但列全部文件会把材料撑爆，所以只列最相关的一批。
+ */
+const FILE_STATS_LIMIT = 30;
+
+/** 按问题里的具体标识额外补几段证据。多补会挤掉正常排名的片段。 */
+const IDENTIFIER_EVIDENCE_LIMIT = 2;
+
+/** 材料里给人看的体积；精确字节数在同一行里没必要占位。 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export interface ScanOptions {
   maxDepth?: number;
@@ -64,6 +88,14 @@ export interface ProjectScan {
    * 关系」。前者能逐字核对，后者是结构线索，材料里会写明识别方法。
    */
   analysis?: string;
+  /**
+   * 目录里每个可读文本文件的大小与行数，由本机直接算出。
+   *
+   * 「这个文件有多少行 / 多大」不该由模型对着节选估：附件正文会被截断，证据
+   * 片段只有几行，估出来的数字一定是错的（真机 2026-11-09：tsv 有 213 行，
+   * 两个模型都说「无法确定」）。这里把精确数字一次给全。
+   */
+  fileStats?: Array<{ path: string; lines: number; bytes: number }>;
   filesScanned: number;
   truncated: boolean;
   warnings: string[];
@@ -260,6 +292,17 @@ export function termsOf(question: string): string[] {
   return [...terms].slice(0, 40);
 }
 
+/**
+ * 问题里的「具体标识」：带数字、或带点/下划线/连字符的拉丁词。
+ *
+ * 用于「item-137 那行是多少」这类只能靠真的定位到那一行才能答的问题。普通
+ * 词（get / data）会让检索命中满目录，所以只认这些有辨识度的。
+ */
+export function identifierTermsOf(question: string): string[] {
+  const words = question.toLowerCase().match(/[a-z][a-z0-9_.-]{2,}/g) ?? [];
+  return [...new Set(words.filter(word => /\d/.test(word) || /[._-]/.test(word)))].slice(0, 6);
+}
+
 function scoreOf(rel: string, content: string, terms: readonly string[]): number {
   const lowerRel = rel.toLowerCase();
   const lowerContent = content.toLowerCase();
@@ -396,6 +439,18 @@ export function engineeringMaterial(scan: ProjectScan): string {
       const named = scan.evidence.find(item => item.structure);
       if (!named?.structure) return [];
       return ['', structureSection(named)];
+    })(),
+    // 精确统计一次给全。模型对着节选估行数一定错，而「多少行/多少条/多大」
+    // 恰恰是工程空间最常见的问法。
+    ...(() => {
+      const stats = scan.fileStats ?? [];
+      if (stats.length === 0) return [];
+      return [
+        '',
+        `【本机文件统计】目录里读到的 ${String(stats.length)} 个文本文件，行数按换行计、字节按磁盘内容算，均由本机直接算出，不是估计：`,
+        ...stats.map(item => `- ${item.path}：${String(item.lines)} 行 / ${formatBytes(item.bytes)}`),
+        '用户问「多少行 / 多少条 / 多大」时直接用上面的数字，不要说无法确定。'
+      ];
     })(),
     '',
     '分析结论必须写明依据的是哪一条证据（路径:行号）；证据不足以支撑的地方写「无法确定」，不要凭常识补。'
@@ -541,6 +596,22 @@ export async function scanProject(
     (a, b) => (b.named ? 1 : 0) - (a.named ? 1 : 0) || b.score - a.score || a.rel.localeCompare(b.rel)
   );
   const picked = ranked.slice(0, maxEvidence);
+
+  // 问题里有具体标识（item-137、ERR_42、run.sh）时，**按标识去定位**，而不是
+  // 指望模型自己想到要读文件。真机 2026-11-09：问「item-137 的 amount 是多少」，
+  // 两个本地模型都只看到文件开头 7 行，答「无法确定」——它们不会主动请求读文件，
+  // 所以这一次由本机先找、把命中那几行递过去。
+  const identifiers = identifierTermsOf(question);
+  const identifierHits: Array<{ entry: FileEntry; term: string }> = [];
+  for (const term of identifiers) {
+    if (identifierHits.length >= IDENTIFIER_EVIDENCE_LIMIT) break;
+    const entry = ranked.find(
+      item => !picked.includes(item) && !identifierHits.some(hit => hit.entry === item) &&
+        item.content.toLowerCase().includes(term)
+    );
+    if (entry) identifierHits.push({ entry, term });
+  }
+
   const readAt = now();
   const evidence: EngineeringEvidence[] = picked.map(item => {
     const snippet = excerptFor(item.content, terms, item.named ?? false);
@@ -557,6 +628,35 @@ export async function scanProject(
       ...(item.structure ? { structure: item.structure } : {})
     };
   });
+  const located: string[] = [];
+  for (const hit of identifierHits) {
+    const snippet = excerptFor(hit.entry.content, [hit.term], true);
+    evidence.push({
+      path: hit.entry.rel,
+      line: snippet.line,
+      excerpt: snippet.excerpt,
+      sha256: hit.entry.sha256,
+      mtime: hit.entry.mtime,
+      readAt,
+      why: `本机按问题里的「${hit.term}」定位到这一段`
+    });
+    located.push(`「${hit.term}」→ ${hit.entry.rel}:${String(snippet.line)}`);
+  }
+
+  // 已经被选进证据、但片段落在文件开头时，同样要挪到标识那一行：真机上
+  // 「data.tsv 里 item-137 的 amount」就栽在这里——文件选了、片段是第 1 行表头，
+  // 模型只能回「只看到前 7 行」。
+  for (const term of identifiers) {
+    if (evidence.some(item => item.excerpt.toLowerCase().includes(term))) continue;
+    const entry = picked.find(candidate => candidate.content.toLowerCase().includes(term));
+    const slot = entry ? evidence.find(item => item.path === entry.rel) : undefined;
+    if (!entry || !slot) continue;
+    const snippet = excerptFor(entry.content, [term], true);
+    slot.line = snippet.line;
+    slot.excerpt = snippet.excerpt;
+    slot.why = `本机按问题里的「${term}」定位到这一段`;
+    located.push(`「${term}」→ ${slot.path}:${String(snippet.line)}`);
+  }
 
   const extSummary = [...byExtension.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -574,7 +674,10 @@ export async function scanProject(
     `工程根目录：${path.basename(root)}（绝对路径不进上下文）`,
     topLevelText,
     `可读文本文件 ${entries.length} 个 / 扫描到 ${filesSeen} 个；类型分布：${extSummary || '无'}`,
-    `本轮取用 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、') || '无'}`
+    `本轮取用 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、') || '无'}`,
+    ...(located.length > 0
+      ? [`问题里的标识已由本机按内容定位：${located.join('、')}（命中那一段已作为证据）`]
+      : [])
   ].join('\n');
 
   // 结构关系单独算一份：证据回答「读到了什么」，分析回答「它们怎么连起来」。
@@ -586,5 +689,13 @@ export async function scanProject(
     warnings.push('结构分析没有完成，本轮只有文件证据');
   }
 
-  return { root, summary, evidence, analysis, filesScanned: entries.length, truncated, warnings };
+  // 每个文件的精确统计。排序和证据一致（点名优先、相关度次之），只取前 N 个，
+  // 免得材料里堆几十行没人看。
+  const fileStats = ranked.slice(0, FILE_STATS_LIMIT).map(item => ({
+    path: item.rel,
+    lines: countLines(Buffer.from(item.content, 'utf8')),
+    bytes: Buffer.byteLength(item.content, 'utf8')
+  }));
+
+  return { root, summary, evidence, analysis, fileStats, filesScanned: entries.length, truncated, warnings };
 }
