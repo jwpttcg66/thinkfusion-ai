@@ -6,6 +6,7 @@ import { normalizeExecutionConfig } from '../shared/conversation';
 import { classifyIntent } from '../shared/intent';
 import { toRouteTaskKind, type ModelRoute, type RouteTaskKind } from '../shared/model-route';
 import {
+  needsProjectEvidence,
   normalizeDebateMode,
   normalizeWorkspaceMode,
   routingLabel,
@@ -580,27 +581,48 @@ export class ConversationRunner {
       // 工程空间的第一手回答由本地/云端模型直接读证据给出（2026-11-08 用户
       // 裁决：工程模式不优先问网页）；网页读不到本机文件，只在没有可用模型
       // 时兜底。证据只进模型的那条问题，不改变用户的提问原话。
-      try {
-        const scan = await mainCapabilities.execute<ProjectScan>(
-          'project.scan',
-          { root: input.workspaceRoot!, question: text },
-          {}
-        );
-        conversation.engineeringEvidence = scan.evidence;
-        conversation.engineeringAnalysis = scan.analysis;
+      //
+      // 但**只在需要时读**（2026-11-09 用户裁决）：只附了一份文件问它有多少行，
+      // 没必要把整个工程目录翻一遍。
+      const read = needsProjectEvidence({
+        text,
+        attachmentCount: attachments.length,
+        modelReadsProject: routing.readsProject
+      });
+      if (!read.read) {
+        // 旧证据必须清掉：材料里写着「本轮真实读取」，拿上一轮的文件冒充这一轮
+        // 是最坏的谎。这一问的附件正文仍会作为材料进执行阶段。
+        conversation.engineeringEvidence = [];
+        conversation.engineeringAnalysis = undefined;
         conversation.updatedAt = Date.now();
         this.save(conversation);
         this.addMessage(conversation, {
           role: 'system',
-          text: [
-            `已读取工程目录，${routingLabel(routing)}依据来自真实文件：`,
-            scan.summary,
-            ...(scan.warnings.length > 0 ? [`注意：${scan.warnings.join('；')}`] : [])
-          ].join('\n')
+          text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
         });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        return this.awaitUser(conversation, `没能读取工程目录（${detail}）。没有真实证据时不会让模型猜架构，请重新选择项目。`);
+      } else {
+        try {
+          const scan = await mainCapabilities.execute<ProjectScan>(
+            'project.scan',
+            { root: input.workspaceRoot!, question: text },
+            {}
+          );
+          conversation.engineeringEvidence = scan.evidence;
+          conversation.engineeringAnalysis = scan.analysis;
+          conversation.updatedAt = Date.now();
+          this.save(conversation);
+          this.addMessage(conversation, {
+            role: 'system',
+            text: [
+              `已读取工程目录，${routingLabel(routing)}依据来自真实文件：`,
+              scan.summary,
+              ...(scan.warnings.length > 0 ? [`注意：${scan.warnings.join('；')}`] : [])
+            ].join('\n')
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          return this.awaitUser(conversation, `没能读取工程目录（${detail}）。没有真实证据时不会让模型猜架构，请重新选择项目。`);
+        }
       }
     }
 
@@ -854,19 +876,35 @@ export class ConversationRunner {
         return this.awaitUser(conversation, `这次没有直接执行：${routing.reason}。可明确选「本次按分析」或「本次按实施」再发一次。`);
       }
       if (routing.taskKind === 'engineering_analysis' && conversation.workspaceRoot) {
-        try {
-          const scan = await mainCapabilities.execute<ProjectScan>(
-            'project.scan',
-            { root: conversation.workspaceRoot, question },
-            {}
-          );
-          conversation.engineeringEvidence = scan.evidence;
-          conversation.engineeringAnalysis = scan.analysis;
+        // 和第一问同一条规矩：不需要看工程时不翻目录。
+        const read = needsProjectEvidence({
+          text: question,
+          attachmentCount: attachments.length,
+          modelReadsProject: routing.readsProject
+        });
+        if (!read.read) {
+          conversation.engineeringEvidence = [];
+          conversation.engineeringAnalysis = undefined;
           this.save(conversation);
-          this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          return this.awaitUser(conversation, `没能读取工程目录（${detail}），这一轮不凭猜测回答。`);
+          this.addMessage(conversation, {
+            role: 'system',
+            text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
+          });
+        } else {
+          try {
+            const scan = await mainCapabilities.execute<ProjectScan>(
+              'project.scan',
+              { root: conversation.workspaceRoot, question },
+              {}
+            );
+            conversation.engineeringEvidence = scan.evidence;
+            conversation.engineeringAnalysis = scan.analysis;
+            this.save(conversation);
+            this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            return this.awaitUser(conversation, `没能读取工程目录（${detail}），这一轮不凭猜测回答。`);
+          }
         }
       }
     }

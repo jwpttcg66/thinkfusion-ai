@@ -302,3 +302,26 @@ test('没有可用模型时 Review 如实标成规则版，不假装模型裁决
   assert.equal(verdict.needsFix, false);
   assert.equal(verdict.reviewer, '本机规则');
 });
+
+test('目录不像单个工程时，摘要不逐条列顶层文件', async () => {
+  // 真机 2026-11-09：工程目录选的是 ~/Downloads，用户只附了一份 md 问行数，
+  // 转录里却列出 20 条顶层文件（DS_Store、dmg、pkg…），看着像读了一堆相关文件。
+  const big = mkdtempSync(join(tmpdir(), 'tf-big-'));
+  try {
+    for (let index = 0; index < 220; index += 1) {
+      writeFileSync(join(big, `dump-${String(index).padStart(3, '0')}.txt`), 'placeholder\n');
+    }
+    const scan = await scanProject(big, '这个文件有多少行', {});
+    assert.match(scan.summary, /未逐条列出/, '文件太多时不该逐条列顶层');
+    // 只要求「顶层：」那一行不点名；「本轮取用」那行仍要写清读了哪几个片段。
+    const topLine = scan.summary.split('\n').find(line => line.startsWith('顶层：')) ?? '';
+    assert.doesNotMatch(topLine, /dump-000\.txt/, '顶层文件名不该出现在摘要里');
+  } finally {
+    rmSync(big, { recursive: true, force: true });
+  }
+
+  // 真正的工程照旧列出来，别因为这条把有用信息也省了
+  const normal = await scanProject(root, '虚拟线程在哪里用', {});
+  assert.match(normal.summary, /顶层：/);
+  assert.match(normal.summary, /README\.md/);
+});

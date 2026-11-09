@@ -42,6 +42,13 @@ export interface TaskRouting {
   /** 需要用户补信息：缺项目、或表达含糊。 */
   needsProject?: boolean;
   needsClarification?: boolean;
+  /**
+   * 这一问要不要读工程目录里的文件。
+   *
+   * 只在 `source === 'model'` 且模型明确给了答案时才有值；`undefined` 表示模型
+   * 没判（网页主导 / 超时 / 没接线），由 `needsProjectEvidence()` 按规则兜底。
+   */
+  readsProject?: boolean;
 }
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = 'knowledge';
@@ -260,4 +267,52 @@ export function routingLabel(routing: TaskRouting | null | undefined): string {
 
 export function workspaceLabel(mode: WorkspaceMode): string {
   return mode === 'engineering' ? '工程工作空间' : '知识学习空间';
+}
+
+// --- 要不要读工程目录 -------------------------------------------------------
+
+/**
+ * 一句话里提到了工程本身（而不是随附的那份文件）时，才算「要看工程」。
+ *
+ * 只用于**模型没给结论时的兜底**，不是主判据。刻意收窄：宁可多读一次工程，
+ * 也不要因为漏了一个同义词而让模型凭空答工程问题。
+ */
+const PROJECT_TERMS =
+  /工程|项目|仓库|代码|源码|模块|函数|接口|调用|依赖|目录|文件树|结构|架构|配置|实现|编译|测试|本机|workspace|repo\b/i;
+
+export interface ProjectNeedInput {
+  /** 用户原话（不含附件正文）。 */
+  text: string;
+  /** 这一问随行附件数量。 */
+  attachmentCount: number;
+  /** 模型判定给的结论；`undefined` / `null` 表示模型没给。 */
+  modelReadsProject?: boolean | null;
+}
+
+/**
+ * 这一问要不要先读工程目录。
+ *
+ * 2026-11-09 用户裁决：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
+ * 真机现场：只附了一份 md 问「这个文件有多少行」，却把整个 Downloads 扫了一遍
+ * （257 项、读进 69 个文件），转录里多出 20 条顶层文件清单，还把无关的
+ * readme.txt 递给了汇总，反过来把附件里的事实否掉。
+ *
+ * 顺序：模型说了算 → 模型没给时只省「附了文件、又没提工程」这一种 →
+ * 其余照旧读。**省掉扫描是省事，不是省证据**：一旦模型或规则认为要看工程，
+ * 证据照旧真实读取，绝不拿上一轮的旧证据顶。
+ */
+export function needsProjectEvidence(input: ProjectNeedInput): { read: boolean; reason: string } {
+  if (input.modelReadsProject === true) {
+    return { read: true, reason: '模型判定这一问要看工程里的文件' };
+  }
+  if (input.modelReadsProject === false) {
+    return { read: false, reason: '模型判定只看随附文件就能答' };
+  }
+  if (input.attachmentCount > 0 && !PROJECT_TERMS.test(input.text)) {
+    return {
+      read: false,
+      reason: `这一问只问了随附的 ${String(input.attachmentCount)} 个文件，没有提到工程`
+    };
+  }
+  return { read: true, reason: '按规则读取工程目录' };
 }

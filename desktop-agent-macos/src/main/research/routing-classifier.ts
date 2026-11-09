@@ -23,6 +23,13 @@ export type RoutingKind = 'analysis' | 'execution' | 'clarify';
 export interface RoutingVerdict {
   kind: RoutingKind;
   reason: string;
+  /**
+   * 回答这句话需不需要读工程目录里的文件。
+   *
+   * `null` = 模型没答这一项（老模型只说 kind，或者只回了 kind+reason），
+   * 调用方按规则兜底，不当成 false。
+   */
+  readsProject: boolean | null;
 }
 
 /** 判路由给 4 秒：它是提问前的一次小调用，宁可退回规则也不许拖住提问。 */
@@ -41,8 +48,11 @@ export const ROUTING_SYSTEM = [
   'execution —— 要落到文件或系统动作：修改、实现、新建、删除、重命名、重构、修复、运行命令/测试、截屏、打开应用。',
   'clarify —— 只有在这句话根本看不出要做什么（例如「嗯」「这个」）时才用。',
   '判断顺序：先看有没有改动意图，再看是不是只读；两者同时出现且分不清主次时才算 clarify。',
+  '另外判断 read_project：回答这句话要不要读工程目录里的文件。',
+  '—— 只问随附文件本身（有多少行、里面写了什么、按这个命令跑）→ false；',
+  '—— 要结合工程看（这个模块怎么实现、调用链、改哪里）或没附文件 → true。',
   '只输出一行 JSON，不要代码块、不要多余文字：',
-  '{"kind":"analysis|execution|clarify","reason":"不超过20个字的中文理由"}'
+  '{"kind":"analysis|execution|clarify","read_project":true|false,"reason":"不超过20个字的中文理由"}'
 ].join('\n');
 
 /** 判定时每份附件最多带多少字。判定只需要看出「这是命令清单 / 需求 / 日志」。 */
@@ -95,11 +105,29 @@ export function parseRoutingVerdict(raw: string): RoutingVerdict | null {
     return null;
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const value = parsed as { kind?: unknown; reason?: unknown };
+  const value = parsed as { kind?: unknown; reason?: unknown; read_project?: unknown };
   const kind = normalizeKind(value.kind);
   if (!kind) return null;
   const reason = typeof value.reason === 'string' ? value.reason.trim().slice(0, 60) : '';
-  return { kind, reason: reason || '模型未给出理由' };
+  return {
+    kind,
+    reason: reason || '模型未给出理由',
+    readsProject: normalizeBoolean(value.read_project)
+  };
+}
+
+/**
+ * `read_project` 的宽松解析：认 true / "true" / "yes" / "是"，认 false / "false" /
+ * "no" / "否"，其余（没写、写了个问号、写成 null）一律 null——**不认识就是没答**，
+ * 不能默认成 false 把工程证据省掉。
+ */
+function normalizeBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return null;
+  const text = value.trim().toLowerCase();
+  if (['true', 'yes', 'y', '1', '是', '需要'].includes(text)) return true;
+  if (['false', 'no', 'n', '0', '否', '不需要'].includes(text)) return false;
+  return null;
 }
 
 /** 模型偶尔会写中文或大小写变体，这里收敛成三个固定值。 */
@@ -120,6 +148,9 @@ function normalizeKind(value: unknown): RoutingKind | null {
  */
 export function applyRoutingVerdict(rule: TaskRouting, verdict: RoutingVerdict): TaskRouting {
   const reason = `模型判定：${verdict.reason}`;
+  // 模型没答 read_project 时留空，交给 `needsProjectEvidence()` 按规则兜底；
+  // 写成 false 会把工程证据整段省掉，那是最危险的方向。
+  const readsProject = verdict.readsProject ?? undefined;
   if (verdict.kind === 'clarify') {
     return {
       ...rule,
@@ -129,7 +160,8 @@ export function applyRoutingVerdict(rule: TaskRouting, verdict: RoutingVerdict):
       source: 'model',
       signals: [],
       stages: undefined,
-      needsClarification: true
+      needsClarification: true,
+      ...(readsProject === undefined ? {} : { readsProject })
     };
   }
   return {
@@ -140,6 +172,7 @@ export function applyRoutingVerdict(rule: TaskRouting, verdict: RoutingVerdict):
     source: 'model',
     signals: [],
     // 模型判成实施时，「先分析再修改」的两阶段记录仍然有效。
-    needsClarification: undefined
+    needsClarification: undefined,
+    ...(readsProject === undefined ? {} : { readsProject })
   };
 }

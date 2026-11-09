@@ -19,7 +19,7 @@ import {
   parseRoutingVerdict,
   ROUTING_SYSTEM
 } from '../out-test/main/research/routing-classifier.js';
-import { routeTask } from '../out-test/shared/workspace.js';
+import { needsProjectEvidence, routeTask } from '../out-test/shared/workspace.js';
 
 // ---------------------------------------------------------------------------
 // 纯函数
@@ -67,12 +67,25 @@ test('分类器的 system 只讲三类与输出格式，不含例子堆砌', () 
 
 test('解析：裸 JSON、代码块、中文 kind、大小写都能认', () => {
   assert.deepEqual(parseRoutingVerdict('{"kind":"analysis","reason":"只是看看"}'), {
-    kind: 'analysis', reason: '只是看看'
+    kind: 'analysis', reason: '只是看看', readsProject: null
   });
   assert.equal(parseRoutingVerdict('```json\n{"kind":"execution","reason":"要改文件"}\n```').kind, 'execution');
   assert.equal(parseRoutingVerdict('{"kind":"分析","reason":"只读"}').kind, 'analysis');
   assert.equal(parseRoutingVerdict('{"kind":"EXECUTION","reason":"改"}').kind, 'execution');
   assert.equal(parseRoutingVerdict('好的：{"kind":"clarify","reason":"看不出"} 完毕').kind, 'clarify');
+});
+
+test('read_project：认 true/false 与中英文变体，没写就是 null（不默认成 false）', () => {
+  // 用户 2026-11-09：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
+  // 这一项决定要不要翻工程目录。解析时必须区分「模型说不用读」和「模型没说」，
+  // 后者要走规则兜底——默认成 false 会把工程证据整段丢掉。
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","read_project":false,"reason":"只看文件"}').readsProject, false);
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","read_project":true,"reason":"看工程"}').readsProject, true);
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","read_project":"false","reason":"x"}').readsProject, false);
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","read_project":"不需要","reason":"x"}').readsProject, false);
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","reason":"没答这一项"}').readsProject, null);
+  assert.equal(parseRoutingVerdict('{"kind":"analysis","read_project":"maybe","reason":"x"}').readsProject, null);
+  assert.match(ROUTING_SYSTEM, /read_project/, 'system 里必须说明这一项，否则模型不会答');
 });
 
 test('解析失败一律 null，绝不把「认不出」当成「分析」', () => {
@@ -100,6 +113,38 @@ test('模型结论套回去：只改判定与理由，规则算出的 needsProje
   assert.equal(clarify.taskKind, 'clarify');
   assert.equal(clarify.needsClarification, true);
   assert.deepEqual(clarify.signals, []);
+});
+
+test('模型说不用读工程才不读；没说（null）绝不写成 false', () => {
+  const rule = routeTask({ text: '这个文件有多少行', workspaceMode: 'engineering', hasProject: true });
+  assert.equal(
+    applyRoutingVerdict(rule, { kind: 'analysis', reason: '只看文件', readsProject: false }).readsProject,
+    false
+  );
+  assert.equal(
+    applyRoutingVerdict(rule, { kind: 'analysis', reason: '没说', readsProject: null }).readsProject,
+    undefined,
+    '没答这一项时要留空，交给规则兜底'
+  );
+});
+
+test('要不要读工程目录：模型优先，模型没给时只省「附了文件又没提工程」', () => {
+  // 真机原话：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
+  // 一条 md 问行数却把整个 Downloads 扫了一遍，20 条顶层文件和 readme.txt
+  // 一起进了转录，最后还反过来把附件里的事实否掉。
+  assert.deepEqual(
+    needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 1, modelReadsProject: false }).read,
+    false
+  );
+  assert.deepEqual(
+    needsProjectEvidence({ text: '这个模块怎么实现的', attachmentCount: 1, modelReadsProject: true }).read,
+    true
+  );
+  // 模型没给：附了文件、没提工程 → 省掉；提到工程 → 照读
+  assert.equal(needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 1 }).read, false);
+  assert.equal(needsProjectEvidence({ text: '这份日志和当前工程的实现一致吗', attachmentCount: 1 }).read, true);
+  // 没有附件：照旧读工程
+  assert.equal(needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 0 }).read, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -210,6 +255,53 @@ test('用户在输入框明确选了「本次按分析」就不问模型', async
   assert.equal(called, 0);
   assert.equal(conversation.routing.taskKind, 'engineering_analysis');
   assert.equal(conversation.routing.source, 'user_selected');
+});
+
+test('只问了附件时不去翻工程目录——真机那次扫了整个 Downloads', async () => {
+  // 用户原话：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
+  // 用一个不存在的工程目录当判据：真去扫就会报「没能读取工程目录」，
+  // 反过来证明它确实没扫。
+  const attachment = {
+    id: 'a1',
+    name: '制定辩论主题方案.md',
+    path: '/tmp/制定辩论主题方案.md',
+    bytes: 120,
+    addedAt: 0,
+    chars: 40,
+    totalChars: 40,
+    truncated: false,
+    text: '本文件是唯一权威事实来源。\n总行数：414068'
+  };
+  const runner = makeRunner({
+    routeWithModel: async () => ({ kind: 'analysis', reason: '只看文件', readsProject: false }),
+    readAttachments: async () => [attachment]
+  });
+  const started = await runner.start({
+    text: '这个文件有多少行',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/definitely-not-a-project-dir',
+    attachments: ['/tmp/制定辩论主题方案.md'],
+    executionConfig: { executionMode: 'local' }
+  });
+  const texts = runner.messages(started.conversationId).map(message => message.text).join('\n');
+  assert.match(texts, /没有读取工程目录/);
+  assert.doesNotMatch(texts, /已读取工程目录/, '不该去扫工程目录');
+  assert.doesNotMatch(texts, /没能读取工程目录/, '根本没扫，就不该有「读失败」');
+});
+
+test('模型说要看工程时照旧真读，不拿旧证据糊弄', async () => {
+  const runner = makeRunner({
+    routeWithModel: async () => ({ kind: 'analysis', reason: '要对照工程', readsProject: true })
+  });
+  const started = await runner.start({
+    text: '这个模块怎么实现的',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/definitely-not-a-project-dir',
+    executionConfig: { executionMode: 'local' }
+  });
+  const texts = runner.messages(started.conversationId).map(message => message.text).join('\n');
+  assert.match(texts, /没能读取工程目录/, '要看工程就必须真读，读不到就如实说读不到');
+  assert.doesNotMatch(texts, /没有读取工程目录/);
 });
 
 test('还没选工程目录不问模型：判了也跑不了，先让用户选目录', async () => {

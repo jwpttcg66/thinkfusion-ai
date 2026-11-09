@@ -125,9 +125,16 @@ function countLines(buffer: Buffer): number {
 
 /** 点名文件允许整读的最大体积；再大的文件逐行数数也不划算了。 */
 const NAMED_MAX_BYTES = 32 * 1024 * 1024;
-
 /** 结构统计最多扫这么多字节：32MB 的行正则要几百毫秒，宁可只统计前缀并注明。 */
 const STRUCTURE_MAX_BYTES = 8 * 1024 * 1024;
+/**
+ * 扫描到的文件超过这个数，就不再在摘要里逐条列顶层条目。
+ *
+ * 真机 2026-11-09：工程目录选的是 `~/Downloads`，用户只附了一份 md 问行数，
+ * 转录里却列出 20 条顶层文件（DS_Store、dmg、pkg…）。那种目录不是单个工程，
+ * 逐条列出来只是噪音。
+ */
+const TOP_LEVEL_LIST_LIMIT = 200;
 /** 材料里最多列这么多种标签；总数与种类数仍是精确值。 */
 const STRUCTURE_TAG_LIMIT = 24;
 const STRUCTURE_ATTR_LIMIT = 12;
@@ -556,9 +563,16 @@ export async function scanProject(
     .slice(0, 8)
     .map(([ext, count]) => `${ext}×${count}`)
     .join('、');
+  // 真机 2026-11-09：工程目录选的是 ~/Downloads，用户只附了一份 md 问行数，
+  // 转录里却列出 20 条顶层文件（DS_Store、dmg、pkg…）。那种目录不是单个工程，
+  // 逐条列出来只是噪音，还会让人以为「读了一堆相关文件」。超过这个数就不列。
+  const topLevelText =
+    filesSeen > TOP_LEVEL_LIST_LIMIT
+      ? `顶层：扫描到 ${String(filesSeen)} 项，未逐条列出（这个目录不像单个工程）`
+      : `顶层：${topLevel.slice(0, 20).join('、') || '（空）'}`;
   const summary = [
     `工程根目录：${path.basename(root)}（绝对路径不进上下文）`,
-    `顶层：${topLevel.slice(0, 20).join('、') || '（空）'}`,
+    topLevelText,
     `可读文本文件 ${entries.length} 个 / 扫描到 ${filesSeen} 个；类型分布：${extSummary || '无'}`,
     `本轮取用 ${evidence.length} 个文件片段：${evidence.map(item => `${item.path}:${item.line}`).join('、') || '无'}`
   ].join('\n');
