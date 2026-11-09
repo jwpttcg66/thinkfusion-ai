@@ -45,17 +45,18 @@ const source = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'u
 // 1. 清单
 // ---------------------------------------------------------------------------
 
-test('一份清单收齐 56 个 Runtime 工具与 4 个主进程能力，合计 60，id 不重复', () => {
-  assert.equal(CAPABILITY_CATALOG.length, 60);
+test('一份清单收齐 56 个 Runtime 工具与 5 个主进程能力，合计 61，id 不重复', () => {
+  assert.equal(CAPABILITY_CATALOG.length, 61);
   assert.equal(new Set(CAPABILITY_IDS).size, CAPABILITY_IDS.length);
   assert.deepEqual([...RUNTIME_CAPABILITY_IDS], [...TOOL_NAMES]);
   assert.deepEqual([...MAIN_CAPABILITY_IDS], [
     'project.scan',
+    'file.attach',
     'web.search.browser',
     'document.export',
     'page.save-document'
   ]);
-  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 54);
+  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 55);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'network').length, 4);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'save').length, 2);
   for (const meta of CAPABILITY_CATALOG) {
@@ -89,6 +90,7 @@ test('权限与能力相符，不是所有插件一个档', () => {
   assert.equal(capabilityMeta('fs.writeFile').permission, 'workspace-write');
   assert.equal(capabilityMeta('process.kill').permission, 'danger-full-access');
   assert.equal(capabilityMeta('project.scan').permission, 'read-only');
+  assert.equal(capabilityMeta('file.attach').permission, 'read-only');
   assert.equal(capabilityMeta('document.export').permission, 'workspace-write');
   assert.equal(capabilityMeta('page.save-document').permission, 'workspace-write');
   assert.equal(capabilityMeta('document.export').host, 'main');
@@ -107,7 +109,7 @@ test('停用列表只认清单里的 id，未知项与重复项都丢掉', () =>
 
 test('设置页视图带开关与装载状态，默认全开', () => {
   const all = describeCapabilities([]);
-  assert.equal(all.length, 60);
+  assert.equal(all.length, 61);
   assert.ok(all.every(item => item.enabled && item.registered));
   const off = describeCapabilities(['document.export'], ['fs.readFile']);
   const exported = off.find(item => item.id === 'document.export');
@@ -169,8 +171,35 @@ test('Runtime 注册了全部 56 个工具，插件能真读本机目录', async
   assert.ok(JSON.stringify(outcome.result).includes('README.md'));
 });
 
-test('主进程注册了工程读取、浏览器联网搜索与两个保存插件', () => {
+test('主进程注册了工程读取、附件读取、浏览器联网搜索与两个保存插件', () => {
   assert.deepEqual([...mainCapabilities.ids()].sort(), [...MAIN_CAPABILITY_IDS].sort());
+});
+
+test('file.attach 插件按宿主注入的读盘实现执行，停用即明确报错', async () => {
+  const paths = ['/tmp/不存在也行.md'];
+  const context = {
+    readAttachments: seen => seen.map(path => ({
+      id: 'x',
+      name: 'a.md',
+      path,
+      bytes: 3,
+      addedAt: 0,
+      text: 'abc',
+      chars: 3,
+      totalChars: 3,
+      truncated: false
+    }))
+  };
+  const list = await mainCapabilities.execute('file.attach', { paths }, context);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].text, 'abc');
+  await assert.rejects(mainCapabilities.execute('file.attach', { paths: [] }, context), /至少一个文件路径/);
+  // 没注入实现的宿主必须报错，而不是「没有附件」。
+  await assert.rejects(mainCapabilities.execute('file.attach', { paths }, {}), /宿主没有提供所需依赖/);
+
+  setDisabledCapabilities(['file.attach']);
+  await assert.rejects(mainCapabilities.execute('file.attach', { paths }, context), /已停用：读取附件文件/);
+  setDisabledCapabilities([]);
 });
 
 test('web.search.browser 插件按宿主注入的浏览器后端执行，停用即明确报错', async () => {

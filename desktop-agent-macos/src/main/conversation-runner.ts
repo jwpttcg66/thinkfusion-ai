@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { describeAttachments, composeQuestionWithAttachments, dedupeAttachments, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, Synthesis } from '../shared/conversation';
 import { normalizeExecutionConfig } from '../shared/conversation';
@@ -181,6 +182,14 @@ export interface ConversationDeps {
     note: string;
     loaded: string[];
   };
+  /**
+   * 「＋ · 添加文件」挑中的路径 → 这一刻的正文。
+   *
+   * 注入而不 import：读盘、体积上限、二进制判定都是主进程的事（还挂着
+   * `file.attach` 这个能力插件的开关），runner 只拿到可以拼进问题的那几段。
+   * 不传 = 这一轮没有附件，老调用与全部老测试行为不变。
+   */
+  readAttachments?: (paths: readonly string[]) => Promise<AttachmentText[]>;
   /**
    * 跑一场「会话内辩论」：主导人指定辩题后，由本地/云端模型多轮交锋。
    *
@@ -434,9 +443,16 @@ export class ConversationRunner {
     /** V2.1：不给就是知识空间，旧调用（含全部老测试）行为完全不变。 */
     workspaceMode?: WorkspaceMode;
     taskKindOverride?: EngineeringTaskKind;
+    /** 「＋ · 添加文件」挑中的文件路径；不传就是纯文字提问。 */
+    attachments?: string[];
   }): Promise<Conversation> {
     const text = input.text.trim();
     if (!text) throw new Error('先写一句你想研究或完成的事情。');
+
+    // 附件读盘放在最前面：读不出来就不建会话、不发问。建完再失败会留下一个
+    // 「有提问、没回答」的空壳，用户只能自己删。
+    const attachments = await this.attachmentTexts(input.attachments);
+    const outgoing = composeQuestionWithAttachments(text, attachments);
 
     const intent = classifyIntent(text);
     const workspaceMode = normalizeWorkspaceMode(input.workspaceMode);
@@ -473,14 +489,20 @@ export class ConversationRunner {
     // 打算问谁、为什么是他」。
     this.applyModelRoute(conversation, toRouteTaskKind(routing?.taskKind ?? intent.kind));
 
+    this.rememberAttachments(conversation, attachments);
     this.save(conversation);
     this.deps.emit({ type: 'conversation.created', at: now, conversation });
     this.addMessage(conversation, { role: 'user', text });
+    // 附件正文不写进提问气泡（那是一屏文件），但「这一问带了哪些文件」必须
+    // 看得见——否则用户以为附件没送到，或者以为模型读过一份它其实没读到的文件。
+    if (attachments.length > 0) {
+      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
+    }
 
     const handoff = async (label: string): Promise<Conversation> => {
       try {
         const task = await this.deps.submitWorkspace({
-          prompt: text,
+          prompt: outgoing,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
           workspaceRoot: input.workspaceRoot,
           // 方案评审辩论跟着这条会话的辩论开关走：用户关掉时不能因为「进入执行
@@ -553,7 +575,7 @@ export class ConversationRunner {
     // Returned immediately: a web answer can take a minute, and an IPC call
     // that blocks for a minute is indistinguishable from a hung app. Progress
     // arrives as events.
-    void this.run(conversation, text, { followup: false }).catch(error =>
+    void this.run(conversation, outgoing, { followup: false }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;
@@ -626,6 +648,38 @@ export class ConversationRunner {
   }
 
   /**
+   * 这一问挑中的文件，读成正文。
+   *
+   * 失败就整条提问不发：读不出来还发一句「详见附件」，用户会以为附件送到了。
+   * 没有附件时返回空数组，随后拼出来的问题与原来逐字相同。
+   */
+  private async attachmentTexts(paths: readonly string[] | undefined): Promise<AttachmentText[]> {
+    if (!paths || paths.length === 0) return [];
+    if (!this.deps.readAttachments) {
+      throw new Error('附件读取没有接线：这一问带了文件，但主进程没有注入读取实现。');
+    }
+    return this.deps.readAttachments(paths);
+  }
+
+  /**
+   * 把这一轮带过的文件记到会话上（只记引用，不记正文）。
+   *
+   * 「＋ · 引用对话中的文件」要靠它列出来；正文在每次发送时重新读盘。
+   */
+  private rememberAttachments(conversation: Conversation, attachments: readonly AttachmentText[]): void {
+    if (attachments.length === 0) return;
+    const refs: ConversationAttachment[] = attachments.map(item => ({
+      id: item.id,
+      name: item.name,
+      path: item.path,
+      bytes: item.bytes,
+      addedAt: item.addedAt
+    }));
+    conversation.attachments = dedupeAttachments([...(conversation.attachments ?? []), ...refs]);
+    conversation.updatedAt = Date.now();
+  }
+
+  /**
    * 在已有会话里再问一句。
    *
    * `executionConfig` 是**这一次**用的研究设置，不是那个会话创建时的存档。
@@ -638,7 +692,8 @@ export class ConversationRunner {
     conversationId: string,
     text: string,
     executionConfig?: Partial<ConversationExecutionConfig>,
-    taskKindOverride?: EngineeringTaskKind
+    taskKindOverride?: EngineeringTaskKind,
+    attachmentPaths?: readonly string[]
   ): Promise<Conversation> {
     const conversation = this.deps.store.getConversation(conversationId);
     if (!conversation) throw new Error('对话不存在');
@@ -654,6 +709,10 @@ export class ConversationRunner {
       throw new Error('上一轮还在等回答。等它结束，或先点「停止等待」，再发下一句。');
     }
 
+    // 附件同样在写消息之前读：读不出来就不该留下一个「问过了」的气泡。
+    const attachments = await this.attachmentTexts(attachmentPaths);
+    const outgoing = composeQuestionWithAttachments(question, attachments);
+
     if (executionConfig) {
       // 整份替换，不做合并：界面里的「研究设置」本身就是完整的一份，合并会把
       // 用户刚清掉的选项（比如从 Kimi 改回「自动」）从旧配置里悄悄带回来。
@@ -665,6 +724,10 @@ export class ConversationRunner {
 
     this.cancelled.delete(conversationId);
     this.addMessage(conversation, { role: 'user', text: question });
+    if (attachments.length > 0) {
+      this.rememberAttachments(conversation, attachments);
+      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
+    }
 
     // V2.1：工程会话的追问沿用创建时的空间与项目，不允许临时换目录。
     // 「先分析再修改」的第二阶段靠这里：用户在输入框明确选「本次按实施」，
@@ -682,7 +745,7 @@ export class ConversationRunner {
       if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
         try {
           const task = await this.deps.submitWorkspace({
-            prompt: question,
+            prompt: outgoing,
             permissionPreset: 'workspace-write',
             workspaceRoot: conversation.workspaceRoot,
             planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
@@ -728,7 +791,7 @@ export class ConversationRunner {
     );
     this.save(conversation);
 
-    void this.run(conversation, question, { followup: true }).catch(error =>
+    void this.run(conversation, outgoing, { followup: true }).catch(error =>
       this.fail(conversation, error)
     );
     return conversation;

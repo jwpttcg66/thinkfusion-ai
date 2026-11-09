@@ -58,6 +58,7 @@ const api: AgentApi = {
   setCapabilityEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('capabilities:set', { id, enabled }),
   getExpertise: () => ipcRenderer.invoke('expertise:list'),
   setExpertiseEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('expertise:set', { id, enabled }),
+  chooseAttachments: () => ipcRenderer.invoke('attachment:choose'),
   getChannelStatuses: () => ipcRenderer.invoke('channel:statuses'),
   getExecutionOptions: () => ipcRenderer.invoke('app:execution-options'),
   setApiKey: (input: { id: string; key: string }) => ipcRenderer.invoke('app:set-api-key', input),

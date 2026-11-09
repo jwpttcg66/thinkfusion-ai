@@ -9,8 +9,8 @@
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
  * Runtime 进程装载 56 个工具（53 个本地 + 3 个联网），主进程装载工程证据
- * 读取、浏览器联网搜索与两个保存动作。清单是共享的，所以两个进程和界面
- * 看到的是同一批 id、同一套权限说明。合计 60 个能力。
+ * 读取、附件读取、浏览器联网搜索与两个保存动作。清单是共享的，所以两个进程和
+ * 界面看到的是同一批 id、同一套权限说明。合计 61 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -129,7 +129,7 @@ function kindOf(id: string): CapabilityKind {
   return NETWORK_TOOL_IDS.includes(id) || id === 'web.search.browser' ? 'network' : 'local';
 }
 
-/** 主进程这一半的插件：工程证据读取 + 浏览器搜索 + 两个保存动作。 */
+/** 主进程这一半的插件：工程证据读取、附件读取 + 浏览器搜索 + 两个保存动作。 */
 const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   {
     id: 'project.scan',
@@ -137,6 +137,15 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
     host: 'main',
     title: '读取工程证据',
     description: '扫描工作区文件、统计行数与标签，给工程空间的第一意见当材料',
+    permission: 'read-only',
+    enabledByDefault: true
+  },
+  {
+    id: 'file.attach',
+    kind: 'local',
+    host: 'main',
+    title: '读取附件文件',
+    description: '把用户在输入框「＋」里挑的本机文件读成文本，随这一问一起发出去；只读，不写盘',
     permission: 'read-only',
     enabledByDefault: true
   },
@@ -169,7 +178,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：56 个 Runtime 工具 + 4 个主进程能力，合计 60。设置页只认这一份。 */
+/** 全量清单：56 个 Runtime 工具 + 5 个主进程能力，合计 61。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

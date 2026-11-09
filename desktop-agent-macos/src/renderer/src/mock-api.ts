@@ -338,6 +338,8 @@ export function createMockApi(): AgentApi {
         : [...new Set([...expertiseDisabled, id])];
       return previewExpertise();
     },
+    // 预览环境没有系统对话框：返回空数组等价于「用户取消了」，界面行为一致。
+    chooseAttachments: async () => [],
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     getChannelStatuses: async () => [],

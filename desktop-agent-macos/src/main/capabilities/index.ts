@@ -18,6 +18,7 @@
 
 import { CapabilityRegistry, capabilityMeta } from '../../shared/capabilities';
 import type { CapabilityPlugin } from '../../shared/capabilities';
+import type { AttachmentText } from '../../shared/attachments';
 import { resolveExportFormat, type ExportConversationInput, type PageDocumentContent, type SavePageDocumentInput } from '../../shared/export';
 import { scanProject, type ScanOptions } from '../engineering/project';
 import { exportConversation, type ExportDeps } from '../export';
@@ -41,6 +42,13 @@ export interface MainCapabilityContext {
   readPage?: (sourceId?: string) => Promise<PageDocumentContent>;
   /** 用主进程的浏览器搜一次（只有主进程能开 BrowserWindow）。 */
   browserSearch?: (query: string, limit: number) => Promise<BrowserSearchOutcome>;
+  /**
+   * 把用户挑中的文件读成正文。
+   *
+   * 注入而不是直接 import：默认实现会读盘，测试里要能换成固定内容；也是
+   * 「插件不 import Electron、依赖走 context」这条约定的落点。
+   */
+  readAttachments?: (paths: readonly string[]) => AttachmentText[];
 }
 
 // Each plugin has its own argument/result shape; the registry only sees `any`.
@@ -64,6 +72,12 @@ const MAIN_PLUGINS = [
       throw new Error('读取工程证据需要工程目录与问题');
     }
     return scanProject(args.root, args.question, args.options ?? {});
+  }),
+  plugin('file.attach', (args: { paths?: string[] } | undefined, context: MainCapabilityContext) => {
+    const read = requireDeps(context?.readAttachments, '读取附件文件');
+    const paths = Array.isArray(args?.paths) ? args.paths.filter((item): item is string => typeof item === 'string') : [];
+    if (paths.length === 0) throw new Error('读取附件文件需要至少一个文件路径');
+    return read(paths);
   }),
   plugin('web.search.browser', (args: { query: string; limit: number }, context: MainCapabilityContext) => {
     const search = requireDeps(context?.browserSearch, '浏览器联网搜索');

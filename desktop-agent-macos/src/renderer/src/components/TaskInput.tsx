@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { PermissionPreset } from '../../../shared/contracts';
 import type { EngineeringTaskKind, WorkspaceMode } from '../../../shared/workspace';
+import { describeBytes, type ConversationAttachment } from '../../../shared/attachments';
+import { PlusMenu, type PlusMenuProps } from './PlusMenu';
 
 const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string }> = [
   { value: 'read-only', label: '仅可查看', desc: '列目录、读文件，不允许写入' },
@@ -44,6 +46,15 @@ export function TaskInput(props: {
    * 写在框上方，点一下就能改成新对话。
    */
   followupTitle?: string | null;
+  /** 这一问要带出去的文件（「＋ · 添加文件」挑的）。 */
+  attachments: ConversationAttachment[];
+  /**
+   * 「＋」菜单要的全部东西。
+   *
+   * 收成一个对象而不是十几个 prop：菜单里每一项都属于「往这一问里加什么」，
+   * 分开传会让这个组件看起来像在管整台应用。
+   */
+  plus: Omit<PlusMenuProps, 'attachedPaths' | 'onClose'>;
   disabled?: boolean;
   busy?: boolean;
   /** Lets the shell move the caret into the composer, e.g. after "新任务". */
@@ -53,9 +64,10 @@ export function TaskInput(props: {
   onChooseWorkspace: () => void;
   onOpenResearch: () => void;
   onNewConversation: () => void;
+  onRemoveAttachment: (id: string) => void;
   onSubmit: () => void;
 }) {
-  const [menu, setMenu] = useState<'none' | 'permission'>('none');
+  const [menu, setMenu] = useState<'none' | 'permission' | 'plus'>('none');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -124,6 +136,28 @@ export function TaskInput(props: {
         </div>
       )}
 
+      {/* 附件写在输入框上方：它们是这一问的一部分，不是框外的设置。
+          正文不进界面——这里只显示文件名和体积，正文在发送那一刻由主进程读。 */}
+      {props.attachments.length > 0 && (
+        <div className="attach-row">
+          {props.attachments.map(item => (
+            <span className="attach-chip" key={item.id} title={item.path}>
+              <span className="attach-name">{item.name}</span>
+              <span className="attach-size">{describeBytes(item.bytes)}</span>
+              <button
+                type="button"
+                className="attach-remove"
+                aria-label={`去掉附件 ${item.name}`}
+                disabled={props.disabled}
+                onClick={() => props.onRemoveAttachment(item.id)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <textarea
         className="composer-input"
         rows={2}
@@ -137,6 +171,20 @@ export function TaskInput(props: {
 
       <div className="composer-bar">
         <div className="chips">
+          {/* 「＋」放在最左：它是「往这一问里加东西」的入口，和右边那几个
+              「这一问怎么跑」的胶囊不是一类，位置把这件事说清楚。 */}
+          <button
+            className={`chip-btn plus-btn${menu === 'plus' ? ' active' : ''}`}
+            type="button"
+            disabled={props.disabled}
+            aria-label="添加文件、模式、专家、技能或连接器"
+            aria-expanded={menu === 'plus'}
+            title="往这一问里加东西：文件、模式、专家、技能、连接器"
+            onClick={() => setMenu(menu === 'plus' ? 'none' : 'plus')}
+          >
+            <span className="plus-glyph" aria-hidden="true">＋</span>
+          </button>
+
           {props.workspaceMode === 'engineering' && (
             <>
               <button className="chip-btn" type="button" onClick={props.onChooseWorkspace} disabled={props.disabled}>
@@ -205,6 +253,15 @@ export function TaskInput(props: {
             </button>
           ))}
         </div>
+      )}
+
+      {menu === 'plus' && (
+        <PlusMenu
+          {...props.plus}
+          attachedPaths={props.attachments.map(item => item.path)}
+          busy={props.plus.busy || props.disabled}
+          onClose={() => setMenu('none')}
+        />
       )}
     </div>
   );

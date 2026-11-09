@@ -104,6 +104,8 @@ import {
 } from '../shared/export';
 import { describeCapabilities, RUNTIME_CAPABILITY_IDS } from '../shared/capabilities';
 import { mainCapabilities, type MainCapabilityContext } from './capabilities';
+import { attachFiles, referenceFiles } from './attachments';
+import { MAX_ATTACHMENTS, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import { CapabilityStore } from './capability-store';
 import { disabledCapabilities, setDisabledCapabilities } from './capability-state';
 import {
@@ -114,6 +116,15 @@ import {
 } from './expertise';
 
 let win: BrowserWindow | null = null;
+
+/**
+ * 附件读取的执行入口，由 `registerIpc` 在拿到能力上下文之后接上。
+ *
+ * `ConversationRunner` 在启动链里构造，那时能力宿主还不存在（它要对话框、
+ * 存盘和网页视图）。用一个模块级钩子，比把整份 `capabilityContext` 提到
+ * 模块作用域干净，也避免 runner 直接 import 读盘实现。
+ */
+let attachmentReader: ((paths: readonly string[]) => Promise<AttachmentText[]>) | null = null;
 
 /**
  * One native view per embedded page, created on first use.
@@ -1745,6 +1756,38 @@ function startStatusPolling() {
   statusTimer.unref();
 }
 
+/**
+ * 本次运行里用户亲手在「添加文件」里挑过的路径。
+ *
+ * IPC 收到的输入一律当不可信（这是这个文件里一贯的约定）。附件是一条新的
+ * 读盘通道：不设边界的话，渲染层里任何一段代码都能让主进程读 `~/.ssh/id_rsa`
+ * 再发给网页。所以只认两处来源——本次亲手挑的，以及**这条会话已经存着的**
+ * 引用（「引用对话中的文件」那条路）。
+ */
+const pickedAttachments = new Set<string>();
+
+/**
+ * IPC 里来的附件路径，收成一份可用的清单。
+ *
+ * 只认绝对路径字符串；多余条目按上限截掉。空数组与「没传」在这里都变成
+ * `undefined`，下游据此保持「没有附件时问题逐字不变」。不在允许来源里的
+ * 路径直接报错——静默丢掉会变成「附件没送到但界面说有」。
+ */
+function trustedAttachmentPaths(raw: unknown, extra: readonly string[] = []): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const list = raw
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map(item => item.trim())
+    .slice(0, MAX_ATTACHMENTS);
+  if (list.length === 0) return undefined;
+  for (const item of list) {
+    if (!pickedAttachments.has(item) && !extra.includes(item)) {
+      throw new Error(`附件「${path.basename(item)}」不是通过「添加文件」挑的，不能作为附件读取。`);
+    }
+  }
+  return list;
+}
+
 function registerIpc() {
   /**
    * 主进程插件的环境依赖。
@@ -1832,8 +1875,20 @@ function registerIpc() {
         transcript: probe.conversationText || ''
       };
       return content;
-    }
+    },
+    /**
+     * 「＋ · 添加文件」的读取实现本体。
+     *
+     * 这里只给能力插件用；提问链路走 `mainCapabilities.execute('file.attach')`，
+     * 那个插件在设置里可以被停用，停用时必须明确报错，而不是这条提问悄悄
+     * 少了几份附件。
+     */
+    readAttachments: paths => attachFiles(paths)
   };
+
+  // 提问链路走注册表，不直接用上面那份本体：`file.attach` 停用时必须报错。
+  attachmentReader = paths =>
+    mainCapabilities.execute<AttachmentText[]>('file.attach', { paths: [...paths] }, capabilityContext);
 
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
@@ -1932,6 +1987,7 @@ function registerIpc() {
       executionConfig?: unknown;
       workspaceMode?: unknown;
       taskKindOverride?: unknown;
+      attachments?: unknown;
     };
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想研究或完成的事情。');
     // 规划通道是在这一步挑的，所以探活必须发生在这一步之前。
@@ -1950,7 +2006,8 @@ function registerIpc() {
       taskKindOverride:
         input.taskKindOverride === 'analysis' || input.taskKindOverride === 'execution'
           ? (input.taskKindOverride as WorkspaceTaskKind)
-          : undefined
+          : undefined,
+      attachments: trustedAttachmentPaths(input.attachments)
     });
   });
 
@@ -1971,11 +2028,15 @@ function registerIpc() {
 
   ipcMain.handle('conversation:followup', async (event, raw: unknown) => {
     trustedUiSender(event);
-    const input = raw as { conversationId?: unknown; text?: unknown; executionConfig?: unknown; taskKindOverride?: unknown };
+    const input = raw as { conversationId?: unknown; text?: unknown; executionConfig?: unknown; taskKindOverride?: unknown; attachments?: unknown };
     if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
     if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('先写一句你想追问的内容。');
     // 追问也要带上当前的研究设置：执行模式存在会话里，只按创建时那份跑的话，
     // 用户后来改成「本地主导」，追问仍然由网页主导——界面上写着本地，实际照旧。
+    //
+    // 附件多认一处来源：这条会话早先存下的引用。重开应用之后「引用对话中的
+    // 文件」仍然能用，靠的就是它。
+    const stored = conversations.get(input.conversationId)?.attachments?.map(item => item.path) ?? [];
     return conversations.followup(
       input.conversationId,
       input.text,
@@ -1984,8 +2045,29 @@ function registerIpc() {
         : undefined,
       input.taskKindOverride === 'analysis' || input.taskKindOverride === 'execution'
         ? (input.taskKindOverride as WorkspaceTaskKind)
-        : undefined
+        : undefined,
+      trustedAttachmentPaths(input.attachments, stored)
     );
+  });
+
+  /**
+   * 「＋ · 添加文件」。
+   *
+   * 只回引用（名字、路径、体积），正文在主进程按发送那一刻的磁盘内容读。
+   * 挑多了由 `referenceFiles` 截到上限：一次发六份以上，网页输入框先撑不住。
+   */
+  ipcMain.handle('attachment:choose', async event => {
+    trustedUiSender(event);
+    const result = await dialog.showOpenDialog(win!, {
+      title: '选择要随这一问一起发出去的文件',
+      buttonLabel: '添加',
+      properties: ['openFile', 'multiSelections']
+    });
+    if (result.canceled || result.filePaths.length === 0) return [] as ConversationAttachment[];
+    const picked = referenceFiles(result.filePaths);
+    // 记下来：随后提交时只认这些路径（见 `trustedAttachmentPaths`）。
+    for (const item of picked) pickedAttachments.add(item.path);
+    return picked;
   });
 
   // --- V2.1 workspace -----------------------------------------------------
@@ -2764,6 +2846,16 @@ app.whenReady().then(async () => {
     expertiseFor: ({ workspaceMode, question }) => {
       const { state, disabled } = currentExpertise();
       return buildEngineeringExpertise({ workspaceMode, question, state, disabled });
+    },
+    /**
+     * 「＋ · 添加文件」的正文读取，走能力注册表。
+     *
+     * 不直接调 `attachFiles`：`file.attach` 在设置里可以停用，停用时要给出
+     * 「能力插件已停用」这句明确报错，而不是这条提问悄悄少了几份附件。
+     */
+    readAttachments: async paths => {
+      if (!attachmentReader) throw new Error('附件读取还没初始化，这一问没有发出文件内容。');
+      return attachmentReader(paths);
     },
     /**
      * 工程空间「模型直答」的候选名单（2026-11-08 用户裁决：工程模式不优先问

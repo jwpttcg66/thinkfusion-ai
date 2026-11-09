@@ -1,3 +1,4 @@
+import type { ConversationAttachment } from './attachments';
 import type { IntentKind } from './intent';
 import type { PageEvidence } from './evidence';
 import type { ModelRoute } from './model-route';
@@ -160,6 +161,14 @@ export interface Conversation {
   routing?: TaskRouting;
   /** 工程分析真的读到过的文件片段。 */
   engineeringEvidence?: EngineeringEvidence[];
+  /**
+   * 这条会话里用户用「＋ · 添加文件」带过的文件（只存引用，不存正文）。
+   *
+   * 存下来是为了「＋ · 引用对话中的文件」能列出来：追问时用户不会把同一份
+   * CSV 再挑一遍，但「刚才那份数据」到底指哪个文件必须说得清。正文在发送
+   * 那一刻重新读盘，所以文件改了就是新内容，不会被旧副本骗过去。
+   */
+  attachments?: ConversationAttachment[];
   /**
    * V2.1：这一轮的结构关系（符号索引 / 调用点 / 模块依赖 / 变更影响）。
    *
@@ -326,6 +335,13 @@ export interface SubmitConversationInput {
   workspaceMode?: WorkspaceMode;
   /** V2.1：用户在输入框里手动选的「本次按分析 / 本次按实施」。 */
   taskKindOverride?: EngineeringTaskKind;
+  /**
+   * 「＋ · 添加文件」挑的本机文件，绝对路径。
+   *
+   * 界面只传路径：正文在主进程按发送那一刻的磁盘内容读，不经过渲染层，
+   * 也不进会话存档。不传（或空数组）时发出的问题与原来逐字相同。
+   */
+  attachments?: string[];
 }
 
 /**
@@ -344,6 +360,8 @@ export interface FollowupConversationInput {
   executionConfig?: Partial<ConversationExecutionConfig>;
   /** 追问时可以重新指定分析/实施，例如「先分析再修改」的第二阶段。 */
   taskKindOverride?: EngineeringTaskKind;
+  /** 同 `SubmitConversationInput.attachments`：这一句额外带的文件。 */
+  attachments?: string[];
 }
 
 /**

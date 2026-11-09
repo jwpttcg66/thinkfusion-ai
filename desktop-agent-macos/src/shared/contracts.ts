@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ConversationAttachment } from './attachments';
 import type { CapabilityView } from './capabilities';
 import type { ExpertiseView } from './expertise';
 import type { PageSource } from './sources';
@@ -1569,6 +1570,13 @@ export interface AgentApi {
   getExpertise(): Promise<ExpertiseView[]>;
   /** 启用 / 停用一位专家或一个技能，返回更新后的清单。 */
   setExpertiseEnabled(id: string, enabled: boolean): Promise<ExpertiseView[]>;
+  /**
+   * 输入框「＋ · 添加文件」：弹系统文件选择框，返回挑中的文件引用。
+   *
+   * 只回路径与体积，正文不发到渲染层——发送时主进程按当时的磁盘内容读。
+   * 用户取消返回空数组（不是失败，界面上不该报错）。
+   */
+  chooseAttachments(): Promise<ConversationAttachment[]>;
   /** Per-channel availability, so the UI can say *which* page needs a login. */
   getChannelStatuses(): Promise<ChannelStatus[]>;
 

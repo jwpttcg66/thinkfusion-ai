@@ -20,7 +20,7 @@ import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/exper
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
-type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents';
+export type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> = [
   { id: 'general', label: '通用设置', icon: ICON_GEAR_PATHS },
@@ -78,8 +78,15 @@ export function SettingsPanel(props: {
   /** Rename the sidebar row. Empty string means 「恢复默认」. */
   onRename: (name: string) => Promise<string>;
   onPermissionChange: (preset: PermissionPreset) => void;
+  /**
+   * 从输入框的「＋」打开时要落在哪一页（连接器 → 内置插件）。
+   *
+   * 面板自己仍然能在左侧切换；这个值只决定打开时停在哪，不在打开期间
+   * 反复把它掰回去——那会让用户点不动左边的菜单。
+   */
+  initialSection?: Section;
 }) {
-  const [section, setSection] = useState<Section>('models');
+  const [section, setSection] = useState<Section>(props.initialSection ?? 'models');
   /** The row whose form is open. One at a time: two open forms is two truths. */
   const [editing, setEditing] = useState<string | null>(null);
   const [draftUrl, setDraftUrl] = useState('');

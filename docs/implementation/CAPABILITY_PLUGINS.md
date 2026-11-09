@@ -24,13 +24,14 @@ DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服�
 ## 2. 一套契约、一份清单、两个宿主
 
 ```
-src/shared/capabilities.ts        契约 + 全量清单（60 条）+ CapabilityRegistry
+src/shared/capabilities.ts        契约 + 全量清单（61 条）+ CapabilityRegistry
         │
         ├── src/agent/local-plugins.ts        Runtime：53 个本地工具 + 3 个联网工具
         │        └── src/agent/index.ts       只剩 localCapabilities.execute(step.tool, …)
         │
-        └── src/main/capabilities/index.ts    主进程：project.scan / web.search.browser /
-                 │                             document.export / page.save-document
+        └── src/main/capabilities/index.ts    主进程：project.scan / file.attach /
+                 │                             web.search.browser / document.export /
+                 │                             page.save-document
                  ├── src/main/conversation-runner.ts  工程证据改走 project.scan 插件
                  ├── src/main/agent-manager.ts       浏览器搜索改走 web.search.browser 插件
                  └── src/main/index.ts               两个保存 IPC 改成查表执行
@@ -54,7 +55,7 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 | --- | --- | --- | --- |
 | `runtime` | 本地能力 | 53 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
 | `runtime` | 联网 | 3 | `web.fetch`（抓网页）、`web.search`（结构化搜索）、`dns.lookup`（域名解析） |
-| `main` | 本地能力 | 1 | `project.scan`（工程证据读取） |
+| `main` | 本地能力 | 2 | `project.scan`（工程证据读取）、`file.attach`（输入框「＋」挑的附件） |
 | `main` | 联网 | 1 | `web.search.browser`（免凭据的浏览器搜索后端） |
 | `main` | 保存 | 2 | `document.export`（会话 md/docx）、`page.save-document`（网页文档与计划） |
 

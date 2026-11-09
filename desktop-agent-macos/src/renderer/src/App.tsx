@@ -17,7 +17,7 @@ import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
-import { SettingsPanel } from './components/SettingsPanel';
+import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
@@ -29,8 +29,10 @@ import {
   ICON_REFRESH_PATHS,
   ICON_SAVE_PATHS
 } from '../../shared/icons';
-import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage } from '../../shared/conversation';
+import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage, ExecutionMode } from '../../shared/conversation';
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
+import { dedupeAttachments, type ConversationAttachment } from '../../shared/attachments';
+import type { ExpertiseId, ExpertiseView } from '../../shared/expertise';
 import { classifyIntent } from '../../shared/intent';
 import {
   routingLabel,
@@ -189,6 +191,17 @@ export default function App() {
   /** The local user name for the row at the bottom of the sidebar. */
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 从「＋ · 连接器」打开插件页时，面板要直接落在那一页。 */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('models');
+  /**
+   * 「＋ · 添加文件」挑中的文件。
+   *
+   * 只存引用（名字、路径、体积），正文在主进程按发送那一刻读——界面里
+   * 不该出现一份可能是旧的副本。发送成功就清空：附件是这一问的，不是设置。
+   */
+  const [attachments, setAttachments] = useState<ConversationAttachment[]>([]);
+  /** 「＋ · 专家 / 技能」要显示的开关状态；与「设置 · 专家与技能」同一份。 */
+  const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [researchOpen, setResearchOpen] = useState(false);
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
   /**
@@ -349,6 +362,8 @@ export default function App() {
 
     window.agentAPI.getConversations().then(setConversations).catch(() => undefined);
     window.agentAPI.getChannelStatuses().then(setChannelStatuses).catch(() => undefined);
+    // 「＋ · 专家 / 技能」要显示真实开关，清单只能从主进程读（它是两份 .md）。
+    window.agentAPI.getExpertise().then(setExpertise).catch(() => undefined);
 
     const stopConversation = window.agentAPI.onConversationEvent(event => {
       if (event.type === 'conversation.created' || event.type === 'conversation.updated') {
@@ -437,6 +452,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--split', `${String(split)}px`);
   }, [split]);
+
+  // 设置面板里的「专家与技能」改完关掉它，输入框里那份开关要跟上——两处
+  // 显示的是同一份 .md，允许它们各说一套就是「设了不生效」的来源。
+  useEffect(() => {
+    if (settingsOpen) return;
+    window.agentAPI.getExpertise().then(setExpertise).catch(() => undefined);
+  }, [settingsOpen]);
 
   useEffect(() => {
     // Published for the ghost only; the rail sizes itself from the constant.
@@ -609,6 +631,9 @@ export default function App() {
     setActiveId(null);
     setMessages([]);
     setPhases({});
+    // 附件是绑在「这一问」上的：换了空间还留着上一段的文件，下一问会莫名
+    // 带着一份和它无关的资料发出去。
+    setAttachments([]);
     setError('');
     setNotice('');
     void window.agentAPI.setWorkspace({ workspaceMode: mode }).catch(error => setError(errorText(error)));
@@ -639,6 +664,53 @@ export default function App() {
   }
 
   /**
+   * 「＋ · 添加文件」。
+   *
+   * 对话框在主进程里弹，回来的是引用（名字、路径、体积）；正文按发送那一刻
+   * 的磁盘内容读。用户取消就是空数组，什么都不改。
+   */
+  async function addAttachments() {
+    setError('');
+    try {
+      const picked = await window.agentAPI.chooseAttachments();
+      if (picked.length === 0) return;
+      if (notice) setNotice('');
+      setAttachments(prev => dedupeAttachments([...prev, ...picked]));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  /** 「＋ · 引用对话中的文件」：把这条会话里带过的文件重新挂到这一问上。 */
+  function referenceAttachment(file: ConversationAttachment) {
+    setAttachments(prev => dedupeAttachments([...prev, file]));
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments(prev => prev.filter(item => item.id !== id));
+  }
+
+  /**
+   * 「＋ · 专家 / 技能」。
+   *
+   * 写的是与设置面板同一份开关（`userData/expertise.json`），不是一个只活
+   * 在输入框里的第二套状态——「设了生效」和「设了不生效」的差别全在这一处。
+   */
+  async function toggleExpertise(id: ExpertiseId, enabled: boolean) {
+    setError('');
+    try {
+      setExpertise(await window.agentAPI.setExpertiseEnabled(id, enabled));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  /** 「＋ · 模式 → 主导」：和研究设置里那一项是同一个值。 */
+  function changeExecutionMode(mode: ExecutionMode) {
+    changeExecutionConfig({ executionMode: mode });
+  }
+
+  /**
    * 从输入框上方那个「新对话」开始一条新的。
    *
    * 侧栏的「新任务」连输入框一起清空；这里不清——用户往往是先把问题写好、看到
@@ -663,6 +735,9 @@ export default function App() {
       return;
     }
 
+    // 界面只传路径：正文在发送那一刻由主进程读盘，这里不留副本。
+    const attachmentPaths = attachments.map(item => item.path);
+
     // An open conversation that already answered takes the message as a
     // follow-up. The page keeps its own context, so the question goes out as
     // written — no re-statement of the framing.
@@ -678,10 +753,13 @@ export default function App() {
           // 的下一条提问才会真的按本地主导跑。
           executionConfig,
           // 「先分析再修改」的第二阶段：用户明确选了「本次按实施」才交去出计划。
-          ...(taskKindOverride ? { taskKindOverride } : {})
+          ...(taskKindOverride ? { taskKindOverride } : {}),
+          // 附件是这一问的：发送成功就清空，不带进下一句。
+          ...(attachmentPaths.length > 0 ? { attachments: attachmentPaths } : {})
         });
         setConversations(prev => [updated, ...prev.filter(item => item.conversationId !== updated.conversationId)]);
         setPrompt('');
+        setAttachments([]);
       } catch (e) {
         setError(errorText(e));
       } finally {
@@ -726,7 +804,8 @@ export default function App() {
         permissionPreset: permission,
         executionConfig,
         workspaceMode,
-        ...(taskKindOverride ? { taskKindOverride } : {})
+        ...(taskKindOverride ? { taskKindOverride } : {}),
+        ...(attachmentPaths.length > 0 ? { attachments: attachmentPaths } : {})
       });
       setConversations(prev => [
         conversation,
@@ -736,6 +815,7 @@ export default function App() {
       setMessages([]);
       setPhases({});
       setPrompt('');
+      setAttachments([]);
       setActiveId(conversation.taskId ?? null);
       // 读一遍已经落库的消息，而不是只等事件。
       //
@@ -758,6 +838,8 @@ export default function App() {
     setActiveId(null);
     setError('');
     setPhases({});
+    // 换一条会话就是换一段上下文，上一段挑的附件不该跟过来。
+    setAttachments([]);
     try {
       const [list, conversation] = await Promise.all([
         window.agentAPI.getConversationMessages(conversationId),
@@ -1181,7 +1263,11 @@ export default function App() {
         onSelectConversation={selectConversation}
         onDeleteConversation={deleteConversation}
         identity={identity}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          // 侧栏的设置每次从默认页打开；「＋ · 连接器」那条路才指定插件页。
+          setSettingsSection('models');
+          setSettingsOpen(true);
+        }}
         onOpenDiagnostics={() => {
           setDiagOpen(true);
           void refreshDiagnostics();
@@ -1197,6 +1283,7 @@ export default function App() {
           setNotice('');
           setPrompt('');
           setClarifyText('');
+          setAttachments([]);
           // On an already-empty screen the click changes nothing you can see,
           // which reads as "the button is dead". The caret is the feedback: it
           // moves to where the next action happens.
@@ -1455,6 +1542,33 @@ export default function App() {
               followupTitle={showingConversation && activeConversation ? activeConversation.title : null}
               inputRef={composerRef}
               onNewConversation={startNewConversation}
+              attachments={attachments}
+              onRemoveAttachment={removeAttachment}
+              plus={{
+                workspaceMode,
+                executionMode: executionConfig.executionMode,
+                expertise,
+                // 「引用对话中的文件」只认真实带过的那几张：没有会话就没有可引用的。
+                conversationFiles: activeConversation?.attachments ?? [],
+                sources: sources.sources
+                  .filter(source => source.enabled)
+                  .map(source => ({
+                    id: source.id,
+                    label: source.label,
+                    available: channelStatuses.find(channel => channel.id === source.id)?.available ?? false,
+                    active: source.id === sources.activeId
+                  })),
+                onAddFiles: () => void addAttachments(),
+                onReferenceFile: referenceAttachment,
+                onWorkspaceMode: changeWorkspaceMode,
+                onExecutionMode: changeExecutionMode,
+                onToggleExpertise: (id, enabled) => void toggleExpertise(id, enabled),
+                onSelectSource: id => void selectSource(id),
+                onOpenPlugins: () => {
+                  setSettingsSection('plugins');
+                  setSettingsOpen(true);
+                }
+              }}
               // Disabled while a channel is answering and while the task waits
               // for an answer: in both cases a second prompt would race the
               // first against the same page and lose the question on screen.
@@ -1654,6 +1768,7 @@ export default function App() {
           channelStatuses={channelStatuses}
           identity={identity}
           permission={permission}
+          initialSection={settingsSection}
           onClose={() => setSettingsOpen(false)}
           onSaveSource={saveSource}
           onAddSource={addSource}
