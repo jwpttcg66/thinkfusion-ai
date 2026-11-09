@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { TEST_COMMANDS, type TaskGrant, type TestCommand } from '../../shared/contracts';
+import { wrapWithSandbox } from './sandbox';
 
 const ARGV: Record<TestCommand, string[]> = {
   'npm test': ['npm', 'test'],
@@ -31,6 +32,8 @@ const MAX_DURATION_MS = 120_000;
 export interface TestRunResult {
   command: TestCommand;
   cwd: string;
+  sandboxed: boolean;
+  sandboxReason: string;
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -51,7 +54,9 @@ export async function runTest(grant: TaskGrant, args: { command: string }): Prom
   });
 
   const started = Date.now();
-  const child = spawn(ARGV[command][0], ARGV[command].slice(1), {
+  // 构建与测试要往工作区写产物，除此之外不该有写权限。
+  const sandbox = wrapWithSandbox(ARGV[command][0], ARGV[command].slice(1), { rootDir: cwd });
+  const child = spawn(sandbox.command, sandbox.argv, {
     cwd,
     shell: false,
     detached: true,
@@ -95,6 +100,8 @@ export async function runTest(grant: TaskGrant, args: { command: string }): Prom
   return {
     command,
     cwd,
+    sandboxed: sandbox.sandboxed,
+    sandboxReason: sandbox.reason,
     exitCode,
     stdout,
     stderr,

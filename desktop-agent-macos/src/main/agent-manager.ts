@@ -16,6 +16,27 @@ let child: UtilityProcess | null = null;
 let sendToUi: ((event: AgentEvent) => void) | null = null;
 const pendingRuns = new Map<string, PendingRun>();
 
+/**
+ * 逐次审批的现场。
+ *
+ * `pendingSteps` 记住每一步的风险等级与是否还等着答复；`remembered` 记「这个
+ * 任务的这一类操作用户说过别再问」。两者都以 taskId 为界，任务报告一到就清空——
+ * 上一轮说过「别再问」不代表下一份计划也同意。
+ */
+const pendingSteps = new Map<string, { taskId: string; risk: 'read' | 'write' | 'danger'; stepId: string }>();
+const remembered = new Map<string, Set<'read' | 'write' | 'danger'>>();
+
+function stepKey(taskId: string, stepId: string): string {
+  return `${taskId}:${stepId}`;
+}
+
+function clearTaskApprovals(taskId: string) {
+  for (const [key, value] of pendingSteps) {
+    if (value.taskId === taskId) pendingSteps.delete(key);
+  }
+  remembered.delete(taskId);
+}
+
 export function setAgentEventSink(sink: (event: AgentEvent) => void) {
   sendToUi = sink;
 }
@@ -32,11 +53,39 @@ export function startAgentProcess() {
     if (typed.type === 'task.report') {
       const parsed = ExecutionReportSchema.safeParse(typed.report);
       const pending = pendingRuns.get(String(typed.taskId));
+      // 报告到了，这一轮就不会再有步骤要点头；记住的「别再问」也要清掉。
+      clearTaskApprovals(String(typed.taskId));
       if (!pending) return;
       pendingRuns.delete(String(typed.taskId));
       clearTimeout(pending.timer);
       if (parsed.success) pending.resolve(parsed.data as ExecutionReport);
       else pending.reject(new Error(`Runtime 返回的执行报告无效：${parsed.error.message}`));
+      return;
+    }
+
+    /**
+     * 逐次审批的请求。
+     *
+     * 用户说过「这一类别再问」的，直接在这里放行——不是偷偷跳过，而是把
+     * 一次性授权执行到底，同时**不发新事件**，界面不会闪出一堆卡片。
+     */
+    if (typed.type === 'step.approval') {
+      const taskId = String(typed.taskId);
+      const stepId = String(typed.stepId);
+      const risk = (typed.risk === 'read' || typed.risk === 'danger' ? typed.risk : 'write') as
+        | 'read'
+        | 'write'
+        | 'danger';
+      const runner = child;
+      if (!runner) return;
+
+      if (remembered.get(taskId)?.has(risk)) {
+        runner.postMessage({ type: 'step.approval.result', taskId, stepId, approved: true, reason: '已记住：同类操作不再询问' });
+        return;
+      }
+
+      pendingSteps.set(stepKey(taskId, stepId), { taskId, risk, stepId });
+      sendToUi?.(typed as unknown as AgentEvent);
       return;
     }
 
@@ -83,7 +132,11 @@ export function startAgentProcess() {
       clearTimeout(pending.timer);
       pending.reject(new Error(`Agent Runtime 异常退出（code ${code ?? 'unknown'}），任务 ${taskId} 状态未知，需人工对账`));
       pendingRuns.delete(taskId);
+      clearTaskApprovals(taskId);
     }
+    // 没有 pendingRun 的等待（理论上不该有）也一并清掉，避免下一次执行复用脏状态。
+    pendingSteps.clear();
+    remembered.clear();
   });
 }
 
@@ -128,6 +181,50 @@ export function runPlan(
       disabledCapabilities: disabledCapabilities()
     });
   });
+}
+
+/**
+ * 用户对某一步的决定。回包一定发（除非该步已不在等待），否则 Runtime 只能
+ * 等到 5 分钟超时——那会把「已经点了批准」显示成「超时没执行」。
+ */
+export function decideStepApproval(input: {
+  taskId: string;
+  stepId: string;
+  approved: boolean;
+  reason?: string;
+  remember?: boolean;
+}): { ok: true } {
+  const key = stepKey(input.taskId, input.stepId);
+  const pending = pendingSteps.get(key);
+  if (!pending) {
+    throw new Error('这一步已经不在等待确认（可能已超时或任务已结束），请以执行报告为准');
+  }
+  pendingSteps.delete(key);
+
+  if (input.approved && input.remember) {
+    const set = remembered.get(input.taskId) ?? new Set();
+    set.add(pending.risk);
+    remembered.set(input.taskId, set);
+  }
+
+  child?.postMessage({
+    type: 'step.approval.result',
+    taskId: input.taskId,
+    stepId: input.stepId,
+    approved: input.approved,
+    reason: input.reason
+  });
+
+  sendToUi?.({
+    type: 'step.approval-resolved',
+    at: Date.now(),
+    taskId: input.taskId,
+    stepId: input.stepId,
+    approved: input.approved,
+    ...(input.reason ? { reason: input.reason } : {})
+  });
+
+  return { ok: true };
 }
 
 export function isRuntimeAlive(): boolean {

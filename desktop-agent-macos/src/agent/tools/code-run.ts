@@ -21,6 +21,7 @@ import { randomBytes } from 'node:crypto';
 import type { TaskGrant } from '../../shared/contracts';
 import { CODE_LANGUAGES, type CodeLanguage } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
+import { wrapWithSandbox } from './sandbox';
 
 const MAX_OUTPUT = 64 * 1024;
 const MAX_CODE = 200_000;
@@ -44,6 +45,8 @@ export interface CodeRunResult {
   scriptPath: string;
   scriptSource: string;
   cwd: string;
+  sandboxed: boolean;
+  sandboxReason: string;
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -79,9 +82,12 @@ export async function runCode(
   const timeoutMs = Math.min(Math.max(args.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
   const started = Date.now();
 
+  // 这段代码是模型写的，比构建命令更该关进笼子：它能干的只有跑一次、看结果。
+  const sandbox = wrapWithSandbox(spec.bin, spec.argv(file), { rootDir: grant.rootDir });
+
   const result = await new Promise<{ code: number | null; out: string; err: string; timedOut: boolean; truncated: boolean }>(
     resolve => {
-      const child = spawn(spec.bin, spec.argv(file), {
+      const child = spawn(sandbox.command, sandbox.argv, {
         cwd,
         shell: false,
         // 最小环境：不带用户 token、不带 npm 配置；HOME 指向运行目录，
@@ -155,6 +161,8 @@ export async function runCode(
     scriptPath,
     scriptSource: args.code,
     cwd,
+    sandboxed: sandbox.sandboxed,
+    sandboxReason: sandbox.reason,
     exitCode: result.code,
     stdout: result.out,
     stderr: result.err,

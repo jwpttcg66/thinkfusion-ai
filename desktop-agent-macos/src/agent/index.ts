@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type LocalStepOutcome } from './local-plugins';
+import { needsApproval, previewArgs, riskOf } from './step-approval';
 import {
   PlanSchema,
   TaskGrantSchema,
   type AgentPlan,
   type ExecutionReport,
+  type StepApprovalMode,
   type StepResult,
   type TaskGrant
 } from '../shared/contracts';
@@ -17,12 +19,92 @@ if (!port) throw new Error('Agent must run as Electron UtilityProcess');
 /** Tasks the user cancelled while a plan was executing. */
 const cancelled = new Set<string>();
 
+/**
+ * 逐次审批的等待表。
+ *
+ * key 是 `taskId:stepId`：题面里两个 id 都来自已批准的计划，Runtime 自己生成
+ * 不了，所以这里的 key 不会被伪造。
+ */
+type ApprovalDecision = { approved: boolean; reason?: string };
+const approvalWaiters = new Map<string, (decision: ApprovalDecision) => void>();
+
+/**
+ * 等用户点头的上限。
+ *
+ * 到点按**拒绝**处理，不是放行：一个已经关掉窗口、去开会的人不该因为「没回话」
+ * 就让一条命令跑出去。超时原因会写进报告，用户回来能看到为什么停在这儿。
+ */
+const STEP_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function approvalKey(taskId: string, stepId: string): string {
+  return `${taskId}:${stepId}`;
+}
+
+/** 拒绝某个任务所有还在等的步骤（用户点了取消）。 */
+function rejectPending(taskId: string, reason: string) {
+  for (const [key, resolve] of approvalWaiters) {
+    if (!key.startsWith(`${taskId}:`)) continue;
+    approvalWaiters.delete(key);
+    resolve({ approved: false, reason });
+  }
+}
+
+/** 等到用户答复，或者等到超时（按拒绝处理）。 */
+function waitForApproval(input: {
+  taskId: string;
+  stepId: string;
+  tool: string;
+  index: number;
+  total: number;
+  argsPreview: string;
+  risk: 'read' | 'write' | 'danger';
+}): Promise<ApprovalDecision> {
+  const key = approvalKey(input.taskId, input.stepId);
+  return new Promise<ApprovalDecision>(resolve => {
+    const timer = setTimeout(() => {
+      approvalWaiters.delete(key);
+      resolve({ approved: false, reason: '等待确认超时（5 分钟无答复），这一步没有执行' });
+    }, STEP_APPROVAL_TIMEOUT_MS);
+
+    approvalWaiters.set(key, decision => {
+      clearTimeout(timer);
+      approvalWaiters.delete(key);
+      resolve(decision);
+    });
+
+    port.postMessage({
+      type: 'step.approval',
+      at: Date.now(),
+      taskId: input.taskId,
+      stepId: input.stepId,
+      tool: input.tool,
+      index: input.index,
+      total: input.total,
+      argsPreview: input.argsPreview,
+      risk: input.risk,
+      expiresAt: Date.now() + STEP_APPROVAL_TIMEOUT_MS
+    });
+  });
+}
+
 port.on('message', (event: { data: unknown }) => {
-  const message = event.data as { type?: string; taskId?: string } | null;
+  const message = event.data as { type?: string; taskId?: string; stepId?: string } | null;
   if (!message || typeof message !== 'object') return;
 
   if (message.type === 'task.cancel' && typeof message.taskId === 'string') {
     cancelled.add(message.taskId);
+    rejectPending(message.taskId, '任务已取消，这一步没有执行');
+    return;
+  }
+
+  if (message.type === 'step.approval.result' && typeof message.taskId === 'string') {
+    const key = approvalKey(message.taskId, String(message.stepId ?? ''));
+    const resolve = approvalWaiters.get(key);
+    if (!resolve) return;
+    approvalWaiters.delete(key);
+    const approved = (message as { approved?: unknown }).approved === true;
+    const reason = (message as { reason?: unknown }).reason;
+    resolve({ approved, reason: typeof reason === 'string' ? reason : undefined });
     return;
   }
 
@@ -96,12 +178,64 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
     const results: StepResult[] = [];
     const errors: ExecutionReport['errors'] = [];
     let aborted = false;
+    const approvalMode: StepApprovalMode = grant.stepApproval ?? 'mutating';
+    const total = plan.steps.length;
 
-    for (const step of plan.steps) {
+    for (const [index, step] of plan.steps.entries()) {
       if (cancelled.has(taskId)) {
         aborted = true;
         results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消' });
         continue;
+      }
+
+      // 逐次审批：在「这一步真的动手」之前问，而不是在整份计划提交时问。
+      // 用户这时能看到前几步的真实结果与这一刀的参数，判断依据比批准整份计划多。
+      if (needsApproval(step.tool, approvalMode)) {
+        const decision = await waitForApproval({
+          taskId,
+          stepId: step.id,
+          tool: step.tool,
+          index: index + 1,
+          total,
+          argsPreview: previewArgs(step.args),
+          risk: riskOf(step.tool)
+        });
+
+        if (!decision.approved) {
+          const reason = decision.reason ?? '用户拒绝执行这一步';
+          const journalId = `${taskId}:${step.id}:${randomUUID()}`;
+          db.insertStep({
+            id: journalId,
+            task_id: taskId,
+            tool: step.tool,
+            args_json: JSON.stringify(step.args),
+            status: 'FAILED',
+            started_at: Date.now(),
+            error: reason,
+            finished_at: Date.now()
+          });
+          // 用户主动取消时状态是 cancelled，不该再算成「执行失败」。
+          const isCancel = cancelled.has(taskId);
+          if (isCancel) aborted = true;
+          results.push({
+            stepId: step.id,
+            tool: step.tool,
+            status: isCancel ? 'skipped' : 'failed',
+            verified: false,
+            durationMs: 0,
+            error: reason
+          });
+          errors.push({ stepId: step.id, code: 'STEP_REJECTED', message: reason });
+          port.postMessage({
+            type: 'step.failed',
+            at: Date.now(),
+            taskId,
+            stepId: step.id,
+            tool: step.tool,
+            error: reason
+          });
+          break;
+        }
       }
 
       const stepStarted = Date.now();

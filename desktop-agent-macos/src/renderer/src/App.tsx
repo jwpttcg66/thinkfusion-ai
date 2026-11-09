@@ -15,7 +15,7 @@ import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
 import { ConversationView } from './components/ConversationView';
 import { PlanPreview } from './components/PlanPreview';
-import { ExecutionLog } from './components/ExecutionLog';
+import { ExecutionLog, toolLabel } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
@@ -54,6 +54,9 @@ interface Derived {
     needsFix: boolean;
   } | null;
 }
+
+/** 逐次审批里正在等答复的那一步（事件本身带齐了要显示的全部信息）。 */
+type PendingStep = Extract<AgentEvent, { type: 'step.approval' }>;
 
 /**
  * The page-pane actions, as icons.
@@ -135,6 +138,13 @@ export default function App() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  /**
+   * 正在等用户点头的那一步。
+   *
+   * 单独存一份而不是从事件列表里筛，因为它是**阻塞态**：Runtime 就停在这里，
+   * 用户不答复整条执行链不会前进。这种状态要能一眼看见，不能被日志淹掉。
+   */
+  const [pendingStep, setPendingStep] = useState<PendingStep | null>(null);
   const [derived, setDerived] = useState<Derived>(EMPTY_DERIVED);
   const [status, setStatus] = useState<DeepSeekStatus | null>(null);
   const [clarifyText, setClarifyText] = useState('');
@@ -322,6 +332,15 @@ export default function App() {
         return prev;
       });
       if (event.type === 'task.failed') setError(event.error);
+
+      // 逐次审批：请求进来就占据「阻塞态」位置，回执到了再撤掉。
+      if (event.type === 'step.approval') setPendingStep(event);
+      if (event.type === 'step.approval-resolved') {
+        setPendingStep(prev => (prev && prev.taskId === event.taskId && prev.stepId === event.stepId ? null : prev));
+      }
+      if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
+        setPendingStep(null);
+      }
     });
 
     const stopDeepSeek = window.agentAPI.onDeepSeekEvent(event => {
@@ -811,6 +830,32 @@ export default function App() {
       setError(errorText(e));
     } finally {
       setApproving(false);
+    }
+  }
+
+  /**
+   * 逐次审批的两个动作。
+   *
+   * 不复用 `approve()`：那是「批准整份计划」，回包之后计划卡片就该消失；这里
+   * 批准的是**一步**，后面还有步骤要跑，卡片要等回执事件到达才撤（否则界面
+   * 会短暂显示「没有待办」，用户以为整件事结束了）。
+   */
+  async function decideStep(approved: boolean, remember = false) {
+    if (!pendingStep) return;
+    setError('');
+    try {
+      if (approved) {
+        await window.agentAPI.approveStep({
+          taskId: pendingStep.taskId,
+          stepId: pendingStep.stepId,
+          remember
+        });
+      } else {
+        await window.agentAPI.rejectStep({ taskId: pendingStep.taskId, stepId: pendingStep.stepId });
+      }
+    } catch (e) {
+      setError(errorText(e));
+      setPendingStep(null);
     }
   }
 
@@ -1305,6 +1350,32 @@ export default function App() {
                 onApprove={approve}
                 onReject={reject}
               />
+            )}
+
+            {pendingStep && (
+              <section className={`card step-approval risk-${pendingStep.risk}`}>
+                <div className="row">
+                  <b>
+                    需要确认：第 {pendingStep.index}/{pendingStep.total} 步 · {toolLabel(pendingStep.tool)}
+                  </b>
+                  <span className="muted">
+                    {pendingStep.risk === 'danger' ? '高危操作' : pendingStep.risk === 'write' ? '写操作' : '只读'}
+                  </span>
+                </div>
+                <pre className="step-args">{pendingStep.argsPreview}</pre>
+                <p className="muted">这一步还没有执行。拒绝会让整份计划停在这里，不会继续后面的步骤。</p>
+                <div className="row">
+                  <button className="btn" type="button" onClick={() => void decideStep(true)}>
+                    执行这一步
+                  </button>
+                  <button className="btn" type="button" onClick={() => void decideStep(true, true)}>
+                    同类不再问
+                  </button>
+                  <button className="btn" type="button" onClick={() => void decideStep(false)}>
+                    拒绝
+                  </button>
+                </div>
+              </section>
             )}
 
             {derived.review && activeTask && (

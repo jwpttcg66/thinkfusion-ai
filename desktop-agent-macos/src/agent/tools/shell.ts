@@ -22,6 +22,7 @@ import fs from 'node:fs/promises';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
 import { startJob, type JobMeta } from './jobs';
+import { wrapWithSandbox } from './sandbox';
 
 const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -75,6 +76,9 @@ export interface ShellRunResult {
   /** 当前用的是哪套策略，方便在报告里分辨「白名单」还是「完全权限」。 */
   policy: 'allowlist' | 'full';
   shell: string;
+  /** 这一轮到底有没有真被关进沙箱；false 时 reason 给出原因。 */
+  sandboxed: boolean;
+  sandboxReason: string;
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -138,6 +142,8 @@ export async function runShell(
       cwd,
       policy,
       shell: '/bin/sh',
+      sandboxed: job.sandboxed ?? false,
+      sandboxReason: job.sandboxReason ?? '后台作业没有记录沙箱状态',
       exitCode: null,
       stdout: '',
       stderr: '',
@@ -150,7 +156,9 @@ export async function runShell(
 
   const timeoutMs = Math.min(Math.max(args.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
   const started = Date.now();
-  const child = spawn('/bin/sh', ['-c', args.command], {
+  // spawn 之前包：沙箱不可用时原样返回命令，但 sandboxed 会如实为 false。
+  const sandbox = wrapWithSandbox('/bin/sh', ['-c', args.command], { rootDir: grant.rootDir });
+  const child = spawn(sandbox.command, sandbox.argv, {
     cwd,
     shell: false,
     detached: true,
@@ -197,6 +205,8 @@ export async function runShell(
     cwd,
     policy,
     shell: '/bin/sh',
+    sandboxed: sandbox.sandboxed,
+    sandboxReason: sandbox.reason,
     exitCode,
     stdout,
     stderr,

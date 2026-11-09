@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { TaskGrant } from '../../shared/contracts';
+import { wrapWithSandbox } from './sandbox';
 
 export const JOBS_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'ThinkFusion', 'jobs');
 const MAX_LOG_BYTES = 8 * 1024 * 1024;
@@ -30,6 +31,9 @@ export interface JobMeta {
   status: 'running' | 'exited' | 'killed';
   exitCode: number | null;
   finishedAt: number | null;
+  /** 这一轮有没有真被关进沙箱；后台作业同样不许含糊。 */
+  sandboxed?: boolean;
+  sandboxReason?: string;
 }
 
 function metaPath(id: string) {
@@ -48,6 +52,12 @@ export async function startJob(
   await fs.mkdir(JOBS_DIR, { recursive: true, mode: 0o700 });
   const id = `job-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const logPath = path.join(JOBS_DIR, `${id}.log`);
+  // 后台作业的进程活得更久，更需要笼子：它不受 30 秒超时约束，能一直写下去。
+  // 日志目录作为额外可写位置放进去，作业自己要写盘时不会被自己的日志路径挡住。
+  const sandbox = wrapWithSandbox('/bin/sh', ['-c', args.command], {
+    rootDir: grant.rootDir,
+    extraWritable: [JOBS_DIR]
+  });
   const meta: JobMeta = {
     id,
     command: args.command,
@@ -57,11 +67,13 @@ export async function startJob(
     logPath,
     status: 'running',
     exitCode: null,
-    finishedAt: null
+    finishedAt: null,
+    sandboxed: sandbox.sandboxed,
+    sandboxReason: sandbox.reason
   };
 
   const handle = await fs.open(logPath, 'a', 0o600);
-  const child = spawn('/bin/sh', ['-c', args.command], {
+  const child = spawn(sandbox.command, sandbox.argv, {
     cwd: meta.cwd,
     shell: false,
     detached: true,

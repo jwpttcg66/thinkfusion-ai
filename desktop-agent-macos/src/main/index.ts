@@ -15,8 +15,10 @@ import type {
 } from '../shared/contracts';
 import {
   ApprovePlanSchema,
+  ApproveStepSchema,
   ClarificationAnswerSchema,
   RejectPlanSchema,
+  RejectStepSchema,
   SubmitPromptSchema,
   TaskIdSchema
 } from '../shared/schemas';
@@ -1855,6 +1857,16 @@ function registerIpc() {
   ipcMain.handle('task:reject', async (event, raw: unknown) => {
     trustedUiSender(event);
     await orchestrator.reject(RejectPlanSchema.parse(raw));
+  });
+
+  ipcMain.handle('task:approve-step', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.approveStep(ApproveStepSchema.parse(raw));
+  });
+
+  ipcMain.handle('task:reject-step', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.rejectStep(RejectStepSchema.parse(raw));
   });
 
   ipcMain.handle('task:cancel', async (event, taskId: unknown) => {

@@ -130,6 +130,12 @@ type StreamChunk =
   `examples/mount.mjs` 走通两轮对话（一次工具调用 + 一次总结），宿主是我们的 `InMemoryLlmRegistry`。
   **未完成**：真实登录态下的 DOM 选择器（属 M3），以及把 `WebPage` 接到 `WebContentsView`。
 - **M2**：把审批下沉到每次工具调用（对齐 `tools/pre-execute` 的思路），去掉「批准整批计划」。
+  **代码已完成（2026-11-09）**：`TaskGrant.stepApproval` 三档（`every` / `mutating` 缺省 /
+  `off`），Runtime 每步执行前发 `step.approval`、等回包，超时按拒绝、拒绝即停；
+  同一轮里还有「同类不再问」，报告一到就清空。沙箱也在这一轮按 `packages/sandbox`
+  的形状落地（spawn 前包 argv）。见 `docs/implementation/HARNESS_ALIGNMENT.md`。
+  **已知限制**：macOS 26.3 拒绝任何带 `deny` 的 seatbelt profile（`sandbox_apply:
+  Operation not permitted`），本机只能如实报 `sandboxed:false`；探测通过的系统上自动启用。
 - **M3**：Electron 壳内嵌 DeepSeek 页面，用 `WebContentsView` 实现 `WebPage`。
   选择器从 v0.6.0 的 `src/main/deepseek-adapter.ts` 迁移，必须在真机登录态核对。
 - **M4**：评估 v0.6.0 自研 loop 是否下线。

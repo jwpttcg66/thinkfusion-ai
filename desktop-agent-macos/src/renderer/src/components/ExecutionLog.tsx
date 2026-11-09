@@ -25,6 +25,18 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
       return { key, text: `模型需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
     case 'step.started':
       return { key, text: `执行 ${toolLabel(event.tool)}`, tone: 'muted' };
+    case 'step.approval':
+      return {
+        key,
+        text: `等待确认第 ${event.index}/${event.total} 步：${toolLabel(event.tool)}${event.risk === 'danger' ? '（高危）' : ''}`,
+        tone: 'warn'
+      };
+    case 'step.approval-resolved':
+      return {
+        key,
+        text: event.approved ? `已放行：${event.reason ?? '用户批准'}` : `已拦下：${event.reason ?? '用户拒绝'}`,
+        tone: event.approved ? 'ok' : 'warn'
+      };
     case 'step.completed':
       // 「完成 shell.run」看不出到底跑了什么、成功没有。退出码、截图尺寸、
       // 进程 pid 都是执行结果的一部分，日志里必须能直接读到。
@@ -108,7 +120,7 @@ const TOOL_NAME: Record<string, string> = {
   'code.run': '跑代码'
 };
 
-function toolLabel(tool: string) {
+export function toolLabel(tool: string) {
   return TOOL_NAME[tool] ?? tool;
 }
 

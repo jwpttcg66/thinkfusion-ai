@@ -3314,3 +3314,29 @@ button:disabled {
   line-height: 1.5;
   color: var(--text-3);
 }
+
+/* 逐次审批：这一步正卡在这儿等答复。它是阻塞态，颜色要比普通卡片重一点，
+   否则用户会以为是又一条进度提示而滑过去。 */
+.step-approval {
+  border-color: #efc77c;
+  background: #fffcf3;
+}
+
+.step-approval.risk-danger {
+  border-color: #edb0aa;
+  background: #fff8f7;
+}
+
+.step-approval .step-args {
+  margin: 8px 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  background: #f6f6f7;
+  border-radius: 6px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

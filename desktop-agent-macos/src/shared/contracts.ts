@@ -820,6 +820,18 @@ export interface PlanPreview {
 // Grant / execution
 // ---------------------------------------------------------------------------
 
+export const STEP_APPROVAL_MODES = ['every', 'mutating', 'off'] as const;
+
+/**
+ * 审批粒度。
+ *
+ * - `every`：每一步都先问一次（最严，harness 的 pre-execute 语义）；
+ * - `mutating`：只问有副作用的步骤（缺省值）——只读步骤也弹窗会把用户训练成
+ *   无脑点批准，反而更不安全；
+ * - `off`：批准整份计划后一路跑完，与升级前一致。
+ */
+export type StepApprovalMode = (typeof STEP_APPROVAL_MODES)[number];
+
 export const TaskGrantSchema = z
   .object({
     taskId: Id,
@@ -829,7 +841,9 @@ export const TaskGrantSchema = z
     allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(TOOL_NAMES.length),
     expiresAt: z.number().int().positive(),
     maxSteps: z.number().int().min(1).max(30),
-    grantVersion: z.number().int().min(1).optional()
+    grantVersion: z.number().int().min(1).optional(),
+    /** 缺省 `mutating`：老计划、老脚本不带这个字段时按「只问写操作」处理。 */
+    stepApproval: z.enum(STEP_APPROVAL_MODES).optional()
   })
   .strict();
 
@@ -875,6 +889,34 @@ export type AgentEvent = AgentEventBase &
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }
     | { type: 'step.started'; taskId: string; stepId: string; tool: string }
+    /**
+     * 逐次审批：某一步马上就要执行，等用户点头。
+     *
+     * 与 `plan.ready` 的区别是「批准整份计划」与「批准这一次调用」——
+     * 前者不知道上下文会变成什么样，后者知道前几步真跑出了什么结果。
+     */
+    | {
+        type: 'step.approval';
+        taskId: string;
+        stepId: string;
+        tool: string;
+        /** 第几步 / 共几步，界面用它显示进度。 */
+        index: number;
+        total: number;
+        /** 参数预览（截断后），用户要看着参数点头，而不是看一句描述。 */
+        argsPreview: string;
+        risk: 'read' | 'write' | 'danger';
+        /** 到期时间：到点没答复按拒绝处理。 */
+        expiresAt: number;
+      }
+    /** 结果回执，让界面上那条待确认的卡片能收起来。 */
+    | {
+        type: 'step.approval-resolved';
+        taskId: string;
+        stepId: string;
+        approved: boolean;
+        reason?: string;
+      }
     | { type: 'step.completed'; taskId: string; stepId: string; tool: string; result: unknown }
     | { type: 'step.failed'; taskId: string; stepId: string; tool: string; error: string }
     | { type: 'report.ready'; taskId: string; roundId: string; report: ExecutionReport }
@@ -1559,6 +1601,10 @@ export interface AgentApi {
   getTaskEvents(taskId: string): Promise<AgentEvent[]>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
+  /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */
+  approveStep(input: { taskId: string; stepId: string; remember?: boolean }): Promise<void>;
+  /** 逐次审批：拒绝某一步，该步失败并停止整份计划。 */
+  rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
   deleteTask(taskId: string): Promise<void>;

@@ -82,6 +82,10 @@ const api: AgentApi = {
   getTaskEvents: (taskId: string) => ipcRenderer.invoke('task:events', taskId),
   approvePlan: (input: ApprovePlanInput) => ipcRenderer.invoke('task:approve', input),
   rejectPlan: (input: { taskId: string; planId: string; reason?: string }) => ipcRenderer.invoke('task:reject', input),
+  approveStep: (input: { taskId: string; stepId: string; remember?: boolean }) =>
+    ipcRenderer.invoke('task:approve-step', input),
+  rejectStep: (input: { taskId: string; stepId: string; reason?: string }) =>
+    ipcRenderer.invoke('task:reject-step', input),
   cancelTask: (taskId: string) => ipcRenderer.invoke('task:cancel', taskId),
   answerClarification: (input: { taskId: string; answer: string }) => ipcRenderer.invoke('task:answer', input),
   deleteTask: (taskId: string) => ipcRenderer.invoke('task:delete', taskId),

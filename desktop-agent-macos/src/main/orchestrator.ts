@@ -9,6 +9,7 @@ import type {
   PermissionPreset,
   PlanDebate,
   PlanPreview,
+  StepApprovalMode,
   StoredPlan,
   TaskGrant
 } from '../shared/contracts';
@@ -18,7 +19,7 @@ import { planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
-import { runPlan } from './agent-manager';
+import { runPlan, decideStepApproval } from './agent-manager';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
 
@@ -41,6 +42,13 @@ export interface OrchestratorDeps {
     needsFix: boolean;
     at: number;
   }>;
+  /**
+   * 逐次审批的粒度。不传时按 `mutating`（只问有副作用的步骤）。
+   *
+   * 为什么默认不是 `every`：一个八步的批量改造会弹八次，用户第三次之后就开始
+   * 无脑点批准——那比只问关键几步更不安全。要最严的语义就传 `() => 'every'`。
+   */
+  stepApproval?: () => StepApprovalMode;
   /**
    * V2.1 D-03：计划生成之后、审批之前，对这份方案开一场辩论。
    *
@@ -196,7 +204,9 @@ export class AgentOrchestrator {
       allowedTools: [...new Set(plan.steps.map(step => step.tool))],
       expiresAt: Date.now() + GRANT_TTL_MS,
       maxSteps: Math.min(plan.steps.length, task.maxSteps),
-      grantVersion: 1
+      grantVersion: 1,
+      // 审批粒度随授权一起下发：Runtime 只认凭据里的值，界面改不了执行中的计划。
+      stepApproval: this.deps.stepApproval?.() ?? 'mutating'
     };
 
     this.deps.store.updatePlan(stored.planId, { approvalStatus: 'approved' });
@@ -272,6 +282,21 @@ export class AgentOrchestrator {
     this.deps.store.updatePlan(input.planId, { approvalStatus: 'rejected' });
     this.tasks.transition(input.taskId, 'cancelled', { error: input.reason ?? '用户拒绝执行计划' });
     this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId: input.taskId });
+  }
+
+  /**
+   * 逐次审批的两个入口。
+   *
+   * 这里不校验任务状态是刻意的：等待点在 Runtime 里，主进程只知道「某一步在
+   * 等答复」。真校验放在 `decideStepApproval`——它认不出这个 (taskId, stepId)
+   * 就明确报错，界面因此不会把「批准晚了」显示成「已经放行」。
+   */
+  async approveStep(input: { taskId: string; stepId: string; remember?: boolean }): Promise<void> {
+    decideStepApproval({ ...input, approved: true });
+  }
+
+  async rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void> {
+    decideStepApproval({ ...input, approved: false, reason: input.reason ?? '用户拒绝执行这一步' });
   }
 
   async cancel(taskId: string): Promise<void> {

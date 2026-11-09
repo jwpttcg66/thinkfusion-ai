@@ -146,6 +146,8 @@ export function createMockApi(): AgentApi {
     getTaskEvents: async taskId => events[taskId] ?? [],
     approvePlan: async () => undefined,
     rejectPlan: async () => undefined,
+    approveStep: async () => undefined,
+    rejectStep: async () => undefined,
     cancelTask: async () => undefined,
     answerClarification: async () => undefined,
     deleteTask: async () => undefined,

@@ -34,6 +34,23 @@ export const RejectPlanSchema = z
   })
   .strict();
 
+export const ApproveStepSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    stepId: z.string().min(1).max(200),
+    /** 「这一步之后同类别再问」——把逐次审批从惩罚变成一次性授权。 */
+    remember: z.boolean().optional()
+  })
+  .strict();
+
+export const RejectStepSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    stepId: z.string().min(1).max(200),
+    reason: z.string().max(500).optional()
+  })
+  .strict();
+
 export const TaskIdSchema = z.string().min(1).max(80);
 
 export const ClarificationAnswerSchema = z
