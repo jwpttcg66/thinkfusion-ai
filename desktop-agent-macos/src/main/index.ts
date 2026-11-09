@@ -110,7 +110,7 @@ import {
 import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
-import { ICON_DOCK_BACK_PATHS, iconSvg } from '../shared/icons';
+import { ICON_DOCK_BACK_PATHS, ICON_SAVE_PATHS, iconSvg } from '../shared/icons';
 import type {
   DiscoveredSelectors,
   LearnSelectorsReport,
@@ -123,7 +123,8 @@ import { PlatformAccessibility } from '../platform/accessibility';
 import {
   type ExportConversationInput,
   type PageDocumentContent,
-  type SavePageDocumentInput
+  type SavePageDocumentInput,
+  type SavePageDocumentResult
 } from '../shared/export';
 import { describeCapabilities, RUNTIME_CAPABILITY_IDS } from '../shared/capabilities';
 import { mainCapabilities, type MainCapabilityContext } from './capabilities';
@@ -148,6 +149,16 @@ let win: BrowserWindow | null = null;
  * 模块作用域干净，也避免 runner 直接 import 读盘实现。
  */
 let attachmentReader: ((paths: readonly string[]) => Promise<AttachmentText[]>) | null = null;
+
+/**
+ * 「保存文档」的执行入口，由 `registerIpc` 接上。
+ *
+ * 独立窗口的工具栏是一份没有 preload 的 `data:` 文档，点按钮只能改 hash
+ * 通知主进程；主进程再走这条钩子，和主窗口页面栏走同一套插件。
+ */
+let pageDocumentSaver:
+  | ((input: SavePageDocumentInput) => Promise<SavePageDocumentResult | null>)
+  | null = null;
 
 /**
  * One native view per embedded page, created on first use.
@@ -1330,33 +1341,105 @@ function detachedDocument(source: PageSource): string {
   body { font: 12px/1.4 -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; color: #2b2b2b; }
   .bar {
     position: fixed; inset: 0 0 auto 0; height: ${String(DETACHED_BAR_HEIGHT)}px;
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 8px;
     padding: 0 12px 0 84px; box-sizing: border-box;
     background: #f7f7f5; border-bottom: 1px solid rgba(0, 0, 0, 0.12);
     -webkit-app-region: drag; user-select: none;
   }
   .name { font-weight: 600; letter-spacing: 0.02em; }
-  .hint { color: #8a8a86; }
+  .hint { color: #8a8a86; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hint.is-error { color: #b42318; }
   .spacer { flex: 1; }
+  .actions { display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
   /* Same 24px square as the main window's page bar, and the same glyph: the two
      windows perform the same action, so they must not look different. */
-  button {
-    -webkit-app-region: no-drag; display: grid; place-items: center;
+  button.icon {
+    display: grid; place-items: center;
     width: 24px; height: 24px; padding: 0; border-radius: 6px;
     border: 1px solid rgba(0, 0, 0, 0.16); background: #fff;
     color: #6b6b6b; cursor: pointer;
   }
-  button:hover { background: #efefec; color: #1a1a1a; }
-  button svg { display: block; }
+  button.icon:hover { background: #efefec; color: #1a1a1a; }
+  button.icon:disabled { opacity: 0.55; cursor: default; }
+  button.icon svg { display: block; }
+  /* 「Word」跟主窗口页面栏一样是次要文字按钮，不是图标。 */
+  button.text {
+    height: 24px; padding: 0 8px; border-radius: 6px;
+    border: 1px solid transparent; background: transparent;
+    color: #6b6b6b; font: inherit; cursor: pointer;
+  }
+  button.text:hover { background: #efefec; color: #1a1a1a; }
+  button.text:disabled { opacity: 0.55; cursor: default; }
 </style></head><body>
 <div class="bar">
   <span class="name">${label}</span>
-  <span class="hint">独立窗口 · 关闭即吸附回去</span>
+  <span class="hint" id="hint">独立窗口 · 关闭即吸附回去</span>
   <span class="spacer"></span>
-  <button id="back" type="button" aria-label="吸附回去" title="吸附回去">${iconSvg(ICON_DOCK_BACK_PATHS)}</button>
+  <span class="actions">
+    <button id="save" class="icon" type="button" aria-label="保存文档" title="保存文档：提取这一页里的文档和计划，默认存成 Markdown">${iconSvg(ICON_SAVE_PATHS)}</button>
+    <button id="save-word" class="text" type="button" aria-label="保存为 Word" title="单独指定才生成 Word 文档（版式沿用导出模板）">Word</button>
+    <button id="back" class="icon" type="button" aria-label="吸附回去" title="吸附回去">${iconSvg(ICON_DOCK_BACK_PATHS)}</button>
+  </span>
 </div>
-<script>document.getElementById('back').addEventListener('click', function () { window.close(); });</script>
+<script>
+  /* 这份文档没有 preload，不能直接 IPC。改 hash 是唯一能通知主进程的通道；
+     主进程听 did-navigate-in-page，跑完再把 hash 清掉，同一按钮才能再点。 */
+  function request(kind) {
+    location.hash = kind;
+  }
+  document.getElementById('save').addEventListener('click', function () { request('tf-save-md'); });
+  document.getElementById('save-word').addEventListener('click', function () { request('tf-save-docx'); });
+  document.getElementById('back').addEventListener('click', function () { window.close(); });
+</script>
 </body></html>`;
+}
+
+/**
+ * 独立窗口工具栏上的一句话反馈。没有 React、没有 toast，只能改 hint。
+ */
+function setDetachedHint(text: string, tone: 'ok' | 'error' = 'ok') {
+  const frame = detached?.window;
+  if (!frame || frame.isDestroyed()) return;
+  const safe = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+  const cls = tone === 'error' ? 'hint is-error' : 'hint';
+  void frame.webContents.executeJavaScript(
+    `(() => { const el = document.getElementById('hint'); if (!el) return; el.className = '${cls}'; el.textContent = '${safe}'; })()`
+  );
+}
+
+/**
+ * 独立窗口点「保存」时走这里。和主窗口页面栏同一个插件，不另读一遍页面。
+ */
+async function saveFromDetached(format: 'md' | 'docx') {
+  if (!detached || !pageDocumentSaver) return;
+  const { window: frame, sourceId } = detached;
+  setDetachedHint(format === 'docx' ? '正在保存 Word…' : '正在保存…');
+  try {
+    // 禁用两个按钮，防止连点把同一页存两份。
+    if (!frame.isDestroyed()) {
+      void frame.webContents.executeJavaScript(
+        `(() => { for (const id of ['save','save-word']) { const b = document.getElementById(id); if (b) b.disabled = true; } })()`
+      );
+    }
+    const result = await pageDocumentSaver({ sourceId, format });
+    if (!result) {
+      setDetachedHint('已取消保存');
+      return;
+    }
+    const where = result.path.split('/').pop() ?? result.path;
+    setDetachedHint(
+      `已保存 ${where} · ${result.documents} 份文档 / ${result.planItems} 条计划`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setDetachedHint(message, 'error');
+  } finally {
+    if (!frame.isDestroyed()) {
+      void frame.webContents.executeJavaScript(
+        `(() => { location.hash = ''; for (const id of ['save','save-word']) { const b = document.getElementById(id); if (b) b.disabled = false; } })()`
+      );
+    }
+  }
 }
 
 /**
@@ -1414,6 +1497,12 @@ function detachSource(id: string): PageState {
     // branch only runs for a close the user performed.
     if (detached?.window !== frame) return;
     reattachSource();
+  });
+  // 工具栏没有 preload：点「保存」只改 hash。听这一条，才和主窗口页面栏对得上。
+  frame.webContents.on('did-navigate-in-page', (_event, url) => {
+    if (detached?.window !== frame) return;
+    if (url.endsWith('#tf-save-md')) void saveFromDetached('md');
+    else if (url.endsWith('#tf-save-docx')) void saveFromDetached('docx');
   });
 
   detached = { window: frame, sourceId: id };
@@ -2034,14 +2123,25 @@ function registerIpc() {
     savePageDeps: () => ({
       defaultDir: () => app.getPath('downloads'),
       pickPath: async (name, format) => {
-        const target = await dialog.showSaveDialog({
+        // 页面在独立窗口里时，对话框挂到那个窗口上——挂到主窗口会让人以为
+        // 点了保存却什么都没发生。
+        const parent =
+          detached?.window && !detached.window.isDestroyed()
+            ? detached.window
+            : win && !win.isDestroyed()
+              ? win
+              : null;
+        const options = {
           title: format === 'docx' ? '把网页文档保存为 Word' : '把网页文档保存为 Markdown',
           defaultPath: path.join(app.getPath('downloads'), name),
           filters:
             format === 'docx'
               ? [{ name: 'Word 文档', extensions: ['docx'] }]
               : [{ name: 'Markdown', extensions: ['md'] }]
-        });
+        };
+        const target = parent
+          ? await dialog.showSaveDialog(parent, options)
+          : await dialog.showSaveDialog(options);
         return target.canceled || !target.filePath ? null : target.filePath;
       }
     }),
@@ -2099,6 +2199,10 @@ function registerIpc() {
   // 提问链路走注册表，不直接用上面那份本体：`file.attach` 停用时必须报错。
   attachmentReader = paths =>
     mainCapabilities.execute<AttachmentText[]>('file.attach', { paths: [...paths] }, capabilityContext);
+
+  // 独立窗口工具栏点「保存」也走同一条插件，不另写一份落盘逻辑。
+  pageDocumentSaver = input =>
+    mainCapabilities.execute<SavePageDocumentResult | null>('page.save-document', input, capabilityContext);
 
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);

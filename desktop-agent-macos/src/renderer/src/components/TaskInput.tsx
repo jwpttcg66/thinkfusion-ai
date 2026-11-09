@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { CloudMemberView, PermissionPreset } from '../../../shared/contracts';
 import type { EngineeringTaskKind, WorkspaceMode } from '../../../shared/workspace';
 import { describeBytes, type ConversationAttachment } from '../../../shared/attachments';
-import { ICON_SAVE_PATHS } from '../../../shared/icons';
-import { Glyph } from './Glyph';
 import { PlusMenu, type PlusMenuProps } from './PlusMenu';
 
 const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string }> = [
@@ -76,13 +74,6 @@ export function TaskInput(props: {
   onChange: (value: string) => void;
   onPermissionChange: (preset: PermissionPreset) => void;
   onOpenResearch: () => void;
-  /**
-   * 「保存文档」：和页面栏那个按钮是同一个动作，正文由主进程去当前网页里读，
-   * 所以页面收起时也能用。这里只是把它放到输入框边上，找的时候不用先找页面栏。
-   */
-  onSaveDocument: () => void;
-  /** 正在存的格式；null 表示没在存。Word 是从页面栏点的，这里只跟着禁用。 */
-  savingDocument: 'md' | 'docx' | null;
   onNewConversation: () => void;
   onRemoveAttachment: (id: string) => void;
   onSubmit: () => void;
@@ -269,20 +260,6 @@ export function TaskInput(props: {
             <span className="label">研究设置</span>
             <span className="chip-dot" aria-hidden="true">·</span>
             <span className="chip-sub">{props.researchLabel}</span>
-          </button>
-
-          {/* 回答的落点。「保存」放在这一排是因为它和模型、研究设置一样属于
-              「这一问怎么跑」；存的是页面里的文档与计划，不是输入框里的草稿。 */}
-          <button
-            className="chip-btn"
-            type="button"
-            onClick={props.onSaveDocument}
-            disabled={props.savingDocument !== null}
-            title="保存文档：提取这一页里的文档和计划，存成 Markdown"
-            aria-label="保存文档"
-          >
-            <Glyph paths={ICON_SAVE_PATHS} />
-            <span className="label">{props.savingDocument === 'md' ? '保存中…' : '保存文档'}</span>
           </button>
         </div>
 

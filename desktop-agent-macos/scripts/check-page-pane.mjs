@@ -251,12 +251,18 @@ if (detachedFrame) {
   const frameCdp = await connect(detachedFrame);
   const readBack = () =>
     frameCdp.evaluate(`(() => {
-      const button = document.getElementById('back');
-      const paths = button ? [...button.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
+      const back = document.getElementById('back');
+      const save = document.getElementById('save');
+      const word = document.getElementById('save-word');
+      const paths = back ? [...back.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
+      const savePaths = save ? [...save.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
       return {
-        ready: paths.length > 0,
-        label: button ? button.getAttribute('aria-label') : null,
-        path: paths.join('|')
+        ready: paths.length > 0 && savePaths.length > 0,
+        label: back ? back.getAttribute('aria-label') : null,
+        path: paths.join('|'),
+        saveLabel: save ? save.getAttribute('aria-label') : null,
+        savePath: savePaths.join('|'),
+        wordLabel: word ? word.getAttribute('aria-label') : null
       };
     })()`);
   const ready = await waitFor(async () => (await readBack()).ready, true, { timeoutMs: 4000 });
@@ -266,6 +272,10 @@ if (detachedFrame) {
   checkTrue('独立窗口里的按钮也是图标', frameBar.ready);
   checkTrue('独立窗口的图标和主窗口一致', frameBar.path.includes('M13 8H6.2'));
   check('独立窗口的按钮有可读的名字', frameBar.label, '吸附回去');
+  // 放大之后眼前就是独立窗口：保存必须在这里，不能只留在主窗口那条页面栏上。
+  check('独立窗口有保存文档', frameBar.saveLabel, '保存文档');
+  checkTrue('独立窗口的保存图标是纸+箭头', frameBar.savePath.includes('M3 1.9h6.1'));
+  check('独立窗口有保存为 Word', frameBar.wordLabel, '保存为 Word');
 } else {
   checkTrue('独立窗口存在', false);
 }

@@ -8,10 +8,12 @@
 「Word」按钮（单独指定才生成 Word）。网页栏是 DOM，页面本身是 native view，画在页面上的
 按钮看不见，所以只能放这一条栏里。
 
-2026-11-09 补：输入框工具栏（`.composer-bar`）也加了「保存文档」。原因是页面栏只在
-`split > 0 && !isCollapsed` 时存在，页面收起后保存入口就消失了，而这时人往往正在读回答。
-两处调同一个 `savePageDocument('md')`，不各读一遍页面——两边存下来的必须是同一版内容。
-输入框里那个只存 Markdown；Word 仍然只在页面栏，因为它是「单独指定」的分支。
+2026-11-09 补：网页源「放大」成独立窗口后，主窗口那条页面栏不再对着眼前的页面，
+独立窗口自己的工具栏原先只有「吸附回去」，保存入口就丢了。独立窗口工具栏现在
+带上同一组「保存文档 / Word」，图标与主窗口共用 `shared/icons.ts` 的路径数据。
+独立窗口没有 preload，点按钮只改 `location.hash`（`#tf-save-md` / `#tf-save-docx`），
+主进程听 `did-navigate-in-page` 再走同一个 `page.save-document` 插件——不另读一遍
+页面，也不另写一份落盘逻辑。
 
 动作接受 `sourceId`：界面传当前显示的那个源，调用方也可以指定别的源，只要它的页面
 view 已经创建过。「网页源没打开 / 还在加载 / 停在登录页或空会话」都明确报错，不写空文件。
@@ -59,6 +61,10 @@ page-bar 按钮（App.tsx）
            ├─ buildPageDocument()                  src/main/export/page-document.ts
            └─ writeFileAtomic / markdownToDocx（仅 docx）
   → { path, format, bytes, documents, planItems, chars }（null = 用户取消）
+
+独立窗口工具栏（detachedDocument，无 preload）
+  → location.hash = #tf-save-md | #tf-save-docx
+  → did-navigate-in-page → pageDocumentSaver(...)   同上一条插件
 ```
 
 ## 测试与真机
