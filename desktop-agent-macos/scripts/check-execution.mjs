@@ -56,11 +56,19 @@ const executors = selection => [...selection.executorIds].sort();
 
 // ---------------------------------------------------------------------------
 
-test('默认配置是 web / allow-cloud，老会话照这个读', () => {
-  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, { executionMode: 'web', fallbackEnabled: false, privacyMode: 'allow-cloud' });
+test('默认配置是 web / allow-cloud，云端参与默认空；老会话照这个读', () => {
+  assert.deepEqual(DEFAULT_EXECUTION_CONFIG, {
+    executionMode: 'web',
+    selectedCloudModels: [],
+    fallbackEnabled: false,
+    privacyMode: 'allow-cloud'
+  });
   assert.deepEqual(normalizeExecutionConfig(), DEFAULT_EXECUTION_CONFIG);
   assert.deepEqual(normalizeExecutionConfig(null), DEFAULT_EXECUTION_CONFIG);
   assert.equal(normalizeExecutionConfig({}).executionMode, 'web');
+  // 空对象是「老会话缺字段」：不能擅自填上 selectedCloudModels:[]，
+  // 否则原先「缺省 = 全部云端」会被收成「一个都不参与」。
+  assert.equal('selectedCloudModels' in normalizeExecutionConfig({}), false);
 });
 
 test('四种主导人保持不变；短暂上线过的处理动作四档按行为归位', () => {

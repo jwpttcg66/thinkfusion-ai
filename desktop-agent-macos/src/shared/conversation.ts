@@ -586,6 +586,11 @@ export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
 export function normalizeExecutionConfig(
   input?: Partial<ConversationExecutionConfig> | null
 ): ConversationExecutionConfig {
+  // 完全没传 = 用出厂默认（云端参与空数组）。老会话会显式带上自己的
+  // executionConfig 对象，哪怕里面没有 selectedCloudModels——那种情况不能
+  // 在这里填空数组，否则「字段缺失 = 全部」的旧语义就被抹掉了。
+  if (input == null) return { ...DEFAULT_EXECUTION_CONFIG };
+
   const legacy: Record<string, ExecutionMode> = {
     direct: 'web',
     lead: 'web',
