@@ -65,7 +65,6 @@ export function TaskSidebar(props: {
   onOpenSettings: () => void;
   onOpenDiagnostics: () => void;
 }) {
-  const [moreOpen, setMoreOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
@@ -77,16 +76,15 @@ export function TaskSidebar(props: {
   // 点空白处收起菜单。不用 `onBlur`：重命名输入框在菜单外面，失焦会把刚
   // 打开的面板关掉，用户还没点「保存」就没了。
   React.useEffect(() => {
-    if (!moreOpen && !rowMenu) return;
+    if (!rowMenu) return;
     const close = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('.more-wrap, .ws-row, .ws-menu')) return;
-      setMoreOpen(false);
+      if (target?.closest('.ws-row, .ws-menu')) return;
       setRowMenu(null);
     };
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
-  }, [moreOpen, rowMenu]);
+  }, [rowMenu]);
 
   /**
    * 列表里到底有什么。
@@ -183,55 +181,6 @@ export function TaskSidebar(props: {
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
-        <div className="more-wrap">
-          <button
-            className="more-btn"
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen(open => !open)}
-          >
-            更多
-            <span className="caret" aria-hidden="true">⌄</span>
-          </button>
-          {moreOpen && (
-            <div className="side-menu more-menu" role="menu">
-              <button
-                className="side-menu-item"
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  props.onAddWorkspace();
-                }}
-              >
-                添加工作区…
-              </button>
-              <button
-                className="side-menu-item"
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  props.onOpenDiagnostics();
-                }}
-              >
-                页面诊断
-              </button>
-              <button
-                className="side-menu-item"
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  props.onOpenSettings();
-                }}
-              >
-                设置
-              </button>
-            </div>
-          )}
-        </div>
         <span className="brand-mini">
           <span className="brand-mark">◈</span>
           ThinkFusion

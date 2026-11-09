@@ -644,34 +644,6 @@ button:disabled {
   font-size: 10px;
 }
 
-.more-wrap {
-  position: relative;
-}
-
-.more-btn {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 28px;
-  padding: 0 9px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  font-size: 13.5px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.more-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.more-btn .caret {
-  font-size: 9px;
-  color: var(--text-3);
-}
-
 .side-menu {
   min-width: 176px;
   padding: 5px;
@@ -679,13 +651,6 @@ button:disabled {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
-}
-
-.more-menu {
-  position: absolute;
-  top: 32px;
-  left: 0;
-  z-index: 30;
 }
 
 .side-menu-item {
