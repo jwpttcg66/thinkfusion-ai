@@ -9,7 +9,15 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    build: { rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } } }
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          // 独立窗口工具栏：只暴露「保存文档」，没有主窗口那份完整 API。
+          detached: resolve(__dirname, 'src/preload/detached.ts')
+        }
+      }
+    }
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),

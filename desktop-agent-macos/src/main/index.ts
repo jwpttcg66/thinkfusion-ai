@@ -71,7 +71,12 @@ import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
 import { classifyIntent } from '../shared/intent';
-import type { ChannelStatus, ConversationEvent } from '../shared/conversation';
+import {
+  DEFAULT_EXECUTION_CONFIG,
+  type ChannelStatus,
+  type ConversationEvent,
+  type ConversationExecutionConfig
+} from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
@@ -95,6 +100,7 @@ import {
 } from '../shared/sources';
 import { SourceStore } from './source-store';
 import { ProfileStore } from './profile-store';
+import { ExecutionDefaultsStore } from './execution-defaults-store';
 import { WorkspaceStore } from './workspace-store';
 import { WorkspaceListStore } from './workspace-list-store';
 import { runSearchTest, saveSearchSettings, viewSearchSettings } from './search-settings';
@@ -153,8 +159,8 @@ let attachmentReader: ((paths: readonly string[]) => Promise<AttachmentText[]>) 
 /**
  * 「保存文档」的执行入口，由 `registerIpc` 接上。
  *
- * 独立窗口的工具栏是一份没有 preload 的 `data:` 文档，点按钮只能改 hash
- * 通知主进程；主进程再走这条钩子，和主窗口页面栏走同一套插件。
+ * 独立窗口工具栏通过自己的小 preload 调 `page:save-from-detached`，再走
+ * 这条钩子——和主窗口页面栏同一个插件，不另写一份落盘逻辑。
  */
 let pageDocumentSaver:
   | ((input: SavePageDocumentInput) => Promise<SavePageDocumentResult | null>)
@@ -179,6 +185,8 @@ let sources: PageSource[] = resolveSources();
 let sourceStore: SourceStore | null = null;
 /** The display name in the sidebar's bottom row. Also created in `whenReady`. */
 let profileStore: ProfileStore | null = null;
+/** 研究设置的跨会话默认值（主导人、参与的云端模型…）。created in `whenReady`. */
+let executionDefaults: ExecutionDefaultsStore | null = null;
 /** V2.1：上次使用的空间与项目。created in `whenReady`. */
 let workspaceStore: WorkspaceStore | null = null;
 /** 多项目工作区清单（侧栏分组）。created in `whenReady`. */
@@ -1374,13 +1382,25 @@ function detachedDocument(source: PageSource): string {
   </span>
 </div>
 <script>
-  /* 这份文档没有 preload，不能直接 IPC。改 hash 是唯一能通知主进程的通道；
-     主进程听 did-navigate-in-page，跑完再把 hash 清掉，同一按钮才能再点。 */
-  function request(kind) {
-    location.hash = kind;
+  /* 通过独立窗口自己的 preload 调主进程，和放大前页面栏走同一条保存插件。
+     以前改 location.hash 指望 did-navigate-in-page——在 data: 页上经常不触发，
+     按钮看起来在，点了却什么都不发生。 */
+  function save(format) {
+    var api = window.tfDetached;
+    if (!api || typeof api.saveDocument !== 'function') {
+      var hint = document.getElementById('hint');
+      if (hint) { hint.className = 'hint is-error'; hint.textContent = '保存桥没接上，请重启应用后再试'; }
+      return;
+    }
+    api.saveDocument(format).catch(function (error) {
+      var hint = document.getElementById('hint');
+      if (!hint) return;
+      hint.className = 'hint is-error';
+      hint.textContent = error && error.message ? error.message : String(error);
+    });
   }
-  document.getElementById('save').addEventListener('click', function () { request('tf-save-md'); });
-  document.getElementById('save-word').addEventListener('click', function () { request('tf-save-docx'); });
+  document.getElementById('save').addEventListener('click', function () { save('md'); });
+  document.getElementById('save-word').addEventListener('click', function () { save('docx'); });
   document.getElementById('back').addEventListener('click', function () { window.close(); });
 </script>
 </body></html>`;
@@ -1461,7 +1481,13 @@ function detachSource(id: string): PageState {
     // Keeps the traffic lights and makes the page's own bar the title bar.
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#ffffff',
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      // 只挂保存用的小桥：没有它，工具栏点保存没有任何通路到主进程。
+      preload: path.join(__dirname, '../preload/detached.js')
+    }
   });
 
   win.contentView.removeChildView(view);
@@ -1490,13 +1516,6 @@ function detachSource(id: string): PageState {
     if (detached?.window !== frame) return;
     reattachSource();
   });
-  // 工具栏没有 preload：点「保存」只改 hash。听这一条，才和主窗口页面栏对得上。
-  frame.webContents.on('did-navigate-in-page', (_event, url) => {
-    if (detached?.window !== frame) return;
-    if (url.endsWith('#tf-save-md')) void saveFromDetached('md');
-    else if (url.endsWith('#tf-save-docx')) void saveFromDetached('docx');
-  });
-
   detached = { window: frame, sourceId: id };
   void frame.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(detachedDocument(source))}`);
   layout();
@@ -2615,6 +2634,25 @@ function registerIpc() {
   });
 
 
+  /**
+   * 研究设置的跨会话默认值。
+   *
+   * 和某一条会话上的 `executionConfig` 是两份：会话那份跟着线程走；这份是
+   * 「新对话 / 重启之后还用什么」。云端参与默认空数组，主导人默认不点名——
+   * 用户勾了、点了才写进盘。
+   */
+  ipcMain.handle('app:execution-defaults', event => {
+    trustedUiSender(event);
+    return executionDefaults?.get() ?? { ...DEFAULT_EXECUTION_CONFIG };
+  });
+
+  ipcMain.handle('app:set-execution-defaults', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!executionDefaults) throw new Error('设置还没有准备好');
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    return executionDefaults.set(raw as Partial<ConversationExecutionConfig>);
+  });
+
   /** 设置页 / 新建对话用的选项。绝不包含 API Key 明文或密文。 */
   ipcMain.handle('app:execution-options', async event => {
     trustedUiSender(event);
@@ -3186,6 +3224,18 @@ function registerIpc() {
     return mainCapabilities.execute('page.save-document', input, capabilityContext);
   });
 
+  /**
+   * 独立窗口工具栏点「保存」。发送方必须是当前那扇独立窗口——它没有主窗口
+   * 的 `trustedUiSender` 身份，但也不能让任意页面随便调落盘。
+   */
+  ipcMain.handle('page:save-from-detached', async (event, raw: unknown) => {
+    if (!detached || event.sender.id !== detached.window.webContents.id) {
+      throw new Error('IPC sender rejected');
+    }
+    if (raw !== 'md' && raw !== 'docx') throw new Error('无效的保存格式');
+    await saveFromDetached(raw);
+  });
+
   // The page views are native, so this is the only honest answer to "is the
   // rail covered?". It exists because that failure is silent: the buttons just
   // stop responding, and nothing throws.
@@ -3284,6 +3334,7 @@ app.whenReady().then(async () => {
   // Its own file: renaming yourself is not a property of which pages exist, and a
   // corrupt one must not be able to take the sources down with it.
   profileStore = new ProfileStore(path.join(app.getPath('userData'), 'profile.json'));
+  executionDefaults = new ExecutionDefaultsStore(path.join(app.getPath('userData'), 'execution-defaults.json'));
   workspaceStore = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace-state.json'));
   workspaceList = new WorkspaceListStore(path.join(app.getPath('userData'), 'workspaces.json'));
   // 升级迁移：老版本只记了一个项目目录，没有工作区。把它变成第一个工作区，

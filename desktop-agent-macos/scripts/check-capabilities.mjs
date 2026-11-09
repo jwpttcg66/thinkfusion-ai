@@ -366,6 +366,11 @@ test('执行主链路按插件 id 分派，不再有工具 switch', () => {
   const main = source('main/index.ts');
   assert.ok(main.includes("mainCapabilities.execute('document.export'"));
   assert.ok(main.includes("mainCapabilities.execute('page.save-document'"));
+  // 独立窗口放大后也必须能保存：走专用 preload + IPC，不能再靠 data: 页改 hash。
+  assert.ok(main.includes("ipcMain.handle('page:save-from-detached'"));
+  assert.ok(main.includes("preload: path.join(__dirname, '../preload/detached.js')"));
+  const detachedPreload = source('preload/detached.ts');
+  assert.ok(detachedPreload.includes("ipcRenderer.invoke('page:save-from-detached'"));
   assert.ok(!main.includes('exportConversation({ ...input, format }, deps)'));
   const runner = source('main/conversation-runner.ts');
   assert.match(runner, /mainCapabilities\.execute<ProjectScan>\(\s*'project\.scan'/);
