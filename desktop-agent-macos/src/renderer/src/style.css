@@ -868,6 +868,82 @@ button:disabled {
   color: var(--text-3);
 }
 
+/* ---------------------------- 「模型」胶囊 ---------------------------- */
+/* 清单会很长（OpenCode Go 网关一次回 30 个模型），所以给个上限再滚动：
+   面板贴着输入框往上开，长得比输入框还高就挡住刚写的那句话。 */
+
+.model-popover {
+  left: 8px;
+  bottom: 46px;
+  width: 320px;
+  padding: 6px;
+}
+
+.model-popover-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 5px;
+  font-size: 11.5px;
+}
+
+.model-popover-head .btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 10.5px;
+}
+
+.model-popover-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.model-option:hover {
+  background: var(--bg-hover);
+}
+
+.model-option.off {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.model-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-option-note {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.model-popover-empty,
+.model-popover-foot {
+  margin: 2px 6px 4px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.chip-btn.active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 /* ------------------------------ 「＋」菜单 ------------------------------- */
 /* 一个按钮，两层面板：左边是「能往这一问里加什么」，点开的那一项在右边
    展开。位置贴着输入框左下角往上开，和权限胶囊同一个方向。 */
@@ -3102,6 +3178,17 @@ button:disabled {
   flex: none;
   font-size: 11.5px;
   color: var(--text-3);
+}
+
+/* 只读的说明文字（模型清单来自网关，不在这里填）：它要占满剩余宽度，
+   不能沿用上面那个 34px 的标签宽度，否则一句话会被挤成一个字。 */
+.settings-input span.model-summary {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-input input {

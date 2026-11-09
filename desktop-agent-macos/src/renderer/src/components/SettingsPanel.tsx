@@ -148,14 +148,18 @@ export function SettingsPanel(props: {
    */
   const [cloud, setCloud] = useState<CloudProviderView[]>([]);
   const [cloudEditing, setCloudEditing] = useState<string | null>(null);
-  const [cloudDrafts, setCloudDrafts] = useState<Record<string, { baseUrl: string; models: string }>>({});
+  /** 草稿里只剩端点：模型清单不再让人手填，由网关回答。 */
+  const [cloudDrafts, setCloudDrafts] = useState<Record<string, { baseUrl: string }>>({});
   const [cloudKeys, setCloudKeys] = useState<Record<string, string>>({});
   const [cloudBusy, setCloudBusy] = useState<string | null>(null);
+  const [cloudDiscovering, setCloudDiscovering] = useState<string | null>(null);
   const [cloudError, setCloudError] = useState('');
   /** 「还能装的」目录：从内置目录挑一家，或选自定义自己填。 */
   const [catalog, setCatalog] = useState<ProviderCatalogView[]>([]);
   const [addingCloud, setAddingCloud] = useState(false);
-  const [newCloud, setNewCloud] = useState({ catalogId: '', label: '', baseUrl: '', models: '', key: '' });
+  const [newCloud, setNewCloud] = useState({ catalogId: '', label: '', baseUrl: '', key: '' });
+  /** 「添加云模型」里从网关读到的清单；空表示还没读到。 */
+  const [newCloudModels, setNewCloudModels] = useState<string[]>([]);
   const [newCloudNote, setNewCloudNote] = useState<{ tone: 'muted' | 'ok' | 'error'; text: string }>({
     tone: 'muted',
     text: ''
@@ -227,6 +231,27 @@ export function SettingsPanel(props: {
         if (!alive) return;
         setCloud(options.cloudProviders);
         setCatalog(options.providerCatalog ?? []);
+        /**
+         * 已配 Key 但模型清单还停在预设的服务，打开设置时补问一次网关。
+         *
+         * 这一段是为了让「我早就配好了 Key」的人不必重启也能看到真实清单：
+         * 主进程启动时也会补，但那次可能发生在打开设置之前、也可能失败。
+         * 只问 `modelsDiscovered === false` 的行，避免每次打开都重新拉一遍。
+         */
+        for (const item of options.cloudProviders) {
+          if (!item.hasKey || item.modelsDiscovered) continue;
+          void window.agentAPI
+            .discoverCloudModels({ id: item.id, baseUrl: item.baseUrl })
+            .then(async ({ models }) => {
+              const saved = await window.agentAPI.setCloudConfig({ id: item.id, models });
+              if (!alive) return;
+              setCloud(prev => prev.map(row =>
+                row.id === item.id ? { ...row, models: saved.models, modelsDiscovered: true } : row
+              ));
+            })
+            // 问不到就保持原样：清单是预设兜底，Key 本身没有问题。
+            .catch(() => undefined);
+        }
       })
       .catch(error => {
         if (alive) setCloudError(error instanceof Error ? error.message : String(error));
@@ -280,10 +305,9 @@ export function SettingsPanel(props: {
    * 稳定的容器。
    */
   /**
-   * 目录里挑一家：端点与默认模型跟着填好，用户改得动。
+   * 目录里挑一家：端点跟着填好，用户改得动。
    *
-   * 这是「像 harness 那样自己选」的核心——不是让每个人去背 baseUrl，而是
-   * 选一个名字、贴一个 Key，剩下由目录给默认值，模型还能一键从 `/models` 拉。
+   * 模型不跟着填——清单由网关的 `/models` 回答，界面只负责把它拿回来。
    */
   function pickCatalog(id: string) {
     const entry = catalog.find(item => item.id === id);
@@ -291,24 +315,25 @@ export function SettingsPanel(props: {
       ...prev,
       catalogId: id,
       label: entry?.custom ? '' : entry?.label ?? '',
-      baseUrl: entry?.baseUrl ?? '',
-      models: entry?.models.join(', ') ?? ''
+      baseUrl: entry?.baseUrl ?? ''
     }));
+    setNewCloudModels([]);
     setNewCloudNote({
       tone: 'muted',
       text: entry?.custom
-        ? '填以 /v1 结尾的端点和一个模型名；模型名不确定就先点「获取模型」。'
+        ? '填以 /v1 结尾的端点，再贴 Key 点「获取模型」；模型清单由网关回答，不用手写。'
         : entry?.note ?? '端点已按官方默认值填好，可以改。'
     });
   }
 
+  /** 让网关说这家有哪些模型。清单不经过这里「编辑」，只经过这里「读取」。 */
   async function discoverModels() {
     setCloudBusy('discover');
     setNewCloudNote({ tone: 'muted', text: '正在向端点要模型清单…' });
     try {
       const result = await window.agentAPI.discoverCloudModels({ baseUrl: newCloud.baseUrl, key: newCloud.key });
-      setNewCloud(prev => ({ ...prev, models: result.models.join(', ') }));
-      setNewCloudNote({ tone: 'ok', text: `拿到 ${result.models.length} 个模型，已填进模型框。` });
+      setNewCloudModels(result.models);
+      setNewCloudNote({ tone: 'ok', text: `网关返回 ${result.models.length} 个模型，添加后会写进配置。` });
     } catch (error) {
       setNewCloudNote({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -324,17 +349,38 @@ export function SettingsPanel(props: {
         catalogId: newCloud.catalogId,
         label: newCloud.label || undefined,
         baseUrl: newCloud.baseUrl || undefined,
-        models: newCloud.models.split(/[,，\n]/).map(value => value.trim()).filter(Boolean),
+        models: newCloudModels,
         key: newCloud.key || undefined
       });
       setCloud(prev => [...prev.filter(row => row.id !== added.id), added]);
       setAddingCloud(false);
-      setNewCloud({ catalogId: '', label: '', baseUrl: '', models: '', key: '' });
+      setNewCloud({ catalogId: '', label: '', baseUrl: '', key: '' });
+      setNewCloudModels([]);
       setNewCloudNote({ tone: 'muted', text: '' });
     } catch (error) {
       setNewCloudNote({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
     } finally {
       setCloudBusy(null);
+    }
+  }
+
+  /** 已装服务的清单刷新：按当前端点重新问一次网关。 */
+  async function refreshCloudModels(item: CloudProviderView) {
+    setCloudDiscovering(item.id);
+    setCloudError('');
+    try {
+      const { models } = await window.agentAPI.discoverCloudModels({
+        id: item.id,
+        baseUrl: cloudDrafts[item.id]?.baseUrl ?? item.baseUrl
+      });
+      const saved = await window.agentAPI.setCloudConfig({ id: item.id, models });
+      setCloud(prev => prev.map(row =>
+        row.id === item.id ? { ...row, models: saved.models, modelsDiscovered: true } : row
+      ));
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudDiscovering(null);
     }
   }
 
@@ -357,21 +403,21 @@ export function SettingsPanel(props: {
     setCloudError('');
     setCloudDrafts(prev => ({
       ...prev,
-      [item.id]: { baseUrl: item.baseUrl, models: item.models.join(', ') }
+      [item.id]: { baseUrl: item.baseUrl }
     }));
   }
 
   async function saveCloud(item: CloudProviderView) {
-    const draft = cloudDrafts[item.id] ?? { baseUrl: item.baseUrl, models: item.models.join(', ') };
+    const draft = cloudDrafts[item.id] ?? { baseUrl: item.baseUrl };
     setCloudBusy(item.id);
     setCloudError('');
     try {
-      const saved = await window.agentAPI.setCloudConfig({
-        id: item.id,
-        baseUrl: draft.baseUrl,
-        models: draft.models.split(/[,，\n]/).map(value => value.trim()).filter(Boolean)
-      });
-      setCloud(prev => prev.map(row => (row.id === item.id ? { ...row, baseUrl: saved.baseUrl, models: saved.models } : row)));
+      // 只提交端点。模型清单只由 `/models` 写，不经过这个「保存」——
+      // 一次手滑回车不该把网关的 30 个模型覆盖成一行字。
+      const saved = await window.agentAPI.setCloudConfig({ id: item.id, baseUrl: draft.baseUrl });
+      setCloud(prev => prev.map(row =>
+        row.id === item.id ? { ...row, baseUrl: saved.baseUrl, models: saved.models } : row
+      ));
       setCloudDrafts(prev => {
         const next = { ...prev };
         delete next[item.id];
@@ -385,15 +431,31 @@ export function SettingsPanel(props: {
     }
   }
 
-  async function saveCloudKey(id: string) {
-    const key = (cloudKeys[id] ?? '').trim();
+  async function saveCloudKey(item: CloudProviderView) {
+    const key = (cloudKeys[item.id] ?? '').trim();
     if (!key) return;
-    setCloudBusy(id);
+    setCloudBusy(item.id);
     setCloudError('');
     try {
-      await window.agentAPI.setApiKey({ id, key });
-      setCloud(prev => prev.map(row => (row.id === id ? { ...row, hasKey: true } : row)));
-      setCloudKeys(prev => ({ ...prev, [id]: '' }));
+      const result = await window.agentAPI.setApiKey({ id: item.id, key });
+      setCloud(prev => prev.map(row => row.id === item.id
+        ? {
+            ...row,
+            hasKey: true,
+            ...(result.models && result.models.length > 0
+              ? { models: result.models, modelsDiscovered: true }
+              : {})
+          }
+        : row));
+      setCloudKeys(prev => ({ ...prev, [item.id]: '' }));
+      // 配好就收起来：设置项读完就该让开，跟 DeepSeek 那一行一样。主进程在
+      // 同一次调用里已经问过 `/models`，拿到的清单直接更新到上面那一行。
+      setCloudEditing(null);
+      if (result.modelNote) {
+        setCloudError(
+          `${item.label}：Key 已保存，但没能从网关拿到模型清单——${result.modelNote}。可以点「编辑 → 重新获取」。`
+        );
+      }
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -799,7 +861,7 @@ export function SettingsPanel(props: {
 
                   <div className="settings-list">
                     {cloud.map(item => {
-                      const draft = cloudDrafts[item.id] ?? { baseUrl: item.baseUrl, models: item.models.join(', ') };
+                      const draft = cloudDrafts[item.id] ?? { baseUrl: item.baseUrl };
                       const rowBusy = cloudBusy === item.id;
                       const open = cloudEditing === item.id;
                       return (
@@ -810,8 +872,8 @@ export function SettingsPanel(props: {
                             <span className={`settings-tag${item.hasKey ? '' : ' warn'}`}>
                               {item.hasKey ? '已配置 Key' : '未配置 Key'}
                             </span>
-                            <span className="settings-row-url" title={item.baseUrl}>
-                              {item.models.join(' · ')}
+                            <span className="settings-row-url" title={item.models.join('、') || '还没拿到模型清单'}>
+                              {item.models.length > 0 ? item.models.join(' · ') : '还没拿到模型清单'}
                             </span>
                             <button
                               className="settings-edit"
@@ -834,25 +896,31 @@ export function SettingsPanel(props: {
                                   placeholder="https://example.com/v1"
                                   onChange={event => setCloudDrafts(prev => ({
                                     ...prev,
-                                    [item.id]: { ...draft, baseUrl: event.target.value }
+                                    [item.id]: { baseUrl: event.target.value }
                                   }))}
                                 />
                               </label>
-                              <label className="settings-input">
+                              {/* 模型清单只读：它来自网关的 `/models`，不是这里
+                                  填出来的。要换清单就重新问一次，不让人手写。 */}
+                              <div className="settings-input">
                                 <span>模型</span>
-                                <input
-                                  value={draft.models}
-                                  spellCheck={false}
-                                  placeholder="逗号分隔"
-                                  onChange={event => setCloudDrafts(prev => ({
-                                    ...prev,
-                                    [item.id]: { ...draft, models: event.target.value }
-                                  }))}
-                                />
-                              </label>
+                                <span className="settings-muted model-summary">
+                                  {item.models.length === 0
+                                    ? '还没拿到清单：先保存 Key，或点「重新获取」'
+                                    : `${item.models.length} 个${item.modelsDiscovered ? '（来自网关 /models）' : '（预设兜底，还没从网关读到）'}`}
+                                </span>
+                                <button
+                                  className="btn secondary"
+                                  type="button"
+                                  disabled={rowBusy || cloudDiscovering === item.id}
+                                  onClick={() => void refreshCloudModels(item)}
+                                >
+                                  {cloudDiscovering === item.id ? '获取中…' : '重新获取'}
+                                </button>
+                              </div>
                               {/* Key 单独一行、单独一个按钮：换地址和换凭据是两件事，
                                   一个「保存」同时干两件，用户就分不清哪件生效了。
-                                  它排在「保存」上方，是因为底下那个按钮只管端点与模型。 */}
+                                  它排在「保存」上方，是因为底下那个按钮只管端点。 */}
                               <div className="settings-input">
                                 <span>Key</span>
                                 <input
@@ -866,7 +934,7 @@ export function SettingsPanel(props: {
                                   className="btn secondary"
                                   type="button"
                                   disabled={rowBusy || !(cloudKeys[item.id] ?? '').trim()}
-                                  onClick={() => void saveCloudKey(item.id)}
+                                  onClick={() => void saveCloudKey(item)}
                                 >
                                   保存 Key
                                 </button>
@@ -878,9 +946,10 @@ export function SettingsPanel(props: {
                               </div>
                               <p className="settings-hint">
                                 Key 只存主进程的系统加密区，保存后不回显，界面只看得到「已配置 / 未配置」；
-                                底下的「保存」只改端点和模型，不动 Key。
+                                保存 Key 时会顺手向网关要一次真实模型清单，拿到就收起这一行。
+                                底下的「保存」只改端点，不动 Key，也不改模型清单。
                               </p>
-                              {cloudError && <p className="settings-error">{cloudError}</p>}
+                              {open && cloudError && <p className="settings-error">{cloudError}</p>}
                               <div className="settings-form-foot">
                                 {item.custom && (
                                   <button className="btn ghost" type="button" disabled={rowBusy} onClick={() => void removeCloud(item.id)}>
@@ -902,6 +971,11 @@ export function SettingsPanel(props: {
                     })}
                     {cloud.length === 0 && !cloudError && <p className="settings-muted">正在读取云端服务清单…</p>}
                     {cloud.length === 0 && cloudError && <p className="settings-error">{cloudError}</p>}
+                    {/* 表单收起之后，「保存 Key 成功但没读到清单」这类话得有地方
+                        落脚：它说的是这一行的事，不该跟着表单一起消失。 */}
+                    {cloud.length > 0 && cloudError && !cloudEditing && (
+                      <p className="settings-error">{cloudError}</p>
+                    )}
 
                     {/* 目录里挑一家，比让人背 baseUrl 现实得多；模型名还能一键拉。 */}
                     {addingCloud ? (
@@ -945,15 +1019,16 @@ export function SettingsPanel(props: {
                             onChange={event => setNewCloud(prev => ({ ...prev, baseUrl: event.target.value }))}
                           />
                         </label>
-                        <label className="settings-input">
+                        {/* 模型清单不在这里填：它由网关回答。要点一下「获取模型」
+                            才看得到，添加时也会自动请求一次。 */}
+                        <div className="settings-input">
                           <span>模型</span>
-                          <input
-                            value={newCloud.models}
-                            spellCheck={false}
-                            placeholder="逗号分隔"
-                            onChange={event => setNewCloud(prev => ({ ...prev, models: event.target.value }))}
-                          />
-                        </label>
+                          <span className="settings-muted model-summary">
+                            {newCloudModels.length > 0
+                              ? `网关返回 ${newCloudModels.length} 个模型，添加后写进配置`
+                              : '还没读到：点 Key 右边的「获取模型」，或添加时自动请求'}
+                          </span>
+                        </div>
                         <label className="settings-input">
                           <span>Key</span>
                           <input
