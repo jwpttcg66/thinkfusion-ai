@@ -3,12 +3,13 @@ import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/t
 import { ProviderBackedSubAgent } from './provider-sub-agent';
 
 /**
- * 一轮研究的名单：按两份名单裁过的视图（2026-11-05 重定义）。
+ * 一轮研究的名单：按两份名单裁过的视图（2026-11-09 更新）。
  *
- * - `answerIds`（网页通道）：`all()` / `available()` 只返回它们，所以
- *   `MasterAgent` 的第一轮只会问网页——回答永远来自网页通道。
- * - `executorIds`（本地 + 云端模型）：不进 `all()`，但 `ask()` 放行。它们
- *   只在执行阶段被点名：当主导人（汇总/定辩题/给最终意见）或当辩手。
+ * - `answerIds`：`all()` / `available()` 只返回它们，所以 `MasterAgent`
+ *   第一轮只问这些人。网页主导 / 混合 = 网页；本地主导 = 本地模型；
+ *   云端主导 = 勾选的云端模型。
+ * - `executorIds`：不进 `all()`（除非也在 answerIds 里），但 `ask()` 放行。
+ *   执行阶段点名主导人 / 辩手；工程编排也从这里取模型。
  *
  * `SubAgentPool` 是 `MasterAgent` 唯一的入口，所以裁名单放在这一层，
  * `MasterAgent` 和 `ConversationRunner.conduct()` 都不用知道「执行模式」

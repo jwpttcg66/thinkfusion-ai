@@ -650,7 +650,7 @@ export class ConversationRunner {
       followup: false,
       // 只有工程空间需要把附件从「问题」挪到「材料」：那里执行阶段的汇总按
       // 工程证据的口径读材料，附件留在问题里就会被判成用户附注。知识空间的
-      // 第一手与汇总都走网页，附件本来就该随问题一起发出去，不重复塞第二份。
+      // 第一手直接把附件随问题发出去，不重复塞第二份。
       ...(workspaceMode === 'engineering'
         ? { plainQuestion: text, attachmentMaterial: buildAttachmentMaterial(attachments) }
         : {})
@@ -1188,7 +1188,9 @@ export class ConversationRunner {
    *   开关沿用 webSecondOpinion（auto 用决策判定 / always / off）；
    * - 问题永远是「用户原话 + 本机真实读到的证据」，没有角色开场。网页成员
    *   收到的是同一形状、证据按 6000 字摘录，不发 system；
-   * - 没有可用模型 / 没有证据 / 模型全失败时返回 null，调用方如实退回网页链路。
+   * - 没有工程证据时仍问模型（本问可能故意不读目录），不再拿「没材料」当借口退回网页；
+   * - 本地 / 云端主导下没有可用模型或模型全失败：如实失败，**不**退回网页；
+   *   只有网页主导 / 混合档才允许退回网页链路（返回 null）。
    *
    * 编排计划随 outcome 一起返回：执行阶段要用它绕开知识空间的归属过滤，
    * 让本地 + 云端模型同场汇总、交锋、给最终意见。
@@ -1202,6 +1204,9 @@ export class ConversationRunner {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const material = this.engineeringMaterialFor(conversation);
     const models = (await this.deps.modelMembers?.(config)) ?? [];
+    // 本地 / 云端主导 = 用户明确不要网页。缺模型时失败，不许偷偷改问页面。
+    const allowWebFallback =
+      config.executionMode === 'web' || config.executionMode === 'hybrid';
 
     // 网页可用性只在混合档探测：非混合档根本不该碰页面（真机探活本身就会
     // 给每个页面发一次请求），这也是「网页默认不进场」的实现保障。
@@ -1229,12 +1234,26 @@ export class ConversationRunner {
     });
 
     if (!material) {
-      sink.note('这一轮没有读到任何工程证据（目录未选或扫描失败），工程空间没有可依据的本地材料，改问网页通道。');
-      return null;
+      sink.note(
+        '这一轮没有工程证据（未读目录、本问不需要，或扫描为空），按问题原话问本地/云端模型，不改问网页。'
+      );
     }
     if (orchestration.fallback) {
-      sink.note(`${orchestration.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`);
-      return null;
+      if (allowWebFallback) {
+        sink.note(
+          `${orchestration.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`
+        );
+        return null;
+      }
+      sink.note(`${orchestration.reason}。本地/云端主导不退回网页，这一轮没有可问的模型。`);
+      const outcome: ResearchOutcome = {
+        answers: [],
+        synthesis: null,
+        failures: [orchestration.reason],
+        channels: [],
+        messageIds: new Map()
+      };
+      return { outcome, orchestration };
     }
 
     sink.note(orchestration.reason);
@@ -1248,9 +1267,9 @@ export class ConversationRunner {
     }) ?? { system: [], note: '', loaded: [] };
     if (expertise.note) sink.note(expertise.note);
 
-    const engineered = buildEngineeringAnswerQuestion(question, material);
+    const engineered = buildEngineeringAnswerQuestion(question, material ?? '');
     const webQuestion = orchestration.webIncluded
-      ? buildWebOrchestrationQuestion(question, material)
+      ? buildWebOrchestrationQuestion(question, material ?? '')
       : null;
     // 模型自己读文件的范围：工程目录 + 这一问的附件（附件可能在工程目录之外）。
     const scope = {
@@ -1321,10 +1340,17 @@ export class ConversationRunner {
       })()
     ]);
 
-    // 一个都没答：交给调用方退回网页，并说明是模型这边没成，不是没读文件。
+    // 一个都没答：网页/混合档才退回网页；本地/云端主导如实失败。
     if (answers.length === 0) {
-      sink.note(`本机模型没有给出回答（${failures.join('；')}），这一轮改问网页通道。`);
-      return null;
+      if (allowWebFallback) {
+        sink.note(`本机模型没有给出回答（${failures.join('；')}），这一轮改问网页通道。`);
+        return null;
+      }
+      sink.note(
+        `模型没有给出回答（${failures.join('；') || '没有可用成员'}）。本地/云端主导不退回网页。`
+      );
+      const outcome: ResearchOutcome = { answers, synthesis: null, failures, channels, messageIds };
+      return { outcome, orchestration };
     }
 
     const outcome: ResearchOutcome = { answers, synthesis: null, failures, channels, messageIds };

@@ -1,9 +1,8 @@
 /**
- * Phase E：执行模式（2026-11-05 定稿）、选人、接线。
+ * Phase E：执行模式选人、接线（2026-11-09 更新）。
  *
- * 硬规则：第一手回答永远来自网页通道。执行模式 = 谁当主导人（网页/本地/
- * 云端/混合），主导人负责汇总、指定辩论、读辩论结果给最终意见。本地与云端
- * 模型都不参与第一轮回答，但可以当主导人或辩手。
+ * 网页主导 / 混合：第一手仍是网页；本地 / 云端主导：第一手就是对应模型，
+ * 不问网页。执行名单里的本地 + 云端仍可供主导 / 辩手 / 工程编排使用。
  *
  * Run with: npm run test:execution
  */
@@ -97,7 +96,7 @@ test('IPC 传来的非法值一律退回默认，不进 undefined 分支', () =>
   assert.equal(config.fallbackEnabled, false);
 });
 
-test('回答名单 = 网页通道；执行名单 = 本地 + 云端模型（可当主导/辩手）', () => {
+test('网页主导：回答名单 = 网页通道；执行名单 = 本地 + 云端模型', () => {
   const selection = selectParticipants({}, web, extra);
   assert.deepEqual(answers(selection), ['chatgpt', 'kimi']);
   assert.deepEqual(executors(selection), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
@@ -105,6 +104,32 @@ test('回答名单 = 网页通道；执行名单 = 本地 + 云端模型（可�
     !selection.blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
     '本地模型不是回答者，但不该被挡在执行阶段之外——它能当主导人、能当辩手'
   );
+});
+
+test('云端主导：回答 = 勾选的云端模型，不问网页；点名主导人可补进名单', () => {
+  const none = selectParticipants({ executionMode: 'cloud', selectedCloudModels: [] }, web, extra);
+  assert.deepEqual(answers(none), []);
+  assert.ok(none.blocked.some(item => item.id === 'chatgpt' && /不问网页/.test(item.why)));
+  const picked = selectParticipants(
+    { executionMode: 'cloud', selectedCloudModels: ['openai:gpt-4o-mini'] },
+    web,
+    extra
+  );
+  assert.deepEqual(answers(picked), ['openai:gpt-4o-mini']);
+  assert.deepEqual(executors(picked), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
+  const leadOnly = selectParticipants(
+    { executionMode: 'cloud', selectedCloudModels: [], leadAgentId: 'openai:gpt-4o-mini' },
+    web,
+    extra
+  );
+  assert.deepEqual(answers(leadOnly), ['openai:gpt-4o-mini']);
+  assert.ok(executors(leadOnly).includes('openai:gpt-4o-mini'));
+});
+
+test('本地主导：回答 = 本地模型，不问网页', () => {
+  const selection = selectParticipants({ executionMode: 'local' }, web, extra);
+  assert.deepEqual(answers(selection), ['ollama:qwen2.5:7b']);
+  assert.ok(selection.blocked.some(item => item.id === 'chatgpt' && /不问网页/.test(item.why)));
 });
 
 test('按选择裁名单，空数组表示「一个都不选」而不是「没指定」', () => {
@@ -116,7 +141,7 @@ test('按选择裁名单，空数组表示「一个都不选」而不是「没�
   assert.deepEqual(executors(explicitCloud), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
 });
 
-test('ExecutionPool：all/available 只给回答者（网页）；ask 放行回答者与执行者', async () => {
+test('ExecutionPool：all/available 只给回答者；ask 放行回答者与执行者', async () => {
   const base = {
     all: async () => web,
     available: async () => web,

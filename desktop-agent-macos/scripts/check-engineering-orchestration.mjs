@@ -568,3 +568,25 @@ test('混合档网页成员失败：如实记一条失败，不假装拿到了�
     '失败不能留一条空回答'
   );
 });
+
+test('云端主导：模型全失败也不退回网页', async () => {
+  const c = fakeModel('openai:c', 'C', 'cloud', { failInitial: 'API Key 无效' });
+  const { runner, log, state } = makeRunner({ web: ['chatgpt', 'gemini'], models: [c] });
+
+  const started = await runner.start(engineeringInput(FACT, { executionMode: 'cloud' }));
+  const done = await settle(runner, started.conversationId);
+
+  assert.equal(log.web.length, 0, '云端主导失败也不能改问网页');
+  assert.equal(state.availableCalls, 0, '连探活都不该做');
+  const messages = runner.messages(started.conversationId);
+  assert.ok(
+    messages.some(message => message.role === 'system' && /不退回网页/.test(message.text)),
+    '要写明为什么没有改问网页'
+  );
+  assert.ok(
+    !messages.some(message => message.role === 'channel' && message.channelId === 'chatgpt'),
+    '网页通道不能冒充回答'
+  );
+  // 没有第一手回答时会话可能 failed / answered（只有系统说明）；关键是没走网页。
+  assert.ok(['answered', 'failed'].includes(done.status));
+});

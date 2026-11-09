@@ -3599,6 +3599,7 @@ app.whenReady().then(async () => {
           cloud: extraAgents.filter(agent => agent.sourceType === 'cloud').map(agent => agent.id)
         },
         selectedWebChannels: config.selectedWebChannels,
+        selectedCloudModels: config.selectedCloudModels,
         leadAgentId: config.leadAgentId
       }),
     restoreThreads: restoreThreadViews,
