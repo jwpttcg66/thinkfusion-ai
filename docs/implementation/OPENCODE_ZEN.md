@@ -4,6 +4,10 @@
 `chat/completions` 的模型；Zen 的 GPT 系列（`/responses`）与 Claude 系列（`/messages`）
 本 Provider 调不了。
 
+> 你看的是**按量付费**的 Zen。官方的月费订阅是另一个产品（Go / Go Plus / Go Teams），
+> 它走不同的端点，而且网关会把所有文本模型翻译成 chat/completions——见
+> [OPENCODE_GO.md](OPENCODE_GO.md)。
+
 ---
 
 ## 1. 支持到什么程度
