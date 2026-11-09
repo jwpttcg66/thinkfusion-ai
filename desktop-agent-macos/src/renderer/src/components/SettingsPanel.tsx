@@ -242,11 +242,11 @@ export function SettingsPanel(props: {
           if (!item.hasKey || item.modelsDiscovered) continue;
           void window.agentAPI
             .discoverCloudModels({ id: item.id, baseUrl: item.baseUrl })
-            .then(async ({ models }) => {
-              const saved = await window.agentAPI.setCloudConfig({ id: item.id, models });
+            .then(({ models }) => {
+              // 主进程已经落盘并标好来源，这里只更新界面这一行。
               if (!alive) return;
               setCloud(prev => prev.map(row =>
-                row.id === item.id ? { ...row, models: saved.models, modelsDiscovered: true } : row
+                row.id === item.id ? { ...row, models, modelsDiscovered: models.length > 0 } : row
               ));
             })
             // 问不到就保持原样：清单是预设兜底，Key 本身没有问题。
@@ -373,9 +373,10 @@ export function SettingsPanel(props: {
         id: item.id,
         baseUrl: cloudDrafts[item.id]?.baseUrl ?? item.baseUrl
       });
-      const saved = await window.agentAPI.setCloudConfig({ id: item.id, models });
+      // 清单由主进程落盘（`modelsFromGateway`），这里只同步界面状态，
+      // 不再走一次 `setCloudConfig`——那条路会把来源标成「手写」。
       setCloud(prev => prev.map(row =>
-        row.id === item.id ? { ...row, models: saved.models, modelsDiscovered: true } : row
+        row.id === item.id ? { ...row, models, modelsDiscovered: models.length > 0 } : row
       ));
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : String(error));
@@ -415,8 +416,13 @@ export function SettingsPanel(props: {
       // 只提交端点。模型清单只由 `/models` 写，不经过这个「保存」——
       // 一次手滑回车不该把网关的 30 个模型覆盖成一行字。
       const saved = await window.agentAPI.setCloudConfig({ id: item.id, baseUrl: draft.baseUrl });
+      // 端点变了，旧清单就不再属于这个网关（主进程已清掉来源标记），
+      // 界面也退回「预设兜底」，别继续标着「来自网关 /models」。
+      const endpointChanged = saved.baseUrl !== item.baseUrl;
       setCloud(prev => prev.map(row =>
-        row.id === item.id ? { ...row, baseUrl: saved.baseUrl, models: saved.models } : row
+        row.id === item.id
+          ? { ...row, baseUrl: saved.baseUrl, models: saved.models, ...(endpointChanged ? { modelsDiscovered: false } : {}) }
+          : row
       ));
       setCloudDrafts(prev => {
         const next = { ...prev };

@@ -738,17 +738,18 @@ async function discoverModelsFrom(baseUrl: string, key: string): Promise<string[
 }
 
 /**
- * 已配 Key、清单还是预设值的服务，后台补一次真实清单。
+ * 已配 Key、清单还不是网关给的，后台补一次真实清单。
  *
- * 只在 `cloud-config.json` 里还没有这个服务的模型记录时才问：问到了就写进
- * 去并重建，下次启动直接用它。失败就保持原样——断网或 Key 无效时，预设仍是
- * 一个能显示的兜底，不会让列表变成空白。
+ * 判断依据是「这份清单有没有从 `/models` 读过」，不是「列表空不空」：
+ * 预设本来就带几条模型名，按长度判断会永远认为已经拿到了，用户也就永远
+ * 看不到网关的真实清单。问到了就写进去并重建，下次启动直接用它。失败就保持
+ * 原样——断网或 Key 无效时，预设仍是一个能显示的兜底，不会让列表变成空白。
  */
 function refreshMissingCloudModels(): void {
   if (!cloudConfigs || !apiKeys) return;
   for (const service of cloudCatalog) {
     if (!apiKeys.has(service.id)) continue;
-    if ((cloudConfigs.get(service.id)?.models?.length ?? 0) > 0) continue;
+    if (cloudConfigs.get(service.id)?.modelsFromGateway) continue;
     if (cloudModelRefresh.has(service.id)) continue;
     const key = apiKeys.get(service.id);
     if (!key) continue;
@@ -756,7 +757,7 @@ function refreshMissingCloudModels(): void {
     void discoverModelsFrom(service.baseUrl, key)
       .then(models => {
         if (models.length === 0) return;
-        cloudConfigs?.set(service.id, { models });
+        cloudConfigs?.set(service.id, { models, modelsFromGateway: true });
         rebuildProviders();
       })
       // 拿不到清单不是故障：预设兜底还在，界面照实显示「已配置 Key」。
@@ -2514,7 +2515,7 @@ function registerIpc() {
         hasKey: apiKeys?.has(item.id) ?? false,
         // 清单是不是从网关 `/models` 拿回来的。界面靠它决定「打开设置时还要
         // 不要顺手再问一次」，而不是每次都发一遍请求。
-        modelsDiscovered: (cloudConfigs?.get(item.id)?.models?.length ?? 0) > 0,
+        modelsDiscovered: cloudConfigs?.get(item.id)?.modelsFromGateway === true,
         // 「能不能整个删掉」：内置三条不行（它们是默认锚点），目录项与自定义都可以。
         custom: !CLOUD_PRESETS.some(preset => preset.id === item.id)
       })),
@@ -2559,7 +2560,7 @@ function registerIpc() {
     if (service) {
       try {
         models = await discoverModelsFrom(service.baseUrl, key);
-        if (models.length > 0) cloudConfigs?.set(service.id, { models });
+        if (models.length > 0) cloudConfigs?.set(service.id, { models, modelsFromGateway: true });
       } catch (error) {
         modelNote = error instanceof Error ? error.message : String(error);
       }
@@ -2584,7 +2585,7 @@ function registerIpc() {
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
     const input = raw as { id?: unknown; baseUrl?: unknown; models?: unknown };
     if (typeof input.id !== 'string' || (!presetOf(input.id) && !isUserProvider(input.id))) throw new Error('未知的云端服务');
-    const patch: { baseUrl?: string; models?: string[] } = {};
+    const patch: { baseUrl?: string; models?: string[]; modelsFromGateway?: boolean } = {};
     if (input.baseUrl !== undefined) {
       if (typeof input.baseUrl !== 'string' || !/^https?:\/\//.test(input.baseUrl.trim())) {
         throw new Error('baseUrl 必须是 http(s) 地址');
@@ -2595,6 +2596,8 @@ function registerIpc() {
       const models = normalizeModels(input.models);
       if (models.length === 0) throw new Error('至少保留一个模型');
       patch.models = models;
+      // 手写进来的清单不是网关给的，界面不能标成「来自网关 /models」。
+      patch.modelsFromGateway = false;
     }
     cloudConfigs.set(input.id, patch);
     rebuildProviders();
@@ -2638,11 +2641,13 @@ function registerIpc() {
     const key = typeof input.key === 'string' ? input.key.trim() : '';
     const models = normalizeModels(input.models);
     let finalModels = models.length > 0 ? models : [...entry.models];
+    let modelsFromGateway = false;
     // 界面不再让人手填模型名：没带清单就向网关要一次。要不到也不拦添加——
     // 服务下一条 Key 保存或下次启动还会再问，清单空着只是暂时没成员。
     if (finalModels.length === 0 && key) {
       try {
         finalModels = await discoverModelsFrom(baseUrl, key);
+        modelsFromGateway = finalModels.length > 0;
       } catch {
         finalModels = [];
       }
@@ -2653,8 +2658,8 @@ function registerIpc() {
     const id = entry.custom ? userProviderId(label, taken) : entry.id;
     if (!entry.custom && taken.has(id)) throw new Error(`${entry.label} 已经在列表里，直接填 Key 就行`);
 
-    if (entry.custom) cloudConfigs.set(id, { label, baseUrl, models: finalModels });
-    else cloudConfigs.set(id, { baseUrl, models: finalModels });
+    if (entry.custom) cloudConfigs.set(id, { label, baseUrl, models: finalModels, modelsFromGateway });
+    else cloudConfigs.set(id, { baseUrl, models: finalModels, modelsFromGateway });
     if (key) apiKeys.set(id, key);
     rebuildProviders();
     const resolved = cloudCatalog.find(item => item.id === id);
@@ -2701,7 +2706,14 @@ function registerIpc() {
       (typeof input.id === 'string' && apiKeys?.get(input.id)) ||
       '';
     if (!key) throw new Error('先填 API Key，再获取模型');
-    return { models: await discoverModelsFrom(baseUrl, key) };
+    const models = await discoverModelsFrom(baseUrl, key);
+    // 带服务 id 来的调用（设置里点「重新获取」）就是要把清单记下来：只回给界面
+    // 不落盘，下次打开又得再问一遍，界面也会一直停在「还没从网关读到」。
+    if (typeof input.id === 'string' && models.length > 0) {
+      cloudConfigs?.set(input.id, { models, modelsFromGateway: true });
+      rebuildProviders();
+    }
+    return { models };
   });
 
   ipcMain.handle('app:provider-health', async event => {

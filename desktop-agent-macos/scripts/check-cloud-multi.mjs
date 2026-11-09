@@ -154,6 +154,30 @@ test('配置存储：读写保留、损坏文件退回空、删除生效', () =>
   }
 });
 
+test('「来自网关」是记下来的来源，不是拿清单长度冒充的', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-cloud-origin-'));
+  const file = path.join(dir, 'cloud-config.json');
+  try {
+    const store = new CloudConfigStore(file);
+    // 预设自带的模型名落进配置，也不等于网关给过：来源字段必须缺省。
+    store.set('deepseek', { models: ['deepseek-v4-flash'] });
+    assert.equal(store.get('deepseek')?.modelsFromGateway, undefined, '没问过 /models 就不能说「来自网关」');
+    // 真问过才标 true。
+    store.set('deepseek', { models: ['deepseek-v4-flash', 'deepseek-v4-pro'], modelsFromGateway: true });
+    assert.equal(new CloudConfigStore(file).get('deepseek')?.modelsFromGateway, true);
+    // 换端点：清单保留（常常只是同一网关的代理地址），来源标记作废。
+    store.set('deepseek', { baseUrl: 'https://proxy.example.com/v1' });
+    const after = new CloudConfigStore(file).get('deepseek');
+    assert.equal(after?.modelsFromGateway, undefined, '端点换了，旧清单不是新端点给的');
+    assert.deepEqual(after?.models, ['deepseek-v4-flash', 'deepseek-v4-pro']);
+    // 手写进来的清单把来源改回 false。
+    store.set('deepseek', { models: ['hand-typed'], modelsFromGateway: false });
+    assert.equal(new CloudConfigStore(file).get('deepseek')?.modelsFromGateway, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 真实 HTTP：换 baseUrl 与 Key 之后请求发对了地方
 // ---------------------------------------------------------------------------
