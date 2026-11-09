@@ -352,7 +352,7 @@ export function createMockApi(): AgentApi {
       cloudProviders: [
         { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'], hasKey: false },
         { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], hasKey: false },
-        { id: 'opencode', label: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/v1', models: ['deepseek-v4-flash', 'kimi-k2.6'], hasKey: false, note: '只支持走 Chat Completions 的模型' }
+        { id: 'opencode-go', label: 'OpenCode Go', baseUrl: 'https://opencode.ai/inference/go/openai/v1', models: ['deepseek-v4.1-flash', 'kimi-k3'], hasKey: false, note: '订阅制：额度按模型月度上限算，本界面不估算单价' }
       ],
       providers: [],
       debateCandidates: [

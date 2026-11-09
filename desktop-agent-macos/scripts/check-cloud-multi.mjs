@@ -1,5 +1,5 @@
 /**
- * 多云端服务：DeepSeek / OpenCode Zen / OpenAI。
+ * 多云端服务：DeepSeek / OpenCode Go / OpenAI。
  *
  * 这里起一个真实 HTTP 服务，按路径前缀分三套端点，验证的不是「函数返回值
  * 长得对」，而是**换一个 baseUrl 和 Key 之后请求真的发对了地方**：
@@ -22,7 +22,7 @@ import { OpenAICompatibleProvider } from '../out-test/main/providers/openai-comp
 import { CloudConfigStore } from '../out-test/main/providers/cloud-config.js';
 import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset } from '../out-test/main/providers/cloud-presets.js';
 
-const KEYS = { openai: 'sk-openai-test', deepseek: 'sk-deepseek-test', opencode: 'sk-opencode-test' };
+const KEYS = { openai: 'sk-openai-test', deepseek: 'sk-deepseek-test', 'opencode-go': 'sk-opencode-test' };
 
 function keyStore(calls) {
   return {
@@ -40,8 +40,8 @@ function startServer() {
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       const body = raw ? JSON.parse(raw) : {};
-      const match = /^\/(openai|deepseek|opencode)\/(?:zen\/)?v1(\/.*)$/.exec(req.url ?? '');
-      seen.push({ url: req.url, method: req.method, auth: req.headers.authorization, body });
+      const match = /^\/(openai|deepseek|opencode-go)\/(?:go\/)?v1(\/.*)$/.exec(req.url ?? '');
+      seen.push({ url: req.url, method: req.method, auth: req.headers.authorization, headers: req.headers, body });
       if (!match) {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: `未知路径 ${req.url}` } }));
@@ -91,7 +91,7 @@ function startServer() {
   return new Promise(resolve => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
-      resolve({ server, port, seen, base: id => `http://127.0.0.1:${port}/${id}/${id === 'opencode' ? 'zen/' : ''}v1` });
+      resolve({ server, port, seen, base: id => `http://127.0.0.1:${port}/${id}/${id === 'opencode-go' ? 'go/' : ''}v1` });
     });
   });
 }
@@ -100,16 +100,20 @@ function startServer() {
 // 预设
 // ---------------------------------------------------------------------------
 
-test('预设覆盖 DeepSeek 与 OpenCode，且不再写已停用的 deepseek-chat', () => {
+test('预设覆盖 DeepSeek 与 OpenCode Go，且不再写已停用的 deepseek-chat', () => {
   const ids = CLOUD_PRESETS.map(item => item.id);
-  assert.deepEqual(ids, ['openai', 'deepseek', 'opencode']);
+  assert.deepEqual(ids, ['openai', 'deepseek', 'opencode-go']);
   const deepseek = presetOf('deepseek');
   assert.equal(deepseek.baseUrl, 'https://api.deepseek.com/v1');
   assert.ok(deepseek.models.includes('deepseek-v4-flash'));
   assert.ok(!deepseek.models.includes('deepseek-chat'), 'deepseek-chat 已于 2026-07-24 停用，不能当默认');
-  const opencode = presetOf('opencode');
-  assert.equal(opencode.baseUrl, 'https://opencode.ai/zen/v1');
-  assert.match(opencode.note, /Responses|Messages/);
+  const opencode = presetOf('opencode-go');
+  assert.equal(opencode.baseUrl, 'https://opencode.ai/inference/go/openai/v1');
+  // Go 网关把所有文本模型翻译成 chat/completions，所以 GPT/Claude 能列进来；
+  // note 说的是「订阅制、不估算单价」，不再是 Zen 那条协议边界。
+  assert.ok(opencode.models.includes('gpt-6-luna'));
+  assert.match(opencode.note, /订阅|额度/);
+  assert.equal(presetOf('opencode'), undefined, 'Zen 预设已合并到 Go，不应再单列');
 });
 
 test('模型清单去空白、去重、丢非字符串；空清单退回预设而不是变成零模型', () => {
@@ -122,7 +126,7 @@ test('模型清单去空白、去重、丢非字符串；空清单退回预设�
 });
 
 test('baseUrl 只接受 http(s)，尾斜杠会被去掉，避免拼出 //chat/completions', () => {
-  const preset = presetOf('opencode');
+  const preset = presetOf('opencode-go');
   assert.equal(resolvePreset(preset, { baseUrl: 'https://example.com/v1/' }).baseUrl, 'https://example.com/v1');
   assert.equal(resolvePreset(preset, { baseUrl: 'file:///etc/passwd' }).baseUrl, preset.baseUrl);
   assert.equal(resolvePreset(preset, { baseUrl: '' }).baseUrl, preset.baseUrl);
@@ -142,9 +146,9 @@ test('配置存储：读写保留、损坏文件退回空、删除生效', () =>
     });
     fs.writeFileSync(file, '{ 不是 JSON');
     assert.equal(new CloudConfigStore(file).get('deepseek'), null);
-    fs.writeFileSync(file, JSON.stringify({ opencode: { models: ['x'] } }));
-    new CloudConfigStore(file).remove('opencode');
-    assert.equal(new CloudConfigStore(file).get('opencode'), null);
+    fs.writeFileSync(file, JSON.stringify({ 'opencode-go': { models: ['x'] } }));
+    new CloudConfigStore(file).remove('opencode-go');
+    assert.equal(new CloudConfigStore(file).get('opencode-go'), null);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -157,7 +161,7 @@ test('配置存储：读写保留、损坏文件退回空、删除生效', () =>
 test('三家服务各自用自己的端点和 Key，探活到的是自己的 /models', async () => {
   const { server, seen, base } = await startServer();
   try {
-    for (const id of ['openai', 'deepseek', 'opencode']) {
+    for (const id of ['openai', 'deepseek', 'opencode-go']) {
       const calls = [];
       const provider = new OpenAICompatibleProvider({
         id, label: id, baseUrl: base(id), models: ['m'], defaultModel: 'm', keyStore: keyStore(calls)
@@ -169,10 +173,10 @@ test('三家服务各自用自己的端点和 Key，探活到的是自己的 /mo
     const urls = seen.map(item => item.url);
     assert.ok(urls.includes('/openai/v1/models'));
     assert.ok(urls.includes('/deepseek/v1/models'));
-    assert.ok(urls.includes('/opencode/zen/v1/models'));
+    assert.ok(urls.includes('/opencode-go/go/v1/models'));
     // 没有任何请求把 A 的 Key 发到 B 的路径
     for (const item of seen) {
-      const providerId = /^\/(openai|deepseek|opencode)\//.exec(item.url)?.[1];
+      const providerId = /^\/(openai|deepseek|opencode-go)\//.exec(item.url)?.[1];
       assert.equal(item.auth, `Bearer ${KEYS[providerId]}`);
     }
   } finally {
@@ -220,17 +224,39 @@ test('模型名被云厂商停用时是 model-not-found，不是含糊的 unknow
   }
 });
 
+test('OpenCode Go 要求的客户端头每次都带：探活与生成都发 user-agent 与稳定 session', async () => {
+  const { server, seen, base } = await startServer();
+  try {
+    const headers = { 'user-agent': 'ThinkFusion/9.9.9', 'x-opencode-session': 'sess-abc' };
+    const provider = new OpenAICompatibleProvider({
+      id: 'opencode-go', label: 'OpenCode Go', baseUrl: base('opencode-go'),
+      models: ['kimi-k3'], defaultModel: 'kimi-k3', keyStore: keyStore([]), extraHeaders: headers
+    });
+    const health = await provider.health();
+    assert.equal(health.available, true, `探活失败：${health.detail}`);
+    await provider.generate({ question: 'hi' });
+    assert.equal(seen.length, 2);
+    for (const item of seen) {
+      assert.equal(item.headers['user-agent'], 'ThinkFusion/9.9.9');
+      assert.equal(item.headers['x-opencode-session'], 'sess-abc');
+      assert.equal(item.auth, 'Bearer sk-opencode-test', '额外头不能把鉴权头挤掉');
+    }
+  } finally {
+    server.close();
+  }
+});
+
 test('改成自定义 baseUrl（代理/自建网关）照样能用', async () => {
   const { server, seen, base } = await startServer();
   try {
-    // 把 opencode 指向 opencode 前缀，但通过配置传进去，走的是同一条代码路径
+    // 把 OpenCode Go 指向本地前缀，但通过配置传进去，走的是同一条代码路径
     const provider = new OpenAICompatibleProvider({
-      id: 'opencode', label: 'OpenCode Zen', baseUrl: base('opencode'),
-      models: ['kimi-k2.6'], defaultModel: 'kimi-k2.6', keyStore: keyStore([])
+      id: 'opencode-go', label: 'OpenCode Go', baseUrl: base('opencode-go'),
+      models: ['kimi-k3'], defaultModel: 'kimi-k3', keyStore: keyStore([])
     });
     const answer = await provider.generate({ question: 'hi' });
-    assert.match(answer.text, /opencode 的回答/);
-    assert.ok(seen.some(item => item.url === '/opencode/zen/v1/chat/completions'));
+    assert.match(answer.text, /opencode-go 的回答/);
+    assert.ok(seen.some(item => item.url === '/opencode-go/go/v1/chat/completions'));
   } finally {
     server.close();
   }

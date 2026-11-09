@@ -1,6 +1,7 @@
 import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, screen } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type {
   AgentEvent,
   DeepSeekDiagnostics,
@@ -582,6 +583,10 @@ function rebuildProviders() {
   cloudCatalog = [];
   cloudProviders = [];
   if (apiKeys) {
+    // OpenCode Go 的官方「客户端要求」：自报 User-Agent，并带一个稳定的
+    // x-opencode-session。用安装目录指纹当会话标识——同一套安装每次都一样，
+    // 不落盘、不含任何个人信息，也不随重启变化。
+    const openCodeSession = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24);
     for (const preset of CLOUD_PRESETS) {
       const resolved = resolvePreset(preset, cloudConfigs?.get(preset.id));
       cloudCatalog.push(resolved);
@@ -591,7 +596,10 @@ function rebuildProviders() {
         baseUrl: resolved.baseUrl,
         models: resolved.models,
         defaultModel: resolved.models[0],
-        keyStore: apiKeys
+        keyStore: apiKeys,
+        ...(resolved.id === 'opencode-go'
+          ? { extraHeaders: { 'user-agent': `ThinkFusion/${app.getVersion() || '0.1.0'}`, 'x-opencode-session': openCodeSession } }
+          : {})
       });
       cloudProviders.push(provider);
       providers.push(provider);

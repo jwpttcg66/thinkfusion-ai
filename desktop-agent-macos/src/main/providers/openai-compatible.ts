@@ -47,6 +47,11 @@ export interface CloudOptions {
   retryBaseMs?: number;
   /** Token / 费用闸门。累计达到上限后不再发请求，避免一次误操作烧完预算。 */
   budget?: { maxTokens?: number; maxCost?: number; currency?: string };
+  /**
+   * 额外的固定请求头。有些网关（OpenCode Go）要求客户端自报 User-Agent 和
+   * 稳定的会话标识；不能放鉴权头里，也不该让每个调用点自己拼。
+   */
+  extraHeaders?: Record<string, string>;
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -96,6 +101,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly budget: CloudOptions['budget'];
+  private readonly extraHeaders: Record<string, string>;
   private readonly inflight = new Map<string, AbortController>();
   private readonly usageLog: UsageRecord[] = [];
   private seq = 0;
@@ -116,6 +122,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
     this.budget = options.budget;
+    this.extraHeaders = { ...(options.extraHeaders ?? {}) };
   }
 
   async capabilities(): Promise<ProviderCapabilities> {
@@ -316,7 +323,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
   private headers(): Record<string, string> {
     const key = this.keys.get(this.id);
     if (!key) throw new ProviderError('auth', `没有配置 ${this.label} 的 API Key`, this.id);
-    return { 'content-type': 'application/json', authorization: `Bearer ${key}` };
+    // 额外头放在后面：网关要求的 User-Agent / 会话标识不能被子类默认值盖掉。
+    return { 'content-type': 'application/json', authorization: `Bearer ${key}`, ...this.extraHeaders };
   }
 
   /** 整次响应结束才算一次尝试：重试不会把两段回答拼在一起。 */

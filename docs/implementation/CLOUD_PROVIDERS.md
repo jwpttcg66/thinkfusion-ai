@@ -1,4 +1,4 @@
-# 云端模型：DeepSeek / OpenCode Zen / OpenAI
+# 云端模型：DeepSeek / OpenCode Go / OpenAI
 
 日期 2026-11-04。原来只有一个写死 `gpt-4o-mini` 的 `openai` Provider，模型列表是常量，换个服务就得改代码。现在改成「预设 + 可编辑」，三个服务并行注册，混合模式会把它们算进成员。
 
@@ -8,21 +8,28 @@
 | --- | --- | --- | --- |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini`、`gpt-4o` | 原样保留 |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-v4-flash`、`deepseek-v4-pro` | `deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 停用，默认值不用旧名 |
-| OpenCode Zen | `https://opencode.ai/zen/v1` | `deepseek-v4-flash`、`deepseek-v4-pro`、`glm-5.2`、`kimi-k2.6`、`minimax-m2.7` | 只列走 Chat Completions 的模型 |
+| OpenCode Go | `https://opencode.ai/inference/go/openai/v1` | `deepseek-v4.1-flash`、`deepseek-v4-pro`、`glm-5.3-flash`、`kimi-k3`、`qwen3.8-max`、`gpt-6-luna` | 订阅制（月费）；网关把全部文本模型翻译成 Chat Completions，GPT / Claude / Gemini 也能用 |
 
-上游事实来自 DeepSeek 官方文档（2026-11 版本）与 OpenCode Zen 端点表。两家的模型名都还在变，所以**模型列表在界面上可改**，改完立刻生效并持久化到 `cloud-config.json`。
+上游事实来自 DeepSeek 官方文档（2026-11 版本）与 OpenCode Go 网关的 `GET /openai/v1/models`（2026-11-09 实测 30 个 chat 模型）。两家的模型名都还在变，所以**模型列表在界面上可改**，改完立刻生效并持久化到 `cloud-config.json`。
 
-要买 OpenCode Zen 或第一次接真实 Key，看 [OPENCODE_ZEN.md](OPENCODE_ZEN.md)：里面是接入步骤、探活回执对照、验收清单与已知限制。
+要买 OpenCode Go 或第一次接真实 Key，看 [OPENCODE_GO.md](OPENCODE_GO.md)：里面是套餐额度、接入步骤、探活回执对照、验收清单与已知限制。
 
-### OpenCode 有一条明确的能力边界
+### 为什么是 Go，不是 Zen
 
-Zen 的不同模型走不同协议：
+同样在 opencode.ai 上，两套网关的协议边界完全不同：
 
-- `chat/completions`：DeepSeek、GLM、Kimi、MiniMax 等 —— 本 Provider 支持
-- `/responses`：GPT 系列 —— 不支持
-- `/messages`：Claude 系列 —— 不支持
+| 网关 | 端点 | 计费 | 本 Provider |
+| --- | --- | --- | --- |
+| Go（订阅） | `https://opencode.ai/inference/go` | 月费，按模型月度额度封顶 | ✅ 全模型可用 |
+| Zen（按量） | `https://opencode.ai/inference` | 按 token 付费 | ⚠️ 只有 `chat/completions` 那批能用 |
 
-把 GPT 模型填进 OpenCode 的模型列表只会在第一次调用时报错，所以预设里不列，界面 note 里写明原因。要支持它们得另写 Responses / Messages 的适配器，不在这一轮。
+Go 会把所有文本模型翻译成 Chat Completions（官方原文：每种 API 都服务全部 Go 文本模型），所以 GPT / Claude / Gemini 在我们的 Provider 里也能直接用。Zen 没有这层翻译：它的 GPT 系列走 `/responses`、Claude 系列走 `/messages`，填进来第一次调用就失败，要支持得另写两个适配器。
+
+因此预设只留一条 OpenCode：**Go**。要临时用按量计费的 Zen，把端点改成 `https://opencode.ai/inference/openai/v1` 即可，代码不用动。
+
+### Go 要求的两条客户端头
+
+官方「客户端要求」点名 User-Agent 与稳定的 `x-opencode-session`。前者由 `main/index.ts` 用 `ThinkFusion/<版本>` 填，后者用安装目录的 SHA-256 前 24 位（同一套安装恒定、不落盘、不含个人信息）。两条都通过 `OpenAICompatibleProvider` 的 `extraHeaders` 下发，探活和生成走同一份头。
 
 ## 配置分开存
 

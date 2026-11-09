@@ -6,9 +6,11 @@
  * 任何把旧名字写死的客户端都会在当天开始报 404。预设给的是「今天能用」的
  * 起点，模型列表在界面上可改，改完立刻生效。
  *
- * 只收录**走 Chat Completions** 的服务。OpenCode Zen 的 GPT 系列走
- * `/responses`、Claude 系列走 `/messages`，和这里的 Provider 不是一套协议，
- * 写进来只会在第一次调用时失败，所以不列，并在 note 里说清楚。
+ * 只收录**走 Chat Completions** 的服务。OpenCode 这里收的是订阅制的 **Go**
+ * 网关（`/inference/go`）：它会把所有文本模型翻译成 Chat Completions，所以
+ * GPT / Claude / Gemini 也能用。按量计费的 Zen（`/inference`）不再单列——
+ * 它的 GPT 系列走 `/responses`、Claude 系列走 `/messages`，本 Provider 调不了；
+ * 真要按量付费，把端点改成 `https://opencode.ai/inference/openai/v1` 即可。
  */
 
 export interface CloudPreset {
@@ -35,11 +37,11 @@ export const CLOUD_PRESETS: readonly CloudPreset[] = [
     note: 'deepseek-chat / deepseek-reasoner 已于 2026-07-24 停用；旧账号若仍只认旧名，在这里改回即可'
   },
   {
-    id: 'opencode',
-    label: 'OpenCode Zen',
-    baseUrl: 'https://opencode.ai/zen/v1',
-    models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'glm-5.2', 'kimi-k2.6', 'minimax-m2.7'],
-    note: '只列走 Chat Completions 的模型；GPT 系列走 Responses、Claude 走 Messages，本 Provider 调不了'
+    id: 'opencode-go',
+    label: 'OpenCode Go',
+    baseUrl: 'https://opencode.ai/inference/go/openai/v1',
+    models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'glm-5.3-flash', 'kimi-k3', 'qwen3.8-max', 'gpt-6-luna'],
+    note: '订阅制：额度按模型月度上限算（服务端拦），本界面不估算单价；模型清单来自网关 /models，可自改'
   }
 ];
 
