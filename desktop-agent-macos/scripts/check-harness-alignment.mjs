@@ -77,7 +77,11 @@ test('探测结果一定带原因，不返回空话', () => {
   resetSandboxProbe();
   const probe = probeSandbox();
   assert.equal(typeof probe.ok, 'boolean');
-  assert.ok(probe.reason.length > 4, '无论成功还是失败都要说清楚原因');
+  // 成功时就是一句「沙箱可用」，短是对的；失败时必须写清为什么退不回去。
+  assert.ok(
+    probe.ok ? probe.reason.trim().length > 0 : probe.reason.trim().length > 4,
+    '无论成功还是失败都要说清楚原因'
+  );
   // 缓存要真的生效：第二次不必再跑一次 canary。
   assert.deepEqual(probeSandbox(), probe);
 });
