@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { PermissionPreset } from '../../../shared/contracts';
+import type { CloudMemberView, PermissionPreset } from '../../../shared/contracts';
 import type { EngineeringTaskKind, WorkspaceMode } from '../../../shared/workspace';
 import { describeBytes, type ConversationAttachment } from '../../../shared/attachments';
 import { PlusMenu, type PlusMenuProps } from './PlusMenu';
@@ -46,6 +46,20 @@ export function TaskInput(props: {
   researchLabel: string;
   researchDetail: string;
   /**
+   * 这一问用哪些云端模型做推导。
+   *
+   * 模型清单来自主进程（服务 + 模型），不是界面写死的几个名字；勾选写回
+   * `selectedCloudModels`，和「研究设置 → 参与成员」是同一份配置，两处
+   * 永远说同一件事。放在输入框边上的理由：选模型是「这一问怎么跑」，
+   * 不是应用级设置——它不该逼人先打开设置面板再回来提问。
+   */
+  models: {
+    cloud: CloudMemberView[];
+    /** undefined = 全部；空数组 = 一个都不用。 */
+    selected?: string[];
+    onChange: (next: string[]) => void;
+  };
+  /**
    * 开着某条会话时，这里写着它的标题；没有会话就是 null。
    *
    * 「接着上一条问」和「问个新问题」在输入框里长得一模一样，只有发出去之后才
@@ -74,7 +88,7 @@ export function TaskInput(props: {
   onRemoveAttachment: (id: string) => void;
   onSubmit: () => void;
 }) {
-  const [menu, setMenu] = useState<'none' | 'permission' | 'plus'>('none');
+  const [menu, setMenu] = useState<'none' | 'permission' | 'models' | 'plus'>('none');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -96,6 +110,23 @@ export function TaskInput(props: {
   }
 
   const permission = PERMISSIONS.find(item => item.value === props.permission) ?? PERMISSIONS[1];
+  /**
+   * 模型胶囊说两件事：能不能选、现在选了几个。
+   *
+   * 「全部」和「已选 2/7」都写出来，是因为 `undefined`（默认全部）和空数组
+   * （一个都不用）在配置里是两个意思，在界面上却只差一次点击——不写清楚，
+   * 用户会以为自己取消了一个而其实取消了全部。
+   */
+  const cloudModels = props.models.cloud;
+  /** 只算真有 Key 的成员：没 Key 的那些运行时也调不通，不该算进「全部」。 */
+  const selectableModels = cloudModels.filter(item => item.hasKey).map(item => item.id);
+  const chosenModels = props.models.selected ?? cloudModels.map(item => item.id);
+  const checkedCount = chosenModels.filter(id => selectableModels.includes(id)).length;
+  const modelSummary = selectableModels.length === 0
+    ? '未配置'
+    : checkedCount === selectableModels.length
+      ? '全部'
+      : `已选 ${checkedCount}/${selectableModels.length}`;
 
   return (
     <div className="composer" style={{ position: 'relative' }} ref={rootRef}>
@@ -222,6 +253,21 @@ export function TaskInput(props: {
           {/* 和其他两个胶囊同一种形状、同样高度：这里放的是「下一条怎么问」，
               点开才是那块面板。设置项读完就收起来，不占正文一行。 */}
           <button
+            className={`chip-btn${menu === 'models' ? ' active' : ''}`}
+            type="button"
+            onClick={() => setMenu(menu === 'models' ? 'none' : 'models')}
+            disabled={props.disabled}
+            aria-expanded={menu === 'models'}
+            title={`这一问用哪些云端模型做推导（${modelSummary}）`}
+            aria-label={`选择模型（${modelSummary}）`}
+          >
+            <span>◈</span>
+            <span className="label">模型</span>
+            <span className="chip-dot" aria-hidden="true">·</span>
+            <span className="chip-sub">{modelSummary}</span>
+          </button>
+
+          <button
             className="chip-btn"
             type="button"
             onClick={props.onOpenResearch}
@@ -265,6 +311,66 @@ export function TaskInput(props: {
               <small>{item.desc}</small>
             </button>
           ))}
+        </div>
+      )}
+
+      {menu === 'models' && (
+        <div className="popover model-popover" style={{ left: 12, bottom: 46 }}>
+          <div className="model-popover-head">
+            <b>这一问用哪些云端模型</b>
+            <span className="settings-spacer" />
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={selectableModels.length === 0}
+              onClick={() => props.models.onChange(selectableModels)}
+            >
+              全选
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={cloudModels.length === 0}
+              onClick={() => props.models.onChange([])}
+            >
+              清空
+            </button>
+          </div>
+          {cloudModels.length === 0 && (
+            <p className="model-popover-empty">
+              还没有可用的云端模型。去「设置 → 模型 → 云端 API 模型」贴一个 Key，
+              模型清单会由网关自动读回来，不用手填名字。
+            </p>
+          )}
+          <div className="model-popover-list">
+            {cloudModels.map(item => {
+              const checked = item.hasKey && chosenModels.includes(item.id);
+              return (
+                <label
+                  key={item.id}
+                  className={`model-option${item.hasKey ? '' : ' off'}`}
+                  title={item.hasKey ? item.label : '这个服务的 Key 还没配'}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={!item.hasKey}
+                    checked={checked}
+                    onChange={() => props.models.onChange(
+                      chosenModels.includes(item.id)
+                        ? chosenModels.filter(id => id !== item.id)
+                        : [...chosenModels, item.id]
+                    )}
+                  />
+                  <span className="model-option-label">{item.label}</span>
+                  {!item.hasKey && <span className="model-option-note">未配置 Key</span>}
+                </label>
+              );
+            })}
+          </div>
+          <p className="model-popover-foot">
+            勾选只影响这一问和它的追问。一个都不勾 = 这一轮云端模型不参与推导，
+            只剩本地模型和网页通道。
+          </p>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import type {
   AgentTask,
   DeepSeekDiagnostics,
   DeepSeekStatus,
+  ExecutionOptions,
   Identity,
   PageState,
   PermissionPreset,
@@ -208,6 +209,27 @@ export default function App() {
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [researchOpen, setResearchOpen] = useState(false);
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
+  /**
+   * 输入框旁边那个「模型」胶囊要的云端成员清单。
+   *
+   * 清单来自主进程（预设 + 用户配置 + 网关 `/models`），界面自己不抄一份
+   * 模型名。设置面板关掉时重新取一次：刚贴完 Key、刚补完模型清单的那一行，
+   * 回到输入框就该能选。
+   */
+  const [executionOptions, setExecutionOptions] = useState<ExecutionOptions | null>(null);
+  useEffect(() => {
+    if (settingsOpen) return;
+    let alive = true;
+    void window.agentAPI
+      .getExecutionOptions()
+      .then(options => {
+        if (alive) setExecutionOptions(options);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [settingsOpen]);
   /**
    * 面板上这份设置的即时副本。
    *
@@ -1629,6 +1651,13 @@ export default function App() {
               // 研究设置的入口在输入框里（第三个胶囊），这里只把「下一条用什么」传下去。
               researchLabel={({ web: '网页主导', local: '本地主导', cloud: '云端主导', hybrid: '混合主导' } as const)[executionConfig.executionMode]}
               researchDetail={executionConfig.strategy ?? '默认并行'}
+              // 这一问由哪些云端模型做推导：清单来自主进程，勾选写回会话配置，
+              // 和研究设置里的「参与成员」是同一份值。
+              models={{
+                cloud: executionOptions?.cloudMembers ?? [],
+                selected: executionConfig.selectedCloudModels,
+                onChange: next => changeExecutionConfig({ selectedCloudModels: next })
+              }}
               // 写着「追问《…》」的时候，这一句会进那条会话；点「新对话」就换一条。
               followupTitle={showingConversation && activeConversation ? activeConversation.title : null}
               inputRef={composerRef}

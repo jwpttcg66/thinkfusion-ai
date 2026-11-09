@@ -1175,6 +1175,13 @@ export interface CloudProviderView {
   /** 这个服务有哪些模型不能用、为什么。界面照实显示。 */
   note?: string;
   hasKey: boolean;
+  /**
+   * 模型清单是不是从网关 `/models` 读回来的。
+   *
+   * `false` 表示现在列出来的还是预设的几条兜底，不是这家真实有哪些模型——
+   * 界面据此决定打开时要不要顺手再问一次，也避免把预设当成事实展示。
+   */
+  modelsDiscovered?: boolean;
   /** 用户加的服务（目录项或自定义端点）：可以整个删掉；内置三条只能清 Key。 */
   custom?: boolean;
 }
@@ -1622,8 +1629,19 @@ export interface AgentApi {
 
   // 执行模式（Phase E）
   getExecutionOptions(): Promise<ExecutionOptions>;
-  /** 只写主进程的密文库；返回值里没有 Key。 */
-  setApiKey(input: { id: string; key: string }): Promise<{ id: string; configured: boolean }>;
+  /**
+   * 只写主进程的密文库；返回值里没有 Key。
+   *
+   * 保存成功后会顺手向网关 `/models` 要一次真实模型清单：`models` 是拿到
+   * 的清单（拿不到就是原来那份），`modelNote` 说明为什么没拿到——Key 本身
+   * 已经存好了，这条注记不该让用户以为保存失败。
+   */
+  setApiKey(input: { id: string; key: string }): Promise<{
+    id: string;
+    configured: boolean;
+    models?: string[];
+    modelNote?: string;
+  }>;
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   /** 改云端服务的端点或模型列表；不含 API Key。 */
   setCloudConfig(input: { id: string; baseUrl?: string; models?: string[] }): Promise<CloudProviderView>;

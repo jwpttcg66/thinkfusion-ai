@@ -489,6 +489,14 @@ let cloudConfigs: CloudConfigStore | null = null;
 let cloudCatalog: CloudPreset[] = [];
 let cloudProviders: OpenAICompatibleProvider[] = [];
 /**
+ * 正在问 `/models` 的服务 id。
+ *
+ * 模型清单不从预设写死：配好 Key 就向网关要一次真实清单，写进
+ * `cloud-config.json`。这份 Set 只防「同一次重建里反复发请求」，请求结束就
+ * 删——失败的服务下次重建还能再试。
+ */
+const cloudModelRefresh = new Set<string>();
+/**
  * 本地模型（Ollama）。它有两个身份：
  *
  * - 「本地」模式下唯一的回答者（隐私任务）；
@@ -683,6 +691,77 @@ function rebuildProviders() {
       ? localModels
       : cloudCatalog.find(item => item.id === provider.id)?.models ?? [];
     for (const modelId of models) extraAgents.push(new ProviderBackedSubAgent(provider, modelId));
+  }
+  // 有 Key、但模型清单还停在预设（或为空）的服务，后台补一次真实清单。
+  // 放在重建末尾而不是启动流程里：任何一条改配置的路径都会走到这里。
+  refreshMissingCloudModels();
+}
+
+/**
+ * 读网关的真实模型清单（OpenAI 的 `{ data: [{ id }] }`）。
+ *
+ * 为什么不让界面 / 预设替用户填模型名：网关今天返回 30 个模型，预设只敢列
+ * 其中几个，用户照着预设选就会以为「这家只有这几条」。这里每次免费问一次
+ * `/models`（不烧 token），拿到的才是这一问真能调的东西。
+ *
+ * 认不出结构就明确报错，不回空数组——「这家没有模型」和「我没读懂回执」是
+ * 两件事，混成一件会让界面显示一个不可能正确的清单。
+ */
+async function discoverModelsFrom(baseUrl: string, key: string): Promise<string[]> {
+  const openCodeSession = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+      headers: {
+        authorization: `Bearer ${key}`,
+        // OpenCode Go 的客户端要求：自报 User-Agent，并带稳定的会话标识。
+        ...(baseUrl.includes('opencode.ai')
+          ? { 'user-agent': `ThinkFusion/${app.getVersion() || '0.1.0'}`, 'x-opencode-session': openCodeSession }
+          : {})
+      },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`端点返回 ${response.status}，检查 Key 或端点是否以 /v1 结尾`);
+    const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
+    const models = normalizeModels(
+      (Array.isArray(payload.data) ? payload.data : []).map(item => (typeof item?.id === 'string' ? item.id : ''))
+    );
+    if (models.length === 0) throw new Error('端点没有返回可识别的模型清单（只认 OpenAI 的 /models 格式）');
+    return models.slice(0, 200);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('获取模型超时（10 秒）');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 已配 Key、清单还是预设值的服务，后台补一次真实清单。
+ *
+ * 只在 `cloud-config.json` 里还没有这个服务的模型记录时才问：问到了就写进
+ * 去并重建，下次启动直接用它。失败就保持原样——断网或 Key 无效时，预设仍是
+ * 一个能显示的兜底，不会让列表变成空白。
+ */
+function refreshMissingCloudModels(): void {
+  if (!cloudConfigs || !apiKeys) return;
+  for (const service of cloudCatalog) {
+    if (!apiKeys.has(service.id)) continue;
+    if ((cloudConfigs.get(service.id)?.models?.length ?? 0) > 0) continue;
+    if (cloudModelRefresh.has(service.id)) continue;
+    const key = apiKeys.get(service.id);
+    if (!key) continue;
+    cloudModelRefresh.add(service.id);
+    void discoverModelsFrom(service.baseUrl, key)
+      .then(models => {
+        if (models.length === 0) return;
+        cloudConfigs?.set(service.id, { models });
+        rebuildProviders();
+      })
+      // 拿不到清单不是故障：预设兜底还在，界面照实显示「已配置 Key」。
+      .catch(() => undefined)
+      .finally(() => cloudModelRefresh.delete(service.id));
   }
 }
 
@@ -2433,6 +2512,9 @@ function registerIpc() {
         models: item.models,
         note: item.note,
         hasKey: apiKeys?.has(item.id) ?? false,
+        // 清单是不是从网关 `/models` 拿回来的。界面靠它决定「打开设置时还要
+        // 不要顺手再问一次」，而不是每次都发一遍请求。
+        modelsDiscovered: (cloudConfigs?.get(item.id)?.models?.length ?? 0) > 0,
         // 「能不能整个删掉」：内置三条不行（它们是默认锚点），目录项与自定义都可以。
         custom: !CLOUD_PRESETS.some(preset => preset.id === item.id)
       })),
@@ -2454,7 +2536,7 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle('app:set-api-key', (event, raw: unknown) => {
+  ipcMain.handle('app:set-api-key', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!apiKeys) throw new Error('设置还没有准备好');
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
@@ -2462,9 +2544,34 @@ function registerIpc() {
     if (typeof input.id !== 'string' || !input.id.trim() || typeof input.key !== 'string') {
       throw new Error('无效输入');
     }
-    apiKeys.set(input.id, input.key);
+    const key = input.key.trim();
+    apiKeys.set(input.id, key);
+    /**
+     * Key 存下之后顺手问一次 `/models`，把这家真实有哪些模型拿回来。
+     *
+     * 这是「模型名不该由界面自己填」的落点：配好凭据就该看到网关的清单，
+     * 而不是我们预设的六条。拿不到不算保存失败——Key 已经写进密文库了，
+     * 只是让界面如实说一句，并保留原清单，不拿预设名字冒充网关答案。
+     */
+    let models: string[] | undefined;
+    let modelNote: string | undefined;
+    const service = cloudCatalog.find(item => item.id === input.id);
+    if (service) {
+      try {
+        models = await discoverModelsFrom(service.baseUrl, key);
+        if (models.length > 0) cloudConfigs?.set(service.id, { models });
+      } catch (error) {
+        modelNote = error instanceof Error ? error.message : String(error);
+      }
+    }
     rebuildProviders();
-    return { id: input.id, configured: true };
+    const resolved = cloudCatalog.find(item => item.id === input.id);
+    return {
+      id: input.id,
+      configured: true,
+      models: resolved?.models ?? models ?? [],
+      ...(modelNote ? { modelNote } : {})
+    };
   });
 
   /**
@@ -2512,7 +2619,7 @@ function registerIpc() {
    * 明文配置），这一条只是把两件事按顺序做一次，任何一步失败都不留下
    * 半个服务——所以先在内存里校验完，再落盘。
    */
-  ipcMain.handle('app:cloud-add', (event, raw: unknown) => {
+  ipcMain.handle('app:cloud-add', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!cloudConfigs || !apiKeys || !raw || typeof raw !== 'object') throw new Error('设置还没有准备好');
     const input = raw as {
@@ -2528,9 +2635,18 @@ function registerIpc() {
     const baseUrl = (typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : '') || entry.baseUrl;
     if (!/^https?:\/\//.test(baseUrl)) throw new Error('端点必须是 http(s) 地址，例如 https://api.example.com/v1');
 
+    const key = typeof input.key === 'string' ? input.key.trim() : '';
     const models = normalizeModels(input.models);
-    const finalModels = models.length > 0 ? models : [...entry.models];
-    if (finalModels.length === 0) throw new Error('至少填一个模型名，或先点「获取模型」');
+    let finalModels = models.length > 0 ? models : [...entry.models];
+    // 界面不再让人手填模型名：没带清单就向网关要一次。要不到也不拦添加——
+    // 服务下一条 Key 保存或下次启动还会再问，清单空着只是暂时没成员。
+    if (finalModels.length === 0 && key) {
+      try {
+        finalModels = await discoverModelsFrom(baseUrl, key);
+      } catch {
+        finalModels = [];
+      }
+    }
 
     const label = typeof input.label === 'string' && input.label.trim() ? input.label.trim() : entry.label;
     const taken = new Set(cloudCatalog.map(item => item.id));
@@ -2539,7 +2655,7 @@ function registerIpc() {
 
     if (entry.custom) cloudConfigs.set(id, { label, baseUrl, models: finalModels });
     else cloudConfigs.set(id, { baseUrl, models: finalModels });
-    if (typeof input.key === 'string' && input.key.trim()) apiKeys.set(id, input.key.trim());
+    if (key) apiKeys.set(id, key);
     rebuildProviders();
     const resolved = cloudCatalog.find(item => item.id === id);
     return resolved
@@ -2585,33 +2701,7 @@ function registerIpc() {
       (typeof input.id === 'string' && apiKeys?.get(input.id)) ||
       '';
     if (!key) throw new Error('先填 API Key，再获取模型');
-
-    const openCodeSession = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const response = await fetch(`${baseUrl}/models`, {
-        headers: {
-          authorization: `Bearer ${key}`,
-          ...(baseUrl.includes('opencode.ai')
-            ? { 'user-agent': `ThinkFusion/${app.getVersion() || '0.1.0'}`, 'x-opencode-session': openCodeSession }
-            : {})
-        },
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error(`端点返回 ${response.status}，检查 Key 或端点是否以 /v1 结尾`);
-      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
-      const models = (Array.isArray(payload.data) ? payload.data : [])
-        .map(item => (typeof item?.id === 'string' ? item.id : ''))
-        .filter(Boolean);
-      if (models.length === 0) throw new Error('端点没有返回可识别的模型清单（只认 OpenAI 的 /models 格式）');
-      return { models: models.slice(0, 200) };
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') throw new Error('获取模型超时（10 秒）');
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
+    return { models: await discoverModelsFrom(baseUrl, key) };
   });
 
   ipcMain.handle('app:provider-health', async event => {
