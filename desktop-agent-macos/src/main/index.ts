@@ -64,6 +64,7 @@ import {
   parseRoutingVerdict,
   ROUTING_SYSTEM,
   ROUTING_TIMEOUT_MS,
+  CLOUD_ROUTING_TIMEOUT_MS,
   type RoutingVerdict
 } from './research/routing-classifier';
 import { CloudConfigStore } from './providers/cloud-config';
@@ -75,7 +76,8 @@ import {
   DEFAULT_EXECUTION_CONFIG,
   type ChannelStatus,
   type ConversationEvent,
-  type ConversationExecutionConfig
+  type ConversationExecutionConfig,
+  type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, startAgentProcess } from './agent-manager';
@@ -814,48 +816,93 @@ function refreshMissingCloudModels(): void {
   }
 }
 
+/** `providerId:modelId` —— 模型名里也可能有冒号，所以只在第一个冒号切开。 */
+function splitCloudMemberId(id: string): { providerId: string; modelId: string } | null {
+  const colon = id.indexOf(':');
+  if (colon <= 0 || colon >= id.length - 1) return null;
+  return { providerId: id.slice(0, colon), modelId: id.slice(colon + 1) };
+}
+
 /**
- * 工程空间的路由判定：本地最小模型优先，云端兜底。
+ * 工程空间的路由判定。
  *
  * 为什么不用网页通道：网页读不到别人的回答，把「这句是分析还是实施」发进去
  * 会在用户账号里留下一条无意义会话，且要走 5-20 秒。所以这里只碰模型。
  *
- * 任何一步失败（Ollama 没起、没有 Key、超时、回的不是 JSON）都返回 null，
- * 由 runner 退回 `routeTask()` 的规则结论——判定失败不该让提问卡住。
+ * 用哪家模型按执行模式定：
+ * - 云端主导：只用云端，优先用户点名的主导人 / 勾选的参与模型，不先烧本地 4 秒；
+ * - 本地主导：只用本地；
+ * - 混合：本地先试，失败再云端。
+ *
+ * 任何一步失败（没 Key、超时、回的不是 JSON）都返回 null，由 runner 退回
+ * `routeTask()` 的规则结论——判定失败不该让提问卡住。
  */
 async function routeEngineeringWithModel(input: {
   text: string;
   attachmentNames: readonly string[];
   attachmentExcerpts?: ReadonlyArray<{ name: string; text: string }>;
   hasProject: boolean;
+  executionMode?: ExecutionMode;
+  leadAgentId?: string;
+  selectedCloudModels?: string[];
 }): Promise<RoutingVerdict | null> {
   const question = buildRoutingQuestion(input);
   const request = { question, system: [ROUTING_SYSTEM] };
-  const signal = AbortSignal.timeout(ROUTING_TIMEOUT_MS);
+  const mode = input.executionMode ?? 'hybrid';
 
-  if (localProvider) {
+  const tryLocal = async (): Promise<RoutingVerdict | null> => {
+    if (!localProvider) return null;
     try {
-      const answer = await localProvider.generate(request, signal);
-      const verdict = parseRoutingVerdict(answer.text);
-      if (verdict) return verdict;
+      const answer = await localProvider.generate(request, AbortSignal.timeout(ROUTING_TIMEOUT_MS));
+      return parseRoutingVerdict(answer.text);
     } catch {
-      // 本地不可用就试云端，不在这里报错：路由判定是辅助判断，不是用户要的结果。
+      return null;
     }
-  }
+  };
 
-  for (const provider of cloudProviders) {
-    if (!apiKeys?.has(provider.id)) continue;
-    const model = cloudCatalog.find(item => item.id === provider.id)?.models[0];
-    if (!model) continue;
+  const tryCloudPair = async (providerId: string, modelId: string): Promise<RoutingVerdict | null> => {
+    if (!apiKeys?.has(providerId)) return null;
+    const provider = cloudProviders.find(item => item.id === providerId);
+    if (!provider) return null;
     try {
-      const answer = await provider.generate({ ...request, modelId: model }, signal);
-      const verdict = parseRoutingVerdict(answer.text);
-      if (verdict) return verdict;
+      const answer = await provider.generate(
+        { ...request, modelId },
+        AbortSignal.timeout(CLOUD_ROUTING_TIMEOUT_MS)
+      );
+      return parseRoutingVerdict(answer.text);
     } catch {
-      continue;
+      return null;
     }
-  }
-  return null;
+  };
+
+  /** 用户点名 / 勾选的云端成员，按顺序试；都没有就退到「每家第一个模型」。 */
+  const tryCloud = async (): Promise<RoutingVerdict | null> => {
+    const preferred: string[] = [];
+    if (input.leadAgentId) preferred.push(input.leadAgentId);
+    for (const id of input.selectedCloudModels ?? []) {
+      if (!preferred.includes(id)) preferred.push(id);
+    }
+    for (const id of preferred) {
+      const parts = splitCloudMemberId(id);
+      if (!parts) continue;
+      const verdict = await tryCloudPair(parts.providerId, parts.modelId);
+      if (verdict) return verdict;
+    }
+    for (const provider of cloudProviders) {
+      if (!apiKeys?.has(provider.id)) continue;
+      const model = cloudCatalog.find(item => item.id === provider.id)?.models[0];
+      if (!model) continue;
+      const verdict = await tryCloudPair(provider.id, model);
+      if (verdict) return verdict;
+    }
+    return null;
+  };
+
+  if (mode === 'cloud') return tryCloud();
+  if (mode === 'local') return tryLocal();
+
+  // 混合：本地先试，失败再云端（和文档里「本地优先、云端兜底」一致）。
+  return (await tryLocal()) ?? (await tryCloud());
 }
 
 /**

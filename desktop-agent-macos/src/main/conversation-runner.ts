@@ -163,6 +163,10 @@ export interface ConversationDeps {
     /** 附件开头（判定用）。有它时分类器看得到「文件里到底是什么」。 */
     attachmentExcerpts?: ReadonlyArray<{ name: string; text: string }>;
     hasProject: boolean;
+    /** 执行模式：云端主导时跳过本地，直连用户点名的云端模型。 */
+    executionMode: ConversationExecutionConfig['executionMode'];
+    leadAgentId?: string;
+    selectedCloudModels?: string[];
   }) => Promise<RoutingVerdict | null>;
   /**
    * Test seam for the turn budget. Five minutes is a product number, not a
@@ -500,7 +504,11 @@ export class ConversationRunner {
             attachments,
             override: input.taskKindOverride,
             hasProject: !!input.workspaceRoot,
-            executionMode: executionConfig.executionMode
+            executionMode: executionConfig.executionMode,
+            ...(executionConfig.leadAgentId ? { leadAgentId: executionConfig.leadAgentId } : {}),
+            ...(executionConfig.selectedCloudModels
+              ? { selectedCloudModels: executionConfig.selectedCloudModels }
+              : {})
           })
         : undefined;
     const now = Date.now();
@@ -673,6 +681,8 @@ export class ConversationRunner {
     override?: EngineeringTaskKind;
     hasProject: boolean;
     executionMode: ExecutionMode;
+    leadAgentId?: string;
+    selectedCloudModels?: string[];
   }): Promise<TaskRouting> {
     const rule = routeTask({
       text: input.text,
@@ -690,7 +700,10 @@ export class ConversationRunner {
         // 附上开头，否则「按这个文件执行」和「这个方案」在判定时没有区别，
         // 模型只能凭句子里的词猜，又回到补动词表那条路。
         attachmentExcerpts: input.attachments.map(item => ({ name: item.name, text: item.text })),
-        hasProject: input.hasProject
+        hasProject: input.hasProject,
+        executionMode: input.executionMode,
+        ...(input.leadAgentId ? { leadAgentId: input.leadAgentId } : {}),
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {})
       });
       return verdict ? applyRoutingVerdict(rule, verdict) : rule;
     } catch {
@@ -917,12 +930,17 @@ export class ConversationRunner {
     // 「先分析再修改」的第二阶段靠这里：用户在输入框明确选「本次按实施」，
     // 才把这一句交去生成计划；没有明确指令绝不自动进入执行。
     if (conversation.workspaceMode === 'engineering') {
+      const followConfig = normalizeExecutionConfig(conversation.executionConfig);
       const routing = await this.engineeringRouting({
         text: question,
         attachments,
         override: taskKindOverride,
         hasProject: !!conversation.workspaceRoot,
-        executionMode: normalizeExecutionConfig(conversation.executionConfig).executionMode
+        executionMode: followConfig.executionMode,
+        ...(followConfig.leadAgentId ? { leadAgentId: followConfig.leadAgentId } : {}),
+        ...(followConfig.selectedCloudModels
+          ? { selectedCloudModels: followConfig.selectedCloudModels }
+          : {})
       });
       conversation.routing = routing;
       conversation.updatedAt = Date.now();

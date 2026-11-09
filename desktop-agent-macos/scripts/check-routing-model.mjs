@@ -205,9 +205,38 @@ test('模型主导（本地/云端/混合）时真的去问模型，并用它的
     });
     assert.equal(calls.length, 1, `${executionMode} 档应该判一次`);
     assert.equal(calls[0].text, '这个方案', '送给模型的是用户原话');
+    assert.equal(calls[0].executionMode, executionMode, '判定要用执行模式选本地还是云端');
     assert.equal(conversation.routing.taskKind, 'engineering_execution');
     assert.equal(conversation.routing.source, 'model');
   }
+});
+
+test('云端主导会把主导人与参与模型交给判定，不该让判定端自己猜', async () => {
+  const calls = [];
+  const runner = makeRunner({
+    routeWithModel: async input => {
+      calls.push(input);
+      return { kind: 'analysis', reason: '对比选型' };
+    }
+  });
+  const conversation = await runner.start({
+    text: 'java和go谁更适合做游戏',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/project',
+    executionConfig: {
+      executionMode: 'cloud',
+      leadAgentId: 'opencode-go:deepseek-v4.1-flash',
+      selectedCloudModels: ['opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3']
+    }
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executionMode, 'cloud');
+  assert.equal(calls[0].leadAgentId, 'opencode-go:deepseek-v4.1-flash');
+  assert.deepEqual(calls[0].selectedCloudModels, [
+    'opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3'
+  ]);
+  assert.equal(conversation.routing.taskKind, 'engineering_analysis');
+  assert.equal(conversation.routing.source, 'model');
 });
 
 test('网页主导不问模型：网页读不到别人的回答，还会污染用户账号', async () => {

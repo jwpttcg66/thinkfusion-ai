@@ -32,8 +32,17 @@ export interface RoutingVerdict {
   readsProject: boolean | null;
 }
 
-/** 判路由给 4 秒：它是提问前的一次小调用，宁可退回规则也不许拖住提问。 */
+/** 本地判定给 4 秒：本机小模型通常够用，拖太久会占住唯一的推理槽。 */
 export const ROUTING_TIMEOUT_MS = 4_000;
+
+/**
+ * 云端判定给 15 秒。
+ *
+ * 4 秒对远程网关经常不够（冷启动 / 排队），结果是「用户明明选了云端主导
+ * 和具体模型，却退回动词表说『需要确认』」——那正是真机上
+ * 「java和go谁更适合做游戏」被拦的原因。宁可多等一会儿，也不该假装没模型。
+ */
+export const CLOUD_ROUTING_TIMEOUT_MS = 15_000;
 
 /**
  * 分类器的 system 段。
