@@ -251,6 +251,9 @@ export const systemTools = {
       if (out.length >= limit) return;
       const siblings = byParent.get(pid) ?? [];
       for (const node of siblings) {
+        // 上限必须在同级循环里检查：只放在函数入口，同一层兄弟多的时候
+        // 会一口气全部塞进去，maxEntries 就形同虚设。
+        if (out.length >= limit) return;
         if (needle && !node.command.toLowerCase().includes(needle)) {
           // 过滤命中才收，但子树仍要往下走：命中的可能是孙子进程。
           walk(node.pid, node.ppid, depth);
@@ -261,6 +264,7 @@ export const systemTools = {
       }
     };
     for (const root of roots) {
+      if (out.length >= limit) break;
       if (needle && !root.command.toLowerCase().includes(needle)) {
         // 根节点没命中不代表子树没有，照样往下走。
         walk(root.pid, root.ppid, 0);
