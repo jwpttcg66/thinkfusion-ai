@@ -261,3 +261,55 @@ test('改成自定义 baseUrl（代理/自建网关）照样能用', async () =>
     server.close();
   }
 });
+
+/**
+ * 「像 harness 那样自己选云模型」的数据层。
+ *
+ * 这里钉的是三件以后最容易退化的约定：目录只收 OpenAI 兼容端点、
+ * 用户加的服务 id 一定带 `user:` 前缀、名字能随配置落盘再读回来。
+ * 前端那一层（下拉、获取模型按钮）在真机上验，不在这里假装。
+ */
+test('目录里每一项都说得清端点，自定义项故意留空等用户填', async () => {
+  const { PROVIDER_CATALOG, catalogEntryOf } = await import('../out-test/main/providers/cloud-presets.js');
+  assert.ok(PROVIDER_CATALOG.length >= 8, '目录太短，等于没得选');
+  for (const entry of PROVIDER_CATALOG) {
+    assert.ok(entry.id && entry.label, '每一项都要有 id 和名字');
+    if (entry.custom) {
+      assert.equal(entry.baseUrl, '', '自定义项不该替用户写死端点');
+      continue;
+    }
+    assert.match(entry.baseUrl, /^https:\/\//, `${entry.id} 的端点必须是 https`);
+    assert.ok(entry.models.length > 0, `${entry.id} 至少要给一个默认模型`);
+  }
+  // 目录里的 id 不重复，否则下拉里会出现两行一样的服务
+  assert.equal(new Set(PROVIDER_CATALOG.map(entry => entry.id)).size, PROVIDER_CATALOG.length);
+  assert.equal(catalogEntryOf('custom')?.custom, true);
+  assert.equal(catalogEntryOf('nope'), undefined);
+});
+
+test('用户加的服务：id 带 user: 前缀，重名时自动加序号', async () => {
+  const { userProviderId, isUserProvider } = await import('../out-test/main/providers/cloud-presets.js');
+  const first = userProviderId('公司 内网', []);
+  assert.equal(first, 'user:公司-内网', '中文名要留下来，否则两家中转网关分不出谁是谁');
+  assert.equal(isUserProvider(first), true);
+  assert.equal(isUserProvider('openai'), false, '内置 id 不能被当成用户服务（否则会被删掉）');
+
+  const taken = ['user:公司-内网'];
+  assert.equal(userProviderId('公司 内网', taken), 'user:公司-内网-2');
+  assert.equal(userProviderId('!!!', []), 'user:custom', '全是符号时给个兜底 id，不能是空的');
+});
+
+test('用户服务的名字随配置落盘，重启后还读得回来', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-cloud-'));
+  try {
+    const store = new CloudConfigStore(path.join(dir, 'cloud-config.json'));
+    store.set('user:company-network', { label: '公司 内网', baseUrl: 'https://gw.example.com/v1', models: ['m1'] });
+    const again = new CloudConfigStore(path.join(dir, 'cloud-config.json'));
+    assert.equal(again.get('user:company-network')?.label, '公司 内网');
+    assert.equal(again.get('user:company-network')?.baseUrl, 'https://gw.example.com/v1');
+    again.remove('user:company-network');
+    assert.equal(again.get('user:company-network'), null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

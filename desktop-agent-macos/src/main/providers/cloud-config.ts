@@ -14,6 +14,11 @@ import { writeFileAtomic } from '../atomic-write';
 export interface CloudOverrideRecord {
   baseUrl?: string;
   models?: string[];
+  /**
+   * 只对用户自己加的服务有意义：目录里没有它，名字只能跟着配置存。
+   * 内置三条不写这个字段，名字永远取自代码里的预设。
+   */
+  label?: string;
 }
 
 export class CloudConfigStore {
@@ -42,6 +47,7 @@ export class CloudConfigStore {
     const next: CloudOverrideRecord = { ...(all[id] ?? {}) };
     if (patch.baseUrl !== undefined) next.baseUrl = patch.baseUrl;
     if (patch.models !== undefined) next.models = patch.models;
+    if (patch.label !== undefined) next.label = patch.label;
     all[id] = next;
     writeFileAtomic(this.file, JSON.stringify(all, null, 2), 0o600);
     return next;

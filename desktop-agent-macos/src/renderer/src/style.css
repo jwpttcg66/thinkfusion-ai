@@ -3123,6 +3123,27 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.12);
 }
 
+/* 和输入框同一副皮：目录下拉是这个面板里唯一的选择器，样式跑偏会显得像
+   另一个应用的控件。 */
+.settings-select {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #fff;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.12);
+}
+
 .settings-form-foot {
   display: flex;
   align-items: center;
@@ -3205,12 +3226,6 @@ button:disabled {
 .research-candidate.off { opacity: .55; }
 .diag-lead { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); }
 .diag-lead p { margin: 4px 0 0; }
-
-/* 云端服务：每个服务一块，配置和 Key 分开，避免把「保存」理解成两件事一起。 */
-.research-cloud { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
-.research-cloud .research-row { margin: 6px 0; }
-.research-cloud .research-row > span:first-child { min-width: 56px; }
-.research-tag.ok { background: #e7f6ec; color: #1d6b39; }
 
 /* 六种协作策略：三列两行，每张卡片带一句「改了什么」，不只是一个名字。 */
 .research-strategies { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 10px; }

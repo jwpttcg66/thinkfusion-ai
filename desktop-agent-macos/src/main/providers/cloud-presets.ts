@@ -22,8 +22,7 @@ export interface CloudPreset {
   note?: string;
 }
 
-export const CLOUD_PRESETS: readonly CloudPreset[] = [
-  {
+export const CLOUD_PRESETS: readonly CloudPreset[] = [  {
     id: 'openai',
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
@@ -83,4 +82,99 @@ export function resolvePreset(preset: CloudPreset, override?: CloudOverride | nu
     baseUrl,
     models: models.length > 0 ? models : [...preset.models]
   };
+}
+
+/**
+ * 「添加云模型」里可选的服务目录。
+ *
+ * 和 `CLOUD_PRESETS` 的区别是「默认装」与「可选装」：上面那三条一装就有，
+ * 这份是一张可以被挑的清单——用户从里面选一家、贴上 Key，就多出一组云端
+ * 成员。目录里的端点**只收 OpenAI 兼容（Chat Completions）**的：本 Provider
+ * 不会说 Anthropic / Gemini 的原生协议，收进来只会让人填完 Key 才看到报错。
+ * 要调那两家的模型，选 OpenRouter 这类聚合网关。
+ *
+ * 默认模型只是「填进去就能试」的起点，官方改名比改文档快，所以界面上
+ * 允许一键从 `/models` 拉真实清单，也允许直接改写。
+ */
+export interface ProviderCatalogEntry {
+  id: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  note?: string;
+  /** 自定义项：端点必须自己填。 */
+  custom?: boolean;
+}
+
+export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
+  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4o'] },
+  { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
+  {
+    id: 'opencode-go',
+    label: 'OpenCode Go',
+    baseUrl: 'https://opencode.ai/inference/go/openai/v1',
+    models: ['deepseek-v4.1-flash', 'kimi-k3'],
+    note: '订阅制，额度按模型月度上限在服务端拦；网关会把非 chat 模型翻译成 chat/completions'
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    models: ['anthropic/claude-sonnet-4.5', 'openai/gpt-4o-mini'],
+    note: '聚合网关：Anthropic / Gemini / xAI 都从这一条走，不必单独接原生协议'
+  },
+  { id: 'moonshot', label: 'Moonshot（Kimi）', baseUrl: 'https://api.moonshot.cn/v1', models: ['kimi-k2-turbo'] },
+  {
+    id: 'dashscope',
+    label: '阿里百炼（通义）',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: ['qwen-max', 'qwen-plus']
+  },
+  { id: 'zhipu', label: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-4-plus'] },
+  { id: 'siliconflow', label: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', models: ['deepseek-ai/DeepSeek-V3'] },
+  { id: 'ark', label: '火山方舟', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-pro-32k'] },
+  { id: 'hunyuan', label: '腾讯混元', baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1', models: ['hunyuan-turbo'] },
+  { id: 'xai', label: 'xAI', baseUrl: 'https://api.x.ai/v1', models: ['grok-2-latest'] },
+  { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile'] },
+  { id: 'together', label: 'Together', baseUrl: 'https://api.together.xyz/v1', models: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'] },
+  {
+    id: 'custom',
+    label: '自定义（OpenAI 兼容）',
+    baseUrl: '',
+    models: [],
+    note: '自建网关、公司内网或上面没列的服务：填以 /v1 结尾的端点，再填一个模型名',
+    custom: true
+  }
+];
+
+export function catalogEntryOf(id: string): ProviderCatalogEntry | undefined {
+  return PROVIDER_CATALOG.find(entry => entry.id === id);
+}
+
+/**
+ * 用户加的服务 id。
+ *
+ * 用 `user:` 前缀，而不是沿用目录 id：目录里已有 `openai`，如果允许改它的
+ * 端点，「恢复默认」就再也找不到原值；两类分开存，删除也只删得掉自己加的。
+ */
+export function userProviderId(label: string, taken: Iterable<string>): string {
+  // 保留各语言的字母与数字：中文名如果被整段删掉，id 会退化成 `user:custom`，
+  // 列表里两家中转网关就再也分不出谁是谁。id 只做内部键，不需要是 URL 片段。
+  const slug = label
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24);
+  const used = new Set(taken);
+  const base = `user:${slug || 'custom'}`;
+  if (!used.has(base)) return base;
+  for (let index = 2; index < 1000; index += 1) {
+    const next = `${base}-${index}`;
+    if (!used.has(next)) return next;
+  }
+  return `${base}-${Date.now()}`;
+}
+
+export function isUserProvider(id: string): boolean {
+  return id.startsWith('user:');
 }

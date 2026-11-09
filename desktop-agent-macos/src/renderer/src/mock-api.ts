@@ -367,6 +367,16 @@ export function createMockApi(): AgentApi {
     setApiKey: async ({ id }) => ({ id, configured: true }),
     removeApiKey: async id => ({ id, configured: false }),
     setCloudConfig: async ({ id, baseUrl, models }) => ({ id, label: id, baseUrl: baseUrl ?? '', models: models ?? [], hasKey: false }),
+    addCloudProvider: async ({ catalogId, label, baseUrl, models }) => ({
+      id: `user:${catalogId}`,
+      label: label ?? catalogId,
+      baseUrl: baseUrl ?? '',
+      models: models ?? [],
+      hasKey: false,
+      custom: true
+    }),
+    removeCloudProvider: async id => ({ id, removed: true }),
+    discoverCloudModels: async () => { throw new Error('浏览器预览里不能访问云端接口'); },
     getProviderHealth: async () => ({}),
     getCollaborationRecords: async () => [],
     getUsage: async () => null,

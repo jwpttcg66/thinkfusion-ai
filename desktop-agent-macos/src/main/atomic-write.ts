@@ -42,7 +42,26 @@ export function writeBufferAtomic(file: string, contents: Buffer, mode = 0o644):
     fs.fsyncSync(handle);
     fs.closeSync(handle);
     handle = null;
-    fs.renameSync(tmp, file);
+    try {
+      fs.renameSync(tmp, file);
+    } catch (renameError) {
+      /**
+       * 有些目录不允许 rename 覆盖（macOS 的受管目录、跨卷挂载、加壳应用的
+       * 容器都会返回 EPERM / EACCES / EXDEV）。这时**直接写目标文件**：
+       * 换来的代价是「写到一半断电可能留下半个文件」，换掉的是「设置永远
+       * 存不上」——后者在真机上就是每次点保存都弹红字，而且无从自救。
+       *
+       * 其它错误照旧抛出：磁盘满、路径不存在之类的信息不该被这层吞掉。
+       */
+      const code = (renameError as NodeJS.ErrnoException).code;
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EXDEV') throw renameError;
+      fs.writeFileSync(file, contents, { mode });
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* 临时文件留着也无害，没人读它 */
+      }
+    }
   } catch (error) {
     if (handle !== null) {
       try {

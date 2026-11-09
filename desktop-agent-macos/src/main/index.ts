@@ -48,7 +48,17 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { normalizeDebateConfig } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
-import { CLOUD_PRESETS, normalizeModels, presetOf, resolvePreset, type CloudPreset } from './providers/cloud-presets';
+import {
+  catalogEntryOf,
+  CLOUD_PRESETS,
+  isUserProvider,
+  normalizeModels,
+  presetOf,
+  PROVIDER_CATALOG,
+  resolvePreset,
+  userProviderId,
+  type CloudPreset
+} from './providers/cloud-presets';
 import {
   buildRoutingQuestion,
   parseRoutingVerdict,
@@ -605,7 +615,39 @@ function rebuildProviders() {
     // x-opencode-session。用安装目录指纹当会话标识——同一套安装每次都一样，
     // 不落盘、不含任何个人信息，也不随重启变化。
     const openCodeSession = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24);
-    for (const preset of CLOUD_PRESETS) {
+    // 内置三条 + 用户从目录加进来的 + 自定义端点。
+    // 「有配置记录」就是「已经加过」：目录项只有在添加/改端点时才写记录，
+    // 没加过的不会凭空出现在列表里。自定义服务没有代码里的预设可查，名字
+    // 与端点只能从 cloud-config.json 读回来；读不出端点就不注册，免得列表
+    // 里出现一个点了必然报错的空壳。
+    const entries: CloudPreset[] = [...CLOUD_PRESETS];
+    for (const [id, record] of Object.entries(cloudConfigs?.all() ?? {})) {
+      const baseUrl = typeof record.baseUrl === 'string' ? record.baseUrl.trim() : '';
+      if (!/^https?:\/\//.test(baseUrl)) continue;
+      const models = normalizeModels(record.models);
+      if (isUserProvider(id)) {
+        entries.push({
+          id,
+          label: typeof record.label === 'string' && record.label.trim() ? record.label.trim() : id.replace(/^user:/, ''),
+          baseUrl,
+          models
+        });
+        continue;
+      }
+      // 内置三条已经在里面，不要重复注册；目录里的其它服务（Groq、百炼…）
+      // 只有被添加过才会有记录。
+      if (CLOUD_PRESETS.some(preset => preset.id === id)) continue;
+      const entry = catalogEntryOf(id);
+      if (!entry) continue;
+      entries.push({
+        id,
+        label: entry.label,
+        baseUrl,
+        models: models.length > 0 ? models : [...entry.models],
+        note: entry.note
+      });
+    }
+    for (const preset of entries) {
       const resolved = resolvePreset(preset, cloudConfigs?.get(preset.id));
       cloudCatalog.push(resolved);
       const provider = new OpenAICompatibleProvider({
@@ -2317,7 +2359,17 @@ function registerIpc() {
         baseUrl: item.baseUrl,
         models: item.models,
         note: item.note,
-        hasKey: apiKeys?.has(item.id) ?? false
+        hasKey: apiKeys?.has(item.id) ?? false,
+        // 「能不能整个删掉」：内置三条不行（它们是默认锚点），目录项与自定义都可以。
+        custom: !CLOUD_PRESETS.some(preset => preset.id === item.id)
+      })),
+      providerCatalog: PROVIDER_CATALOG.map(entry => ({
+        id: entry.id,
+        label: entry.label,
+        baseUrl: entry.baseUrl,
+        models: [...entry.models],
+        note: entry.note,
+        custom: entry.custom
       })),
       providers: providerRegistry.list().map(provider => ({
         id: provider.id,
@@ -2351,7 +2403,7 @@ function registerIpc() {
     if (!cloudConfigs) throw new Error('设置还没有准备好');
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
     const input = raw as { id?: unknown; baseUrl?: unknown; models?: unknown };
-    if (typeof input.id !== 'string' || !presetOf(input.id)) throw new Error('未知的云端服务');
+    if (typeof input.id !== 'string' || (!presetOf(input.id) && !isUserProvider(input.id))) throw new Error('未知的云端服务');
     const patch: { baseUrl?: string; models?: string[] } = {};
     if (input.baseUrl !== undefined) {
       if (typeof input.baseUrl !== 'string' || !/^https?:\/\//.test(input.baseUrl.trim())) {
@@ -2378,6 +2430,115 @@ function registerIpc() {
     apiKeys.remove(id);
     rebuildProviders();
     return { id, configured: false };
+  });
+
+  /**
+   * 添加一个云端服务（从目录挑一家，或自定义 OpenAI 兼容端点）。
+   *
+   * 与「导入配置」的区别：Key 与端点分两个文件存（Key 进密文库，端点进
+   * 明文配置），这一条只是把两件事按顺序做一次，任何一步失败都不留下
+   * 半个服务——所以先在内存里校验完，再落盘。
+   */
+  ipcMain.handle('app:cloud-add', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!cloudConfigs || !apiKeys || !raw || typeof raw !== 'object') throw new Error('设置还没有准备好');
+    const input = raw as {
+      catalogId?: unknown;
+      label?: unknown;
+      baseUrl?: unknown;
+      models?: unknown;
+      key?: unknown;
+    };
+    const entry = typeof input.catalogId === 'string' ? catalogEntryOf(input.catalogId) : undefined;
+    if (!entry) throw new Error('未知的云端服务');
+
+    const baseUrl = (typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : '') || entry.baseUrl;
+    if (!/^https?:\/\//.test(baseUrl)) throw new Error('端点必须是 http(s) 地址，例如 https://api.example.com/v1');
+
+    const models = normalizeModels(input.models);
+    const finalModels = models.length > 0 ? models : [...entry.models];
+    if (finalModels.length === 0) throw new Error('至少填一个模型名，或先点「获取模型」');
+
+    const label = typeof input.label === 'string' && input.label.trim() ? input.label.trim() : entry.label;
+    const taken = new Set(cloudCatalog.map(item => item.id));
+    const id = entry.custom ? userProviderId(label, taken) : entry.id;
+    if (!entry.custom && taken.has(id)) throw new Error(`${entry.label} 已经在列表里，直接填 Key 就行`);
+
+    if (entry.custom) cloudConfigs.set(id, { label, baseUrl, models: finalModels });
+    else cloudConfigs.set(id, { baseUrl, models: finalModels });
+    if (typeof input.key === 'string' && input.key.trim()) apiKeys.set(id, input.key.trim());
+    rebuildProviders();
+    const resolved = cloudCatalog.find(item => item.id === id);
+    return resolved
+      ? {
+          id: resolved.id,
+          label: resolved.label,
+          baseUrl: resolved.baseUrl,
+          models: resolved.models,
+          note: resolved.note,
+          hasKey: apiKeys.has(resolved.id),
+          custom: !CLOUD_PRESETS.some(preset => preset.id === resolved.id)
+        }
+      : { id, label, baseUrl, models: finalModels, hasKey: apiKeys.has(id), custom: true };
+  });
+
+  /** 删掉用户加的服务（目录项或自定义）。内置三条只能清 Key——删掉就没有「恢复默认」的锚点了。 */
+  ipcMain.handle('app:cloud-remove', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (!cloudConfigs || !apiKeys || typeof id !== 'string') throw new Error('无效输入');
+    if (CLOUD_PRESETS.some(preset => preset.id === id)) throw new Error('内置服务不能删除，只能清空 Key');
+    if (!isUserProvider(id) && !catalogEntryOf(id)) throw new Error('未知的云端服务');
+    cloudConfigs.remove(id);
+    apiKeys.remove(id);
+    rebuildProviders();
+    return { id, removed: true };
+  });
+
+  /**
+   * 从 `/models` 读真实模型清单。
+   *
+   * 各家返回结构不统一，这里只认 OpenAI 的 `{ data: [{ id }] }`——认不出就
+   * 明确报错，而不是返回空数组让界面以为「这家没有模型」。Key 优先用输入框
+   * 里还没保存的那个，其次用已存的。
+   */
+  ipcMain.handle('app:cloud-discover', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { baseUrl?: unknown; key?: unknown; id?: unknown };
+    const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : '';
+    if (!/^https?:\/\//.test(baseUrl)) throw new Error('先填端点，再获取模型');
+    const key =
+      (typeof input.key === 'string' && input.key.trim()) ||
+      (typeof input.id === 'string' && apiKeys?.get(input.id)) ||
+      '';
+    if (!key) throw new Error('先填 API Key，再获取模型');
+
+    const openCodeSession = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 24);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: {
+          authorization: `Bearer ${key}`,
+          ...(baseUrl.includes('opencode.ai')
+            ? { 'user-agent': `ThinkFusion/${app.getVersion() || '0.1.0'}`, 'x-opencode-session': openCodeSession }
+            : {})
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`端点返回 ${response.status}，检查 Key 或端点是否以 /v1 结尾`);
+      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
+      const models = (Array.isArray(payload.data) ? payload.data : [])
+        .map(item => (typeof item?.id === 'string' ? item.id : ''))
+        .filter(Boolean);
+      if (models.length === 0) throw new Error('端点没有返回可识别的模型清单（只认 OpenAI 的 /models 格式）');
+      return { models: models.slice(0, 200) };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw new Error('获取模型超时（10 秒）');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   });
 
   ipcMain.handle('app:provider-health', async event => {

@@ -1175,6 +1175,8 @@ export interface CloudProviderView {
   /** 这个服务有哪些模型不能用、为什么。界面照实显示。 */
   note?: string;
   hasKey: boolean;
+  /** 用户加的服务（目录项或自定义端点）：可以整个删掉；内置三条只能清 Key。 */
+  custom?: boolean;
 }
 
 /**
@@ -1192,6 +1194,23 @@ export interface CloudMemberView {
   hasKey: boolean;
 }
 
+/**
+ * 「添加云模型」里可挑的服务。
+ *
+ * 与 `CloudProviderView` 的区别：那是「已经装上的」，这是「还能装的」。
+ * 目录只收 OpenAI 兼容端点，因为本应用的云端 Provider 只会说
+ * Chat Completions。
+ */
+export interface ProviderCatalogView {
+  id: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  note?: string;
+  /** 自定义项：端点为空白，必须自己填。 */
+  custom?: boolean;
+}
+
 export interface ExecutionOptions {
   modes: readonly ExecutionMode[];
   webChannels: Array<{ id: string; label: string }>;
@@ -1200,6 +1219,8 @@ export interface ExecutionOptions {
   providers: Array<{ id: string; label: string; type: 'web' | 'local' | 'cloud'; hasKey: boolean }>;
   /** 各云端服务的端点与模型（预设 + 用户覆盖）。 */
   cloudProviders: CloudProviderView[];
+  /** 「添加云模型」的候选目录；旧版没有这个字段时按空处理。 */
+  providerCatalog?: ProviderCatalogView[];
   /** 辩论用的真实可用成员；health() 判出来的，不是注册表里的名字。 */
   debateCandidates: DebateCandidateView[];
 }
@@ -1589,6 +1610,21 @@ export interface AgentApi {
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   /** 改云端服务的端点或模型列表；不含 API Key。 */
   setCloudConfig(input: { id: string; baseUrl?: string; models?: string[] }): Promise<CloudProviderView>;
+  /**
+   * 从目录加一个云端服务（`catalogId` 对应主进程的目录条目，`custom` 表自定义）。
+   * 端点/模型不填就取目录里的默认值；Key 一并存进密文库。
+   */
+  addCloudProvider(input: {
+    catalogId: string;
+    label?: string;
+    baseUrl?: string;
+    models?: string[];
+    key?: string;
+  }): Promise<CloudProviderView>;
+  /** 删掉用户自己加的服务（内置的只允许清 Key）。 */
+  removeCloudProvider(id: string): Promise<{ id: string; removed: boolean }>;
+  /** 用端点 + Key 去读 `/models`，返回真实模型清单。 */
+  discoverCloudModels(input: { baseUrl: string; key?: string; id?: string }): Promise<{ models: string[] }>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
   getUsage(): Promise<UsageSummary | null>;
