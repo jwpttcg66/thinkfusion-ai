@@ -101,6 +101,28 @@ test('识别不出来时待确认，绝不默认执行', () => {
   assert.equal(routingLabel(routeTask({ text: '解释某个方法', workspaceMode: 'engineering', hasProject: true })), '工程分析');
 });
 
+test('带了附件但没说做什么：按只读分析走，不再要求用户先确认', () => {
+  // 真机反馈：上传一份 .md，正文只有「这个方案」，被判成待确认后原地不动。
+  const routing = routeTask({
+    text: '这个方案', workspaceMode: 'engineering', hasProject: true, attachmentCount: 1
+  });
+  assert.equal(routing.taskKind, 'engineering_analysis');
+  assert.equal(routing.engineeringKind, 'analysis');
+  assert.equal(routing.needsClarification, undefined);
+  assert.match(routing.reason, /附了 1 个文件/);
+  // 附件只把「没有动词」抬到只读分析，不会把改动词降级，也不会凭空放行实施。
+  assert.equal(routeTask({ text: '这个方案', workspaceMode: 'engineering', hasProject: true, attachmentCount: 0 }).taskKind, 'clarify');
+  assert.equal(
+    routeTask({ text: '按这个方案修改 README.md', workspaceMode: 'engineering', hasProject: true, attachmentCount: 1 }).taskKind,
+    'engineering_execution'
+  );
+  // 同时命中只读与改动词时仍按「不确定就问」，附件不参与化解这条冲突。
+  assert.equal(
+    routeTask({ text: '分析一下怎么修改这个模块', workspaceMode: 'engineering', hasProject: true, attachmentCount: 2 }).taskKind,
+    'clarify'
+  );
+});
+
 test('系统动作类请求算工程实施（shell / 截屏 / 打开应用 / 找文件）', () => {
   const cases = [
     '执行命令 pwd 并告诉我输出',

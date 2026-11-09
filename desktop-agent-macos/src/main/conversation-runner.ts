@@ -462,7 +462,8 @@ export class ConversationRunner {
             text,
             workspaceMode,
             override: input.taskKindOverride,
-            hasProject: !!input.workspaceRoot
+            hasProject: !!input.workspaceRoot,
+            attachmentCount: attachments.length
           })
         : undefined;
     const now = Date.now();
@@ -737,7 +738,8 @@ export class ConversationRunner {
         text: question,
         workspaceMode: 'engineering',
         override: taskKindOverride,
-        hasProject: !!conversation.workspaceRoot
+        hasProject: !!conversation.workspaceRoot,
+        attachmentCount: attachments.length
       });
       conversation.routing = routing;
       conversation.updatedAt = Date.now();

@@ -1523,6 +1523,8 @@ export interface AgentApi {
     workspaceMode: WorkspaceMode;
     hasProject: boolean;
     override?: EngineeringTaskKind;
+    /** 随这一问带了几份文件：带文件时「没说做什么」按只读分析，不再要求确认。 */
+    attachmentCount?: number;
   }): Promise<TaskRouting>;
   /** V2.1：新会话默认用哪个空间、绑哪个项目。 */
   getWorkspace(): Promise<WorkspaceState>;

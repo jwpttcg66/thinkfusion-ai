@@ -2096,12 +2096,15 @@ function registerIpc() {
     trustedUiSender(event);
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
     const input = raw as {
-      text?: unknown; workspaceMode?: unknown; hasProject?: unknown; override?: unknown;
+      text?: unknown; workspaceMode?: unknown; hasProject?: unknown; override?: unknown; attachmentCount?: unknown;
     };
     return routeTask({
       text: typeof input.text === 'string' ? input.text : '',
       workspaceMode: normalizeWorkspaceState({ workspaceMode: input.workspaceMode }).workspaceMode,
       hasProject: input.hasProject === true,
+      attachmentCount: typeof input.attachmentCount === 'number' && Number.isFinite(input.attachmentCount)
+        ? Math.max(0, Math.floor(input.attachmentCount))
+        : 0,
       override:
         input.override === 'analysis' || input.override === 'execution'
           ? (input.override as WorkspaceTaskKind)

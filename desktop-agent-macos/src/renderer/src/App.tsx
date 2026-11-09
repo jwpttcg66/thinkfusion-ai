@@ -269,9 +269,11 @@ export default function App() {
       text: prompt,
       workspaceMode,
       hasProject: !!workspace,
-      override: taskKindOverride
+      override: taskKindOverride,
+      // 预览要和发送后同一套判据：带了文件时「没说做什么」不再是待确认。
+      attachmentCount: attachments.length
     });
-  }, [prompt, workspaceMode, workspace, taskKindOverride]);
+  }, [prompt, workspaceMode, workspace, taskKindOverride, attachments.length]);
   const conversationBusy =
     activeConversation !== null &&
     ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(activeConversation.status);

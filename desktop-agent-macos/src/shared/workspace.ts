@@ -158,6 +158,15 @@ export interface RouteInput {
   override?: EngineeringTaskKind | null;
   /** 工程空间是否已有项目目录。 */
   hasProject?: boolean;
+  /**
+   * 这一问随行的附件数量。
+   *
+   * 「附了文件却没说做什么」（比如只写「这个方案」或文件名）在规则里没有动词，
+   * 原来一律落到 clarify，用户点发送后被要求「明确说分析还是实施」——附件已经
+   * 挑好了，等于把已经表达的动作意图丢掉。带附件时默认只读分析：方向安全
+   * （不写文件），也不违反「不确定不默认执行」。
+   */
+  attachmentCount?: number;
 }
 
 /**
@@ -192,6 +201,23 @@ export function routeTask(input: RouteInput): TaskRouting {
 
   const classified = classifyEngineeringIntent(text);
   const needsProject = !input.hasProject;
+  const attachmentCount = Math.max(0, Math.floor(input.attachmentCount ?? 0));
+
+  // 附件优先于「动词缺失」：用户亲手挑了文件就是明确要「看这个文件」。
+  // 只升到只读分析，而且只在**一个动词都没有**时生效——同时命中只读词与改动词
+  // （signals 非空）仍然是「不确定就问」，附件不该替用户化解这条冲突。
+  if (classified.kind === 'clarify' && classified.signals.length === 0 && attachmentCount > 0) {
+    return {
+      workspaceMode,
+      taskKind: 'engineering_analysis',
+      reason: `随这一问附了 ${attachmentCount} 个文件，按只读分析处理`,
+      source: 'rule',
+      engineeringKind: 'analysis',
+      signals: [],
+      needsProject
+    };
+  }
+
   if (classified.kind === 'clarify') {
     return {
       workspaceMode,
