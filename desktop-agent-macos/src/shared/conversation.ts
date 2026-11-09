@@ -488,7 +488,13 @@ export interface ConversationExecutionConfig {
   selectedWebChannels?: string[];
   /** 遗留字段；本地模型现在可当主导/辩手，不再是"回答者"。 */
   selectedLocalModels?: string[];
-  /** 可当主导/辩手的云端模型清单；空缺表示全部可用云端模型。 */
+  /**
+   * 可当主导/辩手的云端模型清单。
+   *
+   * - `[]`（默认）：一个都不参与——OpenCode Go 一家就有几十个，默认全开会烧额度；
+   * - 非空：只让勾上的那些进场；
+   * - `undefined`：老会话缺这个字段时按「全部」读，避免升级把旧对话的参与名单清空。
+   */
   selectedCloudModels?: string[];
   fallbackEnabled: boolean;
   privacyMode: PrivacyMode;
@@ -561,9 +567,11 @@ export const MAX_FOLLOW_UP_ROUNDS = 3;
  * 老会话 / 缺省配置的唯一入口。
  *
  * `allow-cloud` 是刻意的：回答必发网页，不存在「不出本机」的回答模式。
+ * 云端参与默认空数组：要自己勾，勾完会写进 `execution-defaults.json`，下次还在。
  */
 export const DEFAULT_EXECUTION_CONFIG: ConversationExecutionConfig = {
   executionMode: 'web',
+  selectedCloudModels: [],
   fallbackEnabled: false,
   privacyMode: 'allow-cloud'
 };
@@ -607,10 +615,14 @@ export function normalizeExecutionConfig(
   if (typeof input?.leadAgentId === 'string' && input.leadAgentId.trim()) result.leadAgentId = input.leadAgentId.trim();
   const webChannels = strings(input?.selectedWebChannels);
   const localModels = strings(input?.selectedLocalModels);
-  const cloudModels = strings(input?.selectedCloudModels);
+  // 空数组也要留下：它表示「明确一个都不选」，和「字段缺失 = 老会话按全部」
+  // 是两件事。`strings` 对非数组返回 undefined，对 `[]` 返回 `[]`。
+  const cloudModels = Array.isArray(input?.selectedCloudModels)
+    ? strings(input.selectedCloudModels) ?? []
+    : undefined;
   if (webChannels) result.selectedWebChannels = webChannels;
   if (localModels) result.selectedLocalModels = localModels;
-  if (cloudModels) result.selectedCloudModels = cloudModels;
+  if (cloudModels !== undefined) result.selectedCloudModels = cloudModels;
   if (input?.strategy) result.strategy = input.strategy;
   const debateStrategies: DebateStrategyChoice[] = [
     'truth', 'adversarial', 'expert', 'assumption', 'solution', 'discovery'

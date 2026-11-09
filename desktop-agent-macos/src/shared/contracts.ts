@@ -1637,6 +1637,13 @@ export interface AgentApi {
   // 执行模式（Phase E）
   getExecutionOptions(): Promise<ExecutionOptions>;
   /**
+   * 跨会话的研究设置默认值（主导人、参与的云端模型等）。
+   * 新对话与重启后用这份；某一条会话自己的 `executionConfig` 仍跟那条线程。
+   */
+  getExecutionDefaults(): Promise<ConversationExecutionConfig>;
+  /** 把当前研究设置记成默认值，下次新对话 / 重启还用。 */
+  setExecutionDefaults(config: Partial<ConversationExecutionConfig>): Promise<ConversationExecutionConfig>;
+  /**
    * 只写主进程的密文库；返回值里没有 Key。
    *
    * 保存成功后会顺手向网关 `/models` 要一次真实模型清单：`models` 是拿到

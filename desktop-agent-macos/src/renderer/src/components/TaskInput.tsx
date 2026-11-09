@@ -114,9 +114,11 @@ export function TaskInput(props: {
   const checkedCount = chosenModels.filter(id => selectableModels.includes(id)).length;
   const modelSummary = selectableModels.length === 0
     ? '未配置'
-    : checkedCount === selectableModels.length
-      ? '全部'
-      : `已选 ${checkedCount}/${selectableModels.length}`;
+    : checkedCount === 0
+      ? '未选'
+      : checkedCount === selectableModels.length
+        ? '全部'
+        : `已选 ${checkedCount}/${selectableModels.length}`;
 
   return (
     <div className="composer" style={{ position: 'relative' }} ref={rootRef}>

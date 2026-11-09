@@ -474,6 +474,19 @@ export function createMockApi(): AgentApi {
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     getChannelStatuses: async () => [],
+    getExecutionDefaults: async () => ({
+      executionMode: 'web' as const,
+      selectedCloudModels: [],
+      fallbackEnabled: false,
+      privacyMode: 'allow-cloud' as const
+    }),
+    setExecutionDefaults: async config => ({
+      executionMode: 'web' as const,
+      selectedCloudModels: [],
+      fallbackEnabled: false,
+      privacyMode: 'allow-cloud' as const,
+      ...config
+    }),
     getExecutionOptions: async () => ({
       modes: ['web', 'local', 'cloud', 'hybrid'],
       webChannels: [],

@@ -213,6 +213,26 @@ export default function App() {
   const [researchOpen, setResearchOpen] = useState(false);
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
   /**
+   * 跨会话默认值（主导人、参与的云端模型）。
+   *
+   * 「新对话」和启动时用这份，不沿用上一条会话临走时的勾选——那是那条线程的
+   * 事。用户改研究设置时同步写进磁盘，重启还在。
+   */
+  const executionDefaultsRef = useRef<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
+  /**
+   * 面板上这份设置的即时副本。
+   *
+   * 改一下要立刻存到会话上，但存的动作是延迟的（连点四个档位不该写四次盘），
+   * 而延迟回调里读 `executionConfig` 拿到的是它闭包创建时那一份。用 ref 读最新值，
+   * 不靠 setState 的函数式更新去取巧。
+   */
+  const executionConfigRef = useRef<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
+  executionConfigRef.current = executionConfig;
+  const configSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 当前可见会话；事件回调里只靠它判断要不要改面板。 */
+  const activeConversationRef = useRef<string | null>(null);
+  activeConversationRef.current = activeConversationId;
+  /**
    * 输入框旁边那个「模型」胶囊要的云端成员清单。
    *
    * 清单来自主进程（预设 + 用户配置 + 网关 `/models`），界面自己不抄一份
@@ -234,29 +254,35 @@ export default function App() {
     };
   }, [settingsOpen]);
   /**
-   * 面板上这份设置的即时副本。
+   * 启动时把盘上的默认研究设置读进来。
    *
-   * 改一下要立刻存到会话上，但存的动作是延迟的（连点四个档位不该写四次盘），
-   * 而延迟回调里读 `executionConfig` 拿到的是它闭包创建时那一份。用 ref 读最新值，
-   * 不靠 setState 的函数式更新去取巧。
+   * 只在还没有打开某条会话时覆盖面板：已经点进旧会话的话，应以那条会话自己的
+   * 存档为准，不能被异步返回的默认值冲掉。
    */
-  const executionConfigRef = useRef<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
-  executionConfigRef.current = executionConfig;
-  const configSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI
+      .getExecutionDefaults()
+      .then(defaults => {
+        if (!alive) return;
+        const stored = normalizeExecutionConfig(defaults);
+        executionDefaultsRef.current = stored;
+        if (!activeConversationRef.current) {
+          executionConfigRef.current = stored;
+          setExecutionConfig(stored);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => () => {
     if (configSaveTimer.current) clearTimeout(configSaveTimer.current);
   }, []);
 
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
-  /**
-   * The visible conversation, readable from an event listener that was
-   * registered once. Messages arrive for *every* conversation, so without this
-   * a background conversation's replies get appended to the pane on screen —
-   * which reads as one conversation containing two unrelated threads.
-   */
-  const activeConversationRef = useRef<string | null>(null);
-  activeConversationRef.current = activeConversationId;
   /**
    * Conversations that have been deleted.
    *
@@ -733,21 +759,27 @@ export default function App() {
   /**
    * 改研究设置。
    *
-   * 两件事一起做：面板立刻显示新值；开着会话时把它存到这个会话上，不等下一句
-   * 提问。少了后半步，设置只活在内存里——打开别的会话再回来、或者重开应用，
-   * 胶囊就退回默认的「网页主导」，下一条追问照着默认跑，看起来正是「设了不生效」。
+   * 三件事一起做：
+   * 1. 面板立刻显示新值；
+   * 2. 写成跨会话默认值（主导人、参与的云端模型等）——新对话与重启都用这份；
+   * 3. 开着会话时同步写到这个会话上，追问沿用刚改的那份。
+   *
+   * 少了第 2 步，关掉应用或点「新对话」就会退回「云端全关 / 没点名主导」，
+   * 看起来正是「设了不生效」。
    */
   function changeExecutionConfig(patch: Partial<ConversationExecutionConfig>) {
     const next = normalizeExecutionConfig({ ...executionConfigRef.current, ...patch });
     executionConfigRef.current = next;
+    executionDefaultsRef.current = next;
     setExecutionConfig(next);
 
-    const conversationId = activeConversationRef.current;
-    if (!conversationId) return;
     if (configSaveTimer.current) clearTimeout(configSaveTimer.current);
     // 稍等一下只是为了让连点几个档位只写一次盘；不攒成一批，最后那一下必须落盘。
     configSaveTimer.current = setTimeout(() => {
       configSaveTimer.current = null;
+      const conversationId = activeConversationRef.current;
+      void window.agentAPI.setExecutionDefaults(next).catch(error => setError(errorText(error)));
+      if (!conversationId) return;
       void window.agentAPI
         .updateConversationConfig({ conversationId, executionConfig: next })
         .catch(error => setError(errorText(error)));
@@ -806,6 +838,9 @@ export default function App() {
    *
    * 侧栏的「新任务」连输入框一起清空；这里不清——用户往往是先把问题写好、看到
    * 上面写着「追问《…》」才点的它，把他刚写的那句删掉是最糟的回应。
+   *
+   * 研究设置回到跨会话默认值：上一条会话临时改过的主导人 / 参与模型不该
+   * 偷偷跟着新对话走，也不该退回代码里的出厂默认——用的是用户自己保存的那份。
    */
   function startNewConversation() {
     setActiveConversationId(null);
@@ -813,6 +848,9 @@ export default function App() {
     setPhases({});
     setError('');
     setNotice('');
+    const defaults = normalizeExecutionConfig(executionDefaultsRef.current);
+    executionConfigRef.current = defaults;
+    setExecutionConfig(defaults);
     setFocusRequest(n => n + 1);
   }
 

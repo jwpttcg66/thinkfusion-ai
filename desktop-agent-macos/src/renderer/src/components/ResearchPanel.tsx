@@ -313,7 +313,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                       ? '由哪个网页通道当主导。它读不到别人的页面，只能由我们把材料拼成一条用户消息发进去——汇总、交锋、最终意见都在网页侧完成，不会调用本地/云端模型。'
                       : config.executionMode === 'local'
                         ? '由哪个本地模型当主导。汇总、定辩题、交锋与最终意见都在本机完成，不调云端 API。'
-                        : '由哪个云端模型当主导。汇总、交锋与最终意见都走远程 API，不掺本地模型。主导人必须在下面勾选的参与模型里。'}
+                        : '由哪个云端模型当主导。汇总、交锋与最终意见都走远程 API，不掺本地模型。点名后会保存，下次还用；主导人必须在下面勾选的参与模型里。'}
                   </p>
                   <select
                     value={config.leadAgentId ?? ''}
@@ -346,8 +346,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 <>
                   <h3>参与的云端模型</h3>
                   <p className="muted">
-                    勾选这一轮要一起给意见 / 参与交锋的云端模型。不勾任何一项 = 全部可用；
-                    明确清空 = 这一轮不用云端模型。主导人若被取消勾选，点名会一并清掉。
+                    默认全关——要谁参与就勾谁。勾选与主导人会自动保存，新对话和重启后仍用你这份。
+                    主导人若被取消勾选，点名会一并清掉。
                   </p>
                   {options ? (
                     <Picker

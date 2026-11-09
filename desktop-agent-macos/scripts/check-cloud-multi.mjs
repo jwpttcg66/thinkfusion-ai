@@ -210,6 +210,44 @@ test('「来自网关」是记下来的来源，不是拿清单长度冒充的',
   }
 });
 
+test('研究设置默认：云端参与默认空，改完能落盘再读回来', async () => {
+  const { ExecutionDefaultsStore } = await import('../out-test/main/execution-defaults-store.js');
+  const { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } = await import('../out-test/shared/conversation.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-exec-defaults-'));
+  const file = path.join(dir, 'execution-defaults.json');
+  try {
+    const store = new ExecutionDefaultsStore(file);
+    // 出厂：云端一个都不参与，主导人不点名。
+    const fresh = store.get();
+    assert.deepEqual(fresh.selectedCloudModels, []);
+    assert.equal(fresh.leadAgentId, undefined);
+    assert.deepEqual(fresh.selectedCloudModels, DEFAULT_EXECUTION_CONFIG.selectedCloudModels);
+
+    // 用户勾了两个、点了主导 → 落盘。
+    const saved = store.set(normalizeExecutionConfig({
+      executionMode: 'cloud',
+      selectedCloudModels: ['opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3'],
+      leadAgentId: 'opencode-go:deepseek-v4.1-flash'
+    }));
+    assert.equal(saved.executionMode, 'cloud');
+    assert.equal(saved.leadAgentId, 'opencode-go:deepseek-v4.1-flash');
+    assert.deepEqual(saved.selectedCloudModels, [
+      'opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3'
+    ]);
+
+    // 重启：新 store 读同一份文件，还是用户那份，不是出厂空名单。
+    const again = new ExecutionDefaultsStore(file).get();
+    assert.equal(again.leadAgentId, 'opencode-go:deepseek-v4.1-flash');
+    assert.deepEqual(again.selectedCloudModels, saved.selectedCloudModels);
+
+    // 空数组要能写进去：明确「全关」不能被当成「字段缺失」。
+    store.set(normalizeExecutionConfig({ selectedCloudModels: [] }));
+    assert.deepEqual(new ExecutionDefaultsStore(file).get().selectedCloudModels, []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('候选与已选分开存：勾选子集后，catalog 仍留着完整清单', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-cloud-pick-'));
   const file = path.join(dir, 'cloud-config.json');
