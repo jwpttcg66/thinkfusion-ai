@@ -1884,20 +1884,6 @@ button:disabled {
   display: block;
 }
 
-/* 「Word」是次要分支：默认保存的是 Markdown，只有点它才排一份 Word。
-   保持一个按钮的宽度，网页栏拖到最窄时不会把状态文字挤掉。 */
-.page-btn.is-ghost {
-  padding: 0 6px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 10.5px;
-}
-
-.page-btn.is-ghost:hover:not(:disabled) {
-  border-color: var(--line-strong);
-}
-
 /* A reload in progress. Same 900ms turn as the composer's spinner, because "the
    app is working" has to look like one thing wherever it happens. */
 .page-btn.icon.spinning svg {

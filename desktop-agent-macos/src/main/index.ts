@@ -110,7 +110,7 @@ import {
 import { deviceLabel, initialOf, DEFAULT_DISPLAY_NAME } from '../shared/identity';
 import { mergeProfile, SelectorStore } from './selector-profile';
 import { confirmRepairs, proposeRepairs } from '../shared/selectors';
-import { ICON_DOCK_BACK_PATHS, ICON_SAVE_PATHS, iconSvg } from '../shared/icons';
+import { ICON_DOCK_BACK_PATHS, ICON_SAVE_PATHS, ICON_SAVE_WORD_PATHS, iconSvg } from '../shared/icons';
 import type {
   DiscoveredSelectors,
   LearnSelectorsReport,
@@ -1362,14 +1362,6 @@ function detachedDocument(source: PageSource): string {
   button.icon:hover { background: #efefec; color: #1a1a1a; }
   button.icon:disabled { opacity: 0.55; cursor: default; }
   button.icon svg { display: block; }
-  /* 「Word」跟主窗口页面栏一样是次要文字按钮，不是图标。 */
-  button.text {
-    height: 24px; padding: 0 8px; border-radius: 6px;
-    border: 1px solid transparent; background: transparent;
-    color: #6b6b6b; font: inherit; cursor: pointer;
-  }
-  button.text:hover { background: #efefec; color: #1a1a1a; }
-  button.text:disabled { opacity: 0.55; cursor: default; }
 </style></head><body>
 <div class="bar">
   <span class="name">${label}</span>
@@ -1377,7 +1369,7 @@ function detachedDocument(source: PageSource): string {
   <span class="spacer"></span>
   <span class="actions">
     <button id="save" class="icon" type="button" aria-label="保存文档" title="保存文档：提取这一页里的文档和计划，默认存成 Markdown">${iconSvg(ICON_SAVE_PATHS)}</button>
-    <button id="save-word" class="text" type="button" aria-label="保存为 Word" title="单独指定才生成 Word 文档（版式沿用导出模板）">Word</button>
+    <button id="save-word" class="icon" type="button" aria-label="保存为 Word" title="单独指定才生成 Word 文档（版式沿用导出模板）">${iconSvg(ICON_SAVE_WORD_PATHS)}</button>
     <button id="back" class="icon" type="button" aria-label="吸附回去" title="吸附回去">${iconSvg(ICON_DOCK_BACK_PATHS)}</button>
   </span>
 </div>

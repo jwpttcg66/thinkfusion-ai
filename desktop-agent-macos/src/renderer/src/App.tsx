@@ -28,7 +28,8 @@ import {
   ICON_EXPAND_PATHS,
   ICON_GAUGE_PATHS,
   ICON_REFRESH_PATHS,
-  ICON_SAVE_PATHS
+  ICON_SAVE_PATHS,
+  ICON_SAVE_WORD_PATHS
 } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage, ExecutionMode } from '../../shared/conversation';
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
@@ -84,6 +85,8 @@ const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
 const IconGauge = () => <Glyph paths={ICON_GAUGE_PATHS} />;
 /** 保存文档：把这一页里的文档与计划落到本机文件。 */
 const IconSave = () => <Glyph paths={ICON_SAVE_PATHS} />;
+/** 保存为 Word：同一张纸，里面是横线而不是箭头。 */
+const IconSaveWord = () => <Glyph paths={ICON_SAVE_WORD_PATHS} />;
 function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
@@ -1749,7 +1752,7 @@ export default function App() {
                 <IconSave />
               </button>
               <button
-                className="page-btn is-ghost"
+                className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
                 type="button"
                 onClick={() => void savePageDocument('docx')}
                 disabled={savingPage !== null}
@@ -1757,7 +1760,7 @@ export default function App() {
                 aria-label="保存为 Word"
                 title="单独指定才生成 Word 文档（版式沿用导出模板）"
               >
-                {savingPage === 'docx' ? '…' : 'Word'}
+                <IconSaveWord />
               </button>
               <button
                 className={`page-btn icon${refreshing ? ' spinning' : ''}`}

@@ -93,6 +93,18 @@ export const ICON_SAVE_PATHS = [
 ];
 
 /**
+ * 一张折角纸加三行字：保存为 Word。
+ *
+ * 跟「保存文档」共用纸的轮廓，差在里面——箭头是落到本机的 Markdown，
+ * 横线是排过版的文档。13px 上写「W」会糊成一坨，所以不写字母。
+ */
+export const ICON_SAVE_WORD_PATHS = [
+  'M3 1.9h6.1L13 5.8v8.3H3z',
+  'M9.1 1.9v3.9H13',
+  'M5.5 8.2h5M5.5 10.2h5M5.5 12.2h3.2'
+];
+
+/**
  * One `<svg>` for a path list, so both surfaces draw byte-identical glyphs.
  *
  * `filled` paths are drawn with `fill` instead of a stroke — a shape that is

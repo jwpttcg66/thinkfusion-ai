@@ -256,13 +256,15 @@ if (detachedFrame) {
       const word = document.getElementById('save-word');
       const paths = back ? [...back.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
       const savePaths = save ? [...save.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
+      const wordPaths = word ? [...word.querySelectorAll('svg path')].map(path => path.getAttribute('d')) : [];
       return {
-        ready: paths.length > 0 && savePaths.length > 0,
+        ready: paths.length > 0 && savePaths.length > 0 && wordPaths.length > 0,
         label: back ? back.getAttribute('aria-label') : null,
         path: paths.join('|'),
         saveLabel: save ? save.getAttribute('aria-label') : null,
         savePath: savePaths.join('|'),
-        wordLabel: word ? word.getAttribute('aria-label') : null
+        wordLabel: word ? word.getAttribute('aria-label') : null,
+        wordPath: wordPaths.join('|')
       };
     })()`);
   const ready = await waitFor(async () => (await readBack()).ready, true, { timeoutMs: 4000 });
@@ -276,6 +278,7 @@ if (detachedFrame) {
   check('独立窗口有保存文档', frameBar.saveLabel, '保存文档');
   checkTrue('独立窗口的保存图标是纸+箭头', frameBar.savePath.includes('M3 1.9h6.1'));
   check('独立窗口有保存为 Word', frameBar.wordLabel, '保存为 Word');
+  checkTrue('独立窗口的 Word 也是图标（纸+横线）', frameBar.wordPath.includes('M5.5 8.2h5'));
 } else {
   checkTrue('独立窗口存在', false);
 }
