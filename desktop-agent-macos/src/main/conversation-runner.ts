@@ -51,9 +51,12 @@ import {
 import { heuristicPick } from './synthesis/lead-selector';
 import {
   buildEngineeringAnswerQuestion,
+  buildToolFollowupQuestion,
   engineeringAnswerSystem,
+  engineeringToolSystem,
   type ModelMemberView
 } from './research/engineering-round';
+import { MAX_TOOL_ROUNDS, parseToolRequest } from './research/project-tools';
 import { SECOND_OPINION_BUDGET_MS } from './research/second-opinion';
 import {
   buildWebOrchestrationQuestion,
@@ -691,6 +694,69 @@ export class ConversationRunner {
   }
 
   /**
+   * 问一个本地/云端成员，并允许它**自己读一次文件**。
+   *
+   * 2026-11-09 用户裁决：「读取文件，模型不是应该调用本地能力，没看到调用本地
+   * 能力，输出也是糟糕的。」原来第一手只是一次 `generate()`：程序把证据切成 8
+   * 个片段，模型没有读整份文件的能力，问「这个文件有多少行」只能答无法确定。
+   *
+   * 现在：模型照常回答；如果它回的是一行读文件请求（`parseToolRequest` 认得出），
+   * 宿主调 `project.read` 真去读（只读、范围限工程目录与这一问的附件），把结果
+   * 递回去再问一次。最多额外一轮（`MAX_TOOL_ROUNDS`）：
+   *
+   * - 认不出请求 → 就是普通回答，一点额外开销都没有；
+   * - 读失败 → 把原因当结果递回去，让模型改口或如实说读不到；
+   * - 第二轮仍回请求 → 用它的原文，不再循环（预算用完必须给东西）。
+   */
+  private async askWithReadTool(
+    target: { agentId: string; label: string },
+    input: {
+      pool: SubAgentPool;
+      question: string;
+      system: string[];
+      scope: { root: string; extraFiles: readonly string[] };
+      sink: ResearchSink;
+    }
+  ): Promise<SubAgentAnswer> {
+    const ask = (question: string): Promise<SubAgentAnswer> =>
+      input.pool.ask(target.agentId, {
+        question,
+        stage: 'initial',
+        // 证据可能有几万字，本地模型逐段读完再写；读文件那一轮同理。
+        timeoutMs: 180_000,
+        // 只对本地/云端 API 生效；网页成员不走这里。
+        // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
+        system: input.system
+      });
+
+    let answer = await ask(input.question);
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      if (input.sink.cancelled()) break;
+      const request = parseToolRequest(answer.text);
+      if (!request) break;
+      input.sink.phase(target.agentId, 'asking', `读文件：${request.tool}`);
+      const result = await mainCapabilities.execute<{
+        ok: boolean;
+        text: string;
+        summary: string;
+      }>(
+        'project.read',
+        {
+          tool: request.tool,
+          toolArgs: request.args,
+          root: input.scope.root,
+          extraFiles: input.scope.extraFiles
+        },
+        {}
+      );
+      // 用户要看得到「真的调了本地能力」，否则和凭猜测回答没有区别。
+      input.sink.note(`${target.label} 调用了本机能力：${result.summary}`);
+      answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
+    }
+    return answer;
+  }
+
+  /**
    * 把会话里已经落盘的工程证据拼成主导人材料。
    *
    * 刻意不在这里重扫目录：证据是提问那一刻读到的版本，带 sha256；到执行
@@ -1157,6 +1223,15 @@ export class ConversationRunner {
     const webQuestion = orchestration.webIncluded
       ? buildWebOrchestrationQuestion(question, material)
       : null;
+    // 模型自己读文件的范围：工程目录 + 这一问的附件（附件可能在工程目录之外）。
+    const scope = {
+      root: conversation.workspaceRoot ?? '',
+      extraFiles: (conversation.attachments ?? []).map(item => item.path)
+    };
+    const hasScope = !!scope.root;
+    const attachmentCount = conversation.attachments?.length ?? 0;
+    const summarySystem = [...engineeringAnswerSystem({ attachments: attachmentCount }), ...expertise.system];
+    const toolSystem = [...summarySystem, ...engineeringToolSystem()];
     const answers: SubAgentAnswer[] = [];
     const channels: ChannelOutcome[] = [];
     const failures: string[] = [];
@@ -1175,14 +1250,12 @@ export class ConversationRunner {
               // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
               timeoutMs: SECOND_OPINION_BUDGET_MS
             })
-          : await pool.ask(target.agentId, {
+          : await this.askWithReadTool(target, {
+              pool,
               question: engineered,
-              stage: 'initial',
-              // 证据可能有几万字，本地模型逐段读完再写，同一量级。
-              timeoutMs: 180_000,
-              // 只对本地/云端 API 生效；网页成员上面那条不发 system。
-              // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
-              system: [...engineeringAnswerSystem(), ...expertise.system]
+              system: hasScope ? toolSystem : summarySystem,
+              scope,
+              sink
             });
         if (sink.cancelled()) return;
         messageIds.set(target.agentId, sink.record(answer));

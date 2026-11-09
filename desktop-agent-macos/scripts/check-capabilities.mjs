@@ -45,18 +45,19 @@ const source = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'u
 // 1. 清单
 // ---------------------------------------------------------------------------
 
-test('一份清单收齐 56 个 Runtime 工具与 5 个主进程能力，合计 61，id 不重复', () => {
-  assert.equal(CAPABILITY_CATALOG.length, 61);
+test('一份清单收齐 56 个 Runtime 工具与 6 个主进程能力，合计 62，id 不重复', () => {
+  assert.equal(CAPABILITY_CATALOG.length, 62);
   assert.equal(new Set(CAPABILITY_IDS).size, CAPABILITY_IDS.length);
   assert.deepEqual([...RUNTIME_CAPABILITY_IDS], [...TOOL_NAMES]);
   assert.deepEqual([...MAIN_CAPABILITY_IDS], [
     'project.scan',
     'file.attach',
+    'project.read',
     'web.search.browser',
     'document.export',
     'page.save-document'
   ]);
-  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 55);
+  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 56);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'network').length, 4);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'save').length, 2);
   for (const meta of CAPABILITY_CATALOG) {
@@ -109,7 +110,7 @@ test('停用列表只认清单里的 id，未知项与重复项都丢掉', () =>
 
 test('设置页视图带开关与装载状态，默认全开', () => {
   const all = describeCapabilities([]);
-  assert.equal(all.length, 61);
+  assert.equal(all.length, 62);
   assert.ok(all.every(item => item.enabled && item.registered));
   const off = describeCapabilities(['document.export'], ['fs.readFile']);
   const exported = off.find(item => item.id === 'document.export');

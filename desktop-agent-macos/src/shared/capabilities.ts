@@ -150,6 +150,15 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
     enabledByDefault: true
   },
   {
+    id: 'project.read',
+    kind: 'local',
+    host: 'main',
+    title: '按需读取文件',
+    description: '工程分析时模型自己请求读一次文件：统计行数/字节、读指定行段、搜内容、列目录；只读，范围限工程目录与这一问的附件',
+    permission: 'read-only',
+    enabledByDefault: true
+  },
+  {
     id: 'web.search.browser',
     kind: 'network',
     host: 'main',
@@ -178,7 +187,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：56 个 Runtime 工具 + 5 个主进程能力，合计 61。设置页只认这一份。 */
+/** 全量清单：56 个 Runtime 工具 + 6 个主进程能力，合计 62。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

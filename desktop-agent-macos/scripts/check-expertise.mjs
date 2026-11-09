@@ -248,7 +248,11 @@ test('防回归：question 仍是用户原话 + 证据，基础 system 不含专
 test('防回归：注入点只有一处，且只追加到 system', () => {
   const runner = source('main/conversation-runner.ts');
   assert.equal((runner.match(/\.\.\.expertise\.system/g) || []).length, 1);
-  assert.match(runner, /system: \[\.\.\.engineeringAnswerSystem\(\), \.\.\.expertise\.system\]/);
+  // 技能仍然只拼进 system（2026-11-09 起多了「附件也算依据」那一条，位置不变）。
+  assert.match(
+    runner,
+    /const summarySystem = \[\.\.\.engineeringAnswerSystem\(\{ attachments: attachmentCount \}\), \.\.\.expertise\.system\]/
+  );
   assert.match(runner, /question: engineered/);
   // 专家 / 技能没有新造一个成员，也没有塞进发给网页的那条消息。
   assert.ok(!runner.includes('expertise.question'));

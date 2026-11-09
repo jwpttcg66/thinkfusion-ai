@@ -21,6 +21,7 @@ import type { CapabilityPlugin } from '../../shared/capabilities';
 import type { AttachmentText } from '../../shared/attachments';
 import { resolveExportFormat, type ExportConversationInput, type PageDocumentContent, type SavePageDocumentInput } from '../../shared/export';
 import { scanProject, type ScanOptions } from '../engineering/project';
+import { executeReadTool, type ReadToolName } from '../research/project-tools';
 import { exportConversation, type ExportDeps } from '../export';
 import { savePageDocument, type SavePageDocumentDeps } from '../export/page';
 import type { SearchHit } from '../../shared/search';
@@ -79,6 +80,20 @@ const MAIN_PLUGINS = [
     if (paths.length === 0) throw new Error('读取附件文件需要至少一个文件路径');
     return read(paths);
   }),
+  plugin(
+    'project.read',
+    (args: { tool?: unknown; toolArgs?: unknown; root?: unknown; extraFiles?: unknown }) => {
+      const request = {
+        tool: args?.tool as ReadToolName,
+        args: (args?.toolArgs ?? {}) as Record<string, unknown>
+      };
+      if (typeof args?.root !== 'string' || !args.root) throw new Error('按需读取文件需要工程目录');
+      const extraFiles = Array.isArray(args?.extraFiles)
+        ? args.extraFiles.filter((item): item is string => typeof item === 'string')
+        : [];
+      return executeReadTool(request, { root: args.root, extraFiles });
+    }
+  ),
   plugin('web.search.browser', (args: { query: string; limit: number }, context: MainCapabilityContext) => {
     const search = requireDeps(context?.browserSearch, '浏览器联网搜索');
     const query = typeof args?.query === 'string' ? args.query.trim() : '';
