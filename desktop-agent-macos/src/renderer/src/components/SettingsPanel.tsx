@@ -23,6 +23,12 @@ import {
   type CapabilityView
 } from '../../../shared/capabilities';
 import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/expertise';
+import {
+  allVisiblePicked,
+  filterModels,
+  mergeCandidates,
+  toggleVisibleModels
+} from '../../../shared/cloud-selection';
 import { Glyph } from './Glyph';
 import { PERMISSIONS } from './TaskInput';
 
@@ -154,6 +160,16 @@ export function SettingsPanel(props: {
   const [cloudBusy, setCloudBusy] = useState<string | null>(null);
   const [cloudDiscovering, setCloudDiscovering] = useState<string | null>(null);
   const [cloudError, setCloudError] = useState('');
+  /**
+   * 「选择模型」：正在挑候选的服务、草稿里的勾选、搜索词。
+   *
+   * 草稿必须与已存值分开：勾选是会反悔的，只有点「更新列表」才写配置。
+   * 候选是「网关报过的全部 + 已选」的并集——只列已选的话，取消勾选一条就
+   * 再也加不回来。
+   */
+  const [modelPickerFor, setModelPickerFor] = useState<string | null>(null);
+  const [modelPickerDraft, setModelPickerDraft] = useState<string[]>([]);
+  const [modelPickerQuery, setModelPickerQuery] = useState('');
   /** 「还能装的」目录：从内置目录挑一家，或选自定义自己填。 */
   const [catalog, setCatalog] = useState<ProviderCatalogView[]>([]);
   const [addingCloud, setAddingCloud] = useState(false);
@@ -242,11 +258,18 @@ export function SettingsPanel(props: {
           if (!item.hasKey || item.modelsDiscovered) continue;
           void window.agentAPI
             .discoverCloudModels({ id: item.id, baseUrl: item.baseUrl })
-            .then(({ models }) => {
+            .then(({ models, selected }) => {
               // 主进程已经落盘并标好来源，这里只更新界面这一行。
               if (!alive) return;
               setCloud(prev => prev.map(row =>
-                row.id === item.id ? { ...row, models, modelsDiscovered: models.length > 0 } : row
+                row.id === item.id
+                  ? {
+                      ...row,
+                      models: selected ?? row.models,
+                      catalog: models,
+                      modelsDiscovered: models.length > 0
+                    }
+                  : row
               ));
             })
             // 问不到就保持原样：清单是预设兜底，Key 本身没有问题。
@@ -364,20 +387,29 @@ export function SettingsPanel(props: {
     }
   }
 
-  /** 已装服务的清单刷新：按当前端点重新问一次网关。 */
+  /** 已装服务的清单刷新：按当前端点重新问一次网关。只刷新候选，不动勾选。 */
   async function refreshCloudModels(item: CloudProviderView) {
     setCloudDiscovering(item.id);
     setCloudError('');
     try {
-      const { models } = await window.agentAPI.discoverCloudModels({
+      const { models, selected } = await window.agentAPI.discoverCloudModels({
         id: item.id,
         baseUrl: cloudDrafts[item.id]?.baseUrl ?? item.baseUrl
       });
-      // 清单由主进程落盘（`modelsFromGateway`），这里只同步界面状态，
-      // 不再走一次 `setCloudConfig`——那条路会把来源标成「手写」。
+      // 清单由主进程落盘（`modelsFromGateway` / `catalog`），这里只同步界面
+      // 状态，不再走一次 `setCloudConfig`——那条路会把来源标成「手写」。
       setCloud(prev => prev.map(row =>
-        row.id === item.id ? { ...row, models, modelsDiscovered: models.length > 0 } : row
+        row.id === item.id
+          ? {
+              ...row,
+              models: selected ?? row.models,
+              catalog: models,
+              modelsDiscovered: models.length > 0
+            }
+          : row
       ));
+      // 候选变了，正开着的选择面板跟着换，别让用户对着旧清单勾。
+      if (modelPickerFor === item.id) setModelPickerDraft(selected ?? models);
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -402,10 +434,50 @@ export function SettingsPanel(props: {
   function startCloudEdit(item: CloudProviderView) {
     setCloudEditing(item.id);
     setCloudError('');
+    setModelPickerFor(null);
+    setModelPickerQuery('');
     setCloudDrafts(prev => ({
       ...prev,
       [item.id]: { baseUrl: item.baseUrl }
     }));
+  }
+
+  /** 这家服务可勾选的完整清单：网关报过的 + 已选但这次没报的。 */
+  function candidatesOf(item: CloudProviderView): string[] {
+    return mergeCandidates(item.catalog ?? [], item.models);
+  }
+
+  function openModelPicker(item: CloudProviderView) {
+    if (modelPickerFor === item.id) {
+      setModelPickerFor(null);
+      setModelPickerQuery('');
+      return;
+    }
+    setModelPickerFor(item.id);
+    setModelPickerQuery('');
+    setModelPickerDraft([...item.models]);
+    setCloudError('');
+  }
+
+  function toggleModelPick(model: string) {
+    setModelPickerDraft(prev =>
+      prev.includes(model) ? prev.filter(item => item !== model) : [...prev, model]
+    );
+  }
+
+  async function savePickedModels(item: CloudProviderView) {
+    setCloudBusy(item.id);
+    setCloudError('');
+    try {
+      const saved = await window.agentAPI.setCloudModels({ id: item.id, models: modelPickerDraft });
+      setCloud(prev => prev.map(row => (row.id === item.id ? { ...row, ...saved } : row)));
+      setModelPickerFor(null);
+      setModelPickerQuery('');
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy(null);
+    }
   }
 
   async function saveCloud(item: CloudProviderView) {
@@ -449,7 +521,11 @@ export function SettingsPanel(props: {
             ...row,
             hasKey: true,
             ...(result.models && result.models.length > 0
-              ? { models: result.models, modelsDiscovered: true }
+              ? {
+                  models: result.models,
+                  catalog: result.catalog ?? result.models,
+                  modelsDiscovered: true
+                }
               : {})
           }
         : row));
@@ -906,15 +982,25 @@ export function SettingsPanel(props: {
                                   }))}
                                 />
                               </label>
-                              {/* 模型清单只读：它来自网关的 `/models`，不是这里
-                                  填出来的。要换清单就重新问一次，不让人手写。 */}
+                              {/* 模型清单来自网关的 `/models`，但「这一问用哪些」
+                                  由人挑：网关卡一次报 30 个，不等于每个都要参与
+                                  推导。候选（含没勾的）也一并留着，取消勾选
+                                  之后还能加回来。 */}
                               <div className="settings-input">
                                 <span>模型</span>
                                 <span className="settings-muted model-summary">
                                   {item.models.length === 0
                                     ? '还没拿到清单：先保存 Key，或点「重新获取」'
-                                    : `${item.models.length} 个${item.modelsDiscovered ? '（来自网关 /models）' : '（预设兜底，还没从网关读到）'}`}
+                                    : `已选 ${item.models.length} / ${candidatesOf(item).length} 个${item.modelsDiscovered ? '（清单来自网关 /models）' : '（预设兜底，还没从网关读到）'}`}
                                 </span>
+                                <button
+                                  className="btn secondary"
+                                  type="button"
+                                  disabled={rowBusy || item.models.length === 0 && candidatesOf(item).length === 0}
+                                  onClick={() => openModelPicker(item)}
+                                >
+                                  {modelPickerFor === item.id ? '收起' : '选择模型'}
+                                </button>
                                 <button
                                   className="btn secondary"
                                   type="button"
@@ -924,6 +1010,72 @@ export function SettingsPanel(props: {
                                   {cloudDiscovering === item.id ? '获取中…' : '重新获取'}
                                 </button>
                               </div>
+                              {modelPickerFor === item.id && (() => {
+                                const candidates = candidatesOf(item);
+                                const visible = filterModels(candidates, modelPickerQuery);
+                                const allPicked = allVisiblePicked(modelPickerDraft, visible);
+                                return (
+                                  <div className="model-picker" aria-label={`选择 ${item.label} 的模型`}>
+                                    <div className="model-picker-head">
+                                      <input
+                                        type="search"
+                                        className="model-picker-search"
+                                        value={modelPickerQuery}
+                                        placeholder="搜索模型…"
+                                        aria-label={`搜索 ${item.label} 的模型`}
+                                        onChange={event => setModelPickerQuery(event.target.value)}
+                                      />
+                                      <button
+                                        className="btn ghost"
+                                        type="button"
+                                        disabled={visible.length === 0}
+                                        onClick={() => setModelPickerDraft(prev =>
+                                          toggleVisibleModels(prev, visible, !allPicked)
+                                        )}
+                                      >
+                                        {allPicked ? '取消全选' : '全选'}
+                                      </button>
+                                    </div>
+                                    {visible.length === 0 ? (
+                                      <p className="settings-muted model-picker-empty">
+                                        {candidates.length === 0
+                                          ? '还没有候选模型：先保存 Key，或点「重新获取」'
+                                          : `没有匹配「${modelPickerQuery.trim()}」的模型`}
+                                      </p>
+                                    ) : (
+                                      <div className="model-picker-list">
+                                        {visible.map(model => (
+                                          <label className="model-picker-row" key={model}>
+                                            <input
+                                              type="checkbox"
+                                              checked={modelPickerDraft.includes(model)}
+                                              onChange={() => toggleModelPick(model)}
+                                            />
+                                            <span className="model-picker-name" title={model}>{model}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="model-picker-foot">
+                                      <span className="settings-muted">
+                                        已勾 {modelPickerDraft.length} / {candidates.length} 个；只影响这一问可选的模型
+                                      </span>
+                                      <span className="settings-spacer" />
+                                      <button className="btn secondary" type="button" onClick={() => setModelPickerFor(null)}>
+                                        取消
+                                      </button>
+                                      <button
+                                        className="btn"
+                                        type="button"
+                                        disabled={rowBusy || modelPickerDraft.length === 0}
+                                        onClick={() => void savePickedModels(item)}
+                                      >
+                                        {rowBusy ? '保存中…' : '更新列表'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                               {/* Key 单独一行、单独一个按钮：换地址和换凭据是两件事，
                                   一个「保存」同时干两件，用户就分不清哪件生效了。
                                   它排在「保存」上方，是因为底下那个按钮只管端点。 */}
@@ -953,7 +1105,8 @@ export function SettingsPanel(props: {
                               <p className="settings-hint">
                                 Key 只存主进程的系统加密区，保存后不回显，界面只看得到「已配置 / 未配置」；
                                 保存 Key 时会顺手向网关要一次真实模型清单，拿到就收起这一行。
-                                底下的「保存」只改端点，不动 Key，也不改模型清单。
+                                「选择模型」挑的是这家服务参与推导的模型，点「更新列表」立即生效；
+                                「重新获取」只刷新候选，不会替你把勾选改回去。底下的「保存」只改端点。
                               </p>
                               {open && cloudError && <p className="settings-error">{cloudError}</p>}
                               <div className="settings-form-foot">

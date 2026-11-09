@@ -1172,6 +1172,13 @@ export interface CloudProviderView {
   label: string;
   baseUrl: string;
   models: string[];
+  /**
+   * 这家网关报过的**全部**模型（未勾选的也在里面）。
+   *
+   * 「选择模型」拿它当候选：`models` 是这一问实际会用的子集，`catalog` 是
+   * 可选的完整清单。旧版没有这个字段，按 `models` 处理。
+   */
+  catalog?: string[];
   /** 这个服务有哪些模型不能用、为什么。界面照实显示。 */
   note?: string;
   hasKey: boolean;
@@ -1640,11 +1647,20 @@ export interface AgentApi {
     id: string;
     configured: boolean;
     models?: string[];
+    catalog?: string[];
     modelNote?: string;
   }>;
   removeApiKey(id: string): Promise<{ id: string; configured: boolean }>;
   /** 改云端服务的端点或模型列表；不含 API Key。 */
   setCloudConfig(input: { id: string; baseUrl?: string; models?: string[] }): Promise<CloudProviderView>;
+  /**
+   * 从「选择模型」的完整候选里勾出这一问要用的一部分。
+   *
+   * 与 `setCloudConfig.models` 的区别：那条路把清单标成「手写」；这里勾的
+   * 就是网关报过的模型，来源仍是 `/models`，不该因为取消勾选几条就退回
+   * 「预设兜底」并触发下一次启动重新覆盖用户的勾选。
+   */
+  setCloudModels(input: { id: string; models: string[] }): Promise<CloudProviderView>;
   /**
    * 从目录加一个云端服务（`catalogId` 对应主进程的目录条目，`custom` 表自定义）。
    * 端点/模型不填就取目录里的默认值；Key 一并存进密文库。
@@ -1658,8 +1674,13 @@ export interface AgentApi {
   }): Promise<CloudProviderView>;
   /** 删掉用户自己加的服务（内置的只允许清 Key）。 */
   removeCloudProvider(id: string): Promise<{ id: string; removed: boolean }>;
-  /** 用端点 + Key 去读 `/models`，返回真实模型清单。 */
-  discoverCloudModels(input: { baseUrl: string; key?: string; id?: string }): Promise<{ models: string[] }>;
+  /** 用端点 + Key 去读 `/models`。带 `id` 时主进程会把结果记进配置。 */
+  discoverCloudModels(input: { baseUrl: string; key?: string; id?: string }): Promise<{
+    /** 网关报的完整清单（「选择模型」的候选）。 */
+    models: string[];
+    /** 记进配置之后这一问实际会用的子集；用户勾过的不会被新清单覆盖。 */
+    selected?: string[];
+  }>;
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
   getUsage(): Promise<UsageSummary | null>;

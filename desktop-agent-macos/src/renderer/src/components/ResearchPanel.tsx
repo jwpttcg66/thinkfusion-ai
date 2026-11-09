@@ -852,7 +852,27 @@ function toggle(list: string[] | undefined, id: string, all: string[]): string[]
   const current = selected ?? all;
   return (
     <div className="research-picker">
-      <b>{title}</b>
+      <div className="research-picker-head">
+        <b>{title}</b>
+        <span className="settings-spacer" />
+        <span className="muted">{current.length}/{items.length}</span>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={items.length === 0 || current.length === items.length}
+          onClick={() => onChange(all)}
+        >
+          全选
+        </button>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={current.length === 0}
+          onClick={() => onChange([])}
+        >
+          清空
+        </button>
+      </div>
       {items.length === 0 && <span className="muted">没有可选成员</span>}
       {items.map(item => (
         <label key={item.id}>

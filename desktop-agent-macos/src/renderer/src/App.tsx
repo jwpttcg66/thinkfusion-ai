@@ -1634,9 +1634,6 @@ export default function App() {
           <div className="inner">
             <TaskInput
               value={prompt}
-              workspace={workspace}
-              // 输入框上的胶囊显示工作区名字（用户起的），不显示目录末段。
-              workspaceName={activeWorkspace?.name}
               permission={permission}
               workspaceMode={workspaceMode}
               routing={routingPreview ? {
@@ -1699,7 +1696,6 @@ export default function App() {
                 if (notice) setNotice('');
               }}
               onPermissionChange={changePermission}
-              onChooseWorkspace={chooseWorkspace}
               onOpenResearch={() => setResearchOpen(true)}
               // 保存文档的主路径在页面栏；输入框边上这一个调同一个函数，
               // 不另读一遍页面——两处存下来的必须是同一版内容。

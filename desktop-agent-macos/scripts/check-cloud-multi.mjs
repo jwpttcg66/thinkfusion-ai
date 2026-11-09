@@ -125,6 +125,38 @@ test('模型清单去空白、去重、丢非字符串；空清单退回预设�
   assert.deepEqual(custom.models, ['my-model']);
 });
 
+test('OpenCode Go 预设带完整的付费清单，不再只有六条「主力」', async () => {
+  const { OPENCODE_GO_MODELS } = await import('../out-test/shared/opencode-models.js');
+  const opencode = presetOf('opencode-go');
+  // 原先只列 6 条，界面上看起来「这家只有六个模型」；网关实际报 30 条。
+  assert.ok(opencode.models.length >= 25, `预设只有 ${opencode.models.length} 条，仍像一个残缺清单`);
+  for (const model of ['deepseek-v4.1-flash', 'glm-5.3', 'grok-4.7', 'claude-haiku-5-5', 'gemini-4-argon', 'kimi-k3.1-pro']) {
+    assert.ok(opencode.models.includes(model), `预设缺少 ${model}`);
+  }
+  // `-free` 有区域限制（不含中国大陆），不进默认值；配好 Key 后仍会从网关读回来。
+  assert.equal(opencode.models.filter(model => model.endsWith('-free')).length, 0);
+  assert.deepEqual(opencode.models, [...OPENCODE_GO_MODELS]);
+  // 「添加提供商」的目录用同一份清单，两处不能各写各的。
+  const { catalogEntryOf } = await import('../out-test/main/providers/cloud-presets.js');
+  assert.deepEqual(catalogEntryOf('opencode-go').models, opencode.models);
+});
+
+test('「选择模型」只动看得见的候选；候选去重保序，空选择不算全选', async () => {
+  const { allVisiblePicked, filterModels, mergeCandidates, toggleVisibleModels } =
+    await import('../out-test/shared/cloud-selection.js');
+  // 网关清单 + 已选里才有的旧模型：去重且保持首次出现的顺序。
+  assert.deepEqual(mergeCandidates(['a', 'b'], ['b', 'old']), ['a', 'b', 'old']);
+  // 搜索只缩窄视图，不改变已选项。
+  assert.deepEqual(filterModels(['glm-5.3', 'gpt-6-luna'], 'GPT'), ['gpt-6-luna']);
+  // 全选可见项：隐藏的 'old' 保留。
+  assert.deepEqual(toggleVisibleModels(['old'], ['a', 'b'], true), ['old', 'a', 'b']);
+  // 取消全选可见项：同样不碰隐藏的。
+  assert.deepEqual(toggleVisibleModels(['old', 'a', 'b'], ['a', 'b'], false), ['old']);
+  assert.equal(allVisiblePicked(['a'], ['a', 'b']), false);
+  assert.equal(allVisiblePicked([], []), false, '空可见清单不算「已经全选」');
+  assert.equal(allVisiblePicked(['a', 'b'], ['a', 'b']), true);
+});
+
 test('baseUrl 只接受 http(s)，尾斜杠会被去掉，避免拼出 //chat/completions', () => {
   const preset = presetOf('opencode-go');
   assert.equal(resolvePreset(preset, { baseUrl: 'https://example.com/v1/' }).baseUrl, 'https://example.com/v1');
@@ -173,6 +205,28 @@ test('「来自网关」是记下来的来源，不是拿清单长度冒充的',
     // 手写进来的清单把来源改回 false。
     store.set('deepseek', { models: ['hand-typed'], modelsFromGateway: false });
     assert.equal(new CloudConfigStore(file).get('deepseek')?.modelsFromGateway, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('候选与已选分开存：勾选子集后，catalog 仍留着完整清单', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-cloud-pick-'));
+  const file = path.join(dir, 'cloud-config.json');
+  try {
+    const store = new CloudConfigStore(file);
+    store.set('opencode-go', {
+      catalog: ['a', 'b', 'c'],
+      models: ['a', 'b', 'c'],
+      modelsFromGateway: true
+    });
+    // 用户在「选择模型」里只留 a、c。
+    store.set('opencode-go', { models: ['a', 'c'], modelsPicked: true });
+    const after = new CloudConfigStore(file).get('opencode-go');
+    assert.deepEqual(after?.models, ['a', 'c']);
+    assert.deepEqual(after?.catalog, ['a', 'b', 'c'], '取消勾选不能把候选一起删掉');
+    assert.equal(after?.modelsPicked, true);
+    assert.equal(after?.modelsFromGateway, true, '从网关候选里勾的，来源仍是网关');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

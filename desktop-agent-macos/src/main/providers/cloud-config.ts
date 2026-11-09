@@ -15,6 +15,22 @@ export interface CloudOverrideRecord {
   baseUrl?: string;
   models?: string[];
   /**
+   * 网关 `/models` 报过的完整清单。
+   *
+   * 和 `models` 分开存，是因为「这家有哪些模型」与「这一问用哪些」是两件事：
+   * 用户取消勾选几条之后，候选清单不该跟着消失，否则「选择模型」里只剩下
+   * 已选的那几个，想加回来都没有入口。首次读到清单时两者相同。
+   */
+  catalog?: string[];
+  /**
+   * `models` 是用户从候选里亲手勾出来的。
+   *
+   * 没有这个标记时，后台再读到网关清单会把 `models` 一起换成新清单（首次
+   * 配置、或从没挑过的人不需要先勾一遍）；一旦用户挑过，就只更新 `catalog`，
+   * 不擅自改动他的选择。
+   */
+  modelsPicked?: boolean;
+  /**
    * 这份 `models` 是不是网关 `/models` 给的。
    *
    * 预设自带的那几条模型名不算：界面靠它区分「来自网关」和「预设兜底」，
@@ -60,6 +76,8 @@ export class CloudConfigStore {
       next.baseUrl = patch.baseUrl;
     }
     if (patch.models !== undefined) next.models = patch.models;
+    if (patch.catalog !== undefined) next.catalog = patch.catalog;
+    if (patch.modelsPicked !== undefined) next.modelsPicked = patch.modelsPicked;
     if (patch.modelsFromGateway !== undefined) next.modelsFromGateway = patch.modelsFromGateway;
     if (patch.label !== undefined) next.label = patch.label;
     all[id] = next;

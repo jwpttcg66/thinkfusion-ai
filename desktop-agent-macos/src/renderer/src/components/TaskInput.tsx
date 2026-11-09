@@ -15,17 +15,8 @@ const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string 
 /** The same three labels are shown in 设置 · 通用设置, so they are defined once. */
 export { PERMISSIONS };
 
-function shortPath(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  if (parts.length <= 2) return path;
-  return parts[parts.length - 1];
-}
-
 export function TaskInput(props: {
   value: string;
-  workspace: string;
-  /** 当前工作区的名字。有它时胶囊显示名字，没有才退回目录末段。 */
-  workspaceName?: string;
   permission: PermissionPreset;
   /** V2.1：知识空间不要求工程目录与权限，工程空间才显示这两个胶囊。 */
   workspaceMode: WorkspaceMode;
@@ -84,7 +75,6 @@ export function TaskInput(props: {
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string) => void;
   onPermissionChange: (preset: PermissionPreset) => void;
-  onChooseWorkspace: () => void;
   onOpenResearch: () => void;
   /**
    * 「保存文档」：和页面栏那个按钮是同一个动作，正文由主进程去当前网页里读，
@@ -236,27 +226,19 @@ export function TaskInput(props: {
             <span className="plus-glyph" aria-hidden="true">＋</span>
           </button>
 
+          {/* 工作区不在输入框里选：左边侧栏已经有一整层工作区，两处入口
+              只会让人以为它们不是同一件事。这里只留「这一问怎么跑」。 */}
           {props.workspaceMode === 'engineering' && (
-            <>
-              <button className="chip-btn" type="button" onClick={props.onChooseWorkspace} disabled={props.disabled}>
-                <span>▤</span>
-                <span className="label">
-                  {props.workspaceName || (props.workspace ? shortPath(props.workspace) : '选择项目')}
-                </span>
-                <span className="caret">▾</span>
-              </button>
-
-              <button
-                className="chip-btn"
-                type="button"
-                disabled={props.disabled}
-                onClick={() => setMenu(menu === 'permission' ? 'none' : 'permission')}
-              >
-                <span>◐</span>
-                <span className="label">{permission.label}</span>
-                <span className="caret">▾</span>
-              </button>
-            </>
+            <button
+              className="chip-btn"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => setMenu(menu === 'permission' ? 'none' : 'permission')}
+            >
+              <span>◐</span>
+              <span className="label">{permission.label}</span>
+              <span className="caret">▾</span>
+            </button>
           )}
 
           {/* 和其他两个胶囊同一种形状、同样高度：这里放的是「下一条怎么问」，

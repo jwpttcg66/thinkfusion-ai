@@ -16,6 +16,7 @@ const PAGE_SOURCES = [...BUILTIN_SOURCES];
 import { computeSplit } from '../../shared/layout';
 import { describeCapabilities } from '../../shared/capabilities';
 import { EXPERTISE_IDS, expertiseFallback, type ExpertiseView } from '../../shared/expertise';
+import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
 
 /**
  * Dev-only stand-in for the preload API so the renderer can be opened in a plain
@@ -479,12 +480,25 @@ export function createMockApi(): AgentApi {
       localModels: ['qwen2.5:7b'],
       cloudMembers: [
         { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', hasKey: false },
-        { id: 'deepseek:deepseek-v4-flash', label: 'DeepSeek · deepseek-v4-flash', hasKey: false }
+        { id: 'deepseek:deepseek-v4-flash', label: 'DeepSeek · deepseek-v4-flash', hasKey: false },
+        ...OPENCODE_GO_MODELS.map(model => ({
+          id: `opencode-go:${model}`,
+          label: `OpenCode Go · ${model}`,
+          hasKey: false
+        }))
       ],
       cloudProviders: [
-        { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'], hasKey: false },
-        { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], hasKey: false },
-        { id: 'opencode-go', label: 'OpenCode Go', baseUrl: 'https://opencode.ai/inference/go/openai/v1', models: ['deepseek-v4.1-flash', 'kimi-k3'], hasKey: false, note: '订阅制：额度按模型月度上限算，本界面不估算单价' }
+        { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'], catalog: ['gpt-4o-mini'], hasKey: false },
+        { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], catalog: ['deepseek-v4-flash', 'deepseek-v4-pro'], hasKey: false },
+        {
+          id: 'opencode-go',
+          label: 'OpenCode Go',
+          baseUrl: 'https://opencode.ai/inference/go/openai/v1',
+          models: [...OPENCODE_GO_MODELS],
+          catalog: [...OPENCODE_GO_MODELS],
+          hasKey: false,
+          note: '订阅制：额度按模型月度上限算，本界面不估算单价'
+        }
       ],
       providers: [],
       debateCandidates: [
@@ -496,7 +510,12 @@ export function createMockApi(): AgentApi {
     }),
     setApiKey: async ({ id }) => ({ id, configured: true }),
     removeApiKey: async id => ({ id, configured: false }),
-    setCloudConfig: async ({ id, baseUrl, models }) => ({ id, label: id, baseUrl: baseUrl ?? '', models: models ?? [], hasKey: false }),
+    setCloudConfig: async ({ id, baseUrl, models }) => ({
+      id, label: id, baseUrl: baseUrl ?? '', models: models ?? [], catalog: models ?? [], hasKey: false
+    }),
+    setCloudModels: async ({ id, models }) => ({
+      id, label: id, baseUrl: '', models, catalog: models, hasKey: false
+    }),
     addCloudProvider: async ({ catalogId, label, baseUrl, models }) => ({
       id: `user:${catalogId}`,
       label: label ?? catalogId,

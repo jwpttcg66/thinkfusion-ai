@@ -54,25 +54,22 @@ GLM / Kimi / MiniMax），Key 换成 Zen 的即可。代码不用动，`cloud-co
 3. 点「编辑」，在 Key 那一行粘贴 Go 会员的 `oc_sk_…` → 「保存 Key」
 4. 保存后表单自动收起，状态变成「已配置 Key」，模型清单由网关 `/models`
    自动读回（现在是 30 个）；不用手填模型名
+5. 需要挑子集时：再点「编辑 → 选择模型」，搜索 / 全选 / 取消全选后点
+   「更新列表」。全选只动当前搜索结果里看得见的那些——和 deepseekharness
+   的「选择模型」对话框同一条规则，不会在看不见的地方改掉已勾选的模型。
 
 > 2026-11-09 起这一块从「研究设置 → 执行模式」搬到了「设置 → 模型」：找 Key 的人不会想到去研究设置里翻。研究设置只留「谁参与」，不再填凭据。
 > 同一版起，模型名不再由界面填写或预设冒充：配好 Key 就向网关要真实清单，
 > 会话里再按这一问需要勾选参与推导的模型。
+> 再往后：预设本身就带完整的付费清单（不含 `-free`），「候选」与「已选」
+> 分开存——取消勾选几条不会把候选一起删掉，想加回来还有入口。
 
 改动立即重建 Provider 名单，不用重启。
 
-预设模型（都在 `-free` 之外，理由见第 6 节）。它只在**还没配 Key / 还没读到
-网关清单**时兜底显示；保存 Key 后会被 `/models` 的真实清单覆盖，会话里的
-「模型」胶囊也按真实清单列：
-
-| 模型 | 说明 |
-| --- | --- |
-| `deepseek-v4.1-flash` | 月额度最高（$100），适合当主力 |
-| `deepseek-v4-pro` | 强推理，额度低（$15） |
-| `glm-5.3-flash` | 额度高（$60） |
-| `kimi-k3` | 长上下文，额度 $15 |
-| `qwen3.8-max` | 阿里系 |
-| `gpt-6-luna` | 走翻译层，验证「非 chat 原生模型也能用」 |
+预设模型（都在 `-free` 之外，理由见第 6 节）写在
+`src/shared/opencode-models.ts`，是网关公开 `/models` 的付费子集副本。
+它只在**还没配 Key / 还没读到网关清单**时兜底显示；保存 Key 后会被
+`/models` 的真实清单覆盖，会话里的「模型」胶囊也按真实清单列。完整表见第 8 节。
 
 ## 5. 请求头怎么实现的
 
@@ -141,11 +138,15 @@ beam-free             crouton-alpha-free    iceman-contributor-free
 
 | 文件 | 作用 |
 | --- | --- |
+| `src/shared/opencode-models.ts` | Go 付费模型清单（预设与 mock 共用） |
+| `src/shared/cloud-selection.ts` | 「选择模型」纯逻辑：搜索、全选只动可见项 |
 | `src/main/providers/cloud-presets.ts` | `opencode-go` 预设：端点、兜底模型、note |
+| `src/main/providers/cloud-config.ts` | `catalog` / `models` / `modelsPicked` 分开存 |
 | `src/main/providers/openai-compatible.ts` | `extraHeaders` 选项；`headers()` 合并，额外头放最后 |
-| `src/main/index.ts` · `discoverModelsFrom` / `refreshMissingCloudModels` | 保存 Key 时与启动时向 `/models` 要真实清单，写进 `cloud-config.json` |
+| `src/main/index.ts` · `discoverModelsFrom` / `recordDiscoveredModels` | 保存 Key 时与启动时向 `/models` 要真实清单；已勾选的不被覆盖 |
+| `src/main/index.ts` · `app:set-cloud-models` | 「更新列表」：从候选勾出子集，来源仍标网关 |
 | `src/main/index.ts` · `rebuildProviders` | 注册预设时补 User-Agent 与 `x-opencode-session` |
-| `src/renderer/src/components/SettingsPanel.tsx` | 已配置即收起的行 + 只读模型清单与「重新获取」 |
+| `src/renderer/src/components/SettingsPanel.tsx` | 「选择模型」面板：搜索 + 全选可见 + 更新列表 |
 | `src/renderer/src/components/TaskInput.tsx` | 输入框旁的「模型」胶囊：这一问用哪些云端模型 |
 | `src/renderer/src/mock-api.ts` | 浏览器预览里的同一条目 |
-| `scripts/check-cloud-multi.mjs` | 9 条断言：预设、路径、Key 不串、额外头 |
+| `scripts/check-cloud-multi.mjs` | 预设完整清单、「全选只动可见」、路径、Key 不串、额外头 |

@@ -22,6 +22,19 @@ export interface CloudPreset {
   note?: string;
 }
 
+/**
+ * OpenCode Go 网关 2026-11-09 报的 chat 模型。
+ *
+ * 为什么不只列六条「主力」：只列六条时，界面在还没配 Key / 还没读到网关的
+ * 这段时间里会说「这家只有六个模型」。清单本来就是网关给的公开信息，本地
+ * 留一份完整副本，用户第一次打开就能看到全部并勾选。
+ *
+ * 清单本体放在 shared（浏览器预览的 mock 也要用同一份）；这里转出去，调用方
+ * 不必知道它搬过家。
+ */
+import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
+export { OPENCODE_GO_MODELS };
+
 export const CLOUD_PRESETS: readonly CloudPreset[] = [  {
     id: 'openai',
     label: 'OpenAI',
@@ -39,7 +52,7 @@ export const CLOUD_PRESETS: readonly CloudPreset[] = [  {
     id: 'opencode-go',
     label: 'OpenCode Go',
     baseUrl: 'https://opencode.ai/inference/go/openai/v1',
-    models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'glm-5.3-flash', 'kimi-k3', 'qwen3.8-max', 'gpt-6-luna'],
+    models: [...OPENCODE_GO_MODELS],
     note: '订阅制：额度按模型月度上限算（服务端拦），本界面不估算单价；模型清单来自网关 /models，可自改'
   }
 ];
@@ -113,7 +126,7 @@ export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
     id: 'opencode-go',
     label: 'OpenCode Go',
     baseUrl: 'https://opencode.ai/inference/go/openai/v1',
-    models: ['deepseek-v4.1-flash', 'kimi-k3'],
+    models: [...OPENCODE_GO_MODELS],
     note: '订阅制，额度按模型月度上限在服务端拦；网关会把非 chat 模型翻译成 chat/completions'
   },
   {

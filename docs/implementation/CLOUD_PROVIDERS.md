@@ -35,7 +35,7 @@
 | --- | --- | --- | --- |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini`、`gpt-4o` | 原样保留 |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-v4-flash`、`deepseek-v4-pro` | `deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 停用，默认值不用旧名 |
-| OpenCode Go | `https://opencode.ai/inference/go/openai/v1` | `deepseek-v4.1-flash`、`deepseek-v4-pro`、`glm-5.3-flash`、`kimi-k3`、`qwen3.8-max`、`gpt-6-luna` | 订阅制（月费）；网关把全部文本模型翻译成 Chat Completions，GPT / Claude / Gemini 也能用 |
+| OpenCode Go | `https://opencode.ai/inference/go/openai/v1` | `src/shared/opencode-models.ts` 的完整付费清单（约 27 条，不含 `-free`） | 订阅制（月费）；网关把全部文本模型翻译成 Chat Completions；设置里可「选择模型」勾子集，全选只动可见项 |
 
 上游事实来自 DeepSeek 官方文档（2026-11 版本）与 OpenCode Go 网关的 `GET /openai/v1/models`（2026-11-09 实测 30 个 chat 模型）。两家的模型名都还在变，所以**模型列表在界面上可改**，改完立刻生效并持久化到 `cloud-config.json`。
 

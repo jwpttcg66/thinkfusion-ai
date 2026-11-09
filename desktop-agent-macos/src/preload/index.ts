@@ -69,6 +69,7 @@ const api: AgentApi = {
   setApiKey: (input: { id: string; key: string }) => ipcRenderer.invoke('app:set-api-key', input),
   removeApiKey: (id: string) => ipcRenderer.invoke('app:remove-api-key', id),
   setCloudConfig: (input: { id: string; baseUrl?: string; models?: string[] }) => ipcRenderer.invoke('app:set-cloud-config', input),
+  setCloudModels: (input: { id: string; models: string[] }) => ipcRenderer.invoke('app:set-cloud-models', input),
   addCloudProvider: (input: { catalogId: string; label?: string; baseUrl?: string; models?: string[]; key?: string }) =>
     ipcRenderer.invoke('app:cloud-add', input),
   removeCloudProvider: (id: string) => ipcRenderer.invoke('app:cloud-remove', id),

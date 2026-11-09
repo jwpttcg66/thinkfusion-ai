@@ -738,6 +738,35 @@ async function discoverModelsFrom(baseUrl: string, key: string): Promise<string[
 }
 
 /**
+ * 把网关的完整清单记进配置。
+ *
+ * `catalog` 永远是网关报的全部模型；`models` 是用户勾选的那一部分。第一次
+ * 读到清单时两者相同；用户之后在「选择模型」里取消勾选，`catalog` 仍然
+ * 留着，想加回来还有候选可勾。用户勾过（`modelsPicked`）就不再拿新清单
+ * 覆盖他的选择——那是他自己的决定，不是我们需要帮他更新的缓存。
+ *
+ * @returns 记完之后这一问实际会用的模型清单。
+ */
+function recordDiscoveredModels(id: string, models: string[]): string[] {
+  const record = cloudConfigs?.get(id);
+  const keepSelection = record?.modelsPicked === true;
+  const selected = keepSelection ? normalizeModels(record?.models) : [];
+  cloudConfigs?.set(id, {
+    catalog: models,
+    modelsFromGateway: true,
+    ...(keepSelection && selected.length > 0 ? {} : { models })
+  });
+  return keepSelection && selected.length > 0 ? selected : models;
+}
+
+/** 一家服务可勾选的完整候选：网关报过的，加上已选但网关这次没报的旧模型。 */
+function cloudCandidates(id: string): string[] {
+  const record = cloudConfigs?.get(id);
+  const resolved = cloudCatalog.find(item => item.id === id);
+  return normalizeModels([...(record?.catalog ?? []), ...(resolved?.models ?? [])]);
+}
+
+/**
  * 已配 Key、清单还不是网关给的，后台补一次真实清单。
  *
  * 判断依据是「这份清单有没有从 `/models` 读过」，不是「列表空不空」：
@@ -757,7 +786,7 @@ function refreshMissingCloudModels(): void {
     void discoverModelsFrom(service.baseUrl, key)
       .then(models => {
         if (models.length === 0) return;
-        cloudConfigs?.set(service.id, { models, modelsFromGateway: true });
+        recordDiscoveredModels(service.id, models);
         rebuildProviders();
       })
       // 拿不到清单不是故障：预设兜底还在，界面照实显示「已配置 Key」。
@@ -2511,6 +2540,9 @@ function registerIpc() {
         label: item.label,
         baseUrl: item.baseUrl,
         models: item.models,
+        // 未勾选的候选也要给界面：没有它，「选择模型」只能列已选的那几条，
+        // 用户想加回来一个模型都没有入口。
+        catalog: cloudCandidates(item.id),
         note: item.note,
         hasKey: apiKeys?.has(item.id) ?? false,
         // 清单是不是从网关 `/models` 拿回来的。界面靠它决定「打开设置时还要
@@ -2555,12 +2587,13 @@ function registerIpc() {
      * 只是让界面如实说一句，并保留原清单，不拿预设名字冒充网关答案。
      */
     let models: string[] | undefined;
+    let selected: string[] | undefined;
     let modelNote: string | undefined;
     const service = cloudCatalog.find(item => item.id === input.id);
     if (service) {
       try {
         models = await discoverModelsFrom(service.baseUrl, key);
-        if (models.length > 0) cloudConfigs?.set(service.id, { models, modelsFromGateway: true });
+        if (models.length > 0) selected = recordDiscoveredModels(service.id, models);
       } catch (error) {
         modelNote = error instanceof Error ? error.message : String(error);
       }
@@ -2570,7 +2603,8 @@ function registerIpc() {
     return {
       id: input.id,
       configured: true,
-      models: resolved?.models ?? models ?? [],
+      models: selected ?? resolved?.models ?? models ?? [],
+      catalog: models ?? (input.id ? cloudCandidates(input.id) : []),
       ...(modelNote ? { modelNote } : {})
     };
   });
@@ -2603,8 +2637,55 @@ function registerIpc() {
     rebuildProviders();
     const resolved = cloudCatalog.find(item => item.id === input.id);
     return resolved
-      ? { id: resolved.id, baseUrl: resolved.baseUrl, models: resolved.models, hasKey: apiKeys?.has(resolved.id) ?? false }
-      : { id: input.id, baseUrl: patch.baseUrl ?? '', models: patch.models ?? [], hasKey: false };
+      ? {
+          id: resolved.id,
+          label: resolved.label,
+          baseUrl: resolved.baseUrl,
+          models: resolved.models,
+          catalog: cloudCandidates(resolved.id),
+          note: resolved.note,
+          hasKey: apiKeys?.has(resolved.id) ?? false,
+          modelsDiscovered: cloudConfigs.get(resolved.id)?.modelsFromGateway === true,
+          custom: !CLOUD_PRESETS.some(preset => preset.id === resolved.id)
+        }
+      : { id: input.id, label: input.id, baseUrl: patch.baseUrl ?? '', models: patch.models ?? [], hasKey: false };
+  });
+
+  /**
+   * 「选择模型」：从完整候选里勾出这一问要用的子集。
+   *
+   * 与 `app:set-cloud-config` 分开，是因为来源不同：那条路是手写清单，这条
+   * 路勾的就是网关报过的模型。混成一条会把「来自网关 /models」标成手写，
+   * 下次启动又会把用户的勾选覆盖成整张清单。
+   */
+  ipcMain.handle('app:set-cloud-models', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!cloudConfigs) throw new Error('设置还没有准备好');
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { id?: unknown; models?: unknown };
+    if (typeof input.id !== 'string' || (!presetOf(input.id) && !isUserProvider(input.id) && !catalogEntryOf(input.id))) {
+      throw new Error('未知的云端服务');
+    }
+    const models = normalizeModels(input.models);
+    if (models.length === 0) throw new Error('至少保留一个模型');
+    const candidates = new Set(cloudCandidates(input.id));
+    const unknown = models.filter(model => !candidates.has(model));
+    if (unknown.length > 0) throw new Error(`候选里没有这些模型：${unknown.join('、')}`);
+    cloudConfigs.set(input.id, { models, modelsPicked: true });
+    rebuildProviders();
+    const resolved = cloudCatalog.find(item => item.id === input.id);
+    if (!resolved) throw new Error('未知的云端服务');
+    return {
+      id: resolved.id,
+      label: resolved.label,
+      baseUrl: resolved.baseUrl,
+      models: resolved.models,
+      catalog: cloudCandidates(resolved.id),
+      note: resolved.note,
+      hasKey: apiKeys?.has(resolved.id) ?? false,
+      modelsDiscovered: cloudConfigs.get(resolved.id)?.modelsFromGateway === true,
+      custom: !CLOUD_PRESETS.some(preset => preset.id === resolved.id)
+    };
   });
 
   ipcMain.handle('app:remove-api-key', (event, id: unknown) => {
@@ -2641,9 +2722,11 @@ function registerIpc() {
     const key = typeof input.key === 'string' ? input.key.trim() : '';
     const models = normalizeModels(input.models);
     let finalModels = models.length > 0 ? models : [...entry.models];
-    let modelsFromGateway = false;
-    // 界面不再让人手填模型名：没带清单就向网关要一次。要不到也不拦添加——
-    // 服务下一条 Key 保存或下次启动还会再问，清单空着只是暂时没成员。
+    // 界面带来的清单要么是它刚向网关要到的，要么是目录默认值。前者标成
+    // 「来自网关」，后者不能冒充。
+    let modelsFromGateway = models.length > 0;
+    // 没带清单就向网关要一次。要不到也不拦添加——服务下一条 Key 保存或下次
+    // 启动还会再问，清单空着只是暂时没成员。
     if (finalModels.length === 0 && key) {
       try {
         finalModels = await discoverModelsFrom(baseUrl, key);
@@ -2658,8 +2741,9 @@ function registerIpc() {
     const id = entry.custom ? userProviderId(label, taken) : entry.id;
     if (!entry.custom && taken.has(id)) throw new Error(`${entry.label} 已经在列表里，直接填 Key 就行`);
 
-    if (entry.custom) cloudConfigs.set(id, { label, baseUrl, models: finalModels, modelsFromGateway });
-    else cloudConfigs.set(id, { baseUrl, models: finalModels, modelsFromGateway });
+    const record = { baseUrl, models: finalModels, catalog: finalModels, modelsFromGateway };
+    if (entry.custom) cloudConfigs.set(id, { ...record, label });
+    else cloudConfigs.set(id, record);
     if (key) apiKeys.set(id, key);
     rebuildProviders();
     const resolved = cloudCatalog.find(item => item.id === id);
@@ -2669,11 +2753,13 @@ function registerIpc() {
           label: resolved.label,
           baseUrl: resolved.baseUrl,
           models: resolved.models,
+          catalog: cloudCandidates(resolved.id),
           note: resolved.note,
           hasKey: apiKeys.has(resolved.id),
+          modelsDiscovered: cloudConfigs.get(resolved.id)?.modelsFromGateway === true,
           custom: !CLOUD_PRESETS.some(preset => preset.id === resolved.id)
         }
-      : { id, label, baseUrl, models: finalModels, hasKey: apiKeys.has(id), custom: true };
+      : { id, label, baseUrl, models: finalModels, catalog: finalModels, hasKey: apiKeys.has(id), custom: true };
   });
 
   /** 删掉用户加的服务（目录项或自定义）。内置三条只能清 Key——删掉就没有「恢复默认」的锚点了。 */
@@ -2709,11 +2795,14 @@ function registerIpc() {
     const models = await discoverModelsFrom(baseUrl, key);
     // 带服务 id 来的调用（设置里点「重新获取」）就是要把清单记下来：只回给界面
     // 不落盘，下次打开又得再问一遍，界面也会一直停在「还没从网关读到」。
+    // 记的时候只更新 `catalog`，不覆盖用户挑过的 `models`——「重新获取」是
+    // 刷新候选，不是替用户重新勾一遍。
+    let selected: string[] | undefined;
     if (typeof input.id === 'string' && models.length > 0) {
-      cloudConfigs?.set(input.id, { models, modelsFromGateway: true });
+      selected = recordDiscoveredModels(input.id, models);
       rebuildProviders();
     }
-    return { models };
+    return { models, ...(selected ? { selected } : {}) };
   });
 
   ipcMain.handle('app:provider-health', async event => {
