@@ -57,11 +57,28 @@ export function TraceTimeline(props: {
   const viewEnd = viewStart + viewSpan;
   const percent = (value: number) => ((value - viewStart) / viewSpan) * 100;
 
-  const lanes = new Map<string, TraceStep[]>();
+  /**
+   * 一条泳道 = 一个人 + 一个阶段。
+   *
+   * 只按 actorId 分会让第一轮回答和它后面的汇总共用一行：同一时间轴上出现
+   * 两段不连续的条，看起来像「第一轮还没结束就又开始了一次」。汇总本来就是
+   * 第一轮结束后的新条目，应该单独一行。
+   */
+  const GROUP_SUFFIX: Record<string, string> = {
+    lead: '汇总',
+    debate: '辩论',
+    followup: '追加',
+    synthesis: '综合',
+    execute: '执行',
+    prepare: '准备'
+  };
+  const lanes = new Map<string, { steps: TraceStep[]; label: string }>();
   for (const step of steps) {
-    const lane = lanes.get(step.actorId) ?? [];
-    lane.push(step);
-    lanes.set(step.actorId, lane);
+    const key = `${step.actorId}::${step.group}`;
+    const lane = lanes.get(key) ?? { steps: [], label: step.actorLabel };
+    lane.steps.push(step);
+    if (GROUP_SUFFIX[step.group]) lane.label = `${step.actorLabel} · ${GROUP_SUFFIX[step.group]}`;
+    lanes.set(key, lane);
   }
 
   function timeAt(clientX: number): number {
@@ -104,10 +121,12 @@ export function TraceTimeline(props: {
         })}
       </div>
 
-      {[...lanes.entries()].map(([actorId, laneSteps], laneIndex) => (
-        <div className="trace-timeline-lane" key={actorId}>
-          <span className="trace-timeline-name" title={actorId}>
-            {laneSteps[0]?.actorLabel ?? actorId}
+      {[...lanes.entries()].map(([laneKey, lane], laneIndex) => {
+        const laneSteps = lane.steps;
+        return (
+        <div className="trace-timeline-lane" key={laneKey}>
+          <span className="trace-timeline-name" title={laneKey}>
+            {lane.label}
           </span>
           <div
             className="trace-timeline-track"
@@ -172,7 +191,8 @@ export function TraceTimeline(props: {
             })()}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {props.range && (
         <div className="trace-timeline-range">
