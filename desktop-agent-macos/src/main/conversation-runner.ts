@@ -1727,6 +1727,15 @@ export class ConversationRunner {
           detail
         });
       },
+      delta: (agentId, chunk) => {
+        this.deps.emit({
+          type: 'answer.delta',
+          at: Date.now(),
+          conversationId,
+          channelId: agentId,
+          ...chunk
+        });
+      },
       // 进度流水账（编排理由、技能加载等）调用方已改走 trace.note；
       // sink.note 保留给失败/漂移这类需要用户看见的提示。
       note: text => {

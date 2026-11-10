@@ -56,8 +56,11 @@ npm run test:trace-stats     # 进度不碰 token 统计
 
 - `ModelProvider.streamChunks()` 产出 `{text?, reasoning?, usage?}`；`stream()` 保留为只出正文的旧接口；
 - `ProviderBackedSubAgent.askStream()` 累积正文/推理，回调增量，返回完整回答与 usage；
-- 第一轮、工程模式首轮、主导人汇总都走流式；网页通道是轮询增量（`onPartial`），
-  页面改写时发 `reset` 整段替换，规则见 `docs/spec/WEB_ANSWER_STREAMING.md`；
+- 第一轮（`MasterAgent.askOne`）、工程模式首轮、主导人汇总都走流式；网页通道是
+  轮询增量（`onPartial`），页面改写时发 `reset` 整段替换，规则见
+  `docs/spec/WEB_ANSWER_STREAMING.md`；
+- 名单裁剪层（`ExecutionPool`）也必须实现 `askStream`，否则会静默退回整段——真机
+  第一次就是这样：代码全对，界面就是不流；
 - 增量按 50ms 合批后发 `answer.delta`，界面按 channelId 追加；消息落盘后由 `message.added` 清掉临时气泡；
 - 本地/云端拿不到流时自动退回 `ask()`，不假装在流。
 

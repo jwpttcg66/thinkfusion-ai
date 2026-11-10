@@ -59,6 +59,24 @@ export class ExecutionPool implements SubAgentPool {
     return extra ? extra.ask(task) : this.base.ask(agentId, task);
   }
 
+  /**
+   * 流式问：名单校验与 `ask` 相同，然后交给真正拥有这个成员的那一层。
+   * 少了这个方法，云端第一轮会静默退回整段——界面就看不到「写作中」。
+   */
+  async askStream(
+    agentId: string,
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+  ): Promise<SubAgentAnswer> {
+    if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) {
+      throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
+    }
+    const extra = this.extraById.get(agentId);
+    if (extra?.askStream) return extra.askStream(task, onDelta);
+    if (this.base.askStream) return this.base.askStream(agentId, task, onDelta);
+    return this.ask(agentId, task);
+  }
+
   async newConversation(agentId: string): Promise<NewSessionResult> {
     if (this.extraById.has(agentId)) return ProviderBackedSubAgent.noSession();
     return this.base.newConversation(agentId);

@@ -1,7 +1,7 @@
 import type { ChannelPhase, ConversationStatus, Synthesis } from '../shared/conversation';
 import { synthesize } from '../shared/synthesizer';
 import { PageBusyError, PageUnavailableError } from './adapters/browser/types';
-import type { SubAgent, SubAgentAnswer, SubAgentPool } from './agents/types';
+import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
 
 /**
  * The Master Agent: who joins a round, and when the round is over.
@@ -41,6 +41,11 @@ export interface ResearchSink {
   record(answer: SubAgentAnswer): string;
   /** Something happened to one participant; the strip above the pane shows it. */
   phase(agentId: string, phase: ChannelPhase, detail?: string): void;
+  /**
+   * 流式增量：正文 / 推理 / 网页改写（reset）。没有流式能力的通道不会调用。
+   * 由 ConversationRunner 转成 `answer.delta` 事件，主进程不关心界面。
+   */
+  delta?(agentId: string, chunk: { text?: string; reasoning?: string; reset?: boolean; done?: boolean }): void;
   /** A sentence for the conversation itself, not for one agent. */
   note(text: string): void;
   status(status: ConversationStatus): void;
@@ -274,6 +279,63 @@ export class MasterAgent {
   }
 
   /**
+   * 有流式就流式，没有就整段问。
+   *
+   * 增量按 50ms 合批：云端 SSE 是逐 token 的，直接 per-chunk 发会把 IPC 打成
+   * 洪水。合批只影响显示，最终消息、用量与首 token 时间仍来自完整回答。
+   */
+  private async askStreaming(
+    agent: SubAgent,
+    task: SubAgentTask,
+    sink: ResearchSink
+  ): Promise<SubAgentAnswer> {
+    if (!this.pool.askStream || !sink.delta) return this.pool.ask(agent.id, task);
+
+    let text = '';
+    let reasoning = '';
+    let timer: NodeJS.Timeout | null = null;
+    const flush = () => {
+      if (!text && !reasoning) return;
+      sink.delta?.(agent.id, { ...(text ? { text } : {}), ...(reasoning ? { reasoning } : {}) });
+      text = '';
+      reasoning = '';
+    };
+    const onDelta = (chunk: { text?: string; reasoning?: string; reset?: boolean }) => {
+      if (chunk.reset) {
+        flush();
+        sink.delta?.(agent.id, { text: chunk.text ?? '', reset: true });
+        return;
+      }
+      text += chunk.text ?? '';
+      reasoning += chunk.reasoning ?? '';
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        flush();
+      }, 50);
+    };
+
+    try {
+      const answer = await this.pool.askStream(agent.id, task, onDelta);
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+      sink.delta?.(agent.id, { done: true });
+      return answer;
+    } catch (error) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+      sink.delta?.(agent.id, { done: true });
+      throw error;
+    }
+  }
+
+  /**
    * One channel: reset (only when it does not already hold this conversation),
    * ask, and record.
    *
@@ -301,12 +363,13 @@ export class MasterAgent {
     sink.join(agent.id);
     sink.phase(agent.id, 'asking');
     try {
-      const answer = await this.pool.ask(agent.id, {
+      const task = {
         // Verbatim. `request.question` is the text the user typed — nothing
         // is prepended, prefixed, or wrapped for this channel.
         question: request.question,
-        stage: request.followup ? 'followup' : 'initial'
-      });
+        stage: (request.followup ? 'followup' : 'initial') as 'followup' | 'initial'
+      };
+      const answer = await this.askStreaming(agent, task, sink);
       if (sink.cancelled()) return { kind: 'cancelled', agentId: agent.id, label: agent.label };
       messageIds.set(agent.id, sink.record(answer));
       sink.phase(agent.id, 'answered');

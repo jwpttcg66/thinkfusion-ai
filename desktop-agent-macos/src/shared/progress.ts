@@ -128,7 +128,9 @@ export function deriveProgress(input: ProgressInput): ProgressView {
   const synthesisAt =
     (conversationStatus === 'synthesizing' ? startedAt : null) ??
     planReady ??
-    (conversationStatus === 'answered' ? firstAt(events, 'round.answer') : null);
+    (conversationStatus === 'answered'
+      ? lastEventAt(events) ?? startedAt
+      : null);
 
   const executionAt = firstStep ?? planReady ?? (taskStatus === 'executing' ? startedAt : null);
   const reviewAt = review ?? (report ? report.at : null);
