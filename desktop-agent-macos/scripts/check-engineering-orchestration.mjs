@@ -399,8 +399,8 @@ test('非混合档：所有模型都进场读证据，网页零调用、连探�
   const messages = runner.messages(started.conversationId);
   assert.equal(messages.filter(message => message.role === 'channel').length, 3, '三份编排成员的回答都落库');
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
-    '要写清楚这一轮谁回答、为什么没发网页'
+    !messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
 });
 
@@ -433,7 +433,7 @@ test('本地模型逐个问，不抢同一个推理闸门；云端模型照样�
   );
 });
 
-test('开场系统消息只说第一轮谁回答，不提前写「由谁汇总」', async () => {
+test('编排与汇总进度只进轨迹，不再每轮贴系统消息', async () => {
   const a = fakeModel('openai:a', 'A', 'cloud');
   const b = fakeModel('openai:b', 'B', 'cloud');
   const { runner } = makeRunner({ models: [a, b] });
@@ -442,13 +442,14 @@ test('开场系统消息只说第一轮谁回答，不提前写「由谁汇总�
   const systems = runner
     .messages(started.conversationId)
     .filter(message => message.role === 'system')
-    .map(message => message.text);
-  const roster = systems.find(text => text.includes('云端主导') && text.includes('第一轮'));
-  assert.ok(roster, '开场应说明第一轮云端各自回答');
-  assert.ok(!/由 .+ 汇总/.test(roster), '开场不得提前宣布汇总');
+    .map(message => message.text ?? '');
   assert.ok(
-    systems.some(text => text.includes('第一轮回答已齐') && text.includes('主导人')),
-    '答完之后才宣布主导汇总'
+    !systems.some(text => text.includes('云端主导') && text.includes('第一轮')),
+    '编排理由进轨迹事件行，不再贴对话'
+  );
+  assert.ok(
+    !systems.some(text => /第一轮回答已齐|由 .+ 汇总/.test(text)),
+    '汇总进度进轨迹事件行'
   );
 });
 
@@ -607,8 +608,8 @@ test('混合档：所有网页通道作为并列成员进场，回答落库且�
     '网页与模型的回答并列落库'
   );
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('作为编排成员一起进场')),
-    '要说明这一轮网页为什么参与'
+    !messages.some(message => message.role === 'system' && message.text.includes('作为编排成员一起进场')),
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
   for (const input of debateInputs) {
     assert.deepEqual(input.debaters, ['ollama:a'], '网页成员不进多轮交锋名单');

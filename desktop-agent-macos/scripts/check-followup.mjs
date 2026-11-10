@@ -313,8 +313,8 @@ test('开一轮追加：缺口被原样问回所有网页通道，汇总更新�
   assert.ok(synthesis, 'expected a synthesis');
   assert.ok(synthesis.synthesis.recommendation.includes('上限是 200'), '结论应来自更新后的汇总');
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('第 1 轮追加研究')),
-    '会话里应写明这一轮补了什么'
+    !messages.some(message => message.role === 'system' && message.text.includes('第 1 轮追加研究')),
+    '追加轮进度进轨迹，不再贴系统消息'
   );
   // 第一轮的通道消息仍在，第二轮的补充回答也在
   assert.ok(messages.filter(message => message.role === 'channel').length >= 4);
@@ -352,8 +352,8 @@ test('缺口重复出现时就停下，不会一轮轮问同一句', async () =>
   assert.equal(rounds, 2, `expected one follow-up round, got ${String(rounds)} asks`);
   const messages = runner.messages(started.conversationId);
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('上一轮已经问过')),
-    '应该说明为什么停'
+    !messages.some(message => message.role === 'system' && message.text.includes('上一轮已经问过')),
+    '停下原因进轨迹，不再贴系统消息'
   );
   assert.ok(summaryCount >= 2);
 });
@@ -382,8 +382,8 @@ test('没有【待补】就不追加，并说明原因', async () => {
   assert.equal(log.asks.filter(item => item.question.startsWith('关于「')).length, 0);
   const messages = runner.messages(started.conversationId);
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('没有可补的问题')),
-    '应该说明为什么没有追加'
+    !messages.some(message => message.role === 'system' && message.text.includes('没有可补的问题')),
+    '没有追加的原因进轨迹，不再贴系统消息'
   );
 });
 

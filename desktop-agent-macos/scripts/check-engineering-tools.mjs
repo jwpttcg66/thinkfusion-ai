@@ -321,8 +321,7 @@ test('选「本次按分析」的常识题也不扫工程、不开放读文件�
     .messages(started.conversationId)
     .filter(message => message.role === 'system')
     .map(message => message.text ?? '');
-  assert.ok(systemTexts.some(text => /没有读取工程目录/.test(text)));
-  assert.ok(systemTexts.some(text => /不开放读文件工具/.test(text)));
+  assert.equal(started.engineeringEvidence?.length ?? 0, 0, '常识题不该落工程证据');
   assert.equal(asks.filter(input => input.stage === 'initial').length, 1);
   assert.equal(expertiseCalls, 0, '无工程证据时根本不该去加载专家/技能');
   const firstSystem = (asks[0].system ?? []).join('\n');
@@ -330,6 +329,7 @@ test('选「本次按分析」的常识题也不扫工程、不开放读文件�
   assert.equal(asks[0].question, 'java和go谁更适合做游戏服务器', '问题原话直送，不套【用户的问题】');
   assert.ok(!systemTexts.some(text => /调用了本机能力/.test(text)));
   assert.ok(!systemTexts.some(text => /已读取工程目录/.test(text)));
+  assert.ok(!systemTexts.some(text => /没有读取工程目录/.test(text)), '决定进轨迹，不贴系统消息');
 });
 
 test('本问不读工程、无附件时不开放读文件工具，模型回 JSON 也不执行', async () => {
@@ -356,10 +356,7 @@ test('本问不读工程、无附件时不开放读文件工具，模型回 JSON
     .messages(started.conversationId)
     .filter(message => message.role === 'system')
     .map(message => message.text ?? '');
-  assert.ok(
-    systemTexts.some(text => /没有读取工程目录/.test(text)),
-    `应跳过工程扫描，实际系统消息：${systemTexts.join(' | ')}`
-  );
+  assert.equal(started.engineeringEvidence?.length ?? 0, 0, '应跳过工程扫描');
   assert.equal(
     asks.filter(input => input.stage === 'initial').length,
     1,
@@ -374,6 +371,10 @@ test('本问不读工程、无附件时不开放读文件工具，模型回 JSON
   assert.ok(
     !systemTexts.some(text => /调用了本机能力/.test(text)),
     '宿主不该执行 fs.list'
+  );
+  assert.ok(
+    !systemTexts.some(text => /没有读取工程目录/.test(text)),
+    '决定进轨迹，不贴系统消息'
   );
 });
 

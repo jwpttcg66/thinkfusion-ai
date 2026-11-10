@@ -335,9 +335,10 @@ test('只问了附件时不去翻工程目录——真机那次扫了整个 Down
     executionConfig: { executionMode: 'local' }
   });
   const texts = runner.messages(started.conversationId).map(message => message.text).join('\n');
-  assert.match(texts, /没有读取工程目录/);
+  assert.equal(started.routing?.readsProject, false, '模型说不用读');
   assert.doesNotMatch(texts, /已读取工程目录/, '不该去扫工程目录');
   assert.doesNotMatch(texts, /没能读取工程目录/, '根本没扫，就不该有「读失败」');
+  assert.doesNotMatch(texts, /没有读取工程目录/, '决定进轨迹，不再每轮贴系统消息');
 });
 
 test('模型说要看工程时照旧真读，不拿旧证据糊弄', async () => {
@@ -352,7 +353,6 @@ test('模型说要看工程时照旧真读，不拿旧证据糊弄', async () =>
   });
   const texts = runner.messages(started.conversationId).map(message => message.text).join('\n');
   assert.match(texts, /没能读取工程目录/, '要看工程就必须真读，读不到就如实说读不到');
-  assert.doesNotMatch(texts, /没有读取工程目录/);
 });
 
 test('还没选工程目录不问模型：判了也跑不了，先让用户选目录', async () => {

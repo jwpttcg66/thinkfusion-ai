@@ -898,8 +898,9 @@ test('网页主导：由回答者当主导，它读全部回答写汇总', async
   );
 });
 
-test('主导汇总宣布在第一轮答完之后，开场系统消息不再写「由谁汇总」', async () => {
-  // 真机 2026-11-10：开场就写「由 deepseek 汇总」，hy4 还在提问中，像上来就总结。
+test('主导汇总不再在对话里贴进度公告', async () => {
+  // 真机 2026-11-10：这些进度行每轮都出现，把对话变成了流水账。
+  // 现在只进轨迹事件行；第二轮通道条和 leading 相位已经说明谁在汇总。
   const channels = [
     fakeChannel('a', async input =>
       answer(input.question.includes('【各来源的回答】') ? SUMMARY_REPLY : 'a 的回答')
@@ -917,8 +918,8 @@ test('主导汇总宣布在第一轮答完之后，开场系统消息不再写�
     .filter(message => message.role === 'system')
     .map(message => message.text);
   assert.ok(
-    systems.some(text => text.includes('第一轮回答已齐') && text.includes('主导人')),
-    '答完之后才宣布进入主导汇总'
+    !systems.some(text => /第一轮回答已齐|由 .+ 汇总/.test(text ?? '')),
+    '进度公告进轨迹，不再出现在对话里'
   );
 });
 
@@ -1375,7 +1376,7 @@ test('V2.1：工程分析真的读文件，第一手网页提问仍是用户原�
   );
   const system = store.listMessages(conversation.conversationId)
     .filter(message => message.role === 'system').map(message => message.text).join('\n');
-  assert.match(system, /已读取工程目录/);
+  assert.doesNotMatch(system, /已读取工程目录/, '证据由证据卡展示，不再每轮贴扫描摘要');
 });
 
 // 真机第一轮就踩到：结构分析在 scanProject 里算出来了，却只把 evidence 交给
@@ -1460,5 +1461,5 @@ test('V2.1：辩论关闭时主导人只汇总，不发起交锋', async () => {
   assert.equal(seen.length, 1, '只做一次汇总');
   const system = store.listMessages(conversation.conversationId)
     .filter(message => message.role === 'system').map(message => message.text).join('\n');
-  assert.match(system, /关闭了辩论/);
+  assert.doesNotMatch(system, /关闭了辩论/, '关闭辩论是轨迹事件，不再每轮贴系统消息');
 });

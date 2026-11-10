@@ -741,10 +741,7 @@ export class ConversationRunner {
         conversation.engineeringFileStats = [];
         conversation.updatedAt = Date.now();
         this.save(conversation);
-        this.addMessage(conversation, {
-          role: 'system',
-          text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
-        });
+        // 决定本身已经进轨迹事件行；对话里不再每轮贴一句「没有读取工程目录」。
         trace?.event({
           stage: 'route',
           group: 'prepare',
@@ -773,16 +770,11 @@ export class ConversationRunner {
           conversation.engineeringFileStats = scan.fileStats ?? [];
           conversation.updatedAt = Date.now();
           this.save(conversation);
-          this.addMessage(conversation, {
-            role: 'system',
-            text: [
-              `已读取工程目录，${routingLabel(routing)}依据来自真实文件：`,
-              scan.summary,
-              ...(scan.warnings.length > 0 ? [`注意：${scan.warnings.join('；')}`] : [])
-            ].join('\n')
-          });
+          // 证据卡本身由 engineeringEvidence 渲染；不再在对话里贴一段扫描摘要。
           trace?.endStep(scanStep, {
             status: 'ok',
+            outputPreview: scan.summary,
+            ...(scan.warnings.length > 0 ? { reason: scan.warnings.join('；') } : {}),
             refs: scan.evidence.map(item => ({
               kind: 'file',
               id: item.path,
@@ -895,6 +887,8 @@ export class ConversationRunner {
       scope: { root: string; extraFiles: readonly string[] };
       sink: ResearchSink;
       trace?: TraceRecorder;
+      /** 真的调了本机能力时要让用户在对话里看到；普通流水账仍只进轨迹。 */
+      announce?: (text: string) => void;
     }
   ): Promise<SubAgentAnswer> {
     const ask = (question: string): Promise<SubAgentAnswer> =>
@@ -943,8 +937,10 @@ export class ConversationRunner {
           outputPreview: result.summary,
           meta: { outputChars: result.text.length }
         });
-        // 用户要看得到「真的调了本地能力」，否则和凭猜测回答没有区别。
-        input.sink.note(`${target.label} 调用了本机能力：${result.summary}`);
+        // 真的调了本地能力要让用户看得到：这是唯一保留的逐次工具提示，
+        // 因为它证明「文件确实被读了」，不是又一段流水账。
+        input.trace?.note(`${target.label} 调用了本机能力：${result.summary}`);
+        input.announce?.(`${target.label} 调用了本机能力：${result.summary}`);
         answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -1193,10 +1189,6 @@ export class ConversationRunner {
           conversation.engineeringAnalysis = undefined;
           conversation.engineeringFileStats = [];
           this.save(conversation);
-          this.addMessage(conversation, {
-            role: 'system',
-            text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
-          });
           trace?.event({
             stage: 'route',
             group: 'prepare',
@@ -1224,9 +1216,10 @@ export class ConversationRunner {
             conversation.engineeringAnalysis = scan.analysis;
             conversation.engineeringFileStats = scan.fileStats ?? [];
             this.save(conversation);
-            this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
             trace?.endStep(scanStep, {
               status: 'ok',
+              outputPreview: scan.summary,
+              ...(scan.warnings.length > 0 ? { reason: scan.warnings.join('；') } : {}),
               refs: scan.evidence.map(item => ({
                 kind: 'file',
                 id: item.path,
@@ -1480,6 +1473,7 @@ export class ConversationRunner {
     sink: ResearchSink
   ): Promise<EngineeringRound | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
+    const trace = this.traceFor(conversation.conversationId);
     const material = this.engineeringMaterialFor(conversation);
     const models = (await this.deps.modelMembers?.(config)) ?? [];
     // 本地 / 云端主导 = 用户明确不要网页。缺模型时失败，不许偷偷改问页面。
@@ -1515,7 +1509,7 @@ export class ConversationRunner {
 
     const attachmentCount = conversation.attachments?.length ?? 0;
     if (!material) {
-      sink.note(
+      trace?.note(
         attachmentCount > 0
           ? '这一轮没有工程证据，只依据随附文件与问题原话问模型；不改问网页。'
           : '这一轮没有工程证据（未读目录、本问不需要，或扫描为空），按问题原话直接问模型，不开放读文件工具、不改问网页。'
@@ -1539,7 +1533,7 @@ export class ConversationRunner {
       return { outcome, orchestration };
     }
 
-    sink.note(orchestration.reason);
+    trace?.note(orchestration.reason);
     sink.status(orchestration.members.length > 1 ? 'collecting' : 'thinking');
 
     // 没读工程、也没附件：常识/选型题。不要塞证据纪律、专家人设、读文件工具——
@@ -1552,7 +1546,7 @@ export class ConversationRunner {
           question
         }) ?? { system: [], note: '', loaded: [] }
       : { system: [], note: '', loaded: [] };
-    if (expertise.note) sink.note(expertise.note);
+    if (expertise.note) trace?.note(expertise.note);
 
     const engineered = needsLocalRead
       ? buildEngineeringAnswerQuestion(question, material ?? '')
@@ -1599,6 +1593,7 @@ export class ConversationRunner {
                 system: toolSystem,
                 scope,
                 sink,
+                announce: text => this.addMessage(conversation, { role: 'system', text }),
                 ...(this.traceFor(conversation.conversationId)
                   ? { trace: this.traceFor(conversation.conversationId)! }
                   : {})
@@ -1728,6 +1723,8 @@ export class ConversationRunner {
           detail
         });
       },
+      // 进度流水账（编排理由、技能加载等）调用方已改走 trace.note；
+      // sink.note 保留给失败/漂移这类需要用户看见的提示。
       note: text => {
         trace?.note(text);
         this.addMessage(conversation, { role: 'system', text });
@@ -1827,13 +1824,6 @@ export class ConversationRunner {
         conversation.pageEvidence = page;
         conversation.updatedAt = Date.now();
         this.save(conversation);
-        this.addMessage(conversation, {
-          role: 'system',
-          text: [
-            `已抓取网页正文：${page.title}（${page.chars} 字，HTTP ${page.status}，sha256 ${page.sha256.slice(0, 12)}）`,
-            ...(page.notes.length > 0 ? [`说明：${page.notes.join('；')}`] : [])
-          ].join('\n')
-        });
         trace?.endStep(extractStep, {
           status: 'ok',
           outputPreview: page.title,
@@ -2152,14 +2142,13 @@ export class ConversationRunner {
     const isPage = lead.kind === 'web';
     const label = lead.label;
 
-    // 第一轮答完才宣布进入主导汇总——开场就写「由 X 汇总」时，通道条还在
-    // 「提问中」，真机看起来像「上来就总结、第一轮消失了」。
-    this.addMessage(conversation, {
-      role: 'system',
-      text: lead.auto
-        ? `第一轮回答已齐。系统选 ${label} 当主导人：现在汇总各家意见、指定辩题并给最终意见。`
-        : `第一轮回答已齐。现在由主导人 ${label} 汇总各家意见、指定辩题并给最终意见。`
-    });
+    // 第一轮答完才进入主导汇总；不再在对话里贴一段进度公告，
+    // 通道条的第二轮 + leading 相位已经说明了这件事。
+    trace?.note(
+      lead.auto
+        ? `第一轮回答已齐。系统选 ${label} 当主导人。`
+        : `第一轮回答已齐。由主导人 ${label} 汇总。`
+    );
     // 主导人第一轮往往已经答过；再问一次是汇总，不是「还没答上」。
     // 标成 leading，条上写「汇总中」，避免和第一轮的「提问中」混成一件事。
     // 主导汇总只允许这一人：先把其他人可能残留的 leading 清掉，免得第二轮
@@ -2274,25 +2263,15 @@ export class ConversationRunner {
       : debatersFor(ownership.mode, answers, executorIds, sourceOf);
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
     if (debateMode === 'off') {
-      this.addMessage(conversation, {
-        role: 'system',
-        text: '这一轮按设置关闭了辩论：只汇总，不交锋、不出最终意见。'
-      });
+      trace?.note('这一轮按设置关闭了辩论：只汇总，不交锋、不出最终意见。');
     } else if (topics.length === 0) {
-      this.addMessage(conversation, {
-        role: 'system',
-        text: `${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总、不发起辩论。`
-      });
+      trace?.note(`${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总。`);
     } else if (debaters.length === 0) {
-      this.addMessage(conversation, {
-        role: 'system',
-        text: `${label} 列出了 ${topics.length} 个辩题（${topics.join('；')}），但${ownership.mode}归属方式下没有可用成员，这一轮只汇总、不发起辩论。`
-      });
+      trace?.note(
+        `${label} 列出了 ${topics.length} 个辩题（${topics.join('；')}），但${ownership.mode}归属方式下没有可用成员，这一轮只汇总。`
+      );
     } else if (this.deps.runDebate) {
-      this.addMessage(conversation, {
-        role: 'system',
-        text: `${label} 指定了 ${topics.length} 个辩题：${topics.join('；')}`
-      });
+      trace?.note(`${label} 指定了 ${topics.length} 个辩题：${topics.join('；')}`);
       const debateStep = trace?.beginStep({
         stage: 'debate',
         group: 'debate',
@@ -2465,7 +2444,7 @@ export class ConversationRunner {
         cancelled: sink.cancelled()
       });
       if (!decision.go) {
-        this.addMessage(conversation, { role: 'system', text: `追加研究在这里停下：${decision.reason}。` });
+        trace?.note(`追加研究在这里停下：${decision.reason}。`);
         break;
       }
 
@@ -2476,7 +2455,7 @@ export class ConversationRunner {
       // 发出去的是普通问题：没有角色行，没有协议标记。页面上看到的应该是
       // 用户自己会问的那种句子。
       const followQuestion = buildFollowUpQuestion(question, fresh, round);
-      this.addMessage(conversation, { role: 'system', text: followUpNote(round, budget, fresh) });
+      trace?.note(followUpNote(round, budget, fresh));
       this.setStatus(conversation, 'collecting');
 
       trace?.beginGroup('followup', followQuestion);

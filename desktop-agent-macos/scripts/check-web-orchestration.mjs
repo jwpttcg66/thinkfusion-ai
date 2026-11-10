@@ -268,8 +268,8 @@ test('混合档 + 自动 + 决策问题：所有网页通道作为并列成员�
     '模型与网页的回答并列落库'
   );
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('作为编排成员一起进场')),
-    '要说明这一轮网页为什么参与'
+    !messages.some(message => message.role === 'system' && message.text.includes('作为编排成员一起进场')),
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
   assert.ok(
     messages.some(message => message.role === 'synthesis'),
@@ -288,8 +288,8 @@ test('混合档 + 自动 + 事实问题：一个网页都不发，理由写清�
   assert.equal(log.web.length, 0, '事实查询不发网页');
   const messages = runner.messages(started.conversationId);
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('不是决策类问题')),
-    '没问也要说明为什么没问'
+    !messages.some(message => message.role === 'system' && message.text.includes('不是决策类问题')),
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
 });
 
@@ -318,7 +318,8 @@ test('混合档 + 总是：事实问题也编排网页', async () => {
   assert.equal(log.web.length, 1, '设置要求每次都编排网页');
   const messages = runner.messages(started.conversationId);
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('设置要求每个工程问题都编排网页'))
+    !messages.some(message => message.role === 'system' && message.text.includes('设置要求每个工程问题都编排网页')),
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
 });
 

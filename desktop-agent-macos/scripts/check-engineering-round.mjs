@@ -218,12 +218,12 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
     '模型的回答要以回答消息落库'
   );
   assert.ok(
-    messages.some(
+    !messages.some(
       message =>
         message.role === 'system' &&
         (message.text.includes('工程空间多 agent 编排') || message.text.includes('本地主导'))
     ),
-    '要写清楚这一轮谁回答、没发网页'
+    '编排理由进轨迹事件行，不再每轮贴系统消息'
   );
 });
 
