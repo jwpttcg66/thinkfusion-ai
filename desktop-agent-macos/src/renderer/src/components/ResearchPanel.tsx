@@ -30,10 +30,10 @@ interface Props {
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
 
 const MODES: Array<{ id: ConversationExecutionConfig['executionMode']; label: string; hint: string }> = [
-  { id: 'web', label: '网页主导', hint: '知识空间：只用网页通道汇总交锋。工程空间：本地+云端模型编排，不问网页' },
-  { id: 'local', label: '本地主导', hint: '知识空间：只用本机 Ollama。工程空间：本地+云端模型编排，本地优先主导' },
-  { id: 'cloud', label: '云端主导', hint: '知识空间：只用勾选的远程 API 模型。可点名主导人与参与模型，不必全上' },
-  { id: 'hybrid', label: '混合主导', hint: '知识空间：先择一类再严格只用那一类。工程空间：唯一允许网页加入编排的模式' }
+  { id: 'web', label: '网页主导', hint: '知识空间：只用网页。工程空间：本地+云端读文件，不问网页' },
+  { id: 'local', label: '本地主导', hint: '知识与工程：只用本机 Ollama，不问云端、不问网页' },
+  { id: 'cloud', label: '云端主导', hint: '知识与工程：只用勾选的远程 API，不问本地、不问网页' },
+  { id: 'hybrid', label: '混合主导', hint: '知识空间：先择一类。工程空间：本地+云端，并可编排网页' }
 ];
 
 /** 融合报告里「谁算的这份综合」。三种后端要能分辨。 */
@@ -267,8 +267,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 ② 从分歧里指定辩题；③ 读辩论记录，给出最终意见。没有实质分歧时不发起辩论。
               </p>
               <p className="muted">
-                <b>工程空间</b>：第一意见由本地 + 云端模型读工程证据给出（网页读不到本机文件）；
-                只有「混合」才允许网页加入编排。本地 / 云端主导下没有可用模型时如实失败，不退回网页。
+                <b>工程空间</b>：本地主导只问本地、云端主导只问云端；网页主导 / 混合才由本地 + 云端一起读文件
+                （网页读不到本机文件）。只有「混合」才允许网页加入编排。本地 / 云端主导下没有可用模型时如实失败，不退回网页。
               </p>
 
               <h3>工程空间：网页编排（仅混合档）</h3>

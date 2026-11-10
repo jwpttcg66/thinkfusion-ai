@@ -7,13 +7,13 @@
  * 这条覆盖了同一天更早的两条裁决——「只问一个模型的第一意见」、以及
  * 「决策类问题追加一个网页第二意见、两份并列不汇总」。要钉住的是：
  *
- * 1. 选人——所有可用的本地 + 云端模型**全部**并行读同一份证据，本地优先；
- *    local / web / cloud 三档在工程空间不再决定谁读得动文件；
+ * 1. 选人——按执行模式归属：local 只用本地、cloud 只用云端；web / hybrid
+ *    才是本地 + 云端一起读证据（网页读不到本机文件）；
  * 2. 网页——非混合档一个都不问（连探活都不做），只有 hybrid 才把**所有已开启
  *    且可用**的网页通道作为并列成员编进来，网页永不主导、也不进交锋名单；
  * 3. 执行——恢复「汇总 → 辩题 → 交锋 → 最终意见」，哪怕只有一个模型也照常开；
- *    名单直接来自编排计划，不走知识空间的归属收敛；
- * 4. 边界——用户原话原样、知识空间零改动、网页挂了如实记失败。
+ *    名单直接来自编排计划；
+ * 4. 边界——用户原话原样、知识空间默认仍问网页、网页挂了如实记失败。
  *
  * Run with: npm run test:engineering-orchestration
  */
@@ -43,7 +43,8 @@ const web = (id, label = id.toUpperCase(), available = true) => ({ agentId: id, 
 
 function plan(overrides = {}) {
   return planEngineeringOrchestration({
-    mode: 'local',
+    // 默认用网页主导：工程空间仍由本地 + 云端读文件，方便测「两类同场」。
+    mode: 'web',
     question: FACT,
     models: [local(), cloud()],
     webChannels: [web('chatgpt'), web('gemini')],
@@ -67,12 +68,27 @@ test('默认非混合档：本地 + 云端模型全部进场，本地在前，�
   assert.match(p.reason, /由 Ollama Qwen 汇总/);
 });
 
-test('网页主导 / 云端主导档在工程空间也不按归属挑人：照样是全部模型', () => {
-  for (const mode of ['web', 'local', 'cloud']) {
-    const p = plan({ mode });
-    assert.deepEqual(p.members.map(item => item.agentId), ['ollama:qwen', 'openai:gpt'], mode);
-    assert.equal(p.webIncluded, false, mode);
-  }
+test('本地 / 云端主导按归属收敛；网页主导仍用全部模型读文件', () => {
+  const localOnly = plan({ mode: 'local' });
+  assert.deepEqual(localOnly.members.map(item => item.agentId), ['ollama:qwen']);
+  assert.equal(localOnly.webIncluded, false);
+  assert.match(localOnly.reason, /本地主导.*不用云端/);
+
+  const cloudOnly = plan({ mode: 'cloud' });
+  assert.deepEqual(cloudOnly.members.map(item => item.agentId), ['openai:gpt']);
+  assert.equal(cloudOnly.webIncluded, false);
+  assert.match(cloudOnly.reason, /云端主导.*不用本地/);
+
+  const webMode = plan({ mode: 'web' });
+  assert.deepEqual(webMode.members.map(item => item.agentId), ['ollama:qwen', 'openai:gpt']);
+  assert.equal(webMode.webIncluded, false);
+});
+
+test('云端主导但只有本地模型可用时退回 fallback，不偷偷拉本地', () => {
+  const p = plan({ mode: 'cloud', models: [local()] });
+  assert.equal(p.fallback, true);
+  assert.deepEqual(p.members, []);
+  assert.match(p.reason, /没有可用的云端模型/);
 });
 
 test('主导人本地优先；点名云端模型就用它', () => {
@@ -97,7 +113,7 @@ test('只有一个可用模型也照常编排，交锋名单不为空（允许�
   assert.equal(p.lead.agentId, 'ollama:qwen');
 });
 
-test('一个可用模型都没有才退回网页，原因写清楚', () => {
+test('一个可用模型都没有才退回，原因写清楚', () => {
   const p = plan({
     models: [local('ollama:a', 'A', false), cloud('openai:b', 'B', false)]
   });
@@ -350,7 +366,8 @@ function engineeringInput(text, executionConfig = {}) {
     workspaceMode: 'engineering',
     workspaceRoot: root,
     taskKindOverride: 'analysis',
-    executionConfig: { executionMode: 'local', ...executionConfig }
+    // 默认网页主导：工程仍由本地 + 云端读文件，专门测归属时再显式传 cloud/local。
+    executionConfig: { executionMode: 'web', ...executionConfig }
   };
 }
 
@@ -446,7 +463,7 @@ test('只有一个可用模型也执行汇总，不因「不足两位辩手」�
   assert.equal(synthesis.leadSummary, true);
 });
 
-test('编排恢复汇总 → 辩题 → 交锋 → 最终意见，且交锋名单不被归属收敛', async () => {
+test('云端主导：汇总 → 辩题 → 交锋 → 最终意见，只让云端进场', async () => {
   const summary = [
     '【结论】两份意见不一致',
     '【一致】都读到 log.txt:1 共 3 行',
@@ -455,11 +472,11 @@ test('编排恢复汇总 → 辩题 → 交锋 → 最终意见，且交锋名�
     '【辩题】到底要不要把 session 存到 SQLite？'
   ].join('\n');
   const verdict = '【最终意见】按 log.txt:1 的证据，先保留现有实现。';
-  const a = fakeModel('ollama:a', 'A', 'local', {
+  const a = fakeModel('ollama:a', 'A', 'local');
+  const b = fakeModel('ollama:b', 'B', 'local');
+  const c = fakeModel('openai:c', 'C', 'cloud', {
     challengeReply: (count) => (count === 1 ? summary : verdict)
   });
-  const b = fakeModel('ollama:b', 'B', 'local');
-  const c = fakeModel('openai:c', 'C', 'cloud');
   const debateInputs = [];
   const { runner, log } = makeRunner({
     models: [a, b, c],
@@ -470,35 +487,44 @@ test('编排恢复汇总 → 辩题 → 交锋 → 最终意见，且交锋名�
         return {
           debateId: 'debate-orch-1',
           status: 'completed',
-          rounds: [{ index: 0, messages: [{ author: 'A', kind: 'position', text: '该存' }] }]
+          rounds: [{ index: 0, messages: [{ author: 'C', kind: 'position', text: '该存' }] }]
         };
       }
     }
   });
 
-  // 故意选「云端主导」：知识空间会按归属把本地模型剔掉，工程编排不能。
   const started = await runner.start(engineeringInput(DECISION, { executionMode: 'cloud' }));
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'answered');
   assert.equal(log.web.length, 0, '云端主导档也不是混合，不问网页');
+  assert.equal(
+    a.asks.filter(item => item.stage === 'initial').length,
+    0,
+    '云端主导不拉本地模型 A'
+  );
+  assert.equal(
+    b.asks.filter(item => item.stage === 'initial').length,
+    0,
+    '云端主导不拉本地模型 B'
+  );
   assert.equal(debateInputs.length, 1, '主导人列出辩题后要真的开一场交锋');
   assert.deepEqual(debateInputs[0].topics, ['到底要不要把 session 存到 SQLite？']);
   assert.deepEqual(
     debateInputs[0].debaters,
-    ['ollama:a', 'ollama:b', 'openai:c'],
-    '工程编排把本地 + 云端模型一起交锋，不按 executionMode 收敛成一类'
+    ['openai:c'],
+    '云端主导只让云端模型交锋'
   );
-  assert.equal(debateInputs[0].lead.agentId, 'ollama:a', '本地模型主导');
+  assert.equal(debateInputs[0].lead.agentId, 'openai:c', '云端模型主导');
   assert.equal(debateInputs[0].mode, 'cloud');
-  assert.match(debateInputs[0].orchestration.reason, /工程空间多 agent 编排/);
-  assert.equal(a.challengeCount, 2, '主导人先汇总、再读辩论记录给最终意见');
+  assert.match(debateInputs[0].orchestration.reason, /云端主导.*不用本地/);
+  assert.equal(c.challengeCount, 2, '主导人先汇总、再读辩论记录给最终意见');
 
   const synthesis = runner.messages(started.conversationId).find(message => message.role === 'synthesis')?.synthesis;
   assert.equal(synthesis?.recommendation, summary, '辩前汇总单独保留');
   assert.equal(synthesis?.finalOpinion, verdict, '辩后最终意见不被汇总顶掉');
-  assert.equal(synthesis?.fusion?.backend, 'local-model');
-  assert.equal(synthesis?.fusion?.leadAgentId, 'ollama:a');
+  assert.equal(synthesis?.fusion?.backend, 'remote');
+  assert.equal(synthesis?.fusion?.leadAgentId, 'openai:c');
   assert.equal(synthesis?.fusion?.debateId, 'debate-orch-1');
 });
 
