@@ -29,6 +29,34 @@ export type DebateStrategy =
   | 'standard'
   | 'deep';
 export type DebateStatus = 'running' | 'completed' | 'stopped' | 'cancelled';
+
+/**
+ * 这一场是谁发起的。
+ *
+ * - `manual`：用户在「研究设置 → 辩论」里直接发起，属于用户自己的一笔记录；
+ * - `conversation`：会话里主导人发现分歧后自动发起，是那条会话的证据；
+ * - `plan-review`：工程计划审批前由系统发起，是那份计划的评审材料。
+ *
+ * 「历史辩论」只列 `manual`：另外两类已经在各自会话 / 计划里显示过，再混进
+ * 用户自己的辩论清单，会让人以为那些题是自己问的。
+ */
+export type DebateOrigin = 'manual' | 'conversation' | 'plan-review';
+
+/** 计划评审问题的固定开头，用于识别来源标记上线之前写的旧记录。 */
+const PLAN_REVIEW_QUESTION_PREFIX = '【待评审的工程计划】';
+
+/**
+ * 读一场辩论的来源。老文件没有 `origin`，按「有没有挂会话 / 是不是计划评审」
+ * 回推；回推只发生在读取时，不写盘，不把推断值伪装成当时记录过的值。
+ */
+export function debateOriginOf(
+  state: Pick<DebateState, 'origin' | 'conversationId' | 'question'>
+): DebateOrigin {
+  if (state.origin) return state.origin;
+  if (state.question.startsWith(PLAN_REVIEW_QUESTION_PREFIX)) return 'plan-review';
+  if (state.conversationId) return 'conversation';
+  return 'manual';
+}
 /**
  * 角色（任务书 5.1 的 `ParticipantRole` 去掉 `judge`——裁判是规则，不是某位成员）。
  * `critic` 对应任务书的 `challenger`，沿用旧名是为了老文件读得回来。
@@ -475,6 +503,11 @@ export interface DebateState {
   debateId: string;
   /** 关联的 Conversation；可以没有（独立发起的辩论）。 */
   conversationId?: string;
+  /**
+   * 谁发起的。老文件没有这个字段，读的时候用 debateOriginOf 回推，
+   * 不让「没记录」被当成「用户直接发起」。
+   */
+  origin?: DebateOrigin;
   question: string;
   config: DebateConfig;
   /** 这一场谁主导、为什么这么选，落盘供历史查询和界面显示。 */

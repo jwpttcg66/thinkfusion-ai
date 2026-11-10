@@ -140,10 +140,11 @@
 ## 怎么选的
 
 1. **候选由 health() 实时判定**（`index.ts` 的 `debateCandidates()`）：网页通道问 `SubAgent.health()`，本地/云端问 `ProviderBackedSubAgent.health()`，不可用原因一并带给界面。
-2. **用户在界面勾选**参与成员，默认勾选所有可用成员；不可用的显示但禁用，不静默混进名单。
+2. **参与成员就是「执行模式 / 协作」里那份名单**：辩论页不再维护独立默认值，主导方式 = `executionMode`，参与者 = `selectedWebChannels` / `selectedLocalModels` / `selectedCloudModels`，主导人 = `leadAgentId`，策略 = `debateStrategy`。在辩论页改任何一项都会写回同一份配置，下一次提问也跟着变。不可用的显示但禁用，不静默混进名单。
 3. **主辩可指定**：`local` / `web` 提供「自动 / 具体成员」下拉；不选时按模式取第一个可用成员，理由写进 `lead.reason`。`hybrid` 不提供，因为它不设主辩。
 4. `planLead()` 是唯一的选人判据（纯函数，在 `debate/lead.ts`），主进程算好 `LeadPlan` 交给编排器。界面不做第二套预判，主进程也不信任界面传来的名单——不可用的一律剔除并记进 `plan.excluded`。
 5. 主导者、选人理由、整体说明、限制、被排除成员**全部落盘**（`DebateState.lead` / `plan`），历史辩论里随时查得到。老文件没有这些字段，读的时候补成「未记录」，不假装成某个模式。
+6. 每场辩论记 `origin`：`manual`（用户在辩论页直接发起）/ `conversation`（会话里自动发起）/ `plan-review`（工程计划审批前发起）。「历史辩论」和「查历史」只列 `manual`；另外两类留在各自的会话与计划里，不混进用户自己的记录。老文件没有这个字段，按「有没有挂会话 / 是不是计划评审问题」回推，只在读取时用，不写盘。
 
 ## 修掉的一个真问题
 

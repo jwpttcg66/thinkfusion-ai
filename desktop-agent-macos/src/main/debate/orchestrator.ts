@@ -26,6 +26,7 @@ import {
   type DebateDispute,
   type DebateMessage,
   type DebateMessageKind,
+  type DebateOrigin,
   type DebatePhase,
   type DebateRevision,
   type DebateRound,
@@ -83,7 +84,8 @@ export class DebateOrchestrator {
     question: string,
     configInput: Partial<DebateConfig>,
     conversationId?: string,
-    plan?: LeadPlan
+    plan?: LeadPlan,
+    origin: DebateOrigin = 'manual'
   ): DebateState {
     const config = normalizeDebateConfig(configInput);
     const candidates = this.deps.candidates?.() ?? config.participants.map(id => ({
@@ -107,6 +109,7 @@ export class DebateOrchestrator {
     const state: DebateState = {
       debateId: randomUUID(),
       conversationId,
+      origin,
       question,
       config: effectiveConfig,
       lead: effectivePlan.lead,

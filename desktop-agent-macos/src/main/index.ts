@@ -51,7 +51,7 @@ import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
-import { normalizeDebateConfig } from './debate/types';
+import { debateOriginOf, normalizeDebateConfig } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
 import {
   catalogEntryOf,
@@ -3220,7 +3220,7 @@ function registerIpc() {
       try { await registry.newConversation(agentId); } catch { /* 页面没准备好时由 ask 如实报错 */ }
     }
     return debates.start(input.question, rawConfig,
-      typeof input.conversationId === 'string' ? input.conversationId : undefined, plan);
+      typeof input.conversationId === 'string' ? input.conversationId : undefined, plan, 'manual');
   });
 
   ipcMain.handle('debate:get', (event, id: unknown) => {
@@ -3231,7 +3231,9 @@ function registerIpc() {
 
   ipcMain.handle('debate:list', event => {
     trustedUiSender(event);
-    return debates?.list() ?? [];
+    // 「历史辩论」只列用户自己发起的。会话里自动发起的和工程计划评审的
+    // 已经在各自会话 / 计划里显示过；混进这份清单会被误读成用户问过这些题。
+    return (debates?.list() ?? []).filter(item => debateOriginOf(item) === 'manual');
   });
 
   /**
@@ -3243,9 +3245,15 @@ function registerIpc() {
     if (!debates || !raw || typeof raw !== 'object') return [];
     const input = raw as { question?: unknown; exclude?: unknown };
     if (typeof input.question !== 'string' || !input.question.trim()) return [];
-    return relatedDebates(debates.list(), input.question, {
-      exclude: typeof input.exclude === 'string' ? input.exclude : undefined
-    });
+    // 只拿用户自己发起过的辩论做「以前辩过」的提示：会话内自动辩论的题
+    // 往往是上一轮问题的衍生，计划评审更是内部材料，拿来提示只会误导。
+    return relatedDebates(
+      debates.list().filter(item => debateOriginOf(item) === 'manual'),
+      input.question,
+      {
+        exclude: typeof input.exclude === 'string' ? input.exclude : undefined
+      }
+    );
   });
 
   ipcMain.handle('debate:stop', (event, id: unknown) => {
@@ -3692,7 +3700,8 @@ app.whenReady().then(async () => {
           budget: { stageTimeoutMs: 120_000, totalMs: 180_000, maxConcurrency: 2 }
         },
         undefined,
-        leadPlan
+        leadPlan,
+        'plan-review'
       );
       const done = await debates.waitFor(state.debateId, 180_000);
       if (!done) return null;
@@ -3903,7 +3912,8 @@ app.whenReady().then(async () => {
           budget: { stageTimeoutMs: 60_000, totalMs: 150_000, maxConcurrency: 3 }
         },
         input.conversationId,
-        plan
+        plan,
+        'conversation'
       );
       // 辩论最长 4 分钟。等待期间每 3 秒把轮次报回去，界面上的「汇总中」
       // 才有内容可看——否则一直显示同一句话，用户以为卡死。

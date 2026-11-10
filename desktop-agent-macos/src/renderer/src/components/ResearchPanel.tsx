@@ -96,13 +96,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [debateQuestion, setDebateQuestion] = useState(initialQuestion ?? '');
-  const [debateStrategy, setDebateStrategy] = useState<NonNullable<DebateConfigInput['strategy']>>('truth');
   const [debateRounds, setDebateRounds] = useState(initialRounds ?? 3);
   const [debateEarlyStop, setDebateEarlyStop] = useState(false);
-  const [debateLeadMode, setDebateLeadMode] = useState<DebateLeadMode>('hybrid');
-  /** null = 还没动过，默认勾选所有当前可用成员。 */
-  const [debateSelected, setDebateSelected] = useState<string[] | null>(null);
-  const [debateLeadAgentId, setDebateLeadAgentId] = useState('');
   const [cleanup, setCleanup] = useState<DebateCleanupOutcome | null>(null);
   const [related, setRelated] = useState<RelatedDebateView[]>([]);
 
@@ -157,14 +152,29 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   // 候选来自主进程的 health()，不是把注册表里的名字列出来就算数。
   // 没配 Key 的云端模型会出现在清单里，但明确标成不可用。
   const candidates = options?.debateCandidates ?? [];
-  // 辩论页参与者就是全部可用候选（独立子系统，与执行模式无关）。
   const debateParticipants = candidates;
+  /**
+   * 辩论页不再维护一套自己的默认值：主导方式、参与成员、主导人、策略全部
+   * 读「执行模式 / 协作」里的同一份配置。原来这里是独立状态（默认混合 +
+   * 全部可用成员 + 真理发现），用户设了云端主导，直接辩论却按混合跑。
+   */
+  const debateLeadMode: DebateLeadMode = config.executionMode;
+  const debateStrategy: NonNullable<ConversationExecutionConfig['debateStrategy']> = config.debateStrategy ?? 'truth';
   /** 归属规则：一种方式只用一类成员；混合先择一，界面不预先排除任何人。 */
   const ownerType: 'web' | 'local' | 'cloud' | null = debateLeadMode === 'web' ? 'web'
     : debateLeadMode === 'local' ? 'local'
       : debateLeadMode === 'cloud' ? 'cloud' : null;
-  const selectedIds = debateSelected ?? debateParticipants
+  /** 某一类成员在统一配置里的名单；`undefined` = 老会话没配过，按全部。 */
+  const poolOf = (type: 'web' | 'local' | 'cloud'): string[] | undefined =>
+    type === 'web' ? config.selectedWebChannels
+      : type === 'cloud' ? config.selectedCloudModels
+        : config.selectedLocalModels;
+  const selectedIds = debateParticipants
     .filter(item => item.available && (ownerType === null || item.type === ownerType))
+    .filter(item => {
+      const pool = poolOf(item.type);
+      return pool === undefined || pool.includes(item.id);
+    })
     .map(item => item.id);
   const leadChoices = candidates.filter(item => item.available && item.type === ownerType);
   const leadHint = debateLeadMode === 'hybrid'
@@ -236,9 +246,27 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     onConfigChange(patch);
   }
 
+  /**
+   * 辩论页的勾选写回统一配置里的那一组名单，而不是只在本页生效。
+   * 这样「直接辩论」和下一次提问用的是同一份参与成员。
+   */
   function toggleCandidate(id: string) {
-    const next = selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id];
-    setDebateSelected(next);
+    const item = candidates.find(candidate => candidate.id === id);
+    if (!item) return;
+    const sameType = debateParticipants
+      .filter(candidate => candidate.available && candidate.type === item.type)
+      .filter(candidate => ownerType === null || candidate.type === ownerType)
+      .map(candidate => candidate.id);
+    const current = selectedIds.filter(selected => sameType.includes(selected));
+    const next = current.includes(id) ? current.filter(selected => selected !== id) : [...current, id];
+    const patch: Partial<ConversationExecutionConfig> = item.type === 'web'
+      ? { selectedWebChannels: next }
+      : item.type === 'cloud'
+        ? { selectedCloudModels: next }
+        : { selectedLocalModels: next };
+    // 主导人被取消勾选时一并清掉点名，否则配置里写着一个不进场的「主导」。
+    if (config.leadAgentId === id && !next.includes(id)) patch.leadAgentId = undefined;
+    onConfigChange(patch);
   }
 
   return (
@@ -513,7 +541,10 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
           {tab === 'debate' && (
             <>
               <h3>发起辩论</h3>
-              <p className="muted">流程由 DebateOrchestrator 这段代码编排，不是某个模型在主持。下面的「主导」决定的是：基准观点由谁给、其他成员围绕谁展开。</p>
+              <p className="muted">
+                流程由 DebateOrchestrator 这段代码编排，不是某个模型在主持。下面的主导方式、参与成员、主导人、策略
+                就是「执行模式 / 协作」里那份设置：在这里改，下一次提问也跟着变，不存在两套条件。
+              </p>
 
               <div className="research-leads">
                 {LEAD_MODES.map(item => (
@@ -521,7 +552,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     key={item.id}
                     type="button"
                     className={`research-mode${debateLeadMode === item.id ? ' on' : ''}`}
-                    onClick={() => { setDebateLeadMode(item.id); setDebateLeadAgentId(''); }}
+                    onClick={() => onConfigChange({ executionMode: item.id, leadAgentId: undefined })}
                   >
                     <b>{item.label}</b>
                     <span>{item.hint}</span>
@@ -530,7 +561,10 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               </div>
 
               <h4>参与成员</h4>
-              <p className="muted">可用性由 health() 实时判定。不可用的成员不会混进名单，也不会在发起后被静默丢弃。</p>
+              <p className="muted">
+                可用性由 health() 实时判定；勾选会同时写回「执行模式」的参与名单。
+                不可用的成员不会混进名单，也不会在发起后被静默丢弃。
+              </p>
               <div className="research-candidates">
                 {debateParticipants.length === 0 && <p className="muted">正在读取可用成员…</p>}
                 {debateParticipants.map(item => {
@@ -547,6 +581,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   );
                 })}
               </div>
+              {selectedIds.length === 0 && (
+                <div className="diag-warn">
+                  当前主导方式下没有勾选任何可用成员，辩论无法发起。请在上面勾选成员，或改主导方式。
+                </div>
+              )}
 
               <div className="research-row">
                 <input value={debateQuestion} placeholder="要辩论的问题" onChange={event => setDebateQuestion(event.target.value)} />
@@ -565,7 +604,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     key={item.id}
                     type="button"
                     className={`research-mode${debateStrategy === item.id ? ' on' : ''}`}
-                    onClick={() => { setDebateStrategy(item.id); setDebateRounds(item.rounds); }}
+                    onClick={() => onConfigChange({ debateStrategy: item.id as ConversationExecutionConfig['debateStrategy'] })}
                   >
                     <b>{item.label}</b>
                     <span>{item.summary}</span>
@@ -574,7 +613,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               </div>
               <p className="muted">
                 策略改的是「每轮问什么、谁是什么角色、先处理哪类争议」，不改裁判口径——
-                同一份证据换策略跑，结论应当一样。
+                同一份证据换策略跑，结论应当一样。这里选的也是会话内辩论的策略。
               </p>
 
               <div className="research-row">
@@ -585,9 +624,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 </label>
                 {debateLeadMode !== 'hybrid' && (
                   <label>主辩
-                    <select value={debateLeadAgentId} onChange={event => setDebateLeadAgentId(event.target.value)}>
+                    <select value={config.leadAgentId ?? ''} onChange={event => changeLead(event.target.value)}>
                       <option value="">自动</option>
-                      {leadChoices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      {leadOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
                     </select>
                   </label>
                 )}
@@ -599,7 +638,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                         strategy: debateStrategy,
                         maxRounds: debateRounds,
                         leadMode: debateLeadMode,
-                        leadAgentId: debateLeadAgentId || undefined,
+                        leadAgentId: config.leadAgentId,
                         earlyStopOnStall: debateEarlyStop || undefined,
                         participants: selectedIds
                       }
@@ -631,7 +670,11 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
               )}
 
               <h3>历史辩论</h3>
-              {debates.length === 0 && <p className="muted">还没有辩论记录。</p>}
+              <p className="muted">
+                这里只列你自己发起的辩论。会话里由主导人自动发起的、以及工程计划审批前的评审，
+                留在各自的会话和计划里，不混进这份清单。
+              </p>
+              {debates.length === 0 && <p className="muted">还没有直接发起的辩论。</p>}
               {debates.map(item => (
                 <div key={item.debateId} className={`research-debate${selectedDebate === item.debateId ? ' on' : ''}`}>
                   <button type="button" className="btn ghost" onClick={() => { setSelectedDebate(item.debateId); void run(async () => setVerdict(await window.agentAPI.getVerdict(item.debateId))); }}>
