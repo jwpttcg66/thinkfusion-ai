@@ -61,8 +61,12 @@ function isUnderPath(raw: string, prefix: string): boolean {
  * the composer, so a sidebar cannot be mistaken for an answer.
  * 8: the probe also reports `contextFull` — the site's own 「上下文窗口已达上限」
  *    banner, which is neither an answer nor something to wait for.
+ * 10: navigation landmarks (sidebar, toolbar) are hidden while the transcript is
+ *    read. Version 7 picked a container that holds the composer on the theory
+ *    that a sidebar could not be the answer; on chatgpt.com that container is
+ *    the whole shell and the sidebar's chat titles *were* the answer.
  */
-export const PROBE_VERSION = '9';
+export const PROBE_VERSION = '10';
 
 /**
  * Shortest tail considered an answer while the page is still generating.
@@ -597,12 +601,23 @@ export const PROBE_SCRIPT = (
   // produced an "answer" that was the sidebar's chat titles read out loud
   // （「3+5结果是多少… 升级套餐… 深度研究」）. The transcript is the one that
   // holds the box you type into.
+  const inLandmark = (el) => {
+    try { return !!(el.closest && el.closest('nav, aside, [role="navigation"], [role="complementary"]')); } catch { return false; }
+  };
+
   const tallestScrollable = (requireComposer) => {
     let root = null;
     let score = 0;
     for (const el of document.querySelectorAll('div, main, section')) {
       const holdsComposer = !!composer && el.contains(composer);
       if (requireComposer && !holdsComposer) continue;
+      // 侧栏自己的滚动容器不是对话。
+      //
+      // 真机（chatgpt.com 首页，2026-11-10）：没有任何滚动容器装着输入框，回退
+      // 分支于是挑中了侧栏那一条 div[data-app-action-sidebar-scroll]——340px 宽、
+      // 881px 高，是全场最高的滚动容器。整个「转录」因此就是侧栏会话标题，而侧栏
+      // 标题比任何状态字都长、都安静。判据用地标（它在 <aside> 里面），不用类名。
+      if (inLandmark(el)) continue;
       // The size floor is a guess at "this is a pane, not a widget". It does not
       // apply to a container that holds the composer: kimi.com's chat-box is
       // 230px tall on the start page, so the floor rejected it, nothing else
@@ -623,10 +638,45 @@ export const PROBE_SCRIPT = (
   const scrollRoot = tallestScrollable(true) || tallestScrollable(false);
   if (scrollRoot) chosen.conversation = 'structural:tallest-scroll-container';
 
+  // 导航地标不是对话。
+  //
+  // 真机 2026-11-10：ChatGPT 首页上没有任何滚动容器装着输入框，转录于是回退到
+  // 整页范围，侧栏会话标题因此进了转录——「计算 11 加 13 / 计算结果 /
+  // Java和Go游戏对比 …」。它们比任何状态字都长、也比任何状态字都安静，够安静
+  // 两秒就会被收成回答。侧栏标题还是站点拿问题生成的，连「转录里有没有这句
+  // 提问」都能骗过。
+  //
+  // 判据用地标，不用类名：侧栏是 aside / [role=navigation] 这类页面自己声明的
+  // 结构（chatgpt.com 的侧栏就是 <aside class="app-shell-left-panel">）。隐藏与
+  // 恢复在同一个同步脚本里完成，浏览器不会在中间绘制一帧。
+  const hideLandmarks = (root) => {
+    const landmark = 'nav, aside, [role="navigation"], [role="complementary"], [role="banner"], [role="contentinfo"], [role="search"]';
+    let nodes = [];
+    try { nodes = [...root.querySelectorAll(landmark)]; } catch { nodes = []; }
+    const hidden = [];
+    for (const el of nodes) {
+      if (!el.style) continue;
+      hidden.push([el, el.style.getPropertyValue('display'), el.style.getPropertyPriority('display')]);
+      el.style.setProperty('display', 'none', 'important');
+    }
+    return () => {
+      for (const [el, value, priority] of hidden) {
+        if (value) el.style.setProperty('display', value, priority);
+        else el.style.removeProperty('display');
+      }
+    };
+  };
+
   // 转录也走同一套读法：它是 diff 和「这句问题出现过没有」的依据，而这两件
   // 事都要求换行是稳定的——flex 布局下 innerText 给出的是一行，diff 出来的
   // 「新增部分」就成了整段对话。
-  const rawText = bestText(scrollRoot || document.body);
+  const restoreLandmarks = hideLandmarks(scrollRoot || document.body);
+  let rawText = '';
+  try {
+    rawText = bestText(scrollRoot || document.body);
+  } finally {
+    restoreLandmarks();
+  }
   // 去掉输入框里那句回显。
   //
   // 判据是「输入框里有字」，不是「文字非空」：ChatGPT 的 contenteditable 空着
@@ -3506,7 +3556,21 @@ export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, se
   if (sentText && sentText.trim() && !transcriptHasPrompt(probe.conversationText, sentText)) return '';
 
   const prefix = commonPrefixLength(snapshot.conversationText, probe.conversationText);
-  const fresh = probe.conversationText.slice(prefix);
+  let fresh = probe.conversationText.slice(prefix);
+
+  // 差异开头不一定是提问气泡。取不到「装着输入框的滚动容器」时，转录读的是整页
+  // 外壳（侧栏地标已经藏掉，页头和推荐位仍在）——真机 2026-11-10 的帧里，差异
+  // 开头就是「计算结果 / Java和Go游戏对比 / 比较 Java 和 Go 游戏开发 / 计算答案」，
+  // 而它们安静地待到了足以被当成回答。
+  //
+  // 回答只可能在我们那句提问**之后**。所以差异里能找到这句提问时，就只读它
+  // 后面的部分；找不到就维持原样（有些站点不回显提问，差异本来就从回答开始），
+  // 交给下面既有的判据。
+  if (sentText && sentText.trim()) {
+    const asked = findIgnoringWhitespace(fresh, sentText.trim());
+    if (asked) fresh = fresh.slice(asked.end);
+  }
+
   const answer = normalizeAnswerText(stripChrome(cutSpeakerLabels(cutPrompt(fresh, sentText))));
 
   if (!answer) return '';

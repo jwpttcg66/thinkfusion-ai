@@ -584,6 +584,31 @@ test('a bubble holding our question and a status line is not an answer', () => {
   assert.equal(looksLikePlaceholder(tail), true, `尾部只剩状态字，不能当回答：${JSON.stringify(tail)}`);
 });
 
+test('sidebar chatter in front of our question is not the answer', () => {
+  // 真机 2026-11-10：首页刚发出去的一两秒，装着输入框的最高滚动容器是整个外壳，
+  // 差异开头是侧栏会话标题。它足够长、足够安静，被判成候选 13 帧；这次只是
+  // 因为侧栏恰好在变才没被收下。回答只可能在我们那句提问之后。
+  const snapshot = { messageCount: 0, lastText: '', url: '', capturedAt: 0, conversationText: '', composerText: '' };
+  const sidebar =
+    '计算结果\nJava和Go游戏对比\n比较 Java 和 Go 游戏开发\n计算答案\n制定辩论主题方案 (4)\nCursor使用OpenCode Go';
+  assert.equal(
+    selectAnswerText(
+      state({ conversationText: `${sidebar}\n你说：\n11 加 13 等于几？只回答数字\n24` }),
+      snapshot,
+      '11 加 13 等于几？只回答数字'
+    ),
+    '24'
+  );
+
+  // 提问后面还只有状态字时，不能把前面的侧栏当成回答。
+  const thinking = selectAnswerText(
+    state({ conversationText: `${sidebar}\n你说：\n11 加 13 等于几？只回答数字\n正在思考` }),
+    snapshot,
+    '11 加 13 等于几？只回答数字'
+  );
+  assert.equal(looksLikePlaceholder(thinking), true, `侧栏不能冒充回答：${JSON.stringify(thinking)}`);
+});
+
 test('a virtualised list that drops old bubbles still reports the new answer', () => {
   // ChatGPT 的真实形状：发送前 5 条，页面滚到底后顶部旧气泡被卸载，只剩 4 条。
   // 计数比发送前少，所以「气泡数增长」这条捷径永远不成立——回答就停在页面上
