@@ -631,7 +631,7 @@ export class ConversationRunner {
         group: 'prepare',
         status: 'ok',
         reason: routing.reason,
-        meta: { code: routing.taskKind }
+        meta: { code: routing.taskKind, ...(routing.readsProject === undefined ? {} : { readsProject: routing.readsProject }) }
       });
     }
     if (conversation.modelRoute) {
@@ -750,7 +750,7 @@ export class ConversationRunner {
           group: 'prepare',
           status: 'skipped',
           reason: read.reason,
-          meta: { code: 'no-project-read' }
+          meta: { code: 'no-project-read', readsProject: false }
         });
       } else {
         const scanStep = trace?.beginStep({
@@ -1141,7 +1141,7 @@ export class ConversationRunner {
         group: 'prepare',
         status: 'ok',
         reason: routing.reason,
-        meta: { code: routing.taskKind }
+        meta: { code: routing.taskKind, ...(routing.readsProject === undefined ? {} : { readsProject: routing.readsProject }) }
       });
       if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
         try {
@@ -1202,7 +1202,7 @@ export class ConversationRunner {
             group: 'prepare',
             status: 'skipped',
             reason: read.reason,
-            meta: { code: 'no-project-read' }
+            meta: { code: 'no-project-read', readsProject: false }
           });
         } else {
           const scanStep = trace?.beginStep({

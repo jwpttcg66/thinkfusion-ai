@@ -252,6 +252,9 @@ export function ConversationView(props: {
           {`这条用「${mode}」模式跑`}
           {' · '}
           路由依据：{conversation.intentReason}
+          {/* 工程空间还有一份「分析 / 实施 / 待确认 + 要不要读工程」的判定。
+              它和上面的知识意图不是同一件事，分开写，用户才知道这次是谁判的。 */}
+          {conversation.routing && ` · 任务判定：${conversation.routing.reason}`}
           {/* Who is actually being asked, said out loud. Every channel that is
               switched on is asked — a single answer is not a cross-check — so
               the line names them instead of describing a routing decision that

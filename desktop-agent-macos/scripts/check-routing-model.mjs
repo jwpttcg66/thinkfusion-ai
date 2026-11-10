@@ -148,9 +148,24 @@ test('要不要读工程目录：模型优先；没给时只有话里点到工�
     needsProjectEvidence({ text: 'java和go谁更适合做游戏服务器', attachmentCount: 0 }).read,
     false
   );
+  // 真机原话：云端主导下仍然扫了 8 个文件。通用选型题不能因为「没附文件」就默认读。
+  assert.equal(
+    needsProjectEvidence({ text: 'go做聊天工具适合吗', attachmentCount: 0 }).read,
+    false
+  );
   assert.equal(
     needsProjectEvidence({ text: '分析一下当前工程的目录结构', attachmentCount: 0 }).read,
     true
+  );
+});
+
+test('read_project 的提示词默认 false，不把「没附文件」当成要读', () => {
+  assert.match(ROUTING_SYSTEM, /默认 false/);
+  assert.match(ROUTING_SYSTEM, /技术选型/);
+  assert.doesNotMatch(ROUTING_SYSTEM, /或没附文件\s*→\s*true/);
+  assert.match(
+    buildRoutingQuestion({ text: 'go做聊天工具适合吗', hasProject: true }),
+    /只有这句话指向它时才需要读/
   );
 });
 

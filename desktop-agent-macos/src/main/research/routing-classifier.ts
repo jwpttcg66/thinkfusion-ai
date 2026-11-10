@@ -57,9 +57,10 @@ export const ROUTING_SYSTEM = [
   'execution —— 要落到文件或系统动作：修改、实现、新建、删除、重命名、重构、修复、运行命令/测试、截屏、打开应用。',
   'clarify —— 只有在这句话根本看不出要做什么（例如「嗯」「这个」）时才用。',
   '判断顺序：先看有没有改动意图，再看是不是只读；两者同时出现且分不清主次时才算 clarify。',
-  '另外判断 read_project：回答这句话要不要读工程目录里的文件。',
-  '—— 只问随附文件本身（有多少行、里面写了什么、按这个命令跑）→ false；',
-  '—— 要结合工程看（这个模块怎么实现、调用链、改哪里）或没附文件 → true。',
+  '另外判断 read_project：回答这句话要不要读当前工程目录里的文件。默认 false。',
+  '—— 只有这句话指向当前工程/仓库/本机代码，或明确要求查看、定位、修改本机代码 → true；',
+  '—— 通用知识、技术选型、方案比较、产品/职业建议（例如「go 适合做聊天工具吗」）→ false；',
+  '—— 只问随附文件本身（有多少行、里面写了什么、按这个命令跑）→ false；附件要和工程对照才 true。',
   '只输出一行 JSON，不要代码块、不要多余文字：',
   '{"kind":"analysis|execution|clarify","read_project":true|false,"reason":"不超过20个字的中文理由"}'
 ].join('\n');
@@ -92,7 +93,9 @@ export function buildRoutingQuestion(input: {
   } else if (names.length > 0) {
     lines.push(`随这句话附了 ${names.length} 个文件：${names.join('、')}`);
   }
-  lines.push(`工程目录：${input.hasProject ? '已选择' : '未选择'}`);
+  lines.push(
+    `工程目录：${input.hasProject ? '已选择（只有这句话指向它时才需要读）' : '未选择'}`
+  );
   return lines.join('\n');
 }
 

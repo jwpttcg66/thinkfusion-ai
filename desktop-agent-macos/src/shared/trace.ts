@@ -94,6 +94,8 @@ export interface TraceMeta {
   selectedCloudModels?: number;
   selectedWebChannels?: number;
   leadAgentId?: string;
+  /** 工程路由：模型/规则判定这一问要不要读工程目录。 */
+  readsProject?: boolean;
   /** ModelRoute 的预计值与降级说明。 */
   answerers?: number;
   synthesizers?: number;
