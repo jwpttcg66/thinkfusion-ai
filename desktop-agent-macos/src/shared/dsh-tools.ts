@@ -2,9 +2,9 @@
  * DeepSeek Harness 76 条工具 schema 的冻结清单。
  *
  * 来源：`~/data/dsh-src/docs/tool-catalog.zh.md`，提交 `ce7073d5`，
- * 包版本 `0.2.2-alpha.2`。这里只冻结「工具名 / 包 / schema 序号」这些会随
- * 上游版本变的事实；`family / ours / layer / note` 是本工程的映射，升版本时
- * 先看 `git diff` 再补。
+ * 包版本 `0.2.2-alpha.2`。这里只冻结「工具名 / 包」这些会随上游版本变的事实；
+ * `family / ours / layer / note` 是本工程的映射，升版本时按 `(packageName, tool)`
+ * 集合比对，别按数组下标对——本表按族分组，与 dsh 目录的 schema 顺序不同。
  *
  * 四条层级口径见 `docs/spec/GENERAL_ENGINEERING_CAPABILITIES.md`：
  * L0 已有工具、L1 等价机制、L2 待补、L3 平台不适用。
@@ -15,7 +15,7 @@ import type { FamilyId } from './engineering-capabilities';
 export type DshLayer = 'L0' | 'L1' | 'L2' | 'L3';
 
 export interface DshTool {
-  /** schema 顺序号，1–76，用于对账。 */
+  /** 本工程的行号，1–76；按族分组，不是 dsh 目录里的 schema 顺序。 */
   index: number;
   packageName: string;
   tool: string;
@@ -56,7 +56,7 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 26, packageName: 'dsh-tool-terminal', tool: 'terminal_signal', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.signal' },
   { index: 27, packageName: 'dsh-tool-terminal', tool: 'terminal_close', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.close' },
   { index: 28, packageName: 'dsh-tool-terminal', tool: 'terminal_list', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.list' },
-  { index: 29, packageName: 'dsh-tool-ask-user', tool: 'ask_user_question', family: 'plan.control', ours: 'clarification_required', layer: 'L1', note: '协议里的澄清 + awaiting_user 承担' },
+  { index: 29, packageName: 'dsh-tool-ask-user', tool: 'ask_user_question', family: 'plan.control', ours: 'ask.user', layer: 'L2', note: 'P5：执行中向用户提问的工具，协议澄清只覆盖计划前' },
   { index: 30, packageName: 'dsh-plan-mode', tool: 'exit_plan_mode', family: 'plan.control', ours: 'plan.ready', layer: 'L1', note: '批准/退回流程承担' },
   { index: 31, packageName: 'dsh-action-cards', tool: 'propose_action', family: 'plan.control', ours: 'plan.ready + step-approval', layer: 'L1', note: '逐次审批承担' },
   { index: 32, packageName: 'dsh-tool-present', tool: 'present', family: 'plan.control', ours: 'document.export / page.save-document', layer: 'L1', note: '两个保存能力承担' },
@@ -94,7 +94,7 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 64, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_navigate', family: 'runtime.exec', ours: 'WebContentsView 装载与切换', layer: 'L1', note: '宿主页面管理承担' },
   { index: 65, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_observe', family: 'runtime.exec', ours: 'selector-profile + 页面探针', layer: 'L1', note: '探针承担' },
   { index: 66, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_extract', family: 'runtime.exec', ours: 'readAnswer + 选择器', layer: 'L1', note: '取答案承担' },
-  { index: 67, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_act', family: 'runtime.exec', ours: '无', layer: 'L1', note: '刻意不给模型任意点击：网页通道只回答' },
+  { index: 67, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_act', family: 'runtime.exec', ours: '宿主受控驱动（只发问/取答案）', layer: 'L1', note: '不开放任意点击：网页通道只回答' },
   { index: 68, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_screenshot', family: 'runtime.exec', ours: 'screen.capture', layer: 'L1', note: '整屏截图承担；页面级截图待补' },
   { index: 69, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_tabs', family: 'runtime.exec', ours: '多页面管理', layer: 'L1', note: '宿主多页面管理承担' },
   { index: 70, packageName: 'dsh-plugin-manager', tool: 'plugin_manager', family: 'platform.extend', ours: '设置页内置插件开关 + CAPABILITY_CATALOG', layer: 'L1', note: '只开关，不安装第三方包' },

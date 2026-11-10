@@ -8,12 +8,12 @@
 
 | 期 | 内容 | 对应设计章节 | 产出 |
 | --- | --- | --- | --- |
-| P0 | 冻结 dsh 76 条清单 + 本机 61 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
+| P0 | 冻结 dsh 76 条清单 + 本机 62 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
 | P1 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
 | P2 | 技能包按族拆分 | §7 | 3 份新 `SKILL.md`、`trigger.ts` 改族选择 |
 | P3 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
 | P4 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
-| P5 | 补齐运行时缺口（L2 中的 11 条） | §5.2–§5.6 | 终端、诊断、会话检索、持久 shell |
+| P5 | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
 | P6 | 治理能力 14 条 + 扩展裁决 3 条（L2 共 17） | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
 
 P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP」划到「不在这层」，
@@ -24,13 +24,16 @@ P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP�
 | 层级 | 条数 | 分布 | 归属期 |
 | --- | --- | --- | --- |
 | L0 已有工具 | 17 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1 | 已可用，P0 只登记 |
-| L1 等价机制 | 29 | 计划交互 6、委派 11、会话记忆 3、浏览器 6、插件 3 | P0 登记；P2/P3 补判据 |
-| L2 待补 | 28 | 终端 6、团队 7、目标 3、定时 4、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 | P5（11）· P6（14）· 裁决（3） |
+| L1 等价机制 | 28 | 计划交互 5、委派 11、会话记忆 3、浏览器 6、插件 3 | P0 登记；P2/P3 补判据 |
+| L2 待补 | 29 | 提问 1、终端 6、团队 7、目标 3、定时 4、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 | P5（12）· P6（14）· 裁决（3） |
 | L3 平台不适用 | 2 | `pwsh` 两条 | 不排期，文档登记 |
 
-L1 不是「不做」。它意味着能力已经存在，只是形态不同——比如 `ask_user_question`
-在我们这边是协议里的 `clarification_required`，再做一个工具只会出现两套问用户的路径。
-P0 的覆盖测试要求 L1 必须写「由谁承担」，写不出来就降级成 L2。
+L1 不是「不做」。它意味着能力已经存在，只是形态不同——比如 `working_directory`
+在我们这边是会话级 `workspaceRoot`，工具层再开一个「切目录」反而会出现两套路径。
+P0 的覆盖测试要求 L1 必须写「由谁承担」，写「无」直接失败。
+
+注意 `ask_user_question` **不在 L1**：协议里的澄清只覆盖计划生成前，执行中要问用户
+没有通道，所以它是 P5 要补的真工具（`ask.user`）。
 
 ## 2. P0 · 冻结清单与覆盖率（只读，不改行为）
 
@@ -41,7 +44,7 @@ P0 的覆盖测试要求 L1 必须写「由谁承担」，写不出来就降级�
 
 ```ts
 export interface DshTool {
-  /** schema 顺序号，1–76，用于对账。 */
+  /** 本工程的行号，1–76；按族分组，不是 dsh 目录的 schema 顺序。 */
   index: number;
   packageName: string;   // 'dsh-tool-fs'
   tool: string;          // 'read'
@@ -55,21 +58,24 @@ export interface DshTool {
 export const DSH_TOOLS: readonly DshTool[];
 /** 同名不同包（bash/pwsh/interrupt_agent/list_agents/send_message）在这里列清楚。 */
 export const DSH_UNIQUE_NAMES: readonly string[]; // 71 条
+/** 同名不同包的五组（bash / pwsh / interrupt_agent / list_agents / send_message）。 */
+export const DSH_DUPLICATE_NAMES: Readonly<Record<string, readonly string[]>>;
 ```
 
-**新增** `scripts/gen-dsh-tools.mjs`（开发期用，不进构建）：从本地 `dsh-src` 重新生成
-`DSH_TOOLS` 的 `packageName/tool/index`，保留人工维护的 `family/ours/layer/note`。
-生成后做 `git diff` 人工确认——升 dsh 版本时先看它加了什么工具，再补映射。
+**新增** `scripts/check-dsh-drift.mjs`（开发期用，不进构建、不进 `test` 链）：读本地
+`~/data/dsh-src/docs/tool-catalog.zh.md`（或 `DSH_CATALOG` 指定的路径），按
+`(packageName, tool)` 集合与 `DSH_TOOLS` 比对，打印新增/删除的工具并以非零码退出。
+升版本时先跑它，再补 `family/ours/layer/note`——**不做自动生成**，避免生成器覆盖人工判断。
 
 **新增** `scripts/check-dsh-coverage.mjs`，断言：
 
 1. `DSH_TOOLS.length === 76`，`index` 连续且唯一；
 2. 每条 `family` 在 13 族里；
-3. `layer` 合法，L1 必须 `ours` 非空且 `note` 非空，L2 的 `note` 必须写期号（`P5`/`P6`/`裁决`）；
+3. `layer` 合法，L1 的 `ours` 不能是「无」，L2 的 `note` 必须写期号（`P5`/`P6`/`裁决`）；
 4. 每条 L0 的 `ours` 必须真的出现在 `TOOL_NAMES` 或主进程能力 id 里；
-5. 反向：`TOOL_NAMES` 里每个工具至少出现在一条映射的 `ours` 中（防止映射写了但工具不存在）。
+5. 71 个唯一名字、五组同名不同包的条数与包名一致。
 
-### 2.2 本机 61 条归族
+### 2.2 本机 62 条归族
 
 **新增** `src/shared/engineering-capabilities.ts`：
 
@@ -92,8 +98,8 @@ export const ENGINEERING_CAPABILITIES: EngineeringCapability[];
 export function familiesOfTool(id: string): string[];
 ```
 
-**新增** `scripts/check-engineering-capabilities.mjs`：每个 `TOOL_NAMES` + 主进程 5 个 id
-至少归一族；每条能力项 `acceptance` 非空；族 id 全部合法。
+**新增** `scripts/check-engineering-capabilities.mjs`：13 个族每个至少一条能力项；每个
+`TOOL_NAMES` + 主进程 6 个 id 至少归一族；每条能力项 `acceptance` 非空；族 id 全部合法。
 
 **改** `package.json`：加 `test:dsh-coverage`、`test:engineering-capabilities`，接进 `test` 链。
 
@@ -204,11 +210,34 @@ scripts/check-engineering-scenarios.mjs
 
 **验收**：5 个场景全过；`npm test` 全链路。
 
-## 7. P5 · 补齐运行时缺口（11 条）
+## 7. P5 · 补齐运行时缺口（12 条）
 
 按「用户真的会碰到」排序：
 
-### 7.1 终端（6 条，`runtime.exec`）
+### 7.1 向用户提问（1 条，`plan.control`）
+
+`ask_user_question` → `ask.user`（用户裁决：「这个是肯定需要的」）。
+
+现有 `clarification_required` 只在计划生成前生效：模型还没动手时把问题抛回来。
+执行到一半要确认（用哪个目录、要不要覆盖、两个方案选哪个）时没有通道，模型只能猜。
+所以它是真工具，不是等价机制。
+
+| 事项 | 决定 |
+| --- | --- |
+| 参数 | `{ question, options?, allowFreeText?, timeoutMs? }`；`question` 必填且不超过 500 字 |
+| 链路 | 步骤执行 → runtime 发 `user.question` → 主进程中转 → 渲染层问题卡片 → 用户回答 → 原路返回步骤结果 |
+| 返回值 | `{ answered: true, value, optionIndex? }` 或 `{ answered: false, reason: 'timeout' \| 'cancelled' }` |
+| 超时 | 缺省 10 分钟；超时不算工具失败，返回 `answered: false`，模型不得替用户选 |
+| 预算 | 每份计划最多 3 次；第 4 次直接拒绝并说明「请把问题合并后再问」 |
+| 权限 | `read-only`（不动文件）；但会阻塞计划，必须能被用户取消 |
+| 落盘 | `{question, options, answer, at}` 进会话，刷新后仍可见 |
+| 复用 | 复用澄清卡片 UI 与 `awaiting_user` 状态，不新开第二种提问样式 |
+| 不做 | 不向网页通道开放（收不到 `system`）；不自动超时替用户默认 |
+
+**验收**：`test:ask-user`（新脚本）：回答后步骤继续、超时返回 `answered:false`、取消后计划停在
+`awaiting_user`、第 4 次被拒、问答落盘可读。
+
+### 7.2 终端（6 条，`runtime.exec`）
 
 `terminal_open / read / send / signal / close / list` → 我们的 `term.open` 等 6 个 id。
 
@@ -223,7 +252,7 @@ scripts/check-engineering-scenarios.mjs
 **验收**：`test:terminal`（新脚本）：开一个 shell、`echo` 回读、`signal` 后进程组消失、
 关闭后 `term.list` 为空；真机跑一次 `vim` 之类全屏程序，确认「不支持」时说清楚而不是卡死。
 
-### 7.2 语言诊断（1 条，`runtime.exec`）
+### 7.3 语言诊断（1 条，`runtime.exec`）
 
 `lsp` → 先做 `code.diagnostics`，不引语言服务器进程：
 
@@ -233,7 +262,7 @@ scripts/check-engineering-scenarios.mjs
 
 **后续**：真接 LSP 需要常驻进程与文件监听，单独一期，不塞进本轮。
 
-### 7.3 会话检索（2 条，`memory.context`）
+### 7.4 会话检索（2 条，`memory.context`）
 
 `session_event_search` / `session_search` → `session.search`：
 
@@ -242,14 +271,14 @@ scripts/check-engineering-scenarios.mjs
 - 跨会话检索意味着能把 A 会话的结论带进 B 会话——结果里必须标明来源会话与时间，
   不允许静默引用（`AGENTS.md` 第 3 条）。
 
-### 7.4 持久 shell 与运行时查询（2 条）
+### 7.5 持久 shell 与运行时查询（2 条）
 
 - `bash`（持久）→ 由 `term.open` + `working_directory` 覆盖，不单独做工具；
 - `cordis_inspect_query` → `plugin.inspect`：只读查询某个能力 id 的 `enabled/registered/权限`，
   与设置页同源（`capability-state.ts`）。
 
-**P5 验收**：`npm run test:terminal && npm run test:diagnostics && npm run test:session-search`，
-再把 6 条 L2 在 `dsh-tools.ts` 里从 `L2` 改成 `L0`（覆盖率测试会强制改，不改就失败）。
+**P5 验收**：`npm run test:ask-user && npm run test:terminal && npm run test:diagnostics && npm run test:session-search`，
+再把对应的 L2 在 `dsh-tools.ts` 里改成 `L0`（覆盖率测试会强制改，不改就失败）。
 
 ## 8. P6 · 治理能力（14 条）与扩展裁决（3 条）
 
@@ -328,6 +357,7 @@ npm run test:engineering-round
 npm run test:engineering-tools
 npm run test:engineering-orchestration
 npm run test:engineering-scenarios
+npm run test:ask-user
 npm run test:prompt-policy
 npm test
 ```
@@ -352,4 +382,5 @@ npm test
 | 技能包膨胀 | 本地 14b 回流程不复述结论 | 每份 ≤1500 字；`test:expertise` 断言总字数 |
 | PTY 原生依赖 | `node-pty` 打包或 arm64 失败 | 先做 `script(1)` 版本，PTY 作为可选后端；失败要明说降级 |
 | 团队能力与辩论重复 | 两套 agent 体系 | P6 只做任务板，成员复用 `SubAgentRegistry` |
+| 提问工具被当成拖延手段 | 模型反复问、计划不推进 | 每份计划最多 3 次；合并提问；第 4 次拒绝并说明 |
 | 场景回放与真机漂移 | 脚本过、真机错 | 场景只断言族判定与门禁，不 pretend 模型输出；真机清单每期手跑 |

@@ -2,10 +2,10 @@
 
 > 2026-11-10。设计对象是工程空间的**通用工程能力层**：它要覆盖 DeepSeek Harness
 > （`~/data/dsh-src`，提交 `ce7073d5`，包版本 0.2.2-alpha.2，`docs/tool-catalog.zh.md`）
-> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 61 个能力插件。
+> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 62 个能力插件。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
-> [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（61 个能力插件）、
+> [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、
 > [LOCAL_HARNESS_TOOLS](../implementation/LOCAL_HARNESS_TOOLS.md)（上一轮只对齐了「本机干活」那一半）、
 > [ENGINEERING_ROUTING](../implementation/ENGINEERING_ROUTING.md)、
 > [ENGINEERING_READ_TOOLS](../implementation/ENGINEERING_READ_TOOLS.md)、
@@ -15,7 +15,7 @@
 
 ## 0. 一句话结论
 
-> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 61 条**逐条登记**，
+> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 62 条**逐条登记**，
 > 按 **8 个工作族 + 5 个治理族** 归族；每条都有族、对应物、落地层级与验收，
 > 缺口排进 P5/P6，不留「刻意不做」的黑洞。
 >
@@ -41,11 +41,11 @@
 
 | # | 现状 | 后果 |
 | --- | --- | --- |
-| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……61 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
+| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……62 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
 | 2 | 工作流只有一份：`resources/expertise/skills/engineering-design/SKILL.md`，45 行、三阶段通用流程 | 设计/实现有流程；调试、审阅、数据、前端靠模型自由发挥 |
 | 3 | 判据写在提示词句子和 `ruleReview` 的 issue 文案里（`src/main/engineering/review.ts`） | 「改了文件必须有 `test.run`」只在执行后作为一句话出现，不拦任何东西 |
 | 4 | 读工具一次回答最多请求一次（`engineeringToolSystem()` 明写） | 跨文件定位必须靠用户催第二轮 |
-| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 61 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
+| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 62 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
 
 第 5 条是这轮的主要修正：上一轮的对齐范围是「本地机器能力」，结论没错，但它被当成了
 **全部能力的结论**。缺的不是实现，是**登记**——没有登记的缺口，永远排不进计划。
@@ -55,7 +55,7 @@
 ```
 能力族 family (13 = 8 工作族 + 5 治理族)
    └── 能力项 item (每族 1–4 条，带触发词与判据)
-          └── 工具 tool (本仓库 61 个 + dsh 76 条对照，id 不改)
+          └── 工具 tool (本仓库 62 个 + dsh 76 条对照，id 不改)
 ```
 
 一条能力项固定包含七个字段：
@@ -65,7 +65,7 @@ interface EngineeringCapability {
   id: string;              // 稳定 id，如 'code.change'
   family: FamilyId;        // 所属族
   goal: string;            // 这件事「做完」是什么样，一句话
-  tools: string[];         // 会用到的工具 / dsh 对照名；可以重叠，族不互斥
+  tools: string[];         // 工具 id 或机制名；可以重叠，族不互斥
   preconditions: string[]; // 下结论前必须已经拿到的事实
   outputs: string[];       // 产出物：文件 / 报告 / 命令输出
   antiPatterns: string[];  // 明确不做的事
@@ -170,6 +170,9 @@ interface EngineeringCapability {
 见第 0 节。这里只补一条判据：**L1 必须写清「由谁承担」**，不是「我们决定不做」；
 **L2 必须写清「排进哪一期、验收是什么」**。两条缺一条，这条就不算覆盖。
 
+本节的编号是**本工程的表序**（按主题分组），不是 dsh 目录里的 schema 顺序；
+升 dsh 版本时按 `(包名, 工具名)` 集合比对，不要按下标对。
+
 ### 5.2 文件、搜索、执行与运行时（22 条）
 
 | # | dsh 工具 | 包 | 族 | 我们的对应物 | 层级 |
@@ -212,7 +215,7 @@ interface EngineeringCapability {
 
 | # | dsh 工具 | 包 | 族 | 我们的对应物 | 层级 |
 | --- | --- | --- | --- | --- | --- |
-| 29 | `ask_user_question` | dsh-tool-ask-user | `plan.control` | 协议 `clarification_required` + `awaiting_user` | L1 |
+| 29 | `ask_user_question` | dsh-tool-ask-user | `plan.control` | `ask.user`（P5 新增；协议澄清只覆盖计划前） | L2 · P5 |
 | 30 | `exit_plan_mode` | dsh-plan-mode | `plan.control` | `plan.ready` → 批准 / 退回重规划 | L1 |
 | 31 | `propose_action` | dsh-action-cards | `plan.control` | `plan.ready` + `step-approval`（逐次审批） | L1 |
 | 32 | `present` | dsh-tool-present | `plan.control` | `document.export` / `page.save-document` | L1 |
@@ -225,6 +228,22 @@ interface EngineeringCapability {
 | 39 | `schedule_list` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
 | 40 | `schedule_view` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
 | 41 | `skill` | dsh-tool-skill | `memory.context` | `resources/expertise` 按规则自动加载（不是模型工具） | L1 |
+
+**`ask.user` 的契约（P5，用户已明确要求）**
+
+现有 `clarification_required` / `awaiting_user` 只覆盖**计划生成前**：模型还没动手时把问题抛回来。
+执行到一半才发现「这里要用户确认用哪个目录 / 要不要覆盖 / 这两个方案选哪个」时没有通道，
+模型只能猜或者停在原地。所以这不是等价机制，要做成真工具：
+
+| 项 | 约定 |
+| --- | --- |
+| id | `ask.user`，归 `plan.control`，权限 `read-only` |
+| 参数 | `{ question: string, options?: string[], allowFreeText?: boolean, timeoutMs?: number }` |
+| 行为 | 执行到这一步时暂停计划，发 `user.question` 事件；用户回答后作为步骤结果返回 |
+| 超时/取消 | 返回 `{ answered: false, reason: 'timeout' \| 'cancelled' }`，模型不得把未回答当默认值 |
+| 预算 | 每份计划最多 3 次，超过即拒绝，防止拿提问当拖延 |
+| 落盘 | 问题与回答写进会话，可审计；不复用「系统消息」通道刷屏 |
+| 不做 | 不新增第二种提问 UI：复用现有澄清卡片；网页通道仍然不可调用（收不到 `system`） |
 
 ### 5.5 委派与协作（17 条）
 
@@ -265,7 +284,7 @@ interface EngineeringCapability {
 
 | # | dsh 工具 | 包 | 族 | 我们的对应物 | 层级 |
 | --- | --- | --- | --- | --- | --- |
-| 67 | `stagehand_act` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | 无（刻意不给模型任意点击：网页通道只回答） | L1 |
+| 67 | `stagehand_act` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | 宿主受控驱动：只发问/取答案，不开放任意点击 | L1 |
 | 68 | `stagehand_screenshot` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | `screen.capture`（整屏；页面级截图待补） | L1 |
 | 69 | `stagehand_tabs` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | 多页面管理（宿主，不是工具） | L1 |
 | 70 | `plugin_manager` | dsh-plugin-manager | `platform.extend` | 设置页「内置插件」开关 + `CAPABILITY_CATALOG` 只读清单 | L1（仅开关，不安装） |
@@ -281,8 +300,8 @@ interface EngineeringCapability {
 | 层级 | 条数 | 占比 | 说明 |
 | --- | --- | --- | --- |
 | L0 已有工具 | 17 | 22% | 文件、搜索、执行、作业、git、联网，逐个有同名实现 |
-| L1 等价机制 | 29 | 38% | 计划、交互、委派、会话记忆、浏览器、插件清单 |
-| L2 待补 | 28 | 37% | 终端 6、团队 7、目标 3、定时 4、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 |
+| L1 等价机制 | 28 | 37% | 计划、交互、委派、会话记忆、浏览器、插件清单 |
+| L2 待补 | 29 | 38% | 终端 6、团队 7、目标 3、定时 4、提问 1、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 |
 | L3 平台不适用 | 2 | 3% | `pwsh` 两条 |
 | **合计** | **76** | 100% | 71 个唯一名字；`bash` `pwsh` `interrupt_agent` `list_agents` `send_message` 各有两条同名 schema |
 
@@ -434,7 +453,7 @@ type EvidenceRef =
 
 | 现有东西 | 这次怎么用 | 改不改 |
 | --- | --- | --- |
-| `src/shared/capabilities.ts`（61 条） | 工具表是族的输入；不改 id | 不改 |
+| `src/shared/capabilities.ts`（62 条） | 工具表是族的输入；不改 id | 不改 |
 | `src/shared/contracts.ts`（`TOOL_NAMES` / `READ_ONLY_TOOLS`） | 归族扫描的唯一来源 | 不改 |
 | `src/main/engineering/analysis.ts` | 读族的结构事实来源，保留「按正则识别」声明 | 不改 |
 | `src/main/engineering/review.ts` | 证据账本的执行后校验点 | 扩写 |

@@ -24,6 +24,13 @@ test('13 族：8 个工作族 + 5 个治理族', () => {
   assert.equal(new Set([...WORK_FAMILIES, ...GOVERN_FAMILIES]).size, 13);
 });
 
+test('13 个族每个至少一条能力项', () => {
+  const covered = new Set(ENGINEERING_CAPABILITIES.map(item => item.family));
+  for (const family of [...WORK_FAMILIES, ...GOVERN_FAMILIES]) {
+    assert.ok(covered.has(family), `族 ${family} 没有任何能力项`);
+  }
+});
+
 test('能力项字段完整、id 唯一、族合法', () => {
   const ids = new Set();
   for (const item of ENGINEERING_CAPABILITIES) {

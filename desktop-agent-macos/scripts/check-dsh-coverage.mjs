@@ -44,7 +44,7 @@ test('L0 的对应物必须真的存在；L1 写承担者；L2 写期号/裁决'
       assert.ok(known.has(item.ours), `${item.tool}: L0 对应物 ${item.ours} 不在能力清单里`);
     }
     if (item.layer === 'L1') {
-      assert.ok(item.ours.trim().length > 0, `${item.tool}: L1 要写由谁承担`);
+      assert.notEqual(item.ours.trim(), '无', `${item.tool}: L1 要写由谁承担，不能写「无」`);
     }
     if (item.layer === 'L2') {
       assert.match(item.note, /P5|P6|裁决/, `${item.tool}: L2 要写期号或裁决状态`);
@@ -65,10 +65,10 @@ test('71 个唯一工具名；五组同名不同包登记一致', () => {
   }
 });
 
-test('层级统计：L0 17 / L1 29 / L2 28 / L3 2', () => {
+test('层级统计：L0 17 / L1 28 / L2 29 / L3 2', () => {
   const count = layer => DSH_TOOLS.filter(item => item.layer === layer).length;
   assert.equal(count('L0'), 17);
-  assert.equal(count('L1'), 29);
-  assert.equal(count('L2'), 28);
+  assert.equal(count('L1'), 28);
+  assert.equal(count('L2'), 29);
   assert.equal(count('L3'), 2);
 });
