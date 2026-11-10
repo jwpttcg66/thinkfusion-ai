@@ -11,7 +11,7 @@ const AGGREGATE_SQL = /^\s*(select\s+count|select\s+sum|select\s+avg|select\s+mi
 
 export interface PlanCapabilityGate {
   /** 这次计划的主族，用于界面显示与后续度量。 */
-  family: 'code.change' | 'test' | 'data' | 'frontend' | 'code.read';
+  family: 'code.change' | 'test' | 'data' | 'frontend' | 'debug' | 'code.read';
   /** 缺哪些判据；空数组表示通过。 */
   missing: string[];
 }
@@ -52,12 +52,17 @@ export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
     missing.push(`${unbounded.length} 条 SQL 没有 LIMIT：大表会把结果整段读进上下文`);
   }
 
+  // 复现 + 定位（命令或测试 + 搜索）是调试，不是「读代码」；族影响界面显示与度量。
+  const debugs = steps.some(step => step.tool === 'shell.run' || step.tool === 'test.run') &&
+    steps.some(step => step.tool === 'fs.search' || step.tool === 'fs.readFile');
+
   const family: PlanCapabilityGate['family'] =
     writes.length > 0 ? 'code.change'
       : tests.length > 0 ? 'test'
         : screens.length > 0 ? 'frontend'
           : dataSteps.length > 0 ? 'data'
-            : 'code.read';
+            : debugs ? 'debug'
+              : 'code.read';
 
   return { family, missing };
 }

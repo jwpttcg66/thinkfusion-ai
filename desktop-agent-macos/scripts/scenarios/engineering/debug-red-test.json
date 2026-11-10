@@ -1,0 +1,32 @@
+{
+  "question": "npm test 红了，查一下原因",
+  "plan": {
+    "steps": [
+      {
+        "id": "s1",
+        "tool": "shell.run",
+        "args": {
+          "command": "npm test"
+        }
+      },
+      {
+        "id": "s2",
+        "tool": "fs.search",
+        "args": {
+          "query": "Expected"
+        }
+      },
+      {
+        "id": "s3",
+        "tool": "fs.readFile",
+        "args": {
+          "path": "src/utils.ts"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "family": "debug",
+    "missing": []
+  }
+}

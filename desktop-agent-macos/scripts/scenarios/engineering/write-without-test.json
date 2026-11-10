@@ -1,0 +1,22 @@
+{
+  "question": "改一下 README 的标题",
+  "plan": {
+    "steps": [
+      {
+        "id": "s1",
+        "tool": "fs.edit",
+        "args": {
+          "path": "README.md",
+          "oldString": "旧",
+          "newString": "新"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "family": "code.change",
+    "missing": [
+      "test.run"
+    ]
+  }
+}

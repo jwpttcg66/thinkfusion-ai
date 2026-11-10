@@ -1,0 +1,25 @@
+{
+  "question": "这个文件多少行",
+  "plan": {
+    "steps": [
+      {
+        "id": "s1",
+        "tool": "fs.readFile",
+        "args": {
+          "path": "src/index.ts"
+        }
+      },
+      {
+        "id": "s2",
+        "tool": "fs.stat",
+        "args": {
+          "path": "src/index.ts"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "family": "code.read",
+    "missing": []
+  }
+}

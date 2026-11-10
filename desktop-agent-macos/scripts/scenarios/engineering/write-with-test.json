@@ -1,0 +1,34 @@
+{
+  "question": "把 utils.ts 里的 formatBytes 改成保留两位",
+  "plan": {
+    "steps": [
+      {
+        "id": "s1",
+        "tool": "fs.readFile",
+        "args": {
+          "path": "src/utils.ts"
+        }
+      },
+      {
+        "id": "s2",
+        "tool": "fs.edit",
+        "args": {
+          "path": "src/utils.ts",
+          "oldString": "a",
+          "newString": "b"
+        }
+      },
+      {
+        "id": "s3",
+        "tool": "test.run",
+        "args": {
+          "command": "npm test"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "family": "code.change",
+    "missing": []
+  }
+}

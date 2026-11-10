@@ -1,0 +1,21 @@
+{
+  "question": "统计 users 表",
+  "plan": {
+    "steps": [
+      {
+        "id": "s1",
+        "tool": "sqlite.query",
+        "args": {
+          "path": "db.sqlite",
+          "sql": "SELECT * FROM users"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "family": "data",
+    "missing": [
+      "LIMIT"
+    ]
+  }
+}
