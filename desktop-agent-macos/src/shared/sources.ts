@@ -172,6 +172,16 @@ export function sourcesOpenOnLaunch(stored: StoredSources): boolean {
   return stored.openOnLaunch !== false;
 }
 
+/**
+ * 顶栏「页面就绪 / 未登录 / 诊断」是否显示。
+ *
+ * 只跟设置里的「启动时打开网页源」走：打开就显示，关闭就不显示。
+ * 不看此刻有没有 WebContentsView——关掉后提问临时建页也不把顶栏加回来。
+ */
+export function showWebSourceStatusBar(openOnLaunch: boolean): boolean {
+  return openOnLaunch;
+}
+
 function hostOf(raw: string): string {
   try {
     return new URL(raw).hostname;

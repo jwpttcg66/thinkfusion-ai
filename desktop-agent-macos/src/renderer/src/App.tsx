@@ -23,6 +23,7 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
+import { showWebSourceStatusBar } from '../../shared/sources';
 import {
   ICON_DOCK_BACK_PATHS,
   ICON_EXPAND_PATHS,
@@ -1507,10 +1508,8 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right">
-            {/* 没有打开的网页视图时（例如「启动时打开网页源」关掉后的冷启动），
-                「0/2 页面就绪」和「未登录」只是在报本来就没开的页面，没有信息量。
-                点来源栏或提问把视图建起来之后再显示。 */}
-            {sources.webViewsOpen && (() => {
+            {/* 跟设置里「启动时打开网页源」同一开关：打开就显示就绪条，关闭就不显示。 */}
+            {showWebSourceStatusBar(sources.openOnLaunch) && (() => {
               const ready = channelStatuses.filter(channel => channel.available).length;
               const blocked = channelStatuses.filter(channel => !channel.available);
               const detail = blocked.map(channel => `${channel.label}: ${channel.detail ?? '不可用'}`).join('；');
@@ -1520,7 +1519,7 @@ export default function App() {
                 </span>
               );
             })()}
-            {sources.webViewsOpen && (() => {
+            {showWebSourceStatusBar(sources.openOnLaunch) && (() => {
               // Two different sentences share this slot. A blocked channel is a
               // failure and says why; a signed-out-but-working one is a hint.
               //
@@ -1550,8 +1549,8 @@ export default function App() {
                 is there, and the bar is the honest place for it — it is about
                 the page next to it. Folded, that bar is gone, and diagnostics
                 is exactly the thing you want when a page looks wrong but is
-                not being shown. No page open → nothing to diagnose here. */}
-            {sources.webViewsOpen && isCollapsed && (
+                not being shown. 网页源关闭时顶栏也不放诊断。 */}
+            {showWebSourceStatusBar(sources.openOnLaunch) && isCollapsed && (
               <button className="btn ghost" type="button" onClick={() => void openDiagnostics()}>
                 诊断
               </button>

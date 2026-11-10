@@ -23,7 +23,8 @@ import {
   planningSource,
   resolveSources,
   sourceById,
-  sourcesOpenOnLaunch
+  sourcesOpenOnLaunch,
+  showWebSourceStatusBar
 } from '../out-test/shared/sources.js';
 import { SourceStore } from '../out-test/main/source-store.js';
 import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
@@ -346,4 +347,16 @@ test('turning openOnLaunch back on clears the field so the file stays a delta', 
   assert.equal(store.openOnLaunch(), true);
   assert.equal('openOnLaunch' in store.all(), false);
   assert.equal('openOnLaunch' in JSON.parse(fs.readFileSync(file, 'utf8')), false);
+});
+
+test('topbar web status follows the launch switch: on shows, off hides', () => {
+  assert.equal(showWebSourceStatusBar(true), true);
+  assert.equal(showWebSourceStatusBar(false), false);
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  assert.equal(showWebSourceStatusBar(store.openOnLaunch()), true);
+  store.setOpenOnLaunch(false);
+  assert.equal(showWebSourceStatusBar(store.openOnLaunch()), false);
+  store.setOpenOnLaunch(true);
+  assert.equal(showWebSourceStatusBar(store.openOnLaunch()), true);
 });
