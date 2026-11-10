@@ -46,7 +46,7 @@ export function formatEvent(event: AgentEvent, index: number): Line | null {
     case 'report.ready':
       return {
         key,
-        text: `执行报告：${event.report.status}（成功 ${event.report.results.filter(r => r.status === 'completed').length} 步）`,
+        text: `执行报告：${event.report.status}（成功 ${event.report.results.filter(r => r.status === 'completed').length} 步${event.report.evidence ? ` · 证据 ${event.report.evidence.refs.length} 条` : ''}）`,
         tone: event.report.status === 'completed' ? 'ok' : 'warn'
       };
     case 'review.ready':

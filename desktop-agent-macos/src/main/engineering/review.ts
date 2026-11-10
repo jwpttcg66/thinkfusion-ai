@@ -13,6 +13,9 @@
  */
 
 import type { AgentPlan, ExecutionReport } from '../../shared/contracts';
+import type { EvidenceRef } from '../../shared/engineering-evidence';
+
+type CommandRef = Extract<EvidenceRef, { kind: 'command' }>;
 
 export interface ReviewVerdict {
   reviewer: string;
@@ -49,8 +52,19 @@ export function ruleReview(report: ExecutionReport, plan: AgentPlan): { issues: 
       issues.push(`测试没有通过：${run.command ?? 'test.run'} 退出码 ${String(run.exitCode)}${run.timedOut ? '（超时）' : ''}`);
     }
   }
+  // 证据账本：退出码为 null 且不是后台作业，说明命令还没结果就被当成完成了。
+  // 这一条只能从账本读，光看 results 分不出来「后台启动」和「没跑完」。
+  const pending = (report.evidence?.refs ?? []).filter(
+    (ref): ref is CommandRef =>
+      ref.kind === 'command' && ref.exitCode === null && ref.background !== true && ref.timedOut !== true
+  );
+  for (const ref of pending) {
+    issues.push(`命令没有退出码：${ref.command}（结果未出，不能算已验证）`);
+  }
+
   const completed = report.results.filter(item => item.status === 'completed').length;
-  const summary = `报告 ${report.status}；完成 ${completed} 步，失败 ${failed.length} 步；真实测试 ${tests.length} 次；计划写入 ${writes.length} 处。`;
+  const evidenceCount = report.evidence?.refs.length ?? 0;
+  const summary = `报告 ${report.status}；完成 ${completed} 步，失败 ${failed.length} 步；真实测试 ${tests.length} 次；计划写入 ${writes.length} 处；证据 ${evidenceCount} 条。`;
   return { issues, summary };
 }
 

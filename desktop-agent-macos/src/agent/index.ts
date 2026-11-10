@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { buildEvidenceLedger } from '../shared/engineering-evidence';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type LocalStepOutcome } from './local-plugins';
@@ -283,6 +284,18 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           : 'failed'
         : 'completed';
 
+    // 证据账本从真实步骤结果里抽，不重新描述一遍执行过程：文件读没读到、
+    // 命令退出码是什么，都以这里为准。抽不出可核对事实的步骤不记。
+    const argsById = new Map(plan.steps.map(step => [step.id, step.args]));
+    const ledger = buildEvidenceLedger(
+      results.map(item => ({
+        tool: item.tool,
+        args: argsById.get(item.stepId),
+        result: item.result,
+        status: item.status
+      }))
+    );
+
     const report: ExecutionReport = {
       protocol: 'desktop-agent/v1',
       type: 'execution_report',
@@ -293,7 +306,8 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       results,
       errors,
       nextAction: status === 'completed' ? 'continue' : 'stop',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      ...(ledger.refs.length > 0 ? { evidence: ledger } : {})
     };
 
     db.updateTask(taskId, { status: status.toUpperCase(), updated_at: Date.now() });

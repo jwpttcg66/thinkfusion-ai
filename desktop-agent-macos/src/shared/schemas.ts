@@ -93,7 +93,46 @@ export const ExecutionReportSchema = z
       )
       .max(30),
     nextAction: z.enum(['continue', 'complete', 'retry', 'stop']),
-    createdAt: z.number().int().positive()
+    createdAt: z.number().int().positive(),
+    // 可选：老报告没有账本，不能因此解析失败。
+    evidence: z
+      .object({
+        refs: z
+          .array(
+            z.discriminatedUnion('kind', [
+              z
+                .object({
+                  kind: z.literal('file'),
+                  path: z.string().min(1).max(4000),
+                  line: z.number().int().min(1).optional(),
+                  sha256: z.string().max(128).optional(),
+                  lines: z.number().int().min(0).optional()
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal('command'),
+                  command: z.string().min(1).max(4000),
+                  exitCode: z.number().int().nullable(),
+                  at: z.number().int().positive(),
+                  timedOut: z.boolean().optional(),
+                  background: z.boolean().optional()
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal('url'),
+                  url: z.string().min(1).max(4000),
+                  fetchedAt: z.number().int().positive()
+                })
+                .strict()
+            ])
+          )
+          .max(60),
+        primaryFamily: z.string().max(40).optional()
+      })
+      .strict()
+      .optional()
   })
   .strict()
   .superRefine((report, ctx) => {

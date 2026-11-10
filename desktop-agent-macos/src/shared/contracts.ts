@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ConversationAttachment } from './attachments';
 import type { CapabilityView } from './capabilities';
+import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
@@ -872,6 +873,8 @@ export interface ExecutionReport {
   errors: Array<{ stepId?: string; code: string; message: string }>;
   nextAction: 'continue' | 'complete' | 'retry' | 'stop';
   createdAt: number;
+  /** 执行证据账本；老报告没有这个字段，读取方要按缺失处理。 */
+  evidence?: EvidenceLedger;
 }
 
 // ---------------------------------------------------------------------------
