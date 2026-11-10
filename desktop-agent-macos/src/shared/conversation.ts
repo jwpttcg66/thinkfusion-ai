@@ -99,10 +99,39 @@ export type ConversationStatus =
   | 'failed'
   | 'cancelled';
 
+/** 会话级目标：用户批准的长期目的，模型只能汇报进度，不能自己改。 */
+export interface ConversationGoal {
+  text: string;
+  status: 'active' | 'paused' | 'blocked' | 'done';
+  /** 最近一次更新它的人：user 或模型（模型只能更新状态）。 */
+  updatedBy: 'user' | 'model';
+  updatedAt: number;
+}
+
+/** 会话级任务板：挂在会话上，成员复用现有辩论/执行成员，不新建池。 */
+export interface ConversationTeamTask {
+  id: string;
+  title: string;
+  detail?: string;
+  /** 已有参与者 id；不认识的 id 在写入前就会被拒。 */
+  assignee?: string;
+  status: 'todo' | 'doing' | 'done' | 'blocked';
+  /** 最近一次状态说明；一句话，别写成日志。 */
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Conversation {
   conversationId: string;
   /** First line of the first message, trimmed — the sidebar needs a label. */
   title: string;
+  /** 会话目标；没有就是没有，不默认编一个。 */
+  goal?: ConversationGoal;
+  /** 会话任务板。 */
+  teamTasks?: ConversationTeamTask[];
+  /** 这次协作声明的成员（必须是已有参与者 id）。 */
+  teamMembers?: string[];
   intent: IntentKind;
   /** Why the router chose that intent. Kept so routing can be argued with. */
   intentReason: string;

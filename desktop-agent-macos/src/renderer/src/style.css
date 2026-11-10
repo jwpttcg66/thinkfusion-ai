@@ -2323,6 +2323,32 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.goal-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.goal-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(143, 162, 255, 0.14);
+  color: var(--text-1);
+}
+.goal-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 52ch;
+}
+.goal-state {
+  color: var(--text-3);
+}
+.goal-blocked .goal-state { color: #e8a33d; }
+.goal-done .goal-state { color: #5fbf87; }
+
 .conversation-title {
   display: flex;
   align-items: center;

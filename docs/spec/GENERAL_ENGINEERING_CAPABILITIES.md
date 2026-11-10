@@ -2,7 +2,7 @@
 
 > 2026-11-10。设计对象是工程空间的**通用工程能力层**：它要覆盖 DeepSeek Harness
 > （`~/data/dsh-src`，提交 `ce7073d5`，包版本 0.2.2-alpha.2，`docs/tool-catalog.zh.md`）
-> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 72 个能力插件。
+> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 85 个能力插件。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
 > [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、
@@ -14,13 +14,13 @@
 > 逐期改动见 [GENERAL_ENGINEERING_ROLLOUT](../implementation/GENERAL_ENGINEERING_ROLLOUT.md)。
 >
 > **当前状态（2026-11-10）**：P0 已落地——76 条清单冻结在 `src/shared/dsh-tools.ts`，
-> 72 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
+> 85 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
 > `test:engineering-capabilities` 全绿；P1（证据账本）、P3（计划门禁）、
-> P1、P3、P4、P5 已落地；P6 受两条既有规则阻塞，见实施文档第 8 节。
+> P0–P6 已落地；扩展生态 4 条按裁决不做（见 §10）。
 
 ## 0. 一句话结论
 
-> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 72 条**逐条登记**，
+> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 85 条**逐条登记**，
 > 按 **8 个工作族 + 5 个治理族** 归族；每条都有族、对应物、落地层级与验收，
 > 缺口排进 P5/P6，不留「刻意不做」的黑洞。
 >
@@ -46,11 +46,11 @@
 
 | # | 现状 | 后果 |
 | --- | --- | --- |
-| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……72 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
+| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……85 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
 | 2 | 工作流只有一份：`resources/expertise/skills/engineering-design/SKILL.md`，45 行、三阶段通用流程 | 设计/实现有流程；调试、审阅、数据、前端靠模型自由发挥 |
 | 3 | 判据写在提示词句子和 `ruleReview` 的 issue 文案里（`src/main/engineering/review.ts`） | 「改了文件必须有 `test.run`」只在执行后作为一句话出现，不拦任何东西 |
 | 4 | 读工具一次回答最多请求一次（`engineeringToolSystem()` 明写） | 跨文件定位必须靠用户催第二轮 |
-| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 72 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
+| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 85 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
 
 第 5 条是这轮的主要修正：上一轮的对齐范围是「本地机器能力」，结论没错，但它被当成了
 **全部能力的结论**。缺的不是实现，是**登记**——没有登记的缺口，永远排不进计划。
@@ -60,7 +60,7 @@
 ```
 能力族 family (13 = 8 工作族 + 5 治理族)
    └── 能力项 item (每族 1–4 条，带触发词与判据)
-          └── 工具 tool (本仓库 72 个 + dsh 76 条对照，id 不改)
+          └── 工具 tool (本仓库 85 个 + dsh 76 条对照，id 不改)
 ```
 
 一条能力项固定包含七个字段：
@@ -229,13 +229,13 @@ interface EngineeringCapability {
 | 31 | `propose_action` | dsh-action-cards | `plan.control` | `plan.ready` + `step-approval`（逐次审批） | L1 |
 | 32 | `present` | dsh-tool-present | `plan.control` | `document.export` / `page.save-document` | L1 |
 | 33 | `todo_write` | dsh-tool-todo | `plan.control` | `AgentPlan` 步骤 + 进度事件 | L1 |
-| 34 | `create_goal` | dsh-tool-goal | `plan.control` | 无：会话没有目标模型 | L2 · P6 |
-| 35 | `get_goal` | dsh-tool-goal | `plan.control` | 无 | L2 · P6 |
-| 36 | `update_goal` | dsh-tool-goal | `plan.control` | 无 | L2 · P6 |
-| 37 | `schedule_create` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
-| 38 | `schedule_edit` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
-| 39 | `schedule_list` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
-| 40 | `schedule_view` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
+| 34 | `create_goal` | dsh-tool-goal | `plan.control` | `goal.create`（挂在会话上，用户批准的计划里执行） | L0 |
+| 35 | `get_goal` | dsh-tool-goal | `plan.control` | `goal.get` | L0 |
+| 36 | `update_goal` | dsh-tool-goal | `plan.control` | `goal.update`（只能改状态） | L0 |
+| 37 | `schedule_create` | dsh-tool-schedule | `plan.control` | `schedule.create`（只 local/cloud） | L0 |
+| 38 | `schedule_edit` | dsh-tool-schedule | `plan.control` | `schedule.edit` | L0 |
+| 39 | `schedule_list` | dsh-tool-schedule | `plan.control` | `schedule.list` | L0 |
+| 40 | `schedule_view` | dsh-tool-schedule | `plan.control` | `schedule.view` | L0 |
 | 41 | `skill` | dsh-tool-skill | `memory.context` | `resources/expertise` 按规则自动加载（不是模型工具） | L1 |
 
 **`ask.user` 的契约（已落地）**
@@ -269,12 +269,12 @@ interface EngineeringCapability {
 | 50 | `send_message` | dsh-experimental-tool-agent-team | `collab.delegate` | 同 47 | L1 |
 | 51 | `ralph` | dsh-tool-ralph | `collab.delegate` | 多轮编排与执行重试 | L1 |
 | 52 | `workflow` | dsh-tool-workflow | `collab.delegate` | 计划 + 编排（无脚本工作流） | L1 |
-| 53 | `spawn_teammate` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
-| 54 | `team_task_create` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
-| 55 | `team_task_get` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
-| 56 | `team_task_list` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
-| 57 | `team_task_update` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
-| 58 | `wait_agent` | dsh-experimental-tool-agent-team | `collab.delegate` | 无 | L2 · P6 |
+| 53 | `spawn_teammate` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.spawn`（只从已有参与者里登记） | L0 |
+| 54 | `team_task_create` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.task.create` | L0 |
+| 55 | `team_task_get` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.task.get` | L0 |
+| 56 | `team_task_list` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.task.list` | L0 |
+| 57 | `team_task_update` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.task.update` | L0 |
+| 58 | `wait_agent` | dsh-experimental-tool-agent-team | `collab.delegate` | `team.wait`（返回任务板进度） | L0 |
 
 ### 5.6 会话记忆与浏览器（8 条）
 
@@ -297,10 +297,10 @@ interface EngineeringCapability {
 | 68 | `stagehand_screenshot` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | `screen.capture`（整屏；页面级截图待补） | L1 |
 | 69 | `stagehand_tabs` | dsh-experimental-browser-use-stagehand-native | `runtime.exec` | 多页面管理（宿主，不是工具） | L1 |
 | 70 | `plugin_manager` | dsh-plugin-manager | `platform.extend` | 设置页「内置插件」开关 + `CAPABILITY_CATALOG` 只读清单 | L1（仅开关，不安装） |
-| 71 | `plugin_market` | dsh-plugin-market | `platform.extend` | 无 | L2 · 需裁决 |
-| 72 | `list_mcp_resources` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 需裁决 |
-| 73 | `list_mcp_resource_templates` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 需裁决 |
-| 74 | `read_mcp_resource` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 需裁决 |
+| 71 | `plugin_market` | dsh-plugin-market | `platform.extend` | 无 | L2 · 已裁决不做 |
+| 72 | `list_mcp_resources` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 已裁决不做 |
+| 73 | `list_mcp_resource_templates` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 已裁决不做 |
+| 74 | `read_mcp_resource` | dsh-mcp-resources | `platform.extend` | 无 | L2 · 已裁决不做 |
 | 75 | `cordis_inspect_list` | dsh-tool-cordis | `platform.extend` | 设置页插件清单（同一份 `CAPABILITY_CATALOG`） | L1 |
 | 76 | `cordis_inspect_query` | dsh-tool-cordis | `platform.extend` | `plugin.inspect`（启用 / 注册 / 权限） | L0 |
 
@@ -308,9 +308,9 @@ interface EngineeringCapability {
 
 | 层级 | 条数 | 占比 | 说明 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 28 | 37% | 文件、搜索、执行、作业、git、联网、提问、诊断、终端、会话检索 |
+| L0 已有工具 | 41 | 54% | 文件、搜索、执行、作业、git、联网、提问、诊断、终端、会话检索、目标、定时、任务板 |
 | L1 等价机制 | 29 | 38% | 计划、交互、委派、会话记忆、浏览器、插件清单 |
-| L2 待补 | 17 | 22% | 团队 7、目标 3、定时 4、MCP/市场 3 |
+| L2 待补 | 4 | 5% | 插件市场 1 + MCP 3（已裁决不开放） |
 | L3 平台不适用 | 2 | 3% | `pwsh` 两条 |
 | **合计** | **76** | 100% | 71 个唯一名字；`bash` `pwsh` `interrupt_agent` `list_agents` `send_message` 各有两条同名 schema |
 
@@ -451,7 +451,7 @@ type EvidenceRef =
 | 指标 | 目标 | 怎么量 | 现状 |
 | --- | --- | --- | --- |
 | dsh 工具覆盖率 | 76/76 有族、对应物、层级 | `test:dsh-coverage` | ✅ 76/76 |
-| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 72/72 |
+| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 85/85 |
 | 主族 `code.change` 的计划中带真实检查的比例 | 100% | 门禁拦截日志 + 场景回放 | 待 P3 |
 | 结论可追溯率 | 抽样 ≥ 90% | 场景回放的引用检查 | 待 P1/P4 |
 | 事实题被误加载技能的比例 | 0 | `trigger` 单测 + s20/s21/s24 回放 | 待 P2 |
@@ -463,7 +463,7 @@ type EvidenceRef =
 
 | 现有东西 | 这次怎么用 | 改不改 |
 | --- | --- | --- |
-| `src/shared/capabilities.ts`（72 条） | 工具表是族的输入；不改 id | 不改 |
+| `src/shared/capabilities.ts`（85 条） | 工具表是族的输入；不改 id | 不改 |
 | `src/shared/contracts.ts`（`TOOL_NAMES` / `READ_ONLY_TOOLS`） | 归族扫描的唯一来源 | 不改 |
 | `src/main/engineering/analysis.ts` | 读族的结构事实来源，保留「按正则识别」声明 | 不改 |
 | `src/main/engineering/review.ts` | 证据账本的执行后校验点 | 扩写 |

@@ -563,6 +563,21 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  拼 node -e 一行命令（引号一错就变成另一段程序）。
                  · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
                  · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
+- goal.create:  { "text": string }       给这个会话建一个长期目标（仅在用户批准的计划里可用）。
+- goal.get:     {}                       读当前目标与状态；没有就如实说没有。
+- goal.update:  { "status": "active"|"blocked"|"done", "note"?: string }
+                 只能更新状态，不能改目标文字；完成必须带依据。
+- schedule.create: { "text": string, "mode": "local"|"cloud", "at"?: number, "repeatMinutes"?: number }
+                 到点自动跑；只能本地或云端，**没有 web 选项**（不往用户账号里写会话）。
+- schedule.edit: { "id": string, "text"?: string, "mode"?: "local"|"cloud", "at"?: number, "repeatMinutes"?: number, "enabled"?: boolean }
+- schedule.list: {}  列出定时任务与下一次运行时间。
+- schedule.view: { "id": string }  看单个任务的上次运行与上次错误。
+- team.spawn:   { "members": string[] }  从已有参与者里登记协作成员，不新建成员。
+- team.task.create: { "title": string, "detail"?: string, "assignee"?: string }
+- team.task.get: { "id": string }
+- team.task.list: {}
+- team.task.update: { "id": string, "status": "todo"|"doing"|"done"|"blocked", "note"?: string }
+- team.wait:    { "timeoutMs"?: number }  返回任务板进度；没做完就列出还差哪几条。
 - session.search: { "query": string, "limit"?: number, "conversationId"?: string }
                  只读搜索历史会话，返回命中片段、来源会话与时间；0 条不算失败，如实说没搜到。
                  · 跨会话引用必须带上来源会话与时间，不能把别处的话当成这次的事实。

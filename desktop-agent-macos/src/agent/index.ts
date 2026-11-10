@@ -61,6 +61,8 @@ const questionWaiters = new Map<string, (outcome: AskUserOutcome) => void>();
  */
 const mainCallWaiters = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 let mainCallSeq = 0;
+/** 当前执行的会话与任务；只读桥用它定位目标、任务板与定时任务。 */
+let activeScope: { taskId?: string; conversationId?: string } = {};
 
 function callMain(id: string, args: unknown, timeoutMs = 30_000): Promise<unknown> {
   mainCallSeq += 1;
@@ -82,7 +84,15 @@ function callMain(id: string, args: unknown, timeoutMs = 30_000): Promise<unknow
         reject(error);
       }
     });
-    port.postMessage({ type: 'main.call.request', at: Date.now(), requestId, id, args });
+    port.postMessage({
+      type: 'main.call.request',
+      at: Date.now(),
+      requestId,
+      id,
+      args,
+      ...(activeScope.taskId ? { taskId: activeScope.taskId } : {}),
+      ...(activeScope.conversationId ? { conversationId: activeScope.conversationId } : {})
+    });
   });
 }
 /** 每份计划最多问 3 次：再多就是在拿提问拖住计划。 */
@@ -272,6 +282,11 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
     // --- validate -------------------------------------------------------
     const plan = PlanSchema.parse(message.plan) as AgentPlan;
     const grant = TaskGrantSchema.parse(message.grant) as TaskGrant;
+    const conversationId = (message as { conversationId?: unknown }).conversationId;
+    activeScope = {
+      taskId,
+      ...(typeof conversationId === 'string' && conversationId ? { conversationId } : {})
+    };
 
     if (grant.taskId !== taskId) throw new Error('授权凭据与任务不匹配');
     if (!grant.rootDir) throw new Error('授权缺少根目录');

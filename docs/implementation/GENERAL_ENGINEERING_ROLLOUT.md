@@ -8,13 +8,13 @@
 
 | 期 | 状态 | 内容 | 对应设计章节 | 产出 |
 | --- | --- | --- | --- | --- |
-| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 72 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
+| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 85 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
 | P1 | ✅ 已落地 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
 | P2 | ✅ 已裁决 | 维持单技能，族只做汇总（不拆分） | §7 | 不改技能数量；族用于门禁与度量 |
 | P3 | ✅ 已落地 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
 | P4 | ✅ 已落地 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
 | P5 | ✅ 已落地 | 补齐运行时缺口（12 条） | §5.2–§5.6 | 提问、终端、诊断、会话检索、持久 shell |
-| P6 | 未开始 | 治理能力 14 条 + 扩展裁决 3 条 | | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
+| P6 | ✅ 已落地 | 目标 3 / 定时 4 / 团队 6；扩展 4 条按裁决不做 | §4、§5.4–§5.7 | 目标行、调度器、会话任务板 |
 
 P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP」划到「不在这层」，
 现在全部回到矩阵里，并给了期号。
@@ -23,9 +23,9 @@ P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP�
 
 | 层级 | 条数 | 分布 | 归属期 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 28 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1、提问 1、诊断 1、终端 7、会话检索 2 | 已可用，P0 只登记 |
+| L0 已有工具 | 41 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1、提问 1、诊断 1、终端 7、会话检索 2、目标/定时/任务板 13 | 已可用，P0 只登记 |
 | L1 等价机制 | 29 | 计划交互 5、委派 11、会话记忆 4、浏览器 6、插件 3 | P0 登记；P2/P3 补判据 |
-| L2 待补 | 17 | 团队 7、目标 3、定时 4、MCP/市场 3 | P6（14）· 裁决（3） |
+| L2 待补 | 4 | 插件市场 1 + MCP 3 | 已裁决：不开放第三方包 |
 | L3 平台不适用 | 2 | `pwsh` 两条 | 不排期，文档登记 |
 
 L1 不是「不做」。它意味着能力已经存在，只是形态不同——比如 `working_directory`
@@ -80,7 +80,7 @@ export const DSH_DUPLICATE_NAMES: Readonly<Record<string, readonly string[]>>;
 4. 每条 L0 的 `ours` 必须真的出现在 `TOOL_NAMES` 或主进程能力 id 里；
 5. 71 个唯一名字、五组同名不同包的条数与包名一致。
 
-### 2.2 本机 72 条归族
+### 2.2 本机 85 条归族
 
 **新增** `src/shared/engineering-capabilities.ts`：
 
@@ -300,21 +300,27 @@ scripts/check-engineering-scenarios.mjs
 **P5 验收**：`npm run test:ask-user && npm run test:terminal && npm run test:diagnostics && npm run test:session-search`，
 再把对应的 L2 在 `dsh-tools.ts` 里改成 `L0`（覆盖率测试会强制改，不改就失败）。
 
-## 8. P6 · 治理能力（14 条）· 阻塞，需裁决
+## 8. P6 · 治理能力（13 条）· ✅ 已落地
 
-**状态（2026-11-10）：14 条都登记在案，但三条里有两处与既有规则/产品边界冲突，
-不是靠写代码能绕过去的。**
+用户裁决（2026-11-10）：
 
-| 子项 | 阻塞原因 |
+1. **定时只跑本地/云端 API，不碰网页。**
+2. **任务板挂在会话上，成员复用现有辩论/执行成员，不新建池。**
+3. **目标入口放会话标题下面一行。**
+
+| 子项 | 落地方式 |
 | --- | --- |
-| 定时 4 条 | 到点无人值守发问，与仓库既有规则冲突：能无人值守跑的东西不许发送提示词（`check-conversation.mjs` 的注释写明），否则会往用户账号里留下无意义会话。dsh 的 `schedule_*` 到点新开会话执行，直接踩这条。两种解法都要用户选：改规则（明确哪些通道允许无人值守）或只允许本地/云端 API、不碰网页。 |
-| 团队 7 条 | 我们已经有辩论成员与执行池两套归属；再加 `team_task_*` 会出现第三套「谁在做哪件事」。动手前要先定：任务板归会话还是归任务？成员复用 `SubAgentRegistry` 还是独立池？ |
-| 目标 3 条 | 可以先做状态（会话级 goal），但必须有 UI 入口（会话标题下或侧栏），否则模型能建目标、用户看不见——违反「判断要能被看见」。UI 位置需要确认。 |
-| 扩展 3 条 | 已裁决：不开放第三方包，保持登记不实现。 |
+| 定时 4 条 | `schedule.create/edit/list/view` + `ScheduleStore`（`userData/schedules.json`）+ 主进程调度循环。`mode` 只有 `local` / `cloud`，schema 层就不接受 `web`；到点创建一条只读会话，失败写回 `lastError`。单飞：上一次没跑完不触发第二条。 |
+| 团队 6 条 | `team.spawn / task.create / task.get / task.list / task.update / wait`。任务板存在 `Conversation.teamTasks`；`team.spawn` 只接受现有参与者 id（`registry.list()` + `extraAgents`），不新建成员。`team.wait` 返回进度与剩余项，不假等待。 |
+| 目标 3 条 | `goal.create / get / update` 存在 `Conversation.goal`；界面在会话标题下面一行显示目标与状态。模型只能改状态，改不了目标文字；已有进行中的目标时不能覆盖。 |
+| 扩展 4 条 | 按裁决不实现：`plugin_market` + 3 个 MCP 保持 L2，设置页写明「不支持第三方扩展」。 |
 
-这一节保留原来的任务拆分，等裁决后按原顺序落地：
+### 8.1 目标（3 条，`plan.control`）· ✅ 已落地
 
-### 8.0 原计划
+- 状态在 `Conversation.goal`：`{ text, status: active|paused|blocked|done, updatedBy, updatedAt }`；
+- `goal.create` 只在用户批准的计划里执行（批准就是用户授权）；已有 active 目标时拒绝覆盖；
+- `goal.update` 只改状态，`text` 不可变；
+- UI：会话标题下一行显示「目标 · 文字 · 状态」，没有目标时不占位。
 
 ### 8.1 目标（3 条，`plan.control`）
 
@@ -325,25 +331,28 @@ scripts/check-engineering-scenarios.mjs
   模型只能更新进度——否则会出现模型自己改目标、自己宣布完成；
 - 验收：`test:goal`：模型不能创建目标；用户暂停后计划不再自动续跑；完成必须带证据。
 
-### 8.2 定时（4 条，`plan.control`）
+### 8.2 定时（4 条，`plan.control`）· ✅ 已落地
 
 `schedule_create / edit / list / view` → 本地调度器：
 
-- 需要一个常驻调度循环（主进程），任务落 `userData/schedules.json`；
-- 权限：创建要用户确认，委派子代理不能调用（dsh 同样限制）；
+- 调度循环在主进程（30 秒检查一次），任务落 `userData/schedules.json`；
+- **只跑 `local` / `cloud`**：`normalizeScheduleInput` 直接拒绝 `web`，因为无人值守往网页发提示词会污染用户账号；
+- 到点用 `conversations.start({ workspaceMode: 'knowledge', permissionPreset: 'read-only', executionConfig: { executionMode } })` 新建一条只读会话；
+- 单飞：一次触发没跑完不会叠加第二条；失败写回 `lastError` 并推进下一次，避免坏任务每 30 秒重试；
 - 验收：`test:schedule`：到点触发一次、错过补跑一次、删除后不再触发。
 
-### 8.3 团队（7 条，`collab.delegate`）
+### 8.3 团队（6 条，`collab.delegate`）· ✅ 已落地
 
-`spawn_teammate / team_task_create / get / list / update / wait_agent`
-（`interrupt_agent` `list_agents` `send_message` 已在 L1）：
+`team.spawn / team.task.create / get / list / update / wait`：
 
-- 这是最大的一块，且与现有「辩论成员 + 执行池」有重叠。**先做任务板，不做第二套 agent 体系**：
-  `team.task` 落在会话里，成员仍是 `SubAgentRegistry` 的成员；
-- `wait_agent` 用现有的执行等待实现，不新开轮询；
-- 前置条件：P3 门禁稳定后再开，否则团队里每个成员都会绕过判据。
+- 任务板落在 `Conversation.teamTasks`，不新建第二套 agent 体系；
+- `team.spawn` 只接受 `registry.list()` 与 `extraAgents` 里已有的 id，写别的 id 直接拒绝；
+- 指派对象必须是这次协作成员；没 spawn 就指派会被拒；
+- `team.wait` 返回 `{ done, total, completed, remaining }`，不是阻塞等待——任务由模型在执行中推进，
+  假装「等到了」比不等更糟；
+- UI 在会话标题下显示「任务板 · 完成数/总数」。
 
-### 8.4 扩展（3 条，`platform.extend`）· 已裁决：不开放
+### 8.4 扩展（4 条，`platform.extend`）· 已裁决：不开放
 
 用户裁决（2026-11-10）：**不开放第三方包**。`plugin_market / list_mcp_resources /
 read_mcp_resource` 保持登记但不实现：`dsh-tools.ts` 仍是 `L2`，设置页写明
@@ -359,7 +368,7 @@ read_mcp_resource` 保持登记但不实现：`dsh-tools.ts` 仍是 `L2`，设�
 | P3 | P1、P2 | 门禁开关置 false |
 | P4 | P0–P3 | 删场景与脚本 |
 | P5 | P0（映射表） | 删 `term.*` / `code.diagnostics` / `session.search` 注册 |
-| P6 | P5、P3 | 目标/定时/团队各自有开关 |
+| P6 | P5、P3 | 目标/定时/任务板都有测试；失败写回原因，不静默跳过 |
 
 提交信息写「原来错在哪」。示例（P0）：
 

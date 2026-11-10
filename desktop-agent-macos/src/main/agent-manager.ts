@@ -56,7 +56,11 @@ export function setAgentEventSink(sink: (event: AgentEvent) => void) {
  * 「查」的能力只能由主进程执行。这里只放行显式登记的处理函数，不是通用后门：
  * 没有登记就明确报错，不会把 Runtime 的任意 id 转成一次主进程调用。
  */
-type MainCallHandler = (id: string, args: unknown) => Promise<unknown>;
+type MainCallHandler = (
+  id: string,
+  args: unknown,
+  context: { taskId?: string; conversationId?: string }
+) => Promise<unknown>;
 let mainCallHandler: MainCallHandler | null = null;
 
 export function setMainCallHandler(handler: MainCallHandler | null) {
@@ -103,7 +107,11 @@ export function startAgentProcess() {
         reply({ ok: false, error: '主进程还没有接入只读能力桥' });
         return;
       }
-      void mainCallHandler(id, typed.args)
+      const context = {
+        ...(typeof typed.taskId === 'string' ? { taskId: typed.taskId } : {}),
+        ...(typeof typed.conversationId === 'string' ? { conversationId: typed.conversationId } : {})
+      };
+      void mainCallHandler(id, typed.args, context)
         .then(result => reply({ ok: true, result }))
         .catch((error: unknown) => reply({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       return;
@@ -206,7 +214,7 @@ export function runPlan(
   grant: TaskGrant,
   dbPath: string,
   timeoutMs: number,
-  ids: { roundId: string; planId: string }
+  ids: { roundId: string; planId: string; conversationId?: string }
 ): Promise<ExecutionReport> {
   if (!child) startAgentProcess();
   if (!child) return Promise.reject(new Error('Agent Runtime 启动失败'));
@@ -229,6 +237,7 @@ export function runPlan(
       plan,
       grant,
       dbPath,
+      ...(ids.conversationId ? { conversationId: ids.conversationId } : {}),
       // 开关只对这次执行生效；运行中的计划不会被中途改掉。
       disabledCapabilities: disabledCapabilities()
     });

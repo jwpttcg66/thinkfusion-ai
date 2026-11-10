@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 66 个工具（63 个本地 + 3 个联网），主进程装载工程证据
+ * Runtime 进程装载 79 个工具（76 个本地 + 3 个联网），主进程装载工程证据
  * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 72 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 85 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -124,6 +124,19 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'term.list': ['列终端', '列出当前还开着的终端会话、pid、cwd 与是否已退出'],
   'session.search': ['搜历史会话', '只读搜索以前聊过什么，命中带来源会话、时间与片段；0 条不算失败'],
   'plugin.inspect': ['查能力状态', '按 id 查某个能力是否启用、注册在哪个宿主、权限是什么'],
+  'goal.create': ['建目标', '按用户已批准的计划给这个会话建一个长期目标'],
+  'goal.get': ['读目标', '读当前会话的目标与状态；没有就如实说没有'],
+  'goal.update': ['更新目标', '模型只能更新状态（进行中/受阻/完成），不能改目标文字'],
+  'schedule.create': ['建定时任务', '到点自动跑一次，只能选本地或云端，不碰网页'],
+  'schedule.edit': ['改定时任务', '改文字、时间、间隔或启停'],
+  'schedule.list': ['列定时任务', '列出全部定时任务与下一次运行时间'],
+  'schedule.view': ['看定时任务', '看单个定时任务的上次运行与上次错误'],
+  'team.spawn': ['定协作成员', '从已有参与者里选几个人登记到会话任务板，不新建成员'],
+  'team.task.create': ['建任务', '在会话任务板上加一条任务，可指派给已有成员'],
+  'team.task.get': ['看任务', '读一条任务的详情与状态'],
+  'team.task.list': ['列任务', '列出这个会话任务板的全部任务与完成数'],
+  'team.task.update': ['更新任务', '改任务状态并写一句进度；完成要有依据'],
+  'team.wait': ['等任务', '返回任务板当前进度，不全就说明还差哪几条'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 
@@ -197,7 +210,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：66 个 Runtime 工具 + 6 个主进程能力，合计 72。设置页只认这一份。 */
+/** 全量清单：79 个 Runtime 工具 + 6 个主进程能力，合计 85。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

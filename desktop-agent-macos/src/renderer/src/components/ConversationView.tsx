@@ -38,6 +38,13 @@ function modeLabelOf(mode: 'web' | 'local' | 'cloud' | 'hybrid'): string {
   return '混合主导';
 }
 
+const GOAL_LABEL: Record<'active' | 'paused' | 'blocked' | 'done', string> = {
+  active: '进行中',
+  paused: '已暂停',
+  blocked: '受阻',
+  done: '已完成'
+};
+
 const STATUS_LABEL: Record<Conversation['status'], string> = {
   thinking: '思考中',
   collecting: '收集中',
@@ -218,6 +225,28 @@ export function ConversationView(props: {
             )}
             <span className={`conv-status s-${conversation.status}`}>{STATUS_LABEL[conversation.status]}</span>
           </div>
+
+          {/* 目标：会话标题下面一行。模型能建目标，但用户必须看得见它。 */}
+          {conversation.goal && (
+            <div className={`goal-line goal-${conversation.goal.status}`}>
+              <span className="goal-tag">目标</span>
+              <span className="goal-text">{conversation.goal.text}</span>
+              <span className="goal-state">{GOAL_LABEL[conversation.goal.status]}</span>
+            </div>
+          )}
+
+          {/* 任务板：只显示进度，完整列表由模型用 team.task.list 读。 */}
+          {conversation.teamTasks && conversation.teamTasks.length > 0 && (
+            <div className="goal-line team-line">
+              <span className="goal-tag">任务板</span>
+              <span className="goal-text">
+                {conversation.teamTasks.filter(task => task.status === 'done').length}/{conversation.teamTasks.length} 完成
+              </span>
+              {conversation.teamMembers && conversation.teamMembers.length > 0 && (
+                <span className="goal-state">{conversation.teamMembers.length} 位成员</span>
+              )}
+            </div>
+          )}
           {/* 导出：内容来自主进程存的这条会话，排版由导出模板定，不经过模型。
               默认存 Markdown；Word 要单独点，因为那是一条「排好版的文档」分支，
               不点就不会生成。 */}

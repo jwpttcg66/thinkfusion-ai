@@ -150,6 +150,8 @@ import { MAX_ATTACHMENTS, type AttachmentText, type ConversationAttachment } fro
 import { CapabilityStore } from './capability-store';
 import { disabledCapabilities, setDisabledCapabilities } from './capability-state';
 import { searchSessions } from '../shared/session-search';
+import { ScheduleStore, startScheduler } from './schedule-store';
+import { computeNextRun, MAX_SCHEDULES, normalizeScheduleInput } from '../shared/schedule';
 import {
   buildEngineeringExpertise,
   describeExpertise,
@@ -3952,15 +3954,28 @@ app.whenReady().then(async () => {
   setAgentEventSink(event => emit(event));
 
   /**
-   * 只读主进程能力：Runtime 拿不到会话库与设置状态，这两个「查」由这里执行。
-   * 只认这两个 id，其余明确报错——不是给 Runtime 开一个任意调用主进程的后门。
+   * Runtime 拿不到会话库、设置状态与定时存储。这里的桥只认显式登记的能力，
+   * 其余明确报错——不是给 Runtime 开一个任意调用主进程的后门。
    */
-  setMainCallHandler(async (id, rawArgs) => {
+  const scheduleStore = new ScheduleStore(path.join(app.getPath('userData'), 'schedules.json'));
+  let idSeq = 0;
+  const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${++idSeq}`;
+
+  const requireConversation = (conversationId: string | undefined) => {
+    if (!conversationId) throw new Error('这次执行没有关联会话，无法使用会话级能力');
+    const conversation = store.getConversation(conversationId);
+    if (!conversation) throw new Error('会话不存在或已删除');
+    return conversation;
+  };
+
+  setMainCallHandler(async (id, rawArgs, context) => {
+    const conversationId = context.conversationId;
+
     if (id === 'session.search') {
       const args = (rawArgs ?? {}) as { query?: unknown; limit?: unknown; conversationId?: unknown };
       const query = typeof args.query === 'string' ? args.query : '';
       if (!query.trim()) throw new Error('session.search 需要 query');
-      const conversations = store.listConversations().map(conversation => ({
+      const conversationsForSearch = store.listConversations().map(conversation => ({
         conversationId: conversation.conversationId,
         title: conversation.title,
         updatedAt: conversation.updatedAt,
@@ -3972,7 +3987,7 @@ app.whenReady().then(async () => {
       }));
       return searchSessions({
         query,
-        conversations,
+        conversations: conversationsForSearch,
         ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
         ...(typeof args.conversationId === 'string' ? { conversationId: args.conversationId } : {})
       });
@@ -4003,7 +4018,189 @@ app.whenReady().then(async () => {
       };
     }
 
-    throw new Error(`未登记的主进程只读能力：${id}`);
+    // --- 目标 -------------------------------------------------------------
+    if (id === 'goal.create') {
+      const args = (rawArgs ?? {}) as { text?: unknown };
+      const text = typeof args.text === 'string' ? args.text.trim() : '';
+      if (!text) throw new Error('目标需要一句说明');
+      const conversation = requireConversation(conversationId);
+      if (conversation.goal && conversation.goal.status === 'active') {
+        throw new Error('这个会话已有进行中的目标，先完成或标记受阻，再建新目标');
+      }
+      const goal = { text, status: 'active' as const, updatedBy: 'model' as const, updatedAt: Date.now() };
+      store.upsertConversation({ ...conversation, goal });
+      emitConversation({ type: 'conversation.updated', at: Date.now(), conversation: { ...conversation, goal } });
+      return goal;
+    }
+
+    if (id === 'goal.get') {
+      const conversation = requireConversation(conversationId);
+      return conversation.goal ?? null;
+    }
+
+    if (id === 'goal.update') {
+      const args = (rawArgs ?? {}) as { status?: unknown; note?: unknown };
+      if (args.status !== 'active' && args.status !== 'blocked' && args.status !== 'done') {
+        throw new Error('goal.update 只接受 active / blocked / done');
+      }
+      const conversation = requireConversation(conversationId);
+      if (!conversation.goal) throw new Error('这个会话还没有目标');
+      const goal: NonNullable<typeof conversation.goal> = {
+        ...conversation.goal,
+        status: args.status,
+        updatedBy: 'model',
+        updatedAt: Date.now()
+      };
+      store.upsertConversation({ ...conversation, goal });
+      emitConversation({ type: 'conversation.updated', at: Date.now(), conversation: { ...conversation, goal } });
+      return { ...goal, note: typeof args.note === 'string' ? args.note : undefined };
+    }
+
+    // --- 定时 -------------------------------------------------------------
+    if (id === 'schedule.create') {
+      const now = Date.now();
+      const normalized = normalizeScheduleInput(rawArgs, now);
+      if (scheduleStore.list().length >= MAX_SCHEDULES) throw new Error(`定时任务最多 ${MAX_SCHEDULES} 条`);
+      return scheduleStore.add({ ...normalized, id: nextId('sch'), createdAt: now });
+    }
+
+    if (id === 'schedule.edit') {
+      const args = (rawArgs ?? {}) as Record<string, unknown>;
+      const target = scheduleStore.get(String(args.id ?? ''));
+      if (!target) throw new Error(`没有这个定时任务：${String(args.id ?? '')}`);
+      const patch: Partial<typeof target> = {};
+      if (typeof args.text === 'string') {
+        if (!args.text.trim()) throw new Error('定时任务的文字不能为空');
+        patch.text = args.text.trim();
+      }
+      if (args.mode === 'local' || args.mode === 'cloud') patch.mode = args.mode;
+      if (typeof args.enabled === 'boolean') patch.enabled = args.enabled;
+      const at = typeof args.at === 'number' ? args.at : target.at;
+      const repeatMinutes = typeof args.repeatMinutes === 'number' ? args.repeatMinutes : target.repeatMinutes;
+      if (at !== undefined) patch.at = at;
+      if (repeatMinutes !== undefined) patch.repeatMinutes = repeatMinutes;
+      if (at !== undefined || repeatMinutes !== undefined) {
+        patch.nextRunAt = computeNextRun({ at, repeatMinutes, lastRunAt: target.lastRunAt }, Date.now());
+      }
+      return scheduleStore.update(target.id, patch);
+    }
+
+    if (id === 'schedule.list') return { items: scheduleStore.list() };
+
+    if (id === 'schedule.view') {
+      const args = (rawArgs ?? {}) as { id?: unknown };
+      const found = scheduleStore.get(String(args.id ?? ''));
+      if (!found) throw new Error(`没有这个定时任务：${String(args.id ?? '')}`);
+      return found;
+    }
+
+    // --- 任务板 -----------------------------------------------------------
+    if (id === 'team.spawn') {
+      const args = (rawArgs ?? {}) as { members?: unknown };
+      const members = Array.isArray(args.members) ? args.members.filter((item): item is string => typeof item === 'string') : [];
+      if (members.length === 0) throw new Error('team.spawn 需要至少一个成员 id');
+      const known = new Set([
+        ...registry.list().map(agent => agent.id),
+        ...extraAgents.map(agent => agent.id)
+      ]);
+      const unknown = members.filter(member => !known.has(member));
+      if (unknown.length > 0) throw new Error(`不认识的成员：${unknown.join('、')}（只能用现有参与者）`);
+      const conversation = requireConversation(conversationId);
+      const merged = [...new Set([...(conversation.teamMembers ?? []), ...members])];
+      store.upsertConversation({ ...conversation, teamMembers: merged });
+      return { members: merged };
+    }
+
+    if (id === 'team.task.create') {
+      const args = (rawArgs ?? {}) as { title?: unknown; detail?: unknown; assignee?: unknown };
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      if (!title) throw new Error('任务需要标题');
+      const conversation = requireConversation(conversationId);
+      const assignee = typeof args.assignee === 'string' ? args.assignee : undefined;
+      if (assignee && !(conversation.teamMembers ?? []).includes(assignee)) {
+        throw new Error(`指派对象 ${assignee} 不在这次协作成员里，先 team.spawn`);
+      }
+      const task = {
+        id: nextId('task'),
+        title,
+        ...(typeof args.detail === 'string' && args.detail.trim() ? { detail: args.detail.trim() } : {}),
+        ...(assignee ? { assignee } : {}),
+        status: 'todo' as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      const teamTasks = [...(conversation.teamTasks ?? []), task];
+      store.upsertConversation({ ...conversation, teamTasks });
+      return task;
+    }
+
+    if (id === 'team.task.get') {
+      const args = (rawArgs ?? {}) as { id?: unknown };
+      const conversation = requireConversation(conversationId);
+      const task = (conversation.teamTasks ?? []).find(item => item.id === args.id);
+      if (!task) throw new Error(`没有这个任务：${String(args.id ?? '')}`);
+      return task;
+    }
+
+    if (id === 'team.task.list') {
+      const conversation = requireConversation(conversationId);
+      const tasks = conversation.teamTasks ?? [];
+      return {
+        tasks,
+        total: tasks.length,
+        done: tasks.filter(item => item.status === 'done').length,
+        members: conversation.teamMembers ?? []
+      };
+    }
+
+    if (id === 'team.task.update') {
+      const args = (rawArgs ?? {}) as { id?: unknown; status?: unknown; note?: unknown };
+      if (args.status !== 'todo' && args.status !== 'doing' && args.status !== 'done' && args.status !== 'blocked') {
+        throw new Error('team.task.update 只接受 todo / doing / done / blocked');
+      }
+      const conversation = requireConversation(conversationId);
+      const tasks = conversation.teamTasks ?? [];
+      const index = tasks.findIndex(item => item.id === args.id);
+      if (index < 0) throw new Error(`没有这个任务：${String(args.id ?? '')}`);
+      const next: (typeof tasks)[number] = {
+        ...tasks[index],
+        status: args.status,
+        ...(typeof args.note === 'string' && args.note.trim() ? { note: args.note.trim() } : {}),
+        updatedAt: Date.now()
+      };
+      const teamTasks = [...tasks];
+      teamTasks[index] = next;
+      store.upsertConversation({ ...conversation, teamTasks });
+      return next;
+    }
+
+    if (id === 'team.wait') {
+      const conversation = requireConversation(conversationId);
+      const tasks = conversation.teamTasks ?? [];
+      const remaining = tasks.filter(item => item.status !== 'done');
+      return {
+        done: remaining.length === 0 && tasks.length > 0,
+        total: tasks.length,
+        completed: tasks.length - remaining.length,
+        remaining: remaining.map(item => ({ id: item.id, title: item.title, status: item.status })),
+        note: tasks.length === 0 ? '任务板还是空的' : undefined
+      };
+    }
+
+    throw new Error(`未登记的主进程能力：${id}`);
+  });
+
+  // 定时任务：只跑本地/云端，绝不发网页。到点创建一条只读会话，失败写回 lastError。
+  startScheduler({
+    store: scheduleStore,
+    run: async schedule => {
+      await conversations.start({
+        text: schedule.text,
+        workspaceMode: 'knowledge',
+        permissionPreset: 'read-only',
+        executionConfig: { executionMode: schedule.mode }
+      });
+    }
   });
 
   await createWindow();

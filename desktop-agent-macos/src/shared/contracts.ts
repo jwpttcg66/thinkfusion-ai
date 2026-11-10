@@ -68,6 +68,9 @@ export const TOOL_NAMES = [
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'session.search', 'plugin.inspect',
+  'goal.create', 'goal.get', 'goal.update',
+  'schedule.create', 'schedule.edit', 'schedule.list', 'schedule.view',
+  'team.spawn', 'team.task.create', 'team.task.get', 'team.task.list', 'team.task.update', 'team.wait',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
@@ -93,8 +96,10 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'ask.user',
   // tsc --noEmit 不写盘；eslint 不传 --cache。诊断属于「看」，不属于「改」。
   'code.diagnostics',
-  // 只读主进程查询：会话检索与能力清单，都不改任何状态。
-  'session.search', 'plugin.inspect'
+  // 只读主进程查询：会话检索、能力清单、目标/任务板读取，都不改任何状态。
+  'session.search', 'plugin.inspect',
+  'goal.get', 'schedule.list', 'schedule.view',
+  'team.task.get', 'team.task.list', 'team.wait'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
@@ -105,7 +110,9 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run',
-  'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list'
+  'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
+  'goal.create', 'goal.update', 'schedule.create', 'schedule.edit',
+  'team.spawn', 'team.task.create', 'team.task.update'
 ];
 
 /** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */
@@ -636,6 +643,107 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
     }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('goal.create'),
+    args: z.object({ text: z.string().min(1).max(500) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('goal.get'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('goal.update'),
+    args: z.object({
+      status: z.enum(['active', 'blocked', 'done']),
+      note: z.string().max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('schedule.create'),
+    args: z.object({
+      text: z.string().min(1).max(2000),
+      mode: z.enum(['local', 'cloud']),
+      at: z.number().int().positive().optional(),
+      repeatMinutes: z.number().int().min(5).max(10_080).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('schedule.edit'),
+    args: z.object({
+      id: z.string().min(1).max(80),
+      text: z.string().min(1).max(2000).optional(),
+      mode: z.enum(['local', 'cloud']).optional(),
+      at: z.number().int().positive().optional(),
+      repeatMinutes: z.number().int().min(5).max(10_080).optional(),
+      enabled: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('schedule.list'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('schedule.view'),
+    args: z.object({ id: z.string().min(1).max(80) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.spawn'),
+    args: z.object({ members: z.array(z.string().min(1).max(80)).min(1).max(8) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.task.create'),
+    args: z.object({
+      title: z.string().min(1).max(200),
+      detail: z.string().max(1000).optional(),
+      assignee: z.string().min(1).max(80).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.task.get'),
+    args: z.object({ id: z.string().min(1).max(80) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.task.list'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.task.update'),
+    args: z.object({
+      id: z.string().min(1).max(80),
+      status: z.enum(['todo', 'doing', 'done', 'blocked']),
+      note: z.string().max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('team.wait'),
+    args: z.object({ timeoutMs: z.number().int().min(1000).max(120_000).optional() }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({

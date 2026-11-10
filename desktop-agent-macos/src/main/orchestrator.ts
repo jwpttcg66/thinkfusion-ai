@@ -221,7 +221,8 @@ export class AgentOrchestrator {
     try {
       report = await runPlan(plan, grant, this.deps.dbPath(), task.timeoutMs, {
         roundId: stored.roundId,
-        planId: stored.planId
+        planId: stored.planId,
+        ...(task.conversationId ? { conversationId: task.conversationId } : {})
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

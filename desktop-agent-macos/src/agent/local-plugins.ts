@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：66 个工具（63 个本地 + `web.fetch` / `web.search` /
+ * Runtime 这一半的能力插件：79 个工具（76 个本地 + `web.fetch` / `web.search` /
  * `dns.lookup` 三个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -203,6 +203,14 @@ const PLUGINS = [
     if (!ctx.callMain) throw new Error('当前执行环境没有接入主进程桥，plugin.inspect 不可用');
     return ok(await ctx.callMain('plugin.inspect', args));
   }),
+
+  ...(['goal.create', 'goal.get', 'goal.update',
+    'schedule.create', 'schedule.edit', 'schedule.list', 'schedule.view',
+    'team.spawn', 'team.task.create', 'team.task.get', 'team.task.list', 'team.task.update', 'team.wait'] as const)
+    .map(id => local(id, async (args, ctx) => {
+      if (!ctx.callMain) throw new Error(`当前执行环境没有接入主进程桥，${id} 不可用`);
+      return ok(await ctx.callMain(id, args));
+    })),
 
   local('ask.user', async (args: AskUserInput, ctx) => {
     if (!ctx.ask) throw new Error('当前执行环境没有接入提问通道，ask.user 不可用');
