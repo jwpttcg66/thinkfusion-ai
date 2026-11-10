@@ -394,8 +394,24 @@ export function ConversationView(props: {
                 </div>
               )}
 
+              {live && turnIndex === turns.length - 1 && (
+                <LiveChannelGrid
+                  messages={turns[turnIndex].blocks.flatMap(block => (block.kind === 'answers' ? block.messages : []))}
+                  deltas={props.deltas ?? {}}
+                  channels={conversation.channels}
+                  phases={props.phases}
+                  answered={answered}
+                  labels={labels}
+                />
+              )}
+
               {turn.blocks.map(block => {
-                if (block.kind === 'answers') return <ChannelGrid key={block.key} messages={block.messages} labels={labels} />;
+                if (block.kind === 'answers') {
+                  // 进行中的那一轮由上方的统一网格负责，避免同一批卡片渲染两次。
+                  return live && turnIndex === turns.length - 1
+                    ? null
+                    : <ChannelGrid key={block.key} messages={block.messages} labels={labels} />;
+                }
                 // 综合结论固定放在这一轮的最下面：它要压在所有回答和第二轮
                 // 进度条之后，读者看完过程再看到结论，而不是先读结论再读过程。
                 if (block.kind === 'synthesis') return null;
@@ -430,10 +446,6 @@ export function ConversationView(props: {
             </section>
           );
         })}
-
-        {props.deltas && Object.values(props.deltas).some(delta => delta.text || delta.reasoning) && (
-          <LiveAnswers deltas={props.deltas} labels={labels} />
-        )}
 
         {props.busy && conversation.status !== 'synthesizing' && (
           <div className="conv-working">
@@ -497,7 +509,9 @@ function groupTurns(messages: ConversationMessage[]): Array<{
     >;
   }> = [];
 
-  for (const message of messages) {
+  // 按时间排一遍：落盘顺序不一定等于发生顺序（并行回答是「谁先完成谁先写」），
+  // 重开旧会话时更要保证时间轴是从早到晚。
+  for (const message of [...messages].sort((left, right) => left.at - right.at)) {
     if (message.role === 'user') {
       turns.push({ key: `turn-${message.messageId}`, user: message, blocks: [] });
       continue;
@@ -631,28 +645,86 @@ function ChannelReasoning({ text, live = false }: { text: string; live?: boolean
   );
 }
 
-function LiveAnswers(props: {
-  deltas: Record<string, { text: string; reasoning: string; done: boolean }>;
+function AnswerCard({ message, labels }: { message: ConversationMessage; labels: ReadonlyMap<string, string> }) {
+  return (
+    <article className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
+      <header className="channel-card-head">
+        <span className="channel-dot" />
+        <b>{labelOf(message.channelId, labels)}</b>
+        <span className="channel-chars">{message.text.length} 字</span>
+      </header>
+      {message.reasoning && <ChannelReasoning text={message.reasoning} />}
+      <div className="channel-card-body">
+        <MarkdownBody text={message.text} />
+      </div>
+    </article>
+  );
+}
+
+function LiveCard({
+  channelId,
+  delta,
+  labels
+}: {
+  channelId: string;
+  delta: { text: string; reasoning: string; done: boolean } | undefined;
   labels: ReadonlyMap<string, string>;
 }) {
-  const entries = Object.entries(props.deltas).filter(([, delta]) => delta.text || delta.reasoning);
+  return (
+    <article className={`channel-card ch-${channelId} is-live`}>
+      <header className="channel-card-head">
+        <span className="channel-dot" />
+        <b>{labelOf(channelId, labels)}</b>
+        <span className="channel-chars">{delta?.done ? '收尾中' : '写作中'}</span>
+      </header>
+      {/* 思考条从卡片出现就在，不等到第一块推理才插进来——插进来会把下面的
+          正文整体推下去，看起来就是「突然出现在最上方」。 */}
+      <details className="channel-reasoning is-live">
+        <summary>{delta?.reasoning ? `思考中（${delta.reasoning.length} 字）` : '思考中…'}</summary>
+        <pre>{delta?.reasoning ?? ''}</pre>
+      </details>
+      <div className="channel-card-body">
+        {delta?.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
+        {!delta?.done && <span className="stream-cursor" aria-hidden="true" />}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * 进行中的一轮：落盘的卡片和还在写的卡片放在**同一个网格、同一个顺序**里。
+ *
+ * 顺序取这一轮被问到的成员顺序（`conversation.channels`），不是「谁先答完谁
+ * 先出现」。否则并行成员会一张张插进来、答完后又要从下面的实时区挪到上面的
+ * 回答区，用户看到的就是界面乱跳。
+ */
+function LiveChannelGrid(props: {
+  messages: ConversationMessage[];
+  deltas: Record<string, { text: string; reasoning: string; done: boolean }>;
+  channels: readonly string[];
+  phases: Record<string, { phase: string; detail?: string; at?: number }>;
+  answered: ReadonlySet<string>;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const byChannel = new Map(props.messages.map(message => [message.channelId ?? '', message]));
+  const order = props.channels.length > 0
+    ? [...props.channels, ...[...byChannel.keys()].filter(id => !props.channels.includes(id))]
+    : [...byChannel.keys()];
+  const entries = order
+    .map(channelId => ({ channelId, message: byChannel.get(channelId) }))
+    .filter(entry => {
+      if (entry.message) return true;
+      const phase = props.phases[entry.channelId]?.phase;
+      return Boolean(props.deltas[entry.channelId]) || phase === 'asking' || phase === 'leading';
+    });
   if (entries.length === 0) return null;
   return (
-    <div className="channel-grid live-answers">
-      {entries.map(([channelId, delta]) => (
-        <article key={channelId} className={`channel-card ch-${channelId} is-live`}>
-          <header className="channel-card-head">
-            <span className="channel-dot" />
-            <b>{labelOf(channelId, props.labels)}</b>
-            <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
-          </header>
-          {delta.reasoning && <ChannelReasoning text={delta.reasoning} live />}
-          <div className="channel-card-body">
-            {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
-            {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
-          </div>
-        </article>
-      ))}
+    <div className="channel-grid">
+      {entries.map(({ channelId, message }) =>
+        message
+          ? <AnswerCard key={channelId} message={message} labels={props.labels} />
+          : <LiveCard key={channelId} channelId={channelId} delta={props.deltas[channelId]} labels={props.labels} />
+      )}
     </div>
   );
 }
@@ -660,19 +732,7 @@ function LiveAnswers(props: {
 function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">
-      {messages.map(message => (
-        <article key={message.messageId} className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
-          <header className="channel-card-head">
-            <span className="channel-dot" />
-            <b>{labelOf(message.channelId, labels)}</b>
-            <span className="channel-chars">{message.text.length} 字</span>
-          </header>
-          {message.reasoning && <ChannelReasoning text={message.reasoning} />}
-          <div className="channel-card-body">
-            <MarkdownBody text={message.text} />
-          </div>
-        </article>
-      ))}
+      {messages.map(message => <AnswerCard key={message.messageId} message={message} labels={labels} />)}
     </div>
   );
 }
