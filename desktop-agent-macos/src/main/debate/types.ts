@@ -162,6 +162,8 @@ export interface DebateMessage {
   kind: DebateMessageKind;
   /** 模型原文，不被摘要、不被覆盖。 */
   text: string;
+  /** 这条发言的推理内容；本地/云端模型有，网页没有。 */
+  reasoning?: string;
   /** 质疑/反驳/修正针对哪一条发言。 */
   targetMessageId?: string;
   /**

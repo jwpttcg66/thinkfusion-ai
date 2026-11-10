@@ -139,6 +139,8 @@ export interface TraceEntry {
   /** 有界预览；全文在消息表 / 证据 / 执行报告里。 */
   inputPreview?: string;
   outputPreview?: string;
+  /** 这一步的推理内容（有界预览）；没有就是没有，不拿「正在思考」冒充。 */
+  reasoning?: string;
   messageId?: string;
   /** 父步骤：工具调用、追加轮里的回答指向所属步。 */
   parentStep?: number;
@@ -169,6 +171,7 @@ export interface TraceStep {
   usage: TraceUsage | null;
   inputPreview: string | null;
   outputPreview: string | null;
+  reasoning: string | null;
   messageId?: string;
   parentStep?: number;
   error?: TraceError;
@@ -354,6 +357,7 @@ function entryToStep(entry: TraceEntry, kind: 'step' | 'event'): TraceStep {
     usage: entry.usage ?? null,
     inputPreview: entry.inputPreview ?? null,
     outputPreview: entry.outputPreview ?? null,
+    reasoning: entry.reasoning ?? null,
     ...(entry.messageId ? { messageId: entry.messageId } : {}),
     ...(isNumber(entry.parentStep) ? { parentStep: entry.parentStep } : {}),
     ...(entry.error ? { error: entry.error } : {}),

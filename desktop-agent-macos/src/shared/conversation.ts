@@ -106,7 +106,7 @@ export interface DebateSnapshot {
   rounds: Array<{
     index: number;
     phase: string;
-    messages: Array<{ author: string; kind: string; text: string }>;
+    messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
   }>;
 }
 
@@ -407,7 +407,7 @@ export type ConversationEvent = { at: number } & (
       rounds: Array<{
         index: number;
         phase: string;
-        messages: Array<{ author: string; kind: string; text: string }>;
+        messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
       }>;
       stopReason?: string;
     }

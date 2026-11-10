@@ -216,6 +216,7 @@ export class TraceRecorder {
                 ? { firstTokenAt: saved.answer.firstTokenAt }
                 : {}),
               outputPreview: saved.answer.text,
+              ...(saved.answer.reasoning ? { reasoning: saved.answer.reasoning } : {}),
               messageId: saved.messageId,
               meta: {
                 outputChars: saved.answer.text.length,
@@ -326,6 +327,8 @@ export class TraceRecorder {
       firstTokenAt?: number;
       usage?: TraceUsage | null;
       outputPreview?: string;
+      /** 这一步的推理内容；有界预览，界面折叠显示。 */
+      reasoning?: string;
       messageId?: string;
       error?: TraceError;
       meta?: TraceMeta;
@@ -345,6 +348,7 @@ export class TraceRecorder {
       ...(typeof input.firstTokenAt === 'number' ? { firstTokenAt: input.firstTokenAt } : {}),
       ...(input.usage !== undefined ? { usage: input.usage ?? undefined } : {}),
       ...(input.outputPreview ? { outputPreview: preview(input.outputPreview, 4000) ?? undefined } : {}),
+      ...(input.reasoning ? { reasoning: preview(input.reasoning, 4000) ?? undefined } : {}),
       ...(input.messageId ? { messageId: input.messageId } : {}),
       ...(input.error ? { error: input.error } : {}),
       ...(input.meta ? { meta: input.meta } : {}),

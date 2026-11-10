@@ -3921,7 +3921,8 @@ app.whenReady().then(async () => {
             messages: round.messages.map(message => ({
               author: message.agentId,
               kind: message.kind,
-              text: message.text.length > 1200 ? `${message.text.slice(0, 1200)}…` : message.text
+              text: message.text.length > 1200 ? `${message.text.slice(0, 1200)}…` : message.text,
+              ...(message.reasoning ? { reasoning: message.reasoning } : {})
             }))
           }))
         });
@@ -3942,6 +3943,7 @@ app.whenReady().then(async () => {
             author: labelOf(message.agentId),
             kind: message.kind,
             text: message.text,
+            ...(message.reasoning ? { reasoning: message.reasoning } : {}),
             agentId: message.agentId,
             createdAt: message.createdAt,
             ...(typeof message.startedAt === 'number' ? { startedAt: message.startedAt } : {}),

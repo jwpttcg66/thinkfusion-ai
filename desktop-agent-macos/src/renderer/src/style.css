@@ -4238,6 +4238,19 @@ button:disabled {
 @keyframes stream-blink { 50% { opacity: 0; } }
 .channel-card.is-live { border-style: dashed; }
 
+.trace-reasoning-toggle { padding: 0 6px; font-size: 11px; }
+.trace-reasoning-row td { background: #f7f8ff; padding: 10px 14px; }
+.trace-reasoning-row pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
 .debate-panel {
   border: 1px solid var(--line-strong);
   border-radius: 10px;

@@ -244,7 +244,7 @@ export interface ConversationDeps {
       snapshot?: Array<{
         index: number;
         phase: string;
-        messages: Array<{ author: string; kind: string; text: string }>;
+        messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
       }>;
     }) => void;
     /**
@@ -261,6 +261,7 @@ export interface ConversationDeps {
         author: string;
         kind: string;
         text: string;
+        reasoning?: string;
         agentId?: string;
         createdAt?: number;
         startedAt?: number;
@@ -342,7 +343,7 @@ export interface ExecutionStageResult {
     debateId: string;
     rounds: Array<{
       index: number;
-      messages: Array<{ author: string; kind: string; text: string }>;
+      messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
       failures?: Array<{ agentId: string; detail: string }>;
     }>;
     status: string;
@@ -2130,7 +2131,8 @@ export class ConversationRunner {
             messages: round.messages.map(message => ({
               author: message.author,
               kind: message.kind,
-              text: message.text
+              text: message.text,
+              ...(message.reasoning ? { reasoning: message.reasoning } : {})
             }))
           }))
         }
@@ -2302,6 +2304,7 @@ export class ConversationRunner {
       trace?.endStep(leadStep, {
         status: summaryText ? 'ok' : 'skipped',
         usage: answer.usage ?? null,
+        ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
         ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
         ...(text ? { outputPreview: text } : {}),
         meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
@@ -2421,6 +2424,7 @@ export class ConversationRunner {
               });
               trace?.endStep(messageStep, {
                 status: 'ok',
+                ...(message.reasoning ? { reasoning: message.reasoning } : {}),
                 ...(typeof message.endedAt === 'number'
                   ? { endedAt: message.endedAt }
                   : typeof message.createdAt === 'number'
@@ -2473,6 +2477,7 @@ export class ConversationRunner {
         trace?.endStep(verdictStep, {
           status: verdictText ? 'ok' : 'skipped',
           usage: answer.usage ?? null,
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
           ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
           ...(text ? { outputPreview: text } : {}),
           meta: text ? { outputChars: text.length } : { code: 'empty-verdict' }

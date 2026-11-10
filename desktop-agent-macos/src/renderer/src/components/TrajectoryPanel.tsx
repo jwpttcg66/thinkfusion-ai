@@ -328,6 +328,7 @@ function TurnSection(props: {
                 <th>阶段</th>
                 <th>参与者</th>
                 <th>状态</th>
+                <th>思考</th>
                 <th>输入</th>
                 <th>输出</th>
                 <th>用时</th>
@@ -356,7 +357,9 @@ function TurnSection(props: {
 
 function TraceRow(props: { step: TraceStep; selected: boolean; onSelect: () => void }) {
   const { step } = props;
+  const [showReasoning, setShowReasoning] = React.useState(false);
   return (
+    <>
     <tr
       className={`trace-row${props.selected ? ' is-selected' : ''}`}
       onClick={props.onSelect}
@@ -375,6 +378,22 @@ function TraceRow(props: { step: TraceStep; selected: boolean; onSelect: () => v
         <span className={`trace-source s-${step.sourceType}`}>{step.sourceType}</span>
       </td>
       <td><span className={`trace-status s-${step.status}`}>{STATUS_LABEL[step.status]}</span></td>
+      <td>
+        {step.reasoning
+          ? (
+            <button
+              type="button"
+              className="btn ghost trace-reasoning-toggle"
+              onClick={event => {
+                event.stopPropagation();
+                setShowReasoning(value => !value);
+              }}
+            >
+              {showReasoning ? '收起' : `查看（${step.reasoning.length} 字）`}
+            </button>
+          )
+          : '—'}
+      </td>
       <td className="trace-preview" title={step.inputPreview ?? ''}>{step.inputPreview ?? '—'}</td>
       <td className="trace-preview" title={step.outputPreview ?? ''}>{step.outputPreview ?? step.error?.detail ?? '—'}</td>
       <td>{formatMs(step.durationMs)}</td>
@@ -385,6 +404,14 @@ function TraceRow(props: { step: TraceStep; selected: boolean; onSelect: () => v
       </td>
       <td className="trace-time">{formatTime(step.startedAt)}</td>
     </tr>
+    {showReasoning && step.reasoning && (
+      <tr className="trace-reasoning-row">
+        <td colSpan={10}>
+          <pre>{step.reasoning}</pre>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

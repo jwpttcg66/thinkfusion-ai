@@ -966,6 +966,7 @@ function DebatePanel({
               <span className="debate-who">
                 {labelOf(message.author, labels)} · {message.kind}
               </span>
+              {message.reasoning && <ChannelReasoning text={message.reasoning} />}
               <p>{message.text}</p>
             </div>
           ))}

@@ -451,6 +451,7 @@ export class DebateOrchestrator {
           role,
           kind,
           text: answer.text,
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
           targetMessageId,
           threadUrl: answer.threadUrl,
           // 页面读到的引用链接跟着发言一起落盘：证据要能回答「这条来源
