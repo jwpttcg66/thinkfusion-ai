@@ -62,7 +62,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     goal: '回答「有什么 / 在哪 / 谁用谁 / 改它会波及什么」，位置能点回去。',
     tools: [
       'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat',
-      'fs.readImage', 'fs.du', 'project.dependencies', 'project.outline',
+      'fs.readImage', 'fs.du', 'code.diagnostics', 'project.dependencies', 'project.outline',
       'git.status', 'git.diff', 'git.log', 'git.show', 'json.query',
       'web.fetch', 'web.search', 'dns.lookup',
       'project.scan', 'project.read', 'file.attach', 'web.search.browser'

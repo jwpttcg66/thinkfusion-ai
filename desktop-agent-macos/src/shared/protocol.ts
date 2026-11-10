@@ -563,6 +563,10 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  拼 node -e 一行命令（引号一错就变成另一段程序）。
                  · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
                  · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
+- code.diagnostics: { "path"?: string, "maxItems"?: number, "timeoutMs"?: number }
+                 在工程里跑已安装的 tsc / eslint，返回归一化的问题列表（path / line / severity / message / source）。
+                 · 不装依赖、不用 npx；没有检查器时返回 skipped 并说明原因，不要当作「没有问题」。
+                 · 退出码非 0 是「有诊断问题」，不是工具失败。
 - ask.user:     { "question": string, "options"?: string[], "allowFreeText"?: boolean, "timeoutMs"?: number }
                  执行到一半必须由用户决定时用它：用哪个目录、要不要覆盖、两个方案选哪个。
                  · 每份计划最多 3 次；已经写清楚的事不要再问。

@@ -65,7 +65,7 @@ export const TOOL_NAMES = [
   'env.read', 'port.list', 'app.list', 'window.list', 'dns.lookup', 'time.now',
   'process.tree',
   'fs.du',
-  'test.run', 'shell.run', 'ask.user',
+  'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
@@ -88,7 +88,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'env.read', 'port.list', 'app.list', 'window.list', 'time.now', 'process.tree', 'fs.du',
   'system.info', 'process.list', 'clipboard.read',
   // 提问不改本机，但会阻塞计划；只读档位下允许，因为它反而是在收敛风险。
-  'ask.user'
+  'ask.user',
+  // tsc --noEmit 不写盘；eslint 不传 --cache。诊断属于「看」，不属于「改」。
+  'code.diagnostics'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
@@ -628,6 +630,16 @@ export const StepSchema = z.discriminatedUnion('tool', [
       timeoutMs: z.number().int().min(1000).max(300_000).optional(),
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.diagnostics'),
+    args: z.object({
+      path: RelativePath.optional(),
+      maxItems: z.number().int().min(1).max(200).optional(),
+      timeoutMs: z.number().int().min(1000).max(300_000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),

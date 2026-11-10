@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：57 个工具（54 个本地 + `web.fetch` / `web.search` /
+ * Runtime 这一半的能力插件：58 个工具（55 个本地 + `web.fetch` / `web.search` /
  * `dns.lookup` 三个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -32,6 +32,7 @@ import { systemTools } from './tools/system';
 import { webFetch } from './tools/web-fetch';
 import { webSearch } from './tools/web-search';
 import { runCode } from './tools/code-run';
+import { runDiagnostics } from './tools/diagnostics';
 import { jobOutput, killJob, listJobs } from './tools/jobs';
 import { browserSearchCapability } from './browser-search-bridge';
 import { verifyWrittenFile } from './verify';
@@ -174,6 +175,8 @@ const PLUGINS = [
     }
     return ok(run);
   }),
+
+  local('code.diagnostics', async (args, ctx) => ok(await runDiagnostics(ctx.grant.rootDir, args))),
 
   local('ask.user', async (args: AskUserInput, ctx) => {
     if (!ctx.ask) throw new Error('当前执行环境没有接入提问通道，ask.user 不可用');

@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 57 个工具（54 个本地 + 3 个联网），主进程装载工程证据
+ * Runtime 进程装载 58 个工具（55 个本地 + 3 个联网），主进程装载工程证据
  * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 63 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 64 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -115,6 +115,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'process.tree': ['进程树', '按父子关系展开进程，depth 表示层级'],
   'fs.du': ['目录体积', '各直接子项占多少字节与文件数，符号链接不跟随'],
   'ask.user': ['向用户提问', '执行中需要确认时暂停计划向用户提问；超时或取消返回 answered:false'],
+  'code.diagnostics': ['语言诊断', '跑工程里已装的 tsc / eslint，把问题归一成路径、行号、严重级与说明'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 
@@ -188,7 +189,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：57 个 Runtime 工具 + 6 个主进程能力，合计 63。设置页只认这一份。 */
+/** 全量清单：58 个 Runtime 工具 + 6 个主进程能力，合计 64。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

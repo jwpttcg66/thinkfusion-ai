@@ -48,7 +48,7 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 18, packageName: 'dsh-tool-bash-persistent', tool: 'bash', family: 'runtime.exec', ours: '无持久 cwd', layer: 'L2', note: 'P5：shell.run + job.* 顶一半' },
   { index: 19, packageName: 'dsh-tool-pwsh', tool: 'pwsh', family: 'runtime.exec', ours: '无', layer: 'L3', note: 'darwin 产品没有 PowerShell' },
   { index: 20, packageName: 'dsh-tool-pwsh-persistent', tool: 'pwsh', family: 'runtime.exec', ours: '无', layer: 'L3', note: 'darwin 产品没有持久 PowerShell' },
-  { index: 21, packageName: 'dsh-tool-lsp', tool: 'lsp', family: 'runtime.exec', ours: '无语言服务器', layer: 'L2', note: 'P5：先做 code.diagnostics' },
+  { index: 21, packageName: 'dsh-tool-lsp', tool: 'lsp', family: 'runtime.exec', ours: 'code.diagnostics', layer: 'L0', note: 'tsc / eslint 输出归一，不常驻语言服务器' },
   { index: 22, packageName: 'dsh-tool-working-directory', tool: 'working_directory', family: 'runtime.exec', ours: 'workspaceRoot', layer: 'L1', note: '会话级 workspaceRoot 承担' },
   { index: 23, packageName: 'dsh-tool-terminal', tool: 'terminal_open', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.open' },
   { index: 24, packageName: 'dsh-tool-terminal', tool: 'terminal_read', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.read' },
