@@ -516,6 +516,9 @@ export default function App() {
         setMessages(prev =>
           prev.some(item => item.messageId === event.message.messageId) ? prev : [...prev, event.message]
         );
+        // 综合结论落盘时，主导人的流式预览必须让位：它的最终文本变成了
+        // synthesis 消息，不会再有一条 channel 消息来清掉它。
+        if (event.message.synthesis) setAnswerDeltas({});
         if (event.message.role === 'channel' && event.message.channelId) {
           const channelId = event.message.channelId;
           setAnswerDeltas(prev => {

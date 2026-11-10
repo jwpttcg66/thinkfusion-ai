@@ -621,9 +621,9 @@ function tagOfChannel(tags: OpinionTag[], channelId: string | undefined): Opinio
  * default pane two 240px cards still fit, and when the pane is dragged wider
  * they stay readable instead of stretching into unreadable lines.
  */
-function ReasoningBar({ text, live = false }: { text: string; live?: boolean }) {
+function ChannelReasoning({ text, live = false }: { text: string; live?: boolean }) {
   return (
-    <details className="reasoning-bar" open={live}>
+    <details className={`channel-reasoning${live ? ' is-live' : ''}`} open={live}>
       <summary>{live ? '思考中' : '思考过程'}（{text.length} 字）</summary>
       <pre>{text}</pre>
     </details>
@@ -639,20 +639,18 @@ function LiveAnswers(props: {
   return (
     <div className="channel-grid live-answers">
       {entries.map(([channelId, delta]) => (
-        <div key={channelId} className="channel-block">
-          {delta.reasoning && <ReasoningBar text={delta.reasoning} live />}
-          <article className={`channel-card ch-${channelId} is-live`}>
-            <header className="channel-card-head">
-              <span className="channel-dot" />
-              <b>{labelOf(channelId, props.labels)}</b>
-              <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
-            </header>
-            <div className="channel-card-body">
-              {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
-              {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
-            </div>
-          </article>
-        </div>
+        <article key={channelId} className={`channel-card ch-${channelId} is-live`}>
+          <header className="channel-card-head">
+            <span className="channel-dot" />
+            <b>{labelOf(channelId, props.labels)}</b>
+            <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
+          </header>
+          {delta.reasoning && <ChannelReasoning text={delta.reasoning} live />}
+          <div className="channel-card-body">
+            {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
+            {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
+          </div>
+        </article>
       ))}
     </div>
   );
@@ -662,19 +660,17 @@ function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; la
   return (
     <div className="channel-grid">
       {messages.map(message => (
-        <div key={message.messageId} className="channel-block">
-          {message.reasoning && <ReasoningBar text={message.reasoning} />}
-          <article className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
-            <header className="channel-card-head">
-              <span className="channel-dot" />
-              <b>{labelOf(message.channelId, labels)}</b>
-              <span className="channel-chars">{message.text.length} 字</span>
-            </header>
-            <div className="channel-card-body">
-              <MarkdownBody text={message.text} />
-            </div>
-          </article>
-        </div>
+        <article key={message.messageId} className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
+          <header className="channel-card-head">
+            <span className="channel-dot" />
+            <b>{labelOf(message.channelId, labels)}</b>
+            <span className="channel-chars">{message.text.length} 字</span>
+          </header>
+          {message.reasoning && <ChannelReasoning text={message.reasoning} />}
+          <div className="channel-card-body">
+            <MarkdownBody text={message.text} />
+          </div>
+        </article>
       ))}
     </div>
   );
