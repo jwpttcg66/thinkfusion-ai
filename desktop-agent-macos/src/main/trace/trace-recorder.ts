@@ -286,6 +286,8 @@ export class TraceRecorder {
     parentStep?: number;
     refs?: TraceRef[];
     meta?: TraceMeta;
+    /** 历史步骤的真实开始时间；不传就是现在。 */
+    startedAt?: number;
   }): StepHandle | undefined {
     if (this.closed) return undefined;
     this.step += 1;
@@ -301,7 +303,7 @@ export class TraceRecorder {
       actorId: input.actorId,
       actorLabel: input.actorLabel,
       sourceType: input.sourceType,
-      startedAt: this.clock(),
+      startedAt: input.startedAt ?? this.clock(),
       ...(input.modelId ? { modelId: input.modelId } : {}),
       ...(input.inputPreview
         ? { inputPreview: preview(input.inputPreview) ?? undefined }

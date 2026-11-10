@@ -247,6 +247,10 @@ test('修正另存一条、带 targetMessageId，原发言不被覆盖', async (
   assert.equal(state.rounds[2].messages[0].kind, 'revision');
   assert.ok(state.rounds[2].messages[0].targetMessageId, '修正要指向被质疑的那条');
   assert.equal(state.rounds[0].messages[0].text.length > 0, true);
+  assert.ok(
+    state.rounds[0].messages[0].startedAt <= state.rounds[0].messages[0].endedAt,
+    '逐条发言要有起止时间，轨迹才能显示谁在哪一轮慢'
+  );
   h.cleanup();
 });
 

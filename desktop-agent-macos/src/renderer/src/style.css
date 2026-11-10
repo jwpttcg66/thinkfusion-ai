@@ -4556,3 +4556,105 @@ button:disabled {
   align-self: center;
   margin: 4px 0;
 }
+
+/* 轨迹时间概览：横轴是真实墙上时间，拖选过滤表格。 */
+.trace-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+  background: #fcfcfd;
+  user-select: none;
+}
+
+.trace-timeline-axis {
+  position: relative;
+  height: 14px;
+  margin-left: 92px;
+  color: var(--text-3);
+  font-size: 9.5px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.trace-timeline-axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.trace-timeline-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-timeline-name {
+  width: 84px;
+  flex: 0 0 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 10.5px;
+}
+
+.trace-timeline-track {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  border-radius: 5px;
+  background: #f1f2f4;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.trace-timeline-bar {
+  position: absolute;
+  top: 3px;
+  height: 12px;
+  min-width: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: #9aa8c7;
+  cursor: pointer;
+}
+
+.trace-timeline-bar.s-ok { background: #6f9f7a; }
+.trace-timeline-bar.s-failed { background: #c9736a; }
+.trace-timeline-bar.s-busy { background: #c9a45e; }
+.trace-timeline-bar.s-running { background: #7f93c9; opacity: 0.65; }
+.trace-timeline-bar.s-skipped { background: #b9b9bf; }
+.trace-timeline-bar.s-cancelled,
+.trace-timeline-bar.s-interrupted { background: #9b83ad; }
+.trace-timeline-bar.is-selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+.trace-timeline-bar.is-running {
+  background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.35) 0 3px, transparent 3px 6px);
+}
+
+.trace-timeline-brush {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(77, 107, 254, 0.16);
+  border-left: 1px solid rgba(77, 107, 254, 0.5);
+  border-right: 1px solid rgba(77, 107, 254, 0.5);
+  pointer-events: none;
+}
+
+.trace-timeline-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 92px;
+  color: var(--accent);
+  font-size: 10.5px;
+}
+
+.trace-timeline-range .btn {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+}

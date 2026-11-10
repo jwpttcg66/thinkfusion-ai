@@ -71,7 +71,19 @@ const DEFAULTS = {
 
 interface ChatCompletion {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string }; finish_reason?: string | null }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    /** OpenAI: 命中缓存的提示词 token。 */
+    prompt_tokens_details?: { cached_tokens?: number };
+    /** DeepSeek 等网关的扁平写法。 */
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
+    /** 部分网关（含 OpenCode 翻译层）的 Anthropic 风格写法。 */
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
   error?: { message?: string; type?: string };
 }
 
@@ -80,6 +92,8 @@ export interface UsageRecord {
   modelId: string;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   cost: { amount: number; currency: string } | null;
 }
 
@@ -184,7 +198,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
     const data = await this.withRetry(body, signal) as ChatCompletion;
     const text = data.choices?.[0]?.message?.content ?? '';
-    const usage = this.usageOf(data.usage?.prompt_tokens, data.usage?.completion_tokens, model);
+    const usage = this.usageOf(
+      data.usage?.prompt_tokens,
+      data.usage?.completion_tokens,
+      model,
+      this.cacheOf(data.usage)
+    );
     this.record(usage, model);
     return { text, providerId: this.id, modelId: model, usage, latencyMs: this.now() - started };
   }
@@ -206,7 +225,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
         const piece = chunk.choices?.[0]?.delta?.content;
         if (piece) yield piece;
       }
-      const usage = this.usageOf(lastUsage?.prompt_tokens, lastUsage?.completion_tokens, model);
+      const usage = this.usageOf(
+        lastUsage?.prompt_tokens,
+        lastUsage?.completion_tokens,
+        model,
+        this.cacheOf(lastUsage)
+      );
       this.record(usage, model);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
@@ -256,7 +280,16 @@ export class OpenAICompatibleProvider implements ModelProvider {
     };
   }
 
-  private record(usage: { inputTokens: number | null; outputTokens: number | null; cost: { amount: number; currency: string } | null }, model: string): void {
+  private record(
+    usage: {
+      inputTokens: number | null;
+      outputTokens: number | null;
+      cacheReadTokens: number | null;
+      cacheWriteTokens: number | null;
+      cost: { amount: number; currency: string } | null;
+    },
+    model: string
+  ): void {
     this.usageLog.push({ at: this.now(), modelId: model, ...usage });
   }
 
@@ -281,8 +314,32 @@ export class OpenAICompatibleProvider implements ModelProvider {
     }
   }
 
+  /** 缓存 token：各网关字段名不同，能读到就记，读不到保持 null。 */
+  private cacheOf(usage: ChatCompletion['usage']): {
+    cacheReadTokens: number | null;
+    cacheWriteTokens: number | null;
+  } {
+    const read =
+      usage?.prompt_tokens_details?.cached_tokens ??
+      usage?.prompt_cache_hit_tokens ??
+      usage?.cache_read_input_tokens;
+    const write = usage?.cache_creation_input_tokens;
+    return {
+      cacheReadTokens: typeof read === 'number' ? read : null,
+      cacheWriteTokens: typeof write === 'number' ? write : null
+    };
+  }
+
   /** 单价配置缺失时返回 null，不写 0——「不知道费用」和「免费」是两回事。 */
-  private usageOf(input: number | undefined, output: number | undefined, model: string) {
+  private usageOf(
+    input: number | undefined,
+    output: number | undefined,
+    model: string,
+    cache: { cacheReadTokens: number | null; cacheWriteTokens: number | null } = {
+      cacheReadTokens: null,
+      cacheWriteTokens: null
+    }
+  ) {
     const inputTokens = typeof input === 'number' ? input : null;
     const outputTokens = typeof output === 'number' ? output : null;
     const rule = this.pricing[model];
@@ -293,7 +350,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         currency: rule.currency
       };
     }
-    return { inputTokens, outputTokens, cost };
+    return { inputTokens, outputTokens, ...cache, cost };
   }
 
   private body(question: string, model: string, stream: boolean, context?: string[], system?: string[]) {

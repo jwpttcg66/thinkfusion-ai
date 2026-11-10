@@ -47,21 +47,31 @@ function sink() {
   };
 }
 
-// 1–4 执行模式（2026-11-05 定稿：回答永远来自网页；模式 = 谁当主导人）
+// 1–4 执行模式（2026-11-09 更新：模式同时决定谁回答，本地/云端主导不问网页）
 const web = [webAgent('chatgpt'), webAgent('kimi')];
 const local = new ProviderBackedSubAgent(provider('local', 'ollama'), 'qwen2.5:7b');
 const cloud = new ProviderBackedSubAgent(provider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
+const expectedAnswers = {
+  web: ['chatgpt', 'kimi'],
+  hybrid: ['chatgpt', 'kimi'],
+  local: [local.id],
+  cloud: [cloud.id]
+};
 
 for (const mode of ['web', 'local', 'cloud', 'hybrid']) {
-  test(`场景 ${mode} 主导：回答名单是网页通道，本地/云端进执行名单当主导与辩手`, () => {
+  test(`场景 ${mode} 主导：第一手回答按执行模式归属，本地/云端同时进执行名单`, () => {
     const config = normalizeExecutionConfig({ executionMode: mode });
     const selection = selectParticipants(config, web, extra);
-    assert.deepEqual([...selection.answerIds].sort(), ['chatgpt', 'kimi'], '回答永远来自网页通道');
+    assert.deepEqual(
+      [...selection.answerIds].sort(),
+      [...expectedAnswers[mode]].sort(),
+      '网页/混合由网页回答；本地/云端主导由对应模型回答，不问网页'
+    );
     assert.deepEqual(
       [...selection.executorIds].sort(),
       [local.id, cloud.id].sort(),
-      '本地与云端都是执行阶段成员（可当主导/辩手），只是不回答问题'
+      '本地与云端都是执行阶段成员（可当主导/辩手）'
     );
   });
 }

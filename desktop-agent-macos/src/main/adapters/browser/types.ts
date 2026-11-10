@@ -32,6 +32,13 @@ export interface AdapterAnswer {
   text: string;
   receivedAt: number;
   /**
+   * 第一次看到非空回答片段的时间。
+   *
+   * 只在不依赖选择器的“文本增量”路径上能测；气泡增量路径拿不到精确首字，
+   * 就不填——统计显示 `—`，不拿总耗时冒充 TTFT。
+   */
+  firstTokenAt?: number;
+  /**
    * The page's address once the answer had arrived.
    *
    * A chat site puts the thread id in its URL the moment the first message is

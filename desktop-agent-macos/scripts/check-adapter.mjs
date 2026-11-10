@@ -302,6 +302,26 @@ test('a candidate that still contains the prompt is skipped', async () => {
   assert.equal(containsEcho(answer, prompt), false);
 });
 
+test('first token 只在正文第一次出现时回调一次', async () => {
+  const snapshot = {
+    messageCount: 0, lastText: '', url: '', capturedAt: 0, conversationText: '', composerText: ''
+  };
+  const stable = '这是一段足够长的回答，用来让稳定判据通过。';
+  const page = scriptedPage([
+    state({ conversationText: stable }),
+    state({ conversationText: stable }),
+    state({ conversationText: stable }),
+    state({ conversationText: stable }),
+    state({ conversationText: stable })
+  ]);
+  const seen = [];
+  const answer = await adapterFor(page, { pollMs: 5, settleMs: 10 })
+    .waitForAnswer('r1', snapshot, 3000, undefined, at => seen.push(at));
+  assert.equal(answer, stable);
+  assert.equal(seen.length, 1, '首 token 只记第一次看到非空正文');
+  assert.ok(Number.isFinite(seen[0]));
+});
+
 // ---------------------------------------------------------------------------
 // Answer ownership
 // ---------------------------------------------------------------------------

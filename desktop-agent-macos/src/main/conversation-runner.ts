@@ -244,8 +244,18 @@ export interface ConversationDeps {
     debateId: string;
     rounds: Array<{
       index: number;
-      messages: Array<{ author: string; kind: string; text: string }>;
+      messages: Array<{
+        author: string;
+        kind: string;
+        text: string;
+        agentId?: string;
+        createdAt?: number;
+        startedAt?: number;
+        endedAt?: number;
+      }>;
       failures?: Array<{ agentId: string; detail: string }>;
+      startedAt?: number;
+      endedAt?: number;
     }>;
     status: string;
   } | null>;
@@ -2313,6 +2323,39 @@ export class ConversationRunner {
           status: debate ? (debate.status === 'completed' ? 'ok' : 'interrupted') : 'skipped',
           ...(debate ? { meta: { rounds: debate.rounds.length } } : {})
         });
+        // 逐条发言也记成步：整场用时看不出「谁在第几轮慢」。
+        if (debate) {
+          for (const round of debate.rounds) {
+            for (const message of round.messages) {
+              const agentId = message.agentId ?? message.author;
+              const messageStep = trace?.beginStep({
+                stage: 'debate',
+                group: 'debate',
+                actorId: agentId,
+                actorLabel: message.author,
+                sourceType: this.traceSourceOf(agentId),
+                reason: `第 ${round.index + 1} 轮 · ${message.kind}`,
+                inputPreview: topics.join('；'),
+                ...(debateStep ? { parentStep: debateStep.step } : {}),
+                ...(typeof message.startedAt === 'number'
+                  ? { startedAt: message.startedAt }
+                  : typeof message.createdAt === 'number'
+                    ? { startedAt: message.createdAt }
+                    : {})
+              });
+              trace?.endStep(messageStep, {
+                status: 'ok',
+                ...(typeof message.endedAt === 'number'
+                  ? { endedAt: message.endedAt }
+                  : typeof message.createdAt === 'number'
+                    ? { endedAt: message.createdAt }
+                    : {}),
+                outputPreview: message.text,
+                meta: { rounds: round.index + 1, outputChars: message.text.length }
+              });
+            }
+          }
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         trace?.endStep(debateStep, {

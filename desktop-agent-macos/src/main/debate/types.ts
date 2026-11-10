@@ -178,6 +178,9 @@ export interface DebateMessage {
    */
   citations?: PageCitation[];
   createdAt: number;
+  /** 这一条发言从开始问模型到拿到回答的时间；老记录没有。 */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 /** 一轮在做哪一步（任务书 5 的 `DebateRound.phase`）。 */

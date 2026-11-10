@@ -72,7 +72,14 @@ function startServer() {
           })}\n\n`;
           res.write(chunk({ role: 'assistant', content: '' }));
           res.write(chunk({ content: '42' }));
-          res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 9, completion_tokens: 2 } })}\n\n`);
+          res.write(`data: ${JSON.stringify({
+            choices: [],
+            usage: {
+              prompt_tokens: 9,
+              completion_tokens: 2,
+              prompt_tokens_details: { cached_tokens: 4 }
+            }
+          })}\n\n`);
           res.write('data: [DONE]\n\n');
           res.end();
           return;
@@ -80,7 +87,12 @@ function startServer() {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({
           choices: [{ index: 0, message: { role: 'assistant', content: `${providerId} 的回答` }, finish_reason: 'stop' }],
-          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 }
+          usage: {
+            prompt_tokens: 9,
+            completion_tokens: 2,
+            total_tokens: 11,
+            prompt_tokens_details: { cached_tokens: 4 }
+          }
         }));
         return;
       }
@@ -354,6 +366,7 @@ test('非流式与流式都走对路径，并带回 usage', async () => {
     assert.match(answer.text, /deepseek 的回答/);
     assert.equal(answer.usage.inputTokens, 9);
     assert.equal(answer.usage.outputTokens, 2);
+    assert.equal(answer.usage.cacheReadTokens, 4, '命中缓存的 token 要记下来，不能丢');
 
     let streamed = '';
     for await (const piece of provider.stream({ question: '17 乘 3' })) streamed += piece;

@@ -31,6 +31,10 @@ export interface OrchestratorDeps {
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
   /**
+   * 执行报告落库后的旁路。用于把逐步结果接进会话轨迹；不传时行为不变。
+   */
+  onReport?: (task: AgentTask, report: ExecutionReport) => void;
+  /**
    * V2.1：执行后的独立 Review。可选——现有测试与「只跑 Runtime」的场景
    * 不提供它时，整条执行链路和以前一模一样。
    */
@@ -230,6 +234,11 @@ export class AgentOrchestrator {
 
     this.deps.store.insertReport(report);
     this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });
+    try {
+      this.deps.onReport?.(task, report);
+    } catch {
+      // 轨迹是旁路：记录失败不能让已经完成的执行看起来失败。
+    }
 
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论，下一轮计划仍要用户重新批准。

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { TraceStore } from '../out-test/main/trace/trace-store.js';
 import { TraceRecorder } from '../out-test/main/trace/trace-recorder.js';
+import { recordExecutionReport } from '../out-test/main/trace/execution-trace.js';
 
 function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tf-trace-'));
@@ -152,4 +153,31 @@ test('写盘失败：append 返回 false，beginStep 仍返回 handle', () => {
   });
   assert.ok(handle);
   recorder.endStep(handle, { status: 'ok' });
+});
+
+test('执行报告落成 execute 步，时长来自 StepResult 而不是重新计时', () => {
+  const root = tempRoot();
+  const store = new TraceStore(root);
+  const now = 10_000;
+  recordExecutionReport(
+    store,
+    { taskId: 't1', conversationId: 'c-exec', title: '改一个文件' },
+    {
+      createdAt: now,
+      status: 'completed',
+      results: [
+        { stepId: 's1', tool: 'read_file', status: 'completed', verified: true, durationMs: 10 },
+        { stepId: 's2', tool: 'write_file', status: 'failed', verified: false, durationMs: 20, error: '权限不足' }
+      ]
+    },
+    () => undefined
+  );
+  const entries = store.readAll('c-exec');
+  const steps = entries.filter(item => item.kind === 'step' && item.phase === 'start');
+  assert.equal(steps.length, 2);
+  assert.deepEqual(steps.map(item => item.actorLabel), ['read_file', 'write_file']);
+  assert.equal(steps[0].startedAt, now - 30);
+  assert.equal(steps[0].startedAt + 10, steps[1].startedAt);
+  const failed = entries.find(item => item.kind === 'step' && item.phase === 'end' && item.status === 'failed');
+  assert.equal(failed.error.detail, '权限不足');
 });

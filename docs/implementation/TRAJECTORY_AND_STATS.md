@@ -9,7 +9,8 @@
 一句话：**轨迹是事件账本，统计是同一份账本的聚合。两者都不新增业务状态，
 只把已经发生的事记下来、算出来。**
 
-> 开工看 [TRAJECTORY_AND_STATS_PLAN.md](TRAJECTORY_AND_STATS_PLAN.md)。
+> 开工看 [TRAJECTORY_AND_STATS_PLAN.md](TRAJECTORY_AND_STATS_PLAN.md)；
+> 已实现状态与真机验证见那份文档第 14 节。
 
 ---
 

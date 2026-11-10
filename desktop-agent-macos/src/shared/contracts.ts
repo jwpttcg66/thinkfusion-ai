@@ -1354,6 +1354,9 @@ export interface DebateMessageView {
   /** 只有网页成员有；清理网页侧会话靠它。 */
   threadUrl?: string;
   createdAt: number;
+  /** 这一条发言从开始问模型到拿到回答的时间；老辩论记录没有。 */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 /** 一条主张。报告里的「关键主张」读这个。 */

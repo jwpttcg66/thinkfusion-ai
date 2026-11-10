@@ -9,6 +9,7 @@ import {
   type TraceTurn
 } from '../../../shared/trace';
 import { MarkdownBody } from './MarkdownBody';
+import { TraceTimeline, type TraceRange } from './TraceTimeline';
 
 const GROUP_LABEL: Record<TraceGroup, string> = {
   prepare: '提问前',
@@ -262,10 +263,17 @@ function TurnSection(props: {
   onSelect: (key: string) => void;
 }) {
   const { turn } = props;
+  const [range, setRange] = useState<TraceRange | null>(null);
+  const inRange = (step: TraceStep) => {
+    if (!range) return true;
+    if (step.startedAt === null) return false;
+    const end = step.endedAt ?? (step.status === 'running' ? Date.now() : step.startedAt);
+    return step.startedAt <= range.end && end >= range.start;
+  };
   const groups = GROUP_ORDER
     .map(group => ({
       group,
-      steps: turn.steps.filter(step => step.group === group && matches(step, props.query, props.status)),
+      steps: turn.steps.filter(step => step.group === group && inRange(step) && matches(step, props.query, props.status)),
       events: props.showEvents
         ? turn.events.filter(step => step.group === group && matches(step, props.query, props.status))
         : []
@@ -282,6 +290,13 @@ function TurnSection(props: {
           总 {formatMs(turn.wallMs)} · 第一轮 {formatMs(turn.first.wallMs)} · 汇总 {formatMs(turn.leadMs)}
         </span>
       </header>
+      <TraceTimeline
+        turn={turn}
+        selected={props.selected}
+        range={range}
+        onSelect={props.onSelect}
+        onRange={setRange}
+      />
       {groups.length === 0 && <p className="muted trace-empty">这一轮没有可显示的步骤。</p>}
       {groups.map(item => (
         <div key={item.group} className="trace-group">

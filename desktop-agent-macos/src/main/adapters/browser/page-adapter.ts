@@ -190,6 +190,7 @@ export class PageBrowserAdapter implements BrowserAdapter {
     // works against a list from before the ask.
     const baseline = await this.spec.adapter.threadCandidates();
     const { snapshotBefore } = await this.spec.adapter.sendMessage(input.question, requestId);
+    let firstTokenAt: number | undefined;
     const text = await this.spec.adapter.waitForAnswer(
       requestId,
       snapshotBefore,
@@ -203,7 +204,8 @@ export class PageBrowserAdapter implements BrowserAdapter {
       // so the app declared failure while the answer was still being written.
       // Three minutes covers a search-backed answer and still ends.
       input.timeoutMs ?? this.spec.timeoutMs ?? 180_000,
-      input.question
+      input.question,
+      at => { firstTokenAt = at; }
     );
     const threadUrl = (await this.spec.adapter.settledUrl(baseline, input.question)) || undefined;
     // Kept for the next reset: starting a new conversation has to prove it
@@ -232,6 +234,7 @@ export class PageBrowserAdapter implements BrowserAdapter {
       agentId: this.id,
       text,
       receivedAt: Date.now(),
+      ...(firstTokenAt !== undefined ? { firstTokenAt } : {}),
       // Read after the answer, because that is when the site has settled on a
       // thread id. Deleting the conversation later needs exactly this address
       // to find the row again.

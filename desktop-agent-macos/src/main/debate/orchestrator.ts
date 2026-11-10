@@ -440,8 +440,10 @@ export class DebateOrchestrator {
           challenges
         })
       };
+      const startedAt = this.now();
       try {
         const answer = await this.askWithin(agentId, task, budget.stageTimeoutMs, deadline);
+        const endedAt = this.now();
         const message: DebateMessage = {
           messageId: randomUUID(),
           roundIndex: index,
@@ -455,7 +457,9 @@ export class DebateOrchestrator {
           // 是谁在第几轮给的」，而不是事后再去翻页面。没有链接就不写这个
           // 字段（写 undefined 会让 JSON 往返后少一个键，比对时对不上）。
           ...(answer.citations && answer.citations.length > 0 ? { citations: answer.citations } : {}),
-          createdAt: this.now()
+          createdAt: endedAt,
+          startedAt,
+          endedAt
         };
         return { ok: true as const, message };
       } catch (error) {
@@ -658,7 +662,9 @@ function seededWebPositions(
       role: roleForPlan(state.plan, entry.agentId, 0, state.config.strategy),
       kind: 'position',
       text: entry.text,
-      createdAt: at
+      createdAt: at,
+      startedAt: at,
+      endedAt: at
     });
   }
   return messages;

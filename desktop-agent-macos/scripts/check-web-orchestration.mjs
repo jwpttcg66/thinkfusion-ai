@@ -242,16 +242,19 @@ function engineeringInput(text, executionConfig = {}) {
 test('混合档 + 自动 + 决策问题：所有网页通道作为并列成员进场，材料是原话 + 证据摘录', async () => {
   const model = fakeModel('ollama:qwen', 'Ollama Qwen');
   const { runner, log } = makeRunner({ web: ['chatgpt', 'gemini'], models: [model] });
+  // 这一问必须提到「工程」才会真的扫描目录：2026-11-10 起常识/纯选型题
+  // 默认不读工程（`needsProjectEvidence`），没有证据可摘不是编排坏了。
+  const question = '要不要把工程里的 session 存到 SQLite';
 
-  const started = await runner.start(engineeringInput(DECISION, { executionMode: 'hybrid' }));
+  const started = await runner.start(engineeringInput(question, { executionMode: 'hybrid' }));
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'answered');
   assert.equal(log.web.length, 2, '所有已开启且可用的网页通道都进场，不是只挑一个');
 
   for (const sent of log.web) {
-    assert.ok(sent.question.includes(DECISION), '网页要看到用户原话');
-    assert.ok(sent.question.startsWith(`【用户的问题】\n${DECISION}`), '用户原话在最前面');
+    assert.ok(sent.question.includes(question), '网页要看到用户原话');
+    assert.ok(sent.question.startsWith(`【用户的问题】\n${question}`), '用户原话在最前面');
     assert.ok(sent.question.includes('【工程证据'), '网页要给证据才能判断');
     assert.ok(!sent.question.includes('第一意见'), '不是事后复核，没有第一意见');
     assert.ok(!sent.question.includes('请给第二意见'), '不套引导语');

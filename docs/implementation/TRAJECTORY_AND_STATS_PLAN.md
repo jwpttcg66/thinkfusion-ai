@@ -908,16 +908,21 @@ v1（提交 1–3）约 3–3.5 人日；时间轴再加 1 人日。
 
 ## 14. 已落地（2026-11-10，分支 0.1.6）
 
-第一批（提交 1–3 的代码部分）已经实现并通过验证：
+全部计划项已经实现并通过验证：
 
 | 项 | 状态 |
 | --- | --- |
 | `shared/trace.ts`：类型、折叠、合计、旧会话回退 | ✅ |
 | `main/trace/trace-store.ts`：JSONL 追加、分页、损坏行跳过、崩溃收尾、删除 | ✅ |
 | `main/trace/trace-recorder.ts`：turn/step、join/record/phase、幂等 endTurn、写失败不抛 | ✅ |
+| `main/trace/execution-trace.ts`：`StepResult` → `execute` 步 | ✅ |
 | `ConversationRunner`：轮起止、路由/准备/抓网页/工程扫描/工具/汇总/辩论/追加/综合 | ✅ |
 | 回答步直接听 `sink.join / record / phase`，`MasterAgent` 未改 | ✅ |
-| `SubAgentAnswer` 回填 usage / latency；网页 usage 为 null | ✅ |
+| `SubAgentAnswer` 回填 usage / latency / firstTokenAt；网页 usage 为 null | ✅ |
+| 网页首 token：`waitForAnswer` 第一次看到非空正文时回调 | ✅ |
+| 辩论逐条发言：`startedAt / endedAt` 落盘，轨迹按条记步 | ✅ |
+| 缓存 token：OpenAI `prompt_tokens_details.cached_tokens` / DeepSeek / Anthropic 风格字段 | ✅ |
+| 轨迹时间轴：泳道、悬停、滚轮缩放、拖选过滤、右键复位 | ✅ |
 | IPC `conversation:trace` + `trace.appended` 事件 | ✅ |
 | 对话区「对话 / 轨迹 / 统计」页签 | ✅ |
 | 轨迹表格、检查器、分页加载、失败原因、未知 `—` | ✅ |
@@ -935,17 +940,12 @@ v1（提交 1–3）约 3–3.5 人日；时间轴再加 1 人日。
 - 统计页在真实渲染进程里显示第一轮计数、覆盖率、`—` 和按通道表；
 - 浏览器预览（`VITE_MOCK=1`）里点开对话、轨迹、统计三个页签，检查器正常。
 
-**已知未做 / 下一批**：
+**原本在 main 上就红、这次一并对齐的两个测试**：
 
-- 时间概览（泳道、缩放、拖选）；
-- 执行计划 `StepResult` 的 `execute` 步；
-- 辩论逐条辩词耗时（当前只记整场）；
-- 网页首 token（当前为 `—`，不估算）；
-- 缓存 token 的 Provider 解析（字段已留，网页/现有云端未上报）。
+- `test:web-orchestration`：换成提到「工程」的决策问题，让
+  `needsProjectEvidence` 真的扫描目录；旧问题按新规则默认不读工程，
+  没有证据可摘不是编排坏了。
+- `test:scenarios`：云端/本地主导从 2026-11-09 起就是对应模型回答、
+  不问网页；断言改成按执行模式取回答名单，不再写「回答永远来自网页」。
 
-**仓库里两个与本次无关、在 main 上已存在的失败**：
-
-- `test:web-orchestration`：「网页要给证据才能判断」；
-- `test:scenarios`：云端主导仍按旧期望断言网页回答。
-
-两者在干净的 `main@fccad54` 上同样失败，不是本次改动引入的；没有为了变绿去改断言。
+两处都是期望值跟着既有产品规则更新，不是把断言改松。

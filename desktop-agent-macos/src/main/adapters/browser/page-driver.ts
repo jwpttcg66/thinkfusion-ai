@@ -3305,7 +3305,12 @@ export class ChatPageDriver {
     requestId: string,
     snapshot: MessageSnapshot,
     timeoutMs: number,
-    sentText?: string
+    sentText?: string,
+    /**
+     * 第一次看到非空回答片段时回调。只用于观测首 token；不影响判定，
+     * 也不改变返回值。
+     */
+    onFirstToken?: (at: number) => void
   ): Promise<string> {
     const controller = this.waits.get(requestId) ?? new AbortController();
     this.waits.set(requestId, controller);
@@ -3317,6 +3322,7 @@ export class ChatPageDriver {
     let sawIncomplete = false;
     let sawGenerating = false;
     let lastSeen: PageProbe | null = null;
+    let firstTokenAt: number | null = null;
 
     try {
       while (Date.now() - startedAt < timeoutMs) {
@@ -3358,6 +3364,13 @@ export class ChatPageDriver {
         // 短问题绕过了 containsEcho 的 40 字门槛，这里补一次精确判断：
         // 整段还是我们自己的话，就不是答案，继续等下一段。
         if (isOwnPromptEcho(cleaned, sentText)) continue;
+
+        // 第一次拿到可读的非空正文，就是网页通道能给出的最接近 TTFT 的时刻。
+        // 只观测，不参与“是否稳定”的判断。
+        if (firstTokenAt === null) {
+          firstTokenAt = Date.now();
+          onFirstToken?.(firstTokenAt);
+        }
 
         if (probe.generating) sawGenerating = true;
 

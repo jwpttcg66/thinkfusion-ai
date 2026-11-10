@@ -24,9 +24,10 @@ import {
   TaskIdSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
-import { aggregateTotals, foldTrace, traceFromMessages } from '../shared/trace';
+import { aggregateTotals, foldTrace, preview, traceFromMessages } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
 import { TraceRecorder } from './trace/trace-recorder';
+import { recordExecutionReport } from './trace/execution-trace';
 import { TaskManager } from './task-manager';
 import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
 import { SubAgentRegistry } from './agents/registry';
@@ -3615,6 +3616,7 @@ app.whenReady().then(async () => {
     adapter: () => planningAdapter(),
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
+    onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
     // 独立评审优先用本地/云端模型，不用刚才做规划的那个网页通道。
     // 一个可用模型都没有时 reviewExecution 会退回规则版并明写 backend。
     review: async (report, plan) => {
@@ -3891,9 +3893,15 @@ app.whenReady().then(async () => {
           messages: round.messages.map(message => ({
             author: labelOf(message.agentId),
             kind: message.kind,
-            text: message.text
+            text: message.text,
+            agentId: message.agentId,
+            createdAt: message.createdAt,
+            ...(typeof message.startedAt === 'number' ? { startedAt: message.startedAt } : {}),
+            ...(typeof message.endedAt === 'number' ? { endedAt: message.endedAt } : {})
           })),
-          failures: round.failures
+          failures: round.failures,
+          startedAt: round.startedAt,
+          ...(round.endedAt !== undefined ? { endedAt: round.endedAt } : {})
         }))
       };
     },
