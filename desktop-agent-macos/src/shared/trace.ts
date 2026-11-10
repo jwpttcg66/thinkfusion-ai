@@ -512,17 +512,31 @@ export function foldTrace(entries: readonly TraceEntry[]): TraceTurn[] {
       .sort((left, right) => left.step - right.step);
 
     const turnEnded = draft.end !== undefined;
-    // A step followed by another step cannot still be running: a trimmed window
-    // can lose its end record, and the row would otherwise stay running forever.
-    for (let index = 0; index < steps.length - 1; index += 1) {
+    // 一个还在 running 的步什么时候可以判成「中断」？
+    //
+    // 只有两种情况：轮次已经结束（尾步没有 end 记录），或者同一个成员在同一个
+    // 阶段里又开始了下一步（顺序执行时，后一步开始证明前一步结束）。
+    //
+    // 不能按「后面还有别的步」来判：第一轮的回答是并行的，三个模型同时发出去，
+    // 第二个成员开始不代表第一个成员结束。按数组顺序推会导致先开始的那个成员
+    // 在还在回答时就被显示成「中断」——用户看到的就是「同一批发出去，怎么有人
+    // 先断了」。
+    const laterSameActor = (index: number) => {
       const step = steps[index];
-      if (step && step.status === 'running') {
+      for (let next = index + 1; next < steps.length; next += 1) {
+        const candidate = steps[next];
+        if (candidate.stage === step.stage && candidate.group === step.group && candidate.actorId === step.actorId) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index];
+      if (!step || step.status !== 'running') continue;
+      if (turnEnded || laterSameActor(index)) {
         steps[index] = { ...step, status: 'interrupted' };
       }
-    }
-    const tail = steps[steps.length - 1];
-    if (turnEnded && tail && tail.status === 'running') {
-      steps[steps.length - 1] = { ...tail, status: 'interrupted' };
     }
 
     const start = draft.start;

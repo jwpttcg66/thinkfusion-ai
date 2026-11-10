@@ -122,6 +122,30 @@ test('只有 start 没有 turn end：保持 running', () => {
   assert.equal(turn.steps[0].status, 'running');
 });
 
+test('并行回答：先开始的那个成员没有 end 也保持 running，不算中断', () => {
+  const entries = [
+    turnStart(1000),
+    entry({ seq: 2, step: 1, stage: 'answer', group: 'first', status: 'running', actorId: 'a', startedAt: 1000 }),
+    entry({ seq: 3, step: 2, stage: 'answer', group: 'first', status: 'running', actorId: 'b', startedAt: 1000 }),
+    entry({ seq: 4, step: 1, phase: 'end', status: 'ok', endedAt: 2000 })
+  ];
+  const turn = foldTrace(entries)[0];
+  assert.equal(turn.steps[0].status, 'ok');
+  assert.equal(turn.steps[1].status, 'running');
+});
+
+test('轮结束后并行步都没 end：全部标 interrupted', () => {
+  const entries = [
+    turnStart(1000),
+    entry({ seq: 2, step: 1, stage: 'answer', group: 'first', status: 'running', actorId: 'a', startedAt: 1000 }),
+    entry({ seq: 3, step: 2, stage: 'answer', group: 'first', status: 'running', actorId: 'b', startedAt: 1000 }),
+    turnEnd(4, 5000, 'ok')
+  ];
+  const turn = foldTrace(entries)[0];
+  assert.equal(turn.steps[0].status, 'interrupted');
+  assert.equal(turn.steps[1].status, 'interrupted');
+});
+
 test('事件行不进入步骤求和，但出现在 events', () => {
   const entries = [
     turnStart(),
