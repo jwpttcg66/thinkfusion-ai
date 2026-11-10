@@ -2612,9 +2612,15 @@ button:disabled {
   color: var(--text-2);
 }
 
-/* 执行阶段（第二轮）进度：第一轮回答卡片下方，综合卡出现之前。 */
-.execution-stage-card {
+/* 执行阶段（第二轮）：挂在第一轮回答后面，自带通道条，不回头改第一轮。 */
+.execution-round {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 12px 0 4px;
+}
+
+.execution-stage-card {
   padding: 12px 14px;
   border: 1px solid var(--accent);
   border-radius: 8px;

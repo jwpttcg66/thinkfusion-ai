@@ -134,7 +134,16 @@ export function ConversationView(props: {
 
   const rootRef = useRef<HTMLElement | null>(null);
   const lastTurnRef = useRef<HTMLElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 正文往下长时是否跟着滚到底。
+   *
+   * 用户往上翻超过一屏就松手，别把正在读的人拽回去；滚回底部附近或发了
+   * 新问题再贴回去。第二轮进度卡 / 综合卡出现时也要看得见，不能停在第一轮。
+   */
+  const stickToBottom = useRef(true);
   const lastUserId = [...messages].reverse().find(message => message.role === 'user')?.messageId ?? '';
+  const liveRun = props.busy || liveStatus.includes(conversation.status);
 
   /**
    * 打开一条会话时直接停在最底下，而不是从第一条开始往下拉。
@@ -147,10 +156,24 @@ export function ConversationView(props: {
    * 等一会儿再停手，是因为消息和会话不是同一次渲染到的：先切会话，消息随后
    * 才塞进来；只在切会话那一刻落底，落的是上一屏的高度。
    */
-  const [settling, setSettling] = useState(true);  useEffect(() => {
+  const [settling, setSettling] = useState(true);
+  useEffect(() => {
     setSettling(true);
+    stickToBottom.current = true;
     const timer = setTimeout(() => setSettling(false), 1200);
     return () => clearTimeout(timer);
+  }, [conversation.conversationId]);
+
+  useEffect(() => {
+    const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
+    if (!container) return;
+    function onScroll() {
+      if (!container) return;
+      const gap = container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottom.current = gap < 120;
+    }
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
   }, [conversation.conversationId]);
 
   const scrolledUser = useRef('');
@@ -159,6 +182,7 @@ export function ConversationView(props: {
     const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
+    stickToBottom.current = true;
     // 这一句已经在眼前了，settling 结束以后不要再用平滑滚动把它拽一次。
     scrolledUser.current = lastUserId;
   }, [settling, messages, lastUserId]);
@@ -167,8 +191,17 @@ export function ConversationView(props: {
     if (!lastUserId || settling) return;
     if (scrolledUser.current === lastUserId) return;
     scrolledUser.current = lastUserId;
-    lastTurnRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    stickToBottom.current = true;
+    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [lastUserId, settling]);
+
+  // 进行中：消息、相位、状态一变就跟着正文落底（贴底时才跟）。
+  useLayoutEffect(() => {
+    if (settling || !liveRun || !stickToBottom.current) return;
+    const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [settling, liveRun, messages, props.phases, conversation.status, props.busy]);
 
   return (
     <section className="conversation" aria-label="对话" ref={rootRef}>
@@ -310,15 +343,16 @@ export function ConversationView(props: {
                 </article>
               )}
 
-              {/* 还没开始问的那一轮（刚提交、页面还在开新会话）也先画出这条：
-                  这时候通道一个都还没答，状态条本身就是「正在等谁」。 */}
+              {/* 第一轮通道条：答完就冻结。主导人汇总等后续相位不回写到这里，
+                  否则「已回答」又变成「汇总中」，像第一轮没完。 */}
               {turn.user && (
                 <ChannelStrip
                   channels={stripChannels}
                   statuses={props.channelStatuses}
-                  phases={live ? props.phases : {}}
+                  phases={live ? answerRoundPhases(props.phases, answered) : {}}
                   answered={answered}
                   live={live}
+                  freezeAnswered
                   labels={labels}
                 />
               )}
@@ -342,12 +376,12 @@ export function ConversationView(props: {
                 );
               })}
 
-              {/* 第一轮回答齐了之后，主导人还要再问一次做汇总 / 最终意见。
-                  那是第二轮工作，不能只靠通道条上把「已回答」改回「提问中」——
-                  卡片里已经有正文，条上却像卡住。这里单独出一张进度卡。 */}
+              {/* 第二轮及以后：单独一条通道条 + 进度卡，挂在第一轮回答后面。
+                  最新状态只写在这里，不回头改第一轮那条。 */}
               {live && (
-                <ExecutionStageCard
+                <ExecutionRound
                   phases={props.phases}
+                  statuses={props.channelStatuses}
                   labels={labels}
                   status={conversation.status}
                 />
@@ -370,9 +404,24 @@ export function ConversationView(props: {
             各通道没有互相矛盾，但这不等于结论已经被验证——只说明没人提出反例。
           </p>
         )}
+        <div ref={bottomRef} aria-hidden="true" />
       </div>
     </section>
   );
+}
+
+/** 第一轮条只用第一轮相位：已答完的、以及 leading（属第二轮）都不回写。 */
+function answerRoundPhases(
+  phases: Record<string, { phase: string; detail?: string; at?: number }>,
+  answered: ReadonlySet<string>
+): Record<string, { phase: string; detail?: string; at?: number }> {
+  const out: Record<string, { phase: string; detail?: string; at?: number }> = {};
+  for (const [id, item] of Object.entries(phases)) {
+    if (item.phase === 'leading') continue;
+    if (answered.has(id)) continue;
+    out[id] = item;
+  }
+  return out;
 }
 
 /**
@@ -554,6 +603,11 @@ function ChannelStrip(props: {
   answered: Set<string>;
   /** 这一轮还在跑：状态来自实时事件；已经结束的轮次只看消息。 */
   live: boolean;
+  /**
+   * 第一轮条专用：只要本轮消息里已经有回答，就钉死「已回答」，
+   * 后面 leading / 再 asking 只写到后面几轮的条上。
+   */
+  freezeAnswered?: boolean;
   labels: ReadonlyMap<string, string>;
 }) {
   // A page can take minutes, so "提问中" has to move. Ticking locally rather
@@ -578,14 +632,18 @@ function ChannelStrip(props: {
       {props.channels.map(channelId => {
         const status = props.statuses.find(item => item.id === channelId);
         const phase = props.phases[channelId];
+        const frozen = props.freezeAnswered && props.answered.has(channelId);
         // 结束的那几轮：「有它的消息」就是答了，没有就是没答。用实时阶段会在
         // 历史轮次上显示出上一轮残留的「提问中」，或者干脆全是「已回答」。
-        const label = props.live
-          ? phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable')
-          : props.answered.has(channelId)
-            ? 'answered'
-            : 'no-answer';
+        const label = frozen
+          ? 'answered'
+          : props.live
+            ? phase?.phase ?? (props.answered.has(channelId) ? 'answered' : status?.available ? 'idle' : 'unavailable')
+            : props.answered.has(channelId)
+              ? 'answered'
+              : 'no-answer';
         const waited =
+          !frozen &&
           props.live &&
           (phase?.phase === 'asking' || phase?.phase === 'leading') &&
           phase.at
@@ -595,7 +653,7 @@ function ChannelStrip(props: {
           <li
             key={channelId}
             className={`channel-chip phase-${label}`}
-            title={phase?.detail ?? status?.detail}
+            title={frozen ? undefined : phase?.detail ?? status?.detail}
           >
             <span className="channel-name">{labelOf(channelId, props.labels)}</span>
             <span className="channel-phase">
@@ -643,20 +701,19 @@ function phaseLabel(phase: string): string {
 }
 
 /**
- * 执行阶段（第二轮）进度卡。
+ * 第二轮（执行阶段）：自己的通道条 + 进度说明。
  *
- * 第一轮是各通道各自回答；第二轮是主导人读完全部回答后写汇总 / 指定辩题 /
- * 给最终意见。两轮共用通道条时，主导人会被重新标成「提问中」，看起来像
- * 第一轮没答完。单独一张卡把「现在在做第二轮的哪一步」说清楚。
+ * 第一轮条答完就冻结；这里才是「汇总中 / 最终意见」的最新状态落点。
  */
-function ExecutionStageCard(props: {
+function ExecutionRound(props: {
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
+  statuses: ChannelStatus[];
   labels: ReadonlyMap<string, string>;
   status: Conversation['status'];
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const leading = Object.entries(props.phases).find(([, item]) => item.phase === 'leading');
-  const active = Boolean(leading) || props.status === 'synthesizing';
+  const leadingEntries = Object.entries(props.phases).filter(([, item]) => item.phase === 'leading');
+  const active = leadingEntries.length > 0 || props.status === 'synthesizing';
 
   useEffect(() => {
     if (!active) return;
@@ -666,33 +723,49 @@ function ExecutionStageCard(props: {
 
   if (!active) return null;
 
-  const agentId = leading?.[0];
-  const detail = leading?.[1]?.detail ?? '综合各家回答';
-  const startedAt = leading?.[1]?.at;
+  const primary = leadingEntries[0];
+  const agentId = primary?.[0];
+  const detail = primary?.[1]?.detail ?? '综合各家回答';
+  const startedAt = primary?.[1]?.at;
   const waited = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
   const title = detail.includes('最终意见')
     ? '第二轮 · 最终意见'
     : detail.includes('更新汇总') || detail.includes('补充后')
       ? '追加轮 · 更新汇总'
       : '第二轮 · 主导人汇总';
+  const roundChannels = leadingEntries.map(([id]) => id);
+  const roundPhases = Object.fromEntries(leadingEntries);
+  const roundAnswered = new Set<string>();
 
   return (
-    <article className="execution-stage-card" aria-live="polite">
-      <header className="execution-stage-head">
-        <span className="dot-pulse" />
-        <b>{title}</b>
-        {waited > 0 && <span className="execution-stage-elapsed">{formatWaited(waited)}</span>}
-      </header>
-      <p className="execution-stage-body">
-        {agentId ? (
-          <>
-            <span className="execution-stage-who">{labelOf(agentId, props.labels)}</span>
-            <span className="execution-stage-sep">·</span>
-          </>
-        ) : null}
-        <span>{detail}</span>
-      </p>
-    </article>
+    <section className="execution-round" aria-live="polite">
+      <article className="execution-stage-card">
+        <header className="execution-stage-head">
+          <span className="dot-pulse" />
+          <b>{title}</b>
+          {waited > 0 && <span className="execution-stage-elapsed">{formatWaited(waited)}</span>}
+        </header>
+        <p className="execution-stage-body">
+          {agentId ? (
+            <>
+              <span className="execution-stage-who">{labelOf(agentId, props.labels)}</span>
+              <span className="execution-stage-sep">·</span>
+            </>
+          ) : null}
+          <span>{detail}</span>
+        </p>
+      </article>
+      {roundChannels.length > 0 && (
+        <ChannelStrip
+          channels={roundChannels}
+          statuses={props.statuses}
+          phases={roundPhases}
+          answered={roundAnswered}
+          live
+          labels={props.labels}
+        />
+      )}
+    </section>
   );
 }
 
