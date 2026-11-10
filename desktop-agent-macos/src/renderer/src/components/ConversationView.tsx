@@ -633,8 +633,8 @@ function LiveAnswers(props: {
             <b>{labelOf(channelId, props.labels)}</b>
             <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
           </header>
-          {delta.reasoning && (
-            <details className="channel-reasoning" open>
+          {delta.reasoning && !isStructuredAnswer(delta.text) && (
+            <details className="channel-reasoning">
               <summary>思考过程（{delta.reasoning.length} 字）</summary>
               <pre>{delta.reasoning}</pre>
             </details>
@@ -649,6 +649,16 @@ function LiveAnswers(props: {
   );
 }
 
+/**
+ * 结论型回答：正文本身已经是【结论】【一致】【分歧】这种收束结构。
+ *
+ * 这类回答的推理和结论天然高度重合——思考过程会把同样的几点再讲一遍。
+ * 卡片上只保留结论，才是原来那个清晰的界面。
+ */
+function isStructuredAnswer(text: string): boolean {
+  return /【(结论|一致|分歧|存疑|辩题)】/.test(text);
+}
+
 function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">
@@ -659,7 +669,7 @@ function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; la
             <b>{labelOf(message.channelId, labels)}</b>
             <span className="channel-chars">{message.text.length} 字</span>
           </header>
-          {message.reasoning && (
+          {message.reasoning && !isStructuredAnswer(message.text) && (
             <details className="channel-reasoning">
               <summary>思考过程（{message.reasoning.length} 字）</summary>
               <pre>{message.reasoning}</pre>
