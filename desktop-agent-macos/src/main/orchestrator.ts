@@ -19,7 +19,7 @@ import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './eng
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
-import { runPlan, decideStepApproval } from './agent-manager';
+import { runPlan, decideStepApproval, answerStepQuestion } from './agent-manager';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
 
@@ -306,6 +306,16 @@ export class AgentOrchestrator {
 
   async rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void> {
     decideStepApproval({ ...input, approved: false, reason: input.reason ?? '用户拒绝执行这一步' });
+  }
+
+  /** 执行中提问的回答。校验同样在 agent-manager：它认不出这个 key 就明确报错。 */
+  async answerQuestion(input: {
+    taskId: string;
+    stepId: string;
+    answer?: string;
+    cancelled?: boolean;
+  }): Promise<void> {
+    answerStepQuestion(input);
   }
 
   async cancel(taskId: string): Promise<void> {

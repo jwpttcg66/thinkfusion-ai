@@ -563,6 +563,11 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  拼 node -e 一行命令（引号一错就变成另一段程序）。
                  · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
                  · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
+- ask.user:     { "question": string, "options"?: string[], "allowFreeText"?: boolean, "timeoutMs"?: number }
+                 执行到一半必须由用户决定时用它：用哪个目录、要不要覆盖、两个方案选哪个。
+                 · 每份计划最多 3 次；已经写清楚的事不要再问。
+                 · 返回 { "answered": true, "value": ... } 或 { "answered": false, "reason": "timeout" | "cancelled" | "budget" }；
+                   没回答时不要替用户选默认值，这一步按未验证处理。
 
 所有 path 都是相对工作区的相对路径，例如 "."、"src"、"notes/todo.md"。
 绝对路径只在 danger-full-access 下允许。`;

@@ -34,6 +34,18 @@ export const RejectPlanSchema = z
   })
   .strict();
 
+export const AnswerStepQuestionSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    stepId: z.string().min(1).max(200),
+    answer: z.string().max(2000).optional(),
+    cancelled: z.boolean().optional()
+  })
+  .strict()
+  .refine(value => value.cancelled === true || (value.answer ?? '').trim().length > 0, {
+    message: '要么给出回答，要么明确取消'
+  });
+
 export const ApproveStepSchema = z
   .object({
     taskId: z.string().min(1).max(80),

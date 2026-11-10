@@ -6,6 +6,7 @@
   },
   "include": [
     "src/shared/**/*.ts",
+    "src/agent/**/*.ts",
     "src/main/atomic-write.ts",
     "src/main/workspace-list-store.ts",
     "src/main/attachments.ts",

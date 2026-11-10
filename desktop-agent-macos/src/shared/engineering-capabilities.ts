@@ -191,7 +191,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     id: 'plan.control',
     family: 'plan.control',
     goal: '说清这次要做到什么、谁批准、什么时候做。',
-    tools: ['document.export', 'page.save-document', 'plan.ready', 'step-approval', 'clarification_required'],
+    tools: ['document.export', 'page.save-document', 'plan.ready', 'step-approval', 'clarification_required', 'ask.user'],
     preconditions: ['用户目标', '权限与授权范围'],
     outputs: ['计划状态', '步骤状态', '需要用户补充的问题'],
     antiPatterns: ['模型代批计划', '把未批准计划当已执行', '跳过澄清自行假设'],

@@ -67,6 +67,9 @@ interface Derived {
 /** 逐次审批里正在等答复的那一步（事件本身带齐了要显示的全部信息）。 */
 type PendingStep = Extract<AgentEvent, { type: 'step.approval' }>;
 
+/** 执行中提问：和逐次审批一样是阻塞态，界面上不能被日志淹掉。 */
+type PendingQuestion = Extract<AgentEvent, { type: 'step.question' }>;
+
 /**
  * The page-pane actions, as icons.
  *
@@ -159,6 +162,8 @@ export default function App() {
    * 用户不答复整条执行链不会前进。这种状态要能一眼看见，不能被日志淹掉。
    */
   const [pendingStep, setPendingStep] = useState<PendingStep | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const [questionText, setQuestionText] = useState('');
   const [derived, setDerived] = useState<Derived>(EMPTY_DERIVED);
   const [status, setStatus] = useState<DeepSeekStatus | null>(null);
   const [clarifyText, setClarifyText] = useState('');
@@ -463,8 +468,13 @@ export default function App() {
       if (event.type === 'step.approval-resolved') {
         setPendingStep(prev => (prev && prev.taskId === event.taskId && prev.stepId === event.stepId ? null : prev));
       }
+      if (event.type === 'step.question') setPendingQuestion(event);
+      if (event.type === 'step.question-resolved') {
+        setPendingQuestion(prev => (prev && prev.taskId === event.taskId && prev.stepId === event.stepId ? null : prev));
+      }
       if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
         setPendingStep(null);
+        setPendingQuestion(null);
       }
     });
 
@@ -1133,6 +1143,26 @@ export default function App() {
     }
   }
 
+  /**
+   * 回答执行中的提问。`cancelled` 是明确说「我不回答」——模型必须按未回答处理，
+   * 不能替用户选默认值。
+   */
+  async function answerQuestion(answer: string, cancelled = false) {
+    if (!pendingQuestion) return;
+    setError('');
+    try {
+      await window.agentAPI.answerStepQuestion({
+        taskId: pendingQuestion.taskId,
+        stepId: pendingQuestion.stepId,
+        ...(cancelled ? { cancelled: true } : { answer })
+      });
+      setQuestionText('');
+    } catch (e) {
+      setError(errorText(e));
+      setPendingQuestion(null);
+    }
+  }
+
   async function reject() {
     if (!activeTask || !derived.plan) return;
     setError('');
@@ -1709,6 +1739,49 @@ export default function App() {
                     拒绝
                   </button>
                 </div>
+              </section>
+            )}
+
+            {pendingQuestion && (
+              <section className="card step-approval">
+                <div className="row">
+                  <b>模型需要你决定</b>
+                  <span className="muted">计划暂停在这一步</span>
+                </div>
+                <p>{pendingQuestion.question}</p>
+                {pendingQuestion.options && pendingQuestion.options.length > 0 && (
+                  <div className="row">
+                    {pendingQuestion.options.map((option, index) => (
+                      <button key={option} className="btn" type="button" onClick={() => void answerQuestion(option)}>
+                        {index + 1}. {option}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {(!pendingQuestion.options || pendingQuestion.allowFreeText) && (
+                  <textarea
+                    rows={2}
+                    value={questionText}
+                    onChange={event => setQuestionText(event.target.value)}
+                    placeholder="写出你的决定"
+                  />
+                )}
+                <div className="row">
+                  {(!pendingQuestion.options || pendingQuestion.allowFreeText) && (
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={!questionText.trim()}
+                      onClick={() => void answerQuestion(questionText.trim())}
+                    >
+                      提交回答
+                    </button>
+                  )}
+                  <button className="btn ghost" type="button" onClick={() => void answerQuestion('', true)}>
+                    放弃回答
+                  </button>
+                </div>
+                <p className="muted">不回答不会让计划自己选默认值；放弃或超时，这一步会记为 answered:false。</p>
               </section>
             )}
 

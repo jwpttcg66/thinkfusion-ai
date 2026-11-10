@@ -25,6 +25,8 @@ const pendingRuns = new Map<string, PendingRun>();
  */
 const pendingSteps = new Map<string, { taskId: string; risk: 'read' | 'write' | 'danger'; stepId: string }>();
 const remembered = new Map<string, Set<'read' | 'write' | 'danger'>>();
+/** 正在等用户回答的提问；报告到达或取消时清掉，避免界面留下死卡片。 */
+const pendingQuestions = new Map<string, { taskId: string; stepId: string }>();
 
 function stepKey(taskId: string, stepId: string): string {
   return `${taskId}:${stepId}`;
@@ -33,6 +35,12 @@ function stepKey(taskId: string, stepId: string): string {
 function clearTaskApprovals(taskId: string) {
   for (const [key, value] of pendingSteps) {
     if (value.taskId === taskId) pendingSteps.delete(key);
+  }
+  for (const [key, value] of pendingQuestions) {
+    if (value.taskId === taskId) {
+      pendingQuestions.delete(key);
+      sendToUi?.({ type: 'step.question-resolved', at: Date.now(), taskId, stepId: value.stepId, answered: false, reason: '任务已结束' });
+    }
   }
   remembered.delete(taskId);
 }
@@ -69,6 +77,18 @@ export function startAgentProcess() {
      * 用户说过「这一类别再问」的，直接在这里放行——不是偷偷跳过，而是把
      * 一次性授权执行到底，同时**不发新事件**，界面不会闪出一堆卡片。
      */
+    /**
+     * 执行中提问：原样转给界面，等 answerStepQuestion 回包。
+     * 不做「自动回答」，也不在无人时默认选第一项——那等于替用户做决定。
+     */
+    if (typed.type === 'step.question') {
+      const taskId = String(typed.taskId);
+      const stepId = String(typed.stepId);
+      pendingQuestions.set(stepKey(taskId, stepId), { taskId, stepId });
+      sendToUi?.(typed as unknown as AgentEvent);
+      return;
+    }
+
     if (typed.type === 'step.approval') {
       const taskId = String(typed.taskId);
       const stepId = String(typed.stepId);
@@ -222,6 +242,41 @@ export function decideStepApproval(input: {
     stepId: input.stepId,
     approved: input.approved,
     ...(input.reason ? { reason: input.reason } : {})
+  });
+
+  return { ok: true };
+}
+
+/**
+ * 回答执行中的提问。回包一定发：Runtime 在等这一个 key，没有回包它只能等到
+ * 超时，界面就会把「已经回答」显示成「超时」。
+ */
+export function answerStepQuestion(input: {
+  taskId: string;
+  stepId: string;
+  answer?: string;
+  cancelled?: boolean;
+}): { ok: true } {
+  const key = stepKey(input.taskId, input.stepId);
+  if (!pendingQuestions.has(key)) {
+    throw new Error('这个提问已经不在等待回答（可能已超时或任务已结束）');
+  }
+  pendingQuestions.delete(key);
+
+  child?.postMessage({
+    type: 'step.answer.result',
+    taskId: input.taskId,
+    stepId: input.stepId,
+    ...(input.cancelled === true ? { cancelled: true } : { answer: input.answer ?? '' })
+  });
+
+  sendToUi?.({
+    type: 'step.question-resolved',
+    at: Date.now(),
+    taskId: input.taskId,
+    stepId: input.stepId,
+    answered: input.cancelled !== true,
+    ...(input.cancelled === true ? { reason: '用户放弃回答' } : {})
   });
 
   return { ok: true };

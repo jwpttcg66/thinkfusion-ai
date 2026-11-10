@@ -15,6 +15,7 @@ import type {
   ViewBoundsMap
 } from '../shared/contracts';
 import {
+  AnswerStepQuestionSchema,
   ApprovePlanSchema,
   ApproveStepSchema,
   ClarificationAnswerSchema,
@@ -2418,6 +2419,11 @@ function registerIpc() {
   ipcMain.handle('task:approve-step', async (event, raw: unknown) => {
     trustedUiSender(event);
     await orchestrator.approveStep(ApproveStepSchema.parse(raw));
+  });
+
+  ipcMain.handle('task:answer-question', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.answerQuestion(AnswerStepQuestionSchema.parse(raw));
   });
 
   ipcMain.handle('task:reject-step', async (event, raw: unknown) => {

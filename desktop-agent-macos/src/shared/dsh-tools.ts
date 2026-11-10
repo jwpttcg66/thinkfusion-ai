@@ -56,7 +56,7 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 26, packageName: 'dsh-tool-terminal', tool: 'terminal_signal', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.signal' },
   { index: 27, packageName: 'dsh-tool-terminal', tool: 'terminal_close', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.close' },
   { index: 28, packageName: 'dsh-tool-terminal', tool: 'terminal_list', family: 'runtime.exec', ours: '无', layer: 'L2', note: 'P5：term.list' },
-  { index: 29, packageName: 'dsh-tool-ask-user', tool: 'ask_user_question', family: 'plan.control', ours: 'ask.user', layer: 'L2', note: 'P5：执行中向用户提问的工具，协议澄清只覆盖计划前' },
+  { index: 29, packageName: 'dsh-tool-ask-user', tool: 'ask_user_question', family: 'plan.control', ours: 'ask.user', layer: 'L0', note: '执行中向用户提问；计划前仍走协议澄清' },
   { index: 30, packageName: 'dsh-plan-mode', tool: 'exit_plan_mode', family: 'plan.control', ours: 'plan.ready', layer: 'L1', note: '批准/退回流程承担' },
   { index: 31, packageName: 'dsh-action-cards', tool: 'propose_action', family: 'plan.control', ours: 'plan.ready + step-approval', layer: 'L1', note: '逐次审批承担' },
   { index: 32, packageName: 'dsh-tool-present', tool: 'present', family: 'plan.control', ours: 'document.export / page.save-document', layer: 'L1', note: '两个保存能力承担' },

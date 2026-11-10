@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：56 个工具（53 个本地 + `web.fetch` / `web.search` /
+ * Runtime 这一半的能力插件：57 个工具（54 个本地 + `web.fetch` / `web.search` /
  * `dns.lookup` 三个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -36,8 +36,24 @@ import { jobOutput, killJob, listJobs } from './tools/jobs';
 import { browserSearchCapability } from './browser-search-bridge';
 import { verifyWrittenFile } from './verify';
 
+export interface AskUserInput {
+  question: string;
+  options?: string[];
+  allowFreeText?: boolean;
+  timeoutMs?: number;
+}
+
+export interface AskUserOutcome {
+  answered: boolean;
+  value?: string;
+  optionIndex?: number;
+  reason?: 'timeout' | 'cancelled' | 'budget';
+}
+
 export interface LocalContext {
   grant: TaskGrant;
+  /** 执行中提问的通道；没接（例如脚本里直接调插件）就是 undefined。 */
+  ask?: (input: AskUserInput) => Promise<AskUserOutcome>;
 }
 
 export interface LocalStepOutcome {
@@ -158,6 +174,14 @@ const PLUGINS = [
     }
     return ok(run);
   }),
+
+  local('ask.user', async (args: AskUserInput, ctx) => {
+    if (!ctx.ask) throw new Error('当前执行环境没有接入提问通道，ask.user 不可用');
+    const outcome = await ctx.ask(args);
+    // 没回答不是工具失败：这是一条事实，模型必须按未回答处理。
+    return { result: outcome, verified: true, failure: null, errorCode: 'COMMAND_FAILED' };
+  }),
+
   local('fs.writeFile', async (args, ctx) => {
     const result = args.overwrite
       ? await filesystemTools.overwriteFile(ctx.grant, args)

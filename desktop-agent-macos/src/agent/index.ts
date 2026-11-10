@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { buildEvidenceLedger } from '../shared/engineering-evidence';
 import { openDb } from './db';
 import { assertGrant } from './policy';
-import { localCapabilities, type LocalStepOutcome } from './local-plugins';
+import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalStepOutcome } from './local-plugins';
 import { needsApproval, previewArgs, riskOf } from './step-approval';
 import {
   PlanSchema,
@@ -39,6 +39,63 @@ const STEP_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
 function approvalKey(taskId: string, stepId: string): string {
   return `${taskId}:${stepId}`;
+}
+
+/**
+ * 执行中提问的等待表。与逐次审批同一套 key：两个 id 都来自已批准的计划，
+ * Runtime 自己伪造不了。
+ */
+const questionWaiters = new Map<string, (outcome: AskUserOutcome) => void>();
+/** 每份计划最多问 3 次：再多就是在拿提问拖住计划。 */
+const MAX_QUESTIONS_PER_TASK = 3;
+const questionCounts = new Map<string, number>();
+const QUESTION_TIMEOUT_MS = 10 * 60 * 1000;
+
+function rejectPendingQuestions(taskId: string, reason: AskUserOutcome['reason'] = 'cancelled') {
+  for (const [key, resolve] of questionWaiters) {
+    if (!key.startsWith(`${taskId}:`)) continue;
+    questionWaiters.delete(key);
+    resolve({ answered: false, reason });
+  }
+}
+
+function askUser(
+  taskId: string,
+  stepId: string,
+  input: AskUserInput
+): Promise<AskUserOutcome> {
+  const used = questionCounts.get(taskId) ?? 0;
+  if (used >= MAX_QUESTIONS_PER_TASK) {
+    return Promise.resolve({ answered: false, reason: 'budget' });
+  }
+  questionCounts.set(taskId, used + 1);
+
+  const key = approvalKey(taskId, stepId);
+  const expiresAt = Date.now() + Math.min(input.timeoutMs ?? QUESTION_TIMEOUT_MS, QUESTION_TIMEOUT_MS);
+  return new Promise<AskUserOutcome>(resolve => {
+    const timer = setTimeout(() => {
+      questionWaiters.delete(key);
+      resolve({ answered: false, reason: 'timeout' });
+    }, Math.max(1000, expiresAt - Date.now()));
+
+    questionWaiters.set(key, outcome => {
+      clearTimeout(timer);
+      questionWaiters.delete(key);
+      resolve(outcome);
+    });
+
+    port.postMessage({
+      type: 'step.question',
+      at: Date.now(),
+      taskId,
+      stepId,
+      tool: 'ask.user',
+      question: input.question,
+      ...(input.options ? { options: input.options } : {}),
+      ...(input.allowFreeText === undefined ? {} : { allowFreeText: input.allowFreeText }),
+      expiresAt
+    });
+  });
 }
 
 /** 拒绝某个任务所有还在等的步骤（用户点了取消）。 */
@@ -95,6 +152,26 @@ port.on('message', (event: { data: unknown }) => {
   if (message.type === 'task.cancel' && typeof message.taskId === 'string') {
     cancelled.add(message.taskId);
     rejectPending(message.taskId, '任务已取消，这一步没有执行');
+    rejectPendingQuestions(message.taskId, 'cancelled');
+    return;
+  }
+
+  if (message.type === 'step.answer.result' && typeof message.taskId === 'string') {
+    const key = approvalKey(message.taskId, String(message.stepId ?? ''));
+    const resolve = questionWaiters.get(key);
+    if (!resolve) return;
+    questionWaiters.delete(key);
+    const raw = message as { answer?: unknown; cancelled?: unknown; optionIndex?: unknown };
+    if (raw.cancelled === true) {
+      resolve({ answered: false, reason: 'cancelled' });
+      return;
+    }
+    const value = typeof raw.answer === 'string' ? raw.answer : '';
+    resolve({
+      answered: true,
+      value,
+      ...(typeof raw.optionIndex === 'number' ? { optionIndex: raw.optionIndex } : {})
+    });
     return;
   }
 
@@ -248,7 +325,10 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
         // 能力插件是唯一的分派入口：宿主不认识任何具体工具，未装载与已停用
         // 都由注册表明确报错。退出码算不算失败、写文件要不要回读，由插件自己
         // 在 LocalStepOutcome 里交代。
-        const outcome = await localCapabilities.execute<LocalStepOutcome>(step.tool, step.args, { grant });
+        const outcome = await localCapabilities.execute<LocalStepOutcome>(step.tool, step.args, {
+          grant,
+          ask: (input: AskUserInput) => askUser(taskId, step.id, input)
+        });
         const { result, verified, failure: stepFailure } = outcome;
 
         const durationMs = Date.now() - stepStarted;
@@ -286,6 +366,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
 
     // 证据账本从真实步骤结果里抽，不重新描述一遍执行过程：文件读没读到、
     // 命令退出码是什么，都以这里为准。抽不出可核对事实的步骤不记。
+    questionCounts.delete(taskId);
     const argsById = new Map(plan.steps.map(step => [step.id, step.args]));
     const ledger = buildEvidenceLedger(
       results.map(item => ({

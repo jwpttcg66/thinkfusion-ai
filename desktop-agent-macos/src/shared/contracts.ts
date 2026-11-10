@@ -65,7 +65,7 @@ export const TOOL_NAMES = [
   'env.read', 'port.list', 'app.list', 'window.list', 'dns.lookup', 'time.now',
   'process.tree',
   'fs.du',
-  'test.run', 'shell.run',
+  'test.run', 'shell.run', 'ask.user',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
@@ -86,7 +86,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   'project.dependencies', 'project.outline', 'git.status', 'git.diff', 'git.log', 'git.show',
   'json.query', 'csv.summary', 'sqlite.query', 'archive.list', 'text.diff',
   'env.read', 'port.list', 'app.list', 'window.list', 'time.now', 'process.tree', 'fs.du',
-  'system.info', 'process.list', 'clipboard.read'
+  'system.info', 'process.list', 'clipboard.read',
+  // 提问不改本机，但会阻塞计划；只读档位下允许，因为它反而是在收敛风险。
+  'ask.user'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
@@ -628,6 +630,18 @@ export const StepSchema = z.discriminatedUnion('tool', [
       cwd: RelativePath.optional()
     }).strict(),
     description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('ask.user'),
+    args: z.object({
+      question: z.string().min(1).max(500),
+      /** 给选项就让用户点，不给就是自由文本。 */
+      options: z.array(z.string().min(1).max(120)).min(1).max(6).optional(),
+      allowFreeText: z.boolean().optional(),
+      timeoutMs: z.number().int().min(1000).max(600_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
   }).strict()
 ]);
 
@@ -916,6 +930,21 @@ export type AgentEvent = AgentEventBase &
         /** 到期时间：到点没答复按拒绝处理。 */
         expiresAt: number;
       }
+    /**
+     * 执行中提问：模型跑到一半发现必须由用户决定（用哪个目录、要不要覆盖、
+     * 两个方案选哪个）。与 `clarification.required` 的区别是它发生在执行中。
+     */
+    | {
+        type: 'step.question';
+        taskId: string;
+        stepId: string;
+        tool: string;
+        question: string;
+        options?: string[];
+        allowFreeText?: boolean;
+        expiresAt: number;
+      }
+    | { type: 'step.question-resolved'; taskId: string; stepId: string; answered: boolean; reason?: string }
     /** 结果回执，让界面上那条待确认的卡片能收起来。 */
     | {
         type: 'step.approval-resolved';
@@ -1761,6 +1790,8 @@ export interface AgentApi {
   rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
+  /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
+  answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
 
   // environment
