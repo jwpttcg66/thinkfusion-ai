@@ -1166,7 +1166,8 @@ function sourcesState(): SourcesState {
     activeId: activeSourceId,
     planningId: planningSource(sources)?.id ?? null,
     loading: sourceLoading,
-    openOnLaunch: sourceStore ? sourceStore.openOnLaunch() : sourcesOpenOnLaunch(EMPTY_STORED_SOURCES)
+    openOnLaunch: sourceStore ? sourceStore.openOnLaunch() : sourcesOpenOnLaunch(EMPTY_STORED_SOURCES),
+    webViewsOpen: [...views.values()].some(view => !view.webContents.isDestroyed())
   };
 }
 
@@ -1411,14 +1412,19 @@ function setSourcesOpenOnLaunch(raw: unknown): SourcesState {
  * restart with the switch off.
  */
 async function ensureEnabledViews(): Promise<void> {
+  let opened = false;
   for (const source of sources) {
     if (!source.enabled || !source.url) continue;
+    const before = views.has(source.id);
     try {
       await ensureSource(source);
+      if (!before && views.has(source.id)) opened = true;
     } catch {
       /* leave the channel unavailable; ask path reports it */
     }
   }
+  // 顶栏靠 webViewsOpen 决定要不要显示「页面就绪」；提问路径建起视图后要通知界面。
+  if (opened) emitSources();
 }
 
 /**

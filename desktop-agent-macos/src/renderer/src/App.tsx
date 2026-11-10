@@ -182,7 +182,8 @@ export default function App() {
     activeId: '',
     planningId: null,
     loading: false,
-    openOnLaunch: true
+    openOnLaunch: true,
+    webViewsOpen: false
   });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
@@ -1506,10 +1507,10 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right">
-            {/* One pill per state used to be enough when there was one page.
-                With several, the useful summary is "how many can answer right
-                now", and the tooltip carries which one cannot and why. */}
-            {(() => {
+            {/* 没有打开的网页视图时（例如「启动时打开网页源」关掉后的冷启动），
+                「0/2 页面就绪」和「未登录」只是在报本来就没开的页面，没有信息量。
+                点来源栏或提问把视图建起来之后再显示。 */}
+            {sources.webViewsOpen && (() => {
               const ready = channelStatuses.filter(channel => channel.available).length;
               const blocked = channelStatuses.filter(channel => !channel.available);
               const detail = blocked.map(channel => `${channel.label}: ${channel.detail ?? '不可用'}`).join('；');
@@ -1519,7 +1520,7 @@ export default function App() {
                 </span>
               );
             })()}
-            {(() => {
+            {sources.webViewsOpen && (() => {
               // Two different sentences share this slot. A blocked channel is a
               // failure and says why; a signed-out-but-working one is a hint.
               //
@@ -1549,8 +1550,8 @@ export default function App() {
                 is there, and the bar is the honest place for it — it is about
                 the page next to it. Folded, that bar is gone, and diagnostics
                 is exactly the thing you want when a page looks wrong but is
-                not being shown. */}
-            {isCollapsed && (
+                not being shown. No page open → nothing to diagnose here. */}
+            {sources.webViewsOpen && isCollapsed && (
               <button className="btn ghost" type="button" onClick={() => void openDiagnostics()}>
                 诊断
               </button>

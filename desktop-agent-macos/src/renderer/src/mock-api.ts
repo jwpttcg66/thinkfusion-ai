@@ -281,14 +281,16 @@ export function createMockApi(): AgentApi {
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     setSource: async (id: string) => ({
       sources: [...PAGE_SOURCES],
       activeId: id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     getViewBounds: async () => ({}),
     // The preview keeps its edits in memory: there is no user-data directory in
@@ -299,7 +301,8 @@ export function createMockApi(): AgentApi {
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     addSource: async (input: { label: string; url: string }) => ({
       sources: [
@@ -318,21 +321,24 @@ export function createMockApi(): AgentApi {
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     removeSource: async () => ({
       sources: [...PAGE_SOURCES],
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     setSourcesOpenOnLaunch: async (open: boolean) => ({
       sources: [...PAGE_SOURCES],
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: open
+      openOnLaunch: open,
+      webViewsOpen: open
     }),
     // There is no native page to reload in the preview; the button still has to
     // exist and still has to bounce back to "not loading".
@@ -341,7 +347,8 @@ export function createMockApi(): AgentApi {
       activeId: PAGE_SOURCES[0].id,
       planningId: PAGE_SOURCES[0].id,
       loading: false,
-      openOnLaunch: true
+      openOnLaunch: true,
+      webViewsOpen: true
     }),
     getIdentity: async () => ({ name: '本机用户', initial: '本', device: '这台 Mac' }),
     setDisplayName: async (name: string) => ({

@@ -1067,6 +1067,13 @@ export interface SourcesState {
    * Default true so an untouched install still primes every enabled page.
    */
   openOnLaunch: boolean;
+  /**
+   * Whether any web-source WebContentsView is alive right now.
+   *
+   * 「启动时打开」关掉后冷启动为 false；点来源栏或提问建起视图后为 true。
+   * 顶栏的「页面就绪 / 未登录 / 诊断」只在有页面时有意义。
+   */
+  webViewsOpen: boolean;
 }
 
 /** An edit to one source, from 设置 · 模型. */
