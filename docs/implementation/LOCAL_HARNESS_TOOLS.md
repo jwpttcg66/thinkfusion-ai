@@ -6,6 +6,11 @@
 > 结论先行：**「本地机器能力」这一层已经对齐**；agent 编排类（subagent / workflow / schedule /
 > goal / 插件管理 / MCP / 浏览器控制）不在这一层，它们在我们这里由计划、审批、会话、辩论
 > 自己承担，不重复造一套工具。
+>
+> **2026-11-10 修正**：本文的「刻意不做」只说明它们**不进入工具层**，不代表它们不在能力清单里。
+> dsh 的 76 条 schema 已逐条登记为 L0–L3 并映射到 13 个族，缺口排进 P5/P6，见
+> [GENERAL_ENGINEERING_CAPABILITIES](../spec/GENERAL_ENGINEERING_CAPABILITIES.md)。
+> 只读本文会把「没有工具」误读成「没有这个能力」。
 
 ## 1. 怎么划分「本地能力」
 
