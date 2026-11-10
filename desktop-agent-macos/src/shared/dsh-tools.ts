@@ -89,8 +89,8 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 59, packageName: 'dsh-tool-session-query', tool: 'session_event_read', family: 'memory.context', ours: 'store 会话读取 + 轨迹页', layer: 'L1', note: '会话存储与轨迹承担' },
   { index: 60, packageName: 'dsh-tool-session-query', tool: 'session_event_trace', family: 'memory.context', ours: 'trace 事件流', layer: 'L1', note: '轨迹事件流承担' },
   { index: 61, packageName: 'dsh-tool-session-query', tool: 'session_trace', family: 'memory.context', ours: '轨迹 / 统计页', layer: 'L1', note: '轨迹与统计页承担' },
-  { index: 62, packageName: 'dsh-tool-session-query', tool: 'session_event_search', family: 'memory.context', ours: '无', layer: 'L2', note: 'P5：session.search' },
-  { index: 63, packageName: 'dsh-tool-session-query', tool: 'session_search', family: 'memory.context', ours: '无', layer: 'L2', note: 'P5：跨会话检索' },
+  { index: 62, packageName: 'dsh-tool-session-query', tool: 'session_event_search', family: 'memory.context', ours: 'session.search（消息级）', layer: 'L1', note: '事件级检索未单独提供，消息检索由 session.search 承担' },
+  { index: 63, packageName: 'dsh-tool-session-query', tool: 'session_search', family: 'memory.context', ours: 'session.search', layer: 'L0', note: '跨会话只读检索，带来源与时间' },
   { index: 64, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_navigate', family: 'runtime.exec', ours: 'WebContentsView 装载与切换', layer: 'L1', note: '宿主页面管理承担' },
   { index: 65, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_observe', family: 'runtime.exec', ours: 'selector-profile + 页面探针', layer: 'L1', note: '探针承担' },
   { index: 66, packageName: 'dsh-experimental-browser-use-stagehand-native', tool: 'stagehand_extract', family: 'runtime.exec', ours: 'readAnswer + 选择器', layer: 'L1', note: '取答案承担' },
@@ -103,7 +103,7 @@ export const DSH_TOOLS: readonly DshTool[] = [
   { index: 73, packageName: 'dsh-mcp-resources', tool: 'list_mcp_resource_templates', family: 'platform.extend', ours: '无', layer: 'L2', note: '需裁决：MCP 资源模板' },
   { index: 74, packageName: 'dsh-mcp-resources', tool: 'read_mcp_resource', family: 'platform.extend', ours: '无', layer: 'L2', note: '需裁决：读取 MCP 资源' },
   { index: 75, packageName: 'dsh-tool-cordis', tool: 'cordis_inspect_list', family: 'platform.extend', ours: '设置页插件清单', layer: 'L1', note: '与 CAPABILITY_CATALOG 同源' },
-  { index: 76, packageName: 'dsh-tool-cordis', tool: 'cordis_inspect_query', family: 'platform.extend', ours: '无', layer: 'L2', note: 'P5：plugin.inspect' }
+  { index: 76, packageName: 'dsh-tool-cordis', tool: 'cordis_inspect_query', family: 'platform.extend', ours: 'plugin.inspect', layer: 'L0', note: '按 id 查启用/注册/权限' }
 ];
 
 /** 76 条 schema 里的唯一工具名（71 条）。 */

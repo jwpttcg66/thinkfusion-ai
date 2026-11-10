@@ -67,6 +67,7 @@ export const TOOL_NAMES = [
   'fs.du',
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
+  'session.search', 'plugin.inspect',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
@@ -91,7 +92,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   // 提问不改本机，但会阻塞计划；只读档位下允许，因为它反而是在收敛风险。
   'ask.user',
   // tsc --noEmit 不写盘；eslint 不传 --cache。诊断属于「看」，不属于「改」。
-  'code.diagnostics'
+  'code.diagnostics',
+  // 只读主进程查询：会话检索与能力清单，都不改任何状态。
+  'session.search', 'plugin.inspect'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
@@ -633,6 +636,22 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
     }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('session.search'),
+    args: z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(20).optional(),
+      conversationId: z.string().min(1).max(80).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('plugin.inspect'),
+    args: z.object({ id: z.string().min(1).max(80).optional() }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({

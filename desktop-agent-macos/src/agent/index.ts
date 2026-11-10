@@ -54,6 +54,37 @@ function approvalKey(taskId: string, stepId: string): string {
  * Runtime 自己伪造不了。
  */
 const questionWaiters = new Map<string, (outcome: AskUserOutcome) => void>();
+
+/**
+ * 只读主进程能力的等待表。key 是 Runtime 自己生成的 requestId，
+ * 主进程原样带回，不会被伪造。
+ */
+const mainCallWaiters = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+let mainCallSeq = 0;
+
+function callMain(id: string, args: unknown, timeoutMs = 30_000): Promise<unknown> {
+  mainCallSeq += 1;
+  const requestId = `${Date.now()}-${mainCallSeq}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      mainCallWaiters.delete(requestId);
+      reject(new Error(`主进程能力 ${id} 超时（${timeoutMs}ms）没有回复`));
+    }, timeoutMs);
+    mainCallWaiters.set(requestId, {
+      resolve: value => {
+        clearTimeout(timer);
+        mainCallWaiters.delete(requestId);
+        resolve(value);
+      },
+      reject: error => {
+        clearTimeout(timer);
+        mainCallWaiters.delete(requestId);
+        reject(error);
+      }
+    });
+    port.postMessage({ type: 'main.call.request', at: Date.now(), requestId, id, args });
+  });
+}
 /** 每份计划最多问 3 次：再多就是在拿提问拖住计划。 */
 const MAX_QUESTIONS_PER_TASK = 3;
 const questionCounts = new Map<string, number>();
@@ -161,6 +192,15 @@ port.on('message', (event: { data: unknown }) => {
     cancelled.add(message.taskId);
     rejectPending(message.taskId, '任务已取消，这一步没有执行');
     rejectPendingQuestions(message.taskId, 'cancelled');
+    return;
+  }
+
+  if (message.type === 'main.call.result' && typeof (message as { requestId?: unknown }).requestId === 'string') {
+    const raw = message as { requestId: string; ok?: unknown; result?: unknown; error?: unknown };
+    const waiter = mainCallWaiters.get(raw.requestId);
+    if (!waiter) return;
+    if (raw.ok === true) waiter.resolve(raw.result);
+    else waiter.reject(new Error(typeof raw.error === 'string' ? raw.error : '主进程能力执行失败'));
     return;
   }
 
@@ -335,7 +375,8 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
         // 在 LocalStepOutcome 里交代。
         const outcome = await localCapabilities.execute<LocalStepOutcome>(step.tool, step.args, {
           grant,
-          ask: (input: AskUserInput) => askUser(taskId, step.id, input)
+          ask: (input: AskUserInput) => askUser(taskId, step.id, input),
+          callMain
         });
         const { result, verified, failure: stepFailure } = outcome;
 

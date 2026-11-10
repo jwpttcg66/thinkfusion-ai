@@ -65,10 +65,10 @@ test('71 个唯一工具名；五组同名不同包登记一致', () => {
   }
 });
 
-test('层级统计：L0 26 / L1 28 / L2 20 / L3 2', () => {
+test('层级统计：L0 28 / L1 29 / L2 17 / L3 2', () => {
   const count = layer => DSH_TOOLS.filter(item => item.layer === layer).length;
-  assert.equal(count('L0'), 26);
-  assert.equal(count('L1'), 28);
-  assert.equal(count('L2'), 20);
+  assert.equal(count('L0'), 28);
+  assert.equal(count('L1'), 29);
+  assert.equal(count('L2'), 17);
   assert.equal(count('L3'), 2);
 });

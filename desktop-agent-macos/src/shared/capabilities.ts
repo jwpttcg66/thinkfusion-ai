@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 64 个工具（61 个本地 + 3 个联网），主进程装载工程证据
+ * Runtime 进程装载 66 个工具（63 个本地 + 3 个联网），主进程装载工程证据
  * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 70 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 72 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -122,6 +122,8 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'term.signal': ['发给终端信号', 'SIGINT / SIGTERM / SIGKILL / SIGHUP / SIGQUIT，其余拒绝'],
   'term.close': ['关终端', '结束这个终端会话并回收进程组'],
   'term.list': ['列终端', '列出当前还开着的终端会话、pid、cwd 与是否已退出'],
+  'session.search': ['搜历史会话', '只读搜索以前聊过什么，命中带来源会话、时间与片段；0 条不算失败'],
+  'plugin.inspect': ['查能力状态', '按 id 查某个能力是否启用、注册在哪个宿主、权限是什么'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 
@@ -195,7 +197,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：64 个 Runtime 工具 + 6 个主进程能力，合计 70。设置页只认这一份。 */
+/** 全量清单：66 个 Runtime 工具 + 6 个主进程能力，合计 72。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

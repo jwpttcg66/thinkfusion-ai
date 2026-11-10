@@ -4,7 +4,7 @@
  * 要钉住的是五件事：
  * 1. 清单——所有本地能力与所有保存能力都在同一份清单里，权限与宿主写清楚；
  * 2. 注册表——注册可逆、重复注册拒绝、未装载/被停用都明确报错；
- * 3. 宿主——64 个 Runtime 工具与 6 个主进程能力各自注册，都能真的干活
+ * 3. 宿主——66 个 Runtime 工具与 6 个主进程能力各自注册，都能真的干活
  *    （读文件、扫工程、联网搜索、导出文档、保存网页文档）；
  * 4. 开关——停用落到磁盘、同步给两个宿主、下次执行生效；
  * 5. 防回归——执行主链路不再有 switch 分派，设置页不再写「还没有插件」。
@@ -45,8 +45,8 @@ const source = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'u
 // 1. 清单
 // ---------------------------------------------------------------------------
 
-test('一份清单收齐 64 个 Runtime 工具与 6 个主进程能力，合计 70，id 不重复', () => {
-  assert.equal(CAPABILITY_CATALOG.length, 70);
+test('一份清单收齐 66 个 Runtime 工具与 6 个主进程能力，合计 72，id 不重复', () => {
+  assert.equal(CAPABILITY_CATALOG.length, 72);
   assert.equal(new Set(CAPABILITY_IDS).size, CAPABILITY_IDS.length);
   assert.deepEqual([...RUNTIME_CAPABILITY_IDS], [...TOOL_NAMES]);
   assert.deepEqual([...MAIN_CAPABILITY_IDS], [
@@ -57,7 +57,7 @@ test('一份清单收齐 64 个 Runtime 工具与 6 个主进程能力，合计 
     'document.export',
     'page.save-document'
   ]);
-  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 64);
+  assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'local').length, 66);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'network').length, 4);
   assert.equal(CAPABILITY_CATALOG.filter(m => m.kind === 'save').length, 2);
   for (const meta of CAPABILITY_CATALOG) {
@@ -110,7 +110,7 @@ test('停用列表只认清单里的 id，未知项与重复项都丢掉', () =>
 
 test('设置页视图带开关与装载状态，默认全开', () => {
   const all = describeCapabilities([]);
-  assert.equal(all.length, 70);
+  assert.equal(all.length, 72);
   assert.ok(all.every(item => item.enabled && item.registered));
   const off = describeCapabilities(['document.export'], ['fs.readFile']);
   const exported = off.find(item => item.id === 'document.export');
@@ -151,7 +151,7 @@ test('execute 是唯一入口：未装载、被停用都明确报错，重新启
 // 3. 两个宿主
 // ---------------------------------------------------------------------------
 
-test('Runtime 注册了全部 64 个工具，插件能真读本机目录', async () => {
+test('Runtime 注册了全部 66 个工具，插件能真读本机目录', async () => {
   assert.deepEqual([...localCapabilities.ids()].sort(), [...TOOL_NAMES].sort());
   const root = join(work, 'runtime-project');
   mkdirSync(root, { recursive: true });

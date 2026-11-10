@@ -49,6 +49,20 @@ export function setAgentEventSink(sink: (event: AgentEvent) => void) {
   sendToUi = sink;
 }
 
+/**
+ * 只读主进程能力的桥。
+ *
+ * Runtime 拿不到会话库与设置状态，`session.search` / `plugin.inspect` 这类
+ * 「查」的能力只能由主进程执行。这里只放行显式登记的处理函数，不是通用后门：
+ * 没有登记就明确报错，不会把 Runtime 的任意 id 转成一次主进程调用。
+ */
+type MainCallHandler = (id: string, args: unknown) => Promise<unknown>;
+let mainCallHandler: MainCallHandler | null = null;
+
+export function setMainCallHandler(handler: MainCallHandler | null) {
+  mainCallHandler = handler;
+}
+
 export function startAgentProcess() {
   if (child) return;
   const entry = path.join(__dirname, '../agent/index.js');
@@ -77,6 +91,24 @@ export function startAgentProcess() {
      * 用户说过「这一类别再问」的，直接在这里放行——不是偷偷跳过，而是把
      * 一次性授权执行到底，同时**不发新事件**，界面不会闪出一堆卡片。
      */
+    if (typed.type === 'main.call.request') {
+      const runner = child;
+      const requestId = String(typed.requestId);
+      const id = String(typed.id);
+      if (!runner) return;
+      const reply = (payload: { ok: boolean; result?: unknown; error?: string }) => {
+        runner.postMessage({ type: 'main.call.result', requestId, ...payload });
+      };
+      if (!mainCallHandler) {
+        reply({ ok: false, error: '主进程还没有接入只读能力桥' });
+        return;
+      }
+      void mainCallHandler(id, typed.args)
+        .then(result => reply({ ok: true, result }))
+        .catch((error: unknown) => reply({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
+
     /**
      * 执行中提问：原样转给界面，等 answerStepQuestion 回包。
      * 不做「自动回答」，也不在无人时默认选第一项——那等于替用户做决定。

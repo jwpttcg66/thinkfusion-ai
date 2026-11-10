@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：64 个工具（61 个本地 + `web.fetch` / `web.search` /
+ * Runtime 这一半的能力插件：66 个工具（63 个本地 + `web.fetch` / `web.search` /
  * `dns.lookup` 三个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -63,6 +63,8 @@ export interface LocalContext {
   grant: TaskGrant;
   /** 执行中提问的通道；没接（例如脚本里直接调插件）就是 undefined。 */
   ask?: (input: AskUserInput) => Promise<AskUserOutcome>;
+  /** 只读主进程能力的桥；没接就明确报错。 */
+  callMain?: (id: string, args: unknown) => Promise<unknown>;
 }
 
 export interface LocalStepOutcome {
@@ -192,6 +194,15 @@ const PLUGINS = [
   local('term.signal', async args => ok(signalTerminal(args.sessionId, args.signal))),
   local('term.close', async args => ok(closeTerminal(args.sessionId))),
   local('term.list', async () => ok(listTerminals())),
+
+  local('session.search', async (args, ctx) => {
+    if (!ctx.callMain) throw new Error('当前执行环境没有接入主进程桥，session.search 不可用');
+    return ok(await ctx.callMain('session.search', args));
+  }),
+  local('plugin.inspect', async (args, ctx) => {
+    if (!ctx.callMain) throw new Error('当前执行环境没有接入主进程桥，plugin.inspect 不可用');
+    return ok(await ctx.callMain('plugin.inspect', args));
+  }),
 
   local('ask.user', async (args: AskUserInput, ctx) => {
     if (!ctx.ask) throw new Error('当前执行环境没有接入提问通道，ask.user 不可用');

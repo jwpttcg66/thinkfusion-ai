@@ -563,6 +563,11 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  拼 node -e 一行命令（引号一错就变成另一段程序）。
                  · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
                  · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
+- session.search: { "query": string, "limit"?: number, "conversationId"?: string }
+                 只读搜索历史会话，返回命中片段、来源会话与时间；0 条不算失败，如实说没搜到。
+                 · 跨会话引用必须带上来源会话与时间，不能把别处的话当成这次的事实。
+- plugin.inspect: { "id"?: string }
+                 查能力清单与开关状态；不给 id 就列全部。只读。
 - term.open:    { "cwd"?: string, "cols"?: number, "rows"?: number }
                  开一个持久交互式终端（node-pty，与 dsh 同后端），返回 sessionId。
                  · 一次性命令仍用 shell.run；只有需要 tty 的程序（dev server、ssh、交互式提示）才用它。

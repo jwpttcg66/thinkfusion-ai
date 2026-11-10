@@ -87,7 +87,7 @@ import {
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
-import { setAgentEventSink, startAgentProcess } from './agent-manager';
+import { setAgentEventSink, setMainCallHandler, startAgentProcess } from './agent-manager';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import {
   MIN_WINDOW_HEIGHT,
@@ -149,6 +149,7 @@ import { attachFiles, referenceFiles } from './attachments';
 import { MAX_ATTACHMENTS, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import { CapabilityStore } from './capability-store';
 import { disabledCapabilities, setDisabledCapabilities } from './capability-state';
+import { searchSessions } from '../shared/session-search';
 import {
   buildEngineeringExpertise,
   describeExpertise,
@@ -3949,6 +3950,61 @@ app.whenReady().then(async () => {
   registerIpc();
   startAgentProcess();
   setAgentEventSink(event => emit(event));
+
+  /**
+   * 只读主进程能力：Runtime 拿不到会话库与设置状态，这两个「查」由这里执行。
+   * 只认这两个 id，其余明确报错——不是给 Runtime 开一个任意调用主进程的后门。
+   */
+  setMainCallHandler(async (id, rawArgs) => {
+    if (id === 'session.search') {
+      const args = (rawArgs ?? {}) as { query?: unknown; limit?: unknown; conversationId?: unknown };
+      const query = typeof args.query === 'string' ? args.query : '';
+      if (!query.trim()) throw new Error('session.search 需要 query');
+      const conversations = store.listConversations().map(conversation => ({
+        conversationId: conversation.conversationId,
+        title: conversation.title,
+        updatedAt: conversation.updatedAt,
+        messages: store.listMessages(conversation.conversationId).map(message => ({
+          role: String(message.role),
+          text: message.text,
+          at: message.at
+        }))
+      }));
+      return searchSessions({
+        query,
+        conversations,
+        ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
+        ...(typeof args.conversationId === 'string' ? { conversationId: args.conversationId } : {})
+      });
+    }
+
+    if (id === 'plugin.inspect') {
+      const args = (rawArgs ?? {}) as { id?: unknown };
+      const views = describeCapabilities(disabledCapabilities(), [
+        ...RUNTIME_CAPABILITY_IDS,
+        ...mainCapabilities.ids()
+      ]);
+      if (typeof args.id === 'string' && args.id) {
+        const found = views.find(item => item.id === args.id);
+        if (!found) throw new Error(`清单里没有这个能力：${args.id}`);
+        return found;
+      }
+      return {
+        total: views.length,
+        enabled: views.filter(item => item.enabled).length,
+        items: views.map(item => ({
+          id: item.id,
+          host: item.host,
+          kind: item.kind,
+          permission: item.permission,
+          enabled: item.enabled,
+          registered: item.registered
+        }))
+      };
+    }
+
+    throw new Error(`未登记的主进程只读能力：${id}`);
+  });
 
   await createWindow();
 });
