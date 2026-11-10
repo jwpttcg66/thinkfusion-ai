@@ -2420,10 +2420,24 @@ button:disabled {
   color: var(--text-3);
 }
 
+.round-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.round-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
 .channel-strip {
   display: flex;
   gap: 8px;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   flex-wrap: wrap;

@@ -146,23 +146,25 @@ export function planEngineeringOrchestration(input: {
 
   const localCount = models.filter(item => item.kind === 'local').length;
   const cloudCount = models.filter(item => item.kind === 'cloud').length;
+  // 只描述第一轮谁进场。真机 2026-11-10：「由 X 汇总」写在开场系统消息里，
+  // 各家还在答、通道条还是「提问中」，界面却像已经进入汇总，第一轮像被冲掉。
+  // 主导汇总的宣布挪到执行阶段开始（conversation-runner.runExecutionStage）。
   const roster =
     input.mode === 'cloud'
-      ? `云端主导：${cloudCount} 位云端模型读工程证据（不用本地）`
+      ? `云端主导：第一轮由 ${cloudCount} 位云端模型各自回答（不用本地）`
       : input.mode === 'local'
-        ? `本地主导：${localCount} 位本地模型读工程证据（不用云端）`
-        : `工程空间多 agent 编排：${localCount} 位本地模型 + ${cloudCount} 位云端模型读工程证据`;
+        ? `本地主导：第一轮由 ${localCount} 位本地模型各自回答（不用云端）`
+        : `工程空间多 agent 编排：第一轮由 ${localCount} 位本地模型 + ${cloudCount} 位云端模型各自回答`;
 
   const parts = [
     roster,
     webNote,
     ...(pinnedWeb
-      ? ['你点名的网页通道不能主导工程汇总（读不到本机文件），仍由本轮模型主导']
+      ? ['你点名的网页通道不能主导工程汇总（读不到本机文件），第一轮仍由本轮模型回答']
       : []),
     ...(pinnedWrongKind
-      ? [`你点名的主导人不在本轮归属（${input.mode === 'cloud' ? '云端' : input.mode === 'local' ? '本地' : '可用模型'}）里，改由 ${lead.label} 主导`]
-      : []),
-    `由 ${lead.label} 汇总、指定辩题并给最终意见`
+      ? [`你点名的主导人不在本轮归属（${input.mode === 'cloud' ? '云端' : input.mode === 'local' ? '本地' : '可用模型'}）里，第一轮改由 ${lead.label} 所在归属回答`]
+      : [])
   ];
   return {
     members,

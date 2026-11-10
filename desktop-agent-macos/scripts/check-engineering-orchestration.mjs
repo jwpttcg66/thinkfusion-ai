@@ -64,8 +64,10 @@ test('默认非混合档：本地 + 云端模型全部进场，本地在前，�
   assert.equal(p.fallback, false);
   assert.equal(p.lead.agentId, 'ollama:qwen');
   assert.match(p.reason, /工程空间多 agent 编排/);
+  assert.match(p.reason, /第一轮/);
   assert.match(p.reason, /网页编排只在混合模式开放/);
-  assert.match(p.reason, /由 Ollama Qwen 汇总/);
+  // 开场只说谁进第一轮；「由谁汇总」等到执行阶段再宣布，避免还在提问中就像总结。
+  assert.doesNotMatch(p.reason, /由 .+ 汇总/);
 });
 
 test('本地 / 云端主导按归属收敛；网页主导仍用全部模型读文件', () => {
@@ -428,6 +430,25 @@ test('本地模型逐个问，不抢同一个推理闸门；云端模型照样�
     runner.messages(started.conversationId).filter(message => message.role === 'channel').length,
     3,
     '三位成员的回答都要落库，不能因为排队丢一份'
+  );
+});
+
+test('开场系统消息只说第一轮谁回答，不提前写「由谁汇总」', async () => {
+  const a = fakeModel('openai:a', 'A', 'cloud');
+  const b = fakeModel('openai:b', 'B', 'cloud');
+  const { runner } = makeRunner({ models: [a, b] });
+  const started = await runner.start(engineeringInput(FACT, { executionMode: 'cloud' }));
+  await settle(runner, started.conversationId);
+  const systems = runner
+    .messages(started.conversationId)
+    .filter(message => message.role === 'system')
+    .map(message => message.text);
+  const roster = systems.find(text => text.includes('云端主导') && text.includes('第一轮'));
+  assert.ok(roster, '开场应说明第一轮云端各自回答');
+  assert.ok(!/由 .+ 汇总/.test(roster), '开场不得提前宣布汇总');
+  assert.ok(
+    systems.some(text => text.includes('第一轮回答已齐') && text.includes('主导人')),
+    '答完之后才宣布主导汇总'
   );
 });
 

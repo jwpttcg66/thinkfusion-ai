@@ -1801,11 +1801,19 @@ export class ConversationRunner {
     const isPage = lead.kind === 'web';
     const label = lead.label;
 
-    this.setStatus(conversation, 'synthesizing');
+    // 第一轮答完才宣布进入主导汇总——开场就写「由 X 汇总」时，通道条还在
+    // 「提问中」，真机看起来像「上来就总结、第一轮消失了」。
+    this.addMessage(conversation, {
+      role: 'system',
+      text: lead.auto
+        ? `第一轮回答已齐。系统选 ${label} 当主导人：现在汇总各家意见、指定辩题并给最终意见。`
+        : `第一轮回答已齐。现在由主导人 ${label} 汇总各家意见、指定辩题并给最终意见。`
+    });
     // 主导人第一轮往往已经答过；再问一次是汇总，不是「还没答上」。
     // 标成 leading，条上写「汇总中」，避免和第一轮的「提问中」混成一件事。
     // 主导汇总只允许这一人：先把其他人可能残留的 leading 清掉，免得第二轮
     // 条上同时出现好几个「汇总中」。
+    // 相位必须先于 synthesizing：否则界面先看到空的「第二轮」卡，第一轮像被顶掉。
     for (const answer of answers) {
       if (answer.channelId === lead.agentId) continue;
       sink.phase(answer.channelId, 'answered', '第一轮已回答');
@@ -1815,6 +1823,7 @@ export class ConversationRunner {
       'leading',
       lead.auto ? `自动选 ${label} 当主导人：汇总各家回答并指定辩题` : `${label} 当主导人：汇总各家回答并指定辩题`
     );
+    this.setStatus(conversation, 'synthesizing');
 
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;

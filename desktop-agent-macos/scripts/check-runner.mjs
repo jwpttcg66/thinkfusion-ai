@@ -898,6 +898,30 @@ test('网页主导：由回答者当主导，它读全部回答写汇总', async
   );
 });
 
+test('主导汇总宣布在第一轮答完之后，开场系统消息不再写「由谁汇总」', async () => {
+  // 真机 2026-11-10：开场就写「由 deepseek 汇总」，hy4 还在提问中，像上来就总结。
+  const channels = [
+    fakeChannel('a', async input =>
+      answer(input.question.includes('【各来源的回答】') ? SUMMARY_REPLY : 'a 的回答')
+    ),
+    fakeChannel('b', async () => answer('b 的回答'))
+  ];
+  const { runner, store } = execRunner(channels, { fusionEnabled: true });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'web', leadAgentId: 'a', debateMode: 'off' }
+  });
+  await settle(runner, conversation.conversationId);
+  const systems = store
+    .listMessages(conversation.conversationId)
+    .filter(message => message.role === 'system')
+    .map(message => message.text);
+  assert.ok(
+    systems.some(text => text.includes('第一轮回答已齐') && text.includes('主导人')),
+    '答完之后才宣布进入主导汇总'
+  );
+});
+
 test('主导汇总保持 leading 直到执行阶段结束，第二轮通道条才不会中途空掉', async () => {
   // 真机 2026-11-10：汇总刚写完就把相位改成 answered，辩论还没开、
   // 最终意见还没写，第二轮通道条已经消失。

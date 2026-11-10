@@ -345,16 +345,19 @@ export function ConversationView(props: {
 
               {/* 第一轮通道条：答完就冻结。主导人汇总等后续相位不回写到这里，
                   否则「已回答」又变成「汇总中」，像第一轮没完。 */}
-              {turn.user && (
-                <ChannelStrip
-                  channels={stripChannels}
-                  statuses={props.channelStatuses}
-                  phases={live ? answerRoundPhases(props.phases, answered) : {}}
-                  answered={answered}
-                  live={live}
-                  freezeAnswered
-                  labels={labels}
-                />
+              {turn.user && stripChannels.length > 0 && (
+                <div className="round-block">
+                  <div className="round-label">第一轮 · 各家回答</div>
+                  <ChannelStrip
+                    channels={stripChannels}
+                    statuses={props.channelStatuses}
+                    phases={live ? answerRoundPhases(props.phases, answered) : {}}
+                    answered={answered}
+                    live={live}
+                    freezeAnswered
+                    labels={labels}
+                  />
+                </div>
               )}
 
               {turn.blocks.map(block => {
@@ -383,7 +386,6 @@ export function ConversationView(props: {
                   phases={props.phases}
                   statuses={props.channelStatuses}
                   labels={labels}
-                  status={conversation.status}
                   firstRoundAnswered={answered}
                 />
               )}
@@ -706,12 +708,14 @@ function phaseLabel(phase: string): string {
  *
  * 第一轮条答完就冻结；这里才是「汇总中 / 最终意见」的最新状态落点。
  * 主导汇总只显示一个人；追加提问时再把正在 asking 的通道挂上来。
+ *
+ * 不靠 `status === synthesizing` 单独点亮：状态会先于 leading 相位到达，
+ * 空壳「第二轮」卡会把第一轮顶掉——真机 2026-11-10「上来就总结了」。
  */
 function ExecutionRound(props: {
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   statuses: ChannelStatus[];
   labels: ReadonlyMap<string, string>;
-  status: Conversation['status'];
   firstRoundAnswered: ReadonlySet<string>;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -721,8 +725,7 @@ function ExecutionRound(props: {
   const deepenAsking = Object.entries(props.phases).filter(
     ([id, item]) => item.phase === 'asking' && props.firstRoundAnswered.has(id)
   );
-  const active =
-    lead !== null || deepenAsking.length > 0 || props.status === 'synthesizing';
+  const active = lead !== null || deepenAsking.length > 0;
 
   useEffect(() => {
     if (!active) return;
@@ -736,7 +739,7 @@ function ExecutionRound(props: {
   const detail = lead?.[1]?.detail ?? (deepenAsking.length > 0 ? '追加提问中' : '综合各家回答');
   const startedAt = lead?.[1]?.at ?? deepenAsking[0]?.[1]?.at;
   const waited = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
-  const title = detail.includes('最终意见')
+  const roundLabel = detail.includes('最终意见')
     ? '第二轮 · 最终意见'
     : detail.includes('更新汇总') || detail.includes('补充后')
       ? '追加轮 · 更新汇总'
@@ -752,10 +755,11 @@ function ExecutionRound(props: {
 
   return (
     <section className="execution-round" aria-live="polite">
+      <div className="round-label">{roundLabel}</div>
       <article className="execution-stage-card">
         <header className="execution-stage-head">
           <span className="dot-pulse" />
-          <b>{title}</b>
+          <b>{lead ? '汇总中' : '提问中'}</b>
           {waited > 0 && <span className="execution-stage-elapsed">{formatWaited(waited)}</span>}
         </header>
         <p className="execution-stage-body">
