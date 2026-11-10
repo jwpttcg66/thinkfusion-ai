@@ -429,8 +429,9 @@ export function workspaceLabel(mode: WorkspaceMode): string {
 /**
  * 一句话里提到了工程本身（而不是随附的那份文件）时，才算「要看工程」。
  *
- * 只用于**模型没给结论时的兜底**，不是主判据。刻意收窄：宁可多读一次工程，
- * 也不要因为漏了一个同义词而让模型凭空答工程问题。
+ * 只用于**模型没给结论时的兜底**，不是主判据。2026-11-10 收紧：默认不读，
+ * 只有话里点到工程/本机代码才读——否则「java 和 go 谁更适合做游戏服务器」
+ * 这种常识题也会把整个 Downloads 扫一遍，再逼模型去 fs.search。
  */
 const PROJECT_TERMS =
   /工程|项目|仓库|代码|源码|模块|函数|接口|调用|依赖|目录|文件树|结构|架构|配置|实现|编译|测试|本机|workspace|repo\b/i;
@@ -448,26 +449,27 @@ export interface ProjectNeedInput {
  * 这一问要不要先读工程目录。
  *
  * 2026-11-09 用户裁决：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
- * 真机现场：只附了一份 md 问「这个文件有多少行」，却把整个 Downloads 扫了一遍
- * （257 项、读进 69 个文件），转录里多出 20 条顶层文件清单，还把无关的
- * readme.txt 递给了汇总，反过来把附件里的事实否掉。
+ * 2026-11-10 再收紧：用户选了「本次按分析」会跳过模型判定，旧默认「其余照旧读」
+ * 会把 Downloads 扫成「工程证据」，再开放读文件工具，常识题答成「无法确定」。
  *
- * 顺序：模型说了算 → 模型没给时只省「附了文件、又没提工程」这一种 →
- * 其余照旧读。**省掉扫描是省事，不是省证据**：一旦模型或规则认为要看工程，
- * 证据照旧真实读取，绝不拿上一轮的旧证据顶。
+ * 顺序：模型说了算 → 模型没给时，话里点到工程才读，否则不读。
+ * 一旦决定要读，证据照旧真实读取，绝不拿上一轮的旧证据顶。
  */
 export function needsProjectEvidence(input: ProjectNeedInput): { read: boolean; reason: string } {
   if (input.modelReadsProject === true) {
     return { read: true, reason: '模型判定这一问要看工程里的文件' };
   }
   if (input.modelReadsProject === false) {
-    return { read: false, reason: '模型判定只看随附文件就能答' };
+    return { read: false, reason: '模型判定这一问不必看工程目录' };
   }
-  if (input.attachmentCount > 0 && !PROJECT_TERMS.test(input.text)) {
+  if (PROJECT_TERMS.test(input.text)) {
+    return { read: true, reason: '问题提到了工程或本机代码，按规则读取工程目录' };
+  }
+  if (input.attachmentCount > 0) {
     return {
       read: false,
       reason: `这一问只问了随附的 ${String(input.attachmentCount)} 个文件，没有提到工程`
     };
   }
-  return { read: true, reason: '按规则读取工程目录' };
+  return { read: false, reason: '问题没有提到工程或本机代码，不读目录，按原话回答' };
 }

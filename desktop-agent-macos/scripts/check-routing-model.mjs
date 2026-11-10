@@ -128,10 +128,9 @@ test('模型说不用读工程才不读；没说（null）绝不写成 false', (
   );
 });
 
-test('要不要读工程目录：模型优先，模型没给时只省「附了文件又没提工程」', () => {
+test('要不要读工程目录：模型优先；没给时只有话里点到工程才读', () => {
   // 真机原话：「为什么要读取工程目录内容，只有需要的时候才需要读啊。」
-  // 一条 md 问行数却把整个 Downloads 扫了一遍，20 条顶层文件和 readme.txt
-  // 一起进了转录，最后还反过来把附件里的事实否掉。
+  // 2026-11-10：选「本次按分析」跳过模型后，旧默认仍扫 Downloads，常识题去 fs.search。
   assert.deepEqual(
     needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 1, modelReadsProject: false }).read,
     false
@@ -140,11 +139,19 @@ test('要不要读工程目录：模型优先，模型没给时只省「附了�
     needsProjectEvidence({ text: '这个模块怎么实现的', attachmentCount: 1, modelReadsProject: true }).read,
     true
   );
-  // 模型没给：附了文件、没提工程 → 省掉；提到工程 → 照读
+  // 模型没给：附了文件、没提工程 → 不读；提到工程 → 读
   assert.equal(needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 1 }).read, false);
   assert.equal(needsProjectEvidence({ text: '这份日志和当前工程的实现一致吗', attachmentCount: 1 }).read, true);
-  // 没有附件：照旧读工程
-  assert.equal(needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 0 }).read, true);
+  // 没提工程：默认不读（含无附件的常识/选型题）
+  assert.equal(needsProjectEvidence({ text: '这个文件有多少行', attachmentCount: 0 }).read, false);
+  assert.equal(
+    needsProjectEvidence({ text: 'java和go谁更适合做游戏服务器', attachmentCount: 0 }).read,
+    false
+  );
+  assert.equal(
+    needsProjectEvidence({ text: '分析一下当前工程的目录结构', attachmentCount: 0 }).read,
+    true
+  );
 });
 
 // ---------------------------------------------------------------------------

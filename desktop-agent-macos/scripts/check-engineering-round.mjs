@@ -198,7 +198,7 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
   const model = fakeModel('ollama:qwen', 'Ollama Qwen', 'local');
   const { runner, log } = makeRunner({ web: ['chatgpt', 'gemini'], models: [model] });
 
-  const started = await runner.start(engineeringInput('读取 log.txt 告诉我总共有多少条记录'));
+  const started = await runner.start(engineeringInput('读取工程里的 log.txt 告诉我总共有多少条记录'));
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'answered');
@@ -207,7 +207,7 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
   const ask = model.asks.find(item => item.stage === 'initial');
   assert.ok(ask, '模型要被问第一手问题');
   assert.ok(ask.question.includes('【用户的问题】'));
-  assert.ok(ask.question.includes('读取 log.txt 告诉我总共有多少条记录'));
+  assert.ok(ask.question.includes('读取工程里的 log.txt 告诉我总共有多少条记录'));
   assert.ok(ask.question.includes('【工程证据'), '证据必须随问题一起给模型');
   assert.ok(ask.question.includes('log.txt'), '点名的文件要真的在证据里');
   assert.ok(ask.system?.join('\n').includes('路径:行号'));
@@ -218,7 +218,11 @@ test('工程空间：一个网页都不问，模型拿到的是用户原话 + �
     '模型的回答要以回答消息落库'
   );
   assert.ok(
-    messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
+    messages.some(
+      message =>
+        message.role === 'system' &&
+        (message.text.includes('工程空间多 agent 编排') || message.text.includes('本地主导'))
+    ),
     '要写清楚这一轮谁回答、没发网页'
   );
 });
@@ -238,11 +242,14 @@ test('知识空间完全不变：仍然问所有网页通道，模型不参与�
   );
 });
 
-test('工程空间没有可用模型：退回网页，并写明网页读不到本地文件', async () => {
+test('网页主导且没有可用模型：退回网页，并写明网页读不到本地文件', async () => {
   const model = fakeModel('ollama:qwen', 'Ollama Qwen', 'local', { available: false });
   const { runner, log } = makeRunner({ web: ['chatgpt'], models: [model] });
 
-  const started = await runner.start(engineeringInput('读取 log.txt 有多少条记录'));
+  const started = await runner.start({
+    ...engineeringInput('读取工程里的 log.txt 有多少条记录'),
+    executionConfig: { executionMode: 'web' }
+  });
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'answered');
@@ -258,13 +265,16 @@ test('工程空间没有可用模型：退回网页，并写明网页读不到�
   );
 });
 
-test('工程空间模型报错：不假装答过，退回网页并写明是谁没成', async () => {
+test('网页主导且模型报错：不假装答过，退回网页并写明是谁没成', async () => {
   const model = fakeModel('ollama:qwen', 'Ollama Qwen', 'local', {
     fail: '连不上 http://127.0.0.1:11434'
   });
   const { runner, log } = makeRunner({ web: ['chatgpt'], models: [model] });
 
-  const started = await runner.start(engineeringInput('读取 log.txt 有多少条记录'));
+  const started = await runner.start({
+    ...engineeringInput('读取工程里的 log.txt 有多少条记录'),
+    executionConfig: { executionMode: 'web' }
+  });
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'answered');

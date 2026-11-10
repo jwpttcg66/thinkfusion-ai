@@ -30,8 +30,8 @@ import {
 } from '../out-test/main/research/engineering-orchestration.js';
 import { SECOND_OPINION_MATERIAL_LIMIT } from '../out-test/main/research/second-opinion.js';
 
-const FACT = '读取 log.txt 告诉我总共有多少条记录';
-const DECISION = '要不要把 session 存到 SQLite';
+const FACT = '读取工程里的 log.txt 告诉我总共有多少条记录';
+const DECISION = '这个工程要不要把 session 存到 SQLite';
 
 const local = (id = 'ollama:qwen', label = 'Ollama Qwen', available = true) => ({
   agentId: id, label, kind: 'local', available

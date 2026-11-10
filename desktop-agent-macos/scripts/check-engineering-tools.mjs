@@ -238,7 +238,7 @@ test('模型请求读文件时，宿主真读并把结果递回去，转录里�
       : '依据 fs.stat 的结果，log.txt 共 3 行，也就是 3 条记录。'
   );
   const started = await runner.start({
-    text: 'log.txt 有多少条记录',
+    text: '工程里的 log.txt 有多少条记录',
     workspaceMode: 'engineering',
     workspaceRoot: root,
     taskKindOverride: 'analysis',
@@ -267,7 +267,7 @@ test('模型请求读文件时，宿主真读并把结果递回去，转录里�
 test('预算用完不再循环：一直请求也只多问一轮', async () => {
   const { runner, asks } = makeRunner(() => '{"tool":"fs.readFile","args":{"path":"log.txt"}}');
   const started = await runner.start({
-    text: 'log.txt 有多少条记录',
+    text: '工程里的 log.txt 有多少条记录',
     workspaceMode: 'engineering',
     workspaceRoot: root,
     taskKindOverride: 'analysis',
@@ -280,7 +280,7 @@ test('预算用完不再循环：一直请求也只多问一轮', async () => {
 test('模型正常回答时一次都不多问', async () => {
   const { runner, asks } = makeRunner(() => '依据证据，log.txt 共 3 行。');
   const started = await runner.start({
-    text: 'log.txt 有多少行',
+    text: '工程里的 log.txt 有多少行',
     workspaceMode: 'engineering',
     workspaceRoot: root,
     taskKindOverride: 'analysis',
@@ -288,6 +288,30 @@ test('模型正常回答时一次都不多问', async () => {
   });
   await settle(runner, started.conversationId);
   assert.equal(asks.filter(input => input.stage === 'initial').length, 1);
+});
+
+test('选「本次按分析」的常识题也不扫工程、不开放读文件——真机 java vs go', async () => {
+  // 真机 2026-11-10：override 跳过模型判定后旧默认仍读 Downloads，再开放工具去 fs.search。
+  const { runner, asks } = makeRunner(() => '{"tool":"fs.search","args":{"pattern":"java|go"}}');
+  const started = await runner.start({
+    text: 'java和go谁更适合做游戏服务器',
+    workspaceMode: 'engineering',
+    workspaceRoot: root,
+    taskKindOverride: 'analysis',
+    executionConfig: { executionMode: 'local' }
+  });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(done.status, 'answered');
+  const systemTexts = runner
+    .messages(started.conversationId)
+    .filter(message => message.role === 'system')
+    .map(message => message.text ?? '');
+  assert.ok(systemTexts.some(text => /没有读取工程目录/.test(text)));
+  assert.ok(systemTexts.some(text => /不开放读文件工具/.test(text)));
+  assert.equal(asks.filter(input => input.stage === 'initial').length, 1);
+  assert.ok(!(asks[0].system ?? []).join('\n').includes('你可以自己读文件'));
+  assert.ok(!systemTexts.some(text => /调用了本机能力/.test(text)));
+  assert.ok(!systemTexts.some(text => /已读取工程目录/.test(text)));
 });
 
 test('本问不读工程、无附件时不开放读文件工具，模型回 JSON 也不执行', async () => {
