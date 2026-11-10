@@ -817,6 +817,8 @@ export interface PlanPreview {
   steps: Array<{ id: string; tool: ToolName; description?: string; args: Record<string, unknown> }>;
   /** V2.1：方案评审辩论结果。没开启辩论时为空。 */
   debate?: PlanDebate;
+  /** 计划门禁：缺哪些判据。空/缺失表示没发现问题。 */
+  warnings?: string[];
 }
 
 // ---------------------------------------------------------------------------

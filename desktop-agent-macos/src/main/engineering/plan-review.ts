@@ -1,5 +1,67 @@
 import type { AgentPlan } from '../../shared/contracts';
 
+/** 会改动工作区的工具；与 PlanPreview 的 isWrite 保持同一口径。 */
+const WRITE_TOOLS = new Set([
+  'fs.writeFile', 'fs.mkdir', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy'
+]);
+
+/** 数据类能力：查询本身带结果集大小风险。 */
+const DATA_TOOLS = new Set(['csv.summary', 'sqlite.query', 'code.run']);
+const AGGREGATE_SQL = /^\s*(select\s+count|select\s+sum|select\s+avg|select\s+min|select\s+max|pragma|explain)/i;
+
+export interface PlanCapabilityGate {
+  /** 这次计划的主族，用于界面显示与后续度量。 */
+  family: 'code.change' | 'test' | 'data' | 'frontend' | 'code.read';
+  /** 缺哪些判据；空数组表示通过。 */
+  missing: string[];
+}
+
+/**
+ * 计划门禁：执行前检查主族要求的判据是否在计划里。
+ *
+ * 它不是权限，也不阻止执行——只在缺判据时告诉用户「执行后不会标已验证」。
+ * 缺判据仍照跑，是用户的选择；把没跑测试的改动说成「已验证」才是错。
+ */
+export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
+  const steps = plan.steps ?? [];
+  const writes = steps.filter(step => WRITE_TOOLS.has(step.tool));
+  const tests = steps.filter(step => step.tool === 'test.run');
+  const screens = steps.filter(step => step.tool === 'screen.capture');
+  const dataSteps = steps.filter(step => DATA_TOOLS.has(step.tool));
+  const missing: string[] = [];
+
+  if (writes.length > 0 && tests.length === 0) {
+    missing.push('计划改了文件，但没有 test.run：执行后不会标已验证');
+  }
+
+  const touchesUi = writes.some(step => {
+    const args = step.args as { path?: unknown };
+    return typeof args.path === 'string' && args.path.replace(/\\/g, '/').includes('src/renderer/');
+  });
+  if (touchesUi && screens.length === 0 && tests.length === 0) {
+    missing.push('计划改了界面，但没有截屏或构建检查：布局与交互没有被验证');
+  }
+
+  // 只拦「会把整表读进上下文」的查询；聚合、PRAGMA、EXPLAIN 没有这个问题。
+  const unbounded = steps.filter(step => {
+    if (step.tool !== 'sqlite.query') return false;
+    const sql = (step.args as { sql?: unknown }).sql;
+    return typeof sql === 'string' && !/\blimit\b/i.test(sql) && !AGGREGATE_SQL.test(sql);
+  });
+  if (unbounded.length > 0) {
+    missing.push(`${unbounded.length} 条 SQL 没有 LIMIT：大表会把结果整段读进上下文`);
+  }
+
+  const family: PlanCapabilityGate['family'] =
+    writes.length > 0 ? 'code.change'
+      : tests.length > 0 ? 'test'
+        : screens.length > 0 ? 'frontend'
+          : dataSteps.length > 0 ? 'data'
+            : 'code.read';
+
+  return { family, missing };
+}
+
 /**
  * 方案评审辩论的判据（V2.1 D-03 / 任务书 Phase F）。
  *

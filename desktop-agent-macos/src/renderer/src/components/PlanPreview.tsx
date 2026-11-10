@@ -100,6 +100,12 @@ export function PlanPreview(props: {
       </div>
       {props.plan.description && <p className="plan-desc">{props.plan.description}</p>}
 
+      {(props.plan.warnings ?? []).length > 0 && (
+        <div className="notice warn">
+          计划缺少判据：{(props.plan.warnings ?? []).join('；')}。仍可执行，但结果不会被标成「已验证」。
+        </div>
+      )}
+
       <ol className="steps">
         {props.plan.steps.map(step => (
           <li key={step.id} className={isWrite(step.tool) ? 'write' : isSystem(step.tool) ? 'system' : ''}>

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  checkPlanCapabilities,
   planDebateTopics,
   planReviewQuestion,
   shouldDebatePlan,
@@ -37,6 +38,47 @@ const writePlan = plan([
   { id: 's2', tool: 'fs.writeFile', args: { path: 'src/utils.ts', content: 'x', overwrite: true, expectedHash: 'a'.repeat(64) } },
   { id: 's3', tool: 'test.run', args: { command: 'npm test' } }
 ]);
+
+test('门禁：改文件没跑测试，点名「不会标已验证」', () => {
+  const gate = checkPlanCapabilities(plan([
+    { id: 's1', tool: 'fs.edit', args: { path: 'src/a.ts', oldString: 'a', newString: 'b' } }
+  ]));
+  assert.equal(gate.family, 'code.change');
+  assert.equal(gate.missing.length, 1);
+  assert.match(gate.missing[0], /test\.run/);
+});
+
+test('门禁：改文件且跑测试就通过', () => {
+  const gate = checkPlanCapabilities(writePlan);
+  assert.equal(gate.family, 'code.change');
+  assert.deepEqual(gate.missing, []);
+});
+
+test('门禁：改界面没有截屏或构建检查要提醒', () => {
+  const gate = checkPlanCapabilities(plan([
+    { id: 's1', tool: 'fs.edit', args: { path: 'src/renderer/src/App.tsx', oldString: 'a', newString: 'b' } }
+  ]));
+  assert.ok(gate.missing.some(item => item.includes('界面')));
+});
+
+test('门禁：SQL 没有 LIMIT 要提醒，带 LIMIT 或聚合查询放行', () => {
+  const unbounded = checkPlanCapabilities(plan([
+    { id: 's1', tool: 'sqlite.query', args: { path: 'db.sqlite', sql: 'SELECT * FROM users' } }
+  ]));
+  assert.equal(unbounded.family, 'data');
+  assert.ok(unbounded.missing.some(item => item.includes('LIMIT')));
+
+  for (const sql of ['SELECT * FROM users LIMIT 20', 'SELECT count(*) FROM users', 'PRAGMA table_info(users)']) {
+    const gate = checkPlanCapabilities(plan([{ id: 's1', tool: 'sqlite.query', args: { path: 'db.sqlite', sql } }]));
+    assert.deepEqual(gate.missing, [], sql);
+  }
+});
+
+test('门禁：只读计划不拦，主族是 code.read', () => {
+  const gate = checkPlanCapabilities(readOnlyPlan);
+  assert.equal(gate.family, 'code.read');
+  assert.deepEqual(gate.missing, []);
+});
 
 test('关闭辩论时不辩，并说得出是设置关的', () => {
   const decision = shouldDebatePlan('off', writePlan);

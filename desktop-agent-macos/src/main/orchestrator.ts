@@ -15,7 +15,7 @@ import type {
 } from '../shared/contracts';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
-import { planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
+import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
@@ -517,7 +517,11 @@ export class AgentOrchestrator {
     // 计划卡片先给出去：方案评审辩论可能要跑几分钟，让审批的人对着空白等
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
-    this.deps.emit({ type: 'plan.ready', at: Date.now(), taskId, roundId, plan: toPreview(stored) });
+    const gate = checkPlanCapabilities(stored.plan);
+    this.deps.emit({
+      type: 'plan.ready', at: Date.now(), taskId, roundId,
+      plan: toPreview(stored, gate.missing)
+    });
 
     const debate = await this.reviewPlanWithDebate(taskId, roundId, stored);
     this.tasks.transition(taskId, 'awaiting_approval', { currentPlanId: stored.planId });
@@ -679,7 +683,7 @@ export function hashPlan(plan: AgentPlan): string {
   return createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 }
 
-export function toPreview(stored: StoredPlan): PlanPreview {
+export function toPreview(stored: StoredPlan, warnings: string[] = []): PlanPreview {
   return {
     planId: stored.planId,
     taskId: stored.taskId,
@@ -692,6 +696,7 @@ export function toPreview(stored: StoredPlan): PlanPreview {
       tool: step.tool,
       description: step.description,
       args: step.args as Record<string, unknown>
-    }))
+    })),
+    ...(warnings.length > 0 ? { warnings } : {})
   };
 }
