@@ -1390,7 +1390,9 @@ export class ConversationRunner {
     const waiting = conversation.channels
       .map(id => this.deps.registry.get(id)?.label ?? id)
       .join('、');
-    const spent = budget >= 60_000 ? `${String(Math.round(budget / 60_000))} 分钟` : `${String(Math.round(budget / 1000))} 秒`;
+    const spent = budget >= 60_000
+      ? `${String(Math.round(budget / 60_000))} 分钟`
+      : `${String(Math.max(1, Math.round(budget / 1000)))} 秒`;
     this.fail(
       conversation,
       new Error(

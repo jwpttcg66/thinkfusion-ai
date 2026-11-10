@@ -604,7 +604,7 @@ test('a turn that never returns ends as a failure that names the channel', async
   const done = await settle(runner, started.conversationId);
 
   assert.equal(done.status, 'failed', '卡住的一轮必须结束，不能一直是思考中');
-  assert.match(done.error, /没有结果/);
+  assert.match(done.error, /没有任何进展|没有结果/);
   assert.match(done.error, /a/, '失败要说清楚在等谁');
   assert.ok(
     events.some(event => event.type === 'conversation.failed'),

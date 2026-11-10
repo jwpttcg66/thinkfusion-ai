@@ -1208,6 +1208,8 @@ function destroySourceView(id: string): void {
   views.delete(id);
   applied.delete(id);
   adapters.delete(id);
+  // 页面全关了就收起分栏：空着的右栏会让人以为「还有页面开着」。
+  if (views.size === 0 && !detached && pageCollapsed === false) setCollapsed(true);
 }
 
 /**
@@ -1666,7 +1668,15 @@ function detachSource(id: string): PageState {
     // `reattachSource` clears `detached` before destroying the window, so this
     // branch only runs for a close the user performed.
     if (detached?.window !== frame) return;
-    reattachSource();
+    const sourceId = detached.sourceId;
+    // 「关掉页面」就是关掉：以前这里把页面搬回主窗口的分栏，用户明明点了关闭，
+    // 下一次提问又把同一页摆回来。现在连同视图一起销毁，并在没有页面时收起
+    // 分栏，不留下一个空列。
+    detached = null;
+    destroySourceView(sourceId);
+    if (views.size === 0) setCollapsed(true);
+    layout();
+    emitPageState();
   });
   detached = { window: frame, sourceId: id };
   void frame.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(detachedDocument(source))}`);
