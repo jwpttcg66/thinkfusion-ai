@@ -418,8 +418,16 @@ export class ConversationRunner {
    */
   async delete(conversationId: string): Promise<ConversationDeleteOutcome> {
     const conversation = this.deps.store.getConversation(conversationId);
-    const asked = conversation?.channels ?? [];
     const threads = conversation?.threads ?? {};
+    // `channels` 只保留「这一轮」提问条；删会话时要清的是整段对话碰过的
+    // 网页线程，所以并上 threads / answered，避免早几轮的网页残留在侧栏。
+    const asked = [
+      ...new Set([
+        ...(conversation?.channels ?? []),
+        ...(conversation?.answered ?? []),
+        ...Object.keys(threads)
+      ])
+    ];
     // Conversations written before `answered` existed only carry evidence of
     // the answers that left an address behind. That is enough: every channel
     // with a thread is one this conversation definitely talked to.
@@ -1384,6 +1392,12 @@ export class ConversationRunner {
   ): Promise<void> {
     const conversationId = conversation.conversationId;
     const config = normalizeExecutionConfig(conversation.executionConfig);
+
+    // 每一轮自己的提问条。`channels` 若跨轮累积，关掉的模型还会挂在条上
+    // （上一轮的失败状态跟着回来），看起来像「保存后还在问」。网页侧栏清理
+    // 靠 `threads` / `answered`，不靠这一轮的条。
+    conversation.channels = [];
+    this.save(conversation);
 
     const sink: ResearchSink = {
       join: (agentId: string) => {

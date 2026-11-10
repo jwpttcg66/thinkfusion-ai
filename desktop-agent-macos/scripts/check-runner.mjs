@@ -210,6 +210,44 @@ test('a follow-up is sent verbatim too', async () => {
   assert.deepEqual(sent, ['第一问', '第二问']);
 });
 
+test('追问换名单后，提问条只留这一轮成员', async () => {
+  // 关掉的通道若还挂在 conversation.channels 上，界面会继续显示上一轮的
+  // 「失败 / 已回答」——正是「模型保存后提问里还有」的根因之一。
+  let allow = ['a', 'b'];
+  const channels = [
+    fakeChannel('a', () => answer('a 的回答')),
+    fakeChannel('b', () => answer('b 的回答'))
+  ];
+  const { runner } = makeRunner(channels, {
+    deps: {
+      poolFor: (_config, registry) => ({
+        all: async () => (await registry.all()).filter(item => allow.includes(item.id)),
+        available: async () => (await registry.available()).filter(item => allow.includes(item.id)),
+        ask: (id, task) => registry.ask(id, task),
+        newConversation: id => registry.newConversation(id),
+        deleteConversation: (id, threadUrl) => registry.deleteConversation(id, threadUrl),
+        cancel: () => {},
+        get: id => registry.get(id)
+      })
+    }
+  });
+
+  const started = await runner.start({ text: '第一问' });
+  const first = await settle(runner, started.conversationId);
+  assert.deepEqual([...first.channels].sort(), ['a', 'b']);
+
+  allow = ['a'];
+  const before = runner.messages(started.conversationId).filter(message => message.role === 'channel').length;
+  await runner.followup(started.conversationId, '第二问');
+  // followup 立刻返回、run 异步开跑：不能靠 status===answered 判断第二轮结束，
+  // 那会在 channels 刚被清空、还没 join 时就读到空条。
+  await waitFor(
+    () => runner.messages(started.conversationId).filter(message => message.role === 'channel').length > before
+  );
+  const second = runner.get(started.conversationId);
+  assert.deepEqual([...second.channels], ['a'], '关掉的 b 不能再出现在这一轮提问条上');
+});
+
 test('a research question asks every channel and produces a synthesis', async () => {
   const { runner } = makeRunner([
     fakeChannel('a', () => answer('生产环境必须开启连接池复用来降低连接数。')),

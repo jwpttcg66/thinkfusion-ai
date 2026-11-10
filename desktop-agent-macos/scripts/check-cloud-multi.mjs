@@ -157,6 +157,49 @@ test('「选择模型」只动看得见的候选；候选去重保序，空选�
   assert.equal(allVisiblePicked(['a', 'b'], ['a', 'b']), true);
 });
 
+test('更新列表后裁掉已取消的模型；别家与网页主导不受影响', async () => {
+  const { pruneCloudParticipantsForProvider, pruneCloudParticipantsAgainstPool } =
+    await import('../out-test/shared/cloud-selection.js');
+  const afterSave = pruneCloudParticipantsForProvider(
+    [
+      'opencode-go:deepseek-v4.1-flash',
+      'opencode-go:gpt-6-luna',
+      'opencode-go:hy4',
+      'openai:gpt-4o-mini'
+    ],
+    'opencode-go:gpt-6-luna',
+    'opencode-go',
+    ['deepseek-v4.1-flash', 'hy4']
+  );
+  assert.equal(afterSave.changed, true);
+  assert.deepEqual(afterSave.selectedCloudModels, [
+    'opencode-go:deepseek-v4.1-flash',
+    'opencode-go:hy4',
+    'openai:gpt-4o-mini'
+  ]);
+  assert.equal(afterSave.clearLead, true);
+  assert.equal(afterSave.leadAgentId, undefined);
+
+  const webLead = pruneCloudParticipantsForProvider(
+    ['opencode-go:gpt-6-luna'],
+    'chatgpt',
+    'opencode-go',
+    ['deepseek-v4.1-flash']
+  );
+  assert.equal(webLead.clearLead, false);
+  assert.equal(webLead.leadAgentId, 'chatgpt');
+
+  const againstPool = pruneCloudParticipantsAgainstPool(
+    ['opencode-go:deepseek-v4.1-flash', 'opencode-go:gpt-6-luna'],
+    'opencode-go:gpt-6-luna',
+    new Set(['opencode-go:deepseek-v4.1-flash', 'opencode-go:hy4']),
+    new Set(['opencode-go', 'openai'])
+  );
+  assert.equal(againstPool.changed, true);
+  assert.deepEqual(againstPool.selectedCloudModels, ['opencode-go:deepseek-v4.1-flash']);
+  assert.equal(againstPool.clearLead, true);
+});
+
 test('baseUrl 只接受 http(s)，尾斜杠会被去掉，避免拼出 //chat/completions', () => {
   const preset = presetOf('opencode-go');
   assert.equal(resolvePreset(preset, { baseUrl: 'https://example.com/v1/' }).baseUrl, 'https://example.com/v1');

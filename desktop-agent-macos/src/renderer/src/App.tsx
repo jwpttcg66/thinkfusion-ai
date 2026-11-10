@@ -33,6 +33,7 @@ import {
 } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage, ExecutionMode } from '../../shared/conversation';
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
+import { pruneCloudParticipantsAgainstPool } from '../../shared/cloud-selection';
 import { dedupeAttachments, type ConversationAttachment } from '../../shared/attachments';
 import type { ExpertiseId, ExpertiseView } from '../../shared/expertise';
 import { classifyIntent } from '../../shared/intent';
@@ -246,7 +247,36 @@ export default function App() {
     void window.agentAPI
       .getExecutionOptions()
       .then(options => {
-        if (alive) setExecutionOptions(options);
+        if (!alive) return;
+        setExecutionOptions(options);
+        // 设置里「更新列表」会改可选池；关掉面板时把勾选里已经不存在的模型裁掉，
+        // 否则保存后提问条 / 参与名单还会挂着旧 id。
+        const available = new Set(options.cloudMembers.map(item => item.id));
+        const providers = new Set(options.cloudProviders.map(item => item.id));
+        const current = executionConfigRef.current;
+        const pruned = pruneCloudParticipantsAgainstPool(
+          current.selectedCloudModels,
+          current.leadAgentId,
+          available,
+          providers
+        );
+        if (!pruned.changed) return;
+        const next = normalizeExecutionConfig({
+          ...current,
+          ...(pruned.selectedCloudModels ? { selectedCloudModels: pruned.selectedCloudModels } : {}),
+          ...(pruned.clearLead ? { leadAgentId: undefined } : {})
+        });
+        if (pruned.clearLead) delete next.leadAgentId;
+        executionConfigRef.current = next;
+        executionDefaultsRef.current = next;
+        setExecutionConfig(next);
+        void window.agentAPI.setExecutionDefaults(next).catch(() => undefined);
+        const conversationId = activeConversationRef.current;
+        if (conversationId) {
+          void window.agentAPI
+            .updateConversationConfig({ conversationId, executionConfig: next })
+            .catch(() => undefined);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -874,6 +904,8 @@ export default function App() {
       setSubmitting(true);
       setError('');
       setNotice('');
+      // 新一轮自己的阶段：上一轮失败的模型不能带着「失败」徽章再出现在条上。
+      setPhases({});
       try {
         const updated = await window.agentAPI.followupConversation({
           conversationId: activeConversation.conversationId,
@@ -932,6 +964,7 @@ export default function App() {
     setNotice('');
     setSubmitting(true);
     setError('');
+    setPhases({});
     try {
       const conversation = await window.agentAPI.submitConversation({
         text,

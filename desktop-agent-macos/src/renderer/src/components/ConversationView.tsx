@@ -291,7 +291,11 @@ export function ConversationView(props: {
           // 只有最后一轮、并且这一轮还在跑，才用实时状态：更早的那几轮早就结束了，
           // 它们的「谁答完了」只能从自己的消息里数出来。
           const live = turnIndex === turns.length - 1 && (props.busy || liveStatus.includes(conversation.status));
-          const opinionTags = tagsForTurn(conversation.channels, answered, labels, props.glyphs);
+          // 提问条按轮看：进行中的一轮用 runner 这一轮的 `channels`；已经结束的
+          // 轮次只认本轮消息里出现过的通道——否则上一轮问过、这一轮关掉的模型
+          // 还会挂在条上，看起来像「保存后还在问」。
+          const stripChannels = live ? conversation.channels : answeredIds;
+          const opinionTags = tagsForTurn(stripChannels, answered, labels, props.glyphs);
 
           return (
             <section
@@ -310,7 +314,7 @@ export function ConversationView(props: {
                   这时候通道一个都还没答，状态条本身就是「正在等谁」。 */}
               {turn.user && (
                 <ChannelStrip
-                  channels={conversation.channels}
+                  channels={stripChannels}
                   statuses={props.channelStatuses}
                   phases={live ? props.phases : {}}
                   answered={answered}

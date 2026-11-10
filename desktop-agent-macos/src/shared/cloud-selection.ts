@@ -60,3 +60,83 @@ export function toggleVisibleModels(
 export function allVisiblePicked(picked: readonly string[], visible: readonly string[]): boolean {
   return visible.length > 0 && visible.every(model => picked.includes(model));
 }
+
+/**
+ * 某家服务「更新列表」之后，把研究设置里挂着的旧成员裁掉。
+ *
+ * 设置里的勾选决定这家服务还能出场的模型；研究设置 / 输入框里的
+ * `selectedCloudModels` 与 `leadAgentId` 是另一份名单。两份不对齐时，
+ * 用户以为已经关掉的模型还会出现在提问条上——所以保存后必须按这家
+ * 新清单裁一次，只动属于这家的 id，别误伤别家或网页通道。
+ */
+export function pruneCloudParticipantsForProvider(
+  selectedCloudModels: readonly string[] | undefined,
+  leadAgentId: string | undefined,
+  providerId: string,
+  models: readonly string[]
+): {
+  selectedCloudModels?: string[];
+  leadAgentId?: string;
+  clearLead: boolean;
+  changed: boolean;
+} {
+  const allowed = new Set(models.map(model => `${providerId}:${model}`));
+  const fromProvider = (id: string) => id.startsWith(`${providerId}:`);
+  let changed = false;
+  let nextSelected = selectedCloudModels;
+  if (Array.isArray(selectedCloudModels)) {
+    const pruned = selectedCloudModels.filter(id => !fromProvider(id) || allowed.has(id));
+    if (pruned.length !== selectedCloudModels.length) {
+      nextSelected = pruned;
+      changed = true;
+    }
+  }
+  const clearLead = Boolean(leadAgentId && fromProvider(leadAgentId) && !allowed.has(leadAgentId));
+  if (clearLead) changed = true;
+  return {
+    ...(nextSelected !== undefined ? { selectedCloudModels: [...nextSelected] } : {}),
+    ...(!clearLead && leadAgentId ? { leadAgentId } : {}),
+    clearLead,
+    changed
+  };
+}
+
+/**
+ * 关闭设置后按当前可选云端成员裁一次：池子里已经没了的 id 不能再留在勾选里。
+ */
+export function pruneCloudParticipantsAgainstPool(
+  selectedCloudModels: readonly string[] | undefined,
+  leadAgentId: string | undefined,
+  availableMemberIds: ReadonlySet<string>,
+  cloudProviderIds: ReadonlySet<string>
+): {
+  selectedCloudModels?: string[];
+  leadAgentId?: string;
+  clearLead: boolean;
+  changed: boolean;
+} {
+  let changed = false;
+  let nextSelected = selectedCloudModels;
+  if (Array.isArray(selectedCloudModels)) {
+    const pruned = selectedCloudModels.filter(id => availableMemberIds.has(id));
+    if (pruned.length !== selectedCloudModels.length) {
+      nextSelected = pruned;
+      changed = true;
+    }
+  }
+  let clearLead = false;
+  if (leadAgentId) {
+    const colon = leadAgentId.indexOf(':');
+    const providerId = colon > 0 ? leadAgentId.slice(0, colon) : '';
+    if (cloudProviderIds.has(providerId) && !availableMemberIds.has(leadAgentId)) {
+      clearLead = true;
+      changed = true;
+    }
+  }
+  return {
+    ...(nextSelected !== undefined ? { selectedCloudModels: [...nextSelected] } : {}),
+    ...(!clearLead && leadAgentId ? { leadAgentId } : {}),
+    clearLead,
+    changed
+  };
+}

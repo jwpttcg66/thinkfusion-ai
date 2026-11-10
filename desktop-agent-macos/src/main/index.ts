@@ -59,6 +59,7 @@ import {
   userProviderId,
   type CloudPreset
 } from './providers/cloud-presets';
+import { pruneCloudParticipantsForProvider } from '../shared/cloud-selection';
 import {
   buildRoutingQuestion,
   parseRoutingVerdict,
@@ -74,6 +75,7 @@ import type { JudgeVerdict } from './judge/types';
 import { classifyIntent } from '../shared/intent';
 import {
   DEFAULT_EXECUTION_CONFIG,
+  normalizeExecutionConfig,
   type ChannelStatus,
   type ConversationEvent,
   type ConversationExecutionConfig,
@@ -2854,6 +2856,25 @@ function registerIpc() {
     if (unknown.length > 0) throw new Error(`候选里没有这些模型：${unknown.join('、')}`);
     cloudConfigs.set(input.id, { models, modelsPicked: true });
     rebuildProviders();
+    // 池子缩了，默认研究设置里挂着的旧成员也要裁掉——否则下次新对话仍按旧勾选提问。
+    if (executionDefaults) {
+      const defaults = executionDefaults.get();
+      const pruned = pruneCloudParticipantsForProvider(
+        defaults.selectedCloudModels,
+        defaults.leadAgentId,
+        input.id,
+        models
+      );
+      if (pruned.changed) {
+        const next = normalizeExecutionConfig({
+          ...defaults,
+          ...(pruned.selectedCloudModels ? { selectedCloudModels: pruned.selectedCloudModels } : {}),
+          ...(pruned.clearLead ? { leadAgentId: undefined } : {})
+        });
+        if (pruned.clearLead) delete next.leadAgentId;
+        executionDefaults.set(next);
+      }
+    }
     const resolved = cloudCatalog.find(item => item.id === input.id);
     if (!resolved) throw new Error('未知的云端服务');
     return {
