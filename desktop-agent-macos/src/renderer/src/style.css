@@ -3343,7 +3343,40 @@ button:disabled {
 .settings-launch-actions {
   display: flex;
   flex: none;
-  gap: 8px;
+  gap: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  overflow: hidden;
+  background: #f4f4f5;
+}
+
+.settings-launch-btn {
+  height: 32px;
+  min-width: 52px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: #333;
+}
+
+.settings-launch-btn + .settings-launch-btn {
+  border-left: 1px solid var(--line-strong);
+}
+
+.settings-launch-btn.is-on {
+  background: var(--text);
+  color: #fff;
+}
+
+.settings-launch-btn:hover:not(:disabled):not(.is-on) {
+  background: #ececec;
+}
+
+.settings-launch-btn:disabled {
+  opacity: 0.55;
 }
 
 .settings-list {

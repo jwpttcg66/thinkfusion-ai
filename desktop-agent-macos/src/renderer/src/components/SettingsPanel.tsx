@@ -614,9 +614,12 @@ export function SettingsPanel(props: {
     if (open === props.sources.openOnLaunch) return;
     setBusy(true);
     setError('');
-    const problem = await props.onSetSourcesOpenOnLaunch(open);
-    setBusy(false);
-    if (problem) setError(problem);
+    try {
+      const problem = await props.onSetSourcesOpenOnLaunch(open);
+      if (problem) setError(problem);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function add() {
@@ -830,20 +833,24 @@ export function SettingsPanel(props: {
                       关掉后，启动应用时不加载已启用的网页；点来源栏或提问时再打开。点按钮后立刻保存并生效。
                     </span>
                   </div>
+                  {/*
+                    两端都可点：先前把当前态写成 disabled，选中的「关闭」看起来能点其实点不了。
+                    选中只用 aria-pressed + 样式，busy 时才一起禁用。
+                  */}
                   <div className="settings-launch-actions" role="group" aria-label="启动时打开网页源">
                     <button
-                      className={`btn${props.sources.openOnLaunch ? '' : ' secondary'}`}
+                      className={`settings-launch-btn${props.sources.openOnLaunch ? ' is-on' : ''}`}
                       type="button"
-                      disabled={busy || props.sources.openOnLaunch}
+                      disabled={busy}
                       aria-pressed={props.sources.openOnLaunch}
                       onClick={() => void setOpenOnLaunch(true)}
                     >
                       打开
                     </button>
                     <button
-                      className={`btn${!props.sources.openOnLaunch ? '' : ' secondary'}`}
+                      className={`settings-launch-btn${!props.sources.openOnLaunch ? ' is-on' : ''}`}
                       type="button"
-                      disabled={busy || !props.sources.openOnLaunch}
+                      disabled={busy}
                       aria-pressed={!props.sources.openOnLaunch}
                       onClick={() => void setOpenOnLaunch(false)}
                     >
