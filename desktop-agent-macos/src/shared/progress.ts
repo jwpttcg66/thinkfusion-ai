@@ -110,7 +110,11 @@ export function deriveProgress(input: ProgressInput): ProgressView {
     input.startedAt ??
     (events.length > 0 ? events[0].at : null);
 
-  const roundStart = firstAt(events, 'round.started');
+  // 状态也是事实：`collecting` 说明问题已经发出，即使 round.started 事件因为
+  // 提交与订阅的时序没进到列表里（真机遇到过：界面一直停在「判定」）。
+  const roundStart =
+    firstAt(events, 'round.started') ??
+    (conversationStatus === 'collecting' || conversationStatus === 'synthesizing' ? startedAt : null);
   const planReady = firstAt(events, 'plan.ready');
   const firstStep = firstAt(events, 'step.started');
   const report = lastOf(events, 'report.ready');

@@ -26,6 +26,11 @@ test('第一轮发出：提问成为当前段，判定已完成', () => {
   assert.equal(view.stages.find(s => s.stage === 'routing')?.state, 'done');
 });
 
+test('状态已是收集中、但没收到 round.started：仍算进入提问', () => {
+  const view = deriveProgress({ conversationStatus: 'collecting', events: [], startedAt: at(0) });
+  assert.equal(view.current?.stage, 'asking');
+});
+
 test('进入汇总：提问完成，汇总是当前段', () => {
   const view = deriveProgress({
     conversationStatus: 'synthesizing',
