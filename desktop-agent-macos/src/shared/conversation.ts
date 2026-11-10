@@ -327,7 +327,14 @@ export interface Synthesis {
 // Events (main -> renderer)
 // ---------------------------------------------------------------------------
 
-export type ChannelPhase = 'resetting' | 'asking' | 'answered' | 'failed' | 'busy';
+/**
+ * 通道条上的阶段。
+ *
+ * `leading` 与 `asking` 必须分开：主导人第一轮答完后还要再问一次做汇总，
+ * 若仍标成 `asking`，条上会写「提问中」而卡片里已经有回答——看起来像
+ * 「答完了还在问」，其实是在汇总。
+ */
+export type ChannelPhase = 'resetting' | 'asking' | 'leading' | 'answered' | 'failed' | 'busy';
 
 export type ConversationEvent = { at: number } & (
   | { type: 'conversation.created'; conversation: Conversation }

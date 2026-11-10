@@ -1776,9 +1776,11 @@ export class ConversationRunner {
     const label = lead.label;
 
     this.setStatus(conversation, 'synthesizing');
+    // 主导人第一轮往往已经答过；再问一次是汇总，不是「还没答上」。
+    // 标成 leading，条上写「汇总中」，避免和第一轮的「提问中」混成一件事。
     sink.phase(
       lead.agentId,
-      'asking',
+      'leading',
       lead.auto ? `自动选 ${label} 当主导人：汇总各家回答并指定辩题` : `${label} 当主导人：汇总各家回答并指定辩题`
     );
 
@@ -1824,7 +1826,13 @@ export class ConversationRunner {
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
-      if (summaryText) sink.phase(lead.agentId, 'answered', '汇总完成');
+      // 空汇总也要离开 leading：只在有正文时才标「汇总完成」，否则如实说没写出。
+      // 以前 `if (summaryText)` 才切走，空回执会把条永远停在「提问中」。
+      sink.phase(
+        lead.agentId,
+        'answered',
+        summaryText ? '汇总完成' : '汇总未写出内容'
+      );
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       sink.phase(lead.agentId, 'failed', detail);
@@ -1899,7 +1907,7 @@ export class ConversationRunner {
     let verdictText: string | null = null;
     if (debate && debate.rounds.length > 0) {
       const transcript = formatDebateTranscript(debate.rounds);
-      sink.phase(lead.agentId, 'asking', '读辩论记录，给最终意见');
+      sink.phase(lead.agentId, 'leading', '读辩论记录，给最终意见');
       try {
         const answer = await pool.ask(lead.agentId, {
           question: buildVerdictQuestion(question, summaryText, transcript),
@@ -1909,7 +1917,11 @@ export class ConversationRunner {
         });
         const text = rewriteSourceRefs(answer.text.trim(), answers);
         verdictText = text || null;
-        if (verdictText) sink.phase(lead.agentId, 'answered', '最终意见完成');
+        sink.phase(
+          lead.agentId,
+          'answered',
+          verdictText ? '最终意见完成' : '最终意见未写出内容'
+        );
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         sink.phase(lead.agentId, 'failed', detail);
@@ -2034,7 +2046,7 @@ export class ConversationRunner {
       }));
 
       this.setStatus(conversation, 'synthesizing');
-      sink.phase(execution.lead.agentId, 'asking', `第 ${round} 轮补充后更新汇总`);
+      sink.phase(execution.lead.agentId, 'leading', `第 ${round} 轮补充后更新汇总`);
       try {
         const answer = await pool.ask(execution.lead.agentId, {
           question: buildFollowUpSummaryQuestion({
@@ -2060,6 +2072,7 @@ export class ConversationRunner {
           rounds += 1;
           sink.phase(execution.lead.agentId, 'answered', '汇总已更新');
         } else {
+          sink.phase(execution.lead.agentId, 'answered', '汇总未写出内容');
           this.addMessage(conversation, {
             role: 'system',
             text: `${execution.lead.label} 这一轮没有给出更新后的汇总，结论停在上一版。`

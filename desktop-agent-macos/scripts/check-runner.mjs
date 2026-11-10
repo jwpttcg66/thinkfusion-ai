@@ -869,7 +869,7 @@ test('网页主导：由回答者当主导，它读全部回答写汇总', async
     }),
     fakeChannel('b', async () => answer('b 的回答'))
   ];
-  const { runner, store } = execRunner(channels, { fusionEnabled: true });
+  const { runner, store, events } = execRunner(channels, { fusionEnabled: true });
   const conversation = await runner.start({
     text: '一个问题',
     executionConfig: { executionMode: 'web', leadAgentId: 'a' }
@@ -883,6 +883,16 @@ test('网页主导：由回答者当主导，它读全部回答写汇总', async
   assert.equal(synthesis?.recommendation, SUMMARY_REPLY);
   assert.equal(synthesis?.fusion?.backend, 'web');
   assert.equal(synthesis?.fusion?.leadAgentId, 'a');
+  // 第二轮汇总必须标 leading，不能再标 asking——否则通道条会把已回答的主导人
+  // 显示成「提问中」，看起来像第一轮没答完。
+  assert.ok(
+    events.some(event =>
+      event.type === 'channel.phase' &&
+      event.channelId === 'a' &&
+      event.phase === 'leading'
+    ),
+    '主导人汇总应发出 leading 阶段，供第二轮进度卡使用'
+  );
 });
 
 test('本地主导：本地模型当主导，汇总与辩题都由它出', async () => {

@@ -341,11 +341,22 @@ export function ConversationView(props: {
                   </p>
                 );
               })}
+
+              {/* 第一轮回答齐了之后，主导人还要再问一次做汇总 / 最终意见。
+                  那是第二轮工作，不能只靠通道条上把「已回答」改回「提问中」——
+                  卡片里已经有正文，条上却像卡住。这里单独出一张进度卡。 */}
+              {live && (
+                <ExecutionStageCard
+                  phases={props.phases}
+                  labels={labels}
+                  status={conversation.status}
+                />
+              )}
             </section>
           );
         })}
 
-        {props.busy && (
+        {props.busy && conversation.status !== 'synthesizing' && (
           <div className="conv-working">
             <span className="dot-pulse" />
             {STATUS_LABEL[conversation.status]}
@@ -550,13 +561,15 @@ function ChannelStrip(props: {
   // only thing that changes is a number the renderer can derive from the phase's
   // own timestamp.
   const [now, setNow] = useState(() => Date.now());
-  const asking = Object.values(props.phases).some(item => item.phase === 'asking');
+  const ticking = Object.values(props.phases).some(
+    item => item.phase === 'asking' || item.phase === 'leading'
+  );
 
   useEffect(() => {
-    if (!asking) return;
+    if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [asking]);
+  }, [ticking]);
 
   if (props.channels.length === 0) return null;
 
@@ -572,7 +585,12 @@ function ChannelStrip(props: {
           : props.answered.has(channelId)
             ? 'answered'
             : 'no-answer';
-        const waited = props.live && phase?.phase === 'asking' && phase.at ? Math.max(0, Math.round((now - phase.at) / 1000)) : 0;
+        const waited =
+          props.live &&
+          (phase?.phase === 'asking' || phase?.phase === 'leading') &&
+          phase.at
+            ? Math.max(0, Math.round((now - phase.at) / 1000))
+            : 0;
         return (
           <li
             key={channelId}
@@ -605,6 +623,10 @@ function phaseLabel(phase: string): string {
       return '开新会话';
     case 'asking':
       return '提问中';
+    case 'leading':
+      // 主导人第一轮答完后还要汇总；不能再写「提问中」，否则卡片里已有
+      // 回答、条上却像卡住。
+      return '汇总中';
     case 'answered':
       return '已回答';
     case 'failed':
@@ -618,6 +640,60 @@ function phaseLabel(phase: string): string {
     default:
       return '待命';
   }
+}
+
+/**
+ * 执行阶段（第二轮）进度卡。
+ *
+ * 第一轮是各通道各自回答；第二轮是主导人读完全部回答后写汇总 / 指定辩题 /
+ * 给最终意见。两轮共用通道条时，主导人会被重新标成「提问中」，看起来像
+ * 第一轮没答完。单独一张卡把「现在在做第二轮的哪一步」说清楚。
+ */
+function ExecutionStageCard(props: {
+  phases: Record<string, { phase: string; detail?: string; at?: number }>;
+  labels: ReadonlyMap<string, string>;
+  status: Conversation['status'];
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const leading = Object.entries(props.phases).find(([, item]) => item.phase === 'leading');
+  const active = Boolean(leading) || props.status === 'synthesizing';
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  if (!active) return null;
+
+  const agentId = leading?.[0];
+  const detail = leading?.[1]?.detail ?? '综合各家回答';
+  const startedAt = leading?.[1]?.at;
+  const waited = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
+  const title = detail.includes('最终意见')
+    ? '第二轮 · 最终意见'
+    : detail.includes('更新汇总') || detail.includes('补充后')
+      ? '追加轮 · 更新汇总'
+      : '第二轮 · 主导人汇总';
+
+  return (
+    <article className="execution-stage-card" aria-live="polite">
+      <header className="execution-stage-head">
+        <span className="dot-pulse" />
+        <b>{title}</b>
+        {waited > 0 && <span className="execution-stage-elapsed">{formatWaited(waited)}</span>}
+      </header>
+      <p className="execution-stage-body">
+        {agentId ? (
+          <>
+            <span className="execution-stage-who">{labelOf(agentId, props.labels)}</span>
+            <span className="execution-stage-sep">·</span>
+          </>
+        ) : null}
+        <span>{detail}</span>
+      </p>
+    </article>
+  );
 }
 
 /**

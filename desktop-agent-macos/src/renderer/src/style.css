@@ -2454,6 +2454,12 @@ button:disabled {
   color: var(--accent);
 }
 
+/* 主导人二次提问（汇总 / 最终意见）：与「提问中」同色强调，文案不同。 */
+.channel-chip.phase-leading {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* A reset is a page navigation, not an answer in progress: dim it so the strip
    does not read as "already asking" while the page is still clearing. */
 .channel-chip.phase-resetting {
@@ -2604,6 +2610,46 @@ button:disabled {
   gap: 8px;
   font-size: 12px;
   color: var(--text-2);
+}
+
+/* 执行阶段（第二轮）进度：第一轮回答卡片下方，综合卡出现之前。 */
+.execution-stage-card {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.execution-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.execution-stage-elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.execution-stage-body {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.execution-stage-who {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.execution-stage-sep {
+  margin: 0 6px;
+  opacity: 0.5;
 }
 
 .dot-pulse {
