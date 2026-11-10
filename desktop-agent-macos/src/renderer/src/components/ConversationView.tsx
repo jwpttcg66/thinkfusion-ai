@@ -1010,7 +1010,7 @@ function DebatePanel({
                 {labelOf(message.author, labels)} · {message.kind}
               </span>
               {message.reasoning && <ChannelReasoning text={message.reasoning} />}
-              <p>{message.text}</p>
+              <div className="debate-text"><MarkdownBody text={message.text} /></div>
             </div>
           ))}
         </section>
@@ -1108,9 +1108,9 @@ function SynthesisCard({
       {synthesis.finalOpinion && (
         <div className="synthesis-block synthesis-final">
           <h4>辩后最终意见</h4>
-          <p className="synthesis-final-body">
-            <SourceRefText text={synthesis.finalOpinion} tags={opinionTags} />
-          </p>
+          <div className="synthesis-final-body">
+            <MarkdownBody text={synthesis.finalOpinion} />
+          </div>
         </div>
       )}
 

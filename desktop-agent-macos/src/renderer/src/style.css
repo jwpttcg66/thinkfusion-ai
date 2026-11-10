@@ -3868,8 +3868,17 @@ button:disabled {
   margin: 0;
   font-size: 13px;
   line-height: 1.7;
-  white-space: pre-wrap;
 }
+.synthesis-final-body h1,
+.synthesis-final-body h2,
+.synthesis-final-body h3 {
+  font-size: 13.5px;
+  margin: 12px 0 4px;
+}
+.synthesis-final-body .md-heading { font-size: 13.5px; font-weight: 600; margin: 10px 0 4px; }
+.synthesis-final-body p { margin: 0 0 8px; }
+.synthesis-final-body ul,
+.synthesis-final-body ol { margin: 0 0 8px 18px; }
 
 /* 交锋过程：默认收起。展开后一轮一块、一句一条，谁说的写在上面。 */
 .debate-transcript {
@@ -4283,9 +4292,20 @@ button:disabled {
   color: var(--text-3);
   font-size: 12px;
 }
-.debate-message { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--line-1); }
+.debate-message {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-1);
+  border-radius: 8px;
+  background: #fff;
+}
 .debate-who { color: var(--text-3); font-size: 11.5px; }
-.debate-message p { margin: 3px 0 0; white-space: pre-wrap; line-height: 1.6; }
+.debate-text { margin-top: 4px; font-size: 12.5px; line-height: 1.65; }
+.debate-text .md-heading { font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; }
+.debate-text p { margin: 0 0 6px; }
+.debate-text p:last-child { margin-bottom: 0; }
+.debate-text h1, .debate-text h2, .debate-text h3 { font-size: 13px; margin: 8px 0 4px; }
+.debate-text ul, .debate-text ol { margin: 0 0 6px 18px; }
 
 .channel-reasoning {
   margin: 2px 0 0;
