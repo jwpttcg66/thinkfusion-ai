@@ -1045,10 +1045,10 @@ function layout() {
 /**
  * What the renderer needs to draw the boundary.
  *
- * While folded the reservation is only the rail, not zero: the app column has
- * to stop before the rail or the toggle ends up painted over the composer.
- * `collapsed` is what tells the renderer the small number means "no page here"
- * rather than "a 46px page".
+ * While folded the reservation is the rail plus the stub, not zero: the app
+ * column has to stop before the rail or the source buttons end up painted over
+ * the composer. `collapsed` is what tells the renderer the small number means
+ * "no page here" rather than "a 76px page".
  */
 function layoutInfo(): LayoutInfo {
   const width = win ? win.getContentSize()[0] : 0;

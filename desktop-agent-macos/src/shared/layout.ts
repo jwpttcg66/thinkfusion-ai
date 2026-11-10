@@ -77,23 +77,18 @@ export const RAIL_WIDTH = 46;
 export const PAGE_HEADER_HEIGHT = 36;
 
 /**
- * Former width of the folded-pane name strip (vertical 「Gemini」 etc.).
+ * Width of the strip that stays behind when the page pane is folded away.
  *
- * Kept as a constant so older layout notes and live checks that mention the
- * number still compile; the stub itself is gone — folding leaves only the
- * source rail, and the rail toggle is what unfolds.
+ * Folding cannot be "split = 0". The rail is part of the same reservation on the
+ * right edge, so zero would put the app's own column underneath the rail — the
+ * buttons would be drawn on top of the composer. What is left on screen is the
+ * rail plus this strip: a visible handle that says the page is folded, not gone.
  */
 export const PAGE_STUB_WIDTH = 30;
 
-/**
- * Width reserved on the right edge while the page pane is folded away.
- *
- * Only the rail: a second 30px strip that only repeated the active source's
- * name (「Gemini」竖排) added nothing you could not already do from the rail
- * toggle, and when the pane was folded that name was noise.
- */
+/** The width reserved on the right edge while the page pane is folded away. */
 export function collapsedSplit(): number {
-  return RAIL_WIDTH;
+  return RAIL_WIDTH + PAGE_STUB_WIDTH;
 }
 
 export interface PageBounds {

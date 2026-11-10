@@ -24,10 +24,11 @@
  */
 import { connect, createChecks, findAppTarget, listTargets, sleep, waitFor } from './lib/cdp.mjs';
 
-/** Mirrors RAIL_WIDTH / PAGE_GUTTER / PAGE_HEADER_HEIGHT in src/shared/layout.ts. */
+/** Mirrors RAIL_WIDTH / PAGE_GUTTER / PAGE_HEADER_HEIGHT / PAGE_STUB_WIDTH in src/shared/layout.ts. */
 const RAIL = 46;
 const GUTTER = 10;
 const HEADER = 36;
+const STUB = 30;
 
 const targets = await listTargets();
 const app = findAppTarget(targets);
@@ -372,14 +373,11 @@ const viewportWidth = await cdp.evaluate('window.innerWidth');
 // Press the real button. Folding removes the bar that carries the button, so a
 // click is also the only way to prove the reply arrives before the bar is gone.
 await cdp.evaluate(`document.querySelector('.rail-toggle').click()`);
-const folded = await waitFor(async () => (await readPane()).railToggle?.label === '展开网页', true, {
-  timeoutMs: 3000
-});
-check('点「收起」之后轨道开关变成展开', folded, true);
+const folded = await waitFor(async () => (await readPane()).stub !== null, true, { timeoutMs: 3000 });
+check('点「收起」之后页面栏收成一条', folded, true);
 
 const stub = await readPane();
 check('收起后页面栏消失', stub.bar, null);
-check('收起后不再画竖排站名条', stub.stub, null);
 // The switch keeps its face: same drawing, same fill, same paint. Only the
 // label and the window behind it change — a control that redraws itself is a
 // second thing to read.
@@ -388,10 +386,14 @@ check('收起后填充没变', stub.railToggle?.filled, pane.railToggle?.filled)
 check('收起后底色没变', stub.railToggle?.background, pane.railToggle?.background);
 check('收起后边框没变', stub.railToggle?.border, pane.railToggle?.border);
 check('收起后只有名字变了', stub.railToggle?.label, '展开网页');
-// The width has to go back to the app, but not all the way: the rail stays, and
-// a zero split would put the app column underneath it.
-check('收起后只留轨道', stub.split, RAIL);
-check('收起后应用列排到轨道前', stub.appPadding, RAIL);
+check('收起后剩下的是可点的竖条', stub.expandLabel, '展开网页');
+check('竖条自己就是展开按钮', stub.expandTag, 'BUTTON');
+checkTrue(`竖条上还写着被收起的页面（${stub.stubLabel}）`, stub.stubLabel.includes('DeepSeek'));
+// The width has to go back to the app, but not all the way: the rail is part of
+// the same reservation, and a zero split would put the app column underneath it.
+check('收起后只留轨道和竖条', stub.split, RAIL + STUB);
+check('收起后应用列排到轨道前', stub.appPadding, RAIL + STUB);
+checkTrue('竖条紧贴轨道左边', stub.stub.left + stub.stub.width <= stub.railLeft + 1);
 
 const foldedView = await viewOf();
 checkTrue(`收起后页面视图挪到窗口外（${String(foldedView.x)} > ${String(viewportWidth)}）`, foldedView.x > viewportWidth);
@@ -403,7 +405,7 @@ const foldedViewport = await pageViewport();
 checkTrue('两个状态的页面视口都读得到', openViewport !== null && foldedViewport !== null);
 check('收起后页面自己的视口没变', foldedViewport?.w, openViewport?.w);
 
-await cdp.evaluate(`document.querySelector('.rail-toggle').click()`);
+await cdp.evaluate(`document.querySelector('.page-stub').click()`);
 const unfolded = await waitFor(async () => (await readPane()).bar !== null, true, { timeoutMs: 3000 });
 check('点展开之后页面栏回来了', unfolded, true);
 
