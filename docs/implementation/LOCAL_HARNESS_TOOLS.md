@@ -18,7 +18,7 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 
 | 类别 | DSH 工具 | 我们的处置 |
 | --- | --- | --- |
-| 本地机器能力 | `read` / `write` / `edit` / `read_image` / `glob` / `grep` / `bash` / `job_*` / `web_fetch` / `web_search` / `ask_user_question` / `working_directory` | **逐个对齐**（见第 2 节）。`ask_user_question`、`working_directory` 由我们的「澄清」和「会话工作区」承担，不重复提供工具 |
+| 本地机器能力 | `read` / `write` / `edit` / `read_image` / `glob` / `grep` / `bash` / `job_*` / `web_fetch` / `web_search` / `ask_user_question` / `working_directory` | **逐个对齐**（见第 2 节）。`working_directory` 由会话级 `workspaceRoot` 承担；`ask_user_question` 在计划前由协议澄清承担，**执行中另补 `ask.user`（P5）**——协议澄清覆盖不到执行中 |
 | agent 编排 | `subagent*`、`workflow`、`ralph`、`todo_write`、`exit_plan_mode`、`goal_*`、`schedule_*`、`session_*` | 不在这层。计划审批、方案评审辩论、会话历史已经是我们的同类机制 |
 | 扩展生态 | `plugin_manager`、`plugin_market`、`list_mcp_resources`、`stagehand_*`、`cordis_inspect_*`、`create_worktree` | 不做。这些是「给 harness 装能力」的工具，不是「在本机干活」的工具 |
 
@@ -42,9 +42,9 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 | 执行命令 | `bash` | `shell.run`（`/bin/sh -c`，真实退出码，分层策略） | 已有 |
 | 后台命令 | `bash` + `run_in_background` | `shell.run` 的 `background` | **本轮补齐** |
 | 作业控制 | `job_list` / `job_output` / `job_kill` | `job.list` / `job.output` / `job.kill`（元数据落盘，跨 Runtime 进程可用） | **本轮补齐** |
-| 持久终端 | `terminal_*`（PTY） | 不做，见第 4 节 | 刻意不做 |
+| 持久终端 | `terminal_*`（PTY） | P5 补 `term.*`，见 [设计 §5.3](../spec/GENERAL_ENGINEERING_CAPABILITIES.md#53-终端6-条) | P5 待补 |
 | 抓网页 | `web_fetch` | `web.fetch`（GET/POST，SSRF 防护，10s，2 MB，正文 20k 字符） | **本轮补齐** |
-| 联网搜索 | `web_search` | 不做工具层；搜索由网页通道与辩论材料承担 | 刻意不做 |
+| 联网搜索 | `web_search` | `web.search`（凭据或应用内浏览器；免凭据走主进程 `web.search.browser`） | **已有**（2026-11-09 补） |
 | 剪贴板 | （桌面插件） | `clipboard.read` / `clipboard.write` | **本轮补齐** |
 | 系统通知 | （`bash osascript`） | `notify`（内容走 argv，不拼脚本） | **本轮补齐** |
 | 系统信息 | （`bash uname/df`） | `system.info`（OS/CPU/内存/磁盘/电池） | **本轮补齐** |
@@ -52,8 +52,8 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 | 结束进程 | （`bash kill`） | `process.kill`（仅完全权限） | **本轮补齐** |
 | 截屏 | （桌面插件） | `screen.capture`（PNG 校验 + 尺寸 + sha256） | 已有 |
 | 打开应用/文件 | （桌面插件 `open_application`） | `app.open`（`open -a` + `pgrep` 回读） | 已有 |
-| LSP 诊断 | `lsp` | 不做，见第 4 节 | 刻意不做 |
-| 问用户 | `ask_user_question` | 协议里的 `clarification_required` + `awaiting_user` | 等价机制 |
+| LSP 诊断 | `lsp` | P5 先做 `code.diagnostics`（tsc / eslint 输出归一） | P5 待补 |
+| 问用户 | `ask_user_question` | 计划前：`clarification_required` + `awaiting_user`；执行中：补 `ask.user`（P5） | 等价机制 + P5 待补 |
 | 改工作目录 | `working_directory` | 会话级 `workspaceRoot`；计划里每个 path 都相对它 | 等价机制 |
 
 工具总数从 11 增加到 27。
@@ -80,15 +80,20 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 
 - **PTY 持久终端（`terminal_*`）**：需要 `node-pty` 原生模块，而本项目的 `dependencies` 只有 `zod`。
   同一用途用 `shell.run` + `job.*` 覆盖：后台进程、输出读取、进程组终止。真正需要交互式 TUI 的
-  场景（vim、top）本来也不适合模型自动操作。
+  场景（vim、top）本来也不适合模型自动操作。**2026-11-10 改判**：这条不再算「不做」，
+  已排进 P5（`term.*`，优先 `node-pty`，退回 `script(1)`；`send` 逐次审批）。
 - **鼠标/键盘模拟（`computer` 系列）**：需要辅助功能 TCC 授权，且每次点击都不可审计、不可回滚。
   截图 + 打开应用 + shell 已经能覆盖"让机器做一件事"，再往上一层是另一套产品（computer use）。
 - **LSP 诊断（`lsp`）**：语言服务器与工程栈绑定（TypeScript/Python/Go 各一套）。我们的工程实施
   用 `test.run`（`npm run typecheck` 等固定命令）拿到真实退出码，已经能回答"改完有没有坏"。
-- **联网搜索（`web_search`）**：搜索依赖提供方与配额，且结果质量不可控。现有设计里，检索由网页
-  通道与辩论材料承担；工具层只提供 `web.fetch`（给 URL 就取回真实内容）。
-- **agent 编排与插件生态**：见第 1 节。我们的计划审批、方案评审辩论、会话历史已经承担这部分；
-  再引入 subagent/workflow/goal/schedule，只会多一套没人用的调度器。
+  **2026-11-10 改判**：先做 `code.diagnostics`（把 tsc/eslint 输出归一成 `{path,line,severity,message}`），
+  真接 LSP 需要常驻进程，另开一期。
+- **联网搜索（`web_search`）**：**已补**（2026-11-09）。`web.search` 走凭据或应用内浏览器，
+  免凭据时由主进程 `web.search.browser` 兜底；`web.fetch` 仍负责「给 URL 取正文」。
+  旧版这里写的「刻意不做」已过期。
+- **agent 编排与插件生态**：见第 1 节。我们的计划审批、方案评审辩论、会话历史已经承担其中一部分；
+  dsh 的 24 条编排/治理工具现在逐条登记在 [设计 §5](../spec/GENERAL_ENGINEERING_CAPABILITIES.md#5-dsh-76-条全覆盖对照)：
+  能由现有机制承担的记 L1，真缺的（goal / schedule / team）排进 P6。
 
 ## 5. 验证
 
@@ -117,8 +122,9 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 ## 5. 现状（2026-11-08 第二批能力之后）
 
 上面那张表是「对齐 DSH Standard 工具面」那一轮的记录，只到 27 个工具。之后
-两批补齐了 DSH 目录里没有、但本机干活真正用得到的部分，现在清单是
-**60 个能力 = 56 个 Runtime 工具（53 本地 + 3 联网）+ 4 个主进程能力**：
+两批补齐了 DSH 目录里没有、但本机干活真正用得到的部分；`project.read` 之后，
+清单是 **62 个能力 = 56 个 Runtime 工具（53 本地 + 3 联网）+ 6 个主进程能力**
+（2026-11-10 对账，`CAPABILITY_CATALOG` 与测试都按 62 断言）：
 
 | 批次 | 新增 | 为什么需要 |
 | --- | --- | --- |

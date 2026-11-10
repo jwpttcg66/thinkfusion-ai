@@ -6,15 +6,15 @@
 
 ## 0. 分期总览
 
-| 期 | 内容 | 对应设计章节 | 产出 |
-| --- | --- | --- | --- |
-| P0 | 冻结 dsh 76 条清单 + 本机 62 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
-| P1 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
-| P2 | 技能包按族拆分 | §7 | 3 份新 `SKILL.md`、`trigger.ts` 改族选择 |
-| P3 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
-| P4 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
-| P5 | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
-| P6 | 治理能力 14 条 + 扩展裁决 3 条（L2 共 17） | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
+| 期 | 状态 | 内容 | 对应设计章节 | 产出 |
+| --- | --- | --- | --- | --- |
+| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 62 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
+| P1 | 未开始 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
+| P2 | 未开始 | 技能包按族拆分 | §7 | 3 份新 `SKILL.md`、`trigger.ts` 改族选择 |
+| P3 | 未开始 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
+| P4 | 未开始 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
+| P5 | 未开始 | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
+| P6 | 未开始 | 治理能力 14 条 + 扩展裁决 3 条（L2 共 17） | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
 
 P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP」划到「不在这层」，
 现在全部回到矩阵里，并给了期号。
@@ -35,7 +35,12 @@ P0 的覆盖测试要求 L1 必须写「由谁承担」，写「无」直接失�
 注意 `ask_user_question` **不在 L1**：协议里的澄清只覆盖计划生成前，执行中要问用户
 没有通道，所以它是 P5 要补的真工具（`ask.user`）。
 
-## 2. P0 · 冻结清单与覆盖率（只读，不改行为）
+## 2. P0 · 冻结清单与覆盖率（只读，不改行为）· ✅ 已落地
+
+**落地记录（2026-11-10，提交 `d903e43` + `4692a82`）**：`src/shared/dsh-tools.ts`、
+`src/shared/engineering-capabilities.ts`、两个 check 脚本与 `package.json` 的测试入口都在；
+`test:dsh-coverage` 5 条、`test:engineering-capabilities` 6 条全过；`typecheck` 三份配置全过。
+对账时修掉三处：能力数 61→62、`index` 的「schema 顺序」说法、L1 允许写「无」。
 
 ### 2.1 冻结 dsh 工具面
 

@@ -12,6 +12,10 @@
 > [ENGINEERING_EXPERTISE](../implementation/ENGINEERING_EXPERTISE.md)。
 >
 > 逐期改动见 [GENERAL_ENGINEERING_ROLLOUT](../implementation/GENERAL_ENGINEERING_ROLLOUT.md)。
+>
+> **当前状态（2026-11-10）**：P0 已落地——76 条清单冻结在 `src/shared/dsh-tools.ts`，
+> 62 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
+> `test:engineering-capabilities` 全绿。P1–P6 未开始。
 
 ## 0. 一句话结论
 
@@ -26,7 +30,7 @@
 | 层级 | 含义 | 是否算「包含」 |
 | --- | --- | --- |
 | **L0 已有工具** | 我们有同名能力，名字不同（`read` → `fs.readFile`） | 是，直接可用 |
-| **L1 等价机制** | 能力存在，但由宿主承担，不向模型暴露任意调用（`ask_user_question` → 协议里的澄清） | 是，能力在，形态不同 |
+| **L1 等价机制** | 能力存在，但由宿主承担，不向模型暴露任意调用（`working_directory` → 会话级 `workspaceRoot`） | 是，能力在，形态不同 |
 | **L2 待补** | 真的缺，已排进 P5/P6 | 是，有归属、有计划、有验收 |
 | **L3 平台不适用** | `pwsh` 系列，darwin 产品没有对应物 | 是，登记并写明原因 |
 
@@ -169,6 +173,10 @@ interface EngineeringCapability {
 
 见第 0 节。这里只补一条判据：**L1 必须写清「由谁承担」**，不是「我们决定不做」；
 **L2 必须写清「排进哪一期、验收是什么」**。两条缺一条，这条就不算覆盖。
+
+清单已冻结在 `src/shared/dsh-tools.ts`（P0，2026-11-10），`test:dsh-coverage` 断言
+76 条、71 个唯一名、五组同名不同包与层级统计；升 dsh 版本时跑
+`node scripts/check-dsh-drift.mjs` 按 `(包名, 工具名)` 集合比对，不要按下标对。
 
 本节的编号是**本工程的表序**（按主题分组），不是 dsh 目录里的 schema 顺序；
 升 dsh 版本时按 `(包名, 工具名)` 集合比对，不要按下标对。
@@ -438,14 +446,14 @@ type EvidenceRef =
 
 ## 11. 成功判据
 
-| 指标 | 目标 | 怎么量 |
-| --- | --- | --- |
-| dsh 工具覆盖率 | 76/76 有族、对应物、层级 | `test:dsh-coverage` |
-| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` |
-| 主族 `code.change` 的计划中带真实检查的比例 | 100% | 门禁拦截日志 + 场景回放 |
-| 结论可追溯率 | 抽样 ≥ 90% | 场景回放的引用检查 |
-| 事实题被误加载技能的比例 | 0 | `trigger` 单测 + s20/s21/s24 回放 |
-| 真机回归场景通过数 | 只增不减 | `test:engineering-scenarios` |
+| 指标 | 目标 | 怎么量 | 现状 |
+| --- | --- | --- | --- |
+| dsh 工具覆盖率 | 76/76 有族、对应物、层级 | `test:dsh-coverage` | ✅ 76/76 |
+| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 62/62 |
+| 主族 `code.change` 的计划中带真实检查的比例 | 100% | 门禁拦截日志 + 场景回放 | 待 P3 |
+| 结论可追溯率 | 抽样 ≥ 90% | 场景回放的引用检查 | 待 P1/P4 |
+| 事实题被误加载技能的比例 | 0 | `trigger` 单测 + s20/s21/s24 回放 | 待 P2 |
+| 真机回归场景通过数 | 只增不减 | `test:engineering-scenarios` | 待 P4 |
 
 指标全部来自可跑的检查或回放，不靠人工打分。
 

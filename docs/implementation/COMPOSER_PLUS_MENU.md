@@ -56,7 +56,7 @@
 
 ## 5. 能力插件化的落点
 
-附件读取登记成主进程能力 `file.attach`（只读）。清单从 60 条变成 61 条，
+附件读取登记成主进程能力 `file.attach`（只读）。清单从 60 条变成 61 条（后加 `project.read`，现为 62），
 设置页可见、可停用；**停用时提问会明确报错**，不会悄悄少几份附件。
 
 `ConversationRunner` 拿的是注入的 `readAttachments`，实际执行走
@@ -90,7 +90,7 @@ IPC 输入一律当不可信（这个仓库一贯的约定）。附件是一条�
 
 ```
 npm run test:attachments   # 拼装、读盘、限制、抄进提问链路
-npm run test:capabilities  # 清单 61 条、file.attach 注册与停用报错
+npm run test:capabilities  # 清单 62 条（写这段时是 61）、file.attach 注册与停用报错
 npm run test:runner        # 老路径：没有附件时问题逐字发出去
 npm run test:prompt-policy # 固定提示词仍不存在
 ```
