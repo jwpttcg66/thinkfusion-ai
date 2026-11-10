@@ -1232,9 +1232,12 @@ export class ConversationRunner {
       selectedWebChannels: config.selectedWebChannels
     });
 
+    const attachmentCount = conversation.attachments?.length ?? 0;
     if (!material) {
       sink.note(
-        '这一轮没有工程证据（未读目录、本问不需要，或扫描为空），按问题原话问本地/云端模型，不改问网页。'
+        attachmentCount > 0
+          ? '这一轮没有工程证据，只依据随附文件与问题原话问模型；不改问网页。'
+          : '这一轮没有工程证据（未读目录、本问不需要，或扫描为空），按问题原话直接问模型，不开放读文件工具、不改问网页。'
       );
     }
     if (orchestration.fallback) {
@@ -1275,10 +1278,15 @@ export class ConversationRunner {
       root: conversation.workspaceRoot ?? '',
       extraFiles: (conversation.attachments ?? []).map(item => item.path)
     };
-    const hasScope = !!scope.root;
-    const attachmentCount = conversation.attachments?.length ?? 0;
-    const summarySystem = [...engineeringAnswerSystem({ attachments: attachmentCount }), ...expertise.system];
-    const toolSystem = [...summarySystem, ...engineeringToolSystem()];
+    // 没读工程、也没附件：这是常识/选型类问题。不要塞「只依据证据 / 可以自己读文件」，
+    // 否则模型会去 fs.list 找依据，最后答「无法确定」（真机 2026-11-10：java vs go）。
+    const needsLocalRead = !!material || attachmentCount > 0;
+    const summarySystem = needsLocalRead
+      ? [...engineeringAnswerSystem({ attachments: attachmentCount }), ...expertise.system]
+      : [...expertise.system];
+    const toolSystem = needsLocalRead
+      ? [...summarySystem, ...engineeringToolSystem()]
+      : summarySystem;
     const answers: SubAgentAnswer[] = [];
     const channels: ChannelOutcome[] = [];
     const failures: string[] = [];
@@ -1288,7 +1296,7 @@ export class ConversationRunner {
       if (sink.cancelled()) return;
       const isWeb = target.kind === 'web';
       sink.join(target.agentId);
-      sink.phase(target.agentId, 'asking', '读工程证据后回答');
+      sink.phase(target.agentId, 'asking', needsLocalRead ? '读工程证据后回答' : '回答');
       try {
         const answer = isWeb
           ? await this.deps.registry.ask(target.agentId, {
@@ -1297,16 +1305,23 @@ export class ConversationRunner {
               // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
               timeoutMs: SECOND_OPINION_BUDGET_MS
             })
-          : await this.askWithReadTool(target, {
-              pool,
-              question: engineered,
-              system: hasScope ? toolSystem : summarySystem,
-              scope,
-              sink
-            });
+          : needsLocalRead
+            ? await this.askWithReadTool(target, {
+                pool,
+                question: engineered,
+                system: toolSystem,
+                scope,
+                sink
+              })
+            : await pool.ask(target.agentId, {
+                question: engineered,
+                stage: 'initial',
+                timeoutMs: 180_000,
+                ...(summarySystem.length > 0 ? { system: summarySystem } : {})
+              });
         if (sink.cancelled()) return;
         messageIds.set(target.agentId, sink.record(answer));
-        sink.phase(target.agentId, 'answered', '读完证据后回答');
+        sink.phase(target.agentId, 'answered', needsLocalRead ? '读完证据后回答' : '已回答');
         answers.push(answer);
         channels.push({ kind: 'answered', agentId: target.agentId, label: target.label, answer });
       } catch (error) {

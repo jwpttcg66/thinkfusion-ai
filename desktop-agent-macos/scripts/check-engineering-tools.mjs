@@ -13,6 +13,8 @@
  * 3. 范围硬——工程目录与这一问的附件之外读不到（模型不能读 ~/.ssh）；
  * 4. 链路闭合——模型请求了，宿主真读，结果被递回去，模型接着回答，且转录里
  *    看得到「调用了本机能力」。预算用完不再循环。
+ * 5. 本问判定不读工程、也没附件时，不开放读文件工具——否则常识题也会去
+ *    fs.list，最后答「无法确定」（真机 2026-11-10）。
  *
  * Run with: npm run test:engineering-tools
  */
@@ -163,7 +165,7 @@ function fakeRegistry() {
   };
 }
 
-function makeRunner(scripted) {
+function makeRunner(scripted, hooks = {}) {
   const asks = [];
   const notes = [];
   const model = {
@@ -213,7 +215,8 @@ function makeRunner(scripted) {
       { agentId: model.id, label: model.label, kind: 'local', available: true }
     ],
     agentSource: () => 'local',
-    budgetMs: 8000
+    budgetMs: 8000,
+    ...(hooks.routeWithModel ? { routeWithModel: hooks.routeWithModel } : {})
   });
   return { runner, asks, notes };
 }
@@ -285,6 +288,51 @@ test('模型正常回答时一次都不多问', async () => {
   });
   await settle(runner, started.conversationId);
   assert.equal(asks.filter(input => input.stage === 'initial').length, 1);
+});
+
+test('本问不读工程、无附件时不开放读文件工具，模型回 JSON 也不执行', async () => {
+  const { runner, asks } = makeRunner(
+    () => '{"tool":"fs.list","args":{"path":"."}}',
+    {
+      routeWithModel: async () => ({
+        kind: 'analysis',
+        reason: '选型比较，不必看工程',
+        readsProject: false
+      })
+    }
+  );
+  // 带「分析」避免规则 clarify；不传 override，才能走到 routeWithModel 的 readsProject=false。
+  const started = await runner.start({
+    text: '分析 java 和 go 谁更适合做游戏服务器',
+    workspaceMode: 'engineering',
+    workspaceRoot: root,
+    executionConfig: { executionMode: 'local' }
+  });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(done.status, 'answered');
+  const systemTexts = runner
+    .messages(started.conversationId)
+    .filter(message => message.role === 'system')
+    .map(message => message.text ?? '');
+  assert.ok(
+    systemTexts.some(text => /没有读取工程目录/.test(text)),
+    `应跳过工程扫描，实际系统消息：${systemTexts.join(' | ')}`
+  );
+  assert.equal(
+    asks.filter(input => input.stage === 'initial').length,
+    1,
+    '没有工具跟进轮'
+  );
+  const first = asks.find(input => input.stage === 'initial');
+  assert.ok(first);
+  assert.ok(
+    !(first.system ?? []).join('\n').includes('你可以自己读文件'),
+    'system 不该教模型去读文件'
+  );
+  assert.ok(
+    !systemTexts.some(text => /调用了本机能力/.test(text)),
+    '宿主不该执行 fs.list'
+  );
 });
 
 // ---------------------------------------------------------------------------
