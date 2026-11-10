@@ -618,6 +618,15 @@ function tagOfChannel(tags: OpinionTag[], channelId: string | undefined): Opinio
  * default pane two 240px cards still fit, and when the pane is dragged wider
  * they stay readable instead of stretching into unreadable lines.
  */
+function ReasoningBar({ text }: { text: string }) {
+  return (
+    <details className="reasoning-bar">
+      <summary>思考过程（{text.length} 字）</summary>
+      <pre>{text}</pre>
+    </details>
+  );
+}
+
 function LiveAnswers(props: {
   deltas: Record<string, { text: string; reasoning: string; done: boolean }>;
   labels: ReadonlyMap<string, string>;
@@ -627,58 +636,42 @@ function LiveAnswers(props: {
   return (
     <div className="channel-grid live-answers">
       {entries.map(([channelId, delta]) => (
-        <article key={channelId} className={`channel-card ch-${channelId} is-live`}>
-          <header className="channel-card-head">
-            <span className="channel-dot" />
-            <b>{labelOf(channelId, props.labels)}</b>
-            <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
-          </header>
-          {delta.reasoning && !isStructuredAnswer(delta.text) && (
-            <details className="channel-reasoning">
-              <summary>思考过程（{delta.reasoning.length} 字）</summary>
-              <pre>{delta.reasoning}</pre>
-            </details>
-          )}
-          <div className="channel-card-body">
-            {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
-            {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
-          </div>
-        </article>
+        <div key={channelId} className="channel-block">
+          {delta.reasoning && <ReasoningBar text={delta.reasoning} />}
+          <article className={`channel-card ch-${channelId} is-live`}>
+            <header className="channel-card-head">
+              <span className="channel-dot" />
+              <b>{labelOf(channelId, props.labels)}</b>
+              <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
+            </header>
+            <div className="channel-card-body">
+              {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
+              {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
+            </div>
+          </article>
+        </div>
       ))}
     </div>
   );
-}
-
-/**
- * 结论型回答：正文本身已经是【结论】【一致】【分歧】这种收束结构。
- *
- * 这类回答的推理和结论天然高度重合——思考过程会把同样的几点再讲一遍。
- * 卡片上只保留结论，才是原来那个清晰的界面。
- */
-function isStructuredAnswer(text: string): boolean {
-  return /【(结论|一致|分歧|存疑|辩题)】/.test(text);
 }
 
 function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">
       {messages.map(message => (
-        <article key={message.messageId} className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
-          <header className="channel-card-head">
-            <span className="channel-dot" />
-            <b>{labelOf(message.channelId, labels)}</b>
-            <span className="channel-chars">{message.text.length} 字</span>
-          </header>
-          {message.reasoning && !isStructuredAnswer(message.text) && (
-            <details className="channel-reasoning">
-              <summary>思考过程（{message.reasoning.length} 字）</summary>
-              <pre>{message.reasoning}</pre>
-            </details>
-          )}
-          <div className="channel-card-body">
-            <MarkdownBody text={message.text} />
-          </div>
-        </article>
+        <div key={message.messageId} className="channel-block">
+          {message.reasoning && <ReasoningBar text={message.reasoning} />}
+          <article className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
+            <header className="channel-card-head">
+              <span className="channel-dot" />
+              <b>{labelOf(message.channelId, labels)}</b>
+              <span className="channel-chars">{message.text.length} 字</span>
+            </header>
+            <div className="channel-card-body">
+              <MarkdownBody text={message.text} />
+            </div>
+          </article>
+        </div>
       ))}
     </div>
   );

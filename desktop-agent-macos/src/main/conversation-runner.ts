@@ -235,6 +235,8 @@ export interface ConversationDeps {
     effectiveMode: 'web' | 'local' | 'cloud';
     /** 这一场用哪种协作策略；不传由调用方按默认（真理发现）处理。 */
     debateStrategy?: ConversationExecutionConfig['debateStrategy'];
+    /** 辩论进行中的轮次进度；用来把「汇总中 4:00」变成看得懂的说明。 */
+    onProgress?: (info: { rounds: number; status: string; stopReason?: string }) => void;
     /**
      * 工程空间多 agent 编排：主进程据此直接组 LeadPlan，跳过 planLead 的归属
      * 收敛（那会把本地/云端模型按 executionMode 剔成一类）。不传 = 知识空间，
@@ -404,6 +406,18 @@ export class ConversationRunner {
    * flight. Two bubbles and one stuck channel is a worse outcome than a refusal.
    */
   private readonly running = new Map<string, NodeJS.Timeout>();
+  /**
+   * 最后一次「有进展」的时间。
+   *
+   * 看门狗按**无进展**计时，而不是总时长：辩论本身可以跑 4 分钟、之后还有
+   * 最终意见，按总时长一刀切会在正常长任务上误杀（真机 5 分钟整失败），
+   * 而真正卡死的页面又必须被收掉。只有连续 5 分钟一点动静都没有才判超时。
+   */
+  private readonly lastActivity = new Map<string, number>();
+
+  private touch(conversationId: string): void {
+    this.lastActivity.set(conversationId, Date.now());
+  }
 
   /** 每会话一个记录器；没有注入 trace 时为空，所有调用都是 no-op。 */
   private readonly traces = new Map<string, TraceRecorder>();
@@ -1349,8 +1363,9 @@ export class ConversationRunner {
 
   private release(conversationId: string): void {
     const timer = this.running.get(conversationId);
-    if (timer) clearTimeout(timer);
+    if (timer) clearInterval(timer);
     this.running.delete(conversationId);
+    this.lastActivity.delete(conversationId);
   }
 
   /**
@@ -1379,7 +1394,7 @@ export class ConversationRunner {
     this.fail(
       conversation,
       new Error(
-        `等了 ${spent}还没有结果${waiting ? `（${waiting}）` : ''}。` +
+        `超过 ${spent}没有任何进展${waiting ? `（${waiting}）` : ''}。` +
           '页面可能卡住了：点「停止等待」后重新加载那一页再问。'
       )
     );
@@ -1416,10 +1431,14 @@ export class ConversationRunner {
       followUpBudget(config) * FOLLOW_UP_ROUND_BUDGET_MS +
       (possibleWebOrchestration ? SECOND_OPINION_BUDGET_MS : 0);
 
-    this.running.set(
-      conversationId,
-      setTimeout(() => this.abandon(conversation, budget), budget)
-    );
+    // 每 15 秒检查一次「是否已经连续 budget 没有进展」。
+    this.touch(conversationId);
+    const startedAt = Date.now();
+    const watchdog = setInterval(() => {
+      const last = this.lastActivity.get(conversationId) ?? startedAt;
+      if (Date.now() - last >= budget) this.abandon(conversation, budget);
+    }, Math.min(15_000, Math.max(1000, Math.floor(budget / 4))));
+    this.running.set(conversationId, watchdog);
     try {
       await this.conduct(conversation, master, question, options, pool, executorIds);
     } finally {
@@ -1694,6 +1713,7 @@ export class ConversationRunner {
         this.save(conversation);
       },
       record: (answer: SubAgentAnswer) => {
+        this.touch(conversationId);
         // The address is what makes the web-side copy findable later. Recorded
         // with the message so a delete does not depend on the page still being
         // open on that thread — it usually is not.
@@ -1717,6 +1737,7 @@ export class ConversationRunner {
         return message.messageId;
       },
       phase: (agentId, phase, detail) => {
+        this.touch(conversationId);
         trace?.phase(agentId, phase, detail);
         this.deps.emit({
           type: 'channel.phase',
@@ -1728,6 +1749,7 @@ export class ConversationRunner {
         });
       },
       delta: (agentId, chunk) => {
+        this.touch(conversationId);
         this.deps.emit({
           type: 'answer.delta',
           at: Date.now(),
@@ -1743,6 +1765,7 @@ export class ConversationRunner {
         this.addMessage(conversation, { role: 'system', text });
       },
       status: status => {
+        this.touch(conversationId);
         trace?.status(status);
         this.setStatus(conversation, status);
       },
@@ -2305,6 +2328,10 @@ export class ConversationRunner {
           seeds: answers.map(answer => ({ agentId: answer.channelId, label: answer.label, text: answer.text })),
           debaters,
           lead: { agentId: lead.agentId, label, kind: lead.kind },
+          onProgress: info => {
+            const suffix = info.stopReason ? `（${info.stopReason}）` : '';
+            sink.phase(lead.agentId, 'leading', `辩论进行中：第 ${info.rounds + 1} 轮 · ${info.status}${suffix}`);
+          },
           mode: config.executionMode,
           effectiveMode: ownership.mode,
           debateStrategy: config.debateStrategy,

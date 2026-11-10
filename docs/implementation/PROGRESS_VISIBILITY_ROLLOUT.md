@@ -34,7 +34,7 @@
 | `src/main/execution/provider-sub-agent.ts` | 原样透传，不拼不截 |
 | `src/shared/conversation.ts` | `ConversationMessage.reasoning?` |
 | `src/main/conversation-runner.ts` | 写消息时带上；`addMessage` 只接受显式字段 |
-| `ConversationView.tsx` | 折叠块「思考过程（N 字）」，默认收起 |
+| `ConversationView.tsx` | 回答卡片上方独立一条「思考过程（N 字）」，默认收起；结论型回答也保留，但不混进正文 |
 
 ### 1.3 验收
 

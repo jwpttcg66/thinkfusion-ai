@@ -84,7 +84,7 @@ export const PROGRESS_STAGES = ['routing','asking','synthesis','execution','revi
 | 全局五段条 | `deriveProgress` 投影 | ✅ 已实现 |
 | 每通道等待秒数 | `channel.phase.at` + 本地计时 | ✅ 已有 |
 | 执行步骤 | `step.started/completed/failed` | ✅ 胶囊列表 + 五段 detail |
-| 思考内容 | Provider 的 `reasoning_content` / `thinking` | ✅ 非流式捕获，折叠显示 |
+| 思考内容 | Provider 的 `reasoning_content` / `thinking` | ✅ 卡片上方独立一条，默认折叠 |
 | 流式正文（本地/云端） | Provider `streamChunks()` → `answer.delta` | ✅ 第一轮、工程模式首轮、汇总 |
 | 流式正文（网页） | 轮询 DOM 的 `onPartial` → 增量 / reset | ✅ 见 [WEB_ANSWER_STREAMING](WEB_ANSWER_STREAMING.md) |
 
@@ -93,7 +93,9 @@ export const PROGRESS_STAGES = ['routing','asking','synthesis','execution','revi
 - OpenAI 兼容：`choices[0].message.reasoning_content`（DeepSeek）或 `message.reasoning`；
 - Ollama：`message.thinking`；
 - 两个都没有 → 不写这个字段，界面上也没有「思考过程」这一块。**不拿一句「正在思考」冒充推理内容。**
-- 显示默认折叠，标题写「思考过程（N 字）」；它不参与答案、不参与引用、不参与综合。
+- 显示是**单独一条**，在回答卡片上方，不放进卡片正文：结论型回答（【结论】【一致】…）
+  与推理内容天然重合，混在一起会把结论顶下去；独立条既保留思考，也不干扰结论。
+- 默认折叠，标题写「思考过程（N 字）」；它不参与答案、不参与引用、不参与综合。
 
 ## 4. 交互
 
@@ -106,6 +108,8 @@ export const PROGRESS_STAGES = ['routing','asking','synthesis','execution','revi
 - 已完成的段打勾变灰；当前段有转圈与秒数；失败段变红并写原因。
 - 秒数由渲染层每秒本地走（和通道条同一套做法），主进程不每秒发事件。
 - 任务结束后整条消失——不留一条「已完成」的条占着页面。
+- 超时看门狗按「连续多久没有进展」计时，不按总时长：辩论 + 最终意见本来就可能
+  超过 5 分钟，按总时长会误杀正常长任务；真的卡死仍然会在连续 5 分钟无进展后失败。
 
 ## 5. 隐私与边界
 

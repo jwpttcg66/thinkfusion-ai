@@ -3892,7 +3892,24 @@ app.whenReady().then(async () => {
         input.conversationId,
         plan
       );
-      const done = await debates.waitFor(state.debateId, 240_000);
+      // 辩论最长 4 分钟。等待期间每 3 秒把轮次报回去，界面上的「汇总中」
+      // 才有内容可看——否则一直显示同一句话，用户以为卡死。
+      const engine = debates;
+      const progressTimer = setInterval(() => {
+        const current = engine.get(state.debateId);
+        if (!current) return;
+        input.onProgress?.({
+          rounds: current.rounds.length,
+          status: current.status,
+          ...(current.stopReason ? { stopReason: current.stopReason } : {})
+        });
+      }, 3000);
+      let done;
+      try {
+        done = await debates.waitFor(state.debateId, 240_000);
+      } finally {
+        clearInterval(progressTimer);
+      }
       if (!done) return null;
       return {
         debateId: done.debateId,
