@@ -2,7 +2,7 @@
 
 > 2026-11-10。设计对象是工程空间的**通用工程能力层**：它要覆盖 DeepSeek Harness
 > （`~/data/dsh-src`，提交 `ce7073d5`，包版本 0.2.2-alpha.2，`docs/tool-catalog.zh.md`）
-> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 62 个能力插件。
+> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 64 个能力插件。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
 > [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、
@@ -14,12 +14,13 @@
 > 逐期改动见 [GENERAL_ENGINEERING_ROLLOUT](../implementation/GENERAL_ENGINEERING_ROLLOUT.md)。
 >
 > **当前状态（2026-11-10）**：P0 已落地——76 条清单冻结在 `src/shared/dsh-tools.ts`，
-> 62 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
-> `test:engineering-capabilities` 全绿。P1–P6 未开始。
+> 64 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
+> `test:engineering-capabilities` 全绿；P1（证据账本）、P3（计划门禁）、
+> P5 的 `ask.user` 与 `code.diagnostics` 已落地，其余见实施文档。
 
 ## 0. 一句话结论
 
-> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 62 条**逐条登记**，
+> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 64 条**逐条登记**，
 > 按 **8 个工作族 + 5 个治理族** 归族；每条都有族、对应物、落地层级与验收，
 > 缺口排进 P5/P6，不留「刻意不做」的黑洞。
 >
@@ -45,11 +46,11 @@
 
 | # | 现状 | 后果 |
 | --- | --- | --- |
-| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……62 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
+| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……64 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
 | 2 | 工作流只有一份：`resources/expertise/skills/engineering-design/SKILL.md`，45 行、三阶段通用流程 | 设计/实现有流程；调试、审阅、数据、前端靠模型自由发挥 |
 | 3 | 判据写在提示词句子和 `ruleReview` 的 issue 文案里（`src/main/engineering/review.ts`） | 「改了文件必须有 `test.run`」只在执行后作为一句话出现，不拦任何东西 |
 | 4 | 读工具一次回答最多请求一次（`engineeringToolSystem()` 明写） | 跨文件定位必须靠用户催第二轮 |
-| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 62 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
+| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 64 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
 
 第 5 条是这轮的主要修正：上一轮的对齐范围是「本地机器能力」，结论没错，但它被当成了
 **全部能力的结论**。缺的不是实现，是**登记**——没有登记的缺口，永远排不进计划。
@@ -59,7 +60,7 @@
 ```
 能力族 family (13 = 8 工作族 + 5 治理族)
    └── 能力项 item (每族 1–4 条，带触发词与判据)
-          └── 工具 tool (本仓库 62 个 + dsh 76 条对照，id 不改)
+          └── 工具 tool (本仓库 64 个 + dsh 76 条对照，id 不改)
 ```
 
 一条能力项固定包含七个字段：
@@ -205,7 +206,7 @@ interface EngineeringCapability {
 | 18 | `bash`（持久 PTY） | dsh-tool-bash-persistent | `runtime.exec` | 无持久 cwd：`shell.run` + `job.*` 顶一半 | L2 · P5 |
 | 19 | `pwsh` | dsh-tool-pwsh | `runtime.exec` | 无：darwin 产品 | L3 |
 | 20 | `pwsh`（持久） | dsh-tool-pwsh-persistent | `runtime.exec` | 无：darwin 产品 | L3 |
-| 21 | `lsp` | dsh-tool-lsp | `runtime.exec` | 无：只有 `test.run` 的固定检查 | L2 · P5 |
+| 21 | `lsp` | dsh-tool-lsp | `runtime.exec` | `code.diagnostics`（tsc / eslint 输出归一，不常驻语言服务器） | L0 |
 | 22 | `working_directory` | dsh-tool-working-directory | `runtime.exec` | 会话级 `workspaceRoot`；每个 path 相对它 | L1 |
 
 ### 5.3 终端（6 条）
@@ -223,7 +224,7 @@ interface EngineeringCapability {
 
 | # | dsh 工具 | 包 | 族 | 我们的对应物 | 层级 |
 | --- | --- | --- | --- | --- | --- |
-| 29 | `ask_user_question` | dsh-tool-ask-user | `plan.control` | `ask.user`（P5 新增；协议澄清只覆盖计划前） | L2 · P5 |
+| 29 | `ask_user_question` | dsh-tool-ask-user | `plan.control` | `ask.user`（执行中提问；计划前仍走协议澄清） | L0 |
 | 30 | `exit_plan_mode` | dsh-plan-mode | `plan.control` | `plan.ready` → 批准 / 退回重规划 | L1 |
 | 31 | `propose_action` | dsh-action-cards | `plan.control` | `plan.ready` + `step-approval`（逐次审批） | L1 |
 | 32 | `present` | dsh-tool-present | `plan.control` | `document.export` / `page.save-document` | L1 |
@@ -237,7 +238,7 @@ interface EngineeringCapability {
 | 40 | `schedule_view` | dsh-tool-schedule | `plan.control` | 无 | L2 · P6 |
 | 41 | `skill` | dsh-tool-skill | `memory.context` | `resources/expertise` 按规则自动加载（不是模型工具） | L1 |
 
-**`ask.user` 的契约（P5，用户已明确要求）**
+**`ask.user` 的契约（已落地）**
 
 现有 `clarification_required` / `awaiting_user` 只覆盖**计划生成前**：模型还没动手时把问题抛回来。
 执行到一半才发现「这里要用户确认用哪个目录 / 要不要覆盖 / 这两个方案选哪个」时没有通道，
@@ -307,9 +308,9 @@ interface EngineeringCapability {
 
 | 层级 | 条数 | 占比 | 说明 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 17 | 22% | 文件、搜索、执行、作业、git、联网，逐个有同名实现 |
+| L0 已有工具 | 19 | 25% | 文件、搜索、执行、作业、git、联网、提问、诊断 |
 | L1 等价机制 | 28 | 37% | 计划、交互、委派、会话记忆、浏览器、插件清单 |
-| L2 待补 | 29 | 38% | 终端 6、团队 7、目标 3、定时 4、提问 1、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 |
+| L2 待补 | 27 | 35% | 终端 6、团队 7、目标 3、定时 4、会话检索 2、持久 bash 1、运行时查询 1、MCP/市场 3 |
 | L3 平台不适用 | 2 | 3% | `pwsh` 两条 |
 | **合计** | **76** | 100% | 71 个唯一名字；`bash` `pwsh` `interrupt_agent` `list_agents` `send_message` 各有两条同名 schema |
 
@@ -449,7 +450,7 @@ type EvidenceRef =
 | 指标 | 目标 | 怎么量 | 现状 |
 | --- | --- | --- | --- |
 | dsh 工具覆盖率 | 76/76 有族、对应物、层级 | `test:dsh-coverage` | ✅ 76/76 |
-| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 62/62 |
+| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 64/64 |
 | 主族 `code.change` 的计划中带真实检查的比例 | 100% | 门禁拦截日志 + 场景回放 | 待 P3 |
 | 结论可追溯率 | 抽样 ≥ 90% | 场景回放的引用检查 | 待 P1/P4 |
 | 事实题被误加载技能的比例 | 0 | `trigger` 单测 + s20/s21/s24 回放 | 待 P2 |
@@ -461,7 +462,7 @@ type EvidenceRef =
 
 | 现有东西 | 这次怎么用 | 改不改 |
 | --- | --- | --- |
-| `src/shared/capabilities.ts`（62 条） | 工具表是族的输入；不改 id | 不改 |
+| `src/shared/capabilities.ts`（64 条） | 工具表是族的输入；不改 id | 不改 |
 | `src/shared/contracts.ts`（`TOOL_NAMES` / `READ_ONLY_TOOLS`） | 归族扫描的唯一来源 | 不改 |
 | `src/main/engineering/analysis.ts` | 读族的结构事实来源，保留「按正则识别」声明 | 不改 |
 | `src/main/engineering/review.ts` | 证据账本的执行后校验点 | 扩写 |

@@ -8,13 +8,13 @@
 
 | 期 | 状态 | 内容 | 对应设计章节 | 产出 |
 | --- | --- | --- | --- | --- |
-| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 62 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
-| P1 | 未开始 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
+| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 64 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
+| P1 | ✅ 已落地 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
 | P2 | 未开始 | 技能包按族拆分 | §7 | 3 份新 `SKILL.md`、`trigger.ts` 改族选择 |
-| P3 | 未开始 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
+| P3 | ✅ 已落地 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
 | P4 | 未开始 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
-| P5 | 未开始 | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
-| P6 | 未开始 | 治理能力 14 条 + 扩展裁决 3 条（L2 共 17） | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
+| P5 | 部分（2/12） | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
+| P6 | 未开始 | 治理能力 14 条 + 扩展裁决 3 条 | | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
 
 P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP」划到「不在这层」，
 现在全部回到矩阵里，并给了期号。
@@ -23,9 +23,9 @@ P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP�
 
 | 层级 | 条数 | 分布 | 归属期 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 17 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1 | 已可用，P0 只登记 |
+| L0 已有工具 | 19 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1、提问 1、诊断 1 | 已可用，P0 只登记 |
 | L1 等价机制 | 28 | 计划交互 5、委派 11、会话记忆 3、浏览器 6、插件 3 | P0 登记；P2/P3 补判据 |
-| L2 待补 | 29 | 提问 1、终端 6、团队 7、目标 3、定时 4、会话检索 2、LSP 1、持久 bash 1、运行时查询 1、MCP/市场 3 | P5（12）· P6（14）· 裁决（3） |
+| L2 待补 | 27 | 终端 6、团队 7、目标 3、定时 4、会话检索 2、持久 bash 1、运行时查询 1、MCP/市场 3 | P5（10）· P6（14）· 裁决（3） |
 | L3 平台不适用 | 2 | `pwsh` 两条 | 不排期，文档登记 |
 
 L1 不是「不做」。它意味着能力已经存在，只是形态不同——比如 `working_directory`
@@ -80,7 +80,7 @@ export const DSH_DUPLICATE_NAMES: Readonly<Record<string, readonly string[]>>;
 4. 每条 L0 的 `ours` 必须真的出现在 `TOOL_NAMES` 或主进程能力 id 里；
 5. 71 个唯一名字、五组同名不同包的条数与包名一致。
 
-### 2.2 本机 62 条归族
+### 2.2 本机 64 条归族
 
 **新增** `src/shared/engineering-capabilities.ts`：
 
@@ -215,11 +215,11 @@ scripts/check-engineering-scenarios.mjs
 
 **验收**：5 个场景全过；`npm test` 全链路。
 
-## 7. P5 · 补齐运行时缺口（12 条）
+## 7. P5 · 补齐运行时缺口（12 条，已做 2）
 
 按「用户真的会碰到」排序：
 
-### 7.1 向用户提问（1 条，`plan.control`）
+### 7.1 向用户提问（1 条，`plan.control`）· ✅ 已落地
 
 `ask_user_question` → `ask.user`（用户裁决：「这个是肯定需要的」）。
 
@@ -257,9 +257,9 @@ scripts/check-engineering-scenarios.mjs
 **验收**：`test:terminal`（新脚本）：开一个 shell、`echo` 回读、`signal` 后进程组消失、
 关闭后 `term.list` 为空；真机跑一次 `vim` 之类全屏程序，确认「不支持」时说清楚而不是卡死。
 
-### 7.3 语言诊断（1 条，`runtime.exec`）
+### 7.3 语言诊断（1 条，`runtime.exec`）· ✅ 已落地
 
-`lsp` → 先做 `code.diagnostics`，不引语言服务器进程：
+`lsp` → `code.diagnostics`，不引语言服务器进程：
 
 - 只用工程里已有的检查命令：`tsc --noEmit --pretty false`、`eslint -f json`、（可选）`ruff`；
 - 输出归一成 `{path, line, severity, message, source}[]`，进证据账本（kind 用 `command`）；

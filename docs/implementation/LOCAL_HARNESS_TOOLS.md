@@ -52,7 +52,7 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 | 结束进程 | （`bash kill`） | `process.kill`（仅完全权限） | **本轮补齐** |
 | 截屏 | （桌面插件） | `screen.capture`（PNG 校验 + 尺寸 + sha256） | 已有 |
 | 打开应用/文件 | （桌面插件 `open_application`） | `app.open`（`open -a` + `pgrep` 回读） | 已有 |
-| LSP 诊断 | `lsp` | P5 先做 `code.diagnostics`（tsc / eslint 输出归一） | P5 待补 |
+| LSP 诊断 | `lsp` | `code.diagnostics`（tsc / eslint 输出归一，不常驻语言服务器） | **已有** |
 | 问用户 | `ask_user_question` | 计划前：`clarification_required` + `awaiting_user`；执行中：补 `ask.user`（P5） | 等价机制 + P5 待补 |
 | 改工作目录 | `working_directory` | 会话级 `workspaceRoot`；计划里每个 path 都相对它 | 等价机制 |
 
@@ -86,8 +86,8 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
   截图 + 打开应用 + shell 已经能覆盖"让机器做一件事"，再往上一层是另一套产品（computer use）。
 - **LSP 诊断（`lsp`）**：语言服务器与工程栈绑定（TypeScript/Python/Go 各一套）。我们的工程实施
   用 `test.run`（`npm run typecheck` 等固定命令）拿到真实退出码，已经能回答"改完有没有坏"。
-  **2026-11-10 改判**：先做 `code.diagnostics`（把 tsc/eslint 输出归一成 `{path,line,severity,message}`），
-  真接 LSP 需要常驻进程，另开一期。
+  **2026-11-10 已落地**：`code.diagnostics` 把 tsc/eslint 输出归一成
+  `{path,line,severity,message}`；真接 LSP 需要常驻进程，另开一期。
 - **联网搜索（`web_search`）**：**已补**（2026-11-09）。`web.search` 走凭据或应用内浏览器，
   免凭据时由主进程 `web.search.browser` 兜底；`web.fetch` 仍负责「给 URL 取正文」。
   旧版这里写的「刻意不做」已过期。
@@ -123,7 +123,7 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 
 上面那张表是「对齐 DSH Standard 工具面」那一轮的记录，只到 27 个工具。之后
 两批补齐了 DSH 目录里没有、但本机干活真正用得到的部分；`project.read` 之后，
-清单是 **62 个能力 = 56 个 Runtime 工具（53 本地 + 3 联网）+ 6 个主进程能力**
+清单是 **64 个能力 = 58 个 Runtime 工具（55 本地 + 3 联网）+ 6 个主进程能力**
 （2026-11-10 对账，`CAPABILITY_CATALOG` 与测试都按 62 断言）：
 
 | 批次 | 新增 | 为什么需要 |
