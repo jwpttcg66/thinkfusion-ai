@@ -396,16 +396,9 @@ export function ConversationView(props: {
 
               {turn.blocks.map(block => {
                 if (block.kind === 'answers') return <ChannelGrid key={block.key} messages={block.messages} labels={labels} />;
-                if (block.kind === 'synthesis') {
-                  return (
-                    <SynthesisCard
-                      key={block.key}
-                      synthesis={block.message.synthesis!}
-                      labels={labels}
-                      opinionTags={opinionTags}
-                    />
-                  );
-                }
+                // 综合结论固定放在这一轮的最下面：它要压在所有回答和第二轮
+                // 进度条之后，读者看完过程再看到结论，而不是先读结论再读过程。
+                if (block.kind === 'synthesis') return null;
                 return (
                   <p key={block.key} className="conv-system">
                     {block.message.text}
@@ -413,8 +406,7 @@ export function ConversationView(props: {
                 );
               })}
 
-              {/* 第二轮及以后：单独一条通道条 + 进度卡，挂在第一轮回答后面。
-                  最新状态只写在这里，不回头改第一轮那条。 */}
+              {/* 第二轮及以后：单独一条通道条 + 进度卡，挂在第一轮回答后面。 */}
               {live && (
                 <ExecutionRound
                   phases={props.phases}
@@ -423,6 +415,17 @@ export function ConversationView(props: {
                   firstRoundAnswered={answered}
                 />
               )}
+
+              {turn.blocks
+                .filter(block => block.kind === 'synthesis')
+                .map(block => (
+                  <SynthesisCard
+                    key={block.key}
+                    synthesis={block.message.synthesis!}
+                    labels={labels}
+                    opinionTags={opinionTags}
+                  />
+                ))}
             </section>
           );
         })}
