@@ -62,8 +62,8 @@ export function SourceRail(props: {
       </button>
       {/* A hairline, not a gap: the toggle acts on the window, the buttons below
           switch pages, and without the line the first page button reads as part
-          of the same control. */}
-      <span className="rail-sep" aria-hidden="true" />
+          of the same control. 折叠时 sources 为空，不画分隔线，免得一条孤线。 */}
+      {props.sources.length > 0 && <span className="rail-sep" aria-hidden="true" />}
       {props.sources.map(source => {
         const active = source.id === props.activeId;
         const planning = source.id === props.planningId;

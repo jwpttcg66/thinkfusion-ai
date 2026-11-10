@@ -1031,7 +1031,7 @@ export interface LayoutInfo {
    * True while the page pane is folded away.
    *
    * `split` alone cannot say it: while folded the right edge still has to
-   * reserve the rail and the stub, so the number is small but not zero, and a
+   * reserve the rail, so the number is small but not zero, and a
    * renderer that only compared it to zero would draw a page bar over a pane
    * that is not there.
    */
