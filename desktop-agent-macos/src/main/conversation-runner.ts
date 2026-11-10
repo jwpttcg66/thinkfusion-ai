@@ -65,6 +65,8 @@ import {
 } from './research/engineering-orchestration';
 import type { JudgeVerdict } from './judge/types';
 import { applyRoutingVerdict, type RoutingVerdict } from './research/routing-classifier';
+import type { TraceRecorder } from './trace/trace-recorder';
+import { errorCodeOf, type TraceMeta, type TraceSource, type TraceStatus } from '../shared/trace';
 
 /**
  * 归属规则（2026-11-06 用户裁决）：本地主导只用本地模型、网页主导只用网页、
@@ -290,6 +292,17 @@ export interface ConversationDeps {
    * 才能在筛名单前把刚恢复的通道等到可用。
    */
   channelStatuses?: () => Promise<Array<{ id: string; available: boolean; generating?: boolean; pageReady?: boolean }>>;
+  /**
+   * 轨迹旁路。不传时整条链路行为不变（测试、旧装配都适用）。
+   *
+   * `recorder` 每会话一个；`remove` 在删除会话时清文件；`closeOpenTurns`
+   * 在启动对账时把崩溃留下的轮收尾为 interrupted。
+   */
+  trace?: {
+    recorder: (conversationId: string) => TraceRecorder;
+    remove: (conversationId: string) => void;
+    closeOpenTurns: (conversationId: string) => number;
+  };
 }
 
 /** MasterAgent 与协作执行器共有的接口，conduct 只认这一个方法。 */
@@ -381,7 +394,46 @@ export class ConversationRunner {
    */
   private readonly running = new Map<string, NodeJS.Timeout>();
 
+  /** 每会话一个记录器；没有注入 trace 时为空，所有调用都是 no-op。 */
+  private readonly traces = new Map<string, TraceRecorder>();
+
   constructor(private readonly deps: ConversationDeps) {}
+
+  private traceFor(conversationId: string): TraceRecorder | null {
+    if (!this.deps.trace) return null;
+    const existing = this.traces.get(conversationId);
+    if (existing) return existing;
+    const created = this.deps.trace.recorder(conversationId);
+    this.traces.set(conversationId, created);
+    return created;
+  }
+
+  private traceSourceOf(agentId: string): TraceSource {
+    return this.deps.agentSource?.(agentId) ?? (this.deps.registry.get(agentId) ? 'web' : 'system');
+  }
+
+  private traceLabelOf(agentId: string): string {
+    return this.deps.registry.get(agentId)?.label ?? agentId;
+  }
+
+  private traceMetaFor(conversation: Conversation): TraceMeta {
+    const config = normalizeExecutionConfig(conversation.executionConfig);
+    const route = conversation.modelRoute;
+    return {
+      executionMode: config.executionMode,
+      selectedCloudModels: config.selectedCloudModels?.length ?? 0,
+      selectedWebChannels: config.selectedWebChannels?.length ?? 0,
+      ...(config.leadAgentId ? { leadAgentId: config.leadAgentId } : {}),
+      ...(route
+        ? {
+            answerers: route.answerers.length,
+            synthesizers: route.synthesizers.length,
+            estimatedCalls: route.estimatedCalls,
+            ...(route.degraded ? { degradedReason: route.degraded } : {})
+          }
+        : {})
+    };
+  }
 
   private get budgetMs(): number {
     return this.deps.budgetMs ?? TURN_BUDGET_MS;
@@ -448,6 +500,11 @@ export class ConversationRunner {
     this.deps.store.deleteConversation(conversationId);
     // 会话内辩论的产物随会话一起消失，否则辩论面板会留下一场没有归属的记录。
     this.deps.deleteDebatesFor?.(conversationId);
+    // 先把还开着的轮收尾，再删文件：晚到的 phase / note 会被 recorder 的
+    // closed 标记挡住，不会把刚删掉的轨迹又建回来。
+    this.traces.get(conversationId)?.endTurn({ status: 'cancelled', reason: '会话已删除' });
+    this.traces.delete(conversationId);
+    this.deps.trace?.remove(conversationId);
 
     const cleaned: string[] = [];
     const reset: string[] = [];
@@ -552,6 +609,38 @@ export class ConversationRunner {
     // 打算问谁、为什么是他」。
     this.applyModelRoute(conversation, toRouteTaskKind(routing?.taskKind ?? intent.kind));
 
+    const trace = this.traceFor(conversation.conversationId);
+    trace?.beginTurn({
+      inputPreview: text,
+      reason: intent.reason,
+      meta: this.traceMetaFor(conversation)
+    });
+    if (routing) {
+      trace?.event({
+        stage: 'route',
+        group: 'prepare',
+        status: 'ok',
+        reason: routing.reason,
+        meta: { code: routing.taskKind }
+      });
+    }
+    if (conversation.modelRoute) {
+      trace?.event({
+        stage: 'route',
+        group: 'prepare',
+        status: conversation.modelRoute.degraded ? 'skipped' : 'ok',
+        reason: conversation.modelRoute.degraded,
+        meta: {
+          answerers: conversation.modelRoute.answerers.length,
+          synthesizers: conversation.modelRoute.synthesizers.length,
+          estimatedCalls: conversation.modelRoute.estimatedCalls,
+          ...(conversation.modelRoute.degraded
+            ? { degradedReason: conversation.modelRoute.degraded }
+            : {})
+        }
+      });
+    }
+
     this.rememberAttachments(conversation, attachments);
     this.save(conversation);
     this.deps.emit({ type: 'conversation.created', at: now, conversation });
@@ -580,9 +669,24 @@ export class ConversationRunner {
           role: 'system',
           text: `${label}，已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
         });
+        trace?.event({
+          stage: 'execute',
+          group: 'execute',
+          status: 'ok',
+          reason: label,
+          refs: [{ kind: 'message', id: task.taskId, label: '执行计划' }],
+          meta: { code: 'handoff' }
+        });
       } catch (error) {
         this.fail(conversation, error);
       }
+      trace?.endTurn({
+        status: conversation.status === 'answered' ? 'ok' : 'failed',
+        reason: label,
+        ...(conversation.error
+          ? { error: { code: 'unknown', detail: conversation.error } }
+          : {})
+      });
       return this.deps.store.getConversation(conversation.conversationId)!;
     };
 
@@ -631,7 +735,23 @@ export class ConversationRunner {
           role: 'system',
           text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
         });
+        trace?.event({
+          stage: 'route',
+          group: 'prepare',
+          status: 'skipped',
+          reason: read.reason,
+          meta: { code: 'no-project-read' }
+        });
       } else {
+        const scanStep = trace?.beginStep({
+          stage: 'tool',
+          group: 'prepare',
+          actorId: 'system',
+          actorLabel: '工程扫描',
+          sourceType: 'system',
+          reason: 'project.scan',
+          inputPreview: text
+        });
         try {
           const scan = await mainCapabilities.execute<ProjectScan>(
             'project.scan',
@@ -651,8 +771,22 @@ export class ConversationRunner {
               ...(scan.warnings.length > 0 ? [`注意：${scan.warnings.join('；')}`] : [])
             ].join('\n')
           });
+          trace?.endStep(scanStep, {
+            status: 'ok',
+            refs: scan.evidence.map(item => ({
+              kind: 'file',
+              id: item.path,
+              line: item.line,
+              sha256: item.sha256
+            })),
+            meta: { evidence: scan.evidence.length, outputChars: scan.summary.length }
+          });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
+          trace?.endStep(scanStep, {
+            status: 'failed',
+            error: { code: 'unknown', detail }
+          });
           return this.awaitUser(conversation, `没能读取工程目录（${detail}）。没有真实证据时不会让模型猜架构，请重新选择项目。`);
         }
       }
@@ -750,6 +884,7 @@ export class ConversationRunner {
       system: string[];
       scope: { root: string; extraFiles: readonly string[] };
       sink: ResearchSink;
+      trace?: TraceRecorder;
     }
   ): Promise<SubAgentAnswer> {
     const ask = (question: string): Promise<SubAgentAnswer> =>
@@ -769,23 +904,46 @@ export class ConversationRunner {
       const request = parseToolRequest(answer.text);
       if (!request) break;
       input.sink.phase(target.agentId, 'asking', `读文件：${request.tool}`);
-      const result = await mainCapabilities.execute<{
-        ok: boolean;
-        text: string;
-        summary: string;
-      }>(
-        'project.read',
-        {
-          tool: request.tool,
-          toolArgs: request.args,
-          root: input.scope.root,
-          extraFiles: input.scope.extraFiles
-        },
-        {}
-      );
-      // 用户要看得到「真的调了本地能力」，否则和凭猜测回答没有区别。
-      input.sink.note(`${target.label} 调用了本机能力：${result.summary}`);
-      answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
+      const toolStep = input.trace?.beginStep({
+        stage: 'tool',
+        group: 'first',
+        actorId: target.agentId,
+        actorLabel: target.label,
+        sourceType: this.traceSourceOf(target.agentId),
+        reason: `读文件：${request.tool}`,
+        inputPreview: JSON.stringify(request.args)
+      });
+      try {
+        const result = await mainCapabilities.execute<{
+          ok: boolean;
+          text: string;
+          summary: string;
+        }>(
+          'project.read',
+          {
+            tool: request.tool,
+            toolArgs: request.args,
+            root: input.scope.root,
+            extraFiles: input.scope.extraFiles
+          },
+          {}
+        );
+        input.trace?.endStep(toolStep, {
+          status: result.ok ? 'ok' : 'failed',
+          outputPreview: result.summary,
+          meta: { outputChars: result.text.length }
+        });
+        // 用户要看得到「真的调了本地能力」，否则和凭猜测回答没有区别。
+        input.sink.note(`${target.label} 调用了本机能力：${result.summary}`);
+        answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        input.trace?.endStep(toolStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
+        throw error;
+      }
     }
     return answer;
   }
@@ -856,6 +1014,7 @@ export class ConversationRunner {
     conversation.updatedAt = Date.now();
     this.save(conversation);
     this.addMessage(conversation, { role: 'system', text });
+    this.traceFor(conversation.conversationId)?.endTurn({ status: 'ok', reason: text });
     return conversation;
   }
 
@@ -941,6 +1100,13 @@ export class ConversationRunner {
       this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
     }
 
+    const trace = this.traceFor(conversationId);
+    trace?.beginTurn({
+      inputPreview: question,
+      reason: '追问',
+      meta: this.traceMetaFor(conversation)
+    });
+
     // V2.1：工程会话的追问沿用创建时的空间与项目，不允许临时换目录。
     // 「先分析再修改」的第二阶段靠这里：用户在输入框明确选「本次按实施」，
     // 才把这一句交去生成计划；没有明确指令绝不自动进入执行。
@@ -960,6 +1126,13 @@ export class ConversationRunner {
       conversation.routing = routing;
       conversation.updatedAt = Date.now();
       this.save(conversation);
+      trace?.event({
+        stage: 'route',
+        group: 'prepare',
+        status: 'ok',
+        reason: routing.reason,
+        meta: { code: routing.taskKind }
+      });
       if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
         try {
           const task = await this.deps.submitWorkspace({
@@ -975,9 +1148,24 @@ export class ConversationRunner {
             role: 'system',
             text: `已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
           });
+          trace?.event({
+            stage: 'execute',
+            group: 'execute',
+            status: 'ok',
+            reason: '追问转交执行计划',
+            refs: [{ kind: 'message', id: task.taskId, label: '执行计划' }],
+            meta: { code: 'handoff' }
+          });
         } catch (error) {
           this.fail(conversation, error);
         }
+        trace?.endTurn({
+          status: conversation.status === 'answered' ? 'ok' : 'failed',
+          reason: '追问转交执行计划',
+          ...(conversation.error
+            ? { error: { code: 'unknown' as const, detail: conversation.error } }
+            : {})
+        });
         return this.deps.store.getConversation(conversationId)!;
       }
       if (routing.taskKind === 'clarify') {
@@ -999,7 +1187,23 @@ export class ConversationRunner {
             role: 'system',
             text: `没有读取工程目录：${read.reason}。需要看工程时说一声，我再去读。`
           });
+          trace?.event({
+            stage: 'route',
+            group: 'prepare',
+            status: 'skipped',
+            reason: read.reason,
+            meta: { code: 'no-project-read' }
+          });
         } else {
+          const scanStep = trace?.beginStep({
+            stage: 'tool',
+            group: 'prepare',
+            actorId: 'system',
+            actorLabel: '工程扫描',
+            sourceType: 'system',
+            reason: 'project.scan',
+            inputPreview: question
+          });
           try {
             const scan = await mainCapabilities.execute<ProjectScan>(
               'project.scan',
@@ -1011,8 +1215,19 @@ export class ConversationRunner {
             conversation.engineeringFileStats = scan.fileStats ?? [];
             this.save(conversation);
             this.addMessage(conversation, { role: 'system', text: `已重新读取工程目录：\n${scan.summary}` });
+            trace?.endStep(scanStep, {
+              status: 'ok',
+              refs: scan.evidence.map(item => ({
+                kind: 'file',
+                id: item.path,
+                line: item.line,
+                sha256: item.sha256
+              })),
+              meta: { evidence: scan.evidence.length, outputChars: scan.summary.length }
+            });
           } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
+            trace?.endStep(scanStep, { status: 'failed', error: { code: 'unknown', detail } });
             return this.awaitUser(conversation, `没能读取工程目录（${detail}），这一轮不凭猜测回答。`);
           }
         }
@@ -1026,6 +1241,22 @@ export class ConversationRunner {
       toRouteTaskKind(conversation.routing?.taskKind ?? conversation.intent)
     );
     this.save(conversation);
+    if (conversation.modelRoute) {
+      trace?.event({
+        stage: 'route',
+        group: 'prepare',
+        status: conversation.modelRoute.degraded ? 'skipped' : 'ok',
+        reason: conversation.modelRoute.degraded,
+        meta: {
+          answerers: conversation.modelRoute.answerers.length,
+          synthesizers: conversation.modelRoute.synthesizers.length,
+          estimatedCalls: conversation.modelRoute.estimatedCalls,
+          ...(conversation.modelRoute.degraded
+            ? { degradedReason: conversation.modelRoute.degraded }
+            : {})
+        }
+      });
+    }
 
     void this.run(conversation, outgoing, {
       followup: true,
@@ -1082,6 +1313,7 @@ export class ConversationRunner {
     conversation.status = 'cancelled';
     conversation.updatedAt = Date.now();
     this.save(conversation);
+    this.traceFor(conversationId)?.endTurn({ status: 'cancelled', reason: '用户停止等待' });
   }
 
   // -------------------------------------------------------------------------
@@ -1103,6 +1335,8 @@ export class ConversationRunner {
       conversation.error = '上一轮在应用退出前没有结束，已标记为中断。重新发一次即可。';
       conversation.updatedAt = Date.now();
       this.save(conversation);
+      this.deps.trace?.closeOpenTurns(conversation.conversationId);
+      this.traces.delete(conversation.conversationId);
       changed += 1;
     }
     return changed;
@@ -1184,6 +1418,26 @@ export class ConversationRunner {
     try {
       await this.conduct(conversation, master, question, options, pool, executorIds);
     } finally {
+      const status: TraceStatus | null =
+        conversation.status === 'answered'
+          ? 'ok'
+          : conversation.status === 'failed'
+            ? 'failed'
+            : conversation.status === 'cancelled'
+              ? 'cancelled'
+              : conversation.status === 'awaiting_user'
+                ? 'ok'
+                : null;
+      // 终态在这里兜底收尾；还停在 thinking/collecting 说明 conduct 抛了，
+      // 交给外层 fail() 写 failed，不抢先把轮标成 interrupted。
+      if (status) {
+        this.traceFor(conversationId)?.endTurn({
+          status,
+          ...(conversation.error
+            ? { error: { code: 'unknown' as const, detail: conversation.error } }
+            : {})
+        });
+      }
       this.release(conversationId);
     }
   }
@@ -1334,7 +1588,10 @@ export class ConversationRunner {
                 question: engineered,
                 system: toolSystem,
                 scope,
-                sink
+                sink,
+                ...(this.traceFor(conversation.conversationId)
+                  ? { trace: this.traceFor(conversation.conversationId)! }
+                  : {})
               })
             : await pool.ask(target.agentId, {
                 question: engineered,
@@ -1404,6 +1661,8 @@ export class ConversationRunner {
   ): Promise<void> {
     const conversationId = conversation.conversationId;
     const config = normalizeExecutionConfig(conversation.executionConfig);
+    const trace = this.traceFor(conversationId);
+    trace?.beginGroup('prepare', question);
 
     // 每一轮自己的提问条。`channels` 若跨轮累积，关掉的模型还会挂在条上
     // （上一轮的失败状态跟着回来），看起来像「保存后还在问」。网页侧栏清理
@@ -1413,6 +1672,11 @@ export class ConversationRunner {
 
     const sink: ResearchSink = {
       join: (agentId: string) => {
+        trace?.join({
+          agentId,
+          label: this.traceLabelOf(agentId),
+          sourceType: this.traceSourceOf(agentId)
+        });
         // Recorded before the ask, not after the answer: the strip above the
         // pane is how the user sees what is happening, and an agent being waited
         // on is the single most important thing to see. Recording it only on
@@ -1440,9 +1704,11 @@ export class ConversationRunner {
           text: answer.text
         });
         this.save(conversation);
+        trace?.record(answer, message.messageId);
         return message.messageId;
       },
-      phase: (agentId, phase, detail) =>
+      phase: (agentId, phase, detail) => {
+        trace?.phase(agentId, phase, detail);
         this.deps.emit({
           type: 'channel.phase',
           at: Date.now(),
@@ -1450,9 +1716,16 @@ export class ConversationRunner {
           channelId: agentId,
           phase,
           detail
-        }),
-      note: text => this.addMessage(conversation, { role: 'system', text }),
-      status: status => this.setStatus(conversation, status),
+        });
+      },
+      note: text => {
+        trace?.note(text);
+        this.addMessage(conversation, { role: 'system', text });
+      },
+      status: status => {
+        trace?.status(status);
+        this.setStatus(conversation, status);
+      },
       cancelled: () => this.cancelled.has(conversationId)
     };
 
@@ -1463,10 +1736,26 @@ export class ConversationRunner {
       config.executionMode === 'web' ||
       config.executionMode === 'hybrid';
     if (needsWebViews) {
+      const prepareStep = trace?.beginStep({
+        stage: 'prepare',
+        group: 'prepare',
+        actorId: 'system',
+        actorLabel: '网页视图',
+        sourceType: 'system',
+        reason: 'prepare-web-views'
+      });
       try {
         await this.deps.prepareWebViews?.();
-      } catch {
+        trace?.endStep(prepareStep, { status: 'ok' });
+      } catch (error) {
         /* 建失败的通道在 available / ask 里各自报，不在这里吞掉整轮 */
+        trace?.endStep(prepareStep, {
+          status: 'failed',
+          error: {
+            code: 'unknown',
+            detail: error instanceof Error ? error.message : String(error)
+          }
+        });
       }
     }
 
@@ -1514,6 +1803,15 @@ export class ConversationRunner {
     // 那个链接，打不开就回一句「我无法访问」，所谓「提取」根本没有发生。
     // 抓不到也继续：网页通道自己的回答仍有价值，但要如实说没有正文可依。
     if (conversation.intent === 'extract' && conversation.extractUrl && !conversation.pageEvidence) {
+      const extractStep = trace?.beginStep({
+        stage: 'extract',
+        group: 'prepare',
+        actorId: 'system',
+        actorLabel: '网页正文',
+        sourceType: 'system',
+        reason: conversation.extractUrl,
+        refs: [{ kind: 'url', id: conversation.extractUrl }]
+      });
       try {
         const page = await fetchPageText(conversation.extractUrl);
         conversation.pageEvidence = page;
@@ -1526,8 +1824,18 @@ export class ConversationRunner {
             ...(page.notes.length > 0 ? [`说明：${page.notes.join('；')}`] : [])
           ].join('\n')
         });
+        trace?.endStep(extractStep, {
+          status: 'ok',
+          outputPreview: page.title,
+          refs: [{ kind: 'url', id: page.url, label: page.title }],
+          meta: { outputChars: page.chars, code: 'page-extract' }
+        });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(extractStep, {
+          status: 'failed',
+          error: { code: 'unknown', detail }
+        });
         this.addMessage(conversation, {
           role: 'system',
           text: `没能抓取网页正文（${detail}）；这一轮只依据各网页回答整理，没有页面正文作为依据。`
@@ -1539,6 +1847,7 @@ export class ConversationRunner {
     // 2026-11-08 用户裁决，覆盖了同一天更早的「一个模型第一意见 + 一个网页
     // 第二意见、两份并列不汇总」。没有可用模型时返回 null，下面照旧走网页
     // 链路并已写过原因。
+    trace?.beginGroup('first', question);
     const engineeringRound =
       conversation.workspaceMode === 'engineering'
         ? await this.researchEngineering(conversation, question, pool, sink)
@@ -1611,6 +1920,15 @@ export class ConversationRunner {
     // 工程编排也走融合：主导人的汇总要盖过规则版综合才落得进综合卡，所以
     // 这里需要一份 synthesis 作为容器（哪怕只有一位成员，也要有这个容器）。
     // 主导产物会把共识/分歧/缺口全部清空，规则版那套统计不会并列显示。
+    trace?.beginGroup('synthesis');
+    const synthesisStep = trace?.beginStep({
+      stage: 'synthesis',
+      group: 'synthesis',
+      actorId: 'system',
+      actorLabel: '综合',
+      sourceType: 'system',
+      reason: execution ? '主导产物 / 融合' : '规则版综合'
+    });
     let synthesis = outcome.synthesis;
     const fusionFloor = engineeringRound?.orchestration ? 1 : 2;
     if (this.deps.fusionEnabled && outcome.answers.length >= fusionFloor) {
@@ -1722,6 +2040,27 @@ export class ConversationRunner {
       }
     }
 
+    trace?.endStep(synthesisStep, {
+      status: synthesis ? 'ok' : 'skipped',
+      ...(synthesis
+        ? {
+            outputPreview: synthesis.recommendation,
+            meta: {
+              claims: synthesis.consensus.length + synthesis.disputed.length + synthesis.unique.length,
+              disputes: synthesis.disputed.length,
+              unique: synthesis.unique.length,
+              gaps: synthesis.gaps.length,
+              degraded: synthesis.degraded === true,
+              ...(synthesis.leadSummary ? { leadSummary: true } : {}),
+              ...(conversation.engineeringEvidence
+                ? { evidence: conversation.engineeringEvidence.length }
+                : {}),
+              citations: outcome.answers.reduce((sum, answer) => sum + (answer.citations?.length ?? 0), 0),
+              outputChars: synthesis.recommendation.length
+            }
+          }
+        : { meta: { code: 'no-synthesis' } })
+    });
     if (synthesis) {
       const message = this.addMessage(conversation, {
         role: 'synthesis',
@@ -1770,6 +2109,8 @@ export class ConversationRunner {
     attachments: string | null = null
   ): Promise<ExecutionStageResult | null> {
     const config = normalizeExecutionConfig(conversation.executionConfig);
+    const trace = this.traceFor(conversation.conversationId);
+    trace?.beginGroup('lead', question);
     const labels = new Map(outcome.channels.map(item => [item.agentId, item.label] as const));
     const answers = outcome.answers.map(answer => ({
       channelId: answer.agentId,
@@ -1827,6 +2168,7 @@ export class ConversationRunner {
 
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;
+    let leadStep: { turn: number; step: number } | undefined;
     try {
       // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
       // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
@@ -1857,6 +2199,15 @@ export class ConversationRunner {
       const baseQuestion = isPage
         ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
         : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
+      leadStep = trace?.beginStep({
+        stage: 'lead',
+        group: 'lead',
+        actorId: lead.agentId,
+        actorLabel: label,
+        sourceType: this.traceSourceOf(lead.agentId),
+        reason: followUp ? '追加轮更新汇总' : '汇总',
+        inputPreview: baseQuestion
+      });
       const answer = await pool.ask(lead.agentId, {
         question: baseQuestion,
         stage: 'challenge',
@@ -1867,6 +2218,13 @@ export class ConversationRunner {
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
+      trace?.endStep(leadStep, {
+        status: summaryText ? 'ok' : 'skipped',
+        usage: answer.usage ?? null,
+        ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
+        ...(text ? { outputPreview: text } : {}),
+        meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
+      });
       if (!summaryText) {
         sink.phase(lead.agentId, 'answered', '汇总未写出内容');
       } else {
@@ -1876,6 +2234,10 @@ export class ConversationRunner {
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      trace?.endStep(leadStep, {
+        status: 'failed',
+        error: { code: errorCodeOf(detail), detail }
+      });
       sink.phase(lead.agentId, 'failed', detail);
       this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
     }
@@ -1921,6 +2283,15 @@ export class ConversationRunner {
         role: 'system',
         text: `${label} 指定了 ${topics.length} 个辩题：${topics.join('；')}`
       });
+      const debateStep = trace?.beginStep({
+        stage: 'debate',
+        group: 'debate',
+        actorId: lead.agentId,
+        actorLabel: label,
+        sourceType: this.traceSourceOf(lead.agentId),
+        reason: topics.join('；'),
+        inputPreview: topics.join('；')
+      });
       try {
         debate = await this.deps.runDebate({
           conversationId: conversation.conversationId,
@@ -1938,8 +2309,16 @@ export class ConversationRunner {
             ? { orchestration: { reason: orchestration.reason, warnings: [] as string[] } }
             : {})
         });
+        trace?.endStep(debateStep, {
+          status: debate ? (debate.status === 'completed' ? 'ok' : 'interrupted') : 'skipped',
+          ...(debate ? { meta: { rounds: debate.rounds.length } } : {})
+        });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(debateStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
         this.addMessage(conversation, { role: 'system', text: `辩论没能跑起来：${detail}` });
       }
     }
@@ -1949,6 +2328,14 @@ export class ConversationRunner {
     if (debate && debate.rounds.length > 0) {
       const transcript = formatDebateTranscript(debate.rounds);
       sink.phase(lead.agentId, 'leading', '读辩论记录，给最终意见');
+      const verdictStep = trace?.beginStep({
+        stage: 'lead',
+        group: 'lead',
+        actorId: lead.agentId,
+        actorLabel: label,
+        sourceType: this.traceSourceOf(lead.agentId),
+        reason: '读辩论记录'
+      });
       try {
         const answer = await pool.ask(lead.agentId, {
           question: buildVerdictQuestion(question, summaryText, transcript),
@@ -1958,6 +2345,13 @@ export class ConversationRunner {
         });
         const text = rewriteSourceRefs(answer.text.trim(), answers);
         verdictText = text || null;
+        trace?.endStep(verdictStep, {
+          status: verdictText ? 'ok' : 'skipped',
+          usage: answer.usage ?? null,
+          ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
+          ...(text ? { outputPreview: text } : {}),
+          meta: text ? { outputChars: text.length } : { code: 'empty-verdict' }
+        });
         sink.phase(
           lead.agentId,
           'answered',
@@ -1965,6 +2359,10 @@ export class ConversationRunner {
         );
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(verdictStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
         sink.phase(lead.agentId, 'failed', detail);
         this.addMessage(conversation, { role: 'system', text: `${label} 读辩论记录时没给出最终意见：${detail}` });
       }
@@ -2001,6 +2399,7 @@ export class ConversationRunner {
     execution: ExecutionStageResult | null,
     sink: ResearchSink
   ): Promise<{ rounds: number; items: string[]; budget: number; summaryText: string | null }> {
+    const trace = this.traceFor(conversation.conversationId);
     const budget = followUpBudget(normalizeExecutionConfig(conversation.executionConfig));
     const stop = { rounds: 0, items: [], budget, summaryText: null };
     // 没有执行阶段就没有【待补】：单通道回答没有主导人，这一轮到此为止。
@@ -2037,6 +2436,17 @@ export class ConversationRunner {
       this.addMessage(conversation, { role: 'system', text: followUpNote(round, budget, fresh) });
       this.setStatus(conversation, 'collecting');
 
+      trace?.beginGroup('followup', followQuestion);
+      const followStep = trace?.beginStep({
+        stage: 'followup',
+        group: 'followup',
+        actorId: 'system',
+        actorLabel: '追加研究',
+        sourceType: 'system',
+        reason: `第 ${round} 轮追加研究`,
+        inputPreview: followQuestion,
+        meta: { rounds: round }
+      });
       let roundOutcome: ResearchOutcome;
       try {
         roundOutcome = await master.research(
@@ -2048,8 +2458,16 @@ export class ConversationRunner {
           },
           sink
         );
+        trace?.endStep(followStep, {
+          status: roundOutcome.answers.length > 0 ? 'ok' : 'skipped',
+          meta: { rounds: round }
+        });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(followStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
         this.addMessage(conversation, {
           role: 'system',
           text: `第 ${round} 轮追加研究没有拿到回答：${detail}。下面的结论仍然是上一轮的汇总。`
@@ -2091,8 +2509,18 @@ export class ConversationRunner {
       }));
 
       this.setStatus(conversation, 'synthesizing');
+      trace?.beginGroup('lead', question);
       // 追加轮也只让这一位主导人进 leading，不能把第一轮其他人再标成汇总。
       sink.phase(execution.lead.agentId, 'leading', `第 ${round} 轮补充后更新汇总`);
+      const updateStep = trace?.beginStep({
+        stage: 'lead',
+        group: 'lead',
+        actorId: execution.lead.agentId,
+        actorLabel: execution.lead.label,
+        sourceType: this.traceSourceOf(execution.lead.agentId),
+        reason: `第 ${round} 轮更新汇总`,
+        meta: { rounds: round }
+      });
       try {
         const answer = await pool.ask(execution.lead.agentId, {
           question: buildFollowUpSummaryQuestion({
@@ -2113,6 +2541,13 @@ export class ConversationRunner {
               ]
         });
         const text = rewriteSourceRefs(answer.text.trim(), roundAnswers);
+        trace?.endStep(updateStep, {
+          status: text ? 'ok' : 'skipped',
+          usage: answer.usage ?? null,
+          ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
+          ...(text ? { outputPreview: text } : {}),
+          meta: text ? { rounds: round, outputChars: text.length } : { code: 'empty-summary' }
+        });
         if (text) {
           current = text;
           rounds += 1;
@@ -2127,6 +2562,10 @@ export class ConversationRunner {
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(updateStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
         sink.phase(execution.lead.agentId, 'failed', detail);
         this.addMessage(conversation, {
           role: 'system',
@@ -2233,6 +2672,11 @@ export class ConversationRunner {
     conversation.error = message;
     conversation.updatedAt = Date.now();
     this.save(conversation);
+    this.traceFor(conversation.conversationId)?.endTurn({
+      status: 'failed',
+      reason: message,
+      error: { code: errorCodeOf(message), detail: message }
+    });
     this.deps.emit({ type: 'conversation.failed', at: Date.now(), conversationId: conversation.conversationId, error: message });
   }
 }

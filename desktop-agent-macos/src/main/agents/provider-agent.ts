@@ -51,6 +51,7 @@ export class ProviderSubAgent implements SubAgent {
   }
 
   async ask(task: SubAgentTask): Promise<SubAgentAnswer> {
+    const startedAt = Date.now();
     try {
       const answer = await this.adapter.ask({
         question: task.question,
@@ -61,7 +62,14 @@ export class ProviderSubAgent implements SubAgent {
       if (!text) throw new Error('页面没有给出可读的回答');
       this.failures = 0;
       this.lastFailure = null;
-      return { ...answer, text, stage: task.stage };
+      return {
+        ...answer,
+        text,
+        stage: task.stage,
+        // 网页不会报 token。这里写 null 是“不知道”，不是 0。
+        usage: { inputTokens: null, outputTokens: null },
+        latencyMs: Date.now() - startedAt
+      };
     } catch (error) {
       this.failures += 1;
       this.lastFailure = error instanceof Error ? error.message : String(error);

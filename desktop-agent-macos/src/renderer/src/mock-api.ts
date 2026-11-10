@@ -17,6 +17,7 @@ import { computeSplit } from '../../shared/layout';
 import { describeCapabilities } from '../../shared/capabilities';
 import { EXPERTISE_IDS, expertiseFallback, type ExpertiseView } from '../../shared/expertise';
 import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
+import { aggregateTotals, foldTrace, type TraceEntry } from '../../shared/trace';
 
 /**
  * Dev-only stand-in for the preload API so the renderer can be opened in a plain
@@ -107,6 +108,32 @@ const events: Record<string, AgentEvent[]> = {
     { type: 'task.completed', at: now - 88_900_000, taskId: 'task-done', summary: '已生成堆外内存排查报告' }
   ]
 };
+
+/**
+ * 浏览器预览里的轨迹样例：两答一败 + 汇总 + 综合。
+ *
+ * 和真机要保持同一种“未知”表达：网页通道没有 token，所以 usage 里是 null，
+ * 不是 0。
+ */
+function mockTrace(conversationId: string): TraceEntry[] {
+  const t = now;
+  const base = { conversationId, at: t, turn: 1 };
+  return [
+    { ...base, seq: 1, step: 0, kind: 'turn', phase: 'start', status: 'running', startedAt: t, inputPreview: '分析一下这个工程为什么启动慢', meta: { executionMode: 'web', selectedCloudModels: 2 } },
+    { ...base, seq: 2, step: 0, kind: 'event', phase: 'instant', stage: 'route', group: 'prepare', status: 'ok', reason: '用户问原因，按研究处理' },
+    { ...base, seq: 3, step: 1, kind: 'step', phase: 'start', stage: 'answer', group: 'first', status: 'running', actorId: 'deepseek', actorLabel: 'DeepSeek', sourceType: 'web', startedAt: t + 100, inputPreview: '分析一下这个工程为什么启动慢' },
+    { ...base, seq: 4, step: 2, kind: 'step', phase: 'start', stage: 'answer', group: 'first', status: 'running', actorId: 'chatgpt', actorLabel: 'ChatGPT', sourceType: 'web', startedAt: t + 100, inputPreview: '分析一下这个工程为什么启动慢' },
+    { ...base, seq: 5, step: 3, kind: 'step', phase: 'start', stage: 'answer', group: 'first', status: 'running', actorId: 'hy4', actorLabel: 'Ollama · hy4', sourceType: 'local', startedAt: t + 100, inputPreview: '分析一下这个工程为什么启动慢' },
+    { ...base, seq: 6, step: 1, kind: 'step', phase: 'end', status: 'ok', endedAt: t + 12_400, outputPreview: '先看启动脚本和依赖初始化顺序……', usage: { inputTokens: null, outputTokens: null }, meta: { outputChars: 320 } },
+    { ...base, seq: 7, step: 2, kind: 'step', phase: 'end', status: 'failed', endedAt: t + 3_100, error: { code: 'auth', detail: '还没有配置 API Key' } },
+    { ...base, seq: 8, step: 3, kind: 'step', phase: 'end', status: 'ok', endedAt: t + 28_700, outputPreview: '本地模型给出的排查顺序……', usage: { inputTokens: 820, outputTokens: 460 }, meta: { outputChars: 460 } },
+    { ...base, seq: 9, step: 4, kind: 'step', phase: 'start', stage: 'lead', group: 'lead', status: 'running', actorId: 'deepseek', actorLabel: 'DeepSeek', sourceType: 'web', startedAt: t + 29_000, reason: '汇总' },
+    { ...base, seq: 10, step: 4, kind: 'step', phase: 'end', status: 'ok', endedAt: t + 38_800, outputPreview: '【结论】启动慢主要来自……', usage: { inputTokens: null, outputTokens: null }, meta: { claims: 2, disputes: 1, gaps: 1 } },
+    { ...base, seq: 11, step: 5, kind: 'step', phase: 'start', stage: 'synthesis', group: 'synthesis', status: 'running', actorId: 'system', actorLabel: '综合', sourceType: 'system', startedAt: t + 39_000 },
+    { ...base, seq: 12, step: 5, kind: 'step', phase: 'end', status: 'ok', endedAt: t + 39_200, outputPreview: '3 个通道里 2 个给出了回答……', meta: { claims: 2, disputes: 1, gaps: 1, degraded: false } },
+    { ...base, seq: 13, step: 0, kind: 'turn', phase: 'end', status: 'ok', endedAt: t + 39_300 }
+  ];
+}
 
 export function createMockApi(): AgentApi {
   let capabilityDisabled: string[] = [];
@@ -469,6 +496,15 @@ export function createMockApi(): AgentApi {
     getConversations: async () => conversations,
     getConversation: async conversationId => conversations.find(item => item.conversationId === conversationId) ?? null,
     getConversationMessages: async () => [],
+    getTrace: async ({ conversationId }: { conversationId: string }) => {
+      const entries = mockTrace(conversationId);
+      return {
+        entries,
+        hasMore: false,
+        source: 'trace' as const,
+        totals: aggregateTotals(foldTrace(entries))
+      };
+    },
     cancelConversation: async () => undefined,
     deleteConversation: async (conversationId: string) => {
       conversations = conversations.filter(item => item.conversationId !== conversationId);

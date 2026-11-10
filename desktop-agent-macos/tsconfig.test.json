@@ -17,6 +17,7 @@
     "src/main/export/**/*.ts",
     "src/main/conversation-runner.ts",
     "src/main/master-agent.ts",
+    "src/main/trace/**/*.ts",
     "src/main/selector-profile.ts",
     "src/main/source-store.ts",
     "src/main/profile-store.ts",

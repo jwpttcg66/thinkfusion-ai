@@ -24,6 +24,7 @@ import type {
   FollowupConversationInput,
   SubmitConversationInput
 } from './conversation';
+import type { TraceEntry, TraceTotals } from './trace';
 
 /**
  * desktop-agent/v1 wire + IPC contracts.
@@ -1547,6 +1548,25 @@ export interface ProviderHealthInfo {
   checkedAt: number;
 }
 
+/** 轨迹查询：默认取最近 500 条，`beforeSeq` 向上翻。 */
+export interface TraceQuery {
+  conversationId: string;
+  beforeSeq?: number;
+  limit?: number;
+}
+
+export interface TraceResult {
+  entries: TraceEntry[];
+  hasMore: boolean;
+  /**
+   * `trace` 是新的追加日志；`messages` 是旧会话的回退——
+   * 只有消息时间，没有 token / 首 token / 失败原因。
+   */
+  source: 'trace' | 'messages';
+  /** 整份文件的全量合计，不受 entries 分页影响。 */
+  totals: TraceTotals;
+}
+
 export interface AgentApi {
   // conversations — the primary path
   /**
@@ -1612,6 +1632,11 @@ export interface AgentApi {
   getConversations(): Promise<Conversation[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;
+  /**
+   * 轨迹与统计的原始记录。旧会话没有 trace 文件时回退到消息级时间线，
+   * `source` 会明确写 `messages`，界面不能把它当成完整统计。
+   */
+  getTrace(input: TraceQuery): Promise<TraceResult>;
   cancelConversation(conversationId: string): Promise<void>;
   deleteConversation(conversationId: string): Promise<ConversationDeleteOutcome>;
   /**

@@ -1,5 +1,6 @@
 import type { ConversationAttachment } from './attachments';
 import type { IntentKind } from './intent';
+import type { TraceEntry } from './trace';
 import type { PageEvidence } from './evidence';
 import type { ModelRoute } from './model-route';
 import type { DebateMode, EngineeringTaskKind, TaskRouting, WorkspaceMode } from './workspace';
@@ -345,6 +346,12 @@ export type ConversationEvent = { at: number } & (
   | { type: 'channel.phase'; conversationId: string; channelId: string; phase: ChannelPhase; detail?: string }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }
   | { type: 'conversation.failed'; conversationId: string; error: string }
+  /**
+   * 轨迹新记录。按步结束批量发；渲染进程按 seq 去重。
+   *
+   * 旁路事件，不是会话状态：即使界面没有打开轨迹页，主进程也照常写盘。
+   */
+  | { type: 'trace.appended'; conversationId: string; entries: TraceEntry[] }
 );
 
 export interface SubmitConversationInput {

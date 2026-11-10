@@ -24,6 +24,9 @@ import {
   TaskIdSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { aggregateTotals, foldTrace, traceFromMessages } from '../shared/trace';
+import { TraceStore } from './trace/trace-store';
+import { TraceRecorder } from './trace/trace-recorder';
 import { TaskManager } from './task-manager';
 import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
 import { SubAgentRegistry } from './agents/registry';
@@ -323,6 +326,8 @@ function selectorsFor(sourceId: string): SelectorProfile {
 }
 
 let store: AgentStore;
+/** 轨迹 append-only 日志；与主 journal 分开，写失败不影响提问。 */
+let traceStore: TraceStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
 let conversations: ConversationRunner;
@@ -2694,6 +2699,45 @@ function registerIpc() {
     return conversations.messages(id);
   });
 
+  /**
+   * 轨迹与统计的原始记录。
+   *
+   * `totals` 从整份文件算，不受 entries 分页影响；旧会话没有轨迹文件时退回
+   * 消息级时间线，并明确标 source='messages'——界面不能把只有 at 的旧记录
+   * 当成完整统计。
+   */
+  ipcMain.handle('conversation:trace', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = (raw ?? {}) as { conversationId?: unknown; beforeSeq?: unknown; limit?: unknown };
+    if (typeof input.conversationId !== 'string') throw new Error('缺少对话 id');
+    const conversationId = input.conversationId;
+    const limit = Math.min(Math.max(Number(input.limit) || 500, 1), 2000);
+    const all = traceStore.readAll(conversationId);
+    if (all.length > 0) {
+      const page = traceStore.read(conversationId, {
+        ...(typeof input.beforeSeq === 'number' && Number.isFinite(input.beforeSeq)
+          ? { beforeSeq: input.beforeSeq }
+          : {}),
+        limit
+      });
+      return {
+        ...page,
+        source: 'trace' as const,
+        totals: aggregateTotals(foldTrace(all))
+      };
+    }
+    const fallback = traceFromMessages(
+      store.getConversation(conversationId),
+      store.listMessages(conversationId)
+    );
+    return {
+      entries: fallback.entries.slice(-limit),
+      hasMore: fallback.entries.length > limit,
+      source: 'messages' as const,
+      totals: aggregateTotals(foldTrace(fallback.entries))
+    };
+  });
+
   ipcMain.handle('conversation:cancel', (event, id: unknown) => {
     trustedUiSender(event);
     if (typeof id !== 'string') throw new Error('缺少对话 id');
@@ -3507,6 +3551,7 @@ app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  traceStore = new TraceStore(path.join(app.getPath('userData'), 'traces'));
   windowStateFile = path.join(app.getPath('userData'), 'window-state.json');
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
   // Before anything reads `sources`: the window's startup path decides which
@@ -3748,6 +3793,11 @@ app.whenReady().then(async () => {
       lastChannelStatuses = statuses;
       lastChannelSnapshotAt = Date.now();
       return statuses;
+    },
+    trace: {
+      recorder: conversationId => new TraceRecorder(traceStore, conversationId, emitConversation),
+      remove: conversationId => traceStore.remove(conversationId),
+      closeOpenTurns: conversationId => traceStore.closeOpenTurns(conversationId)
     },
     isPageChannel: agentId => registry.get(agentId) !== undefined,
     agentSource: agentId => {

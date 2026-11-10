@@ -15,6 +15,8 @@ import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
 import { ConversationView } from './components/ConversationView';
+import { TrajectoryPanel } from './components/TrajectoryPanel';
+import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
@@ -220,6 +222,8 @@ export default function App() {
   /** 「＋ · 专家 / 技能」要显示的开关状态；与「设置 · 专家与技能」同一份。 */
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [researchOpen, setResearchOpen] = useState(false);
+  /** 对话 / 轨迹 / 统计。页签在 topbar 下、滚动区外，切会话时回到对话。 */
+  const [conversationTab, setConversationTab] = useState<'chat' | 'trajectory' | 'stats'>('chat');
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
   /**
    * 跨会话默认值（主导人、参与的云端模型）。
@@ -241,6 +245,11 @@ export default function App() {
   /** 当前可见会话；事件回调里只靠它判断要不要改面板。 */
   const activeConversationRef = useRef<string | null>(null);
   activeConversationRef.current = activeConversationId;
+
+  // 换一条会话时回到「对话」：接着看轨迹/统计是上一次的上下文，不是这条的。
+  useEffect(() => {
+    setConversationTab('chat');
+  }, [activeConversationId]);
   /**
    * 输入框旁边那个「模型」胶囊要的云端成员清单。
    *
@@ -1563,9 +1572,38 @@ export default function App() {
           </div>
         </header>
 
+        {showingConversation && (
+          <nav className="conversation-tabs" role="tablist" aria-label="对话视图">
+            <button
+              role="tab"
+              aria-selected={conversationTab === 'chat'}
+              className={conversationTab === 'chat' ? 'is-active' : undefined}
+              onClick={() => setConversationTab('chat')}
+            >
+              对话
+            </button>
+            <button
+              role="tab"
+              aria-selected={conversationTab === 'trajectory'}
+              className={conversationTab === 'trajectory' ? 'is-active' : undefined}
+              onClick={() => setConversationTab('trajectory')}
+            >
+              轨迹
+            </button>
+            <button
+              role="tab"
+              aria-selected={conversationTab === 'stats'}
+              className={conversationTab === 'stats' ? 'is-active' : undefined}
+              onClick={() => setConversationTab('stats')}
+            >
+              统计
+            </button>
+          </nav>
+        )}
+
         <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
           <div className="inner">
-            {showingConversation && activeConversation && (
+            {showingConversation && activeConversation && conversationTab === 'chat' && (
               <ConversationView
                 conversation={activeConversation}
                 messages={messages}
@@ -1574,6 +1612,15 @@ export default function App() {
                 glyphs={new Map(sources.sources.map(source => [source.id, source.glyph]))}
                 phases={phases}
                 busy={conversationBusy}
+              />
+            )}
+            {showingConversation && activeConversation && conversationTab === 'trajectory' && (
+              <TrajectoryPanel conversationId={activeConversation.conversationId} />
+            )}
+            {showingConversation && activeConversation && conversationTab === 'stats' && (
+              <StatsPanel
+                conversationId={activeConversation.conversationId}
+                conversation={activeConversation}
               />
             )}
 

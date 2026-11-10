@@ -1,5 +1,6 @@
 import type { ChannelStatus } from '../../shared/conversation';
 import type { AdapterAnswer, AskStage, DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
+import type { ModelUsage } from '../providers/types';
 
 /**
  * A participant in the research, as opposed to the thing that types into a page.
@@ -59,6 +60,18 @@ export interface SubAgentTask {
 
 export interface SubAgentAnswer extends AdapterAnswer {
   stage: AskStage;
+  /**
+   * 这次调用的 token 用量。网页通道拿不到，固定是 `{ inputTokens: null,
+   * outputTokens: null }`；本地/云端由 Provider 回填。`null` 不是 0。
+   */
+  usage?: ModelUsage | null;
+  /** 从发问到收到完整回答；网页也能测。 */
+  latencyMs?: number;
+  /**
+   * 第一次看到非空输出片段的时间。只有能观察流的通道才有；没有就不填，
+   * 统计显示 `—`，不拿总耗时冒充 TTFT。
+   */
+  firstTokenAt?: number;
 }
 
 export interface SubAgent {

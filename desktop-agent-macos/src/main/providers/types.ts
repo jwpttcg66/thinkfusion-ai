@@ -85,6 +85,12 @@ export interface ModelUsage {
   inputTokens: number | null;
   outputTokens: number | null;
   /**
+   * 提示词里命中/写入缓存的 token。不是每个服务都报；没报就是 `undefined`，
+   * 统计显示 `—`，不写 0。
+   */
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  /**
    * 本次调用的费用。只有云端 Provider 会填，而且必须有可编辑的单价配置
    * 才算得出来；没有单价时是 `null`，不是 0。
    */

@@ -4121,3 +4121,438 @@ button:disabled {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------------------------------------------------------------------------
+   对话视图页签：对话 / 轨迹 / 统计。
+   topbar 之下、滚动区之外，所以滚正文时它不会跟着滚走。
+--------------------------------------------------------------------------- */
+.conversation-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+
+.conversation-tabs button {
+  position: relative;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.conversation-tabs button:hover {
+  color: var(--text);
+}
+
+.conversation-tabs button.is-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.conversation-tabs button.is-active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* 轨迹 / 统计共用 */
+.trace-panel,
+.stats-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 24px;
+  font-size: 12px;
+}
+
+.trace-banner {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #e7d9b8;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #7a5a12;
+  line-height: 1.6;
+}
+
+.trace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trace-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.trace-filters select,
+.trace-filters input,
+.stats-foot select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+}
+
+.trace-filters input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.trace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.trace-turn {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.trace-turn-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #fafafb;
+  flex-wrap: wrap;
+}
+
+.trace-turn-trigger {
+  flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.trace-turn-time {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.trace-group {
+  padding: 0 12px 10px;
+}
+
+.trace-group-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.trace-group-count {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.trace-table,
+.stats-table,
+.stats-step-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.trace-table th,
+.trace-table td,
+.stats-table th,
+.stats-table td,
+.stats-step-table th,
+.stats-step-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.trace-table th,
+.stats-table th,
+.stats-step-table th {
+  color: var(--text-3);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.trace-row {
+  cursor: pointer;
+}
+
+.trace-row:hover,
+.trace-row.is-selected {
+  background: var(--bg-hover);
+}
+
+.trace-step-no {
+  color: var(--text-3);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: nowrap;
+}
+
+.trace-preview {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.trace-actor {
+  margin-right: 5px;
+}
+
+.trace-source {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #f0f1f3;
+  color: var(--text-3);
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+
+.trace-source.s-local { background: #eef7ee; color: #2d6a36; }
+.trace-source.s-cloud { background: #eef2fb; color: #2b4a8a; }
+.trace-source.s-system { background: #f3f3f4; color: var(--text-3); }
+
+.trace-status {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  white-space: nowrap;
+  background: #f0f1f3;
+  color: var(--text-2);
+}
+
+.trace-status.s-ok { background: #eaf7ee; color: #24753a; }
+.trace-status.s-failed { background: #fdeceb; color: #b33a2e; }
+.trace-status.s-busy,
+.trace-status.s-running { background: #fff5e5; color: #8a5a12; }
+.trace-status.s-skipped { background: #f3f3f4; color: var(--text-3); }
+.trace-status.s-cancelled,
+.trace-status.s-interrupted { background: #f4eef8; color: #6b4a82; }
+
+.trace-time {
+  color: var(--text-3);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: nowrap;
+}
+
+.trace-unknown {
+  color: var(--text-3);
+  cursor: help;
+}
+
+.trace-error {
+  color: #b33a2e;
+}
+
+.trace-inspector {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.08);
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.trace-inspector > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-facts {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.trace-facts dt {
+  color: var(--text-3);
+}
+
+.trace-facts dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.trace-detail h4 {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.trace-pre {
+  margin: 0;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 7px;
+  background: #f7f7f8;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trace-refs {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.trace-refs li {
+  margin: 3px 0;
+  word-break: break-all;
+}
+
+.trace-ref-kind {
+  display: inline-block;
+  min-width: 52px;
+  color: var(--text-3);
+}
+
+.trace-empty {
+  padding: 8px 12px;
+}
+
+/* 统计页 */
+.stats-quality {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafafb;
+}
+
+.stats-quality b {
+  margin-right: 4px;
+}
+
+.stats-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.stats-totals-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.stats-totals-head .trace-unknown {
+  margin-left: auto;
+  font-size: 10.5px;
+}
+
+.stats-totals-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--text-2);
+}
+
+.stats-table {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.stats-turn {
+  cursor: pointer;
+}
+
+.stats-turn:hover,
+.stats-turn.is-open {
+  background: var(--bg-hover);
+}
+
+.stats-steps > td {
+  padding: 0 !important;
+  background: #fbfbfc;
+}
+
+.stats-steps .stats-step-table {
+  padding: 4px 10px 10px;
+}
+
+.stats-foot {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  color: var(--text-2);
+}
+
+.stats-channels h3 {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.stats-channels .stats-step-table {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.trace-more {
+  align-self: center;
+  margin: 4px 0;
+}

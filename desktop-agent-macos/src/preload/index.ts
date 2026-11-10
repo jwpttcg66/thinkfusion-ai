@@ -9,7 +9,8 @@ import type {
   PageState,
   PermissionPreset,
   SourcesState,
-  SubmitPromptInput
+  SubmitPromptInput,
+  TraceQuery
 } from '../shared/contracts';
 import type {
   Conversation,
@@ -56,6 +57,7 @@ const api: AgentApi = {
   getConversations: () => ipcRenderer.invoke('conversation:list'),
   getConversation: (conversationId: string) => ipcRenderer.invoke('conversation:get', conversationId),
   getConversationMessages: (conversationId: string) => ipcRenderer.invoke('conversation:messages', conversationId),
+  getTrace: (input: TraceQuery) => ipcRenderer.invoke('conversation:trace', input),
   cancelConversation: (conversationId: string) => ipcRenderer.invoke('conversation:cancel', conversationId),
   deleteConversation: (conversationId: string) => ipcRenderer.invoke('conversation:delete', conversationId),
   exportConversation: (input: ExportConversationInput) => ipcRenderer.invoke('document:export', input),
