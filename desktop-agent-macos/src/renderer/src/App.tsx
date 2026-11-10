@@ -177,7 +177,13 @@ export default function App() {
    * that bar's channel, which is the only one the button can mean.
    */
   const [diagChannelId, setDiagChannelId] = useState('');
-  const [sources, setSources] = useState<SourcesState>({ sources: [], activeId: '', planningId: null, loading: false });
+  const [sources, setSources] = useState<SourcesState>({
+    sources: [],
+    activeId: '',
+    planningId: null,
+    loading: false,
+    openOnLaunch: true
+  });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
@@ -1230,6 +1236,17 @@ export default function App() {
     }
   }
 
+  async function setSourcesOpenOnLaunch(open: boolean): Promise<string> {
+    try {
+      setSources(await window.agentAPI.setSourcesOpenOnLaunch(open));
+      setChannelStatuses(await window.agentAPI.getChannelStatuses());
+      setPage(await window.agentAPI.getPageState());
+      return '';
+    } catch (e) {
+      return ipcErrorText(e);
+    }
+  }
+
   /**
    * Rename the sidebar row.
    *
@@ -1963,6 +1980,7 @@ export default function App() {
           onSaveSource={saveSource}
           onAddSource={addSource}
           onRemoveSource={removeSource}
+          onSetSourcesOpenOnLaunch={setSourcesOpenOnLaunch}
           onRename={renameIdentity}
           onPermissionChange={changePermission}
         />

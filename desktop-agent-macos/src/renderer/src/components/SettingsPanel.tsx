@@ -87,6 +87,8 @@ export function SettingsPanel(props: {
   onSaveSource: (id: string, patch: { url?: string; enabled?: boolean }) => Promise<string>;
   onAddSource: (input: { label: string; url: string }) => Promise<string>;
   onRemoveSource: (id: string) => Promise<string>;
+  /** Persist 「启动时打开网页源」 and apply it to the running session. */
+  onSetSourcesOpenOnLaunch: (open: boolean) => Promise<string>;
   /** Rename the sidebar row. Empty string means 「恢复默认」. */
   onRename: (name: string) => Promise<string>;
   onPermissionChange: (preset: PermissionPreset) => void;
@@ -607,6 +609,16 @@ export function SettingsPanel(props: {
     if (problem) setError(problem);
   }
 
+  async function setOpenOnLaunch(open: boolean) {
+    if (busy) return;
+    if (open === props.sources.openOnLaunch) return;
+    setBusy(true);
+    setError('');
+    const problem = await props.onSetSourcesOpenOnLaunch(open);
+    setBusy(false);
+    if (problem) setError(problem);
+  }
+
   async function add() {
     if (busy) return;
     setBusy(true);
@@ -810,6 +822,36 @@ export function SettingsPanel(props: {
                 <p className="settings-lead">
                   每个提供商就是一个内嵌网页。左边的开关决定它在不在来源栏里，点一下就生效，不用进编辑。改完网址重新打开这个页面即可。
                 </p>
+
+                <div className="settings-launch">
+                  <div className="settings-launch-copy">
+                    <span className="settings-launch-title">启动时打开网页源</span>
+                    <span className="settings-launch-hint">
+                      关掉后，启动应用时不加载已启用的网页；点来源栏或提问时再打开。点按钮后立刻保存并生效。
+                    </span>
+                  </div>
+                  <div className="settings-launch-actions" role="group" aria-label="启动时打开网页源">
+                    <button
+                      className={`btn${props.sources.openOnLaunch ? '' : ' secondary'}`}
+                      type="button"
+                      disabled={busy || props.sources.openOnLaunch}
+                      aria-pressed={props.sources.openOnLaunch}
+                      onClick={() => void setOpenOnLaunch(true)}
+                    >
+                      打开
+                    </button>
+                    <button
+                      className={`btn${!props.sources.openOnLaunch ? '' : ' secondary'}`}
+                      type="button"
+                      disabled={busy || !props.sources.openOnLaunch}
+                      aria-pressed={!props.sources.openOnLaunch}
+                      onClick={() => void setOpenOnLaunch(false)}
+                    >
+                      关闭
+                    </button>
+                  </div>
+                </div>
+                {error && !editing && <p className="settings-error">{error}</p>}
 
                 <div className="settings-list">
                   {props.sources.sources.map(source => {

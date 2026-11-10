@@ -278,6 +278,13 @@ export interface ConversationDeps {
     failed: Array<{ agentId: string; detail: string }>;
   }>;
   /**
+   * 提问前把已启用、但启动时没打开的网页视图建起来。
+   *
+   * 「启动时打开网页源」关掉后，冷启动一个视图都没有；不先建，
+   * `registry.available()` 会把所有通道判成不可用，等于开关把提问一起关了。
+   */
+  prepareWebViews?: () => Promise<void>;
+  /**
    * 各通道此刻的健康状态。追问恢复刚把页面导航回原会话，就绪探测要几秒
    * 才能通过；提问名单是一次性筛的，不等就会静默少问几家。有了它 runner
    * 才能在筛名单前把刚恢复的通道等到可用。
@@ -1220,6 +1227,8 @@ export class ConversationRunner {
     let webChannels: Array<{ agentId: string; label: string; available: boolean }> = [];
     if (config.executionMode === 'hybrid') {
       try {
+        // 启动时没打开的视图，这里先建；否则 available 会把通道全判掉。
+        await this.deps.prepareWebViews?.();
         webChannels = (await this.deps.registry.available()).map(agent => ({
           agentId: agent.id,
           label: agent.label,
@@ -1443,6 +1452,20 @@ export class ConversationRunner {
       status: status => this.setStatus(conversation, status),
       cancelled: () => this.cancelled.has(conversationId)
     };
+
+    // 网页主导 / 混合档（以及非工程空间的默认网页链路）在提问前把视图建齐：
+    // 「启动时打开」关掉后冷启动没有 WebContentsView，不建就问等于静默零通道。
+    const needsWebViews =
+      conversation.workspaceMode !== 'engineering' ||
+      config.executionMode === 'web' ||
+      config.executionMode === 'hybrid';
+    if (needsWebViews) {
+      try {
+        await this.deps.prepareWebViews?.();
+      } catch {
+        /* 建失败的通道在 available / ask 里各自报，不在这里吞掉整轮 */
+      }
+    }
 
     // 追问要落在原来的网页会话里。光有 continuing（不重置）不够：应用重启、
     // 页面刷新或手动点过别处之后，页面可能停在首页，追问就会在站点侧新建

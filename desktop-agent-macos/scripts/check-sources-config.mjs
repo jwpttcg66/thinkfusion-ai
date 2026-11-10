@@ -22,7 +22,8 @@ import {
   normalizeSourceUrl,
   planningSource,
   resolveSources,
-  sourceById
+  sourceById,
+  sourcesOpenOnLaunch
 } from '../out-test/shared/sources.js';
 import { SourceStore } from '../out-test/main/source-store.js';
 import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
@@ -311,4 +312,38 @@ test('every built-in source that ships on has a provider profile', () => {
   // its profile has to be there already.
   assert.ok(PROVIDERS.gemini, 'Gemini 缺少内置画像');
   assert.ok(PROVIDERS.gemini.hosts.has('accounts.google.com'), 'Gemini 登录要能跳出 gemini.google.com');
+});
+
+// --------------------------------------------------------------- 启动时打开
+//
+// 「启动时打开网页源」关掉后，冷启动不能再把每个启用的页面都建起来；保存后
+// 下次读盘必须仍是关着的。缺字段等于开着——老的 sources.json 不能突然变懒加载。
+
+test('openOnLaunch defaults to on when the file never mentioned it', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  assert.equal(store.openOnLaunch(), true);
+  assert.equal(sourcesOpenOnLaunch(store.all()), true);
+  assert.equal('openOnLaunch' in store.all(), false);
+});
+
+test('turning openOnLaunch off survives a reopen', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.setOpenOnLaunch(false);
+  assert.equal(store.openOnLaunch(), false);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).openOnLaunch, false);
+  const reopened = new SourceStore(file);
+  assert.equal(reopened.openOnLaunch(), false);
+  assert.equal(sourcesOpenOnLaunch(reopened.all()), false);
+});
+
+test('turning openOnLaunch back on clears the field so the file stays a delta', () => {
+  const file = tmpFile();
+  const store = new SourceStore(file);
+  store.setOpenOnLaunch(false);
+  store.setOpenOnLaunch(true);
+  assert.equal(store.openOnLaunch(), true);
+  assert.equal('openOnLaunch' in store.all(), false);
+  assert.equal('openOnLaunch' in JSON.parse(fs.readFileSync(file, 'utf8')), false);
 });

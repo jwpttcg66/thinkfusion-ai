@@ -155,9 +155,22 @@ export interface SourceOverride {
 export interface StoredSources {
   overrides: Record<string, SourceOverride>;
   custom: PageSource[];
+  /**
+   * Whether enabled web sources are opened when the app starts.
+   *
+   * Absent or `true` keeps the old behaviour (create every enabled view at
+   * launch). `false` leaves them closed until the rail, a refresh, or an ask
+   * needs them — so a cold start does not load every chat site up front.
+   */
+  openOnLaunch?: boolean;
 }
 
 export const EMPTY_STORED_SOURCES: StoredSources = { overrides: {}, custom: [] };
+
+/** Absent means on: older `sources.json` files never had the field. */
+export function sourcesOpenOnLaunch(stored: StoredSources): boolean {
+  return stored.openOnLaunch !== false;
+}
 
 function hostOf(raw: string): string {
   try {

@@ -1062,6 +1062,11 @@ export interface SourcesState {
   planningId: string | null;
   /** True while the active source's view is still being created or loaded. */
   loading: boolean;
+  /**
+   * When false, enabled sources stay closed at app start and open on demand.
+   * Default true so an untouched install still primes every enabled page.
+   */
+  openOnLaunch: boolean;
 }
 
 /** An edit to one source, from 设置 · 模型. */
@@ -1776,6 +1781,14 @@ export interface AgentApi {
   addSource(input: NewSourceInput): Promise<SourcesState>;
   /** Remove a source that was added in 设置. Built-ins are only disabled. */
   removeSource(id: string): Promise<SourcesState>;
+  /**
+   * Whether enabled web sources open when the app starts.
+   *
+   * Saving false closes every open source view immediately and leaves them
+   * closed on the next launch until something needs them. Saving true opens
+   * the enabled ones now (same as a cold start with the switch on).
+   */
+  setSourcesOpenOnLaunch(open: boolean): Promise<SourcesState>;
 
   /**
    * 「刷新」: load the page again, in place.

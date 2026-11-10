@@ -3,6 +3,7 @@ import {
   BUILTIN_SOURCES,
   EMPTY_STORED_SOURCES,
   normalizeSourceUrl,
+  sourcesOpenOnLaunch,
   type PageSource,
   type SourceOverride,
   type StoredSources
@@ -52,7 +53,8 @@ export class SourceStore {
         const record = parsed as Partial<StoredSources>;
         this.data = {
           overrides: sanitizeOverrides(record.overrides),
-          custom: sanitizeCustom(record.custom)
+          custom: sanitizeCustom(record.custom),
+          ...(typeof record.openOnLaunch === 'boolean' ? { openOnLaunch: record.openOnLaunch } : {})
         };
         this.recoveredFromBackup = isBackup;
         return;
@@ -104,7 +106,39 @@ export class SourceStore {
   }
 
   all(): StoredSources {
-    return { overrides: { ...this.data.overrides }, custom: [...this.data.custom] };
+    const next: StoredSources = {
+      overrides: { ...this.data.overrides },
+      custom: [...this.data.custom]
+    };
+    if (typeof this.data.openOnLaunch === 'boolean') next.openOnLaunch = this.data.openOnLaunch;
+    return next;
+  }
+
+  /** Absent on disk means on — see `sourcesOpenOnLaunch`. */
+  openOnLaunch(): boolean {
+    return sourcesOpenOnLaunch(this.data);
+  }
+
+  /**
+   * Persist whether enabled sources open at app start.
+   *
+   * Writing `true` clears the field so the file stays a delta against the
+   * default; writing `false` stores the flag so the next launch skips the
+   * pages.
+   */
+  setOpenOnLaunch(open: boolean): StoredSources {
+    const previous = this.all();
+    if (open) {
+      const next: StoredSources = {
+        overrides: { ...this.data.overrides },
+        custom: [...this.data.custom]
+      };
+      this.data = next;
+    } else {
+      this.data = { ...this.data, openOnLaunch: false };
+    }
+    this.persist(previous);
+    return this.all();
   }
 
   /**

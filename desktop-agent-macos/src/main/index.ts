@@ -92,12 +92,14 @@ import {
 } from '../shared/window-state';
 import { writeFileAtomic } from './atomic-write';
 import {
+  EMPTY_STORED_SOURCES,
   isAllowedSourceUrl,
   makeCustomSource,
   normalizeSourceUrl,
   planningSource,
   resolveSources,
   sourceById,
+  sourcesOpenOnLaunch,
   type PageSource,
   type SourceOverride,
   type StoredSources
@@ -1163,7 +1165,8 @@ function sourcesState(): SourcesState {
     sources: sources.map(source => ({ ...source })),
     activeId: activeSourceId,
     planningId: planningSource(sources)?.id ?? null,
-    loading: sourceLoading
+    loading: sourceLoading,
+    openOnLaunch: sourceStore ? sourceStore.openOnLaunch() : sourcesOpenOnLaunch(EMPTY_STORED_SOURCES)
   };
 }
 
@@ -1177,6 +1180,26 @@ function applyStored(stored: StoredSources) {
 }
 
 /**
+ * Tear down one source's WebContentsView.
+ *
+ * Used when a source is switched off, when 「启动时打开」 is turned off, and
+ * when a custom source is deleted. Closing — not parking — is what makes the
+ * 设置 switch mean "this page is not open": a parked view still holds the
+ * site in memory and still counts against the next launch.
+ */
+function destroySourceView(id: string): void {
+  if (detached?.sourceId === id) reattachSource();
+  const view = views.get(id);
+  if (view && !view.webContents.isDestroyed()) {
+    win?.contentView.removeChildView(view);
+    view.webContents.close();
+  }
+  views.delete(id);
+  applied.delete(id);
+  adapters.delete(id);
+}
+
+/**
  * Make the running app match a new setting for one source.
  *
  * Three things can change and they are independent:
@@ -1186,21 +1209,31 @@ function applyStored(stored: StoredSources) {
  *   recreating the view would silently sign the user out of the site they just
  *   fixed the address for;
  * - switching on means the view has to exist at all;
- * - switching off the page that is on screen means something else has to be on
- *   screen, or the pane shows a page the rail no longer lists.
+ * - switching off closes the view and, if that page was on screen, moves the
+ *   pane to another enabled source — otherwise the pane would keep showing a
+ *   page the rail no longer lists.
  */
 function syncSource(before: PageSource | undefined, after: PageSource) {
   const view = views.get(after.id);
+
+  if (!after.enabled) {
+    if (view) destroySourceView(after.id);
+    if (activeSourceId === after.id) {
+      const next = sources.find(source => source.enabled);
+      if (next) activeSourceId = next.id;
+    }
+    rebuildChannels();
+    emitSources();
+    layout();
+    return;
+  }
+
   // A view that does not exist yet has to be primed before the layout pass at
   // the end of this function parks it, or it spends its whole life at 0x0.
-  const created = after.enabled && !view ? createSourceView(after) : null;
+  const created = !view ? createSourceView(after) : null;
 
   if (view && before?.url !== after.url && after.url) {
     void view.webContents.loadURL(after.url).catch(() => undefined);
-  }
-  if (!after.enabled && activeSourceId === after.id) {
-    const next = sources.find(source => source.enabled);
-    if (next) activeSourceId = next.id;
   }
 
   rebuildChannels();
@@ -1298,8 +1331,8 @@ function addSource(raw: unknown): SourcesState {
  *
  * Built-ins are refused rather than deleted: disabling one already means "I do
  * not want this", and deleting a shipped source would make the next release's
- * fixes to it invisible. Removing a custom one is the only case where the view
- * itself has to go, so this is the only place that closes a `WebContentsView`.
+ * fixes to it invisible. Removing a custom one closes its view the same way
+ * switching it off does.
  */
 function removeSource(raw: unknown): SourcesState {
   const id = typeof raw === 'string' ? raw : '';
@@ -1313,15 +1346,7 @@ function removeSource(raw: unknown): SourcesState {
     throw new Error('至少要留一个来源，删掉它 Agent 就没地方问了');
   }
 
-  if (detached?.sourceId === id) reattachSource();
-  const view = views.get(id);
-  if (view && !view.webContents.isDestroyed()) {
-    win?.contentView.removeChildView(view);
-    view.webContents.close();
-  }
-  views.delete(id);
-  applied.delete(id);
-  adapters.delete(id);
+  destroySourceView(id);
 
   applyStored(sourceStore.removeCustom(id));
   if (!sourceById(sources, activeSourceId)) {
@@ -1332,6 +1357,68 @@ function removeSource(raw: unknown): SourcesState {
   layout();
   emitSources();
   return sourcesState();
+}
+
+/**
+ * Persist 「启动时打开网页源」 and apply it to the running session.
+ *
+ * Off: every open view is closed now, and the next launch skips creating them.
+ * On: every enabled source is created and loaded the same way a cold start
+ * with the switch on would — otherwise "保存后生效" would only mean "next
+ * reboot", which is the opposite of what the button promises.
+ */
+function setSourcesOpenOnLaunch(raw: unknown): SourcesState {
+  if (typeof raw !== 'boolean') throw new Error('启动时打开只能是开或关');
+  if (!sourceStore) throw new Error('设置还没有准备好');
+  applyStored(sourceStore.setOpenOnLaunch(raw));
+
+  if (!raw) {
+    for (const id of [...views.keys()]) destroySourceView(id);
+    rebuildChannels();
+    emitSources();
+    layout();
+    return sourcesState();
+  }
+
+  const enabled = sources.filter(source => source.enabled && source.url);
+  const created: Array<{ id: string; view: WebContentsView }> = [];
+  for (const source of enabled) {
+    if (views.has(source.id)) continue;
+    created.push({ id: source.id, view: createSourceView(source) });
+  }
+  rebuildChannels();
+  emitSources();
+  if (created.length === 0) {
+    layout();
+    return sourcesState();
+  }
+  void (async () => {
+    for (const item of created) {
+      await primeViewport(item.id, item.view).catch(() => undefined);
+      const source = sourceById(sources, item.id);
+      if (source) await loadSource(source).catch(() => undefined);
+    }
+    layout();
+  })();
+  return sourcesState();
+}
+
+/**
+ * Create every enabled source that does not have a view yet.
+ *
+ * Used when an ask needs the pages but 「启动时打开」 left them closed, and
+ * when a follow-up has to restore a thread that no longer has a view after a
+ * restart with the switch off.
+ */
+async function ensureEnabledViews(): Promise<void> {
+  for (const source of sources) {
+    if (!source.enabled || !source.url) continue;
+    try {
+      await ensureSource(source);
+    } catch {
+      /* leave the channel unavailable; ask path reports it */
+    }
+  }
 }
 
 /**
@@ -1920,10 +2007,22 @@ async function restoreThreadViews(threads: Readonly<Record<string, string>>): Pr
   const restored: string[] = [];
   const failed: Array<{ agentId: string; detail: string }> = [];
   await Promise.all(Object.entries(threads).map(async ([agentId, raw]) => {
-    const view = views.get(agentId);
+    let view = views.get(agentId);
+    // 「启动时打开」关掉后，追问时视图可能还不存在——先按记录建起来，再导航回
+    // 原会话，否则只会报「网页视图不存在」，等于开关把追问一起关了。
     if (!view || view.webContents.isDestroyed()) {
-      failed.push({ agentId, detail: '网页视图不存在' });
-      return;
+      const source = sourceById(sources, agentId);
+      if (!source?.enabled) {
+        failed.push({ agentId, detail: '网页源已关闭' });
+        return;
+      }
+      try {
+        view = await ensureSource(source);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        failed.push({ agentId, detail: detail || '网页视图不存在' });
+        return;
+      }
     }
     let target: URL;
     try {
@@ -2070,9 +2169,15 @@ async function createWindow() {
   // before anything is painted. A window that never gets shown is worse than a
   // flash, so the show is in `finally`: whatever the priming does, the app
   // appears.
+  const openOnLaunch = sourceStore ? sourceStore.openOnLaunch() : true;
   try {
-    for (const source of sources.filter(item => item.enabled)) createSourceView(source);
-    await primeViewports();
+    // 「启动时打开网页源」关掉时，这里一个视图都不建：来源栏和提问链路会在
+    // 真正用到时走 `ensureSource`。建了再藏着，开关就只是少闪一下，内存和
+    // 登录态仍被冷启动拖着走。
+    if (openOnLaunch) {
+      for (const source of sources.filter(item => item.enabled)) createSourceView(source);
+      await primeViewports();
+    }
     layout();
     win.on('resize', layout);
     // 大小和位置一起记：只记大小的话，把窗口拖到另一块屏上，下次还是开回原处。
@@ -2087,6 +2192,8 @@ async function createWindow() {
     win.show();
     if (saved.maximized) win.maximize();
   }
+
+  if (!openOnLaunch) return;
 
   // Only the enabled ones: a disabled source has no view, and asking for its
   // page would create one behind the settings panel's back.
@@ -3222,6 +3329,11 @@ function registerIpc() {
     return removeSource(raw);
   });
 
+  ipcMain.handle('sources:set-open-on-launch', (event, raw: unknown) => {
+    trustedUiSender(event);
+    return setSourcesOpenOnLaunch(raw);
+  });
+
   // 「刷新」. Not routed through `sources:save`: nothing is being saved, and a
   // reload that looks like an edit would make the settings panel think the URL
   // changed.
@@ -3624,6 +3736,7 @@ app.whenReady().then(async () => {
         leadAgentId: config.leadAgentId
       }),
     restoreThreads: restoreThreadViews,
+    prepareWebViews: ensureEnabledViews,
     channelStatuses: async () => {
       const statuses = await registry.statuses();
       lastChannelStatuses = statuses;

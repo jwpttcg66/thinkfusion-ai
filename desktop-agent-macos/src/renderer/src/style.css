@@ -3310,6 +3310,42 @@ button:disabled {
   background: var(--accent-soft);
 }
 
+.settings-launch {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+}
+
+.settings-launch-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-launch-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-launch-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.settings-launch-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
 .settings-list {
   display: flex;
   flex-direction: column;
