@@ -2420,9 +2420,24 @@ function cutPrompt(text: string, prompt?: string): string {
   //    list, a collapsed block — so the whole-string match fails while the last
   //    line, the question itself, is still on screen.
   const marker = asked.slice(-40);
-  if (marker.replace(/\s+/g, '').length < 4) return text;
-  const at = findIgnoringWhitespace(text, marker);
-  return at ? text.slice(at.end) : text;
+  if (marker.replace(/\s+/g, '').length >= 4) {
+    const at = findIgnoringWhitespace(text, marker);
+    if (at) return text.slice(at.end);
+  }
+
+  // 4. 整句都对不上，但结尾对得上。工程空间发的是「`【用户的问题】` + 原话」，
+  //    页面会把那行小标题吃掉，于是第 1、2、3 步的窗口全都跨过了边界，一句也
+  //    匹配不到，留下的就是「问题本身 + 正在思考」——它安静十几秒后被当成回答。
+  //
+  //    短窗口只在「切完确实只剩状态字」时才采用：那种情况下它一定不是回答，
+  //    切掉是对的；否则保持原文不动，免得把正文里引用问题的长回答切坏。
+  const short = asked.slice(-12);
+  if (short.replace(/\s+/g, '').length < 4) return text;
+  const tailAt = findIgnoringWhitespace(text, short);
+  if (!tailAt) return text;
+  const rest = text.slice(tailAt.end);
+  const leftover = normalizeAnswerText(stripChrome(cutSpeakerLabels(rest)));
+  return looksLikePlaceholder(leftover) ? rest : text;
 }
 
 export class ChatPageDriver {
@@ -3434,7 +3449,11 @@ export function transcriptHasPrompt(conversationText: string, sentText?: string)
   for (let start = 0; start + window <= prompt.length; start += 6) {
     if (haystack.includes(prompt.slice(start, start + window))) return true;
   }
-  return haystack.includes(prompt.slice(0, window));
+  // 末尾那一段单独查。窗口按 6 个字滑，21 个字的问题只覆盖到前 18 个字，而
+  // 页面上留下的常常正是最后几个字：发送时带的 `【用户的问题】` 这类前缀被
+  // 页面吃掉之后，整句开头的 12 个字就再也匹配不上了（实测：同样一句话，
+  // 带前缀返回 false，不带前缀返回 true）。
+  return haystack.includes(prompt.slice(-window));
 }
 
 export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, sentText?: string): string {
@@ -3458,7 +3477,19 @@ export function selectAnswerText(probe: PageProbe, snapshot: MessageSnapshot, se
     // 旧气泡也会让它变。多要一条证据——这句问题确实在页面上。气泡数增加了
     // 就不必查了，那本身已经证明页面多了一条。
     if (!grew && sentText && sentText.trim() && !transcriptHasPrompt(probe.conversationText, sentText)) return '';
-    return probe.lastText;
+
+    // 命中的节点里也可能根本没有回答。ChatGPT 在思考阶段就已经把用户那一问连同
+    // 「正在思考」一起渲染成了可读文本，于是「最后一条气泡」整段是「我们的问题 +
+    // 站点的状态字」。它安静地待够静止时间，正好满足 waitForAnswer 的稳定判据，
+    // 被当成终稿收下来——真机 2026-11-09：13 个字的问题，11.7 秒后落盘的回答就是
+    // 这句话本身，真正的回答十几秒后才出现，而那一轮已经结束了。
+    //
+    // 所以这里和转录那条兜底路径走同一套清理：先切掉自己的提问，再判「剩下的
+    // 是不是只有站点的状态字」。这不是排版美化，是「这段文字算不算回答」的前提。
+    const cleaned = normalizeAnswerText(stripChrome(cutSpeakerLabels(cutPrompt(probe.lastText, sentText))));
+    if (!cleaned) return '';
+    if (looksLikePlaceholder(cleaned)) return '';
+    return cleaned;
   }
 
   // 转录里根本没有这个问题，就不存在「这一轮的回答」。

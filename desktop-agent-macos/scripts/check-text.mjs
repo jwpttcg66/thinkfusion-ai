@@ -119,6 +119,10 @@ test('a still 「正在思考中」 is not an answer', () => {
   assert.equal(looksLikePlaceholder('正在思考中\nUser'), true);
   assert.equal(looksLikePlaceholder('思考已完成'), true);
   assert.equal(looksLikePlaceholder('正在思考中：'), true);
+  // ChatGPT 写的是「正在思考」，不是「正在思考中」。真机 2026-11-09 那张卡里
+  // 就是两行「正在思考」，它不在集合里，问题气泡连同这两行被当成完整回答落盘。
+  assert.equal(looksLikePlaceholder('正在思考'), true);
+  assert.equal(looksLikePlaceholder('正在思考\n正在思考'), true);
   // 真回答里有 User 这个词（代码、示例）很正常，只有整段都是状态词时才算占位。
   assert.equal(looksLikePlaceholder('User\n光合作用是植物把光能转成化学能。'), false);
   assert.equal(looksLikePlaceholder('光合作用是植物把光能转成化学能。'), false);

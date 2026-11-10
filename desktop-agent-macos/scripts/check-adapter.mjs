@@ -27,6 +27,7 @@ const { DEEPSEEK_HOSTS, DEEPSEEK_SELECTORS, isAllowedDeepSeekUrl } = await impor
   path.join(root, 'out/adapter/main/adapters/providers/deepseek.js')
 );
 const { buildInitialPrompt, parseAnswer, stripEcho, containsEcho } = await import(path.join(root, 'out/adapter/shared/protocol.js'));
+const { looksLikePlaceholder } = await import(path.join(root, 'out/adapter/shared/text.js'));
 
 // ---------------------------------------------------------------------------
 // A page whose every observation is written down in advance.
@@ -544,6 +545,45 @@ test('a fresh assistant bubble wins over the raw transcript tail', () => {
   assert.equal(selectAnswerText(probe, snapshot), '{"protocol":"desktop-agent/v1","type":"plan"}');
 });
 
+test('a bubble holding our question and a status line is not an answer', () => {
+  // 真机 2026-11-09：ChatGPT 在思考阶段就把用户那一问渲染成了可读文本，命中的
+  // 「最后一条气泡」整段是「问题 + 正在思考」。它安静 11.7 秒，正好满足
+  // waitForAnswer 的稳定判据，被当成终稿落盘——卡片里那张 ChatGPT 的「回答」就是
+  // 这句话本身，而真正的回答十几秒后才出现，那一轮早已结束。
+  const snapshot = { messageCount: 0, lastText: '', url: '', capturedAt: 0, conversationText: '', composerText: '' };
+  const thinking = state({
+    messageCount: 1,
+    lastText: 'java和go谁更适合做游戏\n正在思考\n正在思考',
+    conversationText: 'java和go谁更适合做游戏\n正在思考\n正在思考'
+  });
+  assert.equal(selectAnswerText(thinking, snapshot, 'java和go谁更适合做游戏'), '', '问题加状态字不是回答');
+
+  // 只有状态字、没有回显的问题，同样不算回答。
+  assert.equal(
+    selectAnswerText(state({ messageCount: 1, lastText: '正在思考\n正在思考' }), snapshot, 'java和go谁更适合做游戏'),
+    ''
+  );
+
+  // 同一条气泡换成真正的回答之后，照旧被认领（切自己提问这一步不能误伤长回答）。
+  assert.equal(
+    selectAnswerText(
+      state({ messageCount: 1, lastText: '如果是做游戏服务器，我更推荐 Go；如果是完整客户端，Java 生态更成熟。' }),
+      snapshot,
+      'java和go谁更适合做游戏'
+    ),
+    '如果是做游戏服务器，我更推荐 Go；如果是完整客户端，Java 生态更成熟。'
+  );
+
+  // 没有可命中的气泡、退回转录尾部时也一样：工程空间发的前缀 `【用户的问题】`
+  // 被页面吃掉，整句匹配不到，剩下的仍是「问题 + 正在思考」，不能当回答。
+  const tail = selectAnswerText(
+    state({ conversationText: '你说：\njava和go谁更适合做游戏\n正在思考\n正在思考' }),
+    snapshot,
+    '【用户的问题】\njava和go谁更适合做游戏'
+  );
+  assert.equal(looksLikePlaceholder(tail), true, `尾部只剩状态字，不能当回答：${JSON.stringify(tail)}`);
+});
+
 test('a virtualised list that drops old bubbles still reports the new answer', () => {
   // ChatGPT 的真实形状：发送前 5 条，页面滚到底后顶部旧气泡被卸载，只剩 4 条。
   // 计数比发送前少，所以「气泡数增长」这条捷径永远不成立——回答就停在页面上
@@ -687,6 +727,12 @@ test('the transcript match tolerates the line breaks the page chooses', () => {
   assert.equal(transcriptHasPrompt('old\n3+5。\n结果是多少\n8', '3+5。结果是多少'), true);
   assert.equal(transcriptHasPrompt('old\n3+5。结果是多少\n8', '3+5。结果是多少'), true);
   assert.equal(transcriptHasPrompt('old\n完全不相干的一段话', '3+5。结果是多少'), false);
+  // 发送时带的前缀（工程空间会加 `【用户的问题】`）被页面吃掉之后，末尾那几个
+  // 字仍然认得出来：窗口滑到前 18 个字就够了，而页面上剩的是最后一段。
+  assert.equal(
+    transcriptHasPrompt('old\njava和go谁更适合做游戏\n正在思考', '【用户的问题】\njava和go谁更适合做游戏'),
+    true
+  );
   // 没有给出问题就没法判断，不能反过来把正常回答挡掉。
   assert.equal(transcriptHasPrompt('old\n8', ''), true);
 });

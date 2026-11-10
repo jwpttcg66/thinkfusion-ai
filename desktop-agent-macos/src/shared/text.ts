@@ -174,6 +174,10 @@ export function normalizeAnswerText(raw: string): string {
  */
 const PLACEHOLDER_LINES: ReadonlySet<string> = new Set([
   '正在思考中',
+  // ChatGPT 的写法是「正在思考」而不是「正在思考中」：真机 2026-11-09 那张卡里
+  // 就是两行「正在思考」，它不在集合里，于是问题气泡连同这两行状态字被当成
+  // 一条完整回答收了下来。
+  '正在思考',
   '思考中',
   '思考已完成',
   '正在生成',
