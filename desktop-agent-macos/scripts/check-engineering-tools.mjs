@@ -216,7 +216,8 @@ function makeRunner(scripted, hooks = {}) {
     ],
     agentSource: () => 'local',
     budgetMs: 8000,
-    ...(hooks.routeWithModel ? { routeWithModel: hooks.routeWithModel } : {})
+    ...(hooks.routeWithModel ? { routeWithModel: hooks.routeWithModel } : {}),
+    ...(hooks.expertiseFor ? { expertiseFor: hooks.expertiseFor } : {})
   });
   return { runner, asks, notes };
 }
@@ -291,8 +292,22 @@ test('模型正常回答时一次都不多问', async () => {
 });
 
 test('选「本次按分析」的常识题也不扫工程、不开放读文件——真机 java vs go', async () => {
-  // 真机 2026-11-10：override 跳过模型判定后旧默认仍读 Downloads，再开放工具去 fs.search。
-  const { runner, asks } = makeRunner(() => '{"tool":"fs.search","args":{"pattern":"java|go"}}');
+  // 真机 2026-11-10：override 跳过模型判定后旧默认仍读 Downloads，再开放工具去 fs.search；
+  // 即便不读了，常驻专家仍写「证据不足就无法确定」，hy4 会答成汇总腔。
+  let expertiseCalls = 0;
+  const { runner, asks } = makeRunner(() => '{"tool":"fs.search","args":{"pattern":"java|go"}}', {
+    expertiseFor: () => {
+      expertiseCalls += 1;
+      return {
+        system: [
+          '工程证据纪律永远排在本专家的一切工作习惯之前',
+          '证据不足就写「无法确定」，不用常识补'
+        ],
+        note: '',
+        loaded: ['senior-developer']
+      };
+    }
+  });
   const started = await runner.start({
     text: 'java和go谁更适合做游戏服务器',
     workspaceMode: 'engineering',
@@ -309,7 +324,10 @@ test('选「本次按分析」的常识题也不扫工程、不开放读文件�
   assert.ok(systemTexts.some(text => /没有读取工程目录/.test(text)));
   assert.ok(systemTexts.some(text => /不开放读文件工具/.test(text)));
   assert.equal(asks.filter(input => input.stage === 'initial').length, 1);
-  assert.ok(!(asks[0].system ?? []).join('\n').includes('你可以自己读文件'));
+  assert.equal(expertiseCalls, 0, '无工程证据时根本不该去加载专家/技能');
+  const firstSystem = (asks[0].system ?? []).join('\n');
+  assert.equal(firstSystem, '', '常识题第一手不带 system');
+  assert.equal(asks[0].question, 'java和go谁更适合做游戏服务器', '问题原话直送，不套【用户的问题】');
   assert.ok(!systemTexts.some(text => /调用了本机能力/.test(text)));
   assert.ok(!systemTexts.some(text => /已读取工程目录/.test(text)));
 });

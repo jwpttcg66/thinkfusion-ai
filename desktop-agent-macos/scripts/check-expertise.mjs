@@ -245,16 +245,16 @@ test('防回归：question 仍是用户原话 + 证据，基础 system 不含专
   assert.ok(!base.join('\n').includes('高级开发工程师'));
 });
 
-test('防回归：注入点只有一处，且只追加到 system', () => {
+test('防回归：注入点只有一处，且只追加到 system；无证据时不加载', () => {
   const runner = source('main/conversation-runner.ts');
   assert.equal((runner.match(/\.\.\.expertise\.system/g) || []).length, 1);
-  // 技能仍然只拼进 system（2026-11-09 起多了「附件也算依据」那一条，位置不变）。
+  // 有工程证据 / 附件时才拼专家；常识题走空 system，避免「无法确定」纪律污染选型题。
   assert.match(
     runner,
-    /const summarySystem = \[\.\.\.engineeringAnswerSystem\(\{ attachments: attachmentCount \}\), \.\.\.expertise\.system\]/
+    /const summarySystem = needsLocalRead\s*\?\s*\[\.\.\.engineeringAnswerSystem\(\{ attachments: attachmentCount \}\), \.\.\.expertise\.system\]\s*:\s*\[\]/
   );
+  assert.match(runner, /const expertise = needsLocalRead/);
   assert.match(runner, /question: engineered/);
-  // 专家 / 技能没有新造一个成员，也没有塞进发给网页的那条消息。
   assert.ok(!runner.includes('expertise.question'));
   assert.ok(!runner.includes('buildLeadSummaryQuestion(..., expertise'));
   assert.equal(existsSync(join(ROOT, 'src', 'shared', 'prompts.ts')), false);

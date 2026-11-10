@@ -1261,15 +1261,21 @@ export class ConversationRunner {
     sink.note(orchestration.reason);
     sink.status(orchestration.members.length > 1 ? 'collecting' : 'thinking');
 
-    // 专家常驻、技能按场景加载。只有真正加载了技能才补一条系统消息，
-    // 读数 / 查事实那类问题保持原来的安静。
-    const expertise = this.deps.expertiseFor?.({
-      workspaceMode: conversation.workspaceMode,
-      question
-    }) ?? { system: [], note: '', loaded: [] };
+    // 没读工程、也没附件：常识/选型题。不要塞证据纪律、专家人设、读文件工具——
+    // 否则常驻「高级开发工程师」仍写着「证据不足就无法确定、不凭常识补」，
+    // 真机 2026-11-10 hy4 就会把 java vs go 答成「针对你的游戏服务器无法确定」。
+    const needsLocalRead = !!material || attachmentCount > 0;
+    const expertise = needsLocalRead
+      ? this.deps.expertiseFor?.({
+          workspaceMode: conversation.workspaceMode,
+          question
+        }) ?? { system: [], note: '', loaded: [] }
+      : { system: [], note: '', loaded: [] };
     if (expertise.note) sink.note(expertise.note);
 
-    const engineered = buildEngineeringAnswerQuestion(question, material ?? '');
+    const engineered = needsLocalRead
+      ? buildEngineeringAnswerQuestion(question, material ?? '')
+      : question.trim();
     const webQuestion = orchestration.webIncluded
       ? buildWebOrchestrationQuestion(question, material ?? '')
       : null;
@@ -1278,12 +1284,9 @@ export class ConversationRunner {
       root: conversation.workspaceRoot ?? '',
       extraFiles: (conversation.attachments ?? []).map(item => item.path)
     };
-    // 没读工程、也没附件：这是常识/选型类问题。不要塞「只依据证据 / 可以自己读文件」，
-    // 否则模型会去 fs.list 找依据，最后答「无法确定」（真机 2026-11-10：java vs go）。
-    const needsLocalRead = !!material || attachmentCount > 0;
     const summarySystem = needsLocalRead
       ? [...engineeringAnswerSystem({ attachments: attachmentCount }), ...expertise.system]
-      : [...expertise.system];
+      : [];
     const toolSystem = needsLocalRead
       ? [...summarySystem, ...engineeringToolSystem()]
       : summarySystem;
