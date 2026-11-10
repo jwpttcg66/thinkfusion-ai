@@ -37,6 +37,15 @@ export function ProgressPanel(props: {
   if (!live) return null;
 
   const waited = view.current?.at ? Math.max(0, Math.round((now - view.current.at) / 1000)) : 0;
+  // 执行步骤：同一份 step.* 事件，不再单独存一份。完成的按 stepId 对上，
+  // 对不上的保持「执行中」——宁可显示慢，也不能把没跑完的标成完成。
+  const steps = props.events
+    .filter((event): event is Extract<AgentEvent, { type: 'step.started' }> => event.type === 'step.started')
+    .map(event => {
+      const done = props.events.some(item => item.type === 'step.completed' && item.stepId === event.stepId);
+      const failed = props.events.some(item => item.type === 'step.failed' && item.stepId === event.stepId);
+      return { id: event.stepId, tool: event.tool, done, failed };
+    });
 
   return (
     <section className="progress-strip" aria-label="执行进度" aria-live="polite">
@@ -48,6 +57,18 @@ export function ProgressPanel(props: {
           </li>
         ))}
       </ol>
+      {steps.length > 0 && (
+        <ol className="progress-steps">
+          {steps.map((step, index) => (
+            <li key={step.id} className={`progress-step${step.done ? ' is-done' : step.failed ? ' is-failed' : ''}`}>
+              <span className="progress-step-index">{index + 1}</span>
+              <code>{step.tool}</code>
+              <span className="progress-step-state">{step.failed ? '失败' : step.done ? '完成' : '执行中'}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <div className="progress-now">
         <span className="progress-spinner" aria-hidden="true" />
         <b>{view.current?.label}</b>

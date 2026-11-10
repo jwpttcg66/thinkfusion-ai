@@ -91,6 +91,14 @@ export interface SubAgent {
   /** Usable right now, from the adapter plus this agent's own failure record. */
   health(): Promise<ChannelStatus>;
   ask(task: SubAgentTask): Promise<SubAgentAnswer>;
+  /**
+   * 流式问一次。只有能观察输出的通道实现；网页通道没有流，不实现。
+   * 返回值和 `ask` 一样，`text` 是完整回答，不是最后一块。
+   */
+  askStream?(
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+  ): Promise<SubAgentAnswer>;
   /** Give this agent's page a fresh thread. Called once per conversation. */
   newConversation?(): Promise<NewSessionResult>;
   /**
@@ -116,6 +124,12 @@ export interface SubAgentPool {
   all(): Promise<SubAgent[]>;
   available(): Promise<SubAgent[]>;
   ask(agentId: string, task: SubAgentTask): Promise<SubAgentAnswer>;
+  /** 流式问；Pool 没实现就不调用（调用方退回 ask）。 */
+  askStream?(
+    agentId: string,
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+  ): Promise<SubAgentAnswer>;
   newConversation(agentId: string): Promise<NewSessionResult>;
   /** Delete one agent's copy of a conversation. Resolves, never throws. */
   deleteConversation(agentId: string, threadUrl: string): Promise<DeleteThreadResult>;

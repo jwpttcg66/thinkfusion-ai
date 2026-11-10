@@ -97,6 +97,18 @@ export interface ModelUsage {
   cost?: { amount: number; currency: string } | null;
 }
 
+/**
+ * 流式的一块：正文、推理、或最后的用量。
+ *
+ * 分开传而不是拼成一个字符串，是因为推理要折叠显示、用量要进统计——混在
+ * 一起就再也分不出来了。
+ */
+export interface ModelStreamChunk {
+  text?: string;
+  reasoning?: string;
+  usage?: ModelUsage;
+}
+
 export interface ModelResponse {
   text: string;
   /** 模型给出的推理内容（DeepSeek 的 reasoning_content / Ollama 的 thinking）；没有就是没有。 */
@@ -129,6 +141,10 @@ export interface ModelProvider {
    * 调用方会以为自己在流式接收，实际上一个字都没来。
    */
   stream?(request: ModelRequest, signal?: AbortSignal): AsyncIterable<string>;
+  /**
+   * 结构化流：正文、推理、用量分开。实现不了就不提供，调用方退回 `generate()`。
+   */
+  streamChunks?(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamChunk>;
 
   /** 放弃某个请求。语义取决于 `capabilities().cancellation`。 */
   cancel(requestId: string): void;

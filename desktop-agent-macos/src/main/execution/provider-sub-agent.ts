@@ -83,6 +83,56 @@ export class ProviderBackedSubAgent implements SubAgent {
     };
   }
 
+  async askStream(
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+  ): Promise<SubAgentAnswer> {
+    if (!this.provider.streamChunks) return this.ask(task);
+
+    const requestId = `${this.id}-${++this.seq}`;
+    const started = Date.now();
+    let text = '';
+    let reasoning = '';
+    let usage: SubAgentAnswer['usage'] = null;
+    let firstTokenAt: number | undefined;
+
+    for await (const chunk of this.provider.streamChunks({
+      question: task.question,
+      modelId: this.modelId,
+      timeoutMs: task.timeoutMs,
+      requestId,
+      continuation: task.stage === 'followup',
+      context: task.context,
+      system: task.system
+    })) {
+      if (chunk.reasoning) {
+        reasoning += chunk.reasoning;
+        onDelta({ reasoning: chunk.reasoning });
+      }
+      if (chunk.text) {
+        text += chunk.text;
+        firstTokenAt ??= Date.now();
+        onDelta({ text: chunk.text });
+      }
+      if (chunk.usage) usage = chunk.usage;
+    }
+
+    return {
+      agentId: this.id,
+      text,
+      ...(reasoning.trim() ? { reasoning } : {}),
+      receivedAt: Date.now(),
+      attribution: {
+        requestId,
+        note: `${this.provider.type}:${this.modelId ?? this.provider.id}`
+      },
+      stage: task.stage,
+      usage,
+      latencyMs: Date.now() - started,
+      ...(firstTokenAt === undefined ? {} : { firstTokenAt })
+    };
+  }
+
   cancel(requestId: string): void {
     this.provider.cancel(requestId);
   }

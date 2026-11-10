@@ -19,7 +19,7 @@ import { engineeringMaterial, type ProjectScan } from './engineering/project';
 import { mainCapabilities } from './capabilities';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
-import type { SubAgentAnswer, SubAgentPool } from './agents/types';
+import type { SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
 import { MasterAgent, type ChannelOutcome, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
@@ -1598,12 +1598,12 @@ export class ConversationRunner {
                   ? { trace: this.traceFor(conversation.conversationId)! }
                   : {})
               })
-            : await pool.ask(target.agentId, {
+            : await this.askStreaming(pool, target.agentId, {
                 question: engineered,
                 stage: 'initial',
                 timeoutMs: 180_000,
                 ...(summarySystem.length > 0 ? { system: summarySystem } : {})
-              });
+              }, conversation);
         if (sink.cancelled()) return;
         messageIds.set(target.agentId, sink.record(answer));
         sink.phase(target.agentId, 'answered', needsLocalRead ? '读完证据后回答' : '已回答');
@@ -2208,14 +2208,17 @@ export class ConversationRunner {
         reason: followUp ? '追加轮更新汇总' : '汇总',
         inputPreview: baseQuestion
       });
-      const answer = await pool.ask(lead.agentId, {
+      const leadTask = {
         question: baseQuestion,
-        stage: 'challenge',
+        stage: 'challenge' as const,
         // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
         timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
         // 只有 API 主导用得上 system；网页通道会忽略它。
         system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
-      });
+      };
+      const answer = isPage
+        ? await pool.ask(lead.agentId, leadTask)
+        : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
       trace?.endStep(leadStep, {
@@ -2545,7 +2548,8 @@ export class ConversationRunner {
         meta: { rounds: round }
       });
       try {
-        const answer = await pool.ask(execution.lead.agentId, {
+        const followUpTask = {
+          stage: 'challenge' as const,
           question: buildFollowUpSummaryQuestion({
             question,
             previousSummary: current,
@@ -2554,7 +2558,6 @@ export class ConversationRunner {
             // 还有下一轮时继续要【待补】，最后一轮就不必再要了。
             followUp: round < budget
           }),
-          stage: 'challenge',
           timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
           system: isPage
             ? undefined
@@ -2562,7 +2565,10 @@ export class ConversationRunner {
                 ...leadSummarySystem(undefined, round < budget),
                 '这是追加研究之后的汇总更新：把新回答并进去，已经成立的部分不要重写；新回答推翻了什么，要明说。'
               ]
-        });
+        };
+        const answer = isPage
+          ? await pool.ask(execution.lead.agentId, followUpTask)
+          : await this.askStreaming(pool, execution.lead.agentId, followUpTask, conversation);
         const text = rewriteSourceRefs(answer.text.trim(), roundAnswers);
         trace?.endStep(updateStep, {
           status: text ? 'ok' : 'skipped',
@@ -2669,6 +2675,67 @@ export class ConversationRunner {
   private save(conversation: Conversation): void {
     this.deps.store.upsertConversation(conversation);
     this.deps.emit({ type: 'conversation.updated', at: Date.now(), conversation });
+  }
+
+  /**
+   * 有流式能力就用流式，没有就整段问。
+   *
+   * 增量按 50ms 合批再发：按 token 逐条 postMessage 会把 IPC 打成洪水，而界面
+   * 需要的只是「看起来在动」。合批只影响显示，不影响最终消息与用量。
+   */
+  private async askStreaming(
+    pool: SubAgentPool,
+    agentId: string,
+    task: SubAgentTask,
+    conversation: Conversation
+  ): Promise<SubAgentAnswer> {
+    if (!pool.askStream) return pool.ask(agentId, task);
+
+    const conversationId = conversation.conversationId;
+    let pendingText = '';
+    let pendingReasoning = '';
+    let timer: NodeJS.Timeout | null = null;
+
+    const flush = () => {
+      if (!pendingText && !pendingReasoning) return;
+      this.deps.emit({
+        type: 'answer.delta',
+        at: Date.now(),
+        conversationId,
+        channelId: agentId,
+        ...(pendingText ? { text: pendingText } : {}),
+        ...(pendingReasoning ? { reasoning: pendingReasoning } : {})
+      });
+      pendingText = '';
+      pendingReasoning = '';
+    };
+
+    try {
+      const answer = await pool.askStream(agentId, task, chunk => {
+        pendingText += chunk.text ?? '';
+        pendingReasoning += chunk.reasoning ?? '';
+        if (timer) return;
+        timer = setTimeout(() => {
+          timer = null;
+          flush();
+        }, 50);
+      });
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+      this.deps.emit({ type: 'answer.delta', at: Date.now(), conversationId, channelId: agentId, done: true });
+      return answer;
+    } catch (error) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+      this.deps.emit({ type: 'answer.delta', at: Date.now(), conversationId, channelId: agentId, done: true });
+      throw error;
+    }
   }
 
   private addMessage(

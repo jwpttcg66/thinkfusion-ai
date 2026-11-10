@@ -5,6 +5,7 @@ import {
   type ModelProvider,
   type ModelRequest,
   type ModelResponse,
+  type ModelStreamChunk,
   type ProviderCapabilities,
   type ProviderHealth
 } from './types';
@@ -295,6 +296,12 @@ export class OllamaProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
+    for await (const chunk of this.streamChunks(request, signal)) {
+      if (chunk.text) yield chunk.text;
+    }
+  }
+
+  async *streamChunks(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<ModelStreamChunk> {
     const model = request.modelId ?? this.defaultModel;
 
     await this.admission.acquire(`流式（${model}）`);
@@ -323,11 +330,22 @@ export class OllamaProvider implements ModelProvider {
         controller.signal
       );
 
+      let usage: ModelStreamChunk['usage'] | undefined;
       for await (const chunk of this.readChunks(res, controller, reason)) {
         const text = chunk.message?.content;
-        if (text) yield text;
-        if (chunk.done) break;
+        const thinking = (chunk.message as { thinking?: unknown } | undefined)?.thinking;
+        if (typeof thinking === 'string' && thinking) yield { reasoning: thinking };
+        if (text) yield { text };
+        if (chunk.done) {
+          usage = {
+            inputTokens: chunk.prompt_eval_count ?? null,
+            outputTokens: chunk.eval_count ?? null
+          };
+          break;
+        }
       }
+      // 和云端同一个约定：最后一块只带用量，轨迹才有 token 可记。
+      yield { usage: usage ?? { inputTokens: null, outputTokens: null } };
     } catch (error) {
       throw this.mapError(error, reason, controller.signal.aborted, model);
     } finally {

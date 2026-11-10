@@ -375,6 +375,21 @@ export type ConversationEvent = { at: number } & (
   | { type: 'conversation.deleted'; conversationId: string }
   | { type: 'message.added'; message: ConversationMessage }
   | { type: 'channel.phase'; conversationId: string; channelId: string; phase: ChannelPhase; detail?: string }
+  /**
+   * 流式增量。只对能观察输出的本地/云端 Provider 发；网页通道没有流。
+   *
+   * 发的是**增量**，不是累计全文：调用方按 channelId 追加。`done` 只表示
+   * 这一路写完了，消息落盘后由 `message.added` 接替，界面不能靠 done 清屏——
+   * 否则最后一两个字会在落盘前消失。
+   */
+  | {
+      type: 'answer.delta';
+      conversationId: string;
+      channelId: string;
+      text?: string;
+      reasoning?: string;
+      done?: boolean;
+    }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }
   | { type: 'conversation.failed'; conversationId: string; error: string }
   /**

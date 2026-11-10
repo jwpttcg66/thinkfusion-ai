@@ -4,6 +4,7 @@ import {
   type ModelProvider,
   type ModelRequest,
   type ModelResponse,
+  type ModelStreamChunk,
   type ProviderCapabilities,
   type ProviderHealth
 } from './types';
@@ -224,6 +225,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
+    for await (const chunk of this.streamChunks(request, signal)) {
+      if (chunk.text) yield chunk.text;
+    }
+  }
+
+  async *streamChunks(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<ModelStreamChunk> {
     this.assertBudget();
     const model = request.modelId ?? this.defaultModel;
     const controller = this.fork(signal, request.timeoutMs ?? this.timeoutMs);
@@ -237,8 +244,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
       const res = await this.withRetryResponse(this.body(request.question, model, true, request.context, request.system), controller.controller.signal);
       for await (const chunk of this.readSse(res)) {
         if (chunk.usage) lastUsage = chunk.usage;
-        const piece = chunk.choices?.[0]?.delta?.content;
-        if (piece) yield piece;
+        const delta = chunk.choices?.[0]?.delta as
+          | { content?: string; reasoning_content?: string; reasoning?: string }
+          | undefined;
+        if (delta?.reasoning_content) yield { reasoning: delta.reasoning_content };
+        else if (delta?.reasoning) yield { reasoning: delta.reasoning };
+        if (delta?.content) yield { text: delta.content };
       }
       const usage = this.usageOf(
         lastUsage?.prompt_tokens,
@@ -247,6 +258,9 @@ export class OpenAICompatibleProvider implements ModelProvider {
         this.cacheOf(lastUsage)
       );
       this.record(usage, model);
+      // 最后一块只带用量：流式期间拿不到，收尾时必须补上，否则轨迹里的 token
+      // 会从数字变成「—」。
+      yield { usage };
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       if (controller.controller.signal.aborted) {

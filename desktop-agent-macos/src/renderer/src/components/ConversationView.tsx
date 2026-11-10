@@ -84,6 +84,8 @@ export function ConversationView(props: {
   /** 通道 id → 站点图标（K / G / ✦），综合里的「观点A」要配上它。 */
   glyphs: ReadonlyMap<string, string>;
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
+  /** 流式增量：还没落盘的正文/推理，按 channelId 累积。 */
+  deltas?: Record<string, { text: string; reasoning: string; done: boolean }>;
   busy: boolean;
 }) {
   const { conversation, messages } = props;
@@ -425,6 +427,10 @@ export function ConversationView(props: {
           );
         })}
 
+        {props.deltas && Object.values(props.deltas).some(delta => delta.text || delta.reasoning) && (
+          <LiveAnswers deltas={props.deltas} labels={labels} />
+        )}
+
         {props.busy && conversation.status !== 'synthesizing' && (
           <div className="conv-working">
             <span className="dot-pulse" />
@@ -612,6 +618,37 @@ function tagOfChannel(tags: OpinionTag[], channelId: string | undefined): Opinio
  * default pane two 240px cards still fit, and when the pane is dragged wider
  * they stay readable instead of stretching into unreadable lines.
  */
+function LiveAnswers(props: {
+  deltas: Record<string, { text: string; reasoning: string; done: boolean }>;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const entries = Object.entries(props.deltas).filter(([, delta]) => delta.text || delta.reasoning);
+  if (entries.length === 0) return null;
+  return (
+    <div className="channel-grid live-answers">
+      {entries.map(([channelId, delta]) => (
+        <article key={channelId} className={`channel-card ch-${channelId} is-live`}>
+          <header className="channel-card-head">
+            <span className="channel-dot" />
+            <b>{labelOf(channelId, props.labels)}</b>
+            <span className="channel-chars">{delta.done ? '收尾中' : '写作中'}</span>
+          </header>
+          {delta.reasoning && (
+            <details className="channel-reasoning" open>
+              <summary>思考过程（{delta.reasoning.length} 字）</summary>
+              <pre>{delta.reasoning}</pre>
+            </details>
+          )}
+          <div className="channel-card-body">
+            {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在思考…</span>}
+            {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">

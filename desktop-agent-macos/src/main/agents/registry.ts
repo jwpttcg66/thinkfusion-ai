@@ -105,6 +105,25 @@ export class SubAgentRegistry implements SubAgentPool {
     }
   }
 
+  async askStream(
+    agentId: string,
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+  ): Promise<SubAgentAnswer> {
+    const agent = this.byId.get(agentId);
+    if (!agent) throw new Error(`找不到 agent ${agentId}`);
+    if (!agent.askStream) return this.ask(agentId, task);
+    if (this.active.has(agentId)) throw new PageBusyError(agentId);
+    if (this.active.size >= this.maxConcurrent) throw new PageBusyError(agentId);
+
+    this.active.add(agentId);
+    try {
+      return await agent.askStream(task, onDelta);
+    } finally {
+      this.active.delete(agentId);
+    }
+  }
+
   cancel(agentId: string, requestId: string): void {
     this.byId.get(agentId)?.cancel(requestId);
   }

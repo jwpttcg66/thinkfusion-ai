@@ -213,6 +213,8 @@ export default function App() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [channelStatuses, setChannelStatuses] = useState<ChannelStatus[]>([]);
   const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string; at?: number }>>({});
+  /** 流式增量：按 channelId 累积，落盘消息一到就清掉。 */
+  const [answerDeltas, setAnswerDeltas] = useState<Record<string, { text: string; reasoning: string; done: boolean }>>({});
   /** The local user name for the row at the bottom of the sidebar. */
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -501,6 +503,7 @@ export default function App() {
           setActiveConversationId(null);
           setMessages([]);
           setPhases({});
+    setAnswerDeltas({});
         }
         return;
       }
@@ -513,6 +516,30 @@ export default function App() {
         setMessages(prev =>
           prev.some(item => item.messageId === event.message.messageId) ? prev : [...prev, event.message]
         );
+        if (event.message.role === 'channel' && event.message.channelId) {
+          const channelId = event.message.channelId;
+          setAnswerDeltas(prev => {
+            if (!(channelId in prev)) return prev;
+            const next = { ...prev };
+            delete next[channelId];
+            return next;
+          });
+        }
+        return;
+      }
+      if (event.type === 'answer.delta') {
+        if (event.conversationId !== activeConversationRef.current) return;
+        setAnswerDeltas(prev => {
+          const current = prev[event.channelId] ?? { text: '', reasoning: '', done: false };
+          return {
+            ...prev,
+            [event.channelId]: {
+              text: current.text + (event.text ?? ''),
+              reasoning: current.reasoning + (event.reasoning ?? ''),
+              done: event.done === true
+            }
+          };
+        });
         return;
       }
       if (event.type === 'channel.phase') {
@@ -525,6 +552,15 @@ export default function App() {
           ...prev,
           [event.channelId]: { phase: event.phase, detail: event.detail, at: event.at }
         }));
+        if (event.phase === 'failed') {
+          const channelId = event.channelId;
+          setAnswerDeltas(prev => {
+            if (!(channelId in prev)) return prev;
+            const next = { ...prev };
+            delete next[channelId];
+            return next;
+          });
+        }
         return;
       }
       if (event.type === 'conversation.failed') {
@@ -806,6 +842,7 @@ export default function App() {
     setActiveId(null);
     setMessages([]);
     setPhases({});
+    setAnswerDeltas({});
     // 附件是绑在「这一问」上的：换了空间还留着上一段的文件，下一问会莫名
     // 带着一份和它无关的资料发出去。
     setAttachments([]);
@@ -904,6 +941,7 @@ export default function App() {
     setActiveConversationId(null);
     setMessages([]);
     setPhases({});
+    setAnswerDeltas({});
     setError('');
     setNotice('');
     const defaults = normalizeExecutionConfig(executionDefaultsRef.current);
@@ -934,6 +972,7 @@ export default function App() {
       setNotice('');
       // 新一轮自己的阶段：上一轮失败的模型不能带着「失败」徽章再出现在条上。
       setPhases({});
+    setAnswerDeltas({});
       try {
         const updated = await window.agentAPI.followupConversation({
           conversationId: activeConversation.conversationId,
@@ -993,6 +1032,7 @@ export default function App() {
     setSubmitting(true);
     setError('');
     setPhases({});
+    setAnswerDeltas({});
     try {
       const conversation = await window.agentAPI.submitConversation({
         text,
@@ -1012,6 +1052,7 @@ export default function App() {
       setActiveConversationId(conversation.conversationId);
       setMessages([]);
       setPhases({});
+    setAnswerDeltas({});
       setPrompt('');
       setAttachments([]);
       setActiveId(conversation.taskId ?? null);
@@ -1036,6 +1077,7 @@ export default function App() {
     setActiveId(null);
     setError('');
     setPhases({});
+    setAnswerDeltas({});
     // 换一条会话就是换一段上下文，上一段挑的附件不该跟过来。
     setAttachments([]);
     try {
@@ -1519,6 +1561,7 @@ export default function App() {
           setActiveConversationId(null);
           setMessages([]);
           setPhases({});
+    setAnswerDeltas({});
           setEvents([]);
           setDerived(EMPTY_DERIVED);
           setError('');
@@ -1651,6 +1694,7 @@ export default function App() {
                 // 综合里的「观点A/B/C」要配上站点图标，读者才知道是哪一家。
                 glyphs={new Map(sources.sources.map(source => [source.id, source.glyph]))}
                 phases={phases}
+                deltas={answerDeltas}
                 busy={conversationBusy}
               />
             )}

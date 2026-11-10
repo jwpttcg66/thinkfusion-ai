@@ -83,9 +83,9 @@ export const PROGRESS_STAGES = ['routing','asking','synthesis','execution','revi
 | --- | --- | --- |
 | 全局五段条 | `deriveProgress` 投影 | ✅ 已实现 |
 | 每通道等待秒数 | `channel.phase.at` + 本地计时 | ✅ 已有 |
-| 执行第几步 | `step.started` 的 `index/total/tool` | ✅ 已接进五段条的 detail |
+| 执行步骤 | `step.started/completed/failed` | ✅ 胶囊列表 + 五段 detail |
 | 思考内容 | Provider 的 `reasoning_content` / `thinking` | ✅ 非流式捕获，折叠显示 |
-| 流式正文 | Provider `stream()` | ⏳ 下一期（见实施 V2） |
+| 流式正文 | Provider `streamChunks()` → `answer.delta` | ✅ 已实现（第一轮与汇总） |
 
 ### 3.3 思考：只显示模型真的返回过的
 
