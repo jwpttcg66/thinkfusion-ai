@@ -508,8 +508,8 @@ export default function App() {
           setActiveConversationId(null);
           setMessages([]);
           setPhases({});
-    setAnswerDeltas({});
-    setDebateLive(null);
+          setAnswerDeltas({});
+          setDebateLive(null);
         }
         return;
       }
@@ -525,7 +525,8 @@ export default function App() {
         // 综合结论落盘时，主导人的流式预览必须让位：它的最终文本变成了
         // synthesis 消息，不会再有一条 channel 消息来清掉它。
         if (event.message.synthesis) setAnswerDeltas({});
-    setDebateLive(null);
+        // 直接辩论结束时同理：快照已经落成消息，实时面板要让位给那张卡片。
+        if (event.message.synthesis || event.message.debate) setDebateLive(null);
         if (event.message.role === 'channel' && event.message.channelId) {
           const channelId = event.message.channelId;
           setAnswerDeltas(prev => {
@@ -1138,6 +1139,24 @@ export default function App() {
     }
   }
 
+  /**
+   * 「直接辩论」的输出落在回答界面：切到它挂的那条会话，接上实时辩论面板。
+   * 进度事件大约每 1.5 秒来一次；在第一条到达之前先放一个空快照，页面上
+   * 不会出现「只有问题、什么都没有」的空白等待。
+   */
+  async function showDebateAnswer(info: { debateId: string; conversationId?: string }) {
+    setResearchOpen(false);
+    if (!info.conversationId) return;
+    await selectConversation(info.conversationId);
+    setConversationTab('chat');
+    // 很短的辩论可能在切过来之前就跑完了：那就只显示落盘卡片，不再放一个
+    // 「running 0 轮」的实时壳子——它收不到后续事件，会一直停在那里。
+    const state = await window.agentAPI.getDebate(info.debateId).catch(() => null);
+    if (state?.status === 'running') {
+      setDebateLive(previous => previous ?? { status: 'running', rounds: [] });
+    }
+  }
+
   async function deleteConversation(conversationId: string) {
     try {
       deletedConversations.current.add(conversationId);
@@ -1703,7 +1722,7 @@ export default function App() {
 
         <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
           <div className="inner">
-            {showingConversation && activeConversation && conversationTab === 'chat' && (
+            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
               <ProgressPanel
                 conversationStatus={activeConversation.status}
                 taskStatus={activeTask?.status ?? null}
@@ -2157,6 +2176,8 @@ export default function App() {
           initialTab={researchTab}
           initialQuestion={researchSeed}
           initialRounds={researchRounds}
+          activeConversationId={activeConversation?.conversationId ?? null}
+          onDebateStarted={info => { void showDebateAnswer(info); }}
           onClose={() => setResearchOpen(false)}
         />
       )}

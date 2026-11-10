@@ -148,6 +148,11 @@ export interface Conversation {
   intent: IntentKind;
   /** Why the router chose that intent. Kept so routing can be argued with. */
   intentReason: string;
+  /**
+   * 这条会话是「直接辩论」建出来的：没有第一轮问答，五段进度条不适用。
+   * 老会话没有这个字段，按普通问答处理。
+   */
+  debateOnly?: boolean;
   status: ConversationStatus;
   /**
    * Channels that were asked in this conversation, in the order they were asked.
@@ -274,6 +279,11 @@ export interface ConversationMessage {
   reasoning?: string;
   /** 只有 synthesis 消息有：这一轮的辩论过程。 */
   debate?: DebateSnapshot;
+  /**
+   * 只有「直接辩论」落盘的那条消息有：这场辩论的 id，用来取五档结论。
+   * 会话内自动辩论的 id 在 `synthesis.fusion.debateId` 上，不重复存。
+   */
+  debateId?: string;
   at: number;
 }
 
@@ -409,6 +419,8 @@ export type ConversationEvent = { at: number } & (
       rounds: Array<{
         index: number;
         phase: string;
+        /** 还在等发言的成员；直接辩论的实时面板靠它显示「等待谁」。 */
+        pending?: string[];
         messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
       }>;
       stopReason?: string;

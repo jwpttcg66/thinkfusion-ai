@@ -221,6 +221,9 @@ export function ConversationView(props: {
           <div className="conversation-title">
             <h2>{conversation.title}</h2>
             <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
+            {conversation.debateOnly && (
+              <span className="intent-badge" title="这条会话是直接辩论，没有第一轮问答">辩论</span>
+            )}
             {conversation.workspaceMode === 'engineering' && (
               <span className="intent-badge workspace-badge" title={conversation.workspaceRoot ?? ''}>
                 {workspaceLabel('engineering')}
@@ -288,11 +291,8 @@ export function ConversationView(props: {
           {/* 工程空间还有一份「分析 / 实施 / 待确认 + 要不要读工程」的判定。
               它和上面的知识意图不是同一件事，分开写，用户才知道这次是谁判的。 */}
           {conversation.routing && ` · 任务判定：${conversation.routing.reason}`}
-          {/* Who is actually being asked, said out loud. Every channel that is
-              switched on is asked — a single answer is not a cross-check — so
-              the line names them instead of describing a routing decision that
-              no longer exists. */}
-          {` · 同时问 ${askedLabel || '所有已开启的通道'}`}
+          {/* 直接辩论没有「第一轮问谁」这回事，别写「同时问 N 个通道」。 */}
+          {!conversation.debateOnly && ` · 同时问 ${askedLabel || '所有已开启的通道'}`}
           {/* V2.1 Model Router：这一轮原本打算用哪些模型、为什么。和上面
               「同时问」分开写，因为一个是事实（问了谁），一个是决定。 */}
           {conversation.modelRoute && (
@@ -417,6 +417,17 @@ export function ConversationView(props: {
                 // 综合结论固定放在这一轮的最下面：它要压在所有回答和第二轮
                 // 进度条之后，读者看完过程再看到结论，而不是先读结论再读过程。
                 if (block.kind === 'synthesis') return null;
+                // 直接辩论落盘的那条消息：辩论就是答案，默认展开，结论跟在后面。
+                if (block.message.debate) {
+                  return (
+                    <div key={block.key} className="conv-debate-answer">
+                      <DebatePanel debate={block.message.debate} labels={labels} defaultOpen />
+                      {block.message.debateId && (
+                        <DebateVerdictStrip debateId={block.message.debateId} labels={labels} />
+                      )}
+                    </div>
+                  );
+                }
                 return (
                   <p key={block.key} className="conv-system">
                     {block.message.text}
@@ -440,8 +451,10 @@ export function ConversationView(props: {
                 <LiveSummary deltas={props.deltas} labels={labels} />
               )}
 
-              {live && turnIndex === turns.length - 1 && props.debate && (
-                <DebatePanel debate={props.debate} labels={labels} live />
+              {/* 实时辩论：直接辩论挂在会话上时，状态可能已经是 answered，
+                  但这条流仍然要出现——不能等到结束后才看到过程。 */}
+              {turnIndex === turns.length - 1 && props.debate && (
+                <DebatePanel debate={props.debate} labels={labels} live={props.debate.status === 'running'} />
               )}
 
               {turn.blocks
@@ -982,14 +995,17 @@ function ExecutionRound(props: {
 function DebatePanel({
   debate,
   labels,
-  live = false
+  live = false,
+  defaultOpen = false
 }: {
   debate: import('../../../shared/conversation').DebateSnapshot;
   labels: ReadonlyMap<string, string>;
   live?: boolean;
+  /** 直接辩论的落盘卡片默认展开：辩论本身就是这一问的答案。 */
+  defaultOpen?: boolean;
 }) {
   return (
-    <details className="debate-panel" open={live}>
+    <details className="debate-panel" open={live || defaultOpen}>
       <summary>
         辩论过程 · {debate.status}（{debate.rounds.length} 轮）
         {debate.stopReason ? ` · ${debate.stopReason}` : ''}

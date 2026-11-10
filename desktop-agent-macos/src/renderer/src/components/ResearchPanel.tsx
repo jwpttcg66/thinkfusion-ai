@@ -30,6 +30,10 @@ interface Props {
   /** 辩论页预填的问题（通常是输入框里刚写的那句）。 */
   initialQuestion?: string;
   initialRounds?: number;
+  /** 当前打开的会话；直接辩论要作为新的一轮追加到这条会话里。 */
+  activeConversationId?: string | null;
+  /** 辩论已经挂到会话上：主界面切过去，让输出出现在回答流里。 */
+  onDebateStarted?: (info: { debateId: string; conversationId?: string }) => void;
 }
 
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
@@ -84,7 +88,7 @@ const DEBATE_STRATEGIES: Array<{
   { id: 'discovery', label: '探索发现', summary: '并行假设，用能区分它们的证据逐步排除', rounds: 3 }
 ];
 
-export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, initialQuestion, initialRounds }: Props) {
+export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, initialQuestion, initialRounds, activeConversationId, onDebateStarted }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'mode');
   const [options, setOptions] = useState<ExecutionOptions | null>(null);
   const [health, setHealth] = useState<Record<string, ProviderHealthInfo>>({});
@@ -634,6 +638,7 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   onClick={() => void run(async () => {
                     const started = await window.agentAPI.startDebate({
                       question: debateQuestion,
+                      conversationId: activeConversationId ?? undefined,
                       config: {
                         strategy: debateStrategy,
                         maxRounds: debateRounds,
@@ -647,6 +652,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     setVerdict(null);
                     setCleanup(null);
                     setRelated([]);
+                    // 辩论已经挂到会话上：切回回答界面，别让用户留在这个弹窗里
+                    // 盯着一份重复的时间线。
+                    onDebateStarted?.({ debateId: started.debateId, conversationId: started.conversationId });
                   })}>开始</button>
               </div>
               <p className="muted">{leadHint}。归属规则：本地主导只用本地模型、网页主导只用网页、云端主导只用远程 API、混合先择一；只有一个可用成员时由它一个主导（自辩）。网页通道只收到用户消息，交锋材料拼在消息里，不发 system / context 指令。</p>

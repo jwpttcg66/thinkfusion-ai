@@ -405,8 +405,12 @@ export class DebateOrchestrator {
       : webLeadSpeakers(state, index, speakersFor(state.plan, index));
     const budget = budgetOf(state.config);
     // 从这一轮开始就记住还在等谁，界面才能在第一条发言回来之前显示「等待 X 发言」。
+    // 这里立即落一次盘：界面读的是磁盘上的快照，不写下去就只能等到轮末才看见。
     round.pending = [...speakers];
     state.runningRound = round;
+    // 网页第一轮的观点本来就在提问阶段拿到了，先放进来，界面不用空等。
+    round.messages.push(...seeded);
+    this.persist(state);
     /**
      * 挑战指向具体两句。
      *
@@ -426,7 +430,7 @@ export class DebateOrchestrator {
     // 谁被质疑了哪几句：回应阶段要把决策写回这几条主张。
     const targetsByAgent = targetsOf(state, index);
 
-    const results = await mapLimit(speakers, budget.maxConcurrency, async agentId => {
+    await mapLimit(speakers, budget.maxConcurrency, async agentId => {
       const role = roleForPlan(state.plan, agentId, index, state.config.strategy);
       // 自辩（本机只有一个本地模型）时上一轮全是自己的发言，也得有个
       // 明确的质疑对象，否则 targetMessageId 悄悄变 undefined。
@@ -470,17 +474,24 @@ export class DebateOrchestrator {
           startedAt,
           endedAt
         };
+        // 一条发言回来就落盘：界面每 1.5 秒读一次文件，能看到「谁先说完」，
+        // 而不是整轮结束才一次性冒出来。persist 会同步外部的 stop 状态，
+        // 不会把用户刚按的「停止」覆盖回 running。
+        round.messages.push(message);
+        this.persist(state);
         return { ok: true as const, message };
       } catch (error) {
-        return { ok: false as const, failure: { agentId, detail: error instanceof Error ? error.message : String(error) } };
+        const failure = { agentId, detail: error instanceof Error ? error.message : String(error) };
+        round.pending = round.pending?.filter(id => id !== agentId);
+        round.failures.push(failure);
+        this.persist(state);
+        return { ok: false as const, failure };
       }
     });
 
-    round.messages.push(...seeded);
-    for (const result of results) {
-      if (result.ok) round.messages.push(result.message);
-      else round.failures.push(result.failure);
-    }
+    // 并发完成顺序不定：最终按发生时间排，历史记录读起来才是从早到晚。
+    round.messages.sort((a, b) => a.createdAt - b.createdAt);
+    round.pending = [];
     round.endedAt = this.now();
     round.converged = index > 0 && converged(previous, round.messages);
     // 结构化那一层只做一遍：发言已经是最终文本（存原文、不摘要），切句和

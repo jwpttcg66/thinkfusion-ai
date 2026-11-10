@@ -1,7 +1,7 @@
 import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, screen } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type {
   AgentEvent,
   DeepSeekDiagnostics,
@@ -51,7 +51,7 @@ import type { CollaborationRecord } from './collaboration/runner';
 import { DebateStore } from './debate/store';
 import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
-import { debateOriginOf, normalizeDebateConfig } from './debate/types';
+import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
 import {
   catalogEntryOf,
@@ -82,8 +82,11 @@ import {
   DEFAULT_EXECUTION_CONFIG,
   normalizeExecutionConfig,
   type ChannelStatus,
+  type Conversation,
   type ConversationEvent,
   type ConversationExecutionConfig,
+  type ConversationMessage,
+  type DebateSnapshot,
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
@@ -960,6 +963,78 @@ function emitDeepSeek(event: DeepSeekEvent) {
 
 function emitConversation(event: ConversationEvent) {
   win?.webContents.send('conversation:event', event);
+}
+
+/** 一场辩论在某一刻能读到的东西；实时面板与落盘快照共用同一份。 */
+function debateSnapshotOf(state: DebateState): DebateSnapshot {
+  return {
+    status: state.status,
+    ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+    rounds: [...state.rounds, ...(state.runningRound ? [state.runningRound] : [])].map(round => ({
+      index: round.index,
+      phase: round.phase ?? '',
+      ...(round.pending && round.pending.length > 0 ? { pending: round.pending } : {}),
+      messages: round.messages.map(message => ({
+        author: message.agentId,
+        kind: message.kind,
+        text: message.text.length > 1200 ? `${message.text.slice(0, 1200)}…` : message.text,
+        ...(message.reasoning ? { reasoning: message.reasoning } : {})
+      }))
+    }))
+  };
+}
+
+/**
+ * 「直接辩论」也输出到回答界面。
+ *
+ * 辩论本来只在「研究设置 → 辩论」弹窗里有时间线，主区域什么都看不到。
+ * 现在把它挂到一条会话上：每 1.5 秒把轮次快照推给界面（谁在说、还在等谁），
+ * 结束后落成一条带辩论快照的消息——重开这条会话还能读。
+ *
+ * 只推不发：真正的编排仍在 DebateOrchestrator 里，这个定时器只做投影。
+ */
+function watchDebateInConversation(debateId: string, conversationId: string): void {
+  const timer = setInterval(() => {
+    if (!debates) { clearInterval(timer); return; }
+    const current = debates.get(debateId);
+    const conversation = store.getConversation(conversationId);
+    // 会话被删了就不再往这里写：留下一条没有会话的记录，侧栏里也打不开。
+    if (!current || !conversation) { clearInterval(timer); return; }
+    const snapshot = debateSnapshotOf(current);
+    emitConversation({
+      type: 'debate.progress',
+      at: Date.now(),
+      conversationId,
+      debateId,
+      status: current.status,
+      rounds: snapshot.rounds,
+      ...(current.stopReason ? { stopReason: current.stopReason } : {})
+    });
+    if (current.status === 'running') return;
+    clearInterval(timer);
+    const message: ConversationMessage = {
+      messageId: randomUUID(),
+      conversationId,
+      role: 'system',
+      // 问题已经作为一条用户消息出现在上面了，这里不重复。
+      text: '',
+      debate: snapshot,
+      debateId,
+      at: Date.now()
+    };
+    store.appendMessage(message);
+    emitConversation({ type: 'message.added', at: message.at, message });
+    // 辩论跑着的时候用户可能又追问了：那条链路的状态优先，别把「正在回答」
+    // 改成「已回答」。只有已经结束的会话才补成 answered。
+    const busy = ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(conversation.status);
+    const next: Conversation = {
+      ...conversation,
+      status: busy ? conversation.status : 'answered',
+      updatedAt: Date.now()
+    };
+    store.upsertConversation(next);
+    emitConversation({ type: 'conversation.updated', at: next.updatedAt, conversation: next });
+  }, 1500);
 }
 
 function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
@@ -3200,7 +3275,15 @@ function registerIpc() {
     if (!debates || !raw || typeof raw !== 'object') throw new Error('辩论还没有准备好');
     const input = raw as { question?: unknown; config?: unknown; conversationId?: unknown };
     if (typeof input.question !== 'string' || !input.question.trim()) throw new Error('先写一句要辩论的问题');
+    const question = input.question.trim();
     const rawConfig = (input.config ?? {}) as Record<string, unknown>;
+    const requestedId = typeof input.conversationId === 'string' ? input.conversationId : undefined;
+    let conversation = requestedId ? store.getConversation(requestedId) : null;
+    // 正在回答的会话不接辩论：两条流同时往一个会话里写，界面上分不清哪句是
+    // 哪一轮，结束后还会互相覆盖状态。
+    if (conversation && ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(conversation.status)) {
+      throw new Error('这条会话还在回答，等它结束后再发起辩论');
+    }
     const selected = Array.isArray(rawConfig.participants) && rawConfig.participants.length > 0
       ? rawConfig.participants.filter((id): id is string => typeof id === 'string')
       : undefined;
@@ -3219,8 +3302,36 @@ function registerIpc() {
     for (const agentId of plan.webOnly) {
       try { await registry.newConversation(agentId); } catch { /* 页面没准备好时由 ask 如实报错 */ }
     }
-    return debates.start(input.question, rawConfig,
-      typeof input.conversationId === 'string' ? input.conversationId : undefined, plan, 'manual');
+    // 直接辩论也走回答界面：没有会话就新开一条，有会话就作为新的一轮追加。
+    const at = Date.now();
+    if (!conversation) {
+      conversation = {
+        conversationId: randomUUID(),
+        title: question.slice(0, 42),
+        intent: 'answer',
+        intentReason: '直接辩论：跳过第一轮回答与汇总，只跑交锋与裁决',
+        debateOnly: true,
+        status: 'answered',
+        channels: [],
+        createdAt: at,
+        updatedAt: at,
+        executionConfig: executionDefaults?.get() ?? { ...DEFAULT_EXECUTION_CONFIG }
+      };
+      store.upsertConversation(conversation);
+      emitConversation({ type: 'conversation.created', at, conversation });
+    }
+    const userMessage: ConversationMessage = {
+      messageId: randomUUID(),
+      conversationId: conversation.conversationId,
+      role: 'user',
+      text: question,
+      at
+    };
+    store.appendMessage(userMessage);
+    emitConversation({ type: 'message.added', at, message: userMessage });
+    const state = debates.start(question, rawConfig, conversation.conversationId, plan, 'manual');
+    watchDebateInConversation(state.debateId, conversation.conversationId);
+    return state;
   });
 
   ipcMain.handle('debate:get', (event, id: unknown) => {
