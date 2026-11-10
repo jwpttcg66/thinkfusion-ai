@@ -22,7 +22,7 @@ import { SettingsPanel, type Section as SettingsSection } from './components/Set
 import { ResearchPanel } from './components/ResearchPanel';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
-import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, PAGE_STUB_WIDTH, RAIL_WIDTH } from '../../shared/layout';
+import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import { showWebSourceStatusBar } from '../../shared/sources';
 import {
   ICON_DOCK_BACK_PATHS,
@@ -1921,31 +1921,8 @@ export default function App() {
         </>
       )}
 
-      {/* Folded. Not `display: none`: a pane that vanishes leaves nothing to
-          click and no sign that the page is still there — and it is, with the
-          same login and the same half-written answer. The whole strip is the
-          button, because a 24px glyph inside a 30px column was a small target
-          for the action that undoes the one you just took; the rail's toggle at
-          the top of the next column does the same thing from a fixed place. */}
-      {isCollapsed && (
-        <button
-          className="page-stub"
-          type="button"
-          onClick={toggleCollapse}
-          data-action="expand"
-          aria-label="展开网页"
-          title="展开：把网页放回来"
-          style={{ right: RAIL_WIDTH, width: PAGE_STUB_WIDTH }}
-        >
-          {/* Turned on its side: a 30px column can still say which page it is
-              hiding, and the name is the thing worth keeping. */}
-          <span className="page-stub-label">{activeSource?.label ?? '内嵌页面'}</span>
-          <span
-            className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
-            aria-hidden="true"
-          />
-        </button>
-      )}
+      {/* 折叠时不再画旁边那条竖排站名框（「Gemini」单独一列）。
+          展开仍靠轨道顶上的开关；来源按钮照常保留。 */}
 
       {/* Only the enabled ones. A disabled source still exists — its address is
           kept — but a rail button for a page that is switched off would be a
