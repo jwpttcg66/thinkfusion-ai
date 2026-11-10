@@ -60,6 +60,8 @@ export interface SubAgentTask {
 
 export interface SubAgentAnswer extends AdapterAnswer {
   stage: AskStage;
+  /** 推理内容；只有明确返回过的 Provider 才有，网页通道没有。 */
+  reasoning?: string;
   /**
    * 这次调用的 token 用量。网页通道拿不到，固定是 `{ inputTokens: null,
    * outputTokens: null }`；本地/云端由 Provider 回填。`null` 不是 0。

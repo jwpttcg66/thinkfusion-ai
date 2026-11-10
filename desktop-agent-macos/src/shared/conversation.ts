@@ -257,6 +257,8 @@ export interface ConversationMessage {
   /** Present for `synthesis` messages: the structured result, JSON-encoded on disk. */
   synthesis?: Synthesis;
   text: string;
+  /** 模型返回的推理内容；没有就不写。界面折叠显示，不混进答案。 */
+  reasoning?: string;
   at: number;
 }
 

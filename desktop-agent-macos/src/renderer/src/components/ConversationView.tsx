@@ -622,6 +622,12 @@ function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; la
             <b>{labelOf(message.channelId, labels)}</b>
             <span className="channel-chars">{message.text.length} 字</span>
           </header>
+          {message.reasoning && (
+            <details className="channel-reasoning">
+              <summary>思考过程（{message.reasoning.length} 字）</summary>
+              <pre>{message.reasoning}</pre>
+            </details>
+          )}
           <div className="channel-card-body">
             <MarkdownBody text={message.text} />
           </div>

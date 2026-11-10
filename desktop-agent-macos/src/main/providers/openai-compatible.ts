@@ -198,6 +198,14 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
     const data = await this.withRetry(body, signal) as ChatCompletion;
     const text = data.choices?.[0]?.message?.content ?? '';
+    // DeepSeek / 部分兼容网关把推理放在 reasoning_content，另一些叫 reasoning。
+    // 只读、不猜：两个都没有就不写这个字段。
+    const rawReasoning = (data.choices?.[0]?.message as { reasoning_content?: unknown; reasoning?: unknown } | undefined);
+    const reasoning = typeof rawReasoning?.reasoning_content === 'string'
+      ? rawReasoning.reasoning_content
+      : typeof rawReasoning?.reasoning === 'string'
+        ? rawReasoning.reasoning
+        : undefined;
     const usage = this.usageOf(
       data.usage?.prompt_tokens,
       data.usage?.completion_tokens,
@@ -205,7 +213,14 @@ export class OpenAICompatibleProvider implements ModelProvider {
       this.cacheOf(data.usage)
     );
     this.record(usage, model);
-    return { text, providerId: this.id, modelId: model, usage, latencyMs: this.now() - started };
+    return {
+      text,
+      ...(reasoning && reasoning.trim() ? { reasoning } : {}),
+      providerId: this.id,
+      modelId: model,
+      usage,
+      latencyMs: this.now() - started
+    };
   }
 
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {

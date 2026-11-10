@@ -71,6 +71,7 @@ export class ProviderBackedSubAgent implements SubAgent {
     return {
       agentId: this.id,
       text: response.text,
+      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
       receivedAt: Date.now(),
       attribution: {
         requestId,

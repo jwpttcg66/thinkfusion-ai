@@ -1706,7 +1706,8 @@ export class ConversationRunner {
         const message = this.addMessage(conversation, {
           role: 'channel',
           channelId: answer.agentId,
-          text: answer.text
+          text: answer.text,
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {})
         });
         this.save(conversation);
         trace?.record(answer, message.messageId);
@@ -2672,7 +2673,7 @@ export class ConversationRunner {
 
   private addMessage(
     conversation: Conversation,
-    input: Pick<ConversationMessage, 'role' | 'text'> & Partial<Pick<ConversationMessage, 'channelId' | 'synthesis'>>
+    input: Pick<ConversationMessage, 'role' | 'text'> & Partial<Pick<ConversationMessage, 'channelId' | 'synthesis' | 'reasoning'>>
   ): ConversationMessage {
     const message: ConversationMessage = {
       messageId: randomUUID(),
@@ -2680,6 +2681,7 @@ export class ConversationRunner {
       role: input.role,
       channelId: input.channelId,
       synthesis: input.synthesis,
+      ...(input.reasoning ? { reasoning: input.reasoning } : {}),
       text: input.text,
       at: Date.now()
     };

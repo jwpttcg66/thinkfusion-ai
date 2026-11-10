@@ -99,6 +99,8 @@ export interface ModelUsage {
 
 export interface ModelResponse {
   text: string;
+  /** 模型给出的推理内容（DeepSeek 的 reasoning_content / Ollama 的 thinking）；没有就是没有。 */
+  reasoning?: string;
   providerId: string;
   modelId: string;
   usage: ModelUsage;

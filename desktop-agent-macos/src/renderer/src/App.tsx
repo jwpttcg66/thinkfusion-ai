@@ -15,6 +15,7 @@ import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
 import { ConversationView } from './components/ConversationView';
+import { ProgressPanel } from './components/ProgressPanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
@@ -1633,6 +1634,15 @@ export default function App() {
 
         <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
           <div className="inner">
+            {showingConversation && activeConversation && conversationTab === 'chat' && (
+              <ProgressPanel
+                conversationStatus={activeConversation.status}
+                taskStatus={activeTask?.status ?? null}
+                events={events}
+                startedAt={activeConversation.createdAt}
+              />
+            )}
+
             {showingConversation && activeConversation && conversationTab === 'chat' && (
               <ConversationView
                 conversation={activeConversation}

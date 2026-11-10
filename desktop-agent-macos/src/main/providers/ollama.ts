@@ -272,9 +272,11 @@ export class OllamaProvider implements ModelProvider {
           controller.signal
         );
 
-        const data = (await res.json()) as ChatChunk;
+        const data = (await res.json()) as ChatChunk & { message?: { thinking?: unknown } };
+        const thinking = typeof data.message?.thinking === 'string' ? data.message.thinking : undefined;
         return {
           text: data.message?.content ?? '',
+          ...(thinking && thinking.trim() ? { reasoning: thinking } : {}),
           providerId: this.id,
           modelId: model,
           usage: {
