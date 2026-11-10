@@ -232,6 +232,9 @@ export default function App() {
   /** 「＋ · 专家 / 技能」要显示的开关状态；与「设置 · 专家与技能」同一份。 */
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [researchTab, setResearchTab] = useState<'mode' | 'collab' | 'debate' | 'report'>('mode');
+  const [researchSeed, setResearchSeed] = useState('');
+  const [researchRounds, setResearchRounds] = useState(3);
   /** 对话 / 轨迹 / 统计。页签在 topbar 下、滚动区外，切会话时回到对话。 */
   const [conversationTab, setConversationTab] = useState<'chat' | 'trajectory' | 'stats'>('chat');
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
@@ -1985,7 +1988,18 @@ export default function App() {
                 if (notice) setNotice('');
               }}
               onPermissionChange={changePermission}
-              onOpenResearch={() => setResearchOpen(true)}
+              onOpenResearch={() => {
+                setResearchTab('mode');
+                setResearchSeed('');
+                setResearchRounds(3);
+                setResearchOpen(true);
+              }}
+              onOpenDebate={() => {
+                setResearchTab('debate');
+                setResearchSeed(prompt);
+                setResearchRounds(1);
+                setResearchOpen(true);
+              }}
               onSubmit={submit}
             />
           </div>
@@ -2140,6 +2154,9 @@ export default function App() {
           config={executionConfig}
           onConfigChange={changeExecutionConfig}
           latestSynthesis={messages.find(item => item.role === 'synthesis' && item.synthesis)?.synthesis ?? null}
+          initialTab={researchTab}
+          initialQuestion={researchSeed}
+          initialRounds={researchRounds}
           onClose={() => setResearchOpen(false)}
         />
       )}

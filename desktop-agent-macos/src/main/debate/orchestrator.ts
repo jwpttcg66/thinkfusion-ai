@@ -217,6 +217,7 @@ export class DebateOrchestrator {
         if (this.generation.get(state.debateId) !== generation) return;
         // 决策写回主张状态：改的是「被质疑的那几句」，可能在更早的那一轮里。
         applyDecisions(state.rounds, revisions);
+        state.runningRound = undefined;
         state.rounds.push(round);
         state.disputes = [...(state.disputes ?? []), ...disputes];
         state.revisions = [...(state.revisions ?? []), ...revisions];
@@ -402,6 +403,7 @@ export class DebateOrchestrator {
     const budget = budgetOf(state.config);
     // 从这一轮开始就记住还在等谁，界面才能在第一条发言回来之前显示「等待 X 发言」。
     round.pending = [...speakers];
+    state.runningRound = round;
     /**
      * 挑战指向具体两句。
      *

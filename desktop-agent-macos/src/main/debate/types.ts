@@ -483,6 +483,8 @@ export interface DebateState {
   plan: LeadPlan;
   status: DebateStatus;
   rounds: DebateRound[];
+  /** 正在跑、还没收口的那一轮；界面据此显示「等待谁发言」，不等到轮末才见。 */
+  runningRound?: DebateRound;
   /** 与多数立场不同的发言，完整保留原文。 */
   minorities: DebateMessage[];
   /**

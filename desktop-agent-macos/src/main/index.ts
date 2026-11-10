@@ -3915,7 +3915,7 @@ app.whenReady().then(async () => {
           rounds: current.rounds.length,
           status: current.status,
           ...(current.stopReason ? { stopReason: current.stopReason } : {}),
-          snapshot: current.rounds.map(round => ({
+          snapshot: [...current.rounds, ...(current.runningRound ? [current.runningRound] : [])].map(round => ({
             index: round.index,
             phase: round.phase ?? '',
             ...(round.pending && round.pending.length > 0 ? { pending: round.pending } : {}),

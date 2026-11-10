@@ -447,18 +447,14 @@ export function ConversationView(props: {
               {turn.blocks
                 .filter(block => block.kind === 'synthesis')
                 .map(block => (
-                  <React.Fragment key={block.key}>
-                    {block.message.debate && (
-                      <DebatePanel debate={block.message.debate} labels={labels} />
-                    )}
                   <SynthesisCard
                     key={block.key}
                     synthesis={block.message.synthesis!}
                     reasoning={block.message.reasoning}
+                    debate={block.message.debate}
                     labels={labels}
                     opinionTags={opinionTags}
                   />
-                  </React.Fragment>
                 ))}
             </section>
           );
@@ -1045,12 +1041,15 @@ function sectionClass(title: string | null | undefined): string {
 function SynthesisCard({
   synthesis,
   reasoning,
+  debate,
   labels,
   opinionTags
 }: {
   synthesis: Synthesis;
   /** 主导人写这段汇总时的推理；有就折叠显示，不能只活在流式预览里。 */
   reasoning?: string;
+  /** 辩论过程；按时间顺序放在「辩前汇总」和「辩后最终意见」之间。 */
+  debate?: import('../../../shared/conversation').DebateSnapshot;
   labels: ReadonlyMap<string, string>;
   opinionTags: OpinionTag[];
 }) {
@@ -1097,6 +1096,10 @@ function SynthesisCard({
           <SourceRefText text={synthesis.recommendation} tags={opinionTags} />
         </p>
       )}
+
+      {/* 时间顺序：辩前汇总 → 辩论过程 → 辩后最终意见。辩论放在综合卡中间，
+          不能整块挂在卡前面，否则「结论」会出现在它自己的辩论之后。 */}
+      {debate && <DebatePanel debate={debate} labels={labels} />}
 
       {synthesis.fusion?.debateId && <DebateVerdictStrip debateId={synthesis.fusion.debateId} labels={labels} />}
 

@@ -25,6 +25,11 @@ interface Props {
   onConfigChange: (patch: Partial<ConversationExecutionConfig>) => void;
   latestSynthesis: Synthesis | null;
   onClose: () => void;
+  /** 打开时停在哪个页；「直接辩论」用它一进来就到辩论。 */
+  initialTab?: 'mode' | 'collab' | 'debate' | 'report';
+  /** 辩论页预填的问题（通常是输入框里刚写的那句）。 */
+  initialQuestion?: string;
+  initialRounds?: number;
 }
 
 type Tab = 'mode' | 'collab' | 'debate' | 'report';
@@ -79,8 +84,8 @@ const DEBATE_STRATEGIES: Array<{
   { id: 'discovery', label: '探索发现', summary: '并行假设，用能区分它们的证据逐步排除', rounds: 3 }
 ];
 
-export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>('mode');
+export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, initialQuestion, initialRounds }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'mode');
   const [options, setOptions] = useState<ExecutionOptions | null>(null);
   const [health, setHealth] = useState<Record<string, ProviderHealthInfo>>({});
   const [records, setRecords] = useState<CollaborationTaskRecord[]>([]);
@@ -90,9 +95,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [debateQuestion, setDebateQuestion] = useState('');
+  const [debateQuestion, setDebateQuestion] = useState(initialQuestion ?? '');
   const [debateStrategy, setDebateStrategy] = useState<NonNullable<DebateConfigInput['strategy']>>('truth');
-  const [debateRounds, setDebateRounds] = useState(3);
+  const [debateRounds, setDebateRounds] = useState(initialRounds ?? 3);
   const [debateEarlyStop, setDebateEarlyStop] = useState(false);
   const [debateLeadMode, setDebateLeadMode] = useState<DebateLeadMode>('hybrid');
   /** null = 还没动过，默认勾选所有当前可用成员。 */
@@ -679,9 +684,13 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     )}
 
                     <h3>时间线</h3>
-                    {current.rounds.map(round => (
+                    {[...current.rounds, ...(current.runningRound ? [current.runningRound] : [])].map(round => (
                       <div key={round.index} className="research-round">
                         <b>第 {round.index + 1} 轮{round.converged ? ' · 已收敛' : ''}</b>
+                        {/* 第一条发言回来之前也要有输出：显示还在等谁。 */}
+                        {round.pending && round.pending.length > 0 && (
+                          <p className="muted">等待 {round.pending.join('、')} 发言…</p>
+                        )}
                         {round.messages.map(message => (
                           <div key={message.messageId} className="research-message">
                             <span className="research-tag">{message.agentId} / {message.role} / {message.kind}{message.threadUrl ? ' / 有网页会话' : ''}</span>

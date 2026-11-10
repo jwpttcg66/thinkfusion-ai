@@ -1598,6 +1598,8 @@ export interface DebateClaimView {
 
 export interface DebateRoundView {
   index: number;
+  /** 还在等发言的成员；进行中的轮次用它显示「等待 X 发言」。 */
+  pending?: string[];
   messages: DebateMessageView[];
   startedAt: number;
   endedAt?: number;
@@ -1713,6 +1715,8 @@ export interface DebateView {
   plan: DebatePlanView;
   status: 'running' | 'completed' | 'stopped' | 'cancelled';
   rounds: DebateRoundView[];
+  /** 正在跑、还没收口的那一轮；界面用它显示「等待谁发言」。 */
+  runningRound?: DebateRoundView;
   minorities: DebateMessageView[];
   createdAt: number;
   updatedAt: number;
