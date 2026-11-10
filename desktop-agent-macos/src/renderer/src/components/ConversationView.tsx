@@ -424,15 +424,9 @@ export function ConversationView(props: {
                 );
               })}
 
-              {live && turnIndex === turns.length - 1 && conversation.status === 'synthesizing' && props.deltas && (
-                <LiveSummary deltas={props.deltas} labels={labels} />
-              )}
-
-              {live && turnIndex === turns.length - 1 && props.debate && (
-                <DebatePanel debate={props.debate} labels={labels} live />
-              )}
-
-              {/* 第二轮及以后：单独一条通道条 + 进度卡，挂在第一轮回答后面。 */}
+              {/* 第二轮及以后：先有「第二轮 · 主导人汇总」这条进度卡，汇总的思考与
+                  正文跟在它下面。顺序反了会出现「思考在标题上面」，读者不知道那段
+                  思考属于谁。 */}
               {live && (
                 <ExecutionRound
                   phases={props.phases}
@@ -440,6 +434,14 @@ export function ConversationView(props: {
                   labels={labels}
                   firstRoundAnswered={answered}
                 />
+              )}
+
+              {live && turnIndex === turns.length - 1 && conversation.status === 'synthesizing' && props.deltas && (
+                <LiveSummary deltas={props.deltas} labels={labels} />
+              )}
+
+              {live && turnIndex === turns.length - 1 && props.debate && (
+                <DebatePanel debate={props.debate} labels={labels} live />
               )}
 
               {turn.blocks
