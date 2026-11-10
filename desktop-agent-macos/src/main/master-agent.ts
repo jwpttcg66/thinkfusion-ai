@@ -182,6 +182,9 @@ export class MasterAgent {
     }
 
     sink.status(participants.length > 1 ? 'collecting' : 'thinking');
+    // 通道条一开始就要齐：join 若跟在每人 ask 前面，慢的那家在条上会晚出现，
+    // 看起来像「这一轮没问它」。名单先入条，再各自进入提问中。
+    for (const agent of participants) sink.join(agent.id);
 
     const round = await this.ask(participants, request, sink);
     const base: ResearchOutcome = {

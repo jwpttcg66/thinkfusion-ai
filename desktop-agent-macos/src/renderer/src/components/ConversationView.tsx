@@ -384,6 +384,7 @@ export function ConversationView(props: {
                   statuses={props.channelStatuses}
                   labels={labels}
                   status={conversation.status}
+                  firstRoundAnswered={answered}
                 />
               )}
             </section>
@@ -704,16 +705,24 @@ function phaseLabel(phase: string): string {
  * 第二轮（执行阶段）：自己的通道条 + 进度说明。
  *
  * 第一轮条答完就冻结；这里才是「汇总中 / 最终意见」的最新状态落点。
+ * 主导汇总只显示一个人；追加提问时再把正在 asking 的通道挂上来。
  */
 function ExecutionRound(props: {
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   statuses: ChannelStatus[];
   labels: ReadonlyMap<string, string>;
   status: Conversation['status'];
+  firstRoundAnswered: ReadonlySet<string>;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  // 主导只能有一个：即便相位里误留了多个 leading，条上也只认最先那个。
   const leadingEntries = Object.entries(props.phases).filter(([, item]) => item.phase === 'leading');
-  const active = leadingEntries.length > 0 || props.status === 'synthesizing';
+  const lead = leadingEntries[0] ?? null;
+  const deepenAsking = Object.entries(props.phases).filter(
+    ([id, item]) => item.phase === 'asking' && props.firstRoundAnswered.has(id)
+  );
+  const active =
+    lead !== null || deepenAsking.length > 0 || props.status === 'synthesizing';
 
   useEffect(() => {
     if (!active) return;
@@ -723,18 +732,22 @@ function ExecutionRound(props: {
 
   if (!active) return null;
 
-  const primary = leadingEntries[0];
-  const agentId = primary?.[0];
-  const detail = primary?.[1]?.detail ?? '综合各家回答';
-  const startedAt = primary?.[1]?.at;
+  const agentId = lead?.[0];
+  const detail = lead?.[1]?.detail ?? (deepenAsking.length > 0 ? '追加提问中' : '综合各家回答');
+  const startedAt = lead?.[1]?.at ?? deepenAsking[0]?.[1]?.at;
   const waited = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
   const title = detail.includes('最终意见')
     ? '第二轮 · 最终意见'
     : detail.includes('更新汇总') || detail.includes('补充后')
       ? '追加轮 · 更新汇总'
-      : '第二轮 · 主导人汇总';
-  const roundChannels = leadingEntries.map(([id]) => id);
-  const roundPhases = Object.fromEntries(leadingEntries);
+      : deepenAsking.length > 0 && !lead
+        ? '追加轮 · 提问'
+        : '第二轮 · 主导人汇总';
+  // 主导汇总：只挂这一人。追加提问：挂正在问的通道（可多人）。
+  const roundChannels = lead ? [lead[0]] : deepenAsking.map(([id]) => id);
+  const roundPhases = lead
+    ? { [lead[0]]: lead[1] }
+    : Object.fromEntries(deepenAsking);
   const roundAnswered = new Set<string>();
 
   return (

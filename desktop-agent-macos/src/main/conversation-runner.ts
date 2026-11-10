@@ -1312,10 +1312,13 @@ export class ConversationRunner {
     const failures: string[] = [];
     const messageIds = new Map<string, string>();
 
+    // 条上要一开始就看到全部成员。本地模型只能逐个问，若等到轮到 hy4 才
+    // join，前面几十秒的通道条上就没有它——真机 2026-11-10「第一轮没有 hy4」。
+    for (const member of orchestration.members) sink.join(member.agentId);
+
     const askMember = async (target: (typeof orchestration.members)[number]): Promise<void> => {
       if (sink.cancelled()) return;
       const isWeb = target.kind === 'web';
-      sink.join(target.agentId);
       sink.phase(target.agentId, 'asking', needsLocalRead ? '读工程证据后回答' : '回答');
       try {
         const answer = isWeb
@@ -1801,6 +1804,12 @@ export class ConversationRunner {
     this.setStatus(conversation, 'synthesizing');
     // 主导人第一轮往往已经答过；再问一次是汇总，不是「还没答上」。
     // 标成 leading，条上写「汇总中」，避免和第一轮的「提问中」混成一件事。
+    // 主导汇总只允许这一人：先把其他人可能残留的 leading 清掉，免得第二轮
+    // 条上同时出现好几个「汇总中」。
+    for (const answer of answers) {
+      if (answer.channelId === lead.agentId) continue;
+      sink.phase(answer.channelId, 'answered', '第一轮已回答');
+    }
     sink.phase(
       lead.agentId,
       'leading',
@@ -1849,13 +1858,13 @@ export class ConversationRunner {
       });
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
-      // 空汇总也要离开 leading：只在有正文时才标「汇总完成」，否则如实说没写出。
-      // 以前 `if (summaryText)` 才切走，空回执会把条永远停在「提问中」。
-      sink.phase(
-        lead.agentId,
-        'answered',
-        summaryText ? '汇总完成' : '汇总未写出内容'
-      );
+      if (!summaryText) {
+        sink.phase(lead.agentId, 'answered', '汇总未写出内容');
+      } else {
+        // 整段执行阶段都保持 leading：中途改成 answered，第二轮通道条会空掉，
+        // 真机上看起来像「第二轮没有通道条」。细节文字区分进度即可。
+        sink.phase(lead.agentId, 'leading', '汇总完成，继续执行阶段');
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       sink.phase(lead.agentId, 'failed', detail);
@@ -1950,6 +1959,10 @@ export class ConversationRunner {
         sink.phase(lead.agentId, 'failed', detail);
         this.addMessage(conversation, { role: 'system', text: `${label} 读辩论记录时没给出最终意见：${detail}` });
       }
+    } else {
+      // 没有辩论 / 最终意见：执行阶段到此结束，这才离开 leading。
+      // 汇总刚写完就标 answered，第二轮条会空掉，辩论还没开。
+      sink.phase(lead.agentId, 'answered', '汇总完成');
     }
 
     return { lead, summaryText, topics, debate, verdictText };
@@ -2069,6 +2082,7 @@ export class ConversationRunner {
       }));
 
       this.setStatus(conversation, 'synthesizing');
+      // 追加轮也只让这一位主导人进 leading，不能把第一轮其他人再标成汇总。
       sink.phase(execution.lead.agentId, 'leading', `第 ${round} 轮补充后更新汇总`);
       try {
         const answer = await pool.ask(execution.lead.agentId, {

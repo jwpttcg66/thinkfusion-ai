@@ -205,6 +205,9 @@ test('a follow-up is sent verbatim too', async () => {
   const started = await runner.start({ text: '第一问' });
   await settle(runner, started.conversationId);
   await runner.followup(started.conversationId, '第二问');
+  // followup 立刻返回、run 异步开跑：上一轮已经是 answered，settle 会马上
+  // 当成「结束了」——必须等第二问真的发出去。
+  await waitFor(() => sent.length >= 2);
   await settle(runner, started.conversationId);
 
   assert.deepEqual(sent, ['第一问', '第二问']);
@@ -893,6 +896,73 @@ test('网页主导：由回答者当主导，它读全部回答写汇总', async
     ),
     '主导人汇总应发出 leading 阶段，供第二轮进度卡使用'
   );
+});
+
+test('主导汇总保持 leading 直到执行阶段结束，第二轮通道条才不会中途空掉', async () => {
+  // 真机 2026-11-10：汇总刚写完就把相位改成 answered，辩论还没开、
+  // 最终意见还没写，第二轮通道条已经消失。
+  const channels = [
+    fakeChannel('a', async input =>
+      answer(input.question.includes('【各来源的回答】') ? SUMMARY_REPLY : 'a 的回答')
+    ),
+    fakeChannel('b', async () => answer('b 的回答'))
+  ];
+  const { runner, events } = execRunner(channels, { fusionEnabled: true });
+  const conversation = await runner.start({
+    text: '一个问题',
+    executionConfig: { executionMode: 'web', leadAgentId: 'a', debateMode: 'off' }
+  });
+  await settle(runner, conversation.conversationId);
+
+  const leadPhases = events
+    .filter(event => event.type === 'channel.phase' && event.channelId === 'a')
+    .map(event => event.phase);
+  const firstLeading = leadPhases.indexOf('leading');
+  assert.ok(firstLeading >= 0, '应进入 leading');
+  const after = leadPhases.slice(firstLeading);
+  const answeredAt = after.indexOf('answered');
+  assert.ok(answeredAt >= 0, '执行结束应落到 answered');
+  assert.ok(
+    after.slice(0, answeredAt).every(phase => phase === 'leading'),
+    '汇总进行中应保持 leading，不能中途改成 answered'
+  );
+  // 主导只能是 a：b 在执行阶段不应被标成 leading。
+  assert.equal(
+    events.filter(event =>
+      event.type === 'channel.phase' && event.channelId === 'b' && event.phase === 'leading'
+    ).length,
+    0,
+    '非主导人不能进 leading'
+  );
+});
+
+test('提问开始时通道条就应包含全部成员，而不是等人家开始问才 join', async () => {
+  // 本地模型逐个问：若等轮到 hy4 才 join，前面云端在答时条上没有它。
+  let resolveB;
+  const gate = new Promise(resolve => {
+    resolveB = resolve;
+  });
+  const seen = [];
+  /** @type {{ get: (id: string) => { channels: string[] } }} */
+  let runner;
+  let conversationId = '';
+  const channels = [
+    fakeChannel('a', async () => {
+      seen.push([...runner.get(conversationId).channels].sort());
+      resolveB();
+      return answer('a 的回答');
+    }),
+    fakeChannel('b', async () => {
+      await gate;
+      return answer('b 的回答');
+    })
+  ];
+  runner = makeRunner(channels).runner;
+  const started = await runner.start({ text: '什么是连接池' });
+  conversationId = started.conversationId;
+  await settle(runner, started.conversationId);
+  assert.ok(seen.length >= 1, 'a 被问时应已记录通道条');
+  assert.deepEqual(seen[0], ['a', 'b'], 'a 开始答时 b 就该已在通道条上');
 });
 
 test('本地主导：本地模型当主导，汇总与辩题都由它出', async () => {

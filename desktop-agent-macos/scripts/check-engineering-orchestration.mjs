@@ -431,6 +431,29 @@ test('本地模型逐个问，不抢同一个推理闸门；云端模型照样�
   );
 });
 
+test('工程编排：云端开始答时本地模型已在通道条上（不会第一轮缺 hy4）', async () => {
+  // 真机 2026-11-10：本地逐个问，等轮到 hy4 才 join，前面云端在答时条上没有它。
+  const seen = [];
+  let runner;
+  let conversationId = '';
+  const cloud = fakeModel('openai:c', 'C', 'cloud');
+  const originalAsk = cloud.ask.bind(cloud);
+  cloud.ask = async input => {
+    if (input.stage === 'initial') {
+      seen.push([...runner.get(conversationId).channels].sort());
+    }
+    return originalAsk(input);
+  };
+  const local = fakeModel('ollama:hy4', 'hy4', 'local', { delayMs: 40 });
+  runner = makeRunner({ models: [local, cloud] }).runner;
+  const started = await runner.start(engineeringInput(FACT));
+  conversationId = started.conversationId;
+  await settle(runner, conversationId);
+  assert.ok(seen.length >= 1, '云端被问时应记下通道条');
+  assert.ok(seen[0].includes('ollama:hy4'), '云端开始答时 hy4 就该已在通道条上');
+  assert.ok(seen[0].includes('openai:c'), '云端自己也在条上');
+});
+
 test('知识空间零改动：仍然问所有网页通道，模型不参与第一手回答', async () => {
   const a = fakeModel('ollama:a', 'A', 'local');
   const { runner, log } = makeRunner({ web: ['chatgpt', 'gemini'], models: [a] });
