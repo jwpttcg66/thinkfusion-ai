@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { buildEvidenceLedger } from '../shared/engineering-evidence';
+import { closeAllTerminals } from './tools/terminal';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalStepOutcome } from './local-plugins';
@@ -15,6 +16,13 @@ import {
 } from '../shared/contracts';
 
 const port = process.parentPort;
+
+// 应用退出或 Runtime 被杀时收掉所有 pty：不把交互式 shell 留在后台。
+process.on('exit', () => closeAllTerminals());
+process.on('SIGTERM', () => {
+  closeAllTerminals();
+  process.exit(0);
+});
 if (!port) throw new Error('Agent must run as Electron UtilityProcess');
 
 /** Tasks the user cancelled while a plan was executing. */

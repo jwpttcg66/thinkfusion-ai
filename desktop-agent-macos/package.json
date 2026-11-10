@@ -158,6 +158,9 @@
           "**/*"
         ]
       }
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
     ]
   }
 }
