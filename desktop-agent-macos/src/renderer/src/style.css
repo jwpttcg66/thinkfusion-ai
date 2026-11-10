@@ -2548,6 +2548,12 @@ button:disabled {
    two cards can be looked at at once, which is the whole reason to ask more
    than one AI. `auto-fit` keeps them side by side while the pane is wide enough
    and drops to one column when it is not — never a squeezed 120px column. */
+.live-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .channel-grid {
   display: grid;
   gap: 12px;
@@ -3890,6 +3896,14 @@ button:disabled {
   letter-spacing: 0.5px;
 }
 
+.debate-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
 .debate-message {
   padding: 8px 10px;
   margin-bottom: 6px;
@@ -4261,6 +4275,14 @@ button:disabled {
 .debate-panel summary { cursor: pointer; color: var(--text-2); font-weight: 600; }
 .debate-round { margin-top: 10px; }
 .debate-round h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-3); }
+.debate-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
 .debate-message { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--line-1); }
 .debate-who { color: var(--text-3); font-size: 11.5px; }
 .debate-message p { margin: 3px 0 0; white-space: pre-wrap; line-height: 1.6; }

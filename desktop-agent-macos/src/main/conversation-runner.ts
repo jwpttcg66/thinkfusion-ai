@@ -2128,6 +2128,7 @@ export class ConversationRunner {
           rounds: execution.debate.rounds.map(round => ({
             index: round.index,
             phase: String((round as { phase?: unknown }).phase ?? ''),
+            ...((round as { pending?: string[] }).pending ? { pending: (round as { pending?: string[] }).pending } : {}),
             messages: round.messages.map(message => ({
               author: message.author,
               kind: message.kind,

@@ -106,6 +106,8 @@ export interface DebateSnapshot {
   rounds: Array<{
     index: number;
     phase: string;
+    /** 还在等发言的成员；空表示这一轮都回来了。 */
+    pending?: string[];
     messages: Array<{ author: string; kind: string; text: string; reasoning?: string }>;
   }>;
 }

@@ -400,6 +400,8 @@ export class DebateOrchestrator {
       ? []
       : webLeadSpeakers(state, index, speakersFor(state.plan, index));
     const budget = budgetOf(state.config);
+    // 从这一轮开始就记住还在等谁，界面才能在第一条发言回来之前显示「等待 X 发言」。
+    round.pending = [...speakers];
     /**
      * 挑战指向具体两句。
      *
@@ -443,6 +445,7 @@ export class DebateOrchestrator {
       const startedAt = this.now();
       try {
         const answer = await this.askWithin(agentId, task, budget.stageTimeoutMs, deadline);
+        round.pending = round.pending?.filter(id => id !== agentId);
         const endedAt = this.now();
         const message: DebateMessage = {
           messageId: randomUUID(),

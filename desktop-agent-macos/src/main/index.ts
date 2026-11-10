@@ -3918,6 +3918,7 @@ app.whenReady().then(async () => {
           snapshot: current.rounds.map(round => ({
             index: round.index,
             phase: round.phase ?? '',
+            ...(round.pending && round.pending.length > 0 ? { pending: round.pending } : {}),
             messages: round.messages.map(message => ({
               author: message.agentId,
               kind: message.kind,

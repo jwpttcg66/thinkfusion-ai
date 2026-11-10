@@ -421,6 +421,8 @@ export interface DebateVerdict {
 }
 
 export interface DebateRound {
+  /** 本轮还在等哪些成员发言；没有就是都回来了。 */
+  pending?: string[];
   index: number;
   /** 这一轮是独立表态、质疑，还是回应质疑。老文件没有这个字段。 */
   phase?: DebatePhase;

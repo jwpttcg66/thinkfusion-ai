@@ -424,6 +424,10 @@ export function ConversationView(props: {
                 );
               })}
 
+              {live && turnIndex === turns.length - 1 && conversation.status === 'synthesizing' && props.deltas && (
+                <LiveSummary deltas={props.deltas} labels={labels} />
+              )}
+
               {live && turnIndex === turns.length - 1 && props.debate && (
                 <DebatePanel debate={props.debate} labels={labels} live />
               )}
@@ -740,6 +744,42 @@ function LiveChannelGrid(props: {
   );
 }
 
+/**
+ * 主导人汇总的实时输出。
+ *
+ * 第一轮回答已经落盘，主导人又是其中一位；再按 channelId 找卡片时命中的是
+ * 第一轮那张旧卡，汇总的流式内容就被盖住了。所以汇总单独一块，放在第二轮
+ * 进度卡下面：思考与正文都跟着流式长。
+ */
+function LiveSummary(props: {
+  deltas: Record<string, { text: string; reasoning: string; done: boolean }>;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const entries = Object.entries(props.deltas).filter(([, delta]) => delta.text || delta.reasoning);
+  if (entries.length === 0) return null;
+  return (
+    <div className="live-summary">
+      {entries.map(([channelId, delta]) => (
+        <article key={channelId} className={`channel-card ch-${channelId} is-live`}>
+          <header className="channel-card-head">
+            <span className="channel-dot" />
+            <b>{labelOf(channelId, props.labels)}</b>
+            <span className="channel-chars">{delta.done ? '汇总完成' : '汇总中'}</span>
+          </header>
+          <details className="channel-reasoning is-live" open={!delta.done}>
+            <summary>{delta.reasoning ? `思考中（${delta.reasoning.length} 字）` : '思考中…'}</summary>
+            <pre>{delta.reasoning}</pre>
+          </details>
+          <div className="channel-card-body">
+            {delta.text ? <MarkdownBody text={delta.text} /> : <span className="muted">正在写汇总…</span>}
+            {!delta.done && <span className="stream-cursor" aria-hidden="true" />}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function ChannelGrid({ messages, labels }: { messages: ConversationMessage[]; labels: ReadonlyMap<string, string> }) {
   return (
     <div className="channel-grid">
@@ -961,6 +1001,11 @@ function DebatePanel({
           <h5>
             第 {round.index + 1} 轮{round.phase ? ` · ${round.phase}` : ''}
           </h5>
+          {round.pending && round.pending.length > 0 && (
+            <p className="debate-pending">
+              <span className="dot-pulse" /> 等待 {round.pending.map(id => labelOf(id, labels)).join('、')} 发言…
+            </p>
+          )}
           {round.messages.map((message, index) => (
             <div key={index} className="debate-message">
               <span className="debate-who">
