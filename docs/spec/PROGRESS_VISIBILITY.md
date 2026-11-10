@@ -85,7 +85,8 @@ export const PROGRESS_STAGES = ['routing','asking','synthesis','execution','revi
 | 每通道等待秒数 | `channel.phase.at` + 本地计时 | ✅ 已有 |
 | 执行步骤 | `step.started/completed/failed` | ✅ 胶囊列表 + 五段 detail |
 | 思考内容 | Provider 的 `reasoning_content` / `thinking` | ✅ 非流式捕获，折叠显示 |
-| 流式正文 | Provider `streamChunks()` → `answer.delta` | ✅ 已实现（第一轮与汇总） |
+| 流式正文（本地/云端） | Provider `streamChunks()` → `answer.delta` | ✅ 第一轮、工程模式首轮、汇总 |
+| 流式正文（网页） | 轮询 DOM 的 `onPartial` → 增量 / reset | ✅ 见 [WEB_ANSWER_STREAMING](WEB_ANSWER_STREAMING.md) |
 
 ### 3.3 思考：只显示模型真的返回过的
 

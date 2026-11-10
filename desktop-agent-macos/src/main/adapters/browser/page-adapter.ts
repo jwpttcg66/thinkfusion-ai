@@ -205,7 +205,8 @@ export class PageBrowserAdapter implements BrowserAdapter {
       // Three minutes covers a search-backed answer and still ends.
       input.timeoutMs ?? this.spec.timeoutMs ?? 180_000,
       input.question,
-      at => { firstTokenAt = at; }
+      at => { firstTokenAt = at; },
+      input.onPartial
     );
     const threadUrl = (await this.spec.adapter.settledUrl(baseline, input.question)) || undefined;
     // Kept for the next reset: starting a new conversation has to prove it

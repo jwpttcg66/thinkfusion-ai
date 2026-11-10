@@ -1,5 +1,6 @@
 import type { ChannelStatus } from '../../shared/conversation';
 import type { BrowserAdapter, DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
+import { diffPartial } from '../../shared/partial-stream';
 import type { SubAgent, SubAgentAnswer, SubAgentIdentity, SubAgentTask } from './types';
 
 /**
@@ -48,6 +49,46 @@ export class ProviderSubAgent implements SubAgent {
         .filter(Boolean)
         .join('；')
     };
+  }
+
+  /**
+   * 网页流式：轮询已渲染的文本，按增量交给界面。
+   *
+   * 页面会改写自己（Markdown 收尾、引用 chip 后插），新文本不一定以旧文本开头；
+   * 这时发 reset 整段替换，绝不能硬拼成「半截旧 + 半截新」。
+   */
+  async askStream(
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+  ): Promise<SubAgentAnswer> {
+    let last = '';
+    const startedAt = Date.now();
+    try {
+      const answer = await this.adapter.ask({
+        question: task.question,
+        stage: task.stage,
+        timeoutMs: task.timeoutMs,
+        onPartial: text => {
+          const diff = diffPartial(last, text);
+          if (!diff) return;
+          last = text;
+          if (diff.append !== undefined) onDelta({ text: diff.append });
+          else if (diff.reset !== undefined) onDelta({ text: diff.reset, reset: true });
+        }
+      });
+      // 最终文本如果比最后一版多了尾巴，补出去；已经一致就什么都不做。
+      const finalDiff = diffPartial(last, answer.text);
+      if (finalDiff?.append !== undefined) onDelta({ text: finalDiff.append });
+      else if (finalDiff?.reset !== undefined) onDelta({ text: finalDiff.reset, reset: true });
+      this.failures = 0;
+      this.lastFailure = null;
+      return { ...answer, stage: task.stage, receivedAt: Date.now(), latencyMs: Date.now() - startedAt };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.failures += 1;
+      this.lastFailure = detail;
+      throw error;
+    }
   }
 
   async ask(task: SubAgentTask): Promise<SubAgentAnswer> {

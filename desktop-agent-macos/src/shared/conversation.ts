@@ -388,6 +388,8 @@ export type ConversationEvent = { at: number } & (
       channelId: string;
       text?: string;
       reasoning?: string;
+      /** 网页改写了自己：整段替换，不追加。 */
+      reset?: boolean;
       done?: boolean;
     }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }

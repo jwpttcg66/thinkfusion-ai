@@ -56,7 +56,8 @@ npm run test:trace-stats     # 进度不碰 token 统计
 
 - `ModelProvider.streamChunks()` 产出 `{text?, reasoning?, usage?}`；`stream()` 保留为只出正文的旧接口；
 - `ProviderBackedSubAgent.askStream()` 累积正文/推理，回调增量，返回完整回答与 usage；
-- 第一轮回答与主导人汇总都走流式（网页通道仍整段）；
+- 第一轮、工程模式首轮、主导人汇总都走流式；网页通道是轮询增量（`onPartial`），
+  页面改写时发 `reset` 整段替换，规则见 `docs/spec/WEB_ANSWER_STREAMING.md`；
 - 增量按 50ms 合批后发 `answer.delta`，界面按 channelId 追加；消息落盘后由 `message.added` 清掉临时气泡；
 - 本地/云端拿不到流时自动退回 `ask()`，不假装在流。
 
@@ -124,7 +125,8 @@ npm run test:trace-stats     # 进度不碰 token 统计
 | 推理内容泄露 | 思考里带用户隐私或密钥 | 默认折叠、不导出、不进综合；只存在本机会话 |
 | 进度条说谎 | 显示「完成」但实际失败 | 只用事件投影；失败只标当前段；任务结束就隐藏 |
 | 视觉噪音 | 每来一块就重渲染整段 | 按 `messageId` 增量更新；只重渲染变化的块 |
-| 网页通道被误改成流式 | 页面被当成流读，答案被截断 | 保留 `streaming:false` 分支，类型上分开 |
+| 网页流式把侧栏当成回答 | 页面还没有正文，先出现推荐位 | `onPartial` 挂在回显/占位/外壳判据之后，不满足就不回调 |
+| 网页改写导致文本错位 | 「半截旧 + 半截新」 | `diffPartial` 检测到不是前缀就发 `reset`，整段替换 |
 
 ## 6. 提交约定
 

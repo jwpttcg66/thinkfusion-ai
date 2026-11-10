@@ -3310,7 +3310,9 @@ export class ChatPageDriver {
      * 第一次看到非空回答片段时回调。只用于观测首 token；不影响判定，
      * 也不改变返回值。
      */
-    onFirstToken?: (at: number) => void
+    onFirstToken?: (at: number) => void,
+    /** 每轮把「当前已渲染出的完整回答」交出去；由调用方算增量。 */
+    onPartial?: (text: string) => void
   ): Promise<string> {
     const controller = this.waits.get(requestId) ?? new AbortController();
     this.waits.set(requestId, controller);
@@ -3371,6 +3373,9 @@ export class ChatPageDriver {
           firstTokenAt = Date.now();
           onFirstToken?.(firstTokenAt);
         }
+        // 页面在逐字渲染：这一版已经通过「不是回显 / 不是占位 / 不是外壳」的
+        // 判据，可以给界面看。是否稳定由下面的逻辑判断，两者互不影响。
+        onPartial?.(cleaned);
 
         if (probe.generating) sawGenerating = true;
 

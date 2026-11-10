@@ -97,7 +97,7 @@ export interface SubAgent {
    */
   askStream?(
     task: SubAgentTask,
-    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer>;
   /** Give this agent's page a fresh thread. Called once per conversation. */
   newConversation?(): Promise<NewSessionResult>;
@@ -128,7 +128,7 @@ export interface SubAgentPool {
   askStream?(
     agentId: string,
     task: SubAgentTask,
-    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer>;
   newConversation(agentId: string): Promise<NewSessionResult>;
   /** Delete one agent's copy of a conversation. Resolves, never throws. */

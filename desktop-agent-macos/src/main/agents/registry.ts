@@ -108,7 +108,7 @@ export class SubAgentRegistry implements SubAgentPool {
   async askStream(
     agentId: string,
     task: SubAgentTask,
-    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer> {
     const agent = this.byId.get(agentId);
     if (!agent) throw new Error(`找不到 agent ${agentId}`);

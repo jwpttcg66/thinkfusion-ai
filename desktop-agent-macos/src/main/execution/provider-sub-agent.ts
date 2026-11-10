@@ -85,7 +85,7 @@ export class ProviderBackedSubAgent implements SubAgent {
 
   async askStream(
     task: SubAgentTask,
-    onDelta: (chunk: { text?: string; reasoning?: string }) => void
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer> {
     if (!this.provider.streamChunks) return this.ask(task);
 

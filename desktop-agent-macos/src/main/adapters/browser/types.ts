@@ -24,6 +24,12 @@ export interface AdapterAsk {
   question: string;
   stage: AskStage;
   timeoutMs?: number;
+  /**
+   * 网页不是流：它只会一段段渲染。这里每轮回调「当前已渲染出的完整回答」，
+   * 由调用方算增量。只在通过既有判据（不是回显、不是占位、不是外壳）后回调，
+   * 所以不会把侧栏文字当成回答发出去。
+   */
+  onPartial?: (text: string) => void;
 }
 
 export interface AdapterAnswer {

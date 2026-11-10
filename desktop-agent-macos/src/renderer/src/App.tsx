@@ -534,8 +534,8 @@ export default function App() {
           return {
             ...prev,
             [event.channelId]: {
-              text: current.text + (event.text ?? ''),
-              reasoning: current.reasoning + (event.reasoning ?? ''),
+              text: event.reset === true ? (event.text ?? '') : current.text + (event.text ?? ''),
+              reasoning: event.reset === true ? (event.reasoning ?? '') : current.reasoning + (event.reasoning ?? ''),
               done: event.done === true
             }
           };

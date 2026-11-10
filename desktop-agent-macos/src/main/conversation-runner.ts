@@ -20,6 +20,7 @@ import { mainCapabilities } from './capabilities';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
 import type { SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
+import { notToolRequest } from '../shared/partial-stream';
 import { MasterAgent, type ChannelOutcome, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
 import { synthesizeWithFusion } from './synthesis/engine';
@@ -886,13 +887,14 @@ export class ConversationRunner {
       system: string[];
       scope: { root: string; extraFiles: readonly string[] };
       sink: ResearchSink;
+      conversation: Conversation;
       trace?: TraceRecorder;
       /** 真的调了本机能力时要让用户在对话里看到；普通流水账仍只进轨迹。 */
       announce?: (text: string) => void;
     }
   ): Promise<SubAgentAnswer> {
     const ask = (question: string): Promise<SubAgentAnswer> =>
-      input.pool.ask(target.agentId, {
+      this.askGuarded(input.pool, target.agentId, {
         question,
         stage: 'initial',
         // 证据可能有几万字，本地模型逐段读完再写；读文件那一轮同理。
@@ -900,7 +902,7 @@ export class ConversationRunner {
         // 只对本地/云端 API 生效；网页成员不走这里。
         // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
         system: input.system
-      });
+      }, input.conversation);
 
     let answer = await ask(input.question);
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -1580,12 +1582,12 @@ export class ConversationRunner {
       sink.phase(target.agentId, 'asking', needsLocalRead ? '读工程证据后回答' : '回答');
       try {
         const answer = isWeb
-          ? await this.deps.registry.ask(target.agentId, {
+          ? await this.askStreaming(this.deps.registry, target.agentId, {
               question: webQuestion ?? engineered,
               stage: 'initial',
               // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
               timeoutMs: SECOND_OPINION_BUDGET_MS
-            })
+            }, conversation)
           : needsLocalRead
             ? await this.askWithReadTool(target, {
                 pool,
@@ -1593,6 +1595,7 @@ export class ConversationRunner {
                 system: toolSystem,
                 scope,
                 sink,
+                conversation,
                 announce: text => this.addMessage(conversation, { role: 'system', text }),
                 ...(this.traceFor(conversation.conversationId)
                   ? { trace: this.traceFor(conversation.conversationId)! }
@@ -2683,6 +2686,62 @@ export class ConversationRunner {
    * 增量按 50ms 合批再发：按 token 逐条 postMessage 会把 IPC 打成洪水，而界面
    * 需要的只是「看起来在动」。合批只影响显示，不影响最终消息与用量。
    */
+  /**
+   * 工程模式第一轮的流式：先按住工具请求。
+   *
+   * 模型可能只回一行 `{"tool":"fs.stat",…}`。在缓冲区出现第一个非 `{` 的字符
+   * 之前，不发任何正文；一旦确认不是 JSON，再把攒下的整段一次放出去。这样既
+   * 有流式，也不会让用户先看到一段 JSON 再看到回答。
+   */
+  private async askGuarded(
+    pool: SubAgentPool,
+    agentId: string,
+    task: SubAgentTask,
+    conversation: Conversation
+  ): Promise<SubAgentAnswer> {
+    if (!pool.askStream) return pool.ask(agentId, task);
+
+    const conversationId = conversation.conversationId;
+    let buffer = '';
+    let released = false;
+    const emit = (text: string, reasoning?: string) => {
+      if (!text && !reasoning) return;
+      this.deps.emit({
+        type: 'answer.delta',
+        at: Date.now(),
+        conversationId,
+        channelId: agentId,
+        ...(text ? { text } : {}),
+        ...(reasoning ? { reasoning } : {})
+      });
+    };
+
+    try {
+      const answer = await pool.askStream(agentId, task, chunk => {
+        if (chunk.reasoning) emit('', chunk.reasoning);
+        if (!chunk.text) return;
+        if (released) {
+          emit(chunk.text);
+          return;
+        }
+        buffer += chunk.text;
+        // 第一个非空字符不是 `{`，就可以确认这是正文，不是工具请求。
+        if (notToolRequest(buffer)) {
+          released = true;
+          emit(buffer);
+          buffer = '';
+        }
+      });
+      if (!released && buffer && notToolRequest(buffer)) emit(buffer);
+      this.deps.emit({ type: 'answer.delta', at: Date.now(), conversationId, channelId: agentId, done: true });
+      return answer;
+    } catch (error) {
+      if (!released && buffer && notToolRequest(buffer)) emit(buffer);
+      this.deps.emit({ type: 'answer.delta', at: Date.now(), conversationId, channelId: agentId, done: true });
+      throw error;
+    }
+  }
+
   private async askStreaming(
     pool: SubAgentPool,
     agentId: string,
@@ -2712,6 +2771,18 @@ export class ConversationRunner {
 
     try {
       const answer = await pool.askStream(agentId, task, chunk => {
+        if (chunk.reset) {
+          flush();
+          this.deps.emit({
+            type: 'answer.delta',
+            at: Date.now(),
+            conversationId,
+            channelId: agentId,
+            text: chunk.text ?? '',
+            reset: true
+          });
+          return;
+        }
         pendingText += chunk.text ?? '';
         pendingReasoning += chunk.reasoning ?? '';
         if (timer) return;
