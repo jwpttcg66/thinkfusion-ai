@@ -42,7 +42,7 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 | 执行命令 | `bash` | `shell.run`（`/bin/sh -c`，真实退出码，分层策略） | 已有 |
 | 后台命令 | `bash` + `run_in_background` | `shell.run` 的 `background` | **本轮补齐** |
 | 作业控制 | `job_list` / `job_output` / `job_kill` | `job.list` / `job.output` / `job.kill`（元数据落盘，跨 Runtime 进程可用） | **本轮补齐** |
-| 持久终端 | `terminal_*`（PTY） | P5 补 `term.*`，见 [设计 §5.3](../spec/GENERAL_ENGINEERING_CAPABILITIES.md#53-终端6-条) | P5 待补 |
+| 持久终端 | `terminal_*`（PTY） | `term.open/read/send/signal/close/list`（node-pty） | **已有** |
 | 抓网页 | `web_fetch` | `web.fetch`（GET/POST，SSRF 防护，10s，2 MB，正文 20k 字符） | **本轮补齐** |
 | 联网搜索 | `web_search` | `web.search`（凭据或应用内浏览器；免凭据走主进程 `web.search.browser`） | **已有**（2026-11-09 补） |
 | 剪贴板 | （桌面插件） | `clipboard.read` / `clipboard.write` | **本轮补齐** |
@@ -123,7 +123,7 @@ DSH 的 Standard 模式把工具分成三类，我们的处置也按这三类走
 
 上面那张表是「对齐 DSH Standard 工具面」那一轮的记录，只到 27 个工具。之后
 两批补齐了 DSH 目录里没有、但本机干活真正用得到的部分；`project.read` 之后，
-清单是 **64 个能力 = 58 个 Runtime 工具（55 本地 + 3 联网）+ 6 个主进程能力**
+清单是 **70 个能力 = 64 个 Runtime 工具（61 本地 + 3 联网）+ 6 个主进程能力**
 （2026-11-10 对账，`CAPABILITY_CATALOG` 与测试都按 62 断言）：
 
 | 批次 | 新增 | 为什么需要 |

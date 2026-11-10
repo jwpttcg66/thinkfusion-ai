@@ -24,7 +24,7 @@ DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服�
 ## 2. 一套契约、一份清单、两个宿主
 
 ```
-src/shared/capabilities.ts        契约 + 全量清单（64 条）+ CapabilityRegistry
+src/shared/capabilities.ts        契约 + 全量清单（70 条）+ CapabilityRegistry
         │
         ├── src/agent/local-plugins.ts        Runtime：53 个本地工具 + 3 个联网工具
         │        └── src/agent/index.ts       只剩 localCapabilities.execute(step.tool, …)
@@ -53,13 +53,13 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 | 宿主 | 类别 | 数量 | 例子 |
 | --- | --- | --- | --- |
-| `runtime` | 本地能力 | 55 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
+| `runtime` | 本地能力 | 61 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
 | `runtime` | 联网 | 3 | `web.fetch`（抓网页）、`web.search`（结构化搜索）、`dns.lookup`（域名解析） |
 | `main` | 本地能力 | 3 | `project.scan`（工程证据读取）、`project.read`（模型自己读一次文件）、`file.attach`（输入框「＋」挑的附件） |
 | `main` | 联网 | 1 | `web.search.browser`（免凭据的浏览器搜索后端） |
 | `main` | 保存 | 2 | `document.export`（会话 md/docx）、`page.save-document`（网页文档与计划） |
 
-合计 **64 = 58 Runtime + 6 主进程**（2026-11-10 对账；`project.read` 是 2026-11-09
+合计 **70 = 64 Runtime + 6 主进程**（2026-11-10 对账；`project.read` 是 2026-11-09
 「让模型自己读一次文件」补的，旧文里的 61 已过期）。
 
 `web.fetch` / `web.search` 跑在 Runtime，干的却是联网的活，所以单独成组；

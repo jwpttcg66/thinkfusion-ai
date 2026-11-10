@@ -8,12 +8,12 @@
 
 | 期 | 状态 | 内容 | 对应设计章节 | 产出 |
 | --- | --- | --- | --- | --- |
-| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 64 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
+| P0 | ✅ 已落地 | 冻结 dsh 76 条清单 + 本机 70 条归族，覆盖率测试 | §2–§5 | `dsh-tools.ts`、`engineering-capabilities.ts`、两个 check 脚本 |
 | P1 | ✅ 已落地 | 执行证据账本（只记录，不判定） | §8 | `engineering-evidence.ts`、`ExecutionReport.evidence` |
-| P2 | 未开始 | 技能包按族拆分 | §7 | 3 份新 `SKILL.md`、`trigger.ts` 改族选择 |
+| P2 | ✅ 已裁决 | 维持单技能，族只做汇总（不拆分） | §7 | 不改技能数量；族用于门禁与度量 |
 | P3 | ✅ 已落地 | 计划门禁（缺判据不许标「已验证」） | §8.2 | `checkPlanCapabilities` + 界面提示 |
 | P4 | 未开始 | 场景回放与度量 | §11 | 5 个场景 JSON + 回放脚本 |
-| P5 | 部分（2/12） | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
+| P5 | 部分（9/12） | 补齐运行时缺口（L2 中的 12 条） | §5.2–§5.6 | 提问工具、终端、诊断、会话检索、持久 shell |
 | P6 | 未开始 | 治理能力 14 条 + 扩展裁决 3 条 | | §4、§5.4–§5.7 | 目标、定时、团队、扩展决策 |
 
 P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP」划到「不在这层」，
@@ -23,9 +23,9 @@ P5/P6 是这轮新增的：上一版把「编排、扩展生态、终端、LSP�
 
 | 层级 | 条数 | 分布 | 归属期 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 19 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1、提问 1、诊断 1 | 已可用，P0 只登记 |
+| L0 已有工具 | 26 | 文件 6、搜索 2、执行 4、作业 3、git 1、依赖 1、提问 1、诊断 1、终端 7 | 已可用，P0 只登记 |
 | L1 等价机制 | 28 | 计划交互 5、委派 11、会话记忆 3、浏览器 6、插件 3 | P0 登记；P2/P3 补判据 |
-| L2 待补 | 27 | 终端 6、团队 7、目标 3、定时 4、会话检索 2、持久 bash 1、运行时查询 1、MCP/市场 3 | P5（10）· P6（14）· 裁决（3） |
+| L2 待补 | 20 | 团队 7、目标 3、定时 4、会话检索 2、运行时查询 1、MCP/市场 3 | P5（3）· P6（14）· 裁决（3） |
 | L3 平台不适用 | 2 | `pwsh` 两条 | 不排期，文档登记 |
 
 L1 不是「不做」。它意味着能力已经存在，只是形态不同——比如 `working_directory`
@@ -80,7 +80,7 @@ export const DSH_DUPLICATE_NAMES: Readonly<Record<string, readonly string[]>>;
 4. 每条 L0 的 `ours` 必须真的出现在 `TOOL_NAMES` 或主进程能力 id 里；
 5. 71 个唯一名字、五组同名不同包的条数与包名一致。
 
-### 2.2 本机 64 条归族
+### 2.2 本机 70 条归族
 
 **新增** `src/shared/engineering-capabilities.ts`：
 
@@ -145,7 +145,22 @@ export interface EvidenceLedger {
 
 **验收**：`npm run test:execution`、`npm run test:engineering`、`npm run test:runner`。
 
-## 4. P2 · 技能包按族拆分
+## 4. P2 · 技能：维持单份（已裁决，不拆分）
+
+**用户裁决（2026-11-10）：「单技能实现，然后族是单独汇总的。」**
+
+原计划拆成 `engineering-debug` / `engineering-review` / `engineering-data` 三份，现在取消：
+
+| 事项 | 决定 |
+| --- | --- |
+| 技能数量 | 仍然只有 `resources/expertise/skills/engineering-design/SKILL.md` |
+| 族与技能 | 不联动。主族只决定门禁检查项与界面显示，不决定加载哪份技能 |
+| 触发 | 沿用 `trigger.ts`：事实题优先出局，其余按决策/实施动作词加载这一份 |
+| 要补的内容 | 只把「交付判据」写进现有 SKILL.md（写→验→报已经够用），不新增文件 |
+| 测试 | `test:expertise` 保持「一次最多一份」，新增断言：技能清单长度恒为 1 |
+
+这样避免了 system 随场景膨胀，也避免「调试题加载评审流程」这类错配——判据在门禁里，
+不在提示词里。
 
 **新增**（`resources`，不进 `src`）：
 
@@ -215,7 +230,7 @@ scripts/check-engineering-scenarios.mjs
 
 **验收**：5 个场景全过；`npm test` 全链路。
 
-## 7. P5 · 补齐运行时缺口（12 条，已做 2）
+## 7. P5 · 补齐运行时缺口（12 条，已做 9）
 
 按「用户真的会碰到」排序：
 
@@ -242,13 +257,13 @@ scripts/check-engineering-scenarios.mjs
 **验收**：`test:ask-user`（新脚本）：回答后步骤继续、超时返回 `answered:false`、取消后计划停在
 `awaiting_user`、第 4 次被拒、问答落盘可读。
 
-### 7.2 终端（6 条，`runtime.exec`）
+### 7.2 终端（6 条，`runtime.exec`）· ✅ 已落地
 
 `terminal_open / read / send / signal / close / list` → 我们的 `term.open` 等 6 个 id。
 
 | 事项 | 决定 |
 | --- | --- |
-| 实现 | 优先 `node-pty`（原生依赖，需先验证 `electron-builder` 打包与 arm64）；不行就退回 `script -q /dev/null sh` + 管道，只支持行模式 |
+| 实现 | `node-pty`，与 dsh 同一个后端（dsh 锁 `1.2.0-beta.15`）；懒加载，缺依赖/编译失败报 `TERMINAL_UNAVAILABLE`，不退回行模式冒充终端 |
 | 权限 | `open/read/close/list` 需 `workspace-write`；`send` 每次调用单独审批（等价于执行任意命令）；`signal` 需 `danger-full-access` |
 | 沙箱 | 与 `shell.run` 同一条 spawn 前置沙箱；探测失败要在报告里写 `sandboxed: false`（沿用 `HARNESS_ALIGNMENT` 的口径） |
 | 不做 | 不做 TUI、具名按键序列、跨会话共享终端（与 dsh 的 schema 边界一致） |
@@ -276,7 +291,7 @@ scripts/check-engineering-scenarios.mjs
 - 跨会话检索意味着能把 A 会话的结论带进 B 会话——结果里必须标明来源会话与时间，
   不允许静默引用（`AGENTS.md` 第 3 条）。
 
-### 7.5 持久 shell 与运行时查询（2 条）
+### 7.5 持久 shell 与运行时查询（2 条，持久 shell 已由 `term.*` 覆盖）
 
 - `bash`（持久）→ 由 `term.open` + `working_directory` 覆盖，不单独做工具；
 - `cordis_inspect_query` → `plugin.inspect`：只读查询某个能力 id 的 `enabled/registered/权限`，
@@ -314,15 +329,11 @@ scripts/check-engineering-scenarios.mjs
 - `wait_agent` 用现有的执行等待实现，不新开轮询；
 - 前置条件：P3 门禁稳定后再开，否则团队里每个成员都会绕过判据。
 
-### 8.4 扩展（3 条，`platform.extend`）· 需裁决
+### 8.4 扩展（3 条，`platform.extend`）· 已裁决：不开放
 
-`plugin_market / list_mcp_resources / read_mcp_resource` 意味着运行时安装第三方能力，
-与 2026-11-08 的「不开放第三方包、不支持运行时下载插件」直接冲突。
-
-**本期的交付不是实现，是裁决记录**：
-
-1. 若维持原裁决：`dsh-tools.ts` 里保持 `L2 / 裁决`，设置页写明「不支持第三方扩展」；
-2. 若改为开放：先写安全评估（安装脚本、版本豁免、权限继承），再排 P7。
+用户裁决（2026-11-10）：**不开放第三方包**。`plugin_market / list_mcp_resources /
+read_mcp_resource` 保持登记但不实现：`dsh-tools.ts` 仍是 `L2`，设置页写明
+「不支持第三方扩展」。没有 P7，也不做安装脚本与版本豁免。
 
 ## 9. 兼容、提交与回滚
 

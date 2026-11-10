@@ -563,6 +563,17 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  拼 node -e 一行命令（引号一错就变成另一段程序）。
                  · 脚本落在工作区 .thinkfusion/tmp/run-*/ 下，路径会出现在结果里。
                  · 退出码非 0 视为失败；失败时先看 stderr 再改，不要连续重跑同样的代码。
+- term.open:    { "cwd"?: string, "cols"?: number, "rows"?: number }
+                 开一个持久交互式终端（node-pty，与 dsh 同后端），返回 sessionId。
+                 · 一次性命令仍用 shell.run；只有需要 tty 的程序（dev server、ssh、交互式提示）才用它。
+                 · 原生模块不可用时明确报 TERMINAL_UNAVAILABLE，不要以为命令跑起来了。
+- term.read:    { "sessionId": string, "maxChars"?: number }
+                 只返回上次之后的新输出；truncated=true 说明还有没读完的，继续读。
+- term.send:    { "sessionId": string, "input": string, "submit"?: boolean }
+                 写入终端；submit 默认 true（追加回车）。每份计划里的 send 都要用户逐次批准。
+- term.signal:  { "sessionId": string, "signal"?: "SIGINT"|"SIGTERM"|"SIGKILL"|"SIGHUP"|"SIGQUIT" }
+- term.close:   { "sessionId": string }  结束会话并回收进程组。
+- term.list:    {}  列出还开着的终端、pid、cwd、是否退出。
 - code.diagnostics: { "path"?: string, "maxItems"?: number, "timeoutMs"?: number }
                  在工程里跑已安装的 tsc / eslint，返回归一化的问题列表（path / line / severity / message / source）。
                  · 不装依赖、不用 npx；没有检查器时返回 skipped 并说明原因，不要当作「没有问题」。

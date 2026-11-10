@@ -1,5 +1,5 @@
 /**
- * Runtime 这一半的能力插件：58 个工具（55 个本地 + `web.fetch` / `web.search` /
+ * Runtime 这一半的能力插件：64 个工具（61 个本地 + `web.fetch` / `web.search` /
  * `dns.lookup` 三个联网），逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
@@ -33,6 +33,14 @@ import { webFetch } from './tools/web-fetch';
 import { webSearch } from './tools/web-search';
 import { runCode } from './tools/code-run';
 import { runDiagnostics } from './tools/diagnostics';
+import {
+  closeTerminal,
+  listTerminals,
+  openTerminal,
+  readTerminal,
+  sendTerminal,
+  signalTerminal
+} from './tools/terminal';
 import { jobOutput, killJob, listJobs } from './tools/jobs';
 import { browserSearchCapability } from './browser-search-bridge';
 import { verifyWrittenFile } from './verify';
@@ -177,6 +185,13 @@ const PLUGINS = [
   }),
 
   local('code.diagnostics', async (args, ctx) => ok(await runDiagnostics(ctx.grant.rootDir, args))),
+
+  local('term.open', async (args, ctx) => ok(openTerminal(ctx.grant.rootDir, args))),
+  local('term.read', async args => ok(readTerminal(args.sessionId, args.maxChars))),
+  local('term.send', async args => ok(sendTerminal(args.sessionId, args.input, args.submit !== false))),
+  local('term.signal', async args => ok(signalTerminal(args.sessionId, args.signal))),
+  local('term.close', async args => ok(closeTerminal(args.sessionId))),
+  local('term.list', async () => ok(listTerminals())),
 
   local('ask.user', async (args: AskUserInput, ctx) => {
     if (!ctx.ask) throw new Error('当前执行环境没有接入提问通道，ask.user 不可用');

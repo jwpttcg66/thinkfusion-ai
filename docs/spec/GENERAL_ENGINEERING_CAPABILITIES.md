@@ -2,7 +2,7 @@
 
 > 2026-11-10。设计对象是工程空间的**通用工程能力层**：它要覆盖 DeepSeek Harness
 > （`~/data/dsh-src`，提交 `ce7073d5`，包版本 0.2.2-alpha.2，`docs/tool-catalog.zh.md`）
-> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 64 个能力插件。
+> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 70 个能力插件。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
 > [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、
@@ -14,13 +14,13 @@
 > 逐期改动见 [GENERAL_ENGINEERING_ROLLOUT](../implementation/GENERAL_ENGINEERING_ROLLOUT.md)。
 >
 > **当前状态（2026-11-10）**：P0 已落地——76 条清单冻结在 `src/shared/dsh-tools.ts`，
-> 64 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
+> 70 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与
 > `test:engineering-capabilities` 全绿；P1（证据账本）、P3（计划门禁）、
-> P5 的 `ask.user` 与 `code.diagnostics` 已落地，其余见实施文档。
+> P5 的 `ask.user`、`code.diagnostics`、`term.*`（6 个）与持久 shell 已落地，其余见实施文档。
 
 ## 0. 一句话结论
 
-> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 64 条**逐条登记**，
+> 通用能力不是再新增一路「能力路由模型」，而是把 dsh 的 76 条 + 我们的 70 条**逐条登记**，
 > 按 **8 个工作族 + 5 个治理族** 归族；每条都有族、对应物、落地层级与验收，
 > 缺口排进 P5/P6，不留「刻意不做」的黑洞。
 >
@@ -46,11 +46,11 @@
 
 | # | 现状 | 后果 |
 | --- | --- | --- |
-| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……64 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
+| 1 | 能力清单是**工具清单**：`fs.edit`、`git.diff`、`sqlite.query`……70 条，全是操作系统式动词（`src/shared/capabilities.ts`） | 设置页能看见「能执行什么操作」，看不见「能承担什么工程活动」 |
 | 2 | 工作流只有一份：`resources/expertise/skills/engineering-design/SKILL.md`，45 行、三阶段通用流程 | 设计/实现有流程；调试、审阅、数据、前端靠模型自由发挥 |
 | 3 | 判据写在提示词句子和 `ruleReview` 的 issue 文案里（`src/main/engineering/review.ts`） | 「改了文件必须有 `test.run`」只在执行后作为一句话出现，不拦任何东西 |
 | 4 | 读工具一次回答最多请求一次（`engineeringToolSystem()` 明写） | 跨文件定位必须靠用户催第二轮 |
-| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 64 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
+| 5 | `LOCAL_HARNESS_TOOLS.md` 明确把 dsh 的 4 类划到「不在这层」：agent 编排、扩展生态、持久终端、LSP；`HARNESS_BASELINE.md` 也只对齐了「本机干活」 | 能力清单**天然缺一半**。dsh 是 76 条 schema，我们登记 70 条，差额既没有对应物记录、也没有「为什么没有」的记录。用户问「你能开终端吗」只能靠猜 |
 
 第 5 条是这轮的主要修正：上一轮的对齐范围是「本地机器能力」，结论没错，但它被当成了
 **全部能力的结论**。缺的不是实现，是**登记**——没有登记的缺口，永远排不进计划。
@@ -60,7 +60,7 @@
 ```
 能力族 family (13 = 8 工作族 + 5 治理族)
    └── 能力项 item (每族 1–4 条，带触发词与判据)
-          └── 工具 tool (本仓库 64 个 + dsh 76 条对照，id 不改)
+          └── 工具 tool (本仓库 70 个 + dsh 76 条对照，id 不改)
 ```
 
 一条能力项固定包含七个字段：
@@ -203,7 +203,7 @@ interface EngineeringCapability {
 | 15 | `job_list` | dsh-tool-jobs | `runtime.exec` | `job.list` | L0 |
 | 16 | `job_output` | dsh-tool-jobs | `runtime.exec` | `job.output` | L0 |
 | 17 | `job_kill` | dsh-tool-jobs | `runtime.exec` | `job.kill` | L0 |
-| 18 | `bash`（持久 PTY） | dsh-tool-bash-persistent | `runtime.exec` | 无持久 cwd：`shell.run` + `job.*` 顶一半 | L2 · P5 |
+| 18 | `bash`（持久 PTY） | dsh-tool-bash-persistent | `runtime.exec` | `term.open` / `term.send`（node-pty 持久 shell） | L0 |
 | 19 | `pwsh` | dsh-tool-pwsh | `runtime.exec` | 无：darwin 产品 | L3 |
 | 20 | `pwsh`（持久） | dsh-tool-pwsh-persistent | `runtime.exec` | 无：darwin 产品 | L3 |
 | 21 | `lsp` | dsh-tool-lsp | `runtime.exec` | `code.diagnostics`（tsc / eslint 输出归一，不常驻语言服务器） | L0 |
@@ -213,12 +213,12 @@ interface EngineeringCapability {
 
 | # | dsh 工具 | 族 | 我们的对应物 | 层级 |
 | --- | --- | --- | --- | --- |
-| 23 | `terminal_open` | `runtime.exec` | 无 | L2 · P5 |
-| 24 | `terminal_read` | `runtime.exec` | 无 | L2 · P5 |
-| 25 | `terminal_send` | `runtime.exec` | 无 | L2 · P5 |
-| 26 | `terminal_signal` | `runtime.exec` | 无 | L2 · P5 |
-| 27 | `terminal_close` | `runtime.exec` | 无 | L2 · P5 |
-| 28 | `terminal_list` | `runtime.exec` | 无 | L2 · P5 |
+| 23 | `terminal_open` | `runtime.exec` | `term.open` | L0 |
+| 24 | `terminal_read` | `runtime.exec` | `term.read` | L0 |
+| 25 | `terminal_send` | `runtime.exec` | `term.send` | L0 |
+| 26 | `terminal_signal` | `runtime.exec` | `term.signal` | L0 |
+| 27 | `terminal_close` | `runtime.exec` | `term.close` | L0 |
+| 28 | `terminal_list` | `runtime.exec` | `term.list` | L0 |
 
 ### 5.4 计划、目标、交互与技能（13 条）
 
@@ -308,9 +308,9 @@ interface EngineeringCapability {
 
 | 层级 | 条数 | 占比 | 说明 |
 | --- | --- | --- | --- |
-| L0 已有工具 | 19 | 25% | 文件、搜索、执行、作业、git、联网、提问、诊断 |
+| L0 已有工具 | 26 | 34% | 文件、搜索、执行、作业、git、联网、提问、诊断、终端 |
 | L1 等价机制 | 28 | 37% | 计划、交互、委派、会话记忆、浏览器、插件清单 |
-| L2 待补 | 27 | 35% | 终端 6、团队 7、目标 3、定时 4、会话检索 2、持久 bash 1、运行时查询 1、MCP/市场 3 |
+| L2 待补 | 20 | 26% | 团队 7、目标 3、定时 4、会话检索 2、运行时查询 1、MCP/市场 3 |
 | L3 平台不适用 | 2 | 3% | `pwsh` 两条 |
 | **合计** | **76** | 100% | 71 个唯一名字；`bash` `pwsh` `interrupt_agent` `list_agents` `send_message` 各有两条同名 schema |
 
@@ -350,31 +350,31 @@ interface EngineeringCapability {
 （`shouldDebatePlan` 之前）：计划生成后、执行前跑一次 `checkPlanCapabilities`，
 缺判据在这里拦下，而不是执行完再报 issue。
 
-## 7. 技能加载：一族一份技能
+## 7. 技能：始终只有一份，族是单独的汇总层
 
-现状是一份 `engineering-design` 技能，覆盖设计/实现/改造。目标形态：
+**用户裁决（2026-11-10）：「单技能实现，族是单独汇总的。」**
+
+所以不做「一族一份 SKILL.md」：
 
 ```
 resources/expertise/
   EXPERT.md                        常驻人设（不改）
-  skills/
-    engineering-design/SKILL.md    设计/实现/改造（保留，扩写交付判据）
-    engineering-debug/SKILL.md     复现→根因→修复→复跑
-    engineering-review/SKILL.md    正确性优先的审阅顺序
-    engineering-data/SKILL.md      指纹、样本量、可复跑
+  skills/engineering-design/SKILL.md   唯一技能：设计 / 实现 / 改造 / 调试 / 审阅 / 数据共用
 ```
 
-前端与文档暂不单独开技能，合并进 `engineering-design`：流程与「写→验→报」同构，
-拆开只会让 system 变长、触发更难解释。技能目录数量与族数量不强制一一对应，这是有意的。
+技能与族是两层，互不驱动：
 
-加载规则（顺序固定，任一命中即停）：
+| 层 | 作用 | 谁用 |
+| --- | --- | --- |
+| 技能（1 份） | 往 `system` 里加一段工作方式 | 本地 / 云端第一意见 |
+| 族（13 个） | 活动的分类与判据 | 计划门禁、界面显示、度量 |
 
-1. 事实题且无实施动作 → 不加载（沿用 `trigger.ts` 现有的优先出局）；
-2. 主族是 `debug` → `engineering-debug`；
-3. 主族是 `review` → `engineering-review`；
-4. 主族是 `data` → `engineering-data`；
-5. 其余 → `engineering-design`；
-6. 一次最多一份，正文合计不超过现有 20000 字上限。
+- 加载规则保持不变：事实题且无实施动作 → 不加载；其余按 `trigger.ts` 的
+  `FACT_ONLY` + `classifyDecision` + 实施动作词判定，命中就加载这唯一一份。
+- 主族**不参与**技能选择。它只回答「这次该检查哪些判据」——比如改了文件就该有
+  `test.run`，而不是「该换一份调试技能」。
+- 这样也避免 system 随场景变长：本地 14b 的上下文很紧，一份 45 行的技能已经是
+  能长期带住的上限。
 
 三条边界不变（`expertise/system.ts` 已写明）：只在工程空间返回；只拼 `system`，不碰 `question`；
 网页通道收不到 `system`，所以天然只影响本地/云端第一意见。
@@ -440,17 +440,18 @@ type EvidenceRef =
 - 不给网页通道加任何 `system`，不往用户提问里拼话术（`test:prompt-policy` 守着）。
 - 不自动修：`review` 只产出问题与建议，是否重修由用户确认。
 
-**需要用户裁决的一项**：`plugin_market` / `list_mcp_resources` / `read_mcp_resource`
-意味着「运行时安装第三方能力」。这与 2026-11-08 的裁决「不开放第三方包、不支持运行时
-下载插件」直接冲突。本设计把它们登记为 L2，但实现前必须先改那条裁决；不改就停在 L2，
-并在设置页写明「不支持第三方扩展」，而不是留空。
+**已裁决（2026-11-10）：不开放第三方包。**
+
+`plugin_market` / `list_mcp_resources` / `read_mcp_resource` 保持 L2「不做」：
+运行时安装第三方能力与 2026-11-08 的裁决冲突，用户明确不开放。设置页写明
+「不支持第三方扩展」，不留空、不假装可用；这 3 条只作为矩阵里的登记项存在。
 
 ## 11. 成功判据
 
 | 指标 | 目标 | 怎么量 | 现状 |
 | --- | --- | --- | --- |
 | dsh 工具覆盖率 | 76/76 有族、对应物、层级 | `test:dsh-coverage` | ✅ 76/76 |
-| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 64/64 |
+| 本机工具归族覆盖率 | 100%，孤儿 0 | `test:engineering-capabilities` | ✅ 70/70 |
 | 主族 `code.change` 的计划中带真实检查的比例 | 100% | 门禁拦截日志 + 场景回放 | 待 P3 |
 | 结论可追溯率 | 抽样 ≥ 90% | 场景回放的引用检查 | 待 P1/P4 |
 | 事实题被误加载技能的比例 | 0 | `trigger` 单测 + s20/s21/s24 回放 | 待 P2 |
@@ -462,7 +463,7 @@ type EvidenceRef =
 
 | 现有东西 | 这次怎么用 | 改不改 |
 | --- | --- | --- |
-| `src/shared/capabilities.ts`（64 条） | 工具表是族的输入；不改 id | 不改 |
+| `src/shared/capabilities.ts`（70 条） | 工具表是族的输入；不改 id | 不改 |
 | `src/shared/contracts.ts`（`TOOL_NAMES` / `READ_ONLY_TOOLS`） | 归族扫描的唯一来源 | 不改 |
 | `src/main/engineering/analysis.ts` | 读族的结构事实来源，保留「按正则识别」声明 | 不改 |
 | `src/main/engineering/review.ts` | 证据账本的执行后校验点 | 扩写 |

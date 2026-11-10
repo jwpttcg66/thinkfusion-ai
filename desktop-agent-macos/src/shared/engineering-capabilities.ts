@@ -179,6 +179,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     goal: '用真实进程/终端把活跑起来，拿到真实退出码或进程状态。',
     tools: [
       'shell.run', 'job.list', 'job.output', 'job.kill', 'code.run', 'test.run',
+      'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
       'screen.capture', 'app.open', 'process.kill', 'clipboard.read',
       'clipboard.write', 'notify', 'system.info'
     ],

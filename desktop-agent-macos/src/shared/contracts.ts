@@ -66,6 +66,7 @@ export const TOOL_NAMES = [
   'process.tree',
   'fs.du',
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
+  'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
@@ -100,7 +101,8 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'archive.extract', 'archive.create', 'text.base64', 'image.resize',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
-  'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run'
+  'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run',
+  'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list'
 ];
 
 /** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */
@@ -631,6 +633,56 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
     }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.open'),
+    args: z.object({
+      cwd: RelativePath.optional(),
+      cols: z.number().int().min(20).max(400).optional(),
+      rows: z.number().int().min(5).max(200).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.read'),
+    args: z.object({
+      sessionId: z.string().min(1).max(80),
+      maxChars: z.number().int().min(1).max(40_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.send'),
+    args: z.object({
+      sessionId: z.string().min(1).max(80),
+      input: z.string().max(8000),
+      submit: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.signal'),
+    args: z.object({
+      sessionId: z.string().min(1).max(80),
+      signal: z.enum(['SIGINT', 'SIGTERM', 'SIGKILL', 'SIGHUP', 'SIGQUIT']).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.close'),
+    args: z.object({ sessionId: z.string().min(1).max(80) }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('term.list'),
+    args: z.object({}).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({
