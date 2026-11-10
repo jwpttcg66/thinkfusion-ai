@@ -97,6 +97,8 @@ export function TrajectoryPanel(props: { conversationId: string }) {
   const [turnFilter, setTurnFilter] = useState<number | 'all'>('all');
   const [showEvents, setShowEvents] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /** 手动重读：事件订阅只补新行，错过一条时总得有个重来的入口。 */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -123,7 +125,7 @@ export function TrajectoryPanel(props: { conversationId: string }) {
     return () => {
       alive = false;
     };
-  }, [props.conversationId]);
+  }, [props.conversationId, reloadKey]);
 
   useEffect(() => window.agentAPI.onConversationEvent((event: ConversationEvent) => {
     if (event.type !== 'trace.appended' || event.conversationId !== props.conversationId) return;
@@ -215,10 +217,21 @@ export function TrajectoryPanel(props: { conversationId: string }) {
             onChange={event => setQuery(event.target.value)}
           />
         </div>
-        <label className="trace-toggle">
-          <input type="checkbox" checked={showEvents} onChange={event => setShowEvents(event.target.checked)} />
-          显示事件行
-        </label>
+        <div className="trace-filters">
+          <label className="trace-toggle">
+            <input type="checkbox" checked={showEvents} onChange={event => setShowEvents(event.target.checked)} />
+            显示事件行
+          </label>
+          <button
+            className="btn ghost"
+            type="button"
+            disabled={loading}
+            onClick={() => setReloadKey(key => key + 1)}
+            title="重新从轨迹文件读取；不改变任何记录"
+          >
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+        </div>
       </header>
 
       {visibleTurns.length === 0 && <p className="muted">没有匹配的记录。</p>}

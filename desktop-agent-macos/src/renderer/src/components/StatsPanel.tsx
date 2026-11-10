@@ -171,6 +171,8 @@ export function StatsPanel(props: { conversationId: string; conversation: Conver
   const [showEvents, setShowEvents] = useState(false);
   const [contextMode, setContextMode] = useState<'latest' | 'cumulative'>('latest');
   const [open, setOpen] = useState<Set<number>>(new Set());
+  /** 手动重读：事件订阅只补新行，错过一条时总得有个重来的入口。 */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -200,7 +202,7 @@ export function StatsPanel(props: { conversationId: string; conversation: Conver
     return () => {
       alive = false;
     };
-  }, [props.conversationId]);
+  }, [props.conversationId, reloadKey]);
 
   useEffect(() => window.agentAPI.onConversationEvent((event: ConversationEvent) => {
     if (event.type !== 'trace.appended' || event.conversationId !== props.conversationId) return;
@@ -226,6 +228,19 @@ export function StatsPanel(props: { conversationId: string; conversation: Conver
 
   return (
     <section className="stats-panel" aria-label="统计">
+      <div className="stats-toolbar">
+        <span className="muted">{source === 'trace' ? '轨迹文件' : '按消息重建'}</span>
+        <button
+          className="btn ghost"
+          type="button"
+          disabled={loading}
+          onClick={() => setReloadKey(key => key + 1)}
+          title="重新从轨迹文件读取；不改变任何记录"
+        >
+          {loading ? '刷新中…' : '刷新'}
+        </button>
+      </div>
+
       {source === 'messages' && (
         <p className="trace-banner">
           这条会话没有轨迹文件，下面是按消息时间重建的旧记录；只有发送时间，没有 token / 首 token。
