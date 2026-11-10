@@ -618,10 +618,10 @@ function tagOfChannel(tags: OpinionTag[], channelId: string | undefined): Opinio
  * default pane two 240px cards still fit, and when the pane is dragged wider
  * they stay readable instead of stretching into unreadable lines.
  */
-function ReasoningBar({ text }: { text: string }) {
+function ReasoningBar({ text, live = false }: { text: string; live?: boolean }) {
   return (
-    <details className="reasoning-bar">
-      <summary>思考过程（{text.length} 字）</summary>
+    <details className="reasoning-bar" open={live}>
+      <summary>{live ? '思考中' : '思考过程'}（{text.length} 字）</summary>
       <pre>{text}</pre>
     </details>
   );
@@ -637,7 +637,7 @@ function LiveAnswers(props: {
     <div className="channel-grid live-answers">
       {entries.map(([channelId, delta]) => (
         <div key={channelId} className="channel-block">
-          {delta.reasoning && <ReasoningBar text={delta.reasoning} />}
+          {delta.reasoning && <ReasoningBar text={delta.reasoning} live />}
           <article className={`channel-card ch-${channelId} is-live`}>
             <header className="channel-card-head">
               <span className="channel-dot" />
