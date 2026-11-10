@@ -2768,10 +2768,22 @@ button:disabled {
 
 .summary-section {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border-left: 3px solid var(--line-strong);
+  background: #f7f8fb;
 }
+.summary-section.is-conclusion { border-left-color: #4d6bfe; background: #f1f4ff; }
+.summary-section.is-conclusion .summary-section-title { color: #3b57d6; }
+.summary-section.is-agreement { border-left-color: #10a37f; background: #effaf5; }
+.summary-section.is-agreement .summary-section-title { color: #0c7f63; }
+.summary-section.is-doubt { border-left-color: #e07b39; background: #fff5ee; }
+.summary-section.is-doubt .summary-section-title { color: #b85f22; }
+.summary-section.is-topic { border-left-color: #8a5cf6; background: #f6f2ff; }
+.summary-section.is-topic .summary-section-title { color: #6a3fd8; }
 
 .summary-section.no-title {
   grid-template-columns: minmax(0, 1fr);
@@ -2780,9 +2792,9 @@ button:disabled {
 .summary-section-title {
   margin: 0;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 20px;
-  color: var(--text-3);
+  color: var(--text-2);
   letter-spacing: 1px;
 }
 

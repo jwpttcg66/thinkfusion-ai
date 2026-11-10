@@ -865,6 +865,21 @@ function ExecutionRound(props: {
 }
 
 /**
+ * 五段各自的颜色。结论不是一段灰字：每一段（结论/一致/分歧/存疑/辩题）
+ * 有各自的底色与左边线，扫一眼就能分出哪段是结论、哪段是要注意的分歧。
+ */
+function sectionClass(title: string | null | undefined): string {
+  switch (title) {
+    case '结论': return ' is-conclusion';
+    case '一致': return ' is-agreement';
+    case '分歧': return ' is-dispute';
+    case '存疑': return ' is-doubt';
+    case '辩题': return ' is-topic';
+    default: return '';
+  }
+}
+
+/**
  * The structured result. Every section is rendered even when empty, because
  * "no gaps found" and "we could not look for gaps" must not look the same.
  */
@@ -904,7 +919,7 @@ function SynthesisCard({
           {sections.map((section, index) => (
             <section
               key={index}
-              className={`summary-section${section.title === '分歧' ? ' is-dispute' : ''}${section.title ? '' : ' no-title'}`}
+              className={`summary-section${sectionClass(section.title)}${section.title ? '' : ' no-title'}`}
             >
               {section.title && <h4 className="summary-section-title">{section.title}</h4>}
               <p className="summary-section-body">
