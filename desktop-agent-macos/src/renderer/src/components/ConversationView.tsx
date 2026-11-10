@@ -422,6 +422,7 @@ export function ConversationView(props: {
                   <SynthesisCard
                     key={block.key}
                     synthesis={block.message.synthesis!}
+                    reasoning={block.message.reasoning}
                     labels={labels}
                     opinionTags={opinionTags}
                   />
@@ -884,10 +885,13 @@ function sectionClass(title: string | null | undefined): string {
  */
 function SynthesisCard({
   synthesis,
+  reasoning,
   labels,
   opinionTags
 }: {
   synthesis: Synthesis;
+  /** 主导人写这段汇总时的推理；有就折叠显示，不能只活在流式预览里。 */
+  reasoning?: string;
   labels: ReadonlyMap<string, string>;
   opinionTags: OpinionTag[];
 }) {
@@ -912,6 +916,8 @@ function SynthesisCard({
         <b>ThinkFusion 综合分析</b>
         {structured && synthesis.degraded && <span className="synthesis-warn">未形成共识，以下是并列结果</span>}
       </div>
+
+      {reasoning && <ChannelReasoning text={reasoning} />}
 
       {sections.length > 0 ? (
         <div className="summary-sections">

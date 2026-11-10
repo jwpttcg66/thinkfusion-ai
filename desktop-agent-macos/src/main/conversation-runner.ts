@@ -338,6 +338,8 @@ export interface ExecutionStageResult {
     status: string;
   } | null;
   verdictText: string | null;
+  /** 主导人写汇总时的推理内容；有就落盘，界面折叠显示，不能只活在流式预览里。 */
+  reasoning: string | null;
 }
 
 const TITLE_CHARS = 42;
@@ -2003,7 +2005,7 @@ export class ConversationRunner {
     // 主导人的产物盖过默认综合：结论、以及「哪些一致、哪里有分歧」这套结构，
     // 都由读过全部回答的主导人来说，规则版那套不再并列展示。
     if (execution && synthesis) {
-      const { lead, summaryText, topics, debate, verdictText } = execution;
+      const { lead, summaryText, topics, debate, verdictText, reasoning } = execution;
       const backend: NonNullable<Synthesis['fusion']>['backend'] =
         lead.kind === 'web' ? 'web' : lead.kind === 'local' ? 'local-model' : 'remote';
       const sourceLabel = engineeringRound?.orchestration ? '份编排成员的回答' : '份网页回答';
@@ -2103,7 +2105,8 @@ export class ConversationRunner {
       const message = this.addMessage(conversation, {
         role: 'synthesis',
         synthesis,
-        text: synthesis.recommendation
+        text: synthesis.recommendation,
+        ...(execution?.reasoning ? { reasoning: execution.reasoning } : {})
       });
       this.deps.emit({ type: 'synthesis.ready', at: Date.now(), conversationId, synthesis });
       void message;
@@ -2205,6 +2208,8 @@ export class ConversationRunner {
 
     // —— 第一步：汇总 + 指定辩题 ————————————————————————————
     let summaryText: string | null = null;
+    let summaryReasoning: string | null = null;
+    let verdictReasoning: string | null = null;
     let leadStep: { turn: number; step: number } | undefined;
     try {
       // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
@@ -2258,6 +2263,7 @@ export class ConversationRunner {
         : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
       const text = rewriteSourceRefs(answer.text.trim(), answers);
       summaryText = text || null;
+      if (answer.reasoning) summaryReasoning = answer.reasoning;
       trace?.endStep(leadStep, {
         status: summaryText ? 'ok' : 'skipped',
         usage: answer.usage ?? null,
@@ -2282,7 +2288,7 @@ export class ConversationRunner {
       this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
     }
     if (!summaryText) {
-      return { lead, summaryText: null, topics: [], debate: null, verdictText: null };
+      return { lead, summaryText: null, topics: [], debate: null, verdictText: null, reasoning: summaryReasoning };
     }
 
     // —— 第二步：指定辩论 ————————————————————————————————
@@ -2412,6 +2418,7 @@ export class ConversationRunner {
         });
         const text = rewriteSourceRefs(answer.text.trim(), answers);
         verdictText = text || null;
+        if (answer.reasoning) verdictReasoning = answer.reasoning;
         trace?.endStep(verdictStep, {
           status: verdictText ? 'ok' : 'skipped',
           usage: answer.usage ?? null,
@@ -2439,7 +2446,14 @@ export class ConversationRunner {
       sink.phase(lead.agentId, 'answered', '汇总完成');
     }
 
-    return { lead, summaryText, topics, debate, verdictText };
+    return {
+      lead,
+      summaryText,
+      topics,
+      debate,
+      verdictText,
+      reasoning: [summaryReasoning, verdictReasoning].filter(Boolean).join('\n\n') || null
+    };
   }
 
   /**
