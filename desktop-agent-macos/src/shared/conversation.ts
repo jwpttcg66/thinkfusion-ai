@@ -99,6 +99,17 @@ export type ConversationStatus =
   | 'failed'
   | 'cancelled';
 
+/** 一场辩论的轮次快照：随综合消息落盘，重开会话也能看到过程。 */
+export interface DebateSnapshot {
+  status: string;
+  stopReason?: string;
+  rounds: Array<{
+    index: number;
+    phase: string;
+    messages: Array<{ author: string; kind: string; text: string }>;
+  }>;
+}
+
 /** 会话级目标：用户批准的长期目的，模型只能汇报进度，不能自己改。 */
 export interface ConversationGoal {
   text: string;
@@ -259,6 +270,8 @@ export interface ConversationMessage {
   text: string;
   /** 模型返回的推理内容；没有就不写。界面折叠显示，不混进答案。 */
   reasoning?: string;
+  /** 只有 synthesis 消息有：这一轮的辩论过程。 */
+  debate?: DebateSnapshot;
   at: number;
 }
 
@@ -382,6 +395,22 @@ export type ConversationEvent = { at: number } & (
    * 这一路写完了，消息落盘后由 `message.added` 接替，界面不能靠 done 清屏——
    * 否则最后一两个字会在落盘前消失。
    */
+  /**
+   * 辩论进行中的轮次快照。辩手发言一条条追加，界面据此显示「谁在第几轮说了什么」，
+   * 而不是只挂一句「第 N 轮 · running」。
+   */
+  | {
+      type: 'debate.progress';
+      conversationId: string;
+      debateId: string;
+      status: string;
+      rounds: Array<{
+        index: number;
+        phase: string;
+        messages: Array<{ author: string; kind: string; text: string }>;
+      }>;
+      stopReason?: string;
+    }
   | {
       type: 'answer.delta';
       conversationId: string;

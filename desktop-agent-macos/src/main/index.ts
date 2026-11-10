@@ -3896,8 +3896,11 @@ app.whenReady().then(async () => {
               ? { entries: input.seeds.map(seed => ({ agentId: seed.agentId, label: seed.label, text: seed.text })) }
               : {})
           },
-          // 任务书第 10 节的默认预算：单次 90 秒、整场 4 分钟、同时问 3 位。
-          budget: { stageTimeoutMs: 90_000, totalMs: 240_000, maxConcurrency: 3 }
+          // 会话内辩论的预算：单次 60 秒、整场 2.5 分钟、同时问 3 位。
+          // 任务书原值是 4 分钟，但会话里前面还有第一轮和汇总；4 分钟辩论再
+          // 加 2 分钟最终意见，用户会以为卡死。收敛停止照常生效，真的需要
+          // 更多轮的手动辩论仍走 120 秒 / 3 分钟那一档。
+          budget: { stageTimeoutMs: 60_000, totalMs: 150_000, maxConcurrency: 3 }
         },
         input.conversationId,
         plan
@@ -3911,7 +3914,16 @@ app.whenReady().then(async () => {
         input.onProgress?.({
           rounds: current.rounds.length,
           status: current.status,
-          ...(current.stopReason ? { stopReason: current.stopReason } : {})
+          ...(current.stopReason ? { stopReason: current.stopReason } : {}),
+          snapshot: current.rounds.map(round => ({
+            index: round.index,
+            phase: round.phase ?? '',
+            messages: round.messages.map(message => ({
+              author: message.agentId,
+              kind: message.kind,
+              text: message.text.length > 1200 ? `${message.text.slice(0, 1200)}…` : message.text
+            }))
+          }))
         });
       }, 3000);
       let done;

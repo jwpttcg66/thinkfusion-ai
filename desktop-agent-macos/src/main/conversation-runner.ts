@@ -236,7 +236,17 @@ export interface ConversationDeps {
     /** 这一场用哪种协作策略；不传由调用方按默认（真理发现）处理。 */
     debateStrategy?: ConversationExecutionConfig['debateStrategy'];
     /** 辩论进行中的轮次进度；用来把「汇总中 4:00」变成看得懂的说明。 */
-    onProgress?: (info: { rounds: number; status: string; stopReason?: string }) => void;
+    onProgress?: (info: {
+      rounds: number;
+      status: string;
+      stopReason?: string;
+      debateId?: string;
+      snapshot?: Array<{
+        index: number;
+        phase: string;
+        messages: Array<{ author: string; kind: string; text: string }>;
+      }>;
+    }) => void;
     /**
      * 工程空间多 agent 编排：主进程据此直接组 LeadPlan，跳过 planLead 的归属
      * 收敛（那会把本地/云端模型按 executionMode 剔成一类）。不传 = 知识空间，
@@ -1379,7 +1389,7 @@ export class ConversationRunner {
    * over. Without the second part the failure card would grow an answer minutes
    * after the fact.
    */
-  private abandon(conversation: Conversation, budget = this.budgetMs): void {
+  private abandon(conversation: Conversation, budget = this.budgetMs, hard = false): void {
     const conversationId = conversation.conversationId;
     if (!this.running.has(conversationId)) return;
 
@@ -1398,7 +1408,7 @@ export class ConversationRunner {
     this.fail(
       conversation,
       new Error(
-        `超过 ${spent}没有任何进展${waiting ? `（${waiting}）` : ''}。` +
+        `${hard ? `整轮超过 ${spent}还没有结束` : `超过 ${spent}没有任何进展`}${waiting ? `（${waiting}）` : ''}。` +
           '页面可能卡住了：点「停止等待」后重新加载那一页再问。'
       )
     );
@@ -1438,9 +1448,18 @@ export class ConversationRunner {
     // 每 15 秒检查一次「是否已经连续 budget 没有进展」。
     this.touch(conversationId);
     const startedAt = Date.now();
+    // 两道闸：没有进展就停（正常卡死），以及整轮绝对上限（辩论自己每 3 秒
+    // 报一次进度，会把「无进展」计时一直刷新，必须有一个不依赖活跃度的上限）。
+    const hardLimit = Math.max(budget * 2, 10 * 60_000);
+    const hardDeadline = startedAt + hardLimit;
     const watchdog = setInterval(() => {
+      const now = Date.now();
+      if (now >= hardDeadline) {
+        this.abandon(conversation, hardLimit, true);
+        return;
+      }
       const last = this.lastActivity.get(conversationId) ?? startedAt;
-      if (Date.now() - last >= budget) this.abandon(conversation, budget);
+      if (now - last >= budget) this.abandon(conversation, budget);
     }, Math.min(15_000, Math.max(1000, Math.floor(budget / 4))));
     this.running.set(conversationId, watchdog);
     try {
@@ -2006,6 +2025,7 @@ export class ConversationRunner {
     // 都由读过全部回答的主导人来说，规则版那套不再并列展示。
     if (execution && synthesis) {
       const { lead, summaryText, topics, debate, verdictText, reasoning } = execution;
+
       const backend: NonNullable<Synthesis['fusion']>['backend'] =
         lead.kind === 'web' ? 'web' : lead.kind === 'local' ? 'local-model' : 'remote';
       const sourceLabel = engineeringRound?.orchestration ? '份编排成员的回答' : '份网页回答';
@@ -2101,12 +2121,27 @@ export class ConversationRunner {
           }
         : { meta: { code: 'no-synthesis' } })
     });
+    const debateForMessage = execution?.debate
+      ? {
+          status: execution.debate.status,
+          rounds: execution.debate.rounds.map(round => ({
+            index: round.index,
+            phase: String((round as { phase?: unknown }).phase ?? ''),
+            messages: round.messages.map(message => ({
+              author: message.author,
+              kind: message.kind,
+              text: message.text
+            }))
+          }))
+        }
+      : null;
     if (synthesis) {
       const message = this.addMessage(conversation, {
         role: 'synthesis',
         synthesis,
         text: synthesis.recommendation,
-        ...(execution?.reasoning ? { reasoning: execution.reasoning } : {})
+        ...(execution?.reasoning ? { reasoning: execution.reasoning } : {}),
+        ...(debateForMessage ? { debate: debateForMessage } : {})
       });
       this.deps.emit({ type: 'synthesis.ready', at: Date.now(), conversationId, synthesis });
       void message;
@@ -2339,6 +2374,17 @@ export class ConversationRunner {
           onProgress: info => {
             const suffix = info.stopReason ? `（${info.stopReason}）` : '';
             sink.phase(lead.agentId, 'leading', `辩论进行中：第 ${info.rounds + 1} 轮 · ${info.status}${suffix}`);
+            if (info.snapshot) {
+              this.deps.emit({
+                type: 'debate.progress',
+                at: Date.now(),
+                conversationId: conversation.conversationId,
+                debateId: info.debateId ?? '',
+                status: info.status,
+                rounds: info.snapshot,
+                ...(info.stopReason ? { stopReason: info.stopReason } : {})
+              });
+            }
           },
           mode: config.executionMode,
           effectiveMode: ownership.mode,
@@ -2410,12 +2456,17 @@ export class ConversationRunner {
         reason: '读辩论记录'
       });
       try {
-        const answer = await pool.ask(lead.agentId, {
+        const verdictTask = {
           question: buildVerdictQuestion(question, summaryText, transcript),
-          stage: 'challenge',
+          stage: 'challenge' as const,
           timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
           system: isPage ? undefined : LEAD_VERDICT_SYSTEM
-        });
+        };
+        // 最终意见也要流式：辩论结束后这一段同样可能写很久，整段等会让界面
+        // 看起来又卡住了。
+        const answer = isPage
+          ? await pool.ask(lead.agentId, verdictTask)
+          : await this.askStreaming(pool, lead.agentId, verdictTask, conversation);
         const text = rewriteSourceRefs(answer.text.trim(), answers);
         verdictText = text || null;
         if (answer.reasoning) verdictReasoning = answer.reasoning;
@@ -2863,7 +2914,7 @@ export class ConversationRunner {
 
   private addMessage(
     conversation: Conversation,
-    input: Pick<ConversationMessage, 'role' | 'text'> & Partial<Pick<ConversationMessage, 'channelId' | 'synthesis' | 'reasoning'>>
+    input: Pick<ConversationMessage, 'role' | 'text'> & Partial<Pick<ConversationMessage, 'channelId' | 'synthesis' | 'reasoning' | 'debate'>>
   ): ConversationMessage {
     const message: ConversationMessage = {
       messageId: randomUUID(),
@@ -2872,6 +2923,7 @@ export class ConversationRunner {
       channelId: input.channelId,
       synthesis: input.synthesis,
       ...(input.reasoning ? { reasoning: input.reasoning } : {}),
+      ...(input.debate ? { debate: input.debate } : {}),
       text: input.text,
       at: Date.now()
     };

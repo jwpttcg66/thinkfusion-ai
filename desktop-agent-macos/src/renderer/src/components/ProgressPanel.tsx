@@ -26,17 +26,27 @@ export function ProgressPanel(props: {
     startedAt: props.startedAt
   });
 
+  // 只有真的在跑才出现：任务结束后进度条留在页面上，会把「已完成」说成「进行中」。
+  //
+  // 但「推导不出当前段」不等于「结束了」：辩论/最终意见阶段曾经让阶段条整个
+  // 消失两分多钟，用户看到的就是卡死。非终态时给一个兜底段，宁可写「处理中」。
+  const terminal = ['answered', 'failed', 'cancelled'].includes(props.conversationStatus)
+    || ['completed', 'failed', 'cancelled'].includes(props.taskStatus ?? '');
   const live = view.current !== null;
   useEffect(() => {
-    if (!live) return;
+    if (terminal) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [live]);
-
-  // 只有真的在跑才出现：任务结束后进度条留在页面上，会把「已完成」说成「进行中」。
-  if (!live) return null;
-
-  const waited = view.current?.at ? Math.max(0, Math.round((now - view.current.at) / 1000)) : 0;
+  }, [terminal]);
+  if (!live && terminal) return null;
+  const current = view.current ?? {
+    stage: 'synthesis' as const,
+    label: '处理中',
+    state: 'active' as const,
+    at: props.startedAt,
+    detail: '正在收尾，稍后给出结论'
+  };
+  const waited = current.at ? Math.max(0, Math.round((now - current.at) / 1000)) : 0;
   // 执行步骤：同一份 step.* 事件，不再单独存一份。完成的按 stepId 对上，
   // 对不上的保持「执行中」——宁可显示慢，也不能把没跑完的标成完成。
   const steps = props.events
@@ -71,8 +81,8 @@ export function ProgressPanel(props: {
 
       <div className="progress-now">
         <span className="progress-spinner" aria-hidden="true" />
-        <b>{view.current?.label}</b>
-        <span className="progress-detail">{view.current?.detail}</span>
+        <b>{current.label}</b>
+        <span className="progress-detail">{current.detail}</span>
         <span className="progress-elapsed">{formatWaited(waited)}</span>
       </div>
     </section>

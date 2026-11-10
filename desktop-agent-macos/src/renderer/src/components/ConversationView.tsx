@@ -86,6 +86,8 @@ export function ConversationView(props: {
   phases: Record<string, { phase: string; detail?: string; at?: number }>;
   /** 流式增量：还没落盘的正文/推理，按 channelId 累积。 */
   deltas?: Record<string, { text: string; reasoning: string; done: boolean }>;
+  /** 辩论进行中的轮次快照；没有就是这一轮没辩论。 */
+  debate?: import('../../../shared/conversation').DebateSnapshot | null;
   busy: boolean;
 }) {
   const { conversation, messages } = props;
@@ -422,6 +424,10 @@ export function ConversationView(props: {
                 );
               })}
 
+              {live && turnIndex === turns.length - 1 && props.debate && (
+                <DebatePanel debate={props.debate} labels={labels} live />
+              )}
+
               {/* 第二轮及以后：单独一条通道条 + 进度卡，挂在第一轮回答后面。 */}
               {live && (
                 <ExecutionRound
@@ -435,6 +441,10 @@ export function ConversationView(props: {
               {turn.blocks
                 .filter(block => block.kind === 'synthesis')
                 .map(block => (
+                  <React.Fragment key={block.key}>
+                    {block.message.debate && (
+                      <DebatePanel debate={block.message.debate} labels={labels} />
+                    )}
                   <SynthesisCard
                     key={block.key}
                     synthesis={block.message.synthesis!}
@@ -442,6 +452,7 @@ export function ConversationView(props: {
                     labels={labels}
                     opinionTags={opinionTags}
                   />
+                  </React.Fragment>
                 ))}
             </section>
           );
@@ -921,6 +932,46 @@ function ExecutionRound(props: {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * 辩论过程：每一轮的发言按顺序列出。
+ *
+ * 进行中默认展开（用户要看过程），落盘后默认收起；没有辩论就整块不出现，
+ * 不拿「辩论中」占位。
+ */
+function DebatePanel({
+  debate,
+  labels,
+  live = false
+}: {
+  debate: import('../../../shared/conversation').DebateSnapshot;
+  labels: ReadonlyMap<string, string>;
+  live?: boolean;
+}) {
+  return (
+    <details className="debate-panel" open={live}>
+      <summary>
+        辩论过程 · {debate.status}（{debate.rounds.length} 轮）
+        {debate.stopReason ? ` · ${debate.stopReason}` : ''}
+      </summary>
+      {debate.rounds.map(round => (
+        <section key={round.index} className="debate-round">
+          <h5>
+            第 {round.index + 1} 轮{round.phase ? ` · ${round.phase}` : ''}
+          </h5>
+          {round.messages.map((message, index) => (
+            <div key={index} className="debate-message">
+              <span className="debate-who">
+                {labelOf(message.author, labels)} · {message.kind}
+              </span>
+              <p>{message.text}</p>
+            </div>
+          ))}
+        </section>
+      ))}
+    </details>
   );
 }
 

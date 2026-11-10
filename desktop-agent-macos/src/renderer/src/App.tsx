@@ -215,6 +215,8 @@ export default function App() {
   const [phases, setPhases] = useState<Record<string, { phase: string; detail?: string; at?: number }>>({});
   /** 流式增量：按 channelId 累积，落盘消息一到就清掉。 */
   const [answerDeltas, setAnswerDeltas] = useState<Record<string, { text: string; reasoning: string; done: boolean }>>({});
+  /** 辩论进行中的轮次快照；落盘后由 synthesis 消息里的 debate 接替。 */
+  const [debateLive, setDebateLive] = useState<import('../../shared/conversation').DebateSnapshot | null>(null);
   /** The local user name for the row at the bottom of the sidebar. */
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -504,6 +506,7 @@ export default function App() {
           setMessages([]);
           setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
         }
         return;
       }
@@ -519,6 +522,7 @@ export default function App() {
         // 综合结论落盘时，主导人的流式预览必须让位：它的最终文本变成了
         // synthesis 消息，不会再有一条 channel 消息来清掉它。
         if (event.message.synthesis) setAnswerDeltas({});
+    setDebateLive(null);
         if (event.message.role === 'channel' && event.message.channelId) {
           const channelId = event.message.channelId;
           setAnswerDeltas(prev => {
@@ -528,6 +532,15 @@ export default function App() {
             return next;
           });
         }
+        return;
+      }
+      if (event.type === 'debate.progress') {
+        if (event.conversationId !== activeConversationRef.current) return;
+        setDebateLive({
+          status: event.status,
+          ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+          rounds: event.rounds
+        });
         return;
       }
       if (event.type === 'answer.delta') {
@@ -846,6 +859,7 @@ export default function App() {
     setMessages([]);
     setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
     // 附件是绑在「这一问」上的：换了空间还留着上一段的文件，下一问会莫名
     // 带着一份和它无关的资料发出去。
     setAttachments([]);
@@ -945,6 +959,7 @@ export default function App() {
     setMessages([]);
     setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
     setError('');
     setNotice('');
     const defaults = normalizeExecutionConfig(executionDefaultsRef.current);
@@ -976,6 +991,7 @@ export default function App() {
       // 新一轮自己的阶段：上一轮失败的模型不能带着「失败」徽章再出现在条上。
       setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
       try {
         const updated = await window.agentAPI.followupConversation({
           conversationId: activeConversation.conversationId,
@@ -1036,6 +1052,7 @@ export default function App() {
     setError('');
     setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
     try {
       const conversation = await window.agentAPI.submitConversation({
         text,
@@ -1056,6 +1073,7 @@ export default function App() {
       setMessages([]);
       setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
       setPrompt('');
       setAttachments([]);
       setActiveId(conversation.taskId ?? null);
@@ -1081,6 +1099,7 @@ export default function App() {
     setError('');
     setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
     // 换一条会话就是换一段上下文，上一段挑的附件不该跟过来。
     setAttachments([]);
     try {
@@ -1565,6 +1584,7 @@ export default function App() {
           setMessages([]);
           setPhases({});
     setAnswerDeltas({});
+    setDebateLive(null);
           setEvents([]);
           setDerived(EMPTY_DERIVED);
           setError('');
@@ -1698,6 +1718,7 @@ export default function App() {
                 glyphs={new Map(sources.sources.map(source => [source.id, source.glyph]))}
                 phases={phases}
                 deltas={answerDeltas}
+                debate={debateLive}
                 busy={conversationBusy}
               />
             )}
