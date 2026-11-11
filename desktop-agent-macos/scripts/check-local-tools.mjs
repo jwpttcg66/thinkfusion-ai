@@ -18,6 +18,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSy
 import { tmpdir, homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { PlanSchema, READ_ONLY_TOOLS } from '../out/shared/contracts.js';
 import { allowedToolsForPreset } from '../out/shared/protocol.js';
@@ -299,17 +300,60 @@ test('元数据带类型与指纹，不必先读一遍', async () => {
 test('字面量编辑只改目标，且拒绝含糊的多处命中', async () => {
   const g = grant('workspace-write', ['fs.edit']);
   writeFileSync(join(root, 'edit.txt'), 'alpha beta gamma\n');
-  const ok = await fsExtraTools.edit(g, { path: 'edit.txt', oldString: 'beta', newString: 'BETA' });
+  const ok = await fsExtraTools.edit(g, {
+    path: 'edit.txt', oldString: 'beta', newString: 'BETA',
+    expectedHash: createHash('sha256').update('alpha beta gamma\n').digest('hex')
+  });
   assert.equal(ok.replaced, 1);
   assert.match(readFileSync(join(root, 'edit.txt'), 'utf8'), /alpha BETA gamma/);
 
   writeFileSync(join(root, 'dup.txt'), 'x x x\n');
+  const dupHash = createHash('sha256').update('x x x\n').digest('hex');
   await assert.rejects(
-    () => fsExtraTools.edit(g, { path: 'dup.txt', oldString: 'x', newString: 'y' }),
+    () => fsExtraTools.edit(g, { path: 'dup.txt', oldString: 'x', newString: 'y', expectedHash: dupHash }),
     /出现了 3 次/
   );
-  const all = await fsExtraTools.edit(g, { path: 'dup.txt', oldString: 'x', newString: 'y', replaceAll: true });
+  const all = await fsExtraTools.edit(g, {
+    path: 'dup.txt', oldString: 'x', newString: 'y', replaceAll: true, expectedHash: dupHash
+  });
   assert.equal(all.replaced, 3);
+});
+
+test('没有先读就拿不到 expectedHash：编辑直接拒绝，不拿旧上下文猜', async () => {
+  const g = grant('workspace-write', ['fs.edit']);
+  writeFileSync(join(root, 'unobserved.txt'), 'hello\n');
+  await assert.rejects(
+    () => fsExtraTools.edit(g, { path: 'unobserved.txt', oldString: 'hello', newString: 'bye' }),
+    /OBSERVATION_REQUIRED/
+  );
+  assert.equal(readFileSync(join(root, 'unobserved.txt'), 'utf8'), 'hello\n');
+});
+
+test('CRLF 文件按 LF 匹配，写回仍是 CRLF', async () => {
+  const g = grant('workspace-write', ['fs.edit']);
+  const before = 'alpha\r\nbeta\r\n';
+  writeFileSync(join(root, 'crlf.txt'), before);
+  const result = await fsExtraTools.edit(g, {
+    path: 'crlf.txt',
+    oldString: 'alpha\nbeta\n',
+    newString: 'ALPHA\nBETA\n',
+    expectedHash: createHash('sha256').update(before).digest('hex')
+  });
+  assert.equal(result.replaced, 1);
+  assert.equal(readFileSync(join(root, 'crlf.txt'), 'utf8'), 'ALPHA\r\nBETA\r\n');
+});
+
+test('精确匹配失败时只对命中的一段做标点归一化，不改别处', async () => {
+  const g = grant('workspace-write', ['fs.edit']);
+  const before = '“hello”\nkeep “other”\n';
+  writeFileSync(join(root, 'typography.txt'), before);
+  await fsExtraTools.edit(g, {
+    path: 'typography.txt',
+    oldString: '"hello"',
+    newString: '"bye"',
+    expectedHash: createHash('sha256').update(before).digest('hex')
+  });
+  assert.equal(readFileSync(join(root, 'typography.txt'), 'utf8'), '"bye"\nkeep “other”\n');
 });
 
 test('编辑时 hash 不符就拒绝，不会盖掉别人刚改的内容', async () => {

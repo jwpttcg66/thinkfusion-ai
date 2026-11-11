@@ -12,8 +12,10 @@ import test, { after } from 'node:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { TsServerClient } from '../out-test/main/lsp/tsserver.js';
+import { LspProviderRegistry, TypeScriptProvider } from '../out-test/main/lsp/providers.js';
 import { buildCodeContext } from '../out-test/main/lsp/context.js';
 import { buildImpact } from '../out-test/main/lsp/impact.js';
 import { loadTypeScript, summarizeAst } from '../out-test/main/lsp/ts-ast.js';
@@ -118,9 +120,15 @@ test('写之后自动带诊断：结果里能看到错误数与位置', async ()
     maxSteps: 30,
     grantVersion: 1
   };
+  const before = readFileSync(join(root, 'src/a.ts'), 'utf8');
   const outcome = await localCapabilities.execute(
     'fs.edit',
-    { path: 'src/a.ts', oldString: 'export function greet', newString: 'export function greet' },
+    {
+      path: 'src/a.ts',
+      oldString: 'export function greet',
+      newString: 'export function greet',
+      expectedHash: createHash('sha256').update(before).digest('hex')
+    },
     {
       grant,
       callMain: async (id, args) => {
@@ -190,4 +198,15 @@ test('按需 AST：列出声明与调用点', async () => {
   const summary = summarizeAst(ts, join(root, 'src', 'a.ts'), text);
   assert.equal(summary.source, 'typescript-ast');
   assert.ok(summary.declarations.some(item => item.name === 'greet'));
+});
+
+
+test('Provider 层：TypeScript 有客户端，其他语言明确 LSP_UNAVAILABLE', () => {
+  const registry = new LspProviderRegistry([new TypeScriptProvider([tsserver])]);
+  assert.equal(registry.providerFor(join(root, 'src/a.ts'))?.id, 'typescript');
+  assert.equal(registry.providerFor(join(root, 'src/a.py')), null);
+  assert.match(registry.unavailableReason('a.py'), /LSP_UNAVAILABLE/);
+  assert.ok(registry.get(root, join(root, 'src/a.ts')));
+  assert.equal(registry.get(root, join(root, 'src/a.py')), null);
+  registry.dispose();
 });

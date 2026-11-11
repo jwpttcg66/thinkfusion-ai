@@ -106,3 +106,20 @@ P2 多 Agent 编码已补 `code.team.run`：并行探索/编码/验证/评审，
 测试：`npm run test:code-read`（9 条，分页/行号/哈希一致/空文件/目录/超限）；
 `test:security`、`test:engineering-tools`、`test:capabilities`、`test:extended-tools`、
 `test:protocol` 全部通过。
+
+## 5. V1.2 复审（2026-11-11）
+
+审查报告 `制定辩论主题方案 (4)-20261111-2005-8.md` 指出旧的多 Agent 只是并行提案，
+Verify / Review 看不到 Code 的 diff；补丁没有统一做路径/版本/dry-run；验证结果仍是
+一段文字。V1.2 已处理：
+
+- `coding/team.ts`：两阶段交接，Verify / Review 的提示词带 Explore 事实与真实 diff；
+- `coding/patch.ts` + `shared/unified-diff.ts`：路径、重复文件、多文件代码块、hunk
+  dry-run、expectedHash、冲突；
+- `agent/verification.ts`：compile / tests / diagnostics / changedFiles 结构化；
+- `lsp/providers.ts`：TypeScript Provider + 其他语言明确的 `LSP_UNAVAILABLE`；
+- `fs.edit` / `fs.applyPatch` 强制 `expectedHash`，CRLF / 标点回退 / 文件锁 / 回读；
+- 工程主执行界面按 stepId 分卡，展示参数、证据、diff、命令输出与多 Agent 阶段。
+
+仍未做（P2）：任务 DAG / CAS、Session / Worktree 隔离。触发条件见
+[CODE_INTELLIGENCE_V1_2.md](./CODE_INTELLIGENCE_V1_2.md)。

@@ -399,7 +399,7 @@ export function describePlanIssues(error: unknown): string {
     .map(issue => {
       const path = (issue.path ?? []).join('.');
       if (path.endsWith('expectedHash')) {
-        return '覆盖已有文件必须带 64 位十六进制的 sha256。同一份计划里拿不到它：先只输出 fs.readFile 的计划，下一轮拿到 sha256 再写';
+        return '修改已有文件必须带 64 位十六进制的 sha256。同一份计划里拿不到它：先只输出 fs.readFile，下一轮拿到 sha256 再改';
       }
       if (path.endsWith('overwrite')) return 'overwrite 只能是 true 或 false';
       if (path.endsWith('tool')) return '计划里出现了不受支持的工具名';
@@ -448,9 +448,11 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  例如 "*.md"、"src/**/*.ts"。只返回路径，不读内容。
 - fs.stat:      { "path": string }
                  文件元数据：类型、字节、权限、修改时间；小文本文件还带 sha256 与 lines（总行数）。
-- fs.edit:      { "path": string, "oldString": string, "newString": string, "replaceAll"?: boolean, "expectedHash"?: string }
+- fs.edit:      { "path": string, "oldString": string, "newString": string, "replaceAll"?: boolean, "expectedHash": string }
                  按字面量替换已有文件。oldString 必须逐字一致，默认只允许出现一次；
-                 出现多次就补上下文或显式 replaceAll。要严格就带上读到的 sha256。
+                 出现多次就补上下文或显式 replaceAll。必须带 fs.readFile/fs.stat
+                 结果里的 sha256；缺失或与磁盘不一致会被拒绝（OBSERVATION_REQUIRED）。
+                 同一份计划里还没读过文件时，先只输出 fs.readFile，下一轮再改。
 - fs.remove:    { "path": string, "recursive"?: boolean, "permanent"?: boolean }
                  默认移入废纸篓；目录必须 recursive。permanent 只有完全权限才生效。
 - fs.move:      { "from": string, "to": string }      移动/改名；目标已存在会被拒绝。
@@ -459,9 +461,10 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  读 PNG/JPEG/GIF/WebP，返回 mime、字节、宽高、sha256 与 base64。
 - fs.revert:    { }
                  只读之外的动作：把本轮改过的文件恢复到第一次修改前（新建的删除）。
-- fs.applyPatch: { "path": string, "patch": string, "expectedHash"?: string }
+- fs.applyPatch: { "path": string, "patch": string, "expectedHash": string }
                  按单文件 unified diff 一次改多处。patch 必须含 @@ hunk 头；
-                 上下文与原文件对不上就整份拒绝，不会写入一半。可带读到的 sha256。
+                 上下文与原文件对不上就整份拒绝，不会写入一半。必须带读到的
+                 sha256；缺失或与磁盘不一致会被拒绝（OBSERVATION_REQUIRED）。
 - git.worktree: { "action": "list" | "add" | "remove", "path"?: string, "branch"?: string }
                  列出/新增/移除 git 工作树。add 要 path 与 branch，remove 要 path。
                  参数是逐个构造的白名单，不接受 shell 语法与以 - 开头的分支名。

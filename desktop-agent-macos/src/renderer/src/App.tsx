@@ -72,7 +72,16 @@ interface Derived {
     needsFix: boolean;
   } | null;
   /** 本轮执行报告里的验证结论；老报告没有字段就是 null。 */
-  verification: { verified: boolean; reasons: string[]; changedFiles: number } | null;
+  verification: {
+    verified: boolean;
+    reasons: string[];
+    changedFiles: number;
+    checks?: {
+      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; detail?: string };
+    };
+  } | null;
   /** 写操作里自动带的诊断，按文件列出（来自 code.diagnostics）。 */
   diagnostics: DiagnosticCard[];
   /** 本轮改动（编辑的前后字面量 / 补丁原文），给 diff 卡。 */
@@ -133,7 +142,12 @@ function derive(events: AgentEvent[]): Derived {
     if (event.type === 'round.answer') answer = event.text;
     if (event.type === 'report.ready') {
       const report = event.report as {
-        verification?: { verified: boolean; reasons: string[]; changedFiles: number };
+        verification?: {
+          verified: boolean;
+          reasons: string[];
+          changedFiles: number;
+          checks?: NonNullable<Derived['verification']>['checks'];
+        };
         results?: Array<{ result?: { diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
       };
       verification = report.verification ?? null;
@@ -2063,6 +2077,43 @@ export default function App() {
                   <ul>
                     {derived.verification.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
                   </ul>
+                )}
+                {derived.verification.checks && (
+                  <div className="verify-checks">
+                    {([
+                      ['compile', '编译'],
+                      ['tests', '测试'],
+                      ['diagnostics', '诊断']
+                    ] as const).map(([key, label]) => {
+                      const checks = derived.verification!.checks!;
+                      const status = (value: 'passed' | 'failed' | 'skipped') =>
+                        value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
+                      if (key === 'diagnostics') {
+                        const check = checks.diagnostics;
+                        return (
+                          <div key={key} className={`verify-check is-${check.status}`}>
+                            <b>{label}</b>
+                            <span>{status(check.status)}</span>
+                            <em>
+                              {String(check.errors)} error / {String(check.warnings)} warn
+                              {check.source ? ` · ${check.source}` : ''}
+                            </em>
+                          </div>
+                        );
+                      }
+                      const check = checks[key];
+                      const detail = check.command
+                        ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}`
+                        : (check.detail ?? '');
+                      return (
+                        <div key={key} className={`verify-check is-${check.status}`}>
+                          <b>{label}</b>
+                          <span>{status(check.status)}</span>
+                          {detail && <em>{detail}</em>}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
                 {derived.diagnostics.map(item => (
                   <div key={item.path} className="research-message">

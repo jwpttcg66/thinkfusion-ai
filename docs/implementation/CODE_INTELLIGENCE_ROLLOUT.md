@@ -198,3 +198,20 @@ SQLite 关系索引、增量更新、可选的向量检索。第一版不做。
 P0 审计 → P1 的「寻址读 + LSP definition/references」是最小可交付；随后接
 `code.diagnostics(changedOnly)` 的写后自动验证。AST、CodeGraph、多 Agent 都在
 单 Agent 闭环跑通之后再谈。
+
+## 8. V1.2 增量（2026-11-11）
+
+依据审查报告 `制定辩论主题方案 (4)-20261111-2005-8.md`，单独记录在
+[CODE_INTELLIGENCE_V1_2.md](./CODE_INTELLIGENCE_V1_2.md)。
+
+| 条目 | 状态 |
+| --- | --- |
+| 多 Agent 两阶段交接（Explore+Code → Verify+Review） | ✅ |
+| 补丁路径 / 版本 / dry-run / 冲突校验 | ✅ |
+| 验证结果结构化（compile / tests / diagnostics） | ✅ |
+| LSP Provider 层（TypeScript Provider + 明确不可用） | ✅ |
+| 读取—修改—版本校验强制 `expectedHash` | ✅ |
+| 精确编辑：CRLF / 标点回退 / 文件锁 / 回读 | ✅ |
+| 工程主执行界面按步骤分卡（参数 / 证据 / diff / 输出） | ✅ |
+| Agent Team 任务 DAG / CAS、Session / Worktree 隔离 | 未做（P2，触发条件见 V1.2 文档） |
+| 向量代码索引 | 不做（保持 provider API 边界） |

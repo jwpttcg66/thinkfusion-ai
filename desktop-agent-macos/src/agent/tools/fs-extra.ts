@@ -18,6 +18,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
+import { withFileLock } from './file-lock';
 
 const MAX_EDIT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
@@ -25,6 +26,57 @@ const TRASH_DIR = path.join(os.homedir(), '.Trash');
 
 function sha256(buffer: Buffer | string): string {
   return createHash('sha256').update(buffer).digest('hex');
+}
+
+/**
+ * 全角/弯引号、长短破折号、不换行空格 → ASCII。
+ *
+ * 这个替换是逐字符 1:1 的，所以归一化后的下标可以安全地映射回原文；
+ * 不会为了匹配一处而把整份文件的标点改掉。
+ */
+function normalizeTypography(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u00A0/g, ' ');
+}
+
+/** 从后往前按命中位置替换，保证下标不漂移；返回 null 表示一处都没命中。 */
+function replaceMatches(
+  content: string,
+  needle: string,
+  replacement: string,
+  all: boolean
+): { next: string; count: number } | null {
+  const haystack = normalizeTypography(content);
+  const target = normalizeTypography(needle);
+  if (target.length === 0) return null;
+  const hits: number[] = [];
+  let at = 0;
+  while (true) {
+    const index = haystack.indexOf(target, at);
+    if (index === -1) break;
+    hits.push(index);
+    at = index + target.length;
+    if (!all) break;
+  }
+  if (hits.length === 0) return null;
+  let next = content;
+  for (const index of [...hits].reverse()) {
+    next = next.slice(0, index) + replacement + next.slice(index + target.length);
+  }
+  return { next, count: hits.length };
+}
+
+/** 修改已有文件前必须证明「读到的那一版」；缺失时明确报 OBSERVATION_REQUIRED。 */
+function requireExpectedHash(expected: string | undefined): string {
+  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
+    throw new Error(
+      'OBSERVATION_REQUIRED：修改已有文件前先 fs.readFile / fs.stat 拿到 sha256，并在 expectedHash 里回填'
+    );
+  }
+  return expected;
 }
 
 function assertMutable(grant: TaskGrant, action: string) {
@@ -123,59 +175,86 @@ export const fsExtraTools = {
     args: { path: string; oldString: string; newString: string; replaceAll?: boolean; expectedHash?: string }
   ): Promise<EditResult> {
     assertMutable(grant, '编辑文件');
+    const expectedHash = requireExpectedHash(args.expectedHash);
     const target = await resolveGrantedPath(grant, args.path, false);
     const stat = await fs.lstat(target);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('编辑目标必须是普通文件');
     if (stat.size > MAX_EDIT_BYTES) throw new Error(`文件超过编辑上限 ${MAX_EDIT_BYTES} bytes`);
 
-    const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    let content: string;
-    try {
-      content = await handle.readFile({ encoding: 'utf8' });
-    } finally {
-      await handle.close();
-    }
-
-    const previous = sha256(content);
-    if (args.expectedHash && args.expectedHash !== previous) {
-      throw new Error('文件在读取之后已经变化，拒绝编辑（请重新读取再生成计划）');
-    }
-
-    const occurrences = content.split(args.oldString).length - 1;
-    if (occurrences === 0) throw new Error('要替换的文本在文件里不存在');
-    if (occurrences > 1 && !args.replaceAll) {
-      throw new Error(`要替换的文本出现了 ${occurrences} 次；请给更长的上下文，或显式声明 replaceAll`);
-    }
-
-    const next = args.replaceAll
-      ? content.split(args.oldString).join(args.newString)
-      : content.replace(args.oldString, args.newString);
-
-    const temp = path.join(path.dirname(target), `.thinkfusion-${randomUUID()}.tmp`);
-    try {
-      const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    return withFileLock(target, async () => {
+      const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let content: string;
       try {
-        await tempHandle.writeFile(next, { encoding: 'utf8' });
-        await tempHandle.sync();
+        content = await handle.readFile({ encoding: 'utf8' });
       } finally {
-        await tempHandle.close();
+        await handle.close();
       }
-      await fs.rename(temp, target);
-    } catch (error) {
-      await fs.unlink(temp).catch(() => undefined);
-      throw error;
-    }
 
-    const after = await fs.lstat(target);
-    return {
-      path: target,
-      replaced: args.replaceAll ? occurrences : 1,
-      previousSha256: previous,
-      sha256: sha256(next),
-      bytes: after.size,
-      before: args.oldString.slice(0, 4000),
-      after: args.newString.slice(0, 4000)
-    };
+      const previous = sha256(content);
+      if (expectedHash !== previous) {
+        throw new Error('文件在读取之后已经变化，拒绝编辑（请重新读取再生成计划）');
+      }
+
+      // 先按原样匹配；Unix / Windows 混用换行时，统一成 LF 再匹配，
+      // 写回时恢复原文件的换行风格。这样同一份计划在两种工程里都能用。
+      const crlf = content.includes('\r\n');
+      const haystack = crlf ? content.replace(/\r\n/g, '\n') : content;
+      const needle = crlf ? args.oldString.replace(/\r\n/g, '\n') : args.oldString;
+      const replacement = crlf ? args.newString.replace(/\r\n/g, '\n') : args.newString;
+
+      let next: string;
+      let replaced: number;
+      const exactCount = haystack.split(needle).length - 1;
+      if (exactCount > 0) {
+        if (exactCount > 1 && !args.replaceAll) {
+          throw new Error(`要替换的文本出现了 ${exactCount} 次；请给更长的上下文，或显式声明 replaceAll`);
+        }
+        replaced = args.replaceAll ? exactCount : 1;
+        next = args.replaceAll ? haystack.split(needle).join(replacement) : haystack.replace(needle, replacement);
+      } else {
+        // 只有精确匹配失败才退回标点归一化；替换仍然只落在命中的那一段。
+        const probe = replaceMatches(haystack, needle, replacement, true);
+        if (!probe) throw new Error('要替换的文本在文件里不存在');
+        if (probe.count > 1 && !args.replaceAll) {
+          throw new Error(`要替换的文本出现了 ${probe.count} 次；请给更长的上下文，或显式声明 replaceAll`);
+        }
+        next = probe.next;
+        replaced = probe.count;
+      }
+
+      if (crlf) next = next.replace(/\n/g, '\r\n');
+
+      const temp = path.join(path.dirname(target), `.thinkfusion-${randomUUID()}.tmp`);
+      try {
+        const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+        try {
+          await tempHandle.writeFile(next, { encoding: 'utf8' });
+          await tempHandle.sync();
+        } finally {
+          await tempHandle.close();
+        }
+        await fs.rename(temp, target);
+      } catch (error) {
+        await fs.unlink(temp).catch(() => undefined);
+        throw error;
+      }
+
+      // 写回之后重新读一遍，而不是拿内存里的 next 当证据。
+      const written = await fs.readFile(target, 'utf8');
+      const actual = sha256(written);
+      if (actual !== sha256(next)) throw new Error('写入后回读与预期内容不一致，拒绝把这一步算作成功');
+
+      const after = await fs.lstat(target);
+      return {
+        path: target,
+        replaced,
+        previousSha256: previous,
+        sha256: actual,
+        bytes: after.size,
+        before: args.oldString.slice(0, 4000),
+        after: args.newString.slice(0, 4000)
+      };
+    });
   },
 
   async remove(grant: TaskGrant, args: { path: string; recursive?: boolean; permanent?: boolean }): Promise<RemoveResult> {

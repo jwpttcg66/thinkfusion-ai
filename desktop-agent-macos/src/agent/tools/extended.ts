@@ -15,12 +15,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { TaskGrant } from '../../shared/contracts';
+import { applyUnifiedHunks, parseUnifiedDiff } from '../../shared/unified-diff';
 import { resolveGrantedPath } from '../policy';
+import { withFileLock } from './file-lock';
 import { runGit } from './git-run';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const MAX_PATCH_BYTES = 512 * 1024;
-const MAX_HUNKS = 64;
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'out', 'out-test', 'dist', 'build', '.next', 'coverage']);
 
 function sha256(content: string): string {
@@ -51,93 +51,6 @@ async function replaceAtomic(target: string, content: string): Promise<void> {
   }
 }
 
-interface Hunk {
-  oldStart: number;
-  oldCount: number;
-  newCount: number;
-  body: string[];
-}
-
-/** 解析单文件 unified diff。文件头（--- / +++）只作形状校验，路径不参与定位。 */
-function parsePatch(patch: string): Hunk[] {
-  if (Buffer.byteLength(patch, 'utf8') > MAX_PATCH_BYTES) throw new Error('补丁过大');
-  // 末尾换行是补丁文本自身的结束符，不是一条没有前缀的空行。
-  const lines = patch.replace(/\r\n/g, '\n').replace(/\n+$/, '').split('\n');
-  const hunks: Hunk[] = [];
-  let current: Hunk | null = null;
-
-  for (const line of lines) {
-    if (line.startsWith('--- ') || line.startsWith('+++ ') || line.startsWith('diff ') || line.startsWith('index ')) continue;
-    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (header) {
-      current = {
-        oldStart: Number(header[1]),
-        oldCount: header[2] === undefined ? 1 : Number(header[2]),
-        newCount: header[4] === undefined ? 1 : Number(header[4]),
-        body: []
-      };
-      hunks.push(current);
-      continue;
-    }
-    if (!current) {
-      if (line.trim() === '') continue;
-      throw new Error('补丁缺少 @@ hunk 头，或存在无法识别的行');
-    }
-    if (line === '\\ No newline at end of file') continue;
-    if (!/^[ +\-]/.test(line)) throw new Error('补丁里有既不是上下文也不是增删的行');
-    current.body.push(line);
-  }
-
-  if (hunks.length === 0) throw new Error('补丁里没有任何 hunk');
-  if (hunks.length > MAX_HUNKS) throw new Error(`hunk 数量超过上限 ${MAX_HUNKS}`);
-  return hunks;
-}
-
-function applyHunks(content: string, hunks: Hunk[]): string {
-  const trailingNewline = content.endsWith('\n');
-  const original = content.replace(/\r\n/g, '\n').split('\n');
-  if (trailingNewline) original.pop();
-
-  const out: string[] = [];
-  let cursor = 0;
-
-  for (const hunk of hunks) {
-    const start = hunk.oldStart - 1;
-    if (start < cursor || start > original.length) {
-      throw new Error(`hunk 起点 ${hunk.oldStart} 越界或与前一个 hunk 重叠`);
-    }
-    out.push(...original.slice(cursor, start));
-    let at = start;
-    let added = 0;
-
-    for (const body of hunk.body) {
-      const marker = body[0];
-      const text = body.slice(1);
-      if (marker === '+') {
-        out.push(text);
-        added += 1;
-        continue;
-      }
-      if (at >= original.length || original[at] !== text) {
-        throw new Error(`hunk 上下文不匹配（原文件第 ${at + 1} 行）：补丁可能基于旧版本`);
-      }
-      if (marker === ' ') out.push(text);
-      // '-' 行校验通过后只推进游标，不输出。
-      at += 1;
-    }
-
-    const consumed = at - start;
-    const produced = consumed - hunk.body.filter(line => line[0] === '-').length + added;
-    if (consumed !== hunk.oldCount || produced !== hunk.newCount) {
-      throw new Error('hunk 的行数声明与实际内容不一致，拒绝应用');
-    }
-    cursor = at;
-  }
-
-  out.push(...original.slice(cursor));
-  return out.join('\n') + (trailingNewline ? '\n' : '');
-}
-
 export interface ApplyPatchResult {
   path: string;
   hunks: number;
@@ -154,22 +67,34 @@ async function applyPatch(
 ): Promise<ApplyPatchResult> {
   assertMutable(grant, '应用补丁');
   const target = await resolveGrantedPath(grant, args.path, false);
-  const content = await readText(target);
-  const previous = sha256(content);
-  if (args.expectedHash && args.expectedHash !== previous) {
-    throw new Error('文件在读取之后已经变化，拒绝应用补丁（重新读取再生成计划）');
+  if (!args.expectedHash || !/^[a-f0-9]{64}$/.test(args.expectedHash)) {
+    throw new Error(
+      'OBSERVATION_REQUIRED：应用补丁前先 fs.readFile / fs.stat 拿到 sha256，并在 expectedHash 里回填'
+    );
   }
-  const hunks = parsePatch(args.patch);
-  const next = applyHunks(content, hunks);
-  await replaceAtomic(target, next);
-  return {
-    path: target,
-    hunks: hunks.length,
-    previousSha256: previous,
-    sha256: sha256(next),
-    bytes: Buffer.byteLength(next, 'utf8'),
-    patch: args.patch.slice(0, 8000)
-  };
+  return withFileLock(target, async () => {
+    const content = await readText(target);
+    const previous = sha256(content);
+    if (args.expectedHash !== previous) {
+      throw new Error('文件在读取之后已经变化，拒绝应用补丁（重新读取再生成计划）');
+    }
+    const hunks = parseUnifiedDiff(args.patch);
+    const next = applyUnifiedHunks(content, hunks);
+    await replaceAtomic(target, next);
+    // 回读：rename 成功不等于磁盘上是这份内容。
+    const written = await readText(target);
+    if (sha256(written) !== sha256(next)) {
+      throw new Error('写入后回读与预期内容不一致，拒绝把这一步算作成功');
+    }
+    return {
+      path: target,
+      hunks: hunks.length,
+      previousSha256: previous,
+      sha256: sha256(written),
+      bytes: Buffer.byteLength(written, 'utf8'),
+      patch: args.patch.slice(0, 8000)
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

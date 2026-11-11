@@ -374,7 +374,9 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
             taskId,
             stepId: step.id,
             tool: step.tool,
-            error: reason
+            error: reason,
+            args: step.args,
+            durationMs: 0
           });
           break;
         }
@@ -383,7 +385,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       const stepStarted = Date.now();
       const journalId = `${taskId}:${step.id}:${randomUUID()}`;
       db.insertStep({ id: journalId, task_id: taskId, tool: step.tool, args_json: JSON.stringify(step.args), status: 'RUNNING', started_at: stepStarted });
-      port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool });
+      port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool, args: step.args });
 
       try {
         // 能力插件是唯一的分派入口：宿主不认识任何具体工具，未装载与已停用
@@ -401,19 +403,19 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
           results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs, args: step.args });
           errors.push({ stepId: step.id, code: outcome.errorCode, message: stepFailure });
           db.updateStep(journalId, { status: 'FAILED', error: stepFailure, finished_at: Date.now() });
-          port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure });
+          port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure, args: step.args, durationMs });
           break;
         }
         results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs, args: step.args });
         db.updateStep(journalId, { status: 'COMPLETED', result_json: JSON.stringify(result), finished_at: Date.now() });
-        port.postMessage({ type: 'step.completed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, result });
+        port.postMessage({ type: 'step.completed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, result, durationMs });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         const durationMs = Date.now() - stepStarted;
         results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: false, error: messageText, durationMs, args: step.args });
         errors.push({ stepId: step.id, code: errorCode(error), message: messageText });
         db.updateStep(journalId, { status: 'FAILED', error: messageText, finished_at: Date.now() });
-        port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText });
+        port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText, args: step.args, durationMs });
         break; // Stop the plan; the planner decides whether to retry.
       }
     }

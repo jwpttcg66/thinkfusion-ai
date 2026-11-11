@@ -1,219 +1,360 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentEvent } from '../../../shared/contracts';
+import {
+  buildTimeline,
+  duration,
+  statusText,
+  target,
+  toolLabel,
+  type StepCard,
+  type TimelineItem
+} from '../../../shared/execution-timeline';
 
-interface Line {
-  key: string;
-  text: string;
-  tone: 'info' | 'ok' | 'warn' | 'error' | 'muted';
-}
+export { toolLabel };
 
-export function formatEvent(event: AgentEvent, index: number): Line | null {
-  const key = `${event.at}-${index}`;
-  switch (event.type) {
-    case 'round.started':
-      return { key, text: `第 ${event.roundNumber} 轮 · ${roundType(event.inputType)} 已发送`, tone: 'muted' };
-    case 'round.answer':
-      return { key, text: `收到回答（${event.text.length} 字符）`, tone: 'info' };
-    case 'plan.ready':
-      return { key, text: `计划已就绪：${event.plan.title}（${event.plan.steps.length} 步），等待确认`, tone: 'info' };
-    case 'plan.invalid':
-      return { key, text: `计划被拒绝：${event.error}`, tone: 'error' };
-    case 'clarification.required':
-      // "模型", not a site name: which page is driving the plan is a setting
-      // (`planningSource`), and an event carries no site id to look a name up
-      // by. A hardcoded name here is simply wrong once the setting changes.
-      return { key, text: `模型需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
-    case 'step.started':
-      return { key, text: `执行 ${toolLabel(event.tool)}`, tone: 'muted' };
-    case 'step.approval':
-      return {
-        key,
-        text: `等待确认第 ${event.index}/${event.total} 步：${toolLabel(event.tool)}${event.risk === 'danger' ? '（高危）' : ''}`,
-        tone: 'warn'
-      };
-    case 'step.approval-resolved':
-      return {
-        key,
-        text: event.approved ? `已放行：${event.reason ?? '用户批准'}` : `已拦下：${event.reason ?? '用户拒绝'}`,
-        tone: event.approved ? 'ok' : 'warn'
-      };
-    case 'step.completed':
-      // 「完成 shell.run」看不出到底跑了什么、成功没有。退出码、截图尺寸、
-      // 进程 pid 都是执行结果的一部分，日志里必须能直接读到。
-      return { key, text: `完成 ${toolLabel(event.tool)}${stepSummary(event.tool, event.result)}`, tone: 'ok' };
-    case 'step.failed':
-      return { key, text: `失败 ${toolLabel(event.tool)}：${event.error}`, tone: 'error' };
-    case 'report.ready':
-      return {
-        key,
-        text: `执行报告：${event.report.status}（成功 ${event.report.results.filter(r => r.status === 'completed').length} 步${event.report.evidence ? ` · 证据 ${event.report.evidence.refs.length} 条` : ''}）`,
-        tone: event.report.status === 'completed' ? 'ok' : 'warn'
-      };
-    case 'review.ready':
-      return {
-        key,
-        text: `独立评审（${event.backend === 'rules' ? '规则版' : event.reviewer}）：${event.needsFix ? '需修复' : '通过'} · ${event.verdict.slice(0, 120)}`,
-        tone: event.needsFix ? 'warn' : 'ok'
-      };
-    case 'plan.debated':
-      // 「没辩」也要出现在日志里：审批的人需要知道这份计划有没有被评审过。
-      return event.debate.status === 'skipped'
-        ? { key, text: `方案评审未进行：${event.debate.skippedReason ?? '没有可用成员'}`, tone: 'muted' }
-        : {
-            key,
-            text: `方案评审已辩完（${event.debate.participants.join('、')}）：${event.debate.topics.length} 个辩题`,
-            tone: 'ok'
-          };
-    case 'report.sent':
-      return { key, text: '执行报告已回传给模型', tone: 'muted' };
-    case 'task.completed':
-      return { key, text: `任务完成${event.summary ? `：${event.summary}` : ''}`, tone: 'ok' };
-    case 'task.failed':
-      return { key, text: `任务失败：${event.error}`, tone: 'error' };
-    case 'task.cancelled':
-      return { key, text: '任务已取消', tone: 'warn' };
-    case 'log':
-      return { key, text: event.message, tone: event.level === 'error' ? 'error' : event.level === 'warn' ? 'warn' : 'muted' };
-    case 'task.updated':
-      return null;
-    default:
-      return null;
+/**
+ * 工程执行过程：按步骤分卡，而不是一行行文字。
+ *
+ * 一条 `完成 fs.edit` 看不出改了哪个文件、改了哪几行、写后有没有诊断；
+ * 一条 `完成 code.definition` 也看不出跳到了哪一行。这里把同一个 stepId
+ * 的 started / approval / completed / failed 合成一张卡：
+ *
+ *   头部：工具、目标（路径/命令/查询词）、状态、耗时
+ *   展开：参数、代码证据（路径:行号/置信度）、diff、命令输出、诊断、错误
+ *
+ * 只渲染事件里真实带的东西：没有的参数不猜，没有的结果不补。
+ */
+
+function stringify(value: unknown, max = 6000): string {
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return text.length > max ? `${text.slice(0, max)}\n…（已截断，共 ${String(text.length)} 字符）` : text;
+  } catch {
+    return String(value);
   }
 }
 
-function roundType(inputType: string) {
-  if (inputType === 'user_prompt') return '任务';
-  if (inputType === 'execution_report') return '执行报告';
-  if (inputType === 'plan_repair') return '计划修正';
-  return '澄清回答';
+function lines(text: string, limit = 200): string[] {
+  const all = text.split('\n');
+  return all.length > limit ? [...all.slice(0, limit), `…（还有 ${String(all.length - limit)} 行）`] : all;
 }
 
-const TOOL_NAME: Record<string, string> = {
-  'fs.list': '列目录',
-  'fs.readFile': '读文件',
-  'fs.mkdir': '建目录',
-  'fs.writeFile': '写文件',
-  'fs.tree': '看结构',
-  'fs.search': '搜代码',
-  'fs.find': '找文件',
-  'fs.stat': '看属性',
-  'fs.edit': '改文件',
-  'fs.remove': '删除',
-  'fs.move': '移动',
-  'fs.copy': '复制',
-  'fs.readImage': '读图片',
-  'test.run': '跑测试',
-  'shell.run': '执行命令',
-  'job.list': '列作业',
-  'job.output': '读作业输出',
-  'job.kill': '停作业',
-  'screen.capture': '截屏',
-  'app.open': '打开应用',
-  'clipboard.read': '读剪贴板',
-  'clipboard.write': '写剪贴板',
-  notify: '发通知',
-  'system.info': '系统信息',
-  'process.list': '列进程',
-  'process.kill': '结束进程',
-  'web.fetch': '抓网页',
-  'web.search': '联网搜索',
-  'code.run': '跑代码'
-};
-
-export function toolLabel(tool: string) {
-  return TOOL_NAME[tool] ?? tool;
+function CodeLocations(props: { items: unknown[] }) {
+  const rows = props.items.slice(0, 40).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'));
+  if (rows.length === 0) return <p className="muted">没有返回位置。</p>;
+  return (
+    <ul className="exec-locations">
+      {rows.map((item, index) => (
+        <li key={index}>
+          <code>{String(item.path ?? '')}:{String(item.line ?? '?')}:{String(item.character ?? '?')}</code>
+          {typeof item.preview === 'string' && item.preview && <span>{item.preview}</span>}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
-function stepSummary(tool: string, result: unknown): string {
-  const data = result as Record<string, unknown> | null;
-  if (!data || typeof data !== 'object') return '';
-  if (tool === 'test.run' || tool === 'shell.run') {
-    if (data.job && typeof data.job === 'object') {
-      const job = data.job as Record<string, unknown>;
-      return ` · 后台 ${String(job.id)}（pid ${String(job.pid)}）`;
-    }
-    const timeout = data.timedOut ? '（超时）' : '';
-    return ` · 退出码 ${String(data.exitCode)}${timeout} · ${String(data.durationMs)}ms`;
+function ImpactView(props: { result: Record<string, unknown> }) {
+  const definitions = Array.isArray(props.result.definitions) ? props.result.definitions : [];
+  const relations = Array.isArray(props.result.relations) ? props.result.relations : [];
+  const tests = Array.isArray(props.result.relatedTests) ? props.result.relatedTests : [];
+  return (
+    <div className="exec-impact">
+      <p className="muted">
+        {String(props.result.source ?? '')}
+        {props.result.cached === true ? ' · 缓存命中' : ''}
+      </p>
+      <h5>定义（{String(definitions.length)}）</h5>
+      <CodeLocations items={definitions} />
+      <h5>引用 / 调用（{String(relations.length)}）</h5>
+      {relations.length === 0 ? <p className="muted">没有引用。</p> : (
+        <ul className="exec-locations">
+          {relations.slice(0, 40).map((item, index) => {
+            const row = item as Record<string, unknown>;
+            const exact = row.confidence === 'EXACT';
+            return (
+              <li key={index}>
+                <span className={`exec-badge ${exact ? 'is-exact' : 'is-possible'}`}>
+                  {exact ? 'EXACT' : 'POSSIBLE'}
+                </span>
+                <span className={`exec-badge ${row.kind === 'call' ? 'is-call' : ''}`}>{String(row.kind ?? 'reference')}</span>
+                <code>{String(row.path ?? '')}:{String(row.line ?? '?')}</code>
+                {typeof row.preview === 'string' && row.preview && <span>{row.preview}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <h5>候选测试（{String(tests.length)}）</h5>
+      <CodeLocations items={tests} />
+    </div>
+  );
+}
+
+function CommandView(props: { result: Record<string, unknown> }) {
+  const { result } = props;
+  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
+  return (
+    <div className="exec-command">
+      <p className="muted">
+        退出码 {String(result.exitCode ?? '—')}
+        {typeof result.durationMs === 'number' ? ` · ${duration(result.durationMs)}` : ''}
+        {result.timedOut === true ? ' · 超时' : ''}
+        {result.truncated === true ? ' · 输出已截断' : ''}
+      </p>
+      {stdout && <pre className="exec-output">{lines(stdout).join('\n')}</pre>}
+      {stderr && <pre className="exec-output is-error">{lines(stderr).join('\n')}</pre>}
+      {!stdout && !stderr && <p className="muted">没有输出。</p>}
+    </div>
+  );
+}
+
+function DiffView(props: { before?: string; after?: string; patch?: string }) {
+  if (props.patch) {
+    return (
+      <pre className="exec-diff">
+        {props.patch.split('\n').map((line, index) => (
+          <div key={index} className={line.startsWith('+') && !line.startsWith('+++') ? 'is-add' : line.startsWith('-') && !line.startsWith('---') ? 'is-del' : line.startsWith('@@') ? 'is-hunk' : ''}>
+            {line || ' '}
+          </div>
+        ))}
+      </pre>
+    );
   }
-  if (tool === 'job.list') {
-    const jobs = data.jobs;
-    return ` · ${Array.isArray(jobs) ? jobs.length : 0} 个作业`;
+  if (typeof props.before !== 'string' || typeof props.after !== 'string') return null;
+  return (
+    <pre className="exec-diff">
+      {props.before.split('\n').map((line, index) => <div key={`b${String(index)}`} className="is-del">{`- ${line}`}</div>)}
+      {props.after.split('\n').map((line, index) => <div key={`a${String(index)}`} className="is-add">{`+ ${line}`}</div>)}
+    </pre>
+  );
+}
+
+function TeamView(props: { result: Record<string, unknown> }) {
+  const stages = Array.isArray(props.result.stages) ? props.result.stages : [];
+  const patches = Array.isArray(props.result.patches) ? props.result.patches : [];
+  const conflicts = Array.isArray(props.result.conflicts) ? props.result.conflicts : [];
+  return (
+    <div className="exec-team">
+      <p className="muted">{String(props.result.note ?? '')}</p>
+      <p>
+        可应用：<b className={props.result.applyable === true ? 'is-ok' : 'is-bad'}>{props.result.applyable === true ? '是' : '否'}</b>
+      </p>
+      {stages.length > 0 && (
+        <ul className="exec-locations">
+          {stages.map((stage, index) => {
+            const row = stage as Record<string, unknown>;
+            return (
+              <li key={index}>
+                <span className={`exec-badge ${row.status === 'completed' ? 'is-exact' : 'is-possible'}`}>
+                  {String(row.status ?? '')}
+                </span>
+                {String(row.name ?? '')}
+                <span>{Array.isArray(row.agents) ? row.agents.join(' + ') : ''}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <h5>补丁（{String(patches.length)}）</h5>
+      {patches.length === 0 ? <p className="muted">没有解析到补丁。</p> : (
+        <ul className="exec-locations">
+          {patches.map((patch, index) => {
+            const row = patch as Record<string, unknown>;
+            return (
+              <li key={index}>
+                <span className={`exec-badge ${row.valid === true ? 'is-exact' : 'is-possible'}`}>
+                  {row.valid === true ? 'valid' : 'invalid'}
+                </span>
+                <code>{String(row.path ?? '')}</code>
+                <span>+{String(row.additions ?? 0)} / -{String(row.deletions ?? 0)}</span>
+                {typeof row.expectedHash === 'string' && <code className="exec-hash">expectedHash {row.expectedHash.slice(0, 12)}…</code>}
+                {typeof row.reason === 'string' && <span className="is-bad">{row.reason}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {conflicts.length > 0 && (
+        <>
+          <h5>冲突</h5>
+          <ul className="exec-locations">
+            {conflicts.map((item, index) => {
+              const row = item as Record<string, unknown>;
+              return <li key={index}><code>{String(row.path ?? '')}</code><span>{Array.isArray(row.agents) ? row.agents.join(' / ') : ''}</span></li>;
+            })}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ResultView(props: { card: StepCard }) {
+  const { card } = props;
+  const { tool, result, args } = card;
+  if (result === undefined) return null;
+  const data = result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
+
+  if (tool === 'code.definition' || tool === 'code.references' || tool === 'code.symbols' || tool === 'code.ast') {
+    if (Array.isArray(result)) return <CodeLocations items={result} />;
   }
-  if (tool === 'job.output') return ` · ${String(data.bytes)} 字节${data.truncated ? '（已截断）' : ''}`;
-  if (tool === 'job.kill') return ` · 信号 ${String(data.signal)} · ${data.stillRunning ? '仍在运行' : '已结束'}`;
-  if (tool === 'fs.edit') return ` · 替换 ${String(data.replaced)} 处 · ${String(data.bytes)} 字节`;
-  if (tool === 'fs.remove') return data.trashed ? ` · 已移入废纸篓 ${String(data.trashPath)}` : ' · 已永久删除';
-  if (tool === 'fs.move' || tool === 'fs.copy') return ` · → ${String(data.to)}`;
-  if (tool === 'fs.stat') return ` · ${String(data.type)} · ${String(data.bytes)} 字节`;
-  if (tool === 'fs.readImage') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.mime)}`;
-  if (tool === 'clipboard.read') return ` · ${String(data.chars)} 字符`;
-  if (tool === 'clipboard.write') return ` · 写入 ${String(data.written)} 字符`;
-  if (tool === 'notify') return ` · ${String(data.title)}`;
-  if (tool === 'system.info') {
-    const osInfo = data.os as Record<string, unknown> | undefined;
-    const memory = data.memory as Record<string, unknown> | undefined;
-    return osInfo
-      ? ` · ${String(osInfo.type)} ${String(osInfo.release)} · 内存 ${String(memory?.totalGb ?? '?')}GB`
-      : '';
+  if (tool === 'code.impact' && data) return <ImpactView result={data} />;
+  if (tool === 'code.hover' && data) {
+    return (
+      <div>
+        <pre className="exec-code">{String(data.display ?? '')}</pre>
+        {typeof data.documentation === 'string' && data.documentation && <pre className="exec-code">{data.documentation}</pre>}
+      </div>
+    );
   }
-  if (tool === 'process.list') return ` · 匹配 ${String(data.matched)}/${String(data.total)}`;
-  if (tool === 'process.kill') return ` · pid ${String(data.pid)} · ${data.stillRunning ? '仍在运行' : '已结束'}`;
-  if (tool === 'web.fetch') return ` · HTTP ${String(data.status)} · ${String(data.bytes)} 字节`;
-  if (tool === 'web.search') {
-    const count = Array.isArray(data.results) ? data.results.length : 0;
-    // provider=ddg 说明这是免凭据摘要，不是完整结果列表。日志里要能分辨，
-    // 否则「搜到 2 条」会一直被当成「搜到了」。
-    const via = data.provider === 'ddg' ? '（免凭据摘要）' : data.provider === 'none' ? '（无结果）' : `（${String(data.provider)}）`;
-    return ` · ${count} 条${via}`;
+  if (tool === 'code.diagnostics' && data) {
+    const counts = (data.counts ?? {}) as Record<string, unknown>;
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    return (
+      <div>
+        <p className="muted">
+          {String(data.source ?? '')} · {String(counts.errors ?? 0)} error / {String(counts.warnings ?? 0)} warn
+        </p>
+        {issues.length === 0 ? <p className="muted">没有诊断问题。</p> : (
+          <ul className="exec-locations">
+            {issues.slice(0, 30).map((issue, index) => {
+              const row = issue as Record<string, unknown>;
+              return (
+                <li key={index}>
+                  <span className={`exec-badge ${row.severity === 'error' ? 'is-bad' : 'is-possible'}`}>{String(row.severity ?? '')}</span>
+                  <code>{String(row.path ?? '')}:{String(row.line ?? '?')}:{String(row.column ?? '?')}</code>
+                  <span>{String(row.message ?? '')}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
   }
-  if (tool === 'code.run') {
-    const timeout = data.timedOut ? '（超时）' : '';
-    return ` · ${String(data.language)} · 退出码 ${String(data.exitCode)}${timeout} · ${String(data.durationMs)}ms`;
+  if ((tool === 'test.run' || tool === 'shell.run' || tool === 'code.run') && data) return <CommandView result={data} />;
+  if ((tool === 'fs.edit' || tool === 'fs.writeFile' || tool === 'fs.applyPatch') && data) {
+    return (
+      <div>
+        <p className="muted">
+          {String(data.path ?? args?.path ?? '')}
+          {typeof data.replaced === 'number' ? ` · 替换 ${String(data.replaced)} 处` : ''}
+          {typeof data.bytes === 'number' ? ` · ${String(data.bytes)} 字节` : ''}
+          {typeof data.hunks === 'number' ? ` · ${String(data.hunks)} 个 hunk` : ''}
+        </p>
+        <DiffView
+          before={typeof data.before === 'string' ? data.before : typeof args?.oldString === 'string' ? args.oldString : undefined}
+          after={typeof data.after === 'string' ? data.after : typeof args?.newString === 'string' ? args.newString : undefined}
+          patch={typeof data.patch === 'string' ? data.patch : typeof args?.patch === 'string' ? args.patch : undefined}
+        />
+      </div>
+    );
   }
-  if (tool === 'screen.capture') return ` · ${String(data.width)}×${String(data.height)} · ${String(data.path)}`;
-  if (tool === 'app.open') {
-    if (data.running === true) return ` · ${String(data.app ?? data.path)} · 已启动（pid ${String(data.pid)}）`;
-    if (data.running === false) return ` · ${String(data.app ?? data.path)} · 进程未检测到`;
-    return ` · ${String(data.path)}`;
+  if (tool === 'code.team.run' && data) return <TeamView result={data} />;
+  if (tool === 'fs.readFile' && data) {
+    return (
+      <div>
+        <p className="muted">
+          {String(data.bytes ?? '')} 字节 · 第 {String(data.startLine ?? '?')}–{String(data.endLine ?? '?')} 行 / 共 {String(data.totalLines ?? '?')} 行
+          {data.truncated === true ? ' · 已截断' : ''}
+          {typeof data.sha256 === 'string' ? ` · sha256 ${data.sha256.slice(0, 12)}…` : ''}
+        </p>
+        {typeof data.content === 'string' && <pre className="exec-code">{data.content.slice(0, 4000)}</pre>}
+      </div>
+    );
   }
-  if (tool === 'fs.find' || tool === 'fs.search') {
-    const matches = Array.isArray(data.matches) ? data.matches.length : 0;
-    return ` · ${matches} 个命中`;
-  }
-  if (tool === 'fs.readFile') return ` · ${String(data.bytes)} 字节`;
-  if (typeof data.path === 'string') return ` · ${data.path}`;
-  return '';
+  return <pre className="exec-json">{stringify(result)}</pre>;
+}
+
+function StepView(props: { card: StepCard }) {
+  const { card } = props;
+  /** 影响面 / 多 Agent 方案 / 诊断是「理解结果」，默认展开；其他完成卡先收起。 */
+  const important = card.tool === 'code.impact' || card.tool === 'code.team.run' || card.tool === 'code.diagnostics';
+  const [open, setOpen] = useState(card.status === 'failed' || card.status === 'waiting' || important);
+  const failed = card.status === 'failed';
+  useEffect(() => {
+    if (failed || card.status === 'waiting') setOpen(true);
+  }, [failed, card.status]);
+
+  const headTarget = target(card.tool, card.args);
+  const meta = [duration(card.durationMs), statusText(card)].filter(Boolean).join(' · ');
+  return (
+    <details
+      className={`exec-step is-${card.status}`}
+      open={open}
+      onToggle={event => setOpen(event.currentTarget.open)}
+    >
+      <summary className="exec-step-head">
+        <span className="exec-step-dot" aria-hidden />
+        <b>{toolLabel(card.tool)}</b>
+        {headTarget && <code className="exec-step-target">{headTarget}</code>}
+        <span className="exec-step-meta">{meta}</span>
+      </summary>
+      <div className="exec-step-body">
+        {card.approval === 'pending' && (
+          <p className="exec-note">
+            等待确认：第 {String(card.index ?? '?')}/{String(card.total ?? '?')} 步
+            {card.risk === 'danger' ? ' · 高危' : card.risk === 'write' ? ' · 写操作' : ' · 只读'}
+          </p>
+        )}
+        {card.approval === 'approved' && <p className="exec-note is-ok">已批准执行</p>}
+        {card.approval === 'rejected' && <p className="exec-note is-bad">已拒绝：{card.approvalReason ?? '用户拒绝'}</p>}
+        {card.argsPreview && (
+          <pre className="exec-args">{card.argsPreview}</pre>
+        )}
+        {card.args && !card.argsPreview && (
+          <details className="exec-subdetails">
+            <summary>参数</summary>
+            <pre className="exec-args">{stringify(card.args, 4000)}</pre>
+          </details>
+        )}
+        {card.error && <pre className="exec-error">{card.error}</pre>}
+        <ResultView card={card} />
+      </div>
+    </details>
+  );
 }
 
 export function ExecutionLog(props: { events: AgentEvent[] }) {
-  // Oldest first: a transcript reads downwards, and the line you want is the
-  // one that just happened — at the bottom, where your eye already is.
-  const lines = props.events.map((event, index) => formatEvent(event, index)).filter((line): line is Line => line !== null);
+  const items = useMemo(() => buildTimeline(props.events), [props.events]);
+  const steps = items.filter((item): item is Extract<TimelineItem, { kind: 'step' }> => item.kind === 'step');
+  const done = steps.filter(item => item.card.status === 'completed').length;
+  const failed = steps.filter(item => item.card.status === 'failed').length;
 
-  // Follow the tail. Without this the newest line lands below the fold of a
-  // fixed-height box, which is the same problem as reversing the order.
+  // 新步骤出现时跟到尾部；用户自己往上翻时不要抢滚动。
   const listRef = useRef<HTMLDivElement | null>(null);
+  const lastCount = useRef(0);
   useEffect(() => {
     const element = listRef.current;
     if (!element) return;
-    element.scrollTop = element.scrollHeight;
-  }, [lines.length]);
+    if (items.length > lastCount.current) element.scrollTop = element.scrollHeight;
+    lastCount.current = items.length;
+  }, [items.length]);
 
   return (
-    <section className="card log">
+    <section className="card log execution-timeline">
       <div className="row">
-        <h2>执行日志</h2>
-        <span className="muted">{lines.length} 条</span>
+        <h2>执行过程</h2>
+        <span className="muted">
+          {steps.length > 0 ? `${String(steps.length)} 步 · 完成 ${String(done)}${failed > 0 ? ` · 失败 ${String(failed)}` : ''}` : `${String(items.length)} 条事件`}
+        </span>
       </div>
-      {lines.length === 0 ? (
+      {items.length === 0 ? (
         <p className="muted">暂无事件。</p>
       ) : (
-        <div className="log-lines" ref={listRef}>
-          {lines.map(line => (
-            <div key={line.key} className={`log-line t-${line.tone}`}>
-              {line.text}
-            </div>
-          ))}
+        <div className="exec-list" ref={listRef}>
+          {items.map(item => item.kind === 'step'
+            ? <StepView key={item.key} card={item.card} />
+            : item.detail
+              ? (
+                <details key={item.key} className={`exec-milestone-detail t-${item.tone}`}>
+                  <summary>{item.text}</summary>
+                  <pre className="exec-code">{item.detail}</pre>
+                </details>
+              )
+              : <div key={item.key} className={`exec-milestone t-${item.tone}`}>{item.text}</div>)}
         </div>
       )}
     </section>

@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
+import { withFileLock } from './file-lock';
 
 function sha256(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -158,40 +159,46 @@ export const filesystemTools = {
     const before = await fs.lstat(target);
     if (!before.isFile() || before.isSymbolicLink()) throw new Error('覆盖目标必须是普通文件');
 
-    const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    let current: string;
-    try {
-      current = await handle.readFile({ encoding: 'utf8' });
-    } finally {
-      await handle.close();
-    }
-    const actual = sha256(current);
-    if (actual !== args.expectedHash) {
-      throw new Error('文件在读取之后已经变化，拒绝覆盖（请重新读取再生成计划）');
-    }
-
-    const dir = path.dirname(target);
-    const temp = path.join(dir, `.thinkfusion-${randomUUID()}.tmp`);
-    try {
-      const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    return withFileLock(target, async () => {
+      const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let current: string;
       try {
-        await tempHandle.writeFile(args.content, { encoding: 'utf8' });
-        await tempHandle.sync();
+        current = await handle.readFile({ encoding: 'utf8' });
       } finally {
-        await tempHandle.close();
+        await handle.close();
       }
-      await fs.rename(temp, target);
-    } catch (error) {
-      await fs.unlink(temp).catch(() => undefined);
-      throw error;
-    }
-    const after = await fs.lstat(target);
-    return {
-      replaced: true,
-      path: target,
-      bytes: after.size,
-      previousSha256: actual,
-      sha256: sha256(args.content)
-    };
+      const actual = sha256(current);
+      if (actual !== args.expectedHash) {
+        throw new Error('文件在读取之后已经变化，拒绝覆盖（请重新读取再生成计划）');
+      }
+
+      const dir = path.dirname(target);
+      const temp = path.join(dir, `.thinkfusion-${randomUUID()}.tmp`);
+      try {
+        const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+        try {
+          await tempHandle.writeFile(args.content, { encoding: 'utf8' });
+          await tempHandle.sync();
+        } finally {
+          await tempHandle.close();
+        }
+        await fs.rename(temp, target);
+      } catch (error) {
+        await fs.unlink(temp).catch(() => undefined);
+        throw error;
+      }
+      const written = await fs.readFile(target, 'utf8');
+      if (sha256(written) !== sha256(args.content)) {
+        throw new Error('写入后回读与预期内容不一致，拒绝把这一步算作成功');
+      }
+      const after = await fs.lstat(target);
+      return {
+        replaced: true,
+        path: target,
+        bytes: after.size,
+        previousSha256: actual,
+        sha256: sha256(written)
+      };
+    });
   }
 };

@@ -968,6 +968,13 @@ export const PlanSchema = z
   )
   .refine(
     plan => plan.steps.every(step => {
+      if (step.tool === 'fs.edit' || step.tool === 'fs.applyPatch') return !!step.args.expectedHash;
+      return true;
+    }),
+    { message: '修改已有文件必须先读、并带 expectedHash（fs.edit / fs.applyPatch）' }
+  )
+  .refine(
+    plan => plan.steps.every(step => {
       if (step.tool === 'app.open') return Boolean(step.args.app) !== Boolean(step.args.path);
       if (step.tool === 'screen.capture') return step.args.target !== 'region' || Boolean(step.args.region);
       return true;
@@ -1198,7 +1205,22 @@ export interface ExecutionReport {
    * 本轮验没验过：改了文件却没有成功的测试/诊断时 verified=false。
    * 老报告没有这个字段，读取方按「未记录」处理，不默认算过。
    */
-  verification?: { verified: boolean; reasons: string[]; changedFiles: number; changedPaths?: string[] };
+  verification?: {
+    verified: boolean;
+    reasons: string[];
+    changedFiles: number;
+    changedPaths?: string[];
+    /**
+     * V1.2：compile / tests / diagnostics 各自的状态与退出码。
+     * 老报告没有这个字段，界面按「未记录」处理，不补默认值。
+     */
+    checks?: {
+      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; path?: string; detail?: string };
+      changedFiles: string[];
+    };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1217,7 +1239,14 @@ export type AgentEvent = AgentEventBase &
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }
-    | { type: 'step.started'; taskId: string; stepId: string; tool: string }
+    | {
+        type: 'step.started';
+        taskId: string;
+        stepId: string;
+        tool: string;
+        /** 这一步的真实参数；界面不用等结果就能显示「改哪个文件/跑什么命令」。 */
+        args?: Record<string, unknown>;
+      }
     /**
      * 逐次审批：某一步马上就要执行，等用户点头。
      *
@@ -1261,8 +1290,25 @@ export type AgentEvent = AgentEventBase &
         approved: boolean;
         reason?: string;
       }
-    | { type: 'step.completed'; taskId: string; stepId: string; tool: string; result: unknown }
-    | { type: 'step.failed'; taskId: string; stepId: string; tool: string; error: string }
+    | {
+        type: 'step.completed';
+        taskId: string;
+        stepId: string;
+        tool: string;
+        result: unknown;
+        /** 本步耗时；老事件没有这个字段。 */
+        durationMs?: number;
+      }
+    | {
+        type: 'step.failed';
+        taskId: string;
+        stepId: string;
+        tool: string;
+        error: string;
+        args?: Record<string, unknown>;
+        /** 本步耗时；审批被拒时没有执行，通常为 0。 */
+        durationMs?: number;
+      }
     | { type: 'report.ready'; taskId: string; roundId: string; report: ExecutionReport }
     /** V2.1：执行之后由独立评审给出的结论。修复仍需用户重新批准计划。 */
     | {

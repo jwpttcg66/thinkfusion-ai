@@ -13,6 +13,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { PlanSchema, TOOL_NAMES, READ_ONLY_TOOLS, MUTATING_TOOLS } from '../out/shared/contracts.js';
 import { allowedToolsForPreset } from '../out/shared/protocol.js';
@@ -77,7 +78,7 @@ test('四个新工具都在计划 schema、清单与模型工具说明里', () =
 
 test('四个新工具的参数都能被 PlanSchema 收下，写错的会被拒', () => {
   const steps = [
-    { id: 's1', tool: 'fs.applyPatch', args: { path: 'a.txt', patch: '@@ -1 +1 @@\n-x\n+y\n' } },
+    { id: 's1', tool: 'fs.applyPatch', args: { path: 'a.txt', patch: '@@ -1 +1 @@\n-x\n+y\n', expectedHash: 'a'.repeat(64) } },
     { id: 's2', tool: 'git.worktree', args: { action: 'list' } },
     { id: 's3', tool: 'project.dependencies', args: {} },
     { id: 's4', tool: 'project.outline', args: { maxSymbols: 5 } }
@@ -109,8 +110,13 @@ const PATCH = [
 ].join('\n');
 
 test('多 hunk 补丁一次改两处，指纹与行数都对', async () => {
-  writeFileSync(join(root, 'sample.txt'), 'alpha\nbeta\ngamma\ndelta\n');
-  const result = await extendedTools.applyPatch(grant(), { path: 'sample.txt', patch: PATCH });
+  const before = 'alpha\nbeta\ngamma\ndelta\n';
+  writeFileSync(join(root, 'sample.txt'), before);
+  const result = await extendedTools.applyPatch(grant(), {
+    path: 'sample.txt',
+    patch: PATCH,
+    expectedHash: createHash('sha256').update(before).digest('hex')
+  });
   assert.equal(result.hunks, 2);
   assert.equal(readFileSync(join(root, 'sample.txt'), 'utf8'), 'alpha\nBETA\ngamma\ndelta\nepsilon\n');
   assert.equal(result.sha256.length, 64);
@@ -120,20 +126,41 @@ test('多 hunk 补丁一次改两处，指纹与行数都对', async () => {
 test('上下文对不上整份拒绝，文件一个字节都不改', async () => {
   const before = readFileSync(join(root, 'sample.txt'), 'utf8');
   await assert.rejects(
-    () => extendedTools.applyPatch(grant(), { path: 'sample.txt', patch: PATCH }),
+    () => extendedTools.applyPatch(grant(), {
+      path: 'sample.txt', patch: PATCH,
+      expectedHash: createHash('sha256').update(before).digest('hex')
+    }),
     /上下文不匹配/
   );
   assert.equal(readFileSync(join(root, 'sample.txt'), 'utf8'), before);
 });
 
-test('expectedHash 不匹配、坏补丁、只读档位都拒绝', async () => {
+test('CRLF 文件应用补丁后仍是 CRLF', async () => {
+  const before = 'alpha\r\nbeta\r\n';
+  writeFileSync(join(root, 'crlf.txt'), before);
+  await extendedTools.applyPatch(grant(), {
+    path: 'crlf.txt',
+    patch: '--- a/crlf.txt\n+++ b/crlf.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+BETA',
+    expectedHash: createHash('sha256').update(before).digest('hex')
+  });
+  assert.equal(readFileSync(join(root, 'crlf.txt'), 'utf8'), 'alpha\r\nBETA\r\n');
+});
+
+test('没有 expectedHash 直接拒绝；hash 不符、坏补丁、只读档位都拒绝', async () => {
   const before = readFileSync(join(root, 'sample.txt'), 'utf8');
+  await assert.rejects(
+    () => extendedTools.applyPatch(grant(), { path: 'sample.txt', patch: PATCH }),
+    /OBSERVATION_REQUIRED/
+  );
   await assert.rejects(
     () => extendedTools.applyPatch(grant(), { path: 'sample.txt', patch: PATCH, expectedHash: '0'.repeat(64) }),
     /已经变化/
   );
   await assert.rejects(
-    () => extendedTools.applyPatch(grant(), { path: 'sample.txt', patch: '@@ -1 +1 @@\n-nope\n+yep' }),
+    () => extendedTools.applyPatch(grant(), {
+      path: 'sample.txt', patch: '@@ -1 +1 @@\n-nope\n+yep',
+      expectedHash: createHash('sha256').update(before).digest('hex')
+    }),
     /上下文不匹配/
   );
   await assert.rejects(

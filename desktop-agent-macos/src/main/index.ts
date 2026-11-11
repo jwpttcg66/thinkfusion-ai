@@ -99,7 +99,7 @@ import {
   type WindowPlacement
 } from '../shared/window-state';
 import { writeFileAtomic } from './atomic-write';
-import { TsServerManager } from './lsp/tsserver';
+import { LspProviderRegistry, TypeScriptProvider } from './lsp/providers';
 import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
 import { runCodingTeam } from './coding/team';
@@ -554,8 +554,8 @@ const cloudModelRefresh = new Set<string>();
  */
 let localProvider: OllamaProvider | null = null;
 let debates: DebateOrchestrator | null = null;
-/** 语义导航：按工作区根复用 tsserver；只读，不联网。 */
-let lspManager: TsServerManager | null = null;
+/** 语义导航：按工作区根复用 tsserver；只读，不联网。Provider 目前只有 TypeScript。 */
+let lspRegistry: LspProviderRegistry | null = null;
 /** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
 let snapshotStore: SnapshotStore | null = null;
 /** Embedding 提供方：只提供 provider API，不接代码索引（与 opencode 对齐）。 */
@@ -4343,7 +4343,9 @@ app.whenReady().then(async () => {
     return conversation;
   };
 
-  lspManager = new TsServerManager([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')]);
+  lspRegistry = new LspProviderRegistry([
+    new TypeScriptProvider([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')])
+  ]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
   embeddingService = new EmbeddingService({
     hasCloudKey: () => (apiKeys?.list().length ?? 0) > 0,
@@ -4367,8 +4369,16 @@ app.whenReady().then(async () => {
     const conversationId = context.conversationId;
 
     if (id === 'code.team.run') {
-      const args = (rawArgs ?? {}) as { task?: unknown; files?: unknown; members?: unknown; maxParallel?: unknown };
+      const args = (rawArgs ?? {}) as {
+        task?: unknown;
+        files?: unknown;
+        members?: unknown;
+        maxParallel?: unknown;
+        root?: unknown;
+      };
       if (typeof args.task !== 'string' || !args.task.trim()) throw new Error('code.team.run 需要 task');
+      if (typeof args.root !== 'string' || !args.root) throw new Error('code.team.run 缺少工作区根目录');
+      const root = args.root;
       const candidates = await debateCandidates();
       const api = candidates.filter(item => item.type !== 'web' && item.available);
       const requested = Array.isArray(args.members)
@@ -4376,7 +4386,7 @@ app.whenReady().then(async () => {
         : [];
       const members = requested.length > 0
         ? requested
-        : api.slice(0, Math.min(Math.max(Number(args.maxParallel) || 3, 1), 4)).map(item => item.id);
+        : api.slice(0, Math.min(Math.max(Number(args.maxParallel) || 4, 1), 4)).map(item => item.id);
       const known = new Set(api.map(item => item.id));
       const unknown = members.filter(item => !known.has(item));
       if (members.length === 0) throw new Error('没有可用的 API 成员；多 Agent 编码需要本地/云端模型');
@@ -4385,11 +4395,28 @@ app.whenReady().then(async () => {
         ? args.files.filter((item): item is string => typeof item === 'string')
         : [];
       return runCodingTeam(
-        { task: args.task.trim(), files, members, maxParallel: Number(args.maxParallel) || 3 },
+        {
+          task: args.task.trim(),
+          files,
+          members,
+          maxParallel: Number(args.maxParallel) || 4,
+          root
+        },
         {
           ask: (agentId, task) => {
             const extra = extraAgents.find(agent => agent.id === agentId);
             return extra ? extra.ask(task) : registry.ask(agentId, task);
+          },
+          readFile: async absolute => {
+            const relative = path.relative(root, absolute);
+            if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+            try {
+              const content = await fs.promises.readFile(absolute, 'utf8');
+              if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) return null;
+              return { content, sha256: createHash('sha256').update(content, 'utf8').digest('hex') };
+            } catch {
+              return null;
+            }
           }
         }
       );
@@ -4403,9 +4430,9 @@ app.whenReady().then(async () => {
       if (!Number.isInteger(line) || line < 1 || !Number.isInteger(character) || character < 1) {
         throw new Error('line/character 必须是 1-based 整数');
       }
-      const client = lspManager?.get(args.root);
-      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
       const file = resolveInsideRoot(args.root, args.path);
+      const client = lspRegistry?.get(args.root, file);
+      if (!client) throw new Error(lspRegistry?.unavailableReason(file, args.root) ?? 'LSP_UNAVAILABLE：没有可用的语言服务');
       return buildImpact(client, args.root, file, { line, character }, path.join(app.getPath('userData'), 'code-index'));
     }
 
@@ -4424,9 +4451,9 @@ app.whenReady().then(async () => {
     if (id === 'code.context') {
       const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; line?: unknown; character?: unknown; max?: unknown };
       if (typeof args.root !== 'string' || typeof args.path !== 'string') throw new Error('code.context 需要 root 与 path');
-      const client = lspManager?.get(args.root);
-      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
       const file = resolveInsideRoot(args.root, args.path);
+      const client = lspRegistry?.get(args.root, file);
+      if (!client) throw new Error(lspRegistry?.unavailableReason(file, args.root) ?? 'LSP_UNAVAILABLE：没有可用的语言服务');
       const line = Number(args.line);
       const character = Number(args.character);
       const position = Number.isInteger(line) && line > 0 && Number.isInteger(character) && character > 0
@@ -4443,9 +4470,9 @@ app.whenReady().then(async () => {
       if (typeof args.root !== 'string' || typeof args.path !== 'string') {
         throw new Error(`${id} 需要 root 与 path`);
       }
-      const client = lspManager?.get(args.root);
-      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
       const file = resolveInsideRoot(args.root, args.path);
+      const client = lspRegistry?.get(args.root, file);
+      if (!client) throw new Error(lspRegistry?.unavailableReason(file, args.root) ?? 'LSP_UNAVAILABLE：没有可用的语言服务');
       if (id === 'code.symbols') {
         const max = typeof args.max === 'number' ? Math.min(Math.max(Math.floor(args.max), 1), 500) : 200;
         return client.symbols(file, max);
@@ -4479,14 +4506,19 @@ app.whenReady().then(async () => {
     if (id === 'code.diagnostics.lsp') {
       const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; paths?: unknown };
       if (typeof args.root !== 'string') throw new Error('code.diagnostics.lsp 需要 root');
-      const client = lspManager?.get(args.root);
-      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
       const relative = [
         ...(typeof args.path === 'string' ? [args.path] : []),
         ...(Array.isArray(args.paths) ? args.paths.filter((item): item is string => typeof item === 'string') : [])
       ].slice(0, 50);
       if (relative.length === 0) throw new Error('LSP_UNAVAILABLE：没有指定要检查的文件');
       const files = relative.map(item => resolveInsideRoot(args.root as string, item));
+      for (const file of files) {
+        if (!lspRegistry?.get(args.root as string, file)) {
+          throw new Error(lspRegistry?.unavailableReason(file, args.root) ?? 'LSP_UNAVAILABLE：没有可用的语言服务');
+        }
+      }
+      const client = lspRegistry?.get(args.root, files[0]);
+      if (!client) throw new Error('LSP_UNAVAILABLE：没有可用的语言服务');
       const issues: Awaited<ReturnType<typeof client.diagnostics>> = [];
       for (const file of files) issues.push(...(await client.diagnostics(file)));
       return {
@@ -4738,7 +4770,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
-  lspManager?.dispose();
+  lspRegistry?.dispose();
   // Every adapter, not the two that used to exist: a source added in 设置 owns
   // one too, and a pending wait on it would otherwise keep the app alive.
   for (const adapter of adapters.values()) adapter.cancelAllWaits();
