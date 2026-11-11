@@ -3,6 +3,7 @@ import type { ConversationAttachment } from './attachments';
 import type { CapabilityView } from './capabilities';
 import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
+import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
@@ -2241,6 +2242,10 @@ export interface AgentApi {
   savePageDocument(input: SavePageDocumentInput): Promise<SavePageDocumentResult | null>;
   /** 还原本轮改过的文件（按 taskId）；没有快照就是空结果。 */
   revertTaskSnapshot(taskId: string): Promise<{ taskId: string; restored: string[]; removed: string[]; failed: Array<{ path: string; detail: string }> }>;
+  /** Embedding 提供方状态：本地 Ollama 有没有 embedding 模型、云端能不能用。 */
+  embeddingStatus(): Promise<EmbeddingStatus>;
+  /** 文本 → 向量；只提供这一层，不建代码索引（与 opencode 的 provider API 对齐）。 */
+  embedTexts(input: EmbeddingRequest): Promise<EmbeddingResult>;
   /** 保存前的勾选列表：页面上有哪些对话可保存。只读，不写盘。 */
   extractPage(input?: { sourceId?: string }): Promise<PageExtractPreview>;
 

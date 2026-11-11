@@ -103,6 +103,7 @@ import { TsServerManager } from './lsp/tsserver';
 import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
 import { runCodingTeam } from './coding/team';
+import { EmbeddingService } from './embeddings/service';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
 import {
@@ -557,6 +558,8 @@ let debates: DebateOrchestrator | null = null;
 let lspManager: TsServerManager | null = null;
 /** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
 let snapshotStore: SnapshotStore | null = null;
+/** Embedding 提供方：只提供 provider API，不接代码索引（与 opencode 对齐）。 */
+let embeddingService: EmbeddingService | null = null;
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
 
@@ -3760,6 +3763,18 @@ function registerIpc() {
    * 内容是页面当场显示的助手回答；界面拿它画多选列表，保存时只回传下标，
    * 正文仍然由 `page:save-document` 重新读一次页面。
    */
+  ipcMain.handle('embedding:status', event => {
+    trustedUiSender(event);
+    return embeddingService?.status() ?? { ollama: { available: false, models: [] }, openai: { configured: false, detail: 'embedding 未初始化' } };
+  });
+
+  ipcMain.handle('embedding:embed', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!embeddingService) throw new Error('embedding 未初始化');
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    return embeddingService.embed(raw as never);
+  });
+
   ipcMain.handle('snapshot:revert', (event, taskId: unknown) => {
     trustedUiSender(event);
     if (typeof taskId !== 'string') throw new Error('无效输入');
@@ -4330,6 +4345,15 @@ app.whenReady().then(async () => {
 
   lspManager = new TsServerManager([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
+  embeddingService = new EmbeddingService({
+    hasCloudKey: () => (apiKeys?.list().length ?? 0) > 0,
+    resolveCloud: providerId => {
+      const preset = CLOUD_PRESETS.find(item => item.id === providerId);
+      const baseUrl = cloudConfigs?.get(providerId)?.baseUrl ?? preset?.baseUrl;
+      const key = apiKeys?.get(providerId);
+      return baseUrl && key ? { baseUrl, key } : null;
+    }
+  });
 
   /** 把工具传来的相对路径钉在授权根内；越界一律拒绝。 */
   const resolveInsideRoot = (root: string, relative: string): string => {

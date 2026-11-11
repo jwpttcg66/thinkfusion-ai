@@ -532,6 +532,8 @@ export function createMockApi(): AgentApi {
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     // 预览里没有真实页面：给一份示例列表，好检查「保存网页对话」的多选面板。
     revertTaskSnapshot: async (taskId: string) => ({ taskId, restored: [], removed: [], failed: [] }),
+    embeddingStatus: async () => ({ ollama: { available: false, models: [], detail: '预览环境没有 Ollama' }, openai: { configured: false, detail: '预览环境没有 Key' } }),
+    embedTexts: async () => { throw new Error('浏览器预览里不能调用 embedding'); },
     extractPage: async () => ({
       sourceLabel: 'ChatGPT',
       pageTitle: '消防安全通知',

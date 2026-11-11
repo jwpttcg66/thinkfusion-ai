@@ -97,7 +97,8 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
    P2 后端已补：`code.impact`（定义/引用/调用 + 候选测试，EXACT/POSSIBLE）、
 `code.ast`（TypeScript AST 摘要）、按文件 mtime 的持久化缓存。
 P2 多 Agent 编码已补 `code.team.run`：并行探索/编码/验证/评审，Code 只回 unified diff，
-冲突文件列出，不改工作区。仍缺：P3 向量检索（需要 embedding，文档要求有实际瓶颈再做）；
+冲突文件列出，不改工作区。P3 已按 opencode 的做法补 embedding 提供方 API（Ollama / OpenAI 兼容），只做「文本→向量」，
+不建代码向量索引；
 自动选测试仍由计划决定。
    界面已补验证/诊断卡、diff 卡与「还原本轮」。
 4. 仍缺（P2）：基础 CodeGraph、调用层级与影响分析、按需 AST、多 Agent。
