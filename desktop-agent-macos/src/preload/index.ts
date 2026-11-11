@@ -136,6 +136,7 @@ const api: AgentApi = {
   learnSelectors: (sourceId?: string) => ipcRenderer.invoke('page:learn-selectors', sourceId),
   savePageDocument: (input: SavePageDocumentInput) => ipcRenderer.invoke('page:save-document', input),
   extractPage: (input?: { sourceId?: string }) => ipcRenderer.invoke('page:extract', input),
+  revertTaskSnapshot: (taskId: string) => ipcRenderer.invoke('snapshot:revert', taskId),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);

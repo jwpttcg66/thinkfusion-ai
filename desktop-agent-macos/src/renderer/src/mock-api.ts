@@ -531,6 +531,7 @@ export function createMockApi(): AgentApi {
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
     // 预览里没有真实页面：给一份示例列表，好检查「保存网页对话」的多选面板。
+    revertTaskSnapshot: async (taskId: string) => ({ taskId, restored: [], removed: [], failed: [] }),
     extractPage: async () => ({
       sourceLabel: 'ChatGPT',
       pageTitle: '消防安全通知',

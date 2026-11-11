@@ -144,6 +144,8 @@ export interface ApplyPatchResult {
   previousSha256: string;
   sha256: string;
   bytes: number;
+  /** 原始补丁（截断），给界面画 diff 卡。 */
+  patch: string;
 }
 
 async function applyPatch(
@@ -165,7 +167,8 @@ async function applyPatch(
     hunks: hunks.length,
     previousSha256: previous,
     sha256: sha256(next),
-    bytes: Buffer.byteLength(next, 'utf8')
+    bytes: Buffer.byteLength(next, 'utf8'),
+    patch: args.patch.slice(0, 8000)
   };
 }
 

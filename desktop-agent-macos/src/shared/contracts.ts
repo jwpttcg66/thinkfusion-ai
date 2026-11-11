@@ -2208,6 +2208,8 @@ export interface AgentApi {
    * Returns null when the user cancels the save dialog.
    */
   savePageDocument(input: SavePageDocumentInput): Promise<SavePageDocumentResult | null>;
+  /** 还原本轮改过的文件（按 taskId）；没有快照就是空结果。 */
+  revertTaskSnapshot(taskId: string): Promise<{ taskId: string; restored: string[]; removed: string[]; failed: Array<{ path: string; detail: string }> }>;
   /** 保存前的勾选列表：页面上有哪些对话可保存。只读，不写盘。 */
   extractPage(input?: { sourceId?: string }): Promise<PageExtractPreview>;
 

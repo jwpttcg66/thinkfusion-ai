@@ -52,7 +52,7 @@ import {
 } from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
-const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null, verification: null, diagnostics: [] };
+const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null, verification: null, diagnostics: [], changes: [] };
 type DiagnosticCard = {
   path: string;
   source: string;
@@ -75,6 +75,8 @@ interface Derived {
   verification: { verified: boolean; reasons: string[]; changedFiles: number } | null;
   /** 写操作里自动带的诊断，按文件列出（来自 code.diagnostics）。 */
   diagnostics: DiagnosticCard[];
+  /** 本轮改动（编辑的前后字面量 / 补丁原文），给 diff 卡。 */
+  changes: Array<{ path: string; before?: string; after?: string; patch?: string }>;
 }
 
 /** 逐次审批里正在等答复的那一步（事件本身带齐了要显示的全部信息）。 */
@@ -114,6 +116,7 @@ function derive(events: AgentEvent[]): Derived {
   let review: Derived['review'] = null;
   let verification: Derived['verification'] = null;
   let diagnostics: DiagnosticCard[] = [];
+  let changes: Derived['changes'] = [];
 
   for (const event of events) {
     // A new round supersedes whatever the previous one asked. Without this a
@@ -134,6 +137,17 @@ function derive(events: AgentEvent[]): Derived {
         results?: Array<{ result?: { diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
       };
       verification = report.verification ?? null;
+      changes = (report.results ?? [])
+        .map((item): Derived['changes'][number] | null => {
+          const result = (item as { result?: { path?: string; before?: string; after?: string; patch?: string } }).result;
+          if (!result?.path) return null;
+          if (typeof result.before === 'string' && typeof result.after === 'string') {
+            return { path: result.path, before: result.before, after: result.after };
+          }
+          if (typeof result.patch === 'string') return { path: result.path, patch: result.patch };
+          return null;
+        })
+        .filter((item): item is Derived['changes'][number] => item !== null);
       diagnostics = (report.results ?? [])
         .map(item => item.result?.diagnostics)
         .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
@@ -162,7 +176,7 @@ function derive(events: AgentEvent[]): Derived {
       questions = [];
     }
   }
-  return { plan, questions, answer, review, verification, diagnostics };
+  return { plan, questions, answer, review, verification, diagnostics, changes };
 }
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
@@ -1635,6 +1649,16 @@ export default function App() {
    *
    * 默认 Markdown；旁边那个 Word 是「单独指定」的分支，不点不会生成。
    */
+  async function revertSnapshot(taskId: string) {
+    try {
+      const outcome = await window.agentAPI.revertTaskSnapshot(taskId);
+      const failed = outcome.failed.length > 0 ? `；失败 ${String(outcome.failed.length)} 个：${outcome.failed.map(item => `${item.path}（${item.detail}）`).join('、')}` : '';
+      setNotice(`已还原本轮：恢复 ${String(outcome.restored.length)} 个文件，删除 ${String(outcome.removed.length)} 个新建文件${failed}`);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function openPageSave(format: 'md' | 'docx') {
     if (savingPage) return;
     setSavingPage(format);
@@ -2049,6 +2073,35 @@ export default function App() {
                   </div>
                 ))}
                 <p className="muted">「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。</p>
+                {derived.verification.changedFiles > 0 && activeTask && (
+                  <button className="btn ghost" type="button" onClick={() => void revertSnapshot(activeTask.taskId)}>
+                    还原本轮
+                  </button>
+                )}
+              </section>
+            )}
+
+            {derived.changes.length > 0 && (
+              <section className="card review-card">
+                <div className="review-head">
+                  <b>本轮改动 · {derived.changes.length} 个文件</b>
+                  <span className="muted">before / after 原文，未经改写</span>
+                </div>
+                {derived.changes.map(item => (
+                  <details key={item.path} className="synthesis-block">
+                    <summary>{item.path}</summary>
+                    {item.patch ? (
+                      <pre className="md-code">{item.patch}</pre>
+                    ) : (
+                      <>
+                        <p className="muted">改之前</p>
+                        <pre className="md-code">{item.before}</pre>
+                        <p className="muted">改之后</p>
+                        <pre className="md-code">{item.after}</pre>
+                      </>
+                    )}
+                  </details>
+                ))}
               </section>
             )}
 

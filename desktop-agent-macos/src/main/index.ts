@@ -3757,6 +3757,12 @@ function registerIpc() {
    * 内容是页面当场显示的助手回答；界面拿它画多选列表，保存时只回传下标，
    * 正文仍然由 `page:save-document` 重新读一次页面。
    */
+  ipcMain.handle('snapshot:revert', (event, taskId: unknown) => {
+    trustedUiSender(event);
+    if (typeof taskId !== 'string') throw new Error('无效输入');
+    return snapshotStore?.revert(taskId) ?? { taskId, restored: [], removed: [], failed: [] };
+  });
+
   ipcMain.handle('page:extract', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = (raw && typeof raw === 'object' ? raw : {}) as { sourceId?: unknown };

@@ -50,6 +50,9 @@ export interface EditResult {
   previousSha256: string;
   sha256: string;
   bytes: number;
+  /** 改之前/之后的字面量（截断），给界面画 diff 卡。 */
+  before: string;
+  after: string;
 }
 
 export interface RemoveResult {
@@ -169,7 +172,9 @@ export const fsExtraTools = {
       replaced: args.replaceAll ? occurrences : 1,
       previousSha256: previous,
       sha256: sha256(next),
-      bytes: after.size
+      bytes: after.size,
+      before: args.oldString.slice(0, 4000),
+      after: args.newString.slice(0, 4000)
     };
   },
 
