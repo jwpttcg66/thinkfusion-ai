@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { buildEvidenceLedger } from '../shared/engineering-evidence';
+import { verifyExecution } from './verification';
 import { closeAllTerminals } from './tools/terminal';
 import { openDb } from './db';
 import { assertGrant } from './policy';
@@ -441,6 +442,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       }))
     );
 
+    const verification = verifyExecution(results);
     const report: ExecutionReport = {
       protocol: 'desktop-agent/v1',
       type: 'execution_report',
@@ -452,6 +454,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
       errors,
       nextAction: status === 'completed' ? 'continue' : 'stop',
       createdAt: Date.now(),
+      verification,
       ...(ledger.refs.length > 0 ? { evidence: ledger } : {})
     };
 

@@ -1158,6 +1158,11 @@ export interface ExecutionReport {
   createdAt: number;
   /** 执行证据账本；老报告没有这个字段，读取方要按缺失处理。 */
   evidence?: EvidenceLedger;
+  /**
+   * 本轮验没验过：改了文件却没有成功的测试/诊断时 verified=false。
+   * 老报告没有这个字段，读取方按「未记录」处理，不默认算过。
+   */
+  verification?: { verified: boolean; reasons: string[]; changedFiles: number };
 }
 
 // ---------------------------------------------------------------------------

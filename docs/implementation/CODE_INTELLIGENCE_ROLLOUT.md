@@ -21,7 +21,7 @@ V1.1 相对上一版的三条修正（已确立为架构约束）：
 | P1 | LSP Provider + Definition / References / Diagnostics **✅ 0.1.9** | `code.diagnostics` 保留回退 | `main/lsp/*`、`code.definition` 等 | 只读新增 |
 | P1 | ContextBuilder **✅ 0.1.9**（`code.context`） | 现有工程证据、`project.outline` | 上下文包（带来源与指纹） | 只读 |
 | P1 | 编码工作流 **⬜ 未做** | `AgentOrchestrator`、`TaskGrant`、Journal、计划门禁、`reviewExecution` | 状态机 + 预算 | 写后自动验 |
-| P1 | 改→编译→测试→修复闭环 **🟡 诊断已自动，测试/门禁未做** | `fs.edit` / `fs.applyPatch` / `test.run` / `code.run` | 自动触发与门禁 | 写后自动诊断；测试选择与「真跑过」门禁待做 |
+| P1 | 改→编译→测试→修复闭环 **🟡 诊断自动 + 报告记录 verified；测试选择/阻断未做** | `fs.edit` / `fs.applyPatch` / `test.run` / `code.run` | 自动触发与门禁 | 写后自动诊断；测试选择与「真跑过」门禁待做 |
 | P2 | 基础 CodeGraph | LSP 结果 | 关系缓存 + 置信等级 | 只读 |
 | P2 | Call Hierarchy / 影响分析 | `code.impact` 雏形 | 调用层级（EXACT/POSSIBLE） | 只读 |
 | P2 | 按需 AST | — | 按语言、有理由才加 | 只读 |
