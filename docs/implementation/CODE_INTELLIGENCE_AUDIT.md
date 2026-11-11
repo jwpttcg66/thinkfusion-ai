@@ -96,7 +96,9 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
    增加验证/诊断卡。
    P2 后端已补：`code.impact`（定义/引用/调用 + 候选测试，EXACT/POSSIBLE）、
 `code.ast`（TypeScript AST 摘要）、按文件 mtime 的持久化缓存。
-仍缺：P2 多 Agent 编码、P3 向量检索；自动选测试仍由计划决定。
+P2 多 Agent 编码已补 `code.team.run`：并行探索/编码/验证/评审，Code 只回 unified diff，
+冲突文件列出，不改工作区。仍缺：P3 向量检索（需要 embedding，文档要求有实际瓶颈再做）；
+自动选测试仍由计划决定。
    界面已补验证/诊断卡、diff 卡与「还原本轮」。
 4. 仍缺（P2）：基础 CodeGraph、调用层级与影响分析、按需 AST、多 Agent。
 

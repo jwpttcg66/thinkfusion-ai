@@ -25,8 +25,8 @@ V1.1 相对上一版的三条修正（已确立为架构约束）：
 | P2 | 基础 CodeGraph **✅ 0.1.9（code.impact + 文件 mtime 缓存）** | LSP 结果 | 关系缓存 + 置信等级 | 只读 |
 | P2 | Call Hierarchy / 影响分析 **✅ 0.1.9（AST 确认调用；引用标 POSSIBLE）** | `code.impact` | 调用分类（EXACT/POSSIBLE） | 只读 |
 | P2 | 按需 AST **✅ 0.1.9（TypeScript AST）** | — | TS/JS 语法树摘要 | 只读 |
-| P2 | 多 Agent 编码 **⬜ 未做** | `team.*`、`git.worktree` | Explore/Code/Test/Review 分工 | 最后 |
-| P3 | 持久化关系缓存 **✅ 0.1.9（code-index，按 mtime 失效）** | — | 向量检索仍视需求 | 低 |
+| P2 | 多 Agent 编码 **✅ 0.1.9（code.team.run）** | `team.*`、`git.worktree` | 探索/编码/验证/评审 并行；Code 只回 diff | 只读提案，不改工作区 |
+| P3 | 持久化关系缓存 **✅ 0.1.9（code-index，按 mtime 失效）** | — | 向量检索未做：需要 embedding 提供方，且文档要求「出现实际瓶颈再做」 | 低 |
 
 ## 1. P0 · 能力审计（只读，必须）
 

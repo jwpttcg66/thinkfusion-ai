@@ -86,7 +86,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     family: 'code.change',
     goal: '工作区出现可展示的 diff，且有一个真实检查跑过。',
     tools: [
-      'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert', 'fs.move',
+      'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert', 'code.team.run', 'fs.move',
       'fs.copy', 'fs.remove', 'git.worktree', 'git.stash', 'git.branch',
       'test.run', 'code.run'
     ],
@@ -156,7 +156,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     family: 'frontend',
     goal: '构建通过，关键路径有截图或可复现步骤。',
     tools: [
-      'fs.list', 'fs.readFile', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert',
+      'fs.list', 'fs.readFile', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert', 'code.team.run',
       'test.run', 'code.run', 'screen.capture', 'window.list', 'app.open'
     ],
     preconditions: ['现有构建/测试命令', '要验证的关键路径'],

@@ -485,6 +485,9 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - code.impact:   { "path": string, "line": number, "character": number }
                  只读。影响面：定义、引用、调用（AST 确认）与候选测试；
                  每条标 EXACT / POSSIBLE，结果按文件 mtime 缓存。
+- code.team.run: { "task": string, "files"?: string[], "members"?: string[], "maxParallel"?: number }
+                 让多个 Agent 并行出方案（探索/编码/验证/评审）；Code 角色只回
+                 unified diff，不改工作区。冲突文件会列出来。
 - code.ast:      { "path": string, "max"?: number }
                  只读。TypeScript 语法树摘要：imports / 声明 / 调用点；
                  没有 typescript 包时明确 AST_UNAVAILABLE。

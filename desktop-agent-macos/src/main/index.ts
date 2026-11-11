@@ -102,6 +102,7 @@ import { writeFileAtomic } from './atomic-write';
 import { TsServerManager } from './lsp/tsserver';
 import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
+import { runCodingTeam } from './coding/team';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
 import {
@@ -4340,6 +4341,35 @@ app.whenReady().then(async () => {
 
   setMainCallHandler(async (id, rawArgs, context) => {
     const conversationId = context.conversationId;
+
+    if (id === 'code.team.run') {
+      const args = (rawArgs ?? {}) as { task?: unknown; files?: unknown; members?: unknown; maxParallel?: unknown };
+      if (typeof args.task !== 'string' || !args.task.trim()) throw new Error('code.team.run 需要 task');
+      const candidates = await debateCandidates();
+      const api = candidates.filter(item => item.type !== 'web' && item.available);
+      const requested = Array.isArray(args.members)
+        ? args.members.filter((item): item is string => typeof item === 'string')
+        : [];
+      const members = requested.length > 0
+        ? requested
+        : api.slice(0, Math.min(Math.max(Number(args.maxParallel) || 3, 1), 4)).map(item => item.id);
+      const known = new Set(api.map(item => item.id));
+      const unknown = members.filter(item => !known.has(item));
+      if (members.length === 0) throw new Error('没有可用的 API 成员；多 Agent 编码需要本地/云端模型');
+      if (unknown.length > 0) throw new Error(`不可用或不存在的成员：${unknown.join('、')}`);
+      const files = Array.isArray(args.files)
+        ? args.files.filter((item): item is string => typeof item === 'string')
+        : [];
+      return runCodingTeam(
+        { task: args.task.trim(), files, members, maxParallel: Number(args.maxParallel) || 3 },
+        {
+          ask: (agentId, task) => {
+            const extra = extraAgents.find(agent => agent.id === agentId);
+            return extra ? extra.ask(task) : registry.ask(agentId, task);
+          }
+        }
+      );
+    }
 
     if (id === 'code.impact') {
       const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; line?: unknown; character?: unknown };

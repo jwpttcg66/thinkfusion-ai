@@ -68,6 +68,7 @@ export const TOOL_NAMES = [
   'fs.du',
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
   'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast',
+  'code.team.run',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'session.search', 'plugin.inspect',
   'goal.create', 'goal.get', 'goal.update',
@@ -111,7 +112,7 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'archive.extract', 'archive.create', 'text.base64', 'image.resize',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
-  'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run',
+  'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run', 'code.team.run',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'goal.create', 'goal.update', 'schedule.create', 'schedule.edit',
   'team.spawn', 'team.task.create', 'team.task.update'
@@ -874,6 +875,17 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       path: RelativePath,
       max: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.team.run'),
+    args: z.object({
+      task: z.string().min(1).max(4000),
+      files: z.array(RelativePath).max(20).optional(),
+      members: z.array(z.string().min(1).max(120)).min(1).max(4).optional(),
+      maxParallel: z.number().int().min(1).max(4).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
