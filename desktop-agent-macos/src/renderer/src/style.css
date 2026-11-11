@@ -4888,3 +4888,68 @@ button:disabled {
   padding: 0 6px;
   font-size: 10px;
 }
+
+/* 保存网页对话：像微信多选，先勾再决定合并 / 逐条。
+   面板沿用 diag 的遮罩与头部；动作条固定在底部，列表在中间滚动。 */
+.page-save-panel { width: min(620px, 100%); }
+.page-save-source {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+.page-save-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 8px;
+  font-size: 12px;
+}
+.page-save-transcript {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.page-save-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.page-save-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.page-save-item.on { border-color: #8fa2f5; background: #f5f7ff; }
+.page-save-item input { margin-top: 3px; }
+.page-save-item-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.page-save-item-title { font-size: 12.5px; font-weight: 600; }
+.page-save-item-excerpt {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.page-save-item-chars { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.page-save-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  flex: none;
+}

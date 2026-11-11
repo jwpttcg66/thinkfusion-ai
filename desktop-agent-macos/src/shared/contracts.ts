@@ -11,6 +11,7 @@ import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '
 import type {
   ExportConversationInput,
   ExportConversationResult,
+  PageExtractPreview,
   SavePageDocumentInput,
   SavePageDocumentResult
 } from './export';
@@ -2123,6 +2124,8 @@ export interface AgentApi {
    * Returns null when the user cancels the save dialog.
    */
   savePageDocument(input: SavePageDocumentInput): Promise<SavePageDocumentResult | null>;
+  /** 保存前的勾选列表：页面上有哪些对话可保存。只读，不写盘。 */
+  extractPage(input?: { sourceId?: string }): Promise<PageExtractPreview>;
 
   // streams
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;

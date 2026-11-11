@@ -75,6 +75,41 @@ export interface SavePageDocumentInput {
   path?: string;
   /** 是否附「页面转录」附录。默认附。 */
   includeTranscript?: boolean;
+  /**
+   * 只保存这些下标（0 起，对应 `PageExtractPreview.items` 的 `index`）。
+   * 不传 = 全部。列表由「保存网页对话」多选框决定，正文仍然由主进程去
+   * 页面里现读，界面不传正文。
+   */
+  documents?: number[];
+  /**
+   * `merge`（默认）：选中的合成一份文件；
+   * `per-item`：选中的每条各存一份文件，放在同一个目录里。
+   */
+  mode?: 'merge' | 'per-item';
+}
+
+/** 页面上提取到的一条对话（助手回答）；只用于勾选列表，不含正式正文。 */
+export interface PageExtractItem {
+  index: number;
+  /** 第一条标题行；没有就用第一句话，最长 60 字。 */
+  title: string;
+  /** 前 160 字，已经压成一行，列表里看得出来是哪一条。 */
+  excerpt: string;
+  chars: number;
+}
+
+/**
+ * 保存前的预览：像微信多选那样先把页面上能保存的对话列出来，由用户勾选。
+ * 只读，不写盘；真正的保存会再读一次页面，避免列表和落盘内容来自两个时刻。
+ */
+export interface PageExtractPreview {
+  sourceId?: string;
+  sourceLabel: string;
+  pageTitle: string;
+  url: string;
+  items: PageExtractItem[];
+  totalChars: number;
+  transcriptChars: number;
 }
 
 /** 主进程从网页 DOM 里读出来的原始内容，UI 不填这一份。 */
@@ -88,6 +123,40 @@ export interface PageDocumentContent {
   transcript: string;
 }
 
+/**
+ * 把页面读到的原始内容整理成勾选列表。
+ *
+ * 只给「哪一条是什么」：标题、前 160 字、字数。正文不在这里传——保存时
+ * 主进程会按勾选的下标再读一次页面，列表只负责让人选对。
+ */
+export function previewPageDocument(content: PageDocumentContent): PageExtractPreview {
+  const items = content.documents.map((raw, index) => {
+    const text = raw.trim();
+    const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+    const heading = lines.find(line => /^#{1,6}\s+\S/.test(line));
+    const title = (heading ? heading.replace(/^#{1,6}\s+/, '') : lines[0] ?? '')
+      .replace(/[*_`>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 60);
+    const excerpt = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+    return {
+      index,
+      title: title || `文档 ${index + 1}`,
+      excerpt,
+      chars: text.length
+    };
+  });
+  return {
+    sourceLabel: content.sourceLabel,
+    pageTitle: content.pageTitle,
+    url: content.url,
+    items,
+    totalChars: items.reduce((sum, item) => sum + item.chars, 0),
+    transcriptChars: content.transcript.trim().length
+  };
+}
+
 export interface SavePageDocumentResult {
   path: string;
   format: ExportFormat;
@@ -98,6 +167,11 @@ export interface SavePageDocumentResult {
   planItems: number;
   /** 文档正文的总字数。 */
   chars: number;
+  /**
+   * `per-item` 模式：每条一个文件。`path` 这时是目录，`files` 是实际写出的
+   * 文件清单（界面要说清楚「存了 3 个文件」，不能只说一个 path）。
+   */
+  files?: Array<{ path: string; bytes: number; documents: number }>;
 }
 
 export const EXECUTION_MODE_LABELS: Record<ConversationExecutionConfig['executionMode'], string> = {

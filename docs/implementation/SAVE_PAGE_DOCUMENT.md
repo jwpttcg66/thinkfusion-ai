@@ -51,11 +51,34 @@ view 已经创建过。「网页源没打开 / 还在加载 / 停在登录页或
 docx 模块按需动态加载。文件名取页面标题清洗后加时间戳，保存位置默认弹系统对话框
 （起始目录「下载」），`path` 直写留给自动化与真机验收。
 
+## 保存前先勾选（0.1.8，2026-11-11）
+
+一页里往往不止一条助手回答；以前点保存只能整页存下来。现在按微信多选的做法：
+
+```
+点「保存文档」/「保存为 Word」
+  → page:extract：只读预览，列出这一页能保存的对话（标题 / 前 160 字 / 字数）
+  → 多选面板（PageSaveDialog.tsx）
+       合并保存：勾选的写在同一个文件里（默认 Markdown / Word 按入口）
+       逐条保存：勾选的每条各存一个文件，放同一个文件夹；不附页面转录
+       全部保存：不挑，整页存一份（等同于旧行为）
+```
+
+边界：
+
+- 面板只回传下标（`documents: number[]`），正文仍由主进程在保存时现读页面；
+  列表和落盘内容不会来自两个时刻。
+- 越界或已被页面清掉的下标会被忽略；一条都不剩就明确报「没有可保存的对话」，
+  不写空文件。
+- `per-item` 的 `path` 是目录；结果里带 `files` 清单，界面说「存了 N 个文件」。
+- 独立窗口工具栏的保存仍是一次存全部：那条链路没有多选面板。
+
 ## 链路
 
 ```
 page-bar 按钮（App.tsx）
-  → window.agentAPI.savePageDocument({ sourceId, format?, path? })
+  → window.agentAPI.extractPage({ sourceId })       ipcMain 'page:extract'（只读预览）
+  → 多选面板 → window.agentAPI.savePageDocument({ sourceId, format?, documents?, mode? })
   → ipcMain 'page:save-document'                    src/main/index.ts
       ├─ PROBE_SCRIPT(profile, …, allAnswers=true)  src/main/adapters/browser/page-driver.ts
       └─ savePageDocument()                        src/main/export/page.ts
@@ -70,9 +93,10 @@ page-bar 按钮（App.tsx）
 
 ## 测试与真机
 
-- `npm run test:page-document`（scripts/check-page-document.mjs，12 条）：计划块边界、
+- `npm run test:page-document`（scripts/check-page-document.mjs，16 条）：计划块边界、
   复选框、去重、原文照搬、表格转义、转录截断与开关、空页面、默认 md / 点名 doc、
-  取消对话框、探针开关默认关闭且两种脚本都能编译。
+  取消对话框、探针开关默认关闭且两种脚本都能编译；2026-11-11 增加 4 条：
+  预览列表、只存勾选的一条、逐条保存不附转录、空选择/越界下标。
 - 真机 s28（2026-11-08）：知识空间问「写一份《发布前检查》文档…实施计划」→
   ChatGPT / Gemini 回答后，网页栏 IPC 分别存出 `ChatGPT-文档.md`（默认，2 份文档 /
   3 条计划，6.9KB）、`ChatGPT-文档-Word.docx`（点名 doc，14.9KB，unzip 验证正文/表格/

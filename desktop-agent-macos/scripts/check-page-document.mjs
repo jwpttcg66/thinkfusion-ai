@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { PROBE_SCRIPT } from '../out-test/main/adapters/browser/page-driver.js';
 import { buildPageDocument, planItemsOf } from '../out-test/main/export/page-document.js';
 import { savePageDocument } from '../out-test/main/export/page.js';
+import { previewPageDocument } from '../out-test/shared/export.js';
 
 const work = mkdtempSync(join(tmpdir(), 'tf-page-doc-'));
 after(() => rmSync(work, { recursive: true, force: true }));
@@ -163,4 +164,75 @@ test('「读全部回答」默认关闭，只有保存文档时才打开，且�
   assert.match(full, /const allAnswers = true;/);
   assert.doesNotThrow(() => new Function('return ' + normal), '默认探针脚本必须能编译');
   assert.doesNotThrow(() => new Function('return ' + full), '读全部回答的探针脚本必须能编译');
+});
+
+// ---------------------------------------------------------------------------
+// 勾选保存（像微信多选）
+// ---------------------------------------------------------------------------
+
+const multi = () => content({
+  documents: [
+    '# 第一条\n\n关于消防安全的通知。',
+    '# 第二条\n\n关于假期值班的安排，正文更长一些。',
+    '第三条没有标题，只有一句话。'
+  ],
+  transcript: '用户：发三条通知\n助手：……'
+});
+
+test('预览把每条对话列成一条：标题、摘要、字数', () => {
+  const preview = previewPageDocument(multi());
+  assert.equal(preview.items.length, 3);
+  assert.equal(preview.items[0].title, '第一条');
+  assert.match(preview.items[0].excerpt, /消防安全/);
+  assert.equal(preview.items[1].title, '第二条');
+  assert.equal(preview.items[2].title, '第三条没有标题，只有一句话。');
+  assert.equal(preview.totalChars, multi().documents.reduce((sum, text) => sum + text.length, 0));
+});
+
+test('只保存勾选的那一条：其余对话不写进文件', async () => {
+  const target = join(work, '只存第二条');
+  const result = await savePageDocument(
+    { path: target, documents: [1] },
+    multi(),
+    { defaultDir: () => work }
+  );
+  assert.equal(result.documents, 1);
+  const text = readFileSync(`${target}.md`, 'utf8');
+  assert.match(text, /关于假期值班的安排/);
+  assert.doesNotMatch(text, /消防安全/);
+  assert.doesNotMatch(text, /第三条没有标题/);
+});
+
+test('逐条保存：每条一个文件，不附页面转录', async () => {
+  const dir = join(work, '逐条');
+  const result = await savePageDocument(
+    { documents: [0, 2], mode: 'per-item', path: dir },
+    multi(),
+    { defaultDir: () => work }
+  );
+  assert.equal(result.files.length, 2);
+  assert.equal(result.documents, 2);
+  assert.ok(existsSync(join(dir, `${result.files[0].path.split('/').pop()}`)));
+  const first = readFileSync(result.files[0].path, 'utf8');
+  const second = readFileSync(result.files[1].path, 'utf8');
+  assert.match(first, /消防安全/);
+  assert.doesNotMatch(first, /假期值班/);
+  assert.match(second, /第三条没有标题/);
+  assert.doesNotMatch(first, /附录　页面转录/, '逐条保存不复制整段转录');
+  assert.doesNotMatch(second, /附录　页面转录/);
+});
+
+test('勾选的下标越界或被清空时不写空文件', async () => {
+  await assert.rejects(
+    () => savePageDocument({ path: join(work, '空选择'), documents: [] }, multi(), { defaultDir: () => work }),
+    /没有可保存的对话/
+  );
+  const target = join(work, '越界只剩一条');
+  const result = await savePageDocument(
+    { path: target, documents: [99, 1] },
+    multi(),
+    { defaultDir: () => work }
+  );
+  assert.equal(result.documents, 1);
+  assert.match(readFileSync(`${target}.md`, 'utf8'), /假期值班/);
 });

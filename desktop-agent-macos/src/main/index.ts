@@ -141,8 +141,10 @@ import type {
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
 import {
+  previewPageDocument,
   type ExportConversationInput,
   type PageDocumentContent,
+  type PageExtractPreview,
   type SavePageDocumentInput,
   type SavePageDocumentResult
 } from '../shared/export';
@@ -2520,6 +2522,25 @@ function registerIpc() {
           ? await dialog.showSaveDialog(parent, options)
           : await dialog.showSaveDialog(options);
         return target.canceled || !target.filePath ? null : target.filePath;
+      },
+      /** 逐条保存：选一个目录，每条对话写一个文件。 */
+      pickDirectory: async () => {
+        const parent =
+          detached?.window && !detached.window.isDestroyed()
+            ? detached.window
+            : win && !win.isDestroyed()
+              ? win
+              : null;
+        const options = {
+          title: '选择保存这些对话的文件夹',
+          defaultPath: app.getPath('downloads'),
+          buttonLabel: '保存到这里',
+          properties: ['openDirectory' as const, 'createDirectory' as const]
+        };
+        const target = parent
+          ? await dialog.showOpenDialog(parent, options)
+          : await dialog.showOpenDialog(options);
+        return target.canceled || target.filePaths.length === 0 ? null : target.filePaths[0];
       }
     }),
     readPage: async sourceId => {
@@ -3717,6 +3738,25 @@ function registerIpc() {
     trustedUiSender(event);
     const id = typeof raw === 'string' && sourceById(sources, raw) ? raw : activeSourceId;
     return learnSelectorsFor(id);
+  });
+
+  /**
+   * 「保存网页对话」的勾选列表。只读：不写盘、不弹对话框。
+   *
+   * 内容是页面当场显示的助手回答；界面拿它画多选列表，保存时只回传下标，
+   * 正文仍然由 `page:save-document` 重新读一次页面。
+   */
+  ipcMain.handle('page:extract', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = (raw && typeof raw === 'object' ? raw : {}) as { sourceId?: unknown };
+    const sourceId = typeof input.sourceId === 'string' ? input.sourceId : undefined;
+    const content = await capabilityContext.readPage?.(sourceId);
+    if (!content) throw new Error('读取网页内容的能力没有准备好');
+    const preview: PageExtractPreview = {
+      ...previewPageDocument(content),
+      ...(sourceId ? { sourceId } : {})
+    };
+    return preview;
   });
 
   /**

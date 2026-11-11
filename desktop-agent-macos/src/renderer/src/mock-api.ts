@@ -530,6 +530,19 @@ export function createMockApi(): AgentApi {
     chooseAttachments: async () => [],
     // 浏览器预览里没有真实的网页视图，也没有文件系统：不假装保存成功。
     savePageDocument: async () => { throw new Error('浏览器预览里不能读取网页或写文件'); },
+    // 预览里没有真实页面：给一份示例列表，好检查「保存网页对话」的多选面板。
+    extractPage: async () => ({
+      sourceLabel: 'ChatGPT',
+      pageTitle: '消防安全通知',
+      url: 'https://chatgpt.com/c/demo',
+      items: [
+        { index: 0, title: '校园消防安全指南', excerpt: '@师生家长，这份校园消防安全指南请收藏。来源 | 中国消防微博', chars: 42 },
+        { index: 1, title: '鄂邑反诈日报', excerpt: '警方提醒：近期出现冒充快递客服的诈骗电话，请勿向任何人透露验证码。', chars: 68 },
+        { index: 2, title: '假召回 真骗局', excerpt: '国家反诈中心提醒：接到自称商家的召回电话，先挂断再通过官方渠道核实。', chars: 55 }
+      ],
+      totalChars: 165,
+      transcriptChars: 900
+    }),
     getChannelStatuses: async () => [],
     getExecutionDefaults: async () => ({
       executionMode: 'web' as const,

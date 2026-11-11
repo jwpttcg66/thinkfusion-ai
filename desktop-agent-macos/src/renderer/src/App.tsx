@@ -23,6 +23,7 @@ import { ExecutionLog, toolLabel } from './components/ExecutionLog';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
+import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
@@ -201,6 +202,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   /** True while 「保存文档」 is reading the page and writing the file. */
   const [savingPage, setSavingPage] = useState<'md' | 'docx' | null>(null);
+  /** 保存前先勾选：页面上读到哪些对话可保存。 */
+  const [pageSave, setPageSave] = useState<{ preview: import('../../shared/export').PageExtractPreview; format: 'md' | 'docx' } | null>(null);
   /**
    * The last repair result, shown inside the diagnostics panel.
    *
@@ -1591,29 +1594,67 @@ export default function App() {
   }
 
   /**
-   * 「保存文档」：把当前网页源里显示的助手回答（文档与计划条目）提取出来，
-   * 由主进程写成一份本机文件。
+   * 「保存文档」：先读一次页面，把能保存的对话列出来让用户勾选。
+   *
+   * 正文一律由主进程去页面里读，界面只拿预览；保存时只回传下标，避免
+   * 列表和落盘内容来自两个时刻。
    *
    * 默认 Markdown；旁边那个 Word 是「单独指定」的分支，不点不会生成。
-   * 按钮只传网页源 id 与格式——正文一律由主进程去页面里读，界面不把网页
-   * 内容抄出来再传一遍，那样存下来的就不是页面当场显示的那一版了。
    */
-  async function savePageDocument(format: 'md' | 'docx') {
+  async function openPageSave(format: 'md' | 'docx') {
     if (savingPage) return;
     setSavingPage(format);
     if (notice) setNotice('');
     try {
-      const result = await window.agentAPI.savePageDocument({ sourceId: sources.activeId, format });
+      const preview = await window.agentAPI.extractPage({ sourceId: sources.activeId });
+      if (preview.items.length === 0) {
+        setNotice('这一页没有可保存的对话（可能停在登录页或空会话）。');
+        return;
+      }
+      setPageSave({ preview, format });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSavingPage(null);
+    }
+  }
+
+  /** 真正落盘：合并一个文件，或按勾选逐条各存一个文件。 */
+  async function runPageSave(input: {
+    documents: number[];
+    mode: 'merge' | 'per-item';
+    includeTranscript: boolean;
+  }) {
+    if (!pageSave || savingPage) return;
+    const { format } = pageSave;
+    setSavingPage(format);
+    if (notice) setNotice('');
+    try {
+      const result = await window.agentAPI.savePageDocument({
+        sourceId: sources.activeId,
+        format,
+        documents: input.documents,
+        mode: input.mode,
+        includeTranscript: input.includeTranscript
+      });
       if (!result) {
         setNotice('已取消保存');
         return;
       }
       const label = sources.sources.find(source => source.id === sources.activeId)?.label ?? '这个网页源';
-      setNotice(
-        `已把「${label}」的文档存到 ${result.path}：` +
-          `${result.documents} 份文档 / ${result.planItems} 条计划条目 / ${result.chars} 字` +
-          (format === 'docx' ? '（Word）' : '（Markdown）')
-      );
+      const kind = format === 'docx' ? '（Word）' : '（Markdown）';
+      if (result.files && result.files.length > 0) {
+        setNotice(
+          `已把「${label}」的 ${result.files.length} 条对话逐条存到 ${result.path}：` +
+            `${result.chars} 字，每条一个文件${kind}`
+        );
+      } else {
+        setNotice(
+          `已把「${label}」的文档存到 ${result.path}：` +
+            `${result.documents} 份对话 / ${result.planItems} 条计划条目 / ${result.chars} 字${kind}`
+        );
+      }
+      setPageSave(null);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -2121,7 +2162,7 @@ export default function App() {
               <button
                 className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
                 type="button"
-                onClick={() => void savePageDocument('md')}
+                onClick={() => void openPageSave('md')}
                 disabled={savingPage !== null}
                 data-action="save-document"
                 aria-label="保存文档"
@@ -2132,7 +2173,7 @@ export default function App() {
               <button
                 className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
                 type="button"
-                onClick={() => void savePageDocument('docx')}
+                onClick={() => void openPageSave('docx')}
                 disabled={savingPage !== null}
                 data-action="save-document-word"
                 aria-label="保存为 Word"
@@ -2239,6 +2280,16 @@ export default function App() {
           workspaceRoot={workspace}
           onDebateStarted={info => { void showDebateAnswer(info); }}
           onClose={() => setResearchOpen(false)}
+        />
+      )}
+
+      {pageSave && (
+        <PageSaveDialog
+          preview={pageSave.preview}
+          format={pageSave.format}
+          busy={savingPage !== null}
+          onClose={() => setPageSave(null)}
+          onSave={input => void runPageSave(input)}
         />
       )}
 
