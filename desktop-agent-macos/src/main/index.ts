@@ -25,9 +25,9 @@ import {
   TaskIdSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
-import { aggregateTotals, foldTrace, preview, traceFromMessages } from '../shared/trace';
+import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
-import { TraceRecorder } from './trace/trace-recorder';
+import { TraceRecorder, type StepHandle } from './trace/trace-recorder';
 import { recordExecutionReport } from './trace/execution-trace';
 import { TaskManager } from './task-manager';
 import { callPage, ChatPageDriver, createElectronDriver, DISCOVER_SCRIPT, PROBE_SCRIPT, type PageProbe } from './adapters/browser/page-driver';
@@ -991,15 +991,122 @@ function debateSnapshotOf(state: DebateState): DebateSnapshot {
  * 现在把它挂到一条会话上：每 1.5 秒把轮次快照推给界面（谁在说、还在等谁），
  * 结束后落成一条带辩论快照的消息——重开这条会话还能读。
  *
+ * 同时把同一批事实写进轨迹：轨迹页不是给「问答」专用的，辩论也要能看见
+ * 谁在第几轮、用哪家模型、说了多少字、为什么失败。这里不另造一套状态，
+ * 只读编排器的落盘快照再翻译成轨迹步。
+ *
  * 只推不发：真正的编排仍在 DebateOrchestrator 里，这个定时器只做投影。
  */
 function watchDebateInConversation(debateId: string, conversationId: string): void {
-  const timer = setInterval(() => {
+  const trace = new TraceRecorder(traceStore, conversationId, emitConversation);
+  let turnStarted = false;
+  let parent: StepHandle | undefined;
+  let traceClosed = false;
+  const seenMessages = new Set<string>();
+  const seenFailures = new Set<string>();
+  const labelOfActor = (agentId: string): string =>
+    extraAgents.find(agent => agent.id === agentId)?.label
+    ?? registry.get(agentId)?.label
+    ?? agentId;
+  const sourceOfActor = (agentId: string): TraceSource => {
+    const extra = extraAgents.find(agent => agent.id === agentId);
+    if (extra) return extra.sourceType;
+    return registry.get(agentId) ? 'web' : 'system';
+  };
+
+  /** 把这一刻能看到的新发言 / 新失败写成轨迹步；只写没写过的。 */
+  const recordTrace = (current: DebateState): void => {
+    if (!turnStarted) {
+      turnStarted = true;
+      trace.beginTurn({
+        inputPreview: current.question,
+        reason: '直接辩论：跳过第一轮回答与汇总，只跑交锋与裁决',
+        meta: { executionMode: current.config.leadMode, rounds: current.config.maxRounds }
+      });
+      parent = trace.beginStep({
+        stage: 'debate',
+        group: 'debate',
+        actorId: current.lead.agentId ?? 'system',
+        actorLabel: current.lead.label,
+        sourceType: current.lead.agentId ? sourceOfActor(current.lead.agentId) : 'system',
+        reason: `${current.config.strategy} · 最多 ${current.config.maxRounds} 轮`,
+        inputPreview: current.question,
+        meta: { rounds: current.rounds.length }
+      });
+    }
+    const rounds = [...current.rounds, ...(current.runningRound ? [current.runningRound] : [])];
+    for (const round of rounds) {
+      for (const message of round.messages) {
+        if (seenMessages.has(message.messageId)) continue;
+        seenMessages.add(message.messageId);
+        const handle = trace.beginStep({
+          stage: 'debate',
+          group: 'debate',
+          actorId: message.agentId,
+          actorLabel: labelOfActor(message.agentId),
+          sourceType: sourceOfActor(message.agentId),
+          reason: `第 ${round.index + 1} 轮 · ${message.kind}`,
+          inputPreview: current.question,
+          ...(parent ? { parentStep: parent.step } : {}),
+          startedAt: message.startedAt ?? message.createdAt
+        });
+        trace.endStep(handle, {
+          status: 'ok',
+          ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+          outputPreview: message.text,
+          endedAt: message.endedAt ?? message.createdAt,
+          meta: { rounds: round.index + 1, outputChars: message.text.length }
+        });
+      }
+      for (const failure of round.failures) {
+        const key = `${round.index}:${failure.agentId}`;
+        if (seenFailures.has(key)) continue;
+        seenFailures.add(key);
+        const handle = trace.beginStep({
+          stage: 'debate',
+          group: 'debate',
+          actorId: failure.agentId,
+          actorLabel: labelOfActor(failure.agentId),
+          sourceType: sourceOfActor(failure.agentId),
+          reason: `第 ${round.index + 1} 轮 · 没有发言`,
+          inputPreview: current.question,
+          ...(parent ? { parentStep: parent.step } : {})
+        });
+        trace.endStep(handle, {
+          status: 'failed',
+          endedAt: round.endedAt ?? Date.now(),
+          error: { code: errorCodeOf(failure.detail), detail: failure.detail }
+        });
+      }
+    }
+    if (current.status !== 'running' && !traceClosed) {
+      traceClosed = true;
+      const status = current.status === 'completed'
+        ? 'ok' as const
+        : current.status === 'cancelled'
+          ? 'cancelled' as const
+          : 'interrupted' as const;
+      trace.endStep(parent, {
+        status,
+        ...(current.stopReason ? { reason: current.stopReason } : {}),
+        meta: { rounds: current.rounds.length, failed: current.rounds.reduce((total, round) => total + round.failures.length, 0) }
+      });
+      trace.endTurn({
+        status,
+        ...(current.stopReason ? { reason: current.stopReason } : {}),
+        meta: { rounds: current.rounds.length }
+      });
+    }
+  };
+
+  const timer = setInterval(tick, 1500);
+  function tick(): void {
     if (!debates) { clearInterval(timer); return; }
     const current = debates.get(debateId);
     const conversation = store.getConversation(conversationId);
     // 会话被删了就不再往这里写：留下一条没有会话的记录，侧栏里也打不开。
     if (!current || !conversation) { clearInterval(timer); return; }
+    recordTrace(current);
     const snapshot = debateSnapshotOf(current);
     emitConversation({
       type: 'debate.progress',
@@ -1034,7 +1141,9 @@ function watchDebateInConversation(debateId: string, conversationId: string): vo
     };
     store.upsertConversation(next);
     emitConversation({ type: 'conversation.updated', at: next.updatedAt, conversation: next });
-  }, 1500);
+  }
+  // 立即写第一条：用户切到轨迹页时不该先空白 1.5 秒。
+  tick();
 }
 
 function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
@@ -3290,6 +3399,11 @@ function registerIpc() {
     // 哪一轮，结束后还会互相覆盖状态。
     if (conversation && ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(conversation.status)) {
       throw new Error('这条会话还在回答，等它结束后再发起辩论');
+    }
+    // 同一会话里同时跑两场辩论：两条时间线会往同一份轨迹里交叉写，界面上
+    // 也分不清哪个发言属于哪一场。前一场结束（或停止）后再开。
+    if (conversation && debates.list().some(item => item.conversationId === conversation!.conversationId && item.status === 'running')) {
+      throw new Error('这条会话里还有一场辩论在跑，等它结束后再发起');
     }
     const selected = Array.isArray(rawConfig.participants) && rawConfig.participants.length > 0
       ? rawConfig.participants.filter((id): id is string => typeof id === 'string')
