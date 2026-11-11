@@ -1090,6 +1090,16 @@ function SynthesisCard({
   const led = Boolean(synthesis.leadSummary ?? synthesis.fusion?.leadAgentId);
   const sections = led ? splitSummarySections(synthesis.recommendation) : [];
   const structured = !led;
+  /**
+   * 有辩论时，「结论」这一段不能出现在辩论之前。
+   *
+   * 辩前汇总是主导人在交锋前写的；用户看到的第一块却是结论，会以为
+   * 「还没辩就下结论了」。现在把结论单独拿出来，放到辩论与裁判之后；
+   * 一致/分歧/存疑/辩题仍留在前面，作为辩题从哪来的上下文。
+   */
+  const showConclusionLast = Boolean(debate);
+  const leadingSections = showConclusionLast ? sections.filter(section => section.title !== '结论') : sections;
+  const conclusionSections = showConclusionLast ? sections.filter(section => section.title === '结论') : [];
 
   return (
     <article className={`synthesis ${structured && synthesis.degraded ? 'degraded' : ''}`}>
@@ -1103,7 +1113,7 @@ function SynthesisCard({
 
       {sections.length > 0 ? (
         <div className="summary-sections">
-          {sections.map((section, index) => (
+          {leadingSections.map((section, index) => (
             <section
               key={index}
               className={`summary-section${sectionClass(section.title)}${section.title ? '' : ' no-title'}`}
@@ -1126,6 +1136,23 @@ function SynthesisCard({
       {debate && <DebatePanel debate={debate} labels={labels} />}
 
       {synthesis.fusion?.debateId && <DebateVerdictStrip debateId={synthesis.fusion.debateId} labels={labels} />}
+
+      {/* 辩论与裁判之后再给「结论」：用户要的是「辩完才看结论」。 */}
+      {conclusionSections.length > 0 && (
+        <div className="summary-sections">
+          {conclusionSections.map((section, index) => (
+            <section
+              key={`conclusion-${String(index)}`}
+              className={`summary-section${sectionClass(section.title)}`}
+            >
+              {section.title && <h4 className="summary-section-title">{section.title}</h4>}
+              <p className="summary-section-body">
+                <SourceRefText text={section.body || '没有'} tags={opinionTags} />
+              </p>
+            </section>
+          ))}
+        </div>
+      )}
 
       {/* 辩后意见单独一块：它回答的是「辩完到底信哪个」，和上面那段辩前
           汇总不是同一件东西。以前它被当成唯一结论，五段汇总因此整段消失。 */}
