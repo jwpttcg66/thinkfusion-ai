@@ -24,6 +24,8 @@
     "src/main/profile-store.ts",
     "src/main/execution-defaults-store.ts",
     "src/main/engineering/**/*.ts",
+    "src/main/lsp/**/*.ts",
+    "src/main/snapshots/**/*.ts",
     "src/main/knowledge/**/*.ts",
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",

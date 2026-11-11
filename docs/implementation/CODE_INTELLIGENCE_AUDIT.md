@@ -71,6 +71,17 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
 - `research/project-tools.ts` 的 `MAX_TOOL_ROUNDS = 1` 是**设计边界**，不是 bug；
   编码循环需要新工作流，不是把 1 改大。
 
+## 6.1 0.1.9 补齐的 P1 核心（本次）
+
+| 能力 | 实现 | 验证 |
+| --- | --- | --- |
+| 语义导航 | `src/main/lsp/tsserver.ts`：TypeScript 的 tsserver（不引新依赖），definition / references / hover / navtree / 语义诊断；1-based 坐标、结果封顶、mtime 变化自动重开 | 真机在本仓库：`normalizeExecutionConfig` 定义跳到 `src/shared/conversation.ts:689`，22 处引用，hover 有签名，199 个符号，0 诊断 |
+| 工具接线 | `code.definition/references/symbols/hover/context` 经 `callMain` 桥接；`root` 由授权根注入，模型传 root 会被覆盖（有测试钉住） | `test:lsp` 8 条 |
+| ContextBuilder | `src/main/lsp/context.ts`：符号 + 定义 + 引用 + hover + 候选测试，每条标 `source: tsserver`，带 sha256/totalLines | `test:lsp` 覆盖 |
+| 诊断 | `code.diagnostics` 先走 tsserver，拿不到再回退 tsc/eslint/ruff | `test:lsp` 覆盖 |
+| 写后自动诊断 | `fs.writeFile` / `fs.edit` / `fs.applyPatch` 成功后自动取 tsserver 诊断，挂在结果 `diagnostics`；不可用就跳过，不假装 | `test:lsp` 覆盖 |
+| 快照 / 还原 | `src/main/snapshots/store.ts` + `fs.revert`：第一次改之前留底，新建的还原时删除，路径钉在根内 | `test:snapshot` 5 条 |
+
 ## 7. P0 结论
 
 1. 复用：`fs.edit` / `fs.applyPatch` / `fs.stat` / `fs.search` / `fs.tree` /
@@ -78,9 +89,10 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
    `reviewExecution` / 证据账本 / 计划门禁。
 2. 已补（0.1.9）：运行时 `fs.readFile` 寻址读 + 行号 + 总行数 + 8MB 载入上限；
    `fs.stat` 给文本文件行数。
-3. 仍缺（P1）：LSP Provider 与 definition/references、ContextBuilder、
-   编码工作流（挂在 AgentOrchestrator 上）、写后自动诊断/测试、门禁「真跑过」、
-   本轮快照与回退。
+3. 0.1.9 已补：LSP Provider + definition/references/hover/symbols、ContextBuilder、
+   写后自动诊断、快照/还原（后端）。
+   仍缺（P1）：编码工作流状态机与预算（挂在 AgentOrchestrator 上）、
+   按影响面选测试、门禁「测试真跑过」、diff/诊断/测试/还原的界面卡片。
 4. 仍缺（P2）：基础 CodeGraph、调用层级与影响分析、按需 AST、多 Agent。
 
 测试：`npm run test:code-read`（9 条，分页/行号/哈希一致/空文件/目录/超限）；

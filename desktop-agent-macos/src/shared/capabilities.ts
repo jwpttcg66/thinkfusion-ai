@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 79 个工具（76 个本地 + 3 个联网），主进程装载工程证据
+ * Runtime 进程装载 85 个工具（81 个本地 + 3 个联网 + 1 个语义导航代理），主进程装载工程证据
  * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 85 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 91 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -68,6 +68,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'fs.find': ['按名字找文件', '用通配符按文件名查找'],
   'fs.stat': ['文件信息', '类型、字节数、权限、修改时间与 sha256'],
   'fs.edit': ['改文件', '唯一字面量替换，可要求 expectedHash'],
+  'fs.revert': ['还原本轮', '把本轮改过的文件恢复到第一次修改前的状态'],
   'fs.remove': ['删除到废纸篓', '默认移进废纸篓；永久删除只在完全权限下'],
   'fs.move': ['移动文件', '目标已存在时拒绝覆盖'],
   'fs.copy': ['复制文件', '目标已存在时拒绝覆盖'],
@@ -116,6 +117,11 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'fs.du': ['目录体积', '各直接子项占多少字节与文件数，符号链接不跟随'],
   'ask.user': ['向用户提问', '执行中需要确认时暂停计划向用户提问；超时或取消返回 answered:false'],
   'code.diagnostics': ['语言诊断', '跑工程里已装的 tsc / eslint，把问题归一成路径、行号、严重级与说明'],
+  'code.definition': ['跳到定义', '按 1-based 行列跳到符号定义（TypeScript 走 tsserver）'],
+  'code.references': ['找引用', '列出符号的引用位置，含声明处；没有语言服务时明确报不可用'],
+  'code.symbols': ['列符号', '按文件列出符号与行号（navtree）；没有语言服务时不猜'],
+  'code.hover': ['看类型签名', '取光标处的类型签名与文档'],
+  'code.context': ['代码上下文包', '文件符号 + 定义 + 引用 + 类型签名 + 候选测试，全部标来源'],
   'term.open': ['开终端', '用 node-pty 开一个持久交互式终端（与 dsh 同后端），返回会话 id'],
   'term.read': ['读终端输出', '只返回上次之后的新输出；缓冲有上限，超了会标 truncated'],
   'term.send': ['向终端输入', '把文本写进终端；submit 默认追加回车'],
@@ -210,7 +216,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：79 个 Runtime 工具 + 6 个主进程能力，合计 85。设置页只认这一份。 */
+/** 全量清单：85 个 Runtime 工具 + 6 个主进程能力，合计 91。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

@@ -99,6 +99,9 @@ import {
   type WindowPlacement
 } from '../shared/window-state';
 import { writeFileAtomic } from './atomic-write';
+import { TsServerManager } from './lsp/tsserver';
+import { buildCodeContext } from './lsp/context';
+import { SnapshotStore } from './snapshots/store';
 import {
   EMPTY_STORED_SOURCES,
   isAllowedSourceUrl,
@@ -547,6 +550,10 @@ const cloudModelRefresh = new Set<string>();
  */
 let localProvider: OllamaProvider | null = null;
 let debates: DebateOrchestrator | null = null;
+/** 语义导航：按工作区根复用 tsserver；只读，不联网。 */
+let lspManager: TsServerManager | null = null;
+/** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
+let snapshotStore: SnapshotStore | null = null;
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
 
@@ -4312,8 +4319,99 @@ app.whenReady().then(async () => {
     return conversation;
   };
 
+  lspManager = new TsServerManager([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')]);
+  snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
+
+  /** 把工具传来的相对路径钉在授权根内；越界一律拒绝。 */
+  const resolveInsideRoot = (root: string, relative: string): string => {
+    const abs = path.resolve(root, relative);
+    const rel = path.relative(root, abs);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`${relative} 不在工作区内`);
+    return abs;
+  };
+
   setMainCallHandler(async (id, rawArgs, context) => {
     const conversationId = context.conversationId;
+
+    if (id === 'code.context') {
+      const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; line?: unknown; character?: unknown; max?: unknown };
+      if (typeof args.root !== 'string' || typeof args.path !== 'string') throw new Error('code.context 需要 root 与 path');
+      const client = lspManager?.get(args.root);
+      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
+      const file = resolveInsideRoot(args.root, args.path);
+      const line = Number(args.line);
+      const character = Number(args.character);
+      const position = Number.isInteger(line) && line > 0 && Number.isInteger(character) && character > 0
+        ? { line, character }
+        : undefined;
+      const max = typeof args.max === 'number' ? Math.min(Math.max(Math.floor(args.max), 1), 500) : 200;
+      return buildCodeContext(client, args.root, file, position, max);
+    }
+
+    if (id === 'code.definition' || id === 'code.references' || id === 'code.symbols' || id === 'code.hover') {
+      const args = (rawArgs ?? {}) as {
+        root?: unknown; path?: unknown; line?: unknown; character?: unknown; max?: unknown;
+      };
+      if (typeof args.root !== 'string' || typeof args.path !== 'string') {
+        throw new Error(`${id} 需要 root 与 path`);
+      }
+      const client = lspManager?.get(args.root);
+      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
+      const file = resolveInsideRoot(args.root, args.path);
+      if (id === 'code.symbols') {
+        const max = typeof args.max === 'number' ? Math.min(Math.max(Math.floor(args.max), 1), 500) : 200;
+        return client.symbols(file, max);
+      }
+      const line = Number(args.line);
+      const character = Number(args.character);
+      if (!Number.isInteger(line) || line < 1 || !Number.isInteger(character) || character < 1) {
+        throw new Error('line/character 必须是 1-based 整数');
+      }
+      const position = { file, line, character };
+      if (id === 'code.definition') return client.definition(position);
+      if (id === 'code.references') return client.references(position);
+      return client.hover(position);
+    }
+
+    if (id === 'snapshot.capture') {
+      const args = (rawArgs ?? {}) as { root?: unknown; taskId?: unknown; path?: unknown };
+      if (typeof args.root !== 'string' || typeof args.taskId !== 'string' || typeof args.path !== 'string') {
+        throw new Error('snapshot.capture 需要 root / taskId / path');
+      }
+      snapshotStore?.capture(args.root, args.taskId, args.path);
+      return { captured: args.path };
+    }
+
+    if (id === 'snapshot.revert') {
+      const args = (rawArgs ?? {}) as { taskId?: unknown };
+      if (typeof args.taskId !== 'string') throw new Error('snapshot.revert 需要 taskId');
+      return snapshotStore?.revert(args.taskId) ?? { taskId: args.taskId, restored: [], removed: [], failed: [] };
+    }
+
+    if (id === 'code.diagnostics.lsp') {
+      const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; paths?: unknown };
+      if (typeof args.root !== 'string') throw new Error('code.diagnostics.lsp 需要 root');
+      const client = lspManager?.get(args.root);
+      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
+      const relative = [
+        ...(typeof args.path === 'string' ? [args.path] : []),
+        ...(Array.isArray(args.paths) ? args.paths.filter((item): item is string => typeof item === 'string') : [])
+      ].slice(0, 50);
+      if (relative.length === 0) throw new Error('LSP_UNAVAILABLE：没有指定要检查的文件');
+      const files = relative.map(item => resolveInsideRoot(args.root as string, item));
+      const issues: Awaited<ReturnType<typeof client.diagnostics>> = [];
+      for (const file of files) issues.push(...(await client.diagnostics(file)));
+      return {
+        root: args.root,
+        source: 'tsserver',
+        files: relative,
+        issues,
+        counts: {
+          errors: issues.filter(item => item.severity === 'error').length,
+          warnings: issues.filter(item => item.severity === 'warning').length
+        }
+      };
+    }
 
     if (id === 'session.search') {
       const args = (rawArgs ?? {}) as { query?: unknown; limit?: unknown; conversationId?: unknown };
@@ -4552,6 +4650,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
+  lspManager?.dispose();
   // Every adapter, not the two that used to exist: a source added in 设置 owns
   // one too, and a pending wait on it would otherwise keep the app alive.
   for (const adapter of adapters.values()) adapter.cancelAllWaits();

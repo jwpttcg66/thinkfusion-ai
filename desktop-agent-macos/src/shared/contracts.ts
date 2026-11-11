@@ -57,7 +57,7 @@ export const PROTOCOL = 'desktop-agent/v1';
 export const TOOL_NAMES = [
   'fs.list', 'fs.readFile', 'fs.mkdir', 'fs.writeFile',
   'fs.tree', 'fs.search', 'fs.find', 'fs.stat', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.readImage',
-  'fs.applyPatch', 'git.worktree', 'project.dependencies', 'project.outline',
+  'fs.applyPatch', 'fs.revert', 'git.worktree', 'project.dependencies', 'project.outline',
   'git.status', 'git.diff', 'git.log', 'git.show', 'git.stash', 'git.branch',
   'json.query', 'csv.summary', 'sqlite.query',
   'archive.list', 'archive.extract', 'archive.create',
@@ -67,6 +67,7 @@ export const TOOL_NAMES = [
   'process.tree',
   'fs.du',
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
+  'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'session.search', 'plugin.inspect',
   'goal.create', 'goal.get', 'goal.update',
@@ -96,7 +97,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   // 提问不改本机，但会阻塞计划；只读档位下允许，因为它反而是在收敛风险。
   'ask.user',
   // tsc --noEmit 不写盘；eslint 不传 --cache。诊断属于「看」，不属于「改」。
-  'code.diagnostics',
+  'code.diagnostics', 'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context',
   // 只读主进程查询：会话检索、能力清单、目标/任务板读取，都不改任何状态。
   'session.search', 'plugin.inspect',
   'goal.get', 'schedule.list', 'schedule.view',
@@ -105,7 +106,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
 export const MUTATING_TOOLS: readonly ToolName[] = [
-  'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.applyPatch',
+  'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.remove', 'fs.move', 'fs.copy', 'fs.applyPatch', 'fs.revert',
   'git.worktree', 'git.stash', 'git.branch',
   'archive.extract', 'archive.create', 'text.base64', 'image.resize',
   'test.run', 'shell.run', 'job.list', 'job.output', 'job.kill',
@@ -388,6 +389,12 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 限定站点，例如 `github.com`。 */
       site: z.string().min(1).max(120).optional()
     }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.revert'),
+    args: z.object({}).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({
@@ -831,8 +838,63 @@ export const StepSchema = z.discriminatedUnion('tool', [
     tool: z.literal('code.diagnostics'),
     args: z.object({
       path: RelativePath.optional(),
+      /** 只检查这些文件（相对工作区）；不给就按 path/工程根扫。 */
+      paths: z.array(RelativePath).min(1).max(50).optional(),
       maxItems: z.number().int().min(1).max(200).optional(),
       timeoutMs: z.number().int().min(1000).max(300_000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.definition'),
+    args: z.object({
+      path: RelativePath,
+      /** 1-based 行号。 */
+      line: z.number().int().min(1).max(1_000_000),
+      /** 1-based 列号（UTF-16 单元）。 */
+      character: z.number().int().min(1).max(100_000)
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.references'),
+    args: z.object({
+      path: RelativePath,
+      line: z.number().int().min(1).max(1_000_000),
+      character: z.number().int().min(1).max(100_000),
+      includeDeclaration: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.symbols'),
+    args: z.object({
+      path: RelativePath,
+      max: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.context'),
+    args: z.object({
+      path: RelativePath,
+      line: z.number().int().min(1).max(1_000_000).optional(),
+      character: z.number().int().min(1).max(100_000).optional(),
+      max: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.hover'),
+    args: z.object({
+      path: RelativePath,
+      line: z.number().int().min(1).max(1_000_000),
+      character: z.number().int().min(1).max(100_000)
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),

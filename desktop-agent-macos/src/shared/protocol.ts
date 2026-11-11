@@ -428,7 +428,10 @@ const PLAN_SHAPE = `{
 
 const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配）：
 - fs.list:      { "path": string }                                   列出目录
-- fs.readFile:  { "path": string, "maxBytes"?: number }              读取文本文件（上限 256KB）
+- fs.readFile:  { "path": string, "offset"?: number, "limit"?: number }
+                 按行读文本文件：offset 从 1 开始，limit 默认/上限 2000 行。
+                 结果带 totalLines / startLine / endLine / truncated / numbered；
+                 content 是不带行号原文，改文件时用它做 oldString。
 - fs.mkdir:     { "path": string }                                   创建目录
 - fs.writeFile: { "path": string, "content": string, "overwrite"?: boolean, "expectedHash"?: string }
                  默认只创建新文件；要改已有文件必须 overwrite=true 并附上
@@ -444,7 +447,7 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  按文件名/相对路径通配找文件：* 匹配一段、** 匹配多级、? 匹配一个字符，
                  例如 "*.md"、"src/**/*.ts"。只返回路径，不读内容。
 - fs.stat:      { "path": string }
-                 文件元数据：类型、字节、权限、修改时间；小文本文件还带 sha256。
+                 文件元数据：类型、字节、权限、修改时间；小文本文件还带 sha256 与 lines（总行数）。
 - fs.edit:      { "path": string, "oldString": string, "newString": string, "replaceAll"?: boolean, "expectedHash"?: string }
                  按字面量替换已有文件。oldString 必须逐字一致，默认只允许出现一次；
                  出现多次就补上下文或显式 replaceAll。要严格就带上读到的 sha256。
@@ -454,6 +457,8 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - fs.copy:      { "from": string, "to": string }      复制文件或目录；目标已存在会被拒绝。
 - fs.readImage: { "path": string }
                  读 PNG/JPEG/GIF/WebP，返回 mime、字节、宽高、sha256 与 base64。
+- fs.revert:    { }
+                 只读之外的动作：把本轮改过的文件恢复到第一次修改前（新建的删除）。
 - fs.applyPatch: { "path": string, "patch": string, "expectedHash"?: string }
                  按单文件 unified diff 一次改多处。patch 必须含 @@ hunk 头；
                  上下文与原文件对不上就整份拒绝，不会写入一半。可带读到的 sha256。
@@ -465,6 +470,18 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - project.outline: { "path"?: string, "maxFiles"?: number, "maxSymbols"?: number }
                  只读。扫描 .ts/.tsx/.js/.mjs/.py（跳过 node_modules 等），
                  列出导出符号及行号；超过上限会在 truncated 里说明。
+- code.definition: { "path": string, "line": number, "character": number }
+                 只读。1-based 行列，跳到符号定义；TypeScript 走 tsserver。
+                 没有语言服务时明确报 LSP_UNAVAILABLE，不拿正则结果冒充。
+- code.references: { "path": string, "line": number, "character": number }
+                 只读。列出引用位置（含声明处）；文本匹配不等于调用。
+- code.symbols:  { "path": string, "max"?: number }
+                 只读。按文件列出符号与行号（navtree）。
+- code.hover:    { "path": string, "line": number, "character": number }
+                 只读。取光标处的类型签名与文档。
+- code.context:  { "path": string, "line"?: number, "character"?: number, "max"?: number }
+                 只读。一次给出该文件的符号、定义、引用、类型签名与候选测试，
+                 每条标 source；引用不等于调用，测试只是候选。
 - git.status:    { "path"?: string, "maxEntries"?: number }
                  只读。当前分支、与上游的领先/落后提交数、逐文件改动（index/worktree 状态字母）。
 - git.diff:      { "path"?: string, "staged"?: boolean, "commit"?: string, "maxBytes"?: number }
@@ -594,7 +611,7 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - term.signal:  { "sessionId": string, "signal"?: "SIGINT"|"SIGTERM"|"SIGKILL"|"SIGHUP"|"SIGQUIT" }
 - term.close:   { "sessionId": string }  结束会话并回收进程组。
 - term.list:    {}  列出还开着的终端、pid、cwd、是否退出。
-- code.diagnostics: { "path"?: string, "maxItems"?: number, "timeoutMs"?: number }
+- code.diagnostics: { "path"?: string, "paths"?: string[], "maxItems"?: number, "timeoutMs"?: number }
                  在工程里跑已安装的 tsc / eslint，返回归一化的问题列表（path / line / severity / message / source）。
                  · 不装依赖、不用 npx；没有检查器时返回 skipped 并说明原因，不要当作「没有问题」。
                  · 退出码非 0 是「有诊断问题」，不是工具失败。

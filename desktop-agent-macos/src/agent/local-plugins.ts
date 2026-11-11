@@ -67,6 +67,49 @@ export interface LocalContext {
   callMain?: (id: string, args: unknown) => Promise<unknown>;
 }
 
+/** 第一次动某个文件之前留一份原文；没有桥就不留（脚本里直接调插件时）。 */
+async function captureBeforeWrite(ctx: LocalContext, path: string): Promise<void> {
+  if (!ctx.callMain) return;
+  await ctx.callMain('snapshot.capture', {
+    root: ctx.grant.rootDir,
+    taskId: ctx.grant.taskId,
+    path
+  }).catch(() => undefined);
+}
+
+/**
+ * 写完之后顺手要一次诊断：有语言服务就用 tsserver（快、带位置），
+ * 没有就跳过——不自动跑 tsc，避免每次小改都等几秒编译。
+ *
+ * 结果挂在工具返回值里（`diagnostics`），模型下一步能直接看到错误位置；
+ * 语言服务不可用不是失败，只是没有这份附加信息。
+ */
+async function withPostWriteDiagnostics(
+  ctx: LocalContext,
+  path: string,
+  result: unknown
+): Promise<unknown> {
+  if (!ctx.callMain) return result;
+  try {
+    const checked = (await ctx.callMain('code.diagnostics.lsp', {
+      root: ctx.grant.rootDir,
+      path
+    })) as { source?: string; issues?: unknown[]; counts?: { errors?: number; warnings?: number } } | null;
+    if (!checked || !Array.isArray(checked.issues)) return result;
+    return {
+      ...(typeof result === 'object' && result !== null ? result : { result }),
+      diagnostics: {
+        source: checked.source ?? 'tsserver',
+        path,
+        counts: { errors: checked.counts?.errors ?? 0, warnings: checked.counts?.warnings ?? 0 },
+        issues: checked.issues.slice(0, 20)
+      }
+    };
+  } catch {
+    return result;
+  }
+}
+
 export interface LocalStepOutcome {
   result: unknown;
   /** 写入/打开这类动作要回读确认；其余默认 true。 */
@@ -111,8 +154,16 @@ const PLUGINS = [
   local('fs.search', async (args, ctx) => ok(await projectReadTools.search(ctx.grant, args))),
   local('fs.find', async (args, ctx) => ok(await projectReadTools.find(ctx.grant, args))),
   local('fs.stat', async (args, ctx) => ok(await fsExtraTools.stat(ctx.grant, args))),
-  local('fs.edit', async (args, ctx) => ok(await fsExtraTools.edit(ctx.grant, args))),
+  local('fs.edit', async (args, ctx) => {
+    await captureBeforeWrite(ctx, args.path);
+    const result = await fsExtraTools.edit(ctx.grant, args);
+    return ok(await withPostWriteDiagnostics(ctx, args.path, result));
+  }),
   local('fs.remove', async (args, ctx) => ok(await fsExtraTools.remove(ctx.grant, args))),
+  local('fs.revert', async (_args, ctx) => {
+    if (!ctx.callMain) throw new Error('当前执行环境没有接入主进程桥，fs.revert 不可用');
+    return ok(await ctx.callMain('snapshot.revert', { taskId: ctx.grant.taskId }));
+  }),
   local('fs.move', async (args, ctx) => ok(await fsExtraTools.move(ctx.grant, args))),
   local('fs.copy', async (args, ctx) => ok(await fsExtraTools.copy(ctx.grant, args))),
   local('fs.readImage', async (args, ctx) => ok(await fsExtraTools.readImage(ctx.grant, args))),
@@ -151,7 +202,11 @@ const PLUGINS = [
     }
     return ok(run);
   }),
-  local('fs.applyPatch', async (args, ctx) => ok(await extendedTools.applyPatch(ctx.grant, args))),
+  local('fs.applyPatch', async (args, ctx) => {
+    await captureBeforeWrite(ctx, args.path);
+    const result = await extendedTools.applyPatch(ctx.grant, args);
+    return ok(await withPostWriteDiagnostics(ctx, args.path, result));
+  }),
   local('git.worktree', async (args, ctx) => ok(await extendedTools.gitWorktree(ctx.grant, args))),
   local('project.dependencies', async (args, ctx) => ok(await extendedTools.projectDependencies(ctx.grant, args))),
   local('project.outline', async (args, ctx) => ok(await extendedTools.projectOutline(ctx.grant, args))),
@@ -186,7 +241,35 @@ const PLUGINS = [
     return ok(run);
   }),
 
-  local('code.diagnostics', async (args, ctx) => ok(await runDiagnostics(ctx.grant.rootDir, args))),
+  /**
+   * 诊断：先问语言服务（tsserver），拿不到再退回一次性的 tsc / eslint / ruff。
+   * 回退不是失败——它只是换一种检查器，结论里会写明 source。
+   */
+  local('code.diagnostics', async (args, ctx) => {
+    if (ctx.callMain) {
+      try {
+        const lsp = await ctx.callMain('code.diagnostics.lsp', {
+          root: ctx.grant.rootDir,
+          ...(args.path ? { path: args.path } : {}),
+          ...(args.paths ? { paths: args.paths } : {})
+        });
+        return ok(lsp);
+      } catch {
+        // 没有 tsserver / 没指定文件：继续走下面的回退，不把「语言服务不可用」
+        // 伪装成「没有诊断」。
+      }
+    }
+    return ok(await runDiagnostics(ctx.grant.rootDir, args));
+  }),
+
+  // 语义导航（只读）：实现住在主进程（tsserver 是长驻进程），这里只转发。
+  ...(['code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context'] as const).map(id =>
+    local(id, async (args, ctx) => {
+      if (!ctx.callMain) throw new Error(`当前执行环境没有接入主进程桥，${id} 不可用`);
+      // root 放在展开之后：模型就算在 args 里塞 root，也只能被授权根覆盖。
+      return ok(await ctx.callMain(id, { ...(args as Record<string, unknown>), root: ctx.grant.rootDir }));
+    })
+  ),
 
   local('term.open', async (args, ctx) => ok(openTerminal(ctx.grant.rootDir, args))),
   local('term.read', async args => ok(readTerminal(args.sessionId, args.maxChars))),
@@ -220,12 +303,13 @@ const PLUGINS = [
   }),
 
   local('fs.writeFile', async (args, ctx) => {
+    await captureBeforeWrite(ctx, args.path);
     const result = args.overwrite
       ? await filesystemTools.overwriteFile(ctx.grant, args)
       : await filesystemTools.writeFile(ctx.grant, args);
     const verification = await verifyWrittenFile(ctx.grant, args.path, { content: args.content });
     if (!verification.ok) throw new Error(`写入后验证失败：${verification.reason ?? '内容不一致'}`);
-    return ok(result);
+    return ok(await withPostWriteDiagnostics(ctx, args.path, result));
   })
 ];
 

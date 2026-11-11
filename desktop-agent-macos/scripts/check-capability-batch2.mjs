@@ -81,8 +81,8 @@ function initRepo(root) {
 // 1. 接线：61 个能力（60 + 输入框附件读取）、23 个新 id 进了 schema / 清单 / 模型可见说明
 // ---------------------------------------------------------------------------
 
-test('清单与注册表：23 个新能力都在，合计 85 个，Runtime 全注册', () => {
-  assert.equal(CAPABILITY_CATALOG.length, 85);
+test('清单与注册表：23 个新能力都在，合计 91 个，Runtime 全注册', () => {
+  assert.equal(CAPABILITY_CATALOG.length, 91);
   for (const id of NEW_IDS) {
     assert.ok(TOOL_NAMES.includes(id), `${id} 不在 TOOL_NAMES`);
     assert.ok(CAPABILITY_CATALOG.some(meta => meta.id === id), `${id} 不在清单`);

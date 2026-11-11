@@ -62,7 +62,8 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     goal: '回答「有什么 / 在哪 / 谁用谁 / 改它会波及什么」，位置能点回去。',
     tools: [
       'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat',
-      'fs.readImage', 'fs.du', 'code.diagnostics', 'project.dependencies', 'project.outline',
+      'fs.readImage', 'fs.du', 'code.diagnostics', 'code.definition', 'code.references',
+      'code.symbols', 'code.hover', 'code.context', 'project.dependencies', 'project.outline',
       'git.status', 'git.diff', 'git.log', 'git.show', 'json.query',
       'web.fetch', 'web.search', 'dns.lookup',
       'project.scan', 'project.read', 'file.attach', 'web.search.browser'
@@ -85,7 +86,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     family: 'code.change',
     goal: '工作区出现可展示的 diff，且有一个真实检查跑过。',
     tools: [
-      'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.move',
+      'fs.mkdir', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert', 'fs.move',
       'fs.copy', 'fs.remove', 'git.worktree', 'git.stash', 'git.branch',
       'test.run', 'code.run'
     ],
@@ -155,7 +156,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     family: 'frontend',
     goal: '构建通过，关键路径有截图或可复现步骤。',
     tools: [
-      'fs.list', 'fs.readFile', 'fs.writeFile', 'fs.edit', 'fs.applyPatch',
+      'fs.list', 'fs.readFile', 'fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.revert',
       'test.run', 'code.run', 'screen.capture', 'window.list', 'app.open'
     ],
     preconditions: ['现有构建/测试命令', '要验证的关键路径'],
