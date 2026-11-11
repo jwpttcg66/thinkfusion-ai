@@ -65,8 +65,12 @@ export const CHATGPT_PROFILE: ProviderProfile = {
   label: 'ChatGPT',
   selectors: CHATGPT_SELECTORS,
   hosts: CHATGPT_HOSTS,
-  /** 提问气泡：旧版与新版都保留这个 data 属性；匹配不到就只列回答。 */
-  user: ['[data-message-author-role="user"]', 'article[data-turn="user"]'],
+  /**
+   * 提问气泡。2026-11 实测的新版 DOM 已经没有 data-message-author-role，
+   * 提问和回答都包在 MarkdownRoot 里，只有外层的 bg-user-message 能分开；
+   * 旧版的 data 属性留作兜底。
+   */
+  user: ['.bg-user-message', '[class*="group/user-message"]', '[data-message-author-role="user"]'],
   /**
    * 实测截图（2026-11-06）：一条横幅，标题「上下文窗口已达上限」，正文讲
    * 「开启新聊天，并带入自动生成的当前对话摘要；或升级套餐…」，下面两个按钮

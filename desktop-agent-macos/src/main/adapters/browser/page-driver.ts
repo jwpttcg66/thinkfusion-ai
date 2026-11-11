@@ -573,6 +573,25 @@ export const PROBE_SCRIPT = (
   // "" while the third was streaming, so the live bubble count stayed at the
   // pre-send 2 and every poll looked like "nothing new yet". The answer sat
   // finished on the page for a minute and a half.
+  // 提问气泡先算出来：既给保存页排聊天记录，也用来把提问从「回答」里剔掉。
+  //
+  // ChatGPT 2026-11 的新 DOM 里提问和回答都包在 MarkdownRoot 里，只靠回答
+  // 选择器会把用户自己写的句子当成回答存下来（真机：保存列表里 7 条「回答」
+  // 有 2 条其实是用户的话）。有了提问选择器就能按包含关系剔除。
+  const userEls = [];
+  for (const selector of userSelectors) {
+    let nodes;
+    try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+    const matched = nodes
+      .filter(visible)
+      .filter((el) => !composer || !composer.contains(el))
+      .filter((el) => !nodes.some((other) => other !== el && other.contains(el)));
+    if (!matched.length) continue;
+    userEls.push(...matched);
+    break;
+  }
+  const overlapsUser = (el) => userEls.some((item) => item === el || item.contains(el) || el.contains(item));
+
   let assistantNodes = 0;
   let assistantTexts = [];
   let assistantEls = [];
@@ -581,7 +600,8 @@ export const PROBE_SCRIPT = (
     try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
     const matched = nodes
       .filter(visible)
-      .filter((el) => !composer || !composer.contains(el));
+      .filter((el) => !composer || !composer.contains(el))
+      .filter((el) => !overlapsUser(el));
     // 只有最后一条要交出去，所以只有它需要带结构的读法：一条会话可能有几十
     // 个气泡，每个都走一遍结构遍历，探测就会从 5ms 变成几百毫秒。
     const plain = matched.map((el) => (el.innerText || '').trim());
@@ -782,19 +802,10 @@ export const PROBE_SCRIPT = (
        * 与旧行为一致，不报错。
        */
       allMessages: (() => {
-        const picked = assistantEls.map((el) => ({ el, role: 'assistant' }));
-        for (const selector of userSelectors) {
-          let nodes;
-          try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
-          const matched = nodes
-            .filter(visible)
-            .filter((el) => !composer || !composer.contains(el))
-            .filter((el) => !nodes.some((other) => other !== el && other.contains(el)));
-          if (!matched.length) continue;
-          const known = new Set(picked.map((item) => item.el));
-          for (const el of matched) if (!known.has(el)) picked.push({ el, role: 'user' });
-          break;
-        }
+        const picked = [
+          ...assistantEls.map((el) => ({ el, role: 'assistant' })),
+          ...userEls.map((el) => ({ el, role: 'user' }))
+        ];
         picked.sort((left, right) => {
           if (left.el === right.el) return 0;
           const position = left.el.compareDocumentPosition(right.el);
