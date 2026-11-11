@@ -88,9 +88,11 @@ export interface SavePageDocumentInput {
   mode?: 'merge' | 'per-item';
 }
 
-/** 页面上提取到的一条对话（助手回答）；只用于勾选列表，不含正式正文。 */
+/** 页面上提取到的一条对话（提问或回答）；只用于勾选列表，不含正式正文。 */
 export interface PageExtractItem {
   index: number;
+  /** 提问在聊天里靠右、回答靠左；保存时也按这个角色排版。 */
+  role: 'user' | 'assistant';
   /** 第一条标题行；没有就用第一句话，最长 60 字。 */
   title: string;
   /** 前 160 字，已经压成一行，列表里看得出来是哪一条。 */
@@ -112,6 +114,12 @@ export interface PageExtractPreview {
   transcriptChars: number;
 }
 
+/** 页面上读到的一条消息：提问或回答。 */
+export interface PageDocumentMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
 /** 主进程从网页 DOM 里读出来的原始内容，UI 不填这一份。 */
 export interface PageDocumentContent {
   sourceLabel: string;
@@ -119,6 +127,16 @@ export interface PageDocumentContent {
   url: string;
   /** 每条助手回答，已经由页面脚本读成 Markdown。 */
   documents: string[];
+  /**
+   * 按页面顺序排好的问答记录（有提问选择器时才有）。
+   * 保存时以它为准；`documents` 仍保留，供只认回答的旧逻辑与计划提取。
+   */
+  messages?: PageDocumentMessage[];
+  /**
+   * 这份内容来自一条聊天记录（而不是一页文档）。逐条保存时就算只勾了一条
+   * 回答，也要用「答」而不是「文档」的抬头——它本来就是一问一答里的回答。
+   */
+  chat?: boolean;
   /** 页面完整转录，只用于附录节选。 */
   transcript: string;
 }
@@ -126,12 +144,15 @@ export interface PageDocumentContent {
 /**
  * 把页面读到的原始内容整理成勾选列表。
  *
- * 只给「哪一条是什么」：标题、前 160 字、字数。正文不在这里传——保存时
- * 主进程会按勾选的下标再读一次页面，列表只负责让人选对。
+ * 只给「哪一条是什么」：角色、标题、前 160 字、字数。正文不在这里传——
+ * 保存时主进程会按勾选的下标再读一次页面，列表只负责让人选对。
  */
 export function previewPageDocument(content: PageDocumentContent): PageExtractPreview {
-  const items = content.documents.map((raw, index) => {
-    const text = raw.trim();
+  const messages: PageDocumentMessage[] = content.messages?.length
+    ? content.messages
+    : content.documents.map(text => ({ role: 'assistant' as const, text }));
+  const items = messages.map((message, index) => {
+    const text = message.text.trim();
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
     const heading = lines.find(line => /^#{1,6}\s+\S/.test(line));
     const title = (heading ? heading.replace(/^#{1,6}\s+/, '') : lines[0] ?? '')
@@ -142,7 +163,8 @@ export function previewPageDocument(content: PageDocumentContent): PageExtractPr
     const excerpt = text.replace(/\s+/g, ' ').trim().slice(0, 160);
     return {
       index,
-      title: title || `文档 ${index + 1}`,
+      role: message.role,
+      title: title || `${message.role === 'user' ? '提问' : '回答'} ${index + 1}`,
       excerpt,
       chars: text.length
     };

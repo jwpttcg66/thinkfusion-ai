@@ -145,6 +145,11 @@ export interface PageProbe {
   lastText: string;
   /** 只有 PROBE_SCRIPT(..., allAnswers=true) 才填：每条助手回答的结构化 Markdown。 */
   allAnswers?: string[];
+  /**
+   * 只有 allAnswers 且站点给了提问选择器时才有：按 DOM 顺序排好的问答记录。
+   * 保存页靠它分左右气泡，让人看出哪句是问、哪句是答。
+   */
+  allMessages?: Array<{ role: 'user' | 'assistant'; text: string }>;
   conversationText: string;
   composerText: string;
   selectorHits: Record<string, number>;
@@ -268,9 +273,12 @@ export const PROBE_SCRIPT = (
   contextLimitText: readonly string[] = [],
   challengeText: readonly string[] = [],
   /** 「保存文档」才要：把每一条回答都读成结构化 Markdown，而不只是最后一条。 */
-  allAnswers = false
+  allAnswers = false,
+  /** 提问气泡的选择器；只在 allAnswers 时用，把问答按 DOM 顺序排成聊天记录。 */
+  userSelectors: readonly string[] = []
 ) => `(() => {
   const allAnswers = ${JSON.stringify(Boolean(allAnswers))};
+  const userSelectors = ${JSON.stringify([...userSelectors])};
   const selectors = ${JSON.stringify(selectors)};
   const reasoning = ${JSON.stringify(reasoning)};
   const signedOutSelectors = ${JSON.stringify(signedOutSelectors)};
@@ -764,7 +772,41 @@ export const PROBE_SCRIPT = (
       allAnswers: assistantEls
         .map((el) => { try { return answerText(el); } catch { return ''; } })
         .map((text) => text.slice(0, 200000))
-        .filter((text) => text.trim().length > 0)
+        .filter((text) => text.trim().length > 0),
+      /**
+       * 问答按 DOM 顺序排成一条聊天记录。
+       *
+       * 保存页要让人看出「哪句是我问的、哪句是回答」，只列助手回答做不到。
+       * 提问选择器是每个站点自己给的（见 ProviderProfile.user）；取第一个
+       * 能命中的列表，嵌套命中的只留最内层。排不到提问时就只剩回答，
+       * 与旧行为一致，不报错。
+       */
+      allMessages: (() => {
+        const picked = assistantEls.map((el) => ({ el, role: 'assistant' }));
+        for (const selector of userSelectors) {
+          let nodes;
+          try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+          const matched = nodes
+            .filter(visible)
+            .filter((el) => !composer || !composer.contains(el))
+            .filter((el) => !nodes.some((other) => other !== el && other.contains(el)));
+          if (!matched.length) continue;
+          const known = new Set(picked.map((item) => item.el));
+          for (const el of matched) if (!known.has(el)) picked.push({ el, role: 'user' });
+          break;
+        }
+        picked.sort((left, right) => {
+          if (left.el === right.el) return 0;
+          const position = left.el.compareDocumentPosition(right.el);
+          return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+        });
+        return picked
+          .map(({ el, role }) => ({
+            role,
+            text: String((role === 'assistant' ? answerText(el) : bestText(el)) || '').slice(0, 200000)
+          }))
+          .filter((message) => message.text.trim().length > 0);
+      })()
     } : {}),
     conversationText,
     composerText,

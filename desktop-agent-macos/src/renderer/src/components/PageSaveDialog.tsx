@@ -93,35 +93,45 @@ export function PageSaveDialog({
 
         <div className="diag-body page-save-body">
           <p className="muted page-save-lead">
-            这一页读到 {preview.items.length} 条对话，共 {preview.totalChars} 字。
-            点左边的圆点勾选要保存的；保存时正文由主进程去页面里现读，不经过模型。
+            这一页读到 {preview.items.length} 条消息，共 {preview.totalChars} 字。
+            绿色是你在页面里问的，白色是回答；点左边的圆点勾选要保存的。
           </p>
 
           <div className="chat-pick-list">
             {preview.items.length === 0 && (
               <p className="muted">这一页没有可保存的对话（可能停在登录页或空会话）。</p>
             )}
-            {preview.items.map(item => (
-              <React.Fragment key={item.index}>
-                <div className="chat-pick-stamp">第 {item.index + 1} 条 · {item.chars} 字</div>
-                <label className={`chat-pick-row${selected.has(item.index) ? ' on' : ''}`}>
-                  <input
-                    className="chat-pick-input"
-                    type="checkbox"
-                    checked={selected.has(item.index)}
-                    disabled={busy}
-                    onChange={() => toggle(item.index)}
-                    aria-label={`选择第 ${item.index + 1} 条：${item.title}`}
-                  />
-                  <span className="chat-pick-check" aria-hidden="true" />
-                  <span className="chat-pick-avatar" aria-hidden="true">{avatar}</span>
-                  <span className="chat-pick-bubble">
-                    <span className="chat-pick-title">{item.title}</span>
-                    <span className="chat-pick-text">{item.excerpt || '（这条没有正文）'}</span>
-                  </span>
-                </label>
-              </React.Fragment>
-            ))}
+            {preview.items.map(item => {
+              const mine = item.role === 'user';
+              return (
+                <React.Fragment key={item.index}>
+                  <div className="chat-pick-stamp">
+                    第 {item.index + 1} 条 · {mine ? '我问的' : '回答'} · {item.chars} 字
+                  </div>
+                  <label className={`chat-pick-row${selected.has(item.index) ? ' on' : ''}${mine ? ' is-user' : ' is-assistant'}`}>
+                    <input
+                      className="chat-pick-input"
+                      type="checkbox"
+                      checked={selected.has(item.index)}
+                      disabled={busy}
+                      onChange={() => toggle(item.index)}
+                      aria-label={`选择第 ${item.index + 1} 条（${mine ? '提问' : '回答'}）：${item.title}`}
+                    />
+                    <span className="chat-pick-check" aria-hidden="true" />
+                    {!mine && (
+                      <span className="chat-pick-avatar" aria-hidden="true" title={preview.sourceLabel}>{avatar}</span>
+                    )}
+                    <span className="chat-pick-bubble">
+                      <span className="chat-pick-title">{item.title}</span>
+                      <span className="chat-pick-text">{item.excerpt || '（这条没有正文）'}</span>
+                    </span>
+                    {mine && (
+                      <span className="chat-pick-avatar is-me" aria-hidden="true" title="我">我</span>
+                    )}
+                  </label>
+                </React.Fragment>
+              );
+            })}
           </div>
 
           <div className="page-save-summary">

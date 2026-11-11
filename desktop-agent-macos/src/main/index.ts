@@ -35,7 +35,7 @@ import { SubAgentRegistry } from './agents/registry';
 import { ProviderSubAgent } from './agents/provider-agent';
 import { PageBrowserAdapter } from './adapters/browser/page-adapter';
 import { isSameThread, navigateToThread } from './adapters/browser/thread-navigation';
-import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor, dismissTextFor, blockedPathsFor, challengeTextFor } from './adapters/providers';
+import { profileFor, providerFor, reasoningFor, signedOutFor, signedOutTextFor, signedOutPathsFor, guestUsableFor, contextLimitFor, dismissTextFor, blockedPathsFor, challengeTextFor, userFor } from './adapters/providers';
 import { ConversationRunner } from './conversation-runner';
 import { OllamaProvider } from './providers/ollama';
 import { OpenAICompatibleProvider } from './providers/openai-compatible';
@@ -2566,7 +2566,9 @@ function registerIpc() {
           signedOutTextFor(id),
           contextLimitFor(id),
           challengeTextFor(id),
-          true
+          true,
+          // 提问气泡只用于把保存列表排成聊天记录；站点没给就只列回答。
+          userFor(id)
         ),
         '读取网页文档',
         12000
@@ -2580,6 +2582,8 @@ function registerIpc() {
         pageTitle: probe.title || view.webContents.getTitle() || source.label,
         url: probe.url || view.webContents.getURL(),
         documents,
+        // 有提问选择器时按 DOM 顺序带上问答；没有就交给 preview/save 退化成只列回答。
+        ...(probe.allMessages && probe.allMessages.length > 0 ? { messages: probe.allMessages } : {}),
         transcript: probe.conversationText || ''
       };
       return content;

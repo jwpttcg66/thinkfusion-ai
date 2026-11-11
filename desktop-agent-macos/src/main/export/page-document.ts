@@ -7,7 +7,7 @@
  * 不是新写出来的计划。认不出计划就如实写「没有识别到」，不硬凑。
  */
 
-import { formatStamp, type PageDocumentContent } from '../../shared/export';
+import { formatStamp, type PageDocumentContent, type PageDocumentMessage } from '../../shared/export';
 
 const PLAN_HEADING = /计划|步骤|任务清单|待办|路线|里程碑|行动项|实施|阶段|checklist|todo|roadmap|milestone|action\s*items|next\s*steps|plan\b|phase\s*\d/i;
 const CHECKBOX = /^\s*[-*+]\s+\[[ xX]\]\s+\S/;
@@ -69,11 +69,22 @@ export function buildPageDocument(
   content: PageDocumentContent,
   options: { now?: number; includeTranscript?: boolean } = {}
 ): PageDocumentDraft {
-  const documents = content.documents.map(text => text.trim()).filter(Boolean);
+  // 有问答记录就按聊天记录排（问 / 答分左右），没有就沿用「文档 1…N」。
+  // 后者是旧调用与没有提问选择器的站点，格式不能变。
+  const messages: PageDocumentMessage[] = (content.messages?.length
+    ? content.messages
+    : content.documents.map(text => ({ role: 'assistant' as const, text }))
+  )
+    .map(message => ({ role: message.role, text: message.text.trim() }))
+    .filter(message => message.text.length > 0);
+  const asked = messages.filter(message => message.role === 'user').length;
+  const answered = messages.length - asked;
+  const hasAsk = Boolean(content.chat) || asked > 0;
+  const assistantTexts = messages.filter(message => message.role === 'assistant').map(message => message.text);
   const now = options.now ?? Date.now();
   const includeTranscript = options.includeTranscript !== false;
-  const planItems = planItemsOf(documents.join('\n\n'));
-  const chars = documents.reduce((sum, text) => sum + text.length, 0);
+  const planItems = planItemsOf(assistantTexts.join('\n\n'));
+  const chars = messages.reduce((sum, message) => sum + message.text.length, 0);
   const title = (content.pageTitle || content.sourceLabel || '网页文档')
     .replace(/\s+/g, ' ')
     .trim()
@@ -92,18 +103,21 @@ export function buildPageDocument(
     `| 网页源 | ${cell(content.sourceLabel)} |`,
     `| 页面标题 | ${cell(content.pageTitle || title)} |`,
     `| 页面地址 | ${cell(content.url || '（页面未报告地址）')} |`,
-    `| 提取文档 | ${documents.length} 份助手回答 / ${chars} 字 |`,
+    `| ${hasAsk ? '提取对话' : '提取文档'} | ${hasAsk ? `${messages.length} 段（提问 ${asked} / 回答 ${answered}）` : `${messages.length} 份助手回答`} / ${chars} 字 |`,
     `| 计划条目 | ${planItems.length} 条 |`,
     '',
-    '## 文档',
+    `## ${hasAsk ? '对话' : '文档'}`,
     ''
   ];
 
-  if (documents.length === 0) {
+  if (messages.length === 0) {
     lines.push('这一页没有读到助手回答，可能是登录页或空会话。', '');
   }
-  documents.forEach((text, index) => {
-    lines.push(`### 文档 ${index + 1}`, '', text, '');
+  messages.forEach((message, index) => {
+    const heading = hasAsk
+      ? `### ${message.role === 'user' ? '问' : '答'} ${index + 1}`
+      : `### 文档 ${index + 1}`;
+    lines.push(heading, '', message.text, '');
   });
 
   lines.push('## 计划', '');
@@ -125,5 +139,5 @@ export function buildPageDocument(
   }
 
   // 不做全文空白归一化：文档里可能夹着代码块，那里的空行是内容，不是排版。
-  return { markdown: lines.join('\n').trimEnd() + '\n', documents: documents.length, planItems, chars };
+  return { markdown: lines.join('\n').trimEnd() + '\n', documents: messages.length, planItems, chars };
 }

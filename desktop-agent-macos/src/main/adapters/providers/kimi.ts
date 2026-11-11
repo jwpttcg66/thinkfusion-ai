@@ -82,6 +82,8 @@ export const KIMI_PROFILE: ProviderProfile = {
   label: 'Kimi',
   selectors: KIMI_SELECTORS,
   hosts: KIMI_HOSTS,
+  /** 提问气泡；站点改版时匹配不到就只列回答。 */
+  user: ['.chat-content-item-user', '[class*="chat-content-item-user"]'],
   reasoning: KIMI_REASONING,
   /**
    * 未登录的三个现场，全部实测过：

@@ -4919,7 +4919,20 @@ button:disabled {
   cursor: pointer;
 }
 .chat-pick-row:hover { background: #f7f8fa; }
-.chat-pick-row.on { background: #eefaf2; }
+/* 选中行是浅灰，不是浅绿：绿色留给「提问」的气泡，不然两种绿混在一起。 */
+.chat-pick-row.on { background: #eef0f2; }
+.chat-pick-row.is-user {
+  grid-template-columns: 24px minmax(0, 1fr) 32px;
+  justify-items: end;
+}
+.chat-pick-row.is-user .chat-pick-bubble {
+  justify-self: end;
+  max-width: 100%;
+  border-color: #95ec69;
+  background: #95ec69;
+}
+.chat-pick-row.is-user .chat-pick-title { color: #17351a; }
+.chat-pick-row.is-user .chat-pick-text { color: #1f3b22; }
 .chat-pick-input {
   position: absolute;
   width: 1px;
@@ -4961,6 +4974,7 @@ button:disabled {
   color: #fff;
   background: linear-gradient(135deg, #6b8afd, #8a5cf6);
 }
+.chat-pick-avatar.is-me { background: linear-gradient(135deg, #f0a93b, #e2712c); font-size: 12px; }
 .chat-pick-bubble {
   display: flex;
   flex-direction: column;

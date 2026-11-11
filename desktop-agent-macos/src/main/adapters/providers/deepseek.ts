@@ -84,6 +84,8 @@ export const DEEPSEEK_PROFILE: ProviderProfile = {
   label: 'DeepSeek',
   selectors: DEEPSEEK_SELECTORS,
   hosts: DEEPSEEK_HOSTS,
+  /** 提问气泡（保存对话时排序用）；站点没暴露就只列回答。 */
+  user: ['[data-message-author-role="user"]', '.ds-message-user', '[class*="user-message"]'],
   signedOutPaths: DEEPSEEK_SIGNED_OUT_PATHS,
   // 2026-11-07 真机：连续提问后出现点图验证，页面上写的是
   // 「点击图中最小的蓝色三棱柱」，换一次会换成红色/圆柱体。

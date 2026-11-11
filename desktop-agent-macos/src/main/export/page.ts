@@ -17,6 +17,7 @@ import {
   resolveExportFormat,
   type ExportFormat,
   type PageDocumentContent,
+  type PageDocumentMessage,
   type SavePageDocumentInput,
   type SavePageDocumentResult
 } from '../../shared/export';
@@ -49,18 +50,28 @@ export async function savePageDocument(
   deps: SavePageDocumentDeps
 ): Promise<SavePageDocumentResult | null> {
   const format = resolveExportFormat(input.format);
-  const all = content.documents.map(text => text.trim()).filter(Boolean);
+  const fromChat = Boolean(content.messages?.length);
+  // 勾选下标指向「问答记录」；没有提问选择器的站点退化成只有回答的列表。
+  const all: PageDocumentMessage[] = (content.messages?.length
+    ? content.messages
+    : content.documents.map(text => ({ role: 'assistant' as const, text }))
+  )
+    .map(message => ({ role: message.role, text: message.text.trim() }))
+    .filter(message => message.text.length > 0);
   const indexes = pickIndexes(input.documents, all.length);
   if (indexes.length === 0) throw new Error('这一页没有可保存的对话（可能停在登录页或空会话）');
 
   const now = Date.now();
   if (input.mode === 'per-item') {
-    return savePerItem(input, content, all, indexes, format, now, deps);
+    return savePerItem(input, content, all, indexes, format, now, fromChat, deps);
   }
 
+  const selectedMessages = indexes.map(index => all[index]);
   const selected: PageDocumentContent = {
     ...content,
-    documents: indexes.map(index => all[index])
+    documents: selectedMessages.filter(message => message.role === 'assistant').map(message => message.text),
+    messages: selectedMessages,
+    chat: fromChat
   };
   const draft = buildPageDocument(selected, { includeTranscript: input.includeTranscript });
 
@@ -96,10 +107,11 @@ export async function savePageDocument(
 async function savePerItem(
   input: SavePageDocumentInput,
   content: PageDocumentContent,
-  all: string[],
+  all: PageDocumentMessage[],
   indexes: number[],
   format: ExportFormat,
   now: number,
+  fromChat: boolean,
   deps: SavePageDocumentDeps
 ): Promise<SavePageDocumentResult | null> {
   const name = defaultExportName(content.pageTitle || content.sourceLabel, now, format);
@@ -118,7 +130,13 @@ async function savePerItem(
   let planItems = 0;
   let chars = 0;
   for (const index of indexes) {
-    const single: PageDocumentContent = { ...content, documents: [all[index]] };
+    const message = all[index];
+    const single: PageDocumentContent = {
+      ...content,
+      documents: message.role === 'assistant' ? [message.text] : [],
+      messages: [message],
+      chat: fromChat
+    };
     const draft = buildPageDocument(single, { includeTranscript: false });
     const target = path.join(dir, `${base}-${String(index + 1)}${EXPORT_EXTENSIONS[format]}`);
     const bytes = await writeDocument(target, draft.markdown, single, format);

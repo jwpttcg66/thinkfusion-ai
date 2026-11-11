@@ -19,6 +19,14 @@ export interface ProviderProfile {
   label: string;
   /** Built-in selectors. A learned profile is merged on top of these at call time. */
   selectors: SelectorProfile;
+  /**
+   * 提问气泡的选择器，只给「保存网页对话」用：那里要把问答按聊天记录排出来，
+   * 用户才看得出哪条是自己问的、哪条是回答。
+   *
+   * 不作为 `SelectorProfile` 的一个角色：提问气泡不是驱动页面必需的，
+   * 一个站点没有它照样能提问、能读回答。找不到就只列回答，不报错。
+   */
+  user?: readonly string[];
   /** Exact hosts, never suffixes: `chat.deepseek.com.evil.test` must not match. */
   hosts: ReadonlySet<string>;
   /**

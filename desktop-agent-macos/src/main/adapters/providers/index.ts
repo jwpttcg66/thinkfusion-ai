@@ -48,6 +48,11 @@ export function reasoningFor(sourceId: string): readonly string[] {
   return providerFor(sourceId)?.reasoning ?? [];
 }
 
+/** 提问气泡的选择器（保存网页对话时用）；没有就返回空列表。 */
+export function userFor(sourceId: string): readonly string[] {
+  return providerFor(sourceId)?.user ?? [];
+}
+
 /**
  * Selectors that mean "this page is showing a sign-in offer".
  *

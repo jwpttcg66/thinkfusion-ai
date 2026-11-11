@@ -136,6 +136,8 @@ export const GEMINI_PROFILE: ProviderProfile = {
   label: 'Gemini',
   selectors: GEMINI_SELECTORS,
   hosts: GEMINI_HOSTS,
+  /** 提问气泡：Gemini 自己的 <user-query>。 */
+  user: ['user-query', 'user-query .query-text', '.query-text'],
   reasoning: GEMINI_REASONING,
   signedOut: GEMINI_SIGNED_OUT,
   signedOutText: GEMINI_SIGNED_OUT_TEXT,

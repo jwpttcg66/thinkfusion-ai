@@ -236,3 +236,64 @@ test('勾选的下标越界或被清空时不写空文件', async () => {
   assert.equal(result.documents, 1);
   assert.match(readFileSync(`${target}.md`, 'utf8'), /假期值班/);
 });
+
+// ---------------------------------------------------------------------------
+// 问答混排：看得出哪句是问、哪句是答
+// ---------------------------------------------------------------------------
+
+const chat = () => content({
+  documents: ['# 答案一\n\n第一条回答。', '# 答案二\n\n## 实施计划\n- 备份\n- 灰度'],
+  messages: [
+    { role: 'user', text: '先给我一个结论。' },
+    { role: 'assistant', text: '# 答案一\n\n第一条回答。' },
+    { role: 'user', text: '那具体怎么实施？' },
+    { role: 'assistant', text: '# 答案二\n\n## 实施计划\n- 备份\n- 灰度' }
+  ],
+  transcript: '用户：先给我一个结论。\n助手：…'
+});
+
+test('预览按页面顺序列出提问和回答，角色分明', () => {
+  const preview = previewPageDocument(chat());
+  assert.equal(preview.items.length, 4);
+  assert.deepEqual(preview.items.map(item => item.role), ['user', 'assistant', 'user', 'assistant']);
+  assert.equal(preview.items[0].title, '先给我一个结论。');
+  assert.equal(preview.items[1].title, '答案一');
+});
+
+test('合并保存把问和答按顺序写成「对话」，计划只从回答里挑', async () => {
+  const target = join(work, '问答合并');
+  const result = await savePageDocument({ path: target }, chat(), { defaultDir: () => work });
+  assert.equal(result.documents, 4);
+  const text = readFileSync(`${target}.md`, 'utf8');
+  assert.match(text, /## 对话/);
+  assert.match(text, /### 问 1\n\n先给我一个结论。/);
+  assert.match(text, /### 答 2\n\n# 答案一/);
+  assert.match(text, /### 问 3\n\n那具体怎么实施？/);
+  assert.match(text, /### 答 4/);
+  assert.match(text, /## 计划\n\n- 备份\n- 灰度/);
+});
+
+test('只勾一个问题时，不会把后面的回答一起写进去', async () => {
+  const target = join(work, '只存提问');
+  const result = await savePageDocument({ path: target, documents: [2] }, chat(), { defaultDir: () => work });
+  assert.equal(result.documents, 1);
+  const text = readFileSync(`${target}.md`, 'utf8');
+  assert.match(text, /### 问 1\n\n那具体怎么实施？/);
+  assert.doesNotMatch(text, /答案二|备份/);
+  assert.equal(result.planItems, 0);
+});
+
+test('逐条保存问答混排时，每个文件只放一条自己的角色', async () => {
+  const dir = join(work, '问答逐条');
+  const result = await savePageDocument(
+    { documents: [0, 1], mode: 'per-item', path: dir },
+    chat(),
+    { defaultDir: () => work }
+  );
+  assert.equal(result.files.length, 2);
+  const first = readFileSync(result.files[0].path, 'utf8');
+  const second = readFileSync(result.files[1].path, 'utf8');
+  assert.match(first, /### 问 1\n\n先给我一个结论。/);
+  assert.doesNotMatch(first, /第一条回答/);
+  assert.match(second, /### 答 1\n\n# 答案一/);
+});

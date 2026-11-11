@@ -536,11 +536,12 @@ export function createMockApi(): AgentApi {
       pageTitle: '消防安全通知',
       url: 'https://chatgpt.com/c/demo',
       items: [
-        { index: 0, title: '校园消防安全指南', excerpt: '@师生家长，这份校园消防安全指南请收藏。来源 | 中国消防微博', chars: 42 },
-        { index: 1, title: '鄂邑反诈日报', excerpt: '警方提醒：近期出现冒充快递客服的诈骗电话，请勿向任何人透露验证码。', chars: 68 },
-        { index: 2, title: '假召回 真骗局', excerpt: '国家反诈中心提醒：接到自称商家的召回电话，先挂断再通过官方渠道核实。', chars: 55 }
+        { index: 0, role: 'user', title: '帮我把消防安全的通知整理一下', excerpt: '帮我把消防安全的通知整理一下，顺便看看有没有反诈的内容。', chars: 31 },
+        { index: 1, role: 'assistant', title: '校园消防安全指南', excerpt: '@师生家长，这份校园消防安全指南请收藏。来源 | 中国消防微博', chars: 42 },
+        { index: 2, role: 'assistant', title: '鄂邑反诈日报', excerpt: '警方提醒：近期出现冒充快递客服的诈骗电话，请勿向任何人透露验证码。', chars: 68 },
+        { index: 3, role: 'assistant', title: '假召回 真骗局', excerpt: '国家反诈中心提醒：接到自称商家的召回电话，先挂断再通过官方渠道核实。', chars: 55 }
       ],
-      totalChars: 165,
+      totalChars: 196,
       transcriptChars: 900
     }),
     getChannelStatuses: async () => [],
