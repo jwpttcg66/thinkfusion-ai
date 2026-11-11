@@ -425,6 +425,8 @@ export const PROBE_SCRIPT = (
      * 完全不是一张图。占位符不含空白，收尾后再原样换回来。
      */
     const preBlocks = [];
+    /** 代码块标题里的语言（ChatGPT 写「纯文本」）；下一块代码用它当围栏语言。 */
+    let codeLang = '';
 
     // 换行先记账、后落地。站点普遍把列表项的内容包在段落里，即列表项里面
     // 又套一层段落，边遍历边拼会得到「一个短横线独占一行、内容在下一行」——
@@ -483,6 +485,35 @@ export const PROBE_SCRIPT = (
         return;
       }
 
+      /**
+       * 代码块不只长成 <pre>。
+       *
+       * ChatGPT 2026-11 的代码块是 <div> 标题栏 + <code class="block
+       * whitespace-pre!">正文</code>；只认 PRE 时，整张 ASCII 架构图会按
+       * 普通文字走，缩进和换行全被压成一行。display:block 的 CODE 按代码块
+       * 原样保留，标题栏里的语言留给围栏用。
+       */
+      if (tag === 'CODE' && !inPre && style && style.display === 'block') {
+        breakAfter(2);
+        const token = '\\u0000PRE' + String(preBlocks.length) + '\\u0000';
+        preBlocks.push((node.textContent || '').replace(/\\s+$/, ''));
+        write(token);
+        breakAfter(2);
+        return;
+      }
+
+      // 代码块标题栏（「纯文本」+ 复制按钮）：只留语言名，不让它变成正文一行。
+      if (tag === 'DIV' && !inPre && /font-sans/.test(String(node.className || '')) && /select-none/.test(String(node.className || ''))) {
+        const label = (node.innerText || '').trim();
+        const code = node.parentElement ? node.parentElement.querySelector('code') : null;
+        let codeDisplay = '';
+        try { codeDisplay = code ? getComputedStyle(code).display : ''; } catch { codeDisplay = ''; }
+        if (label && label.length <= 24 && codeDisplay === 'block') {
+          codeLang = label;
+          return;
+        }
+      }
+
       // 光标正停在列表项或单元格的开头时，别急着换行。
       const atMarker = out.endsWith('- ') || out.endsWith('| ') || out.endsWith('> ');
       if (heading) { breakAfter(2); write('#'.repeat(Number(heading[1])) + ' '); }
@@ -516,9 +547,12 @@ export const PROBE_SCRIPT = (
       .replace(/\\n{3,}/g, '\\n\\n')
       .trim();
     // 把代码块原样换回来：缩进、空行都是内容，不能被上面的收尾削掉。
-    return cleaned.replace(/\\u0000PRE(\\d+)\\u0000/g, (_match, index) =>
-      TICK + TICK + TICK + '\\n' + (preBlocks[Number(index)] ?? '') + '\\n' + TICK + TICK + TICK
-    );
+    return cleaned.replace(/\\u0000PRE(\\d+)\\u0000/g, (_match, index) => {
+      const body = preBlocks[Number(index)] ?? '';
+      const lang = codeLang;
+      codeLang = '';
+      return TICK + TICK + TICK + lang + '\\n' + body + '\\n' + TICK + TICK + TICK;
+    });
   };
 
   // 读一段文本：优先带结构的版本，认不出结构就退回 innerText。
