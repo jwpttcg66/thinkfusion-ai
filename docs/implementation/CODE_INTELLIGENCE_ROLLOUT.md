@@ -1,172 +1,198 @@
-# 代码理解与代码编写：实施分期
+# 代码理解与代码编写：实施任务书 V1.1
 
 配套设计：[`docs/spec/CODE_INTELLIGENCE.md`](../spec/CODE_INTELLIGENCE.md)。
-基线：dsh `fcc0ad4`、opencode `6b1db27`；本机 85 条能力。
+基线：dsh `fcc0ad4`、opencode `6b1db27`、本机 main `3eb2faa`。
+
+V1.1 相对上一版的三条修正（已确立为架构约束）：
+
+1. 第一阶段不引入多语言全量 AST / 全量 CodeGraph；
+2. 不把 dsh / opencode 尚未实现的能力写成可直接复用的现成功能；
+3. 不另建独立 Coding Runtime、审批、执行日志和权限系统。
+
+另加一条顺序约束：**先跑通单 Agent 的完整工程闭环，再做多 Agent 并行。**
 
 ## 0. 总览
 
-| 期 | 交付 | 依赖 | 行为变化 |
-| --- | --- | --- | --- |
-| P0 | 基线审计：契约 vs 实现；确认本轮复用点 | 无 | 无 |
-| P7 | 寻址读 + LSP 运行时 + 符号工具 + 诊断接 LSP | 无 | 只读；无服务器时回退 |
-| P8 | 快照/回退 + 写后自动诊断与测试 + 门禁升级 | P7 | 写操作后自动跑检查 |
-| P9 | 影响面 + AGENTS.md 注入 + 工具输出裁剪/落盘 | P7/P8 | 上下文变准，不改用户话术 |
-| P10 | 多 agent 代码任务 + 度量 | P8/P9 | 并发与预算 |
+| 阶段 | 任务 | 复用点 | 新增 | 行为变化 |
+| --- | --- | --- | --- | --- |
+| P0 | 能力审计：契约 vs 实现 | — | — | 无 |
+| P1 | 寻址读 | `fs.readFile` 改造 | 行号/分页/目录 | 读的行为变准 |
+| P1 | LSP Provider + Definition / References / Diagnostics | `code.diagnostics` 保留回退 | `main/lsp/*`、`code.definition` 等 | 只读新增 |
+| P1 | ContextBuilder | 现有工程证据、`project.outline` | 上下文包（带来源与指纹） | 只读 |
+| P1 | 编码工作流 | `AgentOrchestrator`、`TaskGrant`、Journal、计划门禁、`reviewExecution` | 状态机 + 预算 | 写后自动验 |
+| P1 | 改→编译→测试→修复闭环 | `fs.edit` / `fs.applyPatch` / `test.run` / `code.run` | 自动触发与门禁 | 写操作后自动跑检查 |
+| P2 | 基础 CodeGraph | LSP 结果 | 关系缓存 + 置信等级 | 只读 |
+| P2 | Call Hierarchy / 影响分析 | `code.impact` 雏形 | 调用层级（EXACT/POSSIBLE） | 只读 |
+| P2 | 按需 AST | — | 按语言、有理由才加 | 只读 |
+| P2 | 多 Agent 编码 | `team.*`、`git.worktree` | Explore/Code/Test/Review 分工 | 最后 |
+| P3 | 持久化索引 / 向量库 | — | 视实际瓶颈 | 视需求 |
 
-每期都要满足：`npm run typecheck`、对应测试、真机一条端到端场景。
+## 1. P0 · 能力审计（只读，必须）
 
-## 1. P0 · 基线审计（只读）
-
-先把「契约里有」和「实现跑通」分开，避免在未落地的能力上继续设计：
-
-| 项 | 已确认的事实 | 结论 |
+| 项 | 已确认事实 | 结论 |
 | --- | --- | --- |
-| `fs.readFile` | 原始文本、256KB 上限、无行号/分页 | 要改 |
-| `fs.edit` / `fs.applyPatch` | 已实现，带 `expectedHash` | 复用 |
-| `code.diagnostics` | tsc/eslint/ruff 一次性检查，已实现 | 复用并接 LSP |
-| `code.run` | 已实现（node/python3/bash） | 复用 |
-| `team.spawn` / `team.task.*` | 已有实现与任务板 | 复用 |
-| `git.worktree` | 已实现（参数逐个构造，不拼 shell） | 复用 |
+| `fs.readFile` | 原始文本、256KB 上限、无行号/分页（`src/agent/tools/filesystem.ts`） | 要改 |
+| `fs.edit` | 唯一字面量 + `expectedHash`（`src/agent/tools/fs-extra.ts`） | 复用 |
+| `fs.applyPatch` | unified diff + `expectedHash`（`src/agent/tools/extended.ts`） | 复用 |
+| `code.diagnostics` | tsc / eslint / ruff 一次性检查（`src/agent/tools/diagnostics.ts`） | 复用并接 LSP |
+| `code.run` | node / python3 / bash（`src/agent/local-plugins.ts`） | 复用 |
+| `team.spawn` / `team.task.*` | 已实现（`src/main/index.ts`、任务板） | P2 复用 |
+| `git.worktree` | 已实现，参数逐个构造（`src/agent/tools/extended.ts`） | P2 复用 |
 | `research/project-tools.ts` | `MAX_TOOL_ROUNDS = 1`，只读补充轮 | 编码循环要新建 |
 | `engineering/analysis.ts` | 明确不引 AST，正则识别 | 保留为回退，不冒充语义 |
+| `reviewExecution` / 证据账本 / 计划门禁 | 已实现 | 复用，P1 只加「真跑过」判据 |
 
-验收：每个能力给出「实现文件 + 入口 + 权限档」；找不到的标「仅契约」，不进入 P7+ 设计。
+验收：每项给出「实现文件 + 入口 + 权限档」；找不到的标「仅契约」，不进入 P1 设计。
 
-## 2. P7 · 寻址读与符号理解（只读）
+## 2. P1 · 单 Agent 闭环（必须）
 
-### 1.1 寻址读
+### 2.1 寻址读
 
-改造 `src/agent/tools/filesystem.ts` 的 `readFile`：
+改 `src/agent/tools/filesystem.ts` 的 `readFile`：
 
-- 加 `offset?`（1-based 行）与 `limit?`（默认并上限 2000 行）；
-- 返回 `lineNumbers: true`，正文每行前缀 `<line>: `（前缀不是文件内容）；
-- 单行超 2000 字符截断并标注；整页超 51200 字节时收窄窗口并在 footer 说明；
-- 目录路径返回条目列表（一页 2000 条）；
-- `sha256` 与 `bytes` 语义不变（哈希只算正文，不含行号前缀）。
+- 加 `offset?`（1-based 行）、`limit?`（默认/上限 2000 行）；
+- 正文每行前缀 `<line>: `（前缀不是内容）；单行超 2000 字符截断并标注；
+- 单次超 51200 字节时收窄窗口并在 footer 说明；
+- 目录返回条目列表（一页 2000 条）；
+- `sha256` / `bytes` 语义不变（哈希只算正文）。
 
-验收：
+测试：`scripts/check-code-read.mjs`——3000 行文件分两页、行号连续、单行截断、
+目录列表、哈希与旧行为一致；二进制/超限/符号链接报错不变。
 
-- 3000 行文件分两页读完，行号连续；
-- 读 1 行不返回整文件；
-- 二进制/超限/符号链接的报错与现在一致。
-
-### 1.2 LSP 运行时
+### 2.2 LSP Provider
 
 新目录 `desktop-agent-macos/src/main/lsp/`：
 
 | 文件 | 职责 |
 | --- | --- |
-| `detect.ts` | 按工作区找可用的语言服务器命令（项目内 `node_modules/.bin` 优先） |
-| `client.ts` | stdio JSON-RPC：initialize、didOpen/didChange/didClose、request/notify、超时 |
-| `manager.ts` | 按「root + 语言」懒启动、空闲退出、崩溃重启一次、诊断缓存与防抖 |
-| `render.ts` | URI ↔ 路径、1-based 坐标转换、结果封顶与分组 |
+| `detect.ts` | 按工作区找语言服务器（项目内 `node_modules/.bin` 优先） |
+| `client.ts` | stdio JSON-RPC：initialize、didOpen/didChange/didClose、超时 |
+| `manager.ts` | root+语言懒启动、空闲 5 分钟退出、崩溃重启一次、诊断防抖 300ms |
+| `render.ts` | URI ↔ 路径、1-based 坐标、结果封顶与分组 |
 
-- 启动命令白名单：`typescript-language-server`、`pyright-langserver`、`ruff`、
-  `gopls`、`rust-analyzer`、`clangd`；设置里可覆盖，但必须仍是白名单内的可执行文件。
-- 只读；不把工作区内容发到网络（LSP 本地进程）。
-- 失败码：`LSP_UNAVAILABLE`、`LSP_TIMEOUT`、`LSP_MALFORMED_RESPONSE`。
+- 白名单：`typescript-language-server`、`pyright-langserver`、`ruff`、`gopls`、
+  `rust-analyzer`、`clangd`；设置可覆盖但仍在白名单内。
+- 失败码：`LSP_UNAVAILABLE` / `LSP_TIMEOUT` / `LSP_MALFORMED_RESPONSE`。
+- **不联网、不伪造、不拿正则结果冒充语义结果。**
 
-### 1.3 新工具
+### 2.3 工具
 
-在 `src/shared/contracts.ts` 增 schema、`src/agent/tools/code-intel.ts` 实现、
-`src/agent/local-plugins.ts` 注册、`src/shared/capabilities.ts` 归族：
+新增（只读，加入 `READ_ONLY_TOOLS`）：
 
-- `code.symbols { path?, max? }` → `{ file, line, name, kind }[]`
 - `code.definition { path, line, character }`
 - `code.references { path, line, character, includeDeclaration? }`
-- `code.implementations { path, line, character }`
+- `code.symbols { path?, max? }`（documentSymbol，先做单文件）
 - `code.hover { path, line, character }`
-- 全部只读；加入 `READ_ONLY_TOOLS`；空结果与「服务不可用」分开返回。
 
-`code.diagnostics` 改造：`paths?` / `changedOnly?` / `timeoutMs?`；
-优先 LSP 诊断（带文件/行/列/严重度/来源），无 LSP 时回退现有 tsc/eslint/ruff，
-并在 `skipped` 里如实写「未用语言服务器」。
+改造 `code.diagnostics`：`paths?` / `changedOnly?` / `timeoutMs?`；LSP 优先，
+回退 tsc/eslint/ruff，并写明「未用语言服务器」。
 
-### 1.4 测试与验收
+测试：`scripts/check-lsp.mjs`（临时 TS 工程 A→B，definition 指到 B 定义行，
+references 同时含定义与调用；没有 `typescript-language-server` 时 skip 并写明原因）。
 
-- `scripts/check-lsp.mjs`：临时 TS 工程（两个文件，A 调 B），
-  `definition` 指到 B 的定义行，`references` 同时包含定义与调用；没有
-  `typescript-language-server` 时整组 skip 并在输出写明原因。
-- `scripts/check-code-read.mjs`：分页、行号、单行截断、目录列表、哈希不变。
-- 真机：在 `desktop-agent-macos` 上问「`normalizeExecutionConfig` 在哪定义、
-  谁调用」，得到精确文件:行，点回轨迹可定位。
-- 轨迹里出现「符号」步骤，带输入位置与结果条数。
+### 2.4 ContextBuilder
 
-## 3. P8 · 快照、自动验证与门禁
+输入任务 + 目标文件/符号，输出一个**有证据的上下文包**：
 
-### 2.1 快照
+```
+线索 → 相关文件 → 符号 → 定义/引用 → 配置来源 → 相关测试
+```
 
-新目录 `src/main/snapshots/`：
+每条包含：路径、行号、片段、关系、来源（`source`/`ast`/`lsp`/`grep`）、
+置信度、文件指纹（sha256）与索引时间。模型只能看到这个包，不整库塞入。
 
-- 一轮任务第一次写之前：git 仓库 `git stash create`（不改变工作区）或
-  `git worktree`；非 git 目录复制变更文件 before 文本到
-  `~/.thinkfusion/snapshots/<taskId>/`，附 sha256。
-- `fs.revert { snapshotId }` 与界面「还原本轮」；还原也走权限与 diff。
-- 快照在任务结束时清理；失败保留并在轨迹里给路径。
+### 2.5 编码工作流（挂在现有执行器上）
 
-### 2.2 写后自动验证
+`CodingEngine` 只是控制层：
 
-在 `conversation-runner` / `orchestrator` 的工具执行结果处挂一个钩子
-（只对 `fs.writeFile` / `fs.edit` / `fs.applyPatch` 成功时）：
+```
+ANALYZING → PLANNING → WAITING_APPROVAL → EDITING → VERIFYING
+             ↑                             │          │
+             └────────── FIXING ←──────────┴── failed ┘
+VERIFYING → REVIEWING → COMPLETED
+任意状态 → FAILED / BLOCKED / CANCELLED
+```
+
+- 工具执行仍走 `AgentOrchestrator`；权限 `TaskGrant`；日志 Journal；证据账本；
+  评审 `reviewExecution`。**不新增第二套。**
+- 预算：`maxIterations` 8、`maxToolCalls` 80、`maxDurationMs` 15 分钟
+  （连续无进展 5 分钟提醒）、`maxChangedFiles` 20、`maxParallelAgents` 3；
+  超预算由现有治理体系阻止 / 重新审批 / 取消。
+
+### 2.6 改 → 编译 → 测试 → 修复
+
+写工具成功后自动：
 
 1. 取变更文件 → `code.diagnostics({ changedOnly: true })`；
-2. 有 error → 把结构化错误回给模型（文件:行:列 + 原文），本轮 `verified=false`；
-3. 无 error → `code.impact` 选测试；选不到用包默认 `test.run`；
+2. 有 error → 结构化回灌（文件:行:列 + 原文），本轮不得 `verified`；
+3. 无 error → 选测试（P1 先用包默认 `test.run`；P2 再接影响面）；
 4. 记录 `{ command, exitCode, durationMs, summary, artifactPath }` 到证据账本；
-5. 全通过才允许标 `verified`。
+5. 全通过才 `verified`；失败进入 `FIXING`，受预算约束。
 
-门禁：扩展 `checkPlanCapabilities`（P3 已有）为「有判据 + 真跑过」；
-没有诊断/测试证据的「已验证」直接失败（测试里钉死）。
+门禁：`checkPlanCapabilities` 升级为「有判据 + 真跑过」；没有诊断/测试证据的
+「已验证」直接失败。测试文件被本次改动触碰时，结论必须标「测试也被改过」。
 
-### 2.3 界面
+### 2.7 快照与回退
 
-- diff 卡（文件、+/-、可展开前后文，数据来自工具返回的 `FileDiff`）；
-- 诊断卡（按文件分组，错误点回行号）；
-- 测试卡（命令、退出码、失败摘要，完整输出落文件可打开）；
-- 「还原本轮」按钮，二次确认。
+- 本轮第一次写之前：git 仓库 `git stash create` / 临时 worktree；非 git 目录
+  把变更文件 before 文本 + sha256 落到 `~/.thinkfusion/snapshots/<taskId>/`。
+- `fs.revert { snapshotId }` + 界面「还原本轮」（二次确认）。
+- 不自动提交、不 push。
 
-### 2.4 测试与验收
+### 2.8 界面
 
-- `scripts/check-code-verify.mjs`：fixture 里故意引入一个类型错误 → 自动诊断
-  返回该行；修好后测试跑一次并记录退出码；门禁拒绝「没跑过」的 verified。
-- 真机：让模型改一个已知 bug，轨迹出现 改 → 诊断 → 测试 → verified 或 failed；
-  一键还原后文件回到改动前。
-- 失败场景：诊断超时 / 没有测试命令 → 必须写「未验证」，不许写「通过」。
+- diff 卡、诊断卡（点回行号）、测试卡（命令/退出码/失败摘要）、还原本轮。
+- 轨迹：读 / 符号 / 改 / 诊断 / 测试各成一步，带耗时与证据。
 
-## 4. P9 · 影响面、仓库约定与上下文
+### 2.9 P1 验收
 
-- `code.impact { path? , symbol? }`：先用 LSP `references`（语义），再补 import 图
-  （grep 近似）与引用该文件的测试文件；每条结论标来源（`lsp` / `import` / `grep`）
-  与 `heuristic`。**第一版不建全量调用图**：调用层级在 dsh/opencode 的现成代码里
-  都不是成品（见 spec §1.4），先用按需查询 + SQLite 关系缓存。
-- `repo.instructions`：从目标文件向上找 `AGENTS.md` / `CLAUDE.md`，返回最近一份
-  与路径；作为系统事实注入（不拼用户问题）。
-- 工具输出裁剪：诊断/测试/搜索超过阈值时，正文只留头部 + 总数，完整内容落
-  `~/.thinkfusion/spill/<taskId>/`，返回 locator；搜索工具先接。
-- 测试：fixture 里 A→B→C 的调用链，impact 能列出 B 的引用点与 A 的测试，
-  每条带来源；AGENTS.md 注入不改变用户消息文本（断言 IPC 入参）。
-- AST 只在「没有 LSP 且确有需求」的语言按需接入；第一版不为它引 JVM / 原生依赖。
+- 3000 行文件分页读、行号正确；
+- 「`normalizeExecutionConfig` 在哪定义、谁调用」得到精确文件:行；
+- 改一个已知 bug：轨迹出现 改 → 诊断 → 测试 → verified（或 failed + 修复），
+  一键还原后文件回到改动前；
+- 无 LSP 的机器：`code.definition` 返回 `LSP_UNAVAILABLE`，`code.diagnostics`
+  仍能用 tsc/eslint，结论写明「未用语言服务器」；
+- `test:code-read`、`test:lsp`、`test:code-verify` 全绿。
 
-## 5. P10 · 多 agent 与度量
+## 3. P2 · CodeGraph、影响面与多 Agent（后续）
 
-- 代码任务复用现有 `team.*`：一个读（探索）、一个改（实施）、一个验（诊断/测试），
-  由主 agent 汇总；预算沿用会话预算，不新开池。
-- 度量面板：首次诊断通过率、改动接受率、红→绿、回退次数、verified 耗时。
-- 测试：`check-code-team.mjs` 用假 agent 回放三条记录，断言预算与顺序。
+1. **基础 CodeGraph**：Definition / References / Implementation 的关系缓存，
+   全部 `EXACT`。
+2. **Call Hierarchy**：有 LSP 调用层级的语言直接用；没有的用「References 候选 +
+   AST 调用表达式 + 类型消歧」，确认不了标 `POSSIBLE_CALL`。每条关系带
+   `EXACT | HIGH | POSSIBLE | UNKNOWN`。
+3. **ImpactAnalyzer**：改动点 → 直接调用者 → 递归上游 → 接口实现 → 关联测试；
+   报告里每条标来源与置信度。
+4. **按需 AST**：只对「没有 LSP 且确有需求」的语言引入；不为统一强上多套解析器，
+   不为了 AST 引 JVM / 原生依赖（Java 优先 jdtls LSP）。
+5. **多 Agent**：单 Agent 闭环稳定后再做；Explore（只读）/ Code（工作区写）/
+   Test（测试）/ Review（只读）；写同一文件必须串行或 worktree 隔离，最后统一
+   收 diff、检冲突、合并前测试。
+
+## 4. P3 · 持久化与长期知识（视需求）
+
+只有在出现「重复查询耗时 / 工程过大 / 跨会话分析要持久化」的实际问题后才做：
+SQLite 关系索引、增量更新、可选的向量检索。第一版不做。
+
+## 5. 禁止事项（写死）
+
+1. 禁止第一阶段引入多语言全量 AST 与全量 CodeGraph。
+2. 禁止把 dsh / opencode 尚未实现的能力写成「可直接复用」；引用时标注是设计借鉴
+   还是已有实现。
+3. 禁止另建 Coding Runtime、审批、执行日志、权限或第二套证据账本。
+4. 禁止把「编译成功」写成「测试通过」；禁止在测试失败后放宽断言。
+5. 禁止自动 push、自动提交。
 
 ## 6. 每期的完成定义
 
 1. 代码：typecheck + 对应测试全绿；
-2. 真机：一条可复现的端到端场景（记录命令、文件、退出码）；
-3. 文档：设计/README 与实现一致；新的失败码有解释；
-4. 轨迹：新步骤在时间轴上可见，带输入输出预览；
+2. 真机：一条可复现的端到端场景（命令、文件、退出码）；
+3. 文档：设计/README 与实现一致；新失败码有解释；
+4. 轨迹：新步骤可见，带输入输出预览；
 5. 提交：中文说明「原来错在哪」，不 push。
 
-## 7. 先做哪一个
+## 7. 从哪开始
 
-先做 P7 的 **寻址读**（半天级、纯改造、立刻减少「猜位置」），
-再做 LSP 的 **definition/references** 两个操作（不做 hover/implementations 也能覆盖
-八成场景）；P8 的自动诊断可以独立于测试先接，测试选择留到影响面就绪。
-
-这样即使某台机器没有语言服务器，也能先拿到「分页读 + 行号 + 已有的 tsc 诊断」，
-不会因为 LSP 不可用而整期停摆。
+P0 审计 → P1 的「寻址读 + LSP definition/references」是最小可交付；随后接
+`code.diagnostics(changedOnly)` 的写后自动验证。AST、CodeGraph、多 Agent 都在
+单 Agent 闭环跑通之后再谈。

@@ -124,6 +124,23 @@ AST + LSP + CodeGraph + ContextBuilder + ImpactAnalyzer、CodingEngine
 
 一句话：**它的架构分层与阶段目标作为总纲，本文的工具契约、顺序与测试门禁作为落地细则。**
 
+### 1.5 V1.1 架构约束（正式确立）
+
+这三条来自对外部提案的复核，写死为后续实施的硬约束：
+
+1. **禁止第一阶段引入多语言全量 AST 与全量 CodeGraph。** 第一阶段只有
+   LSP 的 Definition / References / Diagnostics + ContextBuilder + 编码工作流。
+   AST 按语言、按需、有实测理由才加。
+2. **禁止把 dsh / opencode「尚未实现」的能力描述为可直接复用的现成功能。**
+   协议支持 ≠ 工程封装 ≠ Agent 实际可用（见 §1.4 的事实核对）。引用它们时必须
+   写清是「借鉴设计」还是「已有实现」。
+3. **禁止另建独立 Coding Runtime、审批、执行日志和权限系统。** 编码工作流只做
+   决策，执行仍然交给现有 `AgentOrchestrator` / `TaskGrant` / `Execution Journal`
+   / 证据账本 / `reviewExecution`。
+
+配套的一条实施顺序约束：**先把单 Agent 的完整工程闭环（读 → 析 → 改 → 验 → 修）
+跑通，再做多 Agent 并行**——否则只是把不成熟的改代码能力放大成冲突。
+
 ## 2. 落地方案
 
 ### 2.1 总原则
@@ -140,8 +157,13 @@ AST + LSP + CodeGraph + ContextBuilder + ImpactAnalyzer、CodingEngine
 对外用两个模块名，内部仍是四层：
 
 - **CodeIntelligence**：索引、符号、引用、诊断、影响面、上下文包。只读。
-- **CodingEngine**：状态机 + 预算 + 改/验/修的循环。写操作仍走现有
-  `AgentOrchestrator` 与计划门禁，不另起一个执行器。
+- **CodingEngine = 编码工作流控制层，不是第二个执行器。** 它只回答四件事：
+  现在处于哪个阶段、下一步需要哪种能力、执行报告是否允许继续、是否达到完成条件。
+  **它一行工具都不执行**：`fs.*` / `test.run` / `diagnostics` 仍由现有 Agent
+  Runtime 调用，权限走 `TaskGrant`，日志走 `Execution Journal`，证据走账本，
+  评审走现有 `reviewExecution`。
+- 状态与预算是**编码业务的**状态与预算，交给现有治理体系检查：超工具调用阻止
+  继续、超时触发看门狗、改动文件超预算要求重新审批、用户取消走现有取消链路。
 
 CodingEngine 的状态（写进 `shared/conversation.ts` 的进度枚举与轨迹）：
 
@@ -175,7 +197,30 @@ Verification（验）  code.diagnostics(changedOnly) → 选定 test.run → 证
 Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照与回退
 ```
 
-### 2.4 工具面（模型可见的改动）
+### 2.4 CodeGraph 的三步与置信等级
+
+CodeGraph 是 ThinkFusion **自建**的新增能力，不是从 opencode 移植的现成模块。
+分三步，任何一步都不许把推断当事实：
+
+1. **基础关系**：Definition / References / Implementation —— 直接来自 LSP，
+   标 `EXACT`。
+2. **调用关系**：References **不等于** Calls（引用可能是类型声明、注解、方法
+   引用）。有 Call Hierarchy 的语言用 LSP 拿；没有的用「References 候选 + AST
+   识别调用表达式 + 类型消歧」，确认不了的边一律标 `POSSIBLE_CALL`。
+3. **影响分析**：从改动点出发，找直接调用者 → 递归上游 → 接口实现 → 关联测试，
+   形成影响范围报告。
+
+每条关系带置信等级：
+
+```ts
+type RelationConfidence = 'EXACT' | 'HIGH' | 'POSSIBLE' | 'UNKNOWN';
+```
+
+回答工程问题时必须能说出「这条是 LSP 确认的，那条只是候选」。第一版不建全量
+图：按需查询 + 少量结构化缓存，等出现「重复查询耗时 / 工程过大 / 跨会话要持久化」
+的实际问题再考虑落盘索引。
+
+### 2.5 工具面（模型可见的改动）
 
 | 工具 | 类型 | 输入 | 输出 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -187,7 +232,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 | `fs.revert` | 新·写 | 快照 id | 还原结果 + diff | 或复用 `git.worktree` / `git.stash` |
 | `repo.instructions` | 新·只读 | — | AGENTS.md 原文 + 路径 | 作为工具结果注入，不拼用户话术 |
 
-### 2.5 LSP 运行时（主进程新模块）
+### 2.6 LSP 运行时（主进程新模块）
 
 - 位置：`desktop-agent-macos/src/main/lsp/`。
 - 生命周期：按「工作区根 + 语言」懒启动；空闲 5 分钟退出；崩溃重启一次；
@@ -199,7 +244,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
   payload 损坏 → `LSP_MALFORMED_RESPONSE`。**不拿正则结果冒充 AST**。
 - 安全：只读、只在授权根内启动、命令白名单、超时、不联网。
 
-### 2.6 改完自动验证（核心闭环）
+### 2.7 改完自动验证（核心闭环）
 
 写工具成功一次就触发一次：
 
@@ -217,7 +262,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 - 本次改动碰到测试文件时，结论必须标「测试也被改过」，不许把「改了断言才过」
   写成「通过」。
 
-### 2.7 快照与回退
+### 2.8 快照与回退
 
 - 一轮任务第一次写之前打快照：git 仓库用 `git stash create` 或临时 worktree；
   非 git 目录把变更文件的 before 文本 + hash 落到
@@ -225,7 +270,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 - 提供界面「还原本轮」与 `fs.revert` 工具；快照留到任务结束。
 - 不自动提交、不 push（沿用现有 git 纪律）。
 
-### 2.8 上下文与引导
+### 2.9 上下文与引导
 
 - `AGENTS.md`（以及 CLAUDE.md 兼容）作为**工具结果/系统事实**注入；
   向上发现，只读。
@@ -233,7 +278,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
   给模型一个可回查的 locator（对齐 dsh 的 spill）。
 - 技能仍维持单份；LSP / 诊断 / 回退的用法写进技能与工程提示。
 
-### 2.9 界面
+### 2.10 界面
 
 - 对话卡：**diff 卡**（文件、+/-、可展开前后文）、**诊断卡**（错误列表，点回行号）、
   **测试卡**（命令、退出码、失败摘要）、**还原本轮**按钮。
@@ -241,18 +286,20 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
   延续现有轨迹泳道（成员 + 阶段）。
 - 过程可见性：每一步都有输出，不出现只转圈。
 
-## 3. 分期（P7–P10）
+## 3. 分期（V1.1：P0–P3）
 
-| 期 | 内容 | 风险 |
+按「先单 Agent 闭环、再图、再多 Agent」重排：
+
+| 阶段 | 内容 | 优先级 |
 | --- | --- | --- |
-| P0 | 基线审计：契约 vs 实现（`MAX_TOOL_ROUNDS = 1`、`code.run`、`team.*`、`git.worktree`、`code.diagnostics`），逐项给出「已实现/仅契约」 | 只读 |
-| P7 | 寻址读（行号/分页/目录）+ LSP 运行时 + `code.symbols`/`definition`/`references`/`hover` + `code.diagnostics` 接 LSP | 只读，不改行为；无 LSP 时回退 |
-| P8 | 快照与回退 + 写后自动诊断/测试闭环 + 门禁升级为「真跑过」 | 中：测试选择是启发式，必须先明说 |
-| P9 | `code.impact` + AGENTS.md 注入 + 工具输出裁剪/落盘 | 低 |
-| P10 | 多 agent 代码任务（团队/子代理）与度量面板 | 中：并发与预算 |
+| P0 | 现有代码理解/修改能力审计：契约 vs 实现，列出复用点 | 必须 |
+| P1 | 寻址读（行号/分页）+ LSP Provider + Definition / References / Diagnostics + ContextBuilder + 编码工作流（挂在 AgentOrchestrator 上）+ 改→编译→测试→修复闭环 | 必须 |
+| P2 | 基础 CodeGraph（定义/引用/实现）→ Call Hierarchy 与影响分析 → 按需 AST；单 Agent 闭环稳定后再做多 Agent 编码 | 后续 |
+| P3 | 大型工程持久化索引、向量检索与长期工程知识库 | 视需求 |
 
-每期的交付物、测试与验收写在
+每期的复用点、交付物、测试与验收写在
 [`docs/implementation/CODE_INTELLIGENCE_ROLLOUT.md`](../implementation/CODE_INTELLIGENCE_ROLLOUT.md)。
+旧的 P7–P10 编号作废，一律以 P0–P3 为准。
 
 ## 4. 风险与不做的事
 
