@@ -103,6 +103,27 @@ tsc / eslint / ruff，`test.run` / `shell.run` / `git.worktree` 都在。
 | 上下文 | 压缩 + 裁剪 + spill | 压缩 + AGENTS.md + skills | 有 followUpRounds；无工具输出裁剪/落盘 |
 | 引导 | 计划模式 / 技能 / 重复提醒 | AGENTS.md / skills / 子代理 | 工程证据 / 计划门禁 / 单份技能 |
 
+### 1.4 与另一份《Code Intelligence & Coding Engine》提案的取舍
+
+2026-11-11 还有一份基于同一轮代码阅读的方案（ChatGPT 会话
+「制定辩论主题方案 (4)」，导出文件 16809 字）。它把目标拆成
+**CodeIntelligence**（理解）与 **CodingEngine**（编写）两个模块，提出
+AST + LSP + CodeGraph + ContextBuilder + ImpactAnalyzer、CodingEngine
+状态机与预算、以及 Explore / Code / Test / Review 多 Agent 分工。
+
+方向与本文一致，但有四处要改：
+
+| 它的主张 | 取舍 | 理由 |
+| --- | --- | --- |
+| CodeIntelligence / CodingEngine 分离；不替换 MasterAgent / Debate / Judge | **采用** | 和现有五段、辩论、裁判的边界一致；命名比「Observation/Mutation」更像产品模块 |
+| CodingEngine 状态机（ANALYZING → … → COMPLETED/FAILED/BLOCKED）与预算（轮数/工具调用/时长/改动文件/并发） | **采用** | 我们现在只有 `MAX_TOOL_ROUNDS = 1` 的只读补充轮，确实没有编码循环；状态与预算要显式写进编排器 |
+| 先建 AST（TS Compiler API / JavaParser / Go AST / Python AST / Tree-sitter）+ CodeGraph + SQLite 索引 | **后置、按需** | 多套解析器 + JVM 依赖 + 全量调用图是第一版最贵的部分；LSP 已能给定义/引用，先用 LSP + 轻量关系缓存，AST 只在没有 LSP 的语言补 |
+| OpenCode 已支持 `prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`，调用层级可直接借鉴 | **修正** | 读到的 opencode `6b1db27` 里 LSP 只有配置与事件 schema，工具循环**没有接**（`write.ts` 明确留着「LSP diagnostics 未接」的 TODO）；dsh 的 `lsp` 只有 definition/references/implementations/hover 四个操作。调用层级在两家现成代码里都不是成品，要自己建 |
+| 多 Agent：Explore / Architecture / Code / Test / Review，worktree 隔离 | **采用，放到最后** | 现有 `team.*`、`git.worktree` 可复用；并发改同一文件的风险要先用 worktree 隔离 |
+| Phase 0：先审计「契约里有 ≠ 实现跑通」 | **采用** | 真机确认：`research/project-tools.ts` 的 `MAX_TOOL_ROUNDS = 1`；`code.run`、`team.spawn`、`git.worktree` 有实现，但没有被串成编码循环 |
+
+一句话：**它的架构分层与阶段目标作为总纲，本文的工具契约、顺序与测试门禁作为落地细则。**
+
 ## 2. 落地方案
 
 ### 2.1 总原则
@@ -114,7 +135,35 @@ tsc / eslint / ruff，`test.run` / `shell.run` / `git.worktree` 都在。
   用户原话（AGENTS.md 规则 1）。
 - **不自动 push、不自动改测试断言**。
 
-### 2.2 四层
+### 2.2 CodeIntelligence 与 CodingEngine
+
+对外用两个模块名，内部仍是四层：
+
+- **CodeIntelligence**：索引、符号、引用、诊断、影响面、上下文包。只读。
+- **CodingEngine**：状态机 + 预算 + 改/验/修的循环。写操作仍走现有
+  `AgentOrchestrator` 与计划门禁，不另起一个执行器。
+
+CodingEngine 的状态（写进 `shared/conversation.ts` 的进度枚举与轨迹）：
+
+```
+ANALYZING → PLANNING → WAITING_APPROVAL → EDITING → VERIFYING
+             ↑                              │          │
+             └────────── FIXING ←───────────┴── failed ┘
+VERIFYING → REVIEWING → COMPLETED
+任意状态 → FAILED / BLOCKED / CANCELLED
+```
+
+预算（默认值，按任务规模可调）：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `maxIterations` | 8 | 改 → 验 → 修 的轮数上限 |
+| `maxToolCalls` | 80 | 单任务工具调用上限 |
+| `maxDurationMs` | 15 分钟 | 连续无进展 5 分钟先触发一次提醒 |
+| `maxChangedFiles` | 20 | 超过就要求拆任务 |
+| `maxParallelAgents` | 3 | 只对只读探索/测试并行开放；写同一文件必须串行或 worktree 隔离 |
+
+### 2.3 四层
 
 ```
 Observation（读）   fs.readFile 分页/行号 · fs.search · code.symbols/definition/references
@@ -126,7 +175,7 @@ Verification（验）  code.diagnostics(changedOnly) → 选定 test.run → 证
 Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照与回退
 ```
 
-### 2.3 工具面（模型可见的改动）
+### 2.4 工具面（模型可见的改动）
 
 | 工具 | 类型 | 输入 | 输出 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -138,7 +187,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 | `fs.revert` | 新·写 | 快照 id | 还原结果 + diff | 或复用 `git.worktree` / `git.stash` |
 | `repo.instructions` | 新·只读 | — | AGENTS.md 原文 + 路径 | 作为工具结果注入，不拼用户话术 |
 
-### 2.4 LSP 运行时（主进程新模块）
+### 2.5 LSP 运行时（主进程新模块）
 
 - 位置：`desktop-agent-macos/src/main/lsp/`。
 - 生命周期：按「工作区根 + 语言」懒启动；空闲 5 分钟退出；崩溃重启一次；
@@ -150,7 +199,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
   payload 损坏 → `LSP_MALFORMED_RESPONSE`。**不拿正则结果冒充 AST**。
 - 安全：只读、只在授权根内启动、命令白名单、超时、不联网。
 
-### 2.5 改完自动验证（核心闭环）
+### 2.6 改完自动验证（核心闭环）
 
 写工具成功一次就触发一次：
 
@@ -168,7 +217,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 - 本次改动碰到测试文件时，结论必须标「测试也被改过」，不许把「改了断言才过」
   写成「通过」。
 
-### 2.6 快照与回退
+### 2.7 快照与回退
 
 - 一轮任务第一次写之前打快照：git 仓库用 `git stash create` 或临时 worktree；
   非 git 目录把变更文件的 before 文本 + hash 落到
@@ -176,7 +225,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 - 提供界面「还原本轮」与 `fs.revert` 工具；快照留到任务结束。
 - 不自动提交、不 push（沿用现有 git 纪律）。
 
-### 2.7 上下文与引导
+### 2.8 上下文与引导
 
 - `AGENTS.md`（以及 CLAUDE.md 兼容）作为**工具结果/系统事实**注入；
   向上发现，只读。
@@ -184,7 +233,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
   给模型一个可回查的 locator（对齐 dsh 的 spill）。
 - 技能仍维持单份；LSP / 诊断 / 回退的用法写进技能与工程提示。
 
-### 2.8 界面
+### 2.9 界面
 
 - 对话卡：**diff 卡**（文件、+/-、可展开前后文）、**诊断卡**（错误列表，点回行号）、
   **测试卡**（命令、退出码、失败摘要）、**还原本轮**按钮。
@@ -196,6 +245,7 @@ Context（记）       AGENTS.md · skill · 工具输出裁剪/spill · 快照�
 
 | 期 | 内容 | 风险 |
 | --- | --- | --- |
+| P0 | 基线审计：契约 vs 实现（`MAX_TOOL_ROUNDS = 1`、`code.run`、`team.*`、`git.worktree`、`code.diagnostics`），逐项给出「已实现/仅契约」 | 只读 |
 | P7 | 寻址读（行号/分页/目录）+ LSP 运行时 + `code.symbols`/`definition`/`references`/`hover` + `code.diagnostics` 接 LSP | 只读，不改行为；无 LSP 时回退 |
 | P8 | 快照与回退 + 写后自动诊断/测试闭环 + 门禁升级为「真跑过」 | 中：测试选择是启发式，必须先明说 |
 | P9 | `code.impact` + AGENTS.md 注入 + 工具输出裁剪/落盘 | 低 |
