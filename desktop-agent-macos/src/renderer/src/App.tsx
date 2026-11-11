@@ -52,7 +52,14 @@ import {
 } from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
-const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null };
+const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null, verification: null, diagnostics: [] };
+type DiagnosticCard = {
+  path: string;
+  source: string;
+  errors: number;
+  warnings: number;
+  issues: Array<{ line: number; column: number; message: string }>;
+};
 interface Derived {
   plan: PlanPreviewType | null;
   questions: string[];
@@ -64,6 +71,10 @@ interface Derived {
     issues: string[];
     needsFix: boolean;
   } | null;
+  /** 本轮执行报告里的验证结论；老报告没有字段就是 null。 */
+  verification: { verified: boolean; reasons: string[]; changedFiles: number } | null;
+  /** 写操作里自动带的诊断，按文件列出（来自 code.diagnostics）。 */
+  diagnostics: DiagnosticCard[];
 }
 
 /** 逐次审批里正在等答复的那一步（事件本身带齐了要显示的全部信息）。 */
@@ -101,6 +112,8 @@ function derive(events: AgentEvent[]): Derived {
   let questions: string[] = [];
   let answer = '';
   let review: Derived['review'] = null;
+  let verification: Derived['verification'] = null;
+  let diagnostics: DiagnosticCard[] = [];
 
   for (const event of events) {
     // A new round supersedes whatever the previous one asked. Without this a
@@ -115,6 +128,27 @@ function derive(events: AgentEvent[]): Derived {
     }
     if (event.type === 'clarification.required') questions = event.questions;
     if (event.type === 'round.answer') answer = event.text;
+    if (event.type === 'report.ready') {
+      const report = event.report as {
+        verification?: { verified: boolean; reasons: string[]; changedFiles: number };
+        results?: Array<{ result?: { diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
+      };
+      verification = report.verification ?? null;
+      diagnostics = (report.results ?? [])
+        .map(item => item.result?.diagnostics)
+        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
+        .map(item => ({
+          path: String(item.path),
+          source: String(item.source ?? 'tsserver'),
+          errors: Number(item.counts?.errors ?? 0),
+          warnings: Number(item.counts?.warnings ?? 0),
+          issues: (item.issues ?? []).slice(0, 10).map(issue => ({
+            line: Number(issue.line ?? 0),
+            column: Number(issue.column ?? 0),
+            message: String(issue.message ?? '')
+          }))
+        }));
+    }
     if (event.type === 'review.ready') {
       review = {
         reviewer: event.reviewer,
@@ -128,7 +162,7 @@ function derive(events: AgentEvent[]): Derived {
       questions = [];
     }
   }
-  return { plan, questions, answer, review };
+  return { plan, questions, answer, review, verification, diagnostics };
 }
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
@@ -1989,6 +2023,32 @@ export default function App() {
                   </button>
                 </div>
                 <p className="muted">不回答不会让计划自己选默认值；放弃或超时，这一步会记为 answered:false。</p>
+              </section>
+            )}
+
+            {derived.verification && activeTask && (
+              <section className={`card review-card${derived.verification.verified ? '' : ' needs-fix'}`}>
+                <div className="review-head">
+                  <b>本轮验证 · {derived.verification.verified ? '已通过' : '未通过'}</b>
+                  <span className="muted">
+                    {derived.verification.changedFiles} 个文件改动
+                    {derived.diagnostics.length > 0 ? ` · ${String(derived.diagnostics.reduce((sum, item) => sum + item.errors, 0))} 个错误` : ''}
+                  </span>
+                </div>
+                {derived.verification.reasons.length > 0 && (
+                  <ul>
+                    {derived.verification.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
+                  </ul>
+                )}
+                {derived.diagnostics.map(item => (
+                  <div key={item.path} className="research-message">
+                    <span className="research-tag">{item.source} · {item.path} · {item.errors} error / {item.warnings} warn</span>
+                    {item.issues.map((issue, index) => (
+                      <p key={index} className="muted">{issue.line}:{issue.column} {issue.message}</p>
+                    ))}
+                  </div>
+                ))}
+                <p className="muted">「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。</p>
               </section>
             )}
 

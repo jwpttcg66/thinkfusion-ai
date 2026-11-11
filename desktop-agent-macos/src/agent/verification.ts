@@ -17,6 +17,8 @@ export interface ExecutionVerification {
   /** 为什么没算过（或为什么算过）；给界面与报告直接用。 */
   reasons: string[];
   changedFiles: number;
+  /** 成功改过的文件路径；编排器据此判断「改的是不是代码」。 */
+  changedPaths: string[];
 }
 
 export function verifyExecution(results: readonly StepResult[]): ExecutionVerification {
@@ -46,9 +48,13 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   if (completedWrites.length === 0 && failedWrites.length === 0) {
     reasons.push('本轮没有写操作，无需验证');
   }
+  const changedPaths = completedWrites
+    .map(item => (item.args as { path?: unknown } | undefined)?.path)
+    .filter((value): value is string => typeof value === 'string');
   return {
     verified: failedWrites.length === 0 && (completedWrites.length === 0 || testOk || diagnosticsOk),
     reasons,
-    changedFiles: completedWrites.length
+    changedFiles: completedWrites.length,
+    changedPaths
   };
 }

@@ -1012,6 +1012,8 @@ export type RoundStatus =
 
 export interface AgentTask {
   taskId: string;
+  /** 编码工作流的业务状态；老任务没有这个字段，按 task.status 推导。 */
+  codingState?: import('./coding-workflow').CodingState;
   title: string;
   userPrompt: string;
   status: TaskStatus;
@@ -1143,6 +1145,8 @@ export interface StepResult {
   result?: unknown;
   error?: string;
   durationMs: number;
+  /** 这一步实际用的参数；新报告才带，用来核对改了哪些文件。 */
+  args?: Record<string, unknown>;
 }
 
 export interface ExecutionReport {
@@ -1162,7 +1166,7 @@ export interface ExecutionReport {
    * 本轮验没验过：改了文件却没有成功的测试/诊断时 verified=false。
    * 老报告没有这个字段，读取方按「未记录」处理，不默认算过。
    */
-  verification?: { verified: boolean; reasons: string[]; changedFiles: number };
+  verification?: { verified: boolean; reasons: string[]; changedFiles: number; changedPaths?: string[] };
 }
 
 // ---------------------------------------------------------------------------

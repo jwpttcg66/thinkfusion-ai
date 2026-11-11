@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { verifyExecution } from '../out-test/agent/verification.js';
 
-const step = (tool, status, result = null) => ({ stepId: tool, tool, status, result, startedAt: 0, endedAt: 1 });
+const step = (tool, status, result = null, args = undefined) => ({ stepId: tool, tool, status, result, durationMs: 1, ...(args ? { args } : {}) });
 
 test('改了文件 + 成功的测试：算已验证', () => {
   const outcome = verifyExecution([
@@ -56,4 +56,12 @@ test('没有写操作：trivially verified，但理由写明无需验证', () =>
   const outcome = verifyExecution([step('fs.readFile', 'completed', { content: 'x' })]);
   assert.equal(outcome.verified, true);
   assert.match(outcome.reasons.join('；'), /无需验证/);
+});
+
+test('验证结果带 changedPaths：编排器据此判断改的是不是代码', () => {
+  const outcome = verifyExecution([
+    step('fs.edit', 'completed', { path: 'src/a.ts' }, { path: 'src/a.ts' }),
+    step('test.run', 'completed', { exitCode: 0 })
+  ]);
+  assert.deepEqual(outcome.changedPaths, ['src/a.ts']);
 });

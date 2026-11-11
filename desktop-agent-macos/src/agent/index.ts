@@ -326,7 +326,7 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
     for (const [index, step] of plan.steps.entries()) {
       if (cancelled.has(taskId)) {
         aborted = true;
-        results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消' });
+        results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消', args: step.args });
         continue;
       }
 
@@ -398,19 +398,19 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
 
         const durationMs = Date.now() - stepStarted;
         if (stepFailure) {
-          results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs });
+          results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs, args: step.args });
           errors.push({ stepId: step.id, code: outcome.errorCode, message: stepFailure });
           db.updateStep(journalId, { status: 'FAILED', error: stepFailure, finished_at: Date.now() });
           port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure });
           break;
         }
-        results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs });
+        results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs, args: step.args });
         db.updateStep(journalId, { status: 'COMPLETED', result_json: JSON.stringify(result), finished_at: Date.now() });
         port.postMessage({ type: 'step.completed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, result });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         const durationMs = Date.now() - stepStarted;
-        results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: false, error: messageText, durationMs });
+        results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: false, error: messageText, durationMs, args: step.args });
         errors.push({ stepId: step.id, code: errorCode(error), message: messageText });
         db.updateStep(journalId, { status: 'FAILED', error: messageText, finished_at: Date.now() });
         port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText });

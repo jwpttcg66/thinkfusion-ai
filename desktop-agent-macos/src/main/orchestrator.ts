@@ -16,6 +16,7 @@ import type {
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
+import { checkCodingBudget } from '../shared/coding-workflow';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
@@ -213,6 +214,11 @@ export class AgentOrchestrator {
       stepApproval: this.deps.stepApproval?.() ?? 'mutating'
     };
 
+    const budgetViolations = checkCodingBudget(plan);
+    if (budgetViolations.length > 0) {
+      throw new Error(`计划超出编码预算：${budgetViolations.join('；')}`);
+    }
+
     this.deps.store.updatePlan(stored.planId, { approvalStatus: 'approved' });
     this.tasks.transition(task.taskId, 'executing', { workspaceRoot: rootDir });
     this.busy.add(task.taskId);
@@ -279,6 +285,26 @@ export class AgentOrchestrator {
       if (report.results.length === 0) {
         this.tasks.transition(task.taskId, 'failed', { error: report.errors[0]?.message ?? '执行失败' });
         this.deps.emit({ type: 'task.failed', at: Date.now(), taskId: task.taskId, error: report.errors[0]?.message ?? '执行失败' });
+        return;
+      }
+    }
+
+    if (report.verification && !report.verification.verified) {
+      const reason = report.verification.reasons.join('；') || '本轮未通过验证';
+      const codeFiles = (report.verification as { changedPaths?: string[] }).changedPaths ?? [];
+      const touchesCode = codeFiles.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path));
+      if (touchesCode) {
+        this.tasks.patch(task.taskId, {
+          codingState: 'BLOCKED',
+          error: `未验证：${reason}。补一次 test.run 或 code.diagnostics 后再继续。`
+        });
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: task.taskId,
+          level: 'warn',
+          message: `编码工作流停在 VERIFYING：${reason}`
+        });
         return;
       }
     }

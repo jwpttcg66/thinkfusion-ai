@@ -7,6 +7,7 @@ import type {
   TaskStatus
 } from '../shared/contracts';
 import { AgentStore } from './store';
+import { codingStateFor } from '../shared/coding-workflow';
 
 /** Transitions the spec allows. Anything else is a bug, not a warning. */
 const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
@@ -86,7 +87,13 @@ export class TaskManager {
       throw new Error(`非法状态转换：${current.status} → ${to}（task ${taskId}）`);
     }
 
-    const next: AgentTask = { ...current, ...patch, status: to, updatedAt: Date.now() };
+    const next: AgentTask = {
+      ...current,
+      ...patch,
+      status: to,
+      codingState: patch.codingState ?? codingStateFor(to),
+      updatedAt: Date.now()
+    };
     this.store.upsertTask(next);
     this.publish(next);
     return next;

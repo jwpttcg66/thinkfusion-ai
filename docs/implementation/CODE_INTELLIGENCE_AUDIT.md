@@ -91,8 +91,11 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
    `fs.stat` 给文本文件行数。
 3. 0.1.9 已补：LSP Provider + definition/references/hover/symbols、ContextBuilder、
    写后自动诊断、快照/还原（后端）。
-   仍缺（P1）：编码工作流状态机与预算（挂在 AgentOrchestrator 上）、
-   按影响面选测试、门禁「测试真跑过」、diff/诊断/测试/还原的界面卡片。
+   0.1.9 还补了：编码工作流状态（`codingState`）+ 计划预算（步数 / 改动文件数）+ 
+   `verification` 未通过时对代码改动的阻断（停在 BLOCKED，不再继续当完成）；任务界面
+   增加验证/诊断卡。
+   仍缺（P1）：按影响面选测试（目前只诊断，不自动选测试）、diff 卡与「还原本轮」
+   按钮、轨迹里的 diff/诊断专用步。
 4. 仍缺（P2）：基础 CodeGraph、调用层级与影响分析、按需 AST、多 Agent。
 
 测试：`npm run test:code-read`（9 条，分页/行号/哈希一致/空文件/目录/超限）；
