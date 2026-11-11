@@ -263,7 +263,7 @@ const PLUGINS = [
   }),
 
   // 语义导航（只读）：实现住在主进程（tsserver 是长驻进程），这里只转发。
-  ...(['code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context'] as const).map(id =>
+  ...(['code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast'] as const).map(id =>
     local(id, async (args, ctx) => {
       if (!ctx.callMain) throw new Error(`当前执行环境没有接入主进程桥，${id} 不可用`);
       // root 放在展开之后：模型就算在 args 里塞 root，也只能被授权根覆盖。

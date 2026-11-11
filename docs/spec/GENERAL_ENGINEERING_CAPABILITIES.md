@@ -2,7 +2,7 @@
 
 > 2026-11-10。设计对象是工程空间的**通用工程能力层**：它要覆盖 DeepSeek Harness
 > （`~/data/dsh-src`，提交 `ce7073d5`，包版本 0.2.2-alpha.2，`docs/tool-catalog.zh.md`）
-> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 91 个能力插件（2026-11-11 增加 5 个代码智能工具 + 1 个还原本轮）。
+> 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 93 个能力插件（2026-11-11 增加 7 个代码智能工具 + 1 个还原本轮）。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
 > [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、

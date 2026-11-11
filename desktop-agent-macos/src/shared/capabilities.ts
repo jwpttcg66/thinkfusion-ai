@@ -8,9 +8,9 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 85 个工具（81 个本地 + 3 个联网 + 1 个语义导航代理），主进程装载工程证据
+ * Runtime 进程装载 87 个工具（83 个本地 + 3 个联网 + 1 个语义导航代理），主进程装载工程证据
  * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 91 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 93 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -122,6 +122,8 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'code.symbols': ['列符号', '按文件列出符号与行号（navtree）；没有语言服务时不猜'],
   'code.hover': ['看类型签名', '取光标处的类型签名与文档'],
   'code.context': ['代码上下文包', '文件符号 + 定义 + 引用 + 类型签名 + 候选测试，全部标来源'],
+  'code.impact': ['影响分析', '定义/引用/调用与候选测试，按 EXACT/POSSIBLE 标置信度，可缓存'],
+  'code.ast': ['按需 AST', 'TypeScript 语法树摘要：imports、声明、调用点；没有 TypeScript 时明说'],
   'term.open': ['开终端', '用 node-pty 开一个持久交互式终端（与 dsh 同后端），返回会话 id'],
   'term.read': ['读终端输出', '只返回上次之后的新输出；缓冲有上限，超了会标 truncated'],
   'term.send': ['向终端输入', '把文本写进终端；submit 默认追加回车'],
@@ -216,7 +218,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：85 个 Runtime 工具 + 6 个主进程能力，合计 91。设置页只认这一份。 */
+/** 全量清单：87 个 Runtime 工具 + 6 个主进程能力，合计 93。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

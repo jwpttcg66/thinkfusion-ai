@@ -482,6 +482,12 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - code.context:  { "path": string, "line"?: number, "character"?: number, "max"?: number }
                  只读。一次给出该文件的符号、定义、引用、类型签名与候选测试，
                  每条标 source；引用不等于调用，测试只是候选。
+- code.impact:   { "path": string, "line": number, "character": number }
+                 只读。影响面：定义、引用、调用（AST 确认）与候选测试；
+                 每条标 EXACT / POSSIBLE，结果按文件 mtime 缓存。
+- code.ast:      { "path": string, "max"?: number }
+                 只读。TypeScript 语法树摘要：imports / 声明 / 调用点；
+                 没有 typescript 包时明确 AST_UNAVAILABLE。
 - git.status:    { "path"?: string, "maxEntries"?: number }
                  只读。当前分支、与上游的领先/落后提交数、逐文件改动（index/worktree 状态字母）。
 - git.diff:      { "path"?: string, "staged"?: boolean, "commit"?: string, "maxBytes"?: number }

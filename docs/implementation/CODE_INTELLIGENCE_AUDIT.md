@@ -94,7 +94,9 @@ P1 应把运行时读当作唯一入口，工程分析补读逐步收敛到它�
    0.1.9 还补了：编码工作流状态（`codingState`）+ 计划预算（步数 / 改动文件数）+ 
    `verification` 未通过时对代码改动的阻断（停在 BLOCKED，不再继续当完成）；任务界面
    增加验证/诊断卡。
-   仍缺（P1）：按影响面自动选测试（`code.context` 已给候选测试，跑不跑仍由计划决定）。
+   P2 后端已补：`code.impact`（定义/引用/调用 + 候选测试，EXACT/POSSIBLE）、
+`code.ast`（TypeScript AST 摘要）、按文件 mtime 的持久化缓存。
+仍缺：P2 多 Agent 编码、P3 向量检索；自动选测试仍由计划决定。
    界面已补验证/诊断卡、diff 卡与「还原本轮」。
 4. 仍缺（P2）：基础 CodeGraph、调用层级与影响分析、按需 AST、多 Agent。
 

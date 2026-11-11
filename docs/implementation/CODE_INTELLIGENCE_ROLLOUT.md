@@ -22,11 +22,11 @@ V1.1 相对上一版的三条修正（已确立为架构约束）：
 | P1 | ContextBuilder **✅ 0.1.9**（`code.context`） | 现有工程证据、`project.outline` | 上下文包（带来源与指纹） | 只读 |
 | P1 | 编码工作流 **✅ 0.1.9（状态 + 预算 + 未验证阻断）** | `AgentOrchestrator`、`TaskGrant`、Journal、计划门禁、`reviewExecution` | 状态机 + 预算 | 写后自动验 |
 | P1 | 改→编译→测试→修复闭环 **✅ 诊断自动 + verified + 代码未验证阻断；按影响面选测试未做** | `fs.edit` / `fs.applyPatch` / `test.run` / `code.run` | 自动触发与门禁 | 写后自动诊断；测试选择与「真跑过」门禁待做 |
-| P2 | 基础 CodeGraph | LSP 结果 | 关系缓存 + 置信等级 | 只读 |
-| P2 | Call Hierarchy / 影响分析 | `code.impact` 雏形 | 调用层级（EXACT/POSSIBLE） | 只读 |
-| P2 | 按需 AST | — | 按语言、有理由才加 | 只读 |
-| P2 | 多 Agent 编码 | `team.*`、`git.worktree` | Explore/Code/Test/Review 分工 | 最后 |
-| P3 | 持久化索引 / 向量库 | — | 视实际瓶颈 | 视需求 |
+| P2 | 基础 CodeGraph **✅ 0.1.9（code.impact + 文件 mtime 缓存）** | LSP 结果 | 关系缓存 + 置信等级 | 只读 |
+| P2 | Call Hierarchy / 影响分析 **✅ 0.1.9（AST 确认调用；引用标 POSSIBLE）** | `code.impact` | 调用分类（EXACT/POSSIBLE） | 只读 |
+| P2 | 按需 AST **✅ 0.1.9（TypeScript AST）** | — | TS/JS 语法树摘要 | 只读 |
+| P2 | 多 Agent 编码 **⬜ 未做** | `team.*`、`git.worktree` | Explore/Code/Test/Review 分工 | 最后 |
+| P3 | 持久化关系缓存 **✅ 0.1.9（code-index，按 mtime 失效）** | — | 向量检索仍视需求 | 低 |
 
 ## 1. P0 · 能力审计（只读，必须）
 

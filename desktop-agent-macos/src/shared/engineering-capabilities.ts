@@ -63,7 +63,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     tools: [
       'fs.list', 'fs.readFile', 'fs.tree', 'fs.search', 'fs.find', 'fs.stat',
       'fs.readImage', 'fs.du', 'code.diagnostics', 'code.definition', 'code.references',
-      'code.symbols', 'code.hover', 'code.context', 'project.dependencies', 'project.outline',
+      'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast', 'project.dependencies', 'project.outline',
       'git.status', 'git.diff', 'git.log', 'git.show', 'json.query',
       'web.fetch', 'web.search', 'dns.lookup',
       'project.scan', 'project.read', 'file.attach', 'web.search.browser'

@@ -9,12 +9,14 @@
  */
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { TsServerClient } from '../out-test/main/lsp/tsserver.js';
 import { buildCodeContext } from '../out-test/main/lsp/context.js';
+import { buildImpact } from '../out-test/main/lsp/impact.js';
+import { loadTypeScript, summarizeAst } from '../out-test/main/lsp/ts-ast.js';
 import { localCapabilities } from '../out-test/agent/local-plugins.js';
 
 const root = mkdtempSync(join(tmpdir(), 'tf-lsp-'));
@@ -34,6 +36,10 @@ writeFileSync(join(root, 'src', 'b.ts'), [
   "import { greet } from './a';",
   "const text = greet('world');",
   'console.log(text);'
+].join('\n'));
+writeFileSync(join(root, 'src', 'a.test.ts'), [
+  "import { greet } from './a';",
+  "test('greet', () => { greet('x'); });"
 ].join('\n'));
 writeFileSync(join(root, 'src', 'broken.ts'), [
   "const n: number = 'not-a-number';",
@@ -156,4 +162,32 @@ test('ContextBuilder：符号 / 定义 / 引用 / hover / 候选测试都带来�
   assert.match(pack.sha256 ?? '', /^[a-f0-9]{64}$/);
   assert.ok((pack.totalLines ?? 0) >= 3);
   assert.ok(Array.isArray(pack.relatedTests));
+});
+
+test('影响分析：引用分成调用与引用，调用标 EXACT，测试是候选', async () => {
+  const cacheDir = mkdtempSync(join(root, '.cache-'));
+  const pack = await buildImpact(client, root, join(root, 'src', 'a.ts'), { line: 1, character: 17 }, cacheDir);
+  assert.equal(pack.source, 'tsserver+typescript-ast');
+  const bRelations = pack.relations.filter(item => item.path === 'src/b.ts');
+  assert.ok(bRelations.length > 0, 'b.ts 必须在关系里');
+  assert.ok(bRelations.some(item => item.kind === 'call' && item.confidence === 'EXACT'), '调用点要标成 EXACT call');
+  assert.ok(bRelations.some(item => item.kind === 'reference'), 'import 那处只是引用');
+  assert.ok(pack.relatedTests.some(item => item.path === 'src/a.test.ts'), '测试文件要作为候选列出');
+  assert.equal(pack.relatedTests[0].confidence, 'POSSIBLE');
+});
+
+test('影响分析结果按文件 mtime 缓存，第二次直接命中', async () => {
+  const cacheDir = mkdtempSync(join(root, '.cache-hit-'));
+  await buildImpact(client, root, join(root, 'src', 'a.ts'), { line: 1, character: 17 }, cacheDir);
+  const second = await buildImpact(client, root, join(root, 'src', 'a.ts'), { line: 1, character: 17 }, cacheDir);
+  assert.equal(second.cached, true);
+});
+
+test('按需 AST：列出声明与调用点', async () => {
+  const ts = await loadTypeScript();
+  assert.ok(ts, '本机应能找到 typescript');
+  const text = readFileSync(join(root, 'src', 'a.ts'), 'utf8');
+  const summary = summarizeAst(ts, join(root, 'src', 'a.ts'), text);
+  assert.equal(summary.source, 'typescript-ast');
+  assert.ok(summary.declarations.some(item => item.name === 'greet'));
 });

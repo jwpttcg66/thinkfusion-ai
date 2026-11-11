@@ -101,6 +101,8 @@ import {
 import { writeFileAtomic } from './atomic-write';
 import { TsServerManager } from './lsp/tsserver';
 import { buildCodeContext } from './lsp/context';
+import { buildImpact } from './lsp/impact';
+import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
 import {
   EMPTY_STORED_SOURCES,
@@ -4338,6 +4340,32 @@ app.whenReady().then(async () => {
 
   setMainCallHandler(async (id, rawArgs, context) => {
     const conversationId = context.conversationId;
+
+    if (id === 'code.impact') {
+      const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; line?: unknown; character?: unknown };
+      if (typeof args.root !== 'string' || typeof args.path !== 'string') throw new Error('code.impact 需要 root 与 path');
+      const line = Number(args.line);
+      const character = Number(args.character);
+      if (!Number.isInteger(line) || line < 1 || !Number.isInteger(character) || character < 1) {
+        throw new Error('line/character 必须是 1-based 整数');
+      }
+      const client = lspManager?.get(args.root);
+      if (!client) throw new Error('LSP_UNAVAILABLE：这个工作区没有 TypeScript（找不到 tsserver）');
+      const file = resolveInsideRoot(args.root, args.path);
+      return buildImpact(client, args.root, file, { line, character }, path.join(app.getPath('userData'), 'code-index'));
+    }
+
+    if (id === 'code.ast') {
+      const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; max?: unknown };
+      if (typeof args.root !== 'string' || typeof args.path !== 'string') throw new Error('code.ast 需要 root 与 path');
+      const ts = await loadTypeScript();
+      if (!ts) throw new Error('AST_UNAVAILABLE：没有找到 typescript 包');
+      const file = resolveInsideRoot(args.root, args.path);
+      if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(file)) throw new Error('AST_UNAVAILABLE：这个文件不是 TypeScript/JavaScript');
+      const text = await fs.promises.readFile(file, 'utf8');
+      const max = typeof args.max === 'number' ? Math.min(Math.max(Math.floor(args.max), 1), 500) : 200;
+      return summarizeAst(ts, file, text, max);
+    }
 
     if (id === 'code.context') {
       const args = (rawArgs ?? {}) as { root?: unknown; path?: unknown; line?: unknown; character?: unknown; max?: unknown };
