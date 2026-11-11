@@ -3843,6 +3843,10 @@ button:disabled {
 .verdict-banner { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin: 6px 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface, #fff); }
 .verdict-banner b { font-size: 13px; }
 .verdict-banner span { font-size: 12px; line-height: 1.5; }
+
+/* 辩论的裁决块：和综合卡里的其他块一样，跟在上面的辩论过程后面，
+   不要再套一层自己的边框，否则页面上会出现两张并列的白卡。 */
+.conversation-verdict { margin-top: 12px; }
 .verdict-supported { border-color: #9ed3ae; background: #f2fbf5; }
 .verdict-partially_supported { border-color: #e6d08a; background: #fdf9ec; }
 .verdict-unsupported { border-color: #e0b0ab; background: #fdf3f2; }

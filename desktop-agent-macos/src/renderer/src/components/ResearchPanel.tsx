@@ -29,6 +29,10 @@ interface Props {
   initialTab?: 'mode' | 'collab' | 'debate' | 'report';
   /** 当前打开的会话；直接辩论要作为新的一轮追加到这条会话里。 */
   activeConversationId?: string | null;
+  /** 当前空间与工作区：没有会话时新建的那条辩论要挂回同一个分组。 */
+  workspaceMode?: 'knowledge' | 'engineering';
+  workspaceId?: string;
+  workspaceRoot?: string;
   /** 辩论已经挂到会话上：主界面切过去，让输出出现在回答流里。 */
   onDebateStarted?: (info: { debateId: string; conversationId?: string }) => void;
 }
@@ -85,7 +89,7 @@ const DEBATE_STRATEGIES: Array<{
   { id: 'discovery', label: '探索发现', summary: '并行假设，用能区分它们的证据逐步排除', rounds: 3 }
 ];
 
-export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, activeConversationId, onDebateStarted }: Props) {
+export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, activeConversationId, workspaceMode, workspaceId, workspaceRoot, onDebateStarted }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'mode');
   const [options, setOptions] = useState<ExecutionOptions | null>(null);
   const [health, setHealth] = useState<Record<string, ProviderHealthInfo>>({});
@@ -636,6 +640,9 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                     const started = await window.agentAPI.startDebate({
                       question: debateQuestion,
                       conversationId: activeConversationId ?? undefined,
+                      ...(workspaceMode === 'engineering' ? { workspaceMode } : {}),
+                      ...(workspaceMode === 'engineering' && workspaceId ? { workspaceId } : {}),
+                      ...(workspaceMode === 'engineering' && workspaceRoot ? { workspaceRoot } : {}),
                       config: {
                         strategy: debateStrategy,
                         maxRounds: debateRounds,

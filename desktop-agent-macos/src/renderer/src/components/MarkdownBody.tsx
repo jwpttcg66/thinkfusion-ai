@@ -35,6 +35,36 @@ function inline(text: string): React.ReactNode[] {
   });
 }
 
+/**
+ * 把模型习惯输出的 LaTeX 定界符换成可读排版。
+ *
+ * 不引入数学排版库：这些公式本来就是给人看的，原样显示只会露出一串
+ * `\(` `\times`。行内公式变成行内代码，独立公式变成代码块，至少和周围
+ * 文字区分得开；常见命令换成 Unicode，剩下的原样保留（不猜、不删内容）。
+ */
+function normalizeFormula(body: string): string {
+  return body
+    // 先处理更长的命令：`\cdots` 里包含 `\cdot`，顺序反了会变成「·s」。
+    .replace(/\\cdots|\\dots/g, '…')
+    .replace(/\\underbrace\{([^{}]*)\}_\{([^{}]*)\}/g, '$1（$2）')
+    .replace(/\\times/g, '×')
+    .replace(/\\cdot/g, '·')
+    .replace(/\\quad/g, ' ')
+    .replace(/\\leq?/g, '≤')
+    .replace(/\\geq?/g, '≥')
+    .replace(/\\neq/g, '≠')
+    .replace(/\\pm/g, '±')
+    .replace(/\\(?:to|rightarrow)/g, '→');
+}
+
+function normalizeMath(text: string): string {
+  const fence = (body: string) => `\n\`\`\`\n${normalizeFormula(body.trim())}\n\`\`\`\n`;
+  return text
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, body: string) => fence(body))
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, body: string) => `\`${normalizeFormula(body.trim())}\``)
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_match, body: string) => fence(body));
+}
+
 function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
     case 'heading': {
@@ -85,7 +115,7 @@ function BlockView({ block }: { block: Block }) {
 }
 
 export function MarkdownBody({ text }: { text: string }) {
-  const blocks = React.useMemo(() => parseBlocks(text ?? ''), [text]);
+  const blocks = React.useMemo(() => parseBlocks(normalizeMath(text ?? '')), [text]);
   if (blocks.length === 0) return <p className="md-paragraph">（这条回答没有正文）</p>;
   return (
     <div className="md-body">

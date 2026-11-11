@@ -3273,7 +3273,14 @@ function registerIpc() {
   ipcMain.handle('debate:start', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!debates || !raw || typeof raw !== 'object') throw new Error('辩论还没有准备好');
-    const input = raw as { question?: unknown; config?: unknown; conversationId?: unknown };
+    const input = raw as {
+      question?: unknown;
+      config?: unknown;
+      conversationId?: unknown;
+      workspaceMode?: unknown;
+      workspaceId?: unknown;
+      workspaceRoot?: unknown;
+    };
     if (typeof input.question !== 'string' || !input.question.trim()) throw new Error('先写一句要辩论的问题');
     const question = input.question.trim();
     const rawConfig = (input.config ?? {}) as Record<string, unknown>;
@@ -3305,6 +3312,15 @@ function registerIpc() {
     // 直接辩论也走回答界面：没有会话就新开一条，有会话就作为新的一轮追加。
     const at = Date.now();
     if (!conversation) {
+      // 会话按空间分组：工程空间里起的辩论也要挂回那条工作区，否则侧栏
+      // 按空间过滤时它直接消失，用户只能靠「当前会话」这一个入口再看到。
+      const workspaceMode = input.workspaceMode === 'engineering' ? 'engineering' as const : undefined;
+      const workspaceId = workspaceMode && typeof input.workspaceId === 'string' && workspaceList?.get(input.workspaceId)
+        ? input.workspaceId
+        : undefined;
+      const workspaceRoot = workspaceMode && typeof input.workspaceRoot === 'string'
+        ? input.workspaceRoot
+        : undefined;
       conversation = {
         conversationId: randomUUID(),
         title: question.slice(0, 42),
@@ -3315,7 +3331,14 @@ function registerIpc() {
         channels: [],
         createdAt: at,
         updatedAt: at,
-        executionConfig: executionDefaults?.get() ?? { ...DEFAULT_EXECUTION_CONFIG }
+        executionConfig: executionDefaults?.get() ?? { ...DEFAULT_EXECUTION_CONFIG },
+        ...(workspaceMode
+          ? {
+              workspaceMode,
+              ...(workspaceRoot ? { workspaceRoot } : {}),
+              ...(workspaceId ? { workspaceId } : {})
+            }
+          : {})
       };
       store.upsertConversation(conversation);
       emitConversation({ type: 'conversation.created', at, conversation });

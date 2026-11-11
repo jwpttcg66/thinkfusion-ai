@@ -1201,6 +1201,9 @@ export default function App() {
       const started = await window.agentAPI.startDebate({
         question,
         conversationId: activeConversation?.conversationId ?? undefined,
+        ...(workspaceMode === 'engineering' ? { workspaceMode } : {}),
+        ...(workspaceMode === 'engineering' && activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
+        ...(workspaceMode === 'engineering' && workspace ? { workspaceRoot: workspace } : {}),
         config: {
           // 直接辩论默认只跑一轮：它跳过了第一轮回答与汇总，用户要的是
           // 一场能立刻看到交锋的正式辩论，不是再等三轮。
@@ -2231,6 +2234,9 @@ export default function App() {
           latestSynthesis={messages.find(item => item.role === 'synthesis' && item.synthesis)?.synthesis ?? null}
           initialTab={researchTab}
           activeConversationId={activeConversation?.conversationId ?? null}
+          workspaceMode={workspaceMode}
+          workspaceId={activeWorkspaceId}
+          workspaceRoot={workspace}
           onDebateStarted={info => { void showDebateAnswer(info); }}
           onClose={() => setResearchOpen(false)}
         />

@@ -1960,7 +1960,15 @@ export interface AgentApi {
   getProviderHealth(): Promise<Record<string, ProviderHealthInfo>>;
   getCollaborationRecords(): Promise<CollaborationTaskRecord[]>;
   getUsage(): Promise<UsageSummary | null>;
-  startDebate(input: { question: string; config: DebateConfigInput; conversationId?: string }): Promise<DebateView>;
+  startDebate(input: {
+    question: string;
+    config: DebateConfigInput;
+    conversationId?: string;
+    /** 把这场辩论挂到当前空间/工作区下，侧栏里才找得到。 */
+    workspaceMode?: 'knowledge' | 'engineering';
+    workspaceId?: string;
+    workspaceRoot?: string;
+  }): Promise<DebateView>;
   getDebate(debateId: string): Promise<DebateView | null>;
   listDebates(): Promise<DebateView[]>;
   /** 历史上辩过相似问题的记录（Phase 5）。只读，不改任何状态。 */

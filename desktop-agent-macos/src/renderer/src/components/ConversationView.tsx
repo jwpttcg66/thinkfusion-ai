@@ -220,7 +220,9 @@ export function ConversationView(props: {
         <div className="conversation-top">
           <div className="conversation-title">
             <h2>{conversation.title}</h2>
-            <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
+            {!conversation.debateOnly && (
+              <span className={`intent-badge intent-${conversation.intent}`}>{INTENT_LABEL[conversation.intent]}</span>
+            )}
             {conversation.debateOnly && (
               <span className="intent-badge" title="这条会话是直接辩论，没有第一轮问答">辩论</span>
             )}
@@ -417,15 +419,21 @@ export function ConversationView(props: {
                 // 综合结论固定放在这一轮的最下面：它要压在所有回答和第二轮
                 // 进度条之后，读者看完过程再看到结论，而不是先读结论再读过程。
                 if (block.kind === 'synthesis') return null;
-                // 直接辩论落盘的那条消息：辩论就是答案，默认展开，结论跟在后面。
+                // 直接辩论落盘的那条消息：跟第一轮汇总同一张卡片、同一个抬头，
+                // 不是另一个风格的裸面板。辩论就是答案，默认展开，裁决跟在后面。
                 if (block.message.debate) {
                   return (
-                    <div key={block.key} className="conv-debate-answer">
+                    <article key={block.key} className="synthesis conv-debate-answer">
+                      <div className="synthesis-head">
+                        <span className="synthesis-mark">◈</span>
+                        <b>正式辩论</b>
+                        <span className="muted">跳过第一轮与汇总 · 成员与策略按研究设置</span>
+                      </div>
                       <DebatePanel debate={block.message.debate} labels={labels} defaultOpen />
                       {block.message.debateId && (
                         <DebateVerdictStrip debateId={block.message.debateId} labels={labels} />
                       )}
-                    </div>
+                    </article>
                   );
                 }
                 return (
@@ -1023,7 +1031,7 @@ function DebatePanel({
           {round.messages.map((message, index) => (
             <div key={index} className="debate-message">
               <span className="debate-who">
-                {labelOf(message.author, labels)} · {message.kind}
+                {labelOf(message.author, labels)} · {KIND_LABEL[message.kind] ?? message.kind}
               </span>
               {message.reasoning && <ChannelReasoning text={message.reasoning} />}
               <div className="debate-text"><MarkdownBody text={message.text} /></div>
@@ -1300,39 +1308,6 @@ function DebateVerdictStrip({
           {' · '}无效轮次 {metrics.invalidRounds.invalid}/{metrics.invalidRounds.total}
           {' · '}{metrics.rounds} 轮 / {Math.round(metrics.latency.totalMs / 1000)} 秒
         </p>
-      )}
-
-      {/* 交锋过程本身也要能看。以前只有一句「辩论跑了 3 轮（completed）」，
-          谁质疑了谁、质疑成立不成立，全在没有入口的记录文件里。默认收起，
-          想看的人展开，不想看的人不被几万字挡住。 */}
-      {debate.rounds.length > 0 && (
-        <details className="debate-transcript">
-          <summary>
-            辩论过程（{debate.rounds.length} 轮 ·{' '}
-            {debate.rounds.reduce((total, round) => total + round.messages.length, 0)} 次发言）
-          </summary>
-          {debate.rounds.map(round => (
-            <section key={round.index} className="debate-round">
-              <h5>
-                第 {round.index + 1} 轮
-                {round.converged ? ' · 已收敛' : ''}
-              </h5>
-              {round.messages.map(message => (
-                <article key={message.messageId} className="debate-message">
-                  <div className="debate-message-who">
-                    {labelOf(message.agentId, labels)} · {KIND_LABEL[message.kind] ?? message.kind}
-                  </div>
-                  <p>{message.text}</p>
-                </article>
-              ))}
-              {round.failures.map(failure => (
-                <p key={failure.agentId} className="debate-failure">
-                  {labelOf(failure.agentId, labels)} 没有发言：{failure.detail}
-                </p>
-              ))}
-            </section>
-          ))}
-        </details>
       )}
     </div>
   );
