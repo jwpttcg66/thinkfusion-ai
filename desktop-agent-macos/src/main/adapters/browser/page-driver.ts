@@ -417,6 +417,14 @@ export const PROBE_SCRIPT = (
     const SKIP_ROLES = new Set(['button', 'img', 'checkbox', 'radio', 'switch', 'tab', 'menu']);
     const TICK = '\\u0060';
     let out = '';
+    /**
+     * 代码块先存起来，用占位符代替。
+     *
+     * 收尾会把每一行首尾的空白削掉（HTML 里的缩进只是排版），但代码块里的
+     * 缩进是内容：真机上一张 ASCII 架构图被削成左对齐，保存下来跟页面上
+     * 完全不是一张图。占位符不含空白，收尾后再原样换回来。
+     */
+    const preBlocks = [];
 
     // 换行先记账、后落地。站点普遍把列表项的内容包在段落里，即列表项里面
     // 又套一层段落，边遍历边拼会得到「一个短横线独占一行、内容在下一行」——
@@ -466,9 +474,11 @@ export const PROBE_SCRIPT = (
       const isQuote = tag === 'BLOCKQUOTE';
 
       if (tag === 'PRE') {
-        // 代码块要原样：内部的空白是代码，不是排版。
+        // 代码块要原样：内部的空白是代码，不是排版。先记下来，收尾后再装回去。
         breakAfter(2);
-        write(TICK + TICK + TICK + '\\n' + (node.textContent || '').replace(/\\s+$/, '') + '\\n' + TICK + TICK + TICK);
+        const token = '\\u0000PRE' + String(preBlocks.length) + '\\u0000';
+        preBlocks.push((node.textContent || '').replace(/\\s+$/, ''));
+        write(token);
         breakAfter(2);
         return;
       }
@@ -500,11 +510,15 @@ export const PROBE_SCRIPT = (
 
     walk(root, false);
     flush();
-    return out
+    const cleaned = out
       .replace(/[ \\t]+\\n/g, '\\n')
       .replace(/\\n[ \\t]+/g, '\\n')
       .replace(/\\n{3,}/g, '\\n\\n')
       .trim();
+    // 把代码块原样换回来：缩进、空行都是内容，不能被上面的收尾削掉。
+    return cleaned.replace(/\\u0000PRE(\\d+)\\u0000/g, (_match, index) =>
+      TICK + TICK + TICK + '\\n' + (preBlocks[Number(index)] ?? '') + '\\n' + TICK + TICK + TICK
+    );
   };
 
   // 读一段文本：优先带结构的版本，认不出结构就退回 innerText。
