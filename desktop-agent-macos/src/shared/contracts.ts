@@ -140,7 +140,20 @@ const RelativePath = z.string().min(1).max(500);
 
 export const StepSchema = z.discriminatedUnion('tool', [
   z.object({ id: Id, tool: z.literal('fs.list'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
-  z.object({ id: Id, tool: z.literal('fs.readFile'), args: z.object({ path: RelativePath, maxBytes: z.number().int().min(1).max(262144).optional() }).strict(), description: z.string().max(500).optional() }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('fs.readFile'),
+    args: z.object({
+      path: RelativePath,
+      /** 载入内存的上限；超过就拒绝，提示改用搜索/分页（默认 8 MB）。 */
+      maxBytes: z.number().int().min(1).max(8_388_608).optional(),
+      /** 从第几行开始读（1-based）。 */
+      offset: z.number().int().min(1).max(1_000_000_000).optional(),
+      /** 读多少行；默认 2000，上限 2000。 */
+      limit: z.number().int().min(1).max(2000).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
   z.object({ id: Id, tool: z.literal('fs.mkdir'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
   z.object({
     id: Id,

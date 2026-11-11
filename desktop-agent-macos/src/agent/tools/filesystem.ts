@@ -40,18 +40,61 @@ export const filesystemTools = {
     const entries = await fs.readdir(target, { withFileTypes: true });
     return entries.slice(0, 1000).map(entry => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other' }));
   },
-  async readFile(grant: TaskGrant, args: { path: string; maxBytes?: number }) {
+  /**
+   * 读文件：默认给前 2000 行，可按行分页。
+   *
+   * 为什么不是「超过 256KB 直接拒」：代码文件里最常超过这个数的是生成文件
+   * 和日志，而模型要的是「第 1500 行附近」这一小段。整份拒掉只会让它去猜。
+   * 现在先按上限载入（默认 8MB），再按 offset/limit 切窗口；行号另给一份
+   * `numbered`，`content` 保持无前缀原文，`sha256` 永远按整份文件算——
+   * `fs.edit` / `fs.writeFile` 的 expectedHash 才能对得上。
+   *
+   * 行号语义与工程分析那条只读通道（`research/project-tools.ts`）一致：
+   * 1-based、总行数按整份文件、末尾换行不算一行。
+   */
+  async readFile(
+    grant: TaskGrant,
+    args: { path: string; maxBytes?: number; offset?: number; limit?: number }
+  ) {
     const target = await resolveGrantedPath(grant, args.path, false);
     const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
       const stat = await handle.stat();
       if (!stat.isFile()) throw new Error('读取目标必须是普通文件');
-      const limit = Math.min(args.maxBytes ?? 262144, 262144);
-      if (stat.size > limit) throw new Error(`文件超过读取上限 ${limit} bytes`);
-      const content = await handle.readFile({ encoding: 'utf8' });
-      // 改这个文件时要回填这个值。没有它，覆盖写只能靠路径判断，
-      // 中间被人改过也照写不误。
-      return { path: target, bytes: stat.size, sha256: sha256(content), content };
+      const maxBytes = Math.min(args.maxBytes ?? 8 * 1024 * 1024, 8 * 1024 * 1024);
+      if (stat.size > maxBytes) {
+        throw new Error(
+          `文件 ${stat.size} bytes 超过读取上限 ${maxBytes}；先用 fs.search 定位，或分几次读`
+        );
+      }
+      const text = await handle.readFile({ encoding: 'utf8' });
+      const lines = text.split('\n');
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      const totalLines = lines.length;
+      const offset = Math.min(Math.max(Math.floor(args.offset ?? 1), 1), Math.max(totalLines, 1));
+      const limit = Math.min(Math.max(Math.floor(args.limit ?? 2000), 1), 2000);
+      const start = offset - 1;
+      const picked = lines.slice(start, start + limit);
+      const endLine = picked.length > 0 ? start + picked.length : offset;
+      // 窗口正文按「文件里的原始子串」给：只要最后一条选中行在文件里后面还有
+      // 换行（不是最后一行，或整份文件以换行结尾），就带一个 '\n'。
+      // 这样 fs.edit 拿到的 oldString 与磁盘上完全一致，分页读也不会漏掉换行。
+      const endsWithNewline = text.endsWith('\n');
+      const hasTrailing = endLine < totalLines || endsWithNewline;
+      const windowText = picked.join('\n') + (hasTrailing && picked.length > 0 ? '\n' : '');
+      return {
+        path: target,
+        bytes: stat.size,
+        sha256: sha256(text),
+        totalLines,
+        startLine: offset,
+        endLine,
+        truncated: endLine < totalLines,
+        /** 无行号前缀的窗口原文；整份文件不超过 limit 时就是全文。 */
+        content: windowText,
+        /** 带 1-based 行号的窗口，供模型引用「path:line」。 */
+        numbered: picked.map((line, index) => `${String(start + index + 1)}\t${line}`).join('\n')
+      };
     } finally { await handle.close(); }
   },
   async mkdir(grant: TaskGrant, args: { path: string }) {

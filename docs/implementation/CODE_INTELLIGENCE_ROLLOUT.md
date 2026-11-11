@@ -15,8 +15,8 @@ V1.1 相对上一版的三条修正（已确立为架构约束）：
 
 | 阶段 | 任务 | 复用点 | 新增 | 行为变化 |
 | --- | --- | --- | --- | --- |
-| P0 | 能力审计：契约 vs 实现 | — | — | 无 |
-| P1 | 寻址读 | `fs.readFile` 改造 | 行号/分页/目录 | 读的行为变准 |
+| P0 | 能力审计：契约 vs 实现（[审计报告](CODE_INTELLIGENCE_AUDIT.md)） | — | — | 无 |
+| P1 | 寻址读 **✅ 已落地（0.1.9）** | `fs.readFile` 改造、`fs.stat` 补行数 | 行号/分页/总行数 | 读的行为变准 |
 | P1 | LSP Provider + Definition / References / Diagnostics | `code.diagnostics` 保留回退 | `main/lsp/*`、`code.definition` 等 | 只读新增 |
 | P1 | ContextBuilder | 现有工程证据、`project.outline` | 上下文包（带来源与指纹） | 只读 |
 | P1 | 编码工作流 | `AgentOrchestrator`、`TaskGrant`、Journal、计划门禁、`reviewExecution` | 状态机 + 预算 | 写后自动验 |
@@ -31,7 +31,7 @@ V1.1 相对上一版的三条修正（已确立为架构约束）：
 
 | 项 | 已确认事实 | 结论 |
 | --- | --- | --- |
-| `fs.readFile` | 原始文本、256KB 上限、无行号/分页（`src/agent/tools/filesystem.ts`） | 要改 |
+| `fs.readFile` | 0.1.9 已改为分页/行号/总行数（原：原始文本、256KB）；工程分析另有一条 `project-tools.ts` 的带行号补读 | 已补，仍需收敛两套实现 |
 | `fs.edit` | 唯一字面量 + `expectedHash`（`src/agent/tools/fs-extra.ts`） | 复用 |
 | `fs.applyPatch` | unified diff + `expectedHash`（`src/agent/tools/extended.ts`） | 复用 |
 | `code.diagnostics` | tsc / eslint / ruff 一次性检查（`src/agent/tools/diagnostics.ts`） | 复用并接 LSP |

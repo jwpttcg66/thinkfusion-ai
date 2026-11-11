@@ -25,7 +25,8 @@ tsc / eslint / ruff，`test.run` / `shell.run` / `git.worktree` 都在。
 缺的是另一半：
 
 1. **读没有寻址**：`fs.readFile` 返回原始文本、256KB 直接拒，没有行号、没有
-   offset/limit；模型改一处只能整段拿、靠猜位置。
+   offset/limit；模型改一处只能整段拿、靠猜位置。**0.1.9 已补**：分页/行号/
+   总行数，见 [`CODE_INTELLIGENCE_AUDIT.md`](../implementation/CODE_INTELLIGENCE_AUDIT.md)。
 2. **没有符号级理解**：没有 definition / references，影响面只能靠 grep 猜；
    `project.outline` 是正则大纲，评语里已注明「按正则识别」。
 3. **改完没有自动验证闭环**：诊断要模型自己记得调；计划门禁只管「有没有写判据」，
@@ -94,7 +95,7 @@ tsc / eslint / ruff，`test.run` / `shell.run` / `git.worktree` 都在。
 | 维度 | dsh | opencode | 我们现状 |
 | --- | --- | --- | --- |
 | 架构 | 一切皆插件（Cordis） | TS / Effect 模块 | 主进程 + Runtime，85 条能力清单，不装插件 |
-| 读 | 行号 + 分页 + 上限 + 流式 | 行号 + 分页 + AGENTS.md 注入 | `fs.readFile` 原始文本、256KB 上限，无行号/分页 |
+| 读 | 行号 + 分页 + 上限 + 流式 | 行号 + 分页 + AGENTS.md 注入 | 0.1.9 起 `fs.readFile` 分页/行号（此前原始文本、256KB）；工程分析另有一条带行号的补读通道 |
 | 搜 | 内置 glob/grep + spill | ripgrep | `fs.search` / `fs.find` / `fs.tree`，够用 |
 | 符号 | LSP 四操作 | 配置有、工具未接 | 无；`project.outline` 是正则大纲 |
 | 改 | write / edit / apply_patch + 观察策略 | write / edit / patch + 权限 + diff | writeFile / overwriteFile / edit / applyPatch，都带 `expectedHash` |

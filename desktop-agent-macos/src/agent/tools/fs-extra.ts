@@ -40,6 +40,8 @@ export interface StatResult {
   mode: string;
   mtimeMs: number;
   sha256?: string;
+  /** 文本文件的总行数；二进制或大文件不填（问「多少行」时直接引这里）。 */
+  lines?: number;
 }
 
 export interface EditResult {
@@ -93,10 +95,18 @@ export const fsExtraTools = {
       mode: `0o${(stat.mode & 0o777).toString(8)}`,
       mtimeMs: stat.mtimeMs
     };
-    // 小文本文件顺带给出指纹，省一轮 readFile。
+    // 小文本文件顺带给出指纹与总行数，省一轮 readFile；行数按整份文件算，
+    // 末尾换行不算一行（和 fs.readFile 的 totalLines 同口径）。
     if (type === 'file' && stat.size <= 262_144) {
       const buffer = await fs.readFile(target);
-      result.sha256 = buffer.includes(0) ? sha256(buffer) : sha256(buffer.toString('utf8'));
+      const binary = buffer.includes(0);
+      result.sha256 = binary ? sha256(buffer) : sha256(buffer.toString('utf8'));
+      if (!binary) {
+        const text = buffer.toString('utf8');
+        const parts = text.split('\n');
+        if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
+        result.lines = parts.length;
+      }
     }
     return result;
   },
