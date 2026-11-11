@@ -27,9 +27,6 @@ interface Props {
   onClose: () => void;
   /** 打开时停在哪个页；「直接辩论」用它一进来就到辩论。 */
   initialTab?: 'mode' | 'collab' | 'debate' | 'report';
-  /** 辩论页预填的问题（通常是输入框里刚写的那句）。 */
-  initialQuestion?: string;
-  initialRounds?: number;
   /** 当前打开的会话；直接辩论要作为新的一轮追加到这条会话里。 */
   activeConversationId?: string | null;
   /** 辩论已经挂到会话上：主界面切过去，让输出出现在回答流里。 */
@@ -88,7 +85,7 @@ const DEBATE_STRATEGIES: Array<{
   { id: 'discovery', label: '探索发现', summary: '并行假设，用能区分它们的证据逐步排除', rounds: 3 }
 ];
 
-export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, initialQuestion, initialRounds, activeConversationId, onDebateStarted }: Props) {
+export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose, initialTab, activeConversationId, onDebateStarted }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'mode');
   const [options, setOptions] = useState<ExecutionOptions | null>(null);
   const [health, setHealth] = useState<Record<string, ProviderHealthInfo>>({});
@@ -99,8 +96,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [debateQuestion, setDebateQuestion] = useState(initialQuestion ?? '');
-  const [debateRounds, setDebateRounds] = useState(initialRounds ?? 3);
+  const [debateQuestion, setDebateQuestion] = useState('');
+  const [debateRounds, setDebateRounds] = useState(3);
   const [debateEarlyStop, setDebateEarlyStop] = useState(false);
   const [cleanup, setCleanup] = useState<DebateCleanupOutcome | null>(null);
   const [related, setRelated] = useState<RelatedDebateView[]>([]);

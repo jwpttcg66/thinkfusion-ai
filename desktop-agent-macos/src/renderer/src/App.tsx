@@ -233,8 +233,6 @@ export default function App() {
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [researchOpen, setResearchOpen] = useState(false);
   const [researchTab, setResearchTab] = useState<'mode' | 'collab' | 'debate' | 'report'>('mode');
-  const [researchSeed, setResearchSeed] = useState('');
-  const [researchRounds, setResearchRounds] = useState(3);
   /** 对话 / 轨迹 / 统计。页签在 topbar 下、滚动区外，切会话时回到对话。 */
   const [conversationTab, setConversationTab] = useState<'chat' | 'trajectory' | 'stats'>('chat');
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
@@ -1157,6 +1155,71 @@ export default function App() {
     }
   }
 
+  /**
+   * 「直接辩论」按钮：不打开任何设置页，直接用输入框里的这句话开一场正式辩论。
+   *
+   * 成员、主导人、策略都按研究设置里的同一份配置（和执行模式共用），
+   * 输出落在回答界面。这是「白名单式」的入口：这一句被直接放行到正式辩论，
+   * 不再跑第一轮回答与汇总。
+   */
+  async function startDirectDebate() {
+    const question = prompt.trim();
+    if (!question) {
+      setNotice('先写一句要辩论的问题。');
+      composerRef.current?.focus();
+      return;
+    }
+    if (submitting || conversationBusy) return;
+    const candidates = executionOptions?.debateCandidates ?? [];
+    const mode = executionConfig.executionMode;
+    // 归属规则与研究设置一致：一种主导方式只用一类成员；混合先择一。
+    const owner: 'web' | 'local' | 'cloud' | null = mode === 'hybrid' ? null : mode;
+    const poolOf = (type: 'web' | 'local' | 'cloud'): string[] | undefined =>
+      type === 'web' ? executionConfig.selectedWebChannels
+        : type === 'cloud' ? executionConfig.selectedCloudModels
+          : executionConfig.selectedLocalModels;
+    const participants = candidates
+      .filter(item => item.available && (owner === null || item.type === owner))
+      .filter(item => {
+        const pool = poolOf(item.type);
+        return pool === undefined || pool.includes(item.id);
+      })
+      .map(item => item.id);
+    // 候选还没读到、或按统一配置一个可用成员都没有：如实拦下。
+    // 不能把空名单交给主进程「按归属规则随便挑」——云端主导下那会把所有
+    // 可用模型都拉进来，用户完全没同意这场调用。
+    if (participants.length === 0) {
+      setNotice(candidates.length === 0
+        ? '正在读取可用成员，稍等一秒再点「直接辩论」。'
+        : '当前主导方式下没有可用的参辩成员：去「研究设置 → 辩论」勾选成员，或换一种主导方式。');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    setNotice('');
+    try {
+      const started = await window.agentAPI.startDebate({
+        question,
+        conversationId: activeConversation?.conversationId ?? undefined,
+        config: {
+          // 直接辩论默认只跑一轮：它跳过了第一轮回答与汇总，用户要的是
+          // 一场能立刻看到交锋的正式辩论，不是再等三轮。
+          strategy: executionConfig.debateStrategy ?? 'truth',
+          maxRounds: 1,
+          leadMode: mode,
+          leadAgentId: executionConfig.leadAgentId,
+          participants
+        }
+      });
+      setPrompt('');
+      await showDebateAnswer({ debateId: started.debateId, conversationId: started.conversationId });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function deleteConversation(conversationId: string) {
     try {
       deletedConversations.current.add(conversationId);
@@ -2009,16 +2072,9 @@ export default function App() {
               onPermissionChange={changePermission}
               onOpenResearch={() => {
                 setResearchTab('mode');
-                setResearchSeed('');
-                setResearchRounds(3);
                 setResearchOpen(true);
               }}
-              onOpenDebate={() => {
-                setResearchTab('debate');
-                setResearchSeed(prompt);
-                setResearchRounds(1);
-                setResearchOpen(true);
-              }}
+              onStartDebate={() => { void startDirectDebate(); }}
               onSubmit={submit}
             />
           </div>
@@ -2174,8 +2230,6 @@ export default function App() {
           onConfigChange={changeExecutionConfig}
           latestSynthesis={messages.find(item => item.role === 'synthesis' && item.synthesis)?.synthesis ?? null}
           initialTab={researchTab}
-          initialQuestion={researchSeed}
-          initialRounds={researchRounds}
           activeConversationId={activeConversation?.conversationId ?? null}
           onDebateStarted={info => { void showDebateAnswer(info); }}
           onClose={() => setResearchOpen(false)}

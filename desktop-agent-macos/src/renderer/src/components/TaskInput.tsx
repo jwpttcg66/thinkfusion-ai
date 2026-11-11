@@ -74,8 +74,8 @@ export function TaskInput(props: {
   onChange: (value: string) => void;
   onPermissionChange: (preset: PermissionPreset) => void;
   onOpenResearch: () => void;
-  /** 跳过第一轮与汇总，直接用这句话开一场辩论。 */
-  onOpenDebate: () => void;
+  /** 跳过第一轮与汇总，直接用输入框里的这句话开一场正式辩论。 */
+  onStartDebate: () => void;
   onNewConversation: () => void;
   onRemoveAttachment: (id: string) => void;
   onSubmit: () => void;
@@ -256,8 +256,9 @@ export function TaskInput(props: {
           <button
             className="chip-btn"
             type="button"
-            onClick={props.onOpenDebate}
-            title="跳过第一轮回答与汇总，直接用输入框里的这句话开一场辩论"
+            onClick={props.onStartDebate}
+            disabled={props.disabled || !props.value.trim()}
+            title="跳过第一轮与汇总，直接用这句话开一场正式辩论；成员与策略按「研究设置」"
           >
             <span>⚔</span>
             <span className="label">直接辩论</span>
