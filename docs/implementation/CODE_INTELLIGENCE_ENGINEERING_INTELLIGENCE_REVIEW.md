@@ -1,3 +1,9 @@
+> **2026-11-12 13:41 复审：** 后续 V2.0-PoC 已采纳「先验证、后建双 Neo4j」
+> 并补了 Gate 0–4、ProjectIndexGeneration、FTS5/Worker、安全与回退方案。
+> 该版的复审见
+> [CODE_INTELLIGENCE_V2_POC_REVIEW.md](./CODE_INTELLIGENCE_V2_POC_REVIEW.md)。
+> 本文关于许可证、Python 分发、资源与黑盒一致性的结论仍然适用。
+
 # Engineering Intelligence V2.0 计划书复审：双 Neo4j + Graphiti
 
 日期：2026-11-12。分支：`0.2.0`。
