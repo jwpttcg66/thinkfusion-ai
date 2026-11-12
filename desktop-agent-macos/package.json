@@ -122,7 +122,8 @@
     "test:engineering-tools": "npm run build:test && node --test scripts/check-engineering-tools.mjs",
     "test:execution-timeline": "npm run build:test && node --test scripts/check-execution-timeline.mjs",
     "test:team-board": "npm run build:test && node --test scripts/check-team-board.mjs",
-    "test:code-index": "npm run build:test && node --test scripts/check-code-index.mjs"
+    "test:code-index": "npm run build:test && node --test scripts/check-code-index.mjs",
+    "test:code-index-external": "npm run build:test && node --test scripts/check-code-index-external.mjs"
   },
   "dependencies": {
     "docx": "9.15.3",

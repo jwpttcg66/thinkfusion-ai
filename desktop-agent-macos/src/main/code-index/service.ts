@@ -19,11 +19,13 @@ import {
   linkSymbolToMemory,
   remember,
   retrieve,
+  routeMode,
   type KnowledgeMode,
   type LinkInput,
   type RememberInput
 } from './retrieval';
 import type { RetrievalItem, RetrievalResult } from './types';
+import type { CgcAdapter, GraphitiAdapter } from './external';
 
 function projectIdFor(root: string): string {
   return `p_${createHash('sha256').update(root).digest('hex').slice(0, 24)}`;
@@ -59,6 +61,8 @@ export interface CodeIndexEmbedder {
 export interface CodeIndexServiceDeps {
   /** 可选：本地 Ollama / 云端 embedding；不给就只做图 + FTS。 */
   embedder?: CodeIndexEmbedder;
+  /** 可选：CGC / Graphiti 的外部只读 Adapter；失败只降级。 */
+  external?: { cgc?: CgcAdapter; graphiti?: GraphitiAdapter };
 }
 
 export class CodeIndexService {
@@ -218,6 +222,7 @@ export class CodeIndexService {
     await this.ensureFresh(root);
     const projectId = projectIdFor(root);
     const result = retrieve(this.store, projectId, query, options);
+    const mode = routeMode(query, options.mode);
     if ((options.mode === undefined || options.mode === 'CODE' || options.mode === 'HYBRID') &&
         this.deps.embedder && this.store.countVectors(projectId) > 0) {
       try {
@@ -247,10 +252,62 @@ export class CodeIndexService {
         result.warnings.push(`向量检索不可用：${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    // 可选外部通道：CGC 代码图 / Graphiti 工程记忆；失败只记警告。
+    if (mode === 'CODE' || mode === 'HYBRID') {
+      const cgc = this.deps.external?.cgc;
+      if (cgc) {
+        try {
+          const hits = await cgc.search(query, Math.min(options.limit ?? 8, 20));
+          if (hits.length > 0) result.sources.graph = true;
+          for (const hit of hits) {
+            result.items.push({
+              kind: 'code',
+              id: `cgc:${hit.path ?? ''}:${hit.title}`,
+              title: hit.title,
+              content: hit.content,
+              source: 'CGC',
+              confidence: hit.confidence,
+              ...(hit.path ? { filePath: hit.path } : {}),
+              ...(hit.line ? { line: hit.line } : {})
+            });
+          }
+        } catch (error) {
+          result.warnings.push(`CGC 不可用：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    if (mode === 'MEMORY' || mode === 'HYBRID') {
+      const graphiti = this.deps.external?.graphiti;
+      if (graphiti) {
+        try {
+          const hits = await graphiti.search(query, Math.min(options.limit ?? 8, 20));
+          if (hits.length > 0) result.sources.memory = true;
+          for (const hit of hits) {
+            result.items.push({
+              kind: 'memory',
+              id: `graphiti:${hit.title}`,
+              title: hit.title,
+              content: hit.content,
+              source: 'Graphiti',
+              confidence: hit.confidence
+            });
+          }
+        } catch (error) {
+          result.warnings.push(`Graphiti 不可用：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    if (result.items.length > 0) {
+      result.warnings = result.warnings.filter(warning => !warning.startsWith('没有检索到'));
+    }
     return result;
   }
 
-  async context(rootInput: string, query: string, budgetChars = 6000): Promise<{
+  async context(
+    rootInput: string,
+    query: string,
+    budgetChars = 6000
+  ): Promise<{
     text: string;
     used: number;
     omitted: number;

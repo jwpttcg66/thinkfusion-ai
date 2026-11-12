@@ -113,6 +113,8 @@ import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
 import { runCodingTeam } from './coding/team';
 import { CodeIndexService } from './code-index/service';
+import { Neo4jHttpClient } from './code-index/neo4j-http';
+import { CgcAdapter, GraphitiAdapter } from './code-index/external';
 import { EmbeddingService } from './embeddings/service';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
@@ -4459,13 +4461,27 @@ app.whenReady().then(async () => {
     new TypeScriptProvider([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')])
   ]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
+  const externalNeo4j = process.env.THINKFUSION_NEO4J_HTTP;
+  const externalNeo4jUser = process.env.THINKFUSION_NEO4J_USER;
+  const externalNeo4jPassword = process.env.THINKFUSION_NEO4J_PASSWORD;
+  const external = externalNeo4j
+    ? (() => {
+        const client = new Neo4jHttpClient({
+          baseUrl: externalNeo4j,
+          ...(externalNeo4jUser ? { user: externalNeo4jUser } : {}),
+          ...(externalNeo4jPassword ? { password: externalNeo4jPassword } : {})
+        });
+        return { cgc: new CgcAdapter(client), graphiti: new GraphitiAdapter(client) };
+      })()
+    : undefined;
   codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'), {
     embedder: {
       embed: async texts => {
         if (!embeddingService) throw new Error('EMBEDDING_UNAVAILABLE：embedding 未初始化');
         return embeddingService.embed({ texts });
       }
-    }
+    },
+    ...(external ? { external } : {})
   });
   embeddingService = new EmbeddingService({
     hasCloudKey: () => (apiKeys?.list().length ?? 0) > 0,

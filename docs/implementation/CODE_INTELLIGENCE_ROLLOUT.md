@@ -241,3 +241,15 @@ CGC/Graphiti/Neo4j 因本机缺少 Python 3.12/Neo4j 环境，保持 `SPECIFIED`
 - `structured_output_mode="json_object"` 失败，`json_schema` 通过；
 - 同一 Neo4j 实例的两个数据域，不是双实例；正式集成/资源测试仍未做。
 - 详见 `CODE_INTELLIGENCE_GATE0_PODMAN.md`。
+
+
+## 11. 可选外部 Adapter（2026-11-12）
+
+`code-index/external.ts` 已接 Neo4j HTTP 只读 Adapter：
+
+- CGC 符号 / callers；
+- Graphiti RELATES_TO 事实；
+- 环境变量 `THINKFUSION_NEO4J_HTTP` / `_USER` / `_PASSWORD`；
+- 未配置或失败时本地 FTS/Graph/Vector/Memory 不受影响；
+- 真机：CODE 搜 processOrder 合并 CGC 2 条；HYBRID 再加 Graphiti 1 条。
+- `test:code-index-external` 3 条通过（依赖 Podman Neo4j）。

@@ -189,6 +189,30 @@ node scripts/check-code-index-live.mjs
   Vector；`code-index.sqlite` 已是 user_version=3，`code_vectors` 500 行；
 - UI 面板增加「建向量」按钮与向量计数。
 
+### 3.5 可选外部 Adapter（CGC / Graphiti）
+
+`src/main/code-index/external.ts` + `neo4j-http.ts`：
+
+- 通过 Neo4j HTTP 事务端点读取 Podman 里的 CGC 图与 Graphiti 事实；
+- 只读，不写外部库；不配置就完全走本地回退；
+- 配置环境变量：
+
+```bash
+THINKFUSION_NEO4J_HTTP=http://127.0.0.1:7474
+THINKFUSION_NEO4J_USER=neo4j
+THINKFUSION_NEO4J_PASSWORD=testpass
+```
+
+- `code.search` / `codeIndexService.retrieve` 会合并：
+  - CGC 的符号 / callers（source=CGC）；
+  - Graphiti 的 RELATES_TO 事实（source=Graphiti）；
+- 外部请求失败只写 warning，不影响 FTS/Graph/Vector/Memory 本地结果；
+- 真机验证（Podman）：
+  - CODE 搜 `processOrder`：FTS5 2 + Vector 8 + CGC 2；
+  - HYBRID 搜 `processOrder`：再加 Graphiti 1；
+  - MEMORY 搜“订单重复扣款”：Graphiti 1；
+- `npm run test:code-index-external` 3 条通过（需要 Podman Neo4j 在线）。
+
 ## 4. 明确未完成
 
 | 能力 | 状态 | 原因 |
