@@ -530,6 +530,35 @@ export class CodeIndexStore {
     return Number(row?.n ?? 0);
   }
 
+  /** 项目删除：本地所有索引/记忆/关联/向量/任务一起清掉。 */
+  deleteProject(projectId: string): { files: number; nodes: number; edges: number; docs: number; vectors: number; memory: number; links: number } {
+    const counts = {
+      files: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_file_state WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      nodes: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_nodes WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      edges: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_edges WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      docs: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_search_docs WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      vectors: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_vectors WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      memory: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_memory_facts WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0),
+      links: Number((this.db.prepare('SELECT COUNT(*) AS n FROM code_memory_link WHERE project_id = ?').get(projectId) as { n?: number }).n ?? 0)
+    };
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM code_fts WHERE project_id = ?').run(projectId);
+      for (const table of [
+        'code_vectors', 'code_search_docs', 'code_edges', 'code_nodes',
+        'code_file_state', 'code_memory_link', 'code_memory_facts',
+        'code_generation', 'code_outbox'
+      ]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(projectId);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return counts;
+  }
+
   // --- outbox -------------------------------------------------------------
 
   enqueueOutbox(input: {

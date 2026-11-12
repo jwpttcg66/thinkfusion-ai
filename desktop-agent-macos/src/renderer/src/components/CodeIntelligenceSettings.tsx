@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { CodeIntelligenceConfig, CodeIntelligenceMode, CodeIntelligenceStatus } from '../../../shared/code-intelligence';
+import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceMode, CodeIntelligenceStatus } from '../../../shared/code-intelligence';
 
 /** 设置 → 工程智能：Core / Enhanced 的开关，不要求普通用户编辑环境变量。 */
 export function CodeIntelligenceSettings() {
@@ -8,6 +8,7 @@ export function CodeIntelligenceSettings() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  const [managedNote, setManagedNote] = useState('');
 
   useEffect(() => {
     window.agentAPI.getCodeIntelligenceConfig().then(setConfig).catch(error => setNote(String(error)));
@@ -34,6 +35,19 @@ export function CodeIntelligenceSettings() {
       setStatus(await window.agentAPI.testCodeIntelligence());
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const managedAction = async (action: CodeIntelligenceManagedAction) => {
+    setBusy(true);
+    setManagedNote('');
+    try {
+      const result = await window.agentAPI.managedCodeIntelligence(action);
+      setManagedNote(`${action}：${result.status}${result.version ? ` · ${result.version}` : ''}${result.detail ? ` · ${result.detail}` : ''}`);
+    } catch (error) {
+      setManagedNote(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -112,6 +126,49 @@ export function CodeIntelligenceSettings() {
           </button>
         )}
       </div>
+      <div className="settings-field">
+        <label>
+          <input
+            type="checkbox"
+            checked={config.managed}
+            onChange={event => { setConfig({ ...config, managed: event.target.checked }); void save({ managed: event.target.checked }); }}
+          />
+          由 ThinkFusion 管理本机 Neo4j（Managed）
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={config.autoStart}
+            onChange={event => { setConfig({ ...config, autoStart: event.target.checked }); void save({ autoStart: event.target.checked }); }}
+          />
+          启动应用时自动启动
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={config.autoStop}
+            onChange={event => { setConfig({ ...config, autoStop: event.target.checked }); void save({ autoStop: event.target.checked }); }}
+          />
+          退出应用时自动停止
+        </label>
+      </div>
+      <div className="settings-field">
+        <label>Neo4j 安装目录（含 bin/neo4j）</label>
+        <input
+          value={config.neo4jHome}
+          placeholder="/opt/homebrew/opt/neo4j" 
+          onChange={event => setConfig({ ...config, neo4jHome: event.target.value })}
+          onBlur={() => void save({ neo4jHome: config.neo4jHome })}
+        />
+      </div>
+      <div className="settings-actions">
+        <button className="btn ghost" type="button" disabled={busy} onClick={() => void managedAction('start')}>启动</button>
+        <button className="btn ghost" type="button" disabled={busy} onClick={() => void managedAction('stop')}>停止</button>
+        <button className="btn ghost" type="button" disabled={busy} onClick={() => void managedAction('restart')}>重启</button>
+        <button className="btn ghost" type="button" disabled={busy} onClick={() => void managedAction('version')}>检查版本</button>
+        {managedNote && <span className="settings-note">{managedNote}</span>}
+      </div>
+
       <div className="settings-actions">
         <button className="btn" type="button" disabled={busy} onClick={() => void test()}>连接测试</button>
         {note && <span className="settings-note">{note}</span>}
@@ -119,7 +176,8 @@ export function CodeIntelligenceSettings() {
       {status && (
         <div className="settings-status">
           <p>运行模式：{status.mode === 'external' ? '外部服务' : '本地回退'}</p>
-          <p>CGC：{status.cgc} · Graphiti：{status.graphiti}</p>
+          <p>CGC：{status.cgc} · Graphiti：{status.graphiti}{status.managed ? ` · Neo4j：${status.managed}` : ''}</p>
+          {status.version && <p className="settings-note">Neo4j 版本：{status.version}</p>}
           {status.detail && <p className="settings-note">{status.detail}</p>}
           <p className="settings-note">检查时间：{new Date(status.lastCheckedAt).toLocaleString()}</p>
         </div>

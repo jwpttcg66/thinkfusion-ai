@@ -263,3 +263,11 @@ CGC/Graphiti/Neo4j 因本机缺少 Python 3.12/Neo4j 环境，保持 `SPECIFIED`
 - 环境变量保留为开发者覆盖；
 - Podman 只作为开发/PoC，不是用户前提；
 - 详见 `CODE_INTELLIGENCE_PRODUCT_MODES.md`。
+
+
+## 13. Managed 与工程删除（2026-11-12）
+
+- Managed：设置页管理用户提供的 Neo4j home，start/stop/restart/version；
+  健康检查走 HTTP；autoStart/autoStop；不下载/不静默升级。
+- 工程删除：本地 nodes/edges/docs/FTS/vectors/memory/links/generations/outbox
+  一起清理；可选 CGC 路径清理；Graphiti 未建 group 映射，明确不猜删。

@@ -5,7 +5,7 @@ import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
 import type { CodeIndexLink, CodeIndexLinkInput, CodeIndexMemory, CodeIndexMemoryInput, CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus, CodeIndexVectorResult } from './code-index';
-import type { CodeIntelligenceConfig, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
+import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceManagedResult, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
@@ -2347,6 +2347,9 @@ export interface AgentApi {
   getCodeIntelligenceConfig(): Promise<CodeIntelligenceConfig>;
   setCodeIntelligenceConfig(patch: CodeIntelligencePatch): Promise<CodeIntelligenceConfig>;
   testCodeIntelligence(): Promise<CodeIntelligenceStatus>;
+  managedCodeIntelligence(action: CodeIntelligenceManagedAction): Promise<CodeIntelligenceManagedResult>;
+  /** 删除工程索引/记忆/关联/向量；external=true 时尝试清外部 CGC。 */
+  deleteCodeIndex(root: string, external?: boolean): Promise<{ local: Record<string, number>; external: number; warnings: string[] }>;
   /** 监听工作区源码变化，后台自动更新索引。 */
   watchCodeIndex(root: string): Promise<{ watching: boolean }>;
   unwatchCodeIndex(root: string): Promise<void>;

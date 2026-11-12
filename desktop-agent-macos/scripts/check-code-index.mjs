@@ -388,3 +388,28 @@ test('VectorStore：建向量后检索结果带 Vector 来源，没有 embedder 
     service.close();
   }
 });
+
+
+test('deleteProject：本地索引/记忆/关联/向量一起清理', async () => {
+  const service = new CodeIndexService(path.join(root, 'delete.sqlite'));
+  try {
+    await service.index(path.join(root, 'src'));
+    const fact = await service.remember(path.join(root, 'src'), {
+      kind: 'constraint', title: '删除测试', content: '删除测试', source: 'user', status: 'confirmed'
+    });
+    await service.linkMemory(path.join(root, 'src'), {
+      filePath: 'a.ts', line: 2, memoryEntityId: fact.factId
+    });
+    const before = await service.summary(path.join(root, 'src'));
+    assert.ok(before.nodes > 0);
+    const result = await service.deleteProject(path.join(root, 'src'));
+    assert.ok(result.local.nodes > 0);
+    const after = await service.summary(path.join(root, 'src'));
+    assert.equal(after.nodes, 0);
+    assert.equal(after.files, 0);
+    assert.equal(after.vectors, 0);
+    assert.equal((await service.memories(path.join(root, 'src'))).length, 0);
+  } finally {
+    service.close();
+  }
+});

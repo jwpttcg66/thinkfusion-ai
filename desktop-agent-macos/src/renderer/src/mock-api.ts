@@ -541,9 +541,11 @@ export function createMockApi(): AgentApi {
     rememberCodeMemory: async () => { throw new Error('预览环境不能写工程记忆'); },
     listCodeMemories: async () => [],
     linkCodeMemory: async () => { throw new Error('预览环境不能关联记忆'); },
-    getCodeIntelligenceConfig: async () => ({ mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', passwordConfigured: false }),
-    setCodeIntelligenceConfig: async () => ({ mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', passwordConfigured: false }),
+    getCodeIntelligenceConfig: async () => ({ mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', managed: false, autoStart: false, autoStop: false, neo4jHome: '', passwordConfigured: false }),
+    setCodeIntelligenceConfig: async () => ({ mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', managed: false, autoStart: false, autoStop: false, neo4jHome: '', passwordConfigured: false }),
     testCodeIntelligence: async () => ({ configured: false, mode: 'local', cgc: 'disabled', graphiti: 'disabled', detail: '预览环境', lastCheckedAt: Date.now() }),
+    managedCodeIntelligence: async action => ({ action, status: 'unavailable', detail: '预览环境' }),
+    deleteCodeIndex: async () => ({ local: {}, external: 0, warnings: ['预览环境'] }),
     watchCodeIndex: async () => ({ watching: false }),
     unwatchCodeIndex: async () => undefined,
     extractPage: async () => ({

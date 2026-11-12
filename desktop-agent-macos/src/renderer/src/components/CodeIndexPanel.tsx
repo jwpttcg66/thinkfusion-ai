@@ -24,6 +24,8 @@ export function CodeIndexPanel(props: { root: string }) {
   const [memories, setMemories] = useState<CodeIndexMemory[]>([]);
   const [linkMemoryId, setLinkMemoryId] = useState('');
   const [linkNote, setLinkNote] = useState('');
+  const [deleteExternal, setDeleteExternal] = useState(false);
+  const [deleteNote, setDeleteNote] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -157,6 +159,22 @@ export function CodeIndexPanel(props: { root: string }) {
     }
   };
 
+  const deleteIndex = async () => {
+    if (!window.confirm('删除这个工程的索引、记忆、关联和向量？此操作不可撤销。')) return;
+    setBusy(true);
+    setDeleteNote('');
+    try {
+      const result = await window.agentAPI.deleteCodeIndex(props.root, deleteExternal);
+      setStatus(await window.agentAPI.getCodeIndexStatus(props.root));
+      setResult(null);
+      setDeleteNote(`已删除本地 ${String(Object.values(result.local).reduce((sum, value) => sum + Number(value), 0))} 条记录${result.external > 0 ? `；CGC ${String(result.external)} 个节点` : ''}${result.warnings.length > 0 ? `；${result.warnings.join('；')}` : ''}`);
+    } catch (next) {
+      setDeleteNote(next instanceof Error ? next.message : String(next));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="card code-index-card">
       <div className="row">
@@ -217,6 +235,15 @@ export function CodeIndexPanel(props: { root: string }) {
           </button>
           {memoryNote && <p className="muted">{memoryNote}</p>}
         </div>
+      </details>
+      <details className="code-index-danger">
+        <summary>危险操作：删除工程索引</summary>
+        <label>
+          <input type="checkbox" checked={deleteExternal} onChange={event => setDeleteExternal(event.target.checked)} />
+          同时清理外部 CGC（按 THINKFUSION_CGC_PROJECT_PATH；Graphiti 未建 group 映射，不会删除）
+        </label>
+        <button className="btn ghost" type="button" disabled={busy} onClick={() => void deleteIndex()}>删除索引</button>
+        {deleteNote && <p className="muted">{deleteNote}</p>}
       </details>
       {vectorNote && <p className="muted">{vectorNote}</p>}
       {error && <div className="error">{error}</div>}

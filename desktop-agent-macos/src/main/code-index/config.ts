@@ -11,6 +11,10 @@ interface StoredConfig {
   graphitiEnabled?: boolean;
   neo4jUrl?: string;
   neo4jUser?: string;
+  managed?: boolean;
+  autoStart?: boolean;
+  autoStop?: boolean;
+  neo4jHome?: string;
 }
 
 export class CodeIntelligenceConfigStore {
@@ -29,6 +33,10 @@ export class CodeIntelligenceConfigStore {
       graphitiEnabled: stored.graphitiEnabled !== false,
       neo4jUrl: typeof stored.neo4jUrl === 'string' ? stored.neo4jUrl : '',
       neo4jUser: typeof stored.neo4jUser === 'string' && stored.neo4jUser ? stored.neo4jUser : 'neo4j',
+      managed: stored.managed === true,
+      autoStart: stored.autoStart === true,
+      autoStop: stored.autoStop === true,
+      neo4jHome: typeof stored.neo4jHome === 'string' ? stored.neo4jHome : '',
       passwordConfigured: hasPassword
     };
   }
@@ -39,7 +47,11 @@ export class CodeIntelligenceConfigStore {
       cgcEnabled: patch.cgcEnabled ?? current.cgcEnabled,
       graphitiEnabled: patch.graphitiEnabled ?? current.graphitiEnabled,
       neo4jUrl: patch.neo4jUrl === undefined ? current.neo4jUrl : patch.neo4jUrl.trim().slice(0, 2000),
-      neo4jUser: patch.neo4jUser === undefined ? current.neo4jUser : patch.neo4jUser.trim().slice(0, 200) || 'neo4j'
+      neo4jUser: patch.neo4jUser === undefined ? current.neo4jUser : patch.neo4jUser.trim().slice(0, 200) || 'neo4j',
+      managed: patch.managed ?? current.managed,
+      autoStart: patch.autoStart ?? current.autoStart,
+      autoStop: patch.autoStop ?? current.autoStop,
+      neo4jHome: patch.neo4jHome === undefined ? current.neo4jHome : patch.neo4jHome.trim().slice(0, 2000)
     };
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     writeFileAtomic(this.file, JSON.stringify(next, null, 2), 0o600);

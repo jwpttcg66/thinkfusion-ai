@@ -9,6 +9,11 @@ export interface CodeIntelligenceConfig {
   /** Neo4j HTTP 事务端点，例如 http://127.0.0.1:7474。 */
   neo4jUrl: string;
   neo4jUser: string;
+  /** Managed：由 ThinkFusion 启动/停止本机 Neo4j（用户提供的安装目录）。 */
+  managed: boolean;
+  autoStart: boolean;
+  autoStop: boolean;
+  neo4jHome: string;
   /** 只回传是否已保存密码，不回传明文。 */
   passwordConfigured: boolean;
 }
@@ -19,6 +24,10 @@ export interface CodeIntelligencePatch {
   graphitiEnabled?: boolean;
   neo4jUrl?: string;
   neo4jUser?: string;
+  managed?: boolean;
+  autoStart?: boolean;
+  autoStop?: boolean;
+  neo4jHome?: string;
   /** 空字符串表示清除已保存密码。 */
   password?: string;
 }
@@ -30,4 +39,16 @@ export interface CodeIntelligenceStatus {
   graphiti: 'ready' | 'disabled' | 'error';
   detail?: string;
   lastCheckedAt: number;
+  managed?: 'running' | 'stopped' | 'error' | 'unavailable';
+  version?: string;
+}
+
+
+export type CodeIntelligenceManagedAction = 'start' | 'stop' | 'restart' | 'version';
+
+export interface CodeIntelligenceManagedResult {
+  action: CodeIntelligenceManagedAction;
+  status: 'running' | 'stopped' | 'error' | 'unavailable';
+  version?: string | null;
+  detail?: string;
 }

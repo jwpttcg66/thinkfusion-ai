@@ -149,6 +149,8 @@ const api: AgentApi = {
   getCodeIntelligenceConfig: () => ipcRenderer.invoke('code-intelligence:get'),
   setCodeIntelligenceConfig: (patch: unknown) => ipcRenderer.invoke('code-intelligence:set', patch),
   testCodeIntelligence: () => ipcRenderer.invoke('code-intelligence:test'),
+  managedCodeIntelligence: (action: string) => ipcRenderer.invoke('code-intelligence:managed', { action }),
+  deleteCodeIndex: (root: string, external?: boolean) => ipcRenderer.invoke('code-index:delete-project', { root, external }),
   watchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:watch', root),
   unwatchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:unwatch', root),
 

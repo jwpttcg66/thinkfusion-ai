@@ -365,6 +365,31 @@ export class CodeIndexService {
     return linkSymbolToMemory(this.store, { ...input, projectId: projectIdFor(root) });
   }
 
+  /** 删除工程的本地索引/记忆/关联/向量；外部 CGC 只在显式要求时按路径清。 */
+  async deleteProject(rootInput: string, options: { external?: boolean } = {}): Promise<{
+    local: ReturnType<CodeIndexStore['deleteProject']>;
+    external: number;
+    warnings: string[];
+  }> {
+    const root = await fs.realpath(rootInput);
+    const projectId = projectIdFor(root);
+    const local = this.store.deleteProject(projectId);
+    let external = 0;
+    const warnings: string[] = [];
+    if (options.external && this.external?.cgc) {
+      try {
+        const prefix = process.env.THINKFUSION_CGC_PROJECT_PATH ?? root;
+        external = await this.external.cgc.deleteByPath(prefix);
+      } catch (error) {
+        warnings.push(`CGC 清理失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (options.external && this.external?.graphiti) {
+      warnings.push('Graphiti 外部数据未删除：当前未按 project group_id 建立映射，不能安全猜测删除范围');
+    }
+    return { local, external, warnings };
+  }
+
   async memory(rootInput: string, query: string, limit = 20): Promise<ReturnType<CodeIndexStore['searchMemory']>> {
     const root = await fs.realpath(rootInput);
     return this.store.searchMemory(projectIdFor(root), query, limit);

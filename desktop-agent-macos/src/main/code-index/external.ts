@@ -53,6 +53,16 @@ export class CgcAdapter {
       path: String(row.c1 ?? '')
     }));
   }
+
+  /** 删除 CGC 中路径前缀属于这个工程的节点；只用于显式“删除工程”。 */
+  async deleteByPath(prefix: string): Promise<number> {
+    const rows = await this.client.query<Record<string, unknown>>(
+      `MATCH (n) WHERE n.path = $prefix OR n.path STARTS WITH $prefix + '/'
+       DETACH DELETE n RETURN count(n) AS n`,
+      { prefix }
+    );
+    return Number(rows[0]?.c0 ?? 0);
+  }
 }
 
 export class GraphitiAdapter {

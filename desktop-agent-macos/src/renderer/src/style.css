@@ -5398,3 +5398,7 @@ button:disabled {
   background: #fff;
   font-size: 12px;
 }
+
+.code-index-danger { margin-top: 10px; font-size: 12px; color: var(--text-2); }
+.code-index-danger summary { cursor: pointer; color: #a33; }
+.code-index-danger label { display: block; margin: 6px 0; }

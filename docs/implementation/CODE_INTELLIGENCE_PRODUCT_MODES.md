@@ -40,6 +40,27 @@ THINKFUSION_NEO4J_PASSWORD
 外部地址只要求 Neo4j HTTP 事务端点（默认 7474）。CGC/Graphiti 的 Python 运行时
 仍由用户或后续 Managed 模式提供，不随 Core 安装。
 
+## 3.1 Managed（本机 Neo4j 生命周期）
+
+设置 → 工程智能增加：
+
+- 「由 ThinkFusion 管理本机 Neo4j」；
+- 启动应用时自动启动 / 退出时自动停止；
+- Neo4j 安装目录（含 `bin/neo4j`）；
+- 启动 / 停止 / 重启 / 检查版本；
+- 健康检查走 Neo4j HTTP，不把「进程起来了」当成「服务可用」。
+
+边界：Managed 只管理用户已有的 Neo4j 安装目录；不下载二进制、不静默升级。
+升级 = 替换安装目录后重启。CGC/Graphiti 的 Python 运行时仍不在 Managed 内。
+
+## 3.2 工程删除
+
+工程索引面板「危险操作：删除工程索引」：
+
+- 删除本地 nodes/edges/docs/FTS/vectors/memory/links/generations/outbox；
+- 可选 `THINKFUSION_CGC_PROJECT_PATH` 清理外部 CGC 路径；
+- Graphiti 未按 project group_id 建映射，不猜测删除范围，明确返回 warning。
+
 ## 4. 无 Podman 路径
 
 | 路径 | 状态 |

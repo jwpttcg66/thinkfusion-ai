@@ -116,6 +116,7 @@ import { CodeIndexService } from './code-index/service';
 import { Neo4jHttpClient } from './code-index/neo4j-http';
 import { CgcAdapter, GraphitiAdapter } from './code-index/external';
 import { CodeIntelligenceConfigStore } from './code-index/config';
+import { ManagedNeo4j } from './code-index/managed';
 import type { CodeIntelligenceConfig, CodeIntelligencePatch, CodeIntelligenceStatus } from '../shared/code-intelligence';
 import { EmbeddingService } from './embeddings/service';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
@@ -578,8 +579,10 @@ let embeddingService: EmbeddingService | null = null;
 let codeIndexService: CodeIndexService | null = null;
 /** 工程智能运行模式/外部服务配置；密码在 apiKeys。 */
 let codeIntelligenceConfigStore: CodeIntelligenceConfigStore | null = null;
+let managedNeo4j: ManagedNeo4j | null = null;
 let codeIntelligenceConfig: CodeIntelligenceConfig = {
-  mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', passwordConfigured: false
+  mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j',
+  managed: false, autoStart: false, autoStop: false, neo4jHome: '', passwordConfigured: false
 };
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
@@ -3831,7 +3834,35 @@ function registerIpc() {
     codeIntelligenceConfig = codeIntelligenceConfigStore.save(patch, codeIntelligenceConfig);
     codeIntelligenceConfig.passwordConfigured = apiKeys?.has('code-intelligence') ?? false;
     codeIndexService?.setExternal(buildCodeIntelligenceExternal(codeIntelligenceConfig));
+    managedNeo4j = buildManagedNeo4j(codeIntelligenceConfig);
+    if (managedNeo4j && codeIntelligenceConfig.autoStart) {
+      void managedNeo4j.start().catch(() => undefined);
+    }
     return codeIntelligenceConfig;
+  });
+
+  ipcMain.handle('code-intelligence:managed', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const action = (raw as { action?: unknown } | null)?.action;
+    if (action !== 'start' && action !== 'stop' && action !== 'restart' && action !== 'version') {
+      throw new Error('Managed 只接受 start / stop / restart / version');
+    }
+    managedNeo4j = managedNeo4j ?? buildManagedNeo4j(codeIntelligenceConfig);
+    if (!managedNeo4j) throw new Error('Managed 未配置：先在设置里填写 Neo4j 安装目录和 HTTP 地址');
+    if (action === 'version') {
+      return { action, version: await managedNeo4j.version(), status: await managedNeo4j.status() };
+    }
+    const result = action === 'start'
+      ? await managedNeo4j.start()
+      : action === 'stop'
+        ? await managedNeo4j.stop()
+        : await managedNeo4j.restart();
+    return {
+      action,
+      status: await managedNeo4j.status(),
+      version: await managedNeo4j.version(),
+      ...(result.code === 0 ? {} : { detail: result.stderr.trim() || result.stdout.trim() || `退出码 ${String(result.code)}` })
+    };
   });
 
   ipcMain.handle('code-intelligence:test', async (event): Promise<CodeIntelligenceStatus> => {
@@ -3889,8 +3920,18 @@ function registerIpc() {
       cgc,
       graphiti,
       ...(details.length > 0 ? { detail: details.join('；') } : {}),
-      lastCheckedAt: Date.now()
+      lastCheckedAt: Date.now(),
+      ...(managedNeo4j ? { managed: await managedNeo4j.status(), version: (await managedNeo4j.version()) ?? undefined } : {})
     };
+  });
+
+  ipcMain.handle('code-index:delete-project', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as { root?: unknown; external?: unknown };
+    if (typeof input.root !== 'string' || !input.root.trim()) throw new Error('需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return codeIndexService.deleteProject(input.root, { external: input.external === true });
   });
 
   ipcMain.handle('code-index:memories', async (event, root: unknown) => {
@@ -4133,6 +4174,16 @@ app.setName('ThinkFusion');
  * is not worth the tidier path.
  */
 app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
+
+function buildManagedNeo4j(config: CodeIntelligenceConfig): ManagedNeo4j | null {
+  if (!config.managed || !config.neo4jHome || !config.neo4jUrl) return null;
+  return new ManagedNeo4j({
+    home: config.neo4jHome,
+    url: process.env.THINKFUSION_NEO4J_HTTP ?? config.neo4jUrl,
+    user: process.env.THINKFUSION_NEO4J_USER ?? config.neo4jUser,
+    password: process.env.THINKFUSION_NEO4J_PASSWORD ?? apiKeys?.get('code-intelligence') ?? ''
+  });
+}
 
 function buildCodeIntelligenceExternal(config: CodeIntelligenceConfig): { cgc: CgcAdapter; graphiti: GraphitiAdapter } | undefined {
   const envUrl = process.env.THINKFUSION_NEO4J_HTTP;
@@ -4596,6 +4647,12 @@ app.whenReady().then(async () => {
   codeIntelligenceConfigStore = new CodeIntelligenceConfigStore(path.join(app.getPath('userData'), 'code-intelligence.json'));
   codeIntelligenceConfig = codeIntelligenceConfigStore.read(apiKeys?.has('code-intelligence') ?? false);
   const external = buildCodeIntelligenceExternal(codeIntelligenceConfig);
+  managedNeo4j = buildManagedNeo4j(codeIntelligenceConfig);
+  if (managedNeo4j && codeIntelligenceConfig.autoStart) {
+    void managedNeo4j.start().catch(error => {
+      console.warn('Managed Neo4j 启动失败：', error instanceof Error ? error.message : error);
+    });
+  }
   codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'), {
     embedder: {
       embed: async texts => {
@@ -5100,6 +5157,7 @@ app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
   lspRegistry?.dispose();
   codeIndexService?.close();
+  if (managedNeo4j && codeIntelligenceConfig.autoStop) void managedNeo4j.stop().catch(() => undefined);
   // Every adapter, not the two that used to exist: a source added in 设置 owns
   // one too, and a pending wait on it would otherwise keep the app alive.
   for (const adapter of adapters.values()) adapter.cancelAllWaits();
