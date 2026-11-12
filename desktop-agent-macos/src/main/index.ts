@@ -112,6 +112,7 @@ import type { TeamTaskEvidence } from '../shared/conversation';
 import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
 import { runCodingTeam } from './coding/team';
+import { CodeIndexService } from './code-index/service';
 import { EmbeddingService } from './embeddings/service';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
@@ -569,6 +570,8 @@ let lspRegistry: LspProviderRegistry | null = null;
 let snapshotStore: SnapshotStore | null = null;
 /** Embedding 提供方：只提供 provider API，不接代码索引（与 opencode 对齐）。 */
 let embeddingService: EmbeddingService | null = null;
+/** 本地工程智能：AST + SQLite/FTS5 + 记忆 + Link；CGC/Graphiti 有运行时再替换 Adapter。 */
+let codeIndexService: CodeIndexService | null = null;
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
 
@@ -4356,6 +4359,7 @@ app.whenReady().then(async () => {
     new TypeScriptProvider([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')])
   ]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
+  codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'));
   embeddingService = new EmbeddingService({
     hasCloudKey: () => (apiKeys?.list().length ?? 0) > 0,
     resolveCloud: providerId => {
@@ -4376,6 +4380,30 @@ app.whenReady().then(async () => {
 
   setMainCallHandler(async (id, rawArgs, context) => {
     const conversationId = context.conversationId;
+
+    if (id === 'code.search') {
+      const args = (rawArgs ?? {}) as {
+        root?: unknown;
+        query?: unknown;
+        mode?: unknown;
+        limit?: unknown;
+        context?: unknown;
+      };
+      if (typeof args.root !== 'string' || !args.root) throw new Error('code.search 缺少工作区根目录');
+      if (typeof args.query !== 'string' || !args.query.trim()) throw new Error('code.search 需要 query');
+      if (!codeIndexService) throw new Error('代码索引未初始化');
+      const root = args.root;
+      const mode = args.mode === 'CODE' || args.mode === 'MEMORY' || args.mode === 'HYBRID' ? args.mode : undefined;
+      const limit = typeof args.limit === 'number' ? args.limit : undefined;
+      const summary = await codeIndexService.summary(root);
+      if (summary.generation === null) await codeIndexService.index(root);
+      const result = await codeIndexService.retrieve(root, args.query.trim(), { ...(mode ? { mode } : {}), ...(limit ? { limit } : {}) });
+      if (args.context === true) {
+        const context = await codeIndexService.context(root, args.query.trim(), 6000);
+        return { ...result, context: context.text, contextMeta: { used: context.used, omitted: context.omitted, stale: context.stale } };
+      }
+      return result;
+    }
 
     if (id === 'code.team.run') {
       const args = (rawArgs ?? {}) as {
@@ -4826,6 +4854,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
   lspRegistry?.dispose();
+  codeIndexService?.close();
   // Every adapter, not the two that used to exist: a source added in 设置 owns
   // one too, and a pending wait on it would otherwise keep the app alive.
   for (const adapter of adapters.values()) adapter.cancelAllWaits();

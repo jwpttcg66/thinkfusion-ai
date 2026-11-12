@@ -69,7 +69,7 @@ export const TOOL_NAMES = [
   'fs.du',
   'test.run', 'shell.run', 'ask.user', 'code.diagnostics',
   'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast',
-  'code.team.run',
+  'code.search', 'code.team.run',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'session.search', 'plugin.inspect',
   'goal.create', 'goal.get', 'goal.update',
@@ -99,7 +99,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   // 提问不改本机，但会阻塞计划；只读档位下允许，因为它反而是在收敛风险。
   'ask.user',
   // tsc --noEmit 不写盘；eslint 不传 --cache。诊断属于「看」，不属于「改」。
-  'code.diagnostics', 'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast',
+  'code.diagnostics', 'code.definition', 'code.references', 'code.symbols', 'code.hover', 'code.context', 'code.impact', 'code.ast', 'code.search',
   // 只读主进程查询：会话检索、能力清单、目标/任务板读取，都不改任何状态。
   'session.search', 'plugin.inspect',
   'goal.get', 'schedule.list', 'schedule.view',
@@ -899,6 +899,18 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       path: RelativePath,
       max: z.number().int().min(1).max(500).optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('code.search'),
+    args: z.object({
+      query: z.string().min(1).max(4000),
+      mode: z.enum(['CODE', 'MEMORY', 'HYBRID']).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+      /** 需要一段可直接放进上下文的文本时置 true。 */
+      context: z.boolean().optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),

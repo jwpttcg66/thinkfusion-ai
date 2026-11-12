@@ -81,7 +81,25 @@ Phase 0 实测：
 - `assembleContext`：代码优先、已确认记忆其次、候选最后，带字符预算、去重、来源、
   置信度和警告。
 
-### 2.4 记忆与关联
+### 2.4 主进程门面与 Agent 工具
+
+`src/main/code-index/service.ts`
+
+- `CodeIndexService`：按工作区真实路径生成 projectId，同一个 DB 内隔离；
+- `index` / `summary` / `retrieve` / `context` / `impact` / `remember` / `link`；
+- 同一工程并发索引只跑一份（Promise 去重）。
+
+主进程新增只读能力 `code.search`：
+
+- 参数：`query`、`mode`（CODE/MEMORY/HYBRID）、`limit`、`context`；
+- 第一次调用若没有 READY generation，先建索引；
+- 返回每条结果的路径、行号、来源、置信度、警告；
+- `context=true` 时附一段可直接放进模型的预算内上下文；
+- root 由 Runtime 从 TaskGrant 注入，模型不能自己换根。
+
+能力总数从 94 变为 95（89 Runtime + 6 主进程），设置页能看到 `code.search`。
+
+### 2.5 记忆与关联
 
 - `remember`：必须带来源；默认 candidate；confirmed 仅由调用方明确指定；
 - `linkSymbolToMemory`：
@@ -136,6 +154,8 @@ node scripts/check-code-index-live.mjs
 ```
 
 即：约 1.8 秒建完 212 个文件，DB 约 21.7MB，`runCodingTeam` 能命中。
+
+应用已用最新构建启动，`getCapabilities` 返回 95 条，包含 `code.search`。
 
 ## 4. 明确未完成
 

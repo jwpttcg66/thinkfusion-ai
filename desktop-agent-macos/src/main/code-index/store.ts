@@ -27,7 +27,7 @@ import type {
   SearchHit
 } from './types';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function hash(value: string, length = 24): string {
   return createHash('sha256').update(value).digest('hex').slice(0, length);
@@ -62,7 +62,7 @@ export class CodeIndexStore {
     const row = this.db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
     const version = Number(row?.user_version ?? 0);
     if (version >= SCHEMA_VERSION) return;
-    this.db.exec(`
+    if (version < 1) this.db.exec(`
       CREATE TABLE IF NOT EXISTS code_generation (
         project_id TEXT NOT NULL,
         generation INTEGER NOT NULL,
@@ -183,13 +183,22 @@ export class CodeIndexStore {
         payload_hash TEXT NOT NULL,
         status TEXT NOT NULL,
         retry_count INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS code_outbox_status ON code_outbox(project_id, status);
 
-      PRAGMA user_version = ${SCHEMA_VERSION};
     `);
+    // v1 的 outbox 没有 error 列；已有用户库要能原地升级，不丢任务。
+    if (version >= 1 && version < 2) {
+      try {
+        this.db.exec('ALTER TABLE code_outbox ADD COLUMN error TEXT');
+      } catch {
+        // 列已经存在（重复迁移）时忽略。
+      }
+    }
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
   close(): void {
@@ -376,6 +385,83 @@ export class CodeIndexStore {
     }
   }
 
+  // --- outbox -------------------------------------------------------------
+
+  enqueueOutbox(input: {
+    taskId: string;
+    projectId: string;
+    generation: number;
+    filePath: string;
+    operation: string;
+    payloadHash: string;
+  }): boolean {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO code_outbox
+        (task_id, project_id, generation, file_path, operation, payload_hash, status, retry_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+    `).run(
+      input.taskId, input.projectId, input.generation, input.filePath,
+      input.operation, input.payloadHash, now(), now()
+    );
+    return Number(result.changes) > 0;
+  }
+
+  claimOutbox(projectId: string, limit = 20): Array<{
+    taskId: string;
+    generation: number;
+    filePath: string;
+    operation: string;
+    payloadHash: string;
+    retryCount: number;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT * FROM code_outbox
+      WHERE project_id = ? AND status IN ('pending', 'retry')
+      ORDER BY created_at
+      LIMIT ?
+    `).all(projectId, limit) as Record<string, unknown>[];
+    const out = rows.map(row => ({
+      taskId: String(row.task_id),
+      generation: Number(row.generation),
+      filePath: String(row.file_path),
+      operation: String(row.operation),
+      payloadHash: String(row.payload_hash),
+      retryCount: Number(row.retry_count)
+    }));
+    for (const task of out) {
+      this.db.prepare(`UPDATE code_outbox SET status = 'running', updated_at = ? WHERE task_id = ?`)
+        .run(now(), task.taskId);
+    }
+    return out;
+  }
+
+  completeOutbox(taskId: string): void {
+    this.db.prepare(`UPDATE code_outbox SET status = 'done', updated_at = ? WHERE task_id = ?`).run(now(), taskId);
+  }
+
+  failOutbox(taskId: string, error: string, maxRetries = 5): void {
+    const row = this.db.prepare('SELECT retry_count FROM code_outbox WHERE task_id = ?')
+      .get(taskId) as { retry_count?: number } | undefined;
+    const retry = Number(row?.retry_count ?? 0) + 1;
+    this.db.prepare(`
+      UPDATE code_outbox SET status = ?, retry_count = ?, error = ?, updated_at = ?
+      WHERE task_id = ?
+    `).run(retry >= maxRetries ? 'failed' : 'retry', retry, error.slice(0, 1000), now(), taskId);
+  }
+
+  listOutbox(projectId: string): Array<{ taskId: string; status: string; retryCount: number; filePath: string }> {
+    const rows = this.db.prepare(`
+      SELECT task_id, status, retry_count, file_path FROM code_outbox
+      WHERE project_id = ? ORDER BY created_at
+    `).all(projectId) as Record<string, unknown>[];
+    return rows.map(row => ({
+      taskId: String(row.task_id),
+      status: String(row.status),
+      retryCount: Number(row.retry_count),
+      filePath: String(row.file_path)
+    }));
+  }
+
   // --- reads --------------------------------------------------------------
 
   /** 外部包等不属于某个文件的节点：只保证存在，不参与文件替换。 */
@@ -457,6 +543,28 @@ export class CodeIndexStore {
       .map(id => this.getNode(projectId, id))
       .filter((node): node is CodeNode => node !== null);
     return { nodes, edges };
+  }
+
+  count(projectId: string): { files: number; nodes: number; edges: number; docs: number } {
+    const one = (table: string) => Number((this.db.prepare(
+      `SELECT COUNT(*) AS n FROM ${table} WHERE project_id = ?`
+    ).get(projectId) as { n?: number } | undefined)?.n ?? 0);
+    return {
+      files: one('code_file_state'),
+      nodes: one('code_nodes'),
+      edges: one('code_edges'),
+      docs: one('code_search_docs')
+    };
+  }
+
+  nodeAt(projectId: string, filePath: string, line: number): CodeNode | null {
+    const row = this.db.prepare(`
+      SELECT * FROM code_nodes
+      WHERE project_id = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+      ORDER BY (end_line - start_line) ASC
+      LIMIT 1
+    `).get(projectId, filePath, line, line) as Record<string, unknown> | undefined;
+    return row ? this.toNode(row) : null;
   }
 
   private toNode(row: Record<string, unknown>): CodeNode {

@@ -124,6 +124,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'code.context': ['代码上下文包', '文件符号 + 定义 + 引用 + 类型签名 + 候选测试，全部标来源'],
   'code.impact': ['影响分析', '定义/引用/调用与候选测试，按 EXACT/POSSIBLE 标置信度，可缓存'],
   'code.ast': ['按需 AST', 'TypeScript 语法树摘要：imports、声明、调用点；没有 TypeScript 时明说'],
+  'code.search': ['工程检索', '代码图谱 + FTS5 + 工程记忆；返回路径/行号/来源/置信度，可附上下文'],
   'code.team.run': ['多 Agent 编码', '并行出方案（探索/编码/验证/评审），Code 只回 diff，不改工作区'],
   'term.open': ['开终端', '用 node-pty 开一个持久交互式终端（与 dsh 同后端），返回会话 id'],
   'term.read': ['读终端输出', '只返回上次之后的新输出；缓冲有上限，超了会标 truncated'],

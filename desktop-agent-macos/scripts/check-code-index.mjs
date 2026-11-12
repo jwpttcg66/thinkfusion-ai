@@ -14,6 +14,9 @@ import path from 'node:path';
 
 import { CodeIndexStore, buildFtsQuery } from '../out-test/main/code-index/store.js';
 import { indexProject } from '../out-test/main/code-index/indexer.js';
+import { CodeIndexService } from '../out-test/main/code-index/service.js';
+import { PlanSchema } from '../out/shared/contracts.js';
+import { localCapabilities } from '../out-test/agent/local-plugins.js';
 import {
   assembleContext,
   linkSymbolToMemory,
@@ -204,4 +207,100 @@ test('KnowledgeRouter 规则与 Context Assembly 预算', () => {
   assert.ok(context.text.length <= 1200 + 200);
   assert.ok(context.text.includes('检索模式'));
   assert.ok(context.used.length >= 0);
+});
+
+
+test('CodeIndexService：索引/摘要/检索/影响/记忆/Link 走同一入口', async () => {
+  const service = new CodeIndexService(path.join(root, 'service.sqlite'));
+  try {
+    const indexed = await service.index(path.join(root, 'src'));
+    assert.ok(indexed.files >= 2);
+    const summary = await service.summary(path.join(root, 'src'));
+    assert.equal(summary.generation, indexed.generation);
+    assert.ok(summary.nodes > 0);
+
+    const search = await service.retrieve(path.join(root, 'src'), 'OrderService', { mode: 'CODE' });
+    assert.ok(search.items.length > 0);
+
+    const impact = await service.impact(path.join(root, 'src'), 'a.ts', 4, 2);
+    assert.ok(impact.node);
+
+    const fact = await service.remember(path.join(root, 'src'), {
+      kind: 'constraint',
+      title: '订单幂等',
+      content: '重试不能重复扣款',
+      source: 'user',
+      status: 'confirmed'
+    });
+    assert.equal(fact.status, 'confirmed');
+    const memories = await service.memory(path.join(root, 'src'), '订单');
+    assert.ok(memories.length >= 1);
+  } finally {
+    service.close();
+  }
+});
+
+test('Outbox：幂等入队、claim、完成、失败重试', () => {
+  const input = {
+    taskId: 'task-1',
+    projectId,
+    generation: 1,
+    filePath: 'src/a.ts',
+    operation: 'upsert',
+    payloadHash: 'hash-1'
+  };
+  assert.equal(store.enqueueOutbox(input), true);
+  assert.equal(store.enqueueOutbox(input), false, '同一个 taskId 不应重复入队');
+  const claimed = store.claimOutbox(projectId, 10);
+  assert.equal(claimed.length, 1);
+  assert.equal(claimed[0].taskId, 'task-1');
+  store.failOutbox('task-1', 'boom', 2);
+  assert.equal(store.listOutbox(projectId)[0].status, 'retry');
+  store.failOutbox('task-1', 'boom again', 2);
+  assert.equal(store.listOutbox(projectId)[0].status, 'failed');
+});
+
+
+test('code.search 能写进计划，且是只读能力', () => {
+  const plan = {
+    protocol: 'desktop-agent/v1',
+    type: 'plan',
+    taskId: 'task-1',
+    roundId: 'round-1',
+    title: '检索',
+    description: '查代码',
+    steps: [{ id: 's1', tool: 'code.search', args: { query: 'OrderService', mode: 'CODE', context: true } }],
+    completion: { condition: '有结果' }
+  };
+  assert.equal(PlanSchema.safeParse(plan).success, true);
+});
+
+
+test('code.search Runtime 插件把授权根注入主进程，模型不能自己换根', async () => {
+  const calls = [];
+  const grant = {
+    taskId: 'task-search',
+    permissionPreset: 'read-only',
+    approvalPolicy: 'ask',
+    rootDir: path.join(root, 'src'),
+    allowedTools: ['code.search'],
+    expiresAt: Date.now() + 60_000,
+    maxSteps: 10,
+    grantVersion: 1
+  };
+  const outcome = await localCapabilities.execute(
+    'code.search',
+    { query: 'OrderService', mode: 'CODE' },
+    {
+      grant,
+      callMain: async (id, args) => {
+        calls.push({ id, args });
+        return { items: [], sources: { graph: false, fullText: false, memory: false }, warnings: [], stale: false };
+      }
+    }
+  );
+  assert.equal(outcome.error ?? null, null);
+  assert.equal(calls[0].id, 'code.search');
+  assert.equal(calls[0].args.root, grant.rootDir);
+  assert.equal(calls[0].args.query, 'OrderService');
 });
