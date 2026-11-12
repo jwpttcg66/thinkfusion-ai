@@ -70,8 +70,16 @@ export class CodeIndexService {
   private readonly indexing = new Map<string, Promise<IndexProjectResult>>();
   private readonly watchers = new Map<string, { watcher: FSWatcher; timer: NodeJS.Timeout | null }>();
 
+  private external: CodeIndexServiceDeps['external'];
+
   constructor(dbFile: string, private readonly deps: CodeIndexServiceDeps = {}) {
     this.store = new CodeIndexStore(dbFile);
+    this.external = deps.external;
+  }
+
+  /** 设置页切换外部服务后热更新，不需要重启应用。 */
+  setExternal(external: CodeIndexServiceDeps['external']): void {
+    this.external = external;
   }
 
   close(): void {
@@ -254,7 +262,7 @@ export class CodeIndexService {
     }
     // 可选外部通道：CGC 代码图 / Graphiti 工程记忆；失败只记警告。
     if (mode === 'CODE' || mode === 'HYBRID') {
-      const cgc = this.deps.external?.cgc;
+      const cgc = this.external?.cgc;
       if (cgc) {
         try {
           const hits = await cgc.search(query, Math.min(options.limit ?? 8, 20));
@@ -277,7 +285,7 @@ export class CodeIndexService {
       }
     }
     if (mode === 'MEMORY' || mode === 'HYBRID') {
-      const graphiti = this.deps.external?.graphiti;
+      const graphiti = this.external?.graphiti;
       if (graphiti) {
         try {
           const hits = await graphiti.search(query, Math.min(options.limit ?? 8, 20));

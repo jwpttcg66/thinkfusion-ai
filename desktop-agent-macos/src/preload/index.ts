@@ -146,6 +146,9 @@ const api: AgentApi = {
   rememberCodeMemory: (input: unknown) => ipcRenderer.invoke('code-index:remember', input),
   listCodeMemories: (root: string) => ipcRenderer.invoke('code-index:memories', root),
   linkCodeMemory: (input: unknown) => ipcRenderer.invoke('code-index:link', input),
+  getCodeIntelligenceConfig: () => ipcRenderer.invoke('code-intelligence:get'),
+  setCodeIntelligenceConfig: (patch: unknown) => ipcRenderer.invoke('code-intelligence:set', patch),
+  testCodeIntelligence: () => ipcRenderer.invoke('code-intelligence:test'),
   watchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:watch', root),
   unwatchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:unwatch', root),
 

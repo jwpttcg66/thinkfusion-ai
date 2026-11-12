@@ -253,3 +253,13 @@ CGC/Graphiti/Neo4j 因本机缺少 Python 3.12/Neo4j 环境，保持 `SPECIFIED`
 - 未配置或失败时本地 FTS/Graph/Vector/Memory 不受影响；
 - 真机：CODE 搜 processOrder 合并 CGC 2 条；HYBRID 再加 Graphiti 1 条。
 - `test:code-index-external` 3 条通过（依赖 Podman Neo4j）。
+
+
+## 12. Core / Enhanced 产品形态（2026-11-12）
+
+- Core：本地 AST + SQLite + FTS5 + Vector + Memory，安装即用；
+- Enhanced：设置 → 工程智能，配置 Neo4j HTTP + CGC/Graphiti 开关，
+  密码走 ApiKeyStore，连接测试/状态/热更新；
+- 环境变量保留为开发者覆盖；
+- Podman 只作为开发/PoC，不是用户前提；
+- 详见 `CODE_INTELLIGENCE_PRODUCT_MODES.md`。

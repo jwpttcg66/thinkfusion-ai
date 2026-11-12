@@ -115,6 +115,8 @@ import { runCodingTeam } from './coding/team';
 import { CodeIndexService } from './code-index/service';
 import { Neo4jHttpClient } from './code-index/neo4j-http';
 import { CgcAdapter, GraphitiAdapter } from './code-index/external';
+import { CodeIntelligenceConfigStore } from './code-index/config';
+import type { CodeIntelligenceConfig, CodeIntelligencePatch, CodeIntelligenceStatus } from '../shared/code-intelligence';
 import { EmbeddingService } from './embeddings/service';
 import { loadTypeScript, summarizeAst } from './lsp/ts-ast';
 import { SnapshotStore } from './snapshots/store';
@@ -574,6 +576,11 @@ let snapshotStore: SnapshotStore | null = null;
 let embeddingService: EmbeddingService | null = null;
 /** 本地工程智能：AST + SQLite/FTS5 + 记忆 + Link；CGC/Graphiti 有运行时再替换 Adapter。 */
 let codeIndexService: CodeIndexService | null = null;
+/** 工程智能运行模式/外部服务配置；密码在 apiKeys。 */
+let codeIntelligenceConfigStore: CodeIntelligenceConfigStore | null = null;
+let codeIntelligenceConfig: CodeIntelligenceConfig = {
+  mode: 'local', cgcEnabled: true, graphitiEnabled: true, neo4jUrl: '', neo4jUser: 'neo4j', passwordConfigured: false
+};
 let verdicts: VerdictStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
 
@@ -3804,6 +3811,88 @@ function registerIpc() {
     return codeIndexService.summary(root);
   });
 
+  ipcMain.handle('code-intelligence:get', (event) => {
+    trustedUiSender(event);
+    return {
+      ...codeIntelligenceConfig,
+      passwordConfigured: apiKeys?.has('code-intelligence') ?? false
+    };
+  });
+
+  ipcMain.handle('code-intelligence:set', (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    if (!codeIntelligenceConfigStore) throw new Error('工程智能配置未初始化');
+    const patch = raw as CodeIntelligencePatch;
+    if (patch.password !== undefined) {
+      if (patch.password === '') apiKeys?.remove('code-intelligence');
+      else apiKeys?.set('code-intelligence', patch.password);
+    }
+    codeIntelligenceConfig = codeIntelligenceConfigStore.save(patch, codeIntelligenceConfig);
+    codeIntelligenceConfig.passwordConfigured = apiKeys?.has('code-intelligence') ?? false;
+    codeIndexService?.setExternal(buildCodeIntelligenceExternal(codeIntelligenceConfig));
+    return codeIntelligenceConfig;
+  });
+
+  ipcMain.handle('code-intelligence:test', async (event): Promise<CodeIntelligenceStatus> => {
+    trustedUiSender(event);
+    const url = process.env.THINKFUSION_NEO4J_HTTP ?? (codeIntelligenceConfig.mode === 'external' ? codeIntelligenceConfig.neo4jUrl : '');
+    if (!url) {
+      return {
+        configured: false,
+        mode: codeIntelligenceConfig.mode,
+        cgc: 'disabled',
+        graphiti: 'disabled',
+        detail: '本地回退模式：没有配置外部 Neo4j 地址',
+        lastCheckedAt: Date.now()
+      };
+    }
+    const client = new Neo4jHttpClient({
+      baseUrl: url,
+      user: process.env.THINKFUSION_NEO4J_USER ?? codeIntelligenceConfig.neo4jUser,
+      password: process.env.THINKFUSION_NEO4J_PASSWORD ?? apiKeys?.get('code-intelligence') ?? ''
+    });
+    try {
+      await client.query('RETURN 1 AS ok');
+    } catch (error) {
+      return {
+        configured: true,
+        mode: codeIntelligenceConfig.mode,
+        cgc: 'error',
+        graphiti: 'error',
+        detail: error instanceof Error ? error.message : String(error),
+        lastCheckedAt: Date.now()
+      };
+    }
+    let cgc: CodeIntelligenceStatus['cgc'] = codeIntelligenceConfig.cgcEnabled ? 'error' : 'disabled';
+    let graphiti: CodeIntelligenceStatus['graphiti'] = codeIntelligenceConfig.graphitiEnabled ? 'error' : 'disabled';
+    const details: string[] = [];
+    if (codeIntelligenceConfig.cgcEnabled) {
+      try {
+        await client.query('MATCH (r:Repository) RETURN count(r) AS n');
+        cgc = 'ready';
+      } catch (error) {
+        details.push(`CGC: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (codeIntelligenceConfig.graphitiEnabled) {
+      try {
+        await client.query('MATCH (e:Episodic) RETURN count(e) AS n');
+        graphiti = 'ready';
+      } catch (error) {
+        details.push(`Graphiti: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return {
+      configured: true,
+      mode: codeIntelligenceConfig.mode,
+      cgc,
+      graphiti,
+      ...(details.length > 0 ? { detail: details.join('；') } : {}),
+      lastCheckedAt: Date.now()
+    };
+  });
+
   ipcMain.handle('code-index:memories', async (event, root: unknown) => {
     trustedUiSender(event);
     if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
@@ -4044,6 +4133,18 @@ app.setName('ThinkFusion');
  * is not worth the tidier path.
  */
 app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
+
+function buildCodeIntelligenceExternal(config: CodeIntelligenceConfig): { cgc: CgcAdapter; graphiti: GraphitiAdapter } | undefined {
+  const envUrl = process.env.THINKFUSION_NEO4J_HTTP;
+  const url = envUrl ?? (config.mode === 'external' ? config.neo4jUrl : '');
+  if (!url) return undefined;
+  const client = new Neo4jHttpClient({
+    baseUrl: url,
+    user: process.env.THINKFUSION_NEO4J_USER ?? config.neo4jUser,
+    password: process.env.THINKFUSION_NEO4J_PASSWORD ?? apiKeys?.get('code-intelligence') ?? ''
+  });
+  return { cgc: new CgcAdapter(client), graphiti: new GraphitiAdapter(client) };
+}
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
@@ -4492,19 +4593,9 @@ app.whenReady().then(async () => {
     new TypeScriptProvider([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')])
   ]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
-  const externalNeo4j = process.env.THINKFUSION_NEO4J_HTTP;
-  const externalNeo4jUser = process.env.THINKFUSION_NEO4J_USER;
-  const externalNeo4jPassword = process.env.THINKFUSION_NEO4J_PASSWORD;
-  const external = externalNeo4j
-    ? (() => {
-        const client = new Neo4jHttpClient({
-          baseUrl: externalNeo4j,
-          ...(externalNeo4jUser ? { user: externalNeo4jUser } : {}),
-          ...(externalNeo4jPassword ? { password: externalNeo4jPassword } : {})
-        });
-        return { cgc: new CgcAdapter(client), graphiti: new GraphitiAdapter(client) };
-      })()
-    : undefined;
+  codeIntelligenceConfigStore = new CodeIntelligenceConfigStore(path.join(app.getPath('userData'), 'code-intelligence.json'));
+  codeIntelligenceConfig = codeIntelligenceConfigStore.read(apiKeys?.has('code-intelligence') ?? false);
+  const external = buildCodeIntelligenceExternal(codeIntelligenceConfig);
   codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'), {
     embedder: {
       embed: async texts => {
