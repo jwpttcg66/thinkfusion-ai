@@ -1,3 +1,8 @@
+> **2026-11-12 13:51 复审：** 后续 V3.0 将实施范围扩为全阶段，并明确
+> Neo4j 为目标图库，同时保留 CGC/Graphiti 的 Gate。全范围复审见
+> [CODE_INTELLIGENCE_V3_REVIEW.md](./CODE_INTELLIGENCE_V3_REVIEW.md)。
+> 本文的 Gate 阈值、中文 FTS5、许可证、Python 分发和黑盒一致性约束仍然适用。
+
 # Engineering Intelligence V2.0-PoC 复审
 
 日期：2026-11-12。分支：`0.2.0`。
