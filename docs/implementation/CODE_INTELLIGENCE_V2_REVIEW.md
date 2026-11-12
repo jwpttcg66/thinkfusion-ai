@@ -1,3 +1,8 @@
+> **2026-11-12 复审：** 后续 V2.0 计划提出「双 Neo4j + Graphiti」，
+> 见 [CODE_INTELLIGENCE_ENGINEERING_INTELLIGENCE_REVIEW.md](./CODE_INTELLIGENCE_ENGINEERING_INTELLIGENCE_REVIEW.md)。
+> 本文关于单库 CodeGraph、SQLite FTS5、增量索引的结论仍然适用；
+> 双图库的决策顺序以新复审为准。
+
 # 混合代码索引与 CodeGraph：实施计划书审核
 
 日期：2026-11-12。分支：`0.2.0`（从 `fd657ec` 建立）。
