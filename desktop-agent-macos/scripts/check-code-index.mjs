@@ -321,3 +321,33 @@ test('ensureFresh：文件改动后下一次检索自动重建，不返回旧结
     service.close();
   }
 });
+
+
+test('Java 部分解析：类/方法节点与 CONTAINS，不生成假 CALLS', async () => {
+  const javaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-java-'));
+  try {
+    fs.writeFileSync(path.join(javaRoot, 'OrderService.java'), [
+      'package demo;',
+      'import java.util.List;',
+      'public class OrderService {',
+      '  public int processOrder(String id) {',
+      '    return charge(id);',
+      '  }',
+      '  private int charge(String id) { return 1; }',
+      '}'
+    ].join('\n'));
+    const result = await indexProject(store, javaRoot, 'java-project');
+    assert.equal(result.files, 1);
+    const cls = store.findSymbols('java-project', 'OrderService')[0];
+    assert.ok(cls);
+    assert.equal(cls.nodeType, 'Class');
+    const method = store.findSymbols('java-project', 'processOrder')[0];
+    assert.ok(method);
+    assert.equal(method.nodeType, 'Method');
+    const contains = store.getOutgoing('java-project', cls.nodeId, ['CONTAINS']);
+    assert.ok(contains.some(edge => edge.targetNodeId === method.nodeId));
+    assert.equal(store.getIncoming('java-project', method.nodeId, ['CALLS']).length, 0, 'Java 回退不伪造 CALLS');
+  } finally {
+    fs.rmSync(javaRoot, { recursive: true, force: true });
+  }
+});

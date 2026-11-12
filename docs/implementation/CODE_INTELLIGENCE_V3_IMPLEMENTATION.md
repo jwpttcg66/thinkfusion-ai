@@ -89,6 +89,8 @@ Phase 0 实测：
 - `index` / `summary` / `retrieve` / `context` / `impact` / `remember` / `link`；
 - `ensureFresh`：检索前用轻量 `stat` 扫描比对文件集合/size/mtime；新增、删除、
   修改都会触发重建，不把旧索引当最新结果；
+- `watch` / `unwatch`：`fs.watch` 递归监听源码扩展名，700ms 去抖后后台重建；
+  界面挂载面板时自动开启，每 4 秒刷新状态；
 - 索引器默认增量：内容 hash 没变的文件只推进 generation，不重写节点/边；
 - 同一工程并发索引只跑一份（Promise 去重）。
 
@@ -171,6 +173,8 @@ node scripts/check-code-index-live.mjs
 
 真机 UI 验证：切换工程工作区到本仓库，建立索引后搜 `runCodingTeam`，
 面板返回 6 条，第一条是 `src/main/coding/team.ts` 的 FTS5/CodeGraph 结果。
+文件 watcher 真机验证：新增 `src/__watch_probe.ts` 后 generation 4→5、
+文件 318→319；删除后 5→6、319→318。
 
 ## 4. 明确未完成
 

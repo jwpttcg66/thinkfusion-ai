@@ -9,6 +9,7 @@
  */
 
 import fs from 'node:fs/promises';
+import { watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CodeIndexStore } from './store';
@@ -40,13 +41,49 @@ export interface CodeIndexSummary {
 export class CodeIndexService {
   private readonly store: CodeIndexStore;
   private readonly indexing = new Map<string, Promise<IndexProjectResult>>();
+  private readonly watchers = new Map<string, { watcher: FSWatcher; timer: NodeJS.Timeout | null }>();
 
   constructor(dbFile: string) {
     this.store = new CodeIndexStore(dbFile);
   }
 
   close(): void {
+    for (const entry of this.watchers.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.watcher.close();
+    }
+    this.watchers.clear();
     this.store.close();
+  }
+
+  /** 文件变化后自动重建索引；只监听源码扩展名，忽略 node_modules/out/.git。 */
+  watch(rootInput: string): boolean {
+    const root = rootInput;
+    if (this.watchers.has(root)) return true;
+    try {
+      const entry = { watcher: watch(root, { recursive: true }, (_event, filename) => {
+        const rel = String(filename ?? '');
+        if (!rel || /(^|\/)(node_modules|out|out-test|dist|build|\.git)(\/|$)/.test(rel)) return;
+        if (!/\.(ts|tsx|js|jsx|mjs|cjs|java)$/i.test(rel)) return;
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+          entry.timer = null;
+          void this.index(root).catch(() => undefined);
+        }, 700);
+      }), timer: null as NodeJS.Timeout | null };
+      this.watchers.set(root, entry);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  unwatch(rootInput: string): void {
+    const entry = this.watchers.get(rootInput);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.watcher.close();
+    this.watchers.delete(rootInput);
   }
 
   async projectId(root: string): Promise<string> {

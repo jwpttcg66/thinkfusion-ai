@@ -29,6 +29,21 @@ export function CodeIndexPanel(props: { root: string }) {
     return () => { alive = false; };
   }, [props.root]);
 
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI.watchCodeIndex(props.root).catch(() => undefined);
+    const timer = window.setInterval(() => {
+      window.agentAPI.getCodeIndexStatus(props.root)
+        .then(next => { if (alive) setStatus(next); })
+        .catch(() => undefined);
+    }, 4000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void window.agentAPI.unwatchCodeIndex(props.root).catch(() => undefined);
+    };
+  }, [props.root]);
+
   const build = async () => {
     setBusy(true);
     setError('');

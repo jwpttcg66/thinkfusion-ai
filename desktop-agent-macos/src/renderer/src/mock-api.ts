@@ -537,6 +537,8 @@ export function createMockApi(): AgentApi {
     getCodeIndexStatus: async () => ({ projectId: 'preview', generation: null, files: 0, nodes: 0, edges: 0, docs: 0 }),
     buildCodeIndex: async () => ({ projectId: 'preview', generation: 1, files: 12, nodes: 40, edges: 80, docs: 30 }),
     searchCodeIndex: async () => ({ items: [], sources: { graph: false, fullText: false, memory: false }, warnings: ['预览环境没有真实工程'], stale: true }),
+    watchCodeIndex: async () => ({ watching: false }),
+    unwatchCodeIndex: async () => undefined,
     extractPage: async () => ({
       sourceLabel: 'ChatGPT',
       pageTitle: '消防安全通知',

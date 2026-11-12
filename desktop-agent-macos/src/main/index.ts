@@ -3802,6 +3802,19 @@ function registerIpc() {
     return codeIndexService.summary(root);
   });
 
+  ipcMain.handle('code-index:watch', (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return { watching: codeIndexService.watch(root) };
+  });
+
+  ipcMain.handle('code-index:unwatch', (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) return;
+    codeIndexService?.unwatch(root);
+  });
+
   ipcMain.handle('code-index:search', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');

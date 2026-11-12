@@ -2334,6 +2334,9 @@ export interface AgentApi {
   buildCodeIndex(root: string): Promise<CodeIndexStatus>;
   /** 工程检索：CODE / MEMORY / HYBRID；context=true 时附预算内上下文。 */
   searchCodeIndex(input: CodeIndexSearchInput): Promise<CodeIndexSearchResult>;
+  /** 监听工作区源码变化，后台自动更新索引。 */
+  watchCodeIndex(root: string): Promise<{ watching: boolean }>;
+  unwatchCodeIndex(root: string): Promise<void>;
   /** 保存前的勾选列表：页面上有哪些对话可保存。只读，不写盘。 */
   extractPage(input?: { sourceId?: string }): Promise<PageExtractPreview>;
 

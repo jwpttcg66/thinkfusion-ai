@@ -142,6 +142,8 @@ const api: AgentApi = {
   getCodeIndexStatus: (root: string) => ipcRenderer.invoke('code-index:status', root),
   buildCodeIndex: (root: string) => ipcRenderer.invoke('code-index:build', root),
   searchCodeIndex: (input: unknown) => ipcRenderer.invoke('code-index:search', input),
+  watchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:watch', root),
+  unwatchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:unwatch', root),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);

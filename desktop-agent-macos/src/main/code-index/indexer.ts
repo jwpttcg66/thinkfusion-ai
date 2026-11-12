@@ -25,7 +25,7 @@ const IGNORED_DIRS = new Set([
   '.next', '.nuxt', '.cache', '.idea', '.vscode', 'vendor', '__pycache__',
   'DerivedData', 'Pods', '.workbuddy', 'ui-preview', 'release'
 ]);
-const GRAPH_EXT = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
+const GRAPH_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|java)$/i;
 
 export interface IndexProjectOptions {
   maxFiles?: number;
@@ -73,6 +73,7 @@ function sha256(text: string): string {
 }
 
 function languageOf(rel: string): string {
+  if (/\.java$/i.test(rel)) return 'java';
   if (/\.tsx$/i.test(rel)) return 'tsx';
   if (/\.jsx$/i.test(rel)) return 'jsx';
   if (/\.(js|mjs|cjs)$/i.test(rel)) return 'javascript';
@@ -199,6 +200,78 @@ function collectCalls(
   return out;
 }
 
+function lineAtIndex(text: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index && i < text.length; i += 1) if (text.charCodeAt(i) === 10) line += 1;
+  return line;
+}
+
+/**
+ * Java 的“部分解析”：Tree-sitter/SCIP 不在本地回退链路里，这里只做结构
+ * 提取（package / import / class / interface / enum / 方法签名）。
+ *
+ * 结果明确是 STATIC_ANALYSIS + POSSIBLE，不生成 CALLS，不把正则匹配
+ * 说成编译器级关系。Java Provider 通过 CGC/JDT 验证后再替换。
+ */
+function collectJava(text: string): {
+  declarations: Declaration[];
+  imports: Array<{ module: string; line: number }>;
+} {
+  const declarations: Declaration[] = [];
+  const imports: Array<{ module: string; line: number }> = [];
+  const lines = text.split('\n');
+  let currentClass: string | null = null;
+  let braceDepth = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const importMatch = /^\s*import\s+([\w.*]+)\s*;/.exec(line);
+    if (importMatch) imports.push({ module: importMatch[1], line: index + 1 });
+
+    const typeMatch = /^\s*(?:public\s+)?(?:abstract\s+|final\s+|static\s+)*(class|interface|enum)\s+([A-Za-z_]\w*)/.exec(line);
+    if (typeMatch) {
+      const name = typeMatch[2];
+      const kind = typeMatch[1] === 'interface' ? 'interface' : 'class';
+      const nodeType: CodeNodeType = typeMatch[1] === 'interface' ? 'Interface' : 'Class';
+      declarations.push({
+        name,
+        kind,
+        nodeType,
+        qualifiedName: name,
+        startLine: index + 1,
+        endLine: index + 1
+      });
+      currentClass = name;
+      braceDepth += (line.match(/{/g) ?? []).length - (line.match(/}/g) ?? []).length;
+      continue;
+    }
+
+    const methodMatch = /^\s*(?:public|private|protected)\s+(?:static\s+|final\s+|synchronized\s+)*[\w<>\[\], ?]+\s+([A-Za-z_]\w*)\s*\(/.exec(line);
+    if (methodMatch && currentClass) {
+      const name = methodMatch[1];
+      if (!['if', 'for', 'while', 'switch', 'catch', 'new'].includes(name)) {
+        declarations.push({
+          name,
+          kind: 'method',
+          nodeType: 'Method',
+          qualifiedName: `${currentClass}.${name}`,
+          parent: currentClass,
+          startLine: index + 1,
+          endLine: index + 1
+        });
+      }
+    }
+    braceDepth += (line.match(/{/g) ?? []).length - (line.match(/}/g) ?? []).length;
+    if (currentClass && braceDepth <= 0) currentClass = null;
+  }
+  // 方法的 endLine 用文件末尾兜底；不猜精确大括号范围。
+  const endLine = Math.max(1, lines.length);
+  for (const declaration of declarations) {
+    if (declaration.nodeType === 'Class' || declaration.nodeType === 'Interface') declaration.endLine = endLine;
+  }
+  return { declarations, imports };
+}
+
 async function walk(
   root: string,
   options: Required<Pick<IndexProjectOptions, 'maxFiles' | 'maxFileBytes'>> & IndexProjectOptions,
@@ -246,6 +319,21 @@ async function walk(
         text = await fs.readFile(abs, 'utf8');
       } catch {
         warnings.push(`${rel} 读不到，已跳过`);
+        continue;
+      }
+      if (/\.java$/i.test(rel)) {
+        const java = collectJava(text);
+        files.push({
+          rel,
+          language: 'java',
+          text,
+          hash: sha256(text),
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          declarations: java.declarations,
+          imports: java.imports,
+          calls: []
+        });
         continue;
       }
       const sourceFile = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true);
