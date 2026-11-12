@@ -178,6 +178,17 @@ node scripts/check-code-index-live.mjs
 文件 watcher 真机验证：新增 `src/__watch_probe.ts` 后 generation 4→5、
 文件 318→319；删除后 5→6、319→318。
 
+### 3.4 VectorStore（本地版）
+
+- SQLite `code_vectors` 表（schema v3），存 `Float32Array` 向量；
+- `buildCodeVectors` 分批（32 条）调用现有 `EmbeddingService`；
+- 本机 Ollama `all-minilm`（384 维）实测建 500 条向量成功；
+- `retrieve` 在 CODE/HYBRID 且已有向量时补一路 cosine 召回，结果标
+  `source: 'Vector'`，失败只警告、不拖垮 FTS/Graph；
+- 真机 HYBRID 搜 `runCodingTeam`：16 条结果，来源包含 FTS5 / CodeGraph /
+  Vector；`code-index.sqlite` 已是 user_version=3，`code_vectors` 500 行；
+- UI 面板增加「建向量」按钮与向量计数。
+
 ## 4. 明确未完成
 
 | 能力 | 状态 | 原因 |
@@ -185,7 +196,7 @@ node scripts/check-code-index-live.mjs
 | CGC 集成 | PoC 通过（Podman + Neo4j）；正式集成未做 | 见 `CODE_INTELLIGENCE_GATE0_PODMAN.md` |
 | Graphiti 集成 | PoC 通过（Podman + Neo4j + Ollama）；正式集成未做 | 同上 |
 | Neo4j | PoC 通过（Podman）；正式分发/许可证未定 | 同上 |
-| VectorStore | SPECIFIED | 没有 embedding 模型，未做召回验证 |
+| VectorStore | **已实现本地版**：SQLite 存向量，all-minilm 500 条，HYBRID 检索带 Vector 来源 | 见第 3.4 节 |
 | 增量索引 worker / 文件 watcher | 未做 | 当前每次全量索引；需要 P5 |
 | Outbox 执行器 / Reconciliation | 表已建，执行器未做 | 需要 P5 |
 | Agent / UI 接入 | 未做 | 需要 Phase 7；当前是主进程可调用模块 |

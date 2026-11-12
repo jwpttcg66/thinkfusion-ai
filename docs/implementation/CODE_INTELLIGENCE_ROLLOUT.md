@@ -215,7 +215,7 @@ P0 审计 → P1 的「寻址读 + LSP definition/references」是最小可交�
 | 工程主执行界面按步骤分卡（参数 / 证据 / diff / 输出） | ✅ |
 | Agent Team 任务 DAG / CAS | ✅ 0.1.9（`team-board.ts`） |
 | Session / 工作区隔离、Git Worktree | ✅ 0.1.9（`mode/workspace` 串行、create/force） |
-| 向量代码索引 | 不做（保持 provider API 边界） |
+| 向量代码索引 | ✅ 本地 SQLite VectorStore（all-minilm，500 条）；CGC/Graphiti 正式集成未做 |
 
 
 ## 9. V3.0 Phase 0 本地回退核（2026-11-12）

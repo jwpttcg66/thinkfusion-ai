@@ -124,7 +124,7 @@ export interface RetrievalItem {
 
 export interface RetrievalResult {
   items: RetrievalItem[];
-  sources: { graph: boolean; fullText: boolean; memory: boolean };
+  sources: { graph: boolean; fullText: boolean; memory: boolean; vector: boolean };
   warnings: string[];
   stale: boolean;
 }

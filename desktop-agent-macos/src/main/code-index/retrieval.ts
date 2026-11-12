@@ -58,7 +58,7 @@ export function retrieve(
   const limit = Math.min(Math.max(options.limit ?? 12, 1), 50);
   const items: RetrievalItem[] = [];
   const warnings: string[] = [];
-  const sources = { graph: false, fullText: false, memory: false };
+  const sources = { graph: false, fullText: false, memory: false, vector: false };
 
   if (mode === 'CODE' || mode === 'HYBRID') {
     const hits = store.search(projectId, query, { limit });

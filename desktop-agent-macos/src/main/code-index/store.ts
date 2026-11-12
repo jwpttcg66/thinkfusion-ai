@@ -27,7 +27,7 @@ import type {
   SearchHit
 } from './types';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function hash(value: string, length = 24): string {
   return createHash('sha256').update(value).digest('hex').slice(0, length);
@@ -174,6 +174,22 @@ export class CodeIndexStore {
       );
       CREATE INDEX IF NOT EXISTS code_memory_link_symbol ON code_memory_link(project_id, symbol_key);
 
+      CREATE TABLE IF NOT EXISTS code_vectors (
+        project_id TEXT NOT NULL,
+        chunk_id TEXT NOT NULL,
+        doc_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        node_id TEXT,
+        content_hash TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        content TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (project_id, chunk_id)
+      );
+      CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
+
       CREATE TABLE IF NOT EXISTS code_outbox (
         task_id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -197,6 +213,25 @@ export class CodeIndexStore {
       } catch {
         // 列已经存在（重复迁移）时忽略。
       }
+    }
+    if (version >= 1 && version < 3) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS code_vectors (
+          project_id TEXT NOT NULL,
+          chunk_id TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          node_id TEXT,
+          content_hash TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dim INTEGER NOT NULL,
+          vector BLOB NOT NULL,
+          content TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, chunk_id)
+        );
+        CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
+      `);
     }
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
@@ -417,6 +452,82 @@ export class CodeIndexStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  // --- vectors -------------------------------------------------------------
+
+  listDocs(projectId: string, limit = 500): Array<{ docId: string; filePath: string; nodeId?: string; name: string; content: string }> {
+    const rows = this.db.prepare(`
+      SELECT doc_id, file_path, node_id, name, content FROM code_search_docs
+      WHERE project_id = ? ORDER BY file_path, name LIMIT ?
+    `).all(projectId, limit) as Record<string, unknown>[];
+    return rows.map(row => ({
+      docId: String(row.doc_id),
+      filePath: String(row.file_path),
+      ...(typeof row.node_id === 'string' ? { nodeId: row.node_id } : {}),
+      name: String(row.name),
+      content: String(row.content)
+    }));
+  }
+
+  replaceVectors(
+    projectId: string,
+    items: ReadonlyArray<{
+      chunkId: string;
+      docId: string;
+      filePath: string;
+      nodeId?: string;
+      contentHash: string;
+      model: string;
+      vector: number[];
+      content: string;
+    }>
+  ): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM code_vectors WHERE project_id = ?').run(projectId);
+      const stmt = this.db.prepare(`
+        INSERT INTO code_vectors
+          (project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const item of items) {
+        const values = new Float32Array(item.vector);
+        stmt.run(
+          projectId, item.chunkId, item.docId, item.filePath, item.nodeId ?? null,
+          item.contentHash, item.model, item.vector.length, Buffer.from(values.buffer), item.content, Date.now()
+        );
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  listVectors(projectId: string, limit = 10000): Array<{ docId: string; filePath: string; nodeId?: string; model: string; vector: Float32Array; content: string }> {
+    const rows = this.db.prepare(`
+      SELECT doc_id, file_path, node_id, model, vector, content FROM code_vectors
+      WHERE project_id = ? LIMIT ?
+    `).all(projectId, limit) as Record<string, unknown>[];
+    return rows.map(row => {
+      const buffer = row.vector as Uint8Array;
+      const copy = new Uint8Array(buffer);
+      return {
+        docId: String(row.doc_id),
+        filePath: String(row.file_path),
+        ...(typeof row.node_id === 'string' ? { nodeId: row.node_id } : {}),
+        model: String(row.model),
+        vector: new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4),
+        content: String(row.content)
+      };
+    });
+  }
+
+  countVectors(projectId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM code_vectors WHERE project_id = ?')
+      .get(projectId) as { n?: number } | undefined;
+    return Number(row?.n ?? 0);
   }
 
   // --- outbox -------------------------------------------------------------

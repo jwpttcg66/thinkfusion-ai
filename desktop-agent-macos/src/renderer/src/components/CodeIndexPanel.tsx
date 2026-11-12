@@ -20,6 +20,7 @@ export function CodeIndexPanel(props: { root: string }) {
   const [memoryTitle, setMemoryTitle] = useState('');
   const [memoryContent, setMemoryContent] = useState('');
   const [memoryNote, setMemoryNote] = useState('');
+  const [vectorNote, setVectorNote] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -55,6 +56,21 @@ export function CodeIndexPanel(props: { root: string }) {
       setStatus(await window.agentAPI.buildCodeIndex(props.root));
     } catch (next) {
       setError(next instanceof Error ? next.message : String(next));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const buildVectors = async () => {
+    setBusy(true);
+    setError('');
+    setVectorNote('');
+    try {
+      const result = await window.agentAPI.buildCodeVectors(props.root);
+      setVectorNote(`已建 ${String(result.count)} 条向量（${result.model}）`);
+      setStatus(await window.agentAPI.getCodeIndexStatus(props.root));
+    } catch (next) {
+      setVectorNote(next instanceof Error ? next.message : String(next));
     } finally {
       setBusy(false);
     }
@@ -118,6 +134,7 @@ export function CodeIndexPanel(props: { root: string }) {
       {status && status.generation !== null && (
         <p className="muted code-index-counts">
           {status.files} 文件 · {status.nodes} 节点 · {status.edges} 边 · {status.docs} 文档
+          {status.vectors > 0 ? ` · ${String(status.vectors)} 向量` : ''}
         </p>
       )}
       <p className="muted">
@@ -163,6 +180,7 @@ export function CodeIndexPanel(props: { root: string }) {
           {memoryNote && <p className="muted">{memoryNote}</p>}
         </div>
       </details>
+      {vectorNote && <p className="muted">{vectorNote}</p>}
       {error && <div className="error">{error}</div>}
       {result && (
         <div className="code-index-result">

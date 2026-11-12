@@ -295,7 +295,7 @@ test('code.search Runtime 插件把授权根注入主进程，模型不能自己
       grant,
       callMain: async (id, args) => {
         calls.push({ id, args });
-        return { items: [], sources: { graph: false, fullText: false, memory: false }, warnings: [], stale: false };
+        return { items: [], sources: { graph: false, fullText: false, memory: false, vector: false }, warnings: [], stale: false };
       }
     }
   );
@@ -349,5 +349,36 @@ test('Java 部分解析：类/方法节点与 CONTAINS，不生成假 CALLS', as
     assert.equal(store.getIncoming('java-project', method.nodeId, ['CALLS']).length, 0, 'Java 回退不伪造 CALLS');
   } finally {
     fs.rmSync(javaRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('VectorStore：建向量后检索结果带 Vector 来源，没有 embedder 明确拒绝', async () => {
+  const noEmbed = new CodeIndexService(path.join(root, 'no-embed.sqlite'));
+  try {
+    await noEmbed.index(path.join(root, 'src'));
+    await assert.rejects(() => noEmbed.buildVectors(path.join(root, 'src')), /EMBEDDING_UNAVAILABLE/);
+  } finally {
+    noEmbed.close();
+  }
+
+  const service = new CodeIndexService(path.join(root, 'vector.sqlite'), {
+    embedder: {
+      embed: async texts => ({
+        model: 'fake-minilm',
+        vectors: texts.map(text => [text.includes('OrderService') ? 1 : 0, text.includes('登录') ? 1 : 0])
+      })
+    }
+  });
+  try {
+    await service.index(path.join(root, 'src'));
+    const built = await service.buildVectors(path.join(root, 'src'));
+    assert.ok(built.count > 0);
+    const status = await service.summary(path.join(root, 'src'));
+    assert.equal(status.vectors, built.count);
+    const result = await service.retrieve(path.join(root, 'src'), 'OrderService', { mode: 'CODE', limit: 10 });
+    assert.ok(result.items.some(item => item.source === 'Vector'));
+  } finally {
+    service.close();
   }
 });

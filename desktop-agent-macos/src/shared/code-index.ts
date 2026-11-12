@@ -9,6 +9,7 @@ export interface CodeIndexStatus {
   nodes: number;
   edges: number;
   docs: number;
+  vectors: number;
 }
 
 export interface CodeIndexSearchInput {
@@ -36,7 +37,7 @@ export interface CodeIndexSearchItem {
 
 export interface CodeIndexSearchResult {
   items: CodeIndexSearchItem[];
-  sources: { graph: boolean; fullText: boolean; memory: boolean };
+  sources: { graph: boolean; fullText: boolean; memory: boolean; vector: boolean };
   warnings: string[];
   stale: boolean;
   context?: string;
@@ -66,4 +67,10 @@ export interface CodeIndexMemory {
   confidence: number;
   createdAt: number;
   updatedAt: number;
+}
+
+
+export interface CodeIndexVectorResult {
+  count: number;
+  model: string;
 }

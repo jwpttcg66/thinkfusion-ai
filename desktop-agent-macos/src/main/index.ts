@@ -3802,6 +3802,13 @@ function registerIpc() {
     return codeIndexService.summary(root);
   });
 
+  ipcMain.handle('code-index:vectors', async (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return codeIndexService.buildVectors(root);
+  });
+
   ipcMain.handle('code-index:remember', async (event, raw: unknown) => {
     trustedUiSender(event);
     if (!raw || typeof raw !== 'object') throw new Error('无效输入');
@@ -4452,7 +4459,14 @@ app.whenReady().then(async () => {
     new TypeScriptProvider([path.join(app.getAppPath(), 'node_modules', 'typescript', 'lib', 'tsserver.js')])
   ]);
   snapshotStore = new SnapshotStore(path.join(app.getPath('userData'), 'snapshots'));
-  codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'));
+  codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'), {
+    embedder: {
+      embed: async texts => {
+        if (!embeddingService) throw new Error('EMBEDDING_UNAVAILABLE：embedding 未初始化');
+        return embeddingService.embed({ texts });
+      }
+    }
+  });
   embeddingService = new EmbeddingService({
     hasCloudKey: () => (apiKeys?.list().length ?? 0) > 0,
     resolveCloud: providerId => {

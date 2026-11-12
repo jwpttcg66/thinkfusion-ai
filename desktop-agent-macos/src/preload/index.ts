@@ -141,6 +141,7 @@ const api: AgentApi = {
   embedTexts: (input: unknown) => ipcRenderer.invoke('embedding:embed', input),
   getCodeIndexStatus: (root: string) => ipcRenderer.invoke('code-index:status', root),
   buildCodeIndex: (root: string) => ipcRenderer.invoke('code-index:build', root),
+  buildCodeVectors: (root: string) => ipcRenderer.invoke('code-index:vectors', root),
   searchCodeIndex: (input: unknown) => ipcRenderer.invoke('code-index:search', input),
   rememberCodeMemory: (input: unknown) => ipcRenderer.invoke('code-index:remember', input),
   watchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:watch', root),

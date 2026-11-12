@@ -23,10 +23,23 @@ import {
   type LinkInput,
   type RememberInput
 } from './retrieval';
-import type { RetrievalResult } from './types';
+import type { RetrievalItem, RetrievalResult } from './types';
 
 function projectIdFor(root: string): string {
   return `p_${createHash('sha256').update(root).digest('hex').slice(0, 24)}`;
+}
+
+function cosine(a: readonly number[], b: Float32Array | readonly number[]): number {
+  const length = Math.min(a.length, b.length);
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < length; i += 1) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return na === 0 || nb === 0 ? 0 : dot / Math.sqrt(na * nb);
 }
 
 export interface CodeIndexSummary {
@@ -36,6 +49,16 @@ export interface CodeIndexSummary {
   nodes: number;
   edges: number;
   docs: number;
+  vectors: number;
+}
+
+export interface CodeIndexEmbedder {
+  embed(texts: string[]): Promise<{ model: string; vectors: number[][] }>;
+}
+
+export interface CodeIndexServiceDeps {
+  /** 可选：本地 Ollama / 云端 embedding；不给就只做图 + FTS。 */
+  embedder?: CodeIndexEmbedder;
 }
 
 export class CodeIndexService {
@@ -43,7 +66,7 @@ export class CodeIndexService {
   private readonly indexing = new Map<string, Promise<IndexProjectResult>>();
   private readonly watchers = new Map<string, { watcher: FSWatcher; timer: NodeJS.Timeout | null }>();
 
-  constructor(dbFile: string) {
+  constructor(dbFile: string, private readonly deps: CodeIndexServiceDeps = {}) {
     this.store = new CodeIndexStore(dbFile);
   }
 
@@ -137,8 +160,53 @@ export class CodeIndexService {
     return {
       projectId,
       generation: this.store.currentGeneration(projectId),
-      ...counts
+      ...counts,
+      vectors: this.store.countVectors(projectId)
     };
+  }
+
+  /** 为文件/符号文档建向量；分批调用 embedding provider，失败不落半成品。 */
+  async buildVectors(rootInput: string, maxDocs = 500): Promise<{ count: number; model: string }> {
+    if (!this.deps.embedder) throw new Error('EMBEDDING_UNAVAILABLE：没有配置 embedding provider');
+    const root = await fs.realpath(rootInput);
+    await this.ensureFresh(root);
+    const projectId = projectIdFor(root);
+    const docs = this.store.listDocs(projectId, maxDocs);
+    if (docs.length === 0) throw new Error('没有可建向量的文档；先建立代码索引');
+
+    const items: Array<{
+      chunkId: string;
+      docId: string;
+      filePath: string;
+      nodeId?: string;
+      contentHash: string;
+      model: string;
+      vector: number[];
+      content: string;
+    }> = [];
+    let model = '';
+    for (let offset = 0; offset < docs.length; offset += 32) {
+      const batch = docs.slice(offset, offset + 32);
+      const texts = batch.map(doc => `${doc.name}\n${doc.content}`.slice(0, 4000));
+      const embedded = await this.deps.embedder.embed(texts);
+      model = embedded.model;
+      if (embedded.vectors.length !== batch.length) throw new Error('embedding 返回数量与输入不一致');
+      batch.forEach((doc, index) => {
+        const content = texts[index];
+        items.push({
+          chunkId: `v_${createHash('sha256').update(`${projectId}|${doc.docId}|${embedded.model}`).digest('hex').slice(0, 24)}`,
+          docId: doc.docId,
+          filePath: doc.filePath,
+          ...(doc.nodeId ? { nodeId: doc.nodeId } : {}),
+          contentHash: createHash('sha256').update(content).digest('hex'),
+          model: embedded.model,
+          vector: embedded.vectors[index],
+          content
+        });
+      });
+    }
+    this.store.replaceVectors(projectId, items);
+    return { count: items.length, model };
   }
 
   async retrieve(
@@ -148,7 +216,38 @@ export class CodeIndexService {
   ): Promise<RetrievalResult> {
     const root = await fs.realpath(rootInput);
     await this.ensureFresh(root);
-    return retrieve(this.store, projectIdFor(root), query, options);
+    const projectId = projectIdFor(root);
+    const result = retrieve(this.store, projectId, query, options);
+    if ((options.mode === undefined || options.mode === 'CODE' || options.mode === 'HYBRID') &&
+        this.deps.embedder && this.store.countVectors(projectId) > 0) {
+      try {
+        const queryVector = (await this.deps.embedder.embed([query])).vectors[0] ?? [];
+        if (queryVector.length > 0) {
+          const limit = Math.min(Math.max(options.limit ?? 12, 1), 50);
+          const scored = this.store.listVectors(projectId, 5000)
+            .map(item => ({ item, score: cosine(queryVector, item.vector) }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit)
+            .filter(entry => entry.score > 0.2);
+          const extra: RetrievalItem[] = scored.map(({ item, score }) => ({
+            kind: 'code' as const,
+            id: item.docId,
+            title: item.content.split('\n')[0] || item.docId,
+            content: item.content,
+            source: 'Vector',
+            confidence: Math.max(0.3, Math.min(0.95, score)),
+            filePath: item.filePath
+          }));
+          if (extra.length > 0) {
+            result.items.push(...extra);
+            result.sources.vector = true;
+          }
+        }
+      } catch (error) {
+        result.warnings.push(`向量检索不可用：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return result;
   }
 
   async context(rootInput: string, query: string, budgetChars = 6000): Promise<{

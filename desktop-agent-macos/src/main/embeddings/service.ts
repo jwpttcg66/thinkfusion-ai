@@ -28,7 +28,7 @@ export interface EmbeddingDeps {
   fetchImpl?: typeof fetch;
 }
 
-const EMBEDDING_MODEL = /embed|bge|nomic|mxbai|e5|gte/i;
+const EMBEDDING_MODEL = /embed|bge|nomic|mxbai|minilm|e5|gte/i;
 
 function trimBase(url: string): string {
   return url.replace(/\/+$/, '');
