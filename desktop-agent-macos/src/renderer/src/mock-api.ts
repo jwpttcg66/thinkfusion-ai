@@ -534,6 +534,9 @@ export function createMockApi(): AgentApi {
     revertTaskSnapshot: async (taskId: string) => ({ taskId, restored: [], removed: [], failed: [] }),
     embeddingStatus: async () => ({ ollama: { available: false, models: [], detail: '预览环境没有 Ollama' }, openai: { configured: false, detail: '预览环境没有 Key' } }),
     embedTexts: async () => { throw new Error('浏览器预览里不能调用 embedding'); },
+    getCodeIndexStatus: async () => ({ projectId: 'preview', generation: null, files: 0, nodes: 0, edges: 0, docs: 0 }),
+    buildCodeIndex: async () => ({ projectId: 'preview', generation: 1, files: 12, nodes: 40, edges: 80, docs: 30 }),
+    searchCodeIndex: async () => ({ items: [], sources: { graph: false, fullText: false, memory: false }, warnings: ['预览环境没有真实工程'], stale: true }),
     extractPage: async () => ({
       sourceLabel: 'ChatGPT',
       pageTitle: '消防安全通知',

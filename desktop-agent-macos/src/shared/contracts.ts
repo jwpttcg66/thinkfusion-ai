@@ -4,6 +4,7 @@ import type { CapabilityView } from './capabilities';
 import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
+import type { CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus } from './code-index';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
@@ -2327,6 +2328,12 @@ export interface AgentApi {
   embeddingStatus(): Promise<EmbeddingStatus>;
   /** 文本 → 向量；只提供这一层，不建代码索引（与 opencode 的 provider API 对齐）。 */
   embedTexts(input: EmbeddingRequest): Promise<EmbeddingResult>;
+  /** 本地代码索引状态：READY generation、文件/节点/边/文档数。 */
+  getCodeIndexStatus(root: string): Promise<CodeIndexStatus>;
+  /** 建立/更新本地代码索引；没有 Python/Neo4j 时走 AST + SQLite 回退。 */
+  buildCodeIndex(root: string): Promise<CodeIndexStatus>;
+  /** 工程检索：CODE / MEMORY / HYBRID；context=true 时附预算内上下文。 */
+  searchCodeIndex(input: CodeIndexSearchInput): Promise<CodeIndexSearchResult>;
   /** 保存前的勾选列表：页面上有哪些对话可保存。只读，不写盘。 */
   extractPage(input?: { sourceId?: string }): Promise<PageExtractPreview>;
 

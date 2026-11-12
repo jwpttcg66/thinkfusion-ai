@@ -5292,3 +5292,70 @@ button:disabled {
 .chat-pick-action b { font-size: 11.5px; font-weight: 500; color: var(--text-1); }
 .chat-pick-action span { font-size: 10px; color: var(--text-3); white-space: nowrap; }
 .chat-pick-action-icon { font-size: 17px; line-height: 1.1; color: var(--text-2); }
+
+/* ------------------------------ code index ------------------------------- */
+
+.code-index-card { margin-bottom: 14px; }
+.code-index-counts { margin: 2px 0 6px; font-size: 12px; }
+.code-index-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.code-index-actions input {
+  flex: 1 1 220px;
+  min-width: 160px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}
+.code-index-actions select {
+  padding: 7px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}
+.code-index-result { margin-top: 8px; }
+.code-index-hits {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+.code-index-hits li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.code-index-hits li p {
+  flex: 1 1 100%;
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.code-index-hits code { color: var(--text-2); }
+.code-index-context {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.code-index-context summary { cursor: pointer; color: var(--text-2); }
+.code-index-context pre {
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: #f7f7f8;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}

@@ -20,6 +20,7 @@ import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
+import { CodeIndexPanel } from './components/CodeIndexPanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
@@ -1952,6 +1953,10 @@ export default function App() {
                 <span className="muted">{platform === 'darwin' ? 'macOS' : platform || 'macOS'}</span>
                 {activeTask.workspaceRoot && <span className="muted">· {activeTask.workspaceRoot}</span>}
               </div>
+            )}
+
+            {workspaceMode === 'engineering' && !showingConversation && (activeTask?.workspaceRoot || workspace) && (
+              <CodeIndexPanel root={activeTask?.workspaceRoot ?? workspace} />
             )}
 
             {(derived.questions.length > 0 || awaitingAnswer) && (

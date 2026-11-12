@@ -3787,6 +3787,53 @@ function registerIpc() {
     return embeddingService.embed(raw as never);
   });
 
+  ipcMain.handle('code-index:status', async (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return codeIndexService.summary(root);
+  });
+
+  ipcMain.handle('code-index:build', async (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    await codeIndexService.index(root);
+    return codeIndexService.summary(root);
+  });
+
+  ipcMain.handle('code-index:search', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as {
+      root?: unknown;
+      query?: unknown;
+      mode?: unknown;
+      limit?: unknown;
+      context?: unknown;
+    };
+    if (typeof input.root !== 'string' || !input.root.trim()) throw new Error('代码索引需要工作区路径');
+    if (typeof input.query !== 'string' || !input.query.trim()) throw new Error('检索需要 query');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    const mode = input.mode === 'CODE' || input.mode === 'MEMORY' || input.mode === 'HYBRID' ? input.mode : undefined;
+    const limit = typeof input.limit === 'number' ? input.limit : undefined;
+    const status = await codeIndexService.summary(input.root);
+    if (status.generation === null) await codeIndexService.index(input.root);
+    const result = await codeIndexService.retrieve(input.root, input.query.trim(), {
+      ...(mode ? { mode } : {}),
+      ...(limit ? { limit } : {})
+    });
+    if (input.context === true) {
+      const context = await codeIndexService.context(input.root, input.query.trim(), 6000);
+      return {
+        ...result,
+        context: context.text,
+        contextMeta: { used: context.used, omitted: context.omitted, stale: context.stale }
+      };
+    }
+    return result;
+  });
+
   ipcMain.handle('snapshot:revert', (event, taskId: unknown) => {
     trustedUiSender(event);
     if (typeof taskId !== 'string') throw new Error('无效输入');

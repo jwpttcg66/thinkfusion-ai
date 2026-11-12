@@ -139,6 +139,9 @@ const api: AgentApi = {
   revertTaskSnapshot: (taskId: string) => ipcRenderer.invoke('snapshot:revert', taskId),
   embeddingStatus: () => ipcRenderer.invoke('embedding:status'),
   embedTexts: (input: unknown) => ipcRenderer.invoke('embedding:embed', input),
+  getCodeIndexStatus: (root: string) => ipcRenderer.invoke('code-index:status', root),
+  buildCodeIndex: (root: string) => ipcRenderer.invoke('code-index:build', root),
+  searchCodeIndex: (input: unknown) => ipcRenderer.invoke('code-index:search', input),
 
   onAgentEvent: (callback: (event: AgentEvent) => void) => {    const listener = (_event: Electron.IpcRendererEvent, data: AgentEvent) => callback(data);
     ipcRenderer.on('agent:event', listener);

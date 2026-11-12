@@ -157,6 +157,18 @@ node scripts/check-code-index-live.mjs
 
 应用已用最新构建启动，`getCapabilities` 返回 95 条，包含 `code.search`。
 
+### 3.3 界面
+
+工程空间新增 `CodeIndexPanel`（只在工程模式显示）：
+
+- 显示 READY generation、文件/节点/边/文档数；
+- 「建立/更新索引」；
+- 搜索框 + CODE / MEMORY / HYBRID；
+- 结果带路径、行号、来源、置信度；可展开组装后的上下文。
+
+真机 UI 验证：切换工程工作区到本仓库，建立索引后搜 `runCodingTeam`，
+面板返回 6 条，第一条是 `src/main/coding/team.ts` 的 FTS5/CodeGraph 结果。
+
 ## 4. 明确未完成
 
 | 能力 | 状态 | 原因 |
