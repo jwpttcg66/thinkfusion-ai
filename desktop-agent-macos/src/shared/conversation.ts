@@ -122,6 +122,14 @@ export interface ConversationGoal {
 }
 
 /** 会话级任务板：挂在会话上，成员复用现有辩论/执行成员，不新建池。 */
+/** 任务完成时附带的依据；没有依据的 done 会被任务板拒绝。 */
+export interface TeamTaskEvidence {
+  kind: 'execution_report' | 'test' | 'diagnostic' | 'commit' | 'note';
+  /** 报告 id / 命令 / 提交 hash；note 可以为空。 */
+  ref?: string;
+  detail: string;
+}
+
 export interface ConversationTeamTask {
   id: string;
   title: string;
@@ -131,6 +139,25 @@ export interface ConversationTeamTask {
   status: 'todo' | 'doing' | 'done' | 'blocked';
   /** 最近一次状态说明；一句话，别写成日志。 */
   note?: string;
+  /**
+   * 必须先完成的任务 id。创建时逐个校验存在；开工/完成前再检查。
+   * 老任务没有这个字段，按「无依赖」处理。
+   */
+  dependsOn?: string[];
+  /**
+   * CAS 版本号。每次 update 加一；调用方必须带 expectedRevision，
+   * 拿旧版本覆盖会得到 CAS_CONFLICT。老任务没有这个字段，按 1 处理。
+   */
+  revision?: number;
+  /** 只读任务可以共享工作区；write 任务同一工作区同时只能有一个 doing。 */
+  mode?: 'read' | 'write';
+  /** 这条任务允许动的目录；write 任务用它做串行隔离。 */
+  workspace?: string;
+  claimedBy?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  /** 完成依据；done 时至少一条，最多保留 50 条。 */
+  evidence?: TeamTaskEvidence[];
   createdAt: number;
   updatedAt: number;
 }
@@ -145,6 +172,11 @@ export interface Conversation {
   teamTasks?: ConversationTeamTask[];
   /** 这次协作声明的成员（必须是已有参与者 id）。 */
   teamMembers?: string[];
+  /**
+   * 成员树：成员 id → 上级成员 id。只记录显式声明的关系；
+   * 没有父级的成员不出现在这里（不是「父级为空」的假节点）。
+   */
+  teamParents?: Record<string, string>;
   intent: IntentKind;
   /** Why the router chose that intent. Kept so routing can be argued with. */
   intentReason: string;

@@ -465,9 +465,11 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  按单文件 unified diff 一次改多处。patch 必须含 @@ hunk 头；
                  上下文与原文件对不上就整份拒绝，不会写入一半。必须带读到的
                  sha256；缺失或与磁盘不一致会被拒绝（OBSERVATION_REQUIRED）。
-- git.worktree: { "action": "list" | "add" | "remove", "path"?: string, "branch"?: string }
-                 列出/新增/移除 git 工作树。add 要 path 与 branch，remove 要 path。
-                 参数是逐个构造的白名单，不接受 shell 语法与以 - 开头的分支名。
+- git.worktree: { "action": "list" | "add" | "remove", "path"?: string, "branch"?: string,
+                 "create"?: boolean, "force"?: boolean }
+                 列出/新增/移除 git 工作树。add 要 path 与 branch；create=true 时用 -b
+                 新建分支。remove 要 path；有未提交改动会报 WORKTREE_DIRTY，确认不要了
+                 才 force=true。参数逐个构造，不接受 shell 语法与以 - 开头的分支名。
 - project.dependencies: { "path"?: string, "maxEntries"?: number }
                  只读。读 package.json，返回包管理器、锁文件、脚本名、各类依赖数量与前若干项。
 - project.outline: { "path"?: string, "maxFiles"?: number, "maxSymbols"?: number }
@@ -601,12 +603,22 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
 - schedule.edit: { "id": string, "text"?: string, "mode"?: "local"|"cloud", "at"?: number, "repeatMinutes"?: number, "enabled"?: boolean }
 - schedule.list: {}  列出定时任务与下一次运行时间。
 - schedule.view: { "id": string }  看单个任务的上次运行与上次错误。
-- team.spawn:   { "members": string[] }  从已有参与者里登记协作成员，不新建成员。
-- team.task.create: { "title": string, "detail"?: string, "assignee"?: string }
-- team.task.get: { "id": string }
-- team.task.list: {}
-- team.task.update: { "id": string, "status": "todo"|"doing"|"done"|"blocked", "note"?: string }
-- team.wait:    { "timeoutMs"?: number }  返回任务板进度；没做完就列出还差哪几条。
+- team.spawn:   { "members": string[], "parent"?: string }  从已有参与者里登记协作成员，不新建成员；
+                 可选 parent 记录成员树，parent 必须是已有成员。
+- team.task.create: { "title": string, "detail"?: string, "assignee"?: string, "dependsOn"?: string[],
+                     "mode"?: "read"|"write", "workspace"?: string }
+                 dependsOn 是必须先完成的任务 id；mode=write 时同一 workspace
+                 同时只能有一个 doing（只读任务可以共享）。
+- team.task.get: { "id": string }  读任务，含 revision / dependsOn / evidence。
+- team.task.list: {}  列任务板，含 ready / blocked / revision。
+- team.task.update: { "id": string, "status": "todo"|"doing"|"done"|"blocked",
+                     "expectedRevision": number, "note"?: string,
+                     "evidence"?: [{ "kind": "execution_report"|"test"|"diagnostic"|"commit"|"note",
+                                     "ref"?: string, "detail": string }],
+                     "workspace"?: string }
+                 expectedRevision 必填：拿旧 revision 覆盖会得到 CAS_CONFLICT；
+                 依赖没完成不能 doing/done；done 至少带一条证据。
+- team.wait:    { "timeoutMs"?: number }  返回任务板进度：ready / blocked（缺哪些依赖）/ remaining。
 - session.search: { "query": string, "limit"?: number, "conversationId"?: string }
                  只读搜索历史会话，返回命中片段、来源会话与时间；0 条不算失败，如实说没搜到。
                  · 跨会话引用必须带上来源会话与时间，不能把别处的话当成这次的事实。

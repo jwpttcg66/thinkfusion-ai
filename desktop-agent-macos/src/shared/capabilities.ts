@@ -89,7 +89,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'web.fetch': ['抓取网页', '给定 URL 取回正文，逐跳拦截本机与私网地址'],
   'web.search': ['联网搜索', '用凭据或应用内浏览器取回真实搜索结果'],
   'fs.applyPatch': ['应用补丁', '按 unified diff 一次改多处，逐行校验上下文，带指纹校验'],
-  'git.worktree': ['管理 git worktree', '列出、新增或移除工作树，参数逐个构造不拼 shell'],
+  'git.worktree': ['管理 git worktree', '列出/新增/移除工作树；create 新建分支，脏工作树必须 force 才删'],
   'project.dependencies': ['依赖概览', '读 package.json 与锁文件，给出依赖数量、脚本与包管理器'],
   'project.outline': ['源码骨架', '只读扫描源码，列出导出符号与所在行号，有文件数上限'],
   'git.status': ['git 状态', '当前分支、与上游的领先/落后提交数、逐文件改动'],
@@ -140,12 +140,12 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'schedule.edit': ['改定时任务', '改文字、时间、间隔或启停'],
   'schedule.list': ['列定时任务', '列出全部定时任务与下一次运行时间'],
   'schedule.view': ['看定时任务', '看单个定时任务的上次运行与上次错误'],
-  'team.spawn': ['定协作成员', '从已有参与者里选几个人登记到会话任务板，不新建成员'],
-  'team.task.create': ['建任务', '在会话任务板上加一条任务，可指派给已有成员'],
-  'team.task.get': ['看任务', '读一条任务的详情与状态'],
-  'team.task.list': ['列任务', '列出这个会话任务板的全部任务与完成数'],
-  'team.task.update': ['更新任务', '改任务状态并写一句进度；完成要有依据'],
-  'team.wait': ['等任务', '返回任务板当前进度，不全就说明还差哪几条'],
+  'team.spawn': ['定协作成员', '从已有参与者里登记成员，可带 parent 记录成员树，不新建成员'],
+  'team.task.create': ['建任务', '加一条任务：依赖、只读/写入模式、工作区都可声明'],
+  'team.task.get': ['看任务', '读任务详情、revision、依赖与证据'],
+  'team.task.list': ['列任务', '列出任务板、完成数、ready 与 blocked'],
+  'team.task.update': ['更新任务', 'CAS 更新状态；依赖未完成不能开工，done 必须带证据'],
+  'team.wait': ['等任务', '返回 ready / blocked / remaining；不全就说缺哪些依赖'],
   'code.run': ['跑代码', '把代码写到工作区并交给 node/python3/bash 真跑']
 };
 

@@ -100,6 +100,15 @@ import {
 } from '../shared/window-state';
 import { writeFileAtomic } from './atomic-write';
 import { LspProviderRegistry, TypeScriptProvider } from './lsp/providers';
+import {
+  createTeamTask,
+  mergeTeamRoster,
+  taskRevision,
+  teamProgress,
+  teamWait,
+  updateTeamTask
+} from './team-board';
+import type { TeamTaskEvidence } from '../shared/conversation';
 import { buildCodeContext } from './lsp/context';
 import { buildImpact } from './lsp/impact';
 import { runCodingTeam } from './coding/team';
@@ -4658,7 +4667,7 @@ app.whenReady().then(async () => {
 
     // --- 任务板 -----------------------------------------------------------
     if (id === 'team.spawn') {
-      const args = (rawArgs ?? {}) as { members?: unknown };
+      const args = (rawArgs ?? {}) as { members?: unknown; parent?: unknown };
       const members = Array.isArray(args.members) ? args.members.filter((item): item is string => typeof item === 'string') : [];
       if (members.length === 0) throw new Error('team.spawn 需要至少一个成员 id');
       const known = new Set([
@@ -4668,13 +4677,26 @@ app.whenReady().then(async () => {
       const unknown = members.filter(member => !known.has(member));
       if (unknown.length > 0) throw new Error(`不认识的成员：${unknown.join('、')}（只能用现有参与者）`);
       const conversation = requireConversation(conversationId);
-      const merged = [...new Set([...(conversation.teamMembers ?? []), ...members])];
-      store.upsertConversation({ ...conversation, teamMembers: merged });
-      return { members: merged };
+      const parent = typeof args.parent === 'string' ? args.parent : undefined;
+      const { members: merged, parents } = mergeTeamRoster(
+        conversation.teamMembers ?? [],
+        conversation.teamParents ?? {},
+        members,
+        parent
+      );
+      store.upsertConversation({ ...conversation, teamMembers: merged, teamParents: parents });
+      return { members: merged, parents };
     }
 
     if (id === 'team.task.create') {
-      const args = (rawArgs ?? {}) as { title?: unknown; detail?: unknown; assignee?: unknown };
+      const args = (rawArgs ?? {}) as {
+        title?: unknown;
+        detail?: unknown;
+        assignee?: unknown;
+        dependsOn?: unknown;
+        mode?: unknown;
+        workspace?: unknown;
+      };
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       if (!title) throw new Error('任务需要标题');
       const conversation = requireConversation(conversationId);
@@ -4682,15 +4704,24 @@ app.whenReady().then(async () => {
       if (assignee && !(conversation.teamMembers ?? []).includes(assignee)) {
         throw new Error(`指派对象 ${assignee} 不在这次协作成员里，先 team.spawn`);
       }
-      const task = {
-        id: nextId('task'),
-        title,
-        ...(typeof args.detail === 'string' && args.detail.trim() ? { detail: args.detail.trim() } : {}),
-        ...(assignee ? { assignee } : {}),
-        status: 'todo' as const,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
+      const taskId = nextId('task');
+      const dependsOn = Array.isArray(args.dependsOn)
+        ? args.dependsOn.filter((item): item is string => typeof item === 'string')
+        : undefined;
+      const mode = args.mode === 'read' || args.mode === 'write' ? args.mode : undefined;
+      const task = createTeamTask(
+        conversation.teamTasks ?? [],
+        {
+          id: taskId,
+          title,
+          ...(typeof args.detail === 'string' && args.detail.trim() ? { detail: args.detail } : {}),
+          ...(assignee ? { assignee } : {}),
+          ...(dependsOn ? { dependsOn } : {}),
+          ...(mode ? { mode } : {}),
+          ...(typeof args.workspace === 'string' && args.workspace.trim() ? { workspace: args.workspace } : {})
+        },
+        Date.now()
+      );
       const teamTasks = [...(conversation.teamTasks ?? []), task];
       store.upsertConversation({ ...conversation, teamTasks });
       return task;
@@ -4699,54 +4730,78 @@ app.whenReady().then(async () => {
     if (id === 'team.task.get') {
       const args = (rawArgs ?? {}) as { id?: unknown };
       const conversation = requireConversation(conversationId);
-      const task = (conversation.teamTasks ?? []).find(item => item.id === args.id);
+      const tasks = conversation.teamTasks ?? [];
+      const task = tasks.find(item => item.id === args.id);
       if (!task) throw new Error(`没有这个任务：${String(args.id ?? '')}`);
-      return task;
+      const progress = teamProgress(tasks);
+      const blocked = progress.blocked.find(item => item.task.id === task.id);
+      return {
+        ...task,
+        revision: taskRevision(task),
+        ready: task.status === 'todo' && !blocked,
+        blockedBy: blocked?.missing ?? []
+      };
     }
 
     if (id === 'team.task.list') {
       const conversation = requireConversation(conversationId);
       const tasks = conversation.teamTasks ?? [];
+      const progress = teamProgress(tasks);
       return {
-        tasks,
-        total: tasks.length,
-        done: tasks.filter(item => item.status === 'done').length,
-        members: conversation.teamMembers ?? []
+        tasks: tasks.map(task => ({ ...task, revision: taskRevision(task) })),
+        total: progress.total,
+        done: progress.done,
+        ready: progress.ready.map(task => task.id),
+        blocked: progress.blocked.map(item => ({ id: item.task.id, missing: item.missing })),
+        members: conversation.teamMembers ?? [],
+        parents: conversation.teamParents ?? {}
       };
     }
 
     if (id === 'team.task.update') {
-      const args = (rawArgs ?? {}) as { id?: unknown; status?: unknown; note?: unknown };
+      const args = (rawArgs ?? {}) as {
+        id?: unknown;
+        status?: unknown;
+        expectedRevision?: unknown;
+        note?: unknown;
+        evidence?: unknown;
+        workspace?: unknown;
+      };
       if (args.status !== 'todo' && args.status !== 'doing' && args.status !== 'done' && args.status !== 'blocked') {
         throw new Error('team.task.update 只接受 todo / doing / done / blocked');
       }
+      const expectedRevision = Number(args.expectedRevision);
+      if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+        throw new Error('team.task.update 需要 expectedRevision（先 team.task.get）');
+      }
       const conversation = requireConversation(conversationId);
-      const tasks = conversation.teamTasks ?? [];
-      const index = tasks.findIndex(item => item.id === args.id);
-      if (index < 0) throw new Error(`没有这个任务：${String(args.id ?? '')}`);
-      const next: (typeof tasks)[number] = {
-        ...tasks[index],
-        status: args.status,
-        ...(typeof args.note === 'string' && args.note.trim() ? { note: args.note.trim() } : {}),
-        updatedAt: Date.now()
-      };
-      const teamTasks = [...tasks];
-      teamTasks[index] = next;
+      const evidence = Array.isArray(args.evidence)
+        ? args.evidence.filter((item): item is TeamTaskEvidence => Boolean(
+            item && typeof item === 'object' &&
+            typeof (item as TeamTaskEvidence).detail === 'string' &&
+            ['execution_report', 'test', 'diagnostic', 'commit', 'note'].includes(String((item as TeamTaskEvidence).kind))
+          ))
+        : undefined;
+      const teamTasks = updateTeamTask(
+        conversation.teamTasks ?? [],
+        {
+          id: String(args.id ?? ''),
+          status: args.status,
+          expectedRevision,
+          ...(typeof args.note === 'string' ? { note: args.note } : {}),
+          ...(evidence ? { evidence } : {}),
+          ...(typeof args.workspace === 'string' ? { workspace: args.workspace } : {})
+        },
+        { workspaceRoot: conversation.workspaceRoot, now: Date.now() }
+      );
       store.upsertConversation({ ...conversation, teamTasks });
-      return next;
+      const next = teamTasks.find(item => item.id === args.id);
+      return next ? { ...next, revision: taskRevision(next) } : next;
     }
 
     if (id === 'team.wait') {
       const conversation = requireConversation(conversationId);
-      const tasks = conversation.teamTasks ?? [];
-      const remaining = tasks.filter(item => item.status !== 'done');
-      return {
-        done: remaining.length === 0 && tasks.length > 0,
-        total: tasks.length,
-        completed: tasks.length - remaining.length,
-        remaining: remaining.map(item => ({ id: item.id, title: item.title, status: item.status })),
-        note: tasks.length === 0 ? '任务板还是空的' : undefined
-      };
+      return teamWait(conversation.teamTasks ?? []);
     }
 
     throw new Error(`未登记的主进程能力：${id}`);

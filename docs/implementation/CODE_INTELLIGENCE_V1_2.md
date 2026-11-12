@@ -17,9 +17,9 @@
 | P1 LSP Provider 统一管理 | **已实现（TypeScript Provider + 明确的不可用）** | `src/main/lsp/providers.ts` |
 | P1 读取—修改—版本校验闭环 | **已实现**：edit / applyPatch 强制 expectedHash | `src/agent/tools/fs-extra.ts`、`src/agent/tools/extended.ts`、`src/shared/contracts.ts` |
 | P1 文件修改精确性 | **已实现**：唯一匹配、replaceAll、CRLF、标点回退、文件锁、回读 | `src/agent/tools/fs-extra.ts`、`src/agent/tools/file-lock.ts` |
-| P2 Agent Team 任务 DAG / CAS | **未做**，设计边界见第 7 节 | — |
-| P2 Session / 工作区隔离 | **未做**，设计边界见第 7 节 | — |
-| P2 Git Worktree | **未做**，等真正并行改同一工程再引入 | — |
+| P2 Agent Team 任务 DAG / CAS | **已实现**：dependsOn、revision/expectedRevision、完成证据 | `src/main/team-board.ts` |
+| P2 Session / 工作区隔离 | **已实现**：read/write + workspace 串行、成员树、会话级任务板 | `src/main/team-board.ts`、`src/main/index.ts` |
+| P2 Git Worktree | **已实现**：create 新建分支、脏工作树需 force、不自动清理 | `src/agent/tools/extended.ts` |
 | P3 向量代码索引 | **不做**：保持 provider API 边界 | `src/main/embeddings/service.ts` |
 
 ## 2. P0：多 Agent 真实交接
@@ -195,33 +195,75 @@ OBSERVATION_REQUIRED：修改已有文件前先 fs.readFile / fs.stat 拿到 sha
 - 写入后重新读盘并比对 sha256，不拿内存里的 `next` 当证据；
 - 写后自动诊断仍由 `local-plugins.ts` 的 `withPostWriteDiagnostics` 完成。
 
-## 7. 明确不做（P2 / P3）
+## 7. P2：任务 DAG / CAS 与工作区隔离
 
-### 7.1 Agent Team 任务 DAG / CAS
+### 7.1 任务 DAG
 
-报告建议借鉴 DSH 的任务板。当前已有 `ExecutionReport`、`AgentOrchestrator`
-和任务轨迹；再建一套 DAG 会形成第二份任务状态。触发条件：多 Agent 需要
-真正并行修改同一工程、且现有计划无法表达依赖时，再在现有任务表上增加
-`dependsOn` 与 `expectedRevision`，不新建系统。
+`ConversationTeamTask` 新增 `dependsOn`。创建时逐个校验依赖存在、不重复、
+不依赖自己；开工（doing）和完成（done）前再检查依赖是否都 done。
+`team.task.list` / `team.wait` 直接给 `ready` 与 `blocked`（带缺哪些 id），
+不再让模型自己从一列任务里猜顺序。
 
-### 7.2 Session / 工作区隔离、Worktree
+任务仍然只存在 `Conversation.teamTasks` 里，不新建第二套任务系统；
+`ExecutionReport` 仍是执行结果账本，任务证据可以指向报告/测试/提交。
 
-当前多 Agent 不写工作区，冲突只在方案层出现。等 Code 角色开始并行落盘，
-再引入：
+### 7.2 CAS
 
-- 只读探索共享工作区；
-- 同文件修改默认串行；
-- 不同任务并行修改时建独立 Worktree；
-- 合并前统一 diff + 测试；
-- 未完成的工作区不自动删除。
+每个任务带 `revision`（老任务按 1 处理）。`team.task.update` 必须带
+`expectedRevision`；不一致直接：
 
-### 7.3 向量代码索引
+```
+CAS_CONFLICT：task-3 已经被更新（当前 revision 4，你拿的是 2）；
+先 team.task.get 再改
+```
+
+成功后 `revision + 1`。这样两个 Agent 同时认领/更新一条任务时，
+后到的不会把前一个的进度覆盖掉。
+
+### 7.3 完成证据
+
+`done` 必须带至少一条 `evidence`：
+
+```json
+{ "kind": "test", "ref": "npm test", "detail": "退出码 0，42 条通过" }
+```
+
+`kind` 只允许 `execution_report / test / diagnostic / commit / note`；
+证据追加保存（最多 50 条），不用一句 note 代替依据。
+
+### 7.4 成员树
+
+`team.spawn` 支持 `parent`，写入 `Conversation.teamParents`。
+父级必须已经在这次协作里；自指或成环在写盘前拒绝。
+这不创建新 Agent：成员仍然只能来自现有参与者 id。
+
+### 7.5 工作区隔离
+
+- 任务新增 `mode: read | write` 与 `workspace`；
+- 只读任务可以共享工作区；
+- `write` 任务在同一 `workspace` 同时只能有一个 `doing`，否则：
+
+```
+WORKSPACE_BUSY：工作区 /repo 正被 task-2（cloud:xxx）写入；
+等它完成或换 worktree
+```
+
+- 需要真正并行写同一工程时，把任务指向不同 `git.worktree` 路径即可；
+  `git.worktree` 现在支持 `create: true` 用 `-b` 新建分支。
+- 移除工作树前先看 `git status --porcelain`；有未提交/未跟踪内容时
+  `WORKTREE_DIRTY`，只有显式 `force: true` 才删。应用不会自动清理未完成的
+  worktree。
+- 新会话从空任务板开始，不继承旧会话的 `teamTasks` / 写入占用；
+  后台任务不会跟着“分叉”到新会话。这是 OpenCode Fork 语义在现有产品里的
+  落地，不需要再造一个 fork API。
+
+## 8. P3：明确不做
 
 保持与 OpenCode 一致的边界：`src/main/embeddings/service.ts` 只提供
-「文本 → 向量」，不接主循环、不建代码索引。只有真实出现跨文件语义检索
+“文本 → 向量”，不接主循环、不建代码索引。只有真实出现跨文件语义检索
 瓶颈时才考虑。
 
-## 8. 验证
+## 9. 验证
 
 ```bash
 cd desktop-agent-macos
@@ -234,6 +276,8 @@ node --test scripts/check-local-tools.mjs
 node --test scripts/check-extended-tools.mjs
 node --test scripts/check-lsp.mjs
 node --test scripts/check-execution-timeline.mjs
+node --test scripts/check-team-board.mjs
+node --test scripts/check-extended-tools.mjs
 ```
 
 断言点：
@@ -245,9 +289,11 @@ node --test scripts/check-execution-timeline.mjs
 - CRLF 文件编辑后仍是 CRLF；
 - 结构化验证能区分 compile / tests / diagnostics；
 - `.py` 走 `LSP_UNAVAILABLE`，不返回空数组冒充「没有定义」；
-- 同一个 `stepId` 的 approval / started / completed 合成一张卡，跨轮不串。
+- 同一个 `stepId` 的 approval / started / completed 合成一张卡，跨轮不串；
+- 任务依赖没完成不能 doing/done；旧 revision 覆盖得到 CAS_CONFLICT；
+- write 任务同一工作区只能一个 doing；脏工作树不 force 不删。
 
-## 9. 执行界面：按步骤分卡
+## 10. 执行界面：按步骤分卡
 
 原来的工程主界面只有一张 `ExecutionLog` 文本流：`完成 fs.edit` 看不出
 改哪个文件、改了哪几行；`完成 code.definition` 看不出跳到哪一行。
@@ -271,7 +317,7 @@ V1.2 把同一个 `stepId` 的 `started / approval / completed / failed`
 - 验证卡展示 compile / tests / diagnostics 三行结构化结果；
 - 只渲染事件里真实带的东西：没有结果就不补「成功」。
 
-## 10. 剩余风险
+## 11. 剩余风险
 
 1. **两轮读取增加一次往返**：这是版本保护的代价，不是回归。
 2. **模型仍可能给出过期补丁**：dry-run 会拒绝，但需要模型重新读文件；
@@ -279,3 +325,10 @@ V1.2 把同一个 `stepId` 的 `started / approval / completed / failed`
    `expectedHash`；
 4. **Verify / Review 是并行而不是串行**：Review 看不到 Verify 的结论；
    如果以后需要「验证后再评审」，把阶段二拆成两段即可，接口不变。
+5. **workspace 是协调规则，不是新的文件授权**：`team.task` 的 `workspace`
+   用来阻止两个 write 任务同时开工；真正执行 `fs.edit` / `fs.applyPatch`
+   仍然走 `TaskGrant.rootDir`。要让任务真的写进 worktree，就把工作区授到
+   那个 worktree 路径；不要用 `workspace` 字段绕过授权。
+6. **worktree 不自动清理**：`git.worktree remove` 默认真实检查脏文件，
+   未提交内容会报 `WORKTREE_DIRTY`；只有 `force:true` 才删。应用启动时
+   不扫描、不删除任何 worktree。

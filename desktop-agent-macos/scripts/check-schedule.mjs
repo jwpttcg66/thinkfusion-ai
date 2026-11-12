@@ -76,7 +76,7 @@ test('目标 / 定时 / 任务板都能写进计划；读取类工具是只读',
     { id: 's6', tool: 'team.spawn', args: { members: ['deepseek'] } },
     { id: 's7', tool: 'team.task.create', args: { title: '改文案' } },
     { id: 's8', tool: 'team.task.list', args: {} },
-    { id: 's9', tool: 'team.task.update', args: { id: 'task-1', status: 'done' } },
+    { id: 's9', tool: 'team.task.update', args: { id: 'task-1', status: 'done', expectedRevision: 1, evidence: [{ kind: 'test', detail: 'npm test 退出码 0' }] } },
     { id: 's10', tool: 'team.wait', args: {} }
   ];
   const parsed = PlanSchema.safeParse({

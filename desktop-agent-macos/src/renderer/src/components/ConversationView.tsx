@@ -250,6 +250,14 @@ export function ConversationView(props: {
               <span className="goal-tag">任务板</span>
               <span className="goal-text">
                 {conversation.teamTasks.filter(task => task.status === 'done').length}/{conversation.teamTasks.length} 完成
+                {(() => {
+                  const tasks = conversation.teamTasks ?? [];
+                  const blocked = tasks.filter(task =>
+                    task.status === 'blocked' ||
+                    (task.dependsOn ?? []).some(id => tasks.find(item => item.id === id)?.status !== 'done')
+                  ).length;
+                  return blocked > 0 ? ` · 受阻 ${String(blocked)}` : '';
+                })()}
               </span>
               {conversation.teamMembers && conversation.teamMembers.length > 0 && (
                 <span className="goal-state">{conversation.teamMembers.length} 位成员</span>

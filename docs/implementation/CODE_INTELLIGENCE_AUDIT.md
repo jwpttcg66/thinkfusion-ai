@@ -121,5 +121,8 @@ Verify / Review 看不到 Code 的 diff；补丁没有统一做路径/版本/dry
 - `fs.edit` / `fs.applyPatch` 强制 `expectedHash`，CRLF / 标点回退 / 文件锁 / 回读；
 - 工程主执行界面按 stepId 分卡，展示参数、证据、diff、命令输出与多 Agent 阶段。
 
-仍未做（P2）：任务 DAG / CAS、Session / Worktree 隔离。触发条件见
-[CODE_INTELLIGENCE_V1_2.md](./CODE_INTELLIGENCE_V1_2.md)。
+P2 也已落地：任务板 `dependsOn` + `revision/expectedRevision` CAS + done 证据；
+`mode: read|write` 与 `workspace` 串行（write 同工作区只能一个 doing）；成员树
+`parent` 防成环；`git.worktree` 支持 create 新建分支、脏工作树必须 force 才删、
+不自动清理。实现见 `src/main/team-board.ts` 与 `src/agent/tools/extended.ts`。
+P3 向量代码索引仍不做。

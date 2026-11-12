@@ -26,6 +26,7 @@
     "src/main/engineering/**/*.ts",
     "src/main/lsp/**/*.ts",
     "src/main/coding/**/*.ts",
+    "src/main/team-board.ts",
     "src/main/embeddings/**/*.ts",
     "src/main/snapshots/**/*.ts",
     "src/main/knowledge/**/*.ts",

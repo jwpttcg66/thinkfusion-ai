@@ -418,7 +418,11 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** add / remove 必填，相对授权目录。 */
       path: RelativePath.optional(),
       /** add 必填，只允许普通分支名，不接受以 - 开头的选项。 */
-      branch: z.string().min(1).max(120).optional()
+      branch: z.string().min(1).max(120).optional(),
+      /** add：分支不存在时用 -b 新建。 */
+      create: z.boolean().optional(),
+      /** remove：工作树有未提交改动时必须显式 force。 */
+      force: z.boolean().optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
@@ -728,7 +732,11 @@ export const StepSchema = z.discriminatedUnion('tool', [
   z.object({
     id: Id,
     tool: z.literal('team.spawn'),
-    args: z.object({ members: z.array(z.string().min(1).max(80)).min(1).max(8) }).strict(),
+    args: z.object({
+      members: z.array(z.string().min(1).max(80)).min(1).max(8),
+      /** 可选：这些成员的上级成员 id；只用于记录成员树，不创建新成员。 */
+      parent: z.string().min(1).max(80).optional()
+    }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({
@@ -737,7 +745,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       title: z.string().min(1).max(200),
       detail: z.string().max(1000).optional(),
-      assignee: z.string().min(1).max(80).optional()
+      assignee: z.string().min(1).max(80).optional(),
+      /** 依赖的任务 id；创建时逐个校验存在。 */
+      dependsOn: z.array(z.string().min(1).max(80)).max(20).optional(),
+      /** read 可与别人共享工作区；write 同一工作区同时只能有一个 doing。 */
+      mode: z.enum(['read', 'write']).optional(),
+      /** 允许动的目录；write 任务用它做隔离。 */
+      workspace: z.string().min(1).max(2000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
@@ -759,7 +773,16 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       id: z.string().min(1).max(80),
       status: z.enum(['todo', 'doing', 'done', 'blocked']),
-      note: z.string().max(500).optional()
+      /** 必填：拿旧的 revision 覆盖会得到 CAS_CONFLICT。 */
+      expectedRevision: z.number().int().min(1).max(1_000_000),
+      note: z.string().max(500).optional(),
+      /** done 时至少一条；其他状态可选。 */
+      evidence: z.array(z.object({
+        kind: z.enum(['execution_report', 'test', 'diagnostic', 'commit', 'note']),
+        ref: z.string().max(200).optional(),
+        detail: z.string().min(1).max(500)
+      }).strict()).max(20).optional(),
+      workspace: z.string().min(1).max(2000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),

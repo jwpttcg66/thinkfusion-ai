@@ -125,7 +125,15 @@ export interface WorktreeResult {
 
 async function gitWorktree(
   grant: TaskGrant,
-  args: { action: 'list' | 'add' | 'remove'; path?: string; branch?: string }
+  args: {
+    action: 'list' | 'add' | 'remove';
+    path?: string;
+    branch?: string;
+    /** add：branch 不存在时用 -b 新建。 */
+    create?: boolean;
+    /** remove：工作树有未提交改动时，只有显式 force 才删。 */
+    force?: boolean;
+  }
 ): Promise<WorktreeResult> {
   // list 也要 workspace-write：它是一次真实命令执行，只读档位下不额外开口子。
   assertMutable(grant, '执行 git worktree');
@@ -139,9 +147,21 @@ async function gitWorktree(
     const target = await resolveGrantedPath(grant, args.path, args.action === 'add');
     if (args.action === 'add') {
       if (!args.branch || !BRANCH_NAME.test(args.branch)) throw new Error('branch 不合法');
-      argv = ['worktree', 'add', target, args.branch];
+      argv = args.create
+        ? ['worktree', 'add', '-b', args.branch, target]
+        : ['worktree', 'add', target, args.branch];
     } else {
-      argv = ['worktree', 'remove', target];
+      // 先看清有没有未提交/未跟踪内容。git 自己也会拒绝，但它的报错
+      // 只说「contains modified or untracked files」，界面上看不出是哪些。
+      const dirty = await runGit(target, ['status', '--porcelain']);
+      if (dirty.exitCode === 0 && dirty.stdout.trim() && args.force !== true) {
+        const files = dirty.stdout.trim().split('\n').slice(0, 20);
+        throw new Error(
+          `WORKTREE_DIRTY：${target} 还有未提交改动，拒绝删除：${files.join('、')}` +
+            `${dirty.stdout.trim().split('\n').length > 20 ? ' 等' : ''}。确认不要了再 force:true`
+        );
+      }
+      argv = ['worktree', 'remove', ...(args.force === true ? ['--force'] : []), target];
     }
   }
 

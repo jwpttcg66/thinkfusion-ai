@@ -213,5 +213,6 @@ P0 审计 → P1 的「寻址读 + LSP definition/references」是最小可交�
 | 读取—修改—版本校验强制 `expectedHash` | ✅ |
 | 精确编辑：CRLF / 标点回退 / 文件锁 / 回读 | ✅ |
 | 工程主执行界面按步骤分卡（参数 / 证据 / diff / 输出） | ✅ |
-| Agent Team 任务 DAG / CAS、Session / Worktree 隔离 | 未做（P2，触发条件见 V1.2 文档） |
+| Agent Team 任务 DAG / CAS | ✅ 0.1.9（`team-board.ts`） |
+| Session / 工作区隔离、Git Worktree | ✅ 0.1.9（`mode/workspace` 串行、create/force） |
 | 向量代码索引 | 不做（保持 provider API 边界） |

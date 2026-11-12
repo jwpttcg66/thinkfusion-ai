@@ -201,6 +201,18 @@ test('worktree 真的列出/新增/移除，非法分支名与越界路径被挡
   const removed = await extendedTools.gitWorktree(grant(), { action: 'remove', path: 'wt-feature' });
   assert.equal(removed.exitCode, 0);
 
+  // create=true 用 -b 新建分支；脏工作树不 force 不能删。
+  await extendedTools.gitWorktree(grant(), {
+    action: 'add', path: 'wt-created', branch: 'wt-new-branch', create: true
+  });
+  writeFileSync(join(root, 'wt-created', 'dirty.txt'), 'not committed\n');
+  await assert.rejects(
+    () => extendedTools.gitWorktree(grant(), { action: 'remove', path: 'wt-created' }),
+    /WORKTREE_DIRTY/
+  );
+  const forced = await extendedTools.gitWorktree(grant(), { action: 'remove', path: 'wt-created', force: true });
+  assert.equal(forced.exitCode, 0);
+
   await assert.rejects(
     () => extendedTools.gitWorktree(grant(), { action: 'add', path: 'wt-bad', branch: '--upload-pack=whoami' }),
     /branch 不合法/
