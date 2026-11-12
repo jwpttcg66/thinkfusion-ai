@@ -27,6 +27,7 @@
     "src/main/lsp/**/*.ts",
     "src/main/coding/**/*.ts",
     "src/main/team-board.ts",
+    "src/main/code-index/**/*.ts",
     "src/main/embeddings/**/*.ts",
     "src/main/snapshots/**/*.ts",
     "src/main/knowledge/**/*.ts",

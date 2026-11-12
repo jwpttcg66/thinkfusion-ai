@@ -1,3 +1,9 @@
+> **2026-11-12 实施记录：** Phase 0 环境核查后，CGC/Graphiti/Neo4j 因
+> 本机没有 Python 3.12/Neo4j 运行环境，保持 `SPECIFIED`；已先落地可运行的
+> 本地回退核（SQLite + AST + FTS5 + Project Memory + Link + Router/Context）。
+> 见 [CODE_INTELLIGENCE_V3_IMPLEMENTATION.md](./CODE_INTELLIGENCE_V3_IMPLEMENTATION.md)。
+> 本文的 Gate/许可证/SymbolKey 约束仍然适用。
+
 # Engineering Intelligence V3.0 复审
 
 日期：2026-11-12。分支：`0.2.0`。

@@ -1,0 +1,515 @@
+/**
+ * TypeScript/JavaScript 的本地索引器：AST → 节点 / 边 / 全文文档。
+ *
+ * 这是 V3.0 在没有 CGC/Python/Neo4j 运行环境时的回退实现。它不做类型消歧：
+ * - 声明和 CONTAINS 来自 AST，标 AST/HIGH；
+ * - 调用只按 AST 里的被调用者名字匹配；唯一命中才标 HIGH，否则不猜；
+ * - 导入只解析相对路径，外部包只记 Package / DEPENDS_ON。
+ *
+ * 不把正则匹配当精确关系，也不假装这是 tsserver 的 Definition/References。
+ */
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { loadTypeScript } from '../lsp/ts-ast';
+import {
+  codeEdgeId,
+  codeNodeId,
+  type CodeIndexStore
+} from './store';
+import type { CodeEdge, CodeNode, CodeNodeType, SearchDoc } from './types';
+
+const IGNORED_DIRS = new Set([
+  'node_modules', '.git', '.svn', '.hg', 'dist', 'out', 'out-test', 'build', 'coverage',
+  '.next', '.nuxt', '.cache', '.idea', '.vscode', 'vendor', '__pycache__',
+  'DerivedData', 'Pods', '.workbuddy', 'ui-preview', 'release'
+]);
+const GRAPH_EXT = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
+
+export interface IndexProjectOptions {
+  maxFiles?: number;
+  maxFileBytes?: number;
+  /** 不传就索引所有支持的 TS/JS 文件。 */
+  include?: (relativePath: string) => boolean;
+}
+
+export interface IndexProjectResult {
+  projectId: string;
+  generation: number;
+  files: number;
+  nodes: number;
+  edges: number;
+  docs: number;
+  warnings: string[];
+}
+
+interface Declaration {
+  name: string;
+  kind: string;
+  nodeType: CodeNodeType;
+  qualifiedName: string;
+  parent?: string;
+  startLine: number;
+  endLine: number;
+}
+
+interface FileIndex {
+  rel: string;
+  language: string;
+  text: string;
+  hash: string;
+  size: number;
+  mtimeMs: number;
+  declarations: Declaration[];
+  imports: Array<{ module: string; line: number }>;
+  calls: Array<{ callee: string; line: number; owner?: string }>;
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function languageOf(rel: string): string {
+  if (/\.tsx$/i.test(rel)) return 'tsx';
+  if (/\.jsx$/i.test(rel)) return 'jsx';
+  if (/\.(js|mjs|cjs)$/i.test(rel)) return 'javascript';
+  return 'typescript';
+}
+
+function lineOf(sourceFile: import('typescript').SourceFile, position: number): number {
+  return sourceFile.getLineAndCharacterOfPosition(position).line + 1;
+}
+
+function declarationName(node: import('typescript').Node): string | null {
+  const name = (node as { name?: import('typescript').Node }).name;
+  return name && (name as unknown as { text?: string }).text ? String((name as unknown as { text: string }).text) : null;
+}
+
+function collectDeclarations(
+  ts: typeof import('typescript'),
+  sourceFile: import('typescript').SourceFile
+): Declaration[] {
+  const out: Declaration[] = [];
+
+  const add = (
+    node: import('typescript').Node,
+    kind: string,
+    nodeType: CodeNodeType,
+    parent?: string
+  ): string | null => {
+    const name = declarationName(node);
+    if (!name) return null;
+    const qualifiedName = parent ? `${parent}.${name}` : name;
+    out.push({
+      name,
+      kind,
+      nodeType,
+      qualifiedName,
+      ...(parent ? { parent } : {}),
+      startLine: lineOf(sourceFile, node.getStart(sourceFile)),
+      endLine: lineOf(sourceFile, node.getEnd())
+    });
+    return qualifiedName;
+  };
+
+  const visit = (node: import('typescript').Node, parent?: string): void => {
+    if (ts.isFunctionDeclaration(node)) {
+      add(node, 'function', 'Function', parent);
+    } else if (ts.isClassDeclaration(node)) {
+      const q = add(node, 'class', 'Class', parent);
+      if (q) for (const member of node.members) {
+        if (ts.isMethodDeclaration(member)) add(member, 'method', 'Method', q);
+        else if (ts.isPropertyDeclaration(member)) add(member, 'property', 'Variable', q);
+      }
+      return;
+    } else if (ts.isInterfaceDeclaration(node)) {
+      add(node, 'interface', 'Interface', parent);
+    } else if (ts.isTypeAliasDeclaration(node)) {
+      add(node, 'type', 'Type', parent);
+    } else if (ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          const qualifiedName = parent ? `${parent}.${declaration.name.text}` : declaration.name.text;
+          out.push({
+            name: declaration.name.text,
+            kind: 'variable',
+            nodeType: 'Variable',
+            qualifiedName,
+            ...(parent ? { parent } : {}),
+            startLine: lineOf(sourceFile, declaration.getStart(sourceFile)),
+            endLine: lineOf(sourceFile, declaration.getEnd())
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, child => visit(child, parent));
+  };
+
+  visit(sourceFile);
+  return out;
+}
+
+function collectImports(
+  ts: typeof import('typescript'),
+  sourceFile: import('typescript').SourceFile
+): Array<{ module: string; line: number }> {
+  const out: Array<{ module: string; line: number }> = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      out.push({
+        module: statement.moduleSpecifier.text,
+        line: lineOf(sourceFile, statement.getStart(sourceFile))
+      });
+    }
+  }
+  return out;
+}
+
+function collectCalls(
+  ts: typeof import('typescript'),
+  sourceFile: import('typescript').SourceFile,
+  declarations: readonly Declaration[]
+): Array<{ callee: string; line: number; owner?: string }> {
+  const out: Array<{ callee: string; line: number; owner?: string }> = [];
+  const visit = (node: import('typescript').Node, owner?: string): void => {
+    let nextOwner = owner;
+    if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) nextOwner = owner ? `${owner}.${name}` : name;
+    } else if (ts.isClassDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) nextOwner = name;
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression.getText(sourceFile).split('.').pop()?.trim() ?? '';
+      if (callee && /^[A-Za-z_$][\w$]*$/.test(callee)) {
+        out.push({
+          callee,
+          line: lineOf(sourceFile, node.getStart(sourceFile)),
+          ...(nextOwner ? { owner: nextOwner } : {})
+        });
+      }
+    }
+    ts.forEachChild(node, child => visit(child, nextOwner));
+  };
+  visit(sourceFile);
+  return out;
+}
+
+async function walk(
+  root: string,
+  options: Required<Pick<IndexProjectOptions, 'maxFiles' | 'maxFileBytes'>> & IndexProjectOptions,
+  warnings: string[]
+): Promise<FileIndex[]> {
+  const ts = await loadTypeScript();
+  if (!ts) throw new Error('AST_UNAVAILABLE：没有找到 typescript 包，无法建立代码索引');
+  const files: FileIndex[] = [];
+
+  const visit = async (dir: string): Promise<void> => {
+    if (files.length >= options.maxFiles) return;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      warnings.push(`${path.relative(root, dir) || '.'} 读不到，已跳过`);
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= options.maxFiles) return;
+      if (entry.name.startsWith('.git')) continue;
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        await visit(path.join(dir, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const abs = path.join(dir, entry.name);
+      const rel = path.relative(root, abs).split(path.sep).join('/');
+      if (!GRAPH_EXT.test(rel)) continue;
+      if (options.include && !options.include(rel)) continue;
+      let stat;
+      try {
+        stat = await fs.lstat(abs);
+      } catch {
+        continue;
+      }
+      if (stat.isSymbolicLink() || !stat.isFile()) continue;
+      if (stat.size > options.maxFileBytes) {
+        warnings.push(`${rel} 超过单文件上限 ${options.maxFileBytes} 字节，已跳过`);
+        continue;
+      }
+      let text: string;
+      try {
+        text = await fs.readFile(abs, 'utf8');
+      } catch {
+        warnings.push(`${rel} 读不到，已跳过`);
+        continue;
+      }
+      const sourceFile = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true);
+      const declarations = collectDeclarations(ts, sourceFile);
+      files.push({
+        rel,
+        language: languageOf(rel),
+        text,
+        hash: sha256(text),
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        declarations,
+        imports: collectImports(ts, sourceFile),
+        calls: collectCalls(ts, sourceFile, declarations)
+      });
+    }
+  };
+
+  await visit(root);
+  return files;
+}
+
+function resolveImport(fromRel: string, specifier: string, known: ReadonlySet<string>): string | null {
+  if (!specifier.startsWith('.')) return null;
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), specifier));
+  const candidates = [
+    base,
+    `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`, `${base}.mjs`, `${base}.cjs`,
+    `${base}/index.ts`, `${base}/index.tsx`, `${base}/index.js`, `${base}/index.jsx`
+  ];
+  return candidates.find(candidate => known.has(candidate)) ?? null;
+}
+
+export async function indexProject(
+  store: CodeIndexStore,
+  rootInput: string,
+  projectId: string,
+  options: IndexProjectOptions = {}
+): Promise<IndexProjectResult> {
+  const root = await fs.realpath(rootInput);
+  const warnings: string[] = [];
+  const files = await walk(root, {
+    maxFiles: options.maxFiles ?? 500,
+    maxFileBytes: options.maxFileBytes ?? 256 * 1024,
+    include: options.include
+  }, warnings);
+
+  const generation = store.beginGeneration(projectId, `scan:${String(Date.now())}`);
+  try {
+    const known = new Set(files.map(file => file.rel));
+    const byName = new Map<string, CodeNode[]>();
+    const fileNodes = new Map<string, CodeNode>();
+    const declarationNodes = new Map<string, CodeNode[]>();
+    let nodes = 0;
+    let edges = 0;
+    let docCount = 0;
+
+    const allNodes = new Map<string, CodeNode>();
+    const allEdges: CodeEdge[] = [];
+
+    // 第一遍：为每个文件建立节点。
+    for (const file of files) {
+      const fileNode: CodeNode = {
+        projectId,
+        nodeId: codeNodeId(projectId, file.language, file.rel, file.rel, 'File'),
+        nodeType: 'File',
+        name: path.posix.basename(file.rel),
+        qualifiedName: file.rel,
+        filePath: file.rel,
+        startLine: 1,
+        endLine: file.text.split('\n').length,
+        language: file.language,
+        generation
+      };
+      fileNodes.set(file.rel, fileNode);
+      allNodes.set(fileNode.nodeId, fileNode);
+      byName.set(fileNode.name, [...(byName.get(fileNode.name) ?? []), fileNode]);
+
+      const localNodes: CodeNode[] = [fileNode];
+      const localDeclarations: CodeNode[] = [];
+      for (const declaration of file.declarations) {
+        const node: CodeNode = {
+          projectId,
+          nodeId: codeNodeId(projectId, file.language, file.rel, declaration.qualifiedName, declaration.kind),
+          nodeType: declaration.nodeType,
+          name: declaration.name,
+          qualifiedName: declaration.qualifiedName,
+          filePath: file.rel,
+          startLine: declaration.startLine,
+          endLine: declaration.endLine,
+          language: file.language,
+          generation
+        };
+        localNodes.push(node);
+        localDeclarations.push(node);
+        allNodes.set(node.nodeId, node);
+        byName.set(node.name, [...(byName.get(node.name) ?? []), node]);
+        allEdges.push({
+          projectId,
+          edgeId: codeEdgeId(projectId, fileNode.nodeId, node.nodeId, 'CONTAINS'),
+          sourceNodeId: fileNode.nodeId,
+          targetNodeId: node.nodeId,
+          relationType: 'CONTAINS',
+          confidence: 'EXACT',
+          source: 'AST',
+          filePath: file.rel,
+          line: declaration.startLine,
+          generation
+        });
+      }
+      // 类包含方法 / 属性。
+      for (const declaration of file.declarations) {
+        if (!declaration.parent) continue;
+        const parent = localDeclarations.find(node => node.qualifiedName === declaration.parent);
+        const child = localDeclarations.find(node => node.qualifiedName === declaration.qualifiedName);
+        if (parent && child) {
+          allEdges.push({
+            projectId,
+            edgeId: codeEdgeId(projectId, parent.nodeId, child.nodeId, 'CONTAINS'),
+            sourceNodeId: parent.nodeId,
+            targetNodeId: child.nodeId,
+            relationType: 'CONTAINS',
+            confidence: 'EXACT',
+            source: 'AST',
+            filePath: file.rel,
+            line: child.startLine,
+            generation
+          });
+        }
+      }
+      declarationNodes.set(file.rel, localDeclarations);
+      nodes += localNodes.length;
+    }
+
+    // 第二遍：导入、外部包、调用。
+    for (const file of files) {
+      const fileNode = fileNodes.get(file.rel);
+      if (!fileNode) continue;
+      const local = declarationNodes.get(file.rel) ?? [];
+      for (const imported of file.imports) {
+        const targetRel = resolveImport(file.rel, imported.module, known);
+        if (targetRel) {
+          const target = fileNodes.get(targetRel);
+          if (target) {
+            allEdges.push({
+              projectId,
+              edgeId: codeEdgeId(projectId, fileNode.nodeId, target.nodeId, 'IMPORTS'),
+              sourceNodeId: fileNode.nodeId,
+              targetNodeId: target.nodeId,
+              relationType: 'IMPORTS',
+              confidence: 'EXACT',
+              source: 'AST',
+              filePath: file.rel,
+              line: imported.line,
+              generation
+            });
+          }
+        } else if (!imported.module.startsWith('.')) {
+          const pkgId = codeNodeId(projectId, 'external', imported.module, imported.module, 'Package');
+          if (!allNodes.has(pkgId)) {
+            const pkgNode: CodeNode = {
+              projectId,
+              nodeId: pkgId,
+              nodeType: 'Package',
+              name: imported.module,
+              qualifiedName: imported.module,
+              filePath: '',
+              startLine: 0,
+              endLine: 0,
+              language: 'external',
+              generation
+            };
+            allNodes.set(pkgId, pkgNode);
+            store.ensureNode(pkgNode);
+          }
+          allEdges.push({
+            projectId,
+            edgeId: codeEdgeId(projectId, fileNode.nodeId, pkgId, 'DEPENDS_ON'),
+            sourceNodeId: fileNode.nodeId,
+            targetNodeId: pkgId,
+            relationType: 'DEPENDS_ON',
+            confidence: 'HIGH',
+            source: 'STATIC_ANALYSIS',
+            filePath: file.rel,
+            line: imported.line,
+            generation
+          });
+        }
+      }
+
+      for (const call of file.calls) {
+        const candidates = byName.get(call.callee) ?? [];
+        if (candidates.length === 0) continue;
+        const owner = call.owner
+          ? local.find(node => node.qualifiedName === call.owner) ?? fileNode
+          : fileNode;
+        for (const target of candidates.slice(0, 5)) {
+          if (target.nodeId === owner.nodeId) continue;
+          allEdges.push({
+            projectId,
+            edgeId: codeEdgeId(projectId, owner.nodeId, target.nodeId, 'CALLS'),
+            sourceNodeId: owner.nodeId,
+            targetNodeId: target.nodeId,
+            relationType: 'CALLS',
+            confidence: candidates.length === 1 ? 'HIGH' : 'POSSIBLE',
+            source: 'AST',
+            filePath: file.rel,
+            line: call.line,
+            generation
+          });
+        }
+      }
+    }
+
+    // 第三遍：按文件写节点、边、全文文档。
+    for (const file of files) {
+      const fileNode = fileNodes.get(file.rel);
+      if (!fileNode) continue;
+      const seenNodeIds = new Set<string>();
+      const localNodes = [fileNode, ...(declarationNodes.get(file.rel) ?? [])].filter(node => {
+        if (seenNodeIds.has(node.nodeId)) return false;
+        seenNodeIds.add(node.nodeId);
+        return true;
+      });
+      const localNodeIds = new Set(localNodes.map(node => node.nodeId));
+      const localEdges = allEdges.filter(edge => localNodeIds.has(edge.sourceNodeId) && edge.filePath === file.rel);
+      const docs: SearchDoc[] = [{
+        docId: `doc_file_${sha256(file.rel).slice(0, 20)}`,
+        projectId,
+        filePath: file.rel,
+        nodeId: fileNode.nodeId,
+        kind: 'file',
+        name: file.rel,
+        content: file.text.slice(0, 20_000),
+        generation
+      }];
+      for (const node of localNodes.slice(1)) {
+        docs.push({
+          docId: `doc_node_${node.nodeId}`,
+          projectId,
+          filePath: file.rel,
+          nodeId: node.nodeId,
+          kind: node.nodeType,
+          name: node.name,
+          content: `${node.qualifiedName}\n${node.nodeType}\n${node.filePath}:${String(node.startLine)}`,
+          generation
+        });
+      }
+      store.replaceFileIndex(projectId, generation, file.rel, localNodes, localEdges, docs);
+      store.markFile(projectId, file.rel, file.hash, file.size, file.mtimeMs, generation);
+      edges += localEdges.length;
+      docCount += docs.length;
+    }
+
+    store.commitGeneration(projectId, generation);
+    return {
+      projectId,
+      generation,
+      files: files.length,
+      nodes,
+      edges,
+      docs: docCount,
+      warnings
+    };
+  } catch (error) {
+    store.failGeneration(projectId, generation, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}

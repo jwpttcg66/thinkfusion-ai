@@ -216,3 +216,16 @@ P0 审计 → P1 的「寻址读 + LSP definition/references」是最小可交�
 | Agent Team 任务 DAG / CAS | ✅ 0.1.9（`team-board.ts`） |
 | Session / 工作区隔离、Git Worktree | ✅ 0.1.9（`mode/workspace` 串行、create/force） |
 | 向量代码索引 | 不做（保持 provider API 边界） |
+
+
+## 9. V3.0 Phase 0 本地回退核（2026-11-12）
+
+CGC/Graphiti/Neo4j 因本机缺少 Python 3.12/Neo4j 环境，保持 `SPECIFIED`。
+先落地了不依赖外部运行时的本地回退核：
+
+- `src/main/code-index/store.ts`：`node:sqlite` 迁移、generation、nodes/edges、
+  FTS5 trigram、memory、code-memory-link、outbox 表；
+- `src/main/code-index/indexer.ts`：TS/JS AST 索引器；
+- `src/main/code-index/retrieval.ts`：规则路由、检索、上下文组装、记忆、Link；
+- `test:code-index` 9 条；真机 212 文件、6667 节点、26803 边、1.8s、21.7MB。
+- 详见 [CODE_INTELLIGENCE_V3_IMPLEMENTATION.md](./CODE_INTELLIGENCE_V3_IMPLEMENTATION.md)。

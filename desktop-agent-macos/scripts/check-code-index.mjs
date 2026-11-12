@@ -1,0 +1,207 @@
+/**
+ * 本地代码索引：SQLite + FTS5 + AST 图 + 记忆 + Link + 上下文。
+ *
+ * 这是 V3.0 在没有 CGC/Graphiti/Neo4j 运行环境时的回退实现验收：
+ * 真实临时 TS 工程、真实 node:sqlite、真实 FTS5，不用 Mock。
+ *
+ * Run with: npm run test:code-index
+ */
+import assert from 'node:assert/strict';
+import test, { after, before } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { CodeIndexStore, buildFtsQuery } from '../out-test/main/code-index/store.js';
+import { indexProject } from '../out-test/main/code-index/indexer.js';
+import {
+  assembleContext,
+  linkSymbolToMemory,
+  remember,
+  retrieve,
+  routeMode
+} from '../out-test/main/code-index/retrieval.js';
+
+let root;
+let dbFile;
+let store;
+const projectId = 'test-project';
+
+before(async () => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-code-index-'));
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src/a.ts'), [
+    '/** 用户登录失败时的订单处理；错误码 AUTH_401。 */',
+    'export class OrderService {',
+    '  processOrder(id: string): number {',
+    '    return charge(id);',
+    '  }',
+    '}',
+    'export function charge(id: string): number {',
+    '  return id.length;',
+    '}'
+  ].join('\n'));
+  fs.writeFileSync(path.join(root, 'src/b.ts'), [
+    "import { OrderService, charge } from './a';",
+    'export function run(): number {',
+    "  const service = new OrderService();",
+    "  return service.processOrder('x') + charge('y');",
+    '}'
+  ].join('\n'));
+  fs.writeFileSync(path.join(root, 'src/notes.md'), '登录 说明：AUTH_401 是错误码。');
+  dbFile = path.join(root, 'index.sqlite');
+  store = new CodeIndexStore(dbFile);
+});
+
+after(() => {
+  store?.close();
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('索引真实 TS 工程：节点、CONTAINS / IMPORTS / CALLS 都能查', async () => {
+  const result = await indexProject(store, root, projectId);
+  assert.equal(result.files, 2);
+  assert.ok(result.nodes >= 4, JSON.stringify(result));
+  assert.ok(result.edges >= 4, JSON.stringify(result));
+
+  const symbols = store.findSymbols(projectId, 'charge');
+  assert.ok(symbols.length >= 1);
+  const charge = symbols.find(node => node.nodeType === 'Function');
+  assert.ok(charge, 'charge 函数节点不存在');
+
+  const incoming = store.getIncoming(projectId, charge.nodeId, ['CALLS']);
+  assert.ok(incoming.length >= 1, '没有找到 charge 的调用者');
+
+  const order = store.findSymbols(projectId, 'processOrder')[0];
+  assert.ok(order);
+  const outgoing = store.getOutgoing(projectId, order.nodeId, ['CALLS']);
+  assert.ok(outgoing.some(edge => edge.targetNodeId === charge.nodeId));
+
+  const fileNode = store.findSymbols(projectId, 'a.ts').find(node => node.nodeType === 'File');
+  assert.ok(fileNode);
+  const imports = store.getOutgoing(projectId, store.findSymbols(projectId, 'b.ts').find(node => node.nodeType === 'File').nodeId, ['IMPORTS']);
+  assert.ok(imports.length >= 1, 'b.ts -> a.ts 的 import 边不存在');
+});
+
+test('中文两字走 LIKE 回退，三字走 trigram，标识符可查', () => {
+  const two = store.search(projectId, '登录', { limit: 10 });
+  assert.ok(two.length >= 1, '中文两字没有回退命中');
+  assert.equal(two[0].source, 'like');
+
+  const three = store.search(projectId, '登录失败', { limit: 10 });
+  assert.ok(three.length >= 1, '中文三字没有命中');
+
+  const ident = store.search(projectId, 'OrderService', { limit: 10 });
+  assert.ok(ident.length >= 1, '标识符没有命中');
+
+  const errorCode = store.search(projectId, 'AUTH_401', { limit: 10 });
+  assert.ok(errorCode.length >= 1, '错误码没有命中');
+
+  const filtered = store.search(projectId, '登录', { filePatterns: ['src/a.ts'], limit: 10 });
+  assert.ok(filtered.every(hit => hit.filePath === 'src/a.ts'));
+});
+
+test('FTS 查询被转义，不把用户原文当 MATCH 语法', () => {
+  assert.equal(buildFtsQuery('charge" OR *'), '"charge" AND "OR" AND "*"');
+  assert.doesNotThrow(() => store.search(projectId, 'charge" OR *', { limit: 5 }));
+  assert.doesNotThrow(() => store.search(projectId, '登录'), 'LIKE 回退不应抛');
+});
+
+test('影响分析沿 incoming 调用边向上走', () => {
+  const charge = store.findSymbols(projectId, 'charge').find(node => node.nodeType === 'Function');
+  const impact = store.impact(projectId, charge.nodeId, 3);
+  assert.ok(impact.nodes.length >= 2);
+  assert.ok(impact.nodes.some(node => node.name === 'processOrder' || node.name === 'run'));
+});
+
+test('记忆：candidate 默认、confirmed 有来源、检索按确认状态排序', () => {
+  const candidate = remember(store, {
+    projectId,
+    kind: 'decision',
+    title: '订单处理必须幂等',
+    content: '历史问题：重复扣款。',
+    source: 'debate',
+    confidence: 0.6
+  });
+  assert.equal(candidate.status, 'candidate');
+
+  const confirmed = remember(store, {
+    projectId,
+    kind: 'constraint',
+    title: '错误码 AUTH_401',
+    content: '登录失败必须返回 AUTH_401。',
+    source: 'user',
+    sourceRef: 'message-1',
+    status: 'confirmed',
+    confidence: 0.95
+  });
+  assert.equal(confirmed.status, 'confirmed');
+
+  assert.throws(
+    () => remember(store, { projectId, kind: 'fact', title: 'x', content: 'x', source: '   ' }),
+    /MEMORY_SOURCE_REQUIRED/
+  );
+
+  const hits = store.searchMemory(projectId, '登录');
+  assert.ok(hits.length >= 1);
+});
+
+test('Code-Memory Link：SymbolKey 不含文件路径，移动文件不换 Key', () => {
+  const order = store.findSymbols(projectId, 'OrderService')[0];
+  assert.ok(order);
+  const fact = store.listMemory(projectId, 'confirmed')[0];
+  assert.ok(fact);
+
+  const link = linkSymbolToMemory(store, {
+    projectId,
+    language: order.language,
+    filePath: order.filePath,
+    qualifiedName: order.qualifiedName,
+    kind: order.nodeType,
+    startLine: order.startLine,
+    endLine: order.endLine,
+    fingerprint: 'sig:OrderService',
+    memoryEntityId: fact.factId,
+    linkType: 'RULE_CONSTRAINS_CODE',
+    confidence: 0.8
+  });
+  assert.ok(!link.symbolKey.includes(order.filePath), 'SymbolKey 不应包含文件路径');
+  assert.ok(link.symbolLocator.includes(order.filePath));
+  assert.equal(store.linksForMemory(projectId, fact.factId).length, 1);
+  assert.equal(store.linksForSymbol(projectId, link.symbolKey).length, 1);
+});
+
+test('Generation：pending 不能被当成 READY，旧 READY 保留', () => {
+  const current = store.currentGeneration(projectId);
+  assert.ok(current);
+
+  const pending = store.beginGeneration(projectId, 'test-pending');
+  assert.equal(store.currentGeneration(projectId), current);
+  const state = store.generationState(projectId, pending);
+  assert.equal(state.status, 'building');
+
+  store.commitGeneration(projectId, pending);
+  assert.equal(store.currentGeneration(projectId), pending);
+  assert.equal(store.generationState(projectId, current).status, 'superseded');
+});
+
+test('删除文件后节点 / 文档 / 文件状态都清理', () => {
+  const before = store.findSymbols(projectId, 'charge');
+  assert.ok(before.length > 0);
+  store.deleteFile(projectId, 'src/a.ts');
+  assert.equal(store.findSymbols(projectId, 'charge').length, 0);
+  assert.equal(store.search(projectId, '登录失败').filter(hit => hit.filePath === 'src/a.ts').length, 0);
+  assert.equal(store.fileHash(projectId, 'src/a.ts'), null);
+});
+
+test('KnowledgeRouter 规则与 Context Assembly 预算', () => {
+  assert.equal(routeMode('谁调用了 charge'), 'CODE');
+  assert.equal(routeMode('为什么以前选择这个方案'), 'MEMORY');
+  assert.equal(routeMode('这个历史约束会影响哪些代码'), 'HYBRID');
+
+  const result = retrieve(store, projectId, '为什么订单处理要幂等', { mode: 'HYBRID' });
+  const context = assembleContext(result, 1200);
+  assert.ok(context.text.length <= 1200 + 200);
+  assert.ok(context.text.includes('检索模式'));
+  assert.ok(context.used.length >= 0);
+});
