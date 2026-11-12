@@ -4,7 +4,7 @@ import type { CapabilityView } from './capabilities';
 import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
-import type { CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus } from './code-index';
+import type { CodeIndexMemory, CodeIndexMemoryInput, CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus } from './code-index';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
@@ -2334,6 +2334,8 @@ export interface AgentApi {
   buildCodeIndex(root: string): Promise<CodeIndexStatus>;
   /** 工程检索：CODE / MEMORY / HYBRID；context=true 时附预算内上下文。 */
   searchCodeIndex(input: CodeIndexSearchInput): Promise<CodeIndexSearchResult>;
+  /** 写入一条工程记忆；confirmed 只能由用户动作调用。 */
+  rememberCodeMemory(input: CodeIndexMemoryInput): Promise<CodeIndexMemory>;
   /** 监听工作区源码变化，后台自动更新索引。 */
   watchCodeIndex(root: string): Promise<{ watching: boolean }>;
   unwatchCodeIndex(root: string): Promise<void>;

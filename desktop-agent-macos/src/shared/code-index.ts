@@ -42,3 +42,28 @@ export interface CodeIndexSearchResult {
   context?: string;
   contextMeta?: { used: number; omitted: number; stale: boolean };
 }
+
+
+export interface CodeIndexMemoryInput {
+  root: string;
+  kind: 'fact' | 'decision' | 'constraint' | 'issue' | 'solution' | 'debate';
+  title: string;
+  content: string;
+  source: string;
+  sourceRef?: string;
+  status?: 'candidate' | 'confirmed';
+  confidence?: number;
+}
+
+export interface CodeIndexMemory {
+  projectId: string;
+  factId: string;
+  kind: CodeIndexMemoryInput['kind'];
+  title: string;
+  content: string;
+  source: string;
+  status: 'candidate' | 'confirmed' | 'deprecated';
+  confidence: number;
+  createdAt: number;
+  updatedAt: number;
+}

@@ -3802,6 +3802,39 @@ function registerIpc() {
     return codeIndexService.summary(root);
   });
 
+  ipcMain.handle('code-index:remember', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as {
+      root?: unknown;
+      kind?: unknown;
+      title?: unknown;
+      content?: unknown;
+      source?: unknown;
+      sourceRef?: unknown;
+      status?: unknown;
+      confidence?: unknown;
+    };
+    if (typeof input.root !== 'string' || !input.root.trim()) throw new Error('需要工作区路径');
+    if (typeof input.title !== 'string' || !input.title.trim()) throw new Error('记忆需要标题');
+    if (typeof input.content !== 'string' || !input.content.trim()) throw new Error('记忆需要内容');
+    if (typeof input.source !== 'string' || !input.source.trim()) throw new Error('记忆需要来源');
+    if (!['fact', 'decision', 'constraint', 'issue', 'solution', 'debate'].includes(String(input.kind))) {
+      throw new Error('记忆类型不合法');
+    }
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    const status = input.status === 'confirmed' ? 'confirmed' : 'candidate';
+    return codeIndexService.remember(input.root, {
+      kind: input.kind as 'fact' | 'decision' | 'constraint' | 'issue' | 'solution' | 'debate',
+      title: input.title.trim(),
+      content: input.content.trim(),
+      source: input.source.trim(),
+      ...(typeof input.sourceRef === 'string' ? { sourceRef: input.sourceRef } : {}),
+      status,
+      ...(typeof input.confidence === 'number' ? { confidence: input.confidence } : {})
+    });
+  });
+
   ipcMain.handle('code-index:watch', (event, root: unknown) => {
     trustedUiSender(event);
     if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');

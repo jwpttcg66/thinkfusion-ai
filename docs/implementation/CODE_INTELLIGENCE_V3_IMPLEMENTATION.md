@@ -169,7 +169,9 @@ node scripts/check-code-index-live.mjs
 - 显示 READY generation、文件/节点/边/文档数；
 - 「建立/更新索引」；
 - 搜索框 + CODE / MEMORY / HYBRID；
-- 结果带路径、行号、来源、置信度；可展开组装后的上下文。
+- 结果带路径、行号、来源、置信度；可展开组装后的上下文；
+- 「记住一条工程事实」：用户选中决策/约束/事实，保存为 confirmed 记忆，
+  切到 MEMORY 模式即可检索。
 
 真机 UI 验证：切换工程工作区到本仓库，建立索引后搜 `runCodingTeam`，
 面板返回 6 条，第一条是 `src/main/coding/team.ts` 的 FTS5/CodeGraph 结果。

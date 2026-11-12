@@ -16,6 +16,10 @@ export function CodeIndexPanel(props: { root: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [lastRequest, setLastRequest] = useState('');
+  const [memoryKind, setMemoryKind] = useState<'decision' | 'constraint' | 'fact' | 'issue' | 'solution' | 'debate'>('decision');
+  const [memoryTitle, setMemoryTitle] = useState('');
+  const [memoryContent, setMemoryContent] = useState('');
+  const [memoryNote, setMemoryNote] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -78,6 +82,27 @@ export function CodeIndexPanel(props: { root: string }) {
     }
   };
 
+  const saveMemory = async () => {
+    if (!memoryTitle.trim() || !memoryContent.trim()) return;
+    setMemoryNote('');
+    try {
+      await window.agentAPI.rememberCodeMemory({
+        root: props.root,
+        kind: memoryKind,
+        title: memoryTitle.trim(),
+        content: memoryContent.trim(),
+        source: 'user',
+        status: 'confirmed',
+        confidence: 0.95
+      });
+      setMemoryTitle('');
+      setMemoryContent('');
+      setMemoryNote('已保存为已确认记忆；切到「只看工程记忆」可检索。');
+    } catch (next) {
+      setMemoryNote(next instanceof Error ? next.message : String(next));
+    }
+  };
+
   return (
     <section className="card code-index-card">
       <div className="row">
@@ -119,6 +144,25 @@ export function CodeIndexPanel(props: { root: string }) {
           检索
         </button>
       </div>
+      <details className="code-index-memory">
+        <summary>记住一条工程事实</summary>
+        <div className="code-index-memory-form">
+          <select value={memoryKind} onChange={event => setMemoryKind(event.target.value as typeof memoryKind)}>
+            <option value="decision">决策</option>
+            <option value="constraint">约束</option>
+            <option value="fact">事实</option>
+            <option value="issue">历史问题</option>
+            <option value="solution">解决方案</option>
+            <option value="debate">辩论结论</option>
+          </select>
+          <input value={memoryTitle} onChange={event => setMemoryTitle(event.target.value)} placeholder="标题，例如：订单必须幂等" />
+          <textarea value={memoryContent} onChange={event => setMemoryContent(event.target.value)} rows={3} placeholder="内容与依据" />
+          <button className="btn" type="button" disabled={!memoryTitle.trim() || !memoryContent.trim()} onClick={() => void saveMemory()}>
+            保存为已确认
+          </button>
+          {memoryNote && <p className="muted">{memoryNote}</p>}
+        </div>
+      </details>
       {error && <div className="error">{error}</div>}
       {result && (
         <div className="code-index-result">
