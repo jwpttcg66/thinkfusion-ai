@@ -1,5 +1,8 @@
 # Java 优先实施计划审核
 
+> 本文件审核的是 V1「Java 优先版」。2026-11-12 的 V2.0 Agentic Search 修订已由
+> `CODE_INTELLIGENCE_AGENTIC_SEARCH_REVIEW.md` 复审；当前结论以新文件为准。
+
 - 审核对象：`/Users/yalla/Downloads/制定辩论主题方案 (8)-20261112-2005-7.md`
 - 审核基线：`4cfd972a81e7fba27848bf6010eeaa1f3d1aa01f`（0.2.0）
 - 审核日期：2026-11-12
