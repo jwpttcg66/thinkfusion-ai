@@ -144,6 +144,8 @@ const api: AgentApi = {
   buildCodeVectors: (root: string) => ipcRenderer.invoke('code-index:vectors', root),
   searchCodeIndex: (input: unknown) => ipcRenderer.invoke('code-index:search', input),
   rememberCodeMemory: (input: unknown) => ipcRenderer.invoke('code-index:remember', input),
+  listCodeMemories: (root: string) => ipcRenderer.invoke('code-index:memories', root),
+  linkCodeMemory: (input: unknown) => ipcRenderer.invoke('code-index:link', input),
   watchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:watch', root),
   unwatchCodeIndex: (root: string) => ipcRenderer.invoke('code-index:unwatch', root),
 

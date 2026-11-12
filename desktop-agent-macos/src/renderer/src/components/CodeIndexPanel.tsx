@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { CodeIndexMode, CodeIndexSearchResult, CodeIndexStatus } from '../../../shared/code-index';
+import type { CodeIndexMemory, CodeIndexMode, CodeIndexSearchResult, CodeIndexStatus } from '../../../shared/code-index';
 
 /**
  * 工程索引面板：让本地方案 A/B 在界面上真的可用。
@@ -21,6 +21,9 @@ export function CodeIndexPanel(props: { root: string }) {
   const [memoryContent, setMemoryContent] = useState('');
   const [memoryNote, setMemoryNote] = useState('');
   const [vectorNote, setVectorNote] = useState('');
+  const [memories, setMemories] = useState<CodeIndexMemory[]>([]);
+  const [linkMemoryId, setLinkMemoryId] = useState('');
+  const [linkNote, setLinkNote] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -47,6 +50,21 @@ export function CodeIndexPanel(props: { root: string }) {
       window.clearInterval(timer);
       void window.agentAPI.unwatchCodeIndex(props.root).catch(() => undefined);
     };
+  }, [props.root]);
+
+  const refreshMemories = async () => {
+    try {
+      const list = await window.agentAPI.listCodeMemories(props.root);
+      setMemories(list);
+      if (!linkMemoryId && list[0]) setLinkMemoryId(list[0].factId);
+    } catch {
+      // 记忆列表失败不挡检索
+    }
+  };
+
+  useEffect(() => {
+    void refreshMemories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.root]);
 
   const build = async () => {
@@ -114,8 +132,28 @@ export function CodeIndexPanel(props: { root: string }) {
       setMemoryTitle('');
       setMemoryContent('');
       setMemoryNote('已保存为已确认记忆；切到「只看工程记忆」可检索。');
+      await refreshMemories();
     } catch (next) {
       setMemoryNote(next instanceof Error ? next.message : String(next));
+    }
+  };
+
+  const linkItem = async (filePath: string, line: number) => {
+    if (!linkMemoryId) {
+      setLinkNote('先在下方选择一条记忆');
+      return;
+    }
+    try {
+      await window.agentAPI.linkCodeMemory({
+        root: props.root,
+        filePath,
+        line,
+        memoryEntityId: linkMemoryId,
+        linkType: 'HISTORY_EXPLAINS_CODE'
+      });
+      setLinkNote(`已关联：${filePath}:${String(line)}`);
+    } catch (next) {
+      setLinkNote(next instanceof Error ? next.message : String(next));
     }
   };
 
@@ -189,6 +227,19 @@ export function CodeIndexPanel(props: { root: string }) {
             {result.stale ? ' · 索引未 READY' : ''}
           </p>
           {result.warnings.map((warning, index) => <p key={index} className="muted">· {warning}</p>)}
+          {memories.length > 0 && (
+            <div className="code-index-link-row">
+              <span className="muted">关联到记忆</span>
+              <select value={linkMemoryId} onChange={event => setLinkMemoryId(event.target.value)}>
+                {memories.map(memory => (
+                  <option key={memory.factId} value={memory.factId}>
+                    [{memory.status}] {memory.title}
+                  </option>
+                ))}
+              </select>
+              {linkNote && <span className="muted">{linkNote}</span>}
+            </div>
+          )}
           {result.items.length === 0 ? (
             <p className="muted">没有命中；这不等于事实不存在。</p>
           ) : (
@@ -205,6 +256,11 @@ export function CodeIndexPanel(props: { root: string }) {
                   <span className="muted">{item.source} · {item.confidence.toFixed(2)}</span>
                   {item.status && <span className="exec-badge is-possible">{item.status}</span>}
                   <p>{item.content.slice(0, 280)}</p>
+                  {item.kind === 'code' && item.filePath && item.source !== 'CGC' && (
+                    <button className="btn ghost" type="button" onClick={() => void linkItem(item.filePath!, item.line ?? 1)}>
+                      关联到选中记忆
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

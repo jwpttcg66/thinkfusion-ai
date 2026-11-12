@@ -5381,3 +5381,20 @@ button:disabled {
 .code-index-memory-form input { flex: 1 1 240px; }
 .code-index-memory-form textarea { flex: 1 1 100%; resize: vertical; }
 .code-index-memory-form .muted { flex: 1 1 100%; margin: 0; }
+
+.code-index-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.code-index-link-row select {
+  max-width: 260px;
+  padding: 5px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
+}

@@ -3804,6 +3804,37 @@ function registerIpc() {
     return codeIndexService.summary(root);
   });
 
+  ipcMain.handle('code-index:memories', async (event, root: unknown) => {
+    trustedUiSender(event);
+    if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return codeIndexService.memories(root);
+  });
+
+  ipcMain.handle('code-index:link', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (!raw || typeof raw !== 'object') throw new Error('无效输入');
+    const input = raw as {
+      root?: unknown;
+      filePath?: unknown;
+      line?: unknown;
+      memoryEntityId?: unknown;
+      linkType?: unknown;
+    };
+    if (typeof input.root !== 'string' || !input.root.trim()) throw new Error('需要工作区路径');
+    if (typeof input.filePath !== 'string' || !input.filePath.trim()) throw new Error('需要代码路径');
+    const line = Number(input.line);
+    if (!Number.isInteger(line) || line < 1) throw new Error('需要有效行号');
+    if (typeof input.memoryEntityId !== 'string' || !input.memoryEntityId) throw new Error('需要记忆 id');
+    if (!codeIndexService) throw new Error('代码索引未初始化');
+    return codeIndexService.linkMemory(input.root, {
+      filePath: input.filePath,
+      line,
+      memoryEntityId: input.memoryEntityId,
+      ...(typeof input.linkType === 'string' ? { linkType: input.linkType } : {})
+    });
+  });
+
   ipcMain.handle('code-index:vectors', async (event, root: unknown) => {
     trustedUiSender(event);
     if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');

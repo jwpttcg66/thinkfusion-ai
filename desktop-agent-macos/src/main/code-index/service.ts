@@ -362,6 +362,35 @@ export class CodeIndexService {
     return this.store.searchMemory(projectIdFor(root), query, limit);
   }
 
+  async memories(rootInput: string, limit = 50): Promise<ReturnType<CodeIndexStore['listMemory']>> {
+    const root = await fs.realpath(rootInput);
+    return this.store.listMemory(projectIdFor(root), undefined, limit);
+  }
+
+  async linkMemory(
+    rootInput: string,
+    input: { filePath: string; line: number; memoryEntityId: string; linkType?: string }
+  ): Promise<ReturnType<typeof linkSymbolToMemory>> {
+    const root = await fs.realpath(rootInput);
+    await this.ensureFresh(root);
+    const projectId = projectIdFor(root);
+    const node = this.store.nodeAt(projectId, input.filePath, input.line);
+    if (!node) throw new Error(`这条结果没有对应的代码符号：${input.filePath}:${String(input.line)}`);
+    return linkSymbolToMemory(this.store, {
+      projectId,
+      language: node.language,
+      filePath: node.filePath,
+      qualifiedName: node.qualifiedName,
+      kind: node.nodeType,
+      startLine: node.startLine,
+      endLine: node.endLine,
+      fingerprint: `${node.nodeType}:${node.qualifiedName}`,
+      memoryEntityId: input.memoryEntityId,
+      linkType: input.linkType ?? 'HISTORY_EXPLAINS_CODE',
+      confidence: 0.9
+    });
+  }
+
   async links(rootInput: string, symbolKey: string): Promise<ReturnType<CodeIndexStore['linksForSymbol']>> {
     const root = await fs.realpath(rootInput);
     return this.store.linksForSymbol(projectIdFor(root), symbolKey);

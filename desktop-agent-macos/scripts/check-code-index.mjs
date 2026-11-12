@@ -235,6 +235,12 @@ test('CodeIndexService：索引/摘要/检索/影响/记忆/Link 走同一入口
     assert.equal(fact.status, 'confirmed');
     const memories = await service.memory(path.join(root, 'src'), '订单');
     assert.ok(memories.length >= 1);
+    const link = await service.linkMemory(path.join(root, 'src'), {
+      filePath: 'a.ts',
+      line: 2,
+      memoryEntityId: memories[0].factId
+    });
+    assert.ok(link.symbolKey.startsWith('p_'));
   } finally {
     service.close();
   }

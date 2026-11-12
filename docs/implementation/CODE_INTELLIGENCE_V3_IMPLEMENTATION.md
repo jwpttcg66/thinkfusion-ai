@@ -189,7 +189,15 @@ node scripts/check-code-index-live.mjs
   Vector；`code-index.sqlite` 已是 user_version=3，`code_vectors` 500 行；
 - UI 面板增加「建向量」按钮与向量计数。
 
-### 3.5 可选外部 Adapter（CGC / Graphiti）
+### 3.5 Code-Memory Link UI
+
+- 面板检索结果上方增加一条记忆选择器；
+- 代码结果带「关联到选中记忆」按钮；
+- 通过 `code-index:link` 找当前 file:line 的节点，写入 `code_memory_link`；
+- 只对本地来源显示按钮，CGC 的外部 `/work` 路径不会误绑本地节点；
+- `code-index:memories` 提供当前工程的记忆列表。
+
+### 3.6 可选外部 Adapter（CGC / Graphiti）
 
 `src/main/code-index/external.ts` + `neo4j-http.ts`：
 

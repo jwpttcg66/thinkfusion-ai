@@ -539,6 +539,8 @@ export function createMockApi(): AgentApi {
     buildCodeVectors: async () => ({ count: 0, model: 'preview' }),
     searchCodeIndex: async () => ({ items: [], sources: { graph: false, fullText: false, memory: false, vector: false }, warnings: ['预览环境没有真实工程'], stale: true }),
     rememberCodeMemory: async () => { throw new Error('预览环境不能写工程记忆'); },
+    listCodeMemories: async () => [],
+    linkCodeMemory: async () => { throw new Error('预览环境不能关联记忆'); },
     watchCodeIndex: async () => ({ watching: false }),
     unwatchCodeIndex: async () => undefined,
     extractPage: async () => ({

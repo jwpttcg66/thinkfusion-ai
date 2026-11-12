@@ -74,3 +74,22 @@ export interface CodeIndexVectorResult {
   count: number;
   model: string;
 }
+
+
+export interface CodeIndexLinkInput {
+  root: string;
+  filePath: string;
+  line: number;
+  memoryEntityId: string;
+  linkType?: string;
+}
+
+export interface CodeIndexLink {
+  id: string;
+  projectId: string;
+  symbolKey: string;
+  memoryEntityId: string;
+  linkType: string;
+  confidence: number;
+  status: string;
+}
