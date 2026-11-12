@@ -229,3 +229,15 @@ CGC/Graphiti/Neo4j 因本机缺少 Python 3.12/Neo4j 环境，保持 `SPECIFIED`
 - `src/main/code-index/retrieval.ts`：规则路由、检索、上下文组装、记忆、Link；
 - `test:code-index` 9 条；真机 212 文件、6667 节点、26803 边、1.8s、21.7MB。
 - 详见 [CODE_INTELLIGENCE_V3_IMPLEMENTATION.md](./CODE_INTELLIGENCE_V3_IMPLEMENTATION.md)。
+
+
+## 10. Gate 0 Podman PoC（2026-11-12）
+
+- Podman 5.8.2 / arm64 可用；
+- CGC 0.6.13 + Neo4j 5.26：3 文件（TS/Java）索引通过，5 CALLS，
+  `processOrder` 的 caller 是 `b.ts:2`；
+- Graphiti 0.31.2 + Neo4j + Ollama：`gpt-oss:20b` 抽取、`all-minilm` embedding，
+  3 条 Episode 写入并检索到“订单重复扣款/幂等”事实；
+- `structured_output_mode="json_object"` 失败，`json_schema` 通过；
+- 同一 Neo4j 实例的两个数据域，不是双实例；正式集成/资源测试仍未做。
+- 详见 `CODE_INTELLIGENCE_GATE0_PODMAN.md`。

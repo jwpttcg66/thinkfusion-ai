@@ -36,17 +36,85 @@ cd desktop-agent-macos
 4. 在 Python 3.12 容器里安装 `graphiti-core[neo4j]`，用
    `gpt-oss:20b` + `all-minilm` 写 3 条工程记忆并检索。
 
-## 3. 当前结果
+## 3. 实际结果
 
-- `python:3.12-slim`：已拉取，Python 3.12.16；
-- `all-minilm`：已拉取；
-- CGC：容器已启动，`pip install` 仍在下载依赖（约 6 分钟，pip cache 19MB，
-  网络约 400 KB/s）；
-- Neo4j：镜像层仍在拉取；
-- Graphiti：等 Neo4j/CGC 后执行。
+### 3.1 CGC：通过
 
-因此本记录**不宣称 CGC/Graphiti 已通过**。这是网络/镜像拉取阻塞，不是
-本地回退核的失败；本地核 `test:code-index` 15 条、`npm test` 全绿。
+容器内 `codegraphcontext 0.6.13`，后端切到 Neo4j：
+
+```bash
+cgc config db neo4j
+NEO4J_URI=bolt://<neo4j-ip>:7687 \
+NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpass \
+cgc index /work
+```
+
+输出：
+
+```
+Total scanned files 3
+Files by extension .java:1, .ts:2
+Function nodes 5
+Class nodes 2
+CALLS edges 5
+Successfully finished indexing: /work in 31.20 seconds
+```
+
+`cgc analyze callers processOrder`：
+
+```
+Caller Function  run
+Location         /work/src/b.ts:2
+Call Type        Project
+Total: 1 caller(s)
+```
+
+说明：CGC 默认 FalkorDB Lite 在这个容器里启动后长时间停在 indexing；
+切到 Neo4j 后端后通过。CGC 的 Java/TS 都是 Tree-sitter 级结果，不是
+tsserver 级精确调用；这条结果只证明“能索引/能查 callers”，不证明
+“与编译器结果完全一致”。
+
+### 3.2 Graphiti：通过
+
+同一 Neo4j 实例，Ollama `gpt-oss:20b` 做抽取，`all-minilm` 做 embedding：
+
+```bash
+STRUCTURED_MODE=json_schema \
+OLLAMA_BASE=http://host.containers.internal:11434/v1 \
+python /work/poc.py
+```
+
+输出：
+
+```
+added episode 0
+added episode 1
+added episode 2
+FACT 订单服务需要 processOrder 的幂等性以避免重复扣款
+valid_at 2026-11-12 09:14:11.306313+00:00
+```
+
+说明：
+
+- `structured_output_mode="json_object"` 失败：模型返回了 JSON Schema 本身，
+  不是 `ExtractedEntities` 数据，Pydantic 报 `extracted_entities Field required`；
+- 改成 `json_schema` 后通过；
+- 3 条 Episode 写入、实体/关系抽取、检索、时间字段都跑通；
+- 目前是同一 Neo4j 实例的两个数据域，不是双实例；
+- Graphiti 使用 `all-minilm` 384 维，脚本里的 embedding_dim 与它一致。
+
+### 3.3 环境问题
+
+- Podman machine 中途重启过一次，Neo4j 容器 IP 从 `10.88.0.10` 变为
+  `10.88.0.5`；脚本已改为 `podman inspect` 取动态 IP。
+- `graphiti-core` 0.31.2 的 `[neo4j]` extra 不存在，实际需要显式安装
+  `httpx openai neo4j`。
+- CGC 的默认 FalkorDB Lite 在容器里启动后卡住；Neo4j 后端通过。
+
+### 3.4 资源
+
+本次 PoC 未做完整的内存/CPU 压测；只验证链路。两套图库/记忆是否上正式
+版本，仍需 Gate 3 的资源测试。
 
 ## 4. 通过标准（脚本应输出）
 

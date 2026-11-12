@@ -182,9 +182,9 @@ node scripts/check-code-index-live.mjs
 
 | 能力 | 状态 | 原因 |
 | --- | --- | --- |
-| CGC 集成 | SPECIFIED | 无 Python 3.12 / CGC 运行环境 |
-| Graphiti 集成 | SPECIFIED | 无 Python 3.12 / Neo4j / embedding 模型 |
-| Neo4j | SPECIFIED | 未安装；GPLv3 分发未定 |
+| CGC 集成 | PoC 通过（Podman + Neo4j）；正式集成未做 | 见 `CODE_INTELLIGENCE_GATE0_PODMAN.md` |
+| Graphiti 集成 | PoC 通过（Podman + Neo4j + Ollama）；正式集成未做 | 同上 |
+| Neo4j | PoC 通过（Podman）；正式分发/许可证未定 | 同上 |
 | VectorStore | SPECIFIED | 没有 embedding 模型，未做召回验证 |
 | 增量索引 worker / 文件 watcher | 未做 | 当前每次全量索引；需要 P5 |
 | Outbox 执行器 / Reconciliation | 表已建，执行器未做 | 需要 P5 |

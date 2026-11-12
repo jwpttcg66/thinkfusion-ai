@@ -42,9 +42,11 @@ done
 podman exec tf-neo4j cypher-shell -u neo4j -p testpass 'RETURN 1' >/dev/null
 
 echo '== Graphiti =='
+# Podman 的容器名 DNS 在默认 bridge 上不一定可用；用实际 IP 更稳。
+NEO4J_IP="$(podman inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' tf-neo4j)"
 podman run --rm --network podman \
-  -e NEO4J_URI=bolt://tf-neo4j:7687 -e NEO4J_USER=neo4j -e NEO4J_PASSWORD=testpass \
+  -e NEO4J_URI="bolt://${NEO4J_IP}:7687" -e NEO4J_USER=neo4j -e NEO4J_PASSWORD=testpass \
   -e OLLAMA_BASE=http://host.containers.internal:11434/v1 \
-  -e OLLAMA_MODEL=gpt-oss:20b -e OLLAMA_EMBED=all-minilm \
+  -e OLLAMA_MODEL=gpt-oss:20b -e OLLAMA_EMBED=all-minilm -e STRUCTURED_MODE=json_schema \
   -v "$ROOT/scripts/poc-graphiti.py:/work/poc.py:Z" \
   python:3.12-slim bash -lc 'pip install -q "graphiti-core[neo4j]" && python /work/poc.py'

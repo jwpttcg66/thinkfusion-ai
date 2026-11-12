@@ -15,6 +15,7 @@ from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.nodes import EpisodeType
+from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://tf-neo4j:7687")
 NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
@@ -22,12 +23,14 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "testpass")
 OLLAMA = os.environ.get("OLLAMA_BASE", "http://host.containers.internal:11434/v1")
 MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 EMBED = os.environ.get("OLLAMA_EMBED", "all-minilm")
+STRUCTURED = os.environ.get("STRUCTURED_MODE", "json_schema")
 
 
 async def main() -> None:
+    config = LLMConfig(api_key="ollama", model=MODEL, small_model=MODEL, base_url=OLLAMA)
     llm = OpenAIGenericClient(
-        config=LLMConfig(api_key="ollama", model=MODEL, small_model=MODEL, base_url=OLLAMA),
-        structured_output_mode="json_object",
+        config=config,
+        structured_output_mode=STRUCTURED,
     )
     graphiti = Graphiti(
         NEO4J_URI,
@@ -42,6 +45,7 @@ async def main() -> None:
                 base_url=OLLAMA,
             )
         ),
+        cross_encoder=OpenAIRerankerClient(client=llm, config=config),
     )
     await graphiti.build_indices_and_constraints()
     episodes = [
