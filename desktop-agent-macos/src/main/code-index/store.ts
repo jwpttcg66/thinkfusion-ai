@@ -293,6 +293,40 @@ export class CodeIndexStore {
     `).run(projectId, filePath, contentHash, size, mtimeMs, generation, now());
   }
 
+  listFiles(projectId: string): Array<{ filePath: string; contentHash: string; size: number; mtimeMs: number; generation: number }> {
+    const rows = this.db.prepare(`
+      SELECT file_path, content_hash, size, mtime_ms, generation
+      FROM code_file_state WHERE project_id = ?
+    `).all(projectId) as Record<string, unknown>[];
+    return rows.map(row => ({
+      filePath: String(row.file_path),
+      contentHash: String(row.content_hash),
+      size: Number(row.size),
+      mtimeMs: Number(row.mtime_ms),
+      generation: Number(row.generation)
+    }));
+  }
+
+  /** 文件内容没变时，把它上一代的节点/边/文档原样推进到新 generation。 */
+  promoteFileGeneration(projectId: string, filePath: string, generation: number): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE code_nodes SET generation = ? WHERE project_id = ? AND file_path = ?')
+        .run(generation, projectId, filePath);
+      this.db.prepare('UPDATE code_edges SET generation = ? WHERE project_id = ? AND file_path = ?')
+        .run(generation, projectId, filePath);
+      this.db.prepare('UPDATE code_search_docs SET generation = ? WHERE project_id = ? AND file_path = ?')
+        .run(generation, projectId, filePath);
+      this.db.prepare(`
+        UPDATE code_file_state SET generation = ?, indexed_at = ? WHERE project_id = ? AND file_path = ?
+      `).run(generation, now(), projectId, filePath);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   fileHash(projectId: string, filePath: string): string | null {
     const row = this.db.prepare(`
       SELECT content_hash FROM code_file_state WHERE project_id = ? AND file_path = ?

@@ -12,7 +12,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CodeIndexStore } from './store';
-import { indexProject, type IndexProjectOptions, type IndexProjectResult } from './indexer';
+import { indexProject, scanSourceFiles, type IndexProjectOptions, type IndexProjectResult } from './indexer';
 import {
   assembleContext,
   linkSymbolToMemory,
@@ -66,6 +66,33 @@ export class CodeIndexService {
     return task;
   }
 
+  /** 编辑/新增/删除文件后，下一次检索前用轻量 stat 扫描判断是否要重建。 */
+  async ensureFresh(rootInput: string): Promise<void> {
+    const root = await fs.realpath(rootInput);
+    const projectId = projectIdFor(root);
+    if (this.store.currentGeneration(projectId) === null) {
+      await this.index(root);
+      return;
+    }
+    const previous = new Map(this.store.listFiles(projectId).map(file => [file.filePath, file]));
+    const current = await scanSourceFiles(root, { maxFiles: 1000 });
+    if (current.length !== previous.size) {
+      await this.index(root);
+      return;
+    }
+    for (const file of current) {
+      const old = previous.get(file.rel);
+      if (!old) {
+        await this.index(root);
+        return;
+      }
+      if (old.size !== file.size || Math.abs(old.mtimeMs - file.mtimeMs) > 1) {
+        await this.index(root);
+        return;
+      }
+    }
+  }
+
   async summary(rootInput: string): Promise<CodeIndexSummary> {
     const root = await fs.realpath(rootInput);
     const projectId = projectIdFor(root);
@@ -83,6 +110,7 @@ export class CodeIndexService {
     options: { mode?: KnowledgeMode; limit?: number } = {}
   ): Promise<RetrievalResult> {
     const root = await fs.realpath(rootInput);
+    await this.ensureFresh(root);
     return retrieve(this.store, projectIdFor(root), query, options);
   }
 
@@ -112,6 +140,7 @@ export class CodeIndexService {
     files: string[];
   }> {
     const root = await fs.realpath(rootInput);
+    await this.ensureFresh(root);
     const projectId = projectIdFor(root);
     const node = this.store.nodeAt(projectId, filePath, line);
     if (!node) return { node: null, nodes: 0, edges: 0, names: [], files: [] };

@@ -32,6 +32,8 @@ export interface IndexProjectOptions {
   maxFileBytes?: number;
   /** 不传就索引所有支持的 TS/JS 文件。 */
   include?: (relativePath: string) => boolean;
+  /** 默认 true：内容 hash 没变的文件只推进 generation，不重写节点/边。 */
+  incremental?: boolean;
 }
 
 export interface IndexProjectResult {
@@ -277,6 +279,55 @@ function resolveImport(fromRel: string, specifier: string, known: ReadonlySet<st
   return candidates.find(candidate => known.has(candidate)) ?? null;
 }
 
+export interface SourceFileMeta {
+  rel: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** 只看路径/大小/mtime，不读文件内容；用于判断索引是否过期。 */
+export async function scanSourceFiles(
+  rootInput: string,
+  options: { maxFiles?: number; include?: (relativePath: string) => boolean } = {}
+): Promise<SourceFileMeta[]> {
+  const root = await fs.realpath(rootInput);
+  const maxFiles = options.maxFiles ?? 1000;
+  const out: SourceFileMeta[] = [];
+
+  const visit = async (dir: string): Promise<void> => {
+    if (out.length >= maxFiles) return;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= maxFiles) return;
+      if (entry.name.startsWith('.git')) continue;
+      const abs = path.join(dir, entry.name);
+      const rel = path.relative(root, abs).split(path.sep).join('/');
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        await visit(abs);
+        continue;
+      }
+      if (!entry.isFile() || !GRAPH_EXT.test(rel)) continue;
+      if (options.include && !options.include(rel)) continue;
+      try {
+        const stat = await fs.lstat(abs);
+        if (stat.isSymbolicLink() || !stat.isFile()) continue;
+        out.push({ rel, size: stat.size, mtimeMs: stat.mtimeMs });
+      } catch {
+        // 文件在扫描过程中消失：当作不存在。
+      }
+    }
+  };
+
+  await visit(root);
+  return out;
+}
+
 export async function indexProject(
   store: CodeIndexStore,
   rootInput: string,
@@ -294,6 +345,9 @@ export async function indexProject(
   const generation = store.beginGeneration(projectId, `scan:${String(Date.now())}`);
   try {
     const known = new Set(files.map(file => file.rel));
+    for (const old of store.listFiles(projectId)) {
+      if (!known.has(old.filePath)) store.deleteFile(projectId, old.filePath);
+    }
     const byName = new Map<string, CodeNode[]>();
     const fileNodes = new Map<string, CodeNode>();
     const declarationNodes = new Map<string, CodeNode[]>();
@@ -458,10 +512,14 @@ export async function indexProject(
       }
     }
 
-    // 第三遍：按文件写节点、边、全文文档。
+    // 第三遍：内容没变的文件只推进 generation；变了的才重写。
     for (const file of files) {
       const fileNode = fileNodes.get(file.rel);
       if (!fileNode) continue;
+      if (options.incremental !== false && store.fileHash(projectId, file.rel) === file.hash) {
+        store.promoteFileGeneration(projectId, file.rel, generation);
+        continue;
+      }
       const seenNodeIds = new Set<string>();
       const localNodes = [fileNode, ...(declarationNodes.get(file.rel) ?? [])].filter(node => {
         if (seenNodeIds.has(node.nodeId)) return false;

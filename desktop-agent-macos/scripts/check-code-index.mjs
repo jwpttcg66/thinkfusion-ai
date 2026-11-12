@@ -304,3 +304,20 @@ test('code.search Runtime 插件把授权根注入主进程，模型不能自己
   assert.equal(calls[0].args.root, grant.rootDir);
   assert.equal(calls[0].args.query, 'OrderService');
 });
+
+
+test('ensureFresh：文件改动后下一次检索自动重建，不返回旧结果', async () => {
+  const service = new CodeIndexService(path.join(root, 'fresh.sqlite'));
+  try {
+    await service.index(path.join(root, 'src'));
+    assert.equal((await service.retrieve(path.join(root, 'src'), 'AUTH_777', { mode: 'CODE' })).items.length, 0);
+
+    const a = fs.readFileSync(path.join(root, 'src/a.ts'), 'utf8');
+    fs.writeFileSync(path.join(root, 'src/a.ts'), `${a}
+// 新错误码 AUTH_777\n`);
+    const after = await service.retrieve(path.join(root, 'src'), 'AUTH_777', { mode: 'CODE' });
+    assert.ok(after.items.length >= 1, '改动后的文件没有自动进入索引');
+  } finally {
+    service.close();
+  }
+});

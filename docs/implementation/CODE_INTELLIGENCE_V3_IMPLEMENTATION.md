@@ -87,6 +87,9 @@ Phase 0 实测：
 
 - `CodeIndexService`：按工作区真实路径生成 projectId，同一个 DB 内隔离；
 - `index` / `summary` / `retrieve` / `context` / `impact` / `remember` / `link`；
+- `ensureFresh`：检索前用轻量 `stat` 扫描比对文件集合/size/mtime；新增、删除、
+  修改都会触发重建，不把旧索引当最新结果；
+- 索引器默认增量：内容 hash 没变的文件只推进 generation，不重写节点/边；
 - 同一工程并发索引只跑一份（Promise 去重）。
 
 主进程新增只读能力 `code.search`：
