@@ -71,7 +71,7 @@ export function engineeringToolSystem(): string[] {
     '{"tool":"fs.stat|fs.readFile|fs.search|fs.list","args":{"path":"相对工程目录的路径，或附件的绝对路径"}}',
     'fs.stat 回字节数与总行数；fs.readFile 可选 offset/limit（行，默认第 1 行起 200 行）；',
     'fs.search 用 {"pattern":"正则","path":"可选起点"}；fs.list 列目录。',
-    '只能读工程目录与这一问附上的文件，不能写、不能执行命令；一次回答最多请求一次。',
+    '只能读工程目录与这一问附上的文件，不能写、不能执行命令；最多 4 轮，每轮只请求一个工具。',
     '能直接回答时就不要请求工具。'
   ];
 }
@@ -85,13 +85,15 @@ export function engineeringToolSystem(): string[] {
 export function buildToolFollowupQuestion(
   engineered: string,
   summary: string,
-  result: string
+  result: string,
+  history = ''
 ): string {
   return [
     engineered.trim(),
-    `【你请求的本机能力】${summary}`,
-    `【读取结果】\n${result}`,
-    '现在直接回答用户的问题。结论写明依据（路径:行号，或上面给出的行数/字节数）；确实读不到就写「无法确定」并说明缺什么，不要再请求工具。'
+    history ? `【之前的工具结果】\n${history}` : '',
+    `【本轮请求的本机能力】${summary}`,
+    `【本轮读取结果】\n${result}`,
+    '如果证据足够，现在直接回答用户的问题；结论写明依据（路径:行号，或上面给出的行数/字节数）。如果仍缺关键证据，可以再输出一次工具请求；不要编造读取结果。'
   ]
     .filter(Boolean)
     .join('\n\n');

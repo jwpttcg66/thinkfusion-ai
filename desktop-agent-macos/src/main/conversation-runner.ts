@@ -932,6 +932,7 @@ export class ConversationRunner {
       }, input.conversation);
 
     let answer = await ask(input.question);
+    let toolHistory = '';
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       if (input.sink.cancelled()) break;
       const request = parseToolRequest(answer.text);
@@ -970,7 +971,9 @@ export class ConversationRunner {
         // 因为它证明「文件确实被读了」，不是又一段流水账。
         input.trace?.note(`${target.label} 调用了本机能力：${result.summary}`);
         input.announce?.(`${target.label} 调用了本机能力：${result.summary}`);
-        answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
+        const prior = toolHistory;
+        toolHistory = `${toolHistory}\n\n【${result.summary}】\n${result.text}`.slice(-12_000);
+        answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text, prior));
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         input.trace?.endStep(toolStep, {
