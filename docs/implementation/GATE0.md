@@ -111,6 +111,14 @@ Gate 0 通过必须同时满足：
 - 多模型并行探索；
 - 完整 Evidence Pack UI。
 
+## 本轮验证记录（2026-11-13）
+
+- `npm run spike:gate0`：Tree-sitter Node、Electron + asar、Agentic Search、Build trust（静态 + 批准）全部 PASS。
+- `npm run typecheck`：通过。
+- `npm test`：全绿（含 `test:terminal`；修复了等待命令回显导致的竞态）。
+- `npm run build`：通过。
+- 真机启动 Electron：主界面加载，设置 → 工程智能可打开。
+
 ## 下一步
 
 1. 扩充 Java 夹具到 20 个，并把 spike 结果写入 `adr/0006`。
