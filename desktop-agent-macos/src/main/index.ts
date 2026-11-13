@@ -661,7 +661,7 @@ function rebuildChannels() {
 /**
  * 用 Ollama 的真实模型清单覆盖兜底值。
  *
- * 失败不抛：Ollama 没起是常见状态，兜底清单还在，health() 会逐条说明不可用。
+ * 失败不抛：Ollama 没起是常见状态，清单保持为空，health() 会逐条说明不可用。
  */
 async function refreshLocalModels(): Promise<void> {
   if (!localProvider) return;

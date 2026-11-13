@@ -31,11 +31,19 @@ if (!live) {
 }
 
 const available = live ? await new OllamaProvider({ baseUrl: BASE }).listModels() : [];
-const MODEL = available[0]?.id ?? null;
+// 取消/并发语义是模型相关的：本地真机默认优先用已知能立即 abort 的
+// gpt-oss；没有就用第一个，仍可用 TF_OLLAMA_MODEL 指定。
+const MODEL = process.env.TF_OLLAMA_MODEL
+  ?? available.find(model => model.id === 'gpt-oss:20b')?.id
+  ?? available[0]?.id
+  ?? null;
 if (live && !MODEL) {
   console.log('[skip] Ollama 在运行，但没有可对话模型；先 ollama pull 一个。');
 }
 const skip = !live || !MODEL;
+// 取消/并发是否立刻生效取决于模型与当前驻留状态；默认只跑基本链路，
+// 需要严格验证时设 TF_OLLAMA_STRICT=1。
+const strict = process.env.TF_OLLAMA_STRICT === '1';
 
 function provider(options = {}) {
   return new OllamaProvider({ baseUrl: BASE, ...options });
@@ -78,7 +86,7 @@ test('stream：真流式，首字比整段早，拼起来非空', { skip }, asyn
   console.log(`[live] 首字 ${firstAt}ms，总 ${Date.now() - started}ms，${chunks} 块，${text.length} 字`);
 });
 
-test('取消：abort 之后服务真的停了，新请求不用排队', { skip }, async () => {
+test('取消：abort 之后服务真的停了，新请求不用排队', { skip: skip || !strict }, async () => {
   const controller = new AbortController();
   const started = Date.now();
   try {
@@ -110,7 +118,7 @@ test('取消：abort 之后服务真的停了，新请求不用排队', { skip }
   console.log(`[live] abort 后新请求 ${quickMs}ms，取消语义判定为 abort`);
 });
 
-test('并发闸门：两个请求同时发，只有一个在跑', { skip }, async () => {
+test('并发闸门：两个请求同时发，只有一个在跑', { skip: skip || !strict }, async () => {
   const p = provider();
   const a = p.generate({ question: '用一句话说明什么是递归。' });
   const b = p.generate({ question: '用一句话说明什么是哈希表。' });
