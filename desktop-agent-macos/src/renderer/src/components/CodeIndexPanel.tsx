@@ -15,6 +15,7 @@ export function CodeIndexPanel(props: { root: string }) {
   const [result, setResult] = useState<CodeIndexSearchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [scanNote, setScanNote] = useState('');
   const [lastRequest, setLastRequest] = useState('');
   const [memoryKind, setMemoryKind] = useState<'decision' | 'constraint' | 'fact' | 'issue' | 'solution' | 'debate'>('decision');
   const [memoryTitle, setMemoryTitle] = useState('');
@@ -73,7 +74,9 @@ export function CodeIndexPanel(props: { root: string }) {
     setBusy(true);
     setError('');
     try {
-      setStatus(await window.agentAPI.buildCodeIndex(props.root));
+      const next = await window.agentAPI.buildCodeIndex(props.root);
+      setStatus(next);
+      setScanNote(next.warnings && next.warnings.length > 0 ? next.warnings.join('；') : '');
     } catch (next) {
       setError(next instanceof Error ? next.message : String(next));
     } finally {
@@ -187,6 +190,7 @@ export function CodeIndexPanel(props: { root: string }) {
               : `generation ${String(status.generation)}`}
         </span>
       </div>
+      {scanNote && <p className="muted">{scanNote}</p>}
       {status && status.generation !== null && (
         <p className="muted code-index-counts">
           {status.files} 文件 · {status.nodes} 节点 · {status.edges} 边 · {status.docs} 文档

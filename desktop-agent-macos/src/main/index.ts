@@ -3799,8 +3799,14 @@ function registerIpc() {
     trustedUiSender(event);
     if (typeof root !== 'string' || !root.trim()) throw new Error('代码索引需要工作区路径');
     if (!codeIndexService) throw new Error('代码索引未初始化');
-    await codeIndexService.index(root);
-    return codeIndexService.summary(root);
+    const result = await codeIndexService.index(root);
+    const summary = await codeIndexService.summary(root);
+    return {
+      ...summary,
+      complete: result.complete,
+      truncated: result.truncated,
+      warnings: result.warnings
+    };
   });
 
   ipcMain.handle('code-intelligence:get', (event) => {

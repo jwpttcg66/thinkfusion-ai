@@ -10,6 +10,10 @@ export interface CodeIndexStatus {
   edges: number;
   docs: number;
   vectors: number;
+  /** 最近一次建索引是否覆盖整个工程；不完整时不会删除未扫描旧索引。 */
+  complete?: boolean;
+  truncated?: boolean;
+  warnings?: string[];
 }
 
 export interface CodeIndexSearchInput {

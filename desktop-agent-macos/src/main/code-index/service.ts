@@ -13,7 +13,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CodeIndexStore } from './store';
-import { indexProject, scanSourceFiles, type IndexProjectOptions, type IndexProjectResult } from './indexer';
+import { DEFAULT_MAX_FILES, indexProject, scanSourceFilesDetailed, type IndexProjectOptions, type IndexProjectResult } from './indexer';
 import {
   assembleContext,
   linkSymbolToMemory,
@@ -147,7 +147,9 @@ export class CodeIndexService {
       return;
     }
     const previous = new Map(this.store.listFiles(projectId).map(file => [file.filePath, file]));
-    const current = await scanSourceFiles(root, { maxFiles: 1000 });
+    // 与 indexProject 使用同一个上限；否则 500/1000 不一致会让大工程每次检索都重建。
+    const scan = await scanSourceFilesDetailed(root, { maxFiles: DEFAULT_MAX_FILES });
+    const current = scan.files;
     if (current.length !== previous.size) {
       await this.index(root);
       return;

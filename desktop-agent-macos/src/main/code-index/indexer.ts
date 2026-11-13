@@ -21,10 +21,13 @@ import {
 import type { CodeEdge, CodeNode, CodeNodeType, SearchDoc } from './types';
 
 const IGNORED_DIRS = new Set([
-  'node_modules', '.git', '.svn', '.hg', 'dist', 'out', 'out-test', 'build', 'coverage',
+  'node_modules', '.git', '.svn', '.hg', 'dist', 'out', 'out-test', 'build', 'target',
+  '.gradle', '.mvn', 'bin', 'obj', 'coverage',
   '.next', '.nuxt', '.cache', '.idea', '.vscode', 'vendor', '__pycache__',
   'DerivedData', 'Pods', '.workbuddy', 'ui-preview', 'release'
 ]);
+/** 索引和 freshness 检查共用一个上限，避免 500/1000 不一致导致反复重建。 */
+export const DEFAULT_MAX_FILES = 500;
 const GRAPH_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|java)$/i;
 
 export interface IndexProjectOptions {
@@ -44,6 +47,10 @@ export interface IndexProjectResult {
   edges: number;
   docs: number;
   warnings: string[];
+  /** 本次扫描是否覆盖了整个工程。false 时禁止按本次结果删除旧文件。 */
+  complete: boolean;
+  /** 是否因 maxFiles 截断。 */
+  truncated: boolean;
 }
 
 interface Declaration {
@@ -273,26 +280,44 @@ function collectJava(text: string): {
   return { declarations, imports };
 }
 
+interface WalkResult {
+  files: FileIndex[];
+  complete: boolean;
+  truncated: boolean;
+}
+
 async function walk(
   root: string,
   options: Required<Pick<IndexProjectOptions, 'maxFiles' | 'maxFileBytes'>> & IndexProjectOptions,
   warnings: string[]
-): Promise<FileIndex[]> {
+): Promise<WalkResult> {
   const ts = await loadTypeScript();
   if (!ts) throw new Error('AST_UNAVAILABLE：没有找到 typescript 包，无法建立代码索引');
   const files: FileIndex[] = [];
+  let complete = true;
+  let truncated = false;
+  const markIncomplete = () => { complete = false; };
 
   const visit = async (dir: string): Promise<void> => {
-    if (files.length >= options.maxFiles) return;
+    if (files.length >= options.maxFiles) {
+      complete = false;
+      truncated = true;
+      return;
+    }
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
+      markIncomplete();
       warnings.push(`${path.relative(root, dir) || '.'} 读不到，已跳过`);
       return;
     }
     for (const entry of entries) {
-      if (files.length >= options.maxFiles) return;
+      if (files.length >= options.maxFiles) {
+        complete = false;
+        truncated = true;
+        return;
+      }
       if (entry.name.startsWith('.git')) continue;
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name)) continue;
@@ -308,6 +333,8 @@ async function walk(
       try {
         stat = await fs.lstat(abs);
       } catch {
+        markIncomplete();
+        warnings.push(`${rel} 状态读不到，已跳过`);
         continue;
       }
       if (stat.isSymbolicLink() || !stat.isFile()) continue;
@@ -319,6 +346,7 @@ async function walk(
       try {
         text = await fs.readFile(abs, 'utf8');
       } catch {
+        markIncomplete();
         warnings.push(`${rel} 读不到，已跳过`);
         continue;
       }
@@ -354,7 +382,7 @@ async function walk(
   };
 
   await visit(root);
-  return files;
+  return { files, complete, truncated };
 }
 
 function resolveImport(fromRel: string, specifier: string, known: ReadonlySet<string>): string | null {
@@ -374,25 +402,50 @@ export interface SourceFileMeta {
   mtimeMs: number;
 }
 
-/** 只看路径/大小/mtime，不读文件内容；用于判断索引是否过期。 */
-export async function scanSourceFiles(
+export interface SourceScanResult {
+  files: SourceFileMeta[];
+  complete: boolean;
+  truncated: boolean;
+  warnings: string[];
+}
+
+/**
+ * 只看路径/大小/mtime，不读文件内容；用于判断索引是否过期。
+ *
+ * `complete=false` 表示扫描没有覆盖整个工程（达到上限或目录读失败）。
+ * 调用方不得根据不完整结果删除旧索引。
+ */
+export async function scanSourceFilesDetailed(
   rootInput: string,
   options: { maxFiles?: number; include?: (relativePath: string) => boolean } = {}
-): Promise<SourceFileMeta[]> {
+): Promise<SourceScanResult> {
   const root = await fs.realpath(rootInput);
-  const maxFiles = options.maxFiles ?? 1000;
+  const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
   const out: SourceFileMeta[] = [];
+  const warnings: string[] = [];
+  let complete = true;
+  let truncated = false;
 
   const visit = async (dir: string): Promise<void> => {
-    if (out.length >= maxFiles) return;
+    if (out.length >= maxFiles) {
+      complete = false;
+      truncated = true;
+      return;
+    }
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
+      complete = false;
+      warnings.push(`${path.relative(root, dir) || '.'} 读不到，已跳过`);
       return;
     }
     for (const entry of entries) {
-      if (out.length >= maxFiles) return;
+      if (out.length >= maxFiles) {
+        complete = false;
+        truncated = true;
+        return;
+      }
       if (entry.name.startsWith('.git')) continue;
       const abs = path.join(dir, entry.name);
       const rel = path.relative(root, abs).split(path.sep).join('/');
@@ -408,13 +461,22 @@ export async function scanSourceFiles(
         if (stat.isSymbolicLink() || !stat.isFile()) continue;
         out.push({ rel, size: stat.size, mtimeMs: stat.mtimeMs });
       } catch {
-        // 文件在扫描过程中消失：当作不存在。
+        complete = false;
+        warnings.push(`${rel} 状态读不到，已跳过`);
       }
     }
   };
 
   await visit(root);
-  return out;
+  return { files: out, complete, truncated, warnings };
+}
+
+/** 兼容旧调用：只返回文件清单。需要完整性时必须用 `scanSourceFilesDetailed`。 */
+export async function scanSourceFiles(
+  rootInput: string,
+  options: { maxFiles?: number; include?: (relativePath: string) => boolean } = {}
+): Promise<SourceFileMeta[]> {
+  return (await scanSourceFilesDetailed(rootInput, options)).files;
 }
 
 export async function indexProject(
@@ -425,17 +487,25 @@ export async function indexProject(
 ): Promise<IndexProjectResult> {
   const root = await fs.realpath(rootInput);
   const warnings: string[] = [];
-  const files = await walk(root, {
-    maxFiles: options.maxFiles ?? 500,
+  const scanned = await walk(root, {
+    maxFiles: options.maxFiles ?? DEFAULT_MAX_FILES,
     maxFileBytes: options.maxFileBytes ?? 256 * 1024,
     include: options.include
   }, warnings);
+  const files = scanned.files;
+  if (!scanned.complete) {
+    warnings.push(
+      `扫描不完整（${String(files.length)} 个文件${scanned.truncated ? '，达到上限' : ''}）；本次不删除未扫描到的旧索引`
+    );
+  }
 
   const generation = store.beginGeneration(projectId, `scan:${String(Date.now())}`);
   try {
     const known = new Set(files.map(file => file.rel));
-    for (const old of store.listFiles(projectId)) {
-      if (!known.has(old.filePath)) store.deleteFile(projectId, old.filePath);
+    if (scanned.complete) {
+      for (const old of store.listFiles(projectId)) {
+        if (!known.has(old.filePath)) store.deleteFile(projectId, old.filePath);
+      }
     }
     const byName = new Map<string, CodeNode[]>();
     const fileNodes = new Map<string, CodeNode>();
@@ -653,7 +723,9 @@ export async function indexProject(
       nodes,
       edges,
       docs: docCount,
-      warnings
+      warnings,
+      complete: scanned.complete,
+      truncated: scanned.truncated
     };
   } catch (error) {
     store.failGeneration(projectId, generation, error instanceof Error ? error.message : String(error));

@@ -1,16 +1,16 @@
-# 工程智能产品形态：Core / Enhanced
+# 工程智能产品形态：Core / Enhanced / Managed
 
-日期：2026-11-12。依据：`制定辩论主题方案 (8)-20261112-1840-2.md`。
+日期：2026-11-12，2026-11-13 同步 Managed 实际状态。依据：`制定辩论主题方案 (8)-20261112-1840-2.md`。
 
 ## 1. 决策
 
 ```
 Core（默认）      本地 AST + SQLite + FTS5 + Vector + Project Memory
 Enhanced（可选）  连接外部 CGC / Graphiti / Neo4j
-Managed（后续）   ThinkFusion 自动管理 Python/Neo4j 生命周期
+Managed（部分）   ThinkFusion 管理本机 Neo4j 生命周期；Python/CGC/Graphiti 托管后续
 ```
 
-Core 必须永远可独立运行；Enhanced 是可选增强；Managed 暂不实现。
+Core 必须永远可独立运行；Enhanced 是可选增强；Managed 的本机 Neo4j 生命周期已实现，Python/CGC/Graphiti 托管仍未实现。
 
 ## 2. Core
 
@@ -66,7 +66,8 @@ THINKFUSION_NEO4J_PASSWORD
 | 路径 | 状态 |
 | --- | --- |
 | 外部 Neo4j/CGC/Graphiti 服务 | ✅ Adapter 已接，设置页可配 |
-| ThinkFusion 管理 Python/Neo4j | 未做，Managed 后续 |
+| 本机 Neo4j 启停/重启/版本/健康检查 | ✅ 已实现（用户提供安装目录） |
+| ThinkFusion 托管 Python/CGC/Graphiti | 未做，后续评估 |
 | Podman/Docker | 仅开发/PoC，不是用户前提 |
 
 ## 5. 尚未解决
@@ -74,7 +75,7 @@ THINKFUSION_NEO4J_PASSWORD
 1. Neo4j GPLv3 分发法律结论；
 2. Python 3.12 + CGC/Graphiti 的签名/公证/打包；
 3. 单实例 vs 双实例资源压测；
-4. Managed 生命周期（启动/停止/升级/清理）；
-5. 项目删除时外部数据同步清理。
+4. Python/CGC/Graphiti 托管生命周期（启动/停止/升级/清理）；
+5. Graphiti 按 project group_id 的映射与项目删除同步清理。
 
 这些是发布决策，不是 Core 功能阻塞项。

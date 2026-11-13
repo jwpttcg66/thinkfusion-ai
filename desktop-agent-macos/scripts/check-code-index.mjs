@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { CodeIndexStore, buildFtsQuery } from '../out-test/main/code-index/store.js';
-import { indexProject } from '../out-test/main/code-index/indexer.js';
+import { indexProject, scanSourceFilesDetailed } from '../out-test/main/code-index/indexer.js';
 import { CodeIndexService } from '../out-test/main/code-index/service.js';
 import { PlanSchema } from '../out/shared/contracts.js';
 import { localCapabilities } from '../out-test/agent/local-plugins.js';
@@ -411,5 +411,53 @@ test('deleteProject：本地索引/记忆/关联/向量一起清理', async () =
     assert.equal((await service.memories(path.join(root, 'src'))).length, 0);
   } finally {
     service.close();
+  }
+});
+
+
+test('扫描截断时不删除未扫描到的旧索引', async () => {
+  const truncRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-trunc-'));
+  const truncStore = new CodeIndexStore(path.join(truncRoot, 'index.sqlite'));
+  try {
+    for (const name of ['a.ts', 'b.ts', 'c.ts']) {
+      fs.writeFileSync(path.join(truncRoot, name), `export const ${name[0]} = 1;\n`);
+    }
+    fs.mkdirSync(path.join(truncRoot, 'target'), { recursive: true });
+    fs.writeFileSync(path.join(truncRoot, 'target', 'Generated.java'), 'class Generated {}\n');
+
+    const full = await indexProject(truncStore, truncRoot, 'trunc-project', { maxFiles: 10 });
+    assert.equal(full.complete, true);
+    assert.equal(full.files, 3, 'target/ 不应被当源码');
+
+    const partial = await indexProject(truncStore, truncRoot, 'trunc-project', { maxFiles: 1 });
+    assert.equal(partial.complete, false);
+    assert.equal(partial.truncated, true);
+    assert.ok(partial.warnings.some(item => item.includes('扫描不完整')));
+
+    const files = truncStore.listNodes('trunc-project').filter(node => node.nodeType === 'File');
+    assert.ok(files.some(node => node.filePath === 'b.ts'), '截断扫描不能删除 b.ts');
+    assert.ok(files.some(node => node.filePath === 'c.ts'), '截断扫描不能删除 c.ts');
+    assert.equal(files.some(node => node.filePath.startsWith('target/')), false);
+  } finally {
+    truncStore.close();
+    fs.rmSync(truncRoot, { recursive: true, force: true });
+  }
+});
+
+test('scanSourceFilesDetailed 如实报告截断', async () => {
+  const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-scan-'));
+  try {
+    for (const name of ['a.ts', 'b.ts']) fs.writeFileSync(path.join(scanRoot, name), 'export const x = 1;\n');
+    const full = await scanSourceFilesDetailed(scanRoot, { maxFiles: 10 });
+    assert.equal(full.complete, true);
+    assert.equal(full.truncated, false);
+    assert.equal(full.files.length, 2);
+
+    const partial = await scanSourceFilesDetailed(scanRoot, { maxFiles: 1 });
+    assert.equal(partial.complete, false);
+    assert.equal(partial.truncated, true);
+    assert.equal(partial.files.length, 1);
+  } finally {
+    fs.rmSync(scanRoot, { recursive: true, force: true });
   }
 });
