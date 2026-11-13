@@ -167,6 +167,12 @@ export class CodeIndexService {
     }
   }
 
+  /** 当前 READY generation；没有索引时为 null。用于搜索任务固定快照。 */
+  async generation(rootInput: string): Promise<number | null> {
+    const root = await fs.realpath(rootInput);
+    return this.store.currentGeneration(projectIdFor(root));
+  }
+
   async summary(rootInput: string): Promise<CodeIndexSummary> {
     const root = await fs.realpath(rootInput);
     const projectId = projectIdFor(root);

@@ -276,6 +276,13 @@ test('预算用完不再循环：一直请求也只按 MAX_TOOL_ROUNDS 轮', asy
   });
   await settle(runner, started.conversationId);
   assert.equal(asks.filter(input => input.stage === 'initial').length, MAX_TOOL_ROUNDS + 1);
+  const report = runner.messages(started.conversationId)
+    .filter(message => message.role === 'channel')
+    .map(message => message.text)
+    .join('\n');
+  assert.match(report, /Agentic Search 报告/);
+  assert.match(report, /终止原因/);
+  assert.match(report, /已取得的证据|未取得有效证据/);
 });
 
 test('模型正常回答时一次都不多问', async () => {

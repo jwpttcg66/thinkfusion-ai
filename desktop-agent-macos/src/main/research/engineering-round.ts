@@ -71,7 +71,7 @@ export function engineeringToolSystem(): string[] {
     '{"tool":"fs.stat|fs.readFile|fs.search|fs.list","args":{"path":"相对工程目录的路径，或附件的绝对路径"}}',
     'fs.stat 回字节数与总行数；fs.readFile 可选 offset/limit（行，默认第 1 行起 200 行）；',
     'fs.search 用 {"pattern":"正则","path":"可选起点"}；fs.list 列目录。',
-    '只能读工程目录与这一问附上的文件，不能写、不能执行命令；最多 4 轮，每轮只请求一个工具。',
+    '只能读工程目录与这一问附上的文件，不能写、不能执行命令；最多 8 轮，每轮只请求一个工具。',
     '能直接回答时就不要请求工具。'
   ];
 }

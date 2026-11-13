@@ -4376,6 +4376,7 @@ app.whenReady().then(async () => {
       if (!attachmentReader) throw new Error('附件读取还没初始化，这一问没有发出文件内容。');
       return attachmentReader(paths);
     },
+    generationFor: async root => codeIndexService?.generation(root) ?? null,
     /**
      * 工程空间的路由判定：模型主导（本地/云端/混合）时由模型判，网页主导按规则。
      * 只回一个标签，不读文件、不执行；判不了就返回 null，让规则兜底。
