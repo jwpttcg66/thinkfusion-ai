@@ -1,5 +1,7 @@
 # V3.2 Agentic Search Reliability 方案审核
 
+> V3.1 的重新审核见 `CODE_INTELLIGENCE_V3_1_REREVIEW.md`；当前执行主线以 V3.2 为准。
+
 - 审核对象：`/Users/yalla/Downloads/制定辩论主题方案 (10)-20261113-1618-2.md`
 - 当前代码：`0.2.0-v3` / `2ec1b3f`
 - 审核日期：2026-11-13
