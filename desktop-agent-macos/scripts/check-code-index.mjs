@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { DatabaseSync } from 'node:sqlite';
 import { CodeIndexStore, buildFtsQuery } from '../out-test/main/code-index/store.js';
 import { indexProject, scanSourceFilesDetailed } from '../out-test/main/code-index/indexer.js';
 import { CodeIndexService } from '../out-test/main/code-index/service.js';
@@ -71,6 +72,8 @@ test('索引真实 TS 工程：节点、CONTAINS / IMPORTS / CALLS 都能查', a
   assert.ok(symbols.length >= 1);
   const charge = symbols.find(node => node.nodeType === 'Function');
   assert.ok(charge, 'charge 函数节点不存在');
+  assert.equal(charge.symbolId, charge.nodeId);
+  assert.equal(charge.symbolStatus, 'confirmed');
 
   const incoming = store.getIncoming(projectId, charge.nodeId, ['CALLS']);
   assert.ok(incoming.length >= 1, '没有找到 charge 的调用者');
@@ -78,7 +81,10 @@ test('索引真实 TS 工程：节点、CONTAINS / IMPORTS / CALLS 都能查', a
   const order = store.findSymbols(projectId, 'processOrder')[0];
   assert.ok(order);
   const outgoing = store.getOutgoing(projectId, order.nodeId, ['CALLS']);
-  assert.ok(outgoing.some(edge => edge.targetNodeId === charge.nodeId));
+  const call = outgoing.find(edge => edge.targetNodeId === charge.nodeId);
+  assert.ok(call);
+  assert.equal(call.resolutionStatus, 'resolved');
+  assert.ok(call.callSiteId, 'CALLS 应带 callSiteId');
 
   const fileNode = store.findSymbols(projectId, 'a.ts').find(node => node.nodeType === 'File');
   assert.ok(fileNode);
@@ -350,6 +356,7 @@ test('Java 部分解析：类/方法节点与 CONTAINS，不生成假 CALLS', as
     const method = store.findSymbols('java-project', 'processOrder')[0];
     assert.ok(method);
     assert.equal(method.nodeType, 'Method');
+    assert.equal(cls.symbolStatus, 'provisional', 'Gate 1A 不冻结 Java 身份');
     const contains = store.getOutgoing('java-project', cls.nodeId, ['CONTAINS']);
     assert.ok(contains.some(edge => edge.targetNodeId === method.nodeId));
     assert.equal(store.getIncoming('java-project', method.nodeId, ['CALLS']).length, 0, 'Java 回退不伪造 CALLS');
@@ -459,5 +466,66 @@ test('scanSourceFilesDetailed 如实报告截断', async () => {
     assert.equal(partial.files.length, 1);
   } finally {
     fs.rmSync(scanRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('Schema v4：v3 库加法迁移，回填 symbol_id 和边状态', () => {
+  const file = path.join(root, 'legacy-v3.sqlite');
+  const legacy = new DatabaseSync(file);
+  legacy.exec(`
+    CREATE TABLE code_nodes (
+      project_id TEXT NOT NULL, node_id TEXT NOT NULL, node_type TEXT NOT NULL,
+      name TEXT NOT NULL, qualified_name TEXT NOT NULL, file_path TEXT NOT NULL,
+      start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, language TEXT NOT NULL,
+      generation INTEGER NOT NULL, PRIMARY KEY (project_id, node_id)
+    );
+    CREATE TABLE code_edges (
+      project_id TEXT NOT NULL, edge_id TEXT NOT NULL, source_node_id TEXT NOT NULL,
+      target_node_id TEXT NOT NULL, relation_type TEXT NOT NULL, confidence TEXT NOT NULL,
+      source TEXT NOT NULL, file_path TEXT, line INTEGER, generation INTEGER NOT NULL,
+      PRIMARY KEY (project_id, edge_id)
+    );
+    CREATE TABLE code_vectors (
+      project_id TEXT NOT NULL, chunk_id TEXT NOT NULL, doc_id TEXT NOT NULL,
+      file_path TEXT NOT NULL, node_id TEXT, content_hash TEXT NOT NULL,
+      model TEXT NOT NULL, dim INTEGER NOT NULL, vector BLOB NOT NULL,
+      content TEXT NOT NULL, updated_at INTEGER NOT NULL,
+      PRIMARY KEY (project_id, chunk_id)
+    );
+    INSERT INTO code_nodes VALUES ('p', 'n1', 'Class', 'A', 'A', 'a.ts', 1, 2, 'typescript', 1);
+    INSERT INTO code_edges VALUES ('p', 'e1', 'n1', 'n1', 'CALLS', 'HIGH', 'AST', 'a.ts', 2, 1);
+    PRAGMA user_version = 3;
+  `);
+  legacy.close();
+
+  const migrated = new CodeIndexStore(file);
+  try {
+    const node = migrated.getNode('p', 'n1');
+    assert.equal(node.symbolId, 'n1');
+    assert.equal(node.symbolStatus, 'confirmed');
+    const edge = migrated.getOutgoing('p', 'n1', ['CALLS'])[0];
+    assert.equal(edge.resolutionStatus, 'resolved');
+  } finally {
+    migrated.close();
+  }
+});
+
+
+test('Integrity Checker：发现跨文件删除留下的悬空边', async () => {
+  const integrityRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-integrity-'));
+  const integrityStore = new CodeIndexStore(path.join(integrityRoot, 'index.sqlite'));
+  try {
+    fs.writeFileSync(path.join(integrityRoot, 'a.ts'), 'export const a = 1;\n');
+    fs.writeFileSync(path.join(integrityRoot, 'b.ts'), "import { a } from './a';\nexport const b = a;\n");
+    await indexProject(integrityStore, integrityRoot, 'integrity-project');
+    assert.equal(integrityStore.integrity('integrity-project').danglingEdges, 0);
+    integrityStore.deleteFile('integrity-project', 'a.ts');
+    const report = integrityStore.integrity('integrity-project');
+    assert.ok(report.danglingEdges > 0, JSON.stringify(report));
+    assert.ok(report.issues.some(item => item.includes('悬空边')));
+  } finally {
+    integrityStore.close();
+    fs.rmSync(integrityRoot, { recursive: true, force: true });
   }
 });

@@ -39,6 +39,15 @@ async function readUntil(sessionId, needle, attempts = 20) {
   return last;
 }
 
+/** 把已经产生的输出读到 cursor 末尾，避免下一条命令读到上一条的残留。 */
+async function drain(sessionId) {
+  for (let index = 0; index < 30; index += 1) {
+    const result = readTerminal(sessionId, 40_000);
+    if (result.pending === 0) return;
+    await settle(50);
+  }
+}
+
 test.after(async () => {
   closeAllTerminals();
   await rm(root, { recursive: true, force: true });
@@ -60,7 +69,8 @@ test('开一个终端、写命令、读到真实输出', async () => {
 test('read 只返回上次之后的新输出，truncated 说清楚还有没有', async () => {
   const opened = openTerminal(root);
   sendTerminal(opened.sessionId, 'echo first-line', true);
-  await readUntil(opened.sessionId, 'first-line\r\n');
+  await settle(500);
+  await drain(opened.sessionId);
 
   sendTerminal(opened.sessionId, 'echo second-line', true);
   const second = await readUntil(opened.sessionId, 'second-line\r\n');

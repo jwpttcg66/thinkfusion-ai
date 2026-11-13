@@ -97,7 +97,7 @@
 进行中。Gate 0 先建骨架：
 
 - 15 个 Java 语法夹具（已完成）；
-- 5 个 Agentic Search 问题及期望组件/文件行号；
+- 5 个 Agentic Search 问题及期望组件/文件行号；见 `GATE0_BENCHMARK.md`；
 - Java 21 单模块、Java 21 多模块（含同名类）、Maven、Gradle Kotlin DSL、最小 Spring Boot；
 - Java 8/11/17 后补。
 

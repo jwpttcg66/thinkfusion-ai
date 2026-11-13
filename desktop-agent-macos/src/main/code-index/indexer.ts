@@ -529,7 +529,8 @@ export async function indexProject(
         startLine: 1,
         endLine: file.text.split('\n').length,
         language: file.language,
-        generation
+        generation,
+        ...(file.language === 'java' ? { symbolStatus: 'provisional' as const } : {})
       };
       fileNodes.set(file.rel, fileNode);
       allNodes.set(fileNode.nodeId, fileNode);
@@ -548,7 +549,8 @@ export async function indexProject(
           startLine: declaration.startLine,
           endLine: declaration.endLine,
           language: file.language,
-          generation
+          generation,
+          ...(file.language === 'java' ? { symbolStatus: 'provisional' as const } : {})
         };
         localNodes.push(node);
         localDeclarations.push(node);
@@ -665,7 +667,9 @@ export async function indexProject(
             source: 'AST',
             filePath: file.rel,
             line: call.line,
-            generation
+            generation,
+            resolutionStatus: candidates.length === 1 ? 'resolved' : 'ambiguous',
+            callSiteId: `cs_${sha256(`${projectId}|${file.rel}|${String(call.line)}|${call.callee}`).slice(0, 16)}`
           });
         }
       }

@@ -27,7 +27,7 @@ import type {
   SearchHit
 } from './types';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function hash(value: string, length = 24): string {
   return createHash('sha256').update(value).digest('hex').slice(0, length);
@@ -97,9 +97,14 @@ export class CodeIndexStore {
         end_line INTEGER NOT NULL,
         language TEXT NOT NULL,
         generation INTEGER NOT NULL,
+        symbol_id TEXT,
+        symbol_status TEXT NOT NULL DEFAULT 'confirmed',
+        module_id TEXT,
+        signature TEXT,
         PRIMARY KEY (project_id, node_id)
       );
       CREATE INDEX IF NOT EXISTS code_nodes_name ON code_nodes(project_id, name);
+      CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, symbol_id);
       CREATE INDEX IF NOT EXISTS code_nodes_file ON code_nodes(project_id, file_path);
 
       CREATE TABLE IF NOT EXISTS code_edges (
@@ -113,6 +118,8 @@ export class CodeIndexStore {
         file_path TEXT,
         line INTEGER,
         generation INTEGER NOT NULL,
+        resolution_status TEXT NOT NULL DEFAULT 'resolved',
+        call_site_id TEXT,
         PRIMARY KEY (project_id, edge_id)
       );
       CREATE INDEX IF NOT EXISTS code_edges_source ON code_edges(project_id, source_node_id, relation_type);
@@ -186,6 +193,7 @@ export class CodeIndexStore {
         vector BLOB NOT NULL,
         content TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
+        generation INTEGER,
         PRIMARY KEY (project_id, chunk_id)
       );
       CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
@@ -228,10 +236,32 @@ export class CodeIndexStore {
           vector BLOB NOT NULL,
           content TEXT NOT NULL,
           updated_at INTEGER NOT NULL,
+          generation INTEGER,
           PRIMARY KEY (project_id, chunk_id)
         );
         CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
       `);
+    }
+    if (version >= 1 && version < 4) {
+      // v4 是加法迁移：旧库保留 node_id 作为主键，symbol_id 先回填为 node_id。
+      // 真正的稳定 symbol_id 在索引重建时逐步写入；读路径不依赖它。
+      for (const sql of [
+        'ALTER TABLE code_nodes ADD COLUMN symbol_id TEXT',
+        "ALTER TABLE code_nodes ADD COLUMN symbol_status TEXT NOT NULL DEFAULT 'confirmed'",
+        'ALTER TABLE code_nodes ADD COLUMN module_id TEXT',
+        'ALTER TABLE code_nodes ADD COLUMN signature TEXT',
+        "ALTER TABLE code_edges ADD COLUMN resolution_status TEXT NOT NULL DEFAULT 'resolved'",
+        'ALTER TABLE code_edges ADD COLUMN call_site_id TEXT',
+        'ALTER TABLE code_vectors ADD COLUMN generation INTEGER'
+      ]) {
+        try {
+          this.db.exec(sql);
+        } catch {
+          // 列已存在：重复迁移或 fresh DB 已经带列。
+        }
+      }
+      this.db.exec('UPDATE code_nodes SET symbol_id = node_id WHERE symbol_id IS NULL');
+      this.db.exec('CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, symbol_id)');
     }
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
@@ -392,25 +422,30 @@ export class CodeIndexStore {
 
       const nodeStmt = this.db.prepare(`
         INSERT INTO code_nodes
-          (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation,
+           symbol_id, symbol_status, module_id, signature)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const node of nodes) {
         nodeStmt.run(
           projectId, node.nodeId, node.nodeType, node.name, node.qualifiedName,
-          node.filePath, node.startLine, node.endLine, node.language, generation
+          node.filePath, node.startLine, node.endLine, node.language, generation,
+          node.symbolId ?? node.nodeId, node.symbolStatus ?? 'confirmed',
+          node.moduleId ?? null, node.signature ?? null
         );
       }
 
       const edgeStmt = this.db.prepare(`
         INSERT OR IGNORE INTO code_edges
-          (project_id, edge_id, source_node_id, target_node_id, relation_type, confidence, source, file_path, line, generation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (project_id, edge_id, source_node_id, target_node_id, relation_type, confidence, source, file_path, line, generation,
+           resolution_status, call_site_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const edge of edges) {
         edgeStmt.run(
           projectId, edge.edgeId, edge.sourceNodeId, edge.targetNodeId, edge.relationType,
-          edge.confidence, edge.source, edge.filePath ?? null, edge.line ?? null, generation
+          edge.confidence, edge.source, edge.filePath ?? null, edge.line ?? null, generation,
+          edge.resolutionStatus ?? 'resolved', edge.callSiteId ?? null
         );
       }
 
@@ -642,11 +677,14 @@ export class CodeIndexStore {
   ensureNode(node: CodeNode): void {
     this.db.prepare(`
       INSERT OR IGNORE INTO code_nodes
-        (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation,
+         symbol_id, symbol_status, module_id, signature)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       node.projectId, node.nodeId, node.nodeType, node.name, node.qualifiedName,
-      node.filePath, node.startLine, node.endLine, node.language, node.generation
+      node.filePath, node.startLine, node.endLine, node.language, node.generation,
+      node.symbolId ?? node.nodeId, node.symbolStatus ?? 'confirmed',
+      node.moduleId ?? null, node.signature ?? null
     );
   }
 
@@ -741,6 +779,54 @@ export class CodeIndexStore {
     return row ? this.toNode(row) : null;
   }
 
+  /**
+   * 只读一致性检查：不修改数据，供 Gate 1B 的 Integrity Checker 和测试使用。
+   * 检查 markdown 里最关键的悬空边、孤儿文档/向量、未完成 generation。
+   */
+  integrity(projectId: string): {
+    generation: number | null;
+    danglingEdges: number;
+    orphanDocs: number;
+    orphanVectors: number;
+    unfinishedGenerations: number;
+    issues: string[];
+  } {
+    const one = (sql: string) => Number((this.db.prepare(sql).get(projectId) as { n?: number } | undefined)?.n ?? 0);
+    const danglingEdges = one(`
+      SELECT COUNT(*) AS n FROM code_edges e
+      LEFT JOIN code_nodes s ON s.project_id = e.project_id AND s.node_id = e.source_node_id
+      LEFT JOIN code_nodes t ON t.project_id = e.project_id AND t.node_id = e.target_node_id
+      WHERE e.project_id = ? AND (s.node_id IS NULL OR t.node_id IS NULL)
+    `);
+    const orphanDocs = one(`
+      SELECT COUNT(*) AS n FROM code_search_docs d
+      LEFT JOIN code_nodes n ON n.project_id = d.project_id AND n.node_id = d.node_id
+      WHERE d.project_id = ? AND d.node_id IS NOT NULL AND n.node_id IS NULL
+    `);
+    const orphanVectors = one(`
+      SELECT COUNT(*) AS n FROM code_vectors v
+      LEFT JOIN code_nodes n ON n.project_id = v.project_id AND n.node_id = v.node_id
+      WHERE v.project_id = ? AND v.node_id IS NOT NULL AND n.node_id IS NULL
+    `);
+    const unfinishedGenerations = one(`
+      SELECT COUNT(*) AS n FROM code_generation
+      WHERE project_id = ? AND status IN ('pending', 'building')
+    `);
+    const issues: string[] = [];
+    if (danglingEdges > 0) issues.push(`悬空边 ${String(danglingEdges)} 条`);
+    if (orphanDocs > 0) issues.push(`孤儿文档 ${String(orphanDocs)} 条`);
+    if (orphanVectors > 0) issues.push(`孤儿向量 ${String(orphanVectors)} 条`);
+    if (unfinishedGenerations > 0) issues.push(`未完成 generation ${String(unfinishedGenerations)} 个`);
+    return {
+      generation: this.currentGeneration(projectId),
+      danglingEdges,
+      orphanDocs,
+      orphanVectors,
+      unfinishedGenerations,
+      issues
+    };
+  }
+
   private toNode(row: Record<string, unknown>): CodeNode {
     return {
       projectId: String(row.project_id),
@@ -752,7 +838,11 @@ export class CodeIndexStore {
       startLine: Number(row.start_line),
       endLine: Number(row.end_line),
       language: String(row.language),
-      generation: Number(row.generation)
+      generation: Number(row.generation),
+      ...(typeof row.symbol_id === 'string' ? { symbolId: row.symbol_id } : {}),
+      ...(typeof row.symbol_status === 'string' ? { symbolStatus: row.symbol_status as CodeNode['symbolStatus'] } : {}),
+      ...(typeof row.module_id === 'string' ? { moduleId: row.module_id } : {}),
+      ...(typeof row.signature === 'string' ? { signature: row.signature } : {})
     };
   }
 
@@ -767,7 +857,11 @@ export class CodeIndexStore {
       source: String(row.source) as EdgeSource,
       ...(typeof row.file_path === 'string' ? { filePath: row.file_path } : {}),
       ...(typeof row.line === 'number' ? { line: row.line } : {}),
-      generation: Number(row.generation)
+      generation: Number(row.generation),
+      ...(typeof row.resolution_status === 'string'
+        ? { resolutionStatus: row.resolution_status as CodeEdge['resolutionStatus'] }
+        : {}),
+      ...(typeof row.call_site_id === 'string' ? { callSiteId: row.call_site_id } : {})
     };
   }
 

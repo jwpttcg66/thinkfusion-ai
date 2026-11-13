@@ -24,6 +24,8 @@ export type CodeEdgeType =
 
 export type EdgeConfidence = 'EXACT' | 'HIGH' | 'POSSIBLE' | 'UNKNOWN';
 export type EdgeSource = 'LSP' | 'AST' | 'STATIC_ANALYSIS' | 'CGC' | 'MANUAL';
+export type ResolutionStatus = 'resolved' | 'ambiguous' | 'unresolved' | 'dynamic' | 'inferred';
+export type SymbolStatus = 'confirmed' | 'provisional';
 
 export interface CodeNode {
   projectId: string;
@@ -36,6 +38,12 @@ export interface CodeNode {
   endLine: number;
   language: string;
   generation: number;
+  /** 稳定身份；旧库迁移时先回填为 nodeId，后续索引逐步写入。 */
+  symbolId?: string;
+  /** Java 在当前阶段只能是 provisional；Gate 3 后再冻结。 */
+  symbolStatus?: SymbolStatus;
+  moduleId?: string;
+  signature?: string;
 }
 
 export interface CodeEdge {
@@ -49,6 +57,9 @@ export interface CodeEdge {
   filePath?: string;
   line?: number;
   generation: number;
+  resolutionStatus?: ResolutionStatus;
+  /** 同一调用点的多个候选共享；用于 ambiguous 调用。 */
+  callSiteId?: string;
 }
 
 export interface SearchDoc {
