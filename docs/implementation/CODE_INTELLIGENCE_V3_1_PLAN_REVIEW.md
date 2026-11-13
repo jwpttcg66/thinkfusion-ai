@@ -1,5 +1,7 @@
 # Agentic Search 实施计划 V3.1 审核
 
+> 代码落地后的复核见 `CODE_INTELLIGENCE_V3_1_IMPLEMENTATION_REVIEW.md`。
+
 - 审核对象：`/Users/yalla/Downloads/制定辩论主题方案 (9)-20261113-1131-2.md`
 - 审核基线：`5b2e56eb6e2502eb2e14d8fac841f0a16c46b22e`
 - 审核提交：`d51cd1c`（仅审核文档）
