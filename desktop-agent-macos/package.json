@@ -123,7 +123,12 @@
     "test:execution-timeline": "npm run build:test && node --test scripts/check-execution-timeline.mjs",
     "test:team-board": "npm run build:test && node --test scripts/check-team-board.mjs",
     "test:code-index": "npm run build:test && node --test scripts/check-code-index.mjs",
-    "test:code-index-external": "npm run build:test && node --test scripts/check-code-index-external.mjs"
+    "test:code-index-external": "npm run build:test && node --test scripts/check-code-index-external.mjs",
+    "spike:tree-sitter": "node scripts/spikes/tree-sitter-java-spike.mjs",
+    "spike:tree-sitter:electron": "electron scripts/spikes/electron-tree-sitter-spike.cjs --no-sandbox",
+    "spike:agentic-search": "node scripts/spikes/agentic-search-spike.mjs",
+    "spike:build-trust": "node scripts/spikes/build-trust-spike.mjs",
+    "spike:gate0": "npm run spike:tree-sitter && npm run spike:tree-sitter:electron -- --asar && npm run spike:agentic-search && npm run spike:build-trust && npm run spike:build-trust -- --approve"
   },
   "dependencies": {
     "docx": "9.15.3",
@@ -133,15 +138,18 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@electron/asar": "3.2.18",
     "@types/node": "24.10.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.7",
     "@vitejs/plugin-react": "4.7.0",
+    "@vscode/tree-sitter-wasm": "0.3.1",
     "electron": "45.1.0",
     "electron-builder": "26.0.12",
     "electron-vite": "4.0.0",
     "typescript": "5.8.3",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "web-tree-sitter": "0.27.2"
   },
   "build": {
     "appId": "com.thinkfusion.app",
