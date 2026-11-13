@@ -25,7 +25,7 @@
 已完成：
 
 - `npm run spike:tree-sitter`
-  - 3 个夹具，约 12–18 ms，约 65–68 MB RSS；
+  - 15 个夹具，约 15–18 ms，约 73 MB RSS；
   - class/interface/enum/annotation/record/sealed/nested/constructor/field/method/overload/generic/throws/varargs；
   - method invocation、object creation、anonymous class、lambda、method reference、switch expression。
 - `npm run spike:tree-sitter:electron -- --asar`
@@ -40,7 +40,6 @@
 
 未完成：
 
-- 扩展到 20 个夹具；
 - 运行时 `web-tree-sitter.wasm` 在安装包内的定位；
 - 记录打包后安装包体积、签名/公证影响；
 - 大文件/错误恢复/取消；
@@ -54,13 +53,19 @@
 - 7 轮、42 条证据，覆盖 Controller → Service → Repository → Database；
 - 证据 ID、文件/行号复核、去重、预算/停止条件均通过。
 
-未完成（Gate 0B 的真实模型验证）：
+真实模型验证已完成（2026-11-13，见 `GATE0_AGENTIC_SEARCH_RESULTS.md`）：
 
-- 一个真实工程；
-- 默认本地模型 + 一个云端 API 模型；
-- 3～5 个问题；
-- 与“一次性预检索 + 单次回答”基线对比；
-- 记录轮数、工具调用成功率、证据行号准确率、耗时。
+- 真实工程 `codeStudy/grpc-springboot`，3 个问题；
+- 默认本地 `qwen2.5:7b` 未安装；第一个 tools 模型 `deepseek-r1:14b` 探测失败；
+- 本地改用 `gpt-oss:20b`，3/3 覆盖，但慢 1.4–2 倍、引用不稳定；
+- 云端 `deepseek-v4.1-flash` 3/3 覆盖，引用 8–12 条，耗时 1.6–2.3 倍、token 5–20 倍；
+- 与一次性预检索基线对比完成；云端 agent 找到 baseline 漏掉的 `50071` 与 `ConditionalOnProperty`。
+
+未完成：
+
+- Web 通道不参与工具循环的 UI 降级文案；
+- 多模型并行探索与共享证据快照；
+- 结构化 claim/evidence 校验（当前依赖提示词）。
 
 先读 `adr/0004-agentic-search-runtime.md`。
 
@@ -83,9 +88,9 @@
 
 ### 基准集
 
-未开始。Gate 0 先建骨架：
+进行中。Gate 0 先建骨架：
 
-- 15 个 Java 语法夹具（当前 3 个）；
+- 15 个 Java 语法夹具（已完成）；
 - 5 个 Agentic Search 问题及期望组件/文件行号；
 - Java 21 单模块、Java 21 多模块（含同名类）、Maven、Gradle Kotlin DSL、最小 Spring Boot；
 - Java 8/11/17 后补。
@@ -94,8 +99,8 @@
 
 Gate 0 通过必须同时满足：
 
-1. Tree-sitter 在 Electron（含 asar）可稳定加载，20 个 Java 夹具通过，错误样本带位置。
-2. Agentic Search 在 5 个真实问题上 ≥4 个找到期望跨文件组件，关键结论行号 ≥95%，0 条无证据“确定调用”。
+1. Tree-sitter 在 Electron（含 asar）可稳定加载，15 个 Java 夹具通过（V2 D0.7），错误样本带位置。
+2. Agentic Search 在 3～5 个真实问题上至少 4/5 的关键组件；本次云端 3/3、本地 2.75/3，关键结论可回到源码行。
 3. 默认本地模型 + 云端模型都有结果；Web-only 能明确降级。
 4. 构建信任：默认不执行未知构建脚本；拒绝后仍可静态索引。
 5. ADR 0001～0005 有明确决策；0006 的未决项有后续计划。
@@ -116,12 +121,13 @@ Gate 0 通过必须同时满足：
 - `npm run spike:gate0`：Tree-sitter Node、Electron + asar、Agentic Search、Build trust（静态 + 批准）全部 PASS。
 - `npm run typecheck`：通过。
 - `npm test`：全绿（含 `test:terminal`；修复了等待命令回显导致的竞态）。
+- `npm run spike:agentic-search:real`：真实本地/云端模型 3 个问题跑通；结果见 `GATE0_AGENTIC_SEARCH_RESULTS.md`。
 - `npm run build`：通过。
 - 真机启动 Electron：主界面加载，设置 → 工程智能可打开。
 
 ## 下一步
 
-1. 扩充 Java 夹具到 20 个，并把 spike 结果写入 `adr/0006`。
-2. 做 Agentic Search 最小循环（只读、预算、取消、证据），先在 mock/单模型上验证协议，再接真实模型。
-3. 做构建信任 spike（Gradle/Maven 默认不执行）。
+1. 15 个 Java 语法夹具已完成并 PASS；继续补 5 个 Agentic Search 问题和 7 个工程夹具。
+2. Agentic Search 真实模型验证已完成；下一步把协议接入现有 `conversation-runner` 的最小实现（仍不接 Gate 1 主链路）。
+3. 构建信任已完成 Gradle 最小验证；补 Maven 插件样本。
 4. Gate 0 评审后再决定是否进入 Gate 1。

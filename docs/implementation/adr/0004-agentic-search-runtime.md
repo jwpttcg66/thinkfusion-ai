@@ -77,7 +77,15 @@ EngineeringToolResult<T> {
 - 证据有稳定 ID、文件/行号可复核、重复证据去重；
 - 预算/停止条件可执行。
 
-这**不证明真实模型能力**。D0.6 仍需默认本地模型 + 云端模型各跑 3～5 个真实问题。
+真实模型验证（`npm run spike:agentic-search:real`，2026-11-13）：
+
+- 工程：`/Users/yalla/data/codeStudy/grpc-springboot`；3 个问题。
+- 默认本地 `qwen2.5:7b` 未安装；第一个 tools 模型 `deepseek-r1:14b` 探测失败（47 s，无 tool_calls）。
+- 本地改用 `gpt-oss:20b`：3/3 覆盖预期术语，但引用不稳定，耗时约为 baseline 的 1.4–2 倍。
+- 云端 `deepseek-v4.1-flash`：3/3 覆盖，引用 8–12 条，耗时 1.6–2.3 倍，token 5–20 倍。
+- 结论：Agentic Search 只在可靠 tool calling 模型上可用；Web 通道不参与；默认本地模型不可用时必须显式降级。
+
+详细数据见 `docs/implementation/GATE0_AGENTIC_SEARCH_RESULTS.md`。
 
 ## 验收
 

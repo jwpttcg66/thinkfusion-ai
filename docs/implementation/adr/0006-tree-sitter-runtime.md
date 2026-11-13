@@ -26,14 +26,14 @@ V2 把 Tree-sitter 作为轻量语法提取候选，要求先做 Electron spike�
 
 ```
 npm run spike:tree-sitter
-  3 files, ~12–18 ms, ~65–68 MB RSS, PASS
+  15 files, ~15–18 ms, ~73 MB RSS, PASS
 
 npm run spike:tree-sitter:electron -- --asar
   disk: grammarAbi=14, root=program, hasError=false, ok=true
   asar: grammarAbi=14, root=program, hasError=false, ok=true
 ```
 
-夹具覆盖：
+夹具覆盖（15 个文件）：
 
 - package、普通/静态 import；
 - class / interface / enum / annotation / record / sealed；
@@ -64,7 +64,7 @@ npm run spike:tree-sitter:electron -- --asar
 
 ## 验收
 
-- 20 个 Java 夹具全部通过；错误样本带位置。
+- 15 个 Java 夹具全部通过（V2 D0.7）；错误样本带位置。
 - 打包后（asar/asarUnpack）可加载。
 - 冷启动、RSS、解析耗时有记录。
 - 不修改 `src/main/code-index/indexer.ts` 主链路，直到 Gate 1 批准。

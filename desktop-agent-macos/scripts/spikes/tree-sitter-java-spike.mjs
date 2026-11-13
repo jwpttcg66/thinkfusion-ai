@@ -234,6 +234,50 @@ function main() {
         assert(map && map.endLine > map.line, '多行方法签名应有真实 endLine');
       }
 
+      assert(Object.keys(results).length === 15, `应有 15 个 Java 夹具，实际 ${String(Object.keys(results).length)}`);
+
+      const enumFile = results['Enums.java'];
+      assert(enumFile && hasDeclaration(enumFile, 'Enum', 'Enums'), '应识别 enum Enums');
+      assert(enumFile && hasDeclaration(enumFile, 'Method', 'run'), '应识别 enum 常量体里的 run');
+
+      const records = results['Records.java'];
+      assert(records && hasDeclaration(records, 'Record', 'Records'), '应识别 record Records');
+      assert(records && hasDeclaration(records, 'Record', 'Pair'), '应识别嵌套 record Pair');
+
+      const sealed = results['Sealed.java'];
+      assert(sealed && hasDeclaration(sealed, 'Interface', 'Sealed'), '应识别 sealed interface Sealed');
+      assert(sealed && hasDeclaration(sealed, 'Class', 'C'), '应识别 sealed class C');
+
+      const switches = results['Switches.java'];
+      assert(switches && switches.switchExpressions >= 2, '应识别 switch expression / yield');
+
+      const nested = results['Nested.java'];
+      assert(nested && hasDeclaration(nested, 'Class', 'StaticNested'), '应识别静态嵌套类');
+      assert(nested && hasDeclaration(nested, 'Class', 'Inner'), '应识别内部类');
+      assert(nested && hasDeclaration(nested, 'Class', 'Local'), '应识别局部类');
+      assert(nested && nested.anonymousClasses === 1, '应识别匿名类');
+
+      const lambdas = results['Lambdas.java'];
+      assert(lambdas && lambdas.lambdas >= 1, '应识别 lambda');
+      assert(lambdas && lambdas.methodReferences >= 1, '应识别 method reference');
+
+      const modern = results['Modern.java'];
+      assert(modern && hasDeclaration(modern, 'Method', 'textBlock'), '应识别 text block 方法');
+      assert(modern && hasDeclaration(modern, 'Method', 'varAndPattern'), '应识别 var/pattern 方法');
+
+      const annotations = results['AnnotationUse.java'];
+      assert(annotations && hasDeclaration(annotations, 'Annotation', 'Tag'), '应识别 @interface Tag');
+      assert(annotations && annotations.annotations >= 2, '应识别重复注解');
+
+      const fields = results['Fields.java'];
+      assert(fields && fields.declarations.filter(item => item.nodeType === 'Field').length >= 5, '应识别静态/实例字段');
+
+      const constructors = results['Constructors.java'];
+      assert(constructors && constructors.declarations.filter(item => item.nodeType === 'Constructor').length >= 3, '应识别重载构造器');
+
+      const defaults = results['InterfaceDefaults.java'];
+      assert(defaults && hasDeclaration(defaults, 'Interface', 'Child'), '应识别嵌套 interface Child');
+
       const totalMs = performance.now() - started;
       const summary = {
         runtime: `node ${process.version}`,

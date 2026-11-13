@@ -234,7 +234,7 @@ V2 的 Gate 0 包含 8 个子任务：审计、Schema ADR、Evidence ADR、Agent
 
 | 任务 | 范围 | 通过标准 |
 | --- | --- | --- |
-| Tree-sitter spike | **只做 Electron + Java**；Native/WASM 二选一 | 主进程可加载；asar 打包可运行；20 个 Java 样本；记录冷启动/RSS/错误位置 |
+| Tree-sitter spike | **只做 Electron + Java**；Native/WASM 二选一 | 主进程可加载；asar 打包可运行；15 个 Java 样本（V2 D0.7）；记录冷启动/RSS/错误位置 |
 | Agentic Search spike | **一个真实工程、一个默认本地模型 + 一个云端模型、3～5 个问题** | 每个问题有期望文件/行号；记录轮数、工具调用成功率、证据准确率、耗时；与“一次性预检索”基线对比 |
 | 构建信任 spike | Gradle 自定义 task / Maven 插件 | 默认不执行；确认后才执行；拒绝后仍能静态索引 |
 | 基准集骨架 | Java 21 为主，Java 8 一个样本；TS/JS 现有测试保留 | 先能跑，不追求全矩阵 |

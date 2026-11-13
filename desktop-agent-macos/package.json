@@ -127,6 +127,7 @@
     "spike:tree-sitter": "node scripts/spikes/tree-sitter-java-spike.mjs",
     "spike:tree-sitter:electron": "electron scripts/spikes/electron-tree-sitter-spike.cjs --no-sandbox",
     "spike:agentic-search": "node scripts/spikes/agentic-search-spike.mjs",
+    "spike:agentic-search:real": "electron scripts/spikes/agentic-search-real.cjs --no-sandbox",
     "spike:build-trust": "node scripts/spikes/build-trust-spike.mjs",
     "spike:gate0": "npm run spike:tree-sitter && npm run spike:tree-sitter:electron -- --asar && npm run spike:agentic-search && npm run spike:build-trust && npm run spike:build-trust -- --approve"
   },

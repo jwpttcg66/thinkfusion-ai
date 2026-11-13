@@ -4,13 +4,14 @@
 
 | 命令 | 验证 |
 | --- | --- |
-| `npm run spike:tree-sitter` | Node 下加载 Java grammar，解析 3 个夹具 |
+| `npm run spike:tree-sitter` | Node 下加载 Java grammar，解析 15 个 Java 夹具 |
 | `npm run spike:tree-sitter:electron -- --asar` | Electron 主进程 + asar 内加载 grammar |
 | `npm run spike:agentic-search` | 确定性脚本模型验证工具循环、去重、预算、证据行号 |
+| `npm run spike:agentic-search:real` | 真实本地 Ollama + 云端 API 跑 3 个工程问题，与一次性预检索基线对比 |
 | `npm run spike:build-trust` | 静态扫描 Gradle 不执行构建脚本 |
 | `npm run spike:build-trust -- --approve` | 显式批准后才执行自定义 task |
 | `npm run spike:gate0` | 顺序跑完以上全部 |
 
 依赖：`web-tree-sitter@0.27.2`、`@vscode/tree-sitter-wasm@0.3.1`（均 MIT）。生产接入前必须重新评估打包、签名/公证和 grammar 升级策略，见 `docs/implementation/adr/0006-tree-sitter-runtime.md`。
 
-Agentic Search spike 只证明协议；真实模型验证仍需默认本地模型 + 云端模型各跑 3～5 个真实问题，见 `docs/implementation/adr/0004-agentic-search-runtime.md`。
+Agentic Search 真实模型验证结果见 `docs/implementation/GATE0_AGENTIC_SEARCH_RESULTS.md`。当前默认本地 `qwen2.5:7b` 未安装，第一个 tools 模型 `deepseek-r1:14b` 原生工具调用失败；脚本会自动改用 `gpt-oss:20b`，云端用 `deepseek-v4.1-flash`。该命令会产生云端调用费用。
