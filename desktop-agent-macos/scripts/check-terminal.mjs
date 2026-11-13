@@ -60,10 +60,10 @@ test('开一个终端、写命令、读到真实输出', async () => {
 test('read 只返回上次之后的新输出，truncated 说清楚还有没有', async () => {
   const opened = openTerminal(root);
   sendTerminal(opened.sessionId, 'echo first-line', true);
-  await readUntil(opened.sessionId, 'first-line');
+  await readUntil(opened.sessionId, 'first-line\r\n');
 
   sendTerminal(opened.sessionId, 'echo second-line', true);
-  const second = await readUntil(opened.sessionId, 'second-line');
+  const second = await readUntil(opened.sessionId, 'second-line\r\n');
   assert.match(second, /second-line/);
   assert.doesNotMatch(second, /first-line/);
 
