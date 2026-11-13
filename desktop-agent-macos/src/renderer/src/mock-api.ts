@@ -578,7 +578,7 @@ export function createMockApi(): AgentApi {
     getExecutionOptions: async () => ({
       modes: ['web', 'local', 'cloud', 'hybrid'],
       webChannels: [],
-      localModels: ['qwen2.5:7b'],
+      localModels: ['local-test:7b'],
       cloudMembers: [
         { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', hasKey: false },
         { id: 'deepseek:deepseek-v4-flash', label: 'DeepSeek · deepseek-v4-flash', hasKey: false },
@@ -605,7 +605,7 @@ export function createMockApi(): AgentApi {
       debateCandidates: [
         { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
         { id: 'kimi', label: 'Kimi', type: 'web', available: true },
-        { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
+        { id: 'ollama:local-test:7b', label: 'Ollama · local-test:7b', type: 'local', available: true },
         { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', type: 'cloud', available: false, detail: '浏览器预览里没有 API Key' }
       ]
     }),

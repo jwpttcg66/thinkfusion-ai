@@ -15,7 +15,7 @@ Ollama 当前安装：
 - `gpt-oss:20b`（`tools` 能力）
 - `all-minilm`（embedding，排除）
 
-`qwen2.5:7b`（应用默认）没有安装。按 `/api/tags` 顺序，`deepseek-r1:14b` 是第一个 tools 模型。
+应用没有硬编码默认本地模型；启动后按 Ollama `/api/tags` 的实际清单选择。本机按顺序第一个 tools 模型是 `deepseek-r1:14b`。
 
 原生工具调用探测：
 
@@ -105,7 +105,7 @@ Ollama 当前安装：
 
 - 网页模型（未参与工具循环）。
 - 多模型并行探索与共享证据快照。
-- Maven/Gradle 构建、JDT/类型绑定。
+- Maven/Gradle 构建、Java 类型绑定/语义分析。
 - 更多工程与更多问题（本次 1 个真实工程、3 个问题）。
 - 用户级正确性标注；本次是 1 名审核者抽查。
 - 长期成本：API 返回 0 只代表当前额度。

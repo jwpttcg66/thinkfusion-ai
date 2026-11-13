@@ -14,4 +14,4 @@
 
 依赖：`web-tree-sitter@0.27.2`、`@vscode/tree-sitter-wasm@0.3.1`（均 MIT）。生产接入前必须重新评估打包、签名/公证和 grammar 升级策略，见 `docs/implementation/adr/0006-tree-sitter-runtime.md`。
 
-Agentic Search 真实模型验证结果见 `docs/implementation/GATE0_AGENTIC_SEARCH_RESULTS.md`。当前默认本地 `qwen2.5:7b` 未安装，第一个 tools 模型 `deepseek-r1:14b` 原生工具调用失败；脚本会自动改用 `gpt-oss:20b`，云端用 `deepseek-v4.1-flash`。该命令会产生云端调用费用。
+Agentic Search 真实模型验证结果见 `docs/implementation/GATE0_AGENTIC_SEARCH_RESULTS.md`。应用没有硬编码默认本地模型；第一个 tools 模型 `deepseek-r1:14b` 原生工具调用失败；脚本会自动改用 `gpt-oss:20b`，云端用 `deepseek-v4.1-flash`。该命令会产生云端调用费用。

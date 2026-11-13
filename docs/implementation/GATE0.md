@@ -3,7 +3,13 @@
 - 分支：`0.2.1`
 - 基线：`4cfd972` + `ad09584` / `3784032` 审核文档
 - 状态：**进行中**
-- 约束：不改 `src/main/code-index/indexer.ts` 主链路，不改 `SCHEMA_VERSION`，不引入 JDT，不实施全量调用图。
+- 约束：不改 `src/main/code-index/indexer.ts` 主链路，不改 `SCHEMA_VERSION`，不引入任何 Java 语义服务（JDT 等），不实施全量调用图。
+- 说明：JDT 只作为未来可选项出现在审核/历史文档；Gate 0/1 不依赖它。
+
+## 术语
+
+- **夹具（fixture）**：`desktop-agent-macos/scripts/spikes/fixtures/java/*.java`，是 Tree-sitter 的测试输入，不进入产品运行时。V2 计划 D0.7 要求 15 个 Java 语法夹具，当前已补齐。
+- **JDT**：Eclipse Java 语义服务，只是未来可选方案；当前没有依赖、没有代码路径、没有运行时进程。Gate 0/1 的边界明确不引入 JDT 或其他 Java 语义服务。
 
 ## 0A：决策（文档）
 
@@ -56,7 +62,7 @@
 真实模型验证已完成（2026-11-13，见 `GATE0_AGENTIC_SEARCH_RESULTS.md`）：
 
 - 真实工程 `codeStudy/grpc-springboot`，3 个问题；
-- 默认本地 `qwen2.5:7b` 未安装；第一个 tools 模型 `deepseek-r1:14b` 探测失败；
+- 应用不再硬编码默认本地模型；按 Ollama 实际清单选择。第一个 tools 模型 `deepseek-r1:14b` 探测失败；
 - 本地改用 `gpt-oss:20b`，3/3 覆盖，但慢 1.4–2 倍、引用不稳定；
 - 云端 `deepseek-v4.1-flash` 3/3 覆盖，引用 8–12 条，耗时 1.6–2.3 倍、token 5–20 倍；
 - 与一次性预检索基线对比完成；云端 agent 找到 baseline 漏掉的 `50071` 与 `ConditionalOnProperty`。
@@ -110,7 +116,7 @@ Gate 0 通过必须同时满足：
 
 - 修改 `indexer.ts` 主链路；
 - 修改 `SCHEMA_VERSION`；
-- 引入 JDT；
+- 引入 Java 语义服务（JDT、JavaParser 等）；Gate 0/1 不依赖；
 - 全量 Java 调用图；
 - Go/Python/TypeScript Tree-sitter 接入；
 - 多模型并行探索；

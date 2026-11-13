@@ -573,7 +573,7 @@ async function main() {
       defaultProbe,
       toolCapable: toolCapable.map(model => model.name),
       used: localModel,
-      note: 'qwen2.5:7b 未安装；defaultLocal 是 Ollama 返回的第一个 tools 模型。defaultProbe 记录它是否能实际发起原生工具调用。'
+      note: '应用没有硬编码默认本地模型；defaultLocal 是 Ollama 返回的第一个 tools 模型。defaultProbe 记录它是否能实际发起原生工具调用。'
     },
     cloud: { id: CLOUD_ID, baseUrl: cloud.baseUrl, model: cloud.model },
     questions: results

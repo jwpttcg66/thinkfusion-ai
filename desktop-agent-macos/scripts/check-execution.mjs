@@ -47,7 +47,7 @@ function fakeProvider(type, id = type) {
 }
 
 const web = [webAgent('chatgpt'), webAgent('kimi')];
-const local = new ProviderBackedSubAgent(fakeProvider('local', 'ollama'), 'qwen2.5:7b');
+const local = new ProviderBackedSubAgent(fakeProvider('local', 'ollama'), 'local-test:7b');
 const cloud = new ProviderBackedSubAgent(fakeProvider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
 const answers = selection => [...selection.answerIds].sort();
@@ -99,9 +99,9 @@ test('IPC 传来的非法值一律退回默认，不进 undefined 分支', () =>
 test('网页主导：回答名单 = 网页通道；执行名单 = 本地 + 云端模型', () => {
   const selection = selectParticipants({}, web, extra);
   assert.deepEqual(answers(selection), ['chatgpt', 'kimi']);
-  assert.deepEqual(executors(selection), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
+  assert.deepEqual(executors(selection), ['ollama:local-test:7b', 'openai:gpt-4o-mini']);
   assert.ok(
-    !selection.blocked.some(item => item.id === 'ollama:qwen2.5:7b'),
+    !selection.blocked.some(item => item.id === 'ollama:local-test:7b'),
     '本地模型不是回答者，但不该被挡在执行阶段之外——它能当主导人、能当辩手'
   );
 });
@@ -116,7 +116,7 @@ test('云端主导：回答 = 勾选的云端模型，不问网页；点名主�
     extra
   );
   assert.deepEqual(answers(picked), ['openai:gpt-4o-mini']);
-  assert.deepEqual(executors(picked), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
+  assert.deepEqual(executors(picked), ['ollama:local-test:7b', 'openai:gpt-4o-mini']);
   const leadOnly = selectParticipants(
     { executionMode: 'cloud', selectedCloudModels: [], leadAgentId: 'openai:gpt-4o-mini' },
     web,
@@ -128,7 +128,7 @@ test('云端主导：回答 = 勾选的云端模型，不问网页；点名主�
 
 test('本地主导：回答 = 本地模型，不问网页', () => {
   const selection = selectParticipants({ executionMode: 'local' }, web, extra);
-  assert.deepEqual(answers(selection), ['ollama:qwen2.5:7b']);
+  assert.deepEqual(answers(selection), ['ollama:local-test:7b']);
   assert.ok(selection.blocked.some(item => item.id === 'chatgpt' && /不问网页/.test(item.why)));
 });
 
@@ -136,9 +136,9 @@ test('按选择裁名单，空数组表示「一个都不选」而不是「没�
   const onlyChatgpt = selectParticipants({ selectedWebChannels: ['chatgpt'] }, web, extra);
   assert.deepEqual(answers(onlyChatgpt), ['chatgpt']);
   const noCloud = selectParticipants({ selectedCloudModels: [] }, web, extra);
-  assert.deepEqual(executors(noCloud), ['ollama:qwen2.5:7b'], '显式清空云端只清云端，本地仍在执行名单里');
+  assert.deepEqual(executors(noCloud), ['ollama:local-test:7b'], '显式清空云端只清云端，本地仍在执行名单里');
   const explicitCloud = selectParticipants({ selectedCloudModels: ['gpt-4o-mini'] }, web, extra);
-  assert.deepEqual(executors(explicitCloud), ['ollama:qwen2.5:7b', 'openai:gpt-4o-mini']);
+  assert.deepEqual(executors(explicitCloud), ['ollama:local-test:7b', 'openai:gpt-4o-mini']);
 });
 
 test('ExecutionPool：all/available 只给回答者；ask 放行回答者与执行者', async () => {

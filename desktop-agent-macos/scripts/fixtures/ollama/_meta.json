@@ -9,7 +9,7 @@
       "size": 274302450
     },
     {
-      "name": "qwen2.5:7b",
+      "name": "local-test:7b",
       "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
       "modified_at": "2026-06-04T12:31:46.829152362+08:00",
       "size": 4683087332

@@ -10,7 +10,7 @@
 
 - Gradle Tooling API 会执行 `build.gradle` / `build.gradle.kts`；
 - Maven 生命周期可能触发插件、注解处理器、依赖下载；
-- JDT LS 的 Maven/Gradle 导入也可能触发上述行为。
+- 未来若引入任何 Java 语义服务，其 Maven/Gradle 导入同样受此约束。
 
 当前 0.2.0 没有构建执行边界。V2 提出 Level 0/1/2，方向正确，需要映射到现有 `TaskGrant` / 审批 / 沙箱。
 

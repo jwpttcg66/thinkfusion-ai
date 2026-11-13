@@ -47,7 +47,8 @@ CodeEdge {
   targetNodeId?          // unresolved 时为空
   relationType           // 联合类型，不是任意 string
   resolutionStatus       // resolved | ambiguous | unresolved | dynamic | inferred
-  source                 // JDT | TREE_SITTER | LSP | AST | STATIC_ANALYSIS | CGC | MANUAL
+  source                 // TREE_SITTER | LSP | AST | STATIC_ANALYSIS | CGC | MANUAL
+                         // JDT 不在当前方案；未来若引入再扩展 source
   callSiteId?            // 同一调用点的候选共享
   evidenceRefs: string[]
   filePath / line        // 调用点定位

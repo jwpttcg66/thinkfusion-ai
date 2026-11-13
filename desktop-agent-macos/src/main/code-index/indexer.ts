@@ -211,7 +211,8 @@ function lineAtIndex(text: string, index: number): number {
  * 提取（package / import / class / interface / enum / 方法签名）。
  *
  * 结果明确是 STATIC_ANALYSIS + POSSIBLE，不生成 CALLS，不把正则匹配
- * 说成编译器级关系。Java Provider 通过 CGC/JDT 验证后再替换。
+ * 说成编译器级关系。Java Provider 后续通过 Tree-sitter 或独立的语义
+ * Provider 验证后再替换；不把任何语义服务当成前置条件。
  */
 function collectJava(text: string): {
   declarations: Declaration[];

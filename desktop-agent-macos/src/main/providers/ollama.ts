@@ -35,7 +35,7 @@ export interface OllamaOptions {
   id?: string;
   label?: string;
   baseUrl?: string;
-  /** 默认模型。项目书 4.2 写的是 `qwen3.5:9b-q4_K_M`，本机没有就靠配置覆盖。 */
+  /** 默认模型。不传就取 Ollama 清单里的第一个可对话模型。 */
   defaultModel?: string;
   /** 默认上下文。实际会取它和模型真实值中较小的那个。 */
   contextTokens?: number;
@@ -61,7 +61,8 @@ const DEFAULTS = {
   id: 'ollama',
   label: 'Ollama（本地）',
   baseUrl: 'http://127.0.0.1:11434',
-  defaultModel: 'qwen3.5:9b-q4_K_M',
+  /** 空字符串表示没有硬编码默认模型；首次请求时取 Ollama 清单里的第一个。 */
+  defaultModel: '',
   contextTokens: 8192,
   maxOutputTokens: 4096,
   keepAlive: '5m',
@@ -168,11 +169,30 @@ export class OllamaProvider implements ModelProvider {
     return this.admission.stats();
   }
 
+  /**
+   * 没有显式 modelId、也没有配置默认模型时，从 Ollama 的真实清单里取第一个
+   * 可对话模型。找不到就报 `model-not-found`，不把不存在的名字发给服务端。
+   */
+  private async resolveModel(request: ModelRequest): Promise<string> {
+    const explicit = request.modelId ?? this.defaultModel;
+    if (explicit) return explicit;
+    const models = await this.listModels();
+    const first = models[0]?.id;
+    if (!first) {
+      throw new ProviderError(
+        'model-not-found',
+        'Ollama 里没有可用的对话模型；先 ollama pull 一个模型，或去设置里选择模型',
+        this.id
+      );
+    }
+    return first;
+  }
+
   async capabilities(): Promise<ProviderCapabilities> {
     return {
       streaming: true,
       /**
-       * 2026-11-04 实测（qwen2.5:7b，本机）：abort 一个正在流式的请求之后，
+       * 2026-11-04 实测（当时的本机模型）：abort 一个正在流式的请求之后，
        * `/api/ps` 里该模型的 `expires_at` 停在请求结束那一刻不再推进，紧接着
        * 发一个新请求 207ms 就返回了。说明断开连接确实让 Ollama 停下了生成，
        * 不是「本地不等、对面还在算」。
@@ -244,7 +264,7 @@ export class OllamaProvider implements ModelProvider {
   }
 
   async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResponse> {
-    const model = request.modelId ?? this.defaultModel;
+    const model = await this.resolveModel(request);
     const started = this.now();
 
     return this.admission.run(`生成（${model}）`, async () => {
@@ -302,7 +322,7 @@ export class OllamaProvider implements ModelProvider {
   }
 
   async *streamChunks(request: ModelRequest, signal?: AbortSignal): AsyncGenerator<ModelStreamChunk> {
-    const model = request.modelId ?? this.defaultModel;
+    const model = await this.resolveModel(request);
 
     await this.admission.acquire(`流式（${model}）`);
     const { controller, detach, reason } = this.fork(signal, 0);

@@ -13,7 +13,7 @@ import { routeModels, toRouteTaskKind } from '../out/shared/model-route.js';
 
 const all = {
   web: ['chatgpt', 'gemini', 'deepseek'],
-  local: ['ollama:qwen2.5:7b'],
+  local: ['ollama:local-test:7b'],
   cloud: ['openai:gpt-4o-mini']
 };
 

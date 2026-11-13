@@ -222,9 +222,9 @@ test('本地模型不可用 / 只有一份回答 / provider 抛错，都返回 n
   const empty = { generate: async () => ({ text: '   ' }) };
   assert.equal(await summarizeLocally(empty, 'q', two), null, '空串不算汇总');
 
-  const ok = { generate: async request => ({ text: `【结论】4 余 1\n${request.system.length}`, modelId: 'qwen2.5:7b' }) };
+  const ok = { generate: async request => ({ text: `【结论】4 余 1\n${request.system.length}`, modelId: 'local-test:7b' }) };
   const result = await summarizeLocally(ok, 'q', two);
-  assert.equal(result.modelId, 'qwen2.5:7b');
+  assert.equal(result.modelId, 'local-test:7b');
   assert.match(result.text, /【结论】4 余 1/);
 });
 
@@ -273,7 +273,7 @@ test('buildPickPrompt 把问题和每份回答编号带进去，不改写问题'
 });
 
 test('pickLeadLocally 解析「选择：回答N」，映射到候选的 agentId', async () => {
-  const provider = { generate: async () => ({ text: '选择：回答2\nGemini 的推理更严谨。', modelId: 'qwen2.5:7b' }) };
+  const provider = { generate: async () => ({ text: '选择：回答2\nGemini 的推理更严谨。', modelId: 'local-test:7b' }) };
   const picked = await pickLeadLocally(provider, 'q', [
     { agentId: 'chatgpt', label: 'ChatGPT', text: 'a' },
     { agentId: 'gemini', label: 'Gemini', text: 'b' }
@@ -284,7 +284,7 @@ test('pickLeadLocally 解析「选择：回答N」，映射到候选的 agentId'
 });
 
 test('pickLeadLocally 编号越界时返回 null，交给兜底', async () => {
-  const provider = { generate: async () => ({ text: '选择：回答9', modelId: 'qwen2.5:7b' }) };
+  const provider = { generate: async () => ({ text: '选择：回答9', modelId: 'local-test:7b' }) };
   const picked = await pickLeadLocally(provider, 'q', [
     { agentId: 'a', label: 'A', text: 'a' },
     { agentId: 'b', label: 'B', text: 'b' }

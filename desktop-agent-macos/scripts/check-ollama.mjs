@@ -2,7 +2,9 @@
  * Ollama Provider 的行为测试：回放真实录制的响应。
  *
  * `scripts/fixtures/ollama/` 里的 payload 全部是从运行中的 Ollama 0.33.2
- * （qwen2.5:7b / nomic-embed-text:latest）真实端点录下来的，见 `_meta.json`。
+ * （历史录制：local-test:7b / nomic-embed-text:latest）真实端点录下来的，见 `_meta.json`。
+ * 注意：local-test:7b 只是录制夹具里的名字，不是产品默认模型；
+ * 产品启动后按 Ollama `/api/tags` 的实际清单选择。
  * 不是手写样例——手写样例会照着实现写，实现里的错也跟着被写进期望值里。
  *
  * 真实数据已经逼出过一处修正：/api/tags 会列 nomic-embed-text，但它的
@@ -26,7 +28,7 @@ const read = name => fs.readFileSync(path.join(FIXTURES, name), 'utf8');
 const fixture = name => JSON.parse(read(name));
 
 const BASE = 'http://127.0.0.1:11434';
-const MODEL = 'qwen2.5:7b';
+const MODEL = 'local-test:7b';
 const tags = fixture('tags.json');
 const ps = fixture('ps.json');
 const showQwen = fixture('show-qwen.json');
@@ -113,7 +115,7 @@ function makeFetch({ overrides = {}, chunks, hang = false } = {}) {
       case '/api/ps':
         return json(ps);
       case '/api/show':
-        return json((body?.model ?? '').startsWith('qwen') ? showQwen : showNomic);
+        return json((body?.model ?? '').startsWith('local-test') ? showQwen : showNomic);
       case '/api/chat':
         if (body?.model?.includes('no-such')) {
           return new Response(missing.body, { status: missing.status });
@@ -182,6 +184,14 @@ test('listModels：真实 tags 有两个模型，但只返回能对话的那个'
   assert.equal(models[0].id, MODEL);
   assert.equal(models[0].contextTokens, 32768);
   assert.ok(fetchImpl.paths().includes('/api/show'), '必须真的问过每个模型的能力');
+});
+
+test('没有配置默认模型时，从已安装清单里选第一个可对话模型', async () => {
+  const fetchImpl = makeFetch();
+  const p = new OllamaProvider({ fetchImpl });
+  const r = await p.generate({ question: 'hi' });
+  assert.equal(r.modelId, MODEL);
+  assert.equal(chatBodies(fetchImpl)[0].model, MODEL);
 });
 
 test('listModels：30 秒内复用缓存，不重复打 /api/show', async () => {

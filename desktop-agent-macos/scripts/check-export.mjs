@@ -93,11 +93,11 @@ test('过程记录不把几百字的目录清单原样搬进文档，但要说�
 
 test('通道名认不出来时退回裸模型名，不把 `ollama:` 前缀写进文档', () => {  const markdown = buildConversationMarkdown({
     conversation: conversation(),
-    messages: [message('user', '问一句'), message('channel', '答一句', { channelId: 'ollama:qwen2.5:7b' })],
+    messages: [message('user', '问一句'), message('channel', '答一句', { channelId: 'ollama:local-test:7b' })],
     labels: {}
   });
-  assert.match(markdown, /#### qwen2\.5:7b/);
-  assert.doesNotMatch(markdown, /ollama:qwen2\.5/);
+  assert.match(markdown, /#### local-test:7b/);
+  assert.doesNotMatch(markdown, /ollama:local-test/);
 });
 
 test('综合结论：主导人写的只留一段，规则版的结构化部分照实列出', () => {

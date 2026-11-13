@@ -39,7 +39,7 @@ const CANDIDATES = [
   { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
   { id: 'kimi', label: 'Kimi', type: 'web', available: true },
   { id: 'gemini', label: 'Gemini', type: 'web', available: true },
-  { id: 'ollama:qwen2.5:7b', label: 'Ollama · qwen2.5:7b', type: 'local', available: true },
+  { id: 'ollama:local-test:7b', label: 'Ollama · local-test:7b', type: 'local', available: true },
   { id: 'openai:gpt-4o-mini', label: 'OpenAI · gpt-4o-mini', type: 'cloud', available: false, detail: '还没有配置 API Key' }
 ];
 
@@ -68,10 +68,10 @@ test('模式收敛：非法值退回 hybrid，四种合法值原样保留', () =
 
 test('本地主导：只用本地模型，网页和云端一个都不进', () => {
   const p = plan('local', { candidates: WITH_CLOUD });
-  assert.equal(p.lead.agentId, 'ollama:qwen2.5:7b');
+  assert.equal(p.lead.agentId, 'ollama:local-test:7b');
   assert.equal(p.lead.drivenBy, 'orchestrator');
-  assert.deepEqual(p.participants, ['ollama:qwen2.5:7b']);
-  assert.deepEqual(p.debaters, ['ollama:qwen2.5:7b']);
+  assert.deepEqual(p.participants, ['ollama:local-test:7b']);
+  assert.deepEqual(p.debaters, ['ollama:local-test:7b']);
   assert.deepEqual(p.webOnly, []);
   assert.match(p.reason, /只用本地模型/);
   assert.ok(p.excluded.some(item => item.id === 'chatgpt' && /只使用本地模型成员/.test(item.reason)));
@@ -89,8 +89,8 @@ test('网页主导：只用网页通道，本地/云端一个都不进', () => {
   assert.deepEqual(speakersFor(p, 1), ['chatgpt', 'kimi', 'gemini']);
   assert.deepEqual(speakersFor(p, 2), ['chatgpt', 'kimi', 'gemini']);
   assert.match(p.reason, /只用网页通道/);
-  assert.ok(!p.participants.includes('ollama:qwen2.5:7b'), '网页主导不得引入本地模型');
-  assert.ok(p.excluded.some(item => item.id === 'ollama:qwen2.5:7b' && /只使用网页通道成员/.test(item.reason)));
+  assert.ok(!p.participants.includes('ollama:local-test:7b'), '网页主导不得引入本地模型');
+  assert.ok(p.excluded.some(item => item.id === 'ollama:local-test:7b' && /只使用网页通道成员/.test(item.reason)));
 });
 
 test('云端主导：只用远程 API；没有可用云端时明确报错', () => {
@@ -99,7 +99,7 @@ test('云端主导：只用远程 API；没有可用云端时明确报错', () =
   assert.deepEqual(p.participants, ['deepseek:chat']);
   assert.deepEqual(p.debaters, ['deepseek:chat']);
   assert.deepEqual(p.webOnly, []);
-  assert.ok(!p.participants.includes('ollama:qwen2.5:7b'), '云端主导不得掺本地模型');
+  assert.ok(!p.participants.includes('ollama:local-test:7b'), '云端主导不得掺本地模型');
   assert.throws(() => plan('cloud'), /云端主导需要至少一个可用的远程 API 模型成员/);
 });
 
@@ -110,7 +110,7 @@ test('混合：先综合决定采用一种方式，再严格只用那一类', ()
   assert.match(p.reason, /混合先综合决定采用/);
   // 本机形态：云端没 Key，选本地，绝不把网页混进来。
   assert.match(p.reason, /本地主导/);
-  assert.deepEqual(p.participants, ['ollama:qwen2.5:7b']);
+  assert.deepEqual(p.participants, ['ollama:local-test:7b']);
   assert.ok(p.warnings.some(line => /混合综合决定/.test(line)));
   // 有可用云端时优先云端，仍然只用那一类。
   const cloud = planLead({ mode: 'hybrid', strategy: 'standard', candidates: WITH_CLOUD });
@@ -132,15 +132,15 @@ test('主辩可以由用户指定，理由随之改变；指定了非法 id 时�
   const p = plan('web', { leadAgentId: 'gemini' });
   assert.equal(p.lead.agentId, 'gemini');
   assert.match(p.lead.reason, /由你指定/);
-  const fallback = plan('web', { leadAgentId: 'ollama:qwen2.5:7b' });
+  const fallback = plan('web', { leadAgentId: 'ollama:local-test:7b' });
   assert.equal(fallback.lead.agentId, 'chatgpt');
   assert.match(fallback.lead.reason, /第一个可用的网页通道/);
 });
 
 test('用户只勾选部分成员时，其余的不参与，且不会被记成「不可用」', () => {
-  const p = plan('web', { selected: ['chatgpt', 'kimi', 'ollama:qwen2.5:7b'] });
+  const p = plan('web', { selected: ['chatgpt', 'kimi', 'ollama:local-test:7b'] });
   assert.deepEqual(p.openingSpeakers, ['chatgpt', 'kimi']);
-  assert.ok(!p.participants.includes('ollama:qwen2.5:7b'), '归属规则把本地模型挡在网页主导之外');
+  assert.ok(!p.participants.includes('ollama:local-test:7b'), '归属规则把本地模型挡在网页主导之外');
   assert.ok(!p.excluded.some(item => item.id === 'gemini'));
 });
 
@@ -151,9 +151,9 @@ test('归属规则：只有一个可用成员也照常开，如实写明自辩',
   assert.deepEqual(web.debaters, ['chatgpt']);
   assert.ok(web.warnings.some(line => /只有一个可用成员/.test(line)));
 
-  const oneLocal = [{ id: 'ollama:qwen2.5:7b', label: 'Ollama', type: 'local', available: true }];
+  const oneLocal = [{ id: 'ollama:local-test:7b', label: 'Ollama', type: 'local', available: true }];
   const local = planLead({ mode: 'local', strategy: 'standard', candidates: oneLocal });
-  assert.deepEqual(local.participants, ['ollama:qwen2.5:7b']);
+  assert.deepEqual(local.participants, ['ollama:local-test:7b']);
   assert.ok(local.warnings.some(line => /只有一个可用成员/.test(line)));
 
   assert.throws(() => planLead({ mode: 'cloud', strategy: 'standard', candidates: onlyWeb }), /云端主导/);
@@ -252,8 +252,8 @@ test('本地主导真跑：不碰网页，同一模型分饰质疑与修正也�
     // 假回答每轮一样，收敛判据会提前停；这里要验的是三轮都跑完，所以关掉自动收敛。
     const state = h.orchestrator.start(QUESTION, { strategy: 'deep', maxRounds: 3, leadMode: 'local', convergenceStop: false }, undefined, p);
     const saved = await finish(h, state);
-    assert.equal(saved.lead.agentId, 'ollama:qwen2.5:7b');
-    assert.ok(h.seen.every(call => call.agentId === 'ollama:qwen2.5:7b'), '本地主导不应向网页发送内容');
+    assert.equal(saved.lead.agentId, 'ollama:local-test:7b');
+    assert.ok(h.seen.every(call => call.agentId === 'ollama:local-test:7b'), '本地主导不应向网页发送内容');
     assert.equal(saved.rounds.length, 3);
     assert.equal(saved.rounds[2].messages[0].kind, 'revision');
     assert.ok(saved.rounds[2].messages[0].targetMessageId, '自辩也要有明确的质疑对象');
@@ -284,8 +284,8 @@ test('混合真跑：先择一方式，全程只用那一类', async () => {
     const state = h.orchestrator.start(QUESTION, { strategy: 'standard', maxRounds: 2, leadMode: 'hybrid' }, undefined, p);
     const saved = await finish(h, state);
     assert.match(saved.plan.reason, /混合先综合决定/);
-    assert.deepEqual(saved.plan.participants, ['ollama:qwen2.5:7b']);
-    assert.ok(h.seen.every(call => call.agentId === 'ollama:qwen2.5:7b'), '混合择一后不得混用其他类型');
+    assert.deepEqual(saved.plan.participants, ['ollama:local-test:7b']);
+    assert.ok(h.seen.every(call => call.agentId === 'ollama:local-test:7b'), '混合择一后不得混用其他类型');
   } finally {
     h.cleanup();
   }
@@ -324,16 +324,16 @@ test('没有云端 API 时四种方式各自的名单', () => {
   const noCloud = [
     { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
     { id: 'kimi', label: 'Kimi', type: 'web', available: true },
-    { id: 'ollama:qwen2.5:7b', label: 'Ollama', type: 'local', available: true }
+    { id: 'ollama:local-test:7b', label: 'Ollama', type: 'local', available: true }
   ];
   const local = planLead({ mode: 'local', strategy: 'standard', candidates: noCloud });
-  assert.deepEqual(local.participants, ['ollama:qwen2.5:7b']);
+  assert.deepEqual(local.participants, ['ollama:local-test:7b']);
   const web = planLead({ mode: 'web', strategy: 'standard', candidates: noCloud });
   assert.deepEqual(web.participants, ['chatgpt', 'kimi']);
   assert.deepEqual(web.debaters, ['chatgpt', 'kimi']);
   const hybrid = planLead({ mode: 'hybrid', strategy: 'standard', candidates: noCloud });
   assert.match(hybrid.reason, /本地主导/);
-  assert.deepEqual(hybrid.participants, ['ollama:qwen2.5:7b']);
+  assert.deepEqual(hybrid.participants, ['ollama:local-test:7b']);
   assert.throws(() => planLead({ mode: 'cloud', strategy: 'standard', candidates: noCloud }), /云端主导/);
 });
 

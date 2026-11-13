@@ -229,9 +229,10 @@ npm run dev              # 开发模式
 npm run start:debug      # 带 CDP 9222 调试端口，验证界面时用这个
 ```
 
-本地模型需要先起 Ollama 并拉模型（`ollama serve`、`ollama pull qwen2.5:7b`）。
-默认模型固定 `qwen2.5:7b`，不因 Ollama 返回顺序漂移；其他已安装模型会作为
-额外成员出现在清单里。没起 Ollama 也能用网页模式，本地成员会如实标不可用。
+本地模型需要先起 Ollama 并拉至少一个对话模型（`ollama serve`、`ollama pull <model>`）。
+应用不再写死默认模型：启动后按 Ollama `/api/tags` 的实际清单生成，第一个可用
+模型作为默认，其他模型作为额外成员。没起 Ollama 也能用网页模式，本地成员会
+如实标不可用。
 
 ### 4.2 发起一场辩论
 

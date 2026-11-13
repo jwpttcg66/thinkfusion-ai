@@ -530,21 +530,13 @@ const providerRegistry = new ProviderRegistry();
 let apiKeys: ApiKeyStore | null = null;
 let extraAgents: ProviderBackedSubAgent[] = [];
 /**
- * 本地模型的兜底清单。
+ * 本地模型的可用清单。
  *
- * 启动后会用 `ollama list` 的真实结果覆盖它：写死一个名字，用户拉了新模型
- * 也用不上，写死多个又会在没装的机器上造出「不可用成员」。Ollama 没起时保留
- * 这个默认值，health() 会如实说不可用。
+ * 不再硬编码默认模型：启动后完全以 Ollama `/api/tags` 的真实结果为准。
+ * Ollama 没起或一个模型都没装时为空，health() 会如实说不可用，不凭空造出
+ * 一个「默认模型」。
  */
-let localModels: string[] = ['qwen2.5:7b'];
-/**
- * 本地调用的默认模型。
- *
- * 成员清单按安装情况动态生成之后，`localModels[0]` 可能是用户后来拉的小模型
- * （0.5b 之类）。默认值不该因为「谁排在前面」而变，所以固定挑这个；它不在
- * 安装清单里时再用第一个可用的。
- */
-const PREFERRED_LOCAL_MODEL = 'qwen2.5:7b';
+let localModels: string[] = [];
 let collaborationRecords: CollaborationRecord[] = [];
 let cloudConfigs: CloudConfigStore | null = null;
 /** 当前生效的云端清单（预设 + 用户覆盖）。界面、成员、裁决都读它。 */
@@ -676,7 +668,6 @@ async function refreshLocalModels(): Promise<void> {
   try {
     const models = await localProvider.listModels();
     const names = models.map(model => model.id).filter(name => typeof name === 'string' && name.length > 0);
-    if (names.length === 0) return;
     if (names.join('\u0000') === localModels.join('\u0000')) return;
     localModels = names;
     rebuildProviders();
@@ -695,11 +686,9 @@ async function refreshLocalModels(): Promise<void> {
 function rebuildProviders() {
   const providers: ModelProvider[] = [];
   for (const agent of registry.list()) providers.push(new WebChannelProvider(agent));
-  providers.push(new OllamaProvider({
-    defaultModel: localModels.includes(PREFERRED_LOCAL_MODEL)
-      ? PREFERRED_LOCAL_MODEL
-      : localModels[0] ?? PREFERRED_LOCAL_MODEL
-  }));
+  providers.push(new OllamaProvider(
+    localModels[0] ? { defaultModel: localModels[0] } : {}
+  ));
   localProvider = providers[providers.length - 1] as OllamaProvider;
   cloudCatalog = [];
   cloudProviders = [];

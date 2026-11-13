@@ -49,7 +49,7 @@ function sink() {
 
 // 1–4 执行模式（2026-11-09 更新：模式同时决定谁回答，本地/云端主导不问网页）
 const web = [webAgent('chatgpt'), webAgent('kimi')];
-const local = new ProviderBackedSubAgent(provider('local', 'ollama'), 'qwen2.5:7b');
+const local = new ProviderBackedSubAgent(provider('local', 'ollama'), 'local-test:7b');
 const cloud = new ProviderBackedSubAgent(provider('cloud', 'openai'), 'gpt-4o-mini');
 const extra = [local, cloud];
 const expectedAnswers = {
@@ -136,7 +136,7 @@ test('场景 7 模型中途失败：隔离、重试一次、其他人照常完�
 test('场景 8-9 网络中断与 Ollama 退出：unavailable，不抛裸 fetch 错', async () => {
   const dead = new OllamaProvider({
     baseUrl: 'http://127.0.0.1:11499',
-    defaultModel: 'qwen2.5:7b',
+    defaultModel: 'local-test:7b',
     fetchImpl: async () => { throw new TypeError('fetch failed'); },
     connectTimeoutMs: 50
   });

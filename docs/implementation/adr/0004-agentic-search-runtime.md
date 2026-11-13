@@ -80,7 +80,7 @@ EngineeringToolResult<T> {
 真实模型验证（`npm run spike:agentic-search:real`，2026-11-13）：
 
 - 工程：`/Users/yalla/data/codeStudy/grpc-springboot`；3 个问题。
-- 默认本地 `qwen2.5:7b` 未安装；第一个 tools 模型 `deepseek-r1:14b` 探测失败（47 s，无 tool_calls）。
+- 应用不再硬编码默认本地模型；按 Ollama 实际清单选择。第一个 tools 模型 `deepseek-r1:14b` 探测失败（47 s，无 tool_calls）。
 - 本地改用 `gpt-oss:20b`：3/3 覆盖预期术语，但引用不稳定，耗时约为 baseline 的 1.4–2 倍。
 - 云端 `deepseek-v4.1-flash`：3/3 覆盖，引用 8–12 条，耗时 1.6–2.3 倍，token 5–20 倍。
 - 结论：Agentic Search 只在可靠 tool calling 模型上可用；Web 通道不参与；默认本地模型不可用时必须显式降级。

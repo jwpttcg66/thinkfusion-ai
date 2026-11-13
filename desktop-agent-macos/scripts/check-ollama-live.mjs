@@ -2,7 +2,7 @@
  * Ollama Provider 真机端到端。
  *
  * 和 check-ollama.mjs 的区别：这里没有任何假 fetch，全部打到
- * 127.0.0.1:11434 的真实服务、真实 qwen2.5:7b。服务没起就整组 skip，
+ * 127.0.0.1:11434 的真实服务与真实已安装模型。服务没起就整组 skip，
  * 不把「没跑」写成「通过」。
  *
  * 不进 npm test：CI 上没有 Ollama。手动跑：
@@ -15,7 +15,6 @@ import test from 'node:test';
 import { OllamaProvider } from '../out-test/main/providers/ollama.js';
 
 const BASE = 'http://127.0.0.1:11434';
-const MODEL = 'qwen2.5:7b';
 
 async function reachable() {
   try {
@@ -31,32 +30,39 @@ if (!live) {
   console.log(`[skip] Ollama 没在 ${BASE} 上运行。启动 Ollama.app 或 ollama serve 后重跑。`);
 }
 
+const available = live ? await new OllamaProvider({ baseUrl: BASE }).listModels() : [];
+const MODEL = available[0]?.id ?? null;
+if (live && !MODEL) {
+  console.log('[skip] Ollama 在运行，但没有可对话模型；先 ollama pull 一个。');
+}
+const skip = !live || !MODEL;
+
 function provider(options = {}) {
-  return new OllamaProvider({ defaultModel: MODEL, baseUrl: BASE, ...options });
+  return new OllamaProvider({ baseUrl: BASE, ...options });
 }
 
-test('health：服务在跑且能数出模型', { skip: !live }, async () => {
+test('health：服务在跑且能数出模型', { skip }, async () => {
   const status = await provider().health();
   assert.equal(status.available, true);
   assert.match(status.detail, /已安装 \d+ 个模型/);
 });
 
-test('listModels：真实服务里只返回能对话的模型，且读到真实上下文长度', { skip: !live }, async () => {
+test('listModels：真实服务里只返回能对话的模型，且读到真实上下文长度', { skip }, async () => {
   const models = await provider().listModels();
-  assert.ok(models.some(m => m.id === MODEL));
+  assert.ok(MODEL && models.some(m => m.id === MODEL));
   assert.equal(models.some(m => m.id === 'nomic-embed-text:latest'), false,
     'embedding 模型不该出现在可对话列表里');
-  assert.equal(models.find(m => m.id === MODEL).contextTokens, 32768);
+  assert.ok(models.find(m => m.id === MODEL).contextTokens > 0);
 });
 
-test('generate：真回答、真 token 用量', { skip: !live }, async () => {
+test('generate：真回答、真 token 用量', { skip }, async () => {
   const r = await provider().generate({ question: '用一句话回答：17 乘 3 等于多少？' });
   assert.match(r.text, /51/);
   assert.ok(r.usage.outputTokens > 0);
   assert.ok(r.latencyMs > 0);
 });
 
-test('stream：真流式，首字比整段早，拼起来非空', { skip: !live }, async () => {
+test('stream：真流式，首字比整段早，拼起来非空', { skip }, async () => {
   const started = Date.now();
   let firstAt = null;
   let text = '';
@@ -72,7 +78,7 @@ test('stream：真流式，首字比整段早，拼起来非空', { skip: !live 
   console.log(`[live] 首字 ${firstAt}ms，总 ${Date.now() - started}ms，${chunks} 块，${text.length} 字`);
 });
 
-test('取消：abort 之后服务真的停了，新请求不用排队', { skip: !live }, async () => {
+test('取消：abort 之后服务真的停了，新请求不用排队', { skip }, async () => {
   const controller = new AbortController();
   const started = Date.now();
   try {
@@ -104,7 +110,7 @@ test('取消：abort 之后服务真的停了，新请求不用排队', { skip: 
   console.log(`[live] abort 后新请求 ${quickMs}ms，取消语义判定为 abort`);
 });
 
-test('并发闸门：两个请求同时发，只有一个在跑', { skip: !live }, async () => {
+test('并发闸门：两个请求同时发，只有一个在跑', { skip }, async () => {
   const p = provider();
   const a = p.generate({ question: '用一句话说明什么是递归。' });
   const b = p.generate({ question: '用一句话说明什么是哈希表。' });
@@ -116,7 +122,7 @@ test('并发闸门：两个请求同时发，只有一个在跑', { skip: !live 
   assert.deepEqual(p.queue(), { running: 0, queued: 0 });
 });
 
-test('模型不存在：真 404 映射成 model-not-found', { skip: !live }, async () => {
+test('模型不存在：真 404 映射成 model-not-found', { skip }, async () => {
   await assert.rejects(
     provider().generate({ question: 'hi', modelId: 'no-such-model:1b' }),
     error => error.code === 'model-not-found'
