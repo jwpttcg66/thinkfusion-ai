@@ -41,26 +41,28 @@
 
 ## 3. P0 阻断项
 
-### P0-1：两个远端 Provider 的账号前提没有满足
+### P0-1：单 Provider 多模型可用，但“双 Provider”仍未满足
 
 当前本机只配置了：
 
 - `opencode-go`
 - 一个 API Key
-- 多个模型（deepseek/glm/grok/claude 等）
+- 多个模型（deepseek/glm/claude/qwen 等）
 
-计划要求：
+实际验证可用模型：
 
-- 两个 Provider；
-- 至少三个模型。
+- `deepseek-v4.1-flash`
+- `glm-5.3`
+- `claude-haiku-5-5`
+- `qwen3.8-max`
 
-**当前只能满足“一个 Provider + 三个模型”，不能满足“两个 Provider”。**
+如果“Provider”指“可用模型实例”，三个模型足够做 P0 的双/三模型验证；如果严格指“两个独立 API 服务/账号”，当前仍只有一个。
 
 建议：
 
 - 先按 `opencode-go` 的三个模型做 P0-01-A，标注为 `SINGLE_PROVIDER`；
 - 第二个 Provider 配好 Key 后做 P0-01-B；
-- 在第二个 Provider 未配置前，不能把 P0-01 写成“多 Provider 验证通过”。
+- 在第二个 Provider 未配置前，不把“两个 Provider 故障域独立”写成已验证。
 
 ### P0-2：策略组合没有数据结构
 
