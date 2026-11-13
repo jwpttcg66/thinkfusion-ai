@@ -89,6 +89,12 @@ export interface TraceMeta {
   citations?: number;
   outputChars?: number;
   inputChars?: number;
+  /** Agentic Search 关联。 */
+  searchId?: string;
+  callId?: string;
+  toolName?: string;
+  round?: number;
+  generation?: number;
   /** 这一轮的执行模式与参与名单。 */
   executionMode?: 'web' | 'local' | 'cloud' | 'hybrid';
   selectedCloudModels?: number;

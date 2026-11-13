@@ -31,6 +31,8 @@ export type ReadToolName = (typeof READ_TOOL_NAMES)[number];
 export interface ReadToolRequest {
   tool: ReadToolName;
   args: Record<string, unknown>;
+  /** args 存在但不是对象：不能静默当空对象执行。 */
+  invalidArgs?: boolean;
 }
 
 export interface ReadToolScope {
@@ -80,11 +82,10 @@ export function parseToolRequest(raw: string): ReadToolRequest | null {
           const value = parsed as { tool?: unknown; args?: unknown };
           const tool = normalizeTool(value.tool);
           if (tool) {
-            const args =
-              value.args && typeof value.args === 'object' && !Array.isArray(value.args)
-                ? (value.args as Record<string, unknown>)
-                : {};
-            return { tool, args };
+            const invalidArgs = value.args !== undefined &&
+              (value.args === null || typeof value.args !== 'object' || Array.isArray(value.args));
+            const args = invalidArgs ? {} : value.args as Record<string, unknown>;
+            return { tool, args, ...(invalidArgs ? { invalidArgs: true } : {}) };
           }
         }
       } catch {

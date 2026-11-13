@@ -64,6 +64,9 @@ import {
   DEFAULT_SEARCH_BUDGET,
   deterministicFinalReport,
   formatSearchReport,
+  nextToolCallId,
+  transitionSearchState,
+  validateToolArgs,
   type AgenticSearchContext,
   type SearchEvidenceRef,
   type SearchTerminationReason,
@@ -957,26 +960,46 @@ export class ConversationRunner {
     const finalizeSearch = (reason: SearchTerminationReason, warnings: string[] = []): SubAgentAnswer => {
       if (!input.search) return fallbackAnswer(`${reason}：没有可用的搜索上下文`);
       input.search.terminationReason = reason;
+      if (input.search.state !== 'FINALIZING' && input.search.state !== 'COMPLETED' &&
+          input.search.state !== 'FAILED' && input.search.state !== 'CANCELLED') {
+        transitionSearchState(input.search, 'FINALIZING', reason);
+      }
       const report = deterministicFinalReport({
         context: input.search,
         terminationReason: reason,
         warnings,
         unresolvedQuestions: [input.question]
       });
-      input.search.state = report.status === 'CANCELLED'
+      const finalState = report.status === 'CANCELLED'
         ? 'CANCELLED'
         : report.status === 'FAILED' ? 'FAILED' : 'COMPLETED';
+      if (input.search.state === 'FINALIZING') transitionSearchState(input.search, finalState, reason);
+      else input.search.state = finalState;
       input.search.finalReport = report;
       input.trace?.note(`Agentic Search 收束：${reason}`);
       return fallbackAnswer(formatSearchReport(report));
     };
 
+    const askSafe = async (prompt: string): Promise<SubAgentAnswer> => {
+      try {
+        return await ask(prompt);
+      } catch (error) {
+        // 没有任何有效证据时保留旧的“成员失败 → 网页兜底”行为；
+        // 已有证据时才用确定性报告收束，避免把整轮回答变成空失败。
+        if (!input.search || input.search.evidenceRefs.length === 0) throw error;
+        const detail = error instanceof Error ? error.message : String(error);
+        return finalizeSearch('PROVIDER_ERROR', [detail]);
+      }
+    };
+
     if (input.search && !input.search.manager.canStartRound(input.question.length, 0)) {
       return finalizeSearch('BUDGET_EXHAUSTED');
     }
+    if (input.search?.state === 'PLANNING') transitionSearchState(input.search, 'SEARCHING');
     input.search?.manager.startRound();
-    let answer = await ask(input.question);
+    let answer = await askSafe(input.question);
     input.search?.manager.recordModelUsage(answer.usage, input.question.length, answer.text.length);
+    if (input.search?.state === 'SEARCHING') transitionSearchState(input.search, 'OBSERVING');
     let toolHistory = '';
     const searchRounds = input.search
       ? Math.min(MAX_TOOL_ROUNDS, input.search.manager.remaining().rounds)
@@ -986,10 +1009,22 @@ export class ConversationRunner {
       if (input.search?.manager.exhausted()) return finalizeSearch('BUDGET_EXHAUSTED');
       const request = parseToolRequest(answer.text);
       if (!request) break;
+      if (request.invalidArgs) {
+        return finalizeSearch('TOOL_ERROR', [`${request.tool} 的 args 不是对象`]);
+      }
+      const validated = validateToolArgs(request.tool, request.args);
+      if (!validated.ok) {
+        return finalizeSearch('TOOL_ERROR', [validated.message]);
+      }
       if (input.search && !input.search.manager.canUseTool()) {
         return finalizeSearch('BUDGET_EXHAUSTED');
       }
       input.sink.phase(target.agentId, 'asking', `读文件：${request.tool}`);
+      input.search?.manager.useTool();
+      const started = Date.now();
+      const toolCallId = input.search
+        ? nextToolCallId(input.search, target.agentId)
+        : `tc_local_${String(round)}_${request.tool}`;
       const toolStep = input.trace?.beginStep({
         stage: 'tool',
         group: 'first',
@@ -997,11 +1032,15 @@ export class ConversationRunner {
         actorLabel: target.label,
         sourceType: this.traceSourceOf(target.agentId),
         reason: `读文件：${request.tool}`,
-        inputPreview: JSON.stringify(request.args)
+        inputPreview: JSON.stringify(request.args),
+        meta: {
+          ...(input.search ? { searchId: input.search.searchId } : {}),
+          callId: toolCallId,
+          toolName: request.tool,
+          round,
+          ...(input.search?.generation !== undefined ? { generation: input.search.generation } : {})
+        }
       });
-      input.search?.manager.useTool();
-      const started = Date.now();
-      const toolCallId = `tc_${String(round)}_${request.tool}`;
       let result: { ok: boolean; text: string; summary: string };
       try {
         result = await mainCapabilities.execute<{
@@ -1012,7 +1051,7 @@ export class ConversationRunner {
           'project.read',
           {
             tool: request.tool,
-            toolArgs: request.args,
+            toolArgs: validated.args,
             root: input.scope.root,
             extraFiles: input.scope.extraFiles
           },
@@ -1043,7 +1082,7 @@ export class ConversationRunner {
           return finalizeSearch('TOOL_ERROR', [detail]);
         }
         input.search.manager.startRound();
-        answer = await ask(buildToolFollowupQuestion(input.question, `工具失败：${request.tool}`, detail, prior));
+        answer = await askSafe(buildToolFollowupQuestion(input.question, `工具失败：${request.tool}`, detail, prior));
         input.search.manager.recordModelUsage(answer.usage, input.question.length + toolHistory.length, answer.text.length);
         continue;
       }
@@ -1054,8 +1093,8 @@ export class ConversationRunner {
       });
       input.trace?.note(`${target.label} 调用了本机能力：${result.summary}`);
       input.announce?.(`${target.label} 调用了本机能力：${result.summary}`);
-      const path = typeof request.args.path === 'string' ? request.args.path : '';
-      const line = typeof request.args.offset === 'number' ? request.args.offset : undefined;
+      const path = typeof validated.args.path === 'string' ? validated.args.path : '';
+      const line = typeof validated.args.offset === 'number' ? validated.args.offset : undefined;
       const evidence: SearchEvidenceRef | null = result.ok && path
         ? {
             path,
@@ -1082,6 +1121,8 @@ export class ConversationRunner {
       if (evidence) {
         input.search?.evidenceRefs.push(evidence);
         input.search?.manager.addEvidence(result.text.length);
+      } else if (!result.ok && input.search && input.search.evidenceRefs.length === 0) {
+        return finalizeSearch('TOOL_ERROR', [result.text]);
       }
       const prior = toolHistory;
       toolHistory = `${toolHistory}\n\n【${result.summary}】\n${result.text}`.slice(-12_000);
@@ -1089,9 +1130,11 @@ export class ConversationRunner {
       if (input.search && !input.search.manager.canStartRound(input.question.length + toolHistory.length, 0)) {
         return finalizeSearch('BUDGET_EXHAUSTED');
       }
+      if (input.search?.state === 'OBSERVING') transitionSearchState(input.search, 'SEARCHING');
       input.search?.manager.startRound();
-      answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text, prior));
+      answer = await askSafe(buildToolFollowupQuestion(input.question, result.summary, result.text, prior));
       input.search?.manager.recordModelUsage(answer.usage, input.question.length + toolHistory.length, answer.text.length);
+      if (input.search?.state === 'SEARCHING') transitionSearchState(input.search, 'OBSERVING');
     }
     if (input.sink.cancelled()) return finalizeSearch('CANCELLED');
     if (input.search?.manager.exhausted()) return finalizeSearch('BUDGET_EXHAUSTED');

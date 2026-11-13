@@ -9,7 +9,10 @@ import {
   deterministicFinalReport,
   formatSearchReport,
   DEFAULT_SEARCH_BUDGET,
-  SearchBudgetManager
+  SearchBudgetManager,
+  nextToolCallId,
+  transitionSearchState,
+  validateToolArgs
 } from '../out-test/main/research/agentic-search.js';
 
 test('预算：单题独立、累计、硬预算耗尽', () => {
@@ -92,4 +95,32 @@ test('上下文：新问题新预算，Generation 固定', () => {
   assert.notEqual(a.manager, b.manager);
   assert.equal(a.generation, 3);
   assert.equal(b.generation, 4);
+});
+
+
+test('Tool Contract：参数校验和 callId 唯一性', () => {
+  assert.equal(validateToolArgs('fs.stat', { path: 'log.txt' }).ok, true);
+  assert.equal(validateToolArgs('fs.stat', {}).ok, false);
+  assert.equal(validateToolArgs('fs.stat', { path: 1 }).ok, false);
+  assert.equal(validateToolArgs('fs.readFile', { path: 'a', offset: '1' }).ok, false);
+  assert.equal(validateToolArgs('fs.search', { pattern: 'x', extra: true }).ok, false);
+  assert.equal(validateToolArgs('fs.rm', { path: 'a' }).ok, false);
+
+  const context = createSearchContext({ model: 'test' });
+  const a1 = nextToolCallId(context, 'agent-a');
+  const a2 = nextToolCallId(context, 'agent-a');
+  const b1 = nextToolCallId(context, 'agent-b');
+  assert.notEqual(a1, a2);
+  assert.notEqual(a1, b1);
+  assert.match(a1, new RegExp(`^tc_${context.searchId}_agent-a_1$`));
+});
+
+test('状态机：FINALIZING 后不能回 SEARCHING', () => {
+  const context = createSearchContext({ model: 'test' });
+  transitionSearchState(context, 'SEARCHING');
+  transitionSearchState(context, 'OBSERVING');
+  transitionSearchState(context, 'FINALIZING');
+  assert.throws(() => transitionSearchState(context, 'SEARCHING'), /非法/);
+  transitionSearchState(context, 'COMPLETED');
+  assert.throws(() => transitionSearchState(context, 'SEARCHING'), /非法/);
 });

@@ -29,6 +29,26 @@ export type SearchTerminationReason =
   | 'TIMEOUT'
   | 'CANCELLED';
 
+export type ToolCallingMode = 'native' | 'json_protocol' | 'web_only';
+export type ToolCallStatus =
+  | 'requested'
+  | 'validated'
+  | 'rejected'
+  | 'executing'
+  | 'success'
+  | 'failed';
+
+export interface ToolCall {
+  callId: string;
+  searchId: string;
+  agentId: string;
+  round: number;
+  toolName: string;
+  args: Record<string, unknown>;
+  mode: ToolCallingMode;
+  status: ToolCallStatus;
+}
+
 export interface SearchBudget {
   maxRounds: number;
   maxToolCalls: number;
@@ -60,6 +80,66 @@ export interface SearchBudgetRemaining {
   evidenceChars: number;
 }
 
+export type EngineeringToolName = 'fs.stat' | 'fs.readFile' | 'fs.search' | 'fs.list';
+
+export interface ToolValidationError {
+  ok: false;
+  code: 'invalid-args' | 'unknown-tool' | 'missing-arg' | 'bad-type' | 'out-of-range';
+  message: string;
+}
+
+export type ToolValidationResult =
+  | { ok: true; args: Record<string, unknown> }
+  | ToolValidationError;
+
+const TOOL_ARG_KEYS: Record<EngineeringToolName, readonly string[]> = {
+  'fs.stat': ['path'],
+  'fs.readFile': ['path', 'offset', 'limit'],
+  'fs.search': ['pattern', 'path'],
+  'fs.list': ['path']
+};
+
+export function validateToolArgs(tool: string, rawArgs: unknown): ToolValidationResult {
+  if (!(tool in TOOL_ARG_KEYS)) return { ok: false, code: 'unknown-tool', message: `未注册工具：${tool}` };
+  if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
+    return { ok: false, code: 'invalid-args', message: '工具参数必须是对象' };
+  }
+  const args = rawArgs as Record<string, unknown>;
+  const allowed = TOOL_ARG_KEYS[tool as EngineeringToolName];
+  for (const key of Object.keys(args)) {
+    if (!allowed.includes(key)) return { ok: false, code: 'invalid-args', message: `不支持的参数：${key}` };
+  }
+  const text = (key: string, required: boolean, max: number) => {
+    const value = args[key];
+    if (value === undefined) {
+      if (required) return { ok: false as const, code: 'missing-arg' as const, message: `缺少参数：${key}` };
+      return null;
+    }
+    if (typeof value !== 'string' || value.length === 0 || value.length > max) {
+      return { ok: false as const, code: 'bad-type' as const, message: `参数 ${key} 必须是 1-${String(max)} 字符的字符串` };
+    }
+    return null;
+  };
+  const number = (key: string, min: number, max: number) => {
+    const value = args[key];
+    if (value === undefined) return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < min || value > max) {
+      return { ok: false as const, code: 'out-of-range' as const, message: `参数 ${key} 必须是 ${String(min)}-${String(max)} 的整数` };
+    }
+    return null;
+  };
+  const errors = tool === 'fs.search'
+    ? [text('pattern', true, 200), text('path', false, 2000)]
+    : tool === 'fs.list'
+      ? [text('path', false, 2000)]
+      : tool === 'fs.readFile'
+        ? [text('path', true, 2000), number('offset', 1, 1_000_000), number('limit', 1, 2000)]
+        : [text('path', true, 2000)];
+  const error = errors.find(item => item !== null);
+  if (error) return error;
+  return { ok: true, args: { ...args } };
+}
+
 export interface SearchEvidenceRef {
   path: string;
   line?: number;
@@ -74,6 +154,7 @@ export interface SearchEvidenceRef {
 
 export interface SearchToolResult {
   callId: string;
+  searchId?: string;
   toolName: string;
   argsSummary: string;
   status: 'success' | 'failed' | 'denied' | 'timeout' | 'cancelled';
@@ -83,6 +164,8 @@ export interface SearchToolResult {
   warnings: string[];
   truncated: boolean;
   durationMs: number;
+  mode?: ToolCallingMode;
+  generation?: number;
 }
 
 export interface SearchFinding {
@@ -118,6 +201,7 @@ export interface AgenticSearchContext {
   startedAt: number;
   cancelled: boolean;
   model: string;
+  toolSequence: number;
   finalReport?: SearchReport;
 }
 
@@ -238,6 +322,32 @@ export class SearchBudgetManager {
   }
 }
 
+export function nextToolCallId(context: AgenticSearchContext, agentId: string): string {
+  context.toolSequence += 1;
+  return `tc_${context.searchId}_${agentId}_${String(context.toolSequence)}`;
+}
+
+const ALLOWED_TRANSITIONS: Record<AgenticSearchState, ReadonlySet<AgenticSearchState>> = {
+  PLANNING: new Set(['SEARCHING', 'FINALIZING', 'CANCELLED']),
+  SEARCHING: new Set(['OBSERVING', 'FINALIZING', 'CANCELLED', 'FAILED']),
+  OBSERVING: new Set(['SEARCHING', 'FINALIZING', 'CANCELLED', 'FAILED']),
+  FINALIZING: new Set(['COMPLETED', 'FAILED', 'CANCELLED']),
+  COMPLETED: new Set(),
+  FAILED: new Set(),
+  CANCELLED: new Set()
+};
+
+export function transitionSearchState(
+  context: AgenticSearchContext,
+  nextState: AgenticSearchState,
+  reason?: string
+): void {
+  if (!ALLOWED_TRANSITIONS[context.state].has(nextState)) {
+    throw new Error(`非法的 Agentic Search 状态转换：${context.state} -> ${nextState}${reason ? `（${reason}）` : ''}`);
+  }
+  context.state = nextState;
+}
+
 export function createSearchContext(options: {
   projectId?: string;
   generation?: number;
@@ -257,7 +367,8 @@ export function createSearchContext(options: {
     toolResults: [],
     startedAt: Date.now(),
     cancelled: false,
-    model: options.model
+    model: options.model,
+    toolSequence: 0
   };
 }
 
