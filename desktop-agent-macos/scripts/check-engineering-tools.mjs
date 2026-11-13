@@ -46,6 +46,7 @@ after(() => {
 
 mkdirSync(join(root, 'src'), { recursive: true });
 writeFileSync(join(root, 'log.txt'), 'record-1\nrecord-2\nrecord-3\n');
+writeFileSync(join(root, '.env'), 'API_KEY=secret\n');
 writeFileSync(join(root, 'src', 'app.ts'), 'export const a = 1;\nexport const b = 2;\n');
 writeFileSync(join(outside, 'attached.md'), '# 方案\n第一行\n第二行\n');
 
@@ -423,4 +424,13 @@ test('project.read 已登记进能力清单（插件化，不散装实现）', (
   assert.equal(meta.host, 'main');
   assert.equal(meta.permission, 'read-only');
   assert.equal(meta.enabledByDefault, true);
+});
+
+
+test('密钥/凭据文件默认拒绝读取', async () => {
+  const read = await executeReadTool({ tool: 'fs.readFile', args: { path: '.env' } }, { root, extraFiles: [] });
+  assert.equal(read.ok, false);
+  assert.match(read.text, /密钥/);
+  const search = await executeReadTool({ tool: 'fs.search', args: { pattern: 'secret' } }, { root, extraFiles: [] });
+  assert.doesNotMatch(search.text, /API_KEY=secret/);
 });

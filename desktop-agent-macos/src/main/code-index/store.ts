@@ -1327,6 +1327,21 @@ export function codeNodeId(projectId: string, language: string, filePath: string
   return `n_${hash(`${projectId}|${language}|${filePath}|${qualifiedName}|${kind}`)}`;
 }
 
+/**
+ * 稳定符号身份：不含文件路径；路径只进 locator。
+ * 同名/同 kind 的冲突由调用方给 disambiguator（例如同文件 ordinal）。
+ */
+export function codeSymbolId(
+  projectId: string,
+  language: string,
+  kind: string,
+  qualifiedName: string,
+  signature = '',
+  disambiguator = ''
+): string {
+  return `s_${hash(`${projectId}|${language}|${kind}|${qualifiedName}|${signature}|${disambiguator}`, 32)}`;
+}
+
 export function codeEdgeId(projectId: string, source: string, target: string, relation: string): string {
   return `e_${hash(`${projectId}|${source}|${target}|${relation}`)}`;
 }

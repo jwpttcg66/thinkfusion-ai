@@ -138,6 +138,13 @@ function normalizeTool(value: unknown): ReadToolName | null {
  * 范围 = 工程目录子树 + 这一问的附件（按 realpath 比，符号链接绕不出去）。
  * 这是「模型能读 ~/.ssh」与「模型只能读用户授权的东西」之间唯一的一道墙。
  */
+const SENSITIVE_FILE = /(^|\/)(\.env($|\.)|.*\.(pem|key|p12|jks)$|id_(rsa|ed25519)|credentials$)/i;
+
+function isSensitiveFile(file: string): boolean {
+  const normalized = file.split(path.sep).join('/');
+  return SENSITIVE_FILE.test(normalized);
+}
+
 async function resolveInScope(input: string, scope: ReadToolScope): Promise<string> {
   const target = path.isAbsolute(input) ? input : path.join(scope.root, input);
   let real: string;
@@ -152,6 +159,7 @@ async function resolveInScope(input: string, scope: ReadToolScope): Promise<stri
   ]);
   const allowed = roots.some(item => real === item || real.startsWith(item + path.sep));
   if (!allowed) throw new Error(`${input} 不在工程目录或这一问的附件里，不能读`);
+  if (isSensitiveFile(real)) throw new Error(`${input} 像密钥/凭据文件，默认不读取`);
   return real;
 }
 
@@ -279,7 +287,7 @@ async function searchTool(args: Record<string, unknown>, scope: ReadToolScope): 
     const listed = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const entry of listed) {
       if (hits.length >= MAX_HITS) return;
-      if (entry.name === 'node_modules' || entry.name.startsWith('.git')) continue;
+      if (entry.name === 'node_modules' || entry.name.startsWith('.git') || isSensitiveFile(entry.name)) continue;
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(abs, depth + 1);

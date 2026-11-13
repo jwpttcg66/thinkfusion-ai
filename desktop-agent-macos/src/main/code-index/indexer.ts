@@ -16,6 +16,7 @@ import { loadTypeScript } from '../lsp/ts-ast';
 import {
   codeEdgeId,
   codeNodeId,
+  codeSymbolId,
   type CodeIndexStore
 } from './store';
 import type { CodeEdge, CodeNode, CodeNodeType, SearchDoc } from './types';
@@ -61,6 +62,8 @@ interface Declaration {
   parent?: string;
   startLine: number;
   endLine: number;
+  /** 方法/函数的参数文本，用于稳定身份和重载区分。 */
+  signature?: string;
 }
 
 interface FileIndex {
@@ -111,12 +114,17 @@ function collectDeclarations(
     const name = declarationName(node);
     if (!name) return null;
     const qualifiedName = parent ? `${parent}.${name}` : name;
+    const parameters = (node as { parameters?: readonly import('typescript').Node[] }).parameters;
+    const signature = parameters
+      ? `${name}(${parameters.map(parameter => parameter.getText(sourceFile)).join(',')})`
+      : undefined;
     out.push({
       name,
       kind,
       nodeType,
       qualifiedName,
       ...(parent ? { parent } : {}),
+      ...(signature ? { signature } : {}),
       startLine: lineOf(sourceFile, node.getStart(sourceFile)),
       endLine: lineOf(sourceFile, node.getEnd())
     });
@@ -506,6 +514,7 @@ export async function indexProject(
     // 旧 generation 不在这里删除：未出现在新扫描中的文件只是不复制到新 generation，
     // 旧 generation 仍然可读；提交后由清理策略处理。
     const byName = new Map<string, CodeNode[]>();
+    const symbolCounts = new Map<string, number>();
     const fileNodes = new Map<string, CodeNode>();
     const declarationNodes = new Map<string, CodeNode[]>();
     let nodes = 0;
@@ -528,6 +537,7 @@ export async function indexProject(
         endLine: file.text.split('\n').length,
         language: file.language,
         generation,
+        symbolId: codeSymbolId(projectId, file.language, 'File', file.rel),
         ...(file.language === 'java' ? { symbolStatus: 'provisional' as const } : {})
       };
       fileNodes.set(file.rel, fileNode);
@@ -537,9 +547,20 @@ export async function indexProject(
       const localNodes: CodeNode[] = [fileNode];
       const localDeclarations: CodeNode[] = [];
       for (const declaration of file.declarations) {
+        const symbolKey = `${file.language}|${declaration.kind}|${declaration.qualifiedName}|${declaration.signature ?? ''}`;
+        const ordinal = symbolCounts.get(symbolKey) ?? 0;
+        symbolCounts.set(symbolKey, ordinal + 1);
         const node: CodeNode = {
           projectId,
           nodeId: codeNodeId(projectId, file.language, file.rel, declaration.qualifiedName, declaration.kind),
+          symbolId: codeSymbolId(
+            projectId,
+            file.language,
+            declaration.kind,
+            declaration.qualifiedName,
+            declaration.signature,
+            ordinal > 0 ? `${file.rel}#${String(ordinal)}` : ''
+          ),
           nodeType: declaration.nodeType,
           name: declaration.name,
           qualifiedName: declaration.qualifiedName,

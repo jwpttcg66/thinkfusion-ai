@@ -72,7 +72,8 @@ test('索引真实 TS 工程：节点、CONTAINS / IMPORTS / CALLS 都能查', a
   assert.ok(symbols.length >= 1);
   const charge = symbols.find(node => node.nodeType === 'Function');
   assert.ok(charge, 'charge 函数节点不存在');
-  assert.equal(charge.symbolId, charge.nodeId);
+  assert.ok(charge.symbolId?.startsWith('s_'));
+  assert.notEqual(charge.symbolId, charge.nodeId);
   assert.equal(charge.symbolStatus, 'confirmed');
 
   const incoming = store.getIncoming(projectId, charge.nodeId, ['CALLS']);
@@ -586,5 +587,27 @@ test('Generation 原子性：构建中的新代不可见，失败后旧代仍可
   } finally {
     atomicStore.close();
     fs.rmSync(atomicRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('Gate 1A：TS 文件移动后 symbolId 不变，nodeId 可以变', async () => {
+  const moveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-move-'));
+  const moveStore = new CodeIndexStore(path.join(moveRoot, 'index.sqlite'));
+  try {
+    fs.writeFileSync(path.join(moveRoot, 'old.ts'), 'export class Stable { run() { return 1; } }\n');
+    await indexProject(moveStore, moveRoot, 'move-project');
+    const before = moveStore.findSymbols('move-project', 'Stable')[0];
+    assert.ok(before?.symbolId);
+
+    fs.renameSync(path.join(moveRoot, 'old.ts'), path.join(moveRoot, 'new.ts'));
+    await indexProject(moveStore, moveRoot, 'move-project');
+    const after = moveStore.findSymbols('move-project', 'Stable')[0];
+    assert.ok(after?.symbolId);
+    assert.equal(after.symbolId, before.symbolId);
+    assert.notEqual(after.nodeId, before.nodeId);
+  } finally {
+    moveStore.close();
+    fs.rmSync(moveRoot, { recursive: true, force: true });
   }
 });
