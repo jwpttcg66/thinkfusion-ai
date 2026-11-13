@@ -499,14 +499,12 @@ export async function indexProject(
     );
   }
 
+  const previousGeneration = store.currentGeneration(projectId);
   const generation = store.beginGeneration(projectId, `scan:${String(Date.now())}`);
   try {
     const known = new Set(files.map(file => file.rel));
-    if (scanned.complete) {
-      for (const old of store.listFiles(projectId)) {
-        if (!known.has(old.filePath)) store.deleteFile(projectId, old.filePath);
-      }
-    }
+    // 旧 generation 不在这里删除：未出现在新扫描中的文件只是不复制到新 generation，
+    // 旧 generation 仍然可读；提交后由清理策略处理。
     const byName = new Map<string, CodeNode[]>();
     const fileNodes = new Map<string, CodeNode>();
     const declarationNodes = new Map<string, CodeNode[]>();
@@ -679,8 +677,9 @@ export async function indexProject(
     for (const file of files) {
       const fileNode = fileNodes.get(file.rel);
       if (!fileNode) continue;
-      if (options.incremental !== false && store.fileHash(projectId, file.rel) === file.hash) {
-        store.promoteFileGeneration(projectId, file.rel, generation);
+      if (options.incremental !== false && previousGeneration !== null &&
+          store.fileHash(projectId, file.rel) === file.hash &&
+          store.copyFileGeneration(projectId, previousGeneration, generation, file.rel)) {
         continue;
       }
       const seenNodeIds = new Set<string>();
@@ -692,7 +691,7 @@ export async function indexProject(
       const localNodeIds = new Set(localNodes.map(node => node.nodeId));
       const localEdges = allEdges.filter(edge => localNodeIds.has(edge.sourceNodeId) && edge.filePath === file.rel);
       const docs: SearchDoc[] = [{
-        docId: `doc_file_${sha256(file.rel).slice(0, 20)}`,
+        docId: `doc_file_${sha256(`${file.rel}|${String(generation)}`).slice(0, 20)}`,
         projectId,
         filePath: file.rel,
         nodeId: fileNode.nodeId,
@@ -703,7 +702,7 @@ export async function indexProject(
       }];
       for (const node of localNodes.slice(1)) {
         docs.push({
-          docId: `doc_node_${node.nodeId}`,
+          docId: `doc_node_${sha256(`${node.nodeId}|${String(generation)}`).slice(0, 24)}`,
           projectId,
           filePath: file.rel,
           nodeId: node.nodeId,
@@ -719,7 +718,23 @@ export async function indexProject(
       docCount += docs.length;
     }
 
+    // 不完整扫描：把旧 generation 中未扫描到的文件复制到新 generation，
+    // 保证当前 generation 仍然包含完整旧快照；完整扫描才允许它们消失。
+    if (!scanned.complete && previousGeneration !== null) {
+      for (const old of store.listFiles(projectId)) {
+        if (!known.has(old.filePath)) {
+          store.copyFileGeneration(projectId, previousGeneration, generation, old.filePath);
+        }
+      }
+    }
+    // 外部包节点不属于某个文件，单独复制到新 generation。
+    if (previousGeneration !== null) {
+      store.copyExternalNodes(projectId, previousGeneration, generation);
+    }
+
     store.commitGeneration(projectId, generation);
+    // 默认保留 current + 上一代；Evidence Pack 接入后要先 pin 再清理。
+    store.pruneGenerations(projectId, 2);
     return {
       projectId,
       generation,

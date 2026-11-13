@@ -27,7 +27,7 @@ import type {
   SearchHit
 } from './types';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function hash(value: string, length = 24): string {
   return createHash('sha256').update(value).digest('hex').slice(0, length);
@@ -83,7 +83,7 @@ export class CodeIndexStore {
         generation INTEGER NOT NULL,
         indexed_at INTEGER NOT NULL,
         status TEXT NOT NULL,
-        PRIMARY KEY (project_id, file_path)
+        PRIMARY KEY (project_id, generation, file_path)
       );
 
       CREATE TABLE IF NOT EXISTS code_nodes (
@@ -101,10 +101,10 @@ export class CodeIndexStore {
         symbol_status TEXT NOT NULL DEFAULT 'confirmed',
         module_id TEXT,
         signature TEXT,
-        PRIMARY KEY (project_id, node_id)
+        PRIMARY KEY (project_id, generation, node_id)
       );
-      CREATE INDEX IF NOT EXISTS code_nodes_name ON code_nodes(project_id, name);
-      CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, symbol_id);
+      CREATE INDEX IF NOT EXISTS code_nodes_name ON code_nodes(project_id, generation, name);
+      CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, generation, symbol_id);
       CREATE INDEX IF NOT EXISTS code_nodes_file ON code_nodes(project_id, file_path);
 
       CREATE TABLE IF NOT EXISTS code_edges (
@@ -120,10 +120,10 @@ export class CodeIndexStore {
         generation INTEGER NOT NULL,
         resolution_status TEXT NOT NULL DEFAULT 'resolved',
         call_site_id TEXT,
-        PRIMARY KEY (project_id, edge_id)
+        PRIMARY KEY (project_id, generation, edge_id)
       );
-      CREATE INDEX IF NOT EXISTS code_edges_source ON code_edges(project_id, source_node_id, relation_type);
-      CREATE INDEX IF NOT EXISTS code_edges_target ON code_edges(project_id, target_node_id, relation_type);
+      CREATE INDEX IF NOT EXISTS code_edges_source ON code_edges(project_id, generation, source_node_id, relation_type);
+      CREATE INDEX IF NOT EXISTS code_edges_target ON code_edges(project_id, generation, target_node_id, relation_type);
 
       CREATE TABLE IF NOT EXISTS code_search_docs (
         project_id TEXT NOT NULL,
@@ -134,9 +134,9 @@ export class CodeIndexStore {
         name TEXT NOT NULL,
         content TEXT NOT NULL,
         generation INTEGER NOT NULL,
-        PRIMARY KEY (project_id, doc_id)
+        PRIMARY KEY (project_id, generation, doc_id)
       );
-      CREATE INDEX IF NOT EXISTS code_search_docs_file ON code_search_docs(project_id, file_path);
+      CREATE INDEX IF NOT EXISTS code_search_docs_file ON code_search_docs(project_id, generation, file_path);
 
       CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
         project_id UNINDEXED,
@@ -193,10 +193,10 @@ export class CodeIndexStore {
         vector BLOB NOT NULL,
         content TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
-        generation INTEGER,
-        PRIMARY KEY (project_id, chunk_id)
+        generation INTEGER NOT NULL,
+        PRIMARY KEY (project_id, generation, chunk_id)
       );
-      CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
+      CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, generation, file_path);
 
       CREATE TABLE IF NOT EXISTS code_outbox (
         task_id TEXT PRIMARY KEY,
@@ -236,10 +236,10 @@ export class CodeIndexStore {
           vector BLOB NOT NULL,
           content TEXT NOT NULL,
           updated_at INTEGER NOT NULL,
-          generation INTEGER,
-          PRIMARY KEY (project_id, chunk_id)
+          generation INTEGER NOT NULL,
+          PRIMARY KEY (project_id, generation, chunk_id)
         );
-        CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, file_path);
+        CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, generation, file_path);
       `);
     }
     if (version >= 1 && version < 4) {
@@ -263,7 +263,162 @@ export class CodeIndexStore {
       this.db.exec('UPDATE code_nodes SET symbol_id = node_id WHERE symbol_id IS NULL');
       this.db.exec('CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, symbol_id)');
     }
+    if (version >= 1 && version < 5) this.migrateV5();
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  /**
+   * v5：把 nodes/edges/docs/vectors/file_state 改成 generation 作用域。
+   * 现有数据归入当前 ready generation；没有 ready 的工程归入 generation 1。
+   * FTS 表保持原结构；检索时 join code_search_docs 过滤 generation。
+   */
+  private migrateV5(): void {
+    const created = now();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.exec(`
+        CREATE TEMP TABLE IF NOT EXISTS migration_generation AS
+        SELECT project_id, COALESCE(MAX(CASE WHEN status = 'ready' THEN generation END), 1) AS generation
+        FROM code_generation GROUP BY project_id;
+
+        ALTER TABLE code_nodes RENAME TO code_nodes_v4;
+        CREATE TABLE code_nodes (
+          project_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          qualified_name TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          start_line INTEGER NOT NULL,
+          end_line INTEGER NOT NULL,
+          language TEXT NOT NULL,
+          generation INTEGER NOT NULL,
+          symbol_id TEXT,
+          symbol_status TEXT NOT NULL DEFAULT 'confirmed',
+          module_id TEXT,
+          signature TEXT,
+          PRIMARY KEY (project_id, generation, node_id)
+        );
+        INSERT INTO code_nodes
+          (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation,
+           symbol_id, symbol_status, module_id, signature)
+        SELECT n.project_id, n.node_id, n.node_type, n.name, n.qualified_name, n.file_path,
+               n.start_line, n.end_line, n.language,
+               COALESCE((SELECT m.generation FROM migration_generation m WHERE m.project_id = n.project_id), 1),
+               n.symbol_id, n.symbol_status, n.module_id, n.signature
+        FROM code_nodes_v4 n;
+        DROP TABLE code_nodes_v4;
+        CREATE INDEX IF NOT EXISTS code_nodes_name ON code_nodes(project_id, generation, name);
+        CREATE INDEX IF NOT EXISTS code_nodes_file ON code_nodes(project_id, generation, file_path);
+        CREATE INDEX IF NOT EXISTS code_nodes_symbol ON code_nodes(project_id, generation, symbol_id);
+
+        ALTER TABLE code_edges RENAME TO code_edges_v4;
+        CREATE TABLE code_edges (
+          project_id TEXT NOT NULL,
+          edge_id TEXT NOT NULL,
+          source_node_id TEXT NOT NULL,
+          target_node_id TEXT NOT NULL,
+          relation_type TEXT NOT NULL,
+          confidence TEXT NOT NULL,
+          source TEXT NOT NULL,
+          file_path TEXT,
+          line INTEGER,
+          generation INTEGER NOT NULL,
+          resolution_status TEXT NOT NULL DEFAULT 'resolved',
+          call_site_id TEXT,
+          PRIMARY KEY (project_id, generation, edge_id)
+        );
+        INSERT INTO code_edges
+          (project_id, edge_id, source_node_id, target_node_id, relation_type, confidence, source,
+           file_path, line, generation, resolution_status, call_site_id)
+        SELECT e.project_id, e.edge_id, e.source_node_id, e.target_node_id, e.relation_type,
+               e.confidence, e.source, e.file_path, e.line,
+               COALESCE((SELECT m.generation FROM migration_generation m WHERE m.project_id = e.project_id), 1),
+               e.resolution_status, e.call_site_id
+        FROM code_edges_v4 e;
+        DROP TABLE code_edges_v4;
+        CREATE INDEX IF NOT EXISTS code_edges_source ON code_edges(project_id, generation, source_node_id, relation_type);
+        CREATE INDEX IF NOT EXISTS code_edges_target ON code_edges(project_id, generation, target_node_id, relation_type);
+
+        ALTER TABLE code_search_docs RENAME TO code_search_docs_v4;
+        CREATE TABLE code_search_docs (
+          project_id TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          node_id TEXT,
+          kind TEXT NOT NULL,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          generation INTEGER NOT NULL,
+          PRIMARY KEY (project_id, generation, doc_id)
+        );
+        INSERT INTO code_search_docs
+          (project_id, doc_id, file_path, node_id, kind, name, content, generation)
+        SELECT d.project_id, d.doc_id, d.file_path, d.node_id, d.kind, d.name, d.content,
+               COALESCE((SELECT m.generation FROM migration_generation m WHERE m.project_id = d.project_id), 1)
+        FROM code_search_docs_v4 d;
+        DROP TABLE code_search_docs_v4;
+        CREATE INDEX IF NOT EXISTS code_search_docs_file ON code_search_docs(project_id, generation, file_path);
+
+        ALTER TABLE code_vectors RENAME TO code_vectors_v4;
+        CREATE TABLE code_vectors (
+          project_id TEXT NOT NULL,
+          chunk_id TEXT NOT NULL,
+          doc_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          node_id TEXT,
+          content_hash TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dim INTEGER NOT NULL,
+          vector BLOB NOT NULL,
+          content TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          generation INTEGER NOT NULL,
+          PRIMARY KEY (project_id, generation, chunk_id)
+        );
+        INSERT INTO code_vectors
+          (project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at, generation)
+        SELECT v.project_id, v.chunk_id, v.doc_id, v.file_path, v.node_id, v.content_hash, v.model,
+               v.dim, v.vector, v.content, v.updated_at,
+               COALESCE((SELECT m.generation FROM migration_generation m WHERE m.project_id = v.project_id), 1)
+        FROM code_vectors_v4 v;
+        DROP TABLE code_vectors_v4;
+        CREATE INDEX IF NOT EXISTS code_vectors_file ON code_vectors(project_id, generation, file_path);
+
+        ALTER TABLE code_file_state RENAME TO code_file_state_v4;
+        CREATE TABLE code_file_state (
+          project_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          mtime_ms INTEGER NOT NULL,
+          generation INTEGER NOT NULL,
+          indexed_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          PRIMARY KEY (project_id, generation, file_path)
+        );
+        INSERT INTO code_file_state
+          (project_id, file_path, content_hash, size, mtime_ms, generation, indexed_at, status)
+        SELECT f.project_id, f.file_path, f.content_hash, f.size, f.mtime_ms,
+               COALESCE((SELECT m.generation FROM migration_generation m WHERE m.project_id = f.project_id), 1),
+               f.indexed_at, f.status
+        FROM code_file_state_v4 f;
+        DROP TABLE code_file_state_v4;
+      `);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO code_generation
+          (project_id, generation, status, source_version, created_at, completed_at)
+        SELECT DISTINCT project_id,
+               COALESCE((SELECT generation FROM migration_generation m WHERE m.project_id = code_nodes.project_id), 1),
+               'ready', 'migration-v5', ?, ?
+        FROM code_nodes
+      `).run(created, created);
+      this.db.exec('DROP TABLE IF EXISTS migration_generation');
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   close(): void {
@@ -318,6 +473,45 @@ export class CodeIndexStore {
     return typeof row?.generation === 'number' ? row.generation : null;
   }
 
+  /**
+   * 清理旧 generation，只保留最近 keep 个。默认保留 current + 上一代，
+   * 给回滚和正在进行的查询留窗口；Evidence Pack 接入后需要先检查 pin。
+   */
+  pruneGenerations(projectId: string, keep = 2): void {
+    const rows = this.db.prepare(`
+      SELECT generation FROM code_generation
+      WHERE project_id = ? ORDER BY generation DESC
+    `).all(projectId) as Array<{ generation?: number }>;
+    const remove = rows.map(row => Number(row.generation)).filter(value => Number.isFinite(value)).slice(Math.max(0, keep));
+    if (remove.length === 0) return;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const generation of remove) {
+        const docs = this.db.prepare('SELECT doc_id FROM code_search_docs WHERE project_id = ? AND generation = ?')
+          .all(projectId, generation) as Array<{ doc_id?: string }>;
+        for (const doc of docs) {
+          if (typeof doc.doc_id !== 'string') continue;
+          this.db.prepare(`
+            DELETE FROM code_fts
+            WHERE project_id = ? AND doc_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM code_search_docs d
+                WHERE d.project_id = ? AND d.doc_id = ?
+              )
+          `).run(projectId, doc.doc_id, projectId, doc.doc_id);
+        }
+        for (const table of ['code_nodes', 'code_edges', 'code_search_docs', 'code_vectors', 'code_file_state']) {
+          this.db.prepare(`DELETE FROM ${table} WHERE project_id = ? AND generation = ?`).run(projectId, generation);
+        }
+        this.db.prepare('DELETE FROM code_generation WHERE project_id = ? AND generation = ?').run(projectId, generation);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   generationState(projectId: string, generation: number): GenerationState | null {
     const row = this.db.prepare(`
       SELECT * FROM code_generation WHERE project_id = ? AND generation = ?
@@ -348,7 +542,7 @@ export class CodeIndexStore {
       INSERT INTO code_file_state
         (project_id, file_path, content_hash, size, mtime_ms, generation, indexed_at, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'ready')
-      ON CONFLICT(project_id, file_path) DO UPDATE SET
+      ON CONFLICT(project_id, generation, file_path) DO UPDATE SET
         content_hash = excluded.content_hash,
         size = excluded.size,
         mtime_ms = excluded.mtime_ms,
@@ -359,10 +553,12 @@ export class CodeIndexStore {
   }
 
   listFiles(projectId: string): Array<{ filePath: string; contentHash: string; size: number; mtimeMs: number; generation: number }> {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
       SELECT file_path, content_hash, size, mtime_ms, generation
-      FROM code_file_state WHERE project_id = ?
-    `).all(projectId) as Record<string, unknown>[];
+      FROM code_file_state WHERE project_id = ? AND generation = ?
+    `).all(projectId, generation) as Record<string, unknown>[];
     return rows.map(row => ({
       filePath: String(row.file_path),
       contentHash: String(row.content_hash),
@@ -372,30 +568,79 @@ export class CodeIndexStore {
     }));
   }
 
-  /** 文件内容没变时，把它上一代的节点/边/文档原样推进到新 generation。 */
-  promoteFileGeneration(projectId: string, filePath: string, generation: number): void {
+  /**
+   * 文件内容没变时，把上一代该文件的节点/边/文档/向量复制到新 generation。
+   * 不复制 FTS：FTS 行按 doc_id 全局保存，搜索时 join current 文档过滤；
+   * 未变文件沿用上一代 FTS 行，避免为每个 generation 复制一份全文索引。
+   */
+  copyFileGeneration(projectId: string, fromGeneration: number, toGeneration: number, filePath: string): boolean {
+    const exists = this.db.prepare(`
+      SELECT 1 AS ok FROM code_file_state
+      WHERE project_id = ? AND generation = ? AND file_path = ?
+    `).get(projectId, fromGeneration, filePath) as { ok?: number } | undefined;
+    if (!exists) return false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('UPDATE code_nodes SET generation = ? WHERE project_id = ? AND file_path = ?')
-        .run(generation, projectId, filePath);
-      this.db.prepare('UPDATE code_edges SET generation = ? WHERE project_id = ? AND file_path = ?')
-        .run(generation, projectId, filePath);
-      this.db.prepare('UPDATE code_search_docs SET generation = ? WHERE project_id = ? AND file_path = ?')
-        .run(generation, projectId, filePath);
       this.db.prepare(`
-        UPDATE code_file_state SET generation = ?, indexed_at = ? WHERE project_id = ? AND file_path = ?
-      `).run(generation, now(), projectId, filePath);
+        INSERT OR IGNORE INTO code_nodes
+          (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation,
+           symbol_id, symbol_status, module_id, signature)
+        SELECT project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, ?,
+               symbol_id, symbol_status, module_id, signature
+        FROM code_nodes WHERE project_id = ? AND generation = ? AND file_path = ?
+      `).run(toGeneration, projectId, fromGeneration, filePath);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO code_edges
+          (project_id, edge_id, source_node_id, target_node_id, relation_type, confidence, source, file_path, line, generation,
+           resolution_status, call_site_id)
+        SELECT project_id, edge_id, source_node_id, target_node_id, relation_type, confidence, source, file_path, line, ?,
+               resolution_status, call_site_id
+        FROM code_edges WHERE project_id = ? AND generation = ? AND file_path = ?
+      `).run(toGeneration, projectId, fromGeneration, filePath);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO code_search_docs
+          (project_id, doc_id, file_path, node_id, kind, name, content, generation)
+        SELECT project_id, doc_id, file_path, node_id, kind, name, content, ?
+        FROM code_search_docs WHERE project_id = ? AND generation = ? AND file_path = ?
+      `).run(toGeneration, projectId, fromGeneration, filePath);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO code_vectors
+          (project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at, generation)
+        SELECT project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at, ?
+        FROM code_vectors WHERE project_id = ? AND generation = ? AND file_path = ?
+      `).run(toGeneration, projectId, fromGeneration, filePath);
+      this.db.prepare(`
+        INSERT OR IGNORE INTO code_file_state
+          (project_id, file_path, content_hash, size, mtime_ms, generation, indexed_at, status)
+        SELECT project_id, file_path, content_hash, size, mtime_ms, ?, indexed_at, status
+        FROM code_file_state WHERE project_id = ? AND generation = ? AND file_path = ?
+      `).run(toGeneration, projectId, fromGeneration, filePath);
       this.db.exec('COMMIT');
+      return true;
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
   }
 
+  /** 外部包节点不属于文件，单独从上一代复制到新代。 */
+  copyExternalNodes(projectId: string, fromGeneration: number, toGeneration: number): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO code_nodes
+        (project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, generation,
+         symbol_id, symbol_status, module_id, signature)
+      SELECT project_id, node_id, node_type, name, qualified_name, file_path, start_line, end_line, language, ?,
+             symbol_id, symbol_status, module_id, signature
+      FROM code_nodes WHERE project_id = ? AND generation = ? AND file_path = ''
+    `).run(toGeneration, projectId, fromGeneration);
+  }
+
   fileHash(projectId: string, filePath: string): string | null {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return null;
     const row = this.db.prepare(`
-      SELECT content_hash FROM code_file_state WHERE project_id = ? AND file_path = ?
-    `).get(projectId, filePath) as { content_hash?: string } | undefined;
+      SELECT content_hash FROM code_file_state WHERE project_id = ? AND generation = ? AND file_path = ?
+    `).get(projectId, generation, filePath) as { content_hash?: string } | undefined;
     return typeof row?.content_hash === 'string' ? row.content_hash : null;
   }
 
@@ -411,14 +656,9 @@ export class CodeIndexStore {
   ): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('DELETE FROM code_nodes WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
-      this.db.prepare('DELETE FROM code_edges WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
-      const oldDocs = this.db.prepare('SELECT doc_id FROM code_search_docs WHERE project_id = ? AND file_path = ?')
-        .all(projectId, filePath) as Array<{ doc_id: string }>;
-      for (const doc of oldDocs) {
-        this.db.prepare('DELETE FROM code_fts WHERE project_id = ? AND doc_id = ?').run(projectId, doc.doc_id);
-      }
-      this.db.prepare('DELETE FROM code_search_docs WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
+      this.db.prepare('DELETE FROM code_nodes WHERE project_id = ? AND generation = ? AND file_path = ?').run(projectId, generation, filePath);
+      this.db.prepare('DELETE FROM code_edges WHERE project_id = ? AND generation = ? AND file_path = ?').run(projectId, generation, filePath);
+      this.db.prepare('DELETE FROM code_search_docs WHERE project_id = ? AND generation = ? AND file_path = ?').run(projectId, generation, filePath);
 
       const nodeStmt = this.db.prepare(`
         INSERT INTO code_nodes
@@ -482,6 +722,7 @@ export class CodeIndexStore {
       }
       this.db.prepare('DELETE FROM code_search_docs WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
       this.db.prepare('DELETE FROM code_file_state WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
+      this.db.prepare('DELETE FROM code_vectors WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -492,10 +733,12 @@ export class CodeIndexStore {
   // --- vectors -------------------------------------------------------------
 
   listDocs(projectId: string, limit = 500): Array<{ docId: string; filePath: string; nodeId?: string; name: string; content: string }> {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
       SELECT doc_id, file_path, node_id, name, content FROM code_search_docs
-      WHERE project_id = ? ORDER BY file_path, name LIMIT ?
-    `).all(projectId, limit) as Record<string, unknown>[];
+      WHERE project_id = ? AND generation = ? ORDER BY file_path, name LIMIT ?
+    `).all(projectId, generation, limit) as Record<string, unknown>[];
     return rows.map(row => ({
       docId: String(row.doc_id),
       filePath: String(row.file_path),
@@ -518,19 +761,20 @@ export class CodeIndexStore {
       content: string;
     }>
   ): void {
+    const generation = this.currentGeneration(projectId) ?? 1;
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('DELETE FROM code_vectors WHERE project_id = ?').run(projectId);
+      this.db.prepare('DELETE FROM code_vectors WHERE project_id = ? AND generation = ?').run(projectId, generation);
       const stmt = this.db.prepare(`
         INSERT INTO code_vectors
-          (project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (project_id, chunk_id, doc_id, file_path, node_id, content_hash, model, dim, vector, content, updated_at, generation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const item of items) {
         const values = new Float32Array(item.vector);
         stmt.run(
           projectId, item.chunkId, item.docId, item.filePath, item.nodeId ?? null,
-          item.contentHash, item.model, item.vector.length, Buffer.from(values.buffer), item.content, Date.now()
+          item.contentHash, item.model, item.vector.length, Buffer.from(values.buffer), item.content, Date.now(), generation
         );
       }
       this.db.exec('COMMIT');
@@ -541,10 +785,12 @@ export class CodeIndexStore {
   }
 
   listVectors(projectId: string, limit = 10000): Array<{ docId: string; filePath: string; nodeId?: string; model: string; vector: Float32Array; content: string }> {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
       SELECT doc_id, file_path, node_id, model, vector, content FROM code_vectors
-      WHERE project_id = ? LIMIT ?
-    `).all(projectId, limit) as Record<string, unknown>[];
+      WHERE project_id = ? AND generation = ? LIMIT ?
+    `).all(projectId, generation, limit) as Record<string, unknown>[];
     return rows.map(row => {
       const buffer = row.vector as Uint8Array;
       const copy = new Uint8Array(buffer);
@@ -560,8 +806,10 @@ export class CodeIndexStore {
   }
 
   countVectors(projectId: string): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM code_vectors WHERE project_id = ?')
-      .get(projectId) as { n?: number } | undefined;
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return 0;
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM code_vectors WHERE project_id = ? AND generation = ?')
+      .get(projectId, generation) as { n?: number } | undefined;
     return Number(row?.n ?? 0);
   }
 
@@ -689,45 +937,55 @@ export class CodeIndexStore {
   }
 
   getNode(projectId: string, nodeId: string): CodeNode | null {
-    const row = this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? AND node_id = ?')
-      .get(projectId, nodeId) as Record<string, unknown> | undefined;
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return null;
+    const row = this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? AND generation = ? AND node_id = ?')
+      .get(projectId, generation, nodeId) as Record<string, unknown> | undefined;
     return row ? this.toNode(row) : null;
   }
 
   findSymbols(projectId: string, name: string, limit = 50): CodeNode[] {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
       SELECT * FROM code_nodes
-      WHERE project_id = ? AND (name = ? OR qualified_name = ?)
+      WHERE project_id = ? AND generation = ? AND (name = ? OR qualified_name = ?)
       ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, file_path, start_line
       LIMIT ?
-    `).all(projectId, name, name, name, limit) as Record<string, unknown>[];
+    `).all(projectId, generation, name, name, name, limit) as Record<string, unknown>[];
     return rows.map(row => this.toNode(row));
   }
 
   listNodes(projectId: string, filePath?: string, limit = 200): CodeNode[] {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = filePath
-      ? this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? AND file_path = ? ORDER BY start_line LIMIT ?')
-          .all(projectId, filePath, limit) as Record<string, unknown>[]
-      : this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? ORDER BY file_path, start_line LIMIT ?')
-          .all(projectId, limit) as Record<string, unknown>[];
+      ? this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? AND generation = ? AND file_path = ? ORDER BY start_line LIMIT ?')
+          .all(projectId, generation, filePath, limit) as Record<string, unknown>[]
+      : this.db.prepare('SELECT * FROM code_nodes WHERE project_id = ? AND generation = ? ORDER BY file_path, start_line LIMIT ?')
+          .all(projectId, generation, limit) as Record<string, unknown>[];
     return rows.map(row => this.toNode(row));
   }
 
   getOutgoing(projectId: string, nodeId: string, relations?: readonly string[]): CodeEdge[] {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
-      SELECT * FROM code_edges WHERE project_id = ? AND source_node_id = ?
+      SELECT * FROM code_edges WHERE project_id = ? AND generation = ? AND source_node_id = ?
       ORDER BY relation_type, line
-    `).all(projectId, nodeId) as Record<string, unknown>[];
+    `).all(projectId, generation, nodeId) as Record<string, unknown>[];
     return rows
       .map(row => this.toEdge(row))
       .filter(edge => !relations || relations.includes(edge.relationType));
   }
 
   getIncoming(projectId: string, nodeId: string, relations?: readonly string[]): CodeEdge[] {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const rows = this.db.prepare(`
-      SELECT * FROM code_edges WHERE project_id = ? AND target_node_id = ?
+      SELECT * FROM code_edges WHERE project_id = ? AND generation = ? AND target_node_id = ?
       ORDER BY relation_type, line
-    `).all(projectId, nodeId) as Record<string, unknown>[];
+    `).all(projectId, generation, nodeId) as Record<string, unknown>[];
     return rows
       .map(row => this.toEdge(row))
       .filter(edge => !relations || relations.includes(edge.relationType));
@@ -758,9 +1016,11 @@ export class CodeIndexStore {
   }
 
   count(projectId: string): { files: number; nodes: number; edges: number; docs: number } {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return { files: 0, nodes: 0, edges: 0, docs: 0 };
     const one = (table: string) => Number((this.db.prepare(
-      `SELECT COUNT(*) AS n FROM ${table} WHERE project_id = ?`
-    ).get(projectId) as { n?: number } | undefined)?.n ?? 0);
+      `SELECT COUNT(*) AS n FROM ${table} WHERE project_id = ? AND generation = ?`
+    ).get(projectId, generation) as { n?: number } | undefined)?.n ?? 0);
     return {
       files: one('code_file_state'),
       nodes: one('code_nodes'),
@@ -770,12 +1030,14 @@ export class CodeIndexStore {
   }
 
   nodeAt(projectId: string, filePath: string, line: number): CodeNode | null {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return null;
     const row = this.db.prepare(`
       SELECT * FROM code_nodes
-      WHERE project_id = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+      WHERE project_id = ? AND generation = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
       ORDER BY (end_line - start_line) ASC
       LIMIT 1
-    `).get(projectId, filePath, line, line) as Record<string, unknown> | undefined;
+    `).get(projectId, generation, filePath, line, line) as Record<string, unknown> | undefined;
     return row ? this.toNode(row) : null;
   }
 
@@ -794,18 +1056,18 @@ export class CodeIndexStore {
     const one = (sql: string) => Number((this.db.prepare(sql).get(projectId) as { n?: number } | undefined)?.n ?? 0);
     const danglingEdges = one(`
       SELECT COUNT(*) AS n FROM code_edges e
-      LEFT JOIN code_nodes s ON s.project_id = e.project_id AND s.node_id = e.source_node_id
-      LEFT JOIN code_nodes t ON t.project_id = e.project_id AND t.node_id = e.target_node_id
+      LEFT JOIN code_nodes s ON s.project_id = e.project_id AND s.generation = e.generation AND s.node_id = e.source_node_id
+      LEFT JOIN code_nodes t ON t.project_id = e.project_id AND t.generation = e.generation AND t.node_id = e.target_node_id
       WHERE e.project_id = ? AND (s.node_id IS NULL OR t.node_id IS NULL)
     `);
     const orphanDocs = one(`
       SELECT COUNT(*) AS n FROM code_search_docs d
-      LEFT JOIN code_nodes n ON n.project_id = d.project_id AND n.node_id = d.node_id
+      LEFT JOIN code_nodes n ON n.project_id = d.project_id AND n.generation = d.generation AND n.node_id = d.node_id
       WHERE d.project_id = ? AND d.node_id IS NOT NULL AND n.node_id IS NULL
     `);
     const orphanVectors = one(`
       SELECT COUNT(*) AS n FROM code_vectors v
-      LEFT JOIN code_nodes n ON n.project_id = v.project_id AND n.node_id = v.node_id
+      LEFT JOIN code_nodes n ON n.project_id = v.project_id AND n.generation = v.generation AND n.node_id = v.node_id
       WHERE v.project_id = ? AND v.node_id IS NOT NULL AND n.node_id IS NULL
     `);
     const unfinishedGenerations = one(`
@@ -868,6 +1130,8 @@ export class CodeIndexStore {
   // --- full text ----------------------------------------------------------
 
   search(projectId: string, query: string, options: { limit?: number; filePatterns?: string[] } = {}): SearchHit[] {
+    const generation = this.currentGeneration(projectId);
+    if (generation === null) return [];
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
     const patterns = options.filePatterns ?? [];
     const likeFilter = patterns.length > 0
@@ -882,12 +1146,14 @@ export class CodeIndexStore {
       if (fts) {
         try {
           const rows = this.db.prepare(`
-            SELECT doc_id, file_path, name, content
-            FROM code_fts
-            WHERE code_fts MATCH ? AND project_id = ?${likeFilter}
+            SELECT f.doc_id, f.file_path, f.name, f.content
+            FROM code_fts f
+            JOIN code_search_docs d
+              ON d.project_id = f.project_id AND d.doc_id = f.doc_id AND d.generation = ?
+            WHERE code_fts MATCH ? AND f.project_id = ?${likeFilter}
             ORDER BY rank
             LIMIT ?
-          `).all(fts, projectId, ...likeValues, limit) as Record<string, unknown>[];
+          `).all(generation, fts, projectId, ...likeValues, limit) as Record<string, unknown>[];
           if (rows.length > 0) {
             return rows.map((row, index) => ({
               docId: String(row.doc_id),
