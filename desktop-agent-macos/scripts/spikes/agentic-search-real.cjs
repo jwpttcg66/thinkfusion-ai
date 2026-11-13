@@ -41,6 +41,16 @@ const QUESTIONS = [
     id: 'runner-condition',
     question: 'ClientRunner 在什么条件下会自动执行客户端调用？',
     expected: ['ClientRunner', 'ApplicationRunner', 'run-on-startup', 'ConditionalOnProperty']
+  },
+  {
+    id: 'business-flow',
+    question: '一次 gRPC 客户端调用从 ClientRunner 到服务端经过哪些组件？',
+    expected: ['ClientRunner', 'GreeterClient', 'GreeterGrpc', 'GreeterGrpcService', 'sayHello']
+  },
+  {
+    id: 'reverse-check',
+    question: 'hello.proto 里声明的服务方法是否都有实现？有没有未实现或未注册的服务？',
+    expected: ['hello.proto', 'Greeter', 'SayHello', 'GreeterGrpcService', 'GreeterGrpc']
   }
 ];
 

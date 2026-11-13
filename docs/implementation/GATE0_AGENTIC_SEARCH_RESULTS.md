@@ -109,3 +109,30 @@ Ollama 当前安装：
 - 更多工程与更多问题（本次 1 个真实工程、3 个问题）。
 - 用户级正确性标注；本次是 1 名审核者抽查。
 - 长期成本：API 返回 0 只代表当前额度。
+
+## 7. 2026-11-13 五问题复跑
+
+按 `GATE0_BENCHMARK.md` 把 harness 从 3 个问题扩到 5 个，新增：
+
+- `business-flow`：`ClientRunner → GreeterClient → GreeterGrpc → GreeterGrpcService`；
+- `reverse-check`：`hello.proto` 的 `Greeter/SayHello` 是否都有实现。
+
+结果：
+
+| 问题 | 本地 gpt-oss:20b agent | 本地 baseline | 云端 agent | 云端 baseline |
+| --- | --- | --- | --- | --- |
+| service-entry | 1.00 / 0 引用 / 6 工具 | 1.00 / 0 | 1.00 / 5 | 1.00 / 2 |
+| client-config | 1.00 / 2 / 6 | 0.80 / 2 | 1.00 / 10 / 9 | 0.60 / 4 |
+| runner-condition | 1.00 / 0 / 2 | 1.00 / 1 | 1.00 / 8 / 7 | 1.00 / 7 |
+| business-flow | **0.00 / 0 / 6** | 0.60 / 0 | 1.00 / 15 / 10 | 0.60 / 10 |
+| reverse-check | 1.00 / 2 / 5 | 0.20 / 0 | 1.00 / 15 / 10 | 0.80 / 5 |
+
+关键发现：
+
+- 云端 5/5 覆盖全部预期术语，引用 5–15 条；`business-flow` 能说明同进程内客户端回连 `localhost:50071` 的完整链路。
+- 本地 `business-flow` 达到工具预算后没有形成最终回答，最终文本是“（达到预算，未形成最终回答）”。这说明**预算耗尽时必须强制收束**，不能把空壳当答案。
+- 本地 `reverse-check` 有增益（1.00 vs baseline 0.20），但 `service-entry` / `runner-condition` 引用仍不稳定。
+- 本地默认模型探测依然失败；正式 harness 仍使用 `gpt-oss:20b`。
+- 5 个问题仍只有一个工程，不能代表 30 问题/3 工程验收。
+
+下一步：Agentic Search 正式循环需要“预算耗尽 → 基于已有证据收束回答”，并记录这是降级回答，不是完整探索。
