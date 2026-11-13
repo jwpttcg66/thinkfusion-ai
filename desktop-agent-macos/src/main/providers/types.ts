@@ -51,6 +51,20 @@ export interface ProviderCapabilities {
   toolCalling: boolean;
 }
 
+/** Agentic Search 的工具调用能力；与旧的 boolean toolCalling 分开，避免同名冲突。 */
+export type ProviderToolCallingMode = 'native' | 'json_protocol' | 'web_only';
+export type ProviderCapabilityStatus = 'verified' | 'unsupported' | 'unknown';
+
+export interface ProviderToolCapabilities {
+  toolCalling: {
+    mode: ProviderToolCallingMode;
+    status: ProviderCapabilityStatus;
+  };
+  usage: ProviderCapabilityStatus;
+  outputTokenLimit: ProviderCapabilityStatus;
+  streaming: ProviderCapabilityStatus;
+}
+
 export interface ModelRequest {
   /** 用户的原话。这一层不做任何包装，理由见 MasterAgent 的注释。 */
   question: string;

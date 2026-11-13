@@ -265,7 +265,7 @@ test('模型请求读文件时，宿主真读并把结果递回去，转录里�
   assert.match(answer, /3 行/);
 });
 
-test('预算用完不再循环：一直请求也只多问一轮', async () => {
+test('预算用完不再循环：一直请求也只按 MAX_TOOL_ROUNDS 轮', async () => {
   const { runner, asks } = makeRunner(() => '{"tool":"fs.readFile","args":{"path":"log.txt"}}');
   const started = await runner.start({
     text: '工程里的 log.txt 有多少条记录',
@@ -276,6 +276,13 @@ test('预算用完不再循环：一直请求也只多问一轮', async () => {
   });
   await settle(runner, started.conversationId);
   assert.equal(asks.filter(input => input.stage === 'initial').length, MAX_TOOL_ROUNDS + 1);
+  const report = runner.messages(started.conversationId)
+    .filter(message => message.role === 'channel')
+    .map(message => message.text)
+    .join('\n');
+  assert.match(report, /Agentic Search 报告/);
+  assert.match(report, /终止原因/);
+  assert.match(report, /已取得的证据|未取得有效证据/);
 });
 
 test('模型正常回答时一次都不多问', async () => {
@@ -407,7 +414,7 @@ test('第二问把原证据、能力调用、读取结果拼在一起', () => {
   assert.match(question, /【工程证据】/);
   assert.match(question, /fs\.stat log\.txt/);
   assert.match(question, /3 行/);
-  assert.match(question, /不要再请求工具/);
+  assert.match(question, /可以再输出一次工具请求/);
 });
 
 test('project.read 已登记进能力清单（插件化，不散装实现）', () => {

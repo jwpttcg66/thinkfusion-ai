@@ -180,7 +180,7 @@ test('Code-Memory Link：SymbolKey 不含文件路径，移动文件不换 Key',
   assert.equal(store.linksForSymbol(projectId, link.symbolKey).length, 1);
 });
 
-test('Generation：pending 不能被当成 READY，旧 READY 保留', () => {
+test('Generation：pending 不能被当成 READY，旧 READY 保留', async () => {
   const current = store.currentGeneration(projectId);
   assert.ok(current);
 
@@ -192,6 +192,8 @@ test('Generation：pending 不能被当成 READY，旧 READY 保留', () => {
   store.commitGeneration(projectId, pending);
   assert.equal(store.currentGeneration(projectId), pending);
   assert.equal(store.generationState(projectId, current).status, 'superseded');
+  // 这个 generation 是空的；恢复共享工程的可用索引，避免污染后续测试。
+  await indexProject(store, root, projectId);
 });
 
 test('删除文件后节点 / 文档 / 文件状态都清理', () => {
@@ -486,6 +488,22 @@ test('Schema v4：v3 库加法迁移，回填 symbol_id 和边状态', () => {
       source TEXT NOT NULL, file_path TEXT, line INTEGER, generation INTEGER NOT NULL,
       PRIMARY KEY (project_id, edge_id)
     );
+    CREATE TABLE code_generation (
+      project_id TEXT NOT NULL, generation INTEGER NOT NULL, status TEXT NOT NULL,
+      source_version TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER,
+      error TEXT, PRIMARY KEY (project_id, generation)
+    );
+    CREATE TABLE code_search_docs (
+      project_id TEXT NOT NULL, doc_id TEXT NOT NULL, file_path TEXT NOT NULL,
+      node_id TEXT, kind TEXT NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL,
+      generation INTEGER NOT NULL, PRIMARY KEY (project_id, doc_id)
+    );
+    CREATE TABLE code_file_state (
+      project_id TEXT NOT NULL, file_path TEXT NOT NULL, content_hash TEXT NOT NULL,
+      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, generation INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL, status TEXT NOT NULL,
+      PRIMARY KEY (project_id, file_path)
+    );
     CREATE TABLE code_vectors (
       project_id TEXT NOT NULL, chunk_id TEXT NOT NULL, doc_id TEXT NOT NULL,
       file_path TEXT NOT NULL, node_id TEXT, content_hash TEXT NOT NULL,
@@ -493,6 +511,7 @@ test('Schema v4：v3 库加法迁移，回填 symbol_id 和边状态', () => {
       content TEXT NOT NULL, updated_at INTEGER NOT NULL,
       PRIMARY KEY (project_id, chunk_id)
     );
+    INSERT INTO code_generation VALUES ('p', 1, 'ready', 'legacy', 1, 1, NULL);
     INSERT INTO code_nodes VALUES ('p', 'n1', 'Class', 'A', 'A', 'a.ts', 1, 2, 'typescript', 1);
     INSERT INTO code_edges VALUES ('p', 'e1', 'n1', 'n1', 'CALLS', 'HIGH', 'AST', 'a.ts', 2, 1);
     PRAGMA user_version = 3;
@@ -527,5 +546,45 @@ test('Integrity Checker：发现跨文件删除留下的悬空边', async () => 
   } finally {
     integrityStore.close();
     fs.rmSync(integrityRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('Generation 原子性：构建中的新代不可见，失败后旧代仍可读', async () => {
+  const atomicRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-atomic-'));
+  const atomicStore = new CodeIndexStore(path.join(atomicRoot, 'index.sqlite'));
+  try {
+    fs.writeFileSync(path.join(atomicRoot, 'a.ts'), 'export const oldName = 1;\n');
+    await indexProject(atomicStore, atomicRoot, 'atomic-project');
+    const oldGeneration = atomicStore.currentGeneration('atomic-project');
+    assert.ok(oldGeneration);
+    assert.ok(atomicStore.findSymbols('atomic-project', 'oldName').length > 0);
+
+    const building = atomicStore.beginGeneration('atomic-project', 'test-building');
+    atomicStore.replaceFileIndex('atomic-project', building, 'a.ts', [{
+      projectId: 'atomic-project',
+      nodeId: 'new-node',
+      nodeType: 'Function',
+      name: 'newOnly',
+      qualifiedName: 'newOnly',
+      filePath: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      language: 'typescript',
+      generation: building
+    }], [], []);
+
+    // 新代还没提交：读路径必须仍读旧代。
+    assert.equal(atomicStore.currentGeneration('atomic-project'), oldGeneration);
+    assert.equal(atomicStore.findSymbols('atomic-project', 'newOnly').length, 0);
+    assert.ok(atomicStore.findSymbols('atomic-project', 'oldName').length > 0);
+
+    atomicStore.failGeneration('atomic-project', building, 'test failure');
+    assert.equal(atomicStore.currentGeneration('atomic-project'), oldGeneration);
+    assert.ok(atomicStore.findSymbols('atomic-project', 'oldName').length > 0);
+    assert.equal(atomicStore.integrity('atomic-project').unfinishedGenerations, 0);
+  } finally {
+    atomicStore.close();
+    fs.rmSync(atomicRoot, { recursive: true, force: true });
   }
 });

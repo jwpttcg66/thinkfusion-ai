@@ -16,6 +16,7 @@ import {
   type WorkspaceMode
 } from '../shared/workspace';
 import { engineeringMaterial, type ProjectScan } from './engineering/project';
+import { createHash } from 'node:crypto';
 import { mainCapabilities } from './capabilities';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
@@ -58,6 +59,16 @@ import {
   type ModelMemberView
 } from './research/engineering-round';
 import { MAX_TOOL_ROUNDS, parseToolRequest } from './research/project-tools';
+import {
+  createSearchContext,
+  DEFAULT_SEARCH_BUDGET,
+  deterministicFinalReport,
+  formatSearchReport,
+  type AgenticSearchContext,
+  type SearchEvidenceRef,
+  type SearchTerminationReason,
+  type SearchToolResult
+} from './research/agentic-search';
 import { SECOND_OPINION_BUDGET_MS } from './research/second-opinion';
 import {
   buildWebOrchestrationQuestion,
@@ -171,6 +182,8 @@ export interface ConversationDeps {
     leadAgentId?: string;
     selectedCloudModels?: string[];
   }) => Promise<RoutingVerdict | null>;
+  /** 当前工程 READY generation；搜索开始时固定，避免一轮内跨代。 */
+  generationFor?: (root: string) => Promise<number | null>;
   /**
    * Test seam for the turn budget. Five minutes is a product number, not a
    * behaviour — a test that has to wait five minutes to see what happens when
@@ -918,6 +931,8 @@ export class ConversationRunner {
       trace?: TraceRecorder;
       /** 真的调了本机能力时要让用户在对话里看到；普通流水账仍只进轨迹。 */
       announce?: (text: string) => void;
+      /** 同一用户问题共享的预算/证据上下文。 */
+      search?: AgenticSearchContext;
     }
   ): Promise<SubAgentAnswer> {
     const ask = (question: string): Promise<SubAgentAnswer> =>
@@ -931,11 +946,49 @@ export class ConversationRunner {
         system: input.system
       }, input.conversation);
 
+    const fallbackAnswer = (text: string): SubAgentAnswer => ({
+      agentId: target.agentId,
+      text,
+      receivedAt: Date.now(),
+      stage: 'initial',
+      usage: null,
+      attribution: { requestId: 'agentic-search', note: 'deterministic final report' }
+    });
+    const finalizeSearch = (reason: SearchTerminationReason, warnings: string[] = []): SubAgentAnswer => {
+      if (!input.search) return fallbackAnswer(`${reason}：没有可用的搜索上下文`);
+      input.search.terminationReason = reason;
+      const report = deterministicFinalReport({
+        context: input.search,
+        terminationReason: reason,
+        warnings,
+        unresolvedQuestions: [input.question]
+      });
+      input.search.state = report.status === 'CANCELLED'
+        ? 'CANCELLED'
+        : report.status === 'FAILED' ? 'FAILED' : 'COMPLETED';
+      input.search.finalReport = report;
+      input.trace?.note(`Agentic Search 收束：${reason}`);
+      return fallbackAnswer(formatSearchReport(report));
+    };
+
+    if (input.search && !input.search.manager.canStartRound(input.question.length, 0)) {
+      return finalizeSearch('BUDGET_EXHAUSTED');
+    }
+    input.search?.manager.startRound();
     let answer = await ask(input.question);
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      if (input.sink.cancelled()) break;
+    input.search?.manager.recordModelUsage(answer.usage, input.question.length, answer.text.length);
+    let toolHistory = '';
+    const searchRounds = input.search
+      ? Math.min(MAX_TOOL_ROUNDS, input.search.manager.remaining().rounds)
+      : MAX_TOOL_ROUNDS;
+    for (let round = 0; round < searchRounds; round += 1) {
+      if (input.sink.cancelled()) return finalizeSearch('CANCELLED');
+      if (input.search?.manager.exhausted()) return finalizeSearch('BUDGET_EXHAUSTED');
       const request = parseToolRequest(answer.text);
       if (!request) break;
+      if (input.search && !input.search.manager.canUseTool()) {
+        return finalizeSearch('BUDGET_EXHAUSTED');
+      }
       input.sink.phase(target.agentId, 'asking', `读文件：${request.tool}`);
       const toolStep = input.trace?.beginStep({
         stage: 'tool',
@@ -946,8 +999,12 @@ export class ConversationRunner {
         reason: `读文件：${request.tool}`,
         inputPreview: JSON.stringify(request.args)
       });
+      input.search?.manager.useTool();
+      const started = Date.now();
+      const toolCallId = `tc_${String(round)}_${request.tool}`;
+      let result: { ok: boolean; text: string; summary: string };
       try {
-        const result = await mainCapabilities.execute<{
+        result = await mainCapabilities.execute<{
           ok: boolean;
           text: string;
           summary: string;
@@ -961,25 +1018,84 @@ export class ConversationRunner {
           },
           {}
         );
-        input.trace?.endStep(toolStep, {
-          status: result.ok ? 'ok' : 'failed',
-          outputPreview: result.summary,
-          meta: { outputChars: result.text.length }
-        });
-        // 真的调了本地能力要让用户看得到：这是唯一保留的逐次工具提示，
-        // 因为它证明「文件确实被读了」，不是又一段流水账。
-        input.trace?.note(`${target.label} 调用了本机能力：${result.summary}`);
-        input.announce?.(`${target.label} 调用了本机能力：${result.summary}`);
-        answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text));
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        const failed: SearchToolResult = {
+          callId: toolCallId,
+          toolName: request.tool,
+          argsSummary: JSON.stringify(request.args).slice(0, 300),
+          status: 'failed',
+          error: { code: errorCodeOf(detail), message: detail },
+          evidenceRefs: [],
+          warnings: [],
+          truncated: false,
+          durationMs: Date.now() - started
+        };
+        input.search?.toolResults.push(failed);
         input.trace?.endStep(toolStep, {
           status: 'failed',
           error: { code: errorCodeOf(detail), detail }
         });
-        throw error;
+        if (!input.search) throw error;
+        const prior = toolHistory;
+        toolHistory = `${toolHistory}\n\n【工具失败】${detail}`.slice(-12_000);
+        if (!input.search.manager.canStartRound(input.question.length + toolHistory.length, 0)) {
+          return finalizeSearch('TOOL_ERROR', [detail]);
+        }
+        input.search.manager.startRound();
+        answer = await ask(buildToolFollowupQuestion(input.question, `工具失败：${request.tool}`, detail, prior));
+        input.search.manager.recordModelUsage(answer.usage, input.question.length + toolHistory.length, answer.text.length);
+        continue;
       }
+      input.trace?.endStep(toolStep, {
+        status: result.ok ? 'ok' : 'failed',
+        outputPreview: result.summary,
+        meta: { outputChars: result.text.length }
+      });
+      input.trace?.note(`${target.label} 调用了本机能力：${result.summary}`);
+      input.announce?.(`${target.label} 调用了本机能力：${result.summary}`);
+      const path = typeof request.args.path === 'string' ? request.args.path : '';
+      const line = typeof request.args.offset === 'number' ? request.args.offset : undefined;
+      const evidence: SearchEvidenceRef | null = result.ok && path
+        ? {
+            path,
+            ...(line !== undefined ? { line } : {}),
+            ...(result.text ? { contentHash: createHash('sha256').update(result.text).digest('hex').slice(0, 16), excerpt: result.text.slice(0, 500) } : {}),
+            toolCallId,
+            ...(input.search?.generation !== undefined ? { generation: input.search.generation } : {}),
+            source: request.tool === 'fs.search' ? 'file_search' : 'file_read',
+            verificationStatus: 'verified'
+          }
+        : null;
+      const toolResult: SearchToolResult = {
+        callId: toolCallId,
+        toolName: request.tool,
+        argsSummary: JSON.stringify(request.args).slice(0, 300),
+        status: result.ok ? 'success' : 'failed',
+        data: result.text,
+        evidenceRefs: evidence ? [evidence] : [],
+        warnings: [],
+        truncated: result.text.includes('截断'),
+        durationMs: Date.now() - started
+      };
+      input.search?.toolResults.push(toolResult);
+      if (evidence) {
+        input.search?.evidenceRefs.push(evidence);
+        input.search?.manager.addEvidence(result.text.length);
+      }
+      const prior = toolHistory;
+      toolHistory = `${toolHistory}\n\n【${result.summary}】\n${result.text}`.slice(-12_000);
+      if (input.search?.manager.exhausted()) return finalizeSearch('BUDGET_EXHAUSTED');
+      if (input.search && !input.search.manager.canStartRound(input.question.length + toolHistory.length, 0)) {
+        return finalizeSearch('BUDGET_EXHAUSTED');
+      }
+      input.search?.manager.startRound();
+      answer = await ask(buildToolFollowupQuestion(input.question, result.summary, result.text, prior));
+      input.search?.manager.recordModelUsage(answer.usage, input.question.length + toolHistory.length, answer.text.length);
     }
+    if (input.sink.cancelled()) return finalizeSearch('CANCELLED');
+    if (input.search?.manager.exhausted()) return finalizeSearch('BUDGET_EXHAUSTED');
+    if (input.search && parseToolRequest(answer.text)) return finalizeSearch('INSUFFICIENT_EVIDENCE');
     return answer;
   }
 
@@ -1610,11 +1726,25 @@ export class ConversationRunner {
     const toolSystem = needsLocalRead
       ? [...summarySystem, ...engineeringToolSystem()]
       : summarySystem;
+    // 同一用户问题共享预算/证据；本地和云端成员不各拿一份。
+    const generation = needsLocalRead
+      ? await this.deps.generationFor?.(scope.root).catch(() => null) ?? null
+      : null;
+    const searchContext = needsLocalRead
+      ? createSearchContext({
+          model: 'engineering',
+          budget: { ...DEFAULT_SEARCH_BUDGET, maxRounds: MAX_TOOL_ROUNDS + 1 },
+          ...(generation !== null ? { generation } : {})
+        })
+      : null;
     const answers: SubAgentAnswer[] = [];
     const channels: ChannelOutcome[] = [];
     const failures: string[] = [];
     const messageIds = new Map<string, string>();
 
+    if (needsLocalRead && orchestration.members.some(member => member.kind === 'web')) {
+      sink.note('Web 模型只读取本地冻结证据，未自主探索工程。');
+    }
     // 条上要一开始就看到全部成员。本地模型只能逐个问，若等到轮到 hy4 才
     // join，前面几十秒的通道条上就没有它——真机 2026-11-10「第一轮没有 hy4」。
     for (const member of orchestration.members) sink.join(member.agentId);
@@ -1639,6 +1769,7 @@ export class ConversationRunner {
                 scope,
                 sink,
                 conversation,
+                ...(searchContext ? { search: searchContext } : {}),
                 announce: text => this.addMessage(conversation, { role: 'system', text }),
                 ...(this.traceFor(conversation.conversationId)
                   ? { trace: this.traceFor(conversation.conversationId)! }
