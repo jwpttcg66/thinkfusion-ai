@@ -1,7 +1,8 @@
 # Agentic Search 工程智能路线复审（V2.0）
 
 > 说明：本文件保留 V1/V2 的审核过程。JDT 只作为被取消的旧前置方案出现，
-> 不是当前设计；当前方案不依赖 JDT。
+> 不是当前设计；当前方案不依赖 JDT。最新计划复审见
+> `CODE_INTELLIGENCE_V3_PLAN_REVIEW.md`。
 
 - 审核对象：`/Users/yalla/Downloads/制定辩论主题方案 (9)-20261112-2030-2.md`
 - 审核基线：`4cfd972a81e7fba27848bf6010eeaa1f3d1aa01f`（0.2.0）
