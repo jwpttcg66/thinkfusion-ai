@@ -1,5 +1,9 @@
 # V1.1 标准：当前模型池全量 24 题结果
 
+> 本报告使用旧的 `mustPass` 门槛，已经发现 6 条 must 未纳入。该问题已修复为
+> `severity: must` 唯一来源；严格全量结果和增量复跑结果见
+> `DEBATE_STANDARD_CONSISTENCY_FIX.md`。
+
 - 日期：2026-11-14
 - 模型池：`deepseek-v4.1-flash` / `gpt-6-luna` / `claude-haiku-5-5`
 - 数据集：`debate-dataset.json` v1.0.0

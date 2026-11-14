@@ -55,6 +55,7 @@ lines.push('');
 lines.push(`总分 0–100；权重：必答主张 ${data.scoring.weights.requiredClaims}，边界条件 ${data.scoring.weights.boundaries}，无错误主张 ${data.scoring.weights.noWrongClaims}。`);
 lines.push('');
 for (const rule of data.scoring.rules) lines.push(`- ${rule}`);
+lines.push('- `must` 由 `requiredClaims[].severity` 唯一决定，不再维护 `mustPass`。');
 lines.push('');
 if (Array.isArray(data.mustReview) && data.mustReview.length > 0) {
   lines.push('### 2.1 must 复核');
@@ -63,6 +64,16 @@ if (Array.isArray(data.mustReview) && data.mustReview.length > 0) {
   lines.push('| --- | --- | --- | --- |');
   for (const item of data.mustReview) {
     lines.push(`| \`${item.id}\` | \`${item.claimId}\` | ${item.from} → ${item.to} | ${item.reason} |`);
+  }
+  lines.push('');
+}
+if (Array.isArray(data.clarifications) && data.clarifications.length > 0) {
+  lines.push('### 2.2 标准澄清');
+  lines.push('');
+  lines.push('| 题目 | claim | 决定 | 理由 |');
+  lines.push('| --- | --- | --- | --- |');
+  for (const item of data.clarifications) {
+    lines.push(`| \`${item.id}\` | \`${item.claimId}\` | ${item.decision} | ${item.reason} |`);
   }
   lines.push('');
 }
@@ -135,7 +146,8 @@ data.questions.forEach((item, index) => {
     lines.push(`- [${wrong.severity === 'major' ? '重大' : '轻微'}] ${wrong.text}（${wrong.reason}）`);
   }
   lines.push('');
-  lines.push(`**评分入口：** 必须覆盖 ${item.judging.mustPass.map(id => `\`${id}\``).join('、')}。${item.judging.notes}`);
+  const mustIds = item.requiredClaims.filter(claim => claim.severity === 'must').map(claim => claim.id);
+  lines.push(`**评分入口：** 必须覆盖 ${mustIds.map(id => `\`${id}\``).join('、')}。${item.judging.notes}`);
   lines.push('');
 });
 

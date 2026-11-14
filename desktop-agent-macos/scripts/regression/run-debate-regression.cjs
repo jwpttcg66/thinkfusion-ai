@@ -11,6 +11,7 @@
  *
  * 运行前先 npm run build:test。
  * 并行：--workers=3；默认 1（串行）。
+ * 增量：--incremental=<旧 latest.json>；只重跑缺题、失败题和 fingerprint 变了的题。
  * 用法：./node_modules/.bin/electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3
  */
 const { app, safeStorage } = require('electron');
@@ -25,6 +26,7 @@ const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
 const { evaluateDebateQuality, finalizeDebate } = require('../../out-test/main/debate/quality-engine.js');
 const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
+const { PROMPT_VERSION } = require('../../out-test/main/debate/prompts.js');
 const { buildSummary, markdown } = require('./summary.cjs');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
@@ -35,6 +37,23 @@ const STAGE_TIMEOUT_MS = 180_000;
 const TOTAL_MS = 300_000;
 const WAIT_MS = 380_000;
 const JUDGE_TIMEOUT_MS = 240_000;
+const RUNNER_VERSION = '2.0.0';
+
+/**
+ * 每题指纹：只包含会影响这一题结果的东西。标准答案按题取，
+ * 所以改一题的标准只会让这一题失效；改全局 prompt/模型池会让全部失效。
+ */
+function fingerprint(item, standardItem) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    runnerVersion: RUNNER_VERSION,
+    promptVersion: PROMPT_VERSION,
+    question: item.question,
+    strategy: item.strategy,
+    anchor: item.anchor ?? null,
+    standard: standardItem ?? null,
+    models: MODELS.map(model => model.model)
+  })).digest('hex');
+}
 
 let MODELS = [];
 let IDS = [];
@@ -95,6 +114,8 @@ app.whenReady().then(async () => {
     : '';
   const mergeArg = argValue('merge-into', '');
   const mergeInto = mergeArg ? path.resolve(process.cwd(), mergeArg) : null;
+  const incrementalArg = argValue('incremental', '');
+  const incrementalPath = incrementalArg ? path.resolve(process.cwd(), incrementalArg) : null;
   const workers = Math.max(1, Math.min(8, Number.parseInt(argValue('workers', '1'), 10) || 1));
   const providerConcurrency = Math.max(
     1,
@@ -243,6 +264,7 @@ app.whenReady().then(async () => {
       category: item.category,
       strategy: item.strategy,
       question: item.question,
+      fingerprint: fingerprint(item, standardItem),
       judge: {
         agentId: judgeAgentId,
         modelId: byId.get(judgeAgentId),
@@ -312,8 +334,29 @@ app.whenReady().then(async () => {
     return result;
   }
 
+  const baseline = incrementalPath && fs.existsSync(incrementalPath)
+    ? JSON.parse(fs.readFileSync(incrementalPath, 'utf8'))
+    : null;
+  const baselineById = new Map((baseline?.results ?? []).map(item => [item.id, item]));
   const slots = new Array(questions.length).fill(null);
-  let cursor = 0;
+  const pending = [];
+  questions.forEach((entry, position) => {
+    const standardItem = standardById.get(entry.item.id);
+    const currentFingerprint = fingerprint(entry.item, standardItem);
+    const old = baselineById.get(entry.item.id);
+    // 老结果没有 fingerprint 时，用当前题目的组成反算一次；这兼容严格修复前的记录。
+    const oldFingerprint = old?.fingerprint ?? (old ? fingerprint(entry.item, standardItem) : null);
+    const canReuse = Boolean(
+      old &&
+      oldFingerprint === currentFingerprint &&
+      old.debate?.outcome === 'COMPLETED' &&
+      old.standard?.passed === true
+    );
+    if (canReuse) slots[position] = { ...old, fingerprint: currentFingerprint, reused: true };
+    else pending.push({ entry, position });
+  });
+  console.log(`增量：复用 ${questions.length - pending.length} 题，重跑 ${pending.length} 题${incrementalPath ? `（baseline: ${incrementalPath}）` : ''}`);
+
   const writeLatest = () => {
     const current = slots.filter(Boolean);
     const summary = buildSummary(current);
@@ -324,28 +367,37 @@ app.whenReady().then(async () => {
       judgeRotation: IDS,
       createdAt: new Date().toISOString(),
       workers,
+      incremental: incrementalPath ? {
+        baseline: incrementalPath,
+        reused: questions.length - pending.length,
+        pending: pending.length
+      } : null,
       summary,
       results: current
     };
     fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.json`), JSON.stringify(partial, null, 2), 'utf8');
     fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, current), 'utf8');
   };
+  if (slots.some(Boolean)) writeLatest();
 
+  let cursor = 0;
   const runWorker = async workerId => {
     for (;;) {
-      const position = cursor;
+      const pendingIndex = cursor;
       cursor += 1;
-      if (position >= questions.length) return;
+      if (pendingIndex >= pending.length) return;
+      const { entry, position } = pending[pendingIndex];
       try {
-        slots[position] = await runQuestion(questions[position], position, workerId);
+        slots[position] = await runQuestion(entry, position, workerId);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
-        console.error(`[w${workerId}] 题目 ${questions[position].item.id} 未捕获错误：${message}`);
+        console.error(`[w${workerId}] 题目 ${entry.item.id} 未捕获错误：${message}`);
         slots[position] = {
-          id: questions[position].item.id,
-          category: questions[position].item.category,
-          strategy: questions[position].item.strategy,
-          question: questions[position].item.question,
+          id: entry.item.id,
+          category: entry.item.category,
+          strategy: entry.item.strategy,
+          question: entry.item.question,
+          fingerprint: fingerprint(entry.item, standardById.get(entry.item.id)),
           judge: { agentId: null, backend: 'missing', sharedWith: null },
           debate: { outcome: 'FAILED', rounds: 0, messages: 0, failures: [], durationMs: 0, durationSec: 0 },
           quality: null,
@@ -360,7 +412,7 @@ app.whenReady().then(async () => {
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(workers, questions.length) }, (_, index) => runWorker(index + 1))
+    Array.from({ length: Math.min(workers, pending.length) }, (_, index) => runWorker(index + 1))
   );
 
   const results = slots.filter(Boolean);
@@ -372,6 +424,11 @@ app.whenReady().then(async () => {
     judgeRotation: IDS,
     createdAt,
     workers,
+    incremental: incrementalPath ? {
+      baseline: incrementalPath,
+      reused: questions.length - pending.length,
+      pending: pending.length
+    } : null,
     summary,
     results
   };

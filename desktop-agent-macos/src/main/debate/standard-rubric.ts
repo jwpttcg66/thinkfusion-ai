@@ -33,7 +33,7 @@ export interface StandardRubricItem {
   requiredClaims: StandardClaim[];
   allowedExpressions: string[];
   wrongClaims: StandardWrongClaim[];
-  judging: { mustPass: string[]; notes: string };
+  judging: { notes: string };
 }
 
 export interface StandardAssessment {
@@ -220,9 +220,10 @@ export async function assessStandardAnswer(input: StandardRubricInput): Promise<
 
   const matched = new Set(parsed.matchedClaims.map(normalize));
   const explicitlyMissing = new Set(parsed.missingClaims.map(normalize));
-  const mustIds = input.item.judging.mustPass.length > 0
-    ? input.item.judging.mustPass
-    : input.item.requiredClaims.filter(claim => claim.severity === 'must').map(claim => claim.id);
+  // severity 是唯一必答来源；不再维护一份可能漂移的 mustPass。
+  const mustIds = input.item.requiredClaims
+    .filter(claim => claim.severity === 'must')
+    .map(claim => claim.id);
   const missing = mustIds.filter(id =>
     !matched.has(normalize(id)) || explicitlyMissing.has(normalize(id))
   );

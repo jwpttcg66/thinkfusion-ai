@@ -219,3 +219,31 @@ worker 池只缩短墙钟时间，不会自动提高 V1 分数；答案仍有随
 - 其余 must 保留：浮点原因、幂等语义、三阶段丢失点、GIL 适用范围等仍是核心。
 
 新口径的完整 24 题并行结果见 `DEBATE_STANDARD_V1_1_RESULT.md`。
+
+### 增量模式
+
+迭代时不必每次重跑 24 题：
+
+```bash
+cd desktop-agent-macos
+electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3 \
+  --incremental=../docs/implementation/regression/debate-regression-current-pool-v1-1-latest.json
+```
+
+规则：
+
+- 每题有独立 fingerprint；
+- fingerprint 包含：runner 版本、prompt 版本、题目、策略、anchor、该题标准、模型池；
+- 只有 `COMPLETED` 且 V1 通过的旧结果才会复用；
+- 失败题、缺题、标准改过的题、prompt/模型池改过的题会自动重跑；
+- 复用结果也会补写 fingerprint，后续可以继续增量。
+
+改一条标准只会让对应题失效；改 prompt 或模型池会让全部失效。
+增量结果仍然走同一套 V1 门槛，不会降低标准。
+
+### 严格口径修正
+
+`judging.mustPass` 已删除，`requiredClaims[].severity === 'must'` 是唯一必答来源。
+之前 6 条 must 未进入 `mustPass`，导致 V1.1 17/24 偏高；严格全量为 10/24。
+随后用增量模式复用 9 题、重跑 15 题，结果为 16/24（9 复用 + 15 重跑，不是一次全量）。
+详见 `DEBATE_STANDARD_CONSISTENCY_FIX.md`。

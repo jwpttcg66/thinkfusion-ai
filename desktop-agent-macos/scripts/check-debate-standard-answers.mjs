@@ -66,24 +66,33 @@ test('每题都有标准事实、必答主张、允许表达和错误主张', ()
     assert.ok(item.wrongClaims.length >= 1, `${item.id} 缺少错误主张`);
     const ids = new Set(item.requiredClaims.map(claim => claim.id));
     assert.equal(ids.size, item.requiredClaims.length, `${item.id} claim id 重复`);
-    for (const id of item.judging.mustPass) {
-      assert.ok(ids.has(id), `${item.id} mustPass 指向不存在的 ${id}`);
-    }
+    assert.equal(item.judging.mustPass, undefined, `${item.id} 不应再维护 mustPass`);
+    assert.ok(item.requiredClaims.some(claim => claim.severity === 'must'), `${item.id} 至少需要一条 must`);
   }
 });
 
-test('must 复核：4 条降为 should，且不再在 mustPass 中', () => {
+test('must 复核：4 条降为 should；severity 是唯一必答来源', () => {
   const standard = load();
   assert.equal(standard.mustReview.length, 4);
   for (const item of standard.mustReview) {
     const question = standard.questions.find(q => q.id === item.id);
     const claim = question.requiredClaims.find(c => c.id === item.claimId);
     assert.equal(claim.severity, 'should');
-    assert.ok(!question.judging.mustPass.includes(item.claimId));
     assert.equal(item.from, 'must');
     assert.equal(item.to, 'should');
     assert.ok(item.reason.length > 0);
   }
+});
+
+test('compression c3 保持 should，并记录澄清', () => {
+  const standard = load();
+  const compression = standard.questions.find(q => q.id === 'compression');
+  const c3 = compression.requiredClaims.find(c => c.id === 'c3');
+  assert.equal(c3.severity, 'should');
+  assert.equal(standard.clarifications.length, 1);
+  assert.equal(standard.clarifications[0].id, 'compression');
+  assert.equal(standard.clarifications[0].claimId, 'c3');
+  assert.equal(standard.clarifications[0].decision, 'keep-should');
 });
 
 test('评分规则存在，且不保存模型生成的参考答案', () => {
