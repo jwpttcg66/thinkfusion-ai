@@ -266,7 +266,11 @@ export default function App() {
   /** True while 「保存文档」 is reading the page and writing the file. */
   const [savingPage, setSavingPage] = useState<'md' | 'docx' | null>(null);
   /** 保存前先勾选：页面上读到哪些对话可保存。 */
-  const [pageSave, setPageSave] = useState<{ preview: import('../../shared/export').PageExtractPreview; format: 'md' | 'docx' } | null>(null);
+  const [pageSave, setPageSave] = useState<{
+    preview: import('../../shared/export').PageExtractPreview;
+    format: 'md' | 'docx';
+    sourceId: string;
+  } | null>(null);
   /**
    * The last repair result, shown inside the diagnostics panel.
    *
@@ -509,6 +513,9 @@ export default function App() {
     // thing that tells them apart.
     window.agentAPI.getPageState().then(setPage).catch(() => undefined);
     const stopPage = window.agentAPI.onPageChanged(setPage);
+    const stopPageSaveRequest = window.agentAPI.onPageSaveRequest(({ sourceId, format }) => {
+      void openPageSave(format, sourceId);
+    });
 
     const stopEvents = window.agentAPI.onAgentEvent(event => {
       if (event.type === 'task.updated') {
@@ -659,6 +666,7 @@ export default function App() {
       stopLayout();
       stopSources();
       stopPage();
+      stopPageSaveRequest();
     };
   }, []);
 
@@ -1674,17 +1682,17 @@ export default function App() {
     }
   }
 
-  async function openPageSave(format: 'md' | 'docx') {
+  async function openPageSave(format: 'md' | 'docx', sourceId = sources.activeId) {
     if (savingPage) return;
     setSavingPage(format);
     if (notice) setNotice('');
     try {
-      const preview = await window.agentAPI.extractPage({ sourceId: sources.activeId });
+      const preview = await window.agentAPI.extractPage({ sourceId });
       if (preview.items.length === 0) {
         setNotice('这一页没有可保存的对话（可能停在登录页或空会话）。');
         return;
       }
-      setPageSave({ preview, format });
+      setPageSave({ preview, format, sourceId });
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -1699,12 +1707,12 @@ export default function App() {
     includeTranscript: boolean;
   }) {
     if (!pageSave || savingPage) return;
-    const { format } = pageSave;
+    const { format, sourceId } = pageSave;
     setSavingPage(format);
     if (notice) setNotice('');
     try {
       const result = await window.agentAPI.savePageDocument({
-        sourceId: sources.activeId,
+        sourceId,
         format,
         documents: input.documents,
         mode: input.mode,
@@ -1714,7 +1722,7 @@ export default function App() {
         setNotice('已取消保存');
         return;
       }
-      const label = sources.sources.find(source => source.id === sources.activeId)?.label ?? '这个网页源';
+      const label = sources.sources.find(source => source.id === sourceId)?.label ?? '这个网页源';
       const kind = format === 'docx' ? '（Word）' : '（Markdown）';
       if (result.files && result.files.length > 0) {
         setNotice(

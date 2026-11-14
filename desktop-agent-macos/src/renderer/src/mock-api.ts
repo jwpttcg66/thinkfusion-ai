@@ -646,6 +646,7 @@ export function createMockApi(): AgentApi {
     onDeepSeekEvent: () => () => undefined,
     onLayoutChanged: () => () => undefined,
     onSourcesChanged: () => () => undefined,
-    onPageChanged: () => () => undefined
+    onPageChanged: () => () => undefined,
+    onPageSaveRequest: () => () => undefined
   };
 }

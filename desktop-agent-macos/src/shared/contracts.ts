@@ -2426,6 +2426,7 @@ export interface AgentApi {
   onLayoutChanged(callback: (info: LayoutInfo) => void): () => void;
   onSourcesChanged(callback: (state: SourcesState) => void): () => void;
   onPageChanged(callback: (state: PageState) => void): () => void;
+  onPageSaveRequest(callback: (request: { sourceId: string; format: 'md' | 'docx' }) => void): () => void;
   onConversationEvent(callback: (event: ConversationEvent) => void): () => void;
 }
 

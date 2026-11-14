@@ -11,10 +11,12 @@ native view，画在页面上的按钮看不见，所以只能放这一条栏里
 2026-11-09 补：网页源「放大」成独立窗口后，主窗口那条页面栏不再对着眼前的页面，
 独立窗口自己的工具栏原先只有「吸附回去」，保存入口就丢了。独立窗口工具栏现在
 带上同一组「保存文档 / Word」图标，路径数据与主窗口共用 `shared/icons.ts`。
-独立窗口挂一份只暴露保存的 preload（`src/preload/detached.ts`），点按钮走
-`page:save-from-detached` → 同一个 `page.save-document` 插件。早先试过改
-`location.hash` 让主进程听 `did-navigate-in-page`，在 `data:` 页上经常不触发，
-按钮在却点了没反应——所以换成正式 IPC。
+独立窗口挂一份最小 preload（`src/preload/detached.ts`）。
+
+2026-11-14 修正：独立窗口曾绕过勾选面板直接保存整页；现在把格式请求通过 IPC 转交主窗口，
+复用同一个多选面板和 `page.save-document` 插件，并在打开面板时固定 `sourceId`。工具栏
+「吸附回去」曾调用 `window.close()`，而关闭事件会销毁页面视图；现在由 IPC 明确把原视图
+送回主窗口，系统关闭 / Cmd+W 仍表示关闭页面。
 
 动作接受 `sourceId`：界面传当前显示的那个源，调用方也可以指定别的源，只要它的页面
 view 已经创建过。「网页源没打开 / 还在加载 / 停在登录页或空会话」都明确报错，不写空文件。
@@ -82,7 +84,7 @@ docx 模块按需动态加载。文件名取页面标题清洗后加时间戳，
   `allMessages`。保存成稿时用 `## 对话` + `### 问 N / 答 N`；只有回答的旧内容
   仍是 `## 文档` + `### 文档 N`。计划条目只从回答里挑，提问不会变成待办。
 - `per-item` 的 `path` 是目录；结果里带 `files` 清单，界面说「存了 N 个文件」。
-- 独立窗口工具栏的保存仍是一次存全部：那条链路没有多选面板。
+- 独立窗口工具栏把保存请求交给主窗口，复用相同的多选面板与保存模式；页面来源在打开面板时固定，避免切源后保存错页。
 
 ## 链路
 
@@ -98,8 +100,9 @@ page-bar 按钮（App.tsx）
   → { path, format, bytes, documents, planItems, chars }（null = 用户取消）
 
 独立窗口工具栏（detachedDocument + preload/detached.ts）
-  → window.tfDetached.saveDocument('md' | 'docx')
-  → ipcMain 'page:save-from-detached' → pageDocumentSaver(...)  同上一条插件
+  → window.tfDetached.requestSave('md' | 'docx')
+  → ipcMain 'page:request-save-from-detached' → 主窗口打开同一个多选面板
+  → 主窗口 `page:extract` / `page:save-document`                 同上一条插件
 ```
 
 ## 测试与真机
