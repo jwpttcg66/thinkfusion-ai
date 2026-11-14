@@ -270,6 +270,7 @@ export default function App() {
     preview: import('../../shared/export').PageExtractPreview;
     format: 'md' | 'docx';
     sourceId: string;
+    returnToDetached: boolean;
   } | null>(null);
   /**
    * The last repair result, shown inside the diagnostics panel.
@@ -513,8 +514,8 @@ export default function App() {
     // thing that tells them apart.
     window.agentAPI.getPageState().then(setPage).catch(() => undefined);
     const stopPage = window.agentAPI.onPageChanged(setPage);
-    const stopPageSaveRequest = window.agentAPI.onPageSaveRequest(({ sourceId, format }) => {
-      void openPageSave(format, sourceId);
+    const stopPageSaveRequest = window.agentAPI.onPageSaveRequest(({ sourceId, format, returnToDetached }) => {
+      void openPageSave(format, sourceId, returnToDetached);
     });
 
     const stopEvents = window.agentAPI.onAgentEvent(event => {
@@ -1682,7 +1683,11 @@ export default function App() {
     }
   }
 
-  async function openPageSave(format: 'md' | 'docx', sourceId = sources.activeId) {
+  async function openPageSave(
+    format: 'md' | 'docx',
+    sourceId = sources.activeId,
+    returnToDetached = false
+  ) {
     if (savingPage) return;
     setSavingPage(format);
     if (notice) setNotice('');
@@ -1692,11 +1697,22 @@ export default function App() {
         setNotice('这一页没有可保存的对话（可能停在登录页或空会话）。');
         return;
       }
-      setPageSave({ preview, format, sourceId });
+      setPageSave({ preview, format, sourceId, returnToDetached });
     } catch (e) {
       setError(errorText(e));
     } finally {
       setSavingPage(null);
+    }
+  }
+
+  /** Closing a save panel opened from the detached window should return focus
+   * to that still-open page, not make the user think saving closed it. */
+  function closePageSave() {
+    if (!pageSave) return;
+    const { sourceId, returnToDetached } = pageSave;
+    setPageSave(null);
+    if (returnToDetached) {
+      void window.agentAPI.focusDetachedPage(sourceId).catch(() => undefined);
     }
   }
 
@@ -1735,7 +1751,7 @@ export default function App() {
             `${result.documents} 份对话 / ${result.planItems} 条计划条目 / ${result.chars} 字${kind}`
         );
       }
-      setPageSave(null);
+      closePageSave();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -2465,7 +2481,7 @@ export default function App() {
           preview={pageSave.preview}
           format={pageSave.format}
           busy={savingPage !== null}
-          onClose={() => setPageSave(null)}
+          onClose={closePageSave}
           onSave={input => void runPageSave(input)}
         />
       )}

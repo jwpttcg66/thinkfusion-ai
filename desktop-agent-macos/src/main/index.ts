@@ -4036,7 +4036,20 @@ function registerIpc() {
     if (!win || win.isDestroyed()) throw new Error('主窗口已关闭');
     win.show();
     win.focus();
-    win.webContents.send('page:save-request', { sourceId: detached.sourceId, format: raw });
+    win.webContents.send('page:save-request', {
+      sourceId: detached.sourceId,
+      format: raw,
+      returnToDetached: true
+    });
+  });
+
+  ipcMain.handle('page:focus-detached', (event, rawSourceId: unknown) => {
+    trustedUiSender(event);
+    if (typeof rawSourceId !== 'string') throw new Error('无效的页面来源');
+    if (!detached || detached.sourceId !== rawSourceId || detached.window.isDestroyed()) return false;
+    detached.window.show();
+    detached.window.focus();
+    return true;
   });
 
   // `吸附回去` is not a close: return the same WebContentsView to the main

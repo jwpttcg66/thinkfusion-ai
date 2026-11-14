@@ -287,6 +287,13 @@ if (detachedFrame) {
   );
   const saveError = await cdp.evaluate('document.querySelector(".error")?.textContent ?? ""');
   checkTrue(`独立窗口保存请求转交给主窗口同一套提取流程（${saveError}）`, saveErrorVisible && saveError.includes(source.label));
+  const focusedDetached = await cdp.evaluate(`window.agentAPI.focusDetachedPage(${JSON.stringify(SOURCE)})`);
+  check('独立窗口保存请求后可以返回放大窗口', focusedDetached, true);
+  check(
+    '返回放大窗口不会吸附或销毁页面',
+    (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId,
+    SOURCE
+  );
 } else {
   checkTrue('独立窗口存在', false);
 }

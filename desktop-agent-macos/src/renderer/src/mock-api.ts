@@ -647,6 +647,7 @@ export function createMockApi(): AgentApi {
     onLayoutChanged: () => () => undefined,
     onSourcesChanged: () => () => undefined,
     onPageChanged: () => () => undefined,
-    onPageSaveRequest: () => () => undefined
+    onPageSaveRequest: () => () => undefined,
+    focusDetachedPage: async () => false
   };
 }
