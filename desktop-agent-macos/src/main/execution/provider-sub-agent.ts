@@ -79,6 +79,8 @@ export class ProviderBackedSubAgent implements SubAgent {
       },
       stage: task.stage,
       usage: response.usage,
+      providerId: this.provider.id,
+      ...(this.modelId ? { modelId: this.modelId } : { modelId: response.modelId }),
       latencyMs: response.latencyMs
     };
   }

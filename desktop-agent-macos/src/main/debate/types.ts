@@ -207,6 +207,14 @@ export interface DebateMessage {
    * 抓不到就是 `undefined`，不补空数组：老辩论文件读出来也该是「没记录过」。
    */
   citations?: PageCitation[];
+  /** 实际 Provider / 模型；老记录没有。 */
+  providerId?: string;
+  modelId?: string;
+  /** 实际 token 用量；网页/老记录没有。 */
+  usage?: { inputTokens: number | null; outputTokens: number | null; cost?: { amount: number; currency: string } | null };
+  retryCount?: number;
+  outcome?: 'success' | 'failed' | 'cancelled';
+  failureReason?: string;
   createdAt: number;
   /** 这一条发言从开始问模型到拿到回答的时间；老记录没有。 */
   startedAt?: number;
@@ -515,6 +523,8 @@ export interface DebateState {
   /** planLead 的完整结果：界面照实显示，编排器也用它决定每轮谁发言。 */
   plan: LeadPlan;
   status: DebateStatus;
+  /** 辩论执行结果，和 status（生命周期）分开。 */
+  outcome?: 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';
   rounds: DebateRound[];
   /** 正在跑、还没收口的那一轮；界面据此显示「等待谁发言」，不等到轮末才见。 */
   runningRound?: DebateRound;

@@ -47,7 +47,10 @@ function harness(responder = (agentId, task, call) => `${agentId} 第 ${call} �
       text: responder(agentId, task, seen.length),
       receivedAt: Date.now(),
       attribution: { requestId: 'r', note: 'test' },
-      stage: task.stage
+      stage: task.stage,
+      providerId: 'test-provider',
+      modelId: agentId,
+      usage: { inputTokens: 10, outputTokens: 5, cost: null }
     };
   };
   return {
@@ -231,4 +234,25 @@ test('执行模式与辩论策略独立：四种模式 × 六种策略都能归�
   assert.equal(normalizeExecutionConfig({ executionMode: 'web' }).debateStrategy, undefined);
   // 非法值不写进去，也不把其他字段带坏。
   assert.equal(normalizeExecutionConfig({ debateStrategy: 'nope' }).debateStrategy, undefined);
+});
+
+
+test('消息级元数据与全局 outcome', async () => {
+  const h = harness((agentId, task, call) => {
+    if (agentId === 'b' && call > 2) throw new Error('模型超时');
+    return `${agentId} 第 ${call} 次发言：观点。`;
+  });
+  const started = h.orchestrator.start(QUESTION, {
+    strategy: 'truth',
+    maxRounds: 2,
+    participants: ['a', 'b'],
+    convergenceStop: false
+  });
+  const state = await h.orchestrator.waitFor(started.debateId, 10_000);
+  h.cleanup();
+  const message = state.rounds[0].messages[0];
+  assert.equal(message.providerId, 'test-provider');
+  assert.equal(message.modelId, message.agentId);
+  assert.equal(message.usage.inputTokens, 10);
+  assert.equal(state.outcome, 'PARTIAL');
 });

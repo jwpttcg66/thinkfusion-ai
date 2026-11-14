@@ -67,6 +67,9 @@ export interface SubAgentAnswer extends AdapterAnswer {
    * outputTokens: null }`；本地/云端由 Provider 回填。`null` 不是 0。
    */
   usage?: ModelUsage | null;
+  /** Provider / 实际模型；网页通道不填。 */
+  providerId?: string;
+  modelId?: string;
   /** 从发问到收到完整回答；网页也能测。 */
   latencyMs?: number;
   /**

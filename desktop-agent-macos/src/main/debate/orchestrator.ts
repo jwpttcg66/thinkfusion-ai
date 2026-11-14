@@ -156,6 +156,7 @@ export class DebateOrchestrator {
     const state = this.store.get(debateId);
     if (!state || state.status !== 'running') return state;
     state.status = 'stopped';
+    state.outcome = 'CANCELLED';
     state.stopReason = '用户中止';
     state.updatedAt = this.now();
     appendEvent(state, { type: 'session.stopped', key: 'session.stopped', at: state.updatedAt, detail: '用户中止' });
@@ -169,6 +170,7 @@ export class DebateOrchestrator {
     if (!state || state.status === 'completed') return state;
     this.stopped.delete(debateId);
     state.status = 'running';
+    state.outcome = undefined;
     state.stopReason = undefined;
     state.updatedAt = this.now();
     // 多次恢复要各自留下一条：序号取自现有恢复事件的条数，所以不重复、
@@ -290,6 +292,7 @@ export class DebateOrchestrator {
         state.stopReason = state.stopReason ?? `已达到 ${state.config.maxRounds} 轮上限`;
       }
       // 结论永远落在最后一轮之后：读的是全部发言与证据，不是最后一句。
+      state.outcome = debateOutcome(state);
       this.conclude(state);
       if (state.status === 'completed') {
         appendEvent(state, {
@@ -303,6 +306,7 @@ export class DebateOrchestrator {
       this.persist(state);
     } catch (error) {
       state.status = 'cancelled';
+      state.outcome = 'CANCELLED';
       state.stopReason = error instanceof Error ? error.message : String(error);
       state.updatedAt = this.now();
       appendEvent(state, {
@@ -324,6 +328,7 @@ export class DebateOrchestrator {
     const external = this.store.get(state.debateId);
     if (external?.status === 'stopped') {
       state.status = 'stopped';
+      state.outcome = 'CANCELLED';
       state.stopReason = external.stopReason;
       // stop() 写的是磁盘上那份的事件；这里手里是另一个对象，补一条同 key
       // 的事件（幂等）再存，别让这次保存把它覆盖掉。
@@ -470,6 +475,10 @@ export class DebateOrchestrator {
           // 是谁在第几轮给的」，而不是事后再去翻页面。没有链接就不写这个
           // 字段（写 undefined 会让 JSON 往返后少一个键，比对时对不上）。
           ...(answer.citations && answer.citations.length > 0 ? { citations: answer.citations } : {}),
+          ...(answer.providerId ? { providerId: answer.providerId } : {}),
+          ...(answer.modelId ? { modelId: answer.modelId } : {}),
+          ...(answer.usage ? { usage: answer.usage } : {}),
+          outcome: 'success',
           createdAt: endedAt,
           startedAt,
           endedAt
@@ -559,6 +568,15 @@ function phaseFor(index: number): DebatePhase {
 /** 单次调用 60 秒、同时问 3 位，是任务书第 10 节的默认值，不是硬编码常量。 */
 const DEFAULT_STAGE_TIMEOUT_MS = 60_000;
 const DEFAULT_CONCURRENCY = 3;
+
+function debateOutcome(state: DebateState): DebateState['outcome'] {
+  if (state.status === 'stopped' || state.status === 'cancelled') return 'CANCELLED';
+  const messages = state.rounds.flatMap(round => round.messages);
+  if (messages.length === 0) return 'FAILED';
+  const failures = state.rounds.reduce((sum, round) => sum + round.failures.length, 0);
+  if (failures > 0) return 'PARTIAL';
+  return 'COMPLETED';
+}
 
 function budgetOf(config: DebateConfig): { stageTimeoutMs: number; totalMs?: number; maxConcurrency: number } {
   return {
