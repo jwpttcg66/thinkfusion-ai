@@ -299,8 +299,14 @@ let pageCollapsed = false;
  */
 let detached: { window: BrowserWindow; sourceId: string } | null = null;
 
-/** The selection sheet is owned by the detached page window, never the main window. */
-let detachedSaveWindow: { window: BrowserWindow; sourceId: string; format: 'md' | 'docx' } | null = null;
+/** The save UI is a full-window overlay view above the one live detached page. */
+let detachedSaveOverlay: {
+  view: WebContentsView;
+  parent: BrowserWindow;
+  sourceId: string;
+  format: 'md' | 'docx';
+  onResize: () => void;
+} | null = null;
 
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
@@ -1769,36 +1775,33 @@ function detachedDocument(source: PageSource): string {
 </body></html>`;
 }
 
-async function openDetachedSaveWindow(
+function closeDetachedSaveOverlay(): void {
+  const current = detachedSaveOverlay;
+  if (!current) return;
+  detachedSaveOverlay = null;
+  current.parent.removeListener('resize', current.onResize);
+  if (!current.parent.isDestroyed()) current.parent.contentView.removeChildView(current.view);
+  if (!current.view.webContents.isDestroyed()) current.view.webContents.close();
+}
+
+async function openDetachedSaveOverlay(
   parent: BrowserWindow,
   sourceId: string,
   format: 'md' | 'docx'
-): Promise<BrowserWindow> {
+): Promise<WebContentsView> {
   if (
-    detachedSaveWindow &&
-    !detachedSaveWindow.window.isDestroyed() &&
-    detachedSaveWindow.sourceId === sourceId
+    detachedSaveOverlay &&
+    !detachedSaveOverlay.view.webContents.isDestroyed() &&
+    detachedSaveOverlay.sourceId === sourceId &&
+    detachedSaveOverlay.format === format
   ) {
-    detachedSaveWindow.window.show();
-    detachedSaveWindow.window.focus();
-    return detachedSaveWindow.window;
+    detachedSaveOverlay.view.webContents.focus();
+    return detachedSaveOverlay.view;
   }
 
-  if (detachedSaveWindow && !detachedSaveWindow.window.isDestroyed()) {
-    detachedSaveWindow.window.close();
-  }
-  detachedSaveWindow = null;
+  closeDetachedSaveOverlay();
 
-  const saveWindow = new BrowserWindow({
-    parent,
-    modal: true,
-    show: false,
-    width: 780,
-    height: 680,
-    minWidth: 540,
-    minHeight: 480,
-    title: '保存网页对话',
-    backgroundColor: '#f5f5f2',
+  const view = new WebContentsView({
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
@@ -1806,28 +1809,38 @@ async function openDetachedSaveWindow(
       preload: path.join(__dirname, '../preload/detachedSave.js')
     }
   });
-  const state = { window: saveWindow, sourceId, format } as const;
-  detachedSaveWindow = state;
-  saveWindow.on('closed', () => {
-    if (detachedSaveWindow?.window === saveWindow) detachedSaveWindow = null;
-  });
+  view.setBackgroundColor('#00000000');
+  const state: NonNullable<typeof detachedSaveOverlay> = {
+    view,
+    parent,
+    sourceId,
+    format,
+    onResize: () => undefined
+  };
+  const place = () => {
+    if (parent.isDestroyed() || view.webContents.isDestroyed()) return;
+    const [width, height] = parent.getContentSize();
+    view.setBounds({ x: 0, y: 0, width: Math.max(1, width), height: Math.max(1, height) });
+  };
+  state.onResize = place;
+  detachedSaveOverlay = state;
+  view.setVisible(false);
+  parent.contentView.addChildView(view);
+  parent.on('resize', place);
+  place();
 
   try {
     const rendererUrl = process.env.ELECTRON_RENDERER_URL;
     if (rendererUrl) {
       const baseUrl = rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`;
-      await saveWindow.loadURL(new URL('page-save.html', baseUrl).toString());
+      await view.webContents.loadURL(new URL('page-save.html', baseUrl).toString());
     } else {
-      await saveWindow.loadFile(path.join(__dirname, '../renderer/page-save.html'));
+      await view.webContents.loadFile(path.join(__dirname, '../renderer/page-save.html'));
     }
-    if (!saveWindow.isDestroyed() && detachedSaveWindow?.window === saveWindow) {
-      saveWindow.show();
-      saveWindow.focus();
-    }
-    return saveWindow;
+    if (!view.webContents.isDestroyed() && detachedSaveOverlay?.view === view) view.setVisible(true);
+    return view;
   } catch (error) {
-    if (detachedSaveWindow?.window === saveWindow) detachedSaveWindow = null;
-    if (!saveWindow.isDestroyed()) saveWindow.destroy();
+    if (detachedSaveOverlay?.view === view) closeDetachedSaveOverlay();
     throw error;
   }
 }
@@ -1892,6 +1905,7 @@ function detachSource(id: string): PageState {
     // `reattachSource` clears `detached` before destroying the window, so this
     // branch only runs for a close action (traffic light / Cmd+W).
     if (detached?.window !== frame) return;
+    if (detachedSaveOverlay?.parent === frame) closeDetachedSaveOverlay();
     const sourceId = detached.sourceId;
     // A real window close means close the page, not dock it. Destroy the view and
     // fold the empty pane so the next question cannot silently revive it.
@@ -1912,9 +1926,7 @@ function detachSource(id: string): PageState {
 function reattachSource(): PageState {
   if (!detached) return pageState();
   const { window: frame, sourceId } = detached;
-  const saveWindow = detachedSaveWindow?.window;
-  detachedSaveWindow = null;
-  if (saveWindow && !saveWindow.isDestroyed()) saveWindow.close();
+  if (detachedSaveOverlay?.parent === frame) closeDetachedSaveOverlay();
   detached = null;
 
   const view = views.get(sourceId);
@@ -2538,12 +2550,10 @@ function registerIpc() {
     savePageDeps: () => ({
       defaultDir: () => app.getPath('downloads'),
       pickPath: async (name, format) => {
-        // 页面在独立窗口里时，文件选择框挂到当前保存面板；否则挂到页面窗口。
+        // 页面在独立窗口里时，系统文件选择框挂到原页面窗口；保存面板本身是覆盖视图。
         const parent =
-          detachedSaveWindow?.window && !detachedSaveWindow.window.isDestroyed()
-            ? detachedSaveWindow.window
-            : detached?.window && !detached.window.isDestroyed()
-              ? detached.window
+          detached?.window && !detached.window.isDestroyed()
+            ? detached.window
             : win && !win.isDestroyed()
               ? win
               : null;
@@ -4095,20 +4105,20 @@ function registerIpc() {
   });
 
   /**
-   * The selection sheet is a modal child of the detached page window. Do not
-   * raise the main window here: it would cover the one live page view.
+   * The selection UI is added above the live page inside its existing window.
+   * Do not create or raise another BrowserWindow: that would add a second frame.
    */
   ipcMain.handle('page:request-save-from-detached', async (event, raw: unknown) => {
     if (!detached || event.sender.id !== detached.window.webContents.id) {
       throw new Error('IPC sender rejected');
     }
     if (raw !== 'md' && raw !== 'docx') throw new Error('无效的保存格式');
-    await openDetachedSaveWindow(detached.window, detached.sourceId, raw);
+    await openDetachedSaveOverlay(detached.window, detached.sourceId, raw);
   });
 
   ipcMain.handle('page:detached-save-preview', async event => {
-    const request = detachedSaveWindow;
-    if (!request || event.sender.id !== request.window.webContents.id || !detached || detached.sourceId !== request.sourceId) {
+    const request = detachedSaveOverlay;
+    if (!request || event.sender.id !== request.view.webContents.id || !detached || detached.sourceId !== request.sourceId) {
       throw new Error('IPC sender rejected');
     }
     const content = await capabilityContext.readPage?.(request.sourceId);
@@ -4123,8 +4133,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('page:detached-save-document', async (event, raw: unknown) => {
-    const request = detachedSaveWindow;
-    if (!request || event.sender.id !== request.window.webContents.id || !detached || detached.sourceId !== request.sourceId) {
+    const request = detachedSaveOverlay;
+    if (!request || event.sender.id !== request.view.webContents.id || !detached || detached.sourceId !== request.sourceId) {
       throw new Error('IPC sender rejected');
     }
     const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
@@ -4143,8 +4153,8 @@ function registerIpc() {
   });
 
   ipcMain.on('page:detached-save-close', event => {
-    if (!detachedSaveWindow || event.sender.id !== detachedSaveWindow.window.webContents.id) return;
-    detachedSaveWindow.window.close();
+    if (!detachedSaveOverlay || event.sender.id !== detachedSaveOverlay.view.webContents.id) return;
+    closeDetachedSaveOverlay();
   });
 
   ipcMain.handle('page:focus-detached', (event, rawSourceId: unknown) => {

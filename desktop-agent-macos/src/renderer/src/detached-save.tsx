@@ -68,4 +68,5 @@ function DetachedSaveApp() {
 }
 
 document.title = '保存网页对话';
+document.documentElement.classList.add('detached-save-overlay');
 createRoot(document.getElementById('root')!).render(<DetachedSaveApp />);
