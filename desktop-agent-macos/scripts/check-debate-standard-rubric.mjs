@@ -28,6 +28,7 @@ const answer = text => ({
 const respond = (payload, agentId = 'rubric-judge') => async (id, task) => {
   assert.equal(id, agentId);
   assert.ok(task.system.some(line => line.includes('只输出一个 JSON 对象')));
+  assert.match(task.question, /候选回答/);
   return answer(JSON.stringify(payload));
 };
 
@@ -53,6 +54,7 @@ test('覆盖全部必答主张：通过', async () => {
     agentId: 'rubric-judge'
   });
   assert.equal(result.backend, 'model');
+  assert.equal(result.attempts, 1);
   assert.equal(result.score, 100, '全部 must 覆盖时，门槛分由代码算为 100');
   assert.equal(result.modelScore, 92);
   assert.equal(result.classificationMatch, true);
@@ -106,6 +108,19 @@ test('重大错误主张：最高 39，不通过', async () => {
   assert.equal(result.passed, false);
 });
 
+test('标准外错误主张默认 minor，不按 major 封顶', async () => {
+  const item = byId.get('float-equality');
+  const result = await assessStandardAnswer({
+    item,
+    answerText: '结果是 false，原因是浮点精度。',
+    ask: respond(payload({ wrongClaims: ['标准里没有的某句话'], score: 95 })),
+    agentId: 'rubric-judge'
+  });
+  assert.equal(result.score, 95);
+  assert.deepEqual(result.wrongClaims, ['标准里没有的某句话']);
+  assert.equal(result.passed, true);
+});
+
 test('CONTEXTUAL 没给边界：最高 65，不通过', async () => {
   const item = byId.get('http-methods');
   const result = await assessStandardAnswer({
@@ -137,7 +152,27 @@ test('分类不一致：最高 60，不通过', async () => {
   assert.equal(result.passed, false);
 });
 
-test('模型输出不是 JSON：unavailable，不伪造分数', async () => {
+test('第一次不是 JSON，第二次合法：重试一次后采用', async () => {
+  const item = byId.get('float-equality');
+  let calls = 0;
+  const result = await assessStandardAnswer({
+    item,
+    answerText: '结果是 false。',
+    ask: async () => {
+      calls += 1;
+      return calls === 1
+        ? answer('我先分析一下，这个回答不错。')
+        : answer(JSON.stringify(payload()));
+    },
+    agentId: 'rubric-judge'
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.backend, 'model');
+  assert.equal(result.attempts, 2);
+  assert.equal(result.passed, true);
+});
+
+test('模型输出不是 JSON：重试后仍失败，unavailable，不伪造分数', async () => {
   const item = byId.get('float-equality');
   const result = await assessStandardAnswer({
     item,
@@ -148,6 +183,7 @@ test('模型输出不是 JSON：unavailable，不伪造分数', async () => {
   assert.equal(result.backend, 'unavailable');
   assert.equal(result.score, null);
   assert.equal(result.modelScore, null);
+  assert.equal(result.attempts, 2);
   assert.equal(result.passed, false);
   assert.match(result.fallbackReason, /不是可解析的 JSON/);
 });

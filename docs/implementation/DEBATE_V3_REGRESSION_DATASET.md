@@ -177,3 +177,20 @@ npm run build:test
 模型应用了人工标准，不是事实核验。结果里的 `standard` 字段会记录
 `matchedClaims`、`missingClaims`、`wrongClaims`、`boundaryCovered`、`score`、
 `rubricAgentId` 和 `participatedInDebate`。
+
+### 3 路并行
+
+```bash
+cd desktop-agent-macos
+npm run regression:debate:parallel
+```
+
+它把 24 题拆成 3 组，每组一个独立 Electron 进程；组内仍串行，组间并行。
+每题仍是 2 辩手 + 1 独立裁判 + V1 评分。
+
+并行结果会合并到：
+
+- `docs/implementation/regression/debate-regression-current-pool-final-latest.json`
+- `docs/implementation/regression/debate-regression-current-pool-final-latest.md`
+
+注意：并行只缩短墙钟时间，不会自动提高 V1 分数；答案仍有随机波动。

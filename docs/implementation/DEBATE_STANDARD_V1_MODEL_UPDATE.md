@@ -6,6 +6,8 @@
 - 数据集：`debate-dataset.json` v1.0.0
 - 标准：`DEBATE_TECH_FACT_BASELINE_V1.md`
 - 明细：`docs/implementation/regression/debate-regression-model-update-latest.json`
+- 后续：完整 24 题当前模型池、3 路并行已跑完，统一口径结果见
+  `DEBATE_STANDARD_V1_CURRENT_POOL.md`。
 
 ## 1. 总结
 
