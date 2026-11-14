@@ -137,8 +137,6 @@ export interface TerminalWindowApi {
   resize(sessionId: string, cols: number, rows: number): Promise<void>;
   close(sessionId: string): Promise<void>;
   onData(listener: (event: TerminalDataEvent) => void): () => void;
-  /** 主窗口点了某个会话的「放大」时，独立窗口据此切换。 */
-  onSelect(listener: (sessionId: string) => void): () => void;
   /** 吸附回主窗口（即关闭这个窗口）。 */
   reattach(): Promise<void>;
 }

@@ -5617,3 +5617,12 @@ button:disabled {
   border-color: rgba(120, 170, 255, 0.65);
   background: rgba(120, 170, 255, 0.14);
 }
+
+.terminal-panel-title {
+  font-size: 11.5px;
+  opacity: 0.85;
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

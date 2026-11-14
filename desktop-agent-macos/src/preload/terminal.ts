@@ -20,10 +20,5 @@ contextBridge.exposeInMainWorld('tfTerminal', {
     ipcRenderer.on('terminal:data', handler);
     return () => ipcRenderer.removeListener('terminal:data', handler);
   },
-  onSelect: (listener: (sessionId: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => listener(sessionId);
-    ipcRenderer.on('terminal:select', handler);
-    return () => ipcRenderer.removeListener('terminal:select', handler);
-  },
   reattach: (): Promise<void> => ipcRenderer.invoke('terminal:reattach')
 });

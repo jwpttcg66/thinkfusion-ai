@@ -24,7 +24,8 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 | 任务级独立 Worktree（创建/提交/合并/删除） | `src/main/task-worktree.ts`、`src/renderer/src/components/TaskWorktree.tsx` |
 | TerminalHost：多读者、程序直启、进程组 | `src/agent/tools/terminal.ts` |
 | 终端 IPC 与面板 | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/components/AgentTerminal.tsx` |
-| 右侧终端面板（常驻按钮 + 会话切换 + 独立窗口） | `src/renderer/src/components/TerminalPanel.tsx`、`src/renderer/terminal.html`、`src/preload/terminal.ts` |
+| 右侧终端面板（常驻按钮 + 会话切换） | `src/renderer/src/components/TerminalPanel.tsx` |
+| 每会话一个独立终端窗口 | `src/renderer/terminal.html`、`src/renderer/src/terminal-window.tsx`、`src/preload/terminal.ts` |
 | 任务取消真的下发到 Runtime | `src/main/agent-manager.ts`（`cancelPlan`） |
 | 测试 | `scripts/check-cli-agent.mjs`、`scripts/fixtures/fake-cli.mjs` |
 
@@ -138,8 +139,11 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 右侧页面工具栏有一个**常驻的终端按钮**：
 
 - 没有会话也能打开，面板会说明「还没有终端会话」；
-- 有会话时按标签切换；标签来自 Runtime 的 `term.list`，不是从任务事件猜的；
-- 每个标签可以「放大」到独立窗口（`terminal.html`，独立 preload，只能读写 PTY）；
+- 主窗口面板是会话入口：标签来自 Runtime 的 `term.list`，同一时刻显示一个，
+  用来在几个 CLI/终端之间切换；
+- **每个会话「放大」后各占一个独立窗口**（`terminal.html?session=…`，独立 preload，
+  只能读写那一个 PTY）；同一会话再次放大只聚焦已有窗口，不同会话各自开窗；
+- 结束会话会同时关掉它的独立窗口；「吸附回来」只关当前窗口；
 - 打开终端面板时，内嵌网页停止绘制（否则原生视图会盖住 DOM），页面动作按钮收起；
 - 「收起」把网页放回来；折叠页面时会自动收起终端，避免展开后空白。
 

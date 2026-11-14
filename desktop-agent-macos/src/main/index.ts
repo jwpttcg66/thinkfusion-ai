@@ -324,13 +324,12 @@ let detachedSaveOverlay: {
 } | null = null;
 
 /**
- * 独立终端窗口。
+ * 独立终端窗口：一个会话一个窗口。
  *
- * 与网页的「放大」不是同一套实现：网页是 WebContentsView 换父窗口，终端
- * 是 DOM，所以这里开一个只加载 terminal.html 的小窗口。它拿不到主窗口的
- * 完整 API，只能读写已经存在的 PTY。
+ * 文档里的约定是「每个 Agent 一个独立 Workspace/窗口」，所以这里不做标签页。
+ * 同一个会话重复点「放大」只聚焦已有窗口；不同会话各自开窗。
  */
-let terminalWindow: BrowserWindow | null = null;
+const terminalWindows = new Map<string, BrowserWindow>();
 /** 终端面板占用了右侧区域时，内嵌网页停止绘制（否则原生视图会盖住 DOM）。 */
 let pageHiddenForTerminal = false;
 
@@ -1216,12 +1215,9 @@ function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
  * 没有任务、文件或设置。
  */
 function trustedTerminalSender(event: Electron.IpcMainInvokeEvent) {
-  if (
-    terminalWindow &&
-    !terminalWindow.isDestroyed() &&
-    event.sender.id === terminalWindow.webContents.id &&
-    event.senderFrame === event.sender.mainFrame
-  ) {
+  for (const window of terminalWindows.values()) {
+    if (window.isDestroyed() || event.sender.id !== window.webContents.id) continue;
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted terminal renderer origin');
     const url = event.senderFrame?.url ?? '';
     const isDev = url.startsWith('http://localhost:') || url.startsWith('http://127.0.0.1:');
     if (isDev || url.includes('terminal.html')) return;
@@ -1230,32 +1226,56 @@ function trustedTerminalSender(event: Electron.IpcMainInvokeEvent) {
   trustedUiSender(event);
 }
 
-function terminalUrl(sessionId?: string): { url: string } | { file: string; query: Record<string, string> } {
+function terminalWindowForSender(senderId: number): BrowserWindow | null {
+  for (const window of terminalWindows.values()) {
+    if (!window.isDestroyed() && window.webContents.id === senderId) return window;
+  }
+  return null;
+}
+
+function terminalUrl(sessionId: string): { url: string } | { file: string; query: Record<string, string> } {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : '';
+  const query = `?session=${encodeURIComponent(sessionId)}`;
   if (rendererUrl) {
     const base = rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`;
     return { url: new URL(`terminal.html${query}`, base).toString() };
   }
   return {
     file: path.join(__dirname, '../renderer/terminal.html'),
-    query: sessionId ? { session: sessionId } : {}
+    query: { session: sessionId }
   };
 }
 
 /**
- * 终端「放大」：开一个只显示终端的独立窗口。
- *
- * 不做网页那种 WebContentsView 换父，因为终端是 DOM；但用户体验一致：
- * 同一个会话、同一个尺寸，关掉窗口就回到主窗口。
+ * 终端「放大」：每个会话一个独立窗口，不做标签页。
+ * 标题用会话的 cwd 末级目录，拿不到就退到会话 id 末尾。
  */
-async function openTerminalWindow(sessionId?: string): Promise<void> {
-  if (terminalWindow && !terminalWindow.isDestroyed()) {
-    if (terminalWindow.isMinimized()) terminalWindow.restore();
-    terminalWindow.show();
-    terminalWindow.focus();
-    if (sessionId) terminalWindow.webContents.send('terminal:select', sessionId);
+async function openTerminalWindow(sessionId: string): Promise<void> {
+  const existing = terminalWindows.get(sessionId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
     return;
+  }
+
+  let label = sessionId.slice(-6);
+  try {
+    // 只等 800ms：拿不到会话目录就用 id 末尾，不让「放大」卡在一次
+    // Runtime 查询上（Runtime 没起时 requestTerminal 也会直接拒绝）。
+    const lookup = requestTerminal('list', {})
+      .then(result => {
+        const listed = result as { sessions?: Array<{ sessionId?: unknown; cwd?: unknown }> };
+        const found = Array.isArray(listed?.sessions)
+          ? listed.sessions.find(item => item?.sessionId === sessionId)
+          : undefined;
+        return found && typeof found.cwd === 'string' ? found.cwd : null;
+      })
+      .catch(() => null);
+    const cwd = await Promise.race([lookup, new Promise<null>(resolve => setTimeout(() => resolve(null), 800))]);
+    if (cwd) label = cwd.split('/').filter(Boolean).slice(-1)[0] ?? label;
+  } catch {
+    // 运行时没起来也能开窗；窗口里会给出明确错误。
   }
 
   const target = terminalUrl(sessionId);
@@ -1264,7 +1284,7 @@ async function openTerminalWindow(sessionId?: string): Promise<void> {
     height: 640,
     minWidth: 520,
     minHeight: 360,
-    title: '终端 · 独立窗口',
+    title: `终端 · ${label}`,
     backgroundColor: '#0f1115',
     webPreferences: {
       sandbox: true,
@@ -1273,9 +1293,9 @@ async function openTerminalWindow(sessionId?: string): Promise<void> {
       preload: path.join(__dirname, '../preload/terminal.js')
     }
   });
-  terminalWindow = created;
+  terminalWindows.set(sessionId, created);
   created.on('closed', () => {
-    if (terminalWindow === created) terminalWindow = null;
+    if (terminalWindows.get(sessionId) === created) terminalWindows.delete(sessionId);
   });
   if ('url' in target) await created.loadURL(target.url);
   else await created.loadFile(target.file, { query: target.query });
@@ -2832,12 +2852,12 @@ function registerIpc() {
 
   ipcMain.handle('terminal:detach', async (event, sessionId: unknown) => {
     trustedUiSender(event);
-    await openTerminalWindow(typeof sessionId === 'string' && sessionId ? sessionId : undefined);
+    await openTerminalWindow(TerminalSessionIdSchema.parse(sessionId));
   });
 
   ipcMain.handle('terminal:reattach', event => {
     trustedTerminalSender(event);
-    if (terminalWindow && !terminalWindow.isDestroyed()) terminalWindow.close();
+    terminalWindowForSender(event.sender.id)?.close();
   });
 
   ipcMain.handle('terminal:write', async (event, raw: unknown) => {
@@ -2854,7 +2874,10 @@ function registerIpc() {
 
   ipcMain.handle('terminal:close', async (event, sessionId: unknown) => {
     trustedTerminalSender(event);
-    await requestTerminal('close', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
+    const id = TerminalSessionIdSchema.parse(sessionId);
+    await requestTerminal('close', { sessionId: id });
+    // 会话结束后它自己的独立窗口没有内容可看了，一并关掉。
+    terminalWindows.get(id)?.close();
   });
 
   // 任务级 Worktree：只按 taskId 操作；路径与分支由主进程记账，界面传不进来。
@@ -4915,9 +4938,9 @@ app.whenReady().then(async () => {
   // 终端输出从 Runtime 一路推到两个窗口；主进程只转发，不解析内容。
   setTerminalSink(event => {
     if (win && !win.isDestroyed()) win.webContents.send('terminal:data', event);
-    if (terminalWindow && !terminalWindow.isDestroyed()) {
-      terminalWindow.webContents.send('terminal:data', event);
-    }
+    // 每个会话只推给它自己的窗口，不让 A 会话的输出出现在 B 的窗口里。
+    const own = terminalWindows.get(event.sessionId);
+    if (own && !own.isDestroyed()) own.webContents.send('terminal:data', event);
   });
 
   /**

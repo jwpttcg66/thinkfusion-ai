@@ -46,6 +46,7 @@ export function TerminalPanel({
   bridge,
   initialSessionId,
   detached = false,
+  single = false,
   onDetach,
   onClosePane,
   onReattach,
@@ -55,6 +56,8 @@ export function TerminalPanel({
   bridge: TerminalPanelBridge;
   initialSessionId?: string | null;
   detached?: boolean;
+  /** 独立窗口：一个会话一个窗口，不显示标签栏。 */
+  single?: boolean;
   onDetach?: (sessionId: string) => void;
   onClosePane?: () => void;
   onReattach?: () => void;
@@ -153,18 +156,24 @@ export function TerminalPanel({
     <div className="terminal-panel">
       <header className="terminal-panel-head">
         <div className="terminal-panel-tabs">
-          {sessions.map(session => (
-            <button
-              key={session.sessionId}
-              type="button"
-              className={session.sessionId === active ? 'is-active' : undefined}
-              onClick={() => setActive(session.sessionId)}
-              title={session.cwd ?? session.sessionId}
-            >
-              {labelOf(session)}
-            </button>
-          ))}
-          {sessions.length === 0 && <span className="muted">还没有终端会话</span>}
+          {single ? (
+            <span className="terminal-panel-title">
+              {current ? labelOf(current) : '终端会话'}
+            </span>
+          ) : (
+            sessions.map(session => (
+              <button
+                key={session.sessionId}
+                type="button"
+                className={session.sessionId === active ? 'is-active' : undefined}
+                onClick={() => setActive(session.sessionId)}
+                title={session.cwd ?? session.sessionId}
+              >
+                {labelOf(session)}
+              </button>
+            ))
+          )}
+          {!single && sessions.length === 0 && <span className="muted">还没有终端会话</span>}
         </div>
         <span className="terminal-panel-status">
           {current ? status : ''}
