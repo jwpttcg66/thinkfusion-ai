@@ -16,7 +16,6 @@
     "src/main/expertise/**/*.ts",
     "src/main/research/**/*.ts",
     "src/main/export/**/*.ts",
-    "src/main/detached-save-document.ts",
     "src/main/conversation-runner.ts",
     "src/main/master-agent.ts",
     "src/main/trace/**/*.ts",

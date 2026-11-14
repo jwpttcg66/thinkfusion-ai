@@ -292,7 +292,22 @@ if (detachedFrame) {
   if (saveDialogTarget) {
     saveDialogCdp = await connect(saveDialogTarget);
     check('附属保存面板已渲染', await saveDialogCdp.evaluate('Boolean(document.querySelector("[role=dialog]"))'), true);
-    check('保存面板提供消息选择', await saveDialogCdp.evaluate('Boolean(document.querySelector("#items"))'), true);
+    const saveLayout = await saveDialogCdp.evaluate(`(() => ({
+      panel: Boolean(document.querySelector('.page-save-panel')),
+      list: Boolean(document.querySelector('.page-save-body .chat-pick-list')),
+      rows: document.querySelectorAll('.chat-pick-row').length,
+      hasEmptyState: document.body.innerText.includes('这一页没有可保存的对话'),
+      circularCheck: Boolean(document.querySelector('.chat-pick-check')),
+      speakerAvatar: Boolean(document.querySelector('.chat-pick-avatar')),
+      headerActions: Boolean(document.querySelector('.diag-actions')),
+      fixedActions: Boolean(document.querySelector('.chat-pick-actions'))
+    }))()`);
+    checkTrue('保存面板复用原有问答气泡布局', saveLayout.panel && saveLayout.list);
+    checkTrue('页面有消息或明确显示空状态', saveLayout.rows > 0 || saveLayout.hasEmptyState);
+    if (saveLayout.rows > 0) {
+      checkTrue('保存面板显示圆形选择控件和发言者头像', saveLayout.circularCheck && saveLayout.speakerAvatar);
+    }
+    checkTrue('保存面板保留全选、清空和固定操作栏', saveLayout.headerActions && saveLayout.fixedActions);
   }
   check('保存面板没有切到主窗口的 React 覆盖层', await cdp.evaluate('document.querySelector(".page-save-panel") === null'), true);
   check('保存面板出现时同一个页面仍处于放大状态', (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId, SOURCE);

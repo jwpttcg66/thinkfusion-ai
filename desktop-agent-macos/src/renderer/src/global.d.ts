@@ -1,3 +1,4 @@
 import type { AgentApi } from '../../shared/contracts';
-declare global { interface Window { agentAPI: AgentApi } }
+import type { DetachedPageSaveApi } from '../../shared/export';
+declare global { interface Window { agentAPI: AgentApi; tfDetachedSave: DetachedPageSaveApi } }
 export {};

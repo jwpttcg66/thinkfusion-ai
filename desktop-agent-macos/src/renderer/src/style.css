@@ -5252,6 +5252,8 @@ button:disabled {
   margin-top: 10px;
   font-size: 12px;
 }
+.page-save-notice { color: var(--text-2); overflow-wrap: anywhere; }
+.page-save-notice.is-error { color: #b42318; }
 .page-save-transcript {
   display: inline-flex;
   align-items: center;

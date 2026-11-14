@@ -114,6 +114,19 @@ export interface PageExtractPreview {
   transcriptChars: number;
 }
 
+export interface DetachedSavePreview {
+  preview: PageExtractPreview;
+  format: ExportFormat;
+}
+
+export type DetachedSaveSelection = Pick<SavePageDocumentInput, 'documents' | 'mode' | 'includeTranscript'>;
+
+export interface DetachedPageSaveApi {
+  getPreview(): Promise<DetachedSavePreview>;
+  save(input: DetachedSaveSelection): Promise<SavePageDocumentResult | null>;
+  close(): void;
+}
+
 /** 页面上读到的一条消息：提问或回答。 */
 export interface PageDocumentMessage {
   role: 'user' | 'assistant';

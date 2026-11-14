@@ -18,12 +18,14 @@ export function PageSaveDialog({
   preview,
   format,
   busy,
+  notice,
   onClose,
   onSave
 }: {
   preview: PageExtractPreview;
   format: 'md' | 'docx';
   busy: boolean;
+  notice?: { text: string; error?: boolean };
   onClose: () => void;
   onSave: (input: { documents: number[]; mode: 'merge' | 'per-item'; includeTranscript: boolean }) => void;
 }) {
@@ -139,6 +141,11 @@ export function PageSaveDialog({
               已选 {selectedIndexes.length}/{preview.items.length} 条 · {selectedChars} 字
               {nothingSelected ? '' : ` · 合并为 1 个文件，或逐条存 ${selectedIndexes.length} 个文件`}
             </span>
+            {notice && (
+              <span className={`page-save-notice${notice.error ? ' is-error' : ''}`} role="status" aria-live="polite">
+                {notice.text}
+              </span>
+            )}
             <span className="settings-spacer" />
             <label className="page-save-transcript" title="把页面完整转录作为附录；逐条保存时不附，避免每个文件都复制一份">
               <input

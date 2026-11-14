@@ -164,7 +164,6 @@ import type {
   SelectorRole
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
-import { detachedSaveDocument } from './detached-save-document';
 import {
   previewPageDocument,
   type ExportConversationInput,
@@ -1814,7 +1813,13 @@ async function openDetachedSaveWindow(
   });
 
   try {
-    await saveWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(detachedSaveDocument())}`);
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+    if (rendererUrl) {
+      const baseUrl = rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`;
+      await saveWindow.loadURL(new URL('page-save.html', baseUrl).toString());
+    } else {
+      await saveWindow.loadFile(path.join(__dirname, '../renderer/page-save.html'));
+    }
     if (!saveWindow.isDestroyed() && detachedSaveWindow?.window === saveWindow) {
       saveWindow.show();
       saveWindow.focus();
@@ -4109,9 +4114,12 @@ function registerIpc() {
     const content = await capabilityContext.readPage?.(request.sourceId);
     if (!content) throw new Error('读取网页内容的能力没有准备好');
     return {
-      ...previewPageDocument(content),
-      sourceId: request.sourceId
-    } satisfies PageExtractPreview;
+      preview: {
+        ...previewPageDocument(content),
+        sourceId: request.sourceId
+      } satisfies PageExtractPreview,
+      format: request.format
+    };
   });
 
   ipcMain.handle('page:detached-save-document', async (event, raw: unknown) => {

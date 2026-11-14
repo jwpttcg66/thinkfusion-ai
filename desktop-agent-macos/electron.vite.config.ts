@@ -24,6 +24,13 @@ export default defineConfig({
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react()],
     resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },
-    build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } }
+    build: {
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'src/renderer/index.html'),
+          pageSave: resolve(__dirname, 'src/renderer/page-save.html')
+        }
+      }
+    }
   }
 });
