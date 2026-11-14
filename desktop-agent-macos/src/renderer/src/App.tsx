@@ -20,6 +20,8 @@ import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
+import { AgentTerminal } from './components/AgentTerminal';
+import { TaskWorktree } from './components/TaskWorktree';
 import { CodeIndexPanel } from './components/CodeIndexPanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
@@ -2233,7 +2235,12 @@ export default function App() {
 
             {notice && <div className="notice">{notice}</div>}
 
+            {activeTask && <TaskWorktree taskId={activeTask.taskId} refreshKey={events.length} />}
             {events.length > 0 && <ExecutionLog events={events} />}
+
+            {/* 只对任务里真实开过的 term.* 会话出现；headless CLI 没有 PTY，
+                它的输出在上一块执行日志里，不会被伪装成终端。 */}
+            {activeTask && <AgentTerminal events={events} />}
           </div>
         </div>
 

@@ -557,6 +557,14 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  · background=true 时立刻返回作业 id，用 job.output 读、job.kill 停；
                    适合 dev server、长轮询、watch 这类不会自己结束的命令。
                  · 前台命令退出码非 0 视为这一步失败，后面的步骤不会继续执行。
+- agent.exec:   { "cli": string, "task": string, "cwd"?: string, "timeoutMs"?: number }
+                 把工程任务交给这台机器上已实测通过的外部 CLI Agent（例如 qoder / claude）
+                 在授权工作区里执行。只在“完全访问”权限下可选，每份计划都要用户逐次批准。
+                 · task 是给这个 Agent 的任务原文；不要替它写角色设定，也不要要求它输出 JSON。
+                 · 它自带工具循环，只会受到它自己的权限模式约束；TaskGrant 拦不到它内部每一步。
+                 · 返回真实退出码、改动路径（运行前后 git status 差集）、模型声明与本轮输出。
+                 · 退出码非 0、超时或被取消都会让这一步失败；不要用「它说完成了」当成功依据，
+                   后面必须用 test.run / code.diagnostics 做独立验证。
 - job.list:     { }
                  列出后台作业：id、命令、pid、状态（running/exited/killed）。
 - job.output:   { "id": string, "tailBytes"?: number }
@@ -827,5 +835,9 @@ roundId：${input.roundId}`;
 
 export function allowedToolsForPreset(preset: PermissionPreset): readonly string[] {
   if (preset === 'read-only') return READ_ONLY_TOOLS;
+  // workspace-write 的语义是「能改工作区」，不是「能在工作区里起一个自带
+  // 工具循环的 Agent」。后者只能在 danger-full-access 下出现；否则新增
+  // agent.exec 会把一个既有预设悄悄扩大成「任意命令」。
+  if (preset === 'workspace-write') return TOOL_NAMES.filter(id => id !== 'agent.exec');
   return TOOL_NAMES;
 }

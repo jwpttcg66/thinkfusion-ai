@@ -1,7 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { buildEvidenceLedger } from '../shared/engineering-evidence';
 import { verifyExecution } from './verification';
-import { closeAllTerminals } from './tools/terminal';
+import {
+  attachTerminal,
+  closeAllTerminals,
+  closeTerminal,
+  listTerminals,
+  resizeTerminal,
+  sendTerminal,
+  subscribeTerminal
+} from './tools/terminal';
+import { cancelAllCliRuns, cancelCliRuns } from './tools/cli-agent';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalStepOutcome } from './local-plugins';
@@ -15,12 +24,19 @@ import {
   type StepResult,
   type TaskGrant
 } from '../shared/contracts';
+import type { CliAgentConfig } from '../shared/cli-agents';
 
 const port = process.parentPort;
 
 // 应用退出或 Runtime 被杀时收掉所有 pty：不把交互式 shell 留在后台。
-process.on('exit', () => closeAllTerminals());
+process.on('exit', () => {
+  cancelAllCliRuns();
+  for (const unsubscribe of terminalSubscriptions.values()) unsubscribe();
+  terminalSubscriptions.clear();
+  closeAllTerminals();
+});
 process.on('SIGTERM', () => {
+  cancelAllCliRuns();
   closeAllTerminals();
   process.exit(0);
 });
@@ -28,6 +44,9 @@ if (!port) throw new Error('Agent must run as Electron UtilityProcess');
 
 /** Tasks the user cancelled while a plan was executing. */
 const cancelled = new Set<string>();
+
+/** 界面 attach 过的终端 → 取消订阅。关会话或 Runtime 退出时必须断开。 */
+const terminalSubscriptions = new Map<string, () => void>();
 
 /**
  * 逐次审批的等待表。
@@ -201,8 +220,64 @@ port.on('message', (event: { data: unknown }) => {
 
   if (message.type === 'task.cancel' && typeof message.taskId === 'string') {
     cancelled.add(message.taskId);
+    // 取消不只是「下一次循环别再执行」：正在跑的 CLI 进程组也要真的停。
+    cancelCliRuns(message.taskId);
     rejectPending(message.taskId, '任务已取消，这一步没有执行');
     rejectPendingQuestions(message.taskId, 'cancelled');
+    return;
+  }
+
+  if (message.type === 'terminal.request') {
+    const request = message as { requestId?: string; op?: string; args?: Record<string, unknown> };
+    const requestId = String(request.requestId ?? '');
+    const op = String(request.op ?? '');
+    const args = (request.args ?? {}) as Record<string, unknown>;
+    const reply = (payload: { ok: boolean; result?: unknown; error?: string }) =>
+      port!.postMessage({ type: 'terminal.result', requestId, ...payload });
+    try {
+      const sessionId = typeof args.sessionId === 'string' ? args.sessionId : '';
+      if (op === 'attach') {
+        const attach = attachTerminal(sessionId);
+        if (!terminalSubscriptions.has(sessionId)) {
+          terminalSubscriptions.set(
+            sessionId,
+            subscribeTerminal(sessionId, chunk => {
+              port!.postMessage({
+                type: 'terminal.data',
+                sessionId: chunk.sessionId,
+                data: chunk.data,
+                dropped: chunk.dropped,
+                exited: chunk.exited,
+                ...(chunk.exitCode === undefined ? {} : { exitCode: chunk.exitCode })
+              });
+            })
+          );
+        }
+        reply({ ok: true, result: attach });
+        return;
+      }
+      if (op === 'write') {
+        reply({ ok: true, result: sendTerminal(sessionId, String(args.data ?? ''), false) });
+        return;
+      }
+      if (op === 'resize') {
+        reply({ ok: true, result: resizeTerminal(sessionId, Number(args.cols), Number(args.rows)) });
+        return;
+      }
+      if (op === 'close') {
+        terminalSubscriptions.get(sessionId)?.();
+        terminalSubscriptions.delete(sessionId);
+        reply({ ok: true, result: closeTerminal(sessionId) });
+        return;
+      }
+      if (op === 'list') {
+        reply({ ok: true, result: listTerminals() });
+        return;
+      }
+      reply({ ok: false, error: `不支持的终端操作：${op}` });
+    } catch (error) {
+      reply({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
     return;
   }
 
@@ -252,6 +327,7 @@ port.on('message', (event: { data: unknown }) => {
       grant: unknown;
       dbPath: string;
       disabledCapabilities?: unknown;
+      cliAgents?: unknown;
     };
     // 开关从主进程随每次执行下发（Runtime 自己读不到 userData）。缺字段
     // 表示全部启用，老计划、老验收脚本因此不用改。
@@ -270,7 +346,13 @@ function errorCode(error: unknown): string {
   return 'TOOL_ERROR';
 }
 
-async function runTask(message: { taskId: string; plan: unknown; grant: unknown; dbPath: string }) {
+async function runTask(message: {
+  taskId: string;
+  plan: unknown;
+  grant: unknown;
+  dbPath: string;
+  cliAgents?: unknown;
+}) {
   const { taskId, dbPath } = message;
   const extra = message as { roundId?: string; planId?: string };
   let db: ReturnType<typeof openDb> | null = null;
@@ -394,7 +476,13 @@ async function runTask(message: { taskId: string; plan: unknown; grant: unknown;
         const outcome = await localCapabilities.execute<LocalStepOutcome>(step.tool, step.args, {
           grant,
           ask: (input: AskUserInput) => askUser(taskId, step.id, input),
-          callMain
+          callMain,
+          // 配置由主进程下发；Runtime 只按 id 找，不接受模型指定可执行文件。
+          cliAgents: Array.isArray(message.cliAgents)
+            ? (message.cliAgents as CliAgentConfig[]).filter(
+                item => item && typeof item.id === 'string' && typeof item.command === 'string'
+              )
+            : []
         });
         const { result, verified, failure: stepFailure } = outcome;
 

@@ -132,6 +132,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'term.signal': ['发给终端信号', 'SIGINT / SIGTERM / SIGKILL / SIGHUP / SIGQUIT，其余拒绝'],
   'term.close': ['关终端', '结束这个终端会话并回收进程组'],
   'term.list': ['列终端', '列出当前还开着的终端会话、pid、cwd 与是否已退出'],
+  'agent.exec': ['外部 Agent 执行', '把工程任务交给 Qoder / Claude CLI 执行；只在完全访问权限下放行，结果按退出码与 git diff 核验'],
   'session.search': ['搜历史会话', '只读搜索以前聊过什么，命中带来源会话、时间与片段；0 条不算失败'],
   'plugin.inspect': ['查能力状态', '按 id 查某个能力是否启用、注册在哪个宿主、权限是什么'],
   'goal.create': ['建目标', '按用户已批准的计划给这个会话建一个长期目标'],
@@ -151,7 +152,7 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
 };
 
 function permissionOf(id: ToolName): CapabilityPermission {
-  if (id === 'process.kill') return 'danger-full-access';
+  if (id === 'process.kill' || id === 'agent.exec') return 'danger-full-access';
   return (READ_ONLY_TOOLS as readonly string[]).includes(id) ? 'read-only' : 'workspace-write';
 }
 
