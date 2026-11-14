@@ -4044,6 +4044,11 @@ function registerIpc() {
   ipcMain.on('page:reattach-from-detached', event => {
     if (!detached || event.sender.id !== detached.window.webContents.id) return;
     reattachSource();
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
   });
 
   // The page views are native, so this is the only honest answer to "is the
