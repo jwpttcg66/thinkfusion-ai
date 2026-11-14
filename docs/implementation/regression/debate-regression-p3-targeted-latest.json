@@ -1,0 +1,2006 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T17:48:39.294Z",
+  "workers": 3,
+  "completeness": true,
+  "incremental": null,
+  "summary": {
+    "total": 9,
+    "execution": {
+      "FAILED": 3,
+      "COMPLETED": 6
+    },
+    "completed": 6,
+    "judgeModel": 9,
+    "independent": 9,
+    "sharedWith": 0,
+    "quality": {
+      "needs_revision": 3,
+      "passed": 6
+    },
+    "factual": {
+      "model-assessed": 9
+    },
+    "anchors": {
+      "checked": 6,
+      "hit": 6
+    },
+    "standard": {
+      "total": 9,
+      "passed": 6,
+      "failed": 3,
+      "unavailable": 0,
+      "averageScore": 90,
+      "classificationMatches": 9
+    },
+    "byStrategy": {
+      "truth": {
+        "total": 3,
+        "completed": 2,
+        "judgeModel": 3,
+        "independent": 3,
+        "avgDurationMs": 78900
+      },
+      "adversarial": {
+        "total": 1,
+        "completed": 0,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 51450
+      },
+      "expert": {
+        "total": 1,
+        "completed": 0,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 80249
+      },
+      "discovery": {
+        "total": 2,
+        "completed": 2,
+        "judgeModel": 2,
+        "independent": 2,
+        "avgDurationMs": 166480
+      },
+      "solution": {
+        "total": 2,
+        "completed": 2,
+        "judgeModel": 2,
+        "independent": 2,
+        "avgDurationMs": 257588
+      }
+    },
+    "structuralOk": false
+  },
+  "results": [
+    {
+      "id": "float-equality",
+      "category": "JavaScript",
+      "strategy": "truth",
+      "question": "JavaScript 中 0.1 + 0.2 === 0.3 的结果是什么？为什么？",
+      "fingerprint": "426f11f049a657e9a12888c1b1cbe12396b50f7de009220a06133950b9e86ea5",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 251,
+          "outputTokens": 728,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9376
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "FAILED",
+        "rounds": 2,
+        "messages": 0,
+        "failures": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          }
+        ],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 18437,
+        "durationSec": 18,
+        "usage": []
+      },
+      "quality": {
+        "status": "needs_revision",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "unknown",
+          "basis": [
+            "模型裁判没有给出论证质量记录"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "contradicted",
+          "basis": [
+            "逻辑 / 证据 / 反例三维各自出结论与理由"
+          ]
+        },
+        "criticalIssues": [],
+        "rule": {
+          "passed": 10,
+          "total": 11,
+          "ok": false
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "hold",
+        "conclusion": "结果为 false。0.1 + 0.2 实际得到 0.30000000000000004，因此 0.1 + 0.2 === 0.3 为 false。原因：JavaScript 的 Number 是 IEEE 754 双精度二进制浮点数；0.1、0.2、0.3 都无法用有限二进制精确表示，字面量先被舍入到最近的可表示值。0.1 的舍入值加 0.2 的舍入值，再舍入到最近可表示值时得到 0.30000000000000004，它与 0.3 的舍入值不相等，所以严格相等比较失败。这是浮点表示与舍入的必然结果，并非引擎缺陷，所有符合 IEEE 754 双精度的 JS 引擎结果一致。",
+        "unresolvedDisputes": [
+          "无实质未决分歧。仅需注意：若问题是“如何正确比较浮点数”或“如何避免该误差”，那属于条件性建议（epsilon 比较、整数化、decimal 库），与本题 FACT 结论无关。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": null
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": false,
+        "missing": [],
+        "reason": "已说明表达式结果为 false、实际加法结果以及二进制浮点表示和舍入导致比较失败的原因。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 423,
+          "outputTokens": 223,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 3306
+      },
+      "revision": null,
+      "revisionJudge": null,
+      "standardAnswerSource": "original",
+      "standard": {
+        "id": "float-equality",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 8,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "明确给出 false、IEEE 754 二进制浮点原因及实际结果，且将引擎一致性限定为符合 IEEE 754 双精度的 JS 引擎；未说明精确比较时的替代方案。",
+        "usage": {
+          "inputTokens": 856,
+          "outputTokens": 276,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 4161,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "false",
+          "0.30000000000000004",
+          "不相等"
+        ],
+        "terms": [
+          "false",
+          "0.30000000000000004",
+          "不相等",
+          "不等于"
+        ],
+        "note": "确定性浮点数语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "array-map",
+      "category": "JavaScript",
+      "strategy": "adversarial",
+      "question": "JavaScript 的 Array.prototype.map 会修改原数组吗？它和 forEach 的区别是什么？",
+      "fingerprint": "62d6af4e9281748b430ecc4bd4264a838e74d32d72f0924277b3faecd1614d84",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 261,
+          "outputTokens": 295,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 4330
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "FAILED",
+        "rounds": 2,
+        "messages": 0,
+        "failures": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          }
+        ],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 51450,
+        "durationSec": 51,
+        "usage": []
+      },
+      "quality": {
+        "status": "needs_revision",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "unknown",
+          "basis": [
+            "模型裁判没有给出论证质量记录"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "contradicted",
+          "basis": [
+            "逻辑 / 证据 / 反例三维各自出结论与理由"
+          ]
+        },
+        "criticalIssues": [],
+        "rule": {
+          "passed": 10,
+          "total": 11,
+          "ok": false
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "hold",
+        "conclusion": "`map` 本身不会修改原数组；它会返回一个由回调结果组成的新数组。`forEach` 本身也不会修改原数组，但会返回 `undefined`，通常用于执行操作而非生成新数组。两者的回调都可能通过副作用修改原数组或其元素。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": null
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "exception",
+            "text": "未说明稀疏数组空位的处理：map 和 forEach 都不会对空位调用回调，map 返回的新数组会保留空位。",
+            "why": "这是两者共同的重要边界行为，影响对“是否处理每个索引”的准确理解。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "未说明 map 回调没有显式 return 时，新数组对应元素会变成 undefined；也未说明 map/forEach 都不能用 break 提前终止。",
+            "why": "这是常见误用和失败模式，直接影响方法选择与结果预期。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未说明两者回调参数均为 (element, index, array)，以及 map 返回的新数组长度与原数组相同、forEach 返回值不可链式使用。",
+            "why": "这些是 API 使用约束和核心差异细节，缺失会降低答案完整性。"
+          }
+        ],
+        "reason": "候选回答正确覆盖了“是否修改原数组”和“返回值/用途”的核心区别，但遗漏了稀疏数组例外、常见失败模式以及回调参数和返回数组长度等实施约束。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 276,
+          "outputTokens": 1640,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 22521
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "`map` 本身不会修改原数组，它会返回一个新数组，新数组的每个元素是回调函数的返回值，新数组长度与原数组相同。`forEach` 本身也不会修改原数组，它返回 `undefined`，通常用于执行操作而不是生成新数组。两者的回调函数都可能通过副作用修改原数组或其元素，例如直接给 `arr[i]` 赋值或修改对象属性，这取决于回调内部写了什么，不是方法本身的行为。\n\n两者的主要区别：\n1. 返回值：`map` 返回新数组；`forEach` 返回 `undefined`，因此不能链式调用，例如 `arr.forEach(...).map(...)` 会报错。\n2. 用途：`map` 适合把每个元素转换为新值；`forEach` 适合对每个元素执行副作用，如打印、写入外部状态。\n3. 回调参数：两者的回调都接收 `(element, index, array)` 三个参数，分别是当前元素、当前索引和原数组。\n4. 稀疏数组：两者都会跳过空位（hole），不会对空位调用回调。`map` 返回的新数组会保留对应的空位，而不是填充为 `undefined`。\n\n常见误区：\n- 使用 `map` 时，如果回调没有显式 `return`，新数组对应位置会变成 `undefined`。这种情况下应改用 `forEach`，或补上 `return`。\n- `map` 和 `forEach` 都不能用 `break` 提前终止循环，回调中的 `return` 只结束当前这一次回调。如需提前退出，可使用 `for...of` 循环，或使用 `some`、`every`、`find` 等方法。",
+        "addressed": [
+          "补充稀疏数组空位的处理：两者都不对空位调用回调，map 返回的新数组保留空位",
+          "补充 map 回调无显式 return 时新数组元素变为 undefined 的失败模式",
+          "补充 map 和 forEach 都不能用 break 提前终止，并给出替代方案",
+          "补充两者回调参数均为 (element, index, array)",
+          "补充 map 返回的新数组长度与原数组相同，forEach 返回 undefined 不可链式调用"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 649,
+          "outputTokens": 1166,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 6054
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "gpt-6-luna",
+        "undetermined": false,
+        "conclusion": "`map` 本身不会修改原数组，而是返回一个新数组，其元素是回调函数的返回值。`forEach` 本身也不会修改原数组，但返回 `undefined`。两者的回调都可能通过副作用修改原数组或其中的对象。`map` 适合转换并生成新数组；`forEach` 适合执行操作。两者都会跳过稀疏数组中的空位，也都不能用 `break` 提前终止。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "array-map",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 90,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "候选回答明确覆盖了 map/forEach 本身不修改原数组、forEach 返回 undefined、回调可能产生副作用、以及两者用途区别，且没有出现错误主张；但未明确说明 map 是浅拷贝、对象元素引用共享，因此缺少建议主张 c3。",
+        "usage": {
+          "inputTokens": 908,
+          "outputTokens": 807,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12557,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "不会",
+          "新数组"
+        ],
+        "terms": [
+          "不会",
+          "不修改",
+          "新数组",
+          "new array"
+        ],
+        "note": "确定性数组语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "http-methods",
+      "category": "HTTP",
+      "strategy": "expert",
+      "question": "HTTP 的 PUT 和 POST 哪个是幂等的？在设计 REST API 时应该怎么选？",
+      "fingerprint": "ec64acf0ba57c571db8e4762428e8b622eab4c46fcebf112a316080e66c4da74",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 385,
+          "outputTokens": 1236,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7462
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "FAILED",
+        "rounds": 2,
+        "messages": 0,
+        "failures": [
+          {
+            "agentId": "gpt-6-luna",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          }
+        ],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 80249,
+        "durationSec": 80,
+        "usage": []
+      },
+      "quality": {
+        "status": "needs_revision",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "unknown",
+          "basis": [
+            "模型裁判没有给出论证质量记录"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "contradicted",
+          "basis": [
+            "逻辑 / 证据 / 反例三维各自出结论与理由"
+          ]
+        },
+        "criticalIssues": [],
+        "rule": {
+          "passed": 10,
+          "total": 11,
+          "ok": false
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "hold",
+        "conclusion": "事实部分：PUT 是幂等方法，POST 不是。RFC 9110 §9.2.2 规定 PUT 幂等，即同一请求执行一次或多次，服务端的预期状态相同；POST 的规范没有幂等保证，重复提交可能产生多个资源或多次副作用。这是方法的语义约定，不是服务器自动保证的，实现可以违反它（例如 PUT 中自增计数器，或 POST 做了去重）。设计建议：当客户端能确定资源标识（URI）并能提供完整表示时，用 PUT（如 PUT /orders/{id}）。当资源 ID 由服务端生成、创建动作非幂等、或是“执行某个动作”（如 /orders/{id}/cancel）时，用 POST。若必须用 POST 且需要安全重试，可让客户端提供幂等键（如 Idempotency-Key 请求头），服务端据此去重，或由客户端生成资源 ID 后改用 PUT 创建。注意 PATCH 规范上不保证幂等，只有语义上设计为幂等的局部更新才可以重试。",
+        "unresolvedDisputes": [
+          "Idempotency-Key 请求头尚未成为正式 RFC 标准（仅有 IETF 草案），各平台实现细节不同，具体实现需以所用平台的文档为准。",
+          "如果具体场景涉及特定框架或业务约束（如分布式去重存储、并发写入冲突策略），本结论不能直接覆盖，需要补充信息。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": null
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "constraint",
+            "text": "幂等键方案的实施约束未展开：服务端需持久化键与首次响应、定义作用域和 TTL、处理并发重复请求，并对重复请求回放相同响应；Idempotency-Key 也不是 HTTP 标准头，而是应用层约定。",
+            "why": "否则设计者可能低估实现成本，或在并发/重试场景下去重失效。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "未明确 PUT 是对目标资源的整体替换，不是部分更新；省略字段可能被删除或置空，部分更新应使用 PATCH。",
+            "why": "这是 REST 设计中常见误用，会导致数据丢失。"
+          }
+        ],
+        "reason": "候选回答覆盖了幂等定义、PUT/POST 选择、实现可违反语义、POST 幂等键和 PATCH 注意事项，但遗漏了幂等键方案的实施约束，以及 PUT 整体替换的边界/失败模式。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 451,
+          "outputTokens": 3836,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 44223
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "PUT 和 POST 的区别：按照 HTTP 方法语义，PUT 是幂等的；POST 本身不保证幂等。幂等指对同一目标重复执行相同请求，服务端的预期状态与执行一次相同。它不一定意味着每次响应完全相同，也不代表服务器实现必然符合这一语义；例如，若 PUT 每次都递增计数器，就破坏了幂等性。POST 也可以通过具体设计实现去重，但调用方不能仅凭 POST 方法假定它可安全重试。\n\nREST API 的选择：如果客户端知道目标资源 URI，并要创建或替换该资源，通常使用 PUT，例如 `PUT /orders/{id}`。PUT 表示对目标资源进行整体替换，而不是部分更新；请求通常应提供完整表示，省略字段可能会按 API 定义被删除、清空或重置。若只需修改部分字段，应考虑 PATCH，并明确其更新及重试语义。如果由服务端生成资源标识，或请求表达的是创建集合成员、执行动作等操作，通常使用 POST，例如 `POST /orders` 或 `POST /orders/{id}/cancel`。\n\n若 POST 操作需要在超时后安全重试，可采用幂等键。`Idempotency-Key` 是应用层约定，并非标准 HTTP 头。实现时，服务端需持久化幂等键及首次请求的结果/响应，明确键的作用域（例如用户或端点）和 TTL，并处理并发重复请求，避免同一键的请求同时执行多次；后续重复请求应回放首次响应。还应定义相同键搭配不同请求内容时的处理方式。幂等键的可靠性取决于这些实现细节。",
+        "addressed": [
+          "补充了幂等键需持久化键和首次响应、定义作用域与 TTL、处理并发重复请求并回放相同响应的约束，也说明 Idempotency-Key 是应用层约定而非标准 HTTP 头。",
+          "明确 PUT 是整体替换而非部分更新，并指出省略字段可能按 API 定义被删除、清空或重置，部分更新应考虑 PATCH。"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 590,
+          "outputTokens": 692,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7595
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "claude-haiku-5-5",
+        "undetermined": false,
+        "conclusion": "按 RFC 9110，PUT 是幂等方法，POST 不是。设计选择取决于资源标识由谁决定：客户端已知目标 URI 且要创建或整体替换资源时用 PUT（如 PUT /orders/{id}）；由服务端生成标识、创建集合成员或执行动作时用 POST（如 POST /orders、POST /orders/{id}/cancel）。需要部分更新时考虑 PATCH，并明确其幂等性。若 POST 需要安全重试，应实现应用层幂等键（如 Idempotency-Key），并处理键的作用域、TTL、并发重复请求及同键不同内容的情况。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "http-methods",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 85,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [
+          "c4"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "回答覆盖 PUT/POST 方法语义、幂等不等于响应相同、POST 应用层幂等设计，以及已知 URI 完整替换用 PUT、服务端分配 URI/集合追加/动作用 POST，并给出 PATCH 用于部分更新及幂等键实现边界，无重大错误；但未明确说明 PATCH 是否幂等取决于补丁语义和服务器实现，缺少必答主张 c4。",
+        "usage": {
+          "inputTokens": 999,
+          "outputTokens": 1022,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 14308,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "PUT",
+          "幂等"
+        ],
+        "terms": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "note": "确定性协议语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "acid",
+      "category": "Database",
+      "strategy": "discovery",
+      "question": "ACID 四个字母分别是什么意思？隔离性解决什么问题，又带来什么代价？",
+      "fingerprint": "4f027c81948aed9994beeccd67cda595b0b9bb69ba6b46067109d1456b2242b1",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 5241,
+          "outputTokens": 1733,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8935
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 121860,
+        "durationSec": 122,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 160,
+            "outputTokens": 961
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 136,
+            "outputTokens": 3902
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2200,
+            "outputTokens": 1350
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 1797,
+            "outputTokens": 1189
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "ACID 的含义：A（原子性）指事务内操作要么全部成功，要么全部回滚；C（一致性）指事务前后满足已定义的约束，包括数据库约束和应用不变量，它不是 CAP 中的 C；I（隔离性）指并发事务之间的相互干扰受隔离级别约束；D（持久性）指事务提交后，故障后已提交结果应可恢复，通常依靠 WAL、fsync 和复制实现，但受配置影响。隔离性解决的是并发异常，包括脏读、不可重复读、幻读、丢失更新、读偏斜和写偏斜，最强的经典目标是可串行化，即并发结果等价于某个串行顺序。隔离性的代价取决于实现和负载，可能包括：锁等待和死锁（锁型实现）；多版本数据的存储、清理和长事务导致的快照膨胀（MVCC）；冲突中止与重试（乐观或可串行化快照隔离）；跨节点协调延迟；以及应用理解不同数据库同名隔离级别语义差异的认知成本。低冲突场景下代价可能很小，高冲突场景下可能显著。选择隔离级别的条件性建议是：先确定业务可能出现哪类并发异常，再决定使用更强隔离级别、显式锁、约束，还是应用层重试和补偿。",
+        "unresolvedDisputes": [
+          "### 隔离性解决什么问题？",
+          "### 代价是什么？",
+          "## ACID 分别是什么意思？",
+          "## 隔离性解决什么问题？",
+          "### 隔离性带来什么代价？",
+          "未指定具体数据库（如 MySQL、PostgreSQL、Oracle 等），各数据库的隔离级别实现和代价差异较大，无法给出统一的代价排序。",
+          "未提供负载特征（读写比例、事务时长、冲突率），因此无法判断哪一类代价在实际系统中占主导。",
+          "是否涉及分布式或跨服务事务未知；若涉及，ACID 的保证和成本会明显不同。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": false,
+        "missing": [],
+        "reason": "候选回答覆盖了ACID四个字母的定义、隔离性针对的并发异常与可串行化目标，以及锁等待、死锁、MVCC快照膨胀、冲突重试、跨节点协调和隔离级别语义差异等代价与实施约束；同时说明代价随实现和负载变化，并给出按业务异常选择隔离策略的边界条件，未发现明显遗漏。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 486,
+          "outputTokens": 1270,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19058
+      },
+      "revision": null,
+      "revisionJudge": null,
+      "standardAnswerSource": "original",
+      "standard": {
+        "id": "acid",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 85,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "ACID 含义、并发异常和隔离性代价均覆盖较好；但未明确说明数据库默认隔离级别不一定是可串行化，缺少 c3 这一必须主张。",
+        "usage": {
+          "inputTokens": 929,
+          "outputTokens": 1468,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 18447,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "原子",
+          "一致性",
+          "隔离",
+          "持久"
+        ],
+        "terms": [
+          "原子",
+          "一致性",
+          "隔离",
+          "持久"
+        ],
+        "note": "事务语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "jwt-revoke",
+      "category": "Security",
+      "strategy": "truth",
+      "question": "JWT 无状态鉴权如何实现主动失效？黑名单、短过期、刷新令牌各有什么取舍？",
+      "fingerprint": "eab9fde871b42f85aa1f7e514f546740e63bb7c5c7055c9e36f64f1ca8418c09",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4154,
+          "outputTokens": 1423,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19438
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 100939,
+        "durationSec": 101,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1261
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 205,
+            "outputTokens": 3324
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3098,
+            "outputTokens": 1000
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 4426,
+            "outputTokens": 4463
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 10 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "JWT 只做本地验签时，无法主动撤销一个尚未过期的令牌；要实现主动失效，必须引入某种可变状态。成熟默认方案是：用短寿命 access token（分钟级）加上服务端可撤销、可轮换的 refresh token；若业务要求注销/封禁后令牌尽快失效，再叠加按 jti 的黑名单，或按用户/会话的撤销时间戳（iat cutoff）。即时性依赖撤销状态存储的一致性：直接读权威强一致存储时，下一次请求即可生效；若经过缓存或异步副本，最坏延迟约为写入可见延迟、缓存 TTL、复制延迟之和。撤销 refresh token 只阻止续期，不会回收已签发的 access token，后者最多在剩余 TTL 内仍有效（带时钟容差时略长）。撤销存储故障时须预先定义 fail-open 还是 fail-closed。低风险场景可以只用短 TTL 加轮换、不做黑名单；要求秒级撤销或单设备精准注销时，黑名单或截止时间戳是必要的。",
+        "unresolvedDisputes": [
+          "RFC 9700（OAuth 2.0 安全最佳实践）的具体条款与措辞未核实，不能作为已证实的推荐依据",
+          "具体框架/网关（Spring Security、Auth0、Keycloak 等）是否内置撤销或内省能力及其版本行为，需查对应文档",
+          "部署所用存储（Redis/数据库）的复制模式与一致性保证，决定“即时”的实际含义",
+          "威胁模型：是否要求秒级撤销、是否需单设备精准注销，决定是否必须引入黑名单",
+          "refresh token 轮换下的并发刷新与重用检测策略，需按具体实现评估误撤销风险"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "constraint",
+            "text": "说明黑名单需要在每次鉴权时查询，并通常按 jti 将撤销记录保留到令牌过期；这会引入存储、查询延迟和可用性成本，令鉴权不再完全无状态。",
+            "why": "这是黑名单方案的核心实现要求与主要取舍，候选回答只提到叠加黑名单，没有说明请求路径上的检查和记录生命周期。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "说明刷新令牌应服务端可撤销并安全存储，通常采用轮换；还应处理旧令牌重放，例如检测到已轮换令牌再次使用时撤销该令牌族。",
+            "why": "候选回答提到可撤销、可轮换，但未说明这些机制如何约束刷新令牌，也未覆盖轮换后重放可能导致的账户会话风险。"
+          }
+        ],
+        "reason": "主要方案与撤销延迟边界已覆盖，但黑名单的请求时检查成本，以及刷新令牌轮换的重放处理仍缺少关键实现约束。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 511,
+          "outputTokens": 466,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 6360
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "JWT 只做本地验签时，无法主动撤销一个尚未过期的令牌；要实现主动失效，必须引入某种可变状态。成熟默认方案是：用短寿命 access token（分钟级）加上服务端可撤销、可轮换的 refresh token；若业务要求注销或封禁后令牌尽快失效，再叠加按 jti 的黑名单，或按用户/会话的撤销时间戳（iat cutoff）。\n\n黑名单的实现要求：撤销时把 jti 及其过期时间写入撤销存储；每次鉴权都要在验签通过之后再查询该存储，命中即拒绝。撤销记录通常需保留到对应令牌过期之后才可删除，否则记录被清理后，已撤销的令牌会重新生效。代价包括：每个请求增加一次存储查询及其延迟，撤销存储必须高可用，记录量随撤销数量和 TTL 增长；鉴权因此不再完全无状态，撤销存储成为关键依赖。若改用按用户的 iat 截止时间戳，存储量更小，但会一并撤销该用户在截止时间之前签发的所有令牌，粒度较粗。\n\n即时性依赖撤销状态存储的一致性：直接读权威强一致存储时，下一次请求即可生效；若经过缓存或异步副本，最坏延迟约为写入可见延迟、缓存 TTL、复制延迟之和。撤销 refresh token 只阻止续期，不会回收已签发的 access token，后者最多在剩余 TTL 内仍有效（带时钟容差时略长）。撤销存储故障时，须预先定义 fail-open 还是 fail-closed。\n\n刷新令牌应服务端可撤销并安全存储（仅保存哈希或受保护形式，并绑定设备或会话信息），通常采用轮换：每次使用 refresh token 换取新的 access token 和新的 refresh token，旧 refresh token 立即作废。轮换后若检测到已作废的旧 refresh token 被再次使用，很可能意味着令牌泄露，应撤销整个令牌族（同一会话链上的所有 refresh token），并通过黑名单或截止时间戳使该会话已签发的 access token 失效，要求重新登录。这样可以防止攻击者与合法用户并行续期而长期占有会话。\n\n低风险场景可以只用短 TTL 加轮换、不做黑名单；要求秒级撤销或单设备精准注销时，黑名单或截止时间戳是必要的。",
+        "addressed": [
+          "补充黑名单需在每次鉴权时查询撤销存储，并按 jti 保留记录至令牌过期，说明了存储、延迟、可用性成本及对无状态性的影响",
+          "补充刷新令牌应服务端可撤销、安全存储并采用轮换，说明了旧令牌重放时撤销令牌族并终止会话的处理"
+        ],
+        "stillMissing": [
+          "具体存储选型（如 Redis）及容量、延迟的量化数据依赖具体系统，未在此给出"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 945,
+          "outputTokens": 2425,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10838
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "deepseek-v4.1-flash",
+        "undetermined": false,
+        "conclusion": "JWT 本地验签无法单独主动撤销未过期令牌，必须引入可变状态。默认方案：短寿命 access token（分钟级）+ 服务端可撤销、轮换的 refresh token；若要求注销/封禁后尽快生效，再叠加按 jti 的黑名单或按用户/会话的 iat 截止时间戳。黑名单需在验签后查询撤销存储，记录保留到令牌过期之后，代价是每请求查询延迟、存储高可用和记录增长；短过期只能缩小失效窗口，不是主动失效；refresh token 撤销只阻止续期，已签发 access token 仍在剩余 TTL 内有效。refresh token 应服务端可撤销、仅存哈希、绑定会话/设备并轮换；检测到旧 refresh token 重放时应撤销整个令牌族，并用黑名单或截止时间戳使该会话 access token 失效。低风险场景可只用短 TTL+轮换；需要秒级撤销或单设备精准注销时黑名单/截止时间戳必要。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "jwt-revoke",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 90,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "准确说明无状态校验的限制、实现主动失效所需的可变状态、短期访问令牌与可撤销刷新令牌的折中，以及黑名单的查询和故障策略取舍；还按撤销时效和粒度给出条件性方案。未提及密钥轮换只能使一批令牌失效，不能单独撤销某个令牌。",
+        "usage": {
+          "inputTokens": 1457,
+          "outputTokens": 327,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 4225,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "黑名单",
+          "撤销",
+          "短过期"
+        ],
+        "terms": [
+          "黑名单",
+          "撤销",
+          "短过期",
+          "revoke"
+        ],
+        "note": "鉴权机制烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "fingerprint": "0fbad413d1657c19689e405a992e79834adef72771de4bdccd3f3fac330129b5",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 8735,
+          "outputTokens": 952,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9590
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 236146,
+        "durationSec": 236,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 3342
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 145,
+            "outputTokens": 7429
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6492,
+            "outputTokens": 3941
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 4057,
+            "outputTokens": 2680
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "消息队列不能单靠某个开关保证端到端绝不丢消息。常见可靠基线是：生产端确认发送成功并处理失败；broker 多副本、持久化并设置合适的确认条件；消费端处理成功后再确认或提交 offset；配合幂等、重试、死信队列、对账和重放。这样通常实现的是至少一次投递，可能重复，不等于绝对不丢或端到端 exactly-once。",
+        "unresolvedDisputes": [
+          "未指定具体 MQ 产品、版本和部署拓扑，因此无法给出可直接照搬的配置值。",
+          "无法承诺在所有硬件损坏、误操作或跨地域故障下绝对不丢；还需明确故障模型、可接受的数据损失窗口和恢复目标。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "未明确确认语义、offset/ack、持久化、副本同步、至少一次/最多一次/exactly-once 等关键概念的含义和关系。",
+            "why": "不先定义这些概念，就无法判断“不丢”的边界，也容易把确认发送、落盘、消费确认混为一谈。"
+          },
+          {
+            "dimension": "condition",
+            "text": "未分别列出生产端具体丢点：应用发送前崩溃、异步发送缓冲未刷出、网络超时但未重试、重试耗尽、序列化/路由失败、acks=0/1 等确认条件不足、批量发送失败、客户端本地队列满丢弃。",
+            "why": "生产端是端到端可靠性的起点，缺少这些失败点就无法定位和设计防护。"
+          },
+          {
+            "dimension": "condition",
+            "text": "未分别列出存储端具体丢点：未持久化或刷盘前宕机、页缓存丢失、单副本 leader 故障、ISR 不足仍确认、副本同步延迟、确认后未复制即故障、磁盘损坏、日志保留/过期清理、元数据丢失。",
+            "why": "broker 持久化和多副本是核心保障，但确认时机、副本条件和保留策略决定是否真的不丢。"
+          },
+          {
+            "dimension": "condition",
+            "text": "未分别列出消费端具体丢点：先 ack 后处理失败、处理超时或进程崩溃、自动提交/过早提交 offset、rebalance 期间提交错位、拉取后本地缓冲丢失、offset 重置到 latest、重试耗尽进死信、业务异常未处理。",
+            "why": "消费端“处理成功再确认”只是原则，缺少具体丢点和提交时机分析无法落地。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "未说明适用边界和 MQ 差异：Kafka、RabbitMQ、RocketMQ 等在 acks、刷盘、副本确认、事务消息、死信队列上的机制不同，配置不同结论不同。",
+            "why": "同一套说法不能直接跨产品套用，边界不清会给出错误可靠性预期。"
+          },
+          {
+            "dimension": "exception",
+            "text": "未说明例外情况：消息过期/保留期清理、分区不可用、磁盘满、集群脑裂、客户端本地队列溢出、毒消息、重试策略失效等仍可能丢消息。",
+            "why": "这些例外决定“绝不丢”不能成立，也是生产事故的高发场景。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "未说明重试、幂等、死信、对账、重放各自的失败模式，例如重试造成重复、幂等键失效、死信无人处理、对账发现丢失后无法重放、offset 提交失败导致重复消费。",
+            "why": "可靠性方案本身会失败，缺少失败模式分析会高估保障效果。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未说明实施约束：确认延迟与吞吐权衡、复制因子和 min.insync.replicas、磁盘容量与刷盘策略、消费并发与提交频率、监控告警和端到端对账成本。",
+            "why": "不丢消息需要付出性能和运维成本，缺少约束会使方案不可实施或不可验证。"
+          }
+        ],
+        "reason": "候选回答给出了可靠性基线和“至少一次不等于绝不丢”的正确提醒，但没有按生产、存储、消费三个环节分别列出可能丢消息的位置，也缺少关键定义、成立条件、适用边界、例外、失败模式和实施约束，因此存在明显缺口。",
+        "attempts": 2,
+        "usage": {
+          "inputTokens": 327,
+          "outputTokens": 1405,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 21646
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "消息队列不能靠单一开关保证端到端绝不丢消息。可靠性要靠生产端、存储端、消费端三段配合，并辅以幂等、重试、死信、对账和重放。在常见配置下，系统通常实现的是至少一次投递：消息可能重复，但在约定的保留期和故障假设内尽量不丢。\n\n一、基本概念\n1. 确认（ack/confirm）：指发送方或消费方收到的应答。生产端的确认表示 broker 按配置的条件接受了消息，例如仅 leader 写入，或多数副本写入；消费端的确认表示业务处理完成后告知 broker 可以不再投递或推进位点。两者不是同一件事，确认发送不等于消息已落盘，更不等于业务已处理。\n2. offset（位点）：Kafka 等日志型系统中，消费者在分区内的读取位置。提交 offset 表示「此前的消息已处理完成」。提交过早会丢消息；提交过晚会重复消费。RabbitMQ 等队列型系统对应的是每条消息的 ack。\n3. 持久化：消息写入磁盘并可在重启后恢复。页缓存中的数据不等于已持久化，需要结合刷盘策略和副本机制理解。\n4. 副本同步：leader 将消息复制到 follower。Kafka 中 ISR（同步副本集合）是能跟上 leader 的副本集合。\n5. 投递语义：至少一次（可能重复、不丢）；最多一次（可能丢、不重复）；exactly-once（恰好一次）。Kafka 事务和幂等生产者只保证 Kafka 内部的精确一次，跨数据库或外部系统的端到端精确一次仍需业务幂等或事务协调。\n\n二、生产端可能丢消息的位置\n1. 应用在发送前崩溃，消息仍在业务内存中或业务事务未提交。\n2. 异步发送时，消息仍在客户端缓冲区，进程退出或异常后未刷出。\n3. 网络超时但未重试，或发送结果未知却被当作失败丢弃。\n4. 重试次数耗尽、重试策略失效，或未处理最终失败回调。\n5. 序列化失败、路由或 topic/exchange 配置错误、消息体超限被拒绝。\n6. 确认级别不足：Kafka acks=0 不等待确认；acks=1 只等待 leader 写入，leader 在复制前故障会丢消息。RabbitMQ 未开启 publisher confirm 时无法得知 broker 是否接收。\n7. 批量发送整批失败，但上层只记录了部分结果。\n8. 客户端本地队列满且采用丢弃策略。\n\n三、存储端（broker）可能丢消息的位置\n1. 消息写入内存或页缓存后，未刷盘前 broker 宕机或断电。\n2. 单副本场景下 leader 故障，且未同步的数据无法恢复。\n3. ISR 不足仍接受写入：例如 acks=all 但 min.insync.replicas 设置为 1，此时只有 leader 写入即成功，故障切换后数据可能丢失。\n4. 副本同步延迟：follower 落后，leader 故障后选举了落后副本，未复制的已确认消息丢失。\n5. 确认后未复制即故障，即 acks=1 或副本未同步时的常见问题。\n6. 磁盘损坏、文件系统错误，且没有其他副本可恢复。\n7. 日志保留或过期清理：Kafka 按 retention.ms、retention.bytes 删除；RabbitMQ 队列 TTL、最大长度策略可能丢弃队首或拒绝新消息。消费者未及时消费时，消息可能在消费前被删除。\n8. 元数据丢失，如 controller 或队列元数据异常，导致分区或队列不可用或状态错乱。\n\n四、消费端可能丢消息的位置\n1. 先确认（ack）后处理，处理失败或进程崩溃，消息已被视为完成。\n2. 处理超时、进程崩溃或被强制终止，但已提交 offset 或已 ack。\n3. 自动提交：Kafka enable.auto.commit=true 时按周期提交，可能提交了尚未处理完成的消息。\n4. 异步提交顺序错乱，或 rebalance 期间未在分区回收前提交当前位点，导致位点错位，部分消息被跳过。\n5. 拉取后保存在本地缓冲区的消息，若在处理前因崩溃丢失但位点已提交，则会丢失。若位点未提交，通常会被重新投递，不算丢失。\n6. offset 重置到 latest：auto.offset.reset=latest 且没有已提交位点或位点越界时，停机期间产生的消息会被跳过。\n7. 重试耗尽后进入死信队列，但死信无人处理或未监控，等同于事实丢失。\n8. 业务异常被吞掉且未记录、未重试、未进入死信。\n\n五、适用边界与产品差异\n1. Kafka：可靠性主要取决于 acks=all、replication.factor（常见为 3）、min.insync.replicas（常见为 2）、生产端重试与幂等配置，以及消费端手动提交位点。刷盘通常依赖副本而非每条 fsync，因此多副本是主要保障。\n2. RabbitMQ：需要 publisher confirm、持久化消息、持久化队列、消费者手动 ack，以及镜像队列或 quorum queue 等复制机制。自动 ack 或 channel 异常关闭前未 ack 的处理方式会影响结果。\n3. RocketMQ：可通过同步刷盘、同步复制（如 SYNC_MASTER）和事务消息提高可靠性，但会降低吞吐、增加延迟。\n4. 同一套配置在不同产品、不同版本中的默认值和语义可能不同，需以对应版本文档为准。\n\n六、例外情况（即使配置正确仍可能丢消息）\n1. 消息超过保留期被清理，且消费者长时间未消费。\n2. 分区或队列长期不可用，或超过副本容错能力的多节点同时故障。\n3. 磁盘写满，broker 拒绝写入或清理旧数据。\n4. 网络分区或集群脑裂导致错误选主，部分已确认数据被回滚。\n5. 客户端本地队列溢出被丢弃。\n6. 毒消息（格式错误、反复失败的消息）被反复重试后进入死信或被跳过。\n7. 重试策略失效，如退避配置不当或重试被错误关闭。\n\n七、可靠性方案自身的失败模式\n1. 重试会造成重复消费，需要业务幂等。\n2. 幂等键过期、被错误生成或唯一约束缺失，导致幂等失效，重复数据进入业务。\n3. 死信队列无人消费、无告警，问题消息长期堆积。\n4. 对账能发现丢失，但若消息已超过保留期，无法重放修复。\n5. offset 提交失败会导致重启后重复消费。\n6. 重放时若消费逻辑不幂等，会产生重复副作用。\n\n八、实施约束与权衡\n1. 确认延迟与吞吐权衡：acks=all、同步刷盘、同步复制会提高延迟、降低吞吐。\n2. 复制因子与可用性权衡：如 RF=3、min.insync.replicas=2，可容忍单节点故障，但副本不足时写入会被拒绝，牺牲部分可用性。\n3. 磁盘容量与保留策略：保留期必须覆盖最长的故障恢复和重放窗口，磁盘需预留足够空间。\n4. 消费并发与提交频率：分区内并行会影响顺序；提交过频增加开销，提交过慢增加重复量。\n5. 监控与告警：应监控发送失败率、重试次数、ISR 收缩、消费延迟（lag）、死信数量、位点异常。\n6. 端到端对账成本：需要按业务主键或序号、数量、时间窗口进行核对，并保留足够的日志和元数据。\n\n结论：要尽量不丢，应在生产端开启确认并处理失败，在 broker 端使用多副本并设置合理的 ISR 条件，在消费端处理成功后再提交位点，并用幂等、死信、监控、对账和重放兜底。绝对不丢和端到端 exactly-once 在一般条件下不可保证。",
+        "addressed": [
+          "补充了确认、offset、持久化、副本同步、至少一次/最多一次/exactly-once 等概念及关系",
+          "分别列出生产端具体丢点（发送前崩溃、异步缓冲、超时未重试、重试耗尽、序列化与路由失败、acks 级别不足、批量失败、本地队列丢弃）",
+          "分别列出存储端具体丢点（未刷盘宕机、页缓存、单副本故障、ISR 不足仍确认、副本延迟、确认后未复制、磁盘损坏、保留清理、元数据丢失）",
+          "分别列出消费端具体丢点（先 ack 后处理、处理中崩溃、自动提交、rebalance 位点错位、本地缓冲、offset 重置、死信无人处理、异常被吞）",
+          "补充 Kafka、RabbitMQ、RocketMQ 的机制差异与版本依赖",
+          "补充例外情况（保留期清理、分区不可用、磁盘满、脑裂、本地队列溢出、毒消息、重试失效）",
+          "补充重试、幂等、死信、对账、重放的失败模式",
+          "补充确认延迟、复制因子与 min.insync.replicas、磁盘与保留、消费并发与提交、监控与对账成本等实施约束"
+        ],
+        "stillMissing": [
+          "各产品具体版本的默认参数与行为差异需以对应版本官方文档为准，本答案无法逐版本核实",
+          "吞吐、延迟与可靠性之间的量化权衡依赖具体硬件、网络和负载，无法在此给出确切数值",
+          "具体业务的对账粒度、重放窗口和死信处理 SLA 需结合业务场景确定，无法通用化"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 1422,
+          "outputTokens": 4628,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 24408
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "gpt-6-luna",
+        "undetermined": false,
+        "conclusion": "消息队列不能无条件保证绝不丢消息；能否做到“在约定故障范围和保留期内不丢”，取决于消息队列产品、配置及业务处理方式。常见的可靠方案是：生产端确认并处理发送失败，业务数据与发消息采用事务性发件箱等方式避免双写丢失；存储端使用持久化和足够的副本，并限制副本不足时仍确认写入；消费端在业务处理成功后再 ack 或提交 offset。配合重试、幂等、死信监控、对账和重放。重试可能造成重复，因此通常追求至少一次投递并让业务可幂等，而不是笼统承诺端到端绝对不丢或恰好一次。\n\n生产环节可能丢：应用在发送前崩溃；消息仍在客户端缓冲区时进程退出；发送失败或结果未知后未重试、重试耗尽却未处理失败；路由、序列化、大小限制等错误被忽略；业务数据库提交成功但发消息失败（或相反）。发送超时也可能只是确认丢失，消息其实已入队；此时重试可能重复，不应直接判定消息丢失。\n\n存储环节可能丢：broker 在消息持久化或复制完成前故障；确认条件过弱、副本不足，或故障切换选出落后副本；超过保留期、TTL 或队列长度策略被清理；磁盘损坏、写满或超出副本容错范围的多节点故障。确认的具体含义因产品和配置而异，例如 Kafka 的 acks=all 只等待当时 ISR 中副本确认，仍需结合 min.insync.replicas、选主策略和持久化配置理解。\n\n消费环节可能丢：处理完成前就 ack 或提交 offset，之后处理失败或进程崩溃；自动提交或错误的位点管理跳过尚未处理的消息；重试耗尽后进入无人监控的死信队列，或异常被吞掉。若先处理、后 ack/提交，崩溃通常导致重投而非丢失，但可能重复，所以业务处理需幂等。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "mq-delivery",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 9,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答全面准确地分生产、Broker、消费三端说明丢失点与措施，明确至少一次投递加幂等、重复风险，以及端到端 Exactly-once 不应轻易承诺；边界、产品差异和权衡充分。仅未明确展开双写场景可用 Outbox/Inbox 或事务消息，c5 建议覆盖不完整。",
+        "usage": {
+          "inputTokens": 2438,
+          "outputTokens": 1506,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 21024,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "schema-migration",
+      "category": "Database",
+      "strategy": "truth",
+      "question": "在线数据库 schema 迁移如何避免锁表和长时间不可用？常见的 expand/contract 流程是什么？",
+      "fingerprint": "bca9912c102f05f8a62eafe42d09f5294f492b813e152834bac62209273430df",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 5103,
+          "outputTokens": 1284,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19511
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 117325,
+        "durationSec": 117,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 181,
+            "outputTokens": 1672
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 205,
+            "outputTokens": 3843
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3269,
+            "outputTokens": 2303
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 4701,
+            "outputTokens": 4674
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 1 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "结论是条件性的，不是普遍最优方案。避免锁表和长时间不可用，通常靠两条主线配合：一是利用数据库引擎的在线 DDL 能力，并把不可避免的强锁限制在极短时间，同时设置锁等待超时、监控长事务，避免 DDL 等锁引发锁队列堆积；二是对删列、改名、改类型、拆列等破坏性变更，采用 expand/contract，把结构扩展、应用兼容发布、分批回填、校验与切读、旧结构清理分成可独立部署的阶段。适用前提是应用能滚动发布、新旧代码能短期共存、且你能控制读写路径；若为小表、低流量或单实例，维护窗口内直接执行可能更简单可靠。必须强调：在线 DDL、仅改元数据、INSTANT 算法都不等于零锁零影响；expand/contract 也不保证所有类型转换和大表重建都能无停机完成；Contract 删列阶段不可逆，回滚 SQL 无法恢复已删除数据或已被回填改写的语义。",
+        "unresolvedDisputes": [
+          "各具体版本的行为细节需以所用引擎官方文档核实：PostgreSQL 的 SET NOT NULL 是否需全表扫描、MySQL 各版本 INSTANT 算法支持的 DDL 范围、CREATE INDEX CONCURRENTLY 失败后 INVALID 索引的清理方式。",
+          "锁等待时长、批次大小、复制延迟阈值等参数必须在本环境用接近生产的数据量实测，无法给出通用数值。",
+          "前几轮提到的 GitHub、Stripe 等公司实践，以及'锁队列行为在文档中明确'等出处未能逐一核实，应视为未验证说法；Martin Fowler 的 Parallel Change 可查原文。",
+          "gh-ost 与原生在线 DDL 的相对稳定性缺乏统一证据，需按自身数据量和运维能力压测后决定。",
+          "对 name 拆分为 first_name/last_name 这类有语义损失的变更，拆分规则和回滚是否真正无损取决于业务数据分布，需先定义规则并保留原始列至校验通过。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "constraint",
+            "text": "需说明 DDL 操作要按具体数据库、版本和变更类型确认锁级别及算法；例如建索引、改列和加约束的在线能力并不相同，某些操作仍会重建表或短暂申请强锁。",
+            "why": "仅说使用在线 DDL，无法判断具体迁移是否会阻塞读写或在获取元数据锁时造成等待堆积。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "分批回填还应说明如何限速、断点续跑和保持幂等，并监控数据库负载、复制延迟及失败批次；还需处理回填期间并发写入造成的数据不一致。",
+            "why": "大表回填本身可能造成资源争用、复制延迟或漏写，影响可用性和数据正确性。"
+          },
+          {
+            "dimension": "condition",
+            "text": "应具体交代 expand 阶段的新旧应用兼容方式（如双写或兼容读写）、切换前如何校验一致性，以及确认所有旧版本应用和后台任务退出后再 contract。",
+            "why": "仅要求新旧代码短期共存不足以确保部署交叠期间不会读写错误，也不足以确定何时可以安全移除旧结构。"
+          }
+        ],
+        "reason": "回答涵盖了在线 DDL、分阶段迁移和不可逆变更的风险，但关键操作细节与新旧读写协调条件仍较概括。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 509,
+          "outputTokens": 907,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10644
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "结论是条件性的，不是普遍最优方案。避免锁表和长时间不可用，通常要两条主线配合。\n\n一、在线 DDL 与锁控制\n1. 锁级别必须按具体数据库、版本和变更类型确认。建索引、改列类型、加约束的在线能力各不相同，部分操作仍会重建表或短暂申请强锁。例如 MySQL 的 INSTANT、INPLACE、COPY 算法差异很大；PostgreSQL 的 CREATE INDEX CONCURRENTLY 可减少写阻塞但不能在事务中执行，添加带默认值的列或加 NOT NULL、外键等约束的行为也因版本和写法而异，可能需要扫描表或持有较强锁。\n2. 执行前应在预发环境，用相同版本和接近生产的数据量验证算法与锁行为，并检查执行计划和元数据锁影响。\n3. 设置锁等待超时（如 lock_timeout），避免 DDL 排队等待长事务释放锁，进而阻塞后续所有查询、形成锁队列堆积。迁移前检查并处理长事务。\n4. 在线 DDL、仅改元数据、INSTANT 算法都不等于零锁零影响，仍需按实际语句验证。\n\n二、expand/contract 流程\n1. Expand：只新增兼容的新结构（新列、新表、可空列、新索引），不删除、不改名旧结构。发布同时兼容新旧结构的应用版本，可采用双写（同时写新旧结构），或兼容读写（读取时优先新结构、缺失时回退旧结构，写入时按兼容策略同步）。目的是保证部署交叠期间，新旧版本都不会读写错误。\n2. Backfill：分批回填历史数据，要求如下。\n- 限速：按批次大小和批间休眠控制速率，并依据数据库 CPU、IO、连接数动态调整。\n- 断点续跑：持久化游标（如主键位置），中断后从断点恢复。\n- 幂等：每批使用可重复执行的条件（如仅更新新列为空的行），重复执行结果一致。\n- 监控：数据库负载、复制延迟、锁等待、失败批次与重试次数；超过阈值时自动降速或暂停，并记录失败批次以便重跑。\n- 并发写入一致性：回填期间业务仍会写旧结构，需通过双写、回填时比较版本号或更新时间（仅当源记录未被更新时才写入），或回填结束后对增量做补偿同步，避免旧值覆盖新写入或漏写。大表回填本身可能造成资源争用、复制延迟或漏写，进而影响可用性和数据正确性。\n3. Verify and Switch：切读前进行一致性校验，如行数对比、抽样对比、校验和、分片对账，并记录差异与修复结果。校验通过后灰度切读到新结构，并保留回退开关。\n4. Contract：确认所有旧版本应用实例、后台任务、定时任务和数据同步消费者都已退出，或不再访问旧结构，之后才删除旧列或旧表、收紧约束。该步骤不可逆，回滚 SQL 无法恢复已删除数据或已被回填改写的语义，应事先备份并在低峰期执行。\n\n边界：小表、低流量或单实例场景下，在维护窗口内直接执行可能更简单可靠。expand/contract 也不保证所有类型转换和大表重建都能无停机完成。",
+        "addressed": [
+          "补充 DDL 锁级别需按数据库、版本和变更类型确认，以及强锁与表重建的风险",
+          "补充分批回填的限速、断点续跑、幂等、监控与失败批次处理",
+          "补充回填期间并发写入导致的数据不一致问题及处理方式",
+          "补充 expand 阶段新旧应用的兼容方式（双写或兼容读写）、切换前一致性校验，以及确认旧版本应用和后台任务退出后再 contract"
+        ],
+        "stillMissing": [
+          "缺少具体数据库类型、版本和迁移语句，无法给出确定的锁级别与阻塞时长",
+          "无法在不了解业务吞吐、数据量和复制拓扑的情况下给出具体的批大小、限速阈值和锁超时数值",
+          "无法在没有实际项目数据的情况下给出具体的校验结果或回填完成时间"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 1032,
+          "outputTokens": 3382,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 16283
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "deepseek-v4.1-flash",
+        "undetermined": true,
+        "conclusion": null,
+        "confidence": "low",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "schema-migration",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 5,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "给出了有条件的迁移建议和完整的 expand/contract 顺序，涵盖旧新版本并存时的一致性、在线 DDL 仍可能加锁及按具体数据库和版本实测的边界。",
+        "usage": {
+          "inputTokens": 1596,
+          "outputTokens": 941,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12350,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "unicode-utf8",
+      "category": "Text",
+      "strategy": "discovery",
+      "question": "UTF-8 和 Unicode 是什么关系？为什么会出现乱码？",
+      "fingerprint": "2f8ef2c9b113dcf212620b1f7b8e0398485f40bc4e799a34796edf502b688a58",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7930,
+          "outputTokens": 1473,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8240
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 211100,
+        "durationSec": 211,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 152,
+            "outputTokens": 579
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 133,
+            "outputTokens": 3894
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2299,
+            "outputTokens": 2010
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2031,
+            "outputTokens": 9831
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 1 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "Unicode 为每个字符分配一个码点（例如“中”是 U+4E2D），定义的是字符与编号的对应关系。UTF-8 是 Unicode 码点的一种编码形式，规定如何把码点序列转换成字节：ASCII 字符占 1 字节，常用汉字通常占 3 字节，“中”的 UTF-8 字节是 E4 B8 AD。Unicode 还有 UTF-16、UTF-32 等编码形式，所以两者不是同一层面的东西，Unicode 也不等于 UTF-8。乱码的常见原因是：字节按照与编码时不同的规则被解码，例如 UTF-8 字节被当成 GBK 或 Latin-1 显示，或 GBK 字节被当成 UTF-8 解码后出现 �。其他原因包括：内容经过多次转码；转换时已有字符被替换为 ? 或 �，原始信息无法从结果中恢复；以及字体缺少对应字形，此时码点本身是正确的，不属于编码错误。排查时应先取得原始字节，确认其实际编码，再按该编码解码。",
+        "unresolvedDisputes": [
+          "- 文本里已经有 `?",
+          "**如果字节已经被替换成 `?",
+          "如果错误解码后已保存成 `?",
+          "**最快排除 H3 的证据**：检查原始字节中是否已出现 UTF-8 替换字符 `EF BF BD`（即 `�`）或源头 `?",
+          "- 重复编码/重复解码：内容被多次转码，甚至已发生 `?",
+          "实际沟通应问清：“具体是 UTF-8、UTF-16LE 还是 GB18030？",
+          "用户遇到的具体乱码内容、来源文件或系统尚未提供，无法判断属于哪一种编码错配。",
+          "需要原始字节（如十六进制查看结果）以及文件、HTTP、数据库或终端声明的编码，才能确认实际是哪种编码错配。",
+          "如果乱码中已包含 ? 或 �，原文可能已丢失，仅凭转换无法保证恢复。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "boundary",
+            "text": "未明确 UTF-8 是 1–4 字节的可变长编码，覆盖全部 Unicode 码点；只举了 ASCII 1 字节和常用汉字 3 字节，容易让读者忽略 4 字节字符（如部分 emoji、生僻字）及非法/截断字节序列。",
+            "why": "这是理解 UTF-8 与 Unicode 映射范围和乱码边界的关键，尤其能解释截断多字节序列为何会产生替换字符或解码失败。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未点明编码声明与实际字节不一致这一常见实施约束，例如 HTTP Content-Type、HTML meta charset、文件保存编码、数据库连接字符集彼此不一致。",
+            "why": "实际乱码常不是单纯“解码规则不同”，而是声明、传输、存储某一环节的字符集配置与真实字节不匹配；缺少这一点会削弱排查路径的完整性。"
+          }
+        ],
+        "reason": "候选回答已正确说明 Unicode 码点与 UTF-8 编码的关系，并覆盖主要乱码原因和排查方向；但缺少 UTF-8 长度边界以及声明/配置不一致这一常见实施约束，属于完整性缺口。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 440,
+          "outputTokens": 1667,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 23068
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "Unicode 为每个字符分配一个码点（例如“中”是 U+4E2D），定义的是字符与编号的对应关系。UTF-8 是 Unicode 码点的一种编码形式，规定如何把 Unicode 的有效标量值转换成字节。它是 1–4 字节的可变长编码，覆盖 Unicode 的有效标量值：ASCII 字符占 1 字节，常用汉字通常占 3 字节，“中”的 UTF-8 字节是 E4 B8 AD；部分 emoji 和生僻字占 4 字节。孤立的代理码点不属于有效标量值，不能作为合法 UTF-8 编码。Unicode 还有 UTF-16、UTF-32 等编码形式，所以两者不是同一层面的东西，Unicode 也不等于 UTF-8。\n\n乱码的常见原因是：字节按照与编码时不同的规则被解码，例如 UTF-8 字节被当成 GBK 或 Latin-1 显示，或 GBK 字节被当成 UTF-8 解码后出现 �。UTF-8 字节序列如果非法或被截断，解码器可能报错，也可能用 �（替换字符）代替无法解码的部分。其他原因包括内容经过多次转码；转换时已有字符被替换为 ? 或 �，原始信息无法从结果中恢复；以及字体缺少对应字形，此时码点本身是正确的，不属于编码错误。\n\n实际排查还要确认编码声明和实际字节是否一致：例如 HTTP Content-Type、HTML 的 meta charset、文件保存编码、数据库连接字符集等环节的配置，可能与实际传输或存储的字节不匹配。排查时应尽量取得原始字节，逐环节核对实际编码和声明，再按正确编码解码。",
+        "addressed": [
+          "说明 UTF-8 是 1–4 字节的可变长编码，补充 4 字节字符示例，并说明非法或截断序列可能导致解码失败或出现替换字符。",
+          "补充核对 HTTP Content-Type、HTML meta charset、文件保存编码和数据库连接字符集等声明与实际字节是否一致。"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 651,
+          "outputTokens": 795,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9095
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "claude-haiku-5-5",
+        "undetermined": false,
+        "conclusion": "Unicode 是字符集，为每个字符分配唯一的码点（如“中”是 U+4E2D），只规定字符与编号的对应关系。UTF-8 是 Unicode 的一种编码形式，规定如何把码点转换成 1–4 个字节：ASCII 占 1 字节，常用汉字通常占 3 字节（“中”为 E4 B8 AD），部分 emoji 和生僻字占 4 字节。两者不是同一层面的概念，Unicode 也不等于 UTF-8，还有 UTF-16、UTF-32 等其他编码形式。乱码的主要原因是字节被用了与编码时不同的规则解码，例如 UTF-8 字节按 GBK 或 Latin-1 显示，或反过来。此外，非法或被截断的字节序列会被解码器报错或替换为 �；多次转码，或转换时字符被替换为 ? 或 �，会造成原始信息丢失；字体缺少对应字形则属于显示问题，与编码无关。排查时应取得原始字节，核对 HTTP Content-Type、HTML meta charset、文件保存编码、数据库连接字符集等各环节的声明与实际字节是否一致，再用正确编码解码。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "unicode-utf8",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答准确说明了 Unicode 与 UTF-8 的层次关系，指出 UTF-8 是 1–4 字节变长编码，全面覆盖乱码原因，并明确诊断需要原始字节和编码声明、有损替换后可能不可逆；未出现标准中的错误主张。",
+        "usage": {
+          "inputTokens": 1009,
+          "outputTokens": 351,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7971,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "Unicode",
+          "UTF-8",
+          "编码",
+          "字符集"
+        ],
+        "terms": [
+          "Unicode",
+          "UTF-8",
+          "编码",
+          "字符集"
+        ],
+        "note": "字符编码烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "memory-leak",
+      "category": "Operations",
+      "strategy": "solution",
+      "question": "如何定位一个长时间运行服务的内存泄漏？从监控、快照到复现应该怎么排查？",
+      "fingerprint": "0486db586b94c6cc0ac9b78c345869972c34bc489ce3cf44d9f1f860347a58ba",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 10641,
+          "outputTokens": 1070,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12485
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 279029,
+        "durationSec": 279,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 200,
+            "outputTokens": 5013
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 146,
+            "outputTokens": 5080
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6608,
+            "outputTokens": 5206
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 4039,
+            "outputTokens": 8026
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 4 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "建议按“监控判型 → 差分分析 → 受控复现 → 修复验证”排查，优先在副本或低峰操作。1）同步观察进程与容器内存、运行时堆与 GC、线程/goroutine、文件描述符、连接数、缓存和队列等业务指标，并标注流量、发布和配置变化。比较可比负载下的内存趋势与 GC 后基线；基线持续上升是线索，不单独构成泄漏证明。2）先区分托管堆增长、堆外/native 增长、线程或句柄增长：堆增长时用运行时剖析或至少两次快照做差分，检查增长对象及其持有链；堆平稳但 RSS 上升时检查原生分配、mmap、分配器和容器内存口径；线程、goroutine、FD 或连接增长时检查对应栈、句柄和清理路径。3）在相近负载下复现：使用脱敏回放或受控压测，保持版本、配置和依赖尽量一致，按端点、租户等维度缩小输入范围；比较生产与复现中的增长趋势、对象类型和持有关系。4）修复后做足够长的浸泡测试，确认增长趋势消失，并检查是否引入其他资源泄漏。大堆全量快照可能造成停顿、磁盘压力或 OOM；容器也可能在应用来得及导出前被 OOM kill，故应先评估风险，避免在唯一生产实例或临近内存上限时贸然 dump。",
+        "unresolvedDisputes": [
+          "具体运行时与语言决定适用工具及安全采样方式。",
+          "尚不清楚上涨的是堆、RSS、容器内存，还是线程、goroutine、FD 等资源。",
+          "是否能在生产摘流、回放流量或构造稳定复现，决定快照与复现的优先级。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "未给出“内存泄漏”的明确判定标准，例如稳定负载下经过多轮GC后堆基线仍持续上升、RSS与堆趋势背离时如何区分缓存预热、碎片化和流量增长。",
+            "why": "缺少判定标准会把正常内存增长误判为泄漏，或在确有泄漏时过早排除，直接影响是否进入快照和复现阶段。"
+          },
+          {
+            "dimension": "condition",
+            "text": "未说明堆快照应满足可比条件：同一流量阶段、尽量强制GC后、间隔覆盖多个GC周期、记录版本/配置/快照时间，并保证多次快照采集方式一致。",
+            "why": "快照时点和GC状态不一致会导致对象差分出现大量伪增长或掩盖真实持有链，使快照分析结论不可靠。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未提堆转储和快照的敏感数据约束：堆内可能包含令牌、PII、连接串、请求内容，需要访问控制、脱敏、加密存储和保留期限。",
+            "why": "生产转储文件常被当作普通诊断文件流转，可能造成数据泄露或合规问题，是实施快照前必须评估的约束。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "未说明内存压力下快照可能失败、被截断或加剧OOM时的降级路径，例如先用低开销分配采样/连续profiling，预留磁盘和内存，配置OOM前自动转储或旁路采集。",
+            "why": "只提示OOM风险但无失败后的替代采集方案，可能导致真正需要证据时拿不到可用快照。"
+          },
+          {
+            "dimension": "exception",
+            "text": "未说明短时受控压测无法复现时间依赖、长尾路径或多租户状态型泄漏时的处理方式，例如依赖生产差分、长时间低流量回放和按状态维度缩小范围。",
+            "why": "慢泄漏常无法在短压测中重现，缺少该例外情况的排查路径会卡在复现阶段。"
+          }
+        ],
+        "reason": "回答覆盖了监控判型、差分快照、复现和验证的主流程，但缺少泄漏判定标准、快照可比条件、转储安全约束、快照失败降级以及无法短时复现时的例外路径，这些会直接影响排查结论的可信度和实施安全。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 524,
+          "outputTokens": 2056,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 29666
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "建议按“定义判型、监控定位、快照差分、受控复现、修复验证”的顺序排查，并优先在副本或低峰期操作。\n\n一、先明确“泄漏”的判定标准：在稳定负载下（同一流量阶段、同版本同配置），经过多轮GC（托管运行时）后的堆基线仍持续上升，且增长无法被业务量解释，才视为疑似泄漏。若RSS上升而堆基线平稳，应优先怀疑堆外/原生分配、分配器碎片或容器内存口径问题，而非托管对象泄漏。缓存预热、连接池与队列填充、流量增长、分配器碎片化都可能造成先升后平或随负载波动的上升，需观察达到稳态后是否收敛来区分。只有持续上升且无法被业务量解释时，才进入快照阶段。\n\n二、监控判型：同步观察进程与容器内存（RSS、工作集）、运行时堆与GC（堆已用量、GC后基线、GC频率与暂停时长）、线程或goroutine数、文件描述符、连接数、缓存和队列长度等指标，并标注流量变化、发布和配置变更。堆基线增长则进入快照差分；堆平稳而RSS上升则检查原生分配、mmap和分配器；线程、goroutine、FD或连接增长则检查对应的栈、句柄和清理路径。\n\n三、快照的可比条件：两次快照应在同一流量阶段采集，运行时支持时尽量在强制GC之后进行，两次间隔需覆盖多个GC周期，避免把尚未回收的临时对象误判为泄漏。每次记录服务版本、配置、快照时间和负载指标，并保证多次采集的工具、参数和触发时机一致。快照时点或GC状态不一致会产生大量伪增长，掩盖真实持有链。分析时应比较增长对象的类型、数量及从GC根到对象的持有路径，而不只看总大小。\n\n四、敏感数据约束：堆转储可能包含令牌、凭证、连接串、个人信息和请求内容。采集前需获得授权并限定访问人员；转储文件在传输和存储中加密；分析尽量在受控环境中进行，共享截图或摘要前先脱敏；设定明确的保留期限并到期删除，禁止将其当作普通诊断文件随意流转。\n\n五、失败与降级：全量堆转储在大堆场景下可能造成停顿、磁盘写满、转储被截断，甚至加剧OOM。采集前应评估内存和磁盘余量；风险较高时，优先使用低开销的分配采样或连续profiling；可考虑在接近内存上限时自动触发转储或旁路采集（如限定对象范围的导出），并先在副本上验证其可行性。容器也可能在导出完成前被OOM kill，因此需预留余量或采用可控的导出方式。\n\n六、长周期或难以复现的泄漏：慢泄漏、与时间相关的泄漏、长尾路径或多租户状态型泄漏，往往无法在短时压测中重现。此时应转向生产差分（对同一实例在不同时间点做低开销采样并对比）、长时间低流量回放，并按租户、端点、状态维度逐步缩小范围、二分排除。若短期内无法复现，应保留证据并延长观察窗口，而不是过早排除。\n\n七、复现：使用脱敏回放或受控压测，尽量保持版本、配置和依赖一致，按端点或租户缩小输入范围；比较生产与复现环境中的增长趋势、对象类型和持有关系是否一致，一致后再定位代码路径。\n\n八、修复验证：修复后进行足够长的浸泡测试，确认GC后基线收敛、RSS趋势稳定，并检查是否引入线程、连接、句柄等其他资源泄漏。",
+        "addressed": [
+          "补充了内存泄漏的判定标准：稳定负载下多轮GC后基线持续上升且不能被业务量解释，并区分缓存预热、碎片化和流量增长",
+          "补充了堆快照的可比条件：同一流量阶段、尽量强制GC后、间隔覆盖多个GC周期、记录版本与配置、采集方式一致",
+          "补充了堆转储的敏感数据约束：授权访问、加密存储、脱敏共享、设定保留期限",
+          "补充了快照失败或加剧OOM时的降级路径：低开销采样/连续profiling、预留资源、旁路或自动导出，并考虑容器被OOM kill的情况",
+          "补充了短压测无法复现时的例外处理：生产差分、长时间低流量回放、按租户和端点缩小范围"
+        ],
+        "stillMissing": [
+          "具体的告警阈值和判定数值需依据该服务的历史基线与SLO确定，本回答无法给出通用数值",
+          "不同语言和运行时的具体剖析工具与命令未展开，需结合实际技术栈补充",
+          "无法基于本服务的实际监控数据做判断，只能给出通用排查路径"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 1413,
+          "outputTokens": 3550,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 16566
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "gpt-6-luna",
+        "undetermined": false,
+        "conclusion": "建议按“确认趋势 → 判定内存类型 → 对比快照或采样 → 缩小复现范围 → 验证修复”排查。具体工具和采集方式取决于运行时（如 JVM、.NET、Go、Node.js）及生产环境的停顿和资源限制。\n\n1. **确认是否持续增长**：在相近流量、版本和配置下，观察一段足以覆盖多个 GC 周期的时间。同步记录进程 RSS/工作集、运行时堆使用量及 GC 后基线、分配与回收速率、GC 暂停、线程或 goroutine 数、连接数、文件描述符，以及缓存和队列大小。把流量、发布、扩容和配置变更标在同一时间线上；按请求量或业务量归一化，有助于区分负载增长与泄漏。\n2. **判定增长发生在哪里**：GC 后堆基线持续抬升，优先检查托管对象及其引用链；堆相对稳定而 RSS 上升，则调查堆外或原生分配、mmap、线程栈和分配器碎片；线程、连接或 FD 持续增加，则沿对应资源的创建、复用和关闭路径排查。缓存预热和池化资源可能先增长后稳定，不能仅凭一次内存上升判定泄漏。\n3. **采集并比较证据**：在可比的负载阶段，用一致的工具和参数采集多次堆快照或分配采样，记录时间、版本、流量和 GC 状态。运行时允许且不会带来过大风险时，可在快照前触发 GC；否则记录实际 GC 状态，避免把未回收的临时对象误当成泄漏。比较对象数量、保留大小和从 GC 根到对象的持有路径，重点找随时间持续增长且未被业务量解释的对象。必要时再用分配剖析或连续采样补充快照分析。\n4. **谨慎处理生产采集**：全量转储可能造成长时间停顿、磁盘耗尽或 OOM；堆转储也可能包含凭证、个人信息和请求数据。先评估影响与磁盘余量，优先在副本或低峰验证；严格限制访问，安全存储、脱敏共享并按期删除。若风险不可接受，先采用低开销采样，或在副本上复现后再做重型采集。\n5. **逐步复现**：保持版本、配置和依赖一致，使用脱敏回放或受控压测；从端点、租户、消息类型或状态转换逐步缩小范围。对于长尾、低频或随运行时间出现的问题，延长观察窗口并保留低开销生产采样，短时间压测未复现不能排除泄漏。比较复现与生产的增长趋势、对象类型和持有关系，避免只凭表面相似就认定根因相同。\n6. **验证修复**：在相近负载下进行足够长的浸泡测试，确认 GC 后基线趋于稳定、RSS 不再持续上升，并复查线程、连接、FD、缓存和队列等相关资源；同时留意修复是否只是把增长转移到其他资源。\n\n判定要结合具体运行时和业务语义：例如有界缓存随流量增长可能是正常行为，只有超出预期上限或无法回收时才是问题。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "memory-leak",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 94,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答按判型、监控、快照差分、复现和修复验证展开，明确区分堆内与堆外/原生内存，强调RSS增长不等于Java内存泄漏，并给出GC后基线、增长趋势、多轮GC、可比快照、浸泡测试和修复后复跑等条件与边界。虽然未逐个点名PSS、MAT、NMT等工具/指标，但已给出等价的分析路径和工具类别，且没有出现所列重大错误主张。",
+        "usage": {
+          "inputTokens": 1501,
+          "outputTokens": 3003,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 37039,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    }
+  ]
+}
