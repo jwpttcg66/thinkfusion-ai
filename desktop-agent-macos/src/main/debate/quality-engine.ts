@@ -169,6 +169,11 @@ function logicalValidityOf(
   normalized: NormalizedVerdict
 ): QualityDimension {
   if (isJudgeVerdict(verdict)) {
+    if (verdict.backend !== 'model') {
+      // 退回规则版时 argumentQuality 是规则算的文本线索，不是模型评审。
+      // 不能因为字段叫 argumentQuality 就标成 model-assessed。
+      return dim('unknown', ['裁判退回规则版；没有模型评审的论证质量记录']);
+    }
     if (normalized.argumentQuality.length === 0) {
       return dim('unknown', ['模型裁判没有给出论证质量记录']);
     }
@@ -220,6 +225,11 @@ export function evaluateDebateQuality(inputs: QualityInputs): DebateQualityRepor
   if (normalized?.backend === 'rules' && inputs.modelAssessed === true) {
     critical.push('标了 modelAssessed，但 verdict.backend 是 rules；按规则版处理');
   }
+  if (verdict && isJudgeVerdict(verdict) && verdict.backend === 'rules') {
+    critical.push(verdict.fallbackReason
+      ? `裁判退回规则版：${verdict.fallbackReason}`
+      : '裁判退回规则版：没有模型评审');
+  }
 
   const factualBasis: string[] = [];
   if (sourceRefs.length > 0) {
@@ -260,11 +270,14 @@ export function evaluateDebateQuality(inputs: QualityInputs): DebateQualityRepor
     ? dim('supported', [`检测到 ${String(disputes.length)} 条争议`])
     : dim('unknown', ['没有检测到可判定争议']);
 
+  const judgeIsModel = verdict !== null && isJudgeVerdict(verdict) && verdict.backend === 'model';
   const uncertaintyCalibration = normalized?.undetermined === true ||
     normalized?.confidence?.level === 'low'
     ? dim('supported', [
         normalized.undetermined
-          ? '裁判保留了 undetermined，没有强行给结论'
+          ? judgeIsModel
+            ? '模型裁判保留了 undetermined，没有强行给结论'
+            : '规则版保留了 undetermined，没有强行给结论'
           : '模型裁判给了 low confidence，没有把结论说死'
       ])
     : verdict

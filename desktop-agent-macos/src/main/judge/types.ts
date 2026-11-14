@@ -52,6 +52,8 @@ export interface JudgeVerdict {
   createdAt: number;
   /** null 表示没有独立裁判，用的是规则版；或兼任时由 sharedWith 说明。 */
   judgeAgentId: string | null;
+  /** 实际向裁判模型问了几次；解析失败会重试一次。老记录没有。 */
+  judgeAttempts?: number;
   /** 决策 5：资源不足允许兼任，但必须明确标记这一事实。 */
   sharedWith?: string;
   backend: 'model' | 'rules';

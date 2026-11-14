@@ -150,6 +150,8 @@ test('backend 退回 rules 时，即使调用方误传 modelAssessed 也不冒�
   assert.equal(report.modelAssessed, false);
   assert.notEqual(report.status, 'passed');
   assert.ok(report.criticalIssues.some(item => item.includes('backend')));
+  assert.ok(report.criticalIssues.some(item => item.includes('规则版')));
+  assert.equal(report.dimensions.logicalValidity.status, 'unknown', '规则版 argumentQuality 不能标成模型评审');
   assert.equal(isQualityPass(report), false);
 });
 

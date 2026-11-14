@@ -46,6 +46,27 @@ export interface DebateLead {
   drivenBy: 'orchestrator';
 }
 
+export type CollaborationShape =
+  | 'single_model'
+  | 'pair_debate'
+  | 'expert_panel'
+  | 'multi_model_panel';
+
+/**
+ * 协作组织方式（P0-03）。它只描述「这一场怎么组织」，不改变编排器行为：
+ * 轮内并发提问，轮间递进；两位以上才存在交叉质疑；裁判优先独立。
+ * 老辩论文件没有这个字段，读回时按 undefined 处理。
+ */
+export interface DebateCollaborationPlan {
+  shape: CollaborationShape;
+  participantCount: number;
+  withinRound: 'parallel';
+  acrossRounds: 'progressive';
+  crossReview: boolean;
+  judge: { required: true; independentPreferred: true };
+  summary: string;
+}
+
 export interface LeadPlan {
   lead: DebateLead;
   /** 第一轮发言者，有序。 */
@@ -61,6 +82,8 @@ export interface LeadPlan {
   warnings: string[];
   /** 被剔除的成员与原因（不可用不能悄悄丢掉）。 */
   excluded: Array<{ id: string; reason: string }>;
+  /** P0-03 协作组织方式；老记录没有。 */
+  collaboration?: DebateCollaborationPlan;
 }
 
 export interface LeadInput {
@@ -190,6 +213,33 @@ export function planLead(input: LeadInput): LeadPlan {
     ? `混合先综合决定采用${MODE_LABEL[effective]}（${decision.reason}），本场只用${OWNER_LABEL[effective]} ${ids.length} 位，不混用其他类型。`
     : `${MODE_LABEL[effective]}：本场只用${OWNER_LABEL[effective]} ${ids.length} 位，汇总、交锋与最终意见都由这一类完成。`;
 
+  const shape: CollaborationShape =
+    ids.length === 1 ? 'single_model'
+      : input.strategy === 'expert' ? 'expert_panel'
+        : ids.length === 2 ? 'pair_debate'
+          : 'multi_model_panel';
+  const shapeLabel: Record<CollaborationShape, string> = {
+    single_model: '单模型自辩',
+    pair_debate: '双模型交锋',
+    expert_panel: '专家角色评审',
+    multi_model_panel: '多模型协作'
+  };
+  const crossReview = ids.length >= 2;
+  const collaboration: DebateCollaborationPlan = {
+    shape,
+    participantCount: ids.length,
+    withinRound: 'parallel',
+    acrossRounds: 'progressive',
+    crossReview,
+    judge: { required: true, independentPreferred: true },
+    summary: [
+      `${shapeLabel[shape]}：${String(ids.length)} 位参与`,
+      '轮内并行、轮间递进',
+      crossReview ? '允许交叉质疑' : '单模型分饰质疑与修正',
+      '裁判优先独立'
+    ].join('；')
+  };
+
   return {
     lead,
     openingSpeakers: [...ids],
@@ -198,7 +248,8 @@ export function planLead(input: LeadInput): LeadPlan {
     webOnly: effective === 'web' ? [...ids] : [],
     reason,
     warnings,
-    excluded
+    excluded,
+    collaboration
   };
 }
 

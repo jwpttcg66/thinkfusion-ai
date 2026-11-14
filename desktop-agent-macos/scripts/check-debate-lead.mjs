@@ -66,6 +66,32 @@ test('模式收敛：非法值退回 hybrid，四种合法值原样保留', () =
   assert.equal(normalizeLeadMode(undefined), 'hybrid');
 });
 
+test('协作计划：人数、并行/递进、交叉质疑与独立裁判要求都落盘', () => {
+  const single = plan('local', { candidates: WITH_CLOUD });
+  assert.equal(single.collaboration.shape, 'single_model');
+  assert.equal(single.collaboration.participantCount, 1);
+  assert.equal(single.collaboration.crossReview, false);
+  assert.equal(single.collaboration.judge.required, true);
+  assert.match(single.collaboration.summary, /单模型自辩/);
+
+  const web = plan('web');
+  assert.equal(web.collaboration.shape, 'multi_model_panel');
+  assert.equal(web.collaboration.participantCount, 3);
+  assert.equal(web.collaboration.crossReview, true);
+
+  const twoCloud = [
+    { id: 'cloud-a', label: 'Cloud A', type: 'cloud', available: true },
+    { id: 'cloud-b', label: 'Cloud B', type: 'cloud', available: true }
+  ];
+  const pair = planLead({ mode: 'cloud', strategy: 'truth', candidates: twoCloud });
+  assert.equal(pair.collaboration.shape, 'pair_debate');
+  assert.equal(pair.collaboration.withinRound, 'parallel');
+  assert.equal(pair.collaboration.acrossRounds, 'progressive');
+
+  const expert = planLead({ mode: 'cloud', strategy: 'expert', candidates: twoCloud });
+  assert.equal(expert.collaboration.shape, 'expert_panel');
+});
+
 test('本地主导：只用本地模型，网页和云端一个都不进', () => {
   const p = plan('local', { candidates: WITH_CLOUD });
   assert.equal(p.lead.agentId, 'ollama:local-test:7b');

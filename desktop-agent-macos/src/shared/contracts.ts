@@ -1685,6 +1685,8 @@ export interface JudgeVerdictView {
   debateId: string;
   createdAt: number;
   judgeAgentId: string | null;
+  /** 实际向裁判模型问了几次；解析失败会重试一次。老记录没有。 */
+  judgeAttempts?: number;
   sharedWith?: string;
   backend: 'model' | 'rules';
   conclusion: string | null;

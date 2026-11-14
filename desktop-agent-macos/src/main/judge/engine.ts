@@ -55,32 +55,47 @@ export class JudgeEngine {
       return { ...base, backend: 'rules', judgeAgentId: null };
     }
 
-    try {
-      const task: SubAgentTask = {
+    const system: string[] = [
+      '你是独立裁判。先读完所有发言，再判断哪些主张有依据、哪些只是断言。',
+      '不要把「多数模型都这么说」当成正确的理由，也不要为了达成一致删掉少数派。',
+      '如果证据不足或分歧无法裁决，明确说无法确定，并说明为什么。',
+      '只输出一个 JSON 对象：{"conclusion": string|null, "undetermined": boolean, "reason": string, "disagreement": string, "unresolved": string[]}'
+    ];
+    const askOnce = async (extra: string[] = []): Promise<SubAgentAnswer> =>
+      this.options.ask!(this.options.judgeAgentId!, {
         question: state.question,
         stage: 'initial',
         context: messages.map(message => message.text),
-        system: [
-          '你是独立裁判。先读完所有发言，再判断哪些主张有依据、哪些只是断言。',
-          '不要把「多数模型都这么说」当成正确的理由，也不要为了达成一致删掉少数派。',
-          '如果证据不足或分歧无法裁决，明确说无法确定，并说明为什么。',
-          '只输出一个 JSON 对象：{"conclusion": string|null, "undetermined": boolean, "reason": string, "disagreement": string, "unresolved": string[]}'
-        ]
-      };
-      const answer = await this.options.ask(this.options.judgeAgentId, task);
-      const parsed = parseVerdictJson(answer.text);
+        system: [...system, ...extra]
+      });
+
+    try {
+      let attempts = 1;
+      let answer = await askOnce();
+      let parsed = parseVerdictJson(answer.text);
+      // 模型偶尔会先写分析、再忘了 JSON。给它一次「只输出 JSON」的机会，
+      // 不是把 prose 当 JSON 硬解析；两次都失败才退回规则版。
+      if (!parsed) {
+        attempts += 1;
+        answer = await askOnce([
+          '上一次输出不是可解析的 JSON。不要写 Markdown 代码块，不要解释，只输出一个 JSON 对象。'
+        ]);
+        parsed = parseVerdictJson(answer.text);
+      }
       if (!parsed) {
         return {
           ...base,
           backend: 'rules',
           judgeAgentId: null,
-          fallbackReason: '裁判模型的输出不是可解析的 JSON，已退回规则版'
+          judgeAttempts: attempts,
+          fallbackReason: `裁判模型连续 ${String(attempts)} 次输出不是可解析的 JSON，已退回规则版`
         };
       }
       return {
         ...base,
         backend: 'model',
         judgeAgentId: this.options.judgeAgentId,
+        judgeAttempts: attempts,
         sharedWith: this.options.sharedWith,
         conclusion: parsed.undetermined ? null : parsed.conclusion,
         undetermined: parsed.undetermined,
@@ -104,6 +119,7 @@ export class JudgeEngine {
         ...base,
         backend: 'rules',
         judgeAgentId: null,
+        judgeAttempts: 1,
         fallbackReason: `裁判模型调用失败（${error instanceof Error ? error.message : String(error)}），已退回规则版`
       };
     }

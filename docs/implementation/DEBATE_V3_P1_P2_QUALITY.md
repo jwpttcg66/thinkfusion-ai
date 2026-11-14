@@ -43,6 +43,10 @@
 
 - `judge:adjudicate` 在模型裁判结束后生成质量报告和 Final Judge 决策，
   作为 `JudgeVerdict` 的伴随字段 `quality` / `finalDecision` 一起落盘；
+- `JudgeEngine` 对“输出不是可解析 JSON”只重试一次，`judgeAttempts`
+  记录实际次数；两次都失败才退回规则版；
+- 退回规则版时，`logicalValidity` 标 `unknown`，不能把规则线索写成
+  “模型裁判论证质量”；
 - 老裁决记录没有这两个字段，读回时不补造；
 - 渲染层在裁决下方显示评估状态、事实维度、阻断项和最终处理方式。
 

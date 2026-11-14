@@ -163,8 +163,27 @@ test('独立模型给出合法 JSON 时走 model 后端', async () => {
   const verdict = await engine.judge(state([message('a', '甲方案'), message('b', '乙方案')]));
   assert.equal(verdict.backend, 'model');
   assert.equal(verdict.judgeAgentId, 'judge-model');
+  assert.equal(verdict.judgeAttempts, 1);
   assert.equal(verdict.conclusion, '采用条件重试');
   assert.equal(verdict.undetermined, false);
+});
+
+test('第一次输出不是 JSON 时重试一次，第二次合法就采用', async () => {
+  let calls = 0;
+  const engine = new JudgeEngine({
+    judgeAgentId: 'judge-model',
+    ask: async () => {
+      calls += 1;
+      return calls === 1
+        ? answer('我先分析一下，双方都有道理。')
+        : answer('{"conclusion":"采用条件重试","undetermined":false,"reason":"第二次只输出 JSON","disagreement":"触发条件","unresolved":[]}');
+    }
+  });
+  const verdict = await engine.judge(state([message('a', '甲方案'), message('b', '乙方案')]));
+  assert.equal(calls, 2);
+  assert.equal(verdict.backend, 'model');
+  assert.equal(verdict.judgeAttempts, 2);
+  assert.equal(verdict.conclusion, '采用条件重试');
 });
 
 test('兼任裁判必须明确标记 sharedWith', async () => {
@@ -188,6 +207,7 @@ test('模型输出不是 JSON 时退回规则版，并写明原因', async () =>
   });
   const verdict = await engine.judge(state([message('a', '甲方案'), message('b', '乙方案')]));
   assert.equal(verdict.backend, 'rules');
+  assert.equal(verdict.judgeAttempts, 2);
   assert.match(verdict.fallbackReason, /不是可解析的 JSON/);
 });
 
