@@ -286,7 +286,7 @@ if (detachedFrame) {
     true,
     { timeoutMs: 5000 }
   );
-  check('保存选择面板作为独立页面窗口的附属窗口打开', saveDialogOpened, true);
+  check('保存选择面板覆盖在放大页面原窗口内', saveDialogOpened, true);
   const saveDialogTarget = (await listTargets()).find(target => target.title === '保存网页对话');
   let saveDialogCdp = null;
   if (saveDialogTarget) {

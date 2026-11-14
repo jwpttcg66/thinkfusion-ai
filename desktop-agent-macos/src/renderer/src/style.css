@@ -34,6 +34,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html.detached-save-overlay,
+html.detached-save-overlay body,
+html.detached-save-overlay #root {
+  background: transparent;
+}
+
 button {
   font-family: inherit;
   border: 0;

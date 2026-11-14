@@ -366,21 +366,30 @@ test('执行主链路按插件 id 分派，不再有工具 switch', () => {
   const main = source('main/index.ts');
   assert.ok(main.includes("mainCapabilities.execute('document.export'"));
   assert.ok(main.includes("mainCapabilities.execute('page.save-document'"));
-  // 独立窗口的保存选择必须作为它的子窗口出现，不能把主窗口调到前台遮住原页面。
+  // 独立窗口的保存 UI 必须作为原窗口内的覆盖 WebContentsView，不再套一层子窗口。
   const detachedSaveStart = main.indexOf("ipcMain.handle('page:request-save-from-detached'");
   assert.notEqual(detachedSaveStart, -1);
   const detachedSaveEnd = main.indexOf("ipcMain.handle('page:focus-detached'", detachedSaveStart);
   const detachedSaveHandler = main.slice(detachedSaveStart, detachedSaveEnd);
-  assert.match(detachedSaveHandler, /openDetachedSaveWindow\(detached\.window, detached\.sourceId, raw\)/);
+  assert.match(detachedSaveHandler, /openDetachedSaveOverlay\(detached\.window, detached\.sourceId, raw\)/);
   assert.doesNotMatch(detachedSaveHandler, /win\.show\(\)|win\.focus\(\)|page:save-request/);
+  const overlayStart = main.indexOf('async function openDetachedSaveOverlay');
+  const overlayEnd = main.indexOf('/**\n * Pull a page out into its own window.', overlayStart);
+  const overlayCode = main.slice(overlayStart, overlayEnd);
+  assert.match(overlayCode, /new WebContentsView\(/);
+  assert.match(overlayCode, /parent\.contentView\.addChildView\(view\)/);
+  assert.match(overlayCode, /view\.setBounds\(\{\s*x:\s*0,\s*y:\s*0,\s*width:\s*Math\.max\(1, width\),\s*height:\s*Math\.max\(1, height\)/);
+  assert.match(overlayCode, /view\.setBackgroundColor\('#00000000'\)/);
+  assert.doesNotMatch(overlayCode, /new BrowserWindow|modal:\s*true/);
   const saveRenderer = source('renderer/src/detached-save.tsx');
   assert.ok(saveRenderer.includes("import { PageSaveDialog } from './components/PageSaveDialog'"));
   assert.ok(saveRenderer.includes("import './style.css'"));
   assert.ok(saveRenderer.includes('window.tfDetachedSave'));
+  assert.ok(saveRenderer.includes("classList.add('detached-save-overlay')"));
+  assert.ok(source('renderer/src/style.css').includes('html.detached-save-overlay #root'));
   assert.ok(main.includes("'../renderer/page-save.html'"));
   const vite = readFileSync(new URL('../electron.vite.config.ts', import.meta.url), 'utf8');
   assert.ok(vite.includes("src/renderer/page-save.html"));
-  assert.match(main, /parent,\s*modal:\s*true/);
   assert.match(main, /preload: path\.join\(__dirname, '\.\.\/preload\/detachedSave\.js'\)/);
   assert.ok(main.includes("ipcMain.handle('page:detached-save-preview'"));
   assert.ok(main.includes("ipcMain.handle('page:detached-save-document'"));
