@@ -79,6 +79,8 @@ export const StepResultSchema = z
     status: z.enum(['completed', 'failed', 'skipped']),
     verified: z.boolean(),
     result: z.unknown().optional(),
+    /** 这一步实际用的参数；contracts.StepResult 一直带着它，schema 以前漏了。 */
+    args: z.unknown().optional(),
     error: z.string().max(2000).optional(),
     durationMs: z.number().int().min(0)
   })
@@ -162,3 +164,29 @@ export const ExecutionReportSchema = z
   });
 
 export type ValidatedExecutionReport = z.infer<typeof ExecutionReportSchema>;
+
+/** 终端 IPC：只允许附加到已存在的会话，sessionId 来自任务事件，不接受路径。 */
+export const TerminalSessionIdSchema = z.string().min(1).max(80);
+
+export const TerminalWriteSchema = z
+  .object({
+    sessionId: TerminalSessionIdSchema,
+    /** 一次按键输入；粘贴大段文本也走这里，上限 64 KB。 */
+    data: z.string().max(65_536)
+  })
+  .strict();
+
+export const TerminalResizeSchema = z
+  .object({
+    sessionId: TerminalSessionIdSchema,
+    cols: z.number().int().min(20).max(400),
+    rows: z.number().int().min(5).max(200)
+  })
+  .strict();
+
+export const CliAgentToggleSchema = z
+  .object({
+    id: z.string().min(1).max(60),
+    enabled: z.boolean()
+  })
+  .strict();

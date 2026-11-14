@@ -30,6 +30,7 @@ import type {
   SubmitConversationInput
 } from './conversation';
 import type { TraceEntry, TraceTotals } from './trace';
+import type { CliAgentView, TerminalAttach, TerminalDataEvent } from './cli-agents';
 
 /**
  * desktop-agent/v1 wire + IPC contracts.
@@ -80,7 +81,14 @@ export const TOOL_NAMES = [
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
-  'web.fetch', 'web.search', 'code.run'
+  'web.fetch', 'web.search', 'code.run',
+  /**
+   * 把一个工程任务交给外部 CLI Agent（Qoder / Claude）执行。
+   *
+   * 它不是「又一个 shell.run」：进程自带工具循环，TaskGrant 拦不到它内部的
+   * 每一次读写与命令。因此只在 danger-full-access 下放行，见 assertGrant。
+   */
+  'agent.exec'
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -118,7 +126,9 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'clipboard.write', 'notify', 'process.kill', 'dns.lookup', 'web.fetch', 'web.search', 'code.run', 'code.team.run',
   'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
   'goal.create', 'goal.update', 'schedule.create', 'schedule.edit',
-  'team.spawn', 'team.task.create', 'team.task.update'
+  'team.spawn', 'team.task.create', 'team.task.update',
+  // 外部 Agent 会改文件、跑命令、访问网络；副作用远超单个 fs.* 工具。
+  'agent.exec'
 ];
 
 /** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */
@@ -269,6 +279,21 @@ export const StepSchema = z.discriminatedUnion('tool', [
       timeoutMs: z.number().int().min(1000).max(300_000).optional(),
       /** 放到后台跑，立刻返回作业 id；后续用 job.output / job.kill。 */
       background: z.boolean().optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('agent.exec'),
+    args: z.object({
+      /** CliAgentRegistry 里的稳定 id，例如 qoder / claude。 */
+      cli: z.string().min(1).max(60),
+      /** 交给这个 CLI 的任务原文；不再拼角色设定或格式话术。 */
+      task: z.string().min(1).max(20_000),
+      /** 相对授权工作区的目录；不给就是工作区根目录。必须是已创建 Worktree 或任务工作区。 */
+      cwd: RelativePath.optional(),
+      /** 单次执行上限；同时会被授权剩余时间截断。 */
+      timeoutMs: z.number().int().min(1000).max(1_800_000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
@@ -2260,6 +2285,19 @@ export interface AgentApi {
   /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
+
+  // CLI Agents — 执行者，不是回答通道
+  /** 安装/版本/可用性/开关；不包含任何密钥。 */
+  getCliAgents(): Promise<CliAgentView[]>;
+  setCliAgentEnabled(input: { id: string; enabled: boolean }): Promise<CliAgentView[]>;
+
+  // Terminal — 附加到 Runtime 里已经存在的 PTY 会话
+  attachTerminal(sessionId: string): Promise<TerminalAttach>;
+  writeTerminal(sessionId: string, data: string): Promise<void>;
+  resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
+  closeTerminal(sessionId: string): Promise<void>;
+  /** 主进程推送的终端增量；返回取消订阅函数。 */
+  onTerminalData(listener: (event: TerminalDataEvent) => void): () => void;
 
   // environment
   getPermissionPreset(): Promise<PermissionPreset>;

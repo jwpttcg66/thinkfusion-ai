@@ -22,7 +22,11 @@ import {
   RejectPlanSchema,
   RejectStepSchema,
   SubmitPromptSchema,
-  TaskIdSchema
+  TaskIdSchema,
+  CliAgentToggleSchema,
+  TerminalResizeSchema,
+  TerminalSessionIdSchema,
+  TerminalWriteSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
@@ -91,7 +95,8 @@ import {
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
-import { setAgentEventSink, setMainCallHandler, startAgentProcess } from './agent-manager';
+import { setAgentEventSink, setMainCallHandler, setTerminalSink, requestTerminal, startAgentProcess } from './agent-manager';
+import { configureCliAgents, listCliAgents, setCliAgentEnabled } from './cli-agents';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import {
   MIN_WINDOW_HEIGHT,
@@ -2701,6 +2706,40 @@ function registerIpc() {
     await orchestrator.cancel(TaskIdSchema.parse(taskId));
   });
 
+  // CLI Agent 是执行者，不是回答通道：这里的开关只影响新任务能不能选它。
+  ipcMain.handle('cli:list', event => {
+    trustedUiSender(event);
+    return listCliAgents();
+  });
+
+  ipcMain.handle('cli:set-enabled', (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = CliAgentToggleSchema.parse(raw);
+    return setCliAgentEnabled(input);
+  });
+
+  ipcMain.handle('terminal:attach', async (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    return requestTerminal('attach', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
+  });
+
+  ipcMain.handle('terminal:write', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = TerminalWriteSchema.parse(raw);
+    await requestTerminal('write', input);
+  });
+
+  ipcMain.handle('terminal:resize', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = TerminalResizeSchema.parse(raw);
+    await requestTerminal('resize', input);
+  });
+
+  ipcMain.handle('terminal:close', async (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    await requestTerminal('close', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
+  });
+
   ipcMain.handle('task:answer', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = ClarificationAnswerSchema.parse(raw);
@@ -4322,6 +4361,8 @@ app.whenReady().then(async () => {
   // Runtime 在每次 task.run 时随消息收到同一份列表。
   capabilityStore = new CapabilityStore(path.join(app.getPath('userData'), 'capabilities.json'));
   setDisabledCapabilities(capabilityStore.disabledIds());
+  // CLI 执行者的配置与开关：注册表读 userData，每次 task.run 下发快照。
+  configureCliAgents({ userDataDir: app.getPath('userData') });
   // 开发态从项目 resources/ 读；打包后这些 .md 由 extraResources 放到
   // Contents/Resources/expertise/，两个候选都列上，哪个先找到用哪个。
   expertiseUserDir = path.join(app.getPath('userData'), 'expertise');
@@ -4711,6 +4752,10 @@ app.whenReady().then(async () => {
   registerIpc();
   startAgentProcess();
   setAgentEventSink(event => emit(event));
+  // 终端输出从 Runtime 一路推到主窗口；主进程只转发，不解析内容。
+  setTerminalSink(event => {
+    if (win && !win.isDestroyed()) win.webContents.send('terminal:data', event);
+  });
 
   /**
    * Runtime 拿不到会话库、设置状态与定时存储。这里的桥只认显式登记的能力，

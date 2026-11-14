@@ -254,6 +254,35 @@ export function createMockApi(): AgentApi {
     cancelTask: async () => undefined,
     answerClarification: async () => undefined,
     deleteTask: async () => undefined,
+    getCliAgents: async () => [
+      {
+        id: 'qoder',
+        label: 'Qoder CLI',
+        command: 'qoder',
+        args: ['-p', '{task}', '--output-format', 'json'],
+        headless: 'unverified',
+        enabled: true,
+        detected: false,
+        executable: null,
+        version: null,
+        available: false,
+        reason: '预览模式没有本机 CLI'
+      }
+    ],
+    setCliAgentEnabled: async () => [],
+    attachTerminal: async sessionId => ({
+      sessionId,
+      cols: 120,
+      rows: 30,
+      backlog: '预览模式没有真实终端\n',
+      cursor: 10,
+      dropped: 0,
+      exited: false
+    }),
+    writeTerminal: async () => undefined,
+    resizeTerminal: async () => undefined,
+    closeTerminal: async () => undefined,
+    onTerminalData: () => () => undefined,
     getPermissionPreset: async () => preset,
     setPermissionPreset: async (next: PermissionPreset) => {
       preset = next;

@@ -121,6 +121,22 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   const completedWrites = writes.filter(item => item.status === 'completed');
   const failedWrites = writes.filter(item => item.status === 'failed');
 
+  // 外部 CLI 的写操作不会以 fs.writeFile 出现：它自己改文件，我们只在运行
+  // 前后各取一次 git status，把差集当作「改过」的事实。少了这一段，一个把
+  // 代码改完却没跑测试的 CLI 任务会被判成「没有写操作，无需验证」。
+  const externalChanged = [
+    ...new Set(
+      results
+        .filter(item => item.tool === 'agent.exec' && item.status === 'completed')
+        .flatMap(item => {
+          const result = item.result as { changedPaths?: unknown } | null;
+          return Array.isArray(result?.changedPaths)
+            ? result.changedPaths.filter((value): value is string => typeof value === 'string')
+            : [];
+        })
+    )
+  ].sort();
+
   const checks: VerificationChecks = {
     compile: lastCommand(results, command => command !== undefined && COMPILE_COMMAND.test(command)),
     tests: lastCommand(results, command => command === undefined || !COMPILE_COMMAND.test(command)),
@@ -128,11 +144,12 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     changedFiles: []
   };
 
-  const changedPaths = [...new Set(
-    completedWrites
+  const changedPaths = [...new Set([
+    ...completedWrites
       .map(item => (item.args as { path?: unknown } | undefined)?.path)
-      .filter((value): value is string => typeof value === 'string')
-  )];
+      .filter((value): value is string => typeof value === 'string'),
+    ...externalChanged
+  ])].sort();
   checks.changedFiles = changedPaths;
 
   const anyCheckPassed =
@@ -144,11 +161,21 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   if (failedWrites.length > 0) {
     reasons.push(`${String(failedWrites.length)} 个写操作失败：本轮不能算已验证`);
   }
+  if (externalChanged.length > 0 && !anyCheckPassed) {
+    reasons.push(
+      `外部 Agent 改了 ${String(externalChanged.length)} 个文件，但没有独立的测试或诊断：本轮不能算已验证`
+    );
+  }
   if (completedWrites.length > 0 && !anyCheckPassed) {
     reasons.push('改了文件但没有成功的测试或诊断：本轮不能算已验证');
   }
-  if (completedWrites.length === 0 && failedWrites.length === 0) {
+  if (completedWrites.length === 0 && failedWrites.length === 0 && externalChanged.length === 0) {
     reasons.push('本轮没有写操作，无需验证');
+  }
+  if (externalChanged.length > 0) {
+    reasons.push(
+      `外部 Agent 的改动路径来自运行前后 git status 的差集（${externalChanged.slice(0, 8).join('、')}${externalChanged.length > 8 ? ' 等' : ''}）`
+    );
   }
   if (checks.compile.status === 'failed') {
     reasons.push(`编译检查失败（${checks.compile.command ?? 'test.run'}，退出码 ${String(checks.compile.exitCode ?? '未知')}）`);
@@ -164,11 +191,12 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     );
   }
 
+  const wroteAnything = completedWrites.length > 0 || externalChanged.length > 0;
   return {
-    verified: failedWrites.length === 0 && (completedWrites.length === 0 || anyCheckPassed),
+    verified: failedWrites.length === 0 && (!wroteAnything || anyCheckPassed),
     reasons,
-    // 兼容旧报告：这是「成功写了几次」；去重后的文件清单在 changedPaths。
-    changedFiles: completedWrites.length,
+    // 兼容旧报告：这是「成功写了几次」；外部 Agent 按改动文件数计。
+    changedFiles: completedWrites.length + externalChanged.length,
     changedPaths,
     checks
   };

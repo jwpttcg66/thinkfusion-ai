@@ -5,6 +5,8 @@ import { ExecutionReportSchema } from '../shared/schemas';
 import { searchInBrowser } from './browser-search';
 import { mainCapabilities, type BrowserSearchOutcome } from './capabilities';
 import { disabledCapabilities } from './capability-state';
+import type { CliAgentConfig, TerminalDataEvent } from '../shared/cli-agents';
+import { cliAgentSnapshot } from './cli-agents';
 
 interface PendingRun {
   resolve: (report: ExecutionReport) => void;
@@ -15,6 +17,24 @@ interface PendingRun {
 let child: UtilityProcess | null = null;
 let sendToUi: ((event: AgentEvent) => void) | null = null;
 const pendingRuns = new Map<string, PendingRun>();
+
+/**
+ * CLI Agent 配置快照的来源。
+ *
+ * 默认从注册表取；测试或脚本可以直接注入，避免为了跑一个 fake CLI 还要
+ * 起一个 Electron userData 目录。
+ */
+let cliAgentsProvider: () => CliAgentConfig[] = () => {
+  try {
+    return cliAgentSnapshot();
+  } catch {
+    return [];
+  }
+};
+
+export function setCliAgentsProvider(provider: () => CliAgentConfig[]) {
+  cliAgentsProvider = provider;
+}
 
 /**
  * 逐次审批的现场。
@@ -47,6 +67,36 @@ function clearTaskApprovals(taskId: string) {
 
 export function setAgentEventSink(sink: (event: AgentEvent) => void) {
   sendToUi = sink;
+}
+
+/**
+ * 终端输出流与终端请求的桥。
+ *
+ * 终端本身跑在 Runtime（node-pty 在那边已经验证过 ABI）；主进程只转发：
+ * 请求带 requestId，回包按 requestId 对上，输出按 sessionId 推给界面。
+ * 主进程不持有 PTY，也不解析终端内容。
+ */
+type TerminalSink = (event: TerminalDataEvent) => void;
+let terminalSink: TerminalSink | null = null;
+const terminalWaiters = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+let terminalSeq = 0;
+
+export function setTerminalSink(sink: TerminalSink) {
+  terminalSink = sink;
+}
+
+export function requestTerminal(op: 'attach' | 'write' | 'resize' | 'close' | 'list', args: Record<string, unknown>): Promise<unknown> {
+  if (!child) return Promise.reject(new Error('Agent Runtime 未启动，终端不可用'));
+  terminalSeq += 1;
+  const requestId = `term-${Date.now().toString(36)}-${terminalSeq}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      terminalWaiters.delete(requestId);
+      reject(new Error(`终端请求超时（${op}）`));
+    }, 10_000);
+    terminalWaiters.set(requestId, { resolve, reject, timer });
+    child?.postMessage({ type: 'terminal.request', requestId, op, args });
+  });
 }
 
 /**
@@ -86,6 +136,29 @@ export function startAgentProcess() {
       clearTimeout(pending.timer);
       if (parsed.success) pending.resolve(parsed.data as ExecutionReport);
       else pending.reject(new Error(`Runtime 返回的执行报告无效：${parsed.error.message}`));
+      return;
+    }
+
+    if (typed.type === 'terminal.data') {
+      const sessionId = String(typed.sessionId ?? '');
+      if (!sessionId) return;
+      terminalSink?.({
+        sessionId,
+        data: typeof typed.data === 'string' ? typed.data : '',
+        dropped: Number(typed.dropped) || 0,
+        exited: typed.exited === true,
+        ...(typeof typed.exitCode === 'number' ? { exitCode: typed.exitCode } : {})
+      });
+      return;
+    }
+
+    if (typed.type === 'terminal.result') {
+      const waiter = terminalWaiters.get(String(typed.requestId));
+      if (!waiter) return;
+      terminalWaiters.delete(String(typed.requestId));
+      clearTimeout(waiter.timer);
+      if (typed.ok === true) waiter.resolve(typed.result);
+      else waiter.reject(new Error(typeof typed.error === 'string' ? typed.error : '终端操作失败'));
       return;
     }
 
@@ -194,6 +267,12 @@ export function startAgentProcess() {
       pendingRuns.delete(taskId);
       clearTaskApprovals(taskId);
     }
+    // 终端请求也在等一个再也不会来的回包；一并按失败收尾。
+    for (const [requestId, waiter] of terminalWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error('Agent Runtime 已退出，终端不可用'));
+      terminalWaiters.delete(requestId);
+    }
     // 没有 pendingRun 的等待（理论上不该有）也一并清掉，避免下一次执行复用脏状态。
     pendingSteps.clear();
     remembered.clear();
@@ -224,8 +303,13 @@ export function runPlan(
 
   return new Promise<ExecutionReport>((resolve, reject) => {
     const timer = setTimeout(() => {
+      if (!pendingRuns.has(taskId)) return;
+      // 超时不能只「停止等待」：Runtime 里的进程还在跑，外部 CLI 可能正在改
+      // 文件。先让 Runtime 真的取消，再拒绝这一轮。
+      child?.postMessage({ type: 'task.cancel', taskId });
       pendingRuns.delete(taskId);
-      reject(new Error('Runtime 执行超时，已停止等待'));
+      clearTaskApprovals(taskId);
+      reject(new Error('Runtime 执行超时：已取消本轮并终止外部进程'));
     }, timeoutMs);
 
     pendingRuns.set(taskId, { resolve, reject, timer });
@@ -239,9 +323,24 @@ export function runPlan(
       dbPath,
       ...(ids.conversationId ? { conversationId: ids.conversationId } : {}),
       // 开关只对这次执行生效；运行中的计划不会被中途改掉。
-      disabledCapabilities: disabledCapabilities()
+      disabledCapabilities: disabledCapabilities(),
+      // CLI 配置同样只对这次执行生效；Runtime 读不到 userData。
+      cliAgents: cliAgentsProvider()
     });
   });
+}
+
+/**
+ * 用户取消正在执行的任务。
+ *
+ * 以前取消只改界面状态：Runtime 的 for 循环继续跑，外部 CLI 也继续跑。
+ * 有了 CLI 之后这会留下一个还在改文件的进程，所以必须显式下发。
+ */
+export function cancelPlan(taskId: string): boolean {
+  if (!child) return false;
+  if (!pendingRuns.has(taskId)) return false;
+  child.postMessage({ type: 'task.cancel', taskId });
+  return true;
 }
 
 /**

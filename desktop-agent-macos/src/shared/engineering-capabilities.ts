@@ -181,6 +181,7 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
     tools: [
       'shell.run', 'job.list', 'job.output', 'job.kill', 'code.run', 'test.run',
       'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
+      'agent.exec',
       'screen.capture', 'app.open', 'process.kill', 'clipboard.read',
       'clipboard.write', 'notify', 'system.info'
     ],

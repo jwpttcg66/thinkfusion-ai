@@ -20,7 +20,7 @@ import { checkCodingBudget } from '../shared/coding-workflow';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
-import { runPlan, decideStepApproval, answerStepQuestion } from './agent-manager';
+import { runPlan, decideStepApproval, answerStepQuestion, cancelPlan } from './agent-manager';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
 
@@ -225,13 +225,25 @@ export class AgentOrchestrator {
 
     let report: ExecutionReport;
     try {
-      report = await runPlan(plan, grant, this.deps.dbPath(), task.timeoutMs, {
+      report = await runPlan(plan, grant, this.deps.dbPath(), this.planTimeout(task.timeoutMs, plan), {
         roundId: stored.roundId,
         planId: stored.planId,
         ...(task.conversationId ? { conversationId: task.conversationId } : {})
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // 用户取消后，Runtime 的拒绝是预期结果：不能再从 cancelled 迁到 failed，
+      // 否则取消操作会以「状态流转非法」的错误收场。
+      if (this.tasks.get(task.taskId).status === 'cancelled') {
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: task.taskId,
+          level: 'warn',
+          message: `执行已按用户取消结束：${message}`
+        });
+        return;
+      }
       this.tasks.transition(task.taskId, 'failed', { error: message });
       this.deps.emit({ type: 'task.failed', at: Date.now(), taskId: task.taskId, error: message });
       throw error;
@@ -246,6 +258,10 @@ export class AgentOrchestrator {
     } catch {
       // 轨迹是旁路：记录失败不能让已经完成的执行看起来失败。
     }
+
+    // 取消发生在执行过程中时，报告仍然要落库（轨迹与证据不能丢），但状态
+    // 已经由 cancel() 置为 cancelled，不能再走 verifying / report_pending。
+    if (TERMINAL.includes(this.tasks.get(task.taskId).status)) return;
 
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论，下一轮计划仍要用户重新批准。
@@ -352,8 +368,23 @@ export class AgentOrchestrator {
     const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
     if (round) this.adapter.cancelWait(round.requestId);
 
+    // 取消要传到 Runtime：否则它还在跑计划，外部 CLI 也还在改文件。
+    cancelPlan(taskId);
+
     this.tasks.transition(taskId, 'cancelled', { error: '用户取消任务' });
     this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId });
+  }
+
+  /**
+   * 一份计划的执行预算。
+   *
+   * CLI 任务的单步上限是 30 分钟，而普通任务的 180 秒是给本地工具准备的。
+   * 这里只对含 agent.exec 的计划放宽，且不会超过授权本身的 30 分钟：
+   * 真正的硬边界仍是 grant.expiresAt（`agent.exec` 自己会按剩余时间截断）。
+   */
+  private planTimeout(base: number, plan: AgentPlan): number {
+    if (!plan.steps.some(step => step.tool === 'agent.exec')) return base;
+    return Math.max(base, 31 * 60 * 1000);
   }
 
   async answerClarification(input: { taskId: string; answer: string }): Promise<void> {
