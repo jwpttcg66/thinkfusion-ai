@@ -1,0 +1,442 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "kimi-k2.7-code"
+  ],
+  "judgeRotation": [
+    "deepseek",
+    "gpt",
+    "kimi"
+  ],
+  "createdAt": "2026-11-14T05:15:10.751Z",
+  "summary": {
+    "total": 3,
+    "execution": {
+      "COMPLETED": 3
+    },
+    "completed": 3,
+    "judgeModel": 3,
+    "independent": 3,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 3
+    },
+    "factual": {
+      "model-assessed": 3
+    },
+    "anchors": {
+      "checked": 0,
+      "hit": 0
+    },
+    "byStrategy": {
+      "expert": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 151193
+      },
+      "solution": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 198220
+      },
+      "discovery": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 110256
+      }
+    },
+    "structuralOk": true
+  },
+  "results": [
+    {
+      "id": "cache-invalidation",
+      "category": "Caching",
+      "strategy": "expert",
+      "question": "缓存一致性为什么难？常见的失效策略有哪些，各自适合什么场景？",
+      "judge": {
+        "agentId": "kimi",
+        "modelId": "kimi-k2.7-code",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 6462,
+          "outputTokens": 1148,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 17436
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 151193,
+        "durationSec": 151,
+        "usage": [
+          {
+            "agentId": "gpt",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 148,
+            "outputTokens": 2348
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 135,
+            "outputTokens": 4545
+          },
+          {
+            "agentId": "gpt",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 4061,
+            "outputTokens": 1517
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3475,
+            "outputTokens": 6007
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 16 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "缓存一致性难，本质是缓存副本与权威数据源分离，写操作和失效/更新操作通常不能原子完成，中间存在并发竞态、通知丢失/延迟/乱序、多级缓存与多写路径等窗口。CPU 多核缓存一致性与应用层缓存一致性是不同层次的问题：前者由硬件协议（如 MESI/目录协议）和内存模型保证，难点在可扩展性与内存序；后者才是常见‘失效策略’讨论的对象。工程上没有 universally optimal 的失效策略，选择应基于业务可接受的不一致窗口、一致性语义（最终一致/读己写/线性一致）、写入频率、缓存层级、故障模型和运维能力。一般读多写少且可容忍短暂陈旧的场景，Cache-Aside + TTL 是常见起点；多写路径或多级缓存场景，可靠的事件通知/CDC + 幂等重试更合适；强一致场景不能依赖普通异步失效，需要版本校验、租约、分布式锁或绕过缓存直接读权威源。",
+        "unresolvedDisputes": [
+          "## 为什么难？",
+          "## 怎么选？",
+          "## 回答原问题：缓存一致性为什么难？",
+          "题目未限定是 CPU 缓存还是应用层缓存，后者才涉及常见失效策略。",
+          "未给出业务可接受的数据陈旧时间窗口。",
+          "未明确是否需要读己写、顺序一致或线性一致。",
+          "未说明写入频率、缓存规模、缓存层级（本地/远程/多级）和命中率要求。",
+          "未说明写入路径数量：单服务写入还是多服务/多入口写入。",
+          "未给出故障模型：网络分区、缓存节点宕机、消息丢失/重复/乱序、主从延迟等。",
+          "未说明可接受的运维复杂度、开发改造成本和性能损失。",
+          "所有策略在实际系统中的真实表现（不一致窗口、恢复行为、吞吐延迟）都需要针对具体实现做故障注入和压测，无法从概念层面唯一确定。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "judge": {
+        "agentId": "gpt",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 10742,
+          "outputTokens": 808,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10661
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 198220,
+        "durationSec": 198,
+        "usage": [
+          {
+            "agentId": "kimi",
+            "modelId": "kimi-k2.7-code",
+            "inputTokens": 109,
+            "outputTokens": 3218
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 125,
+            "outputTokens": 5970
+          },
+          {
+            "agentId": "kimi",
+            "modelId": "kimi-k2.7-code",
+            "inputTokens": 4330,
+            "outputTokens": 5471
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 4533,
+            "outputTokens": 8803
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "没有脱离故障模型和配置的绝对“不丢消息”。可行目标是：在明确的故障范围和消息保留期内，已被 Broker 持久化确认的消息不丢；消费采用至少一次语义，业务通过幂等、死信处理和对账兜底。生产端应等待明确的 Broker 确认，处理失败并重试，必要时用本地消息表或 Outbox/CDC 补足业务写库与发消息之间的缺口。存储端应按所用 MQ 配置多副本、合适的持久化和确认策略，并避免选举出落后副本；保留期应覆盖最长预期消费延迟。消费端应在业务处理成功后提交 ACK/offset，结合幂等或 Inbox 去重，监控重试和死信队列。生产、存储、消费环节的主要丢失点分别是：未确认就丢弃发送、异步缓冲或重试耗尽；未刷盘、副本不足或落后副本接管、误删或保留期清理；先确认后处理、错误提交 offset、重试耗尽或消费积压超过保留期。",
+        "unresolvedDisputes": [
+          "| 「Pulsar 采用分层存储 + BookKeeper，在持久化上有不同取舍」 | 过于模糊 | 「不同取舍」没有具体说明：是写入延迟与存储成本的取舍？",
+          "还是 BookKeeper 的 ensemble 大小与持久化的取舍？",
+          "未指定具体消息队列及其 ACK、复制、刷盘和提交语义，无法给出可直接照搬的参数。",
+          "未指定要容忍的故障范围、RPO、吞吐量、延迟目标和消息保留期，无法判断所需副本数及持久化级别。",
+          "未说明业务操作是否可幂等、是否涉及多个外部系统；这会影响 Outbox、Inbox、事务和对账方案的选择。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "distributed-lock",
+      "category": "Distributed Systems",
+      "strategy": "discovery",
+      "question": "分布式锁需要满足哪些条件？Redis 锁有什么风险，如何避免锁过期后误删别人的锁？",
+      "judge": {
+        "agentId": "kimi",
+        "modelId": "kimi-k2.7-code",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4882,
+          "outputTokens": 974,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 14915
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 110256,
+        "durationSec": 110,
+        "usage": [
+          {
+            "agentId": "gpt",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 134,
+            "outputTokens": 1523
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 121,
+            "outputTokens": 5360
+          },
+          {
+            "agentId": "gpt",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3645,
+            "outputTokens": 1694
+          },
+          {
+            "agentId": "deepseek",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3231,
+            "outputTokens": 1905
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 5 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "分布式锁的条件没有唯一最优答案，需按‘效率锁’还是‘正确性锁’分层设计。基础要求是互斥、无死锁、所有权可识别、可续期/可释放、可观测；若保护的是资金/库存等强一致性资源，还需业务端 fencing token 或资源端 CAS/版本号校验。Redis 锁的风险包括：异步主从切换导致锁记录丢失、锁过期后旧持有者仍在写、误删他人锁、续期误续、客户端长时间暂停破坏互斥。避免误删别人的锁，公认做法是每次加锁生成唯一 token（如 UUID），释放/续期时使用 Lua 脚本原子比较 token 相等才执行 DEL/PEXPIRE；但这只解决误删，不解决旧持有者过期后继续写数据的问题，后者必须靠 fencing token 或业务端幂等/CAS 兜底。",
+        "unresolvedDisputes": [
+          "## 分布式锁需要满足什么条件？",
+          "4. **故障与分区下行为明确**：单点故障、主从切换、网络分区时，是可能短暂双持有，还是拒绝服务？",
+          "## 分布式锁需要满足哪些条件？",
+          "## Redis 锁怎么做，如何防止误删？",
+          "## Redis 锁还有哪些风险？",
+          "未说明锁保护的具体资源类型（效率型去重 vs 资金/库存等强一致性资源），因此无法给出单一的最简实现。",
+          "未说明可接受的故障模型（是否容忍主从切换、客户端暂停、网络分区），因此无法判定 Redis 单实例、Redlock 还是 etcd/ZooKeeper/数据库约束更合适。",
+          "未说明是否已实现唯一 token、Lua 释放/续期、看门狗续期，因此无法判断当前代码是否存在误删风险。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "anchor": null,
+      "error": null
+    }
+  ]
+}

@@ -114,7 +114,20 @@
 `DEBATE_TECH_FACT_BASELINE_V1.md`，机器可读版本在
 `desktop-agent-macos/scripts/regression/debate-standard-answers-v1.json`。
 
-## 6. 这些结果能说明什么
+## 6. 标准 V1 重跑（3 道 redo 题）
+
+用 V1 标准重跑了 3 道原来 `inconclusive` 的题：
+
+| 题目 | 旧 | 新 |
+| --- | --- | --- |
+| `cache-invalidation` | `inconclusive` | `passed`，`questionType = CONTEXTUAL` |
+| `mq-delivery` | `inconclusive` | `passed`，`questionType = CONTEXTUAL` |
+| `distributed-lock` | `inconclusive` | `passed`，`questionType = CONTEXTUAL` |
+
+三题都是 `undetermined = false`，给出了条件、边界和推荐方案；`factualAccuracy`
+仍然是 `model-assessed`。明细和对比见 `DEBATE_STANDARD_V1_RERUN.md`。
+
+## 7. 这些结果能说明什么
 
 能说明：
 
@@ -134,7 +147,7 @@
 - 单一 Provider 下模型多样性等于故障域独立；
 - 自动质量通过等于 `PRODUCTION_READY`。
 
-## 7. 复现
+## 8. 复现
 
 ```bash
 cd desktop-agent-macos
