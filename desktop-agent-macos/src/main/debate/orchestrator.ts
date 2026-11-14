@@ -565,8 +565,8 @@ function phaseFor(index: number): DebatePhase {
   return index === 0 ? 'analysis' : index === 1 ? 'challenge' : 'response';
 }
 
-/** 单次调用 60 秒、同时问 3 位，是任务书第 10 节的默认值，不是硬编码常量。 */
-const DEFAULT_STAGE_TIMEOUT_MS = 60_000;
+/** 云端真实模型长回答会超过 60 秒；默认 180 秒，仍可由 config.budget 覆盖。 */
+const DEFAULT_STAGE_TIMEOUT_MS = 180_000;
 const DEFAULT_CONCURRENCY = 3;
 
 function debateOutcome(state: DebateState): DebateState['outcome'] {

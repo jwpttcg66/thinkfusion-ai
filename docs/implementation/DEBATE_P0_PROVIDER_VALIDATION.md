@@ -1,66 +1,58 @@
-# Debate P0 Provider 验证
+# Debate P0 Provider 验证（用户配置模型）
 
 - 日期：2026-11-14
 - Provider：`opencode-go`
-- Base URL：`https://opencode.ai/inference/go/openai/v1`
-- Key：仅存在本机密文库，未写入本文件。
+- 用户设置中选择的模型：
+  - `deepseek-v4.1-flash`
+  - `gpt-6-luna`
+  - `kimi-k2.7-code`
+- Key：只在本机密文库，未写入报告。
 
-## 1. 模型连通性
+## 1. 连通性
 
-| 模型 | 状态 | 说明 |
-| --- | --- | --- |
-| `deepseek-v4.1-flash` | 200 | 可用于辩论 |
-| `glm-5.3` | 200 | 可用于辩论；长回答可能触发 60–120s 超时 |
-| `claude-haiku-5-5` | 200 | 响应较快 |
-| `qwen3.8-max` | 200 | 已连通，本轮未用于辩论 |
-| `gpt-5.6-luna` | 400 | 测试请求把 max tokens 设得过小；不是模型不可用 |
+三个配置模型均返回 200：
 
-结论：
+| 模型 | 状态 |
+| --- | --- |
+| `deepseek-v4.1-flash` | 200 |
+| `gpt-6-luna` | 200 |
+| `kimi-k2.7-code` | 200 |
 
-- **同一 Provider 下至少 3 个模型可用**；
-- 模型多样性满足 P0 双/三模型的基础验证；
-- **只有 1 个 Provider**，因此不能声称“两个 Provider 故障域独立”。
+另外 `glm-5.3`、`qwen3.8-max` 也连通，但不是用户当前勾选的模型。
 
-## 2. 真实三模型辩论
+## 2. 三模型真实辩论
 
 运行：
 
 ```bash
 npm run build:test
-./node_modules/.bin/electron scripts/spikes/debate-cloud-real.cjs --no-sandbox
+./node_modules/.bin/electron scripts/spikes/debate-cloud-configured.cjs --no-sandbox
 ```
 
-模型：
+- 三个模型全部参与；
+- 每种策略 2 轮；
+- 消息已记录 `providerId/modelId/usage`。
 
-- `deepseek-v4.1-flash`
-- `glm-5.3`
-- `claude-haiku-5-5`
+三模型 `truth` 结果：
 
-结果：
+- 2 轮、6 条发言；
+- 角色 proposer / peer；
+- 无失败；
+- 实际 usage 已落盘（输入约 139–4418 token/条，输出约 1701–4142 token/条）。
 
-- strategy：`truth`
-- rounds：2
-- messages：5
-- failures：`glm-5.3` 在第二轮超过单次调用时限 60 秒
-- status：completed（单条失败被记录，不阻塞其他模型）
-- duration：约 85 秒
+## 3. 超时
 
-这说明：
+默认单次调用时限已从 60 秒调整为 **180 秒**，因为真实云端长回答会超过 60 秒；仍可由 `DebateConfig.budget.stageTimeoutMs` 覆盖。
 
-- `DebateOrchestrator` 能真实调用同一 Provider 下的多个模型；
-- 角色（proposer / peer）和两轮链路正常；
-- 单模型超时会进入 `round.failures`，不会让整场崩掉；
-- 但该场不是完整的三模型两轮，不能当“三模型完整通过”。
+在 180 秒下：
 
-## 3. 仍需补的 Provider 能力
-
-- 第二个 Provider 的真实 Key；
-- 各模型的 context window / max output 实测；
-- 失败重试与超时阈值按模型校准；
-- Token 用量落盘（当前 `DebateMessage` 不保存 usage，只有 `SubAgentAnswer` 有）；
-- 流式 Tool Calling 与辩论链路无关，本轮不要求。
+- 5/6 策略完整两轮；
+- `assumption` 一次 kimi 超时，报告为 `PARTIAL`；
+- 同策略把阶段预算提高到 300 秒后复测：2 轮、6 条发言、无失败，`COMPLETED`。
 
 ## 4. 结论
 
-`SINGLE_PROVIDER + 3 MODELS`：**PARTIAL PASS**。  
-`TWO_PROVIDERS`：**BLOCKED**（没有第二个 Key，不能伪造）。
+- 用户配置的三个模型都可真实调用；
+- 单 Provider + 三个模型满足 P0 的模型多样性；
+- 仍不满足“两个独立 Provider 故障域”；
+- `assumption` 在 180 秒下不稳定，需要按模型/策略继续校准超时或重试。

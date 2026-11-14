@@ -1,37 +1,43 @@
-# Debate P0 六种策略真实运行
+# Debate P0 六种策略真实运行（用户配置模型）
 
 - 日期：2026-11-14
 - Provider：`opencode-go`
-- 模型：`deepseek-v4.1-flash`、`claude-haiku-5-5`
-- 运行：`./node_modules/.bin/electron scripts/spikes/debate-cloud-strategies.cjs --no-sandbox`
-- 每策略：2 轮，cloud 主导，stageTimeout 120s
+- 模型：`deepseek-v4.1-flash`、`gpt-6-luna`、`kimi-k2.7-code`
+- 每策略：2 轮、三模型、cloud 主导
+- 运行：`debate-cloud-configured.cjs`
 
 ## 结果
 
-| 策略 | 状态 | 轮数 | 消息 | 角色 | 失败 |
+180 秒阶段预算：
+
+| 策略 | outcome | 轮数 | 消息 | 角色 | 失败 |
 | --- | --- | --- | --- | --- | --- |
-| truth | completed | 2 | 4 | proposer/peer | 无 |
-| adversarial | completed | 2 | 3 | proposer/critic | deepseek 一次超时 |
-| expert | completed | 2 | 4 | domain_expert | 无 |
-| assumption | completed | 2 | 4 | proposer/evidence_reviewer | 无 |
-| solution | completed | 2 | 3 | proposer/critic | deepseek 一次超时 |
-| discovery | completed | 2 | 4 | peer | 无 |
+| truth | COMPLETED | 2 | 6 | proposer/peer | 无 |
+| adversarial | COMPLETED | 2 | 6 | proposer/critic | 无 |
+| expert | COMPLETED | 2 | 6 | domain_expert | 无 |
+| assumption | PARTIAL | 2 | 5 | proposer/evidence_reviewer | kimi 超时 |
+| solution | COMPLETED | 2 | 6 | proposer/critic | 无 |
+| discovery | COMPLETED | 2 | 6 | peer | 无 |
+
+`assumption` 单独把阶段预算提高到 300 秒复测：
+
+- outcome：`COMPLETED`
+- 轮数：2
+- 消息：6
+- 失败：无
+- usage：三模型每轮均有 input/output token 记录
 
 ## 结论
 
-- 六种策略都能真实进入 `DebateOrchestrator`，不是只有 Prompt 存在；
-- 4/6 策略完成双模型两轮；
-- `adversarial` / `solution` 各有一条模型超时，只有单边有效发言，不能判为“双模型完整通过”；
-- 角色确实随策略变化：
-  - expert → domain_expert；
-  - assumption → proposer / evidence_reviewer；
-  - adversarial / solution → proposer / critic；
-  - discovery → peer。
-- **没有做人工质量评分**，不能判 PASS；当前只能判 `PARTIAL`。
+- 六种策略都真实进入 `DebateOrchestrator`；
+- 六种策略都至少完成过一次三模型两轮；
+- 5/6 在 180 秒内稳定完成；`assumption` 需要更高超时或重试策略；
+- 角色确实随策略变化；
+- 没有人工质量评分，不能把“完成”写成“质量 PASS”。
 
 ## 仍需
 
-- 对 adversarial / solution 换更快模型或提高 stage timeout 后复测；
-- 记录每场真实 token/usage（当前 `DebateMessage` 未落盘 usage）；
-- 24 题人工标注集；
-- 人工盲评。
+- 对 `assumption` 做重复运行，确认 300 秒是否稳定；
+- 根据模型响应时间校准默认超时，而不是全用 300 秒；
+- 补 24 题自动测试集；
+- P1 自动质量评估仍不能替代事实核验。
