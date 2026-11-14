@@ -1,0 +1,1976 @@
+{
+  "schema": "thinkfusion.tech-fact-regression/v1",
+  "version": "1.0.0",
+  "reviewedBy": "user",
+  "reviewedAt": "2026-11-14",
+  "note": "24 道题的人工复核基线。分类和必答主张来自用户逐条审查；这是技术知识基线，不是对所有世界事实的自动核验。",
+  "classificationRule": {
+    "FACT": "稳定、可验证的客观事实；必须给出明确结论。",
+    "CONTEXTUAL": "依赖场景或约束的技术决策；必须给条件、边界和推荐方案。",
+    "INSUFFICIENT": "缺少必要信息且没有成熟默认框架；必须指出缺失信息及其影响。"
+  },
+  "scoring": {
+    "scale": "0-100",
+    "weights": {
+      "requiredClaims": 70,
+      "boundaries": 20,
+      "noWrongClaims": 10
+    },
+    "rules": [
+      "任一 must 级 requiredClaim 缺失：最高 69。",
+      "任一 major wrongClaim 出现：最高 39。",
+      "CONTEXTUAL 题只给结论、不给条件/边界：最高 65。",
+      "FACT 题把可验证事实说错：最高 39。",
+      "INSUFFICIENT 题缺少必要信息却强行给结论：最高 30。",
+      "允许不同表达，只要语义覆盖 requiredClaim；不按字面匹配。"
+    ]
+  },
+  "sha256": "1640fd30617bd74de0af24471b77f2723d6ed138053180defdedf7133d7148d3",
+  "questions": [
+    {
+      "id": "float-equality",
+      "category": "JavaScript",
+      "strategy": "truth",
+      "question": "JavaScript 中 0.1 + 0.2 === 0.3 的结果是什么？为什么？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "结果正确，可以保留。"
+      },
+      "standardFacts": [
+        "在 ECMAScript 的 Number（IEEE 754 binary64）下，0.1 + 0.2 === 0.3 是 false。",
+        "0.1 和 0.2 不能精确表示为有限二进制小数，求和后与 0.3 的最接近可表示值不同。",
+        "实际结果通常显示为 0.30000000000000004。",
+        "需要精确十进制时应使用十进制库、整数缩放或 epsilon 比较，而不是直接使用 ===。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "结果是 false，不是 true。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "原因与二进制浮点/IEEE 754 精度有关，不是 JavaScript 独有 bug。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "实际结果约为 0.30000000000000004。",
+          "severity": "should"
+        },
+        {
+          "id": "c4",
+          "text": "精确比较应使用 epsilon、十进制类型或整数缩放。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "不等于",
+        "不相等",
+        "浮点误差",
+        "精度丢失",
+        "IEEE 754",
+        "0.30000000000000004"
+      ],
+      "wrongClaims": [
+        {
+          "text": "0.1 + 0.2 === 0.3 为 true。",
+          "reason": "直接违背 ECMAScript Number 的可验证结果。",
+          "severity": "major"
+        },
+        {
+          "text": "这是 JavaScript 特有的 bug。",
+          "reason": "这是 IEEE 754 binary64 的标准行为，不是 JS 独有缺陷。",
+          "severity": "major"
+        },
+        {
+          "text": "所有语言都会得到完全相同的结果。",
+          "reason": "取决于数值类型；十进制类型或不同精度实现可能不同。",
+          "severity": "minor"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2"
+        ],
+        "notes": "结果必须明确；如果只说“浮点数不精确”但不说 false，判为不完整。"
+      }
+    },
+    {
+      "id": "array-map",
+      "category": "JavaScript",
+      "strategy": "adversarial",
+      "question": "JavaScript 的 Array.prototype.map 会修改原数组吗？它和 forEach 的区别是什么？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "核心结论正确；补充 map 是浅拷贝，对象元素引用共享。"
+      },
+      "standardFacts": [
+        "map 本身不修改原数组，返回一个新数组。",
+        "forEach 本身不修改原数组，返回 undefined。",
+        "map 是浅拷贝：新数组的元素与原数组元素引用相同对象。",
+        "两个方法的回调都可能通过闭包、外部引用或共享对象产生副作用并修改原数组或其内容。",
+        "map 用于转换并收集结果；forEach 用于遍历执行操作。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "map 本身不修改原数组，返回新数组。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "forEach 本身不修改原数组，返回 undefined。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "map 是浅拷贝，对象元素引用共享。",
+          "severity": "should"
+        },
+        {
+          "id": "c4",
+          "text": "回调仍可能通过引用或共享对象产生副作用。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "map 用于转换收集，forEach 用于遍历执行。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "浅拷贝",
+        "引用相同",
+        "新数组",
+        "返回 undefined",
+        "回调副作用"
+      ],
+      "wrongClaims": [
+        {
+          "text": "map 会直接修改原数组。",
+          "reason": "map 返回新数组，不修改原数组本身。",
+          "severity": "major"
+        },
+        {
+          "text": "map 是深拷贝。",
+          "reason": "map 只复制数组结构，元素对象仍是同一引用。",
+          "severity": "major"
+        },
+        {
+          "text": "forEach 会返回新数组。",
+          "reason": "forEach 返回 undefined。",
+          "severity": "major"
+        },
+        {
+          "text": "map 的回调不可能产生副作用。",
+          "reason": "回调可以通过闭包或共享引用修改外部状态。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c4"
+        ],
+        "notes": "必须区分“方法本身不修改”和“回调可能造成修改”。"
+      }
+    },
+    {
+      "id": "http-methods",
+      "category": "HTTP",
+      "strategy": "expert",
+      "question": "HTTP 的 PUT 和 POST 哪个是幂等的？在设计 REST API 时应该怎么选？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "基本正确；补充幂等不等于响应相同，POST/PATCH 可通过应用语义设计。"
+      },
+      "standardFacts": [
+        "按 RFC 9110，PUT 是幂等的方法；POST 的方法语义不保证幂等。",
+        "幂等指重复执行相同请求具有相同的预期效果，不等于每次返回完全相同的响应。",
+        "POST 可以通过 Idempotency-Key、唯一约束、去重表等在应用层设计成幂等。",
+        "PATCH 是否幂等取决于补丁格式和服务器实现，不能一概而论。",
+        "客户端已知目标 URI、做完整创建或替换时选 PUT；服务端分配 URI、向集合追加或执行非幂等业务动作时选 POST。",
+        "部分更新通常用 PATCH；POST 需要安全重试时，应用层应加幂等键或去重。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "PUT 是幂等的，POST 的方法语义不保证幂等。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "幂等不等于每次响应完全相同。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "POST 可以在应用层设计成幂等。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "PATCH 是否幂等取决于补丁语义和实现。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "已知 URI 的完整替换用 PUT；服务端分配 URI/追加/非幂等动作用 POST。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "方法语义",
+        "重复请求效果相同",
+        "Idempotency-Key",
+        "唯一约束",
+        "补丁语义"
+      ],
+      "wrongClaims": [
+        {
+          "text": "POST 在任何情况下都不可能幂等。",
+          "reason": "HTTP 方法语义不保证幂等，但应用层可以设计幂等 POST。",
+          "severity": "major"
+        },
+        {
+          "text": "PUT 每次必须返回完全相同的响应。",
+          "reason": "幂等约束的是预期效果，不是响应字节。",
+          "severity": "major"
+        },
+        {
+          "text": "PATCH 一定幂等或一定不幂等。",
+          "reason": "取决于补丁格式和实现。",
+          "severity": "major"
+        },
+        {
+          "text": "幂等等于响应相同。",
+          "reason": "幂等不等于响应相同。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须给条件性选择，不能只说“PUT 幂等、POST 不幂等”就结束。"
+      }
+    },
+    {
+      "id": "tcp-udp",
+      "category": "Networking",
+      "strategy": "assumption",
+      "question": "TCP 和 UDP 的核心区别是什么？各自适合什么场景？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确；补充 TCP 不保留消息边界、UDP 不保证送达/顺序。"
+      },
+      "standardFacts": [
+        "TCP 提供面向连接、可靠、有序的字节流，并有流量控制和拥塞控制。",
+        "TCP 不保留应用消息边界；应用需要自己分帧。",
+        "UDP 是无连接、尽力而为的数据报服务，不保证送达、可靠或有序，但保留报文边界。",
+        "数据完整性和顺序优先时通常选 TCP，如文件传输、SSH、邮件、许多网页/数据库连接。",
+        "重视及时性、需要数据报边界、可容忍少量丢包或由应用控制重传/排序时通常选 UDP，如实时音视频、在线游戏、部分 DNS 查询和组播。",
+        "UDP 不必然比 TCP 快；场景选择是条件性经验规则。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "TCP 是可靠、有序的字节流；UDP 不保证可靠/顺序。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "TCP 不保留应用消息边界；UDP 保留数据报边界。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "给出 TCP 和 UDP 的典型场景。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "UDP 不必然更快，选择取决于网络条件和应用补偿。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "字节流",
+        "数据报",
+        "消息边界",
+        "可靠传输",
+        "尽力而为",
+        "无连接"
+      ],
+      "wrongClaims": [
+        {
+          "text": "UDP 保证可靠和有序交付。",
+          "reason": "UDP 是尽力而为，不保证送达或顺序。",
+          "severity": "major"
+        },
+        {
+          "text": "TCP 保留应用消息边界。",
+          "reason": "TCP 是字节流，需要应用自己分帧。",
+          "severity": "major"
+        },
+        {
+          "text": "UDP 一定比 TCP 快。",
+          "reason": "延迟取决于网络、拥塞、实现和应用层补偿。",
+          "severity": "major"
+        },
+        {
+          "text": "TCP 保证应用消息一定被业务处理。",
+          "reason": "TCP 只保证字节流传输语义，不保证应用处理成功。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须同时说清可靠性和消息边界两件事。"
+      }
+    },
+    {
+      "id": "btree-index",
+      "category": "Database",
+      "strategy": "solution",
+      "question": "数据库为什么常用 B+ 树而不是二叉树做索引？B+ 树在磁盘和范围查询上有什么优势？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确，无需修改。"
+      },
+      "standardFacts": [
+        "B+ 树节点可容纳很多键和子指针，扇出高，树高更低。",
+        "数据库以页为单位读写，树更矮通常意味着更少的页访问。",
+        "B+ 树的有序叶子页适合范围查询：先定位起点，再沿叶子页扫描。",
+        "顺序读取和缓存局部性优于在分散的二叉树节点间逐个找后继。",
+        "B+ 树不是所有场景的最优解；纯内存、纯等值查询或写入极重场景可能用哈希索引、LSM 树等。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "B+ 树扇出高、树矮，适合页式磁盘访问。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "范围查询通过有序叶子页扫描。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "B+ 树不是普遍最优，需结合工作负载。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "扇出",
+        "页访问",
+        "树高",
+        "叶子页",
+        "范围扫描",
+        "缓存局部性"
+      ],
+      "wrongClaims": [
+        {
+          "text": "B+ 树在所有数据库和工作负载中都优于其他索引。",
+          "reason": "索引选择取决于键大小、读写比例、查询模式和存储介质。",
+          "severity": "major"
+        },
+        {
+          "text": "二叉树在磁盘索引上与 B+ 树一样高效。",
+          "reason": "二叉树扇出低、树高大，通常导致更多页访问。",
+          "severity": "major"
+        },
+        {
+          "text": "B+ 树的数据只存在内部节点。",
+          "reason": "B+ 树通常在叶子节点存数据或数据指针，内部节点存键和子指针。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2"
+        ],
+        "notes": "必须把磁盘页访问和范围查询两点都说到。"
+      }
+    },
+    {
+      "id": "acid",
+      "category": "Database",
+      "strategy": "discovery",
+      "question": "ACID 四个字母分别是什么意思？隔离性解决什么问题，又带来什么代价？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "supplement",
+        "summary": "基本正确；补充一致性不是自动保证所有业务规则，隔离级别默认不一定是可串行化。"
+      },
+      "standardFacts": [
+        "A 原子性：事务效果整体生效或整体不生效。",
+        "C 一致性：事务把数据库从一个满足约束的状态转到另一个满足约束的状态；业务不变量还需约束、触发器或应用逻辑共同保证。",
+        "I 隔离性：并发事务按隔离级别相互隔离，理想目标是可串行化，但数据库默认不一定是可串行化。",
+        "D 持久性：已提交事务的结果在故障后仍能保留。",
+        "隔离性解决脏读、不可重复读、幻读、丢失更新、写偏斜等并发异常。",
+        "代价包括锁竞争、阻塞、死锁、并发度下降、尾延迟上升、MVCC 版本链存储和清理、冲突检测、事务中止重试。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "四个字母分别是原子性、一致性、隔离性、持久性。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "一致性不是数据库自动保证所有业务规则。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "隔离级别提供不同程度隔离，默认不一定是可串行化。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "隔离性解决脏读、不可重复读、幻读、丢失更新、写偏斜等。",
+          "severity": "should"
+        },
+        {
+          "id": "c5",
+          "text": "隔离性带来锁竞争、死锁、并发下降、MVCC 或重试成本。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "原子性",
+        "一致性",
+        "隔离性",
+        "持久性",
+        "可串行化",
+        "脏读",
+        "写偏斜",
+        "MVCC"
+      ],
+      "wrongClaims": [
+        {
+          "text": "一致性表示数据库自动保证所有业务规则。",
+          "reason": "数据库只保证它定义的约束；业务不变量需要应用或额外机制。",
+          "severity": "major"
+        },
+        {
+          "text": "所有数据库默认隔离级别都是可串行化。",
+          "reason": "不同数据库默认级别不同，很多默认不是可串行化。",
+          "severity": "major"
+        },
+        {
+          "text": "隔离性没有性能代价。",
+          "reason": "隔离通常带来锁、MVCC、冲突检测或重试成本。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "定义必须准确；不能把一致性说成业务正确性的自动保证。"
+      }
+    },
+    {
+      "id": "jwt-revoke",
+      "category": "Security",
+      "strategy": "truth",
+      "question": "JWT 无状态鉴权如何实现主动失效？黑名单、短过期、刷新令牌各有什么取舍？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "正确；补充签名密钥轮换可以使一批令牌失效。"
+      },
+      "standardFacts": [
+        "严格无状态的 JWT 校验无法感知单个令牌被撤销。",
+        "要实现即时撤销，验证方必须查询某种可变状态：jti 黑名单、会话/授权版本、在线 introspection。",
+        "签名密钥轮换可以使由旧密钥签发的一批令牌失效，但不能只撤销单个令牌。",
+        "短有效期访问令牌加服务端可撤销刷新令牌是常见折中，把失效窗口压到分钟级。",
+        "黑名单能精确撤销单个令牌，但每次请求要查存储，并需决定存储故障时放行还是拒绝。",
+        "刷新令牌撤销只阻止后续续签，不使已经发出的访问令牌立即失效。",
+        "如果核心需求是随时精确撤销，有状态/不透明会话令牌通常更直接。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "无状态 JWT 校验无法感知单个令牌撤销。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "需要可变状态：黑名单、会话版本或 introspection。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "密钥轮换可以使一批令牌失效，不是单个。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "短访问令牌 + 可撤销刷新令牌是折中；刷新撤销不使访问令牌立即失效。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "黑名单有存储查询和故障时放行/拒绝的取舍。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "jti",
+        "denylist",
+        "黑名单",
+        "会话版本",
+        "introspection",
+        "密钥轮换",
+        "刷新令牌"
+      ],
+      "wrongClaims": [
+        {
+          "text": "无状态 JWT 可以在不查询任何状态的情况下立即撤销单个令牌。",
+          "reason": "无状态校验无法感知单个令牌被撤销。",
+          "severity": "major"
+        },
+        {
+          "text": "密钥轮换只撤销一个令牌。",
+          "reason": "密钥轮换影响该密钥签发的一批令牌。",
+          "severity": "major"
+        },
+        {
+          "text": "撤销刷新令牌会让已签发的访问令牌立即失效。",
+          "reason": "已发出的访问令牌仍然有效，直到过期或被其他机制撤销。",
+          "severity": "major"
+        },
+        {
+          "text": "黑名单没有可用性或性能代价。",
+          "reason": "每次请求都要查存储，并要定义存储故障时的策略。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须区分单个令牌撤销、批量密钥轮换和刷新令牌撤销。"
+      }
+    },
+    {
+      "id": "csrf-xss",
+      "category": "Security",
+      "strategy": "adversarial",
+      "question": "CSRF 和 XSS 的区别是什么？防御手段分别是什么？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确；补充 XSS 成功后可绕过部分 CSRF 防御。"
+      },
+      "standardFacts": [
+        "XSS 是恶意脚本在目标站点的页面上下文中执行，可读取页面数据、发起同源请求。",
+        "CSRF 是诱导已登录用户的浏览器向目标站点发送非预期请求，通常借用浏览器自动携带的 Cookie。",
+        "XSS 一旦成功，可能读取 CSRF token 或以用户身份发起同源请求，从而绕过部分 CSRF 防御。",
+        "XSS 防御重点是输出编码、输入处理、CSP、避免危险 DOM 操作。",
+        "CSRF 防御重点是验证请求意图并限制跨站凭据，如 SameSite Cookie、CSRF token、Origin/Referer 校验。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "XSS 是脚本在目标站点上下文执行；CSRF 是伪造用户请求。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "XSS 可能绕过部分 CSRF 防御。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "XSS 防御重点是输出/输入处理和 CSP 等。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "CSRF 防御重点是请求意图和跨站凭据限制。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "跨站脚本",
+        "跨站请求伪造",
+        "同源",
+        "CSRF token",
+        "SameSite",
+        "CSP",
+        "输出编码"
+      ],
+      "wrongClaims": [
+        {
+          "text": "CSRF 必须依赖 XSS 才能发生。",
+          "reason": "CSRF 可以独立于 XSS 发生。",
+          "severity": "major"
+        },
+        {
+          "text": "XSS 只会窃取 Cookie。",
+          "reason": "XSS 还能读取页面内容、发起同源请求、篡改 DOM 等。",
+          "severity": "major"
+        },
+        {
+          "text": "HTTPS 可以单独完全防御 CSRF。",
+          "reason": "HTTPS 只保护传输，不能阻止浏览器自动携带凭据发起跨站请求。",
+          "severity": "major"
+        },
+        {
+          "text": "XSS 和 CSRF 是同一种攻击。",
+          "reason": "两者攻击位置和目标不同。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须点出 XSS 对 CSRF 防御的破坏关系。"
+      }
+    },
+    {
+      "id": "cache-invalidation",
+      "category": "Caching",
+      "strategy": "expert",
+      "question": "缓存一致性为什么难？常见的失效策略有哪些，各自适合什么场景？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "redo",
+        "summary": "原裁判拒绝给结论不够好；应给出常见方案和适用边界。"
+      },
+      "standardFacts": [
+        "不存在普遍最优的缓存一致性方案，选择取决于一致性要求、读写比例、可接受陈旧窗口和故障模型。",
+        "Cache Aside：读时缓存未命中再查数据库并回填；写时先更新数据库再失效/更新缓存；适合一般读多写少，但要处理并发旧读回填。",
+        "Write Through：写缓存和数据库同步完成；一致性更强，写延迟更高。",
+        "Write Behind：先写缓存，异步落库；写延迟低，但有数据丢失和顺序风险。",
+        "TTL：作为最终过期兜底，不是严格一致性保证。",
+        "版本号/逻辑时钟：用于识别旧值、避免并发旧写覆盖新值。",
+        "难点包括双写原子性、旧读回填、事件丢失/重复、多实例传播、热 key 和派生键依赖。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "没有普遍最优方案，必须按一致性/读写比例/陈旧窗口选择。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "至少给出 Cache Aside、Write Through、Write Behind、TTL、版本号中的三种，并说明取舍。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "TTL 不是严格一致性保证。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "必须说明可接受的陈旧窗口或一致性要求。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "指出双写原子性、旧读回填、事件丢失/重复等难点。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "Cache Aside",
+        "Write Through",
+        "Write Behind",
+        "TTL",
+        "版本号",
+        "陈旧窗口",
+        "旧读回填"
+      ],
+      "wrongClaims": [
+        {
+          "text": "Cache Aside 天然保证强一致性。",
+          "reason": "Cache Aside 仍存在并发旧读回填和双写窗口。",
+          "severity": "major"
+        },
+        {
+          "text": "Write Behind 不会丢数据。",
+          "reason": "异步落库在崩溃或队列丢失时可能丢数据。",
+          "severity": "major"
+        },
+        {
+          "text": "TTL 可以保证强一致。",
+          "reason": "TTL 只提供最终过期，不保证写后读到新值。",
+          "severity": "major"
+        },
+        {
+          "text": "存在一种缓存策略在所有场景下最优。",
+          "reason": "选择取决于一致性、读写比例和故障模型。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c4"
+        ],
+        "notes": "不能继续给 inconclusive；必须给条件性方案和边界。"
+      }
+    },
+    {
+      "id": "index-generation",
+      "category": "Architecture",
+      "strategy": "assumption",
+      "question": "团队准备把本地代码索引从“每次覆盖旧索引”改成“Generation 原子快照”。请分析收益、风险和适用条件。",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "原结论方向正确；应明确收益、成本、适用条件，而不是停在未定论。"
+      },
+      "standardFacts": [
+        "收益：读者始终看到完整的一代数据，避免更新过程中出现混合状态。",
+        "收益：支持原子发布和回滚，有利于并发读取。",
+        "成本：多代数据共存带来磁盘占用。",
+        "成本：旧代回收、读者引用计数/租约、发布和崩溃恢复机制更复杂。",
+        "适用条件：索引能以只读代形式打开，发布指针能原子切换，旧代有明确保留和清理策略，磁盘预算足够。",
+        "对需要保证多文件索引一致性的本地代码索引系统，Generation 原子快照是合理的架构方向；具体是否值得采用要结合实际规模和读写模式验证。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "收益：读者看到完整一代，避免混合状态，支持原子发布/回滚。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "成本：多代磁盘占用、旧代回收、发布/崩溃恢复、读者生命周期。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "适用条件：只读代、原子指针切换、旧代保留/清理、磁盘预算、构建快照一致性。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "给出条件性方向建议，而不是只说无法判断。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "Generation",
+        "原子快照",
+        "原子发布",
+        "引用计数",
+        "租约",
+        "GC",
+        "回滚"
+      ],
+      "wrongClaims": [
+        {
+          "text": "Generation 快照没有额外成本。",
+          "reason": "多代共存会增加磁盘、回收和恢复复杂度。",
+          "severity": "major"
+        },
+        {
+          "text": "不需要旧代回收策略。",
+          "reason": "旧代需要保留、引用计数/租约和清理机制。",
+          "severity": "major"
+        },
+        {
+          "text": "原子快照自动保证源数据一致性。",
+          "reason": "还需要构建快照和并发构建顺序控制。",
+          "severity": "major"
+        },
+        {
+          "text": "所有本地索引都应无条件改成 Generation 快照。",
+          "reason": "是否值得取决于索引格式、规模和读写模式。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须给条件性建议；不能把“需要验证”当成不給结论的理由。"
+      }
+    },
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "redo",
+        "summary": "原裁判拒绝给结论不够好；应给出三阶段可靠投递设计。"
+      },
+      "standardFacts": [
+        "生产者：发送成功确认、失败重试、持久化发送记录；数据库与 MQ 双写时用 Outbox/事务消息避免双写缺口。",
+        "Broker：持久化、复制、副本确认、故障恢复；同步刷盘/同步复制提高可靠性但增加延迟。",
+        "消费者：处理成功后 ACK，失败重试，死信队列，幂等消费。",
+        "至少一次投递（At-least-once）加消费端幂等是常见工程方案。",
+        "不丢消息不等于不重复：生产者重试、消费者处理成功但 ACK 丢失都可能造成重复。",
+        "端到端 Exactly-once 很难且不是免费的，不要轻易承诺。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "分别说明生产、Broker、消费三个环节的丢失点和措施。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "至少一次投递 + 消费端幂等是常见方案。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "不丢消息不等于不重复；重试和 ACK 丢失会产生重复。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "不要轻易承诺端到端 Exactly-once。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "双写场景可用 Outbox/Inbox 或事务消息。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "At-least-once",
+        "至少一次",
+        "幂等消费",
+        "Outbox",
+        "Inbox",
+        "ACK",
+        "死信队列",
+        "Exactly-once"
+      ],
+      "wrongClaims": [
+        {
+          "text": "使用消息队列就能保证 Exactly-once。",
+          "reason": "端到端 Exactly-once 很难且依赖具体实现。",
+          "severity": "major"
+        },
+        {
+          "text": "消费者处理成功后 ACK 就不需要幂等。",
+          "reason": "ACK 可能丢失并导致重复投递。",
+          "severity": "major"
+        },
+        {
+          "text": "生产者重试不会造成重复消息。",
+          "reason": "重试可能产生重复，需要幂等或去重。",
+          "severity": "major"
+        },
+        {
+          "text": "Broker 持久化就能保证端到端不丢。",
+          "reason": "生产确认、消费 ACK 和业务处理也参与可靠性。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须给三阶段方案，并明确重复与幂等。"
+      }
+    },
+    {
+      "id": "distributed-lock",
+      "category": "Distributed Systems",
+      "strategy": "discovery",
+      "question": "分布式锁需要满足哪些条件？Redis 锁有什么风险，如何避免锁过期后误删别人的锁？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "redo",
+        "summary": "原裁判过度谨慎；应给出 Redis 租约锁的基本机制和安全边界。"
+      },
+      "standardFacts": [
+        "基本 Redis 租约锁可用 SET key value NX PX ttl 实现，value 使用唯一随机令牌标识持有者。",
+        "解锁必须先比较令牌再删除，通常用 Lua 脚本保证原子性。",
+        "续租必须验证持有者身份，不能盲目延长。",
+        "租约过期后旧持有者可能仍在执行；要严格防止旧持有者继续写入，需要 Fencing Token 且下游资源必须验证。",
+        "Redis 主从异步复制和故障转移可能丢失锁状态；不能简单宣称 Redis 锁在所有故障模型下提供严格互斥。",
+        "分布式锁通常要满足互斥、无死锁、可释放、故障容错和持有者身份可验证。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "SET key token NX PX 实现基本租约锁，使用唯一令牌。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "解锁先比较令牌再删除，避免误删别人的锁。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "续租必须验证持有者身份。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "严格防止旧持有者写入需要 Fencing Token 且下游验证。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "Redis 异步复制/故障转移下不能宣称绝对严格互斥。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "SET NX PX",
+        "唯一令牌",
+        "Lua",
+        "compare-and-delete",
+        "Fencing Token",
+        "租约",
+        "续租"
+      ],
+      "wrongClaims": [
+        {
+          "text": "Redis 锁在任何故障模型下都提供严格互斥。",
+          "reason": "异步复制和故障转移可能导致锁状态丢失。",
+          "severity": "major"
+        },
+        {
+          "text": "锁过期后旧持有者一定不会再执行。",
+          "reason": "旧持有者可能仍在执行，需要 fencing token 或下游校验。",
+          "severity": "major"
+        },
+        {
+          "text": "解锁直接 DEL 即可。",
+          "reason": "必须先比较令牌，避免删除别人的锁。",
+          "severity": "major"
+        },
+        {
+          "text": "Redlock 可以解决所有网络分区问题。",
+          "reason": "Redlock 仍有故障模型和时钟假设限制。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "notes": "必须给出可操作机制，并说明严格互斥的边界。"
+      }
+    },
+    {
+      "id": "schema-migration",
+      "category": "Database",
+      "strategy": "truth",
+      "question": "在线数据库 schema 迁移如何避免锁表和长时间不可用？常见的 expand/contract 流程是什么？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "基本正确；补充旧新版本并存期间的双写一致性和在线 DDL 仍有短暂元数据锁。"
+      },
+      "standardFacts": [
+        "在线迁移不应承诺完全零锁；目标是避免长时间阻塞读写。",
+        "优先使用数据库原生 Online/Instant DDL，但仍可能有短暂元数据锁。",
+        "Expand：先加新列或新索引并允许 NULL，保持旧结构可读。",
+        "兼容发布：应用同时兼容新旧结构；必要时双写，但要处理旧版本实例与新版本实例并存期间的一致性。",
+        "回填：分批回填历史数据，避免长事务和锁表。",
+        "校验后灰度切读，再停止写旧列，最后 Contract 删除旧结构。",
+        "具体 DDL 是否阻塞、持锁多久，必须按数据库类型、版本、表结构和并发实测。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "expand/contract 顺序：加新结构、兼容发布/双写、回填、校验、切读、停旧写、删除旧结构。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "在线 DDL 不是完全无锁，可能有短暂元数据锁。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "旧新版本实例并存期间要处理双写一致性。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "具体 DDL 行为需按数据库/版本/表结构实测。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "expand/contract",
+        "双写",
+        "回填",
+        "灰度切读",
+        "元数据锁",
+        "Online DDL",
+        "gh-ost",
+        "pg_repack"
+      ],
+      "wrongClaims": [
+        {
+          "text": "在线 DDL 完全不会加任何锁。",
+          "reason": "在线 DDL 仍可能有短暂元数据锁。",
+          "severity": "major"
+        },
+        {
+          "text": "双写只需要考虑新版本应用。",
+          "reason": "旧新版本实例并存期间也要保证一致性。",
+          "severity": "major"
+        },
+        {
+          "text": "新列加完可以立即删除旧列。",
+          "reason": "需要兼容发布、回填、校验和灰度切读后再 Contract。",
+          "severity": "major"
+        },
+        {
+          "text": "一个迁移工具适用于所有数据库。",
+          "reason": "不同数据库和版本的在线 DDL 能力不同。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须给出完整 expand/contract 顺序和锁边界。"
+      }
+    },
+    {
+      "id": "feature-flag",
+      "category": "Architecture",
+      "strategy": "adversarial",
+      "question": "Feature flag 的收益和长期维护风险是什么？什么时候应该清理 flag？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确，可以保留。"
+      },
+      "standardFacts": [
+        "收益：部署与功能启用分离，支持渐进放量、实验、紧急降级、迁移兼容。",
+        "风险：遗留分支和配置、交叉状态增加测试和排障负担、开关失去 owner 或被误操作。",
+        "短期发布/实验/迁移 flag 在目标达成、旧路径不需要且回滚有替代后删除。",
+        "长期运营、权限或合规开关应由明确 owner 定期复审，必要时保留。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "收益：部署与功能启用分离，渐进放量/实验/降级/迁移兼容。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "风险：遗留分支/配置、交叉状态、测试排障负担、无 owner/误操作。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "按用途清理：短期 flag 达成目标后删除；长期 flag 由 owner 复审。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "Feature flag",
+        "渐进放量",
+        "kill switch",
+        "owner",
+        "技术债",
+        "清理"
+      ],
+      "wrongClaims": [
+        {
+          "text": "Feature flag 没有长期维护成本。",
+          "reason": "遗留 flag 会增加分支、配置、测试和排障负担。",
+          "severity": "major"
+        },
+        {
+          "text": "所有 flag 都应该立即删除。",
+          "reason": "长期运营/权限/合规 flag 可能需要保留并定期复审。",
+          "severity": "major"
+        },
+        {
+          "text": "Feature flag 可以替代部署回滚。",
+          "reason": "flag 是补充手段，不替代版本回滚和发布流程。",
+          "severity": "major"
+        },
+        {
+          "text": "flag 不需要 owner。",
+          "reason": "长期 flag 需要明确 owner 定期复审。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须同时说收益、风险和清理条件。"
+      }
+    },
+    {
+      "id": "rate-limit",
+      "category": "Networking",
+      "strategy": "expert",
+      "question": "令牌桶和漏桶的区别是什么？分别适合什么流量整形场景？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确；注意漏桶有整形和监管等不同实现形式。"
+      },
+      "standardFacts": [
+        "令牌桶按速率补充令牌，桶容量允许积累突发信用；长期平均速率受限，但允许短时突发。",
+        "漏桶作为队列整形器时以较恒定速率排空，输入突发被缓冲，输出更平滑，以排队时延换输出平稳。",
+        "两者都可用于整形（超额排队）或监管（超额丢弃/标记），具体行为取决于实现。",
+        "需要保留受控突发、利用空闲信用时优先令牌桶；需要严格平滑输出、下游不能承受突发且能接受排队延迟时优先漏桶队列整形。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "令牌桶按速率补充令牌，允许桶容量内的突发。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "漏桶以较恒定速率排空，缓冲突发、输出平滑、增加排队延迟。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "两者都可整形或监管，取决于实现。",
+          "severity": "should"
+        },
+        {
+          "id": "c4",
+          "text": "给出场景选择：突发用令牌桶，严格平滑用漏桶。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "令牌桶",
+        "漏桶",
+        "突发",
+        "整形",
+        "监管",
+        "shaping",
+        "policing",
+        "队列延迟"
+      ],
+      "wrongClaims": [
+        {
+          "text": "漏桶允许任意突发。",
+          "reason": "漏桶通常以恒定速率排空，突发被缓冲或丢弃。",
+          "severity": "major"
+        },
+        {
+          "text": "令牌桶保证输出速率完全恒定。",
+          "reason": "令牌桶允许桶容量范围内的突发。",
+          "severity": "major"
+        },
+        {
+          "text": "令牌桶和漏桶是同一个算法。",
+          "reason": "两者的突发处理和输出平滑特性不同。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c4"
+        ],
+        "notes": "必须说明突发与平滑的取舍。"
+      }
+    },
+    {
+      "id": "observability",
+      "category": "Operations",
+      "strategy": "assumption",
+      "question": "日志、指标、追踪各自解决什么问题？为什么不能互相替代？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确，可以保留。"
+      },
+      "standardFacts": [
+        "指标回答整体量级、趋势和告警，适合聚合和长期趋势。",
+        "日志回答具体事件及其上下文，适合细节排查。",
+        "追踪回答单次请求跨组件的路径、耗时和失败位置。",
+        "三者数据模型和原生语义不同：聚合会丢失单次细节，普通日志缺少可靠的跨服务因果关联。",
+        "trace-derived metrics、log-to-metrics、exemplar 等可以部分覆盖，但通常有信息损失或成本代价。",
+        "简单系统可以只使用其中一两种信号。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "指标=量级/趋势/告警；日志=具体事件/上下文；追踪=单请求跨组件路径。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "三者不能以同等成本完全互相替代。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "转换/派生可以部分覆盖，但有信息损失或成本。",
+          "severity": "should"
+        },
+        {
+          "id": "c4",
+          "text": "简单系统可以只用一两种信号。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "Metrics",
+        "Logs",
+        "Traces",
+        "exemplar",
+        "trace-derived metrics",
+        "因果关联",
+        "采样"
+      ],
+      "wrongClaims": [
+        {
+          "text": "追踪可以完全替代日志。",
+          "reason": "追踪提供请求路径，但不一定包含具体事件上下文。",
+          "severity": "major"
+        },
+        {
+          "text": "指标总能定位到单个请求。",
+          "reason": "指标是聚合数据，定位单请求通常需要 exemplar 或追踪。",
+          "severity": "major"
+        },
+        {
+          "text": "日志可以自动重建完整调用链。",
+          "reason": "普通日志缺少可靠的跨服务因果关联。",
+          "severity": "major"
+        },
+        {
+          "text": "所有系统都必须同时使用三种信号。",
+          "reason": "简单系统可以只用一两种。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2"
+        ],
+        "notes": "必须说清三种信号的分工和不可完全替代的原因。"
+      }
+    },
+    {
+      "id": "testing-pyramid",
+      "category": "Testing",
+      "strategy": "solution",
+      "question": "单元测试、集成测试、端到端测试的边界怎么划？测试金字塔还适用吗？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "原裁判拒绝给结论不够好；应给出三类测试定义和‘指导思想而非固定比例’的结论。"
+      },
+      "standardFacts": [
+        "单元测试验证独立逻辑，通常快速、隔离。",
+        "集成测试验证模块与真实依赖/边界之间的交互。",
+        "端到端测试验证完整业务流程，覆盖真实用户路径。",
+        "测试金字塔是指导思想，不是固定比例要求。",
+        "实际比例取决于业务复杂度、故障成本、测试速度、维护成本和团队约定。",
+        "团队应明确自己的单元/集成/组件/契约测试定义，避免名称相同但边界不同。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "单元=独立逻辑；集成=模块与真实依赖交互；E2E=完整业务流程。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "测试金字塔是指导思想，不是固定比例。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "比例取决于复杂度、故障成本、速度、维护成本等。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "团队应明确各层定义。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "单元测试",
+        "集成测试",
+        "端到端",
+        "E2E",
+        "测试金字塔",
+        "契约测试",
+        "故障成本"
+      ],
+      "wrongClaims": [
+        {
+          "text": "测试金字塔要求固定的 70/20/10 比例。",
+          "reason": "金字塔是指导思想，不是固定比例。",
+          "severity": "major"
+        },
+        {
+          "text": "单元测试必须 mock 所有外部 I/O。",
+          "reason": "团队定义不同；有些单元测试允许轻量 I/O。",
+          "severity": "major"
+        },
+        {
+          "text": "端到端测试总是最好的测试。",
+          "reason": "E2E 慢、脆弱、定位差，不能替代单元/集成测试。",
+          "severity": "major"
+        },
+        {
+          "text": "测试金字塔已经完全不适用。",
+          "reason": "作为分层思想仍然适用，但比例需按项目调整。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "必须给三类定义和‘非固定比例’的结论。"
+      }
+    },
+    {
+      "id": "unicode-utf8",
+      "category": "Text",
+      "strategy": "discovery",
+      "question": "UTF-8 和 Unicode 是什么关系？为什么会出现乱码？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "supplement",
+        "summary": "原裁判拒绝给结论不合适；这是基础事实题，应直接判定。"
+      },
+      "standardFacts": [
+        "Unicode 是字符编码标准，定义字符及其码点。",
+        "UTF-8 是 Unicode 的一种变长编码方式，一个 Unicode 码点通常占 1 到 4 个字节。",
+        "乱码可能来自错误解码、重复编码、字节截断、字符集声明错误、有损替换等。",
+        "诊断乱码需要原始字节和编码声明；U+FFFD 替换字符通常表示有损替换。",
+        "不是所有乱码都可逆；一旦发生有损替换，原字节可能已经丢失。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "Unicode 是字符标准/码点；UTF-8 是 Unicode 的一种编码方式。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "UTF-8 是变长编码，一个字符通常 1 到 4 字节。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "乱码原因包括错误解码、重复编码、截断、声明错误、有损替换。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "诊断需要原始字节和编码声明；乱码不一定可逆。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "码点",
+        "字符集",
+        "变长编码",
+        "UTF-8",
+        "UTF-16",
+        "U+FFFD",
+        "替换字符",
+        "字节截断"
+      ],
+      "wrongClaims": [
+        {
+          "text": "UTF-8 是字符集，Unicode 是编码。",
+          "reason": "关系说反了：Unicode 是字符标准，UTF-8 是编码。",
+          "severity": "major"
+        },
+        {
+          "text": "UTF-8 中一个字符总是占 1 个字节。",
+          "reason": "UTF-8 是 1 到 4 字节的变长编码。",
+          "severity": "major"
+        },
+        {
+          "text": "乱码总是可以无损恢复。",
+          "reason": "有损替换或字节丢失后可能不可逆。",
+          "severity": "major"
+        },
+        {
+          "text": "乱码一定是字体问题。",
+          "reason": "字体、解码、声明、截断等都可能造成乱码。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "notes": "基础事实题，不能因为缺少具体场景就判 inconclusive。"
+      }
+    },
+    {
+      "id": "timezone",
+      "category": "Time",
+      "strategy": "truth",
+      "question": "跨时区系统应该如何存储和展示时间？为什么不应该用本地时间存数据库？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确；补充夏令时切换时本地时间可能不存在或出现两次。"
+      },
+      "standardFacts": [
+        "先把时间分成两类：唯一时刻和当地墙上时钟约定。",
+        "唯一时刻（付款、日志、消息发送、已确认会议）应存 UTC 或等价的带时区时间类型，展示时按 IANA 时区转换。",
+        "墙上时钟约定（每天 9 点开门、每周一开会、未来某地当地时间 9 点）应存本地日期时间加 IANA 时区名，必要时存重复规则。",
+        "不能只存预先算出的 UTC，否则时区规则变化后可能偏离原约定。",
+        "夏令时切换时本地时间可能不存在或出现两次，未来预约需要定义歧义时间的处理规则。",
+        "无时区或偏移信息的纯本地时间，不能单独作为唯一时刻的可靠表示。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "区分唯一时刻和墙上时钟约定。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "唯一时刻存 UTC 或带时区类型，展示按 IANA 转换。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "墙上时钟约定存本地时间 + IANA 时区名。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "夏令时切换有不存在/重复的本地时间，需要歧义规则。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "无时区/偏移的纯本地时间不能单独表示唯一时刻。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "UTC",
+        "IANA",
+        "时区",
+        "墙上时钟",
+        "夏令时",
+        "DST",
+        "歧义时间"
+      ],
+      "wrongClaims": [
+        {
+          "text": "所有本地时间都不能存。",
+          "reason": "带时区语义的本地时间可以用于墙上时钟约定。",
+          "severity": "major"
+        },
+        {
+          "text": "未来预约只存 UTC 总是正确。",
+          "reason": "时区规则变化后可能偏离原约定。",
+          "severity": "major"
+        },
+        {
+          "text": "固定偏移可以替代 IANA 时区。",
+          "reason": "IANA 时区包含夏令时和历史规则，固定偏移不够。",
+          "severity": "major"
+        },
+        {
+          "text": "夏令时不会影响预约系统。",
+          "reason": "夏令时切换会造成本地时间缺失或重复。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须区分唯一时刻和墙上时钟约定。"
+      }
+    },
+    {
+      "id": "compression",
+      "category": "Networking",
+      "strategy": "adversarial",
+      "question": "gzip 和 brotli 的取舍是什么？什么情况下不应该压缩？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "正确；补充已压缩文件、极小响应、CPU 成本和压缩侧信道风险。"
+      },
+      "standardFacts": [
+        "没有普遍最优的压缩算法；选择取决于内容类型、大小、客户端支持和 CPU 预算。",
+        "静态文本资源通常适合构建时预压缩 Brotli，并提供 gzip 作为兼容回退。",
+        "动态文本可按实测选择 Brotli、gzip 或不压缩。",
+        "已压缩文件通常不需要再次压缩；很小的响应可能得不偿失。",
+        "动态压缩有 CPU 成本；应协商 Accept-Encoding，并按编码区分缓存变体（通常涉及 Vary）。",
+        "包含秘密信息和攻击者可控内容的响应，需要评估压缩侧信道风险（如 BREACH 类攻击）。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "没有普遍最优；静态资源可用 Brotli + gzip 回退，动态文本按实测。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "已压缩文件通常不需要再压缩；小响应可能不值得。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "动态压缩有 CPU 成本，需要协商 Accept-Encoding/Vary。",
+          "severity": "should"
+        },
+        {
+          "id": "c4",
+          "text": "秘密信息 + 攻击者可控内容要考虑压缩侧信道。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "Brotli",
+        "gzip",
+        "Accept-Encoding",
+        "Vary",
+        "BREACH",
+        "预压缩",
+        "CPU 成本"
+      ],
+      "wrongClaims": [
+        {
+          "text": "Brotli 在所有情况下都优于 gzip。",
+          "reason": "兼容性、CPU、内容类型和大小都会影响选择。",
+          "severity": "major"
+        },
+        {
+          "text": "所有响应都应该压缩。",
+          "reason": "已压缩文件、极小响应或高 CPU 场景可能不适合。",
+          "severity": "major"
+        },
+        {
+          "text": "压缩没有安全风险。",
+          "reason": "秘密信息 + 攻击者可控内容存在压缩侧信道风险。",
+          "severity": "major"
+        },
+        {
+          "text": "压缩是免费的。",
+          "reason": "动态压缩消耗 CPU，并可能增加延迟。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c4"
+        ],
+        "notes": "必须给适用边界，不能只说 Brotli 更好。"
+      }
+    },
+    {
+      "id": "git-rebase",
+      "category": "Version Control",
+      "strategy": "expert",
+      "question": "git rebase 和 merge 的区别是什么？团队协作中应该如何选择，为什么不能 rebase 已推送的公共分支？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "retain",
+        "summary": "基本正确；补充 fast-forward 时 merge 不一定生成合并提交，公共分支原则不是绝对禁止。"
+      },
+      "standardFacts": [
+        "merge 合并两条分支历史，通常生成合并提交；如果可以 fast-forward，也可能只移动分支指针，不生成合并提交。",
+        "merge 保留原有提交哈希和分叉拓扑。",
+        "rebase 将当前分支的提交按新基点重新应用，生成新的提交哈希，通常产生线性历史。",
+        "公共/共享分支（如 main、develop、release）应优先 merge，避免改写共享历史。",
+        "个人独占且尚未被他人依赖的特性分支可以在合并前 rebase 整理历史。",
+        "不应随意 rebase 已推送的公共分支：会重写历史，远端更新变成非快进推送，需要强制推送；协作者会分叉、重复提交、冲突，并破坏基于提交哈希的引用、签名、CI 缓存和审计记录。",
+        "特殊情况可以经团队协调改写共享历史，但这是例外，不是默认操作。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "merge 保留历史/分叉；rebase 重放提交、生成新哈希、通常线性。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "fast-forward 时 merge 不一定生成合并提交。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "公共分支默认不 rebase；个人未共享分支可以。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "rebase 已推送公共分支会强推、协作者分叉/重复提交/冲突，并破坏哈希引用。",
+          "severity": "must"
+        }
+      ],
+      "allowedExpressions": [
+        "merge",
+        "rebase",
+        "fast-forward",
+        "合并提交",
+        "强制推送",
+        "公共分支",
+        "线性历史"
+      ],
+      "wrongClaims": [
+        {
+          "text": "merge 一定生成合并提交。",
+          "reason": "fast-forward 时 merge 可以只移动指针。",
+          "severity": "major"
+        },
+        {
+          "text": "rebase 不改变提交哈希。",
+          "reason": "rebase 会生成新的提交哈希。",
+          "severity": "major"
+        },
+        {
+          "text": "rebase 已推送公共分支是无害的。",
+          "reason": "会重写共享历史并影响协作者。",
+          "severity": "major"
+        },
+        {
+          "text": "公共分支绝对不能 rebase，没有任何例外。",
+          "reason": "原则上是默认禁止，特殊情况下可经团队协调。",
+          "severity": "minor"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须说明 fast-forward 例外和共享历史的后果。"
+      }
+    },
+    {
+      "id": "process-thread",
+      "category": "OS",
+      "strategy": "assumption",
+      "question": "进程和线程的区别是什么？什么场景适合多进程，什么场景适合多线程？",
+      "classification": "FACT",
+      "review": {
+        "verdict": "supplement",
+        "summary": "基本正确；补充 Linux task_struct 和 GIL 仅适用于默认 CPython 构建。"
+      },
+      "standardFacts": [
+        "进程是资源分配与隔离的单位，通常拥有独立虚拟地址空间。",
+        "线程是进程内的执行流，同一进程的线程共享地址空间和大部分资源，但有独立栈、寄存器和程序计数器。",
+        "Linux 内核中进程和线程都由 task_struct 表示，也都可以被调度。",
+        "多线程通常适合 I/O 等待多、需频繁共享进程内数据、运行时支持并行且同步成本可控的任务。",
+        "多进程通常适合需要故障隔离、任务间少共享，或 CPython 纯 Python CPU 密集计算需绕开 GIL 的任务。",
+        "GIL 结论主要针对默认带 GIL 的 CPython 构建，不能直接推广到所有 Python 实现。",
+        "高并发 I/O 也可用异步 I/O 或协程；是否更快应实测。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "进程=资源分配/隔离/独立地址空间；线程=进程内执行流/共享地址空间/独立栈和寄存器。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "Linux 中进程和线程都由 task_struct 表示且可调度。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "GIL 只适用于默认 CPython 构建，不是所有 Python 实现。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "多线程适合 I/O 等待/共享数据；多进程适合故障隔离/少共享/绕 GIL。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "异步 I/O/协程也是高并发选项，是否更快需实测。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "task_struct",
+        "地址空间",
+        "GIL",
+        "CPython",
+        "故障隔离",
+        "协程",
+        "异步 I/O"
+      ],
+      "wrongClaims": [
+        {
+          "text": "线程一定比进程快。",
+          "reason": "取决于任务、同步成本、运行时和硬件。",
+          "severity": "major"
+        },
+        {
+          "text": "进程之间默认共享地址空间。",
+          "reason": "进程通常有独立地址空间。",
+          "severity": "major"
+        },
+        {
+          "text": "GIL 适用于所有 Python 实现。",
+          "reason": "GIL 主要是默认 CPython 构建的限制。",
+          "severity": "major"
+        },
+        {
+          "text": "多进程总是比多线程更适合 CPU 密集任务。",
+          "reason": "取决于是否受 GIL 限制、IPC 成本和运行时。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须限定 GIL 的适用范围，并给出场景判断。"
+      }
+    },
+    {
+      "id": "memory-leak",
+      "category": "Operations",
+      "strategy": "solution",
+      "question": "如何定位一个长时间运行服务的内存泄漏？从监控、快照到复现应该怎么排查？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "supplement",
+        "summary": "原裁判拒绝给结论不合适；应给出明确诊断方法，并强调 RSS 增长不等于泄漏。"
+      },
+      "standardFacts": [
+        "先保护服务：接近 OOM 时限流、扩容或关闭可疑功能，并保存 GC 日志、OOM 记录和关键指标。",
+        "区分堆内存和堆外/原生内存；观察 RSS、PSS、heap、native memory 和 GC 日志。",
+        "堆内存用 Heap Dump、MAT 等分析对象引用和 retained size；堆外用 NMT、native profiler、malloc 分析等。",
+        "结合负载、版本、租户/接口维度观察完整业务周期，不能只看单点 RSS。",
+        "在接近生产的环境做 soak test，回放流量，覆盖长连接、定时任务、重试、超时和重连。",
+        "修复后用相同或可比负载复跑，确认 post-GC live set 或资源增长斜率消失。",
+        "RSS 持续增长不等于 Java 内存泄漏；也可能是 native memory、分配器碎片、线程栈、直接内存等。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "区分堆内存和堆外/原生内存。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "监控 RSS/PSS/heap/native、GC 日志和增长曲线。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "堆用 Heap Dump/MAT；堆外用 NMT/native profiler 等。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "RSS 持续增长不等于 Java 内存泄漏。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "需要受控复现和修复后验证。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "RSS",
+        "PSS",
+        "Heap Dump",
+        "MAT",
+        "NMT",
+        "native memory",
+        "soak test",
+        "live set",
+        "GC 日志"
+      ],
+      "wrongClaims": [
+        {
+          "text": "RSS 增长就一定是内存泄漏。",
+          "reason": "还可能是 native memory、分配器碎片、线程栈或直接内存。",
+          "severity": "major"
+        },
+        {
+          "text": "Heap Dump 可以分析所有堆外内存。",
+          "reason": "堆外内存需要 NMT/native profiler 等工具。",
+          "severity": "major"
+        },
+        {
+          "text": "一次快照就能证明泄漏。",
+          "reason": "通常需要前后对比、增长斜率和受控复现。",
+          "severity": "major"
+        },
+        {
+          "text": "GC 会自动解决所有内存问题。",
+          "reason": "GC 只管理托管堆，不能解决堆外泄漏或引用未释放。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须给出诊断步骤，并明确 RSS ≠ 泄漏。"
+      }
+    },
+    {
+      "id": "monolith-microservices",
+      "category": "Architecture",
+      "strategy": "discovery",
+      "question": "什么时候应该从单体拆微服务？什么时候不该拆？判断依据是什么？",
+      "classification": "CONTEXTUAL",
+      "review": {
+        "verdict": "retain",
+        "summary": "正确；补充可操作判断框架。"
+      },
+      "standardFacts": [
+        "适合拆分：模块具有清晰业务边界，可独立部署，有独立扩缩容需求，团队能独立负责，故障隔离收益大于分布式成本。",
+        "不适合拆分：业务边界不清晰、模块高度耦合、团队规模不足以承担运维复杂度、拆分后大量同步远程调用、主要目的只是让代码看起来更分散。",
+        "模块化单体是有效选择，不是所有项目的最终答案。",
+        "不存在普适的代码行数、团队人数或服务数量阈值。",
+        "分布式成本包括网络、一致性、可观测性、部署、故障模式和运维负担。"
+      ],
+      "requiredClaims": [
+        {
+          "id": "c1",
+          "text": "拆分条件：清晰边界、独立部署/扩缩容、团队 ownership、故障隔离收益 > 分布式成本。",
+          "severity": "must"
+        },
+        {
+          "id": "c2",
+          "text": "不拆条件：边界不清、高耦合、团队/运维不足、同步调用爆炸、只为代码好看。",
+          "severity": "must"
+        },
+        {
+          "id": "c3",
+          "text": "模块化单体是有效选择。",
+          "severity": "must"
+        },
+        {
+          "id": "c4",
+          "text": "没有普适的代码行数/团队人数阈值。",
+          "severity": "must"
+        },
+        {
+          "id": "c5",
+          "text": "列出分布式成本。",
+          "severity": "should"
+        }
+      ],
+      "allowedExpressions": [
+        "模块化单体",
+        "微服务",
+        "业务边界",
+        "独立部署",
+        "故障隔离",
+        "分布式成本",
+        "康威定律"
+      ],
+      "wrongClaims": [
+        {
+          "text": "所有单体都应该拆成微服务。",
+          "reason": "拆分要看边界、团队、运维和故障隔离收益。",
+          "severity": "major"
+        },
+        {
+          "text": "代码行数超过某个阈值就必须拆。",
+          "reason": "不存在普适的代码行数阈值。",
+          "severity": "major"
+        },
+        {
+          "text": "微服务总是比单体扩展性更好。",
+          "reason": "微服务带来分布式成本，扩展性取决于具体设计。",
+          "severity": "major"
+        },
+        {
+          "text": "模块化单体不是有效架构。",
+          "reason": "模块化单体可以是合理选择。",
+          "severity": "major"
+        }
+      ],
+      "judging": {
+        "mustPass": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "notes": "必须同时给出拆和不拆的条件。"
+      }
+    }
+  ]
+}

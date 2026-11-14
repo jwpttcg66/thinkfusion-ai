@@ -158,14 +158,26 @@ test('结果关联回所有原始发言', async () => {
 test('独立模型给出合法 JSON 时走 model 后端', async () => {
   const engine = new JudgeEngine({
     judgeAgentId: 'judge-model',
-    ask: async () => answer('```json\n{"conclusion":"采用条件重试","undetermined":false,"reason":"两边都认可重试，只是条件不同","disagreement":"重试触发条件","unresolved":[]}\n```')
+    ask: async () => answer('```json\n{"questionType":"CONTEXTUAL","conclusion":"采用条件重试","undetermined":false,"reason":"两边都认可重试，只是条件不同","disagreement":"重试触发条件","unresolved":[]}\n```')
   });
   const verdict = await engine.judge(state([message('a', '甲方案'), message('b', '乙方案')]));
   assert.equal(verdict.backend, 'model');
   assert.equal(verdict.judgeAgentId, 'judge-model');
   assert.equal(verdict.judgeAttempts, 1);
+  assert.equal(verdict.questionType, 'CONTEXTUAL');
   assert.equal(verdict.conclusion, '采用条件重试');
   assert.equal(verdict.undetermined, false);
+});
+
+test('非法 questionType 被忽略，不影响裁决解析', async () => {
+  const engine = new JudgeEngine({
+    judgeAgentId: 'judge-model',
+    ask: async () => answer('{"questionType":"MAYBE","conclusion":null,"undetermined":true,"reason":"证据不足","disagreement":"分歧","unresolved":[]}')
+  });
+  const verdict = await engine.judge(state([message('a', '甲'), message('b', '乙')]));
+  assert.equal(verdict.backend, 'model');
+  assert.equal(verdict.questionType, undefined);
+  assert.equal(verdict.undetermined, true);
 });
 
 test('第一次输出不是 JSON 时重试一次，第二次合法就采用', async () => {

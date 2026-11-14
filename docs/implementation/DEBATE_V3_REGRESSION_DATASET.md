@@ -139,3 +139,23 @@ npm run build:test
 - `logicalValidity = unknown`，不再写“模型裁判论证质量均值”；
 - `criticalIssues` 明确写出“裁判退回规则版”；
 - `factualAccuracy` 仍是 `unknown` / `insufficient`。
+
+## 7. 人工复核基线 V1
+
+24 题技术主张已经由用户逐条复核：
+
+- 11 题保留；
+- 10 题保留并补充；
+- 3 题（`cache-invalidation`、`mq-delivery`、`distributed-lock`）重新形成结论；
+- 分类：FACT 11、CONTEXTUAL 13、INSUFFICIENT 0。
+
+标准答案、必答主张、允许表达、错误主张和评分规则见：
+
+- `docs/implementation/DEBATE_TECH_FACT_BASELINE_V1.md`
+- `desktop-agent-macos/scripts/regression/debate-standard-answers-v1.json`
+
+关键修正：`CONTEXTUAL` 不等于 `INSUFFICIENT`。题目需要具体场景，不代表裁判
+可以拒绝给任何结论；应给出条件、边界和推荐方案。
+
+裁判提示词也已同步要求输出 `questionType`，避免把有条件的技术决策
+误判成信息不足。

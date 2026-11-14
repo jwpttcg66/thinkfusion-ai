@@ -283,6 +283,7 @@ app.whenReady().then(async () => {
         modelId: byId.get(judgeAgentId),
         backend: verdict?.backend ?? 'missing',
         judgeAttempts: verdict?.judgeAttempts ?? null,
+        questionType: verdict?.questionType ?? null,
         sharedWith: verdict?.sharedWith ?? null,
         undetermined: verdict?.undetermined ?? null,
         confidence: verdict?.confidence?.level ?? null,

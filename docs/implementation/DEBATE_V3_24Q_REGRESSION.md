@@ -8,6 +8,7 @@
 - 自动生成表：`docs/implementation/regression/debate-regression-latest.md`
 - 初始完整运行：`docs/implementation/regression/debate-regression-2026-11-14T04-32-50-472Z.json`
   （保留 `cache-invalidation` 回退规则版的原始记录，便于对照修复前后）
+- 人工复核后的标准答案 V1：`docs/implementation/DEBATE_TECH_FACT_BASELINE_V1.md`
 
 ## 1. 运行条件
 
@@ -98,7 +99,22 @@
 
 修复：裁判按题在完整数据集里的固定位置轮换，只重跑一题也还是原来那位裁判。
 
-## 5. 这些结果能说明什么
+## 5. 人工复核结论
+
+用户已经逐条复核这 24 题的技术主张，总体判断是：
+
+- 没有发现明显的基础性技术错误；
+- 11 题原结论可以保留；
+- 10 题需要补充边界条件；
+- 3 题（缓存一致性、消息队列、分布式锁）需要重新形成实质性结论；
+- 一个关键问题：裁判可能把“缺少具体场景”错误地当成“无法给出任何结论”；
+- `CONTEXTUAL` 不等于 `INSUFFICIENT`，有条件的技术决策仍应给出条件、边界和推荐方案。
+
+复核后的逐题标准答案、必答主张、允许表达、错误主张和评分规则在
+`DEBATE_TECH_FACT_BASELINE_V1.md`，机器可读版本在
+`desktop-agent-macos/scripts/regression/debate-standard-answers-v1.json`。
+
+## 6. 这些结果能说明什么
 
 能说明：
 
@@ -118,7 +134,7 @@
 - 单一 Provider 下模型多样性等于故障域独立；
 - 自动质量通过等于 `PRODUCTION_READY`。
 
-## 6. 复现
+## 7. 复现
 
 ```bash
 cd desktop-agent-macos

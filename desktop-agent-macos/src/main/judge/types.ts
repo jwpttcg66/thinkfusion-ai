@@ -46,6 +46,13 @@ export interface JudgeConfidence {
   why: string;
 }
 
+/**
+ * 裁判对题目类型的判断。它约束裁判该怎么回答：
+ * FACT 必须给明确结论；CONTEXTUAL 要给条件/边界/推荐；INSUFFICIENT 才说信息不足。
+ * CONTEXTUAL 不等于 INSUFFICIENT。
+ */
+export type JudgeQuestionType = 'FACT' | 'CONTEXTUAL' | 'INSUFFICIENT';
+
 export interface JudgeVerdict {
   verdictId: string;
   debateId: string;

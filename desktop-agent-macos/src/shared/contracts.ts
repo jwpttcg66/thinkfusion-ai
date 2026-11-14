@@ -1687,6 +1687,8 @@ export interface JudgeVerdictView {
   judgeAgentId: string | null;
   /** 实际向裁判模型问了几次；解析失败会重试一次。老记录没有。 */
   judgeAttempts?: number;
+  /** 题目类型：FACT 必须给结论；CONTEXTUAL 给条件/边界；INSUFFICIENT 才说信息不足。 */
+  questionType?: 'FACT' | 'CONTEXTUAL' | 'INSUFFICIENT';
   sharedWith?: string;
   backend: 'model' | 'rules';
   conclusion: string | null;

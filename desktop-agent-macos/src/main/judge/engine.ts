@@ -58,8 +58,10 @@ export class JudgeEngine {
     const system: string[] = [
       '你是独立裁判。先读完所有发言，再判断哪些主张有依据、哪些只是断言。',
       '不要把「多数模型都这么说」当成正确的理由，也不要为了达成一致删掉少数派。',
-      '如果证据不足或分歧无法裁决，明确说无法确定，并说明为什么。',
-      '只输出一个 JSON 对象：{"conclusion": string|null, "undetermined": boolean, "reason": string, "disagreement": string, "unresolved": string[]}'
+      '先判断题目类型：FACT 是可验证的客观事实，必须给明确结论；CONTEXTUAL 依赖场景，必须给条件、边界和推荐方案；INSUFFICIENT 才表示缺少必要信息且没有成熟默认框架。',
+      'CONTEXTUAL 不等于 INSUFFICIENT：没有普遍最优答案，不代表不能给条件性结论。',
+      '如果确实证据不足或分歧无法裁决，明确说无法确定，并说明为什么。',
+      '只输出一个 JSON 对象：{"questionType":"FACT"|"CONTEXTUAL"|"INSUFFICIENT","conclusion": string|null, "undetermined": boolean, "reason": string, "disagreement": string, "unresolved": string[]}'
     ];
     const askOnce = async (extra: string[] = []): Promise<SubAgentAnswer> =>
       this.options.ask!(this.options.judgeAgentId!, {
@@ -96,6 +98,7 @@ export class JudgeEngine {
         backend: 'model',
         judgeAgentId: this.options.judgeAgentId,
         judgeAttempts: attempts,
+        ...(parsed.questionType ? { questionType: parsed.questionType } : {}),
         sharedWith: this.options.sharedWith,
         conclusion: parsed.undetermined ? null : parsed.conclusion,
         undetermined: parsed.undetermined,
@@ -270,6 +273,7 @@ function collectUnresolved(messages: DebateMessage[]): UnresolvedQuestion[] {
 }
 
 function parseVerdictJson(text: string): {
+  questionType?: 'FACT' | 'CONTEXTUAL' | 'INSUFFICIENT';
   conclusion: string | null;
   undetermined: boolean;
   reason: string;
@@ -281,7 +285,13 @@ function parseVerdictJson(text: string): {
     try {
       const parsed = JSON.parse(block) as Record<string, unknown>;
       if (typeof parsed.reason !== 'string' || typeof parsed.undetermined !== 'boolean') continue;
+      const questionType = parsed.questionType === 'FACT' ||
+        parsed.questionType === 'CONTEXTUAL' ||
+        parsed.questionType === 'INSUFFICIENT'
+        ? parsed.questionType
+        : undefined;
       return {
+        ...(questionType ? { questionType } : {}),
         conclusion: typeof parsed.conclusion === 'string' ? parsed.conclusion : null,
         undetermined: parsed.undetermined,
         reason: parsed.reason,

@@ -47,6 +47,11 @@
   记录实际次数；两次都失败才退回规则版；
 - 退回规则版时，`logicalValidity` 标 `unknown`，不能把规则线索写成
   “模型裁判论证质量”；
+- 裁判输出新增 `questionType`：`FACT` / `CONTEXTUAL` / `INSUFFICIENT`；
+  - FACT 必须给明确结论；
+  - CONTEXTUAL 必须给条件、边界和推荐方案；
+  - INSUFFICIENT 才表示缺少必要信息且没有成熟默认框架；
+  - `CONTEXTUAL` 不等于 `INSUFFICIENT`，不能因为“没有普适最优”就拒绝给结论。
 - 老裁决记录没有这两个字段，读回时不补造；
 - 渲染层在裁决下方显示评估状态、事实维度、阻断项和最终处理方式。
 
