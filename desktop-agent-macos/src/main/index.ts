@@ -164,6 +164,7 @@ import type {
   SelectorRole
 } from '../shared/selectors';
 import { PlatformAccessibility } from '../platform/accessibility';
+import { detachedSaveDocument } from './detached-save-document';
 import {
   previewPageDocument,
   type ExportConversationInput,
@@ -298,6 +299,9 @@ let pageCollapsed = false;
  * same scroll position — which is the point. Closing that window puts it back.
  */
 let detached: { window: BrowserWindow; sourceId: string } | null = null;
+
+/** The selection sheet is owned by the detached page window, never the main window. */
+let detachedSaveWindow: { window: BrowserWindow; sourceId: string; format: 'md' | 'docx' } | null = null;
 
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
@@ -1737,7 +1741,7 @@ function detachedDocument(source: PageSource): string {
   </span>
 </div>
 <script>
-  /* 保存入口转交给主窗口的多选面板，选取和保存行为与页面栏一致。 */
+  /* 保存选择在本窗口的附属面板中完成，不把主窗口调到前面。 */
   function save(format) {
     var api = window.tfDetached;
     if (!api || typeof api.requestSave !== 'function') {
@@ -1747,7 +1751,7 @@ function detachedDocument(source: PageSource): string {
     }
     api.requestSave(format).then(function () {
       var hint = document.getElementById('hint');
-      if (hint) { hint.className = 'hint'; hint.textContent = '请在 ThinkFusion 主窗口选择要保存的对话'; }
+      if (hint) { hint.className = 'hint'; hint.textContent = '已打开保存选择面板'; }
     }).catch(function (error) {
       var hint = document.getElementById('hint');
       if (!hint) return;
@@ -1764,6 +1768,63 @@ function detachedDocument(source: PageSource): string {
   document.getElementById('back').addEventListener('click', reattach);
 </script>
 </body></html>`;
+}
+
+async function openDetachedSaveWindow(
+  parent: BrowserWindow,
+  sourceId: string,
+  format: 'md' | 'docx'
+): Promise<BrowserWindow> {
+  if (
+    detachedSaveWindow &&
+    !detachedSaveWindow.window.isDestroyed() &&
+    detachedSaveWindow.sourceId === sourceId
+  ) {
+    detachedSaveWindow.window.show();
+    detachedSaveWindow.window.focus();
+    return detachedSaveWindow.window;
+  }
+
+  if (detachedSaveWindow && !detachedSaveWindow.window.isDestroyed()) {
+    detachedSaveWindow.window.close();
+  }
+  detachedSaveWindow = null;
+
+  const saveWindow = new BrowserWindow({
+    parent,
+    modal: true,
+    show: false,
+    width: 780,
+    height: 680,
+    minWidth: 540,
+    minHeight: 480,
+    title: '保存网页对话',
+    backgroundColor: '#f5f5f2',
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, '../preload/detachedSave.js')
+    }
+  });
+  const state = { window: saveWindow, sourceId, format } as const;
+  detachedSaveWindow = state;
+  saveWindow.on('closed', () => {
+    if (detachedSaveWindow?.window === saveWindow) detachedSaveWindow = null;
+  });
+
+  try {
+    await saveWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(detachedSaveDocument())}`);
+    if (!saveWindow.isDestroyed() && detachedSaveWindow?.window === saveWindow) {
+      saveWindow.show();
+      saveWindow.focus();
+    }
+    return saveWindow;
+  } catch (error) {
+    if (detachedSaveWindow?.window === saveWindow) detachedSaveWindow = null;
+    if (!saveWindow.isDestroyed()) saveWindow.destroy();
+    throw error;
+  }
 }
 
 /**
@@ -1846,6 +1907,9 @@ function detachSource(id: string): PageState {
 function reattachSource(): PageState {
   if (!detached) return pageState();
   const { window: frame, sourceId } = detached;
+  const saveWindow = detachedSaveWindow?.window;
+  detachedSaveWindow = null;
+  if (saveWindow && !saveWindow.isDestroyed()) saveWindow.close();
   detached = null;
 
   const view = views.get(sourceId);
@@ -2469,11 +2533,12 @@ function registerIpc() {
     savePageDeps: () => ({
       defaultDir: () => app.getPath('downloads'),
       pickPath: async (name, format) => {
-        // 页面在独立窗口里时，对话框挂到那个窗口上——挂到主窗口会让人以为
-        // 点了保存却什么都没发生。
+        // 页面在独立窗口里时，文件选择框挂到当前保存面板；否则挂到页面窗口。
         const parent =
-          detached?.window && !detached.window.isDestroyed()
-            ? detached.window
+          detachedSaveWindow?.window && !detachedSaveWindow.window.isDestroyed()
+            ? detachedSaveWindow.window
+            : detached?.window && !detached.window.isDestroyed()
+              ? detached.window
             : win && !win.isDestroyed()
               ? win
               : null;
@@ -4025,22 +4090,53 @@ function registerIpc() {
   });
 
   /**
-   * The detached toolbar reuses the main window's save dialog so the same
-   * conversation selection and save modes are available in either layout.
+   * The selection sheet is a modal child of the detached page window. Do not
+   * raise the main window here: it would cover the one live page view.
    */
-  ipcMain.handle('page:request-save-from-detached', (event, raw: unknown) => {
+  ipcMain.handle('page:request-save-from-detached', async (event, raw: unknown) => {
     if (!detached || event.sender.id !== detached.window.webContents.id) {
       throw new Error('IPC sender rejected');
     }
     if (raw !== 'md' && raw !== 'docx') throw new Error('无效的保存格式');
-    if (!win || win.isDestroyed()) throw new Error('主窗口已关闭');
-    win.show();
-    win.focus();
-    win.webContents.send('page:save-request', {
-      sourceId: detached.sourceId,
-      format: raw,
-      returnToDetached: true
-    });
+    await openDetachedSaveWindow(detached.window, detached.sourceId, raw);
+  });
+
+  ipcMain.handle('page:detached-save-preview', async event => {
+    const request = detachedSaveWindow;
+    if (!request || event.sender.id !== request.window.webContents.id || !detached || detached.sourceId !== request.sourceId) {
+      throw new Error('IPC sender rejected');
+    }
+    const content = await capabilityContext.readPage?.(request.sourceId);
+    if (!content) throw new Error('读取网页内容的能力没有准备好');
+    return {
+      ...previewPageDocument(content),
+      sourceId: request.sourceId
+    } satisfies PageExtractPreview;
+  });
+
+  ipcMain.handle('page:detached-save-document', async (event, raw: unknown) => {
+    const request = detachedSaveWindow;
+    if (!request || event.sender.id !== request.window.webContents.id || !detached || detached.sourceId !== request.sourceId) {
+      throw new Error('IPC sender rejected');
+    }
+    const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const mode = value.mode === 'per-item' ? 'per-item' : 'merge';
+    const documents = Array.isArray(value.documents)
+      ? value.documents.filter((item): item is number => Number.isInteger(item) && Number(item) >= 0)
+      : [];
+    const input: SavePageDocumentInput = {
+      sourceId: request.sourceId,
+      format: request.format,
+      mode,
+      documents,
+      includeTranscript: mode === 'merge' && value.includeTranscript === true
+    };
+    return mainCapabilities.execute('page.save-document', input, capabilityContext);
+  });
+
+  ipcMain.on('page:detached-save-close', event => {
+    if (!detachedSaveWindow || event.sender.id !== detachedSaveWindow.window.webContents.id) return;
+    detachedSaveWindow.window.close();
   });
 
   ipcMain.handle('page:focus-detached', (event, rawSourceId: unknown) => {

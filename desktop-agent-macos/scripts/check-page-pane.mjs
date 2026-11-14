@@ -279,21 +279,39 @@ if (detachedFrame) {
   checkTrue('独立窗口的保存图标是纸+箭头', frameBar.savePath.includes('M3 1.9h6.1'));
   check('独立窗口有保存为 Word', frameBar.wordLabel, '保存为 Word');
   checkTrue('独立窗口的 Word 也是图标（纸+横线）', frameBar.wordPath.includes('M5.5 8.2h5'));
+  const detachedTargetId = detachedFrame.id;
   await frameCdp.evaluate("document.getElementById('save').click()").catch(() => undefined);
-  const saveErrorVisible = await waitFor(
-    async () => Boolean(await cdp.evaluate('document.querySelector(".error")?.textContent')),
+  const saveDialogOpened = await waitFor(
+    async () => (await listTargets()).some(target => target.title === '保存网页对话'),
     true,
-    { timeoutMs: 15000 }
+    { timeoutMs: 5000 }
   );
-  const saveError = await cdp.evaluate('document.querySelector(".error")?.textContent ?? ""');
-  checkTrue(`独立窗口保存请求转交给主窗口同一套提取流程（${saveError}）`, saveErrorVisible && saveError.includes(source.label));
-  const focusedDetached = await cdp.evaluate(`window.agentAPI.focusDetachedPage(${JSON.stringify(SOURCE)})`);
-  check('独立窗口保存请求后可以返回放大窗口', focusedDetached, true);
+  check('保存选择面板作为独立页面窗口的附属窗口打开', saveDialogOpened, true);
+  const saveDialogTarget = (await listTargets()).find(target => target.title === '保存网页对话');
+  let saveDialogCdp = null;
+  if (saveDialogTarget) {
+    saveDialogCdp = await connect(saveDialogTarget);
+    check('附属保存面板已渲染', await saveDialogCdp.evaluate('Boolean(document.querySelector("[role=dialog]"))'), true);
+    check('保存面板提供消息选择', await saveDialogCdp.evaluate('Boolean(document.querySelector("#items"))'), true);
+  }
+  check('保存面板没有切到主窗口的 React 覆盖层', await cdp.evaluate('document.querySelector(".page-save-panel") === null'), true);
+  check('保存面板出现时同一个页面仍处于放大状态', (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId, SOURCE);
+  check('保存面板打开时独立页面窗口仍存在', (await listTargets()).some(target => target.id === detachedTargetId), true);
   check(
-    '返回放大窗口不会吸附或销毁页面',
+    '保存面板打开时页面没有吸附或销毁',
     (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId,
     SOURCE
   );
+  if (saveDialogCdp && saveDialogTarget) {
+    await saveDialogCdp.evaluate("document.getElementById('close').click()").catch(() => undefined);
+    const saveDialogClosed = await waitFor(
+      async () => !(await listTargets()).some(target => target.id === saveDialogTarget.id),
+      true,
+      { timeoutMs: 3000 }
+    );
+    check('关闭保存面板后仍留在放大页面', saveDialogClosed, true);
+    saveDialogCdp.close();
+  }
 } else {
   checkTrue('独立窗口存在', false);
 }

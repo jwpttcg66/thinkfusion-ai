@@ -14,7 +14,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           // 独立窗口工具栏：只暴露「保存文档」，没有主窗口那份完整 API。
-          detached: resolve(__dirname, 'src/preload/detached.ts')
+          detached: resolve(__dirname, 'src/preload/detached.ts'),
+          detachedSave: resolve(__dirname, 'src/preload/detached-save.ts')
         }
       }
     }
