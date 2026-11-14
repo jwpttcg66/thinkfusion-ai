@@ -1,0 +1,761 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T16:31:16.041Z",
+  "workers": 3,
+  "completeness": true,
+  "incremental": null,
+  "summary": {
+    "total": 3,
+    "execution": {
+      "PARTIAL": 1,
+      "COMPLETED": 2
+    },
+    "completed": 2,
+    "judgeModel": 3,
+    "independent": 3,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 3
+    },
+    "factual": {
+      "model-assessed": 3
+    },
+    "anchors": {
+      "checked": 3,
+      "hit": 3
+    },
+    "standard": {
+      "total": 3,
+      "passed": 2,
+      "failed": 1,
+      "unavailable": 0,
+      "averageScore": 90,
+      "classificationMatches": 3
+    },
+    "byStrategy": {
+      "truth": {
+        "total": 1,
+        "completed": 0,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 47797
+      },
+      "adversarial": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 226814
+      },
+      "expert": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 307978
+      }
+    },
+    "structuralOk": false
+  },
+  "results": [
+    {
+      "id": "float-equality",
+      "category": "JavaScript",
+      "strategy": "truth",
+      "question": "JavaScript 中 0.1 + 0.2 === 0.3 的结果是什么？为什么？",
+      "fingerprint": "426f11f049a657e9a12888c1b1cbe12396b50f7de009220a06133950b9e86ea5",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 1210,
+          "outputTokens": 1407,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 16849
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "PARTIAL",
+        "rounds": 2,
+        "messages": 2,
+        "failures": [
+          {
+            "agentId": "gpt-6-luna",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "detail": "连不上 https://opencode.ai/inference/go/openai/v1"
+          }
+        ],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 47797,
+        "durationSec": 48,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 171,
+            "outputTokens": 434
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 197,
+            "outputTokens": 1953
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "contradicted",
+          "basis": [
+            "模型裁判论证质量均值 0.00"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 11 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "false。`0.1 + 0.2 === 0.3` 的求值结果是 `false`；`0.1 + 0.2` 实际得到 `0.30000000000000004`。",
+        "unresolvedDisputes": [
+          "浮点比较该用多大容差（绝对、相对或 ULP 方式）、金额场景选整数最小单位还是十进制库，属依赖精度与业务要求的场景问题，不影响本题的确定结论。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "说明 JavaScript 的 Number 使用 IEEE 754 双精度二进制浮点数表示，0.1、0.2 和 0.3 无法都被精确表示。",
+            "why": "这是解释求和结果与 0.3 不完全相等的关键原因。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "说明浮点运算经过舍入，因此 0.1 + 0.2 得到的近似值是 0.30000000000000004。",
+            "why": "仅给出结果而未说明二进制表示和舍入如何导致差异，原因解释不完整。"
+          }
+        ],
+        "reason": "候选回答正确给出了比较结果和求和近似值，但没有解释其背后的浮点表示与舍入机制。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 285,
+          "outputTokens": 273,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 3394
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "结果是 false。0.1 + 0.2 的实际值是 0.30000000000000004，它与 0.3 不相等，所以 === 比较返回 false。\n\n原因：JavaScript 的 Number 类型采用 IEEE 754 双精度二进制浮点数表示。在二进制中，0.1、0.2 和 0.3 都无法被精确表示，它们只能被存储为最接近的二进制近似值，类似于十进制中无法精确写出 1/3。因此 0.1 和 0.2 各自都带有微小误差。\n\n加法运算也会经过舍入：两个近似值相加后，结果会被舍入到最接近的可表示双精度数。这个结果恰好是 0.30000000000000004，而不是 0.3 对应的那个双精度数，所以严格相等比较失败。\n\n如果需要比较浮点结果，可以使用误差容忍的比较，例如 Math.abs(a - b) < 1e-10；涉及金额时，可以改用整数（如以分为单位）计算，或在显示时使用 toFixed 进行格式化。",
+        "addressed": [
+          "[definition] 补充了 IEEE 754 双精度二进制浮点表示，以及 0.1、0.2、0.3 无法被精确表示的原因",
+          "[failure_mode] 补充了浮点加法的舍入过程，解释了为什么结果是 0.30000000000000004 而不是 0.3"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 506,
+          "outputTokens": 993,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5610
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "deepseek-v4.1-flash",
+        "undetermined": false,
+        "conclusion": "结果为 false。JavaScript 中 0.1 + 0.2 === 0.3 返回 false，因为 0.1 + 0.2 的实际计算结果是 0.30000000000000004，而 0.3 是另一个最接近的可表示双精度值。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "float-equality",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 1,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "明确给出 false，解释了 IEEE 754 二进制浮点精度原因和实际结果，并推荐 epsilon 比较或整数缩放。",
+        "usage": {
+          "inputTokens": 935,
+          "outputTokens": 313,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 4267,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "false",
+          "0.30000000000000004",
+          "不相等"
+        ],
+        "terms": [
+          "false",
+          "0.30000000000000004",
+          "不相等",
+          "不等于"
+        ],
+        "note": "确定性浮点数语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "array-map",
+      "category": "JavaScript",
+      "strategy": "adversarial",
+      "question": "JavaScript 的 Array.prototype.map 会修改原数组吗？它和 forEach 的区别是什么？",
+      "fingerprint": "62d6af4e9281748b430ecc4bd4264a838e74d32d72f0924277b3faecd1614d84",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 6004,
+          "outputTokens": 750,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9069
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 226814,
+        "durationSec": 227,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 209,
+            "outputTokens": 1891
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 148,
+            "outputTokens": 4037
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3716,
+            "outputTokens": 3871
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2443,
+            "outputTokens": 5717
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 1 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "通常不会：在普通数组和未被改写的内置方法下，map 返回新数组；forEach 返回 undefined。两者都可能因回调副作用而间接改变原数组或其元素对象。严格说，map 也有边缘例外：自定义 Symbol.species 构造器可以让结果数组就是原数组，导致 map 写入原数组。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "缺少核心语义区别：map 的新数组元素由每次回调的返回值构成，forEach 忽略回调返回值、只执行副作用。",
+            "why": "仅说 map 返回新数组、forEach 返回 undefined，不能完整解释两者用途和选型差异。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "缺少稀疏数组/空槽处理边界：两者都会跳过空槽而不调用回调；map 的结果保留空槽，forEach 不生成结果数组。",
+            "why": "这会影响对遍历范围、结果长度和“是否处理所有索引”的判断。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "缺少遍历期间修改原数组的失败模式：删除未访问元素可能导致跳过，新增元素通常不会被本次遍历访问，回调副作用会使结果依赖遍历顺序。",
+            "why": "用户可能误以为在回调中修改数组会简单、同步地影响所有后续处理。"
+          }
+        ],
+        "reason": "候选回答覆盖了“通常不修改原数组、回调副作用、Symbol.species 例外”，但遗漏了 map/forEach 的核心返回值语义、稀疏数组边界以及遍历中修改数组的典型失败模式。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 288,
+          "outputTokens": 1318,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 20639
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "通常不会。在普通数组且未改写内置方法的情况下，map 返回一个新数组，原数组保持不变；forEach 返回 undefined。两者都可能因回调里的副作用而间接改变原数组或其元素对象。严格来说，map 有一个边缘例外：如果通过自定义的 Symbol.species 让 map 创建的结果对象就是原数组，那么 map 的写入会落到原数组上。这种情况很少见。\n\n两者的核心语义区别：\n1. map 的用途是转换（映射）。新数组的每个元素，都由对应那次回调的返回值构成。\n2. forEach 忽略回调的返回值，只为执行副作用而遍历，例如打印、累加到外部变量、写入数据库。\n3. 因此选型时，需要得到一组新值就用 map；只需要对每个元素做操作、不需要结果数组就用 forEach。\n4. forEach 不能用 break 或 return 提前结束整个遍历。需要提前结束时，可用 for...of、some 或 every。\n\n稀疏数组（空槽）的处理：\n1. 两者都会跳过空槽，不调用回调。\n2. map 的结果数组保留空槽，长度与原数组相同，空槽位置仍为空。\n3. forEach 不生成结果数组，因此不存在这个问题。\n4. 所以，“遍历了所有索引”并不等于“回调处理了每个位置”，判断结果长度和覆盖范围时要考虑空槽。\n\n遍历期间修改原数组的风险：\n1. 长度在调用开始时就已确定。遍历期间新增到末尾的元素，通常不会被本次 map 或 forEach 访问。\n2. 在回调中删除尚未访问的元素，该位置会被跳过，不会被调用回调。\n3. 在回调中修改尚未访问的元素，后续访问时会读到修改后的值。\n4. 如果回调有副作用，结果会依赖遍历顺序。对于 map 来说，结果反映的是每个元素被访问那一刻的值。\n5. 因此，不要在遍历同一数组时依赖“回调中修改数组会同步、简单地影响所有后续处理”。需要改动数组时，更稳妥的做法是先遍历生成新数组，再统一替换或修改。",
+        "addressed": [
+          "map 的核心语义：新数组元素由每次回调的返回值构成；forEach 忽略返回值、只执行副作用，并补充了两者的选型差异",
+          "稀疏数组与空槽：两者都跳过空槽且不调用回调；map 结果保留空槽，forEach 不生成结果数组",
+          "遍历期间修改原数组：删除未访问元素会导致跳过，新增元素通常不被本次遍历访问，回调副作用使结果依赖遍历顺序"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 701,
+          "outputTokens": 1820,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9621
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "gpt-6-luna",
+        "undetermined": false,
+        "conclusion": "通常情况下，map 不会修改原数组，而是返回一个由回调结果组成的新数组；forEach 不生成结果数组，返回 undefined，并忽略回调的返回值。两者都会跳过稀疏数组中的空槽。回调本身可以修改原数组或其元素；此外，少见的自定义 Symbol.species 情况也可能让 map 的结果对象与原数组相同。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "array-map",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 90,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "候选明确说明 map 返回新数组且通常不修改原数组、forEach 返回 undefined，并指出回调副作用可间接修改原数组或元素对象；也正确区分 map 转换收集与 forEach 遍历执行。仅未明确表述 map 的浅拷贝及对象元素引用共享，属于缺少建议性主张 c3。未将边缘例外作为重大错误主张计入。",
+        "usage": {
+          "inputTokens": 989,
+          "outputTokens": 4787,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 59532,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "不会",
+          "不修改",
+          "新数组"
+        ],
+        "terms": [
+          "不会",
+          "不修改",
+          "新数组",
+          "new array"
+        ],
+        "note": "确定性数组语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "http-methods",
+      "category": "HTTP",
+      "strategy": "expert",
+      "question": "HTTP 的 PUT 和 POST 哪个是幂等的？在设计 REST API 时应该怎么选？",
+      "fingerprint": "ec64acf0ba57c571db8e4762428e8b622eab4c46fcebf112a316080e66c4da74",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 10380,
+          "outputTokens": 1877,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10582
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 307978,
+        "durationSec": 308,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1046
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 162,
+            "outputTokens": 5760
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3735,
+            "outputTokens": 423
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3334,
+            "outputTokens": 13853
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 53 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "按 RFC 9110 §9.2.2，PUT 是幂等方法，POST 不在幂等方法之列，规范不承诺 POST 幂等（PATCH 也不保证幂等）。设计选型的条件性建议：客户端已知目标 URI 且请求表示将该资源设为指定状态时用 PUT（可用 If-Match 防并发覆盖，仅创建时可用 If-None-Match: *）；由服务器分配资源 ID 或提交处理动作时用 POST，若可能因超时重试，则需在应用层加幂等键或业务唯一约束；部分更新考虑 PATCH，但需按补丁语义单独保证重试安全。",
+        "unresolvedDisputes": [
+          "## 2. 规范判断：哪个幂等？",
+          "具体 API 是否按 PUT 语义实现，需查其官方文档或实测确认，规范无法替代。",
+          "具体网关、代理、客户端 SDK 是否自动重试 PUT 或 POST，取决于其实现与配置，本答案未验证。",
+          "IETF Idempotency-Key 头部目前为草案，各服务的实现与语义差异未统一，不能视为通用标准。",
+          "对于 PATCH 的重试安全性，取决于具体补丁格式（如 JSON Patch 的操作是否可重放），需按接口单独判断。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "未明确“幂等”指相同请求重复执行对服务器资源状态的效果相同，响应可以不同；也未区分幂等与安全、无副作用的区别。",
+            "why": "不澄清定义容易把“响应相同”或“无副作用”误当成幂等，进而错误判断重试是否安全。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "未明确 PUT 通常要求发送目标资源的完整表示，不能当作部分更新使用；未说明只提交部分字段可能清空或覆盖未提交字段。",
+            "why": "这是 REST API 选型中最常见的误用边界，直接关系到数据丢失风险。"
+          },
+          {
+            "dimension": "condition",
+            "text": "未说明 PUT 创建资源需要客户端能确定目标 URI 且服务器允许在该 URI 不存在时创建；If-None-Match: * 只是条件创建手段，不适用于普通更新。",
+            "why": "否则容易把“PUT 可创建”误解为任意 PUT 都可用于创建，或误用条件头。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "未具体说明 POST 超时重试可能导致重复创建资源或重复执行业务动作，也未说明幂等键/唯一约束需要服务端去重存储、作用域、过期窗口和并发原子性等实施约束。",
+            "why": "仅说“加幂等键”不足以指导实现，重复提交是 POST 重试的核心失败模式。"
+          },
+          {
+            "dimension": "exception",
+            "text": "未说明 POST 并非绝对不能实现幂等：服务端可通过应用层幂等机制使其重试安全，但 HTTP 语义本身不承诺，因此不能省略去重设计。",
+            "why": "混淆协议语义与业务实现会导致要么误以为 POST 完全不可重试，要么误以为标注幂等即可安全重试。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "未明确 PUT 的幂等性不等于并发安全；重复执行效果相同不代表不会发生丢失更新，仍需 ETag/If-Match 等条件请求处理并发冲突。",
+            "why": "幂等只解决重复执行问题，不解决并发覆盖问题，二者边界不清会导致并发更新错误。"
+          }
+        ],
+        "reason": "候选回答覆盖了 PUT 幂等、POST 非幂等及基本选型，但缺少幂等定义范围、PUT 完整表示边界、PUT 创建条件、POST 重试失败模式与幂等键实施约束、POST 可实现应用层幂等的例外，以及幂等与并发安全的边界。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 362,
+          "outputTokens": 2217,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 32270
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "按 HTTP 语义，PUT 是幂等的，POST 不保证幂等。幂等指对同一目标重复执行相同请求，对服务器资源状态产生的效果与执行一次相同；响应不必相同。它不等于安全或无副作用：PUT 可以改变资源状态，但仍可幂等。\n\n选型时：\n- **PUT**：客户端已知目标 URI，并要把该资源设为请求中表示的状态时使用。PUT 通常应发送资源的完整表示，不应当作部分更新；若只提交部分字段，服务器可能用它们替换资源，导致未提交字段被清空或覆盖。部分更新应使用定义明确的 PATCH 语义。\n- **PUT 创建**：只有客户端能确定目标 URI，且服务器允许在该 URI 尚不存在时创建资源，才适合用 PUT 创建。`If-None-Match: *` 可用于仅在资源不存在时创建；它不是普通更新的条件。更新时可用 `If-Match`（通常配合 ETag）检测并发冲突。PUT 幂等不等于并发安全：重复请求效果相同，仍可能发生丢失更新。\n- **POST**：适用于由服务器分配 URI 的资源创建，或提交由服务器处理的动作。POST 超时后重试可能重复创建资源或重复执行业务动作。HTTP 语义本身不保证 POST 幂等，但服务端可以用应用层机制使其重试安全。\n\n若用幂等键或业务唯一约束防止 POST 重复处理，服务端需可靠地持久化去重结果，明确键的作用域和过期窗口，并保证并发请求的检查与记录是原子的；否则并发重试或过期后重试仍可能重复执行。",
+        "addressed": [
+          "明确幂等针对重复请求对服务器资源状态的效果，响应可以不同；区分幂等与安全、无副作用。",
+          "说明 PUT 通常发送完整表示、不能当作部分更新，并指出部分提交可能覆盖或清空未提交字段。",
+          "说明 PUT 创建要求客户端确定目标 URI 且服务器允许创建；区分 If-None-Match: * 的条件创建与普通更新。",
+          "指出 POST 超时重试可能造成重复创建或重复执行业务动作，并说明幂等键/唯一约束所需的服务端持久去重、作用域、过期窗口和并发原子性。",
+          "说明 POST 可由应用层机制实现重试安全，但 HTTP 语义本身不保证幂等。",
+          "区分幂等与并发安全，并说明可用 ETag/If-Match 检测并发冲突。"
+        ],
+        "stillMissing": [],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 821,
+          "outputTokens": 747,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7884
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "claude-haiku-5-5",
+        "undetermined": false,
+        "conclusion": "按 HTTP 规范（RFC 9110），PUT 是幂等方法，POST 不是。选型取决于操作语义：客户端已知目标 URI 且要把资源设为给定状态时用 PUT；由服务器分配 URI 的资源创建或服务器端动作用 POST。若 POST 需要安全重试，应由服务端实现幂等键或业务唯一约束。PUT 通常应传完整表示，部分更新用语义明确的 PATCH；PATCH 不保证幂等。PUT 幂等不等于并发安全，并发更新应结合 If-Match/ETag 等机制。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "http-methods",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 85,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [
+          "c4"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "回答准确说明 PUT 幂等、POST 语义不保证幂等，并澄清幂等不等于响应相同；也覆盖了应用层幂等键/唯一约束、PUT 完整替换、服务端分配 URI 或执行动作时用 POST 等条件边界。主要缺口是没有明确说明 PATCH 是否幂等取决于补丁格式和服务器实现，仅提到部分更新应使用 PATCH。",
+        "usage": {
+          "inputTokens": 999,
+          "outputTokens": 1007,
+          "cacheReadTokens": 640,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 13967,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "terms": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "note": "确定性协议语义烟测"
+      },
+      "error": null
+    }
+  ]
+}
