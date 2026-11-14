@@ -276,6 +276,15 @@ export function roleFor(
   strategy: DebateStrategy
 ): DebateRole {
   const profile = strategyProfile(strategy);
+  // 单模型没有第二位成员可分饰 critic：按轮次显式轮转角色。
+  // 第一轮 lead，第二轮质疑/前提核对，第三轮起回应。
+  if (plan.participants.length === 1) {
+    if (roundIndex === 0) return profile.roles.lead;
+    if (roundIndex === 1) {
+      return profile.roles.other === 'evidence_reviewer' ? 'evidence_reviewer' : 'critic';
+    }
+    return 'responder';
+  }
   if (plan.lead.agentId === agentId) return profile.roles.lead;
   if (profile.roles.other === 'critic') {
     const speakers = roundIndex === 0 ? plan.openingSpeakers : plan.debaters;

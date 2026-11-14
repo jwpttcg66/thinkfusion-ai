@@ -81,8 +81,8 @@ test('单模型角色与提示词职责一致', async () => {
   const { state, seen } = await runStrategy('adversarial');
   const secondRole = state.rounds[1]?.messages[0]?.role;
   assert.ok(['critic', 'opponent'].includes(secondRole), `第二轮角色应为 critic/opponent，实际 ${secondRole}`);
-  const questionCall = seen.find(call => call.stage === 'question');
-  assert.ok(questionCall, '缺少第二轮 question 调用');
+  const questionCall = seen.find(call => call.system.some(line => line.includes('逐条质疑')));
+  assert.ok(questionCall, '缺少第二轮质疑指令调用');
   assert.ok(
     questionCall.system.some(line => line.includes('检验主张的漏洞') || line.includes('核对前提与证据')),
     '第二轮提示词没有使用 critic/evidence reviewer 职责'

@@ -1687,6 +1687,12 @@ export interface JudgeVerdictView {
   judgeAgentId: string | null;
   /** 实际向裁判模型问了几次；解析失败会重试一次。老记录没有。 */
   judgeAttempts?: number;
+  judgeMode?: 'self-review' | 'participant-review' | 'independent-judge' | 'rules-fallback';
+  judgeIndependent?: boolean;
+  modelIndependence?: boolean;
+  judgeProviderId?: string;
+  judgeModelId?: string;
+  independenceReason?: string;
   /** 题目类型：FACT 必须给结论；CONTEXTUAL 给条件/边界；INSUFFICIENT 才说信息不足。 */
   questionType?: 'FACT' | 'CONTEXTUAL' | 'INSUFFICIENT';
   sharedWith?: string;
@@ -1836,7 +1842,7 @@ export interface DebateMessageView {
   messageId: string;
   roundIndex: number;
   agentId: string;
-  role: 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer';
+  role: 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer' | 'responder';
   kind: 'position' | 'question' | 'rebuttal' | 'revision';
   text: string;
   targetMessageId?: string;

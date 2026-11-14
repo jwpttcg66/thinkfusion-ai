@@ -38,7 +38,7 @@ async function runWithFailures(failedIds, maxRounds = 2) {
   };
   try {
     const plan = planLead({ mode: 'cloud', strategy: 'adversarial', candidates: CANDIDATES, selected: ['a', 'b', 'c'] });
-    const orchestrator = new DebateOrchestrator(store, { ask });
+    const orchestrator = new DebateOrchestrator(store, { ask, judgeCandidateId: 'c', judgeModelId: 'c' });
     const started = orchestrator.start(QUESTION, {
       strategy: 'adversarial',
       maxRounds,

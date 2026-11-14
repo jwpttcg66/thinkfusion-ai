@@ -225,6 +225,10 @@ app.whenReady().then(async () => {
 
       const engine = new JudgeEngine({
         judgeAgentId,
+        participants: state.degradation?.actualParticipants ?? state.plan.participants,
+        participantModelIds: state.rounds.flatMap(round => round.messages).map(message => message.modelId).filter(Boolean),
+        judgeModelId: byId.get(judgeAgentId),
+        judgeProviderId: 'opencode-go',
         sharedWith: state.plan.participants.includes(judgeAgentId) ? judgeAgentId : undefined,
         ask: async (agentId, task) => {
           const answer = await askModel(agentId, task);
@@ -307,7 +311,14 @@ app.whenReady().then(async () => {
               outcome: 'COMPLETED'
             };
             try {
-              const revisedEngine = new JudgeEngine({ judgeAgentId, ask: askModel });
+              const revisedEngine = new JudgeEngine({
+                judgeAgentId,
+                participants: state.degradation?.actualParticipants ?? state.plan.participants,
+                participantModelIds: state.rounds.flatMap(round => round.messages).map(message => message.modelId).filter(Boolean),
+                judgeModelId: byId.get(judgeAgentId),
+                judgeProviderId: 'opencode-go',
+                ask: askModel
+              });
               const revisedVerdict = await revisedEngine.judge(revisedState);
               revisionJudge = {
                 backend: revisedVerdict.backend,

@@ -225,5 +225,6 @@ const ROLE_DUTY: Partial<Record<DebateRole, string>> = {
   proposer: '你的职责是提出并维护主张。',
   critic: '你的职责是检验主张的漏洞。',
   domain_expert: '以你所在领域的证据标准发言，并说明这个标准是什么。',
-  evidence_reviewer: '你的职责是核对前提与证据，而不是另起一个结论。'
+  evidence_reviewer: '你的职责是核对前提与证据，而不是另起一个结论。',
+  responder: '你的职责是回应上一轮的质疑，说明修正或坚持的理由与条件。'
 };

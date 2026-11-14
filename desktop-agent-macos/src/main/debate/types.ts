@@ -61,7 +61,7 @@ export function debateOriginOf(
  * 角色（任务书 5.1 的 `ParticipantRole` 去掉 `judge`——裁判是规则，不是某位成员）。
  * `critic` 对应任务书的 `challenger`，沿用旧名是为了老文件读得回来。
  */
-export type DebateRole = 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer';
+export type DebateRole = 'proposer' | 'critic' | 'peer' | 'domain_expert' | 'evidence_reviewer' | 'responder';
 export type DebateMessageKind = 'position' | 'question' | 'rebuttal' | 'revision';
 
 /**
@@ -507,6 +507,18 @@ export interface DebateEvent {
   detail?: string;
 }
 
+export interface DebateDegradation {
+  originalParticipants: string[];
+  actualParticipants: string[];
+  failedAgents: string[];
+  actualRoles: Record<string, DebateRole[]>;
+  judgeIndependent: boolean;
+  modelIndependence: boolean;
+  degradedToSingleModel: boolean;
+  reason: string;
+  createdAt: number;
+}
+
 export interface DebateState {
   debateId: string;
   /** 关联的 Conversation；可以没有（独立发起的辩论）。 */
@@ -525,6 +537,8 @@ export interface DebateState {
   status: DebateStatus;
   /** 辩论执行结果，和 status（生命周期）分开。 */
   outcome?: 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';
+  /** 模型失败后的实际参与者与独立性；没有失败时不存在。 */
+  degradation?: DebateDegradation;
   rounds: DebateRound[];
   /** 正在跑、还没收口的那一轮；界面据此显示「等待谁发言」，不等到轮末才见。 */
   runningRound?: DebateRound;

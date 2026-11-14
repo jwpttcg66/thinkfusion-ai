@@ -3656,10 +3656,24 @@ function registerIpc() {
     const usable = all.filter(item => item.available && (item.type === 'local' || item.type === 'cloud'));
     const independent = usable.find(item => !state.plan.participants.includes(item.id));
     const pick = independent ?? usable[0];
+    const participantModelIds = state.rounds
+      .flatMap(round => round.messages)
+      .map(message => message.modelId)
+      .filter((modelId): modelId is string => Boolean(modelId));
+    const judgeModelId = pick
+      ? (pick.id.includes(':') ? pick.id.split(':').pop()! : pick.id)
+      : undefined;
+    const judgeProviderId = pick && pick.type === 'cloud' && pick.id.includes(':')
+      ? pick.id.split(':')[0]
+      : undefined;
     const engine = new JudgeEngine(pick ? {
       ask: askAgent,
       judgeAgentId: pick.id,
-      sharedWith: state.plan.participants.includes(pick.id) ? pick.id : undefined
+      participants: state.degradation?.actualParticipants ?? state.plan.participants,
+      participantModelIds,
+      judgeModelId,
+      judgeProviderId,
+      sharedWith: (state.degradation?.actualParticipants ?? state.plan.participants).includes(pick.id) ? pick.id : undefined
     } : {});
     const verdict = await engine.judge(state);
     // 质量报告是裁决的伴随对象：先如实判断这次是不是模型评审（退回规则版

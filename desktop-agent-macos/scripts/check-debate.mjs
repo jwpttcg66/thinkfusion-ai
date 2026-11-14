@@ -195,8 +195,12 @@ test('一个成员挂了不拖垮整轮，失败原因单独记下', async () =>
   const state = await h.orchestrator.waitFor(started.debateId);
   assert.equal(state.status, 'completed');
   assert.ok(state.rounds.every(round => round.messages.length === 1));
-  assert.ok(state.rounds.every(round => round.failures.length === 1));
+  assert.equal(state.rounds[0].failures.length, 1, '第一轮记录失败');
+  assert.ok(state.rounds.slice(1).every(round => round.failures.length === 0), '失败成员后续不再被重复呼叫');
   assert.match(state.rounds[0].failures[0].detail, /挂了/);
+  assert.ok(state.degradation, '失败后应记录 degradation');
+  assert.deepEqual(state.degradation.failedAgents, ['b']);
+  assert.deepEqual(state.degradation.actualParticipants, ['a']);
   h.cleanup();
 });
 
