@@ -234,7 +234,7 @@ electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3 \
 
 - 每题有独立 fingerprint；
 - fingerprint 包含：runner 版本、prompt 版本、题目、策略、anchor、该题标准、模型池；
-- 只有 `COMPLETED` 且 V1 通过的旧结果才会复用；
+- 只有旧结果自身记录了 `fingerprint`，且与当前 fingerprint 一致、`COMPLETED` 且 V1 通过，才会复用；没有 fingerprint 的旧结果一律重跑；
 - 失败题、缺题、标准改过的题、prompt/模型池改过的题会自动重跑；
 - 复用结果也会补写 fingerprint，后续可以继续增量。
 
@@ -245,5 +245,22 @@ electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3 \
 
 `judging.mustPass` 已删除，`requiredClaims[].severity === 'must'` 是唯一必答来源。
 之前 6 条 must 未进入 `mustPass`，导致 V1.1 17/24 偏高；严格全量为 10/24。
-随后用增量模式复用 9 题、重跑 15 题，结果为 16/24（9 复用 + 15 重跑，不是一次全量）。
-详见 `DEBATE_STANDARD_CONSISTENCY_FIX.md`。
+随后发现首次增量复用的 9 题没有原始 fingerprint；9 题全部重跑后，
+可信结果为 16/24（15 题增量重跑 + 9 题可信修复重跑，不是一次全量）。
+详见 `DEBATE_STANDARD_CONSISTENCY_FIX.md` 和 `DEBATE_INCREMENTAL_TRUST_FIX.md`。
+
+### 完整性复核与修订
+
+```bash
+electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3 \
+  --completeness --incremental=../docs/implementation/regression/上一版-latest.json
+```
+
+`--completeness` 会在主裁判之后增加：
+
+- 独立完整性复核；
+- 最多一次答案修订；
+- 修订后重新跑 V1 评分；
+- 修订后由主裁判模型再判一次，记录 `revisionJudge`。
+
+详见 `DEBATE_COMPLETENESS_REVISION.md`。

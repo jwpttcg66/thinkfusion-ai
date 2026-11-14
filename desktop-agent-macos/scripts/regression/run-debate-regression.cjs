@@ -25,9 +25,11 @@ const { planLead } = require('../../out-test/main/debate/lead.js');
 const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
 const { evaluateDebateQuality, finalizeDebate } = require('../../out-test/main/debate/quality-engine.js');
 const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
+const { reviewCompleteness, reviseAnswer } = require('../../out-test/main/debate/completeness.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
 const { PROMPT_VERSION } = require('../../out-test/main/debate/prompts.js');
 const { buildSummary, markdown } = require('./summary.cjs');
+const { fingerprintFor, canReuseResult } = require('./incremental.cjs');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
 const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
@@ -44,15 +46,13 @@ const RUNNER_VERSION = '2.0.0';
  * 所以改一题的标准只会让这一题失效；改全局 prompt/模型池会让全部失效。
  */
 function fingerprint(item, standardItem) {
-  return crypto.createHash('sha256').update(JSON.stringify({
+  return fingerprintFor({
     runnerVersion: RUNNER_VERSION,
     promptVersion: PROMPT_VERSION,
-    question: item.question,
-    strategy: item.strategy,
-    anchor: item.anchor ?? null,
-    standard: standardItem ?? null,
+    item,
+    standardItem,
     models: MODELS.map(model => model.model)
-  })).digest('hex');
+  });
 }
 
 let MODELS = [];
@@ -121,6 +121,7 @@ app.whenReady().then(async () => {
     1,
     Math.min(12, Number.parseInt(argValue('provider-concurrency', String(Math.max(3, workers * 2))), 10))
   );
+  const completenessEnabled = process.argv.includes('--completeness') || argValue('completeness', '0') === '1';
 
   const indexed = dataset.questions.map((item, datasetIndex) => ({ item, datasetIndex }));
   const filtered = only ? indexed.filter(entry => only.has(entry.item.id)) : indexed;
@@ -187,6 +188,10 @@ app.whenReady().then(async () => {
     let decision = null;
     let standardAssessment = null;
     let rubricAgentId = null;
+    let completeness = null;
+    let revision = null;
+    let revisionJudge = null;
+    let standardAnswerSource = 'original';
 
     console.log(`[w${workerId}] [${position + 1}/${questions.length}] ${item.id} · ${item.strategy} · 辩论 ${debaters.join('+')} · 裁判 ${judgeAgentId}`);
     try {
@@ -249,11 +254,86 @@ app.whenReady().then(async () => {
       verdict?.conclusion ?? ''
     ].join('\n');
     const standardItem = standardById.get(item.id);
+    let standardAnswerText = decision?.conclusion ?? combinedText;
+    if (completenessEnabled) {
+      const reviewerAgentId = IDS.find(id => id !== judgeAgentId) ?? judgeAgentId;
+      completeness = await reviewCompleteness({
+        question: item.question,
+        answer: standardAnswerText,
+        ask: askModel,
+        agentId: reviewerAgentId
+      });
+      if (completeness.backend === 'model' && completeness.hasGap && completeness.missing.length > 0) {
+        const reviserAgentId = IDS.find(id => id !== judgeAgentId && id !== reviewerAgentId) ?? reviewerAgentId;
+        revision = await reviseAnswer({
+          question: item.question,
+          answer: standardAnswerText,
+          missing: completeness.missing,
+          ask: askModel,
+          agentId: reviserAgentId
+        });
+        if (revision.backend === 'model' && revision.revisedAnswer) {
+          standardAnswerText = revision.revisedAnswer;
+          standardAnswerSource = 'revised';
+          // 修订不能自己宣布通过：把修订后的答案再交给独立 Judge 一次。
+          if (state) {
+            const revisedState = {
+              ...state,
+              debateId: `${state.debateId}-revised`,
+              rounds: [{
+                index: 0,
+                messages: [{
+                  messageId: `${state.debateId}-revised-message`,
+                  roundIndex: 0,
+                  agentId: 'revision',
+                  role: 'peer',
+                  kind: 'position',
+                  text: revision.revisedAnswer,
+                  createdAt: Date.now()
+                }],
+                startedAt: Date.now(),
+                endedAt: Date.now(),
+                failures: []
+              }],
+              minorities: [],
+              disputes: [],
+              revisions: [],
+              evidence: [],
+              judgments: [],
+              verdict: undefined,
+              status: 'completed',
+              outcome: 'COMPLETED'
+            };
+            try {
+              const revisedEngine = new JudgeEngine({ judgeAgentId, ask: askModel });
+              const revisedVerdict = await revisedEngine.judge(revisedState);
+              revisionJudge = {
+                backend: revisedVerdict.backend,
+                judgeAgentId: revisedVerdict.judgeAgentId,
+                undetermined: revisedVerdict.undetermined,
+                conclusion: revisedVerdict.conclusion,
+                confidence: revisedVerdict.confidence.level,
+                fallbackReason: revisedVerdict.fallbackReason ?? null
+              };
+            } catch (revisedError) {
+              revisionJudge = {
+                backend: 'unavailable',
+                judgeAgentId,
+                undetermined: true,
+                conclusion: null,
+                confidence: 'low',
+                fallbackReason: revisedError instanceof Error ? revisedError.message : String(revisedError)
+              };
+            }
+          }
+        }
+      }
+    }
     if (standardItem) {
       rubricAgentId = IDS.find(id => id !== judgeAgentId) ?? judgeAgentId;
       standardAssessment = await assessStandardAnswer({
         item: standardItem,
-        answerText: decision?.conclusion ?? combinedText,
+        answerText: standardAnswerText,
         ask: askModel,
         agentId: rubricAgentId
       });
@@ -318,6 +398,10 @@ app.whenReady().then(async () => {
             recommendedFollowUp: decision.recommendedFollowUp ?? null
           }
         : null,
+      completeness,
+      revision,
+      revisionJudge,
+      standardAnswerSource,
       standard: standardAssessment && standardItem
         ? {
             id: standardItem.id,
@@ -344,16 +428,12 @@ app.whenReady().then(async () => {
     const standardItem = standardById.get(entry.item.id);
     const currentFingerprint = fingerprint(entry.item, standardItem);
     const old = baselineById.get(entry.item.id);
-    // 老结果没有 fingerprint 时，用当前题目的组成反算一次；这兼容严格修复前的记录。
-    const oldFingerprint = old?.fingerprint ?? (old ? fingerprint(entry.item, standardItem) : null);
-    const canReuse = Boolean(
-      old &&
-      oldFingerprint === currentFingerprint &&
-      old.debate?.outcome === 'COMPLETED' &&
-      old.standard?.passed === true
-    );
-    if (canReuse) slots[position] = { ...old, fingerprint: currentFingerprint, reused: true };
-    else pending.push({ entry, position });
+    // 旧结果没有 fingerprint 一律重跑；不能拿当前配置反算一个“旧指纹”。
+    if (canReuseResult(old, currentFingerprint)) {
+      slots[position] = { ...old, reused: true };
+    } else {
+      pending.push({ entry, position });
+    }
   });
   console.log(`增量：复用 ${questions.length - pending.length} 题，重跑 ${pending.length} 题${incrementalPath ? `（baseline: ${incrementalPath}）` : ''}`);
 
@@ -367,6 +447,7 @@ app.whenReady().then(async () => {
       judgeRotation: IDS,
       createdAt: new Date().toISOString(),
       workers,
+      completeness: completenessEnabled,
       incremental: incrementalPath ? {
         baseline: incrementalPath,
         reused: questions.length - pending.length,
@@ -424,6 +505,7 @@ app.whenReady().then(async () => {
     judgeRotation: IDS,
     createdAt,
     workers,
+    completeness: completenessEnabled,
     incremental: incrementalPath ? {
       baseline: incrementalPath,
       reused: questions.length - pending.length,

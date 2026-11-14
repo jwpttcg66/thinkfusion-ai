@@ -17,9 +17,21 @@
   "createdAt": "2026-11-14T15:06:34.520Z",
   "workers": 3,
   "incremental": {
-    "baseline": "/Users/yalla/data/localLab/thinkfusion-ai/docs/implementation/regression/debate-regression-v1-1-strict-latest.json",
-    "reused": 9,
-    "pending": 15
+    "baseline": "docs/implementation/regression/debate-regression-v1-1-strict-latest.json",
+    "reused": 0,
+    "pending": 15,
+    "correction": "9 个回填指纹结果已重跑；最终 24 题均为真实执行产生的 fingerprint",
+    "corrected": [
+      "tcp-udp",
+      "btree-index",
+      "csrf-xss",
+      "cache-invalidation",
+      "feature-flag",
+      "rate-limit",
+      "observability",
+      "testing-pyramid",
+      "git-rebase"
+    ]
   },
   "summary": {
     "total": 24,
@@ -61,28 +73,28 @@
         "completed": 4,
         "judgeModel": 4,
         "independent": 4,
-        "avgDurationMs": 164011
+        "avgDurationMs": 170153
       },
       "expert": {
         "total": 4,
         "completed": 4,
         "judgeModel": 4,
         "independent": 4,
-        "avgDurationMs": 157073
+        "avgDurationMs": 178685
       },
       "assumption": {
         "total": 4,
         "completed": 4,
         "judgeModel": 4,
         "independent": 4,
-        "avgDurationMs": 66606
+        "avgDurationMs": 73428
       },
       "solution": {
         "total": 4,
         "completed": 4,
         "judgeModel": 4,
         "independent": 4,
-        "avgDurationMs": 170791
+        "avgDurationMs": 166400
       },
       "discovery": {
         "total": 4,
@@ -597,6 +609,7 @@
       "category": "Networking",
       "strategy": "assumption",
       "question": "TCP 和 UDP 的核心区别是什么？各自适合什么场景？",
+      "fingerprint": "0dcefa3d9ad6a59801b84fafb37191b581b518ce25aa17f4bdd5225d1e4cf635",
       "judge": {
         "agentId": "deepseek-v4.1-flash",
         "modelId": "deepseek-v4.1-flash",
@@ -608,13 +621,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 3017,
-          "outputTokens": 1710,
+          "inputTokens": 3525,
+          "outputTokens": 1501,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 23962
+        "latencyMs": 21215
       },
       "debate": {
         "status": "completed",
@@ -624,32 +637,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 56106,
-        "durationSec": 56,
+        "durationMs": 63986,
+        "durationSec": 64,
         "usage": [
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
             "inputTokens": 171,
-            "outputTokens": 885
+            "outputTokens": 775
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 212,
-            "outputTokens": 2434
-          },
-          {
-            "agentId": "gpt-6-luna",
-            "modelId": "gpt-6-luna",
-            "inputTokens": 2223,
-            "outputTokens": 935
+            "outputTokens": 2565
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 3172,
-            "outputTokens": 2848
+            "inputTokens": 2873,
+            "outputTokens": 2942
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2007,
+            "outputTokens": 2051
           }
         ]
       },
@@ -663,15 +676,15 @@
           ]
         },
         "logicalValidity": {
-          "status": "supported",
+          "status": "insufficient",
           "basis": [
-            "模型裁判论证质量均值 0.70（model-assessed）"
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
           ]
         },
         "evidenceQuality": {
-          "status": "unknown",
+          "status": "insufficient",
           "basis": [
-            "有 1 条证据，来源未核验"
+            "没有工程/网页证据"
           ]
         },
         "uncertaintyCalibration": {
@@ -698,12 +711,10 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "TCP 提供可靠、有序的字节流，内建确认重传、流量控制和拥塞控制；UDP 提供无连接的数据报投递，不保证送达、顺序或去重，但保留消息边界且协议开销更小。选择取决于应用更看重完整有序交付，还是低延迟、轻量传输或自定义传输机制：TCP 适合 HTTP/1.1、HTTP/2、文件传输、邮件、数据库连接、SSH 等完整性优先且可接受一定延迟的场景；UDP 适合 DNS、DHCP、实时音视频、部分在线游戏、直播、IoT 遥测以及 QUIC/HTTP/3 等能容忍部分丢包或由应用层实现可靠性/拥塞控制的场景。但 UDP 不必然更快，实时应用也不必然只能用 UDP；网页也不等于一定用 TCP，HTTP/3 基于 QUIC over UDP。",
+        "conclusion": "核心区别（事实层面，可确定）：TCP 是面向连接的可靠有序字节流——它通过确认、重传、按序交付和流量/拥塞控制，在连接存续期间保证字节按序到达，但不保留应用消息边界，应用必须自行分帧；UDP 是无连接的数据报服务——保留每个数据报的边界，但本身不保证送达、顺序或去重，也不含传输层拥塞控制。两者都是传输层协议，差异不在“快慢”，而在协议提供什么保证、把哪些责任留给上层。场景选择（条件性结论）：当数据完整性、有序性优先于延迟，且希望复用现成的可靠传输与拥塞控制时，用 TCP（Web/HTTP1.1、HTTP2、文件传输、邮件、数据库连接、SSH）。当及时性优先、少量丢包可容忍或过期数据重传无意义，或需要广播/组播、需要保留消息边界时，用 UDP 或基于 UDP 的协议（DNS、实时音视频、在线游戏、DHCP、批量遥测上报）。若既想要 UDP 的部署灵活性与快速演进，又需要可靠有序传输，应使用在 UDP 之上自行实现可靠性与拥塞控制的协议（QUIC/HTTP3），此时可靠性来自上层协议而非 UDP。边界与常见失败模式：TCP 的“可靠”仅在连接可用范围内成立，不等于业务处理成功或数据已落盘；",
         "unresolvedDisputes": [
-          "## 各自适合什么场景？",
-          "TCP 与 UDP 在特定网络、内核和实现下的定量吞吐/延迟优劣无法由一般性陈述裁决，需要实测。",
-          "UDP 是否可用还取决于部署环境的防火墙、NAT 和运营商策略，需要按实际网络验证。",
-          "具体应用对丢包、乱序和延迟的容忍度需由业务需求确定，不能仅凭协议名称推断。"
+          "在具体部署中 UDP 是否真比 TCP 时延更低，无法抽象判定，需实测该网络的丢包率、RTT、MTU 与 NAT/防火墙策略，以及应用是否自行实现了确认、重传与拥塞控制。",
+          "NAT 对 UDP 映射的具体超时值、以及各类网络设备对 UDP 的限速或封禁策略，因设备和运营商而异，不存在统一数值，只能给出“通常更短、需心跳保活”的定性边界。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -716,7 +727,7 @@
         "classification": "FACT",
         "backend": "model",
         "score": 100,
-        "modelScore": 100,
+        "modelScore": 1,
         "questionType": "FACT",
         "classificationMatch": true,
         "matchedClaims": [
@@ -729,29 +740,28 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "准确说明了 TCP 与 UDP 的传输语义、消息边界和典型适用场景，也指出 UDP 不必然更快并给出条件性选择依据。",
+        "reason": "完整说明了 TCP 与 UDP 的可靠性、顺序和消息边界差异，列举了各自典型场景，并指出 UDP 不必然更快及选择取决于条件。",
         "usage": {
-          "inputTokens": 942,
-          "outputTokens": 386,
+          "inputTokens": 1233,
+          "outputTokens": 513,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 4353,
+        "latencyMs": 6217,
         "attempts": 1,
         "rubricAgentId": "gpt-6-luna",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "0dcefa3d9ad6a59801b84fafb37191b581b518ce25aa17f4bdd5225d1e4cf635",
-      "reused": true
+      "error": null
     },
     {
       "id": "btree-index",
       "category": "Database",
       "strategy": "solution",
       "question": "数据库为什么常用 B+ 树而不是二叉树做索引？B+ 树在磁盘和范围查询上有什么优势？",
+      "fingerprint": "194cf84944fee5a53223783e0d83fc338f068a38449e3dc00bc845cdc7724963",
       "judge": {
         "agentId": "gpt-6-luna",
         "modelId": "gpt-6-luna",
@@ -763,13 +773,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 8504,
-          "outputTokens": 575,
+          "inputTokens": 7507,
+          "outputTokens": 1103,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 6285
+        "latencyMs": 13809
       },
       "debate": {
         "status": "completed",
@@ -779,32 +789,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 184736,
-        "durationSec": 185,
+        "durationMs": 121707,
+        "durationSec": 122,
         "usage": [
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 209,
-            "outputTokens": 3105
+            "outputTokens": 3725
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 150,
-            "outputTokens": 3616
+            "outputTokens": 4161
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 4767,
-            "outputTokens": 5835
+            "inputTokens": 5430,
+            "outputTokens": 3042
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 2940,
-            "outputTokens": 7779
+            "inputTokens": 3347,
+            "outputTokens": 2938
           }
         ]
       },
@@ -826,7 +836,7 @@
         "evidenceQuality": {
           "status": "unknown",
           "basis": [
-            "有 7 条证据，来源未核验"
+            "有 12 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -853,8 +863,10 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "在页式持久化存储、索引较大且需要范围查询的常见数据库场景中，B+ 树通常比普通二叉树更合适：一个节点可容纳许多键和指针，形成高扇出、低树高，减少查找所需的页访问；叶子按键有序并相互连接，定位范围起点后可顺序遍历。二叉树虽然也能有序查找，平衡时渐近复杂度同为 O(log N)，但分支少，磁盘访问的局部性通常较差。",
-        "unresolvedDisputes": [],
+        "conclusion": "在数据主要存放于磁盘或 SSD、以页为单位读写，且索引需要支持点查与范围查询的数据库中，B+ 树通常比朴素二叉树更合适：一个节点可容纳许多键和子指针，形成高扇出、低树高，减少查找所需的页读取；找到范围起点后，又可沿叶子节点的相邻指针扫描有序键。二叉树并非不能做范围查询或磁盘索引，但朴素的逐节点布局通常页利用率和访问局部性较差。纯等值查询、写密集或全内存场景则可能适合哈希、LSM 树或其他结构。",
+        "unresolvedDisputes": [
+          "没有给定具体数据库、页大小、键宽、缓存或负载，无法确定某一索引的精确树高和实际 I/O 次数。"
+        ],
         "uncertainty": {
           "level": "medium",
           "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
@@ -866,26 +878,27 @@
         "classification": "FACT",
         "backend": "model",
         "score": 100,
-        "modelScore": 8,
+        "modelScore": 100,
         "questionType": "FACT",
         "classificationMatch": true,
         "matchedClaims": [
           "c1",
-          "c2"
+          "c2",
+          "c3"
         ],
         "missingClaims": [],
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "正确覆盖了高扇出低树高、减少页访问、有序叶子页范围扫描和局部性优势，且未出现错误主张；但未明确说明 B+ 树并非普遍最优、需结合工作负载及可能采用哈希/LSM 等替代方案。",
+        "reason": "回答明确覆盖B+树高扇出低树高适合页式磁盘访问、范围查询沿有序叶子页扫描，并指出B+树并非普遍最优，需结合纯等值、写密集、全内存等工作负载；无标准中的错误主张。",
         "usage": {
-          "inputTokens": 665,
-          "outputTokens": 1388,
+          "inputTokens": 694,
+          "outputTokens": 348,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 20005,
+        "latencyMs": 7995,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
@@ -907,9 +920,7 @@
         ],
         "note": "索引结构烟测"
       },
-      "error": null,
-      "fingerprint": "194cf84944fee5a53223783e0d83fc338f068a38449e3dc00bc845cdc7724963",
-      "reused": true
+      "error": null
     },
     {
       "id": "acid",
@@ -1262,6 +1273,7 @@
       "category": "Security",
       "strategy": "adversarial",
       "question": "CSRF 和 XSS 的区别是什么？防御手段分别是什么？",
+      "fingerprint": "4a7be7a5daa1c8bfaa04f10c09b2e516c72608508b91588af9a0a6d51bf78fdb",
       "judge": {
         "agentId": "gpt-6-luna",
         "modelId": "gpt-6-luna",
@@ -1273,13 +1285,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 6174,
-          "outputTokens": 775,
+          "inputTokens": 7066,
+          "outputTokens": 678,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 8846
+        "latencyMs": 7868
       },
       "debate": {
         "status": "completed",
@@ -1289,32 +1301,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 207367,
-        "durationSec": 207,
+        "durationMs": 253567,
+        "durationSec": 254,
         "usage": [
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 197,
-            "outputTokens": 3103
+            "outputTokens": 3121
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 142,
-            "outputTokens": 4645
+            "outputTokens": 7758
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 4806,
-            "outputTokens": 4623
+            "inputTokens": 4615,
+            "outputTokens": 4231
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 2879,
-            "outputTokens": 10433
+            "inputTokens": 2764,
+            "outputTokens": 10350
           }
         ]
       },
@@ -1334,9 +1346,9 @@
           ]
         },
         "evidenceQuality": {
-          "status": "unknown",
+          "status": "insufficient",
           "basis": [
-            "有 1 条证据，来源未核验"
+            "没有工程/网页证据"
           ]
         },
         "uncertaintyCalibration": {
@@ -1363,8 +1375,12 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "CSRF（跨站请求伪造）是诱使用户的浏览器向其已登录的网站发送非本人意愿的请求，常利用浏览器自动附带的 Cookie 等凭据；攻击者通常不能读取响应。XSS（跨站脚本）是让不可信内容作为脚本在目标网站的 origin 中执行，成功后脚本可访问该 origin 下页面可访问的数据并代用户发请求。简言之：CSRF 伪造请求，XSS 在目标源执行脚本。\n\n防 CSRF：对基于 Cookie 的会话，使用并校验与会话绑定的 CSRF token；设置合适的 SameSite Cookie；校验状态变更请求的 Origin（必要时结合 Referer 或 Fetch Metadata）；避免用 GET 改变状态。CORS 不能单独替代这些措施。\n\n防 XSS：按输出位置进行上下文相关编码；富文本使用可靠的白名单净化；避免危险 DOM sink（如不必要的 innerHTML），优先使用安全 API；部署谨慎配置的 CSP，必要时使用 Trusted Types。HttpOnly 可减少脚本读取 Cookie 的机会，但不阻止 XSS 本身。\n\n两类防护不能互相替代。纯 Bearer Token ",
-        "unresolvedDisputes": [],
+        "conclusion": "XSS（跨站脚本）是攻击者让恶意代码在受害者信任的网站源内执行；CSRF（跨站请求伪造）是诱导受害者浏览器携带已有凭证，向网站发出用户并不想发的请求。防 XSS 应重点避免不可信数据进入可执行上下文；防 CSRF 应阻止或识别未经用户意图校验的跨站状态变更请求。通常两者都要防：按上下文输出编码、使用安全 DOM API，必要时净化富文本，并以 CSP 等作纵深防御；对 Cookie 认证的状态变更请求，不使用 GET，校验会话绑定的 CSRF token，并结合 SameSite Cookie 和 Origin 校验。",
+        "unresolvedDisputes": [
+          "攻击者只需让用户点击一个链接，例如 `<a href=\"https://bank.example/transfer?",
+          "- **`Lax` 放行顶层 GET 导航**：`https://evil.com` 上放链接到 `https://app.example.com/transfer?",
+          "- `Lax` 允许跨站顶层 GET 导航携带 Cookie，因此 `GET /delete?"
+        ],
         "uncertainty": {
           "level": "medium",
           "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
@@ -1376,12 +1392,11 @@
         "classification": "FACT",
         "backend": "model",
         "score": 100,
-        "modelScore": 100,
+        "modelScore": 95,
         "questionType": "FACT",
         "classificationMatch": true,
         "matchedClaims": [
           "c1",
-          "c2",
           "c3",
           "c4"
         ],
@@ -1389,29 +1404,28 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "回答明确区分 CSRF 伪造请求与 XSS 在目标源执行脚本，覆盖两者防御重点，并说明 XSS 可读取同源数据、代用户发请求，且未出现所列错误主张；还补充了 SameSite、CSRF token、Origin 校验、CSP、输出编码、危险 DOM、HttpOnly 限制及 Bearer Token API 等边界。",
+        "reason": "回答准确区分了 XSS 与 CSRF，并分别给出符合标准的防御重点，覆盖输出编码、安全 DOM、CSP、CSRF token、SameSite、Origin 校验等。未明确提到 XSS 可能绕过部分 CSRF 防御，但这是建议项且不影响核心结论。无错误主张。",
         "usage": {
-          "inputTokens": 893,
-          "outputTokens": 761,
+          "inputTokens": 759,
+          "outputTokens": 527,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 11901,
+        "latencyMs": 8206,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "4a7be7a5daa1c8bfaa04f10c09b2e516c72608508b91588af9a0a6d51bf78fdb",
-      "reused": true
+      "error": null
     },
     {
       "id": "cache-invalidation",
       "category": "Caching",
       "strategy": "expert",
       "question": "缓存一致性为什么难？常见的失效策略有哪些，各自适合什么场景？",
+      "fingerprint": "c9383b1556fde1f2647710e58fbd2ca4c8d677a36c036a126f611dd1f0a4f0c3",
       "judge": {
         "agentId": "claude-haiku-5-5",
         "modelId": "claude-haiku-5-5",
@@ -1423,13 +1437,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 12310,
-          "outputTokens": 2030,
+          "inputTokens": 12598,
+          "outputTokens": 2946,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 11617
+        "latencyMs": 14621
       },
       "debate": {
         "status": "completed",
@@ -1439,32 +1453,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 167688,
-        "durationSec": 168,
+        "durationMs": 185629,
+        "durationSec": 186,
         "usage": [
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
             "inputTokens": 179,
-            "outputTokens": 2448
+            "outputTokens": 2720
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 155,
-            "outputTokens": 5603
+            "outputTokens": 6695
           },
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
-            "inputTokens": 5003,
-            "outputTokens": 1795
+            "inputTokens": 5342,
+            "outputTokens": 1781
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 4213,
-            "outputTokens": 5560
+            "inputTokens": 4575,
+            "outputTokens": 4861
           }
         ]
       },
@@ -1486,7 +1500,7 @@
         "evidenceQuality": {
           "status": "unknown",
           "basis": [
-            "有 25 条证据，来源未核验"
+            "有 20 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -1513,17 +1527,17 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "缓存一致性难，根本原因是同一数据存在多个副本，而更新与失效要经过有延迟、可能丢失或乱序的异步通信，且缓存回填会重新引入旧值。在应用层（缓存与数据库或权威存储分离）的前提下：1）难点包括双写无原子性、读回填与写失效的竞态、失效消息丢失/重复/乱序、主从延迟、多级缓存传播、进程暂停或租约失效，以及TTL不提供一致性保证。2）常见策略及适用场景：TTL/过期适合可容忍陈旧、读多写少的数据（配置、字典、会话）；Cache-aside加写后删除适合通用读多写少业务，最终一致；延迟双删只可作为缓解回填竞态的补丁，不能保证强一致；CDC/binlog或消息驱动失效适合多实例、需解耦且可重试的场景；写穿/写更新适合低并发、可用版本CAS防乱序覆盖的热点读场景；写回适合可容忍丢失的计数类写多场景，不适合账务；版本号/CAS/带版本键适合防回填旧值；租约/singleflight适合防击穿和回填竞态；分布式锁或事务适合强一致要求高、吞吐低的场景；本地缓存广播适合多级缓存，需TTL兜底；CDN purge/ETag适合静态资源。3）选型原则：先明确可容忍的陈旧窗口、是否需要读己之写、失效失败时的处理方式；大",
+        "conclusion": "缓存一致性难，根因是多副本并存、并发读写、数据库与缓存的更新不是原子操作、失效消息可能丢失/重复/乱序、缺乏全局时钟，以及多级缓存传播链较长。常见策略及条件如下：1）TTL：适合可容忍有界陈旧的数据，作为兜底手段，不保证过期前数据是新的；2）写后删除（cache-aside）：适合读多写少、缓存可重建的业务，需处理删除失败、重试以及并发旧值回填，通常配合TTL；3）先删缓存再写库：并发竞态窗口较大，只适用于简单、可容忍竞态的场景；4）写穿（write-through）：适合写路径集中、希望缓存较新的场景，需处理部分成功和事务边界；5）写回（write-behind）：只适合可接受异步持久化风险、且有可靠日志和恢复机制的场景，不适合账务、库存；6）事件驱动或outbox/binlog失效：适合多服务、多缓存副本，需幂等与重放，Redis Pub/Sub不能作为可靠失效通道；7）版本号/代际键：适合失效范围难以枚举的复杂查询，需管理版本传播与旧键回收；8）租约：适合对新鲜度要求较高且节点可控的场景，依赖时钟与续约假设；9）逻辑过期加单飞重建：适合热点key并允许短暂旧读；10）主动刷新/预",
         "unresolvedDisputes": [
-          "4. **读写顺序难以定义**：某个客户端写成功后，其他客户端是否必须立刻读到新值？",
-          "1. **允许多长的陈旧窗口？",
-          "2. **谁持有副本，能否可靠通知？",
-          "3. **读写比和故障代价是什么？",
           "## 为什么难？",
-          "用户指的是应用层分布式缓存还是CPU缓存一致性，需要确认；两者的证据标准与结论不同。",
-          "具体产品（如Redis、某个CDC工具或某个CDN）在特定版本和配置下能否提供某种一致性保证，需要查阅官方文档或源码并做故障注入测试，未经验证不能断言。",
-          "延迟双删的延迟时长、TTL的具体取值、版本号的存储方式等参数，依赖具体负载与主从延迟，无法给出通用数值。",
-          "'写后删除'与'写时更新'在高并发热点场景下的实际表现差异，缺少统一的公开基准数据，只能给出机制层面的判断。"
+          "所以，设计前要先明确：允许多大的陈旧窗口？",
+          "哪些读必须写后可见？",
+          "失效失败时是优先可用，还是优先返回最新数据？",
+          "## 怎么选？",
+          "未给出具体系统的一致性承诺（陈旧窗口上限、是否需要读己之写），因此无法为特定业务指定唯一方案。",
+          "缺少各策略在目标负载和故障率下的实测数据，命中率、延迟与一致性之间的权衡无法量化。",
+          "CDN和浏览器缓存的purge传播延迟，缺少厂商的具体指标与独立验证。",
+          "若需要强一致，线性一致存储或租约方案的具体选型，还需要进一步的实现审查与故障注入测试。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -1550,23 +1564,21 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "回答明确按陈旧窗口、一致性要求和场景进行条件性选型，覆盖 Cache Aside、Write Through、Write Behind、TTL、版本号/CAS 等策略及取舍，指出 TTL 不提供一致性保证，并说明双写原子性、旧读回填、失效消息丢失/重复/乱序等难点；同时给出应用层前提、场景边界和推荐组合，未出现错误主张。",
+        "reason": "回答明确按一致性、读写特征、可容忍陈旧和故障风险给出条件化策略，覆盖多种缓存方案及取舍；说明 TTL 仅兜底、不保证过期前数据新；指出双写非原子、旧读回填、事件丢失/重复/乱序等难点，并给出强一致要求下绕过缓存、版本校验或协调读写路径的边界与推荐，无重大错误主张。",
         "usage": {
-          "inputTokens": 1104,
-          "outputTokens": 1114,
+          "inputTokens": 1090,
+          "outputTokens": 1204,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 15459,
+        "latencyMs": 15719,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "c9383b1556fde1f2647710e58fbd2ca4c8d677a36c036a126f611dd1f0a4f0c3",
-      "reused": true
+      "error": null
     },
     {
       "id": "index-generation",
@@ -2210,6 +2222,7 @@
       "category": "Architecture",
       "strategy": "adversarial",
       "question": "Feature flag 的收益和长期维护风险是什么？什么时候应该清理 flag？",
+      "fingerprint": "e4636bfa93924b45ea32043734436d1426a88b8ad4a0848e4929be05607331d7",
       "judge": {
         "agentId": "gpt-6-luna",
         "modelId": "gpt-6-luna",
@@ -2221,13 +2234,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 7368,
-          "outputTokens": 693,
+          "inputTokens": 6970,
+          "outputTokens": 583,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 7211
+        "latencyMs": 6559
       },
       "debate": {
         "status": "completed",
@@ -2237,32 +2250,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 171348,
-        "durationSec": 171,
+        "durationMs": 149714,
+        "durationSec": 150,
         "usage": [
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 201,
-            "outputTokens": 2525
+            "outputTokens": 2773
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 143,
-            "outputTokens": 2614
+            "outputTokens": 2736
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 3936,
-            "outputTokens": 3564
+            "inputTokens": 3805,
+            "outputTokens": 3919
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 2383,
-            "outputTokens": 7805
+            "inputTokens": 2271,
+            "outputTokens": 6856
           }
         ]
       },
@@ -2284,7 +2297,7 @@
         "evidenceQuality": {
           "status": "unknown",
           "basis": [
-            "有 4 条证据，来源未核验"
+            "有 11 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -2311,10 +2324,11 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "Feature flag 的收益是解耦部署与发布、支持灰度和实验，并在设计妥当时快速关闭功能；长期风险包括运行路径增多、死代码、配置不一致及所有权和审计责任漂移。按类型管理并清理：发布 flag 在全量、观察结果符合风险预期、旧路径不再使用且回滚不依赖它后删除；实验 flag 在结论和所需记录归档后删除；迁移 flag 在兼容和回滚窗口结束后删除；仍承担运维或安全控制的 flag 则保留并定期审查。权限和套餐逻辑通常应迁入专门系统，而不是作为长期发布 flag。",
+        "conclusion": "Feature flag 的收益是解耦部署与发布，支持渐进放量、快速止损、实验和分阶段迁移；前提是有监控、可靠的默认行为和明确的管理责任。长期风险包括状态组合增加、测试覆盖不足、死代码残留、线上行为难复现、配置不一致及所有权流失。清理应按类型和依赖决定，而不是统一按期限自动删除：发布型 flag 在全量稳定、监控覆盖关键路径、回滚不再依赖旧分支后清理；实验型在结论记录并固化方案后清理；迁移型要等旧路径、回滚窗口及数据或客户端兼容问题处理完再清理；仍承担降级、权限或套餐配置职责的开关应转为受治理的长期配置或保留，并定期审计。常规 flag 应有 owner、用途、复审日期和删除路径；复审日期不等于自动删除日期。",
         "unresolvedDisputes": [
-          "具体观察期和清理顺序取决于系统风险、配置传播方式、旧客户端及多服务读取方，题目未提供这些信息。",
-          "长期 flag 是否值得保留，需结合其实际运行时职责、负责人、演练和审计要求判断。"
+          "具体观察窗口应依据业务风险、故障暴露速度及发布周期设定，不能从现有信息确定统一时长。",
+          "关键开关的审计和演练频率应按影响程度确定；季度只能作为可能的起点，而非普遍标准。",
+          "迁移类 flag 的清理还需核实旧客户端、历史数据和多版本共存情况；题目未提供具体系统背景。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -2327,7 +2341,7 @@
         "classification": "CONTEXTUAL",
         "backend": "model",
         "score": 100,
-        "modelScore": 90,
+        "modelScore": 96,
         "questionType": "CONTEXTUAL",
         "classificationMatch": true,
         "matchedClaims": [
@@ -2339,29 +2353,28 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "覆盖部署发布解耦、灰度实验降级、长期维护风险、按发布/实验/迁移/长期运营分类清理，并给出长期 flag 定期审查边界；迁移兼容作为收益、测试排障负担和误操作风险表达略隐含但整体符合条件性结论。",
+        "reason": "回答完整覆盖收益、长期风险与按用途分类清理的条件和边界：部署与发布解耦、渐进放量、降级、实验、迁移兼容；交叉状态、测试排障、死代码、所有权流失等风险；短期 flag 在目标达成且回滚有替代后清理，长期降级/权限/套餐开关保留并定期审计，并强调 owner、复审日期和删除路径。未出现给定错误主张，边界与推荐方案清晰。",
         "usage": {
-          "inputTokens": 694,
-          "outputTokens": 1792,
+          "inputTokens": 742,
+          "outputTokens": 733,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 24836,
+        "latencyMs": 11154,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "e4636bfa93924b45ea32043734436d1426a88b8ad4a0848e4929be05607331d7",
-      "reused": true
+      "error": null
     },
     {
       "id": "rate-limit",
       "category": "Networking",
       "strategy": "expert",
       "question": "令牌桶和漏桶的区别是什么？分别适合什么流量整形场景？",
+      "fingerprint": "168c9363e1389866080b544821edf21f76acde541eb6cfab1dd231dc91e21784",
       "judge": {
         "agentId": "claude-haiku-5-5",
         "modelId": "claude-haiku-5-5",
@@ -2373,13 +2386,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 7916,
-          "outputTokens": 1686,
+          "inputTokens": 8256,
+          "outputTokens": 2165,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 9559
+        "latencyMs": 11294
       },
       "debate": {
         "status": "completed",
@@ -2389,32 +2402,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 129900,
-        "durationSec": 130,
+        "durationMs": 181396,
+        "durationSec": 181,
         "usage": [
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
             "inputTokens": 179,
-            "outputTokens": 1429
+            "outputTokens": 1837
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 155,
-            "outputTokens": 4836
+            "outputTokens": 6180
           },
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
-            "inputTokens": 3670,
-            "outputTokens": 1528
+            "inputTokens": 3533,
+            "outputTokens": 1127
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 2965,
-            "outputTokens": 1855
+            "inputTokens": 2840,
+            "outputTokens": 6186
           }
         ]
       },
@@ -2428,15 +2441,15 @@
           ]
         },
         "logicalValidity": {
-          "status": "supported",
+          "status": "insufficient",
           "basis": [
-            "模型裁判论证质量均值 0.70（model-assessed）"
+            "模型裁判论证质量均值 0.60，证据不足以判为通过"
           ]
         },
         "evidenceQuality": {
           "status": "unknown",
           "basis": [
-            "有 16 条证据，来源未核验"
+            "有 40 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -2463,13 +2476,15 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "令牌桶和漏桶的核心区别在于：令牌桶以令牌速率 r 控制长期平均速率，并通过桶容量 B 允许有限突发，适合“限制平均带宽但容忍短时突发”的限速和整形场景。队列型漏桶把输入先排队，再以固定速率输出，输出严格平滑，适合下游无法承受突发、需要恒定速率输入的场景，代价是增加时延，队列满时丢包。“漏桶”一词有歧义：在 policer/meter 语义下（如 GCRA），它与令牌桶在合规判定上可以等价，不能简单说“令牌桶允许突发、漏桶不允许突发”。因此选型应先确认所说的“漏桶”是排队整形器还是计量器，再根据突发容限、时延预算和下游能力决定；具体设备的实际行为须以其配置文档或实测为准。",
+        "conclusion": "机制层面：令牌桶按速率 r 生成令牌，桶深为 b，数据发送需消耗令牌，因此长期平均速率受 r 限制，短时突发最多约为 b（超过 b 的部分要等待令牌补充或被丢弃/标记）。队列型漏桶把数据放入有界队列，以恒定速率 r 输出，能平滑突发，代价是排队时延，队列满则丢包。计量型漏桶（如 GCRA）只计数不排队，超阈值丢弃或标记，与令牌桶在数学上对偶。令牌桶本身只是判据，是整形还是监管取决于超额数据是排队还是丢弃/标记。场景推荐（条件性）：令牌桶适合允许短时突发但限制长期平均速率的业务，如 API/Web、VBR 视频、租户突发带宽、srTCM/trTCM 颜色标记，以及 Linux TBF/HTB 类实现。漏桶整形适合需要平滑恒定输出、低抖动、下游缓冲很小不能承受突发的场景，如 CBR 音频、工业控制、严格固定速率的租户隔离。约束条件：令牌桶的桶深不应小于 MTU，否则大包无法通过；桶深过大则下游突发和 bufferbloat 增加。漏桶队列长度 B 对应的最大排队时延约为 B/r，需确认该时延可接受。具体选型应以流量模型和时延、丢包目标为依据，并在目标设备上实测。",
         "unresolvedDisputes": [
           "## 分别适合什么场景？",
-          "未指明具体的设备、软件或协议上下文（如 Linux tc、路由器 QoS、云限流、API 网关），无法确定具体参数语义和默认行为。",
-          "“漏桶”在目标场景中指排队整形器还是 meter/GCRA，尚未确认。",
-          "令牌桶与漏桶在 meter 语义下的严格等价参数映射（如 B 与阈值、r 与漏率的对应关系）未在各回答中给出完整推导。",
-          "实际实现中的计时粒度、包大小、L2 开销和并发原子性对速率的影响，需要实测才能确定偏差幅度。"
+          "## 结论需要什么证据才成立？",
+          "## 各适合什么场景？",
+          "具体设备（如特定厂商路由器或 Linux 版本）的令牌桶/漏桶实现细节和参数语义需以其文档或源码为准，本结论未覆盖。",
+          "令牌桶整形对 TCP 吞吐和 RTT 的实际影响，缺少在相同流量条件下的可复现实测数据。",
+          "“桶深与 MTU、队列长度与时延”的具体取值范围依赖链路速率与业务要求，未给出通用数值。",
+          "令牌桶与漏桶在多级队列（如 HTB 层级）和多租户场景下的组合效果未经验证。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -2495,29 +2510,28 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "回答明确说明令牌桶按速率与桶容量允许有限突发，队列型漏桶排队后恒定速率输出、平滑但增加时延；并区分整形器与 policer/meter 语义，给出突发场景选令牌桶、严格平滑选漏桶的条件性选型，覆盖全部必答主张且无错误主张。",
+        "reason": "回答准确说明令牌桶按速率补充令牌并允许桶深内突发，漏桶队列以恒定速率排空、缓冲突发、输出平滑并增加排队时延；同时指出整形/监管取决于实现，并给出突发选令牌桶、严格平滑选漏桶的场景条件及队列时延边界，未出现标准列出的错误主张。",
         "usage": {
-          "inputTokens": 745,
-          "outputTokens": 1589,
+          "inputTokens": 873,
+          "outputTokens": 416,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 21956,
+        "latencyMs": 8085,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "168c9363e1389866080b544821edf21f76acde541eb6cfab1dd231dc91e21784",
-      "reused": true
+      "error": null
     },
     {
       "id": "observability",
       "category": "Operations",
       "strategy": "assumption",
       "question": "日志、指标、追踪各自解决什么问题？为什么不能互相替代？",
+      "fingerprint": "4bc7466f50c05e20cd768d4af365cbe0d8ec433cc92653fb778c0581d7143f3b",
       "judge": {
         "agentId": "deepseek-v4.1-flash",
         "modelId": "deepseek-v4.1-flash",
@@ -2529,13 +2543,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 3489,
-          "outputTokens": 1180,
+          "inputTokens": 3600,
+          "outputTokens": 2653,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 20363
+        "latencyMs": 37387
       },
       "debate": {
         "status": "completed",
@@ -2545,32 +2559,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 56588,
-        "durationSec": 57,
+        "durationMs": 75994,
+        "durationSec": 76,
         "usage": [
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
             "inputTokens": 174,
-            "outputTokens": 1220
+            "outputTokens": 1443
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 212,
-            "outputTokens": 2860
-          },
-          {
-            "agentId": "gpt-6-luna",
-            "modelId": "gpt-6-luna",
-            "inputTokens": 2462,
-            "outputTokens": 1201
+            "outputTokens": 2717
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 3363,
-            "outputTokens": 2997
+            "inputTokens": 3159,
+            "outputTokens": 2920
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2305,
+            "outputTokens": 1601
           }
         ]
       },
@@ -2619,20 +2633,32 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "日志、指标、追踪分别解决不同层次的问题：指标回答系统整体状态与趋势（如错误率、延迟分位数、QPS），适合仪表盘、告警和 SLO；日志回答某个具体事件发生了什么（错误细节、异常输入、审计上下文）；追踪回答一次请求经过哪些服务、耗时在哪、在哪一段失败。它们通常互补，不能完全互相替代，根本原因是信息模型和成本结构不同：指标预聚合会丢失个体事件；日志是离散事件，默认缺少跨服务调用关系，且全量聚合查询成本高；追踪保留请求级因果结构，但通常受采样、埋点和上下文传递限制。但“不能互相替代”不是绝对的：可以从日志或追踪派生指标，也可以统一存储多种信号，只是这种替代通常有损，并可能在查询效率、告警时效、完整性和成本上付出代价。",
+        "conclusion": "典型分工是：指标回答整体是否异常、影响多大、趋势如何；日志回答某个事件具体发生了什么、带什么上下文；追踪回答一次请求经过哪些服务或操作、耗时和错误如何沿链路传播。它们通常不能完全互相替代，原因是信息粒度、数据组织方式、查询成本和采样覆盖不同：预聚合指标会丢失单请求细节，日志不天然表达跨服务父子调用关系，追踪常采样且未必包含足够错误上下文。但这不是逻辑上的绝对不可替代：通过统一 trace_id/span_id、exemplar、全量采集或宽事件存储，三者可以关联甚至部分派生。是否必须同时采用，取决于系统规模、调用链复杂度、流量与保留成本。",
         "unresolvedDisputes": [
+          "| **指标（Metrics）** | 问题是否发生、影响多大、趋势如何？",
+          "| 错误率是否上升？",
+          "P99 延迟是否变差？",
+          "| **追踪（Traces）** | 某次请求经过哪些服务或操作，时间花在哪里？",
+          "| 请求慢在网关、数据库，还是某个下游服务？",
           "| **日志（Logs）** | 某个时间点具体发生了什么？",
-          "| **指标（Metrics）** | 系统整体状态如何？",
-          "变化趋势是什么？",
-          "| **追踪（Traces）** | 一次请求经过哪些服务、耗时在哪、在哪一段失败？",
-          "- **指标（Metrics）**：系统整体怎么样？",
-          "- **日志（Logs）**：某个具体事件发生了什么？",
-          "- **追踪（Traces）**：一个请求在分布式调用链里经过了哪里、耗时在哪一段？",
-          "| **指标** | 系统整体状态如何、趋势怎样？",
-          "| **日志** | 某个具体事件发生了什么？",
-          "| **追踪** | 一次请求经过哪些服务、时间花在哪里？",
-          "统一宽事件或统一存储模型能否在高流量生产系统中全面替代指标、日志、追踪，目前没有普遍结论，取决于成本、查询能力和运维需求。",
-          "具体系统是否需要完整追踪、全量日志或高精度指标，需结合 SLO、流量规模、故障诊断需求和预算确定，不能脱离场景给出唯一方案。"
+          "| 超时发生时的错误信息、业务上下文或异常堆栈是什么？",
+          "| 核心问题 | 系统是否异常？",
+          "多严重？",
+          "趋势如何？",
+          "| 这件事具体发生了什么？",
+          "| 一次请求经过了哪些环节，慢在哪、错在哪？",
+          "**3. \"指标在采集时已经聚合，单次请求的细节无法从中还原\"** 对 **\"| 指标（Metrics）| 问题是否发生、影响多大、趋势如何？",
+          "- **指标（metrics）**主要回答：整体是否异常、影响多大、趋势如何？",
+          "- **日志（logs）**主要回答：某个事件具体发生了什么？",
+          "- **追踪（traces）**主要回答：一次请求经过哪些环节，时间花在哪里，错误沿链路如何传播？",
+          "| 指标 | 看总体变化、趋势和告警 | 错误率是否上升？",
+          "| 日志 | 查看事件细节和上下文 | 具体报了什么错？",
+          "当时有哪些业务信息？",
+          "| 追踪 | 查看请求的调用路径和耗时 | 请求慢在网关、数据库还是下游服务？",
+          "具体系统是否应同时部署日志、指标、追踪，取决于流量、调用链复杂度和运维目标，无法给出普遍答案。",
+          "采样率、保留期和尾部采样策略没有通用最优值。",
+          "“结构化宽事件”方案在特定成本与查询能力下可能优于三类信号并存，但其普适优劣无法裁决。",
+          "全量采集是否可接受取决于实际存储与查询成本，缺少具体数据时不能判定。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -2645,7 +2671,7 @@
         "classification": "FACT",
         "backend": "model",
         "score": 100,
-        "modelScore": 0.9,
+        "modelScore": 9,
         "questionType": "FACT",
         "classificationMatch": true,
         "matchedClaims": [
@@ -2657,29 +2683,28 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "准确说明三类信号的用途及不能完全互替的原因，也指出派生转换的损失与成本；未提及简单系统可只用一两种信号。",
+        "reason": "明确说明三类信号的分工、不能以同等成本完全替代，以及关联或派生只能部分覆盖并伴随信息损失或成本；也指出是否同时采用取决于系统条件，但未明确说明简单系统可以只用一两种信号。",
         "usage": {
-          "inputTokens": 926,
-          "outputTokens": 347,
+          "inputTokens": 882,
+          "outputTokens": 505,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 4030,
+        "latencyMs": 6124,
         "attempts": 1,
         "rubricAgentId": "gpt-6-luna",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "4bc7466f50c05e20cd768d4af365cbe0d8ec433cc92653fb778c0581d7143f3b",
-      "reused": true
+      "error": null
     },
     {
       "id": "testing-pyramid",
       "category": "Testing",
       "strategy": "solution",
       "question": "单元测试、集成测试、端到端测试的边界怎么划？测试金字塔还适用吗？",
+      "fingerprint": "c336d321b3f54bfc73b07da6700c0146757285c52465d34046e371da391d961e",
       "judge": {
         "agentId": "gpt-6-luna",
         "modelId": "gpt-6-luna",
@@ -2691,13 +2716,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 6522,
-          "outputTokens": 812,
+          "inputTokens": 7214,
+          "outputTokens": 563,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 8619
+        "latencyMs": 7115
       },
       "debate": {
         "status": "completed",
@@ -2707,32 +2732,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 93493,
-        "durationSec": 93,
+        "durationMs": 138960,
+        "durationSec": 139,
         "usage": [
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
             "inputTokens": 197,
-            "outputTokens": 3894
+            "outputTokens": 3192
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 146,
-            "outputTokens": 3960
-          },
-          {
-            "agentId": "deepseek-v4.1-flash",
-            "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 3096,
-            "outputTokens": 1000
+            "outputTokens": 4788
           },
           {
             "agentId": "claude-haiku-5-5",
             "modelId": "claude-haiku-5-5",
-            "inputTokens": 5238,
-            "outputTokens": 3639
+            "inputTokens": 5406,
+            "outputTokens": 3038
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3225,
+            "outputTokens": 2689
           }
         ]
       },
@@ -2752,9 +2777,9 @@
           ]
         },
         "evidenceQuality": {
-          "status": "insufficient",
+          "status": "unknown",
           "basis": [
-            "没有工程/网页证据"
+            "有 1 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -2781,15 +2806,17 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "可用“测试范围、依赖真实性、所验证的故障”来划分，而不要只看测试工具或目录：单元测试验证局部逻辑；集成测试验证组件及其边界协作；端到端测试验证从外部入口到关键用户结果的完整流程。契约测试通常用于验证组件或服务间约定，可视作集成测试的一种，也可单独管理。测试金字塔仍适合作为成本与反馈速度的启发式，但不应当作固定比例。默认可多用快速、定位明确的测试，在真实依赖和关键流程处补集成及少量 E2E；具体配比按风险、架构和运行成本调整。",
+        "conclusion": "按测试验证的范围和真实依赖来划分，而不是按测试工具或目录划分：单元测试聚焦一个小范围的逻辑或行为，通常隔离外部依赖；集成测试验证组件之间或组件与真实基础设施之间的协作、契约；端到端测试验证从入口到用户可见结果的关键完整流程。边界并非绝对：例如，使用真实数据库的测试通常归为集成测试，但不同团队对“单元”的定义可能不同。测试金字塔仍适合作为成本与反馈速度的启发式——快速、稳定的测试应承担大部分日常验证，慢且昂贵的端到端测试应少而关键；不应把固定比例或金字塔形状当成标准。默认可从单元测试打底、按风险补集成或契约测试、用少量端到端测试覆盖关键旅程开始，再根据故障类型、反馈时间和测试稳定性调整。",
         "unresolvedDisputes": [
-          "## 三、测试金字塔还适用吗？",
-          "1. **要防止的缺陷在哪一层产生？",
-          "2. **能否在更低的层级抓住它？",
-          "## 二、测试金字塔还适用吗？",
-          "2. **能否在更低层级抓住它？",
-          "未提供具体系统架构、主要风险、依赖类型或 CI 预算，因此无法推荐具体测试比例。",
-          "单元、集成、端到端并无跨行业统一的严格定义；团队应明确本地分类约定，避免同名测试实际验证范围不同。"
+          "1. **验证的是单个决策单元吗？",
+          "2. **验证的是模块间契约或真实基础设施适配吗？",
+          "3. **验证的是用户可见的关键旅程或部署可用性吗？",
+          "4. **如果失败，能否低成本定位到一个决策或一个契约？",
+          "1. **验证对象**：验证的是一个决策，还是一个契约，还是一条用户旅程？",
+          "2. **失败定位成本**：失败后能否在一个决策或一个契约内定位原因？",
+          "3. **反馈速度**：这个测试是否需要在每次提交时运行？",
+          "## 测试金字塔还适用吗？",
+          "4. 失败时能否**低成本定位**到某一个决策或某一个契约？"
         ],
         "uncertainty": {
           "level": "medium",
@@ -2802,35 +2829,34 @@
         "classification": "CONTEXTUAL",
         "backend": "model",
         "score": 100,
-        "modelScore": 85,
+        "modelScore": 100,
         "questionType": "CONTEXTUAL",
         "classificationMatch": true,
         "matchedClaims": [
           "c1",
           "c2",
-          "c3"
+          "c3",
+          "c4"
         ],
         "missingClaims": [],
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "回答准确划分了三类测试的边界，并说明测试金字塔是启发式而非固定比例，配比需按风险、架构和运行成本调整，符合必答主张。未明确建议团队统一各层定义，因此缺少建议项 c4。",
+        "reason": "候选回答明确区分单元、集成、E2E的验证范围与真实依赖边界，说明边界非绝对并承认团队定义差异；指出测试金字塔仍是成本与反馈速度的启发式而非固定比例，并给出按风险、成本、反馈速度和稳定性调整的条件性方案，覆盖全部必答与建议主张，且未出现错误主张。",
         "usage": {
-          "inputTokens": 713,
-          "outputTokens": 381,
+          "inputTokens": 757,
+          "outputTokens": 1798,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 7009,
+        "latencyMs": 23686,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "c336d321b3f54bfc73b07da6700c0146757285c52465d34046e371da391d961e",
-      "reused": true
+      "error": null
     },
     {
       "id": "unicode-utf8",
@@ -3342,6 +3368,7 @@
       "category": "Version Control",
       "strategy": "expert",
       "question": "git rebase 和 merge 的区别是什么？团队协作中应该如何选择，为什么不能 rebase 已推送的公共分支？",
+      "fingerprint": "51149174350aa931ac0c4d2a039b3d515ccbc64c735b9486820afd6cd22a1735",
       "judge": {
         "agentId": "claude-haiku-5-5",
         "modelId": "claude-haiku-5-5",
@@ -3353,13 +3380,13 @@
         "confidence": "medium",
         "fallbackReason": null,
         "usage": {
-          "inputTokens": 7989,
-          "outputTokens": 1973,
+          "inputTokens": 8613,
+          "outputTokens": 793,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 10448
+        "latencyMs": 5109
       },
       "debate": {
         "status": "completed",
@@ -3369,32 +3396,32 @@
         "failures": [],
         "stopReason": "已达到 2 轮上限",
         "timedOut": false,
-        "durationMs": 119294,
-        "durationSec": 119,
+        "durationMs": 136304,
+        "durationSec": 136,
         "usage": [
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
             "inputTokens": 187,
-            "outputTokens": 1431
+            "outputTokens": 1146
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
             "inputTokens": 167,
-            "outputTokens": 4239
+            "outputTokens": 5147
           },
           {
             "agentId": "gpt-6-luna",
             "modelId": "gpt-6-luna",
-            "inputTokens": 3427,
-            "outputTokens": 1191
+            "inputTokens": 3741,
+            "outputTokens": 977
           },
           {
             "agentId": "deepseek-v4.1-flash",
             "modelId": "deepseek-v4.1-flash",
-            "inputTokens": 2926,
-            "outputTokens": 3320
+            "inputTokens": 3178,
+            "outputTokens": 4213
           }
         ]
       },
@@ -3416,7 +3443,7 @@
         "evidenceQuality": {
           "status": "unknown",
           "basis": [
-            "有 7 条证据，来源未核验"
+            "有 13 条证据，来源未核验"
           ]
         },
         "uncertaintyCalibration": {
@@ -3443,12 +3470,12 @@
       "decision": {
         "verdict": "partially_supported",
         "action": "accept_with_caveats",
-        "conclusion": "两者的机制区别是确定的：merge 保留两条分支的提交和分叉关系，可能新增一个合并提交（可快进时可能不新增）；rebase 把提交重放到新基底上，被重放的提交会得到新的提交 ID，历史通常更线性。团队选择没有普适最优解，但可以给出条件性推荐：个人或未被他人依赖的 feature 分支，合并前可以 rebase 到最新主干；main、develop、release 等公共或共享分支，应开启保护并只追加、不改写，合并方式用 merge、squash 或平台受控的 rebase-and-merge，但不得强推或改写目标分支已有的公共提交。不能随意 rebase 已推送的公共分支，是因为 rebase 会生成新提交 ID，协作者本地仍基于旧提交，强推后会导致历史分叉、重复提交、冲突，甚至覆盖他人未推送的工作；--force-with-lease 只能防止覆盖远端后来出现的新提交，不能解决协作者已基于旧历史工作的问题。判断标准是该历史是否已被他人依赖，而不是是否推送过。若团队确实需要改写共享分支，应事先冻结分支、确认无人有未推送提交、通知所有协作者，并同步更新相关 PR 的基线。",
+        "conclusion": "merge 保留原提交与分叉汇合关系（不能快进时产生合并提交）；rebase 把分支独有提交重放到新基点上，生成新哈希的提交，通常形成线性历史。团队选择取决于分支是否私有、是否已共享、是否需要审计和线性历史：私有未共享分支可用 rebase 整理；多人共享分支与主干/发布分支应用 merge（或平台 squash/rebase-merge 等不改写目标分支的方式），不对共享历史做 rebase 后强推。不能 rebase 已推送的公共分支并非 Git 技术禁令，而是协作约束：重写会产生新哈希，使远端与他人基于旧提交的本地历史分叉，可能导致重复提交、混乱合并、覆盖他人推送，且 --force-with-lease 也不能替代协作沟通。只有在分支确实仅自己使用、团队明确允许并协调通知的例外情况下才可重写。",
         "unresolvedDisputes": [
-          "团队的分支模型（trunk-based、GitFlow 或其他）未知，无法为具体团队选定唯一的合并策略。",
-          "团队是否要求线性历史、是否需要按 feature 回滚、是否有审计或合规要求，未说明，会影响 merge 与 squash 或 rebase-and-merge 的取舍。",
-          "平台（GitHub、GitLab 等）的保护分支和合并方式设置未知，无法判断 rebase-and-merge 是否可用及其具体行为。",
-          "如果团队允许在共享 feature 分支上 rebase，需要多少协调成本才算可接受，没有统一的经验数据支持。"
+          "## 为什么通常不能 rebase 已推送的公共分支？",
+          "## 为什么不能 rebase 已推送的公共分支？",
+          "具体团队应选线性历史还是保留合并拓扑，需要团队自己的分支寿命、审计要求和协作规模数据来裁决。",
+          "平台的 squash / rebase-merge 行为细节（如是否保留作者信息、签名处理）因平台而异，需以对应平台文档为准。"
         ],
         "uncertainty": {
           "level": "medium",
@@ -3474,23 +3501,21 @@
         "wrongClaims": [],
         "boundaryCovered": true,
         "passed": true,
-        "reason": "回答准确覆盖 merge 与 rebase 的机制区别、fast-forward 时 merge 不一定产生合并提交、公共分支与个人分支的选择条件，以及 rebase 已推送公共分支导致强推、协作者分叉/重复提交/冲突和哈希引用破坏的风险；还补充了特殊协调例外与 --force-with-lease 的边界，无标准外错误主张。",
+        "reason": "回答准确覆盖 merge/rebase 的机制差异、fast-forward 边界、公共与私有分支的选择原则，以及 rebase 已推送公共分支导致强推、分叉、重复提交等协作风险，并说明团队协调的例外情况。",
         "usage": {
-          "inputTokens": 951,
-          "outputTokens": 235,
+          "inputTokens": 871,
+          "outputTokens": 254,
           "cacheReadTokens": 0,
           "cacheWriteTokens": null,
           "cost": null
         },
-        "latencyMs": 5974,
+        "latencyMs": 4230,
         "attempts": 1,
         "rubricAgentId": "deepseek-v4.1-flash",
         "participatedInDebate": true
       },
       "anchor": null,
-      "error": null,
-      "fingerprint": "51149174350aa931ac0c4d2a039b3d515ccbc64c735b9486820afd6cd22a1735",
-      "reused": true
+      "error": null
     },
     {
       "id": "process-thread",
@@ -3968,5 +3993,17 @@
       "anchor": null,
       "error": null
     }
+  ],
+  "updatedAt": "2026-11-14T15:32:12.159Z",
+  "corrections": [
+    "tcp-udp",
+    "btree-index",
+    "csrf-xss",
+    "cache-invalidation",
+    "feature-flag",
+    "rate-limit",
+    "observability",
+    "testing-pyramid",
+    "git-rebase"
   ]
 }

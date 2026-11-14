@@ -1,0 +1,293 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T15:44:03.283Z",
+  "workers": 1,
+  "completeness": true,
+  "incremental": null,
+  "summary": {
+    "total": 1,
+    "execution": {
+      "COMPLETED": 1
+    },
+    "completed": 1,
+    "judgeModel": 1,
+    "independent": 1,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 1
+    },
+    "factual": {
+      "model-assessed": 1
+    },
+    "anchors": {
+      "checked": 0,
+      "hit": 0
+    },
+    "standard": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unavailable": 0,
+      "averageScore": 100,
+      "classificationMatches": 1
+    },
+    "byStrategy": {
+      "solution": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 294533
+      }
+    },
+    "structuralOk": true
+  },
+  "results": [
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "fingerprint": "00c3a84d7d34c742158786e5546593e143311b69f6f9800d20c5a0832c527ed9",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 9160,
+          "outputTokens": 1058,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12513
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 294533,
+        "durationSec": 295,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 4075
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 145,
+            "outputTokens": 7862
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6192,
+            "outputTokens": 7146
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3928,
+            "outputTokens": 7994
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "没有脱离故障模型的“绝对不丢”。实用目标通常是在约定的故障范围内实现至少一次投递，并通过幂等处理重复；关键业务还应做业务级对账与补偿。\n\n生产端：等待并检查发送结果；失败要重试或进入可监控的失败处理流程，不能忽略异步回调。确认应代表 Broker 按预期策略接收，而不只是客户端已发出。数据库写入与发消息存在双写时，可用 Outbox 在同一数据库事务中记录业务变更和待发消息，再由中继重试投递；消费者仍需幂等。\n\n存储端：使用持久化消息和持久化队列/日志，配置足够副本并跨故障域，按产品语义要求多数副本或同步确认；限制可能丢失已确认数据的选主策略，并让保留期覆盖最长积压与恢复时间。监控副本状态、磁盘水位和保留期。以 Kafka 为例，可考虑 acks=all、适当的 min.insync.replicas 和禁用不干净选主；这些设置仍不能防止误删、全副本损坏或保留期到期。\n\n消费端：业务处理成功并持久化后再确认或提交位点；异常要重试或进入有人监控、可重放的死信处理流程。消费者可能在处理完成但确认前崩溃，因此会重复投递；用消息唯一键、数据库唯一约束或 Inbox 等方式实现幂等。若业务写入和",
+        "unresolvedDisputes": [
+          "# 消息队列如何保证不丢消息？",
+          "生产、存储、消费三个环节分别可能在哪里丢？",
+          "具体 MQ 产品及其确认、持久化、复制和消费位点语义未指定，无法给出可直接照搬的参数。",
+          "业务是否需要保证消息进入 Broker，还是还要保证消费者业务副作用完成，题目未说明。",
+          "可接受的数据丢失概率、重复处理成本、延迟和吞吐要求未说明，无法确定最合适的可靠性配置。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "未明确“不丢消息”的目标边界：是生产者到Broker、Broker存储期，还是到消费者业务处理成功；以及确认语义（leader/ISR/落盘）和至少一次/恰好一次的范围。",
+            "why": "不先定义端到端目标和确认范围，就无法判断各环节哪些丢失属于目标内、哪些需要补偿。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "生产端未具体列出本地发送缓冲/批处理未持久化、异步回调丢失、重试耗尽、Broker拒收（队列满、限流、权限、消息过大、序列化失败）等丢点。",
+            "why": "这些是生产端常见丢消息路径，仅说检查发送结果和重试不足以覆盖。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "存储端未明确异步刷盘/未落盘、队列满/TTL/消息过期、磁盘满、副本未同步确认、选主脑裂、误配置清理等丢点；acks=all也不等于一定刷盘。",
+            "why": "持久化与清理策略是存储端主要丢消息来源，需与故障模型对应。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "消费端未展开自动提交/错误提交位点、再均衡、处理超时、异常被吞、重试耗尽进DLQ后无人处理或DLQ过期/容量不足等丢点。",
+            "why": "消费端丢消息常发生在确认、重试和死信治理环节，缺这些会高估“处理后确认+死信”的保证。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未讨论同步复制/同步刷盘/acks=all/长保留期/重试带来的延迟、吞吐、成本和可用性权衡，以及重试风暴、背压和顺序性约束。",
+            "why": "不说明实施约束会把“不丢”误当成无代价配置，难以落地。"
+          }
+        ],
+        "reason": "候选回答覆盖了三环节的主要保证手段，但对“可能在哪里丢”的失败模式列举不够系统，且缺少目标定义与实施约束；这些缺口会影响保证方案的可验证性和落地性。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 605,
+          "outputTokens": 3702,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 47293
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "先明确目标边界。\"不丢消息\"必须说明三段范围：A) 生产者到 Broker：Broker 明确确认接收后，生产者才视为发送成功；B) Broker 存储期：Broker 接收后，到消息完成持久化和副本确认为止；C) 消费者处理：业务处理成功并持久化后，才视为消息被消费完成。端到端不丢 = A、B、C 三段都满足，再加业务对账兜底。\n\n确认语义也要说清楚：Broker 返回成功时，是写入 leader 内存或 page cache，是 leader 落盘，还是 ISR 多数副本确认？不同语义的丢失风险不同。投递语义上，工程上通常做到至少一次投递（失败重试），再用幂等处理重复；恰好一次一般只在特定系统边界内成立（例如同一事务链路或同一数据库事务内），跨系统不能免费获得。\n\n生产端可能丢消息的位置：\n1. 客户端本地发送缓冲或批处理（batch/linger）中的消息未持久化，进程崩溃即丢失。\n2. 异步发送时忽略回调或回调里只记日志，失败无人处理。\n3. 重试次数耗尽、超时后放弃，且没有进入失败队列或告警流程。\n4. Broker 拒收：队列满、限流、权限不足、消息超过大小上限、序列化失败等。\n5. 数据库业务变更与发消息分两步执行（双写），消息发送失败或进程在两者之间崩溃。可用 Outbox 在同一数据库事务中记录业务变更和待发消息，再由中继重试投递；消费者仍需幂等。\n\n存储端可能丢消息的位置：\n1. 异步刷盘或未落盘：Broker 在数据写入内存或 page cache 后即确认，掉电或进程崩溃时丢失。\n2. 副本未同步确认：只要求 leader 写入成功，leader 故障后新 leader 缺少这部分数据。\n3. 选主与脑裂：允许不同步副本成为 leader（如 Kafka 的不干净选主），或网络分区下出现双主，已确认的数据被覆盖或回滚。\n4. 队列满、消息 TTL 或保留期到期，未消费的消息被自动删除。\n5. 磁盘满导致写入失败或数据截断。\n6. 误配置或误操作：错误的清理策略、误删 topic 或分区、误重置数据目录。\n注意：acks=all 只表示等待所有 ISR 副本确认，不等于每个副本都已 fsync 到磁盘，它也不能防止保留期到期或误删。以 Kafka 为例，较稳妥的组合是 acks=all、合理的 min.insync.replicas、禁用不干净选主、副本跨故障域部署、监控 UnderReplicated 分区和磁盘水位，并让保留期覆盖最长积压与恢复时间。RocketMQ、RabbitMQ 等的刷盘与副本参数名称和语义不同，需按所用版本核对。\n\n消费端可能丢消息的位置：\n1. 自动提交位点：消息拉取后、业务处理前即提交，处理失败却已确认。\n2. 错误提交位点：批量处理中提交了未完成消息之前的位点，或并发处理时位点顺序错乱。\n3. 再均衡（rebalance）：分区被转移时，未提交的位点或正在处理的消息被跳过或重复处理，需要配合幂等。\n4. 处理超时：消费者超过 max.poll.interval 等阈值被踢出，处理结果未提交。\n5. 异常被吞：捕获异常后直接返回成功并确认。\n6. 重试耗尽后进入死信队列（DLQ），但无人处理，或 DLQ 设置了过期时间、容量不足被丢弃。\n因此推荐做法是：业务处理成功并持久化后再确认或提交位点；异常要重试或进入有人监控、可重放的死信处理流程。消费者可能在处理完成但确认前崩溃，因此会重复投递，需用消息唯一键、数据库唯一约束或 Inbox 实现幂等。若业务写入与位点提交不在同一原子事务中，仍有一致性窗口，需要事务性方案或对账补偿。\n\n实施约束与权衡：\n1. 同步复制、同步刷盘、acks=all 和更多副本会增加写入延迟、降低吞吐、提高存储与网络成本，并可能在副本不足时降低可用性（如 min.insync.replicas 不满足时拒绝写入）。\n2. 长保留期和死信保留会增加存储成本；保留期过短则会在积压时丢数据。\n3. 重试能提高送达率，但可能造成重试风暴，放大下游故障；应配合指数退避、最大重试次数、熔断和背压。\n4. 顺序性与并发冲突：为保证顺序需要按 key 分区并串行处理，单个失败消息可能阻塞后续消息；并发消费或跳过失败消息又会破坏顺序。需要在顺序、吞吐和不丢之间取舍。\n5. 不丢不等于无代价配置，应根据业务价值、可接受延迟和故障模型选择组合。\n\n可作为起点的组合：生产端检查发送结果并处理失败 + Broker 持久化、多副本、禁用不干净选主 + 成功处理后再确认 + 消费幂等 + 死信可监控可重放。关键业务再加 Outbox 或事务消息、Inbox 和定期对账补偿。",
+        "addressed": [
+          "明确了不丢消息的目标边界（生产到Broker、Broker存储、消费处理成功）及确认语义（内存/page cache、leader落盘、ISR副本确认）",
+          "明确了至少一次与恰好一次的适用范围",
+          "补充了生产端的本地缓冲/批处理丢失、异步回调丢失、重试耗尽、Broker拒收（队列满、限流、权限、消息过大、序列化失败）等丢点",
+          "补充了存储端的异步刷盘、副本未确认、选主脑裂、队列满/TTL/保留期到期、磁盘满、误配置清理等丢点，并说明acks=all不等于刷盘",
+          "补充了消费端的自动提交、错误提交位点、再均衡、处理超时、异常被吞、DLQ无人处理或过期等丢点",
+          "补充了同步复制、刷盘、acks=all、保留期、重试在延迟、吞吐、成本、可用性方面的权衡，以及重试风暴、背压和顺序性约束"
+        ],
+        "stillMissing": [
+          "未针对RocketMQ、RabbitMQ等具体产品的刷盘、副本和确认参数做逐项核实，当前仅给出Kafka相关参数，其他产品需按所用版本查证",
+          "未提供具体的性能或故障率数据，无法量化各配置下的丢失概率",
+          "实际的刷盘行为还取决于操作系统、文件系统和硬件（如电池保护缓存）配置，本答案未展开验证"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 1517,
+          "outputTokens": 3315,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 16941
+      },
+      "revisionJudge": {
+        "backend": "model",
+        "judgeAgentId": "gpt-6-luna",
+        "undetermined": false,
+        "conclusion": "没有一种配置能在所有故障、误操作和业务边界下绝对保证“不丢”。通常应把目标定义为：消息被 Broker 确认后可在约定故障范围内恢复；消费者只有在业务处理结果持久化后才确认。生产端检查发送结果并对失败重试；存储端按产品配置持久化和副本确认；消费端成功处理后再提交位点或 ack，并对重复投递做幂等处理。生产环节可能在本地缓冲、异步发送、重试耗尽、Broker 拒收时丢消息；业务变更与发消息分开写入也可能造成不一致，可用 Outbox 等方案缓解。存储环节可能因仅内存确认、刷盘前故障、副本未同步、错误选主、磁盘故障、保留期到期或误删而丢消息。消费环节可能因处理前确认、提前或错误提交位点、吞掉异常，或死信队列无人处理而丢消息。建议：生产端确认并监控失败；Broker 配置适当的持久化、副本和选主策略；消费端处理成功后再确认，失败时重试或送入可监控、可重放的死信队列；通过幂等和对账应对重复及残余故障。同步刷盘、复制和长保留期会增加延迟、成本，部分配置还会降低故障时的可用性，需按业务要求选择。具体参数依赖所用队列产品及版本。",
+        "confidence": "medium",
+        "fallbackReason": null
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "mq-delivery",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答分别覆盖生产、Broker 存储、消费三环节的丢失点与措施；明确至少一次投递加消费端幂等；指出重试和 ACK 丢失导致重复，不丢不等于不重复；谨慎说明 Exactly-once 的边界；并给出 Outbox 等双写方案及实施权衡，符合全部必答与建议主张。",
+        "usage": {
+          "inputTokens": 1832,
+          "outputTokens": 249,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5443,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    }
+  ]
+}

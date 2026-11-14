@@ -1,0 +1,498 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T15:37:02.338Z",
+  "workers": 2,
+  "completeness": true,
+  "incremental": null,
+  "summary": {
+    "total": 2,
+    "execution": {
+      "COMPLETED": 2
+    },
+    "completed": 2,
+    "judgeModel": 2,
+    "independent": 2,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 2
+    },
+    "factual": {
+      "model-assessed": 2
+    },
+    "anchors": {
+      "checked": 1,
+      "hit": 1
+    },
+    "standard": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "unavailable": 0,
+      "averageScore": 100,
+      "classificationMatches": 2
+    },
+    "byStrategy": {
+      "expert": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 196152
+      },
+      "solution": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 271740
+      }
+    },
+    "structuralOk": true
+  },
+  "results": [
+    {
+      "id": "http-methods",
+      "category": "HTTP",
+      "strategy": "expert",
+      "question": "HTTP 的 PUT 和 POST 哪个是幂等的？在设计 REST API 时应该怎么选？",
+      "fingerprint": "1025dbaaa8bbac6d72eadd2e59518472d0eedf7ff04c81ae334223d18b91cbe7",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 9021,
+          "outputTokens": 1790,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9744
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 196152,
+        "durationSec": 196,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 826
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 162,
+            "outputTokens": 10152
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3476,
+            "outputTokens": 1101
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3108,
+            "outputTokens": 3288
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 49 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "分两部分回答。第一，HTTP 方法语义上，PUT 是幂等的，POST 不保证幂等（依据 RFC 9110 §9.2.2、§9.3.3、§9.3.4）；幂等指同一请求重复执行的预期服务端效果与执行一次相同，不要求响应码或响应体完全一致，也不等于安全。第二，REST API 设计上没有唯一答案，但有明确的条件性建议：若客户端能确定目标资源 URI，且操作是创建或整体替换该资源，用 PUT（如 PUT /users/123）；若由服务端分配资源 URI、向集合追加、触发非幂等的业务动作或批处理，用 POST（如 POST /users、POST /orders）。部分更新应考虑 PATCH，但 PATCH 方法本身也不保证幂等，取决于具体 patch 文档。需要安全重试的 POST 操作，应在 API 契约中通过 Idempotency-Key、唯一约束或去重表实现应用层幂等，不能因此认为 POST 在 HTTP 语义上是幂等的。无论选哪种方法，PUT 的幂等性都不解决并发覆盖问题，并发更新应配合 ETag 与 If-Match 等条件请求。",
+        "unresolvedDisputes": [
+          "Idempotency-Key 头字段目前在 IETF 中的标准化状态（草案版本与进展）需要以 IETF 数据库的最新记录为准，本轮无法核实。",
+          "用 PUT 做部分合并（merge）是否符合 RFC 9110 的 PUT 语义，取决于 API 文档如何定义合并规则，本轮材料中没有可供裁决的统一依据。",
+          "某个具体端点是否真正满足幂等语义，需要检查其实现或做重复请求、超时重试测试，仅凭方法名无法确定。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": false,
+        "missing": [],
+        "reason": "候选回答覆盖了幂等定义、PUT/POST 的协议语义、幂等不等于安全、响应不必一致、REST 选型条件（客户端确定 URI 与整体替换用 PUT，服务端分配 URI/追加/非幂等动作/批处理用 POST）、PATCH 的边界、POST 重试的应用层幂等方案，以及 PUT 并发覆盖需配合 ETag/If-Match。未发现明显的关键定义、成立条件、适用边界、例外、失败模式或实施约束遗漏。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 484,
+          "outputTokens": 1161,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 17341
+      },
+      "revision": null,
+      "standardAnswerSource": "original",
+      "standard": {
+        "id": "http-methods",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答明确区分 HTTP 方法语义与应用层设计：正确说明 PUT 幂等、POST 不保证幂等，幂等约束预期效果而非响应完全相同；给出 REST API 选择 PUT/POST 的条件性建议，补充 PATCH 取决于补丁语义，并说明 POST 可通过 Idempotency-Key、唯一约束或去重表实现应用层幂等。条件、边界和推荐方案完整，无错误主张。",
+        "usage": {
+          "inputTokens": 912,
+          "outputTokens": 326,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5949,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "PUT",
+          "幂等"
+        ],
+        "terms": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "note": "确定性协议语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "fingerprint": "00c3a84d7d34c742158786e5546593e143311b69f6f9800d20c5a0832c527ed9",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 8935,
+          "outputTokens": 784,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8902
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 271740,
+        "durationSec": 272,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 3676
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 145,
+            "outputTokens": 5214
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6128,
+            "outputTokens": 4454
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3890,
+            "outputTokens": 10655
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "消息队列不能脱离故障模型单独保证端到端“不丢”。通常的可靠性做法是：生产端确认发送结果并对失败重试或持久化待发消息；Broker 使用持久化和跨故障域副本；消费端在业务处理成功后再确认，并配合幂等、重试、死信队列和对账。这样通常实现的是“至少一次”：可能重复，但可避免静默丢失。Kafka 场景可考虑 acks=all、min.insync.replicas>=2、禁用不干净选主，并在消费成功后提交 offset；具体参数需按故障模型和可用性要求验证。",
+        "unresolvedDisputes": [
+          "- 生产端：是否等待确认并处理失败？",
+          "发件箱或兜底存储是否存在？",
+          "- 存储端：副本数、最小 ISR、unclean 选主、保留时间是否都配置正确？",
+          "是否监控 under-replicated 分区？",
+          "- 消费端：是否处理成功后再确认？",
+          "消费逻辑是否幂等？",
+          "DLQ 和告警是否配置？",
+          "- 整体：是否定义了 RPO，并通过故障注入（杀 leader、断网、杀消费者）验证过？",
+          "- **生产端**：是否检查每次发送结果？",
+          "超时是否按\"未知\"处理？",
+          "重试是否有上限、告警和兜底？",
+          "- **存储端**：副本数、`min.insync.replicas`、unclean 选主、retention 是否正确？",
+          "- **消费端**：是否在处理成功后再 ack？",
+          "失败是否重试？",
+          "幂等键是否唯一？",
+          "DLQ 是否有监控和处理流程？",
+          "- **整体**：是否定义了可接受的数据丢失量（RPO）？",
+          "是否通过故障注入（杀 leader、断网、杀消费者）验证，并用端到端对账确认缺口为零？",
+          "未指定具体 MQ 产品，确认、复制、事务和 offset 语义会有差异。",
+          "未指定可接受的故障范围（单机、机架、可用区或更大范围）及 RPO。",
+          "未说明业务是否能接受重复、是否有幂等键，以及是否要求跨数据库与消息队列原子一致。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "completeness": {
+        "backend": "model",
+        "hasGap": true,
+        "missing": [
+          {
+            "dimension": "definition",
+            "text": "未明确定义“不丢消息”指端到端业务不丢、Broker 接收不丢，还是至少一次/恰好一次语义，以及是否允许重复。",
+            "why": "语义不同会改变确认、重试、幂等和对账的设计目标，否则无法判断保证边界。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "生产端未列出具体丢失点：异步发送未检查回调、客户端缓冲满或崩溃、重试耗尽、确认超时误判、网络分区、未持久化待发消息等。",
+            "why": "生产端是端到端链路起点，缺少这些失败模式会漏掉关键防护措施。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "存储端未列出具体丢失点：未刷盘、副本不足或 ISR 收缩、不干净选主、磁盘/节点/机架/可用区故障、保留过期删除、队列满或消息超限等。",
+            "why": "Broker 持久化和副本是可靠性的核心，需逐项说明才能定位存储环节风险。"
+          },
+          {
+            "dimension": "failure_mode",
+            "text": "消费端未列出具体丢失点：先确认后处理、自动提交 offset、处理异常被吞掉、重平衡、并发消费 offset 提交错位、批处理部分失败、死信/过期策略等。",
+            "why": "消费确认与业务处理顺序决定业务消息是否会静默丢失。"
+          },
+          {
+            "dimension": "boundary",
+            "text": "仅给出 Kafka 参数示例，未说明不同 MQ 产品在确认、持久化、副本、事务消息和消费位点机制上的差异。",
+            "why": "问题未限定 MQ 类型，Kafka 的做法不能直接套用到 RabbitMQ、RocketMQ、Pulsar 等系统。"
+          },
+          {
+            "dimension": "constraint",
+            "text": "未强调端到端可靠性还需生产端本地消息表/outbox/事务消息、消费端幂等与对账、监控告警和故障演练，并需在吞吐、延迟、成本间权衡。",
+            "why": "MQ 自身配置不能单独保证业务不丢，缺少实施约束会给出过度承诺。"
+          }
+        ],
+        "reason": "候选回答给出了总体思路和 Kafka 示例，但没有按生产、存储、消费逐项列出可能丢失的具体失败模式，也未充分界定“不丢”的语义、产品适用边界和实施约束，因此存在明显缺口。",
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 351,
+          "outputTokens": 1981,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 27369
+      },
+      "revision": {
+        "backend": "model",
+        "revisedAnswer": "一、先定义“不丢”\n本文默认目标是端到端业务至少一次：允许重复投递，但已受理的业务消息不能被静默丢失。需要区分三层含义：1）Broker 接收不丢：Broker 已确认的消息，在单点或单机房故障后仍可读取；2）端到端至少一次：业务事件最终被下游成功处理，失败可重试、可死信、可补偿；3）恰好一次效果：通过幂等或事务把重复投递的业务效果收敛为一次，实现成本明显更高。语义不同，确认、重试、幂等和对账的设计目标也不同。\n\n二、生产端可能丢在哪里\n1. 异步发送未检查回调或 Future 结果，误以为已成功。\n2. 客户端本地缓冲区满、进程崩溃或重启，缓冲中尚未发送的消息丢失。\n3. 重试次数耗尽或遇到不可重试错误后，仅打日志就丢弃。\n4. 确认超时被误判：Broker 实际已写入却判为失败，重试会造成重复；反之，若确认语义较弱，也可能把未落盘的消息判为成功。\n5. 网络分区或连接断开导致 ack 丢失，状态无法确定。\n6. 业务数据库提交与发消息不一致：先提交 DB 后发消息失败，或先发消息后回滚 DB。应使用本地消息表（outbox）或事务消息解决。\n7. 待发消息仅保存在内存中即返回成功，未先持久化。\n\n三、存储端（Broker）可能丢在哪里\n1. 数据只写入内存或页缓存而未刷盘，节点掉电后丢失。是否同步刷盘需按产品和延迟要求权衡。\n2. 副本数不足（例如单副本），或 ISR 收缩后仅少数副本持有消息，leader 故障时已确认的消息丢失。\n3. 确认级别过弱，例如 leader 写入即返回成功，而数据尚未复制到其他副本。\n4. 不干净选主（unclean leader election）允许落后副本成为 leader，已确认但未同步的消息被截断。\n5. 磁盘、节点、机架或可用区同时故障，所有副本位于同一故障域。\n6. 保留策略到期、容量满或超出消息大小限制导致删除或拒绝。超限通常表现为拒绝写入而非静默丢失，需看具体配置。\n7. 运维误操作，如删除 topic、重建队列或清理数据目录。\n\n四、消费端可能丢在哪里\n1. 先确认或提交 offset，再执行业务处理；处理失败的消息就此丢失。\n2. 使用自动提交 offset，提交时机可能早于业务处理完成。\n3. 处理异常被捕获后吞掉，仍返回成功并提交。\n4. 重平衡时 offset 状态不一致：已处理未提交导致重复，未处理却已提交导致丢失。后者必须避免。\n5. 多线程并发消费时 offset 提交错位：较大的 offset 先提交，导致前面未完成的消息被跳过。\n6. 批量处理时部分失败却整批确认，失败的那部分被丢弃。\n7. 重试耗尽后进入死信队列但无人监控、无持久化，或消息 TTL 到期被丢弃。\n8. 下游写入失败却已确认消息。\n\n五、不同 MQ 产品的差异（以下为示例，需按所用版本核实默认值和行为）\n1. Kafka：可使用 acks=all、min.insync.replicas>=2、unclean.leader.election.enable=false，并在业务成功后手动提交 offset（enable.auto.commit=false）。Kafka 事务可保证 Kafka 内部的读-处理-写，但与外部数据库的一致性仍需 outbox 或幂等。\n2. RabbitMQ：依赖 publisher confirms、持久化队列和消息持久化，消费端使用手动 ack。nack 加 requeue 可能导致死循环，需要设置重试上限和死信。Quorum queue 比经典镜像队列更适合需要强持久化的场景。\n3. RocketMQ：可配合同步刷盘（SYNC_FLUSH）和同步双写（SYNC_MASTER），发送端检查 SEND_OK。事务消息通过半消息和回查机制保证本地事务与消息发送一致。消费者返回 CONSUME_LATER 可触发重试，消费进度由客户端管理。\n4. Pulsar：数据持久化在 BookKeeper 多副本中，消费确认位置由订阅管理，需注意累积确认与单条确认的差异。\n\n六、端到端实施约束\n1. 生产端使用 outbox 或事务消息，保证业务数据与消息发送的一致性。\n2. 消费端做幂等，例如去重表、业务唯一键或版本号校验，以应对至少一次投递带来的重复。\n3. 建立对账机制：比对生产、Broker 和消费的计数或业务流水，并对死信进行补偿。\n4. 监控发送失败率、消费积压、死信数量和副本健康状态，并设置告警。\n5. 定期进行故障演练，例如停止 Broker、模拟网络分区、切换 leader，验证上述策略是否真正生效。\n6. 权衡：同步刷盘、多副本和 acks=all 会增加延迟并降低吞吐；严格有序消费会限制并发；exactly-once 实现复杂，通常采用至少一次加幂等。MQ 自身配置不能单独保证业务不丢，必须与上述应用层措施配合使用。",
+        "addressed": [
+          "明确了“不丢”的定义：区分 Broker 接收不丢、端到端至少一次和恰好一次效果，并说明重复的处理方式",
+          "补充了生产端的具体丢失点，包括异步回调未检查、缓冲区丢失、重试耗尽、确认超时误判、网络分区、DB 与发消息不一致、待发消息未持久化",
+          "补充了存储端的具体丢失点，包括未刷盘、副本不足或 ISR 收缩、确认级别弱、不干净选主、故障域集中、保留过期与超限、运维误操作",
+          "补充了消费端的具体丢失点，包括先确认后处理、自动提交、异常吞掉、重平衡、并发提交错位、批处理部分失败、死信与 TTL",
+          "补充了 Kafka、RabbitMQ、RocketMQ、Pulsar 的机制差异，并注明需按版本核实",
+          "补充了 outbox、幂等、对账、监控告警、故障演练以及吞吐延迟成本的权衡"
+        ],
+        "stillMissing": [
+          "各产品的默认参数和行为随版本变化，本答案未逐版本核实，需以所用版本的官方文档为准",
+          "无法给出统一的量化可靠性指标（如 SLA 或年丢失率），因为它依赖具体部署拓扑、硬件和故障模型",
+          "未结合具体业务的吞吐、延迟和成本约束给出推荐配置",
+          "若外部数据库与 MQ 之间没有 outbox 或事务消息，仅靠 MQ 配置无法保证跨系统一致性，本答案无法替代对具体架构的评估"
+        ],
+        "attempts": 1,
+        "usage": {
+          "inputTokens": 1154,
+          "outputTokens": 4505,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 23668
+      },
+      "standardAnswerSource": "revised",
+      "standard": {
+        "id": "mq-delivery",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答完整覆盖生产、Broker、消费三个环节的丢失点与对应措施，明确至少一次投递加消费端幂等的常见方案，说明重试和 ACK 丢失可能造成重复，并强调端到端 Exactly-once 很难、通常采用至少一次加幂等；同时给出 Outbox/事务消息、死信、对账、监控和产品差异及权衡，未出现标准中的错误主张。",
+        "usage": {
+          "inputTokens": 1842,
+          "outputTokens": 1590,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19453,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    }
+  ]
+}
