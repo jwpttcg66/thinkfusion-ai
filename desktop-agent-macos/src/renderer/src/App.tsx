@@ -20,7 +20,7 @@ import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
-import { AgentTerminal } from './components/AgentTerminal';
+import { terminalSessionsFrom } from './components/terminal-sessions';
 import { TaskWorktree } from './components/TaskWorktree';
 import { CodeIndexPanel } from './components/CodeIndexPanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
@@ -110,8 +110,7 @@ type PendingQuestion = Extract<AgentEvent, { type: 'step.question' }>;
  * window's toolbar can draw byte-identical glyphs.
  */
 /** 放大：把这个页面交给一整扇窗。 */
-const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
-/** 吸附回来：放回它原来的位置。 */
+const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;/** 吸附回来：放回它原来的位置。 */
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
 /** 刷新：把这一页重新加载一次，会话还留在原地。 */
 const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
@@ -206,6 +205,14 @@ function baseName(path?: string): string {
   const parts = path.split('/').filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
+
+/**
+ * 终端组件按需加载：xterm 及其 CSS 只在真的有 PTY 会话时下载/解析。
+ * 首屏因此回到「不碰终端实现」的体积。
+ */
+const AgentTerminal = React.lazy(() =>
+  import('./components/AgentTerminal').then(module => ({ default: module.AgentTerminal }))
+);
 
 export default function App() {
   const [platform, setPlatform] = useState('');
@@ -2240,7 +2247,12 @@ export default function App() {
 
             {/* 只对任务里真实开过的 term.* 会话出现；headless CLI 没有 PTY，
                 它的输出在上一块执行日志里，不会被伪装成终端。 */}
-            {activeTask && <AgentTerminal events={events} />}
+            {/* xterm 只在真的有 PTY 会话时才加载；首屏不解析终端实现。 */}
+            {activeTask && terminalSessionsFrom(events).length > 0 && (
+              <React.Suspense fallback={null}>
+                <AgentTerminal events={events} />
+              </React.Suspense>
+            )}
           </div>
         </div>
 
