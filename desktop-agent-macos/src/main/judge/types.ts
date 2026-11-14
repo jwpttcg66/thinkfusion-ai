@@ -1,4 +1,5 @@
 import type { DebateMessage } from '../debate/types';
+import type { DebateQualityReport, FinalDebateDecision } from '../debate/quality-engine';
 
 /**
  * 裁决结果（项目书 8.7 / Phase H）。
@@ -71,6 +72,13 @@ export interface JudgeVerdict {
   supportCount: Record<string, number>;
   /** 模型裁决解析失败时会退回规则版，原因写在这里，不假装是模型给的。 */
   fallbackReason?: string;
+  /**
+   * P1 自动质量报告。作为裁决的伴随对象，不改写 `conclusion` 或 `confidence`；
+   * 老记录没有这个字段。`factualAccuracy` 不会因为模型评审而变成事实正确。
+   */
+  quality?: DebateQualityReport;
+  /** P2 Final Judge 决策；映射到现有五档结论，不新增第三套结论状态。 */
+  finalDecision?: FinalDebateDecision;
 }
 
 export function messagesOfVerdict(state: {

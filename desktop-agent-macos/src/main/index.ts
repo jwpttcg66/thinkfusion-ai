@@ -77,6 +77,7 @@ import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
+import { evaluateDebateQuality, finalizeDebate } from './debate/quality-engine';
 import { classifyIntent } from '../shared/intent';
 import {
   DEFAULT_EXECUTION_CONFIG,
@@ -3645,9 +3646,21 @@ function registerIpc() {
       sharedWith: state.plan.participants.includes(pick.id) ? pick.id : undefined
     } : {});
     const verdict = await engine.judge(state);
-    verdicts.save(verdict);
-    if (state.conversationId) verdictByConversation.set(state.conversationId, verdict);
-    return verdict;
+    // 质量报告是裁决的伴随对象：先如实判断这次是不是模型评审（退回规则版
+    // 时 backend 会是 'rules'），再生成 P2 决策。两者都不改写 verdict。
+    const quality = evaluateDebateQuality({
+      state,
+      verdict,
+      modelAssessed: verdict.backend === 'model'
+    });
+    const judged: JudgeVerdict = {
+      ...verdict,
+      quality,
+      finalDecision: finalizeDebate(state, verdict, quality)
+    };
+    verdicts.save(judged);
+    if (state.conversationId) verdictByConversation.set(state.conversationId, judged);
+    return judged;
   });
 
   ipcMain.handle('judge:get', (event, debateId: unknown) => {

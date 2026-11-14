@@ -54,6 +54,30 @@ const BACKEND_LABEL: Record<NonNullable<Synthesis['fusion']>['backend'], string>
   web: '网页模型主导（读完全部回答后评判）'
 };
 
+/** P1 质量报告标签：`passed` 只表示评估流程完整，不表示事实已核验。 */
+const QUALITY_REPORT_LABEL: Record<NonNullable<JudgeVerdictView['quality']>['status'], string> = {
+  passed: '评估流程通过（事实仍未经外部核验）',
+  needs_revision: '需要继续辩论或修订',
+  insufficient_evidence: '证据不足，不能判为通过',
+  inconclusive: '结论未定',
+  failed: '没有可评估的裁判结论'
+};
+
+const QUALITY_STATUS_LABEL: Record<NonNullable<JudgeVerdictView['quality']>['dimensions']['factualAccuracy']['status'], string> = {
+  supported: '有外部可核验依据',
+  'model-assessed': '模型评估过（不等于事实正确）',
+  contradicted: '被证据反驳',
+  insufficient: '证据不足',
+  unknown: '未知'
+};
+
+const DECISION_ACTION_LABEL: Record<NonNullable<JudgeVerdictView['finalDecision']>['action'], string> = {
+  accept: '接受',
+  accept_with_caveats: '接受，但带保留',
+  reject: '拒绝',
+  hold: '暂时保留'
+};
+
 const LEAD_MODES: Array<{ id: DebateLeadMode; label: string; hint: string }> = [
   { id: 'local', label: '本地主导', hint: '只用本地模型：汇总、交锋、最终意见都在本机完成，内容不往网页发' },
   { id: 'web', label: '网页主导', hint: '只用网页通道：不引入本地/云端模型，交锋材料拼成一条消息递进页面' },
@@ -771,6 +795,39 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                   <p className="muted">置信度：{verdict.confidence.level} · {verdict.confidence.why}</p>
                   {verdict.fallbackReason && <p className="muted">{verdict.fallbackReason}</p>}
                   {verdict.unresolved.length > 0 && <p className="muted">未解决：{verdict.unresolved.map(item => item.question).join('；')}</p>}
+                  {verdict.quality && (() => {
+                    const quality = verdict.quality;
+                    const factual = quality.dimensions.factualAccuracy;
+                    return (
+                      <div className="verdict-quality">
+                        <h4>自动质量评估</h4>
+                        <p>
+                          <b>{QUALITY_REPORT_LABEL[quality.status]}</b>
+                          {' · '}{quality.modelAssessed ? '含模型评审' : '仅规则/结构'}
+                        </p>
+                        <p className="muted">{quality.explanation}</p>
+                        <p className="muted">
+                          事实维度：{QUALITY_STATUS_LABEL[factual.status]} · {factual.basis.join('；')}
+                        </p>
+                        {quality.criticalIssues.length > 0 && (
+                          <p className="muted">阻断项：{quality.criticalIssues.join('；')}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {verdict.finalDecision && (
+                    <div className="verdict-final-decision">
+                      <h4>最终处理</h4>
+                      <p>
+                        <b>{DECISION_ACTION_LABEL[verdict.finalDecision.action]}</b>
+                        {' · '}{VERDICT_LABEL[verdict.finalDecision.verdict] ?? verdict.finalDecision.verdict}
+                      </p>
+                      <p className="muted">{verdict.finalDecision.uncertainty.explanation}</p>
+                      {verdict.finalDecision.recommendedFollowUp && (
+                        <p className="muted">{verdict.finalDecision.recommendedFollowUp}</p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </>

@@ -1699,6 +1699,66 @@ export interface JudgeVerdictView {
   sourceMessageIds: string[];
   supportCount: Record<string, number>;
   fallbackReason?: string;
+  /** P1 自动质量报告；老记录没有。事实维度只能是 model-assessed/unknown。 */
+  quality?: DebateQualityReportView;
+  /** P2 Final Judge 决策；不改写结论，只给可审计的最终处理建议。 */
+  finalDecision?: FinalDebateDecisionView;
+}
+
+export type DebateQualityStatusView =
+  | 'supported'
+  | 'model-assessed'
+  | 'contradicted'
+  | 'insufficient'
+  | 'unknown';
+
+export interface DebateQualityDimensionView {
+  status: DebateQualityStatusView;
+  basis: string[];
+  evidenceRefs?: string[];
+  note?: string;
+}
+
+/** P1 质量报告。`passed` 只表示评估流程完整，不表示事实已核验。 */
+export interface DebateQualityReportView {
+  debateId: string;
+  status: 'passed' | 'needs_revision' | 'insufficient_evidence' | 'inconclusive' | 'failed';
+  dimensions: {
+    factualAccuracy: DebateQualityDimensionView;
+    logicalValidity: DebateQualityDimensionView;
+    evidenceQuality: DebateQualityDimensionView;
+    counterargumentCoverage: DebateQualityDimensionView;
+    revisionQuality: DebateQualityDimensionView;
+    contradictionDetection: DebateQualityDimensionView;
+    uncertaintyCalibration: DebateQualityDimensionView;
+    conclusionConsistency: DebateQualityDimensionView;
+  };
+  unresolvedDisputes: string[];
+  criticalIssues: string[];
+  recommendedAction:
+    | 'accept'
+    | 'continue_debate'
+    | 'request_evidence'
+    | 'independent_review'
+    | 'stop_with_uncertainty';
+  explanation: string;
+  modelAssessed: boolean;
+}
+
+/** P2 Final Judge 决策，映射到既有五档结论，不新增第三套结论状态。 */
+export interface FinalDebateDecisionView {
+  debateId: string;
+  /** 复用现有五档结论，不新增第三套结论状态。 */
+  verdict: DebateVerdictView['verdict'];
+  /** 基于结论与质量报告的处理建议；它是动作，不是事实判断。 */
+  action: 'accept' | 'accept_with_caveats' | 'reject' | 'hold';
+  conclusion: string | null;
+  supportingArguments: string[];
+  opposingArguments: string[];
+  unresolvedDisputes: string[];
+  uncertainty: { level: string; explanation: string };
+  reviewSummary: string;
+  recommendedFollowUp?: string;
 }
 
 export type DebateLeadMode = 'local' | 'web' | 'cloud' | 'hybrid';
