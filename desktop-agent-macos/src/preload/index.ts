@@ -132,6 +132,7 @@ const api: AgentApi = {
   getPageState: () => ipcRenderer.invoke('page:state'),
   detachPage: (sourceId?: string) => ipcRenderer.invoke('page:detach', sourceId),
   reattachPage: () => ipcRenderer.invoke('page:reattach'),
+  focusDetachedPage: (sourceId: string) => ipcRenderer.invoke('page:focus-detached', sourceId),
   setPageCollapsed: (collapsed: boolean) => ipcRenderer.invoke('page:set-collapsed', collapsed),
   learnSelectors: (sourceId?: string) => ipcRenderer.invoke('page:learn-selectors', sourceId),
   savePageDocument: (input: SavePageDocumentInput) => ipcRenderer.invoke('page:save-document', input),
@@ -178,8 +179,8 @@ const api: AgentApi = {
     ipcRenderer.on('page:changed', listener);
     return () => ipcRenderer.removeListener('page:changed', listener);
   },
-  onPageSaveRequest: (callback: (request: { sourceId: string; format: 'md' | 'docx' }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, request: { sourceId: string; format: 'md' | 'docx' }) => callback(request);
+  onPageSaveRequest: (callback: (request: { sourceId: string; format: 'md' | 'docx'; returnToDetached: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: { sourceId: string; format: 'md' | 'docx'; returnToDetached: boolean }) => callback(request);
     ipcRenderer.on('page:save-request', listener);
     return () => ipcRenderer.removeListener('page:save-request', listener);
   },
