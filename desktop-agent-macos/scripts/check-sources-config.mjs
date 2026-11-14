@@ -27,6 +27,7 @@ import {
   showWebSourceStatusBar
 } from '../out-test/shared/sources.js';
 import { SourceStore } from '../out-test/main/source-store.js';
+import { loadSourcesInParallel } from '../out-test/main/source-loading.js';
 import { SubAgentRegistry } from '../out-test/main/agents/registry.js';
 import { PROVIDERS } from '../out-test/main/adapters/providers/index.js';
 
@@ -47,6 +48,25 @@ test('the shipped defaults are the five providers, and two are on', () => {
   // DeepSeek is the reference site the structural heuristics were tuned
   // against, so it stays the planner.
   assert.equal(sourceById(BUILTIN_SOURCES, 'deepseek').planning, true);
+});
+
+test('启动时所有已开启网页同时开始加载，不等待当前页先加载完', async () => {
+  const sources = [
+    { id: 'deepseek', enabled: true },
+    { id: 'chatgpt', enabled: true },
+    { id: 'kimi', enabled: false }
+  ];
+  const started = [];
+  const finish = new Map();
+  const loading = loadSourcesInParallel(sources, source => {
+    started.push(source.id);
+    return new Promise(resolve => finish.set(source.id, resolve));
+  });
+
+  assert.deepEqual(started, ['deepseek', 'chatgpt']);
+  finish.get('deepseek')();
+  finish.get('chatgpt')();
+  await loading;
 });
 
 test('an untouched list is the defaults, in the shipped order', () => {

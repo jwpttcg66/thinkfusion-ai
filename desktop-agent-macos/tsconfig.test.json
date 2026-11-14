@@ -21,6 +21,7 @@
     "src/main/trace/**/*.ts",
     "src/main/selector-profile.ts",
     "src/main/source-store.ts",
+    "src/main/source-loading.ts",
     "src/main/profile-store.ts",
     "src/main/execution-defaults-store.ts",
     "src/main/engineering/**/*.ts",

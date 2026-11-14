@@ -178,6 +178,11 @@ const api: AgentApi = {
     ipcRenderer.on('page:changed', listener);
     return () => ipcRenderer.removeListener('page:changed', listener);
   },
+  onPageSaveRequest: (callback: (request: { sourceId: string; format: 'md' | 'docx' }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: { sourceId: string; format: 'md' | 'docx' }) => callback(request);
+    ipcRenderer.on('page:save-request', listener);
+    return () => ipcRenderer.removeListener('page:save-request', listener);
+  },
   onConversationEvent: (callback: (event: ConversationEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ConversationEvent) => callback(data);
     ipcRenderer.on('conversation:event', listener);

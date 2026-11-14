@@ -171,7 +171,7 @@ if (pane.bar) {
   check('页面视图从页面栏下沿开始', view.y, HEADER);
   check('页面栏高度就是预留的那一条', pane.bar.height, HEADER);
   checkTrue('页面栏与页面视图左边缘对齐', Math.abs(pane.bar.left - view.x) <= 1);
-  check('页面栏里只剩两个按钮：放大、更新样式', pane.buttons.join('/'), '放大/更新样式');
+  check('页面栏的操作顺序稳定', pane.buttons.join('/'), '保存文档/保存为 Word/刷新/诊断/放大');
   // 收起 moved out of this bar on purpose: the bar is inside the pane, so folding
   // deleted the button that undoes the fold. It now sits at the top of the rail —
   // the window's right edge — and this is the assertion that keeps it there.
@@ -203,7 +203,7 @@ if (pane.bar) {
   checkTrue('放大是一个图标按钮', pane.iconButton);
   checkTrue(`放大画的是向外四角（${pane.iconPath}）`, pane.iconPath.includes('M6 2.5H2.5V6'));
   checkTrue(`图标按钮是方形的（${String(pane.iconWidth)}px）`, pane.iconWidth > 0 && pane.iconWidth <= 26);
-  checkTrue('页面栏写出了来源', pane.text.includes('DeepSeek'));
+  checkTrue(`页面栏写出了来源（${source.label}）`, pane.text.includes(source.label));
   // Any of the real states is fine — the page may be signed out, and this check
   // must not depend on somebody's session staying alive. What it does assert is
   // that the bar says *something* about the page.
@@ -235,7 +235,7 @@ checkTrue(`分离后页面真的变宽了（${String(grown)} > ${String(pane.bar
 checkTrue('分离后页面仍有真实尺寸', grown > 200);
 
 const barWhenDetached = await readPane();
-checkTrue('按钮变成「吸附回来」', barWhenDetached.buttons[0] === '吸附回来');
+checkTrue('主窗口按钮变成「吸附回来」', barWhenDetached.buttons.at(-1) === '吸附回来');
 // The glyph has to change too. This is the assertion that would have caught the
 // detached window still showing a text button while the main window showed an
 // icon: same action, two different-looking controls.
@@ -246,8 +246,10 @@ checkTrue('两个状态的图标不是同一个', barWhenDetached.iconPath !== p
 // path data in shared/icons.ts. Its document is a `data:` URL that loads
 // asynchronously, so this waits for it instead of racing it.
 const detachedFrame = (await listTargets()).find(target => target.url.startsWith('data:text/html'));
+let detachedCdp = null;
 if (detachedFrame) {
   const frameCdp = await connect(detachedFrame);
+  detachedCdp = frameCdp;
   const readBack = () =>
     frameCdp.evaluate(`(() => {
       const back = document.getElementById('back');
@@ -268,7 +270,6 @@ if (detachedFrame) {
     })()`);
   const ready = await waitFor(async () => (await readBack()).ready, true, { timeoutMs: 4000 });
   const frameBar = await readBack();
-  frameCdp.close();
   check('独立窗口的工具栏加载出来了', ready, true);
   checkTrue('独立窗口里的按钮也是图标', frameBar.ready);
   checkTrue('独立窗口的图标和主窗口一致', frameBar.path.includes('M13 8H6.2'));
@@ -278,69 +279,109 @@ if (detachedFrame) {
   checkTrue('独立窗口的保存图标是纸+箭头', frameBar.savePath.includes('M3 1.9h6.1'));
   check('独立窗口有保存为 Word', frameBar.wordLabel, '保存为 Word');
   checkTrue('独立窗口的 Word 也是图标（纸+横线）', frameBar.wordPath.includes('M5.5 8.2h5'));
+  await frameCdp.evaluate("document.getElementById('save').click()").catch(() => undefined);
+  const saveErrorVisible = await waitFor(
+    async () => Boolean(await cdp.evaluate('document.querySelector(".error")?.textContent')),
+    true,
+    { timeoutMs: 15000 }
+  );
+  const saveError = await cdp.evaluate('document.querySelector(".error")?.textContent ?? ""');
+  checkTrue(`独立窗口保存请求转交给主窗口同一套提取流程（${saveError}）`, saveErrorVisible && saveError.includes(source.label));
 } else {
   checkTrue('独立窗口存在', false);
 }
 
 // ------------------------------------------------------------ reattach
 
-await cdp.evaluate('window.agentAPI.reattachPage()');
+// Exercise the detached window's own 「吸附回去」 control, not the duplicate in
+// the main window. Closing the standalone window used to destroy the WebContentsView
+// instead of returning it, leaving an empty pane that looked stuck.
+if (detachedCdp) {
+  await detachedCdp.evaluate("document.getElementById('back').click()").catch(() => undefined);
+  await waitFor(async () => (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId, null, { timeoutMs: 3000 });
+  detachedCdp.close();
+} else {
+  checkTrue('独立窗口控制桥已连接', false);
+}
 await sleep(600);
 
 const back = await readPane();
 check('吸附回来后不再有说明卡', back.placeholder, false);
-checkTrue('按钮变回「放大」', back.buttons[0] === '放大');
+checkTrue('主窗口按钮变回「放大」', back.buttons.at(-1) === '放大');
 
 const backView = await viewOf();
-check('吸附回来后页面视图回到原位', backView.y, HEADER);
-checkTrue('吸附回来后宽度恢复', Math.abs(backView.width - (back.split - GUTTER - RAIL)) <= 1);
+checkTrue('吸附回来后原网页视图仍然存在', backView !== null);
+if (backView) {
+  check('吸附回来后页面视图回到原位', backView.y, HEADER);
+  checkTrue('吸附回来后宽度恢复', Math.abs(backView.width - (back.split - GUTTER - RAIL)) <= 1);
 
-const restored = await waitFor(
-  async () => {
-    const size = await pageViewport();
-    return size ? size.w : 0;
-  },
-  backView.width,
-  { timeoutMs: 6000 }
-);
-// The viewport only moves when Chromium lays the page out, and it does not do
-// that for a window that is not in front. Say which one this is instead of
-// reporting the environment as a bug in the reattach path.
-if (await cdp.evaluate('document.hasFocus()')) {
-  check('吸附回来后页面视口也跟着恢复', restored, backView.width);
+  const restored = await waitFor(
+    async () => {
+      const size = await pageViewport();
+      return size ? size.w : 0;
+    },
+    backView.width,
+    { timeoutMs: 6000 }
+  );
+  // The viewport only moves when Chromium lays the page out, and it does not do
+  // that for a window that is not in front. Say which one this is instead of
+  // reporting the environment as a bug in the reattach path.
+  if (await cdp.evaluate('document.hasFocus()')) {
+    check('吸附回来后页面视口也跟着恢复', restored, backView.width);
+  } else {
+    console.log('note  the app window is not in front, so the page was never relaid out — viewport assertion skipped');
+    checkTrue('吸附回来后页面视图仍然有尺寸', backView.width > 0);
+  }
 } else {
-  console.log('note  the app window is not in front, so the page was never relaid out — viewport assertion skipped');
-  checkTrue('吸附回来后页面视图仍然有尺寸', backView.width > 0);
+  check('吸附回来后页面视图回到原位', null, HEADER);
+  checkTrue('吸附回来后宽度恢复', false);
 }
 
-// ------------------------------------------------------------ repair
+// The main-window toggle is a second supported reattach route. Exercise it too
+// after returning from the detached toolbar so both controls keep the same view.
+await cdp.evaluate(`document.querySelector('.page-btn[data-action="detach"]').click()`);
+await waitFor(async () => (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId, SOURCE, { timeoutMs: 3000 });
+await cdp.evaluate(`document.querySelector('.page-btn[data-action="detach"]').click()`);
+await waitFor(async () => (await cdp.evaluate('window.agentAPI.getPageState()')).detachedId, null, { timeoutMs: 3000 });
+await sleep(100);
+const mainToggleView = await viewOf();
+checkTrue('主窗口吸附按钮也保留原网页视图', mainToggleView !== null);
+if (mainToggleView) {
+  check('主窗口吸附后页面回到页面栏下方', mainToggleView.y, HEADER);
+  checkTrue('主窗口吸附后页面尺寸有效', mainToggleView.width > 200 && mainToggleView.height > 100);
+}
 
-// Press the real button, not the IPC call: the point of this half is that the
-// result reaches the user, and the dialog is opened by the click handler.
-await cdp.evaluate(`document.querySelector('.page-btn[data-action="learn"]').click()`);
+// ------------------------------------------------------------ diagnostics
+
+// Open the channel report from the page bar, then run the repair from the
+// diagnostics panel where the action now lives.
+await cdp.evaluate(`document.querySelector('.page-btn[data-action="diagnose"]').click()`);
 
 const readDialog = () =>
   cdp.evaluate(`(() => {
-    const panel = document.querySelector('.style-panel');
-    if (!panel) return { open: false };
+    const panel = document.querySelector('.diag-overlay[aria-label="通道诊断"]');
+    const repair = panel?.querySelector('.diag-repair');
+    if (!repair) return { open: false };
     return {
       open: true,
-      title: panel.querySelector('.diag-head b')?.textContent ?? '',
-      message: panel.querySelector('.style-lead')?.textContent ?? '',
-      roles: [...panel.querySelectorAll('.style-role-name')].map(node => node.textContent),
-      badges: [...panel.querySelectorAll('.style-badge')].map(node => node.textContent),
-      selectors: [...panel.querySelectorAll('.style-selectors code')].map(node => node.textContent),
-      probe: panel.querySelector('.style-probe')?.textContent ?? ''
+      title: repair.querySelector('h3')?.textContent ?? '',
+      message: repair.querySelector('.style-lead')?.textContent ?? '',
+      roles: [...repair.querySelectorAll('.style-role-name')].map(node => node.textContent),
+      badges: [...repair.querySelectorAll('.style-badge')].map(node => node.textContent),
+      selectors: [...repair.querySelectorAll('.style-selectors code')].map(node => node.textContent),
+      probe: repair.querySelector('.style-probe')?.textContent ?? ''
     };
   })()`);
 
+await waitFor(async () => Boolean(await cdp.evaluate('document.querySelector(".diag-overlay[aria-label=\\"通道诊断\\"]")')), true, { timeoutMs: 5000 });
+await cdp.evaluate(`document.querySelector('.diag-overlay[aria-label="通道诊断"] .diag-fix button').click()`);
 const opened = await waitFor(async () => (await readDialog()).open, true, { timeoutMs: 20000 });
-check('点「更新样式」后弹出结果', opened, true);
+check('点「更新样式」后报告显示在诊断面板', opened, true);
 
 const dialog = await readDialog();
-checkTrue(`弹窗标题写明了来源（${dialog.title}）`, dialog.title.includes('DeepSeek'));
-checkTrue(`弹窗写出了结论（${dialog.message}）`, dialog.message.length > 0);
-check('弹窗按三项角色列出', dialog.roles.join('/'), '输入框/发送键/回答区域');
+checkTrue(`报告标题写明了来源（${dialog.title}）`, dialog.title.includes(source.label));
+checkTrue(`报告写出了结论（${dialog.message}）`, dialog.message.length > 0);
+check('报告按三项角色列出', dialog.roles.join('/'), '输入框/发送键/回答区域');
 check('每项角色都有状态', dialog.badges.length, 3);
 // Whichever state the page is in, the sentence has to name it — "已重新提取",
 // "不需要更新", or the reason it could not be checked. A generic "失败" would
@@ -349,11 +390,11 @@ checkTrue(
   `结论解释了当前状态（${dialog.message}）`,
   /(已重新提取|不需要更新|校准|登录|加载|仍没找到)/.test(dialog.message)
 );
-checkTrue(`弹窗附上了页面状态（${dialog.probe}）`, /页面 \d+px/.test(dialog.probe));
+checkTrue(`报告附上了页面状态（${dialog.probe}）`, /页面 \d+px/.test(dialog.probe));
 checkTrue('有提取结果时列出了具体选择器', dialog.badges.includes('已重新提取') ? dialog.selectors.length > 0 : true);
 checkTrue('列出的选择器都不是空的', dialog.selectors.every(item => item.trim().length > 8));
 
-await cdp.evaluate(`document.querySelector('.style-foot .btn').click()`);
+await cdp.evaluate(`document.querySelector('.diag-overlay[aria-label="通道诊断"] .diag-actions button:last-child').click()`);
 const closed = await waitFor(async () => (await readDialog()).open, false, { timeoutMs: 3000 });
 check('关掉之后弹窗消失', closed, false);
 
@@ -410,7 +451,7 @@ check('点展开之后页面栏回来了', unfolded, true);
 const backPane = await readPane();
 check('展开后宽度回到收起前', backPane.split, openPane.split);
 check('展开后应用列也回到收起前', backPane.appPadding, openPane.appPadding);
-check('展开后按钮还是那两个', backPane.buttons.join('/'), '放大/更新样式');
+check('展开后页面栏操作顺序稳定', backPane.buttons.join('/'), '保存文档/保存为 Word/刷新/诊断/放大');
 
 const backToPane = await viewOf();
 check('展开后页面视图回到原位', backToPane.x, openView.x);

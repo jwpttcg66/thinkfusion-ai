@@ -136,6 +136,7 @@ import {
   type StoredSources
 } from '../shared/sources';
 import { SourceStore } from './source-store';
+import { loadSourcesInParallel } from './source-loading';
 import { ProfileStore } from './profile-store';
 import { ExecutionDefaultsStore } from './execution-defaults-store';
 import { WorkspaceStore } from './workspace-store';
@@ -168,8 +169,7 @@ import {
   type ExportConversationInput,
   type PageDocumentContent,
   type PageExtractPreview,
-  type SavePageDocumentInput,
-  type SavePageDocumentResult
+  type SavePageDocumentInput
 } from '../shared/export';
 import { describeCapabilities, RUNTIME_CAPABILITY_IDS } from '../shared/capabilities';
 import { mainCapabilities, type MainCapabilityContext } from './capabilities';
@@ -197,16 +197,6 @@ let win: BrowserWindow | null = null;
  * 模块作用域干净，也避免 runner 直接 import 读盘实现。
  */
 let attachmentReader: ((paths: readonly string[]) => Promise<AttachmentText[]>) | null = null;
-
-/**
- * 「保存文档」的执行入口，由 `registerIpc` 接上。
- *
- * 独立窗口工具栏通过自己的小 preload 调 `page:save-from-detached`，再走
- * 这条钩子——和主窗口页面栏同一个插件，不另写一份落盘逻辑。
- */
-let pageDocumentSaver:
-  | ((input: SavePageDocumentInput) => Promise<SavePageDocumentResult | null>)
-  | null = null;
 
 /**
  * One native view per embedded page, created on first use.
@@ -1703,10 +1693,8 @@ function setCollapsed(next: boolean): PageState {
  * window cannot be moved at all, which is a trap a frameless window sets for
  * every first attempt at this.
  *
- * The button closes the window, and the main process listens for `closed`. That
- * is deliberately the only mechanism: the red traffic light, Cmd+W and the
- * button then all mean the same thing, so there is no second path to keep in
- * sync.
+ * The toolbar's 「吸附回去」 button explicitly reparents the live page. The red
+ * traffic light and Cmd+W remain close actions and destroy the page instead.
  */
 function detachedDocument(source: PageSource): string {
   const label = source.label.replace(/[<>&]/g, '');
@@ -1749,76 +1737,33 @@ function detachedDocument(source: PageSource): string {
   </span>
 </div>
 <script>
-  /* 通过独立窗口自己的 preload 调主进程，和放大前页面栏走同一条保存插件。
-     以前改 location.hash 指望 did-navigate-in-page——在 data: 页上经常不触发，
-     按钮看起来在，点了却什么都不发生。 */
+  /* 保存入口转交给主窗口的多选面板，选取和保存行为与页面栏一致。 */
   function save(format) {
     var api = window.tfDetached;
-    if (!api || typeof api.saveDocument !== 'function') {
+    if (!api || typeof api.requestSave !== 'function') {
       var hint = document.getElementById('hint');
       if (hint) { hint.className = 'hint is-error'; hint.textContent = '保存桥没接上，请重启应用后再试'; }
       return;
     }
-    api.saveDocument(format).catch(function (error) {
+    api.requestSave(format).then(function () {
+      var hint = document.getElementById('hint');
+      if (hint) { hint.className = 'hint'; hint.textContent = '请在 ThinkFusion 主窗口选择要保存的对话'; }
+    }).catch(function (error) {
       var hint = document.getElementById('hint');
       if (!hint) return;
       hint.className = 'hint is-error';
       hint.textContent = error && error.message ? error.message : String(error);
     });
   }
+  function reattach() {
+    var api = window.tfDetached;
+    if (api && typeof api.reattach === 'function') api.reattach();
+  }
   document.getElementById('save').addEventListener('click', function () { save('md'); });
   document.getElementById('save-word').addEventListener('click', function () { save('docx'); });
-  document.getElementById('back').addEventListener('click', function () { window.close(); });
+  document.getElementById('back').addEventListener('click', reattach);
 </script>
 </body></html>`;
-}
-
-/**
- * 独立窗口工具栏上的一句话反馈。没有 React、没有 toast，只能改 hint。
- */
-function setDetachedHint(text: string, tone: 'ok' | 'error' = 'ok') {
-  const frame = detached?.window;
-  if (!frame || frame.isDestroyed()) return;
-  const safe = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
-  const cls = tone === 'error' ? 'hint is-error' : 'hint';
-  void frame.webContents.executeJavaScript(
-    `(() => { const el = document.getElementById('hint'); if (!el) return; el.className = '${cls}'; el.textContent = '${safe}'; })()`
-  );
-}
-
-/**
- * 独立窗口点「保存」时走这里。和主窗口页面栏同一个插件，不另读一遍页面。
- */
-async function saveFromDetached(format: 'md' | 'docx') {
-  if (!detached || !pageDocumentSaver) return;
-  const { window: frame, sourceId } = detached;
-  setDetachedHint(format === 'docx' ? '正在保存 Word…' : '正在保存…');
-  try {
-    // 禁用两个按钮，防止连点把同一页存两份。
-    if (!frame.isDestroyed()) {
-      void frame.webContents.executeJavaScript(
-        `(() => { for (const id of ['save','save-word']) { const b = document.getElementById(id); if (b) b.disabled = true; } })()`
-      );
-    }
-    const result = await pageDocumentSaver({ sourceId, format });
-    if (!result) {
-      setDetachedHint('已取消保存');
-      return;
-    }
-    const where = result.path.split('/').pop() ?? result.path;
-    setDetachedHint(
-      `已保存 ${where} · ${result.documents} 份文档 / ${result.planItems} 条计划`
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setDetachedHint(message, 'error');
-  } finally {
-    if (!frame.isDestroyed()) {
-      void frame.webContents.executeJavaScript(
-        `(() => { location.hash = ''; for (const id of ['save','save-word']) { const b = document.getElementById(id); if (b) b.disabled = false; } })()`
-      );
-    }
-  }
 }
 
 /**
@@ -1852,7 +1797,7 @@ function detachSource(id: string): PageState {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      // 只挂保存用的小桥：没有它，工具栏点保存没有任何通路到主进程。
+      // 小桥仅能请求主窗口保存或将同一个页面吸附回来。
       preload: path.join(__dirname, '../preload/detached.js')
     }
   });
@@ -1879,12 +1824,11 @@ function detachSource(id: string): PageState {
   frame.on('resize', place);
   frame.on('closed', () => {
     // `reattachSource` clears `detached` before destroying the window, so this
-    // branch only runs for a close the user performed.
+    // branch only runs for a close action (traffic light / Cmd+W).
     if (detached?.window !== frame) return;
     const sourceId = detached.sourceId;
-    // 「关掉页面」就是关掉：以前这里把页面搬回主窗口的分栏，用户明明点了关闭，
-    // 下一次提问又把同一页摆回来。现在连同视图一起销毁，并在没有页面时收起
-    // 分栏，不留下一个空列。
+    // A real window close means close the page, not dock it. Destroy the view and
+    // fold the empty pane so the next question cannot silently revive it.
     detached = null;
     destroySourceView(sourceId);
     if (views.size === 0) setCollapsed(true);
@@ -2436,12 +2380,8 @@ async function createWindow() {
 
   // Only the enabled ones: a disabled source has no view, and asking for its
   // page would create one behind the settings panel's back.
-  const active = sourceById(sources, activeSourceId) ?? sources.find(source => source.enabled);
-  if (active) await loadSource(active).catch(() => undefined);
-  for (const source of sources) {
-    if (!source.enabled || source.id === active?.id) continue;
-    void loadSource(source).catch(() => undefined);
-  }
+  const enabled = sources.filter(source => source.enabled);
+  void loadSourcesInParallel(enabled, loadSource);
 }
 
 function startStatusPolling() {
@@ -2628,10 +2568,6 @@ function registerIpc() {
   // 提问链路走注册表，不直接用上面那份本体：`file.attach` 停用时必须报错。
   attachmentReader = paths =>
     mainCapabilities.execute<AttachmentText[]>('file.attach', { paths: [...paths] }, capabilityContext);
-
-  // 独立窗口工具栏点「保存」也走同一条插件，不另写一份落盘逻辑。
-  pageDocumentSaver = input =>
-    mainCapabilities.execute<SavePageDocumentResult | null>('page.save-document', input, capabilityContext);
 
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
@@ -4089,15 +4025,25 @@ function registerIpc() {
   });
 
   /**
-   * 独立窗口工具栏点「保存」。发送方必须是当前那扇独立窗口——它没有主窗口
-   * 的 `trustedUiSender` 身份，但也不能让任意页面随便调落盘。
+   * The detached toolbar reuses the main window's save dialog so the same
+   * conversation selection and save modes are available in either layout.
    */
-  ipcMain.handle('page:save-from-detached', async (event, raw: unknown) => {
+  ipcMain.handle('page:request-save-from-detached', (event, raw: unknown) => {
     if (!detached || event.sender.id !== detached.window.webContents.id) {
       throw new Error('IPC sender rejected');
     }
     if (raw !== 'md' && raw !== 'docx') throw new Error('无效的保存格式');
-    await saveFromDetached(raw);
+    if (!win || win.isDestroyed()) throw new Error('主窗口已关闭');
+    win.show();
+    win.focus();
+    win.webContents.send('page:save-request', { sourceId: detached.sourceId, format: raw });
+  });
+
+  // `吸附回去` is not a close: return the same WebContentsView to the main
+  // pane. The close button / Cmd+W still intentionally closes the page.
+  ipcMain.on('page:reattach-from-detached', event => {
+    if (!detached || event.sender.id !== detached.window.webContents.id) return;
+    reattachSource();
   });
 
   // The page views are native, so this is the only honest answer to "is the
