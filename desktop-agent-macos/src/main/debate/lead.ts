@@ -285,6 +285,14 @@ export function roleFor(
     }
     return 'responder';
   }
+  // 4 位及以上：明确分工，避免所有非主辩都变成同一个角色。
+  if (plan.participants.length >= 4) {
+    if (agentId === plan.lead.agentId) return profile.roles.lead;
+    const index = plan.participants.indexOf(agentId);
+    if (index === 1) return profile.roles.other === 'evidence_reviewer' ? 'evidence_reviewer' : 'critic';
+    if (index === 2) return 'evidence_reviewer';
+    return 'peer';
+  }
   if (plan.lead.agentId === agentId) return profile.roles.lead;
   if (profile.roles.other === 'critic') {
     const speakers = roundIndex === 0 ? plan.openingSpeakers : plan.debaters;
