@@ -152,6 +152,7 @@ const options = await window.agentAPI.getExecutionOptions();
 | 版本 | 变更 | 影响范围 |
 | --- | --- | --- |
 | `1.0.0` | 从 `orchestrator.ts` 抽出独立模板模块，登记七个模板的契约；**文案逐字未改** | 只是把版本写进 `DebateState.promptVersion`。之前的所有辩论该文件字段为 `undefined` |
+| `1.1.0` | 发言 system 增加通用要求：“给出结论时同时说明适用边界、失败模式和常见误区；不要只给主结论。” | 只改 system 指令，不改用户问题，不含具体题目的标准答案 |
 
 模板在 `src/main/debate/prompts.ts`。改任何一条 `system` 文案、或改任一规则模板的
 输入 / 输出约束，都要：① 推高 `PROMPT_VERSION`；② 在上表加一行；③ 更新

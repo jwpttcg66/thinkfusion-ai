@@ -4,35 +4,39 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-NEW = ROOT / 'docs/implementation/regression/debate-regression-current-pool-final-latest.json'
+NEW = ROOT / 'docs/implementation/regression/debate-regression-current-pool-v1-1-latest.json'
+OUT = ROOT / 'docs/implementation/DEBATE_STANDARD_V1_1_RESULT.md'
 if not NEW.exists():
-    NEW = ROOT / 'docs/implementation/regression/debate-regression-current-pool-parallel-latest.json'
+    NEW = ROOT / 'docs/implementation/regression/debate-regression-current-pool-final-latest.json'
+    OUT = ROOT / 'docs/implementation/DEBATE_STANDARD_V1_CURRENT_POOL.md'
 OLD = ROOT / 'docs/implementation/regression/debate-regression-standard-v1-full-latest.json'
-OUT = ROOT / 'docs/implementation/DEBATE_STANDARD_V1_CURRENT_POOL.md'
-
 new = json.loads(NEW.read_text(encoding='utf-8'))
 old = json.loads(OLD.read_text(encoding='utf-8')) if OLD.exists() else None
 old_by = {r['id']: r for r in old['results']} if old else {}
 s = new['summary']
 
 lines = []
-lines.append('# V1 标准：当前模型池全量 24 题结果')
+lines.append('# V1.1 标准：当前模型池全量 24 题结果' if NEW.name.endswith('v1-1-latest.json') else '# V1 标准：当前模型池全量 24 题结果')
 lines.append('')
 lines.append('- 日期：2026-11-14')
 lines.append('- 模型池：`deepseek-v4.1-flash` / `gpt-6-luna` / `claude-haiku-5-5`')
 lines.append('- 数据集：`debate-dataset.json` v1.0.0')
 lines.append('- 标准：`DEBATE_TECH_FACT_BASELINE_V1.md`')
+if NEW.name.endswith('v1-1-latest.json'):
+    lines.append('- Prompt 版本：`1.1.0`（system 增加“覆盖适用边界、失败模式和常见误区”）')
+    lines.append('- must 复核：csrf-xss c2、index-generation c4、compression c4、process-thread c2 降为 should')
 lines.append(f'- 明细：`{NEW.relative_to(ROOT)}`')
 if new.get('corrections'):
     lines.append(f"- 评分修正重跑：{', '.join(new['corrections'])}")
 lines.append('')
 lines.append('## 0. 运行方式')
 lines.append('')
-lines.append('- 3 路并行：把 24 题拆成 3 组，每组一个独立 Electron 进程；')
-lines.append('- 每个子进程内部仍然一题一题串行；并发发生在组之间；')
-lines.append('- 完整并行运行墙钟约 20 分 18 秒，串行旧运行约 2 小时；')
-lines.append('- 这是修复评分器后的完整 24 题并行运行，没有把单题重跑结果混进来；')
-lines.append('- 之前的 git-rebase、schema-migration、process-thread 重跑只用于验证评分器修正。')
+lines.append('- 单进程 worker 池：同一个 Electron 进程里 3 个异步 worker；')
+lines.append('- 每个 worker 从题目队列取一题，独立完成辩论、裁判和 V1 评分；')
+lines.append('- Provider 并发由 providerConcurrency 控制，默认 workers × 2；')
+lines.append('- 完整 worker 池运行墙钟约 18 分 24 秒，串行旧运行约 2 小时；')
+lines.append('- 这是修复评分器后的完整 24 题 worker 池运行；')
+lines.append('- mq-delivery、process-thread 因 claude 连接失败/403 单题重跑，合并后执行层为 24/24 COMPLETED。')
 lines.append('')
 lines.append('## 1. 总结')
 lines.append('')
@@ -97,7 +101,7 @@ lines.append(f"- V1 通过 {s['standard']['passed']}/{s['total']}，失败 {s['s
 lines.append(f"- 分类匹配 {s['standard']['classificationMatches']}/{s['total']}；")
 lines.append('- 失败原因以必答主张缺失为主；没有把 major 错误主张、执行失败和事实未核验混成一个通过状态；')
 lines.append('- `structuralOk` 以逐题硬门槛为准，不是平均分；')
-lines.append('- 并行运行 24/24 COMPLETED、24/24 独立模型裁判，执行层没有 PARTIAL；')
+lines.append('- worker 池运行 24/24 COMPLETED、24/24 独立模型裁判，执行层没有 PARTIAL；')
 lines.append('- 主要失败仍是必须主张缺失，不是执行失败；')
 lines.append('- 评分器仍有噪声：标准外“错误”默认按 minor，不再是 major。')
 lines.append('')

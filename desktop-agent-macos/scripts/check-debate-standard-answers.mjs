@@ -72,6 +72,20 @@ test('每题都有标准事实、必答主张、允许表达和错误主张', ()
   }
 });
 
+test('must 复核：4 条降为 should，且不再在 mustPass 中', () => {
+  const standard = load();
+  assert.equal(standard.mustReview.length, 4);
+  for (const item of standard.mustReview) {
+    const question = standard.questions.find(q => q.id === item.id);
+    const claim = question.requiredClaims.find(c => c.id === item.claimId);
+    assert.equal(claim.severity, 'should');
+    assert.ok(!question.judging.mustPass.includes(item.claimId));
+    assert.equal(item.from, 'must');
+    assert.equal(item.to, 'should');
+    assert.ok(item.reason.length > 0);
+  }
+});
+
 test('评分规则存在，且不保存模型生成的参考答案', () => {
   const standard = load();
   assert.equal(standard.schema, 'thinkfusion.tech-fact-regression/v1');

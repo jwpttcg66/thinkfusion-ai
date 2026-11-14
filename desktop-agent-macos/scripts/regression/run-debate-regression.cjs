@@ -1,15 +1,17 @@
 /**
- * 24 题自动回归：三模型轮换辩论 + 独立裁判 + P1/P2 质量报告。
+ * 24 题自动回归：单进程 worker 池 + 三模型轮换辩论 + 独立裁判 + V1 评分。
  *
  * 规则：
  * - 每题只让其中两位辩论，第三位当裁判，因此裁判不参加该场辩论；
  * - 三个模型轮流当裁判，24 题里每位各判 8 题；
  * - 每题 2 轮，单次调用 180 秒，整场 300 秒；
+ * - worker 是同一进程里的异步任务，不是多个 Electron 进程；
  * - anchor 只是规则烟测，不是事实准确率；
  * - 任何一题失败都继续跑下一题，最后如实汇总。
  *
  * 运行前先 npm run build:test。
- * 用法：./node_modules/.bin/electron scripts/regression/run-debate-regression.cjs --no-sandbox
+ * 并行：--workers=3；默认 1（串行）。
+ * 用法：./node_modules/.bin/electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3
  */
 const { app, safeStorage } = require('electron');
 const crypto = require('node:crypto');
@@ -23,8 +25,17 @@ const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
 const { evaluateDebateQuality, finalizeDebate } = require('../../out-test/main/debate/quality-engine.js');
 const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
+const { buildSummary, markdown } = require('./summary.cjs');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
+const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
+const STANDARD_PATH = path.join(__dirname, 'debate-standard-answers-v1.json');
+const OUT_DIR = path.resolve(__dirname, '../../../docs/implementation/regression');
+const STAGE_TIMEOUT_MS = 180_000;
+const TOTAL_MS = 300_000;
+const WAIT_MS = 380_000;
+const JUDGE_TIMEOUT_MS = 240_000;
+
 let MODELS = [];
 let IDS = [];
 
@@ -37,17 +48,9 @@ function loadSelectedModels(appData) {
   if (models.length < 2) throw new Error('至少需要在设置里勾选两个云端模型');
   return models.map(model => ({ id: model, model }));
 }
-const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
-const STANDARD_PATH = path.join(__dirname, 'debate-standard-answers-v1.json');
-const OUT_DIR = path.resolve(__dirname, '../../../docs/implementation/regression');
-const STAGE_TIMEOUT_MS = 180_000;
-const TOTAL_MS = 300_000;
-const WAIT_MS = 380_000;
-const JUDGE_TIMEOUT_MS = 240_000;
 
 function loadDataset() {
-  const raw = fs.readFileSync(DATASET_PATH, 'utf8');
-  const dataset = JSON.parse(raw);
+  const dataset = JSON.parse(fs.readFileSync(DATASET_PATH, 'utf8'));
   const actual = crypto.createHash('sha256').update(JSON.stringify(dataset.questions)).digest('hex');
   if (actual !== dataset.sha256) {
     throw new Error(`数据集 hash 不匹配：文件 ${dataset.sha256}，实算 ${actual}`);
@@ -62,116 +65,9 @@ function anchorHit(text, anchor) {
   return { checked: true, hit: hits.length > 0, hits, terms: anchor.terms, note: anchor.note };
 }
 
-function countBy(items, pick) {
-  const out = {};
-  for (const item of items) {
-    const key = pick(item);
-    out[key] = (out[key] ?? 0) + 1;
-  }
-  return out;
-}
-
-function buildSummary(results) {
-  const completed = results.filter(item => item.debate.outcome === 'COMPLETED').length;
-  const judgeModel = results.filter(item => item.judge.backend === 'model').length;
-  const independent = results.filter(item => item.judge.backend === 'model' && !item.judge.sharedWith).length;
-  const factual = countBy(results, item => item.quality?.factualAccuracy?.status ?? 'missing');
-  const quality = countBy(results, item => item.quality?.status ?? 'missing');
-  const anchors = results.filter(item => item.anchor?.checked);
-  const standardRows = results.filter(item => item.standard);
-  const standardScores = standardRows
-    .map(item => item.standard?.score)
-    .filter(score => typeof score === 'number');
-  return {
-    total: results.length,
-    execution: countBy(results, item => item.debate.outcome ?? 'UNKNOWN'),
-    completed,
-    judgeModel,
-    independent,
-    sharedWith: results.filter(item => item.judge.sharedWith).length,
-    quality,
-    factual,
-    anchors: {
-      checked: anchors.length,
-      hit: anchors.filter(item => item.anchor.hit).length
-    },
-    standard: {
-      total: standardRows.length,
-      passed: standardRows.filter(item => item.standard?.passed).length,
-      failed: standardRows.filter(item => item.standard && !item.standard.passed && item.standard.backend !== 'unavailable').length,
-      unavailable: standardRows.filter(item => item.standard?.backend === 'unavailable').length,
-      averageScore: standardScores.length > 0
-        ? Math.round(standardScores.reduce((sum, score) => sum + score, 0) / standardScores.length)
-        : null,
-      classificationMatches: standardRows.filter(item => item.standard?.classificationMatch).length
-    },
-    byStrategy: Object.fromEntries(
-      [...new Set(results.map(item => item.strategy))].map(strategy => {
-        const rows = results.filter(item => item.strategy === strategy);
-        return [strategy, {
-          total: rows.length,
-          completed: rows.filter(item => item.debate.outcome === 'COMPLETED').length,
-          judgeModel: rows.filter(item => item.judge.backend === 'model').length,
-          independent: rows.filter(item => item.judge.backend === 'model' && !item.judge.sharedWith).length,
-          avgDurationMs: Math.round(rows.reduce((sum, item) => sum + item.debate.durationMs, 0) / rows.length)
-        }];
-      })
-    ),
-    structuralOk: results.every(item =>
-      item.debate.outcome === 'COMPLETED' &&
-      item.judge.backend === 'model' &&
-      !item.judge.sharedWith &&
-      item.quality &&
-      item.decision &&
-      item.quality.factualAccuracy.status !== 'supported' &&
-      item.standard?.passed === true
-    )
-  };
-}
-
-function markdown(summary, dataset, results) {
-  const rows = results.map(item => [
-    item.id,
-    item.strategy,
-    item.judge.agentId,
-    item.debate.outcome,
-    `${item.debate.rounds}/${item.debate.messages}`,
-    item.judge.backend,
-    item.quality?.status ?? 'missing',
-    item.quality?.factualAccuracy?.status ?? 'missing',
-    item.decision?.verdict ?? 'missing',
-    item.decision?.action ?? 'missing',
-    item.standard
-      ? item.standard.backend === 'unavailable'
-        ? 'unavail'
-        : item.standard.passed ? 'pass' : 'fail'
-      : '-',
-    item.standard?.score ?? '-',
-    item.anchor?.checked ? (item.anchor.hit ? 'hit' : 'miss') : '-',
-    `${Math.round(item.debate.durationMs / 1000)}s`
-  ]);
-  return [
-    '# Debate V3 24 题自动回归结果',
-    '',
-    `- 数据集版本：\`${dataset.version}\``,
-    `- 数据集 SHA-256：\`${dataset.sha256}\``,
-    `- 生成时间：${new Date().toISOString()}`,
-    `- 结构化通过：${summary.structuralOk ? '是' : '否'}`,
-    `- 执行结果：${JSON.stringify(summary.execution)}`,
-    `- 裁判：模型 ${summary.judgeModel}/${summary.total}，独立 ${summary.independent}/${summary.total}，sharedWith ${summary.sharedWith}`,
-    `- 质量状态：${JSON.stringify(summary.quality)}`,
-    `- 事实维度：${JSON.stringify(summary.factual)}`,
-    `- anchor 烟测：${summary.anchors.hit}/${summary.anchors.checked}（不是事实准确率）`,
-    `- V1 门槛：passed ${summary.standard.passed}/${summary.standard.total}，failed ${summary.standard.failed}，unavailable ${summary.standard.unavailable}，平均分 ${summary.standard.averageScore ?? '-'}`,
-    `- V1 分类匹配：${summary.standard.classificationMatches}/${summary.standard.total}`,
-    '',
-    '| 题目 | 策略 | 裁判 | 执行 | 轮/条 | 裁判后端 | 质量 | 事实 | 结论 | 处理 | V1 | 评分 | anchor | 用时 |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
-    ...rows.map(row => `| ${row.join(' | ')} |`),
-    '',
-    '> `anchor` 只检查回答里是否出现人工列出的规则可查词，不能代表事实正确。',
-    ''
-  ].join('\n');
+function argValue(name, fallback) {
+  const found = process.argv.find(item => item.startsWith(`--${name}=`));
+  return found ? found.slice(name.length + 3) : fallback;
 }
 
 app.setName('ThinkFusion');
@@ -179,6 +75,7 @@ app.whenReady().then(async () => {
   MODELS = loadSelectedModels(app.getPath('appData'));
   IDS = MODELS.map(item => item.id);
   console.log(`模型池：${MODELS.map(item => item.model).join('、')}`);
+
   const dataset = loadDataset();
   const standard = JSON.parse(fs.readFileSync(STANDARD_PATH, 'utf8'));
   const standardHash = crypto.createHash('sha256').update(JSON.stringify(standard.questions)).digest('hex');
@@ -186,31 +83,43 @@ app.whenReady().then(async () => {
     throw new Error(`标准答案 hash 不匹配：文件 ${standard.sha256}，实算 ${standardHash}`);
   }
   const standardById = new Map(standard.questions.map(item => [item.id, item]));
-  const limitArg = process.argv.find(arg => arg.startsWith('--limit='));
-  const limit = limitArg ? Number.parseInt(limitArg.slice('--limit='.length), 10) : dataset.questions.length;
-  const onlyArg = process.argv.find(arg => arg.startsWith('--only='));
+
+  const limit = Number.parseInt(argValue('limit', String(dataset.questions.length)), 10);
+  const onlyArg = argValue('only', '');
   const only = onlyArg
-    ? new Set(onlyArg.slice('--only='.length).split(',').map(item => item.trim()).filter(Boolean))
+    ? new Set(onlyArg.split(',').map(item => item.trim()).filter(Boolean))
     : null;
-  const suffixArg = process.argv.find(arg => arg.startsWith('--suffix='));
+  const suffixArg = argValue('suffix', '');
   const suffix = suffixArg
-    ? `-${suffixArg.slice('--suffix='.length).replace(/[^a-zA-Z0-9_-]/g, '')}`
+    ? `-${suffixArg.replace(/[^a-zA-Z0-9_-]/g, '')}`
     : '';
-  const mergeArg = process.argv.find(arg => arg.startsWith('--merge-into='));
-  const mergeInto = mergeArg ? path.resolve(process.cwd(), mergeArg.slice('--merge-into='.length)) : null;
+  const mergeArg = argValue('merge-into', '');
+  const mergeInto = mergeArg ? path.resolve(process.cwd(), mergeArg) : null;
+  const workers = Math.max(1, Math.min(8, Number.parseInt(argValue('workers', '1'), 10) || 1));
+  const providerConcurrency = Math.max(
+    1,
+    Math.min(12, Number.parseInt(argValue('provider-concurrency', String(Math.max(3, workers * 2))), 10))
+  );
+
   const indexed = dataset.questions.map((item, datasetIndex) => ({ item, datasetIndex }));
   const filtered = only ? indexed.filter(entry => only.has(entry.item.id)) : indexed;
   if (only && filtered.length === 0) throw new Error(`--only 没有匹配的题：${[...only].join(',')}`);
   // 裁判按题在数据集里的固定位置轮换，不按“本次跑了第几个”轮换；
   // 只重跑一题时，仍然由原来那位裁判来判，结果才可比。
   const questions = filtered.slice(0, Number.isFinite(limit) && limit > 0 ? limit : filtered.length);
-  console.log(`数据集 ${dataset.version} · ${dataset.sha256.slice(0, 12)}… · 本次 ${questions.length}/${dataset.questions.length} 题${suffix ? ` · 输出后缀 ${suffix}` : ''}`);
-  const key = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(path.join(app.getPath('appData'), 'thinkfusion-ai', 'api-keys.json'), 'utf8'))['opencode-go'].cipher, 'base64'));
+  console.log(
+    `数据集 ${dataset.version} · ${dataset.sha256.slice(0, 12)}… · 本次 ${questions.length}/${dataset.questions.length} 题` +
+    `${suffix ? ` · 输出后缀 ${suffix}` : ''} · workers=${workers} · providerConcurrency=${providerConcurrency}`
+  );
+
+  const key = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(
+    path.join(app.getPath('appData'), 'thinkfusion-ai', 'api-keys.json'), 'utf8'
+  ))['opencode-go'].cipher, 'base64'));
   const provider = new OpenAICompatibleProvider({
     id: 'opencode-go', label: 'OpenCode Go', baseUrl: BASE,
     models: MODELS.map(item => item.model), defaultModel: MODELS[0].model,
     keyStore: { has: () => true, get: () => key },
-    maxConcurrency: 3, maxRetries: 1, timeoutMs: JUDGE_TIMEOUT_MS,
+    maxConcurrency: providerConcurrency, maxRetries: 1, timeoutMs: JUDGE_TIMEOUT_MS,
     extraHeaders: { 'user-agent': 'thinkfusion-debate-regression', 'x-opencode-session': '24q-regression' }
   });
   const byId = new Map(MODELS.map(item => [item.id, item.model]));
@@ -239,9 +148,8 @@ app.whenReady().then(async () => {
     };
   };
 
-  const results = [];
-  for (let index = 0; index < questions.length; index += 1) {
-    const { item, datasetIndex } = questions[index];
+  async function runQuestion(entry, position, workerId) {
+    const { item, datasetIndex } = entry;
     const judgeAgentId = IDS[datasetIndex % IDS.length];
     const debaters = IDS.filter(id => id !== judgeAgentId);
     const startedAt = Date.now();
@@ -256,8 +164,10 @@ app.whenReady().then(async () => {
     let verdict = null;
     let quality = null;
     let decision = null;
+    let standardAssessment = null;
+    let rubricAgentId = null;
 
-    console.log(`[${index + 1}/${questions.length}] ${item.id} · ${item.strategy} · 辩论 ${debaters.join('+')} · 裁判 ${judgeAgentId}`);
+    console.log(`[w${workerId}] [${position + 1}/${questions.length}] ${item.id} · ${item.strategy} · 辩论 ${debaters.join('+')} · 裁判 ${judgeAgentId}`);
     try {
       const plan = planLead({
         mode: 'cloud',
@@ -305,7 +215,11 @@ app.whenReady().then(async () => {
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // 临时目录清理失败不影响结果记录。
+      }
     }
 
     const messages = state?.rounds.flatMap(round => round.messages) ?? [];
@@ -314,8 +228,6 @@ app.whenReady().then(async () => {
       verdict?.conclusion ?? ''
     ].join('\n');
     const standardItem = standardById.get(item.id);
-    let standardAssessment = null;
-    let rubricAgentId = null;
     if (standardItem) {
       rubricAgentId = IDS.find(id => id !== judgeAgentId) ?? judgeAgentId;
       standardAssessment = await assessStandardAnswer({
@@ -325,7 +237,8 @@ app.whenReady().then(async () => {
         agentId: rubricAgentId
       });
     }
-    results.push({
+
+    const result = {
       id: item.id,
       category: item.category,
       strategy: item.strategy,
@@ -394,43 +307,85 @@ app.whenReady().then(async () => {
         : null,
       anchor: anchorHit(combinedText, item.anchor),
       error
-    });
-    console.log(`    -> ${results[results.length - 1].debate.outcome} · judge=${verdict?.backend ?? 'missing'} · quality=${quality?.status ?? 'missing'} · ${Math.round((Date.now() - startedAt) / 1000)}s`);
+    };
+    console.log(`[w${workerId}] [${position + 1}/${questions.length}] -> ${result.debate.outcome} · judge=${verdict?.backend ?? 'missing'} · quality=${quality?.status ?? 'missing'} · V1=${standardAssessment?.passed ? 'pass' : standardAssessment ? 'fail' : '-'} · ${result.debate.durationSec}s`);
+    return result;
+  }
 
-    // 每题结束就落一份 latest，长跑被中断时不丢已经跑完的记录。
+  const slots = new Array(questions.length).fill(null);
+  let cursor = 0;
+  const writeLatest = () => {
+    const current = slots.filter(Boolean);
+    const summary = buildSummary(current);
     fs.mkdirSync(OUT_DIR, { recursive: true });
     const partial = {
       dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
       models: MODELS.map(model => model.model),
       judgeRotation: IDS,
       createdAt: new Date().toISOString(),
-      summary: buildSummary(results),
-      results
+      workers,
+      summary,
+      results: current
     };
     fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.json`), JSON.stringify(partial, null, 2), 'utf8');
-    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(buildSummary(results), dataset, results), 'utf8');
-  }
+    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, current), 'utf8');
+  };
 
+  const runWorker = async workerId => {
+    for (;;) {
+      const position = cursor;
+      cursor += 1;
+      if (position >= questions.length) return;
+      try {
+        slots[position] = await runQuestion(questions[position], position, workerId);
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        console.error(`[w${workerId}] 题目 ${questions[position].item.id} 未捕获错误：${message}`);
+        slots[position] = {
+          id: questions[position].item.id,
+          category: questions[position].item.category,
+          strategy: questions[position].item.strategy,
+          question: questions[position].item.question,
+          judge: { agentId: null, backend: 'missing', sharedWith: null },
+          debate: { outcome: 'FAILED', rounds: 0, messages: 0, failures: [], durationMs: 0, durationSec: 0 },
+          quality: null,
+          decision: null,
+          standard: null,
+          anchor: null,
+          error: message
+        };
+      }
+      writeLatest();
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(workers, questions.length) }, (_, index) => runWorker(index + 1))
+  );
+
+  const results = slots.filter(Boolean);
   const summary = buildSummary(results);
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const createdAt = new Date().toISOString();
   const payload = {
     dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
     models: MODELS.map(item => item.model),
     judgeRotation: IDS,
-    createdAt: new Date().toISOString(),
+    createdAt,
+    workers,
     summary,
     results
   };
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const latest = path.join(OUT_DIR, `debate-regression${suffix}-latest.json`);
   fs.writeFileSync(latest, JSON.stringify(payload, null, 2), 'utf8');
+  const stamp = createdAt.replace(/[:.]/g, '-');
   fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-${stamp}.json`), JSON.stringify(payload, null, 2), 'utf8');
   fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, results), 'utf8');
   if (mergeInto) {
     const existing = JSON.parse(fs.readFileSync(mergeInto, 'utf8'));
-    const byId = new Map((existing.results ?? []).map(item => [item.id, item]));
-    for (const item of results) byId.set(item.id, item);
-    const merged = dataset.questions.map(item => byId.get(item.id)).filter(Boolean);
+    const existingById = new Map((existing.results ?? []).map(item => [item.id, item]));
+    for (const item of results) existingById.set(item.id, item);
+    const merged = dataset.questions.map(item => existingById.get(item.id)).filter(Boolean);
     const mergedPayload = {
       ...existing,
       updatedAt: new Date().toISOString(),

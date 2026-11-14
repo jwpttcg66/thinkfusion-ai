@@ -31,7 +31,7 @@ import type { DebateStrategy } from './types';
  * 都必须同时把这个值往前推，并在 `docs/implementation/DEBATE_RUNBOOK.md`
  * 的「模板版本历史」里写清改了什么。老辩论文件里的数字不动。
  */
-export const PROMPT_VERSION = '1.0.0';
+export const PROMPT_VERSION = '1.1.0';
 
 export type PromptTemplateKind = 'system' | 'rule';
 
@@ -78,7 +78,8 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     source: 'src/main/debate/prompts.ts（renderInstructions）/ src/main/debate/orchestrator.ts（task 组装）',
     text: [
       '独立给出你对这个问题的观点，并说明成立的条件。',
-      '网页通道的回答已经在上下文里。不要复述它们，直接指出其中站不住的那一条，并给出你的判断和条件。'
+      '网页通道的回答已经在上下文里。不要复述它们，直接指出其中站不住的那一条，并给出你的判断和条件。',
+      '给出结论时同时说明适用边界、失败模式和常见误区；不要只给主结论。'
     ]
   },
   {
@@ -212,6 +213,9 @@ export function renderInstructions(
   if (lead.mode === 'web' && kind !== 'position') {
     lines.push('这一场以网页通道的独立观点为基准，重点检验它的证据和推理，但不要忽略其他回答里的问题。');
   }
+  // 1.1.0：不改变问题本身，只要求发言覆盖适用边界、失败模式和常见误区。
+  // 这是通用质量要求，不含任何具体题目的答案。
+  lines.push('给出结论时同时说明适用边界、失败模式和常见误区；不要只给主结论。');
   lines.push('保留有依据的不同意见，不要为了达成一致而放弃它。');
   return lines;
 }

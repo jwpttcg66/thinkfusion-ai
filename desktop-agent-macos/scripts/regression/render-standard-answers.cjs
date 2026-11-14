@@ -56,6 +56,16 @@ lines.push(`总分 0–100；权重：必答主张 ${data.scoring.weights.requir
 lines.push('');
 for (const rule of data.scoring.rules) lines.push(`- ${rule}`);
 lines.push('');
+if (Array.isArray(data.mustReview) && data.mustReview.length > 0) {
+  lines.push('### 2.1 must 复核');
+  lines.push('');
+  lines.push('| 题目 | claim | 变更 | 理由 |');
+  lines.push('| --- | --- | --- | --- |');
+  for (const item of data.mustReview) {
+    lines.push(`| \`${item.id}\` | \`${item.claimId}\` | ${item.from} → ${item.to} | ${item.reason} |`);
+  }
+  lines.push('');
+}
 lines.push('## 3. 怎么用这份基线');
 lines.push('');
 lines.push('对每个模型回答，按下面顺序判：');

@@ -1,0 +1,3959 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T14:12:42.442Z",
+  "workers": 3,
+  "summary": {
+    "total": 24,
+    "execution": {
+      "COMPLETED": 24
+    },
+    "completed": 24,
+    "judgeModel": 24,
+    "independent": 24,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 24
+    },
+    "factual": {
+      "model-assessed": 24
+    },
+    "anchors": {
+      "checked": 8,
+      "hit": 8
+    },
+    "standard": {
+      "total": 24,
+      "passed": 17,
+      "failed": 7,
+      "unavailable": 0,
+      "averageScore": 90,
+      "classificationMatches": 24
+    },
+    "byStrategy": {
+      "truth": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 70480
+      },
+      "adversarial": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 170230
+      },
+      "expert": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 138331
+      },
+      "assumption": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 86125
+      },
+      "solution": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 180277
+      },
+      "discovery": {
+        "total": 4,
+        "completed": 4,
+        "judgeModel": 4,
+        "independent": 4,
+        "avgDurationMs": 148428
+      }
+    },
+    "structuralOk": false
+  },
+  "results": [
+    {
+      "id": "float-equality",
+      "category": "JavaScript",
+      "strategy": "truth",
+      "question": "JavaScript 中 0.1 + 0.2 === 0.3 的结果是什么？为什么？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 2570,
+          "outputTokens": 1570,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19342
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 54891,
+        "durationSec": 55,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 177,
+            "outputTokens": 814
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 197,
+            "outputTokens": 2494
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 1639,
+            "outputTokens": 502
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 2141,
+            "outputTokens": 2429
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.60，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 20 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "结果为 false。0.1 + 0.2 的实际结果是 0.30000000000000004，严格相等比较 0.1 + 0.2 === 0.3 返回 false。原因是 JavaScript 的 Number 采用 IEEE 754 双精度二进制浮点数：0.1、0.2、0.3 都无法用有限位二进制精确表示，只能存为最接近的可表示值。0.1 与 0.2 的精确和恰好落在 0.3 相邻两个双精度数的中点（该区间 ulp 为 2^-54），按 round-half-to-even 规则取到 5404319552844596×2^-54，即 0.30000000000000004；而字面量 0.3 存的是 5404319552844595×2^-54 ≈ 0.2999999999999999889，所以两者不相等。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "float-equality",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 0.9,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "明确回答结果为 false，说明原因是 IEEE 754 二进制浮点表示，并给出实际结果及其精度解释；未提及精确比较时的推荐方案。",
+        "usage": {
+          "inputTokens": 885,
+          "outputTokens": 980,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10049,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "false",
+          "0.30000000000000004",
+          "不相等",
+          "不等于"
+        ],
+        "terms": [
+          "false",
+          "0.30000000000000004",
+          "不相等",
+          "不等于"
+        ],
+        "note": "确定性浮点数语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "array-map",
+      "category": "JavaScript",
+      "strategy": "adversarial",
+      "question": "JavaScript 的 Array.prototype.map 会修改原数组吗？它和 forEach 的区别是什么？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 3690,
+          "outputTokens": 413,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5359
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 77885,
+        "durationSec": 78,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 209,
+            "outputTokens": 1485
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 148,
+            "outputTokens": 2689
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 2743,
+            "outputTokens": 1777
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 1781,
+            "outputTokens": 1925
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "`Array.prototype.map` 本身不会写入或修改原数组，而是返回一个新数组；`forEach` 也不主动修改原数组，但返回 `undefined`。`map` 会把回调的返回值收集到新数组中，适合转换数据；`forEach` 忽略回调返回值，适合执行副作用。两者的回调都可以通过参数、闭包或修改共享对象来改变原数组或其元素。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "array-map",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 85,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "候选回答正确覆盖了 map 不修改原数组且返回新数组、forEach 返回 undefined、回调可通过闭包或共享对象产生副作用，以及两方法用途区别；但未明确说明 map 是浅拷贝、新数组元素与原数组元素引用相同对象这一建议主张，相关边界覆盖不足。无错误主张。",
+        "usage": {
+          "inputTokens": 635,
+          "outputTokens": 562,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10032,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "不会",
+          "不修改",
+          "新数组"
+        ],
+        "terms": [
+          "不会",
+          "不修改",
+          "新数组",
+          "new array"
+        ],
+        "note": "确定性数组语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "http-methods",
+      "category": "HTTP",
+      "strategy": "expert",
+      "question": "HTTP 的 PUT 和 POST 哪个是幂等的？在设计 REST API 时应该怎么选？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7567,
+          "outputTokens": 1806,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9299
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 181374,
+        "durationSec": 181,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1511
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 162,
+            "outputTokens": 7105
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3439,
+            "outputTokens": 474
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3103,
+            "outputTokens": 1747
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 42 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "按 HTTP 标准语义（RFC 9110 §9.2.2、§9.3.3、§9.3.4），PUT 是幂等方法，POST 不是幂等方法，规范不保证其幂等。幂等指同一请求重复发送后服务器上的预期效果与发送一次相同，不要求响应相同，也不等于无副作用。REST 设计的条件性建议：客户端已知目标 URI、要完整替换或创建该资源时用 PUT；由服务器分配资源 URI 的创建、集合追加或业务动作用 POST；部分更新用 PATCH（RFC 5789 规定其不保证幂等）；POST 需要安全重试时，用应用层幂等键、唯一约束或去重表实现业务层面的幂等，但这不改变 POST 方法本身的语义。",
+        "unresolvedDisputes": [
+          "- **客户端能否/应该决定资源 URI？",
+          "- **操作是不是完整替换？",
+          "- **是否需要安全重试？",
+          "1. **客户端能否决定资源 URI？",
+          "2. **是不是完整替换？",
+          "3. **是否需要安全重试？",
+          "4. **并发更新怎么办？",
+          "某个具体系统的 PUT 是否真正幂等（例如 PUT 是否每次都追加业务事件），需要源码审查或重试测试验证，文本层面无法裁决。",
+          "幂等键的具体设计（保存期限、作用域、请求指纹不一致时的处理、并发同键请求）需结合业务与存储条件决定，无统一标准答案。",
+          "PUT 用于资源创建是否适合某个系统，取决于其 URI 命名权、授权模型与安全要求，需按项目具体情况判断。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "http-methods",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答准确区分 HTTP 方法语义与应用层幂等，明确幂等不等于响应相同，覆盖 PUT/POST/PATCH 的选型条件，并说明 POST 可通过幂等键、唯一约束或去重表实现安全重试，无错误主张。",
+        "usage": {
+          "inputTokens": 821,
+          "outputTokens": 5156,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 57816,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "terms": [
+          "PUT",
+          "幂等",
+          "idempotent"
+        ],
+        "note": "确定性协议语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "tcp-udp",
+      "category": "Networking",
+      "strategy": "assumption",
+      "question": "TCP 和 UDP 的核心区别是什么？各自适合什么场景？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 3466,
+          "outputTokens": 2925,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 40441
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 85430,
+        "durationSec": 85,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 171,
+            "outputTokens": 542
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 212,
+            "outputTokens": 3280
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2203,
+            "outputTokens": 611
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3238,
+            "outputTokens": 3905
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 4 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "核心区别：TCP 是面向连接的可靠、有序字节流，内置流量控制和拥塞控制；UDP 是无连接数据报，本身不保证送达、顺序或不重复，也不内置拥塞控制。选型取决于应用对可靠性、顺序、延迟、消息边界和部署环境的权衡：需要传输层直接提供可靠有序交付、并能接受重传和队头阻塞代价时，通常选 TCP；能容忍丢包、需要数据报边界、低延迟，或希望在应用层自定义传输和拥塞控制时，通常选 UDP。常见默认：网页/API、文件传输、SSH、数据库连接多用 TCP；DNS、DHCP、VoIP/视频会议、实时游戏、直播、QUIC/HTTP3 多用 UDP。但这些是条件性惯例，不是绝对规则。",
+        "unresolvedDisputes": [
+          "具体应用选 TCP 还是 UDP，取决于延迟预算、可接受丢包率、是否需要消息边界、NAT/防火墙对 UDP 的放行情况，以及应用层是否愿意实现可靠性和拥塞控制；没有脱离这些条件的普遍最优答案。",
+          "TCP 队头阻塞在实时场景中的实际影响取决于连接复用方式和应用协议设计，不能一概而论。",
+          "UDP 缺乏拥塞控制对网络的影响与大规模部署策略有关，是否直接使用裸 UDP 需结合具体网络治理要求判断。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "tcp-udp",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 9,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "准确说明了 TCP 与 UDP 的可靠性、顺序和边界差异，并给出典型场景及条件性选型。未明确指出 UDP 不必然比 TCP 快，因此未完全覆盖 c4。",
+        "usage": {
+          "inputTokens": 926,
+          "outputTokens": 547,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 6133,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "btree-index",
+      "category": "Database",
+      "strategy": "solution",
+      "question": "数据库为什么常用 B+ 树而不是二叉树做索引？B+ 树在磁盘和范围查询上有什么优势？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7698,
+          "outputTokens": 712,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9384
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 196744,
+        "durationSec": 197,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 209,
+            "outputTokens": 2893
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 150,
+            "outputTokens": 5878
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 4982,
+            "outputTokens": 3479
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3096,
+            "outputTokens": 6805
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 12 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "数据库常用 B+ 树，是因为它适合按页读写的存储：每个节点可容纳许多键和指针，扇出高，因此树通常比二叉树矮，查找时需要访问的磁盘页更少。范围查询先定位起点，再沿有序叶子层顺序扫描，通常比逐个访问分散的二叉树节点更能利用顺序 I/O 和预读。这个优势在索引大于内存、随机 I/O 成本显著、范围或排序查询常见时最明显；并非所有负载下 B+ 树都更优。",
+        "unresolvedDisputes": [
+          "**1. \"叶子链表不等于范围查询一定快\" 与 \"叶子链表是关键\" 是否矛盾？",
+          "**2. 两句中的\"取决于'数据不在内存里、I/O 是主要成本'这一前提\"，适用范围各是什么？",
+          "若要判断特定数据库或工作负载是否应采用 B+ 树、LSM 树或其他结构，还需知道读写比例、点查与范围查询比例、数据是否常驻内存、索引是否覆盖查询及并发要求。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "btree-index",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答明确覆盖扇出高、树矮、页式磁盘访问优势，以及有序叶子页范围扫描；同时说明优势的条件边界，指出并非所有负载下 B+ 树都最优，未包含错误主张。",
+        "usage": {
+          "inputTokens": 681,
+          "outputTokens": 298,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8046,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "B+",
+          "磁盘",
+          "页",
+          "范围查询"
+        ],
+        "terms": [
+          "B+",
+          "磁盘",
+          "页",
+          "范围查询"
+        ],
+        "note": "索引结构烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "acid",
+      "category": "Database",
+      "strategy": "discovery",
+      "question": "ACID 四个字母分别是什么意思？隔离性解决什么问题，又带来什么代价？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 5437,
+          "outputTokens": 1645,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9143
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 109246,
+        "durationSec": 109,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 160,
+            "outputTokens": 759
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 136,
+            "outputTokens": 3207
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2664,
+            "outputTokens": 1593
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2182,
+            "outputTokens": 2227
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "ACID 的四个字母分别是：A（Atomicity，原子性：事务要么全部提交，要么全部回滚）；C（Consistency，一致性：事务前后满足数据库约束和应用定义的不变量，通常不是 CAP 中的 C）；I（Isolation，隔离性：限制并发事务相互干扰的方式，最强形式下结果等价于某种串行执行）；D（Durability，持久性：提交后的结果在故障后仍保留，通常依赖 WAL、fsync、副本等机制）。隔离性主要解决并发事务交错执行时的异常，如脏读、不可重复读、幻读、丢失更新和写偏斜，但具体能避免哪些异常取决于数据库实现和所选隔离级别。隔离性的代价取决于实现和工作负载：基于锁的实现可能带来锁等待和死锁，高冲突时可能出现中止重试和尾延迟上升；基于 MVCC 的实现可能带来版本保留和清理成本，长事务会加重这一问题；跨库或分布式场景下还需要 2PC、共识协议等协调机制，增加延迟、不确定状态和可用性风险。应用层也可能需要处理重试、幂等和补偿。强隔离不必然使所有查询都变慢，弱隔离也并非零成本，它通常把部分一致性责任转移给应用。",
+        "unresolvedDisputes": [
+          "### 隔离性解决什么问题？",
+          "### 代价是什么？",
+          "## 隔离性解决什么问题？",
+          "## 代价是什么？",
+          "具体数据库（如 PostgreSQL、MySQL InnoDB、Oracle）对同名隔离级别的实现差异未逐一核实。",
+          "快照隔离与可串行化在不同数据库中的精确异常覆盖范围未做系统比较。",
+          "缺少具体工作负载（冲突率、事务时长、并发度）下的性能对比数据，因此隔离代价只能给出定性判断。",
+          "分布式事务中 2PC 在协调者故障下的具体阻塞行为未展开论证。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "acid",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 82,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "回答准确解释 ACID 四字母，说明一致性涉及应用定义的不变量而非仅数据库约束，覆盖隔离性解决的并发异常及锁、MVCC、重试、分布式协调等代价，且无错误主张；但未明确说明数据库默认隔离级别不一定是可串行化，因此 c3 未完整覆盖。",
+        "usage": {
+          "inputTokens": 923,
+          "outputTokens": 1653,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 22175,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "原子",
+          "一致性",
+          "隔离",
+          "持久"
+        ],
+        "terms": [
+          "原子",
+          "一致性",
+          "隔离",
+          "持久"
+        ],
+        "note": "事务语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "jwt-revoke",
+      "category": "Security",
+      "strategy": "truth",
+      "question": "JWT 无状态鉴权如何实现主动失效？黑名单、短过期、刷新令牌各有什么取舍？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4601,
+          "outputTokens": 1571,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 24207
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 70143,
+        "durationSec": 70,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1599
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 205,
+            "outputTokens": 3050
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3090,
+            "outputTokens": 1141
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 4382,
+            "outputTokens": 4691
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 3 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "核心事实：当验证端只做本地验签和 exp 检查、不查询任何外部状态时，JWT 无法在过期前撤销单个令牌；所谓主动失效必然引入状态（逐请求查询撤销记录，或本地撤销列表加推送/轮询更新并接受传播延迟），或缩短有效期把窗口压小。因此没有唯一最优解，取决于可接受的撤销延迟、服务数量与拓扑、是否必须本地验签、以及撤销存储故障时的取舍。条件性推荐：默认采用分钟级短效 access token 加服务端存储、可吊销并轮换的 refresh token（配家族级重放检测）；若要求 access token 也近即时失效，叠加 jti 黑名单或用户/会话级 token_version 检查，并显式规定 fail-open 还是 fail-closed。若服务少、撤销要求强，opaque token 加 introspection 通常比 JWT 加黑名单更简单。签名密钥轮换可实现大范围批量失效，但不适合日常单用户撤销。",
+        "unresolvedDisputes": [
+          "可接受的撤销延迟是零延迟、秒级还是分钟级，这直接决定是否需要逐请求查询撤销状态。",
+          "服务拓扑：是否多个服务需要本地验签，是否存在内部服务直连绕过网关的情况。",
+          "是否已有集中式低延迟存储（如 Redis）及其多区域复制能力，以及撤销查询故障时选择 fail-open 还是 fail-closed。",
+          "是否需要精确到单设备登出，还是只需按用户批量失效；前者要求按会话或 jti 粒度，后者可用 token_version。",
+          "合规或安全要求是否强制登出后立即阻断访问令牌，而不只是阻断续签。",
+          "客户端形态与令牌存放位置（httpOnly cookie 或本地存储），影响 XSS/CSRF 风险与刷新轮换的并发处理。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "jwt-revoke",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 4,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [
+          "c4"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "给出了条件性推荐和撤销延迟、存储故障等边界；核心事实基本覆盖，但遗漏刷新令牌撤销对已签发访问令牌的影响。",
+        "usage": {
+          "inputTokens": 1109,
+          "outputTokens": 446,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5804,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "黑名单",
+          "撤销",
+          "短过期",
+          "revoke"
+        ],
+        "terms": [
+          "黑名单",
+          "撤销",
+          "短过期",
+          "revoke"
+        ],
+        "note": "鉴权机制烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "csrf-xss",
+      "category": "Security",
+      "strategy": "adversarial",
+      "question": "CSRF 和 XSS 的区别是什么？防御手段分别是什么？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7528,
+          "outputTokens": 630,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9778
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 221197,
+        "durationSec": 221,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 197,
+            "outputTokens": 3588
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 142,
+            "outputTokens": 4293
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 5257,
+            "outputTokens": 3797
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3170,
+            "outputTokens": 11894
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "XSS 是注入的代码在目标站点的页面上下文中执行，利用浏览器对该页面代码的信任；CSRF 是诱使浏览器向目标站点发送非预期请求，通常利用浏览器自动附带的 Cookie 等凭证。XSS 主要防御：按输出上下文编码、避免危险 DOM sink、富文本使用成熟的白名单净化，并以 CSP、Trusted Types 等纵深防御。CSRF 主要防御：状态变更不用 GET、校验会话绑定的 CSRF token，并结合 SameSite Cookie、Origin/Referer 或 Fetch Metadata 校验。具体措施取决于认证方式和浏览器端点：若凭证不会由浏览器自动附带，传统 CSRF 风险会降低；严格 CORS 本身不能阻止请求被发送或执行。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "csrf-xss",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 90,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答准确说明了 XSS 与 CSRF 的核心区别，并分别覆盖了输出编码、CSP、DOM sink 与 CSRF token、SameSite、Origin/Referer 等防御重点；还补充了凭据自动附带与 CORS 的边界。唯一不足是未明确提到 XSS 可能绕过部分 CSRF 防御。",
+        "usage": {
+          "inputTokens": 778,
+          "outputTokens": 634,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9705,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "cache-invalidation",
+      "category": "Caching",
+      "strategy": "expert",
+      "question": "缓存一致性为什么难？常见的失效策略有哪些，各自适合什么场景？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 10590,
+          "outputTokens": 2417,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 13471
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 124573,
+        "durationSec": 125,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 179,
+            "outputTokens": 1971
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 155,
+            "outputTokens": 4296
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 4338,
+            "outputTokens": 1874
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3682,
+            "outputTokens": 2198
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 12 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "缓存一致性难，根本原因是数据源与缓存副本之间的更新、失效和读回填通常不是一个原子操作，失效消息又可能延迟、丢失、重复或乱序，并发读写还会导致旧值回填。不存在普遍最优的失效策略，应先定义可接受的一致性语义（线性一致、读己之写、有界陈旧或最终一致），再选择策略：(1) 可容忍短暂陈旧、缓存可从源重建的通用读多写少业务：cache-aside + 写后删除 + TTL 兜底，并对删除失败做重试；(2) 多节点本地缓存或多系统需要感知变更：基于 CDC/Outbox 等可靠变更日志发失效，配合版本号、幂等和对账；(3) 需要防止旧值回填或旧写覆盖新写：版本号/CAS，或带令牌的租约（lease token）使过期写入被拒绝，租约本身也需要 fencing 防止旧持有者继续写；(4) 批量失效（商品目录、配置）：命名空间/代际切换，优于逐键删除；(5) 写少读多、值便宜计算、广播可靠有序：写时更新，但要接受部分成功和乱序风险；(6) 余额、库存、权限等对陈旧读敏感的关键路径：绕过缓存直接读权威源，或采用经验证的强协调机制。需要明确：TTL 只限制缓存项存活时间，不保证写后可见；延迟双删只是缩小窗",
+        "unresolvedDisputes": [
+          "## 为什么缓存一致性难？",
+          "## 为什么难？",
+          "## 怎么选？",
+          "未针对具体系统（如 Redis、Memcached 或某数据库 CDC 方案）的实现和保证语义做源码或规范级核验，因此不能断言任何具体产品的一致性行为。",
+          "“写后删除”与“先删后写”在不同数据库隔离级别和复制延迟下的旧值窗口没有给出定量结论，需要按实际负载测量。",
+          "租约和 fencing 在时钟漂移、长暂停、网络分区下的安全边界依赖具体实现，本回答只给出机制层面的描述。",
+          "若问题指 CPU 多核缓存一致性（MESI/目录协议），机制、证据和策略完全不同，本回答不适用。",
+          "缺少业务对陈旧窗口的具体要求（如允许多少秒、是否需要读己之写），无法给出唯一推荐方案。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "cache-invalidation",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "候选回答明确说明不存在普遍最优方案，并按一致性语义、读写特征和业务场景给出条件性选择；覆盖 Cache Aside、TTL、版本号等至少三种策略及取舍，并补充写时更新、CDC/Outbox、租约、命名空间等方案；明确 TTL 不保证写后可见；给出线性一致、读己之写、有界陈旧、最终一致等一致性/陈旧窗口框架；也指出双写非原子、旧值回填、失效消息延迟/丢失/重复/乱序、部分成功和乱序等难点，且无重大错误主张。",
+        "usage": {
+          "inputTokens": 1023,
+          "outputTokens": 897,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 17816,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "index-generation",
+      "category": "Architecture",
+      "strategy": "assumption",
+      "question": "团队准备把本地代码索引从“每次覆盖旧索引”改成“Generation 原子快照”。请分析收益、风险和适用条件。",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4600,
+          "outputTokens": 2641,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 33784
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 90670,
+        "durationSec": 91,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 235,
+            "outputTokens": 2902
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 191,
+            "outputTokens": 1986
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2695,
+            "outputTokens": 1946
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3650,
+            "outputTokens": 4919
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 7 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "这是一个场景依赖的工程决策，不存在普遍最优答案。条件性结论：当（1）重建期间仍有查询，或半成品/中断索引有实际代价；（2）索引由多文件组成、需要整体一致地发布；（3）同卷原子替换（rename 或原子更新 CURRENT 清单/指针）可用；（4）磁盘可容纳新旧两代共存；（5）能固定输入源码版本（commit 或文件哈希清单）时，值得改为 Generation 原子快照。主要收益是读写隔离（旧代继续服务、新代校验后发布）、崩溃安全（未发布代可丢弃）、回滚能力和代号级可观测性。主要风险是磁盘峰值上升、旧代过早回收导致读者失败、指针指向未校验的新代、目录内原地修改或读者跨代取文件造成混代、并发构建的发布竞争，以及平台差异（Windows 文件锁、网络盘/云同步目录不保证原子语义、断电持久性需单独处理）。若重建时查询可暂停、构建快且幂等可重跑、且现有实现已是「临时构建→校验→原子替换单代」，则收益有限，保持覆盖式或采用「临时文件+备份」的轻量方案更划算。",
+        "unresolvedDisputes": [
+          "实测构建耗时、中断频率与失败是否幂等可重跑",
+          "重建期间是否确有并发查询，包括同进程内后台构建线程与前台查询线程",
+          "索引体积与可用磁盘峰值，是否需要硬链接/reflink 或减少保留代数",
+          "目标平台与文件系统的原子替换及断电持久化语义（Windows、网络盘、云同步目录需单独验证）",
+          "是否需要回滚与历史诊断，以决定是否保留旧代及保留几代",
+          "未提交工作区如何固定输入源码版本（commit 还是文件哈希清单）"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "index-generation",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 69,
+        "modelScore": 4,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c4"
+        ],
+        "missingClaims": [
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "明确说明完整旧代继续服务、校验后原子发布和回滚；覆盖磁盘、旧代回收、读者生命周期、发布竞争及崩溃相关风险，并给出适用与不适用场景。也要求固定源码版本以保证构建输入一致。但未明确要求索引代只读，也未提出明确的旧代保留与清理策略。",
+        "usage": {
+          "inputTokens": 1126,
+          "outputTokens": 841,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10910,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7661,
+          "outputTokens": 905,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12188
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 173236,
+        "durationSec": 173,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 4313
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 145,
+            "outputTokens": 5383
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6617,
+            "outputTokens": 4596
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 4087,
+            "outputTokens": 3886
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "不存在脱离故障模型和配置的绝对“不丢”保证。通用做法是端到端设计为“至少一次投递 + 消费幂等 + 可补偿”：生产端确认发送结果，失败可靠重试或落库；Broker 使用持久化和适当的副本/仲裁配置，并监控容量与保留期；消费者在业务处理成功并持久化后再 ack 或提交 offset，失败进入重试或可处理的死信队列。关键业务可用 Outbox/本地消息表解决业务事务与发消息之间的不一致，并以源端数据对账。这样能降低永久丢失风险，但可能重复；跨地域灾难等故障还需单独设计。",
+        "unresolvedDisputes": [
+          "前提假设需要先说清楚：是单机宕机、断电、磁盘损坏，还是整机房故障？",
+          "- 故障模型：是单节点、单机房，还是多机房？",
+          "- 下游是否幂等？",
+          "- 延迟和可用性预算：`min.insync.replicas=2` 在副本数不足时会拒绝写入，你能接受吗？",
+          "- 是否有对账和补偿？",
+          "未指定 Kafka、RabbitMQ、RocketMQ 等具体产品，因此无法给出适用的精确配置值。",
+          "未指定需要防护的故障范围；单进程、单节点、单 AZ、整机房或跨地域灾难所需方案不同。",
+          "未说明是否要求跨数据库或服务的一致性；这决定是否需要 Outbox、事务消息或其他补偿机制。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "mq-delivery",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 88,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答覆盖生产、Broker、消费三环节的可靠性措施，明确至少一次投递+消费幂等、Outbox/本地消息表和可能重复，并给出故障模型与跨地域边界。不足是未显式提醒不要轻易承诺端到端 Exactly-once；对 ACK 丢失导致重复的说明也不够直接。",
+        "usage": {
+          "inputTokens": 813,
+          "outputTokens": 3487,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 40486,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "distributed-lock",
+      "category": "Distributed Systems",
+      "strategy": "discovery",
+      "question": "分布式锁需要满足哪些条件？Redis 锁有什么风险，如何避免锁过期后误删别人的锁？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 11371,
+          "outputTokens": 3023,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 15104
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 196481,
+        "durationSec": 196,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 165,
+            "outputTokens": 2177
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 141,
+            "outputTokens": 3495
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 4332,
+            "outputTokens": 1150
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3784,
+            "outputTokens": 10291
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 2 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "分布式锁的条件取决于业务对“双持有”的容忍度，但有一组通用底线。\n\n一、通用条件：(1) 互斥：在约定故障模型内，同一资源同一时刻最多一个有效持有者；(2) 可恢复：持有者崩溃后，租约过期可释放锁；(3) 所有权可验证：每次获取生成随机唯一 token，释放和续期只作用于自己的锁；(4) 获取、释放、续期各自原子化；(5) 续期失败必须停止业务写入；(6) 明确故障假设，包括进程暂停、网络分区、主从切换和时钟假设；(7) 若重复或陈旧写入会造成资损或数据错误，受保护资源必须能拒绝旧持有者，手段包括 fencing token、版本号 CAS、唯一约束或幂等键。\n\n二、Redis 锁的主要风险：(1) 锁过期后旧持有者因 GC、暂停或网络阻塞恢复，仍继续写资源，这是最大风险；(2) 主从异步复制下，主节点确认加锁后若故障切换，锁可能未同步到新主，造成双持有；(3) 请求超时导致结果不明，盲目重试会使锁状态混乱；(4) 误删他人的锁，多由 GET 后 DEL 的非原子操作或无 token 释放引起；(5) SETNX 与 EXPIRE 分离导致死锁；(6) 续期机制失控，或临界区过长导致 ",
+        "unresolvedDisputes": [
+          "**可观察证据：**重复执行是否只增加成本，还是会造成重复扣款、覆盖数据等不可逆后果？",
+          "系统是否需要在此类情况下仍保证写入不冲突？",
+          "9. **故障模型明确**：是否允许 Redis 主从切换丢锁？",
+          "是否允许进程 STW/GC 暂停超过 TTL？",
+          "## 分布式锁需要满足什么条件？",
+          "业务中双持有的具体损失是什么，能否通过幂等或唯一约束消除？",
+          "受保护资源的每条写路径是否都校验 fencing token 或版本号，是否存在遗漏？",
+          "Redis 部署形态是单实例、主从异步、同步复制，还是多实例/Redlock，这决定丢锁概率。",
+          "客户端所用库（如 Redisson）是否确实使用 token 与 Lua，续期失败时如何处理，需要以具体版本源码或文档确认。",
+          "临界区最长耗时与 GC、网络抖动的实际分布如何，TTL 与续期策略需以实测数据确定。",
+          "若要求“锁失效也不能双写”，是否可以将受保护资源迁移到支持事务或条件写入的存储中。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "distributed-lock",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答完整覆盖基本 SET NX PX 加唯一 token、Lua 比较后删除、续租验证持有者、fencing token/资源端校验旧持有者，以及 Redis 异步复制和故障切换导致锁状态丢失的风险；同时给出适用边界和推荐方案，未出现所列错误主张。",
+        "usage": {
+          "inputTokens": 1186,
+          "outputTokens": 803,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10837,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "schema-migration",
+      "category": "Database",
+      "strategy": "truth",
+      "question": "在线数据库 schema 迁移如何避免锁表和长时间不可用？常见的 expand/contract 流程是什么？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 5406,
+          "outputTokens": 2406,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 34435
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 91858,
+        "durationSec": 92,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 181,
+            "outputTokens": 1795
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 205,
+            "outputTokens": 3297
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3216,
+            "outputTokens": 1719
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 4615,
+            "outputTokens": 5679
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 3 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "目标不是让迁移完全不加锁，而是让破坏性变更拆成向前、向后都兼容的小步，并同时控制锁的等待时间与持有时间，把耗时的数据工作分批限速。常见 expand/contract 流程：1) expand：新增可为空的新列/新表，用数据库支持的在线或并发方式建索引，旧结构保留不动，应用代码同时兼容新旧结构；2) 部署兼容代码，必要时双写新旧字段并明确失败处理、幂等与冲突规则；3) 分批、短事务、可暂停、可重试地回填历史数据，并做新旧对账；4) 校验空值、重复值、约束与一致性；5) 灰度切换读取，保留回切开关；6) 确认无旧消费者后停止旧写入并观察；7) contract：观察期后单独安排删除旧列/旧索引/兼容代码，删除前保留恢复路径。降低不可用的通用手段：为迁移设置 lock_timeout/statement_timeout 一类超时，拿不到锁就快速失败并退避重试，避免 DDL 排队拖住后续请求；迁移前清理长事务；回填限速并监控复制延迟、锁等待、日志膨胀；在接近生产规模的环境演练实际耗时与锁行为；滚动发布期间不要直接 RENAME COLUMN 之类让旧代码立即失效的变更。具体某条 DDL 是否",
+        "unresolvedDisputes": [
+          "缺少数据库类型与版本，无法判定具体 DDL 是 INSTANT、INPLACE 还是 COPY，也无法给出安全的 lock_timeout/批次大小",
+          "缺少目标表规模、写入频率、是否存在长事务与复制拓扑，无法评估回填耗时、复制延迟风险与观察窗口长度",
+          "MySQL 8.0 INSTANT 加列的完整适用条件（行格式、表结构、是否表末尾等）未逐条核实，应以当前版本 Online DDL 文档为准",
+          "SQL Server、Oracle 等数据库的在线 DDL 能力受版本或版本等级限制，发言中未核实，不能套用 PostgreSQL/MySQL 结论",
+          "是否必须双写、观望期多长、何时执行 contract，属于团队风险偏好与业务 SLA 决策，无法由技术事实单独裁定"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "schema-migration",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 60,
+        "modelScore": 8,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c4"
+        ],
+        "missingClaims": [
+          "c2",
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "给出了完整的 expand/contract 顺序，并说明 DDL 行为需结合数据库、版本、表结构和负载验证；也提供了限时、退避、分批回填和演练等条件性建议。未明确点出短暂元数据锁及新旧版本实例并存时的一致性要求。",
+        "usage": {
+          "inputTokens": 1176,
+          "outputTokens": 881,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 11297,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "feature-flag",
+      "category": "Architecture",
+      "strategy": "adversarial",
+      "question": "Feature flag 的收益和长期维护风险是什么？什么时候应该清理 flag？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7117,
+          "outputTokens": 543,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8223
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 186340,
+        "durationSec": 186,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 201,
+            "outputTokens": 2818
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 143,
+            "outputTokens": 3149
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3922,
+            "outputTokens": 3831
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2358,
+            "outputTokens": 9490
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 5 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "Feature flag 能把部署与发布解耦，支持灰度发布、快速止损、实验和分阶段迁移；代价是增加代码路径、状态组合、测试与排障负担，并可能留下死代码、隐性配置和权限风险。清理时按类型处理：发布 flag 在全量稳定、回滚不再依赖它后删除；实验 flag 在结论落地后删除；迁移 flag 在旧路径确无调用且数据兼容窗口关闭后删除。运维 kill switch 不应仅因时间到期而盲删，应有负责人、审计、演练和定期评审；长期权限或套餐配置宜由授权系统管理。",
+        "unresolvedDisputes": [],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "feature-flag",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 95,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答覆盖了部署与功能启用分离、灰度/止损/实验/迁移等收益，以及代码路径、状态组合、测试排障、死代码/配置/权限等风险；并按发布、实验、迁移、kill switch、长期权限配置给出条件性清理与复审边界，未出现错误主张。",
+        "usage": {
+          "inputTokens": 694,
+          "outputTokens": 1033,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 14618,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "rate-limit",
+      "category": "Networking",
+      "strategy": "expert",
+      "question": "令牌桶和漏桶的区别是什么？分别适合什么流量整形场景？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 6685,
+          "outputTokens": 894,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 5517
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 110682,
+        "durationSec": 111,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 179,
+            "outputTokens": 1721
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 155,
+            "outputTokens": 4462
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3234,
+            "outputTokens": 956
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2614,
+            "outputTokens": 2433
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 28 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "令牌桶与漏桶的核心区别在于：令牌桶控制的是“信用”和长期平均速率，允许在积累令牌后短时突发；漏桶（指固定服务速率的队列整形器）控制的是“输出节奏”，把突发输入排队后按固定速率平滑输出。选型取决于目标：若要限制平均速率并保留突发弹性，优先令牌桶；若要保护下游、输出近似恒速，优先漏桶整形器。两者都需结合桶深/队列容量、可接受时延和超额流量处置（排队、丢弃或标记）来确定参数。",
+        "unresolvedDisputes": [
+          "## 分别适合什么场景？",
+          "1. 是否允许输出短突发、只约束长期平均速率？",
+          "2. 是否要求输出严格平滑，或是否愿意用队列换平滑？",
+          "具体设备（路由器、交换机、内核 tc、云网关）的“漏桶”或“令牌桶”实现是否与理论模型一致，需查阅其文档或源码，本次无法确定。",
+          "各场景下的推荐参数（桶深、队列长度、速率）缺少具体流量数据和时延要求，无法给出通用数值。",
+          "分布式限流中各节点独立建桶时的总突发放大程度，依赖部署拓扑和同步机制，无法在此确定。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "rate-limit",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答准确说明令牌桶按信用/平均速率并允许突发，漏桶以固定速率排队整形、平滑输出并涉及时延，给出突发优先令牌桶、严格平滑优先漏桶的场景选择，也提到超额流量可排队、丢弃或标记，覆盖全部必答与建议主张且无错误主张。",
+        "usage": {
+          "inputTokens": 685,
+          "outputTokens": 534,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8945,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "observability",
+      "category": "Operations",
+      "strategy": "assumption",
+      "question": "日志、指标、追踪各自解决什么问题？为什么不能互相替代？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 3641,
+          "outputTokens": 1723,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 24263
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 71825,
+        "durationSec": 72,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 174,
+            "outputTokens": 1028
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 212,
+            "outputTokens": 2787
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3229,
+            "outputTokens": 2564
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2348,
+            "outputTokens": 1564
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "三者回答不同层次的问题，通常不能完全互相替代，但\"不能替代\"有明确边界。指标（Metrics）是聚合数值序列，回答\"整体表现如何、趋势和比例是否异常\"，适合告警和 SLO；代价是聚合有损，常规聚合指标通常不保留逐请求身份，高基数标签会使时序数量膨胀。日志（Logs）是离散事件记录，回答\"某个具体事件发生了什么\"，保留细节；但日志本身不自动表达跨服务因果，需要 trace_id 等关联字段才能串联。追踪（Traces）用 span 树表达一次操作的调用路径与各跳耗时，回答\"慢或失败发生在哪一环\"；其完整性依赖埋点和上下文传播，高流量下常采样，因此不适合做精确全局统计。推荐排障路径是：指标发现异常 → 追踪定位环节 → 日志解释根因，并通过共享标识（trace_id、exemplars）关联。适用边界：单体、低流量、故障模式简单的系统可先用指标加结构化日志，追踪投入产出比不高；全局延迟和错误率应以指标为准，不应从采样追踪推导；精确审计或计费需要全量、不可采样的记录，但\"审计日志必须全量\"应按具体合规要求定义，不能泛化为所有诊断日志。",
+        "unresolvedDisputes": [
+          "- **指标（Metrics）**：回答“系统整体怎样？",
+          "- **日志（Logs）**：回答“某个具体事件发生了什么？",
+          "- **追踪（Traces）**：回答“这一次操作经过了哪些组件，时间花在哪里？",
+          "| **指标（Metrics）** | 系统整体是否异常？",
+          "趋势如何？",
+          "| **日志（Logs）** | 某个具体事件发生了什么？",
+          "为什么？",
+          "| **追踪（Traces）** | 一个请求经过了哪些环节？",
+          "慢或失败发生在哪一跳？",
+          "| 指标（Metrics） | 系统整体是否异常？",
+          "| 日志（Logs） | 某个具体事件发生了什么？",
+          "为什么失败？",
+          "| 追踪（Traces） | 一次请求经过了哪些环节？",
+          "| **指标（Metrics）** | 系统整体表现如何？",
+          "趋势或比例是否异常？",
+          "| **日志（Logs）** | 某个具体事件记录了什么？",
+          "| **追踪（Traces）** | 一次请求经过了哪些服务，耗时和失败发生在哪里？",
+          "具体系统应采用头部采样、尾部采样还是全量采集，取决于流量、成本和错误保留需求，一般性回答无法定论。",
+          "单体或低流量系统是否值得引入分布式追踪，需要具体的故障模式和跨服务调用情况才能判断。",
+          "是否采用宽事件架构统一存储，取决于后端聚合能力、团队运维成本和现有工具链，无法给出普遍推荐。",
+          "审计与合规要求究竟需要何种全量性和留存期，需按具体行业和法规确定，不能从一般可观测性讨论中推出。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "observability",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 0.95,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "清楚区分三种信号的用途，说明聚合和跨服务关联的限制，也提到 exemplars 等关联方式及其成本边界，并指出简单系统可先用一两种信号。",
+        "usage": {
+          "inputTokens": 1035,
+          "outputTokens": 598,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7551,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "testing-pyramid",
+      "category": "Testing",
+      "strategy": "solution",
+      "question": "单元测试、集成测试、端到端测试的边界怎么划？测试金字塔还适用吗？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 8649,
+          "outputTokens": 493,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7828
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 186165,
+        "durationSec": 186,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 197,
+            "outputTokens": 3902
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 146,
+            "outputTokens": 5758
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6193,
+            "outputTokens": 4777
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3673,
+            "outputTokens": 5256
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "边界主要按测试跨过的边界、依赖是否真实、以及断言对象来划，而不是按目录、框架或运行速度划：单元测试验证局部逻辑；集成测试验证组件与真实依赖或模块边界的协作；端到端测试从用户入口验证接近完整系统的关键流程。具体分类在不同团队中可能略有差异，重点是定义清楚并保持一致。测试金字塔仍可作为成本与反馈速度的启发式：快而易定位的测试适合承担大量细粒度验证；但它不意味着固定比例，也不保证所有项目都必须呈金字塔形。默认建议是：复杂业务逻辑用单元测试，真实接缝用集成测试，关键用户旅程保留少量 E2E；多服务系统可用双方都验证的契约测试补充服务边界。",
+        "unresolvedDisputes": [
+          "对每一类缺陷问一句：\"**能捕获它的最低层级测试是什么？",
+          "一个实用规则：**问“是否跨进程/部署？",
+          "是否启动真实基础设施？",
+          "断言的是内部决策还是用户结果？",
+          "## 测试金字塔还适用吗？"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "testing-pyramid",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 93,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答按依赖是否真实、跨过的边界和断言对象划分单元/集成/E2E，并说明E2E覆盖关键用户流程；明确测试金字塔是启发式而非固定比例，比例需结合复杂度、成本与反馈速度及项目类型调整；强调团队应统一各层定义，并给出默认组合与契约测试补充。无重大错误。对故障成本、维护成本的表述较概括，但核心主张完整。",
+        "usage": {
+          "inputTokens": 740,
+          "outputTokens": 2740,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 32252,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "unicode-utf8",
+      "category": "Text",
+      "strategy": "discovery",
+      "question": "UTF-8 和 Unicode 是什么关系？为什么会出现乱码？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "FACT",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 6575,
+          "outputTokens": 1246,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7265
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 130209,
+        "durationSec": 130,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 152,
+            "outputTokens": 682
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 133,
+            "outputTokens": 3700
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2387,
+            "outputTokens": 670
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2095,
+            "outputTokens": 4515
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 2 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "Unicode 是字符集标准，为每个字符分配唯一码点（如「中」为 U+4E2D）；UTF-8 是 Unicode 的一种编码形式，规定如何把码点写成字节（「中」为 E4 B8 AD）。二者不是同一层面的概念，UTF-8 只是 UTF-16、UTF-32 等编码方式之一。乱码的常见原因是：字节按某种编码写出，却按另一种编码解读；此外还可能因为转换过程中数据被有损替换或截断，或因为字体缺少对应字形而显示为方框。",
+        "unresolvedDisputes": [
+          "## 为什么会出现乱码？",
+          "例如不支持某些字符的系统把它们改成 `?",
+          "2. **转换链有损**：先错误解码再编码、截断多字节序列、替换非法字节为 `�` 或 `?",
+          "- **字节已被替换或丢失**：转换过程中把无法处理的内容改成 `?",
+          "- 后者适用于**有损转换**：错误解码后又重新编码、非法字节被替换成 `�`/`?",
+          "最快排除/确认：对原始字节做**严格 UTF-8 解码**，检查是否有非法序列、截断、`�` 或 `?",
+          "3. **有损转换**：错误解码后再编码、截断多字节序列、把非法字节替换成 `�` 或 `?",
+          "若要判断某一具体乱码的原因，需要原始字节、文件或程序声明的编码、以及同一内容在其他软件中的显示结果，目前均未提供。",
+          "无法从通用描述确定某一具体乱码是编码不匹配、数据已有损丢失还是字体问题。",
+          "若乱码内容已被覆盖或以 ? 或 � 落盘，原文可能无法恢复，这取决于用户手中是否还有未损坏的原始数据。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "unicode-utf8",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 60,
+        "modelScore": 55,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1"
+        ],
+        "missingClaims": [
+          "c2",
+          "c3"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": false,
+        "reason": "正确说明 Unicode 是字符集/码点标准、UTF-8 是其一种编码方式，并通过示例体现 UTF-8 字节编码；但未明确 UTF-8 是 1 到 4 字节的变长编码，乱码原因只部分覆盖（错误解码、截断、有损替换），未提重复编码、字符集声明错误，也未说明诊断需原始字节和编码声明、乱码不一定可逆。未出现所列重大错误主张。",
+        "usage": {
+          "inputTokens": 766,
+          "outputTokens": 1296,
+          "cacheReadTokens": 640,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 16465,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "Unicode",
+          "UTF-8",
+          "编码",
+          "字符集"
+        ],
+        "terms": [
+          "Unicode",
+          "UTF-8",
+          "编码",
+          "字符集"
+        ],
+        "note": "字符编码烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "timezone",
+      "category": "Time",
+      "strategy": "truth",
+      "question": "跨时区系统应该如何存储和展示时间？为什么不应该用本地时间存数据库？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4128,
+          "outputTokens": 1235,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 19665
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 65026,
+        "durationSec": 65,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 176,
+            "outputTokens": 1167
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 196,
+            "outputTokens": 2604
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2606,
+            "outputTokens": 1387
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3667,
+            "outputTokens": 4374
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 16 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "应按字段语义分别处理：已发生或已确定为绝对时刻的事件（日志、交易、消息发送等）存 UTC 时间点或等价的绝对时间戳，展示时再转换为用户或业务指定时区；未来本地日程、营业时间、重复计划应存本地日期时间 + IANA 时区名 + 重复规则（必要时另存解析出的绝对时刻）；生日、账期、全天日期等纯日期存日期字段。不要用“无时区的本地时间”作为绝对时刻的唯一存储值；但不是所有本地时间都禁止入库，保留本地语义的日程类数据反而应存本地时间加时区。展示层做格式化转换，但按当地自然日统计、通知触发、日切等业务计算必须先在业务时区中处理，不能拖到最后展示才转换。",
+        "unresolvedDisputes": [
+          "具体数据库类型和驱动在特定版本下的时区转换行为需按实际环境核实，例如 PostgreSQL timestamptz、MySQL DATETIME/TIMESTAMP 的会话时区处理。",
+          "字段级最终方案需由业务明确该时间是“固定绝对时刻”还是“保持当地钟表时间”，以及是否需要保留原始输入用于审计。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "timezone",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 65,
+        "modelScore": 0.8,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [
+          "c4"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": false,
+        "passed": false,
+        "reason": "按时间语义区分绝对时刻与墙上时钟约定，并给出相应存储和展示建议；也指出无时区本地时间不能单独表示绝对时刻。未说明夏令时切换可能造成当地时间不存在或重复，以及未来预约需要定义歧义处理规则。",
+        "usage": {
+          "inputTokens": 1003,
+          "outputTokens": 606,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 8362,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": {
+        "checked": true,
+        "hit": true,
+        "hits": [
+          "UTC",
+          "时区"
+        ],
+        "terms": [
+          "UTC",
+          "时区",
+          "timezone"
+        ],
+        "note": "时间语义烟测"
+      },
+      "error": null
+    },
+    {
+      "id": "compression",
+      "category": "Networking",
+      "strategy": "adversarial",
+      "question": "gzip 和 brotli 的取舍是什么？什么情况下不应该压缩？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7564,
+          "outputTokens": 740,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10927
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 195497,
+        "durationSec": 195,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 2955
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 144,
+            "outputTokens": 6623
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 5247,
+            "outputTokens": 5761
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3160,
+            "outputTokens": 6096
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 19 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "通常可把 gzip 看作兼容性广、压缩开销较低的稳妥选择；Brotli 对文本通常压得更小，适合构建时预压缩的静态资源。静态 HTML/CSS/JS 等可在缓存变体配置正确时提供 Brotli，并保留 gzip 回退。动态响应则按 CPU、延迟和带宽实测决定用 gzip、低级别 Brotli 或不压缩。",
+        "unresolvedDisputes": [
+          "具体压缩级别和最小响应大小应通过真实资源、客户端与流量的压测确定。",
+          "需确认 CDN/代理是否正确处理 Accept-Encoding、Vary、缓存键和不同编码的验证器（如 ETag）。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "compression",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 65,
+        "modelScore": 60,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1"
+        ],
+        "missingClaims": [
+          "c2"
+        ],
+        "wrongClaims": [],
+        "boundaryCovered": false,
+        "passed": false,
+        "reason": "正确给出了静态资源 Brotli + gzip 回退、动态响应按 CPU/延迟/带宽实测选择的主框架，且无重大错误。但未明确已压缩文件通常无需再压缩、极小响应可能不值得压缩；也未明确 Accept-Encoding 协商与 Vary 缓存变体要求，且遗漏秘密信息与攻击者可控内容下的压缩侧信道风险。",
+        "usage": {
+          "inputTokens": 706,
+          "outputTokens": 1578,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 20438,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "git-rebase",
+      "category": "Version Control",
+      "strategy": "expert",
+      "question": "git rebase 和 merge 的区别是什么？团队协作中应该如何选择，为什么不能 rebase 已推送的公共分支？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 8156,
+          "outputTokens": 1342,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 7683
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 136695,
+        "durationSec": 137,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 187,
+            "outputTokens": 1394
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 167,
+            "outputTokens": 6119
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3406,
+            "outputTokens": 1180
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2926,
+            "outputTokens": 2779
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 7 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "机制层面：merge 把两条历史汇合，可能产生合并提交，也可能快进，保留分叉与集成点；rebase 把提交重放到新基底上，被重放的提交会生成新的父关系和新哈希，历史更线性。团队选择：个人私有分支可以 rebase 整理提交或同步 main；多人共享的功能分支和 main、release 等公共分支，应优先用 merge 或平台的 squash merge，不要 rebase 后强推。不能 rebase 已推送的公共分支，是因为别人的本地历史会与改写后的远端历史分叉，强推会覆盖他人提交，pull 可能产生重复提交，PR 评论和 CI 结果也可能绑定旧 SHA。判断标准是这段历史是否已被他人依赖，而不是是否已推送；只有在确认无人依赖、已协调并使用 --force-with-lease 时，才可例外重写。",
+        "unresolvedDisputes": [
+          "## 区别是什么？",
+          "## 团队协作中怎么选？",
+          "## 为什么不该 rebase 已推送的公共分支？",
+          "## 4. 为什么不能 rebase 已推送的公共分支？",
+          "## 为什么不建议 rebase 已推送的公共分支？",
+          "团队是否有合规或审计要求，必须保留每次集成的细粒度记录（决定 merge commit 与 squash merge 的取舍）",
+          "团队是否启用了 main 等分支的保护规则，禁止强推和直接推送",
+          "PR 分支是否只有作者使用，是否允许作者在评审期间改写历史",
+          "CI 与代码评审工具是否绑定提交哈希，以及重跑成本如何"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "git-rebase",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "候选回答准确覆盖了 merge/rebase 机制差异、fast-forward 不一定生成合并提交、公共分支默认不 rebase、个人私有分支可 rebase，以及 rebase 已推送公共分支导致强推、协作者历史分叉/重复提交/冲突和旧 SHA 引用失效；同时说明例外需确认无人依赖、协调并使用 --force-with-lease。",
+        "usage": {
+          "inputTokens": 868,
+          "outputTokens": 656,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10020,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "process-thread",
+      "category": "OS",
+      "strategy": "assumption",
+      "question": "进程和线程的区别是什么？什么场景适合多进程，什么场景适合多线程？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4329,
+          "outputTokens": 2990,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 42058
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 96576,
+        "durationSec": 97,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1055
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 216,
+            "outputTokens": 3235
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3692,
+            "outputTokens": 4023
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2664,
+            "outputTokens": 1668
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "【区别：事实层面，这部分可以确定】进程是操作系统分配资源和做隔离的单位，通常拥有独立的虚拟地址空间、权限上下文和运行时状态；线程是进程内的执行流，同一进程的线程通常共享堆内存、文件描述符等资源，各自保有栈和寄存器状态。直接后果：进程间通信需借助IPC（管道、socket、共享内存、消息队列），常伴序列化或复制成本；线程间可直接读写共享数据，但必须自行处理数据竞争、死锁和可见性。故障隔离上，进程通常更强（一个进程的段错误一般不会直接破坏另一个进程），而线程的致命错误（如段错误）通常会终止整个进程。创建和切换开销进程一般更大，但差距取决于操作系统、是否切换地址空间、TLB和缓存影响，不存在固定倍数。\n【多进程适用条件】1）需要故障或安全隔离，如沙箱执行不可信代码、浏览器标签页、多租户；2）CPU密集且所用运行时限制同进程内并行，典型是CPython的GIL限制字节码并行，此时多进程或prefork多worker才能用满多核；3）各工作单元需要不同运行时、依赖版本或权限；4）希望单个worker崩溃不拖垮整体（Nginx worker、Gunicorn prefork）。代价：每个进程一份运",
+        "unresolvedDisputes": [
+          "选型的核心问题是：**任务之间需要多少共享状态？",
+          "需要多强的隔离？",
+          "瓶颈是CPU还是IO？",
+          "未指定具体语言或运行时（CPython、Java、Go、C++等），无法对“线程能否并行利用多核”给出唯一结论",
+          "具体的性能收益或开销数值无法先验给出，需按任务粒度、数据规模、内存带宽、伪共享情况实测",
+          "团队对并发bug和运维复杂度的承受能力属组织因素，无法从问题本身推出",
+          "是否用异步IO或协程替代线程池，取决于现有代码栈和依赖库的阻塞特性，需看具体工程"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "process-thread",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 90,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "准确说明了进程与线程的核心区别，并按隔离、共享、I/O 和运行时条件给出适用场景；将 GIL 限定在 CPython 语境，没有推广到所有 Python 实现。未提及 Linux 的 task_struct，也未明确说明异步 I/O 或协程是否更快应通过实测判断。",
+        "usage": {
+          "inputTokens": 1537,
+          "outputTokens": 1359,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 13283,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "memory-leak",
+      "category": "Operations",
+      "strategy": "solution",
+      "question": "如何定位一个长时间运行服务的内存泄漏？从监控、快照到复现应该怎么排查？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 8237,
+          "outputTokens": 914,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12298
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 164961,
+        "durationSec": 165,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 200,
+            "outputTokens": 4428
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 146,
+            "outputTokens": 3202
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 5399,
+            "outputTokens": 4433
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 3380,
+            "outputTokens": 7883
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "unknown",
+          "basis": [
+            "有 4 条证据，来源未核验"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "建议按“分域监控与横向比较 → 快照或剖析差分 → 受控复现 → 修复后验证”排查。先确认增长发生在哪一类资源，再选择判据；不要仅凭 RSS 上升就认定是泄漏。\n\n1. **监控定性**：持续记录 RSS、运行时堆使用量及 GC 后存活量，并同时观察 native/off-heap 指标、线程或协程数、FD、连接池、缓存和队列大小。按累计请求量或时间计算增长斜率，并关联流量、版本、租户和接口；若有同版本实例，先比较其增长差异。托管堆在预热后 GC 后仍持续增长，是调查线索，但需检查有界缓存是否仍在正常扩容；native、FD、线程问题不能用堆指标排除。\n\n2. **快照与剖析**：在可比负载下取多份快照或 profile，比较增长对象、保留大小、引用链和分配热点，重点找持续增长且不能释放的对象及其持有者。Java 可用 heap dump/MAT，Go 可用 pprof，Python 可用 tracemalloc，Node.js 可比较 heap snapshot；native 内存应使用分配器统计或 native heap profiler，FD、线程等则追踪对应资源计数。生产取证前",
+        "unresolvedDisputes": [
+          "| Go | `/debug/pprof/heap?",
+          "强制 GC 的方式：Java `jcmd GC.run`，Go `/debug/pprof/heap?"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "memory-leak",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答明确区分堆内与堆外/原生内存，给出 RSS、heap、GC 后存活量、native/off-heap 及增长斜率的监控方法；覆盖 Heap Dump/MAT 与 native profiler 等分域取证；强调 RSS 上升不能单独判定泄漏；并要求受控复现、soak test、差分快照和修复后同负载验证，同时说明生产取证风险与单次快照局限。未出现所列错误主张。",
+        "usage": {
+          "inputTokens": 1128,
+          "outputTokens": 813,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 11916,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "monolith-microservices",
+      "category": "Architecture",
+      "strategy": "discovery",
+      "question": "什么时候应该从单体拆微服务？什么时候不该拆？判断依据是什么？",
+      "judge": {
+        "agentId": "claude-haiku-5-5",
+        "modelId": "claude-haiku-5-5",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 11189,
+          "outputTokens": 1764,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 10424
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 157775,
+        "durationSec": 158,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 156,
+            "outputTokens": 1943
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 134,
+            "outputTokens": 2341
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 3474,
+            "outputTokens": 3346
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 2797,
+            "outputTokens": 7803
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "默认先做模块化单体，把业务边界、依赖规则和数据所有权理清。只有当某个边界同时满足以下条件时才考虑拆出为独立服务：一是独立发布、独立伸缩、故障隔离或硬合规隔离的收益有可测量证据，且缓存、异步、纵向扩展、资源池隔离等替代方案不经济或无法满足要求；二是边界经过近期变更历史验证较稳定，共享可写数据少，跨边界强同步依赖少或可通过超时、熔断、降级、异步化治理；三是团队对服务的代码、部署、告警和值班有明确责任，并具备自动化发布、可观测性、回滚和灰度能力。不应仅因代码量大、团队人数多、架构看起来先进、性能问题未归因、或发布慢但根因在流水线与测试环境而拆分；业务边界仍频繁变化、核心强事务难以拆开、按技术层而非业务能力切分、缺少平台能力时也不应拆。实施上应小范围、可逆地试点 1 到 2 个边界，事先定义成功和回滚阈值，指标不改善就停止扩大。",
+        "unresolvedDisputes": [
+          "- **变更与发布**：多少改动被迫捆绑发布？",
+          "等待其他团队或发布窗口占了多少时间？",
+          "事故是否来自无关改动？",
+          "- **耦合情况**：跨模块调用、共享数据库表、跨领域事务和直接读写内部数据有多频繁？",
+          "拆分后这些依赖能否通过稳定接口替代？",
+          "- **运行成本**：该模块是否有独特的吞吐、延迟、资源或可用性目标？",
+          "独立部署后预计能改善哪些指标？",
+          "- **团队协作**：是否存在真正稳定的领域负责人？",
+          "团队能否端到端承担服务的开发和运行？",
+          "- **额外成本**：是否能承受网络调用、重试、超时、数据同步、分布式追踪、兼容性管理和更多部署单元？",
+          "有用的判断问题是：**“如果拆出这个服务，哪个可测量的痛点会消失？",
+          "会新增哪些成本？",
+          "收益能否在不拆的情况下，通过模块化单体或局部优化取得？",
+          "- **资源差异**：拆服务是否能按模块独立扩缩容，且比优化查询、缓存、异步处理或进程内隔离更经济？",
+          "- **故障隔离**：拆分后是否能限制故障影响？",
+          "- **合规隔离**：独立服务是否真的满足数据、访问控制、审计或部署要求？",
+          "1. **边界稳定吗？",
+          "近期业务变更是否经常跨越候选边界？",
+          "服务之间是否共享可写数据或需要频繁跨域事务？",
+          "2. **痛点可测量吗？",
+          "是发布互相阻塞、扩缩容浪费、故障影响面太大，还是合规要求无法满足？",
+          "3. **拆分能直接缓解痛点吗？",
+          "4. **能承担新增成本吗？",
+          "- 缺失败判据：观察多久？",
+          "哪些指标不改善就回滚？",
+          "缺少具体系统的数据（变更耦合、发布等待、调用链、负载曲线、故障爆炸半径），无法判断某个候选模块是否应拆。",
+          "“数量级差异”“变更频繁”“边界稳定”等量化阈值没有统一标准，需由团队根据自身数据设定。",
+          "硬合规或数据驻留要求是否必须尽早独立部署，取决于法规解释和审计要求，超出本次判断能力。",
+          "团队自治与模块化单体能否达到相近的所有权效果，取决于组织文化和代码治理水平，缺少实证比较。",
+          "若同步调用无法消除，拆分后的故障隔离收益能否被超时、降级等机制抵消，需要故障注入或负载测试验证。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "monolith-microservices",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 100,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c4",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答给出了条件性判断：默认模块化单体，拆分为独立服务需满足边界稳定、独立发布/伸缩/故障隔离收益可测、团队 ownership 与平台运维能力等条件；并列出不应拆分的情形，包括仅为代码量、团队人数、架构美观、性能未归因等。覆盖分布式成本和可逆试点边界，无错误主张。",
+        "usage": {
+          "inputTokens": 859,
+          "outputTokens": 593,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 9669,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    }
+  ],
+  "updatedAt": "2026-11-14T14:18:01.710Z",
+  "corrections": [
+    "mq-delivery",
+    "process-thread"
+  ]
+}

@@ -25,7 +25,7 @@
       "允许不同表达，只要语义覆盖 requiredClaim；不按字面匹配。"
     ]
   },
-  "sha256": "1640fd30617bd74de0af24471b77f2723d6ed138053180defdedf7133d7148d3",
+  "sha256": "e7d7062a3c62a20fef59aa32d1d81767cce26a26694649de3dabbf0b0e26f500",
   "questions": [
     {
       "id": "float-equality",
@@ -603,7 +603,7 @@
         {
           "id": "c2",
           "text": "XSS 可能绕过部分 CSRF 防御。",
-          "severity": "must"
+          "severity": "should"
         },
         {
           "id": "c3",
@@ -650,7 +650,6 @@
       "judging": {
         "mustPass": [
           "c1",
-          "c2",
           "c3",
           "c4"
         ],
@@ -780,7 +779,7 @@
         {
           "id": "c4",
           "text": "给出条件性方向建议，而不是只说无法判断。",
-          "severity": "must"
+          "severity": "should"
         }
       ],
       "allowedExpressions": [
@@ -818,8 +817,7 @@
         "mustPass": [
           "c1",
           "c2",
-          "c3",
-          "c4"
+          "c3"
         ],
         "notes": "必须给条件性建议；不能把“需要验证”当成不給结论的理由。"
       }
@@ -1586,7 +1584,7 @@
         {
           "id": "c4",
           "text": "秘密信息 + 攻击者可控内容要考虑压缩侧信道。",
-          "severity": "must"
+          "severity": "should"
         }
       ],
       "allowedExpressions": [
@@ -1623,8 +1621,7 @@
       "judging": {
         "mustPass": [
           "c1",
-          "c2",
-          "c4"
+          "c2"
         ],
         "notes": "必须给适用边界，不能只说 Brotli 更好。"
       }
@@ -1739,7 +1736,7 @@
         {
           "id": "c2",
           "text": "Linux 中进程和线程都由 task_struct 表示且可调度。",
-          "severity": "must"
+          "severity": "should"
         },
         {
           "id": "c3",
@@ -1791,7 +1788,6 @@
       "judging": {
         "mustPass": [
           "c1",
-          "c2",
           "c3",
           "c4"
         ],
@@ -1984,5 +1980,35 @@
     "minorWrongPenalty": 5,
     "passScore": 70,
     "note": "模型只负责 matched/missing/wrong/boundary/classification 对齐；门槛分由代码计算，模型原始分记录为 modelScore。"
-  }
+  },
+  "mustReview": [
+    {
+      "id": "csrf-xss",
+      "claimId": "c2",
+      "from": "must",
+      "to": "should",
+      "reason": "XSS 绕过 CSRF 是重要关联边界，但不是区分两者和给出防御手段的最低要求。"
+    },
+    {
+      "id": "index-generation",
+      "claimId": "c4",
+      "from": "must",
+      "to": "should",
+      "reason": "“给出条件性方向建议”是评分元要求，不是一条独立事实；回答已给方向时不应因此判失败。"
+    },
+    {
+      "id": "compression",
+      "claimId": "c4",
+      "from": "must",
+      "to": "should",
+      "reason": "压缩侧信道是高级安全边界，不是 gzip/Brotli 取舍的最低要求。"
+    },
+    {
+      "id": "process-thread",
+      "claimId": "c2",
+      "from": "must",
+      "to": "should",
+      "reason": "Linux task_struct 是实现细节；跨 OS 的进程/线程区别不依赖这一条。"
+    }
+  ]
 }

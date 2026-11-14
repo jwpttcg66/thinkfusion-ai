@@ -178,19 +178,44 @@ npm run build:test
 `matchedClaims`、`missingClaims`、`wrongClaims`、`boundaryCovered`、`score`、
 `rubricAgentId` 和 `participatedInDebate`。
 
-### 3 路并行
+### 单进程 worker 池
 
 ```bash
 cd desktop-agent-macos
-npm run regression:debate:parallel
+npm run regression:debate:workers
+# 等价于：
+# electron scripts/regression/run-debate-regression.cjs --no-sandbox --workers=3
 ```
 
-它把 24 题拆成 3 组，每组一个独立 Electron 进程；组内仍串行，组间并行。
-每题仍是 2 辩手 + 1 独立裁判 + V1 评分。
+这是**同一个 Electron 进程里的 3 个异步 worker**，不是 3 个 Electron 进程。
+每个 worker 从题目队列取一题，独立跑：
 
-并行结果会合并到：
+- 2 个辩手；
+- 1 个独立裁判；
+- 1 次 V1 标准评分。
 
-- `docs/implementation/regression/debate-regression-current-pool-final-latest.json`
-- `docs/implementation/regression/debate-regression-current-pool-final-latest.md`
+Provider 的并发由 `--provider-concurrency` 控制，默认是 `workers × 2`
+（3 个 worker 默认 6 个并发模型调用）。每题的编排器内部仍然最多 2 个辩手并发。
 
-注意：并行只缩短墙钟时间，不会自动提高 V1 分数；答案仍有随机波动。
+结果直接写：
+
+- `docs/implementation/regression/debate-regression<后缀>-latest.json`
+- `docs/implementation/regression/debate-regression<后缀>-latest.md`
+
+worker 池只缩短墙钟时间，不会自动提高 V1 分数；答案仍有随机波动。
+
+## 8. V1.1：边界提示与 must 复核
+
+2026-11-14 的第二轮改进：
+
+- 辩论 system 提示词升到 `1.1.0`，增加通用要求：
+  “给出结论时同时说明适用边界、失败模式和常见误区；不要只给主结论。”
+  只改 system，不改用户问题，也不含具体题目答案。
+- 复核 4 条 must，降为 should：
+  - `csrf-xss` c2：XSS 绕过 CSRF 的关联边界；
+  - `index-generation` c4：条件性方向建议属于评分元要求；
+  - `compression` c4：压缩侧信道属于高级安全边界；
+  - `process-thread` c2：Linux `task_struct` 属于实现细节。
+- 其余 must 保留：浮点原因、幂等语义、三阶段丢失点、GIL 适用范围等仍是核心。
+
+新口径的完整 24 题并行结果见 `DEBATE_STANDARD_V1_1_RESULT.md`。

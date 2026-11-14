@@ -1,0 +1,378 @@
+{
+  "dataset": {
+    "version": "1.0.0",
+    "sha256": "ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f",
+    "note": "24 题自动回归集。只用于结构/执行/裁判/质量流程回归；anchor 是规则烟测，不是事实准确率。"
+  },
+  "models": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "judgeRotation": [
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "claude-haiku-5-5"
+  ],
+  "createdAt": "2026-11-14T14:17:28.036Z",
+  "workers": 1,
+  "summary": {
+    "total": 2,
+    "execution": {
+      "COMPLETED": 2
+    },
+    "completed": 2,
+    "judgeModel": 2,
+    "independent": 2,
+    "sharedWith": 0,
+    "quality": {
+      "passed": 2
+    },
+    "factual": {
+      "model-assessed": 2
+    },
+    "anchors": {
+      "checked": 0,
+      "hit": 0
+    },
+    "standard": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "unavailable": 0,
+      "averageScore": 100,
+      "classificationMatches": 2
+    },
+    "byStrategy": {
+      "solution": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 173236
+      },
+      "assumption": {
+        "total": 1,
+        "completed": 1,
+        "judgeModel": 1,
+        "independent": 1,
+        "avgDurationMs": 96576
+      }
+    },
+    "structuralOk": true
+  },
+  "results": [
+    {
+      "id": "mq-delivery",
+      "category": "Messaging",
+      "strategy": "solution",
+      "question": "消息队列如何保证不丢消息？生产、存储、消费三个环节分别可能在哪里丢？",
+      "judge": {
+        "agentId": "gpt-6-luna",
+        "modelId": "gpt-6-luna",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 7661,
+          "outputTokens": 905,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 12188
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 173236,
+        "durationSec": 173,
+        "usage": [
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 199,
+            "outputTokens": 4313
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 145,
+            "outputTokens": 5383
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 6617,
+            "outputTokens": 4596
+          },
+          {
+            "agentId": "deepseek-v4.1-flash",
+            "modelId": "deepseek-v4.1-flash",
+            "inputTokens": 4087,
+            "outputTokens": 3886
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "supported",
+          "basis": [
+            "模型裁判论证质量均值 0.70（model-assessed）"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "不存在脱离故障模型和配置的绝对“不丢”保证。通用做法是端到端设计为“至少一次投递 + 消费幂等 + 可补偿”：生产端确认发送结果，失败可靠重试或落库；Broker 使用持久化和适当的副本/仲裁配置，并监控容量与保留期；消费者在业务处理成功并持久化后再 ack 或提交 offset，失败进入重试或可处理的死信队列。关键业务可用 Outbox/本地消息表解决业务事务与发消息之间的不一致，并以源端数据对账。这样能降低永久丢失风险，但可能重复；跨地域灾难等故障还需单独设计。",
+        "unresolvedDisputes": [
+          "前提假设需要先说清楚：是单机宕机、断电、磁盘损坏，还是整机房故障？",
+          "- 故障模型：是单节点、单机房，还是多机房？",
+          "- 下游是否幂等？",
+          "- 延迟和可用性预算：`min.insync.replicas=2` 在副本数不足时会拒绝写入，你能接受吗？",
+          "- 是否有对账和补偿？",
+          "未指定 Kafka、RabbitMQ、RocketMQ 等具体产品，因此无法给出适用的精确配置值。",
+          "未指定需要防护的故障范围；单进程、单节点、单 AZ、整机房或跨地域灾难所需方案不同。",
+          "未说明是否要求跨数据库或服务的一致性；这决定是否需要 Outbox、事务消息或其他补偿机制。"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "mq-delivery",
+        "classification": "CONTEXTUAL",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 88,
+        "questionType": "CONTEXTUAL",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c2",
+          "c3",
+          "c5"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "回答覆盖生产、Broker、消费三环节的可靠性措施，明确至少一次投递+消费幂等、Outbox/本地消息表和可能重复，并给出故障模型与跨地域边界。不足是未显式提醒不要轻易承诺端到端 Exactly-once；对 ACK 丢失导致重复的说明也不够直接。",
+        "usage": {
+          "inputTokens": 813,
+          "outputTokens": 3487,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 40486,
+        "attempts": 1,
+        "rubricAgentId": "deepseek-v4.1-flash",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    },
+    {
+      "id": "process-thread",
+      "category": "OS",
+      "strategy": "assumption",
+      "question": "进程和线程的区别是什么？什么场景适合多进程，什么场景适合多线程？",
+      "judge": {
+        "agentId": "deepseek-v4.1-flash",
+        "modelId": "deepseek-v4.1-flash",
+        "backend": "model",
+        "judgeAttempts": 1,
+        "questionType": "CONTEXTUAL",
+        "sharedWith": null,
+        "undetermined": false,
+        "confidence": "medium",
+        "fallbackReason": null,
+        "usage": {
+          "inputTokens": 4329,
+          "outputTokens": 2990,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 42058
+      },
+      "debate": {
+        "status": "completed",
+        "outcome": "COMPLETED",
+        "rounds": 2,
+        "messages": 4,
+        "failures": [],
+        "stopReason": "已达到 2 轮上限",
+        "timedOut": false,
+        "durationMs": 96576,
+        "durationSec": 97,
+        "usage": [
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 180,
+            "outputTokens": 1055
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 216,
+            "outputTokens": 3235
+          },
+          {
+            "agentId": "claude-haiku-5-5",
+            "modelId": "claude-haiku-5-5",
+            "inputTokens": 3692,
+            "outputTokens": 4023
+          },
+          {
+            "agentId": "gpt-6-luna",
+            "modelId": "gpt-6-luna",
+            "inputTokens": 2664,
+            "outputTokens": 1668
+          }
+        ]
+      },
+      "quality": {
+        "status": "passed",
+        "modelAssessed": true,
+        "factualAccuracy": {
+          "status": "model-assessed",
+          "basis": [
+            "模型裁判评估了主张与引用的一致性，未经外部事实核验"
+          ]
+        },
+        "logicalValidity": {
+          "status": "insufficient",
+          "basis": [
+            "模型裁判论证质量均值 0.55，证据不足以判为通过"
+          ]
+        },
+        "evidenceQuality": {
+          "status": "insufficient",
+          "basis": [
+            "没有工程/网页证据"
+          ]
+        },
+        "uncertaintyCalibration": {
+          "status": "insufficient",
+          "basis": [
+            "给出了结论，但没有外部事实核验"
+          ]
+        },
+        "conclusionConsistency": {
+          "status": "supported",
+          "basis": [
+            "规则质量门槛通过"
+          ]
+        },
+        "criticalIssues": [
+          "仍有未解决争议"
+        ],
+        "rule": {
+          "passed": 11,
+          "total": 11,
+          "ok": true
+        }
+      },
+      "decision": {
+        "verdict": "partially_supported",
+        "action": "accept_with_caveats",
+        "conclusion": "【区别：事实层面，这部分可以确定】进程是操作系统分配资源和做隔离的单位，通常拥有独立的虚拟地址空间、权限上下文和运行时状态；线程是进程内的执行流，同一进程的线程通常共享堆内存、文件描述符等资源，各自保有栈和寄存器状态。直接后果：进程间通信需借助IPC（管道、socket、共享内存、消息队列），常伴序列化或复制成本；线程间可直接读写共享数据，但必须自行处理数据竞争、死锁和可见性。故障隔离上，进程通常更强（一个进程的段错误一般不会直接破坏另一个进程），而线程的致命错误（如段错误）通常会终止整个进程。创建和切换开销进程一般更大，但差距取决于操作系统、是否切换地址空间、TLB和缓存影响，不存在固定倍数。\n【多进程适用条件】1）需要故障或安全隔离，如沙箱执行不可信代码、浏览器标签页、多租户；2）CPU密集且所用运行时限制同进程内并行，典型是CPython的GIL限制字节码并行，此时多进程或prefork多worker才能用满多核；3）各工作单元需要不同运行时、依赖版本或权限；4）希望单个worker崩溃不拖垮整体（Nginx worker、Gunicorn prefork）。代价：每个进程一份运",
+        "unresolvedDisputes": [
+          "选型的核心问题是：**任务之间需要多少共享状态？",
+          "需要多强的隔离？",
+          "瓶颈是CPU还是IO？",
+          "未指定具体语言或运行时（CPython、Java、Go、C++等），无法对“线程能否并行利用多核”给出唯一结论",
+          "具体的性能收益或开销数值无法先验给出，需按任务粒度、数据规模、内存带宽、伪共享情况实测",
+          "团队对并发bug和运维复杂度的承受能力属组织因素，无法从问题本身推出",
+          "是否用异步IO或协程替代线程池，取决于现有代码栈和依赖库的阻塞特性，需看具体工程"
+        ],
+        "uncertainty": {
+          "level": "medium",
+          "explanation": "由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪"
+        },
+        "recommendedFollowUp": "补充可核验来源后再裁决"
+      },
+      "standard": {
+        "id": "process-thread",
+        "classification": "FACT",
+        "backend": "model",
+        "score": 100,
+        "modelScore": 90,
+        "questionType": "FACT",
+        "classificationMatch": true,
+        "matchedClaims": [
+          "c1",
+          "c3",
+          "c4"
+        ],
+        "missingClaims": [],
+        "wrongClaims": [],
+        "boundaryCovered": true,
+        "passed": true,
+        "reason": "准确说明了进程与线程的核心区别，并按隔离、共享、I/O 和运行时条件给出适用场景；将 GIL 限定在 CPython 语境，没有推广到所有 Python 实现。未提及 Linux 的 task_struct，也未明确说明异步 I/O 或协程是否更快应通过实测判断。",
+        "usage": {
+          "inputTokens": 1537,
+          "outputTokens": 1359,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": null,
+          "cost": null
+        },
+        "latencyMs": 13283,
+        "attempts": 1,
+        "rubricAgentId": "gpt-6-luna",
+        "participatedInDebate": true
+      },
+      "anchor": null,
+      "error": null
+    }
+  ]
+}

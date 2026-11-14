@@ -1,5 +1,8 @@
 # V1 标准：当前模型池全量 24 题结果
 
+> 本报告是旧的“3 个 Electron 进程”版本。该设计已改为单进程 worker 池；
+> 新口径结果见 `DEBATE_STANDARD_V1_1_RESULT.md`。
+
 - 日期：2026-11-14
 - 模型池：`deepseek-v4.1-flash` / `gpt-6-luna` / `claude-haiku-5-5`
 - 数据集：`debate-dataset.json` v1.0.0
