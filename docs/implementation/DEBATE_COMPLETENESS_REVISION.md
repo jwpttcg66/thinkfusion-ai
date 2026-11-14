@@ -78,7 +78,8 @@ V1 能发现“缺 must”，但不会把缺口反馈给答案。结果是：知
 - Reviewer 和 Reviser 的 prompt 不包含 `debate-standard-answers-v1.json`；
 - 只给题目、答案和缺口描述；
 - 不把 24 题标准答案塞进辩论或修订提示词；
-- 最多一次修订，避免无限循环和成本失控。
+- 最多一次修订，避免无限循环和成本失控；
+- 增量 fingerprint 包含 `completeness` 开关：开/关变化会让旧结果失效，必须重跑。
 
 ## 5. 单测
 

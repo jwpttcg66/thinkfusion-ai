@@ -8,7 +8,7 @@
  */
 const crypto = require('node:crypto');
 
-function fingerprintFor({ runnerVersion, promptVersion, item, standardItem, models }) {
+function fingerprintFor({ runnerVersion, promptVersion, item, standardItem, models, completeness }) {
   return crypto.createHash('sha256').update(JSON.stringify({
     runnerVersion,
     promptVersion,
@@ -16,7 +16,8 @@ function fingerprintFor({ runnerVersion, promptVersion, item, standardItem, mode
     strategy: item.strategy,
     anchor: item.anchor ?? null,
     standard: standardItem ?? null,
-    models
+    models,
+    completeness: completeness === true
   })).digest('hex');
 }
 

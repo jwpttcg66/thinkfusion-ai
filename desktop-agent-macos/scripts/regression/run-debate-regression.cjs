@@ -51,12 +51,14 @@ function fingerprint(item, standardItem) {
     promptVersion: PROMPT_VERSION,
     item,
     standardItem,
-    models: MODELS.map(model => model.model)
+    models: MODELS.map(model => model.model),
+    completeness: completenessEnabled
   });
 }
 
 let MODELS = [];
 let IDS = [];
+let completenessEnabled = false;
 
 /** 读取用户在设置里勾选的模型；不把模型名硬编码在回归脚本里。 */
 function loadSelectedModels(appData) {
@@ -121,7 +123,7 @@ app.whenReady().then(async () => {
     1,
     Math.min(12, Number.parseInt(argValue('provider-concurrency', String(Math.max(3, workers * 2))), 10))
   );
-  const completenessEnabled = process.argv.includes('--completeness') || argValue('completeness', '0') === '1';
+  completenessEnabled = process.argv.includes('--completeness') || argValue('completeness', '0') === '1';
 
   const indexed = dataset.questions.map((item, datasetIndex) => ({ item, datasetIndex }));
   const filtered = only ? indexed.filter(entry => only.has(entry.item.id)) : indexed;

@@ -20,7 +20,8 @@ const base = {
   promptVersion: '1.1.0',
   item,
   standardItem,
-  models: ['deepseek-v4.1-flash', 'gpt-6-luna']
+  models: ['deepseek-v4.1-flash', 'gpt-6-luna'],
+  completeness: false
 };
 
 const old = (overrides = {}) => ({
@@ -72,6 +73,12 @@ test('未完成必须重跑', () => {
 
 test('完成、V1 通过、fingerprint 一致才复用', () => {
   assert.equal(canReuseResult(old(), old().fingerprint), true);
+});
+
+test('完整性复核开关变化必须重跑', () => {
+  const next = fingerprintFor({ ...base, completeness: true });
+  assert.notEqual(next, old().fingerprint);
+  assert.equal(canReuseResult(old(), next), false);
 });
 
 test('旧 fingerprint 与当前不一致不能复用', () => {
