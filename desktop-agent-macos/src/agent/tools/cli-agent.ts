@@ -314,6 +314,7 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
         parsed && typeof parsed.result === 'string' ? parsed.result : trimTail(out.text, TAIL_CHARS);
       resolve({
         cli: config.id,
+        cwd: request.cwd,
         exitCode,
         signal,
         timedOut: entry.timedOut,

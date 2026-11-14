@@ -64,6 +64,8 @@ export interface CliModelIdentity {
 
 export interface CliRunResult {
   cli: string;
+  /** 实际执行目录：独立工作树，或授权根目录。 */
+  cwd: string;
   /** 进程退出码；被信号终止或超时为 null。 */
   exitCode: number | null;
   signal: string | null;

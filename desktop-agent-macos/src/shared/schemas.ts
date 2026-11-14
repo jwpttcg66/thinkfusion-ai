@@ -190,3 +190,18 @@ export const CliAgentToggleSchema = z
     enabled: z.boolean()
   })
   .strict();
+
+/** 任务级 Worktree：只认 taskId，不接受路径——路径由主进程自己记账。 */
+export const WorktreeCommitSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    message: z.string().min(1).max(200)
+  })
+  .strict();
+
+export const WorktreeRemoveSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    force: z.boolean().optional()
+  })
+  .strict();

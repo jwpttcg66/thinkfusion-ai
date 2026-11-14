@@ -5443,3 +5443,64 @@ button:disabled {
   background: #0f1115;
 }
 .agent-terminal-host .xterm { padding: 6px; height: 100%; }
+
+/* 任务级 Worktree：只给含 agent.exec 的任务出现。 */
+.task-worktree { display: flex; flex-direction: column; gap: 8px; }
+.task-worktree-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.task-worktree-head code {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.worktree-chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: inherit;
+  opacity: 0.8;
+}
+.worktree-chip.warn {
+  border-color: rgba(255, 190, 90, 0.55);
+  background: rgba(255, 190, 90, 0.12);
+  opacity: 1;
+}
+.task-worktree-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  opacity: 0.78;
+  margin: 0;
+  word-break: break-all;
+}
+.task-worktree-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.task-worktree-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.task-worktree-confirm input[type='text'],
+.task-worktree-confirm input:not([type]) {
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+.task-worktree-force { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.task-worktree-diff pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.45;
+}

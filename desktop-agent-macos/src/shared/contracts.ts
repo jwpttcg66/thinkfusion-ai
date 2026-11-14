@@ -31,6 +31,13 @@ import type {
 } from './conversation';
 import type { TraceEntry, TraceTotals } from './trace';
 import type { CliAgentView, TerminalAttach, TerminalDataEvent } from './cli-agents';
+import type {
+  TaskWorktreeCommitInput,
+  TaskWorktreeDiff,
+  TaskWorktreeMergeResult,
+  TaskWorktreeRemoveInput,
+  TaskWorktreeView
+} from './worktree';
 
 /**
  * desktop-agent/v1 wire + IPC contracts.
@@ -1227,6 +1234,11 @@ export const TaskGrantSchema = z
     permissionPreset: z.enum(['read-only', 'workspace-write', 'danger-full-access']),
     approvalPolicy: z.literal('ask'),
     rootDir: z.string().min(1).max(2000),
+    /**
+     * 外部 Agent 的独立工作树；由主进程在审批时创建并写进授权。
+     * 缺省表示没有工作树（例如不含 agent.exec 的普通计划）。
+     */
+    worktreeDir: z.string().min(1).max(2000).optional(),
     allowedTools: z.array(z.enum(TOOL_NAMES)).min(1).max(TOOL_NAMES.length),
     expiresAt: z.number().int().positive(),
     maxSteps: z.number().int().min(1).max(30),
@@ -2298,6 +2310,15 @@ export interface AgentApi {
   closeTerminal(sessionId: string): Promise<void>;
   /** 主进程推送的终端增量；返回取消订阅函数。 */
   onTerminalData(listener: (event: TerminalDataEvent) => void): () => void;
+
+  // 任务级 Worktree — 外部 Agent 的隔离工作区，合并/清理都要用户显式点
+  getTaskWorktree(taskId: string): Promise<TaskWorktreeView | null>;
+  openTaskWorktree(taskId: string): Promise<{ opened: boolean; error?: string }>;
+  copyTaskWorktreePath(taskId: string): Promise<void>;
+  getTaskWorktreeDiff(taskId: string): Promise<TaskWorktreeDiff>;
+  commitTaskWorktree(input: TaskWorktreeCommitInput): Promise<TaskWorktreeView>;
+  mergeTaskWorktree(taskId: string): Promise<TaskWorktreeMergeResult>;
+  removeTaskWorktree(input: TaskWorktreeRemoveInput): Promise<void>;
 
   // environment
   getPermissionPreset(): Promise<PermissionPreset>;

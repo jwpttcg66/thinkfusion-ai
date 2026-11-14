@@ -21,6 +21,7 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 | 真实进程执行 / 超时 / 进程组取消 | `src/agent/tools/cli-agent.ts` |
 | 注册表（安装、版本、开关、能力） | `src/main/cli-agents.ts`、`userData/cli-agents.json` |
 | 执行结果与验证联动 | `src/agent/verification.ts`、`src/shared/engineering-evidence.ts` |
+| 任务级独立 Worktree（创建/提交/合并/删除） | `src/main/task-worktree.ts`、`src/renderer/src/components/TaskWorktree.tsx` |
 | TerminalHost：多读者、程序直启、进程组 | `src/agent/tools/terminal.ts` |
 | 终端 IPC 与面板 | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/components/AgentTerminal.tsx` |
 | 任务取消真的下发到 Runtime | `src/main/agent-manager.ts`（`cancelPlan`） |
@@ -41,7 +42,22 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 - 需要更强隔离时自己换 Worktree、环境变量白名单或 CLI 权限参数；
 - 不要把 Worktree 说成安全沙箱——它不是。
 
-## 4. 实测记录（2026-11-15，macOS）
+## 4. 独立工作树
+
+含 `agent.exec` 的计划在**审批时**创建一棵独立 git worktree：
+
+- 位置：`userData/worktrees/<仓库名>-<任务短 id>-<hash>`，不在仓库里，不污染 `git status`；
+- 分支：`tf/<task-id>-<hash>`，基线是审批时的 `HEAD`；
+- 授权里写 `worktreeDir`，`agent.exec` 的相对 `cwd` 以它为准，`..` 越界会被拒绝；
+- 同一任务多轮复用同一棵树，不会每轮新建；
+- 取消 / 失败 / 应用退出都**保留**这棵树，不自动回滚半成品；
+- 合并是显式动作：先在面板里提交，再点合并；冲突自动 `merge --abort`，不留半合并状态；
+- 删除时若有未提交改动默认拒绝，只有勾选「强制删除」才会丢改动；未合并的分支会保留。
+
+界面在任务详情里显示：分支、路径、未提交文件数、领先提交数，并提供
+打开目录 / 复制路径 / 查看 diff / 提交 / 合并 / 删除。没有 `agent.exec` 的任务不显示这块。
+
+## 5. 实测记录（2026-11-15，macOS）
 
 两台 CLI 都装在开发机上：
 
@@ -86,7 +102,7 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 - 多 CLI 并发时的订阅额度与限流行为；
 - CLI 自动升级后参数是否漂移。**升级后必须重新跑上面的最小任务**，再决定是否保留 `verified`。
 
-## 5. 结果与验证
+## 6. 结果与验证
 
 `agent.exec` 返回：
 
@@ -109,7 +125,7 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 
 代码里对应：`src/agent/verification.ts`、`src/shared/engineering-evidence.ts`。
 
-## 6. 终端
+## 7. 终端
 
 - `agent.exec` 走 headless（管道），**没有 PTY**：JSON 与 stderr 混在 PTY 里会互相污染，
   所以不为了「看起来有终端」把控制通道塞进 PTY；
@@ -118,20 +134,21 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 - 关闭面板只 detach，不杀进程；要结束必须点「结束会话」或取消任务；
 - xterm 不注册 OSC 52 / OSC 8 处理器，第三方输出不能改剪贴板、不能把链接变成动作。
 
-## 7. 生命周期
+## 8. 生命周期
 
 | 动作 | 结果 |
 | --- | --- |
 | 关闭终端面板 | CLI 继续跑，重新打开能看到 backlog |
-| 取消任务 | 下发 `task.cancel`，Runtime 按进程组终止 CLI |
+| 取消任务 | 下发 `task.cancel`，Runtime 按进程组终止 CLI；工作树保留 |
 | 计划执行超时 | 先下发取消再拒绝，不留「界面超时、进程还在改文件」 |
-| 应用退出 | Runtime 退出时终止所有 CLI 与 PTY，并落任务终止记录 |
+| 应用退出 | Runtime 退出时终止所有 CLI 与 PTY，并落任务终止记录；工作树保留 |
 | 后台续跑 | 本期不支持；需要独立的进程宿主与恢复设计 |
 
-## 8. 测试
+## 9. 测试
 
 ```bash
 npm run test:cli        # 真实子进程：argv、退出码、超时、取消、改动路径、权限门
+npm run test:worktree   # 真实 git：建树、复用、隔离、提交、合并、删除
 npm run test:terminal   # 真实 PTY
 npm run test:verify     # 验证规则（含 CLI 改动）
 npm run test:capabilities

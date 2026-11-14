@@ -11,6 +11,7 @@
  * 记日志和推进计划，不再认识任何具体工具。
  */
 
+import path from 'node:path';
 import { CapabilityRegistry, capabilityMeta } from '../shared/capabilities';
 import type { ToolName } from '../shared/contracts';
 import type { TaskGrant } from '../shared/contracts';
@@ -291,7 +292,21 @@ const PLUGINS = [
     const config = ctx.cliAgents.find(item => item.id === args.cli);
     const configError = cliAgentConfigError(config);
     if (configError) throw new Error(configError);
-    const cwd = assertUsableCwd(await resolveGrantedPath(ctx.grant, args.cwd ?? '.', false));
+    // 有独立工作树时，相对 cwd 以它为准，并显式检查越界；没有工作树才退回
+    // 授权根目录（普通只读分析等场景）。路径由主进程写进 grant，模型改不了。
+    const executionRoot = ctx.grant.worktreeDir ?? ctx.grant.rootDir;
+    const requested = args.cwd ?? '.';
+    let cwd: string;
+    if (ctx.grant.worktreeDir) {
+      const resolved = path.resolve(executionRoot, requested);
+      const relative = path.relative(executionRoot, resolved);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('路径越过外部 Agent 的独立工作树');
+      }
+      cwd = assertUsableCwd(resolved);
+    } else {
+      cwd = assertUsableCwd(await resolveGrantedPath(ctx.grant, requested, false));
+    }
     const remaining = ctx.grant.expiresAt - Date.now();
     if (remaining <= 1000) throw new Error('任务授权已过期，无法启动外部 Agent');
     const run = await runCliAgent(config as CliAgentConfig, {

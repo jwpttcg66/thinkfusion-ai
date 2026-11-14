@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, screen } from 'electron';
+import { app, BrowserWindow, WebContentsView, session, ipcMain, dialog, screen, shell, clipboard } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -26,7 +26,9 @@ import {
   CliAgentToggleSchema,
   TerminalResizeSchema,
   TerminalSessionIdSchema,
-  TerminalWriteSchema
+  TerminalWriteSchema,
+  WorktreeCommitSchema,
+  WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
@@ -97,6 +99,14 @@ import {
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, setMainCallHandler, setTerminalSink, requestTerminal, startAgentProcess } from './agent-manager';
 import { configureCliAgents, listCliAgents, setCliAgentEnabled } from './cli-agents';
+import {
+  commitTaskWorktree,
+  configureTaskWorktrees,
+  getTaskWorktree,
+  mergeTaskWorktree,
+  removeTaskWorktree,
+  taskWorktreeDiff
+} from './task-worktree';
 import { collapsedSplit, computePageBounds, computeSplit, type PageBounds } from '../shared/layout';
 import {
   MIN_WINDOW_HEIGHT,
@@ -2740,6 +2750,48 @@ function registerIpc() {
     await requestTerminal('close', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
   });
 
+  // 任务级 Worktree：只按 taskId 操作；路径与分支由主进程记账，界面传不进来。
+  ipcMain.handle('worktree:get', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    return getTaskWorktree(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('worktree:open', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    const view = await getTaskWorktree(TaskIdSchema.parse(taskId));
+    if (!view) throw new Error('这个任务没有独立工作树');
+    if (!view.exists) throw new Error('工作树目录已经不存在');
+    const error = await shell.openPath(view.dir);
+    return { opened: error === '', error: error || undefined };
+  });
+
+  ipcMain.handle('worktree:diff', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    return taskWorktreeDiff(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('worktree:copy-path', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    const view = await getTaskWorktree(TaskIdSchema.parse(taskId));
+    if (!view) throw new Error('这个任务没有独立工作树');
+    clipboard.writeText(view.dir);
+  });
+
+  ipcMain.handle('worktree:commit', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    return commitTaskWorktree(WorktreeCommitSchema.parse(raw));
+  });
+
+  ipcMain.handle('worktree:merge', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    return mergeTaskWorktree(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('worktree:remove', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await removeTaskWorktree(WorktreeRemoveSchema.parse(raw));
+  });
+
   ipcMain.handle('task:answer', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = ClarificationAnswerSchema.parse(raw);
@@ -4363,6 +4415,7 @@ app.whenReady().then(async () => {
   setDisabledCapabilities(capabilityStore.disabledIds());
   // CLI 执行者的配置与开关：注册表读 userData，每次 task.run 下发快照。
   configureCliAgents({ userDataDir: app.getPath('userData') });
+  configureTaskWorktrees({ root: path.join(app.getPath('userData'), 'worktrees') });
   // 开发态从项目 resources/ 读；打包后这些 .md 由 extraResources 放到
   // Contents/Resources/expertise/，两个候选都列上，哪个先找到用哪个。
   expertiseUserDir = path.join(app.getPath('userData'), 'expertise');

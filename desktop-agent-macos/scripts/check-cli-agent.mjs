@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -367,5 +367,44 @@ test('agent.exec 插件：按配置启动、返回结构化结果、缺配置时
         { grant: grant(), cliAgents: [config()] }
       ),
     /没有这个 CLI Agent 配置/
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 7. 独立工作树：CLI 只在授权的那棵树里跑
+// ---------------------------------------------------------------------------
+
+test('有独立工作树时，agent.exec 在树内执行；cwd 越界被拒绝', async () => {
+  const { localCapabilities } = await import('../out-test/agent/local-plugins.js');
+  const { configureTaskWorktrees, ensureTaskWorktree } = await import('../out-test/main/task-worktree.js');
+
+  const fresh = path.join(work, 'repo-wt');
+  mkdirSync(fresh, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: fresh });
+  writeFileSync(path.join(fresh, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['add', '.'], { cwd: fresh });
+  execFileSync('git', ['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-qm', 'seed'], { cwd: fresh });
+
+  configureTaskWorktrees({ root: path.join(work, 'worktrees-test') });
+  const tree = await ensureTaskWorktree({ rootDir: fresh, taskId: 'plugin-wt' });
+
+  const outcome = await localCapabilities.execute(
+    'agent.exec',
+    { cli: 'fake', task: 'in-worktree' },
+    { grant: grant({ rootDir: fresh, worktreeDir: tree.dir }), cliAgents: [config()] }
+  );
+  assert.equal(outcome.failure, null);
+  assert.equal(outcome.result.cwd, tree.dir);
+  assert.ok(outcome.result.changedPaths.includes('cli-created.txt'));
+  assert.equal(existsSync(path.join(fresh, 'cli-created.txt')), false, '主工作区不应被直接修改');
+
+  await assert.rejects(
+    () =>
+      localCapabilities.execute(
+        'agent.exec',
+        { cli: 'fake', task: 'escape', cwd: '..' },
+        { grant: grant({ rootDir: fresh, worktreeDir: tree.dir }), cliAgents: [config()] }
+      ),
+    /越过外部 Agent 的独立工作树/
   );
 });

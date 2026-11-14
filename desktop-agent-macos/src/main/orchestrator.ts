@@ -21,6 +21,7 @@ import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
 import { runPlan, decideStepApproval, answerStepQuestion, cancelPlan } from './agent-manager';
+import { ensureTaskWorktree } from './task-worktree';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
 
@@ -72,6 +73,11 @@ export interface OrchestratorDeps {
     participants: string[];
     summary: string;
   } | null>;
+  /**
+   * 审批时给外部 Agent 建独立工作树。默认实现是 main/task-worktree。
+   * 测试可以注入一个只返回路径的假实现，不必真起 git。
+   */
+  worktree?: (input: { rootDir: string; taskId: string }) => Promise<{ dir: string; branch: string }>;
 }
 
 /**
@@ -217,6 +223,23 @@ export class AgentOrchestrator {
     const budgetViolations = checkCodingBudget(plan);
     if (budgetViolations.length > 0) {
       throw new Error(`计划超出编码预算：${budgetViolations.join('；')}`);
+    }
+
+    // 外部 CLI 自带工具循环，不能让它直接改主工作区：审批时先建独立
+    // Worktree，把路径写进授权。取消/失败保留这棵树，合并是用户的下一个显式动作。
+    if (plan.steps.some(step => step.tool === 'agent.exec')) {
+      const worktree = await (this.deps.worktree ?? ensureTaskWorktree)({
+        rootDir,
+        taskId: task.taskId
+      });
+      grant.worktreeDir = worktree.dir;
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId: task.taskId,
+        level: 'info',
+        message: `外部 Agent 将在独立工作树中执行：${worktree.dir}（分支 ${worktree.branch}）。主工作区不会被直接修改；合并需要你确认。`
+      });
     }
 
     this.deps.store.updatePlan(stored.planId, { approvalStatus: 'approved' });

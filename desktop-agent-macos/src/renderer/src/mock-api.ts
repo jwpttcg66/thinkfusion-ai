@@ -283,6 +283,39 @@ export function createMockApi(): AgentApi {
     resizeTerminal: async () => undefined,
     closeTerminal: async () => undefined,
     onTerminalData: () => () => undefined,
+    getTaskWorktree: async taskId => ({
+      taskId,
+      rootDir: '/preview/project',
+      dir: `/preview/worktrees/project-${taskId}-abc123`,
+      branch: `tf/${taskId}-abc123`,
+      baseBranch: 'main',
+      baseCommit: 'abc1234',
+      createdAt: Date.now(),
+      exists: true,
+      dirty: false,
+      changedFiles: [],
+      ahead: 0,
+      merged: false
+    }),
+    openTaskWorktree: async () => ({ opened: false, error: '预览模式没有工作树' }),
+    copyTaskWorktreePath: async () => undefined,
+    getTaskWorktreeDiff: async taskId => ({
+      dir: `/preview/${taskId}`,
+      branch: `tf/${taskId}`,
+      diff: '',
+      untracked: [],
+      truncated: false
+    }),
+    commitTaskWorktree: async () => {
+      throw new Error('预览模式没有工作树');
+    },
+    mergeTaskWorktree: async taskId => ({
+      taskId,
+      branch: `tf/${taskId}`,
+      commit: 'preview',
+      message: '预览模式没有合并'
+    }),
+    removeTaskWorktree: async () => undefined,
     getPermissionPreset: async () => preset,
     setPermissionPreset: async (next: PermissionPreset) => {
       preset = next;

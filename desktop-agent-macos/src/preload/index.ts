@@ -31,6 +31,13 @@ import type {
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
 import type { CliAgentView, TerminalAttach, TerminalDataEvent } from '../shared/cli-agents';
+import type {
+  TaskWorktreeCommitInput,
+  TaskWorktreeDiff,
+  TaskWorktreeMergeResult,
+  TaskWorktreeRemoveInput,
+  TaskWorktreeView
+} from '../shared/worktree';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -125,6 +132,20 @@ const api: AgentApi = {
     ipcRenderer.on('terminal:data', handler);
     return () => ipcRenderer.removeListener('terminal:data', handler);
   },
+
+  getTaskWorktree: (taskId: string): Promise<TaskWorktreeView | null> =>
+    ipcRenderer.invoke('worktree:get', taskId),
+  openTaskWorktree: (taskId: string): Promise<{ opened: boolean; error?: string }> =>
+    ipcRenderer.invoke('worktree:open', taskId),
+  copyTaskWorktreePath: (taskId: string): Promise<void> => ipcRenderer.invoke('worktree:copy-path', taskId),
+  getTaskWorktreeDiff: (taskId: string): Promise<TaskWorktreeDiff> =>
+    ipcRenderer.invoke('worktree:diff', taskId),
+  commitTaskWorktree: (input: TaskWorktreeCommitInput): Promise<TaskWorktreeView> =>
+    ipcRenderer.invoke('worktree:commit', input),
+  mergeTaskWorktree: (taskId: string): Promise<TaskWorktreeMergeResult> =>
+    ipcRenderer.invoke('worktree:merge', taskId),
+  removeTaskWorktree: (input: TaskWorktreeRemoveInput): Promise<void> =>
+    ipcRenderer.invoke('worktree:remove', input),
 
   getPermissionPreset: () => ipcRenderer.invoke('permission:get'),
   setPermissionPreset: (preset: PermissionPreset) => ipcRenderer.invoke('permission:set', preset),
