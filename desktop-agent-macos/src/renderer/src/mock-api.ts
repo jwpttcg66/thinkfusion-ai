@@ -279,6 +279,9 @@ export function createMockApi(): AgentApi {
       dropped: 0,
       exited: false
     }),
+    listTerminals: async () => [],
+    setTerminalPane: async () => undefined,
+    detachTerminal: async () => undefined,
     writeTerminal: async () => undefined,
     resizeTerminal: async () => undefined,
     closeTerminal: async () => undefined,

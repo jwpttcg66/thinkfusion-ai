@@ -323,6 +323,17 @@ let detachedSaveOverlay: {
   onResize: () => void;
 } | null = null;
 
+/**
+ * 独立终端窗口。
+ *
+ * 与网页的「放大」不是同一套实现：网页是 WebContentsView 换父窗口，终端
+ * 是 DOM，所以这里开一个只加载 terminal.html 的小窗口。它拿不到主窗口的
+ * 完整 API，只能读写已经存在的 PTY。
+ */
+let terminalWindow: BrowserWindow | null = null;
+/** 终端面板占用了右侧区域时，内嵌网页停止绘制（否则原生视图会盖住 DOM）。 */
+let pageHiddenForTerminal = false;
+
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
 
@@ -1199,6 +1210,79 @@ function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
 }
 
 /**
+ * 终端相关调用允许两个来源：主窗口，以及我们自己开的独立终端窗口。
+ *
+ * 独立窗口只加载 terminal.html；即使它被注入，能调到的也只有 PTY 读写，
+ * 没有任务、文件或设置。
+ */
+function trustedTerminalSender(event: Electron.IpcMainInvokeEvent) {
+  if (
+    terminalWindow &&
+    !terminalWindow.isDestroyed() &&
+    event.sender.id === terminalWindow.webContents.id &&
+    event.senderFrame === event.sender.mainFrame
+  ) {
+    const url = event.senderFrame?.url ?? '';
+    const isDev = url.startsWith('http://localhost:') || url.startsWith('http://127.0.0.1:');
+    if (isDev || url.includes('terminal.html')) return;
+    throw new Error('Untrusted terminal renderer origin');
+  }
+  trustedUiSender(event);
+}
+
+function terminalUrl(sessionId?: string): { url: string } | { file: string; query: Record<string, string> } {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : '';
+  if (rendererUrl) {
+    const base = rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`;
+    return { url: new URL(`terminal.html${query}`, base).toString() };
+  }
+  return {
+    file: path.join(__dirname, '../renderer/terminal.html'),
+    query: sessionId ? { session: sessionId } : {}
+  };
+}
+
+/**
+ * 终端「放大」：开一个只显示终端的独立窗口。
+ *
+ * 不做网页那种 WebContentsView 换父，因为终端是 DOM；但用户体验一致：
+ * 同一个会话、同一个尺寸，关掉窗口就回到主窗口。
+ */
+async function openTerminalWindow(sessionId?: string): Promise<void> {
+  if (terminalWindow && !terminalWindow.isDestroyed()) {
+    if (terminalWindow.isMinimized()) terminalWindow.restore();
+    terminalWindow.show();
+    terminalWindow.focus();
+    if (sessionId) terminalWindow.webContents.send('terminal:select', sessionId);
+    return;
+  }
+
+  const target = terminalUrl(sessionId);
+  const created = new BrowserWindow({
+    width: 960,
+    height: 640,
+    minWidth: 520,
+    minHeight: 360,
+    title: '终端 · 独立窗口',
+    backgroundColor: '#0f1115',
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, '../preload/terminal.js')
+    }
+  });
+  terminalWindow = created;
+  created.on('closed', () => {
+    if (terminalWindow === created) terminalWindow = null;
+  });
+  if ('url' in target) await created.loadURL(target.url);
+  else await created.loadFile(target.file, { query: target.query });
+}
+
+
+/**
  * 渲染进程递上来的搜索设置，只认这三个字段。
  *
  * 不直接 `as SearchSettings` 是有原因的：渲染进程是网页环境，任何字段都可能
@@ -1262,7 +1346,7 @@ function layout() {
     // is not laid out against the current split. A folded pane is the same
     // situation, which is why it goes through this branch rather than through a
     // zero-width bounds.
-    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed;
+    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed && !pageHiddenForTerminal;
     const bounds = onScreen ? shown : offstage;
     const last = applied.get(id);
     if (!last || last.x !== bounds.x || last.y !== bounds.y || last.width !== bounds.width || last.height !== bounds.height) {
@@ -2729,24 +2813,47 @@ function registerIpc() {
   });
 
   ipcMain.handle('terminal:attach', async (event, sessionId: unknown) => {
-    trustedUiSender(event);
+    trustedTerminalSender(event);
     return requestTerminal('attach', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
   });
 
-  ipcMain.handle('terminal:write', async (event, raw: unknown) => {
+  ipcMain.handle('terminal:list', async event => {
+    trustedTerminalSender(event);
+    const result = (await requestTerminal('list', {})) as { sessions?: unknown };
+    return Array.isArray(result?.sessions) ? result.sessions : [];
+  });
+
+  // 终端面板占用右侧区域时，内嵌网页必须停止绘制；否则原生视图会盖住 DOM。
+  ipcMain.handle('terminal:set-pane', (event, open: unknown) => {
     trustedUiSender(event);
+    pageHiddenForTerminal = open === true;
+    layout();
+  });
+
+  ipcMain.handle('terminal:detach', async (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    await openTerminalWindow(typeof sessionId === 'string' && sessionId ? sessionId : undefined);
+  });
+
+  ipcMain.handle('terminal:reattach', event => {
+    trustedTerminalSender(event);
+    if (terminalWindow && !terminalWindow.isDestroyed()) terminalWindow.close();
+  });
+
+  ipcMain.handle('terminal:write', async (event, raw: unknown) => {
+    trustedTerminalSender(event);
     const input = TerminalWriteSchema.parse(raw);
     await requestTerminal('write', input);
   });
 
   ipcMain.handle('terminal:resize', async (event, raw: unknown) => {
-    trustedUiSender(event);
+    trustedTerminalSender(event);
     const input = TerminalResizeSchema.parse(raw);
     await requestTerminal('resize', input);
   });
 
   ipcMain.handle('terminal:close', async (event, sessionId: unknown) => {
-    trustedUiSender(event);
+    trustedTerminalSender(event);
     await requestTerminal('close', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
   });
 
@@ -4805,9 +4912,12 @@ app.whenReady().then(async () => {
   registerIpc();
   startAgentProcess();
   setAgentEventSink(event => emit(event));
-  // 终端输出从 Runtime 一路推到主窗口；主进程只转发，不解析内容。
+  // 终端输出从 Runtime 一路推到两个窗口；主进程只转发，不解析内容。
   setTerminalSink(event => {
     if (win && !win.isDestroyed()) win.webContents.send('terminal:data', event);
+    if (terminalWindow && !terminalWindow.isDestroyed()) {
+      terminalWindow.webContents.send('terminal:data', event);
+    }
   });
 
   /**

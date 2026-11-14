@@ -112,3 +112,33 @@ export interface TerminalDataEvent {
   exited: boolean;
   exitCode?: number;
 }
+
+/** 主窗口与独立终端窗口共用的一份会话摘要。 */
+export interface TerminalSessionSummary {
+  sessionId: string;
+  pid: number;
+  shell: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+  exited: boolean;
+  exitCode?: number;
+  pending: number;
+}
+
+/**
+ * 独立终端窗口的桥。只暴露终端本身，不暴露任务、文件或设置——
+ * 那个窗口只需要显示和接管一个 PTY。
+ */
+export interface TerminalWindowApi {
+  list(): Promise<TerminalSessionSummary[]>;
+  attach(sessionId: string): Promise<TerminalAttach>;
+  write(sessionId: string, data: string): Promise<void>;
+  resize(sessionId: string, cols: number, rows: number): Promise<void>;
+  close(sessionId: string): Promise<void>;
+  onData(listener: (event: TerminalDataEvent) => void): () => void;
+  /** 主窗口点了某个会话的「放大」时，独立窗口据此切换。 */
+  onSelect(listener: (sessionId: string) => void): () => void;
+  /** 吸附回主窗口（即关闭这个窗口）。 */
+  reattach(): Promise<void>;
+}

@@ -31,9 +31,11 @@ import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import { showWebSourceStatusBar } from '../../shared/sources';
+import type { TerminalSessionSummary } from '../../shared/cli-agents';
 import {
   ICON_DOCK_BACK_PATHS,
   ICON_EXPAND_PATHS,
+  ICON_TERMINAL_PATHS,
   ICON_GAUGE_PATHS,
   ICON_REFRESH_PATHS,
   ICON_SAVE_PATHS,
@@ -110,8 +112,11 @@ type PendingQuestion = Extract<AgentEvent, { type: 'step.question' }>;
  * window's toolbar can draw byte-identical glyphs.
  */
 /** 放大：把这个页面交给一整扇窗。 */
-const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;/** 吸附回来：放回它原来的位置。 */
+const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
+/** 吸附回来：放回它原来的位置。 */
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
+/** 终端：任务里真实开过的 PTY 会话。 */
+const IconTerminal = () => <Glyph paths={ICON_TERMINAL_PATHS} />;
 /** 刷新：把这一页重新加载一次，会话还留在原地。 */
 const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
 /** 诊断：这一页到底找到了什么。 */
@@ -214,6 +219,11 @@ const AgentTerminal = React.lazy(() =>
   import('./components/AgentTerminal').then(module => ({ default: module.AgentTerminal }))
 );
 
+/** 终端面板：主窗口右侧与独立窗口共用；xterm 同样只在打开时才加载。 */
+const TerminalPanel = React.lazy(() =>
+  import('./components/TerminalPanel').then(module => ({ default: module.TerminalPanel }))
+);
+
 export default function App() {
   const [platform, setPlatform] = useState('');
   const [permission, setPermission] = useState<PermissionPreset>('workspace-write');
@@ -268,6 +278,30 @@ export default function App() {
     webViewsOpen: false
   });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
+  /** 右侧终端面板；按钮常驻，面板打开时才占用网页的区域。 */
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
+
+  // 面板打开时才轮询会话列表：PTY 的创建/退出在 Runtime，主窗口只能问。
+  // 关闭时停掉，避免为了一个没在看的面板一直发 IPC。
+  useEffect(() => {
+    if (!terminalOpen) return;
+    let alive = true;
+    const load = () => {
+      void window.agentAPI
+        .listTerminals()
+        .then(list => {
+          if (alive) setTerminalSessions(list);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [terminalOpen]);
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
@@ -1591,7 +1625,28 @@ export default function App() {
    * which reports the rail plus the stub rather than zero, so the app column
    * still stops short of the source buttons.
    */
+  function closeTerminalPane() {
+    setTerminalOpen(false);
+    void window.agentAPI.setTerminalPane(false).catch(() => undefined);
+  }
+
+  /**
+   * 终端按钮常驻：没有会话也能打开，面板里会说「还没有终端会话」。
+   * 打开时主进程会把内嵌网页停止绘制，否则原生视图会盖住这块 DOM。
+   */
+  function toggleTerminal() {
+    if (terminalOpen) {
+      closeTerminalPane();
+      return;
+    }
+    setTerminalOpen(true);
+    void window.agentAPI.setTerminalPane(true).catch(() => undefined);
+  }
+
   async function toggleCollapse() {
+    // 折叠时右侧区域整个消失；终端面板必须先收起，否则主进程会一直
+    // 认为网页应当隐藏，展开后看到的是空白。
+    if (terminalOpen) closeTerminalPane();
     try {
       setPage(await window.agentAPI.setPageCollapsed(!page.collapsed));
     } catch (e) {
@@ -2368,65 +2423,118 @@ export default function App() {
               className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
               aria-hidden="true"
             />
-            <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
-            <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
+            <span className="page-name">{terminalOpen ? '终端' : (activeSource?.label ?? '内嵌页面')}</span>
+            <span className="page-status" title={activeChannel?.detail ?? ''}>
+              {terminalOpen ? `${String(terminalSessions.length)} 个会话 · 网页已暂停绘制` : pageStatusText}
+            </span>
             <span className="page-actions">
+              {/* 终端占着右侧区域时，页面动作不可见也不该被误点：全部收起来，
+                  只留终端开关。 */}
+              {!terminalOpen && (
+                <>
+                  <button
+                    className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
+                    type="button"
+                    onClick={() => void openPageSave('md')}
+                    disabled={savingPage !== null}
+                    data-action="save-document"
+                    aria-label="保存文档"
+                    title="保存文档：提取这一页里的文档和计划，默认存成 Markdown"
+                  >
+                    <IconSave />
+                  </button>
+                  <button
+                    className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
+                    type="button"
+                    onClick={() => void openPageSave('docx')}
+                    disabled={savingPage !== null}
+                    data-action="save-document-word"
+                    aria-label="保存为 Word"
+                    title="单独指定才生成 Word 文档（版式沿用导出模板）"
+                  >
+                    <IconSaveWord />
+                  </button>
+                  <button
+                    className={`page-btn icon${refreshing ? ' spinning' : ''}`}
+                    type="button"
+                    onClick={() => void refreshPage()}
+                    disabled={refreshing}
+                    data-action="reload"
+                    aria-label="刷新"
+                    title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
+                  >
+                    <IconRefresh />
+                  </button>
+                  <button
+                    className="page-btn icon"
+                    type="button"
+                    onClick={() => void openDiagnostics()}
+                    data-action="diagnose"
+                    aria-label="诊断"
+                    title="诊断：看这一页真实找到了什么；更新样式也在里面"
+                  >
+                    <IconGauge />
+                  </button>
+                  <button
+                    className="page-btn icon"
+                    type="button"
+                    onClick={toggleDetach}
+                    disabled={sources.loading && !isDetached}
+                    data-action="detach"
+                    aria-label={isDetached ? '吸附回来' : '放大'}
+                    title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
+                  >
+                    {isDetached ? <IconDockBack /> : <IconExpand />}
+                  </button>
+                </>
+              )}
               <button
-                className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
+                className={`page-btn icon${terminalOpen ? ' is-active' : ''}`}
                 type="button"
-                onClick={() => void openPageSave('md')}
-                disabled={savingPage !== null}
-                data-action="save-document"
-                aria-label="保存文档"
-                title="保存文档：提取这一页里的文档和计划，默认存成 Markdown"
+                onClick={toggleTerminal}
+                data-action="terminal"
+                aria-label="终端"
+                title="终端：查看并接管任务里真实开过的 PTY 会话；没开过也能打开"
               >
-                <IconSave />
-              </button>
-              <button
-                className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
-                type="button"
-                onClick={() => void openPageSave('docx')}
-                disabled={savingPage !== null}
-                data-action="save-document-word"
-                aria-label="保存为 Word"
-                title="单独指定才生成 Word 文档（版式沿用导出模板）"
-              >
-                <IconSaveWord />
-              </button>
-              <button
-                className={`page-btn icon${refreshing ? ' spinning' : ''}`}
-                type="button"
-                onClick={() => void refreshPage()}
-                disabled={refreshing}
-                data-action="reload"
-                aria-label="刷新"
-                title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
-              >
-                <IconRefresh />
-              </button>
-              <button
-                className="page-btn icon"
-                type="button"
-                onClick={() => void openDiagnostics()}
-                data-action="diagnose"
-                aria-label="诊断"
-                title="诊断：看这一页真实找到了什么；更新样式也在里面"
-              >
-                <IconGauge />
-              </button>
-              <button
-                className="page-btn icon"
-                type="button"
-                onClick={toggleDetach}
-                disabled={sources.loading && !isDetached}
-                data-action="detach"
-                aria-label={isDetached ? '吸附回来' : '放大'}
-                title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
-              >
-                {isDetached ? <IconDockBack /> : <IconExpand />}
+                <IconTerminal />
               </button>
             </span>
           </div>
+          {terminalOpen && (
+            <div
+              className="terminal-pane"
+              style={{
+                right: RAIL_WIDTH,
+                width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH),
+                top: PAGE_HEADER_HEIGHT
+              }}
+            >
+              <React.Suspense fallback={null}>
+                <TerminalPanel
+                  sessions={terminalSessions.map(session => ({
+                    sessionId: session.sessionId,
+                    cwd: session.cwd,
+                    exited: session.exited,
+                    exitCode: session.exitCode
+                  }))}
+                  bridge={window.agentAPI}
+                  onClosePane={closeTerminalPane}
+                  onDetach={sessionId => {
+                    void window.agentAPI
+                      .detachTerminal(sessionId)
+                      .then(() => closeTerminalPane())
+                      .catch(cause => setError(errorText(cause)));
+                  }}
+                  onSessionsChanged={() => {
+                    void window.agentAPI
+                      .listTerminals()
+                      .then(setTerminalSessions)
+                      .catch(() => undefined);
+                  }}
+                />
+              </React.Suspense>
+            </div>
+          )}
           <div
             className={`page-divider${draggingPage ? ' dragging' : ''}`}
             role="separator"

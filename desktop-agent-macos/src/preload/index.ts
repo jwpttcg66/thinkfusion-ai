@@ -30,7 +30,7 @@ import type {
 } from '../shared/workspace';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
-import type { CliAgentView, TerminalAttach, TerminalDataEvent } from '../shared/cli-agents';
+import type { CliAgentView, TerminalAttach, TerminalDataEvent, TerminalSessionSummary } from '../shared/cli-agents';
 import type {
   TaskWorktreeCommitInput,
   TaskWorktreeDiff,
@@ -122,6 +122,10 @@ const api: AgentApi = {
 
   attachTerminal: (sessionId: string): Promise<TerminalAttach> =>
     ipcRenderer.invoke('terminal:attach', sessionId),
+  listTerminals: (): Promise<TerminalSessionSummary[]> => ipcRenderer.invoke('terminal:list'),
+  setTerminalPane: (open: boolean): Promise<void> => ipcRenderer.invoke('terminal:set-pane', open),
+  detachTerminal: (sessionId?: string): Promise<void> =>
+    ipcRenderer.invoke('terminal:detach', sessionId ?? null),
   writeTerminal: (sessionId: string, data: string): Promise<void> =>
     ipcRenderer.invoke('terminal:write', { sessionId, data }),
   resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> =>

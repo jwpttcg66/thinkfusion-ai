@@ -80,6 +80,9 @@ export const ICON_GEAR_PATHS = [
  */
 export const ICON_GAUGE_PATHS = ['M8 2.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8', 'M8 8l3.4-3.8'];
 
+/** 终端：一个方框里一道提示符，和别处的 24px 线稿同一套坐标。 */
+export const ICON_TERMINAL_PATHS = ['M3 4.2l4.2 3.8L3 11.8', 'M8.6 12.4h4.6'];
+
 /**
  * 一张纸加一支朝下的箭头：保存文档。
  *
