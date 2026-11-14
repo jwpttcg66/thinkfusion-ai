@@ -1972,5 +1972,17 @@
         "notes": "必须同时给出拆和不拆的条件。"
       }
     }
-  ]
+  ],
+  "gate": {
+    "scale": "0-100",
+    "start": 100,
+    "missingMustPenalty": 20,
+    "missingMustCap": 69,
+    "majorWrongCap": 39,
+    "contextualNoBoundaryCap": 65,
+    "classificationMismatchCap": 60,
+    "minorWrongPenalty": 5,
+    "passScore": 70,
+    "note": "模型只负责 matched/missing/wrong/boundary/classification 对齐；门槛分由代码计算，模型原始分记录为 modelScore。"
+  }
 }

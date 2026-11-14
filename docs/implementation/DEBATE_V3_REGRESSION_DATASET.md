@@ -159,3 +159,21 @@ npm run build:test
 
 裁判提示词也已同步要求输出 `questionType`，避免把有条件的技术决策
 误判成信息不足。
+
+### 默认回归门槛
+
+`scripts/regression/run-debate-regression.cjs` 现在默认加载 V1 标准，并对每题
+额外调用一次标准答案评分器：
+
+- 检查 `questionType` 与标准分类是否一致；
+- 检查所有 `must` 必答主张；
+- 检查 `major` 错误主张；
+- `CONTEXTUAL` 必须给边界；
+- 代码按规则封顶：缺 must ≤ 69，major 错误 ≤ 39，CONTEXTUAL 缺边界 ≤ 65，
+  分类不一致 ≤ 60；
+- 通过要求标准分 ≥ 70。
+
+评分器在 `src/main/debate/standard-rubric.ts`。它是 `backend: model`，只表示
+模型应用了人工标准，不是事实核验。结果里的 `standard` 字段会记录
+`matchedClaims`、`missingClaims`、`wrongClaims`、`boundaryCovered`、`score`、
+`rubricAgentId` 和 `participatedInDebate`。

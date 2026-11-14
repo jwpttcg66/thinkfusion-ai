@@ -129,5 +129,26 @@ data.questions.forEach((item, index) => {
   lines.push('');
 });
 
+lines.push('## 6. 默认回归门槛');
+lines.push('');
+lines.push('`npm run regression:debate` 现在默认加载这份 V1 标准，并对每题额外做一次');
+lines.push('标准答案评分。通过门槛必须同时满足：');
+lines.push('');
+lines.push('1. 辩论执行 `COMPLETED`；');
+lines.push('2. 主裁判后端是 `model`，且裁判没有参加该场辩论；');
+lines.push('3. `factualAccuracy` 不是 `supported`，事实仍标 `model-assessed`；');
+lines.push('4. 评分模型给出的 `questionType` 与标准分类一致；');
+lines.push('5. 所有 `must` 级必答主张都被覆盖；');
+lines.push('6. 没有出现 `major` 错误主张；');
+lines.push('7. `CONTEXTUAL` 题给出了边界条件；');
+lines.push('8. 标准分不低于 70。');
+lines.push('');
+lines.push('标准评分器在 `src/main/debate/standard-rubric.ts`。它只负责把候选回答和');
+lines.push('人工标准对齐；`backend: model` 表示“模型应用了标准”，不是“事实已核验”。');
+lines.push('缺 must、major 错误、CONTEXTUAL 缺边界、分类不一致都会由代码封顶，');
+lines.push('不能让模型用一句“回答不错”绕过。');
+lines.push('');
+lines.push('');
+
 fs.writeFileSync(target, lines.join('\n'), 'utf8');
 console.log(target);

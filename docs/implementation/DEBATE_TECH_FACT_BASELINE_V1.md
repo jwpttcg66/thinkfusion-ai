@@ -984,3 +984,23 @@
 - [重大] 模块化单体不是有效架构。（模块化单体可以是合理选择。）
 
 **评分入口：** 必须覆盖 `c1`、`c2`、`c3`、`c4`。必须同时给出拆和不拆的条件。
+
+## 6. 默认回归门槛
+
+`npm run regression:debate` 现在默认加载这份 V1 标准，并对每题额外做一次
+标准答案评分。通过门槛必须同时满足：
+
+1. 辩论执行 `COMPLETED`；
+2. 主裁判后端是 `model`，且裁判没有参加该场辩论；
+3. `factualAccuracy` 不是 `supported`，事实仍标 `model-assessed`；
+4. 评分模型给出的 `questionType` 与标准分类一致；
+5. 所有 `must` 级必答主张都被覆盖；
+6. 没有出现 `major` 错误主张；
+7. `CONTEXTUAL` 题给出了边界条件；
+8. 标准分不低于 70。
+
+标准评分器在 `src/main/debate/standard-rubric.ts`。它只负责把候选回答和
+人工标准对齐；`backend: model` 表示“模型应用了标准”，不是“事实已核验”。
+缺 must、major 错误、CONTEXTUAL 缺边界、分类不一致都会由代码封顶，
+不能让模型用一句“回答不错”绕过。
+

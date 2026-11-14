@@ -21,6 +21,7 @@ const { DebateOrchestrator } = require('../../out-test/main/debate/orchestrator.
 const { planLead } = require('../../out-test/main/debate/lead.js');
 const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
 const { evaluateDebateQuality, finalizeDebate } = require('../../out-test/main/debate/quality-engine.js');
+const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
@@ -31,6 +32,7 @@ const MODELS = [
 ];
 const IDS = MODELS.map(item => item.id);
 const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
+const STANDARD_PATH = path.join(__dirname, 'debate-standard-answers-v1.json');
 const OUT_DIR = path.resolve(__dirname, '../../../docs/implementation/regression');
 const STAGE_TIMEOUT_MS = 180_000;
 const TOTAL_MS = 300_000;
@@ -70,6 +72,10 @@ function buildSummary(results) {
   const factual = countBy(results, item => item.quality?.factualAccuracy?.status ?? 'missing');
   const quality = countBy(results, item => item.quality?.status ?? 'missing');
   const anchors = results.filter(item => item.anchor?.checked);
+  const standardRows = results.filter(item => item.standard);
+  const standardScores = standardRows
+    .map(item => item.standard?.score)
+    .filter(score => typeof score === 'number');
   return {
     total: results.length,
     execution: countBy(results, item => item.debate.outcome ?? 'UNKNOWN'),
@@ -82,6 +88,16 @@ function buildSummary(results) {
     anchors: {
       checked: anchors.length,
       hit: anchors.filter(item => item.anchor.hit).length
+    },
+    standard: {
+      total: standardRows.length,
+      passed: standardRows.filter(item => item.standard?.passed).length,
+      failed: standardRows.filter(item => item.standard && !item.standard.passed && item.standard.backend !== 'unavailable').length,
+      unavailable: standardRows.filter(item => item.standard?.backend === 'unavailable').length,
+      averageScore: standardScores.length > 0
+        ? Math.round(standardScores.reduce((sum, score) => sum + score, 0) / standardScores.length)
+        : null,
+      classificationMatches: standardRows.filter(item => item.standard?.classificationMatch).length
     },
     byStrategy: Object.fromEntries(
       [...new Set(results.map(item => item.strategy))].map(strategy => {
@@ -101,7 +117,8 @@ function buildSummary(results) {
       !item.judge.sharedWith &&
       item.quality &&
       item.decision &&
-      item.quality.factualAccuracy.status !== 'supported'
+      item.quality.factualAccuracy.status !== 'supported' &&
+      item.standard?.passed === true
     )
   };
 }
@@ -118,6 +135,12 @@ function markdown(summary, dataset, results) {
     item.quality?.factualAccuracy?.status ?? 'missing',
     item.decision?.verdict ?? 'missing',
     item.decision?.action ?? 'missing',
+    item.standard
+      ? item.standard.backend === 'unavailable'
+        ? 'unavail'
+        : item.standard.passed ? 'pass' : 'fail'
+      : '-',
+    item.standard?.score ?? '-',
     item.anchor?.checked ? (item.anchor.hit ? 'hit' : 'miss') : '-',
     `${Math.round(item.debate.durationMs / 1000)}s`
   ]);
@@ -133,9 +156,11 @@ function markdown(summary, dataset, results) {
     `- 质量状态：${JSON.stringify(summary.quality)}`,
     `- 事实维度：${JSON.stringify(summary.factual)}`,
     `- anchor 烟测：${summary.anchors.hit}/${summary.anchors.checked}（不是事实准确率）`,
+    `- V1 门槛：passed ${summary.standard.passed}/${summary.standard.total}，failed ${summary.standard.failed}，unavailable ${summary.standard.unavailable}，平均分 ${summary.standard.averageScore ?? '-'}`,
+    `- V1 分类匹配：${summary.standard.classificationMatches}/${summary.standard.total}`,
     '',
-    '| 题目 | 策略 | 裁判 | 执行 | 轮/条 | 裁判后端 | 质量 | 事实 | 结论 | 处理 | anchor | 用时 |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| 题目 | 策略 | 裁判 | 执行 | 轮/条 | 裁判后端 | 质量 | 事实 | 结论 | 处理 | V1 | 评分 | anchor | 用时 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...rows.map(row => `| ${row.join(' | ')} |`),
     '',
     '> `anchor` 只检查回答里是否出现人工列出的规则可查词，不能代表事实正确。',
@@ -146,6 +171,12 @@ function markdown(summary, dataset, results) {
 app.setName('ThinkFusion');
 app.whenReady().then(async () => {
   const dataset = loadDataset();
+  const standard = JSON.parse(fs.readFileSync(STANDARD_PATH, 'utf8'));
+  const standardHash = crypto.createHash('sha256').update(JSON.stringify(standard.questions)).digest('hex');
+  if (standardHash !== standard.sha256) {
+    throw new Error(`标准答案 hash 不匹配：文件 ${standard.sha256}，实算 ${standardHash}`);
+  }
+  const standardById = new Map(standard.questions.map(item => [item.id, item]));
   const limitArg = process.argv.find(arg => arg.startsWith('--limit='));
   const limit = limitArg ? Number.parseInt(limitArg.slice('--limit='.length), 10) : dataset.questions.length;
   const onlyArg = process.argv.find(arg => arg.startsWith('--only='));
@@ -273,6 +304,18 @@ app.whenReady().then(async () => {
       ...messages.map(message => message.text),
       verdict?.conclusion ?? ''
     ].join('\n');
+    const standardItem = standardById.get(item.id);
+    let standardAssessment = null;
+    let rubricAgentId = null;
+    if (standardItem) {
+      rubricAgentId = IDS.find(id => id !== judgeAgentId) ?? judgeAgentId;
+      standardAssessment = await assessStandardAnswer({
+        item: standardItem,
+        answerText: decision?.conclusion ?? combinedText,
+        ask: askModel,
+        agentId: rubricAgentId
+      });
+    }
     results.push({
       id: item.id,
       category: item.category,
@@ -329,6 +372,15 @@ app.whenReady().then(async () => {
             unresolvedDisputes: decision.unresolvedDisputes,
             uncertainty: decision.uncertainty,
             recommendedFollowUp: decision.recommendedFollowUp ?? null
+          }
+        : null,
+      standard: standardAssessment && standardItem
+        ? {
+            id: standardItem.id,
+            classification: standardItem.classification,
+            ...standardAssessment,
+            rubricAgentId,
+            participatedInDebate: Boolean(state?.plan?.participants?.includes(rubricAgentId))
           }
         : null,
       anchor: anchorHit(combinedText, item.anchor),

@@ -77,6 +77,11 @@ test('评分规则存在，且不保存模型生成的参考答案', () => {
   assert.equal(standard.schema, 'thinkfusion.tech-fact-regression/v1');
   assert.equal(standard.scoring.scale, '0-100');
   assert.ok(standard.scoring.rules.length >= 5);
+  assert.equal(standard.gate.passScore, 70);
+  assert.equal(standard.gate.missingMustCap, 69);
+  assert.equal(standard.gate.majorWrongCap, 39);
+  assert.equal(standard.gate.contextualNoBoundaryCap, 65);
+  assert.equal(standard.gate.classificationMismatchCap, 60);
   for (const item of standard.questions) {
     assert.equal(item.answer, undefined, `${item.id} 不应保存模型生成的参考答案`);
     assert.equal(item.modelAnswer, undefined, `${item.id} 不应保存模型答案`);
