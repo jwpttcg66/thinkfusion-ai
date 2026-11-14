@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const file = path.join(here, 'regression', 'debate-dataset.json');
+const runnerFile = path.join(here, 'regression', 'run-debate-regression.cjs');
 
 function load() {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -67,4 +68,13 @@ test('anchor 只含人工规则词，且不是模型生成的参考答案', () =
     assert.ok(item.anchor.note.length > 0, `${item.id} anchor 缺少说明`);
     assert.equal(item.anchor.answer, undefined, `${item.id} 不应保存模型生成的参考答案`);
   }
+});
+
+
+test('回归运行器从用户设置读取模型，不硬编码旧模型名', () => {
+  const source = fs.readFileSync(runnerFile, 'utf8');
+  assert.match(source, /selectedCloudModels/);
+  assert.match(source, /loadSelectedModels/);
+  assert.ok(!source.includes('kimi-k2.7-code'), '不应硬编码旧模型 kimi-k2.7-code');
+  assert.ok(!source.includes("id: 'deepseek'"), '不应硬编码旧模型 id');
 });

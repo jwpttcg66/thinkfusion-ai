@@ -25,12 +25,18 @@ const { assessStandardAnswer } = require('../../out-test/main/debate/standard-ru
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
-const MODELS = [
-  { id: 'deepseek', model: 'deepseek-v4.1-flash' },
-  { id: 'gpt', model: 'gpt-6-luna' },
-  { id: 'kimi', model: 'kimi-k2.7-code' }
-];
-const IDS = MODELS.map(item => item.id);
+let MODELS = [];
+let IDS = [];
+
+/** 读取用户在设置里勾选的模型；不把模型名硬编码在回归脚本里。 */
+function loadSelectedModels(appData) {
+  const file = path.join(appData, 'thinkfusion-ai', 'execution-defaults.json');
+  const defaults = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const selected = Array.isArray(defaults.selectedCloudModels) ? defaults.selectedCloudModels : [];
+  const models = [...new Set(selected.map(id => String(id).split(':').pop()).filter(Boolean))];
+  if (models.length < 2) throw new Error('至少需要在设置里勾选两个云端模型');
+  return models.map(model => ({ id: model, model }));
+}
 const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
 const STANDARD_PATH = path.join(__dirname, 'debate-standard-answers-v1.json');
 const OUT_DIR = path.resolve(__dirname, '../../../docs/implementation/regression');
@@ -170,6 +176,9 @@ function markdown(summary, dataset, results) {
 
 app.setName('ThinkFusion');
 app.whenReady().then(async () => {
+  MODELS = loadSelectedModels(app.getPath('appData'));
+  IDS = MODELS.map(item => item.id);
+  console.log(`模型池：${MODELS.map(item => item.model).join('、')}`);
   const dataset = loadDataset();
   const standard = JSON.parse(fs.readFileSync(STANDARD_PATH, 'utf8'));
   const standardHash = crypto.createHash('sha256').update(JSON.stringify(standard.questions)).digest('hex');

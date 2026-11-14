@@ -1,5 +1,10 @@
 # V1 标准全量回归结果
 
+> 模型池更新：用户后来换掉了 `kimi-k2.7-code`，当前设置为
+> `deepseek-v4.1-flash` / `gpt-6-luna` / `claude-haiku-5-5`。本文记录的是
+> **旧模型池**（deepseek / gpt / kimi）的全量结果；失败题用当前模型池重跑的
+> 结果见 `DEBATE_STANDARD_V1_MODEL_UPDATE.md`。
+
 - 日期：2026-11-14
 - 数据集：`1.0.0` / `ebd15b7e5ec73965e820e2ae1a5ef5b3d874e90ee74f9fa60e967f64eab6ba3f`
 - 标准：`DEBATE_TECH_FACT_BASELINE_V1.md`
