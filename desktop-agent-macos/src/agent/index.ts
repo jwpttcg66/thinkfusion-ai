@@ -6,11 +6,12 @@ import {
   closeAllTerminals,
   closeTerminal,
   listTerminals,
+  openProgram,
   resizeTerminal,
   sendTerminal,
   subscribeTerminal
 } from './tools/terminal';
-import { cancelAllCliRuns, cancelCliRuns } from './tools/cli-agent';
+import { cancelAllCliRuns, cancelCliRuns, cliProcessEnv } from './tools/cli-agent';
 import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalStepOutcome } from './local-plugins';
@@ -272,6 +273,21 @@ port.on('message', (event: { data: unknown }) => {
       }
       if (op === 'list') {
         reply({ ok: true, result: listTerminals() });
+        return;
+      }
+      if (op === 'open-cli') {
+        const command = typeof args.command === 'string' ? args.command : '';
+        if (!command) throw new Error('打开 CLI 终端缺少可执行文件');
+        const cwd = typeof args.cwd === 'string' && args.cwd ? args.cwd : process.env.HOME ?? process.cwd();
+        const argv = Array.isArray(args.args)
+          ? args.args.filter((item): item is string => typeof item === 'string')
+          : [];
+        const env = cliProcessEnv({
+          envAllowlist: Array.isArray(args.envAllowlist)
+            ? args.envAllowlist.filter((item): item is string => typeof item === 'string')
+            : []
+        });
+        reply({ ok: true, result: openProgram({ file: command, args: argv, cwd, env }) });
         return;
       }
       reply({ ok: false, error: `不支持的终端操作：${op}` });

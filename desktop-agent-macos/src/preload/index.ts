@@ -32,6 +32,7 @@ import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
 import type {
   CliAgentView,
+  CliTerminalState,
   TerminalAttach,
   TerminalDataEvent,
   TerminalSessionSummary,
@@ -138,6 +139,8 @@ const api: AgentApi = {
     return () => ipcRenderer.removeListener('terminal:window', handler);
   },
   detachTerminal: (sessionId: string): Promise<void> => ipcRenderer.invoke('terminal:detach', sessionId),
+  openCliTerminal: (cliId: string): Promise<string> => ipcRenderer.invoke('terminal:open-cli', cliId),
+  listCliTerminals: (): Promise<CliTerminalState[]> => ipcRenderer.invoke('terminal:cli-state'),
   writeTerminal: (sessionId: string, data: string): Promise<void> =>
     ipcRenderer.invoke('terminal:write', { sessionId, data }),
   resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> =>

@@ -24,6 +24,7 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 | 任务级独立 Worktree（创建/提交/合并/删除） | `src/main/task-worktree.ts`、`src/renderer/src/components/TaskWorktree.tsx` |
 | TerminalHost：多读者、程序直启、进程组 | `src/agent/tools/terminal.ts` |
 | 终端 IPC 与面板 | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/components/AgentTerminal.tsx` |
+| 设置开关 / 启动时打开 CLI 终端 | `src/main/index.ts`（ensure/sync/bootstrap）、`src/preload/index.ts` |
 | 右侧栏：每个终端一个开关（窗口） | `src/renderer/src/components/SourceRail.tsx` |
 | 终端窗口内容 | `src/renderer/src/components/TerminalPanel.tsx` |
 | 每会话一个独立终端窗口 | `src/renderer/terminal.html`、`src/renderer/src/terminal-window.tsx`、`src/preload/terminal.ts` |
@@ -137,16 +138,18 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 - 关闭面板只 detach，不杀进程；要结束必须点「结束会话」或取消任务；
 - xterm 不注册 OSC 52 / OSC 8 处理器，第三方输出不能改剪贴板、不能把链接变成动作。
 
-右侧栏里**每个终端会话一个按钮**，与网页通道并列：
+右侧栏里**每个终端一个按钮**，与网页通道并列；CLI 的窗口由设置里的开关决定：
 
-- 终端出现（`term.open` 成功）就自动打开它自己的窗口；已退出的会话不自动开；
-- 侧栏按钮是**开关**：开着的再点关闭窗口（会话继续运行），关闭的再点重新打开；
-- 可以同时开多个窗口——两个运行中的终端就是两个窗口，互不替换；
-- 按钮带状态点：运行中为强调色，已退出为灰色；标题带 cwd 末级目录、会话短 id
-  和「点击打开/关闭窗口」；
+- 设置「外部 CLI Agent（执行者）」里 **开** → 应用启动时起该 CLI 的交互终端并开窗；
+  **关** → 关闭它的窗口并结束这个终端；两个都开就是两个窗口同时运行；
+- 侧栏每个 CLI 一个按钮（Q / C）：第一次点起交互终端，之后开/关它的窗口；
+  关窗不结束会话，但设置关掉会结束；
+- 任务里 `term.open` 产生的终端也各有一个按钮；已退出的会话不自动开；
+- 按钮带状态点：运行中为强调色，已退出/未运行为灰色；标题带 cwd 末级目录、
+  会话短 id 和「点击打开/关闭窗口」；
 - 每个会话一个独立窗口（`terminal.html?session=…`，独立 preload，只能读写那一个 PTY）；
-- 结束会话会同时关掉它的窗口；「吸附回来」只关当前窗口，不影响其它终端；
-- 页面工具栏的终端按钮是总开关：有窗口开着就全部关闭，否则把所有会话都打开；
+- 页面工具栏的终端按钮是总开关：有窗口开着就全部关闭，否则把所有会话与已启用的 CLI
+  都打开；
 - 不再有「一个面板里切标签」的模式：终端不占用网页区域，网页照常显示。
 
 ## 8. 生命周期

@@ -85,7 +85,7 @@ export function setTerminalSink(sink: TerminalSink) {
   terminalSink = sink;
 }
 
-export function requestTerminal(op: 'attach' | 'write' | 'resize' | 'close' | 'list', args: Record<string, unknown>): Promise<unknown> {
+export function requestTerminal(op: 'attach' | 'write' | 'resize' | 'close' | 'list' | 'open-cli', args: Record<string, unknown>): Promise<unknown> {
   if (!child) return Promise.reject(new Error('Agent Runtime 未启动，终端不可用'));
   terminalSeq += 1;
   const requestId = `term-${Date.now().toString(36)}-${terminalSeq}`;

@@ -21,6 +21,8 @@ const DEFAULTS: readonly CliAgentConfig[] = [
     label: 'Qoder CLI',
     command: 'qoder',
     args: ['-p', '{task}', '--output-format', 'json'],
+    interactiveArgs: [],
+    glyph: 'Q',
     permissionArgs: ['--permission-mode', 'accept_edits'],
     // 2026-11-15 实测（Qoder CLI 1.1.89，macOS）：-p + JSON 输出可用，
     // accept_edits 下能创建文件，退出码 0；permission_denials 为空。
@@ -33,6 +35,8 @@ const DEFAULTS: readonly CliAgentConfig[] = [
     label: 'Claude CLI',
     command: 'claude',
     args: ['-p', '{task}', '--output-format', 'json'],
+    interactiveArgs: [],
+    glyph: 'C',
     permissionArgs: ['--permission-mode', 'acceptEdits'],
     // 2026-11-15 实测（Claude Code 2.1.325）：同上；JSON 里的
     // modelUsage.canonicalModel 可能是第三方模型，不能按品牌猜。
@@ -73,6 +77,9 @@ function load(): CliAgentConfig[] {
         ...(Array.isArray(patch.permissionArgs) && patch.permissionArgs.every(item => typeof item === 'string')
           ? { permissionArgs: patch.permissionArgs }
           : {}),
+        ...(Array.isArray(patch.interactiveArgs) && patch.interactiveArgs.every(item => typeof item === 'string')
+          ? { interactiveArgs: patch.interactiveArgs }
+          : {}),
         ...(Array.isArray(patch.envAllowlist) && patch.envAllowlist.every(item => typeof item === 'string')
           ? { envAllowlist: patch.envAllowlist }
           : {})
@@ -93,6 +100,7 @@ function save(): void {
       command: item.command,
       args: item.args,
       permissionArgs: item.permissionArgs ?? [],
+      interactiveArgs: item.interactiveArgs ?? [],
       envAllowlist: item.envAllowlist ?? []
     };
   }

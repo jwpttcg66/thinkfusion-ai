@@ -31,7 +31,7 @@ import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import { showWebSourceStatusBar } from '../../shared/sources';
-import type { TerminalSessionSummary } from '../../shared/cli-agents';
+import type { TerminalSessionSummary, CliAgentView, CliTerminalState } from '../../shared/cli-agents';
 import {
   ICON_DOCK_BACK_PATHS,
   ICON_EXPAND_PATHS,
@@ -281,6 +281,9 @@ export default function App() {
   /** 终端：一个会话一个独立窗口；侧栏按钮是开关，可同时开多个。 */
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
   const [openTerminalWindows, setOpenTerminalWindows] = useState<string[]>([]);
+  /** 已启用的 CLI 与它们当前的交互终端会话。 */
+  const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
+  const [cliTerminals, setCliTerminals] = useState<CliTerminalState[]>([]);
   /** 已经自动开过窗的会话，避免用户关窗后又被下一次轮询打开。 */
   const autoOpenedTerminals = useRef<Set<string>>(new Set());
 
@@ -293,6 +296,13 @@ export default function App() {
         .then(list => {
           if (!alive) return;
           setTerminalSessions(list);
+          // CLI 的交互终端由主进程记账；设置开关会直接开/关窗口。
+          void window.agentAPI
+            .listCliTerminals()
+            .then(state => {
+              if (alive) setCliTerminals(state);
+            })
+            .catch(() => undefined);
           for (const session of list) {
             if (session.exited || autoOpenedTerminals.current.has(session.sessionId)) continue;
             autoOpenedTerminals.current.add(session.sessionId);
@@ -326,6 +336,7 @@ export default function App() {
       );
     });
   }, []);
+
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
@@ -358,6 +369,22 @@ export default function App() {
   /** The local user name for the row at the bottom of the sidebar. */
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // CLI 开关在设置里改；关掉设置面板时重新取一次，右侧栏立即反映。
+  useEffect(() => {
+    if (settingsOpen) return;
+    let alive = true;
+    void window.agentAPI
+      .getCliAgents()
+      .then(list => {
+        if (alive) setCliAgents(list.filter(item => item.enabled && item.available));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [settingsOpen]);
+
   /** 从「＋ · 连接器」打开插件页时，面板要直接落在那一页。 */
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('models');
   /**
@@ -1658,9 +1685,39 @@ export default function App() {
     void window.agentAPI.detachTerminal(sessionId).catch(e => setError(errorText(e)));
   }
 
+  async function startCliTerminal(cliId: string) {
+    try {
+      const sessionId = await window.agentAPI.openCliTerminal(cliId);
+      setCliTerminals(previous => [
+        ...previous.filter(item => item.id !== cliId),
+        { id: cliId, sessionId, running: true, open: true }
+      ]);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  /** 侧栏点某个 CLI：第一次起交互终端，之后开/关它的窗口。 */
+  function toggleCliAgentTerminal(cliId: string) {
+    const state = cliTerminals.find(item => item.id === cliId);
+    if (state?.open) {
+      void window.agentAPI.closeTerminalWindow(state.sessionId).catch(e => setError(errorText(e)));
+      return;
+    }
+    if (state?.running) {
+      void window.agentAPI.detachTerminal(state.sessionId).catch(e => setError(errorText(e)));
+      return;
+    }
+    // 会话已经退出：先关掉旧窗口，再让主进程起一个新的。
+    if (state) {
+      void window.agentAPI.closeTerminalWindow(state.sessionId).catch(() => undefined);
+    }
+    void startCliTerminal(cliId);
+  }
+
   /**
    * 页面工具栏的终端按钮是总开关：有窗口开着就全关，否则把所有会话的
-   * 窗口都打开。单个终端仍然由右侧栏的按钮控制。
+   * 窗口都打开，并为每个已启用的 CLI 起交互终端。
    */
   function toggleTerminal() {
     if (openTerminalWindows.length > 0) {
@@ -1671,6 +1728,11 @@ export default function App() {
     }
     for (const session of terminalSessions) {
       void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
+    }
+    for (const agent of cliAgents) {
+      const state = cliTerminals.find(item => item.id === agent.id);
+      if (state) void window.agentAPI.detachTerminal(state.sessionId).catch(() => undefined);
+      else void startCliTerminal(agent.id);
     }
   }
 
@@ -2575,6 +2637,17 @@ export default function App() {
         collapsed={isCollapsed}
         onSelect={selectSource}
         onToggleCollapse={toggleCollapse}
+        cliAgents={cliAgents.map(agent => {
+          const state = cliTerminals.find(item => item.id === agent.id);
+          return {
+            id: agent.id,
+            label: agent.label,
+            glyph: agent.glyph ?? agent.label.slice(0, 1),
+            running: Boolean(state?.running),
+            open: Boolean(state?.open)
+          };
+        })}
+        onToggleCli={id => toggleCliAgentTerminal(id)}
         terminals={terminalSessions.map(session => ({
           sessionId: session.sessionId,
           label: terminalLabelOf(session),
