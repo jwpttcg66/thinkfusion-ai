@@ -125,25 +125,37 @@ test('用户本轮明确指定优先于规则，并标记来源', () => {
   assert.equal(byUser.reason, '用户本轮明确指定');
 });
 
-test('识别不出来时待确认，绝不默认执行', () => {
-  const routing = routeTask({ text: '嗯……这个怎么说', workspaceMode: 'engineering', hasProject: true });
-  assert.equal(routing.taskKind, 'clarify');
-  assert.equal(routing.needsClarification, true);
-  assert.equal(routingLabel(routing), '待确认');
+test('没有动词的普通问题自己驱动：只读问答，不再等确认', () => {
+  // 2026-11-15 用户裁决：「应该跟云端模型一样，可以自己驱动的」。旧规则把
+  // 「你是那个模型驱动的」这类话拦成待确认，用户在工程空间连问个问题都要
+  // 先选「本次按分析」。没有改动词就不会写文件，按只读问答直接跑；
+  // 「绝不默认执行」管的是实施，普通问答不属于实施。
+  const routing = routeTask({ text: '你是那个模型驱动的', workspaceMode: 'engineering', hasProject: true });
+  assert.equal(routing.taskKind, 'engineering_analysis');
+  assert.equal(routing.needsClarification, undefined);
+  assert.match(routing.reason, /只读问答/);
+  // 真正拦的还是那条冲突线：只读词与改动词同时出现分不清主次，不擅自进高权限。
+  const conflict = routeTask({ text: '分析一下怎么修改这个模块', workspaceMode: 'engineering', hasProject: true });
+  assert.equal(conflict.taskKind, 'clarify');
+  assert.equal(conflict.needsClarification, true);
+  assert.equal(routingLabel(conflict), '待确认');
   assert.equal(routingLabel(routeTask({ text: '解释某个方法', workspaceMode: 'engineering', hasProject: true })), '工程分析');
 });
 
 test('带了附件但没说做什么：按只读分析走，不再要求用户先确认', () => {
   // 真机反馈：上传一份 .md，正文只有「这个方案」，被判成待确认后原地不动。
+  // 现在没有动词的正文本身就按只读问答跑，附件在不在都一样。
   const routing = routeTask({
     text: '这个方案', workspaceMode: 'engineering', hasProject: true, attachmentCount: 1
   });
   assert.equal(routing.taskKind, 'engineering_analysis');
   assert.equal(routing.engineeringKind, 'analysis');
   assert.equal(routing.needsClarification, undefined);
-  assert.match(routing.reason, /附了 1 个文件/);
-  // 附件只把「没有动词」抬到只读分析，不会把改动词降级，也不会凭空放行实施。
-  assert.equal(routeTask({ text: '这个方案', workspaceMode: 'engineering', hasProject: true, attachmentCount: 0 }).taskKind, 'clarify');
+  assert.match(routing.reason, /只读问答/);
+  // 附件分支只剩「正文空白但带了附件」这一种兜底，仍按只读分析抬起来。
+  const blank = routeTask({ text: '  ', workspaceMode: 'engineering', hasProject: true, attachmentCount: 1 });
+  assert.equal(blank.taskKind, 'engineering_analysis');
+  assert.match(blank.reason, /附了 1 个文件/);
   assert.equal(
     routeTask({ text: '按这个方案修改 README.md', workspaceMode: 'engineering', hasProject: true, attachmentCount: 1 }).taskKind,
     'engineering_execution'

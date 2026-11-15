@@ -273,8 +273,9 @@ test('网页主导不问模型：网页读不到别人的回答，还会污染�
     executionConfig: { executionMode: 'web' }
   });
   assert.equal(called, 0);
-  // 规则判不出来 → 待确认，这是网页主导时的正确行为
-  assert.equal(conversation.routing.taskKind, 'clarify');
+  // 没有动词的普通问题按只读问答自己驱动（2026-11-15 用户裁决），
+  // 网页主导时由网页第一轮回答，不再拦成待确认
+  assert.equal(conversation.routing.taskKind, 'engineering_analysis');
 });
 
 test('模型判不了（null / 抛错）就退回规则，不拦提问', async () => {

@@ -11,7 +11,11 @@
  *   老会话、老行为一个字节都不改。
  * - **识别不等于授权。** 这里返回 `execution` 只是说「用户想改东西」，
  *   写不写由 `TaskGrant` / 审批说了算。
- * - **不确定就问。** 规则认不出来的实施类表达一律 `clarify`，不猜、不默认执行。
+ * - **不确定就问，但只问实施。** 规则认不出来的**实施类**表达一律 `clarify`，
+ *   不猜、不默认执行。反过来，一条动词都没有的普通问题（「你是那个模型驱动的」）
+ *   不再拦下等确认——它不会写任何文件，按只读问答自己驱动（2026-11-15 用户裁决：
+ *   「应该跟云端模型一样，可以自己驱动的」）。剩下会拦的只有两种：只读词与
+ *   改动词同时出现分不清主次，以及一句话里根本没有可识别的内容。
  */
 
 import { classifyIntent, type IntentKind } from './intent';
@@ -308,7 +312,10 @@ export function classifyEngineeringIntent(text: string): EngineeringIntent {
   if (analysisHit) {
     return { kind: 'analysis', reason: `出现只读分析词「${analysisHit}」`, signals: [analysisHit] };
   }
-  return { kind: 'clarify', reason: '没有明确的分析或实施动词，需要用户确认', signals: [] };
+  // 一条动词都没有：不拦。没有改动词就不会写任何文件，普通问答按只读分析
+  // 自己驱动（2026-11-15 用户裁决，覆盖旧的「没有动词就等确认」）；真正危险
+  // 的是改动词，那类早就被上面的分支接住了。
+  return { kind: 'analysis', reason: '没有改动意图，按只读问答处理', signals: [] };
 }
 
 // --- 总路由 -----------------------------------------------------------------
@@ -366,8 +373,9 @@ export function routeTask(input: RouteInput): TaskRouting {
   const attachmentCount = Math.max(0, Math.floor(input.attachmentCount ?? 0));
 
   // 附件优先于「动词缺失」：用户亲手挑了文件就是明确要「看这个文件」。
-  // 只升到只读分析，而且只在**一个动词都没有**时生效——同时命中只读词与改动词
-  // （signals 非空）仍然是「不确定就问」，附件不该替用户化解这条冲突。
+  // 只读分析本来就不写文件；这条兜底现在只剩「正文一个字都没有但带了附件」
+  // 这一种情况（没有动词的话已经直接按只读问答处理了）。同时命中只读词与
+  // 改动词（signals 非空）仍然是「不确定就问」，附件不该替用户化解这条冲突。
   if (classified.kind === 'clarify' && classified.signals.length === 0 && attachmentCount > 0) {
     return {
       workspaceMode,
