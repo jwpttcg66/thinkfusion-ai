@@ -80,6 +80,8 @@ cd ../thinkfusion-sms-login
 
 任务分支从最新 `main` 提出；`main` 上禁止直接开发/提交、rebase、cherry-pick、reset。`main` 只通过 merge 接收经过验证的任务分支，使用 `--no-ff` 保留任务边界。
 
+任务首次提交后的所有后续修改——评审意见、冲突修复、合并后的缺陷修复——都继续在该任务自己的 worktree/分支进行。任务未完成并通过测试、typecheck 前，不得合并到 `main` 或其他分支。合并后发现问题时，回原 worktree 增加修复提交，验证通过后再合并；不要在 `main` 或别人的任务分支直接补代码。
+
 ### 并发任务的集成顺序
 
 按任务首次有效提交时间从早到晚排队。**后提交任务的负责人负责把自己的任务集成到已更新的 `main`，并修复自己的冲突或回归。**
@@ -88,8 +90,8 @@ cd ../thinkfusion-sms-login
 
 1. 先把 A 合入 `main`，运行相关测试与 typecheck，确认 A 正常。
 2. B 的负责人在 B 的 worktree 执行 `git merge main`，解决冲突，并验证 A、B 两项功能。
-3. B 的负责人修复自己引入的问题；所有相关测试与 typecheck 通过后，再提交修复并把 B 合入 `main`。
-4. 合并前确认 `main` 工作区干净。未通过验证的任务不得合入；合并完成前不要删除对应 worktree。
+3. B 的负责人在自己的 worktree 修复自己引入的问题；所有相关测试与 typecheck 通过后，再提交修复并把 B 合入 `main`。
+4. B 合并后发现问题，仍回 B 的 worktree 修复、验证、提交，再将修复合入 `main`。合并前确认 `main` 工作区干净；未通过验证的任务不得合入；任务确认完成前不要删除对应 worktree。
 
 `git worktree list` 查看所有工作区；任务合并并确认完成后，再清理已合并分支与 worktree。
 
