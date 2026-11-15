@@ -140,6 +140,11 @@ export function createMockApi(): AgentApi {
   const openTerminalWindows = new Set<string>(['term-preview-a1']);
   /** 预览里的 CLI 交互终端：点侧栏按钮时才创建，和真实实现一致。 */
   const cliTerminals = new Map<string, string>();
+  // 模拟真实启动：设置里两个 CLI 都开着，各自已起终端并开窗。
+  cliTerminals.set('qoder', 'term-cli-qoder');
+  cliTerminals.set('claude', 'term-cli-claude');
+  openTerminalWindows.add('term-cli-qoder');
+  openTerminalWindows.add('term-cli-claude');
   const terminalWindowListeners = new Set<(event: { sessionId: string; open: boolean }) => void>();
   const notifyTerminalWindows = (sessionId: string, open: boolean) => {
     for (const listener of terminalWindowListeners) listener({ sessionId, open });

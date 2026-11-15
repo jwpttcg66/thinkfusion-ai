@@ -284,6 +284,11 @@ export default function App() {
   /** 已启用的 CLI 与它们当前的交互终端会话。 */
   const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
   const [cliTerminals, setCliTerminals] = useState<CliTerminalState[]>([]);
+  /** CLI 的交互终端已经有自己的 Q/C 按钮，不能再画成普通终端按钮。 */
+  const cliTerminalSessionIds = useMemo(
+    () => new Set(cliTerminals.map(item => item.sessionId)),
+    [cliTerminals]
+  );
   /** 已经自动开过窗的会话，避免用户关窗后又被下一次轮询打开。 */
   const autoOpenedTerminals = useRef<Set<string>>(new Set());
 
@@ -1727,6 +1732,8 @@ export default function App() {
       return;
     }
     for (const session of terminalSessions) {
+      // CLI 会话由下面按 CLI 处理，避免同一窗口被判成两个来源。
+      if (cliTerminalSessionIds.has(session.sessionId)) continue;
       void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
     }
     for (const agent of cliAgents) {
@@ -2648,11 +2655,13 @@ export default function App() {
           };
         })}
         onToggleCli={id => toggleCliAgentTerminal(id)}
-        terminals={terminalSessions.map(session => ({
-          sessionId: session.sessionId,
-          label: terminalLabelOf(session),
-          exited: session.exited
-        }))}
+        terminals={terminalSessions
+          .filter(session => !cliTerminalSessionIds.has(session.sessionId))
+          .map(session => ({
+            sessionId: session.sessionId,
+            label: terminalLabelOf(session),
+            exited: session.exited
+          }))}
         openTerminalIds={openTerminalWindows}
         onToggleTerminal={toggleTerminalWindow}
       />
