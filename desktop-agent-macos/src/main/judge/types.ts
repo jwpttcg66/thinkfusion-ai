@@ -41,6 +41,17 @@ export interface UnresolvedQuestion {
   sourceMessageIds: string[];
 }
 
+export type JudgeMode = 'self-review' | 'participant-review' | 'independent-judge' | 'rules-fallback';
+
+export interface JudgeIndependence {
+  judgeMode: JudgeMode;
+  judgeIndependent: boolean;
+  modelIndependence: boolean;
+  judgeProviderId?: string;
+  judgeModelId?: string;
+  reason: string;
+}
+
 export interface JudgeConfidence {
   level: 'low' | 'medium' | 'high';
   why: string;
@@ -63,6 +74,13 @@ export interface JudgeVerdict {
   judgeAttempts?: number;
   /** 决策 5：资源不足允许兼任，但必须明确标记这一事实。 */
   sharedWith?: string;
+  /** 独立性由实际参与者/模型身份派生；老记录没有。 */
+  judgeMode?: JudgeMode;
+  judgeIndependent?: boolean;
+  modelIndependence?: boolean;
+  judgeProviderId?: string;
+  judgeModelId?: string;
+  independenceReason?: string;
   backend: 'model' | 'rules';
   conclusion: string | null;
   undetermined: boolean;

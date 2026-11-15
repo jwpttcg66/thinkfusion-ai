@@ -75,6 +75,7 @@ import {
 } from './research/routing-classifier';
 import { CloudConfigStore } from './providers/cloud-config';
 import { JudgeEngine } from './judge/engine';
+import { resolveJudge } from './judge/resolve';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
 import { evaluateDebateQuality, finalizeDebate } from './debate/quality-engine';
@@ -3653,13 +3654,31 @@ function registerIpc() {
       return extra ? extra.ask(task) : registry.ask(agentId, task);
     };
     const all = await debateCandidates();
-    const usable = all.filter(item => item.available && (item.type === 'local' || item.type === 'cloud'));
-    const independent = usable.find(item => !state.plan.participants.includes(item.id));
-    const pick = independent ?? usable[0];
-    const engine = new JudgeEngine(pick ? {
+    const participantModelIds = state.rounds
+      .flatMap(round => round.messages)
+      .map(message => message.modelId)
+      .filter((modelId): modelId is string => Boolean(modelId));
+    const actualParticipants = state.degradation?.actualParticipants ?? state.plan.participants;
+    const resolution = resolveJudge({
+      candidates: all.map(item => ({
+        id: item.id,
+        label: item.label,
+        type: item.type,
+        available: item.available,
+        modelId: item.id.includes(':') ? item.id.split(':').pop()! : item.id,
+        providerId: item.type === 'cloud' && item.id.includes(':') ? item.id.split(':')[0] : undefined
+      })),
+      participants: actualParticipants,
+      participantModelIds
+    });
+    const engine = new JudgeEngine(resolution.judgeAgentId ? {
       ask: askAgent,
-      judgeAgentId: pick.id,
-      sharedWith: state.plan.participants.includes(pick.id) ? pick.id : undefined
+      judgeAgentId: resolution.judgeAgentId,
+      participants: actualParticipants,
+      participantModelIds,
+      judgeModelId: resolution.judgeModelId,
+      judgeProviderId: resolution.judgeProviderId,
+      sharedWith: resolution.sharedWith
     } : {});
     const verdict = await engine.judge(state);
     // 质量报告是裁决的伴随对象：先如实判断这次是不是模型评审（退回规则版

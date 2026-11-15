@@ -29,8 +29,34 @@ export interface JudgeEngineOptions {
   judgeAgentId?: string;
   /** 兼任时填参与辩论的 agentId，会在结果里明确标出来。 */
   sharedWith?: string;
+  /** 实际辩论参与者；用于派生 self/participant/independent。 */
+  participants?: string[];
+  /** 实际参与者的 modelId；用于判断模型身份是否独立。 */
+  participantModelIds?: string[];
+  judgeProviderId?: string;
+  judgeModelId?: string;
   now?: () => number;
   similarThreshold?: number;
+}
+
+function judgeIndependence(options: JudgeEngineOptions, judgeAgentId: string): {
+  judgeMode: 'self-review' | 'participant-review' | 'independent-judge';
+  judgeIndependent: boolean;
+  modelIndependence: boolean;
+  reason: string;
+} {
+  const participants = options.participants ?? [];
+  const participantModelIds = options.participantModelIds ?? participants;
+  const judgeModelId = options.judgeModelId ?? judgeAgentId;
+  const judgeIsParticipant = participants.includes(judgeAgentId);
+  const modelIsParticipant = participantModelIds.includes(judgeModelId) || participants.includes(judgeModelId);
+  if (judgeIsParticipant && participants.length <= 1) {
+    return { judgeMode: 'self-review', judgeIndependent: false, modelIndependence: false, reason: 'Judge 与唯一参与者是同一个模型，属于自我评估' };
+  }
+  if (judgeIsParticipant || modelIsParticipant) {
+    return { judgeMode: 'participant-review', judgeIndependent: false, modelIndependence: false, reason: 'Judge 参与了前序辩论，或与参辩模型身份相同，不是独立第三方' };
+  }
+  return { judgeMode: 'independent-judge', judgeIndependent: true, modelIndependence: true, reason: 'Judge 未参与前序辩论，且模型身份与参辩成员不同' };
 }
 
 const EVIDENCE_HINTS = /(根据|文档|来源|出处|链接|引用|实验|数据|报告|官方|测试|统计|版本)/;
@@ -52,7 +78,15 @@ export class JudgeEngine {
     const base = this.ruleVerdict(state, messages);
 
     if (!this.options.ask || !this.options.judgeAgentId) {
-      return { ...base, backend: 'rules', judgeAgentId: null };
+      return {
+        ...base,
+        backend: 'rules',
+        judgeAgentId: null,
+        judgeMode: 'rules-fallback',
+        judgeIndependent: false,
+        modelIndependence: false,
+        independenceReason: '没有可用模型裁判，退回规则版；不是独立模型评估'
+      };
     }
 
     const system: string[] = [
@@ -89,14 +123,25 @@ export class JudgeEngine {
           ...base,
           backend: 'rules',
           judgeAgentId: null,
+          judgeMode: 'rules-fallback',
+          judgeIndependent: false,
+          modelIndependence: false,
+          independenceReason: '裁判模型连续输出不可解析，退回规则版',
           judgeAttempts: attempts,
           fallbackReason: `裁判模型连续 ${String(attempts)} 次输出不是可解析的 JSON，已退回规则版`
         };
       }
+      const independence = judgeIndependence(this.options, this.options.judgeAgentId);
       return {
         ...base,
         backend: 'model',
         judgeAgentId: this.options.judgeAgentId,
+        judgeMode: independence.judgeMode,
+        judgeIndependent: independence.judgeIndependent,
+        modelIndependence: independence.modelIndependence,
+        judgeProviderId: this.options.judgeProviderId,
+        judgeModelId: this.options.judgeModelId ?? this.options.judgeAgentId,
+        independenceReason: independence.reason,
         judgeAttempts: attempts,
         ...(parsed.questionType ? { questionType: parsed.questionType } : {}),
         sharedWith: this.options.sharedWith,
@@ -122,6 +167,10 @@ export class JudgeEngine {
         ...base,
         backend: 'rules',
         judgeAgentId: null,
+        judgeMode: 'rules-fallback',
+        judgeIndependent: false,
+        modelIndependence: false,
+        independenceReason: '裁判模型调用失败，退回规则版',
         judgeAttempts: 1,
         fallbackReason: `裁判模型调用失败（${error instanceof Error ? error.message : String(error)}），已退回规则版`
       };

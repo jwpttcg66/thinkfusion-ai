@@ -29,6 +29,7 @@ import {
   type DebateOrigin,
   type DebatePhase,
   type DebateRevision,
+  type DebateRole,
   type DebateRound,
   type DebateState
 } from './types';
@@ -51,6 +52,10 @@ export interface DebateDeps {
    * 同步喂进来；不传时按 participants 全是可用的本地成员兜底，老测试照跑。
    */
   candidates?: () => readonly DebateCandidate[];
+  /** 这一场准备让谁当裁判；用于降级后重算独立性。 */
+  judgeCandidateId?: string;
+  /** 裁判实际模型；用于判断 modelIndependence。 */
+  judgeModelId?: string;
 }
 
 const SIMILAR = 0.34;
@@ -224,6 +229,7 @@ export class DebateOrchestrator {
         applyDecisions(state.rounds, revisions);
         state.runningRound = undefined;
         state.rounds.push(round);
+        this.updateDegradation(state, round);
         state.disputes = [...(state.disputes ?? []), ...disputes];
         state.revisions = [...(state.revisions ?? []), ...revisions];
         // 每条修订独立记一条事件：它是「观点因为证据变了」的最小单位，
@@ -405,9 +411,10 @@ export class DebateOrchestrator {
     const seeded = index === 0
       ? seededWebPositions(state, speakersFor(state.plan, index), this.now())
       : [];
+    const active = new Set(state.degradation?.actualParticipants ?? state.plan.participants);
     const speakers = seeded.length > 0
       ? []
-      : webLeadSpeakers(state, index, speakersFor(state.plan, index));
+      : webLeadSpeakers(state, index, speakersFor(state.plan, index).filter(agentId => active.has(agentId)));
     const budget = budgetOf(state.config);
     // 从这一轮开始就记住还在等谁，界面才能在第一条发言回来之前显示「等待 X 发言」。
     // 这里立即落一次盘：界面读的是磁盘上的快照，不写下去就只能等到轮末才看见。
@@ -535,6 +542,50 @@ export class DebateOrchestrator {
     });
 
     return { round, disputes: analysis.disputes, revisions };
+  }
+
+  /**
+   * 某位成员失败后，实际参与者/角色/Judge 独立性都会变化。
+   * 只记录真实发生的事：不把失败成员继续算作参与者，也不保留旧独立标签。
+   */
+  private updateDegradation(state: DebateState, round: DebateRound): void {
+    if (round.failures.length === 0) return;
+    const original = state.degradation?.originalParticipants ?? [...state.plan.participants];
+    const failed = new Set([
+      ...(state.degradation?.failedAgents ?? []),
+      ...round.failures.map(failure => failure.agentId)
+    ]);
+    const actual = original.filter(agentId => !failed.has(agentId));
+    const messages = state.rounds.flatMap(item => item.messages);
+    const actualRoles: Record<string, DebateRole[]> = {};
+    for (const agentId of actual) {
+      actualRoles[agentId] = [...new Set(messages.filter(message => message.agentId === agentId).map(message => message.role))];
+    }
+    const judgeCandidate = this.deps.judgeCandidateId;
+    const judgeIsParticipant = Boolean(judgeCandidate && actual.includes(judgeCandidate));
+    const judgeFailed = Boolean(judgeCandidate && failed.has(judgeCandidate));
+    const participantModelIds = messages.map(message => message.modelId).filter((id): id is string => Boolean(id));
+    const judgeModelId = this.deps.judgeModelId ?? judgeCandidate;
+    const modelIsParticipant = Boolean(judgeModelId && participantModelIds.includes(judgeModelId));
+    const judgeIndependent = judgeCandidate
+      ? !judgeIsParticipant && !judgeFailed && !modelIsParticipant
+      : actual.length > 1;
+    const modelIndependence = judgeCandidate
+      ? !judgeFailed && !judgeIsParticipant && !modelIsParticipant
+      : actual.length > 1;
+    state.degradation = {
+      originalParticipants: original,
+      actualParticipants: actual,
+      failedAgents: [...failed],
+      actualRoles,
+      judgeIndependent,
+      modelIndependence,
+      degradedToSingleModel: actual.length === 1,
+      reason: judgeIndependent
+        ? `失败成员：${[...failed].join('、')}；实际参与者：${actual.join('、')}；仍有独立裁判候选`
+        : `失败成员：${[...failed].join('、')}；实际参与者：${actual.join('、')}；不能再声称独立裁判`,
+      createdAt: this.now()
+    };
   }
 
   /** 单次调用超时，以及整场预算见底时立刻放弃——不拖着整轮等一个不会来的回答。 */
