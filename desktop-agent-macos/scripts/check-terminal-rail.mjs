@@ -34,8 +34,8 @@ function render(props) {
           sources: props.sources,
           onSelect: () => {},
           onToggleCollapse: () => {},
-          onToggleTerminal: () => {},
-          onToggleCli: () => {}
+          onSelectTerminal: () => {},
+          onSelectCli: () => {}
         })));
       `,
       resolveDir: root,
@@ -72,11 +72,11 @@ test('N 个终端 → N 个侧栏按钮，各带自己的状态', () => {
       { sessionId: 'term-aaaa1111', label: 'repo-one', exited: false },
       { sessionId: 'term-bbbb2222', label: 'repo-two', exited: true }
     ],
-    openTerminalIds: ['term-bbbb2222']
+    viewingTerminalId: 'term-bbbb2222'
   });
 
   assert.equal((html.match(/rail-btn terminal/g) ?? []).length, 2, '两个终端应有两个按钮');
-  assert.equal((html.match(/rail-btn terminal active/g) ?? []).length, 1, '只有一个终端窗口处于打开态');
+  assert.equal((html.match(/rail-btn terminal active/g) ?? []).length, 1, '只有一个终端处于查看态');
   assert.match(html, /repo-two/);
   assert.match(html, /2222/);
   assert.match(html, /（已退出）/);
@@ -92,12 +92,12 @@ test('没有终端时不渲染终端按钮，也不多画分隔线', () => {
     loading: false,
     collapsed: false,
     terminals: [],
-    openTerminalIds: []
+    viewingTerminalId: null
   });
   assert.equal((html.match(/rail-btn terminal/g) ?? []).length, 0);
 });
 
-test('已启用的 CLI 各有一个按钮，开着的显示为打开态', () => {
+test('已启用的 CLI 各有一个按钮，正在查看的显示为选中态', () => {
   const html = render({
     sources: [source],
     activeId: 'chatgpt',
@@ -105,10 +105,10 @@ test('已启用的 CLI 各有一个按钮，开着的显示为打开态', () => 
     loading: false,
     collapsed: false,
     terminals: [],
-    openTerminalIds: [],
+    viewingTerminalId: null,
     cliAgents: [
-      { id: 'qoder', label: 'Qoder CLI', glyph: 'Q', running: true, open: true },
-      { id: 'claude', label: 'Claude CLI', glyph: 'C', running: true, open: false }
+      { id: 'qoder', label: 'Qoder CLI', glyph: 'Q', running: true, viewing: true },
+      { id: 'claude', label: 'Claude CLI', glyph: 'C', running: true, viewing: false }
     ]
   });
   assert.equal((html.match(/rail-btn cli/g) ?? []).length, 2);

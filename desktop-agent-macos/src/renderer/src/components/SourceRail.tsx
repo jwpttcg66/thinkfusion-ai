@@ -42,13 +42,13 @@ export function SourceRail(props: {
   collapsed: boolean;
   onSelect: (id: string) => void;
   onToggleCollapse: () => void;
-  /** 每个终端会话一个按钮；与网页并列，按钮是窗口开关。 */
+  /** 每个终端会话一个按钮；点击在右侧面板显示这一个。 */
   terminals?: Array<{ sessionId: string; label: string; exited: boolean }>;
-  openTerminalIds?: string[];
-  onToggleTerminal?: (sessionId: string) => void;
-  /** 已启用的 CLI：点一下起交互终端，再点关窗口。 */
-  cliAgents?: Array<{ id: string; label: string; glyph: string; running: boolean; open: boolean }>;
-  onToggleCli?: (id: string) => void;
+  viewingTerminalId?: string | null;
+  onSelectTerminal?: (sessionId: string) => void;
+  /** 已启用的 CLI：点击在右侧面板显示它的交互终端。 */
+  cliAgents?: Array<{ id: string; label: string; glyph: string; running: boolean; viewing: boolean }>;
+  onSelectCli?: (id: string) => void;
 }) {
   return (
     <nav className="source-rail" style={{ width: RAIL_WIDTH }} aria-label="内嵌网页">
@@ -100,25 +100,25 @@ export function SourceRail(props: {
         <button
           key={`cli-${agent.id}`}
           type="button"
-          className={`rail-btn cli ${agent.open ? 'active' : ''}`}
-          title={`${agent.label}${agent.running ? '（终端已运行）' : ''} · ${agent.open ? '点击关闭窗口' : '点击打开终端'}`}
-          aria-pressed={agent.open}
-          onClick={() => props.onToggleCli?.(agent.id)}
+          className={`rail-btn cli ${agent.viewing ? 'active' : ''}`}
+          title={`${agent.label}${agent.running ? '（终端已运行）' : ''} · 点击在右侧面板查看`}
+          aria-pressed={agent.viewing}
+          onClick={() => props.onSelectCli?.(agent.id)}
         >
           <span className="rail-glyph">{agent.glyph}</span>
           <span className={`rail-dot${agent.running ? '' : ' off'}`} />
         </button>
       ))}
       {(props.terminals ?? []).map(terminal => {
-        const open = (props.openTerminalIds ?? []).includes(terminal.sessionId);
+        const viewing = terminal.sessionId === props.viewingTerminalId;
         return (
           <button
             key={terminal.sessionId}
             type="button"
-            className={`rail-btn terminal ${open ? 'active' : ''}`}
-            title={`终端 · ${terminal.label} · ${terminal.sessionId.slice(-4)}${terminal.exited ? '（已退出）' : '（运行中）'} · ${open ? '点击关闭窗口' : '点击打开窗口'}`}
-            aria-pressed={open}
-            onClick={() => props.onToggleTerminal?.(terminal.sessionId)}
+            className={`rail-btn terminal ${viewing ? 'active' : ''}`}
+            title={`终端 · ${terminal.label} · ${terminal.sessionId.slice(-4)}${terminal.exited ? '（已退出）' : '（运行中）'} · 点击在右侧面板查看`}
+            aria-pressed={viewing}
+            onClick={() => props.onSelectTerminal?.(terminal.sessionId)}
           >
             <span className="rail-glyph">
               <Glyph paths={ICON_TERMINAL_PATHS} size={18} />

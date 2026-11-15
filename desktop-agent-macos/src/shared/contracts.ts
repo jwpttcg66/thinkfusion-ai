@@ -2320,6 +2320,10 @@ export interface AgentApi {
   closeTerminalWindow(sessionId: string): Promise<void>;
   /** 窗口开/关事件；侧栏按钮据此保持「开就是开」。 */
   onTerminalWindow(listener: (event: TerminalWindowState) => void): () => void;
+  /** 打开/关闭主窗口右侧的终端面板；打开时主进程会把内嵌网页停止绘制。 */
+  setTerminalPane(open: boolean): Promise<void>;
+  /** 放大窗口「吸附回来」时，主窗口据此把该会话放回面板。 */
+  onTerminalSelect(listener: (sessionId: string) => void): () => void;
   /** 把终端移到独立窗口（与网页的「放大」同一套交互）。 */
   detachTerminal(sessionId: string): Promise<void>;
   /** 为某个已启用的 CLI 打开交互式终端；返回 Runtime 里的会话 id。 */
