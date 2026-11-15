@@ -274,12 +274,37 @@ export function createMockApi(): AgentApi {
       sessionId,
       cols: 120,
       rows: 30,
-      backlog: '预览模式没有真实终端\n',
+      backlog: `预览终端 ${sessionId}\n$ `,
       cursor: 10,
       dropped: 0,
-      exited: false
+      exited: sessionId.endsWith('b2'),
+      ...(sessionId.endsWith('b2') ? { exitCode: 0 } : {})
     }),
-    listTerminals: async () => [],
+    // 预览模式固定两个会话：一个运行中、一个已退出，用来检查右侧栏
+    // 「一个终端一个按钮」和状态点，不需要真实 PTY。
+    listTerminals: async () => [
+      {
+        sessionId: 'term-preview-a1',
+        pid: 1001,
+        shell: '/bin/zsh',
+        cwd: '/preview/repo-a',
+        cols: 120,
+        rows: 30,
+        exited: false,
+        pending: 0
+      },
+      {
+        sessionId: 'term-preview-b2',
+        pid: 1002,
+        shell: '/bin/zsh',
+        cwd: '/preview/repo-b',
+        cols: 120,
+        rows: 30,
+        exited: true,
+        exitCode: 0,
+        pending: 0
+      }
+    ],
     setTerminalPane: async () => undefined,
     detachTerminal: async () => undefined,
     writeTerminal: async () => undefined,

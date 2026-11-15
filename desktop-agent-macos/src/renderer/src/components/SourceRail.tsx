@@ -1,7 +1,7 @@
 import React from 'react';
 import type { PageSource } from '../../../shared/sources';
 import { RAIL_WIDTH } from '../../../shared/layout';
-import { ICON_PANEL_FILL_PATHS, ICON_PANEL_PATHS } from '../../../shared/icons';
+import { ICON_PANEL_FILL_PATHS, ICON_PANEL_PATHS, ICON_TERMINAL_PATHS } from '../../../shared/icons';
 import { Glyph } from './Glyph';
 
 /**
@@ -42,6 +42,10 @@ export function SourceRail(props: {
   collapsed: boolean;
   onSelect: (id: string) => void;
   onToggleCollapse: () => void;
+  /** 每个终端会话一个按钮；与网页并列，但点击进入的是终端面板。 */
+  terminals?: Array<{ sessionId: string; label: string; exited: boolean }>;
+  activeTerminalId?: string | null;
+  onSelectTerminal?: (sessionId: string) => void;
 }) {
   return (
     <nav className="source-rail" style={{ width: RAIL_WIDTH }} aria-label="内嵌网页">
@@ -83,6 +87,27 @@ export function SourceRail(props: {
             <span className="rail-glyph">{source.glyph}</span>
             {active && props.loading && <span className="rail-spinner" />}
             {planning && <span className="rail-dot" />}
+          </button>
+        );
+      })}
+      {(props.terminals?.length ?? 0) > 0 && (
+        <span className="rail-sep" aria-hidden="true" />
+      )}
+      {(props.terminals ?? []).map(terminal => {
+        const active = terminal.sessionId === props.activeTerminalId;
+        return (
+          <button
+            key={terminal.sessionId}
+            type="button"
+            className={`rail-btn terminal ${active ? 'active' : ''}`}
+            title={`终端 · ${terminal.label} · ${terminal.sessionId.slice(-4)}${terminal.exited ? '（已退出）' : '（运行中）'}`}
+            aria-pressed={active}
+            onClick={() => props.onSelectTerminal?.(terminal.sessionId)}
+          >
+            <span className="rail-glyph">
+              <Glyph paths={ICON_TERMINAL_PATHS} size={18} />
+            </span>
+            <span className={`rail-dot${terminal.exited ? ' off' : ''}`} />
           </button>
         );
       })}

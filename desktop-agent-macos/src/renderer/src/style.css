@@ -5626,3 +5626,12 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 终端在右侧栏的按钮：与网页按钮同一尺寸，图标是 18px 线稿。 */
+.rail-btn.terminal .rail-glyph {
+  display: grid;
+  place-items: center;
+}
+.rail-dot.off {
+  background: var(--text-3);
+}

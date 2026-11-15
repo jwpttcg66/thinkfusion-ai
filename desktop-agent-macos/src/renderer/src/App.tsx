@@ -224,6 +224,11 @@ const TerminalPanel = React.lazy(() =>
   import('./components/TerminalPanel').then(module => ({ default: module.TerminalPanel }))
 );
 
+function terminalLabelOf(session: TerminalSessionSummary): string {
+  const base = session.cwd.split('/').filter(Boolean).slice(-1)[0];
+  return base || session.sessionId.slice(-6);
+}
+
 export default function App() {
   const [platform, setPlatform] = useState('');
   const [permission, setPermission] = useState<PermissionPreset>('workspace-write');
@@ -280,28 +285,55 @@ export default function App() {
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
   /** 右侧终端面板；按钮常驻，面板打开时才占用网页的区域。 */
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
 
-  // 面板打开时才轮询会话列表：PTY 的创建/退出在 Runtime，主窗口只能问。
-  // 关闭时停掉，避免为了一个没在看的面板一直发 IPC。
+  // 右侧栏要在面板没打开时也能显示「有几个终端」，所以列表一直轻量轮询。
+  // 4 秒一次，问的是 Runtime 里的内存表，不是磁盘。
   useEffect(() => {
-    if (!terminalOpen) return;
     let alive = true;
     const load = () => {
       void window.agentAPI
         .listTerminals()
         .then(list => {
-          if (alive) setTerminalSessions(list);
+          if (!alive) return;
+          setTerminalSessions(list);
+          setActiveTerminalId(current => {
+            if (current && list.some(item => item.sessionId === current)) return current;
+            if (terminalOpen) return list[0]?.sessionId ?? null;
+            return null;
+          });
         })
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 2000);
+    const timer = window.setInterval(load, 4000);
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
   }, [terminalOpen]);
+
+  const terminalPanelSessions = useMemo<TerminalSessionSummary[]>(() => {
+    if (!activeTerminalId) return terminalSessions;
+    const found = terminalSessions.find(item => item.sessionId === activeTerminalId);
+    // 会话刚被结束、列表还没刷新时仍然保留这一格，让「已退出」有地方显示，
+    // 而不是面板突然跳到另一个终端。
+    return found
+      ? [found]
+      : [
+          {
+            sessionId: activeTerminalId,
+            pid: 0,
+            shell: '',
+            cwd: '',
+            cols: 0,
+            rows: 0,
+            exited: true,
+            pending: 0
+          }
+        ];
+  }, [activeTerminalId, terminalSessions]);
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
@@ -1576,6 +1608,8 @@ export default function App() {
   }
 
   async function selectSource(id: string) {
+    // 点网页就离开终端面板：右侧栏是唯一切换器，两个视图不能同时占着。
+    if (terminalOpen) closeTerminalPane();
     if (id === sources.activeId) return;
     setError('');
     try {
@@ -1627,7 +1661,15 @@ export default function App() {
    */
   function closeTerminalPane() {
     setTerminalOpen(false);
+    setActiveTerminalId(null);
     void window.agentAPI.setTerminalPane(false).catch(() => undefined);
+  }
+
+  /** 侧栏点某个终端：只显示这一个会话，面板不再有标签栏。 */
+  function openTerminalFor(sessionId: string) {
+    setActiveTerminalId(sessionId);
+    setTerminalOpen(true);
+    void window.agentAPI.setTerminalPane(true).catch(() => undefined);
   }
 
   /**
@@ -1640,6 +1682,7 @@ export default function App() {
       return;
     }
     setTerminalOpen(true);
+    setActiveTerminalId(current => current ?? terminalSessions[0]?.sessionId ?? null);
     void window.agentAPI.setTerminalPane(true).catch(() => undefined);
   }
 
@@ -2511,13 +2554,10 @@ export default function App() {
             >
               <React.Suspense fallback={null}>
                 <TerminalPanel
-                  sessions={terminalSessions.map(session => ({
-                    sessionId: session.sessionId,
-                    cwd: session.cwd,
-                    exited: session.exited,
-                    exitCode: session.exitCode
-                  }))}
+                  sessions={terminalPanelSessions}
                   bridge={window.agentAPI}
+                  initialSessionId={activeTerminalId}
+                  single={Boolean(activeTerminalId)}
                   onClosePane={closeTerminalPane}
                   onDetach={sessionId => {
                     void window.agentAPI
@@ -2580,12 +2620,19 @@ export default function App() {
           button that does nothing. */}
       <SourceRail
         sources={sources.sources.filter(source => source.enabled)}
-        activeId={sources.activeId}
+        activeId={terminalOpen ? '' : sources.activeId}
         planningId={sources.planningId}
         loading={sources.loading}
         collapsed={isCollapsed}
         onSelect={selectSource}
         onToggleCollapse={toggleCollapse}
+        terminals={terminalSessions.map(session => ({
+          sessionId: session.sessionId,
+          label: terminalLabelOf(session),
+          exited: session.exited
+        }))}
+        activeTerminalId={terminalOpen ? activeTerminalId : null}
+        onSelectTerminal={openTerminalFor}
       />
 
       {researchOpen && (

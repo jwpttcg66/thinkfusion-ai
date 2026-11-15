@@ -24,7 +24,8 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 | 任务级独立 Worktree（创建/提交/合并/删除） | `src/main/task-worktree.ts`、`src/renderer/src/components/TaskWorktree.tsx` |
 | TerminalHost：多读者、程序直启、进程组 | `src/agent/tools/terminal.ts` |
 | 终端 IPC 与面板 | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/components/AgentTerminal.tsx` |
-| 右侧终端面板（常驻按钮 + 会话切换） | `src/renderer/src/components/TerminalPanel.tsx` |
+| 右侧栏：每个终端一个按钮 | `src/renderer/src/components/SourceRail.tsx` |
+| 右侧终端面板 | `src/renderer/src/components/TerminalPanel.tsx` |
 | 每会话一个独立终端窗口 | `src/renderer/terminal.html`、`src/renderer/src/terminal-window.tsx`、`src/preload/terminal.ts` |
 | 任务取消真的下发到 Runtime | `src/main/agent-manager.ts`（`cancelPlan`） |
 | 测试 | `scripts/check-cli-agent.mjs`、`scripts/fixtures/fake-cli.mjs` |
@@ -136,11 +137,13 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 - 关闭面板只 detach，不杀进程；要结束必须点「结束会话」或取消任务；
 - xterm 不注册 OSC 52 / OSC 8 处理器，第三方输出不能改剪贴板、不能把链接变成动作。
 
-右侧页面工具栏有一个**常驻的终端按钮**：
+右侧栏里**每个终端会话一个按钮**，与网页通道并列：
 
-- 没有会话也能打开，面板会说明「还没有终端会话」；
-- 主窗口面板是会话入口：标签来自 Runtime 的 `term.list`，同一时刻显示一个，
-  用来在几个 CLI/终端之间切换；
+- 网页按钮切换网页；终端按钮切换终端，同一时刻只显示一个；
+- 终端按钮带状态点：运行中为强调色，已退出为灰色；标题带 cwd 末级目录与会话短 id；
+- 没有终端时右侧栏不出现终端按钮；页面工具栏的终端按钮仍在，用来打开面板
+  （没会话时说明「还没有终端会话」）；
+- 主窗口面板同一时刻只显示一个会话，不再有标签栏；
 - **每个会话「放大」后各占一个独立窗口**（`terminal.html?session=…`，独立 preload，
   只能读写那一个 PTY）；同一会话再次放大只聚焦已有窗口，不同会话各自开窗；
 - 结束会话会同时关掉它的独立窗口；「吸附回来」只关当前窗口；
