@@ -321,15 +321,36 @@ EXITED / FAILED / CANCELLED`），连接状态由面板 attach/detach 驱动。
 
 | | 网页源 | 模型源 | CLI 源 |
 | --- | --- | --- | --- |
-| 第一轮被问 | ✅（`web` / `hybrid`） | ✅（`local` / `cloud`） | ✅（`web` / `hybrid`） |
-| 归属规则里算一类成员 | 网页 | 本地 / 云端 | 不算：不当主导、不当辩手 |
+| 第一轮被问 | ✅（`web` / `hybrid`） | ✅（`local` / `cloud`） | ✅（`web` / `hybrid` / `cloud`） |
+| 归属规则里算一类成员 | 网页 | 本地 / 云端 | **云端这一类**：可主导、可辩论 |
 | 状态与开关 | 设置 → 网页源 | 设置 → 模型 | 设置 → Agent 预设 |
 | 失败原因 | 登录 / 页面未就绪 | 缺 Key / Ollama 未启动 | 没装 / 能力未验证 / 限流额度等 |
 
-`local` / `cloud` 主导时**不问** CLI，跟不问网页是同一条归属规则（一类方式只用
-一类成员）。实现：`execution/cli-answer-agent.ts`（`CliAnswerAgent` + 真实 spawn）、
+**归属（2026-11-15 第二次裁决，覆盖同日早前「只回答」版本）**：CLI **属于云端主导的
+一种**——可以主导、可以回答、可以辩论、可以执行。所以：
+
+- 选人：`web` / `hybrid` / `cloud` 三档都会问 CLI；`local` 主导不问（本地只用本地模型，
+  跟不问网页是同一条规则）。CLI 同时进执行名单（可当主导 / 辩手），并归到 cloud 一类。
+- 辩论：CLI 进 `debateCandidates`（`type: 'cloud'`、`cli: true`），可当主辩；编排器把
+  材料放进 `system` / `context`，`CliAnswerAgent.ask` 拼成一条提示发过去；第一轮没有
+  材料时仍是用户原话逐字。
+- 执行：工程活照旧走 `agent.exec`；回答 / 辩论这条链仍不传 `permissionArgs`、cwd 在
+  临时目录——「可以执行」指的是它有执行那条链，不是回答时顺手改文件。
+- 不进的两处：方案评审辩论（`debatePlan`）与多 agent 编码（`code.team.run`）明确
+  排除 CLI——前者会拖住任务审批链路，后者要读文件而回答链没有文件工具。
+
+`local` 主导时不问 CLI 的实现：`execution/policy.ts`；归属映射在
+`conversation-runner.ts` 的 `ownershipSourceOf`（CLI → cloud）。
+实现：`execution/cli-answer-agent.ts`（`CliAnswerAgent` + 真实 spawn）、
 `execution/policy.ts`（选人）、`execution/execution-pool.ts`（第一轮名单）。
-测试：`npm run test:cli-answer`（8 条）。
+测试：`npm run test:cli-answer`（13 条）。
+
+**按问勾选（2026-11-15 追加）**：输入框「模型」弹层里，模型清单下方有「CLI 来源」
+区块，按问筛 CLI——`selectedCliAgents` 三态与 `selectedCloudModels` 一致：
+`undefined` = 设置里开着的全部（缺省，老会话不迁移）；`[]` = 这一问一个都不问；
+非空 = 只勾的这些。写回会话 `executionConfig` 并同步执行默认值。注意 id 形态：
+名单按回答成员 id（`cli:qoder`）对齐，注册表 id（`qoder`）不带前缀，混用会全部落空。
+`local` / `cloud` 主导下勾选不生效（本就不问 CLI）。
 
 ## 15. 交付文档
 

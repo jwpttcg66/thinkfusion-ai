@@ -319,6 +319,8 @@ export default function App() {
   }, [terminalPaneSession, terminalSessions]);
   /** 已启用的 CLI 与它们当前的交互终端会话。 */
   const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
+  /** 全部 CLI（含关着的）：输入框「模型」弹层里 CLI 来源区块要照列并写明原因。 */
+  const [cliAll, setCliAll] = useState<CliAgentView[]>([]);
   const [cliTerminals, setCliTerminals] = useState<CliTerminalState[]>([]);
   /** CLI 的交互终端已经有自己的 Q/C 按钮，不能再画成普通终端按钮。 */
   const cliTerminalSessionIds = useMemo(
@@ -443,7 +445,9 @@ export default function App() {
     void window.agentAPI
       .getCliAgents()
       .then(list => {
-        if (alive) setCliAgents(list.filter(item => item.enabled));
+        if (!alive) return;
+        setCliAll(list);
+        setCliAgents(list.filter(item => item.enabled));
       })
       .catch(() => undefined);
     return () => {
@@ -2513,6 +2517,21 @@ export default function App() {
                 cloud: executionOptions?.cloudMembers ?? [],
                 selected: executionConfig.selectedCloudModels,
                 onChange: next => changeExecutionConfig({ selectedCloudModels: next })
+              }}
+              // CLI 来源跟在模型清单下面选：同一份三态语义（undefined = 开着的
+              // 全部），写回会话配置，主进程选人按它筛第一轮的 CLI 成员。
+              // 注意 id 形态：注册表 id 是 qoder，回答成员 id 是 cli:qoder——
+              // 选人名单（selectedCliAgents）按后者对齐，差一个前缀就全部落空。
+              cliSources={{
+                all: cliAll.map(item => ({
+                  id: `cli:${item.id}`,
+                  label: item.label,
+                  enabled: item.enabled,
+                  available: item.available,
+                  reason: item.reason
+                })),
+                selected: executionConfig.selectedCliAgents,
+                onChange: next => changeExecutionConfig({ selectedCliAgents: next })
               }}
               // 写着「追问《…》」的时候，这一句会进那条会话；点「新对话」就换一条。
               followupTitle={showingConversation && activeConversation ? activeConversation.title : null}

@@ -212,6 +212,55 @@ npm run replay:terminal -- <sessionId> --markers
 DeepSeek 未开启，没有可用网页可同场；这条路径由 `test:execution` / `test:cli-answer`
 的选人断言覆盖，真机要等有登录态的机器再补。
 
+### 9.1 按问勾选 CLI 来源（同分支追加提交）
+
+用户要求「模型设置里面，增加 CLI 源，这样回答才能在可以选择的源里进行回答」——
+即输入框「模型」弹层里按问筛 CLI，与 `selectedCloudModels` 同一套机制：
+
+| 能力 | 落点 |
+| --- | --- |
+| `selectedCliAgents?: string[]`（undefined = 开着的全部 / `[]` = 一个都不问 / 非空 = 只勾的） | `shared/conversation.ts`，normalize 三态语义与云端一致，老会话缺字段不迁移 |
+| 选人筛 CLI（web/hybrid 分支），未勾的进 blocked「没有在这一轮被选中」 | `main/execution/policy.ts` |
+| 「模型」弹层模型清单下方的「CLI 来源」区块（全选/清空/逐个勾，关掉的灰掉写原因），胶囊摘要带 `· CLI n/m` | `renderer/components/TaskInput.tsx` + `App.tsx` |
+| 勾选写回会话 `executionConfig` 并同步执行默认值 | 既有 `changeExecutionConfig`，无新状态 |
+
+真机抓到并修掉的一个真问题：弹层最初按注册表 id（`qoder`）写回，而选人按回答
+成员 id（`cli:qoder`）筛——差一个前缀，勾了也全部落空。现在渲染层传给弹层的 id
+统一成 `cli:<registryId>`。
+
+真机（CDP）：弹层出现「CLI 来源」区块，Qoder 勾着、Claude 灰掉写「已在设置里关闭」；
+取消勾选后胶囊摘要 `未选 · CLI 0/1`、执行默认值落盘 `selectedCliAgents: []`，
+勾回落盘 `["cli:qoder"]`，还原后与改前一致。测试追加到 `test:cli-answer`
+（8→10 条：三态选人、陈旧 id 无害、normalize 三态），`test:execution` 13/13、
+`test:cli-production` 35/35 不受影响。
+
+### 9.2 CLI 归入云端一类：可主导 / 回答 / 辩论 / 执行（同日第三次裁决）
+
+用户原话：「CLI 属于云端主导的一种，可以主导，可以回答，可以辩论，可以执行」。
+这条覆盖 9.1 之前「CLI 只回答、不当主导/辩手」的写法。
+
+| 能力 | 落点 |
+| --- | --- |
+| 云端正主导也问 CLI（`local` 仍不问） | `execution/policy.ts` 的 `cloud` 分支 |
+| CLI 进执行名单（可主导 / 辩手） | 同上，`executorIds` 追加勾选中的 CLI |
+| 归属映射：CLI → cloud | `conversation-runner.ts` 的 `ownershipSourceOf`；`debatersFor('web')` 反过来把 cloud 类剔掉 |
+| 点名 CLI 当主导不被误判成网页 | `ownershipOf` 先按来源判，再看「它答过没有」（CLI 也进 answers） |
+| 辩论候选 / 主辩 / 辩论发言 | `debateCandidates()` 加 `type:'cloud'、cli:true`；`DebateOrchestrator` 的 `ask` 接 CLI；`CliAnswerAgent.ask` 把 `system` / `context` 拼进提示（第一轮无材料时仍是原话逐字） |
+| 名单不被混写 | `ResearchPanel`：CLI 读写 `selectedCliAgents`，云端模型仍写 `selectedCloudModels`；辩论候选带 `cli` 标记单独分组 |
+| 路由说明 | `shared/model-route.ts`：云端档的 answerers / synthesizers 含 CLI，说明写「属云端一类，可主导与辩论」 |
+
+明确不做的两处（写清理由，不静默）：方案评审辩论 `debatePlan` 与多 agent 编码
+`code.team.run` 排除 CLI——前者串行等进程退出会拖住任务审批，后者要读文件而回答链
+没有文件工具。
+
+真机（CDP）：`getExecutionOptions().debateCandidates` 里 `cli:qoder` 为
+`type:'cloud'`、`available:true`；云端主导下提「1 加 1 等于几」→ `channels =
+["cli:qoder"]`、状态 `answered`；`startDebate`（cloud，参与者 `cli:qoder`）→
+主辩 `agentId: 'cli:qoder'`（理由「云端主导取第一个可用的远程 API 模型（Qoder CLI）作为主辩」）、
+一轮辩完 `completed` 且有 Qoder 发言。测试会话与辩论记录当场删除，侧栏残留 0。
+测试：`test:cli-answer` 13 条（新增云端档问 CLI、CLI 当主辩、材料随提示下发）、
+`test:execution` 13/13、`test:debate` 15/15、`test:model-route` 12/12。
+
 ## 10. 软件源设置的真机验收（沿用 `01cf94c`）
 
 - `getCliAgents()` → `setCliSoftwareSource()` → `getCliAgents()`：Qoder 从

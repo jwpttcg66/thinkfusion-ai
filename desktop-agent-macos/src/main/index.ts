@@ -1020,18 +1020,28 @@ async function routeEngineeringWithModel(input: {
  * 一场双边辩论静默变成单边。这里把真实原因（detail）一并交给界面。
  */
 async function debateCandidates(): Promise<DebateCandidate[]> {
-  const entries: Array<{ id: string; label: string; type: DebateCandidate['type']; health: () => Promise<{ available: boolean; detail?: string }> }> = [
+  const entries: Array<{ id: string; label: string; type: DebateCandidate['type']; cli?: boolean; health: () => Promise<{ available: boolean; detail?: string }> }> = [
     ...registry.list().map(agent => ({ id: agent.id, label: agent.label, type: 'web' as const, health: () => agent.health() })),
-    ...extraAgents.map(agent => ({ id: agent.id, label: agent.label, type: agent.sourceType, health: () => agent.health() }))
+    ...extraAgents.map(agent => ({ id: agent.id, label: agent.label, type: agent.sourceType, health: () => agent.health() })),
+    // CLI 属云端一类（2026-11-15 裁决：可以主导 / 回答 / 辩论 / 执行）：
+    // 辩论候选里按 cloud 列出来，但标上 `cli` 让名单仍写 `selectedCliAgents`。
+    ...cliAnswerAgents.map(agent => ({
+      id: agent.id,
+      label: agent.label,
+      type: 'cloud' as const,
+      cli: true,
+      health: () => agent.health()
+    }))
   ];
   return Promise.all(entries.map(async entry => {
     try {
       const status = await entry.health();
-      return { id: entry.id, label: entry.label, type: entry.type, available: status.available, detail: status.detail };
+      return { id: entry.id, label: entry.label, type: entry.type, available: status.available, detail: status.detail, ...(entry.cli ? { cli: true } : {}) };
     } catch (error) {
       return {
         id: entry.id, label: entry.label, type: entry.type, available: false,
-        detail: error instanceof Error ? error.message : String(error)
+        detail: error instanceof Error ? error.message : String(error),
+        ...(entry.cli ? { cli: true } : {})
       };
     }
   }));
@@ -4821,7 +4831,12 @@ app.whenReady().then(async () => {
   debates = new DebateOrchestrator(new DebateStore(path.join(app.getPath('userData'), 'debates')), {
     ask: (agentId, task) => {
       const extra = extraAgents.find(agent => agent.id === agentId);
-      return extra ? extra.ask(task) : registry.ask(agentId, task);
+      if (extra) return extra.ask(task);
+      // CLI 也是辩手候选（云端一类）：编排器把材料放进 system / context，
+      // CliAnswerAgent.ask 会把它拼成一条提示发过去。
+      const cli = cliAnswerAgents.find(agent => agent.id === agentId);
+      if (cli) return cli.ask(task);
+      return registry.ask(agentId, task);
     },
     // 谁参与由 debate:start 里的 planLead 按 health() 决定，编排器不再
     // 维护第二套名单。网页成员在计划里被标成 webOnly，只第一轮发言。
@@ -4865,7 +4880,9 @@ app.whenReady().then(async () => {
     debatePlan: async ({ plan, topics }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
-      const api = candidates.filter(item => item.type !== 'web' && item.available);
+      // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
+      // 会拖住任务审批链路；它在这一类里不做评审，不代表别人不能用它辩论。
+      const api = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
       if (api.length === 0) return null;
       const mode = api.some(item => item.type === 'local') ? 'local' : 'cloud';
       const selected = api.map(item => item.id);
@@ -5015,6 +5032,7 @@ app.whenReady().then(async () => {
         },
         selectedWebChannels: config.selectedWebChannels,
         selectedCloudModels: config.selectedCloudModels,
+        selectedCliAgents: config.selectedCliAgents,
         leadAgentId: config.leadAgentId
       }),
     restoreThreads: restoreThreadViews,
@@ -5334,7 +5352,8 @@ app.whenReady().then(async () => {
       if (typeof args.root !== 'string' || !args.root) throw new Error('code.team.run 缺少工作区根目录');
       const root = args.root;
       const candidates = await debateCandidates();
-      const api = candidates.filter(item => item.type !== 'web' && item.available);
+      // 多 Agent 编码要读文件：CLI 的回答链没有读文件工具，不进这一组。
+      const api = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
       const requested = Array.isArray(args.members)
         ? args.members.filter((item): item is string => typeof item === 'string')
         : [];

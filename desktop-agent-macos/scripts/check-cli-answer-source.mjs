@@ -17,6 +17,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { selectParticipants } from '../out-test/main/execution/policy.js';
+import { normalizeExecutionConfig } from '../out-test/shared/conversation.js';
+import { planLead } from '../out-test/main/debate/lead.js';
 import { ExecutionPool } from '../out-test/main/execution/execution-pool.js';
 import { CliAnswerAgent, runCliAnswer, cancelCliAnswer } from '../out-test/main/execution/cli-answer-agent.js';
 
@@ -71,13 +73,34 @@ const cli = [cliAgent('qoder'), cliAgent('claude')];
 
 // ---------------------------------------------------------------------------
 
-test('网页主导：CLI 跟网页一起进第一轮，不是执行者名单', () => {
+test('网页主导：CLI 跟网页一起进第一轮，也进执行名单（可主导 / 可辩）', () => {
   const selection = selectParticipants({ executionMode: 'web' }, web, [], cli);
   const answers = [...selection.answerIds].sort();
   assert.deepEqual(answers, ['chatgpt', 'cli:claude', 'cli:qoder', 'deepseek']);
-  // 执行名单只放模型：CLI 不当主导、不当辩手。
-  assert.deepEqual([...selection.executorIds], []);
+  // 2026-11-15 裁决：CLI 属云端一类，可以主导、辩论、执行——执行名单里要有它。
+  assert.deepEqual([...selection.executorIds].sort(), ['cli:claude', 'cli:qoder']);
   assert.match(selection.reason, /CLI 2 个/);
+});
+
+test('云端主导：CLI 也属这一类，照常被问；本地主导仍不问', () => {
+  const cloudMode = selectParticipants(
+    { executionMode: 'cloud', selectedCloudModels: [] },
+    web, [], cli
+  );
+  assert.deepEqual([...cloudMode.answerIds].sort(), ['cli:claude', 'cli:qoder']);
+  assert.match(cloudMode.reason, /云端 0 个 \+ CLI 2 个/);
+  assert.ok(cloudMode.blocked.some(item => item.id === 'chatgpt' && /不问网页/.test(item.why)));
+
+  const cloudPicked = selectParticipants(
+    { executionMode: 'cloud', selectedCloudModels: [], selectedCliAgents: ['cli:qoder'] },
+    web, [], cli
+  );
+  assert.deepEqual([...cloudPicked.answerIds].sort(), ['cli:qoder']);
+  assert.ok(cloudPicked.blocked.some(item => item.id === 'cli:claude' && /没有在这一轮被选中/.test(item.why)));
+
+  const localMode = selectParticipants({ executionMode: 'local' }, web, [], cli);
+  assert.equal([...localMode.answerIds].filter(id => id.startsWith('cli:')).length, 0);
+  assert.ok(localMode.blocked.some(item => item.id === 'cli:qoder' && /本地主导只用本地模型/.test(item.why)));
 });
 
 test('混合：同样问 CLI；CLI 不看 selectedWebChannels（那是站点名单）', () => {
@@ -91,14 +114,47 @@ test('混合：同样问 CLI；CLI 不看 selectedWebChannels（那是站点名�
   assert.deepEqual(answers, ['chatgpt', 'cli:claude', 'cli:qoder']);
 });
 
-test('本地 / 云端主导不问 CLI，原因写清楚（归属规则不变）', () => {
-  for (const executionMode of ['local', 'cloud']) {
-    const selection = selectParticipants({ executionMode }, web, [], cli);
-    assert.equal([...selection.answerIds].filter(id => id.startsWith('cli:')).length, 0);
-    const blocked = selection.blocked.filter(item => item.id.startsWith('cli:'));
-    assert.equal(blocked.length, 2, `${executionMode} 要把两个 CLI 都标成未问`);
-    assert.match(blocked[0].why, /不问 CLI 来源/);
-  }
+test('selectedCliAgents：undefined = 开着的全部，[] = 一个都不问，非空 = 只勾的', () => {
+  const all = selectParticipants({ executionMode: 'web' }, web, [], cli);
+  assert.equal([...all.answerIds].filter(id => id.startsWith('cli:')).length, 2);
+
+  const none = selectParticipants({ executionMode: 'web', selectedCliAgents: [] }, web, [], cli);
+  assert.equal([...none.answerIds].filter(id => id.startsWith('cli:')).length, 0);
+  assert.ok(none.blocked.some(item => item.id === 'cli:qoder' && /没有在这一轮被选中/.test(item.why)));
+  assert.match(none.reason, /CLI 0 个/);
+
+  const only = selectParticipants(
+    { executionMode: 'web', selectedCliAgents: ['cli:qoder'] },
+    web, [], cli
+  );
+  assert.deepEqual([...only.answerIds].filter(id => id.startsWith('cli:')), ['cli:qoder']);
+  assert.match(only.reason, /CLI 1 个/);
+
+  // 名单里的陈旧 id（CLI 已删）无害：直接忽略，不连带挡掉别人。
+  const stale = selectParticipants(
+    { executionMode: 'web', selectedCliAgents: ['cli:gone', 'cli:claude'] },
+    web, [], cli
+  );
+  assert.deepEqual([...stale.answerIds].filter(id => id.startsWith('cli:')), ['cli:claude']);
+});
+
+test('normalize 保留 selectedCliAgents 的三态：空数组留下，缺失是 undefined', () => {
+  // 空对象 = 老会话缺字段：不能擅自填 []，否则「缺省 = 开着的全部」被抹掉。
+  assert.equal('selectedCliAgents' in normalizeExecutionConfig({}), false);
+  assert.deepEqual(normalizeExecutionConfig({ selectedCliAgents: [] }).selectedCliAgents, []);
+  assert.deepEqual(
+    normalizeExecutionConfig({ selectedCliAgents: ['cli:qoder', 3, null] }).selectedCliAgents,
+    ['cli:qoder']
+  );
+  assert.equal('selectedCliAgents' in normalizeExecutionConfig({ selectedCliAgents: 'nope' }), false);
+});
+
+test('本地主导不问 CLI：CLI 属云端一类，不过本地那一场', () => {
+  const selection = selectParticipants({ executionMode: 'local' }, web, [], cli);
+  assert.equal([...selection.answerIds].filter(id => id.startsWith('cli:')).length, 0);
+  const blocked = selection.blocked.filter(item => item.id.startsWith('cli:'));
+  assert.equal(blocked.length, 2, '本地主导要把两个 CLI 都标成未问');
+  assert.match(blocked[0].why, /本地主导只用本地模型/);
 });
 
 test('第一轮只放可用的 CLI：关掉的那一个进 blocked 之外，由 available() 筛掉', async () => {
@@ -154,6 +210,63 @@ test('送进 CLI 的是用户原话，逐字，不加角色行', async () => {
   assert.deepEqual(seen, [QUESTION]);
   assert.equal(answer.text, 'ok');
   assert.equal(answer.attribution.note, 'cli:qoder');
+});
+
+test('直接辩论：CLI 按云端一类进名单，可当主辩；网页主导只用网页', () => {
+  const candidates = [
+    { id: 'chatgpt', label: 'ChatGPT', type: 'web', available: true },
+    { id: 'cli:qoder', label: 'Qoder CLI', type: 'cloud', available: true, cli: true }
+  ];
+  const plan = planLead({
+    mode: 'cloud',
+    strategy: 'truth',
+    candidates,
+    selected: ['cli:qoder'],
+    leadAgentId: 'cli:qoder'
+  });
+  assert.deepEqual(plan.participants, ['cli:qoder']);
+  assert.equal(plan.lead.agentId, 'cli:qoder', '点名 CLI 当主辩要生效');
+
+  const webPlan = planLead({
+    mode: 'web',
+    strategy: 'truth',
+    candidates,
+    selected: ['chatgpt', 'cli:qoder']
+  });
+  assert.deepEqual(webPlan.participants, ['chatgpt'], '网页主导只用网页通道');
+  assert.ok(webPlan.excluded.some(item => item.id === 'cli:qoder' && /网页主导/.test(item.reason)));
+});
+
+test('CliAnswerAgent：辩论材料随提示下发，第一轮仍是原话', async () => {
+  const seen = [];
+  const agent = new CliAnswerAgent('qoder', {
+    view: () => ({ id: 'qoder', label: 'Qoder CLI', available: true }),
+    run: async ({ task }) => {
+      seen.push(task);
+      return {
+        text: 'ok',
+        exitCode: 0,
+        timedOut: false,
+        cancelled: false,
+        durationMs: 1,
+        stderrTail: '',
+        cliVersion: '1.0.0',
+        errorClassification: null
+      };
+    },
+    cancel: () => false
+  });
+  await agent.ask({ question: QUESTION, stage: 'answer' });
+  assert.deepEqual(seen, [QUESTION], '第一轮不能加料，原话逐字');
+  await agent.ask({
+    question: '请就以下分歧表态',
+    stage: 'challenge',
+    system: ['你是正方'],
+    context: ['对方说 X']
+  });
+  assert.equal(seen[1].includes('你是正方'), true, '辩手角色要发过去');
+  assert.equal(seen[1].includes('对方说 X'), true, '对方的回答要发过去');
+  assert.ok(seen[1].endsWith('请就以下分歧表态'), '问题在最后');
 });
 
 test('CliAnswerAgent：可用性取注册表，关闭时给出原因', async () => {

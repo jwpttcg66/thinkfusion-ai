@@ -1215,6 +1215,27 @@ button:disabled {
   color: var(--text-3);
 }
 
+/* CLI 来源区块：跟在模型清单下面，一条分隔线说清这是另一类来源。 */
+.model-popover-cli {
+  margin-top: 5px;
+  border-top: 1px solid var(--border);
+  padding-top: 3px;
+}
+
+.model-popover-cli-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 4px;
+  font-size: 11.5px;
+}
+
+.model-popover-cli-head .btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 10.5px;
+}
+
 /* 搜索框贴着面板顶部：30 个模型用眼睛在滚动条里找，比勾选本身还慢。 */
 .model-popover-search {
   padding: 0 4px 4px;

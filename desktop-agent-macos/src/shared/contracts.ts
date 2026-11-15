@@ -1657,6 +1657,11 @@ export interface DebateCandidateView {
   type: 'web' | 'local' | 'cloud';
   available: boolean;
   detail?: string;
+  /**
+   * CLI 来源：归属上算云端一类（2026-11-15 裁决），但开关与名单独立
+   * （`selectedCliAgents` 而不是 `selectedCloudModels`）。
+   */
+  cli?: boolean;
 }
 
 export interface CloudProviderView {

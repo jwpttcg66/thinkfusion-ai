@@ -98,12 +98,14 @@ function ownershipOf(
 ): { mode: 'web' | 'local' | 'cloud'; reason: string } {
   const explicit = config.leadAgentId;
   if (explicit) {
-    if (answers.some(answer => answer.channelId === explicit)) {
+    // 先看来源再看「它答过没有」：CLI 也进 answers，先判 answers 会把点名的
+    // CLI 主导算成网页主导。CLI 归云端一类，理由里写清是哪一种。
+    const source = sourceOf(explicit);
+    if (source === 'cloud') return { mode: 'cloud', reason: '你指定了云端模型（或 CLI）主导' };
+    if (source === 'local') return { mode: 'local', reason: '你指定了本地模型主导' };
+    if (source === 'web' || answers.some(answer => answer.channelId === explicit)) {
       return { mode: 'web', reason: '你指定了网页通道主导' };
     }
-    const source = sourceOf(explicit);
-    if (source === 'local') return { mode: 'local', reason: '你指定了本地模型主导' };
-    if (source === 'cloud') return { mode: 'cloud', reason: '你指定了云端模型主导' };
   }
   if (config.executionMode !== 'hybrid') {
     return { mode: config.executionMode, reason: `执行模式指定${config.executionMode}` };
@@ -118,14 +120,20 @@ function ownershipOf(
   return { mode: 'web', reason: '混合：没有可用的本地/云端模型，由网页通道全程执行' };
 }
 
-/** 归属方式对应的辩手名单。网页方式直接用回答者，其余按成员来源过滤。 */
+/** 归属方式对应的辩手名单。网页方式只留网页，其余按成员来源过滤。 */
 function debatersFor(
   mode: 'web' | 'local' | 'cloud',
   answers: ReadonlyArray<{ channelId: string }>,
   executorIds: ReadonlySet<string>,
   sourceOf: (agentId: string) => 'web' | 'local' | 'cloud' | undefined
 ): string[] {
-  if (mode === 'web') return answers.map(answer => answer.channelId);
+  // 网页归属只留网页通道：CLI 属云端一类（sourceOf 返回 cloud），不该在
+  // 「只用网页」的一场里当主导或辩手。
+  if (mode === 'web') {
+    return answers
+      .filter(answer => sourceOf(answer.channelId) !== 'cloud' && sourceOf(answer.channelId) !== 'local')
+      .map(answer => answer.channelId);
+  }
   return [...executorIds].filter(id => sourceOf(id) === mode);
 }
 
@@ -496,13 +504,13 @@ export class ConversationRunner {
   /**
    * 归属规则只认三类成员：网页 / 本地模型 / 云端模型。
    *
-   * CLI 是**回答源**（跟网页同一层级被问），但它不做主导、不当辩手——
-   * 汇总与交锋要的是能读全场材料的模型，而不是一个进程。所以它对归属计算
-   * 返回 undefined，两边都不算。
+   * CLI 归**云端这一类**（2026-11-15 用户裁决：「CLI 属于云端主导的一种，可以
+   * 主导，可以回答，可以辩论，可以执行」）。所以它对归属计算返回 cloud：
+   * 云端主导的汇总、交锋、最终意见都可以由它来做；本地主导下照旧不进场。
    */
   private ownershipSourceOf(agentId: string): 'web' | 'local' | 'cloud' | undefined {
     const source = this.deps.agentSource?.(agentId);
-    return source === 'cli' ? undefined : source;
+    return source === 'cli' ? 'cloud' : source;
   }
 
   private traceMetaFor(conversation: Conversation): TraceMeta {

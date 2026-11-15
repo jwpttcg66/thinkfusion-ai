@@ -1669,10 +1669,11 @@ export function SettingsPanel(props: {
 
             {section === 'agents' && (
               <section className="settings-section">
-                <h3>外部 CLI 来源（回答 + 执行）</h3>
+                <h3>外部 CLI 来源（回答 + 主导 / 辩论 + 执行）</h3>
                 <p className="settings-lead">
                   回答源只有三类：网页、模型、CLI。打开的 CLI 会像 DeepSeek / Kimi 一样被问同一句
-                  原话，答案进第一轮、进汇总，也出现在转录的通道条上——它只回答，不主导、不当辩手。
+                  原话，答案进第一轮、进汇总，也出现在转录的通道条上。归属上它算云端一类：
+                  可以当主导、当辩手、参与汇总与交锋；本地主导的那一场不问 CLI。
                   它同时也还是执行者：工程活能不能派给它，取决于这里的开关和任务里的逐次批准。
                 </p>
                 <p className="settings-lead">

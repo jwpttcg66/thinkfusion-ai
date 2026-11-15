@@ -274,9 +274,20 @@ export class CliAnswerAgent implements SubAgent {
     const requestId = `${this.id}-${++this.seq}-${Date.now()}`;
     const started = Date.now();
     this.pending.add(requestId);
+    /**
+     * CLI 只有一个 stdin 提示，没有 system 轮次。辩论 / 汇总的材料（别人的
+     * 回答、辩题、角色要求）必须随提示一起发过去，否则它只看到一句辩题、
+     * 拿不到要交锋的内容。
+     *
+     * 第一轮没有 system / context：这一句就是用户原话，逐字不改——「问什么
+     * 发什么」那条硬规则在 CLI 上同样成立。网页通道不受影响：它永远只收到
+     * question（见 `SubAgentTask` 的字段注释）。
+     */
+    const material = [...(task.system ?? []), ...(task.context ?? [])].filter(part => part.trim());
+    const prompt = material.length === 0 ? task.question : [...material, task.question].join('\n\n');
     let outcome: CliAnswerOutcome;
     try {
-      outcome = await this.deps.run({ cliId: this.cliId, task: task.question, requestId });
+      outcome = await this.deps.run({ cliId: this.cliId, task: prompt, requestId });
     } finally {
       this.pending.delete(requestId);
     }
