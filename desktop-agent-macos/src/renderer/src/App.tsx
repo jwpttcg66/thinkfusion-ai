@@ -298,19 +298,6 @@ export default function App() {
     });
   }, []);
 
-  /** 面板里的会话结束（或设置里关掉 CLI）后，面板不能停在空白上。 */
-  useEffect(() => {
-    if (!terminalPaneOpen || !terminalPaneSession) return;
-    const alive =
-      terminalSessions.some(item => item.sessionId === terminalPaneSession) ||
-      openTerminalWindows.includes(terminalPaneSession);
-    if (!alive) {
-      setTerminalPaneOpen(false);
-      setTerminalPaneSession(null);
-      void window.agentAPI.setTerminalPane(false).catch(() => undefined);
-    }
-  }, [terminalPaneOpen, terminalPaneSession, terminalSessions, openTerminalWindows]);
-
   const terminalPanelSessions = useMemo<TerminalSessionSummary[]>(() => {
     if (!terminalPaneSession) return [];
     const found = terminalSessions.find(item => item.sessionId === terminalPaneSession);
@@ -337,6 +324,23 @@ export default function App() {
     () => new Set(cliTerminals.map(item => item.sessionId)),
     [cliTerminals]
   );
+
+  /** 面板里的会话结束（或设置里关掉 CLI）后，面板不能停在空白上。 */
+  useEffect(() => {
+    if (!terminalPaneOpen || !terminalPaneSession) return;
+    // 刚起的新会话还没进 terminals 列表，但 cliTerminals 已经有乐观状态；
+    // 只拿 terminals 判断会把刚打开的面板立刻关掉。
+    const alive =
+      terminalSessions.some(item => item.sessionId === terminalPaneSession) ||
+      cliTerminals.some(item => item.sessionId === terminalPaneSession && item.running) ||
+      openTerminalWindows.includes(terminalPaneSession);
+    if (!alive) {
+      setTerminalPaneOpen(false);
+      setTerminalPaneSession(null);
+      void window.agentAPI.setTerminalPane(false).catch(() => undefined);
+    }
+  }, [terminalPaneOpen, terminalPaneSession, terminalSessions, cliTerminals, openTerminalWindows]);
+
 
   // 会话列表：2 秒一次；终端默认只在侧栏出现，点按钮才进右侧面板。
   useEffect(() => {
@@ -1739,9 +1743,16 @@ export default function App() {
 
   async function selectCliAgent(cliId: string) {
     const state = cliTerminals.find(item => item.id === cliId);
-    if (state?.running) {
+    // 侧栏状态可能比 Runtime 慢一拍：结束会话后旧 sessionId 还在。只认
+    // 列表里确实活着、且未退出的那个，否则直接起新的，不拿死会话去 attach。
+    const alive =
+      state && terminalSessions.some(item => item.sessionId === state.sessionId && !item.exited);
+    if (state && alive) {
       openTerminalPane(state.sessionId);
       return;
+    }
+    if (state) {
+      setCliTerminals(previous => previous.filter(item => item.id !== cliId));
     }
     try {
       const sessionId = await window.agentAPI.openCliTerminal(cliId);
@@ -2660,9 +2671,15 @@ export default function App() {
                         .catch(cause => setError(errorText(cause)));
                     }}
                     onSessionsChanged={() => {
+                      // 结束会话后两份状态都要立刻刷新：只刷 terminals 的话，
+                      // 侧栏还会拿着旧 sessionId，下一次点击会 attach 到死会话。
                       void window.agentAPI
                         .listTerminals()
                         .then(setTerminalSessions)
+                        .catch(() => undefined);
+                      void window.agentAPI
+                        .listCliTerminals()
+                        .then(setCliTerminals)
                         .catch(() => undefined);
                     }}
                   />
