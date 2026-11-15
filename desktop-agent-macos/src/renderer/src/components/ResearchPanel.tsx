@@ -194,14 +194,17 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     : debateLeadMode === 'local' ? 'local'
       : debateLeadMode === 'cloud' ? 'cloud' : null;
   /** 某一类成员在统一配置里的名单；`undefined` = 老会话没配过，按全部。 */
-  const poolOf = (type: 'web' | 'local' | 'cloud'): string[] | undefined =>
-    type === 'web' ? config.selectedWebChannels
-      : type === 'cloud' ? config.selectedCloudModels
-        : config.selectedLocalModels;
+  // CLI 归属上算云端一类，但名单是独立的一份（selectedCliAgents）：
+  // 用 type 找名单会把 CLI 塞进 selectedCloudModels，取消勾选也就不生效。
+  const poolOf = (item: { type: 'web' | 'local' | 'cloud'; cli?: boolean }): string[] | undefined =>
+    item.cli ? config.selectedCliAgents
+      : item.type === 'web' ? config.selectedWebChannels
+        : item.type === 'cloud' ? config.selectedCloudModels
+          : config.selectedLocalModels;
   const selectedIds = debateParticipants
     .filter(item => item.available && (ownerType === null || item.type === ownerType))
     .filter(item => {
-      const pool = poolOf(item.type);
+      const pool = poolOf(item);
       return pool === undefined || pool.includes(item.id);
     })
     .map(item => item.id);
@@ -224,9 +227,8 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
   const webPool = config.selectedWebChannels;
   const leadInPool = candidates.filter(item => {
     if (!item.available || item.type !== leadKind) return false;
-    if (leadKind === 'cloud' && cloudPool !== undefined) return cloudPool.includes(item.id);
-    if (leadKind === 'web' && webPool !== undefined) return webPool.includes(item.id);
-    return true;
+    const pool = poolOf(item);
+    return pool === undefined || pool.includes(item.id);
   });
   // 点名还在、但已被移出参与名单时，仍显示这一项并标出来——否则下拉会变成
   // 空白，人不知道配置里还挂着一个这一轮进不了场的主导。
@@ -244,12 +246,17 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
       onConfigChange({ leadAgentId: undefined });
       return;
     }
-    if (config.executionMode === 'cloud' && cloudPool !== undefined && !cloudPool.includes(next)) {
-      onConfigChange({ leadAgentId: next, selectedCloudModels: [...cloudPool, next] });
-      return;
-    }
-    if (config.executionMode === 'web' && webPool !== undefined && !webPool.includes(next)) {
-      onConfigChange({ leadAgentId: next, selectedWebChannels: [...webPool, next] });
+    const item = candidates.find(candidate => candidate.id === next);
+    const pool = item ? poolOf(item) : undefined;
+    if (item && pool !== undefined && !pool.includes(next)) {
+      onConfigChange({
+        leadAgentId: next,
+        ...(item.cli
+          ? { selectedCliAgents: [...pool, next] }
+          : item.type === 'cloud'
+            ? { selectedCloudModels: [...pool, next] }
+            : { selectedWebChannels: [...pool, next] })
+      });
       return;
     }
     onConfigChange({ leadAgentId: next });
@@ -285,14 +292,19 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
     const sameType = debateParticipants
       .filter(candidate => candidate.available && candidate.type === item.type)
       .filter(candidate => ownerType === null || candidate.type === ownerType)
+      // CLI 归属算云端一类，但名单是独立的一份：同组计算不能把云端模型
+      // 的勾选搬进 selectedCliAgents（反之亦然）。
+      .filter(candidate => Boolean(candidate.cli) === Boolean(item.cli))
       .map(candidate => candidate.id);
     const current = selectedIds.filter(selected => sameType.includes(selected));
     const next = current.includes(id) ? current.filter(selected => selected !== id) : [...current, id];
-    const patch: Partial<ConversationExecutionConfig> = item.type === 'web'
-      ? { selectedWebChannels: next }
-      : item.type === 'cloud'
-        ? { selectedCloudModels: next }
-        : { selectedLocalModels: next };
+    const patch: Partial<ConversationExecutionConfig> = item.cli
+      ? { selectedCliAgents: next }
+      : item.type === 'web'
+        ? { selectedWebChannels: next }
+        : item.type === 'cloud'
+          ? { selectedCloudModels: next }
+          : { selectedLocalModels: next };
     // 主导人被取消勾选时一并清掉点名，否则配置里写着一个不进场的「主导」。
     if (config.leadAgentId === id && !next.includes(id)) patch.leadAgentId = undefined;
     onConfigChange(patch);

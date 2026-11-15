@@ -23,7 +23,14 @@ import {
   type CapabilityView
 } from '../../../shared/capabilities';
 import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/expertise';
-import type { CliAgentView } from '../../../shared/cli-agents';
+import type { CliAgentView, CliCapabilityRecordView } from '../../../shared/cli-agents';
+import {
+  CLI_SOURCE_KINDS,
+  CLI_SOURCE_KIND_LABELS,
+  describeCliSoftwareSource,
+  type CliInstallSourceKind,
+  type CliSoftwareSource
+} from '../../../shared/cli-software-source';
 import {
   allVisiblePicked,
   filterModels,
@@ -142,10 +149,21 @@ export function SettingsPanel(props: {
   const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [capabilityBusy, setCapabilityBusy] = useState<string | null>(null);
   const [capabilityNote, setCapabilityNote] = useState('');
-  /** CLI Agent：执行者，不是回答通道；清单与可用性由主进程检测。 */
+  /** CLI Agent：第三类回答源（网页 / 模型 / CLI）+ 执行者，清单与可用性由主进程检测。 */
   const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
   const [cliBusy, setCliBusy] = useState<string | null>(null);
   const [cliNote, setCliNote] = useState('');
+  /** 版本/参数绑定的能力验证记录；界面照实显示，不把 verified 当永久状态。 */
+  const [cliCapabilities, setCliCapabilities] = useState<CliCapabilityRecordView[]>([]);
+  /** 软件源：只登记「从哪来」和可执行命令，不安装、不更新、不放凭据。 */
+  const [cliSourceEditing, setCliSourceEditing] = useState<string | null>(null);
+  const [cliSourceDraft, setCliSourceDraft] = useState({
+    command: '',
+    kind: 'manual' as CliInstallSourceKind,
+    value: '',
+    endpoint: '',
+    note: ''
+  });
   /** 专家与技能：清单也是主进程读盘给的，界面不假装知道 .md 里写了什么。 */
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [expertiseBusy, setExpertiseBusy] = useState<string | null>(null);
@@ -227,16 +245,97 @@ export function SettingsPanel(props: {
       .catch(error => {
         if (alive) setCliNote(error instanceof Error ? error.message : String(error));
       });
+    void window.agentAPI
+      .getCliCapabilities()
+      .then(list => {
+        if (alive) setCliCapabilities(list);
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
   }, []);
+
+  /**
+   * 重新验证是 opt-in：真的跑一次云端最小任务，会消耗额度。
+   * 版本升级或改过参数后由用户自己点，不自动跑。
+   */
+  async function verifyCliAgent(id: string) {
+    setCliBusy(id);
+    setCliNote('');
+    try {
+      const result = await window.agentAPI.verifyCliAgent(id);
+      if (!result.ok) {
+        setCliNote(`验证未通过：${result.error ?? '未知原因'}`);
+      } else {
+        setCliNote('已通过最小任务，当前版本与参数的非交互能力重新标记为已实测。');
+      }
+      setCliAgents(await window.agentAPI.getCliAgents());
+      setCliCapabilities(await window.agentAPI.getCliCapabilities());
+    } catch (error) {
+      setCliNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCliBusy(null);
+    }
+  }
 
   async function toggleCliAgent(id: string, enabled: boolean) {
     setCliBusy(id);
     setCliNote('');
     try {
       setCliAgents(await window.agentAPI.setCliAgentEnabled({ id, enabled }));
+    } catch (error) {
+      setCliNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCliBusy(null);
+    }
+  }
+
+  function startCliSourceEdit(item: CliAgentView) {
+    setCliNote('');
+    setCliSourceEditing(item.id);
+    setCliSourceDraft({
+      command: item.command,
+      kind: item.softwareSource?.kind ?? 'manual',
+      value: item.softwareSource?.value ?? '',
+      endpoint: item.softwareSource?.endpoint ?? '',
+      note: item.softwareSource?.note ?? ''
+    });
+  }
+
+  /** 绝对路径只能由用户亲手在文件对话框里挑；渲染层不自己编路径。 */
+  async function pickCliExecutable() {
+    setCliNote('');
+    try {
+      const picked = await window.agentAPI.pickCliExecutable();
+      if (!picked.canceled && picked.path) {
+        setCliSourceDraft(prev => ({ ...prev, command: picked.path as string }));
+      }
+    } catch (error) {
+      setCliNote(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function saveCliSource(item: CliAgentView) {
+    setCliBusy(item.id);
+    setCliNote('');
+    try {
+      const softwareSource: CliSoftwareSource = {
+        kind: cliSourceDraft.kind,
+        value: cliSourceDraft.value.trim(),
+        ...(cliSourceDraft.endpoint.trim() ? { endpoint: cliSourceDraft.endpoint.trim() } : {}),
+        ...(cliSourceDraft.note.trim() ? { note: cliSourceDraft.note.trim() } : {})
+      };
+      const command = cliSourceDraft.command.trim();
+      const list = await window.agentAPI.setCliSoftwareSource({
+        id: item.id,
+        ...(command && command !== item.command ? { command } : {}),
+        softwareSource
+      });
+      setCliAgents(list);
+      setCliCapabilities(await window.agentAPI.getCliCapabilities());
+      setCliSourceEditing(null);
+      setCliNote('软件来源已保存。命令名变了的话，非交互能力会降为「未实测」，请点「重新验证」。');
     } catch (error) {
       setCliNote(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1570,15 +1669,23 @@ export function SettingsPanel(props: {
 
             {section === 'agents' && (
               <section className="settings-section">
-                <h3>外部 CLI Agent（执行者）</h3>
+                <h3>外部 CLI 来源（回答 + 主导 / 辩论 + 执行）</h3>
                 <p className="settings-lead">
-                  Qoder / Claude 这类 CLI 是执行者，不是回答通道：打开它不会让它在每个问题上发言，
-                  只决定新任务能不能把工程活派给它。真正启动还要在任务里选「完全访问」权限，
-                  并在计划里逐次批准——它自带工具循环，TaskGrant 拦不到它内部每一步。
+                  回答源只有三类：网页、模型、CLI。打开的 CLI 会像 DeepSeek / Kimi 一样被问同一句
+                  原话，答案进第一轮、进汇总，也出现在转录的通道条上。归属上它算云端一类：
+                  可以当主导、当辩手、参与汇总与交锋；本地主导的那一场不问 CLI。
+                  它同时也还是执行者：工程活能不能派给它，取决于这里的开关和任务里的逐次批准。
+                </p>
+                <p className="settings-lead">
+                  回答时不带权限参数、不在工程目录里跑：它拿不到改文件的能力，只答这一句问题。
                 </p>
                 <p className="settings-lead">
                   能力结论绑定版本：CLI 升级后要重新跑一次最小任务，确认参数没漂移，再把
-                  headless 标回 verified。没实测的配置不会被启动。
+                  headless 标回 verified。没实测的配置既不会被启动，也不会被当作回答源。
+                </p>
+                <p className="settings-lead">
+                  「软件源」记录每个 CLI 从哪装、用哪个可执行文件、走哪个端点。它只是配置与排障信息：
+                  应用不会替你安装或更新，端点也不替代「云端 API 模型」里的服务配置。
                 </p>
                 {cliNote && <p className="settings-error">{cliNote}</p>}
                 <div className="settings-list">
@@ -1607,9 +1714,147 @@ export function SettingsPanel(props: {
                             : (item.reason ?? '当前不可用')}
                         </p>
                         <p className="settings-muted">
+                          回答源：{item.available
+                            ? '会跟网页一起被问（第一轮），也能当主导 / 辩手；本地主导的那一场不问它'
+                            : '这一轮不会被问'}
+                        </p>
+                        <p className="settings-muted">
                           非交互：{item.headless === 'verified' ? '已实测' : item.headless === 'unverified' ? '未实测' : '不支持'}
                           {item.permissionArgs?.length ? ` · 权限参数：${item.permissionArgs.join(' ')}` : ''}
                         </p>
+                        <p className="settings-muted">
+                          软件源：{describeCliSoftwareSource(item.softwareSource)}
+                        </p>
+                        {(() => {
+                          const last = cliCapabilities.filter(row => row.cliId === item.id).slice(-1)[0];
+                          return last ? (
+                            <p className="settings-muted">
+                              实测记录：v{last.version} · {last.os} · 参数指纹 {last.fingerprint} ·{' '}
+                              {new Date(last.verifiedAt).toLocaleString()}
+                            </p>
+                          ) : (
+                            <p className="settings-muted">尚无与当前版本/参数匹配的实测记录</p>
+                          );
+                        })()}
+                        <div className="settings-form-foot">
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            disabled={cliBusy !== null}
+                            aria-label={`编辑 ${item.label} 的软件源`}
+                            onClick={() =>
+                              cliSourceEditing === item.id ? setCliSourceEditing(null) : startCliSourceEdit(item)
+                            }
+                          >
+                            {cliSourceEditing === item.id ? '收起软件源' : '软件源设置'}
+                          </button>
+                          <span className="settings-spacer" />
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            disabled={cliBusy !== null || !item.detected}
+                            aria-label={`重新验证 ${item.label} 的非交互能力`}
+                            onClick={() => void verifyCliAgent(item.id)}
+                          >
+                            {cliBusy === item.id ? '验证中…（最多 90 秒）' : '重新验证'}
+                          </button>
+                        </div>
+
+                        {cliSourceEditing === item.id && (
+                          <div className="settings-form">
+                            <label className="settings-input">
+                              <span className="cli-source-label">可执行文件（PATH 里的命令名，或点「选择…」挑绝对路径）</span>
+                              <input
+                                value={cliSourceDraft.command}
+                                spellCheck={false}
+                                placeholder="qoder"
+                                onChange={event =>
+                                  setCliSourceDraft(prev => ({ ...prev, command: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="settings-input cli-source-row">
+                              <span className="cli-source-label">安装 / 更新来源</span>
+                              <select
+                                value={cliSourceDraft.kind}
+                                onChange={event =>
+                                  setCliSourceDraft(prev => ({
+                                    ...prev,
+                                    kind: event.target.value as CliInstallSourceKind
+                                  }))
+                                }
+                              >
+                                {CLI_SOURCE_KINDS.map(kind => (
+                                  <option key={kind} value={kind}>
+                                    {CLI_SOURCE_KIND_LABELS[kind]}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                value={cliSourceDraft.value}
+                                spellCheck={false}
+                                disabled={cliSourceDraft.kind === 'manual'}
+                                placeholder={
+                                  cliSourceDraft.kind === 'npm'
+                                    ? '@scope/package'
+                                    : cliSourceDraft.kind === 'brew'
+                                      ? 'formula'
+                                      : cliSourceDraft.kind === 'url'
+                                        ? 'https://…'
+                                        : '手动安装无需填写'
+                                }
+                                onChange={event =>
+                                  setCliSourceDraft(prev => ({ ...prev, value: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="settings-input">
+                              <span className="cli-source-label">服务端点（可选，https）</span>
+                              <input
+                                value={cliSourceDraft.endpoint}
+                                spellCheck={false}
+                                placeholder="https://…"
+                                onChange={event =>
+                                  setCliSourceDraft(prev => ({ ...prev, endpoint: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="settings-input">
+                              <span className="cli-source-label">备注（可选）</span>
+                              <input
+                                value={cliSourceDraft.note}
+                                placeholder="例如版本通道"
+                                onChange={event =>
+                                  setCliSourceDraft(prev => ({ ...prev, note: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <div className="settings-form-foot">
+                              <button className="btn ghost" type="button" onClick={() => void pickCliExecutable()}>
+                                选择…
+                              </button>
+                              <span className="settings-spacer" />
+                              <button
+                                className="btn secondary"
+                                type="button"
+                                onClick={() => setCliSourceEditing(null)}
+                              >
+                                取消
+                              </button>
+                              <button
+                                className="btn"
+                                type="button"
+                                disabled={cliBusy !== null}
+                                onClick={() => void saveCliSource(item)}
+                              >
+                                {cliBusy === item.id ? '保存中…' : '保存'}
+                              </button>
+                            </div>
+                            <p className="settings-muted">
+                              只保存配置，不会安装、更新或联网；绝对路径必须经「选择…」挑过才会被接受。
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

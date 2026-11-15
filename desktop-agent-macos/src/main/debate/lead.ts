@@ -34,6 +34,11 @@ export interface DebateCandidate {
   type: 'web' | 'local' | 'cloud';
   available: boolean;
   detail?: string;
+  /**
+   * CLI 来源：归属上算云端一类（2026-11-15 裁决：可以主导 / 回答 / 辩论 /
+   * 执行），但它的开关与勾选名单是独立的一份（`selectedCliAgents`）。
+   */
+  cli?: boolean;
 }
 
 export interface DebateLead {

@@ -3,51 +3,80 @@ import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/t
 import { ProviderBackedSubAgent } from './provider-sub-agent';
 
 /**
- * 一轮研究的名单：按两份名单裁过的视图（2026-11-09 更新）。
+ * 一轮研究的名单：按两份名单裁过的视图（2026-11-15 更新）。
  *
  * - `answerIds`：`all()` / `available()` 只返回它们，所以 `MasterAgent`
- *   第一轮只问这些人。网页主导 / 混合 = 网页；本地主导 = 本地模型；
- *   云端主导 = 勾选的云端模型。
+ *   第一轮只问这些人。网页主导 / 混合 = 网页 + CLI 软件源；本地主导 = 本地
+ *   模型；云端主导 = 勾选的云端模型。
  * - `executorIds`：不进 `all()`（除非也在 answerIds 里），但 `ask()` 放行。
  *   执行阶段点名主导人 / 辩手；工程编排也从这里取模型。
+ *
+ * 三类成员（网页 / 模型 / CLI）共用 `SubAgent` 接口，所以这里不需要知道它们
+ * 各自怎么实现；只在「有没有网页会话可删」这种只有网页才有的概念上分一次叉。
  *
  * `SubAgentPool` 是 `MasterAgent` 唯一的入口，所以裁名单放在这一层，
  * `MasterAgent` 和 `ConversationRunner.conduct()` 都不用知道「执行模式」
  * 这个概念。
  */
 export class ExecutionPool implements SubAgentPool {
+  /** 模型来源（本地 / 云端）。 */
   private readonly extraById = new Map<string, ProviderBackedSubAgent>();
+  /** CLI 软件源：跟网页同一层级的回答者，但没有页面。 */
+  private readonly cliById = new Map<string, SubAgent>();
 
   constructor(
     private readonly base: SubAgentPool,
     extra: readonly ProviderBackedSubAgent[],
     private readonly answerIds: ReadonlySet<string>,
-    private readonly executorIds: ReadonlySet<string>
+    private readonly executorIds: ReadonlySet<string>,
+    cliAgents: readonly SubAgent[] = []
   ) {
     for (const agent of extra) this.extraById.set(agent.id, agent);
+    for (const agent of cliAgents) this.cliById.set(agent.id, agent);
   }
 
   private keepAnswers<T extends SubAgent>(agents: readonly T[]): T[] {
     return agents.filter(agent => this.answerIds.has(agent.id));
   }
 
+  /** 非网页来源：没有站点侧栏，也没有「回到上一条会话」这回事。 */
+  private isPageAgent(agentId: string): boolean {
+    return !this.extraById.has(agentId) && !this.cliById.has(agentId);
+  }
+
+  private agentOf(agentId: string): SubAgent | undefined {
+    return this.extraById.get(agentId) ?? this.cliById.get(agentId);
+  }
+
   async all(): Promise<SubAgent[]> {
     const base = this.keepAnswers(await this.base.all());
     const extra = [...this.extraById.values()].filter(agent => this.answerIds.has(agent.id));
-    return [...base, ...extra];
+    const cli = [...this.cliById.values()].filter(agent => this.answerIds.has(agent.id));
+    return [...base, ...extra, ...cli];
+  }
+
+  /** 探测一个非网页成员的可用性；探测本身抛错算不可用，不带走整轮。 */
+  private static async usable(agent: SubAgent): Promise<{ agent: SubAgent; ok: boolean }> {
+    try {
+      return { agent, ok: (await agent.health()).available };
+    } catch {
+      return { agent, ok: false };
+    }
   }
 
   async available(): Promise<SubAgent[]> {
     const base = this.keepAnswers(await this.base.available());
     const extra = await Promise.all(
-      [...this.extraById.values()]
-        .filter(agent => this.answerIds.has(agent.id))
-        .map(async agent => ({
-          agent,
-          ok: (await agent.health()).available
-        }))
+      [...this.extraById.values()].filter(agent => this.answerIds.has(agent.id)).map(ExecutionPool.usable)
     );
-    return [...base, ...extra.filter(item => item.ok).map(item => item.agent)];
+    const cli = await Promise.all(
+      [...this.cliById.values()].filter(agent => this.answerIds.has(agent.id)).map(ExecutionPool.usable)
+    );
+    return [
+      ...base,
+      ...extra.filter(item => item.ok).map(item => item.agent),
+      ...cli.filter(item => item.ok).map(item => item.agent)
+    ];
   }
 
   async ask(agentId: string, task: SubAgentTask): Promise<SubAgentAnswer> {
@@ -55,8 +84,8 @@ export class ExecutionPool implements SubAgentPool {
     if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) {
       throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
     }
-    const extra = this.extraById.get(agentId);
-    return extra ? extra.ask(task) : this.base.ask(agentId, task);
+    const agent = this.agentOf(agentId);
+    return agent ? agent.ask(task) : this.base.ask(agentId, task);
   }
 
   /**
@@ -71,26 +100,29 @@ export class ExecutionPool implements SubAgentPool {
     if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) {
       throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
     }
-    const extra = this.extraById.get(agentId);
-    if (extra?.askStream) return extra.askStream(task, onDelta);
+    const agent = this.agentOf(agentId);
+    if (agent?.askStream) return agent.askStream(task, onDelta);
+    if (agent) return agent.ask(task);
     if (this.base.askStream) return this.base.askStream(agentId, task, onDelta);
     return this.ask(agentId, task);
   }
 
   async newConversation(agentId: string): Promise<NewSessionResult> {
-    if (this.extraById.has(agentId)) return ProviderBackedSubAgent.noSession();
+    if (!this.isPageAgent(agentId)) {
+      return { ok: true, detail: '这条来源没有网页会话，每次提问本身就是新的' };
+    }
     return this.base.newConversation(agentId);
   }
 
   async deleteConversation(agentId: string, threadUrl: string): Promise<DeleteThreadResult> {
-    if (this.extraById.has(agentId)) return ProviderBackedSubAgent.noThread();
+    if (!this.isPageAgent(agentId)) return ProviderBackedSubAgent.noThread();
     return this.base.deleteConversation(agentId, threadUrl);
   }
 
   cancel(agentId: string, requestId: string): void {
     if (!this.answerIds.has(agentId) && !this.executorIds.has(agentId)) return;
-    const extra = this.extraById.get(agentId);
-    if (extra) extra.cancel(requestId);
+    const agent = this.agentOf(agentId);
+    if (agent) agent.cancel(requestId);
     else this.base.cancel(agentId, requestId);
   }
 }

@@ -17,6 +17,12 @@
  *    经由第三方 provider 的模型。都没声明时写 null，不按品牌推测。
  */
 
+import type { TerminalProcessState, TerminalConnectionState } from './terminal-state';
+import type { CliErrorClassification } from './cli-errors';
+import type { CliSoftwareSource } from './cli-software-source';
+
+export type { TerminalProcessState, TerminalConnectionState };
+
 export type CliHeadlessSupport = 'verified' | 'unverified' | 'unsupported';
 
 export interface CliAgentConfig {
@@ -46,6 +52,11 @@ export interface CliAgentConfig {
   enabled: boolean;
   /** 检测到的版本；能力结论与它绑定，升级后要重验。 */
   version?: string | null;
+  /**
+   * 这个 CLI 从哪来（手动 / npm / brew / https 地址）与它用的端点。
+   * 只作记录与排障，主进程不会据此安装、更新或联网；改 `command` 才会影响执行。
+   */
+  softwareSource?: CliSoftwareSource;
 }
 
 export interface CliAgentView extends CliAgentConfig {
@@ -56,6 +67,25 @@ export interface CliAgentView extends CliAgentConfig {
   available: boolean;
   /** 不可用的原因；可用时为 undefined。 */
   reason?: string;
+}
+
+/** 能力验证记录的只读视图：哪一版、哪组参数、什么时候、验了什么。 */
+export interface CliCapabilityRecordView {
+  cliId: string;
+  capability: 'headless';
+  version: string;
+  os: string;
+  fingerprint: string;
+  verifiedAt: number;
+  result: 'pass';
+  note: string;
+}
+
+export interface CliVerifyResult {
+  ok: boolean;
+  version: string | null;
+  error?: string;
+  view?: CliAgentView;
 }
 
 export interface CliModelIdentity {
@@ -94,6 +124,11 @@ export interface CliRunResult {
   costUsd: number | null;
   sessionId: string | null;
   permissionDenials: string[];
+  /**
+   * 失败原因分类：优先 CLI 结构化字段，其次进程事实，最后 stderr 文本。
+   * 文本兜底会标 low 置信度；成功时为 null/undefined，不硬塞一个「无错误」类。
+   */
+  errorClassification?: CliErrorClassification | null;
   /** 供后续交互式接管的会话 id；headless 执行没有 PTY，因此为 null。 */
   terminalSessionId: string | null;
 }
@@ -111,7 +146,19 @@ export interface TerminalAttach {
   /** 会话已经被结束：界面显示「已结束」，不再订阅/缩放。 */
   missing?: boolean;
   exitCode?: number;
+  /** 进程状态与面板连接状态分开：关掉面板不等于进程退出。 */
+  state?: TerminalProcessState;
+  startedAt?: number;
+  durationMs?: number;
+  /** 这份会话的审计记录写失败过，不能当作完整审计。 */
+  auditIncomplete?: boolean;
+  /** 审计记录超过了单文件上限，正文不再落盘。 */
+  auditTruncated?: boolean;
+  /** 终止失败时保留的错误说明。 */
+  terminateError?: string;
 }
+
+/** 连接状态由渲染层维护，不混进进程状态；类型见文件头的 re-export。 */
 
 export interface TerminalDataEvent {
   sessionId: string;
@@ -133,6 +180,14 @@ export interface TerminalSessionSummary {
   exited: boolean;
   exitCode?: number;
   pending: number;
+  /** 进程状态；与界面有没有 attach 无关。 */
+  state?: TerminalProcessState;
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
+  auditIncomplete?: boolean;
+  auditTruncated?: boolean;
+  terminateError?: string;
 }
 
 export interface TerminalWindowState {

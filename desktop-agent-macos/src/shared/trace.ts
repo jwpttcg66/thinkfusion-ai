@@ -43,7 +43,8 @@ export type TraceStatus =
   | 'cancelled'
   | 'interrupted';
 
-export type TraceSource = 'web' | 'local' | 'cloud' | 'system';
+/** `cli` = 回答问题的软件源（CLI 进程），跟网页同一层级，只是没有页面。 */
+export type TraceSource = 'web' | 'local' | 'cloud' | 'cli' | 'system';
 
 export type TracePhase = 'start' | 'end' | 'instant';
 

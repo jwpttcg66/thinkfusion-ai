@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EffectiveExecution } from './redact';
 import type { ConversationAttachment } from './attachments';
 import type { CapabilityView } from './capabilities';
 import type { EvidenceLedger } from './engineering-evidence';
@@ -32,12 +33,15 @@ import type {
 import type { TraceEntry, TraceTotals } from './trace';
 import type {
   CliAgentView,
+  CliCapabilityRecordView,
   CliTerminalState,
+  CliVerifyResult,
   TerminalAttach,
   TerminalDataEvent,
   TerminalSessionSummary,
   TerminalWindowState
 } from './cli-agents';
+import type { CliSoftwareSource } from './cli-software-source';
 import type {
   TaskWorktreeCommitInput,
   TaskWorktreeDiff,
@@ -1345,6 +1349,12 @@ export type AgentEvent = AgentEventBase &
         /** 参数预览（截断后），用户要看着参数点头，而不是看一句描述。 */
         argsPreview: string;
         risk: 'read' | 'write' | 'danger';
+        /**
+         * 展开后的最终有效参数：CLI 类型、实际权限模式、真实工作目录、
+         * 是否允许改文件、是否高风险、启动 argv（已脱敏）。
+         * 老事件没有这个字段，界面要能容忍缺省。
+         */
+        effective?: EffectiveExecution;
         /** 到期时间：到点没答复按拒绝处理。 */
         expiresAt: number;
       }
@@ -1647,6 +1657,11 @@ export interface DebateCandidateView {
   type: 'web' | 'local' | 'cloud';
   available: boolean;
   detail?: string;
+  /**
+   * CLI 来源：归属上算云端一类（2026-11-15 裁决），但开关与名单独立
+   * （`selectedCliAgents` 而不是 `selectedCloudModels`）。
+   */
+  cli?: boolean;
 }
 
 export interface CloudProviderView {
@@ -2311,10 +2326,22 @@ export interface AgentApi {
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
 
-  // CLI Agents — 执行者，不是回答通道
+  // CLI 来源：第三类回答源（网页 / 模型 / CLI），同时也是执行者
   /** 安装/版本/可用性/开关；不包含任何密钥。 */
   getCliAgents(): Promise<CliAgentView[]>;
   setCliAgentEnabled(input: { id: string; enabled: boolean }): Promise<CliAgentView[]>;
+  /** 版本/参数绑定的能力验证记录；界面据此说明「为什么这一版不可用」。 */
+  getCliCapabilities(): Promise<CliCapabilityRecordView[]>;
+  /** 主动重新验证：真的跑一次 headless 最小任务，会消耗云端额度。 */
+  verifyCliAgent(id: string): Promise<CliVerifyResult>;
+  /** 用系统文件对话框亲手挑一个可执行文件；只返回路径，不执行。 */
+  pickCliExecutable(): Promise<{ canceled: boolean; path?: string }>;
+  /** 登记软件来源 / 改可执行命令；绝对路径必须是上一步挑过的。 */
+  setCliSoftwareSource(input: {
+    id: string;
+    command?: string;
+    softwareSource: CliSoftwareSource;
+  }): Promise<CliAgentView[]>;
 
   // Terminal — 附加到 Runtime 里已经存在的 PTY 会话
   attachTerminal(sessionId: string): Promise<TerminalAttach>;

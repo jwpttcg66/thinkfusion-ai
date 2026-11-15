@@ -16,6 +16,8 @@ import { openDb } from './db';
 import { assertGrant } from './policy';
 import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalStepOutcome } from './local-plugins';
 import { needsApproval, previewArgs, riskOf } from './step-approval';
+import { buildEffectiveExecution } from './effective-args';
+import { redactSecrets, type EffectiveExecution } from '../shared/redact';
 import {
   PlanSchema,
   TaskGrantSchema,
@@ -186,6 +188,8 @@ function waitForApproval(input: {
   total: number;
   argsPreview: string;
   risk: 'read' | 'write' | 'danger';
+  /** 展开后的最终有效参数；老调用方不带也能显示卡片。 */
+  effective?: EffectiveExecution;
 }): Promise<ApprovalDecision> {
   const key = approvalKey(input.taskId, input.stepId);
   return new Promise<ApprovalDecision>(resolve => {
@@ -210,6 +214,7 @@ function waitForApproval(input: {
       total: input.total,
       argsPreview: input.argsPreview,
       risk: input.risk,
+      ...(input.effective ? { effective: input.effective } : {}),
       expiresAt: Date.now() + STEP_APPROVAL_TIMEOUT_MS
     });
   });
@@ -423,6 +428,12 @@ async function runTask(message: {
     let aborted = false;
     const approvalMode: StepApprovalMode = grant.stepApproval ?? 'mutating';
     const total = plan.steps.length;
+    // 同一份快照既用于审批卡展开参数，也用于真正执行；两边必须一致。
+    const cliConfigs: CliAgentConfig[] = Array.isArray(message.cliAgents)
+      ? (message.cliAgents as CliAgentConfig[]).filter(
+          item => item && typeof item.id === 'string' && typeof item.command === 'string'
+        )
+      : [];
 
     for (const [index, step] of plan.steps.entries()) {
       if (cancelled.has(taskId)) {
@@ -434,14 +445,23 @@ async function runTask(message: {
       // 逐次审批：在「这一步真的动手」之前问，而不是在整份计划提交时问。
       // 用户这时能看到前几步的真实结果与这一刀的参数，判断依据比批准整份计划多。
       if (needsApproval(step.tool, approvalMode)) {
+        const risk = riskOf(step.tool);
         const decision = await waitForApproval({
           taskId,
           stepId: step.id,
           tool: step.tool,
           index: index + 1,
           total,
-          argsPreview: previewArgs(step.args),
-          risk: riskOf(step.tool)
+          // 参数预览也可能含用户粘进来的 Key，先脱敏再给界面。
+          argsPreview: redactSecrets(previewArgs(step.args)),
+          risk,
+          effective: buildEffectiveExecution({
+            tool: step.tool,
+            args: step.args as unknown as Record<string, unknown>,
+            grant,
+            cliAgents: cliConfigs,
+            risk
+          })
         });
 
         if (!decision.approved) {
@@ -497,11 +517,7 @@ async function runTask(message: {
           ask: (input: AskUserInput) => askUser(taskId, step.id, input),
           callMain,
           // 配置由主进程下发；Runtime 只按 id 找，不接受模型指定可执行文件。
-          cliAgents: Array.isArray(message.cliAgents)
-            ? (message.cliAgents as CliAgentConfig[]).filter(
-                item => item && typeof item.id === 'string' && typeof item.command === 'string'
-              )
-            : []
+          cliAgents: cliConfigs
         });
         const { result, verified, failure: stepFailure } = outcome;
 

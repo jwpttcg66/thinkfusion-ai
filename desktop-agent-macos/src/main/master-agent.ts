@@ -105,13 +105,16 @@ export interface ResearchOutcome {
 export interface UnusableMember {
   label: string;
   detail?: string;
-  source: 'web' | 'local' | 'cloud';
+  source: 'web' | 'local' | 'cloud' | 'cli';
 }
 
 export class NoUsableAgentError extends Error {
   constructor(roster: readonly UnusableMember[]) {
     const web = roster.filter(item => item.source === 'web');
-    const models = roster.filter(item => item.source !== 'web');
+    // 三类来源各有各的补救动作（2026-11-15：回答源 = 网页 / 模型 / CLI）：
+    // 页面缺登录、模型缺 Key 或 Ollama、CLI 缺可执行文件或非交互能力验证。
+    const models = roster.filter(item => item.source === 'local' || item.source === 'cloud');
+    const cli = roster.filter(item => item.source === 'cli');
     const hints: string[] = [];
     if (models.some(item => item.source === 'cloud')) {
       hints.push('云端模型要先去「研究设置 → 执行模式 → 云端服务」填 API Key');
@@ -119,10 +122,13 @@ export class NoUsableAgentError extends Error {
     if (models.some(item => item.source === 'local')) {
       hints.push('本地模型要先启动 Ollama');
     }
+    if (cli.length > 0) {
+      hints.push('CLI 来源要在「用户设置 → Agent 预设」里确认可执行文件与「非交互」能力已通过验证');
+    }
     let message: string;
     if (roster.length === 0) {
       message = '没有可用的通道：请先在设置里打开至少一个 AI 站点。';
-    } else if (models.length === 0) {
+    } else if (models.length === 0 && cli.length === 0) {
       message = `没有可用的通道：请先在右侧页面登录 ${web.map(item => item.label).join(' 或 ')}。`;
     } else {
       // 逐个带原因：只说「不可用」会让人以为是网络问题，实际多半是没配 Key。

@@ -191,6 +191,22 @@ export const CliAgentToggleSchema = z
   })
   .strict();
 
+/** 设置页的 CLI 软件源；真正的取值校验在 cli-software-source.ts 里做。 */
+export const CliAgentSoftwareSourceSchema = z
+  .object({
+    id: z.string().min(1).max(60),
+    command: z.string().min(1).max(500).optional(),
+    softwareSource: z
+      .object({
+        kind: z.enum(['manual', 'npm', 'brew', 'url']),
+        value: z.string().max(300),
+        endpoint: z.string().max(300).optional(),
+        note: z.string().max(120).optional()
+      })
+      .strict()
+  })
+  .strict();
+
 /** 任务级 Worktree：只认 taskId，不接受路径——路径由主进程自己记账。 */
 export const WorktreeCommitSchema = z
   .object({
