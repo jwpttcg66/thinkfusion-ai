@@ -325,6 +325,19 @@ export default function App() {
     [cliTerminals]
   );
 
+  /** 主进程通知会话已结束：面板立刻退出，不等轮询。 */
+  useEffect(() => {
+    return window.agentAPI.onTerminalEnded(sessionId => {
+      setTerminalSessions(previous => previous.filter(item => item.sessionId !== sessionId));
+      setCliTerminals(previous => previous.filter(item => item.sessionId !== sessionId));
+      if (terminalPaneSession === sessionId) {
+        setTerminalPaneOpen(false);
+        setTerminalPaneSession(null);
+        void window.agentAPI.setTerminalPane(false).catch(() => undefined);
+      }
+    });
+  }, [terminalPaneSession]);
+
   /** 面板里的会话结束（或设置里关掉 CLI）后，面板不能停在空白上。 */
   useEffect(() => {
     if (!terminalPaneOpen || !terminalPaneSession) return;

@@ -98,7 +98,7 @@ import {
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
-import { setAgentEventSink, setMainCallHandler, setTerminalSink, requestTerminal, startAgentProcess } from './agent-manager';
+import { setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
 import type { CliAgentView } from '../shared/cli-agents';
 import { configureCliAgents, listCliAgents, setCliAgentEnabled } from './cli-agents';
 import {
@@ -2900,9 +2900,29 @@ function registerIpc() {
     return list;
   });
 
+function isMissingTerminal(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('没有这个终端会话');
+}
+
   ipcMain.handle('terminal:attach', async (event, sessionId: unknown) => {
     trustedTerminalSender(event);
-    return requestTerminal('attach', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
+    const id = TerminalSessionIdSchema.parse(sessionId);
+    try {
+      return await requestTerminal('attach', { sessionId: id });
+    } catch (error) {
+      if (!isMissingTerminal(error)) throw error;
+      // 会话已经结束：返回一个「缺失」结果，界面显示已结束，不再订阅。
+      return {
+        sessionId: id,
+        cols: 120,
+        rows: 30,
+        backlog: '',
+        cursor: 0,
+        dropped: 0,
+        exited: true,
+        missing: true
+      };
+    }
   });
 
   ipcMain.handle('terminal:list', async event => {
@@ -2978,19 +2998,27 @@ function registerIpc() {
   ipcMain.handle('terminal:write', async (event, raw: unknown) => {
     trustedTerminalSender(event);
     const input = TerminalWriteSchema.parse(raw);
-    await requestTerminal('write', input);
+    await requestTerminal('write', input).catch(error => {
+      // 往已经结束的终端里打字不是错误，忽略即可；否则每次按键都刷一条堆栈。
+      if (!isMissingTerminal(error)) throw error;
+    });
   });
 
   ipcMain.handle('terminal:resize', async (event, raw: unknown) => {
     trustedTerminalSender(event);
     const input = TerminalResizeSchema.parse(raw);
-    await requestTerminal('resize', input);
+    await requestTerminal('resize', input).catch(error => {
+      // 面板关闭/会话结束时 ResizeObserver 仍会触发一次；不是异常。
+      if (!isMissingTerminal(error)) throw error;
+    });
   });
 
   ipcMain.handle('terminal:close', async (event, sessionId: unknown) => {
     trustedTerminalSender(event);
     const id = TerminalSessionIdSchema.parse(sessionId);
-    await requestTerminal('close', { sessionId: id });
+    await requestTerminal('close', { sessionId: id }).catch(error => {
+      if (!isMissingTerminal(error)) throw error;
+    });
     // 会话结束后它自己的独立窗口没有内容可看了，一并关掉。
     terminalWindows.get(id)?.close();
     for (const [cliId, session] of cliSessions) {
@@ -5077,6 +5105,13 @@ app.whenReady().then(async () => {
     // 每个会话只推给它自己的窗口，不让 A 会话的输出出现在 B 的窗口里。
     const own = terminalWindows.get(event.sessionId);
     if (own && !own.isDestroyed()) own.webContents.send('terminal:data', event);
+  });
+  // 会话被结束：界面立刻退出面板，不等下一次轮询；CLI 映射同时清掉。
+  setTerminalEndedSink(sessionId => {
+    for (const [cliId, session] of cliSessions) {
+      if (session === sessionId) cliSessions.delete(cliId);
+    }
+    if (win && !win.isDestroyed()) win.webContents.send('terminal:ended', sessionId);
   });
   // 设置里开着的 CLI 在应用启动时各自开一个窗口；关着的不起进程。
   void bootstrapCliTerminals().catch(() => undefined);

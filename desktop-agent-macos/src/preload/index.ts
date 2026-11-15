@@ -138,6 +138,11 @@ const api: AgentApi = {
     ipcRenderer.on('terminal:window', handler);
     return () => ipcRenderer.removeListener('terminal:window', handler);
   },
+  onTerminalEnded: (listener: (sessionId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => listener(sessionId);
+    ipcRenderer.on('terminal:ended', handler);
+    return () => ipcRenderer.removeListener('terminal:ended', handler);
+  },
   setTerminalPane: (open: boolean): Promise<void> => ipcRenderer.invoke('terminal:set-pane', open),
   onTerminalSelect: (listener: (sessionId: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => listener(sessionId);
