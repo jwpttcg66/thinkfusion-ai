@@ -40,6 +40,7 @@ import type {
   TerminalSessionSummary,
   TerminalWindowState
 } from '../shared/cli-agents';
+import type { CliSoftwareSource } from '../shared/cli-software-source';
 import type {
   TaskWorktreeCommitInput,
   TaskWorktreeDiff,
@@ -130,6 +131,9 @@ const api: AgentApi = {
     ipcRenderer.invoke('cli:set-enabled', input),
   getCliCapabilities: (): Promise<CliCapabilityRecordView[]> => ipcRenderer.invoke('cli:capabilities'),
   verifyCliAgent: (id: string): Promise<CliVerifyResult> => ipcRenderer.invoke('cli:verify', id),
+  pickCliExecutable: (): Promise<{ canceled: boolean; path?: string }> => ipcRenderer.invoke('cli:pick-executable'),
+  setCliSoftwareSource: (input: { id: string; command?: string; softwareSource: CliSoftwareSource }): Promise<CliAgentView[]> =>
+    ipcRenderer.invoke('cli:set-software-source', input),
 
   attachTerminal: (sessionId: string): Promise<TerminalAttach> =>
     ipcRenderer.invoke('terminal:attach', sessionId),

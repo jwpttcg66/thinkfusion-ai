@@ -41,6 +41,7 @@ import type {
   TerminalSessionSummary,
   TerminalWindowState
 } from './cli-agents';
+import type { CliSoftwareSource } from './cli-software-source';
 import type {
   TaskWorktreeCommitInput,
   TaskWorktreeDiff,
@@ -2328,6 +2329,14 @@ export interface AgentApi {
   getCliCapabilities(): Promise<CliCapabilityRecordView[]>;
   /** 主动重新验证：真的跑一次 headless 最小任务，会消耗云端额度。 */
   verifyCliAgent(id: string): Promise<CliVerifyResult>;
+  /** 用系统文件对话框亲手挑一个可执行文件；只返回路径，不执行。 */
+  pickCliExecutable(): Promise<{ canceled: boolean; path?: string }>;
+  /** 登记软件来源 / 改可执行命令；绝对路径必须是上一步挑过的。 */
+  setCliSoftwareSource(input: {
+    id: string;
+    command?: string;
+    softwareSource: CliSoftwareSource;
+  }): Promise<CliAgentView[]>;
 
   // Terminal — 附加到 Runtime 里已经存在的 PTY 会话
   attachTerminal(sessionId: string): Promise<TerminalAttach>;

@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { isAbsoluteCliCommand, normalizeCliSoftwareSource, validateCliCommand, type CliSoftwareSource } from '../shared/cli-software-source';
 import type { CliAgentConfig, CliAgentView } from '../shared/cli-agents';
 import { isStructuredCliSuccess, parseCliResultJson } from '../shared/cli-result';
 import {
@@ -75,6 +76,16 @@ export function configureCliAgents(input: { userDataDir: string }) {
   refreshCliAgentVersions();
 }
 
+/** 落盘的软件源坏了就当没填，不让它拖垮整个注册表。 */
+function storedSoftwareSource(raw: unknown): { softwareSource: CliSoftwareSource } | null {
+  if (!raw) return null;
+  try {
+    return { softwareSource: normalizeCliSoftwareSource(raw) };
+  } catch {
+    return null;
+  }
+}
+
 function load(): CliAgentConfig[] {
   if (!configPath) return [...DEFAULTS];
   try {
@@ -97,7 +108,8 @@ function load(): CliAgentConfig[] {
           : {}),
         ...(Array.isArray(patch.envAllowlist) && patch.envAllowlist.every(item => typeof item === 'string')
           ? { envAllowlist: patch.envAllowlist }
-          : {})
+          : {}),
+        ...(storedSoftwareSource(patch.softwareSource) ?? {})
       };
     });
   } catch {
@@ -116,7 +128,8 @@ function save(): void {
       args: item.args,
       permissionArgs: item.permissionArgs ?? [],
       interactiveArgs: item.interactiveArgs ?? [],
-      envAllowlist: item.envAllowlist ?? []
+      envAllowlist: item.envAllowlist ?? [],
+      ...(item.softwareSource ? { softwareSource: item.softwareSource } : {})
     };
   }
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -251,6 +264,46 @@ export function setCliAgentEnabled(input: { id: string; enabled: boolean }): Cli
   if (!target) throw new Error(`没有这个 CLI Agent：${input.id}`);
   target.enabled = input.enabled;
   save();
+  return listCliAgents();
+}
+
+/**
+ * 设置页的「软件源」：改可执行命令，并登记这个 CLI 从哪来。
+ *
+ * 两道闸都在主进程：
+ * 1. 命令只能是 PATH 名字或干净的绝对路径；绝对路径必须是用户本次亲手
+ *    在文件对话框里挑过的（或本来就在配置里），渲染层不能凭空塞一条
+ *    `~/.ssh/...` 之类的路径进来。
+ * 2. 命令必须真的能执行。填错路径会当场报错，而不是把一个可用的 CLI
+ *    悄悄变成「找不到可执行文件」。
+ *
+ * 安装来源与端点只落盘展示，不执行任何安装/更新命令。换掉命令名会让
+ * 参数指纹变化，headless 能力自动降为 unverified（见 cli-capabilities.ts）。
+ */
+export function setCliSoftwareSource(input: {
+  id: string;
+  command?: string;
+  softwareSource?: CliSoftwareSource;
+  isPicked?: (command: string) => boolean;
+}): CliAgentView[] {
+  const target = cached.find(item => item.id === input.id);
+  if (!target) throw new Error(`没有这个 CLI Agent：${input.id}`);
+  if (input.softwareSource === undefined) throw new Error('缺少软件源配置');
+  const softwareSource = normalizeCliSoftwareSource(input.softwareSource);
+
+  if (input.command !== undefined) {
+    const command = validateCliCommand(input.command);
+    if (isAbsoluteCliCommand(command) && command !== target.command && !input.isPicked?.(command)) {
+      throw new Error('绝对路径必须先用「选择…」在文件对话框里挑过');
+    }
+    if (!resolveExecutable(command)) {
+      throw new Error(`找不到可执行文件「${command}」，先安装或选对路径`);
+    }
+    target.command = command;
+  }
+  target.softwareSource = softwareSource;
+  save();
+  refreshCliAgentVersions();
   return listCliAgents();
 }
 

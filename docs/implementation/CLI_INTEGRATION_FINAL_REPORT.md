@@ -144,3 +144,50 @@ npm run replay:terminal -- <sessionId> --markers
 - 从最新 `main`（`b6b2fa7`）建独立 worktree `0.2.7`，所有改动留在该 worktree。
 - 只做本地 `git commit`，**不 push**，**不合并 main**；合并由用户决定。
 - 遵守 `AGENTS.md` 第 5 节与 `docs/git-workflow.md` 第 3 节。
+
+## 9. 追加：软件源设置与「问题源」边界（同分支，后一次提交）
+
+用户追加提问「支持问题源了吗，软件源设置也要支持」。先按事实核对，再只改确定的一项。
+
+**「问题源」：当前刻意不支持，本轮不改。** 依据不是猜测，是代码原文：
+`src/main/cli-agents.ts` 文件头与 `src/shared/contracts.ts` 都写明
+「CLI 是执行者，不是回答通道」，理由是硬规则「所有已开启且页面可用的通道都要问」
+不能作用到会改代码的进程；`SubAgentRegistry` 是网页通道池，`ExecutionPool` 按
+`web / local / cloud` 归属收敛，把 CLI 塞进去会同时破坏知识空间与工程空间的
+选人规则。重读《CLI 接入实施计划书 V1.0》全文（附件 (15)，814 行）也确认：
+里面没有「问题源 / 软件源」这两项，§2.3 架构预留只提到 OpenCode CLI /
+CodeBuddy CLI 的 Adapter 类型标识，§16 更明确「本项目只负责 CLI 的接入、
+承载、交互和应用层治理，辩论系统升级是另一个独立项目」。因此这项保持
+`NOT_IMPLEMENTED`，要支持必须先由用户裁决提问链路的归属规则。
+
+**「软件源设置」：`IMPLEMENTED / INTEGRATED / VERIFIED / TESTED`。**
+
+| 能力 | 落点 |
+| --- | --- |
+| 可执行文件、安装/更新来源、服务端点、备注 | 设置 → 智能体 → 每行「软件源设置」 |
+| 校验（basename / 绝对路径 / shell 元字符 / https / 包名） | `src/shared/cli-software-source.ts` |
+| 落盘与重启读回 | `userData/cli-agents.json` 的 `softwareSource` |
+| 绝对路径必须亲手挑过 | `cli:pick-executable` + 主进程 `pickedCliExecutables` |
+| 换命令名自动降级能力 | 既有参数指纹机制，无需新逻辑 |
+| 自动化测试 | `npm run test:cli-source`，8/8 |
+
+明确不做的：不替用户安装/更新、不联网、不把端点混进 argv、不放凭据、
+不因为一个开关就把 CLI 变成回答通道。
+
+验收追加：`npm run typecheck` 三套绿、`npm run build` 成功、
+`test:cli-source` 8/8、`test:cli-production` 35/35。全量 `npm test`
+（`/tmp/tf-027-full-test-source.log`，9225 行）跑到最后一个
+`test:cli-source` 8/8，`not ok` 0 条、`error TS` 0 条、每个套件 `# fail 0`。
+
+真机（Electron 调试实例，CDP 复核）：
+
+- `getCliAgents()` → `setCliSoftwareSource()` → `getCliAgents()`：Qoder 从
+  `softwareSource: null` 变成 `npm 包 / @qoder/cli / 端点 / 备注`，重读一致；
+  `command` 仍是 `qoder`、headless 仍是 `verified`（没改命令就不该降级）。
+- 未经「选择…」的绝对路径 `/bin/ls` 被主进程明确拒绝，报错原文是
+  「绝对路径必须先用「选择…」在文件对话框里挑过」。
+- 设置 →「Agent 预设」两行都出现「软件源设置」按钮与「软件源：…」描述；
+  点开表单后四个输入框回填 `qoder / @qoder/cli / 端点 / 备注`，下拉为 `npm`，
+  「选择…」按钮在位。
+- 验证完用备份把 `userData/cli-agents.json` 还原成测试前的样子，
+  `softwareSource` 已清空；调试实例优雅退出，没有留下测试配置。

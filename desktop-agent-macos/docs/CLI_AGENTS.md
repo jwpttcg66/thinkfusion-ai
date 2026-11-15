@@ -291,7 +291,32 @@ EXITED / FAILED / CANCELLED`），连接状态由面板 attach/detach 驱动。
 成功与用户取消返回 `null`，不硬塞一个「无错误」类别。`stdoutTail` /
 `stderrTail` / `text` 进报告前也统一脱敏。
 
-## 14. 交付文档
+## 14. 软件源设置（0.2.7 追加）
+
+「设置 → 智能体 → 外部 CLI Agent」每一行新增「软件源设置」，能改/记三件事：
+
+| 项 | 作用 | 会不会执行 |
+| --- | --- | --- |
+| 可执行文件 | PATH 里的命令名，或文件对话框亲手挑的绝对路径 | 保存时只验 `X_OK` 与 `--version` |
+| 安装 / 更新来源 | `manual / npm / brew / https URL` + 包名或地址 | **不会**安装、更新、联网 |
+| 服务端点 / 备注 | 这个 CLI 走哪个网关、版本通道 | 只作记录，不替代「云端 API 模型」的配置 |
+
+两条安全边界：命令名只能是干净 basename 或绝对路径（拒绝 shell 元字符、
+`..`、相对路径）；绝对路径必须是本次在「选择…」对话框里亲手挑过的，
+渲染层不能凭空塞一条路径进来。填了不存在的可执行文件会当场报错，不会把一个
+可用的 CLI 悄悄变成「找不到」。
+
+配置落 `userData/cli-agents.json` 的 `softwareSource`，坏值按「未登记」处理，
+不拖垮注册表。改了命令名会让参数指纹变化，headless 能力自动降为
+`unverified`，要重新点「重新验证」。测试：`npm run test:cli-source`（8 条）。
+
+**问题源边界（事实，不是待办）**：CLI 仍然是执行者，不是被问的通道。
+`src/main/cli-agents.ts` 文件头写明了理由——「所有已开启且页面可用的通道都要问」
+这条规则不能作用到会改代码的进程上。实施计划 V1.0 里也没有「把 CLI 列为回答
+通道」这一项。要改这条边界，必须先裁决提问链路的归属规则，不能在设置页加个
+开关就算支持。
+
+## 15. 交付文档
 
 - `docs/implementation/ADR_CONFIG_DRIVEN_CLI_ADAPTER.md`
 - `docs/implementation/CLI_INTEGRATION_BASELINE_AUDIT.md`

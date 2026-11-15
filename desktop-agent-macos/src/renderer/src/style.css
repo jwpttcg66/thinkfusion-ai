@@ -3882,6 +3882,35 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* CLI 软件源表单：标签比「网址」长，不能沿用 34px；安装来源一行里还有一个
+   下拉框，窄面板下让它自己换行，别把输入框挤成一条缝。 */
+.settings-input span.cli-source-label {
+  width: 190px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.settings-input select {
+  flex: 0 0 118px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-1);
+  font: inherit;
+}
+
+.settings-input.cli-source-row {
+  flex-wrap: wrap;
+}
+
+.settings-input.cli-source-row span.cli-source-label {
+  flex: 0 0 100%;
+  width: auto;
+}
+
 .settings-input input {
   flex: 1;
   min-width: 0;

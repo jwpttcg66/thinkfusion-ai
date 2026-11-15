@@ -19,6 +19,7 @@
 
 import type { TerminalProcessState, TerminalConnectionState } from './terminal-state';
 import type { CliErrorClassification } from './cli-errors';
+import type { CliSoftwareSource } from './cli-software-source';
 
 export type { TerminalProcessState, TerminalConnectionState };
 
@@ -51,6 +52,11 @@ export interface CliAgentConfig {
   enabled: boolean;
   /** 检测到的版本；能力结论与它绑定，升级后要重验。 */
   version?: string | null;
+  /**
+   * 这个 CLI 从哪来（手动 / npm / brew / https 地址）与它用的端点。
+   * 只作记录与排障，主进程不会据此安装、更新或联网；改 `command` 才会影响执行。
+   */
+  softwareSource?: CliSoftwareSource;
 }
 
 export interface CliAgentView extends CliAgentConfig {

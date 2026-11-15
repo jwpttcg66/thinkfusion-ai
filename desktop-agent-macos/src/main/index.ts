@@ -24,6 +24,7 @@ import {
   SubmitPromptSchema,
   TaskIdSchema,
   CliAgentToggleSchema,
+  CliAgentSoftwareSourceSchema,
   TerminalResizeSchema,
   TerminalSessionIdSchema,
   TerminalWriteSchema,
@@ -100,7 +101,7 @@ import {
 import { AgentOrchestrator } from './orchestrator';
 import { recordAppExit, setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
 import type { CliAgentView } from '../shared/cli-agents';
-import { cliCapabilityRecords, configureCliAgents, listCliAgents, setCliAgentEnabled, verifyCliHeadless } from './cli-agents';
+import { cliCapabilityRecords, configureCliAgents, listCliAgents, setCliAgentEnabled, setCliSoftwareSource, verifyCliHeadless } from './cli-agents';
 import {
   commitTaskWorktree,
   configureTaskWorktrees,
@@ -2886,6 +2887,34 @@ function registerIpc() {
   });
 
   // CLI Agent 是执行者，不是回答通道：这里的开关只影响新任务能不能选它。
+  /** 本次亲手在文件对话框里挑过的绝对路径；渲染层不能凭空塞路径。 */
+  const pickedCliExecutables = new Set<string>();
+
+  ipcMain.handle('cli:pick-executable', async event => {
+    trustedUiSender(event);
+    const result = await dialog.showOpenDialog({
+      title: '选择 CLI 可执行文件',
+      buttonLabel: '选择',
+      properties: ['openFile']
+    });
+    const picked = result.filePaths?.[0];
+    if (result.canceled || !picked) return { canceled: true };
+    pickedCliExecutables.add(picked);
+    return { canceled: false, path: picked };
+  });
+
+  /** 只登记来源与可执行命令，不安装、不更新、不联网。 */
+  ipcMain.handle('cli:set-software-source', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = CliAgentSoftwareSourceSchema.parse(raw);
+    return setCliSoftwareSource({
+      id: input.id,
+      ...(input.command !== undefined ? { command: input.command } : {}),
+      softwareSource: input.softwareSource,
+      isPicked: command => pickedCliExecutables.has(command)
+    });
+  });
+
   ipcMain.handle('cli:list', event => {
     trustedUiSender(event);
     return listCliAgents();
