@@ -27,6 +27,7 @@ export interface TerminalPanelBridge {
     rows: number;
     dropped: number;
     exited: boolean;
+    missing?: boolean;
     exitCode?: number;
   }>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
@@ -110,6 +111,12 @@ export function TerminalPanel({
       try {
         const attached = await bridge.attachTerminal(active);
         if (disposed) return;
+        if (attached.missing) {
+          // 会话已经被结束：显示明确状态，不订阅、不再缩放。
+          setExitCode(attached.exitCode ?? null);
+          setError('这个终端会话已经结束');
+          return;
+        }
         if (attached.backlog) terminal.write(attached.backlog);
         if (attached.dropped > 0) setDropped(attached.dropped);
         if (attached.exited) setExitCode(attached.exitCode ?? null);

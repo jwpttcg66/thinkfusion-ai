@@ -78,11 +78,16 @@ export function setAgentEventSink(sink: (event: AgentEvent) => void) {
  */
 type TerminalSink = (event: TerminalDataEvent) => void;
 let terminalSink: TerminalSink | null = null;
+let terminalEndedSink: ((sessionId: string) => void) | null = null;
 const terminalWaiters = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 let terminalSeq = 0;
 
 export function setTerminalSink(sink: TerminalSink) {
   terminalSink = sink;
+}
+
+export function setTerminalEndedSink(sink: (sessionId: string) => void) {
+  terminalEndedSink = sink;
 }
 
 export function requestTerminal(op: 'attach' | 'write' | 'resize' | 'close' | 'list' | 'open-cli', args: Record<string, unknown>): Promise<unknown> {
@@ -159,6 +164,12 @@ export function startAgentProcess() {
       clearTimeout(waiter.timer);
       if (typed.ok === true) waiter.resolve(typed.result);
       else waiter.reject(new Error(typeof typed.error === 'string' ? typed.error : '终端操作失败'));
+      return;
+    }
+
+    if (typed.type === 'terminal.ended') {
+      const sessionId = String(typed.sessionId ?? '');
+      if (sessionId) terminalEndedSink?.(sessionId);
       return;
     }
 

@@ -108,6 +108,8 @@ export interface TerminalAttach {
   cursor: number;
   dropped: number;
   exited: boolean;
+  /** 会话已经被结束：界面显示「已结束」，不再订阅/缩放。 */
+  missing?: boolean;
   exitCode?: number;
 }
 

@@ -355,6 +355,7 @@ export function createMockApi(): AgentApi {
     closeTerminalWindow: async sessionId => {
       if (openTerminalWindows.delete(sessionId)) notifyTerminalWindows(sessionId, false);
     },
+    onTerminalEnded: () => () => undefined,
     onTerminalWindow: listener => {
       terminalWindowListeners.add(listener);
       return () => {

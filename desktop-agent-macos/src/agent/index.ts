@@ -268,7 +268,10 @@ port.on('message', (event: { data: unknown }) => {
       if (op === 'close') {
         terminalSubscriptions.get(sessionId)?.();
         terminalSubscriptions.delete(sessionId);
-        reply({ ok: true, result: closeTerminal(sessionId) });
+        const closed = closeTerminal(sessionId);
+        // 通知界面这个会话已经结束：面板立刻退出，不再拿死 id 去 attach。
+        port!.postMessage({ type: 'terminal.ended', sessionId });
+        reply({ ok: true, result: closed });
         return;
       }
       if (op === 'list') {
