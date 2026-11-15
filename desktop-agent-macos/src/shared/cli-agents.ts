@@ -126,6 +126,11 @@ export interface TerminalSessionSummary {
   pending: number;
 }
 
+export interface TerminalWindowState {
+  sessionId: string;
+  open: boolean;
+}
+
 /**
  * 独立终端窗口的桥。只暴露终端本身，不暴露任务、文件或设置——
  * 那个窗口只需要显示和接管一个 PTY。

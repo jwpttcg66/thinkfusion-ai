@@ -30,7 +30,13 @@ import type {
   SubmitConversationInput
 } from './conversation';
 import type { TraceEntry, TraceTotals } from './trace';
-import type { CliAgentView, TerminalAttach, TerminalDataEvent, TerminalSessionSummary } from './cli-agents';
+import type {
+  CliAgentView,
+  TerminalAttach,
+  TerminalDataEvent,
+  TerminalSessionSummary,
+  TerminalWindowState
+} from './cli-agents';
 import type {
   TaskWorktreeCommitInput,
   TaskWorktreeDiff,
@@ -2305,12 +2311,16 @@ export interface AgentApi {
 
   // Terminal — 附加到 Runtime 里已经存在的 PTY 会话
   attachTerminal(sessionId: string): Promise<TerminalAttach>;
-  /** 当前 Runtime 里真实还开着的 PTY 会话；用于终端面板的会话切换。 */
+  /** 当前 Runtime 里真实还开着的 PTY 会话；用于侧栏的终端按钮。 */
   listTerminals(): Promise<TerminalSessionSummary[]>;
-  /** 打开/关闭主窗口右侧的终端面板；打开时主进程会把内嵌网页停止绘制。 */
-  setTerminalPane(open: boolean): Promise<void>;
+  /** 已打开的终端独立窗口对应的会话 id。 */
+  listTerminalWindows(): Promise<string[]>;
+  /** 关闭某个会话的独立窗口；会话本身不结束。 */
+  closeTerminalWindow(sessionId: string): Promise<void>;
+  /** 窗口开/关事件；侧栏按钮据此保持「开就是开」。 */
+  onTerminalWindow(listener: (event: TerminalWindowState) => void): () => void;
   /** 把终端移到独立窗口（与网页的「放大」同一套交互）。 */
-  detachTerminal(sessionId?: string): Promise<void>;
+  detachTerminal(sessionId: string): Promise<void>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
   closeTerminal(sessionId: string): Promise<void>;

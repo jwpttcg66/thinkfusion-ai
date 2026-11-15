@@ -219,11 +219,6 @@ const AgentTerminal = React.lazy(() =>
   import('./components/AgentTerminal').then(module => ({ default: module.AgentTerminal }))
 );
 
-/** 终端面板：主窗口右侧与独立窗口共用；xterm 同样只在打开时才加载。 */
-const TerminalPanel = React.lazy(() =>
-  import('./components/TerminalPanel').then(module => ({ default: module.TerminalPanel }))
-);
-
 function terminalLabelOf(session: TerminalSessionSummary): string {
   const base = session.cwd.split('/').filter(Boolean).slice(-1)[0];
   return base || session.sessionId.slice(-6);
@@ -283,13 +278,13 @@ export default function App() {
     webViewsOpen: false
   });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
-  /** 右侧终端面板；按钮常驻，面板打开时才占用网页的区域。 */
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  /** 终端：一个会话一个独立窗口；侧栏按钮是开关，可同时开多个。 */
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
+  const [openTerminalWindows, setOpenTerminalWindows] = useState<string[]>([]);
+  /** 已经自动开过窗的会话，避免用户关窗后又被下一次轮询打开。 */
+  const autoOpenedTerminals = useRef<Set<string>>(new Set());
 
-  // 右侧栏要在面板没打开时也能显示「有几个终端」，所以列表一直轻量轮询。
-  // 4 秒一次，问的是 Runtime 里的内存表，不是磁盘。
+  // 会话列表：2 秒一次，新会话出现就自动开它自己的窗口；已关掉的窗口不会被重开。
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -298,42 +293,39 @@ export default function App() {
         .then(list => {
           if (!alive) return;
           setTerminalSessions(list);
-          setActiveTerminalId(current => {
-            if (current && list.some(item => item.sessionId === current)) return current;
-            if (terminalOpen) return list[0]?.sessionId ?? null;
-            return null;
-          });
+          for (const session of list) {
+            if (session.exited || autoOpenedTerminals.current.has(session.sessionId)) continue;
+            autoOpenedTerminals.current.add(session.sessionId);
+            // 开窗失败（Runtime 刚退出）不该打断轮询；侧栏按钮仍然可以手动开。
+            void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
+          }
         })
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 4000);
+    const timer = window.setInterval(load, 2000);
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [terminalOpen]);
+  }, []);
 
-  const terminalPanelSessions = useMemo<TerminalSessionSummary[]>(() => {
-    if (!activeTerminalId) return terminalSessions;
-    const found = terminalSessions.find(item => item.sessionId === activeTerminalId);
-    // 会话刚被结束、列表还没刷新时仍然保留这一格，让「已退出」有地方显示，
-    // 而不是面板突然跳到另一个终端。
-    return found
-      ? [found]
-      : [
-          {
-            sessionId: activeTerminalId,
-            pid: 0,
-            shell: '',
-            cwd: '',
-            cols: 0,
-            rows: 0,
-            exited: true,
-            pending: 0
-          }
-        ];
-  }, [activeTerminalId, terminalSessions]);
+  // 窗口的开/关状态由主进程推：用户直接点窗口的关闭按钮也能同步到侧栏。
+  useEffect(() => {
+    void window.agentAPI
+      .listTerminalWindows()
+      // 与自动开窗的推送合并，不能用初始列表覆盖：两个请求几乎同时回来，
+      // 后到的空列表会把刚刚自动打开的那一个抹掉。
+      .then(ids => setOpenTerminalWindows(previous => [...new Set([...previous, ...ids])]))
+      .catch(() => undefined);
+    return window.agentAPI.onTerminalWindow(event => {
+      setOpenTerminalWindows(previous =>
+        event.open
+          ? [...new Set([...previous, event.sessionId])]
+          : previous.filter(id => id !== event.sessionId)
+      );
+    });
+  }, []);
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
@@ -1608,8 +1600,6 @@ export default function App() {
   }
 
   async function selectSource(id: string) {
-    // 点网页就离开终端面板：右侧栏是唯一切换器，两个视图不能同时占着。
-    if (terminalOpen) closeTerminalPane();
     if (id === sources.activeId) return;
     setError('');
     try {
@@ -1659,37 +1649,32 @@ export default function App() {
    * which reports the rail plus the stub rather than zero, so the app column
    * still stops short of the source buttons.
    */
-  function closeTerminalPane() {
-    setTerminalOpen(false);
-    setActiveTerminalId(null);
-    void window.agentAPI.setTerminalPane(false).catch(() => undefined);
-  }
-
-  /** 侧栏点某个终端：只显示这一个会话，面板不再有标签栏。 */
-  function openTerminalFor(sessionId: string) {
-    setActiveTerminalId(sessionId);
-    setTerminalOpen(true);
-    void window.agentAPI.setTerminalPane(true).catch(() => undefined);
+  /** 侧栏点某个终端：开/关它自己的窗口，会话本身不受影响。 */
+  function toggleTerminalWindow(sessionId: string) {
+    if (openTerminalWindows.includes(sessionId)) {
+      void window.agentAPI.closeTerminalWindow(sessionId).catch(e => setError(errorText(e)));
+      return;
+    }
+    void window.agentAPI.detachTerminal(sessionId).catch(e => setError(errorText(e)));
   }
 
   /**
-   * 终端按钮常驻：没有会话也能打开，面板里会说「还没有终端会话」。
-   * 打开时主进程会把内嵌网页停止绘制，否则原生视图会盖住这块 DOM。
+   * 页面工具栏的终端按钮是总开关：有窗口开着就全关，否则把所有会话的
+   * 窗口都打开。单个终端仍然由右侧栏的按钮控制。
    */
   function toggleTerminal() {
-    if (terminalOpen) {
-      closeTerminalPane();
+    if (openTerminalWindows.length > 0) {
+      for (const id of openTerminalWindows) {
+        void window.agentAPI.closeTerminalWindow(id).catch(() => undefined);
+      }
       return;
     }
-    setTerminalOpen(true);
-    setActiveTerminalId(current => current ?? terminalSessions[0]?.sessionId ?? null);
-    void window.agentAPI.setTerminalPane(true).catch(() => undefined);
+    for (const session of terminalSessions) {
+      void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
+    }
   }
 
   async function toggleCollapse() {
-    // 折叠时右侧区域整个消失；终端面板必须先收起，否则主进程会一直
-    // 认为网页应当隐藏，展开后看到的是空白。
-    if (terminalOpen) closeTerminalPane();
     try {
       setPage(await window.agentAPI.setPageCollapsed(!page.collapsed));
     } catch (e) {
@@ -2466,115 +2451,79 @@ export default function App() {
               className={`page-dot${activeChannel?.available ? ' ok' : sources.loading ? ' pending' : ' warn'}`}
               aria-hidden="true"
             />
-            <span className="page-name">{terminalOpen ? '终端' : (activeSource?.label ?? '内嵌页面')}</span>
-            <span className="page-status" title={activeChannel?.detail ?? ''}>
-              {terminalOpen ? `${String(terminalSessions.length)} 个会话 · 网页已暂停绘制` : pageStatusText}
-            </span>
+            <span className="page-name">{activeSource?.label ?? '内嵌页面'}</span>
+            <span className="page-status" title={activeChannel?.detail ?? ''}>{pageStatusText}</span>
             <span className="page-actions">
-              {/* 终端占着右侧区域时，页面动作不可见也不该被误点：全部收起来，
-                  只留终端开关。 */}
-              {!terminalOpen && (
-                <>
-                  <button
-                    className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
-                    type="button"
-                    onClick={() => void openPageSave('md')}
-                    disabled={savingPage !== null}
-                    data-action="save-document"
-                    aria-label="保存文档"
-                    title="保存文档：提取这一页里的文档和计划，默认存成 Markdown"
-                  >
-                    <IconSave />
-                  </button>
-                  <button
-                    className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
-                    type="button"
-                    onClick={() => void openPageSave('docx')}
-                    disabled={savingPage !== null}
-                    data-action="save-document-word"
-                    aria-label="保存为 Word"
-                    title="单独指定才生成 Word 文档（版式沿用导出模板）"
-                  >
-                    <IconSaveWord />
-                  </button>
-                  <button
-                    className={`page-btn icon${refreshing ? ' spinning' : ''}`}
-                    type="button"
-                    onClick={() => void refreshPage()}
-                    disabled={refreshing}
-                    data-action="reload"
-                    aria-label="刷新"
-                    title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
-                  >
-                    <IconRefresh />
-                  </button>
-                  <button
-                    className="page-btn icon"
-                    type="button"
-                    onClick={() => void openDiagnostics()}
-                    data-action="diagnose"
-                    aria-label="诊断"
-                    title="诊断：看这一页真实找到了什么；更新样式也在里面"
-                  >
-                    <IconGauge />
-                  </button>
-                  <button
-                    className="page-btn icon"
-                    type="button"
-                    onClick={toggleDetach}
-                    disabled={sources.loading && !isDetached}
-                    data-action="detach"
-                    aria-label={isDetached ? '吸附回来' : '放大'}
-                    title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
-                  >
-                    {isDetached ? <IconDockBack /> : <IconExpand />}
-                  </button>
-                </>
-              )}
               <button
-                className={`page-btn icon${terminalOpen ? ' is-active' : ''}`}
+                className={`page-btn icon${savingPage === 'md' ? ' spinning' : ''}`}
+                type="button"
+                onClick={() => void openPageSave('md')}
+                disabled={savingPage !== null}
+                data-action="save-document"
+                aria-label="保存文档"
+                title="保存文档：提取这一页里的文档和计划，默认存成 Markdown"
+              >
+                <IconSave />
+              </button>
+              <button
+                className={`page-btn icon${savingPage === 'docx' ? ' spinning' : ''}`}
+                type="button"
+                onClick={() => void openPageSave('docx')}
+                disabled={savingPage !== null}
+                data-action="save-document-word"
+                aria-label="保存为 Word"
+                title="单独指定才生成 Word 文档（版式沿用导出模板）"
+              >
+                <IconSaveWord />
+              </button>
+              <button
+                className={`page-btn icon${refreshing ? ' spinning' : ''}`}
+                type="button"
+                onClick={() => void refreshPage()}
+                disabled={refreshing}
+                data-action="reload"
+                aria-label="刷新"
+                title="刷新：重新加载这一页。当前会话不变，登录状态也不会丢"
+              >
+                <IconRefresh />
+              </button>
+              <button
+                className="page-btn icon"
+                type="button"
+                onClick={() => void openDiagnostics()}
+                data-action="diagnose"
+                aria-label="诊断"
+                title="诊断：看这一页真实找到了什么；更新样式也在里面"
+              >
+                <IconGauge />
+              </button>
+              <button
+                className="page-btn icon"
+                type="button"
+                onClick={toggleDetach}
+                disabled={sources.loading && !isDetached}
+                data-action="detach"
+                aria-label={isDetached ? '吸附回来' : '放大'}
+                title={isDetached ? '吸附回来：把页面放回窗口' : '放大：把页面移到独立窗口'}
+              >
+                {isDetached ? <IconDockBack /> : <IconExpand />}
+              </button>
+              <button
+                className={`page-btn icon${openTerminalWindows.length > 0 ? ' is-active' : ''}`}
                 type="button"
                 onClick={toggleTerminal}
                 data-action="terminal"
-                aria-label="终端"
-                title="终端：查看并接管任务里真实开过的 PTY 会话；没开过也能打开"
+                aria-label="终端窗口"
+                title={
+                  openTerminalWindows.length > 0
+                    ? `关闭全部 ${String(openTerminalWindows.length)} 个终端窗口（会话继续运行）`
+                    : `打开全部 ${String(terminalSessions.length)} 个终端窗口`
+                }
               >
                 <IconTerminal />
               </button>
             </span>
           </div>
-          {terminalOpen && (
-            <div
-              className="terminal-pane"
-              style={{
-                right: RAIL_WIDTH,
-                width: Math.max(0, split - PAGE_GUTTER - RAIL_WIDTH),
-                top: PAGE_HEADER_HEIGHT
-              }}
-            >
-              <React.Suspense fallback={null}>
-                <TerminalPanel
-                  sessions={terminalPanelSessions}
-                  bridge={window.agentAPI}
-                  initialSessionId={activeTerminalId}
-                  single={Boolean(activeTerminalId)}
-                  onClosePane={closeTerminalPane}
-                  onDetach={sessionId => {
-                    void window.agentAPI
-                      .detachTerminal(sessionId)
-                      .then(() => closeTerminalPane())
-                      .catch(cause => setError(errorText(cause)));
-                  }}
-                  onSessionsChanged={() => {
-                    void window.agentAPI
-                      .listTerminals()
-                      .then(setTerminalSessions)
-                      .catch(() => undefined);
-                  }}
-                />
-              </React.Suspense>
-            </div>
-          )}
           <div
             className={`page-divider${draggingPage ? ' dragging' : ''}`}
             role="separator"
@@ -2620,7 +2569,7 @@ export default function App() {
           button that does nothing. */}
       <SourceRail
         sources={sources.sources.filter(source => source.enabled)}
-        activeId={terminalOpen ? '' : sources.activeId}
+        activeId={sources.activeId}
         planningId={sources.planningId}
         loading={sources.loading}
         collapsed={isCollapsed}
@@ -2631,8 +2580,8 @@ export default function App() {
           label: terminalLabelOf(session),
           exited: session.exited
         }))}
-        activeTerminalId={terminalOpen ? activeTerminalId : null}
-        onSelectTerminal={openTerminalFor}
+        openTerminalIds={openTerminalWindows}
+        onToggleTerminal={toggleTerminalWindow}
       />
 
       {researchOpen && (

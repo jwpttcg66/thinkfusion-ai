@@ -24,8 +24,8 @@ CLI 不是「回答通道」：打开它只决定新任务能不能把工程活�
 | 任务级独立 Worktree（创建/提交/合并/删除） | `src/main/task-worktree.ts`、`src/renderer/src/components/TaskWorktree.tsx` |
 | TerminalHost：多读者、程序直启、进程组 | `src/agent/tools/terminal.ts` |
 | 终端 IPC 与面板 | `src/main/index.ts`、`src/preload/index.ts`、`src/renderer/src/components/AgentTerminal.tsx` |
-| 右侧栏：每个终端一个按钮 | `src/renderer/src/components/SourceRail.tsx` |
-| 右侧终端面板 | `src/renderer/src/components/TerminalPanel.tsx` |
+| 右侧栏：每个终端一个开关（窗口） | `src/renderer/src/components/SourceRail.tsx` |
+| 终端窗口内容 | `src/renderer/src/components/TerminalPanel.tsx` |
 | 每会话一个独立终端窗口 | `src/renderer/terminal.html`、`src/renderer/src/terminal-window.tsx`、`src/preload/terminal.ts` |
 | 任务取消真的下发到 Runtime | `src/main/agent-manager.ts`（`cancelPlan`） |
 | 测试 | `scripts/check-cli-agent.mjs`、`scripts/fixtures/fake-cli.mjs` |
@@ -139,22 +139,21 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 
 右侧栏里**每个终端会话一个按钮**，与网页通道并列：
 
-- 网页按钮切换网页；终端按钮切换终端，同一时刻只显示一个；
-- 终端按钮带状态点：运行中为强调色，已退出为灰色；标题带 cwd 末级目录与会话短 id；
-- 没有终端时右侧栏不出现终端按钮；页面工具栏的终端按钮仍在，用来打开面板
-  （没会话时说明「还没有终端会话」）；
-- 主窗口面板同一时刻只显示一个会话，不再有标签栏；
-- **每个会话「放大」后各占一个独立窗口**（`terminal.html?session=…`，独立 preload，
-  只能读写那一个 PTY）；同一会话再次放大只聚焦已有窗口，不同会话各自开窗；
-- 结束会话会同时关掉它的独立窗口；「吸附回来」只关当前窗口；
-- 打开终端面板时，内嵌网页停止绘制（否则原生视图会盖住 DOM），页面动作按钮收起；
-- 「收起」把网页放回来；折叠页面时会自动收起终端，避免展开后空白。
+- 终端出现（`term.open` 成功）就自动打开它自己的窗口；已退出的会话不自动开；
+- 侧栏按钮是**开关**：开着的再点关闭窗口（会话继续运行），关闭的再点重新打开；
+- 可以同时开多个窗口——两个运行中的终端就是两个窗口，互不替换；
+- 按钮带状态点：运行中为强调色，已退出为灰色；标题带 cwd 末级目录、会话短 id
+  和「点击打开/关闭窗口」；
+- 每个会话一个独立窗口（`terminal.html?session=…`，独立 preload，只能读写那一个 PTY）；
+- 结束会话会同时关掉它的窗口；「吸附回来」只关当前窗口，不影响其它终端；
+- 页面工具栏的终端按钮是总开关：有窗口开着就全部关闭，否则把所有会话都打开；
+- 不再有「一个面板里切标签」的模式：终端不占用网页区域，网页照常显示。
 
 ## 8. 生命周期
 
 | 动作 | 结果 |
 | --- | --- |
-| 关闭终端面板 | CLI 继续跑，重新打开能看到 backlog |
+| 关闭终端窗口 | CLI 继续跑，侧栏按钮再点一次能重新打开 |
 | 取消任务 | 下发 `task.cancel`，Runtime 按进程组终止 CLI；工作树保留 |
 | 计划执行超时 | 先下发取消再拒绝，不留「界面超时、进程还在改文件」 |
 | 应用退出 | Runtime 退出时终止所有 CLI 与 PTY，并落任务终止记录；工作树保留 |

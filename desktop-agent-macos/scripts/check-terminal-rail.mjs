@@ -34,7 +34,7 @@ function render(props) {
           sources: props.sources,
           onSelect: () => {},
           onToggleCollapse: () => {},
-          onSelectTerminal: () => {}
+          onToggleTerminal: () => {}
         })));
       `,
       resolveDir: root,
@@ -71,11 +71,11 @@ test('N 个终端 → N 个侧栏按钮，各带自己的状态', () => {
       { sessionId: 'term-aaaa1111', label: 'repo-one', exited: false },
       { sessionId: 'term-bbbb2222', label: 'repo-two', exited: true }
     ],
-    activeTerminalId: 'term-bbbb2222'
+    openTerminalIds: ['term-bbbb2222']
   });
 
   assert.equal((html.match(/rail-btn terminal/g) ?? []).length, 2, '两个终端应有两个按钮');
-  assert.equal((html.match(/rail-btn terminal active/g) ?? []).length, 1, '只有一个终端处于选中态');
+  assert.equal((html.match(/rail-btn terminal active/g) ?? []).length, 1, '只有一个终端窗口处于打开态');
   assert.match(html, /repo-two/);
   assert.match(html, /2222/);
   assert.match(html, /（已退出）/);

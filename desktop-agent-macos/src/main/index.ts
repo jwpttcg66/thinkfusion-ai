@@ -330,8 +330,6 @@ let detachedSaveOverlay: {
  * 同一个会话重复点「放大」只聚焦已有窗口；不同会话各自开窗。
  */
 const terminalWindows = new Map<string, BrowserWindow>();
-/** 终端面板占用了右侧区域时，内嵌网页停止绘制（否则原生视图会盖住 DOM）。 */
-let pageHiddenForTerminal = false;
 
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
@@ -1296,9 +1294,15 @@ async function openTerminalWindow(sessionId: string): Promise<void> {
   terminalWindows.set(sessionId, created);
   created.on('closed', () => {
     if (terminalWindows.get(sessionId) === created) terminalWindows.delete(sessionId);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('terminal:window', { sessionId, open: false });
+    }
   });
   if ('url' in target) await created.loadURL(target.url);
   else await created.loadFile(target.file, { query: target.query });
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('terminal:window', { sessionId, open: true });
+  }
 }
 
 
@@ -1366,7 +1370,7 @@ function layout() {
     // is not laid out against the current split. A folded pane is the same
     // situation, which is why it goes through this branch rather than through a
     // zero-width bounds.
-    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed && !pageHiddenForTerminal;
+    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed;
     const bounds = onScreen ? shown : offstage;
     const last = applied.get(id);
     if (!last || last.x !== bounds.x || last.y !== bounds.y || last.width !== bounds.width || last.height !== bounds.height) {
@@ -2843,11 +2847,17 @@ function registerIpc() {
     return Array.isArray(result?.sessions) ? result.sessions : [];
   });
 
-  // 终端面板占用右侧区域时，内嵌网页必须停止绘制；否则原生视图会盖住 DOM。
-  ipcMain.handle('terminal:set-pane', (event, open: unknown) => {
+  // 终端独立窗口的开关状态：界面用它画侧栏按钮的「开/关」。
+  ipcMain.handle('terminal:windows', event => {
     trustedUiSender(event);
-    pageHiddenForTerminal = open === true;
-    layout();
+    return [...terminalWindows.entries()]
+      .filter(([, window]) => !window.isDestroyed())
+      .map(([sessionId]) => sessionId);
+  });
+
+  ipcMain.handle('terminal:window-close', (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    terminalWindows.get(TerminalSessionIdSchema.parse(sessionId))?.close();
   });
 
   ipcMain.handle('terminal:detach', async (event, sessionId: unknown) => {
