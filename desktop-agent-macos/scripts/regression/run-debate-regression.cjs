@@ -29,14 +29,25 @@ const { OpenAICompatibleProvider } = require('../../out-test/main/providers/open
 const { PROMPT_VERSION } = require('../../out-test/main/debate/prompts.js');
 const { buildSummary, markdown } = require('./summary.cjs');
 const { fingerprintFor, canReuseResult } = require('./incremental.cjs');
+const { execFile } = require('node:child_process');
+const { parseCliResultJson, isStructuredCliSuccess } = require('../../out-test/shared/cli-result.js');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
 const DATASET_PATH = path.join(__dirname, 'debate-dataset.json');
 const STANDARD_PATH = path.join(__dirname, 'debate-standard-answers-v1.json');
 const OUT_DIR = path.resolve(__dirname, '../../../docs/implementation/regression');
-const STAGE_TIMEOUT_MS = 180_000;
-const TOTAL_MS = 300_000;
-const WAIT_MS = 380_000;
+/**
+ * 时间预算。
+ *
+ * 默认值是按云端 Provider 的直连延迟定的（单次十几秒）。CLI 档慢一个量级
+ * ——同一段辩论提示下实测 DeepSeek-Flash 29s、Qwen3.8-Flash 16s、
+ * GLM-5.3-Flash 108s，300 秒的整场预算只够跑两轮里的两条消息，辩论会被判
+ * PARTIAL。所以预算改成可配置，CLI 档由命令行给足，不把默认值改大：
+ * 改默认值会让云端档的历史结果与本次结果不可比。
+ */
+const STAGE_TIMEOUT_MS = Math.max(30_000, Number.parseInt(argValue('stage-ms', '180000'), 10) || 180_000);
+const TOTAL_MS = Math.max(60_000, Number.parseInt(argValue('total-ms', '300000'), 10) || 300_000);
+const WAIT_MS = Math.max(TOTAL_MS, Number.parseInt(argValue('wait-ms', '380000'), 10) || 380_000);
 const JUDGE_TIMEOUT_MS = 240_000;
 /**
  * 2.1.0：裁决改走 `adjudicateDebate`（与 IPC 同一条链，含失败换人）。
@@ -66,6 +77,31 @@ let MODELS = [];
 let IDS = [];
 let completenessEnabled = false;
 
+/**
+ * 模型从哪来。
+ *
+ * `provider`（缺省）= 设置里勾选的云端模型，走 OpenCode Go 一个 Provider。
+ * `cli` = qoder CLI，一个模型一个 `-m`，额度/鉴权/模型池都与云端 Provider 无关。
+ *
+ * **换后端就是换口径**：qoder 的模型名跟历史 18/24 那三个（deepseek-v4.1-flash /
+ * gpt-6-luna / claude-haiku-5-5）不是同一批，`compare-results.cjs` 会因此拒绝
+ * 给逐题差异。这是它该做的事——两份结果不是同一把尺子量出来的。
+ */
+const BACKEND = argValue('backend', 'provider');
+const CLI_MODEL_NAMES = (argValue('models', '') || '')
+  .split(',')
+  .map(item => item.trim())
+  .filter(Boolean);
+const CLI_BIN = argValue('cli-bin', path.join(process.env.HOME ?? '', '.qoder', 'entry', 'qoder'));
+/**
+ * 经济模式（`--economy`）：把 CLI 自己的思考预算关掉，并关掉会话落盘。
+ *
+ * 这一档省的是 qoder 侧的 token 与会话文件，改的不是辩论流程——成员、裁判轮换、
+ * 阶段一条都不动。代价是模型少了「先想后答」，同一道题的答案深度会低于开思考的
+ * 跑法，**两种跑法的分数不能混着比**，所以报告里如实记 `runner.economy`。
+ */
+const ECONOMY = process.argv.includes('--economy') || argValue('economy', '0') === '1';
+
 /** 读取用户在设置里勾选的模型；不把模型名硬编码在回归脚本里。 */
 function loadSelectedModels(appData) {
   const file = path.join(appData, 'thinkfusion-ai', 'execution-defaults.json');
@@ -74,6 +110,23 @@ function loadSelectedModels(appData) {
   const models = [...new Set(selected.map(id => String(id).split(':').pop()).filter(Boolean))];
   if (models.length < 2) throw new Error('至少需要在设置里勾选两个云端模型');
   return models.map(model => ({ id: model, model }));
+}
+
+/**
+ * 本次用哪套模型。
+ *
+ * CLI 档的 id 由模型名派生（`GLM-5.3-Flash` → `glm-5-3-flash`），这样
+ * `planLead` / 辩论成员 / 裁判轮换仍然按 id 走，不用为 CLI 单独写一套选人逻辑。
+ */
+function loadModelPool(appData) {
+  if (BACKEND !== 'cli') return loadSelectedModels(appData);
+  if (CLI_MODEL_NAMES.length < 2) {
+    throw new Error('--backend=cli 时要用 --models= 至少给两个模型名（见 qoder --list-models）');
+  }
+  return CLI_MODEL_NAMES.map(name => ({
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    model: name
+  }));
 }
 
 function loadDataset() {
@@ -115,9 +168,9 @@ function codeSha() {
 
 app.setName('ThinkFusion');
 app.whenReady().then(async () => {
-  MODELS = loadSelectedModels(app.getPath('appData'));
+  MODELS = loadModelPool(app.getPath('appData'));
   IDS = MODELS.map(item => item.id);
-  console.log(`模型池：${MODELS.map(item => item.model).join('、')}`);
+  console.log(`模型池（${BACKEND}）：${MODELS.map(item => item.model).join('、')}`);
 
   const dataset = loadDataset();
   const standard = JSON.parse(fs.readFileSync(STANDARD_PATH, 'utf8'));
@@ -155,19 +208,25 @@ app.whenReady().then(async () => {
   const questions = filtered.slice(0, Number.isFinite(limit) && limit > 0 ? limit : filtered.length);
   console.log(
     `数据集 ${dataset.version} · ${dataset.sha256.slice(0, 12)}… · 本次 ${questions.length}/${dataset.questions.length} 题` +
-    `${suffix ? ` · 输出后缀 ${suffix}` : ''} · workers=${workers} · providerConcurrency=${providerConcurrency}`
+    `${suffix ? ` · 输出后缀 ${suffix}` : ''} · workers=${workers} · providerConcurrency=${providerConcurrency}` +
+    `${ECONOMY ? ' · 经济模式（--thinking disabled）' : ''}`
   );
 
-  const key = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(
-    path.join(app.getPath('appData'), 'thinkfusion-ai', 'api-keys.json'), 'utf8'
-  ))['opencode-go'].cipher, 'base64'));
-  const provider = new OpenAICompatibleProvider({
-    id: 'opencode-go', label: 'OpenCode Go', baseUrl: BASE,
-    models: MODELS.map(item => item.model), defaultModel: MODELS[0].model,
-    keyStore: { has: () => true, get: () => key },
-    maxConcurrency: providerConcurrency, maxRetries: 1, timeoutMs: JUDGE_TIMEOUT_MS,
-    extraHeaders: { 'user-agent': 'thinkfusion-debate-regression', 'x-opencode-session': '24q-regression' }
-  });
+  // CLI 档不读云端 Key，也不建 Provider：qoder 自己管鉴权。
+  let provider = null;
+  if (BACKEND !== 'cli') {
+    const key = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(
+      path.join(app.getPath('appData'), 'thinkfusion-ai', 'api-keys.json'), 'utf8'
+    ))['opencode-go'].cipher, 'base64'));
+    provider = new OpenAICompatibleProvider({
+      id: 'opencode-go', label: 'OpenCode Go', baseUrl: BASE,
+      models: MODELS.map(item => item.model), defaultModel: MODELS[0].model,
+      keyStore: { has: () => true, get: () => key },
+      maxConcurrency: providerConcurrency, maxRetries: 1, timeoutMs: JUDGE_TIMEOUT_MS,
+      extraHeaders: { 'user-agent': 'thinkfusion-debate-regression', 'x-opencode-session': '24q-regression' }
+    });
+  }
+  const providerId = BACKEND === 'cli' ? 'qoder-cli' : 'opencode-go';
   const byId = new Map(MODELS.map(item => [item.id, item.model]));
   const candidates = MODELS.map(item => ({ id: item.id, label: item.model, type: 'cloud', available: true }));
   // 裁决候选：三个模型全在池里，`preferredJudgeId` 指定本题轮换到的那位。
@@ -179,12 +238,69 @@ app.whenReady().then(async () => {
     type: 'cloud',
     available: true,
     modelId: item.model,
-    providerId: 'opencode-go'
+    providerId
   }));
+
+  /**
+   * 问一次 qoder CLI（`-m` 指定模型、`-p` 无头、`--output-format json`）。
+   *
+   * 与 Provider 档的三处差别，写在明处而不是假装一样：
+   * 1. 消息压成一段文本（system → 上下文 → 问题）。Provider 是多条结构化
+   *    messages，CLI 只有一个 `-p` 入口；
+   * 2. 答案经过 qoder 自己的 agent 外壳，不保证等于裸模型输出；
+   * 3. cwd 固定在临时目录——回答链不该碰本仓文件。
+   */
+  function askQoderCli(agentId, model, task) {
+    const prompt = [...(task.system ?? []), ...(task.context ?? []), task.question]
+      .filter(text => typeof text === 'string' && text.trim())
+      .join('\n\n');
+    return new Promise((resolve, reject) => {
+      const args = ['-p', prompt, '-m', model, '--output-format', 'json'];
+      if (ECONOMY) args.push('--thinking', 'disabled', '--no-session-persistence');
+      execFile(
+        CLI_BIN,
+        args,
+        { cwd: os.tmpdir(), timeout: JUDGE_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024 },
+        (error, stdout) => {
+          // 超时/非零退出也先看 stdout：qoder 有时把结果打完才非零退出。
+          const parsed = parseCliResultJson(String(stdout ?? ''));
+          if (!isStructuredCliSuccess(parsed)) {
+            const reason = error?.killed
+              ? `CLI 超时（${JUDGE_TIMEOUT_MS}ms）`
+              : error?.message ?? 'CLI 没有给出结构化结果';
+            reject(new Error(`${model}: ${reason}`));
+            return;
+          }
+          resolve({
+            agentId,
+            text: String(parsed.result),
+            receivedAt: Date.now(),
+            stage: task.stage,
+            attribution: { requestId: '24q-regression', note: 'qoder cli' },
+            usage: cliUsage(parsed),
+            providerId,
+            modelId: model,
+            latencyMs: typeof parsed.duration_ms === 'number' ? parsed.duration_ms : null
+          });
+        }
+      );
+    });
+  }
+
+  /** qoder 的 usage 有时全是 0；照抄不猜，读不到就写 null。 */
+  function cliUsage(parsed) {
+    const usage = parsed?.usage;
+    if (!usage || typeof usage !== 'object') return undefined;
+    const inputTokens = Number(usage.input_tokens ?? 0);
+    const outputTokens = Number(usage.output_tokens ?? 0);
+    if (!inputTokens && !outputTokens) return undefined;
+    return { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
+  }
 
   const askModel = async (agentId, task) => {
     const model = byId.get(agentId);
     if (!model) throw new Error(`没有模型映射：${agentId}`);
+    if (BACKEND === 'cli') return askQoderCli(agentId, model, task);
     const response = await provider.generate({
       modelId: model,
       question: task.question,
@@ -199,7 +315,7 @@ app.whenReady().then(async () => {
       stage: task.stage,
       attribution: { requestId: '24q-regression', note: 'configured model' },
       usage: response.usage,
-      providerId: 'opencode-go',
+      providerId,
       modelId: model,
       latencyMs: response.latencyMs
     };
@@ -488,7 +604,11 @@ app.whenReady().then(async () => {
         promptVersion: PROMPT_VERSION,
         commit: codeSha(),
         adjudication: 'main/judge/adjudicate.adjudicateDebate',
-        rulesAuthority: 'debate.claim-judgments'
+        rulesAuthority: 'debate.claim-judgments',
+        // 报告必须自证「模型是怎么问出来的」：Provider 直连，还是过 CLI 外壳。
+        // 两者的答案不是同一口径，逐题差异也只在同一 backend 内才成立。
+        backend: providerId,
+        economy: ECONOMY
       },
       createdAt: new Date().toISOString(),
       workers,

@@ -2,7 +2,7 @@
 
 - 分支：`0.2.8`（从 `main` `dbeca16` 切出）
 - 工作树：`/Users/yalla/data/localLab/thinkfusion-ai-0.2.8`（与仓库既有「一版本一 worktree」惯例一致）
-- 本轮范围：Gate 0A / 0B / 0D 已落地，**0C 因云端额度 429 暂缓（DEFERRED）**
+- 本轮范围：Gate 0A / 0B / 0D 已落地；0C 先用 **CLI 口径 + 经济模式**跑完 24/24（§4.4），云端直连口径仍 DEFERRED
 - 结论口径：只写跑过的东西。没跑、没实现、没真机验证的，一律标 SPECIFIED / NOT STARTED / DEFERRED
 
 ---
@@ -155,6 +155,46 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 跑之前先确认两件事：`RUNNER_VERSION` 已是 `2.1.0`（增量指纹已失效）、命令里**没有**
 `--incremental`。跑完用 `compare-results.cjs` 对历史 18/24 出逐题差异，再把结果填回本节。
 
+### 4.4 结果（2026-11-15 19:13）：CLI 口径 + 经济模式，24/24 跑完，**不是 18/24 的可比结果**
+
+云端额度没恢复（周额度池见 §4.3），改用 qoder CLI 当模型来源跑完 24 题。报告：
+`docs/implementation/regression/debate-regression-gate0-cli-latest.{json,md}`。
+
+```bash
+cd /Users/yalla/data/localLab/thinkfusion-ai-0.2.8/desktop-agent-macos
+env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
+  ./node_modules/.bin/electron scripts/regression/run-debate-regression.cjs \
+  --no-sandbox --disable-gpu --backend=cli \
+  --models=DeepSeek-Flash,Qwen3.8-Flash,Kimi-K2.8-Preview \
+  --workers=2 --completeness --economy --suffix=gate0-cli \
+  --total-ms=600000 --wait-ms=700000          # 没有 --incremental
+```
+
+| 项 | 本次（CLI · 经济模式） | 历史 18/24（Provider 直连） |
+| --- | --- | --- |
+| 执行 | **COMPLETED 24/24** | COMPLETED 18/24 |
+| 裁判 | 模型 24/24，独立 24/24，sharedWith 0 | 同 |
+| 质量 | passed 23，inconclusive 1（index-generation） | passed 24 |
+| V1 门槛 | **passed 20/24**，平均分 93 | 18/24 |
+| 轮/条 | 24 题全是 2/4 | 24 题全是 2/4 |
+| 事实维度 | `model-assessed` 24（无一条 `fact-verified`） | 同 |
+| 结构化通过 | **否**（`structuralOk` 要求 24 题 V1 全 pass） | 否 |
+
+**为什么不能写成「进步到 20/24」**：`compare-results.cjs` 对这两份直接拒绝给差异——
+模型池不同（`DeepSeek-Flash/Kimi-K2.8-Preview/Qwen3.8-Flash` vs `claude-haiku-5-5/
+deepseek-v4.1-flash/gpt-6-luna`）、`completeness` 开关也不同（基线 `undefined`/本次 `true`）。
+打印结果是「口径不同，不作逐题差异」。**换后端就是换尺子**，本次只能当 CLI 口径的新基线。
+
+**经济模式是什么**：`--economy` 给 qoder 加 `--thinking disabled --no-session-persistence`，
+只省 CLI 侧的思考 token 与会话文件，辩论流程（成员、裁判轮换、阶段）一条没改。代价写在
+报告 `runner.economy` 里：少了「先想后答」，答案深度低于开思考的跑法。
+
+4 道 V1 未过全部是**内容覆盖不足**，不是结构问题——`missingClaims` 缺标准里的某一条：
+`http-methods` 30（c2/c3/c4，且把「POST 不幂等」说成绝对结论）、`jwt-revoke` 69（缺 c3
+密钥轮换）、`git-rebase` 60（缺 c2 fast-forward / c4 后果）、`monolith-microservices` 69
+（缺 c4，自设了量化阈值）。这符合经济模式「答案薄一层」的预期，也说明 V1 门槛对这档偏严。
+
+
 ---
 
 ## 5. Gate 0D：全量测试与类型检查
@@ -186,7 +226,7 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 | Judge 降级 IPC 链 | IMPLEMENTED + TESTED（handler 层） | `handler.ts`；未真机点按钮验证 |
 | 公共裁决核 | IMPLEMENTED + INTEGRATED | IPC 与 24 题回归共用 |
 | 权威 rules 结论 | SPECIFIED + IMPLEMENTED（只记录，不改结论来源） | `rulesConclusion.authority` |
-| 24 题当前 main 回归 | **DEFERRED**（未执行） | 云端周额度 429，见 §4.3；报告已删，等 CLI 输入源就绪后重跑 |
+| 24 题当前 main 回归 | **PARTIAL**：CLI 口径跑完 24/24，V1 20/24、结构化通过=否 | 见 §4.4；换后端即换口径，**不与历史 18/24 逐题比**；云端直连口径仍 DEFERRED（§4.3） |
 | Evidence Pack | SPECIFIED | 本轮未动 |
 | 工程辩论闭环 | NOT STARTED | 本轮未动 |
 | 外部事实核验 | NOT STARTED | 本轮未动 |
@@ -198,8 +238,10 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 
 ## 7. 本轮没做的事（避免被读成已完成）
 
-- **Gate 0C 没跑成**：24 题因为云端周额度 429 全失败，一份结果都没有。这是本轮唯一
-  未交付的 Gate 0 项，也是「Gate 0 未通过、不得进入 Evidence Pack」的直接原因；
+- **Gate 0C 只跑成一半**：云端直连口径仍因周额度 429 未跑（§4.3）；CLI 口径 + 经济模式
+  跑完 24/24，但 `V1 20/24`、`structuralOk=false`，而且换后端即换口径——它不能替云端
+  口径的结论。所以「Gate 0 通过、可进 Evidence Pack」**仍然不成立**；
+- 经济模式下的分数**不能当基线能力值**：`--thinking disabled` 是省钱的跑法，不是默认产品行为；
 - 没有新增 Evidence Pack / EvidencePackItem / ClaimEvidenceLink / FactVerification 的任何类型；
 - 没有给 `DebateState` 加 `schemaVersion`，也没有改两个 store 的解析失败返回 null 的行为；
 - 没有改 `judgeDebate` 的判定，也没有改退回规则版时的结论措辞；
