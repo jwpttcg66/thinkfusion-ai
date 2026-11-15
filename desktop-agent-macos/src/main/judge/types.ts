@@ -1,4 +1,4 @@
-import type { DebateMessage } from '../debate/types';
+import type { DebateMessage, Verdict } from '../debate/types';
 import type { DebateQualityReport, FinalDebateDecision } from '../debate/quality-engine';
 
 /**
@@ -42,6 +42,46 @@ export interface UnresolvedQuestion {
 }
 
 export type JudgeMode = 'self-review' | 'participant-review' | 'independent-judge' | 'rules-fallback';
+
+/** 换裁判时失败的那一次。成功的那次由 `judgeAgentId` 本身说明，不重复记。 */
+export interface JudgeReselectionAttempt {
+  agentId: string;
+  judgeModelId?: string;
+  /** 这一次被选中时的身份；换人后要按新的人重算，不能沿用旧值。 */
+  judgeMode: JudgeMode;
+  reason: string;
+}
+
+/**
+ * Gate 0A：首选裁判失败后换人的记录。
+ *
+ * 只有「模型确实被调过、且没给出可用结论」时才存在。`exhausted` 为 true
+ * 表示候选全部试过、最终退回规则版——这与「本来就没有模型裁判」是两件事：
+ * 前者是试过都不行，后者是没得试。两者在界面上不能被读成同一种状态。
+ */
+export interface JudgeReselection {
+  attempts: JudgeReselectionAttempt[];
+  /** 已经失败、不再参与重选的人。 */
+  excludedAgentIds: string[];
+  exhausted: boolean;
+  finalJudgeAgentId: string | null;
+}
+
+/**
+ * 规则版结论的权威口径（Gate 0B 契约）。
+ *
+ * 仓库里有两套规则：`debate/judges.ts` 的逐条三维判定，和裁判引擎里的文本
+ * 线索打分。**前者是权威**——它能一条条指着原文复核，质量门槛
+ * `verdict.recomputable` 也是按它建的；后者只负责在模型不可用时把话说完整。
+ *
+ * 两者结论不一致时记录在案，不静默吞掉。权威侧没给结论时 `agrees` 是 null
+ * （不可比），不是「一致」。
+ */
+export interface RulesConclusionNote {
+  authority: 'debate.claim-judgments';
+  debateVerdict: Verdict;
+  agrees: boolean | null;
+}
 
 export interface JudgeIndependence {
   judgeMode: JudgeMode;
@@ -99,6 +139,10 @@ export interface JudgeVerdict {
   supportCount: Record<string, number>;
   /** 模型裁决解析失败时会退回规则版，原因写在这里，不假装是模型给的。 */
   fallbackReason?: string;
+  /** 0A：换过裁判才有；没换过不写空对象，免得被读成「换过但记不清」。 */
+  judgeReselection?: JudgeReselection;
+  /** 0B：规则版结论的权威口径，只有 `backend === 'rules'` 时存在。 */
+  rulesConclusion?: RulesConclusionNote;
   /**
    * P1 自动质量报告。作为裁决的伴随对象，不改写 `conclusion` 或 `confidence`；
    * 老记录没有这个字段。`factualAccuracy` 不会因为模型评审而变成事实正确。

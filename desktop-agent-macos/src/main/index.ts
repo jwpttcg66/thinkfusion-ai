@@ -80,11 +80,9 @@ import {
   type RoutingVerdict
 } from './research/routing-classifier';
 import { CloudConfigStore } from './providers/cloud-config';
-import { JudgeEngine } from './judge/engine';
-import { resolveJudge } from './judge/resolve';
+import { handleJudgeAdjudicate } from './judge/handler';
 import { VerdictStore } from './judge/store';
 import type { JudgeVerdict } from './judge/types';
-import { evaluateDebateQuality, finalizeDebate } from './debate/quality-engine';
 import { classifyIntent } from '../shared/intent';
 import {
   DEFAULT_EXECUTION_CONFIG,
@@ -4007,26 +4005,21 @@ function isMissingTerminal(error: unknown): boolean {
 
   ipcMain.handle('judge:adjudicate', async (event, debateId: unknown) => {
     trustedUiSender(event);
-    if (!debates || !verdicts || typeof debateId !== 'string') throw new Error('裁决还没有准备好');
-    const state = debates.get(debateId);
-    if (!state) throw new Error('找不到这场辩论');
+    const debateStore = debates;
+    const verdictStore = verdicts;
+    if (!debateStore || !verdictStore) throw new Error('裁决还没有准备好');
 
     // 裁决模型每次现选，不在启动时定死：用户可能刚配好 Key、刚改完模型名。
-    // 优先选**没参加这一场**的成员（本地或云端都行），它不参辩、天然独立；
-    // 全都在参辩时按决策 5 允许兼任，但必须标 sharedWith，让人知道它既当
-    // 运动员又当裁判。
+    // 选谁、失败了换谁、换完怎么重算独立性，全在公共裁决核里；这里只提供
+    // 「有哪些候选」和「怎么问一个成员」。
     const askAgent = (agentId: string, task: Parameters<ProviderBackedSubAgent['ask']>[0]) => {
       const extra = extraAgents.find(agent => agent.id === agentId);
       return extra ? extra.ask(task) : registry.ask(agentId, task);
     };
-    const all = await debateCandidates();
-    const participantModelIds = state.rounds
-      .flatMap(round => round.messages)
-      .map(message => message.modelId)
-      .filter((modelId): modelId is string => Boolean(modelId));
-    const actualParticipants = state.degradation?.actualParticipants ?? state.plan.participants;
-    const resolution = resolveJudge({
-      candidates: all.map(item => ({
+    return handleJudgeAdjudicate(debateId, {
+      getDebate: id => debateStore.get(id),
+      saveVerdict: verdict => verdictStore.save(verdict),
+      candidates: async () => (await debateCandidates()).map(item => ({
         id: item.id,
         label: item.label,
         type: item.type,
@@ -4034,34 +4027,9 @@ function isMissingTerminal(error: unknown): boolean {
         modelId: item.id.includes(':') ? item.id.split(':').pop()! : item.id,
         providerId: item.type === 'cloud' && item.id.includes(':') ? item.id.split(':')[0] : undefined
       })),
-      participants: actualParticipants,
-      participantModelIds
-    });
-    const engine = new JudgeEngine(resolution.judgeAgentId ? {
       ask: askAgent,
-      judgeAgentId: resolution.judgeAgentId,
-      participants: actualParticipants,
-      participantModelIds,
-      judgeModelId: resolution.judgeModelId,
-      judgeProviderId: resolution.judgeProviderId,
-      sharedWith: resolution.sharedWith
-    } : {});
-    const verdict = await engine.judge(state);
-    // 质量报告是裁决的伴随对象：先如实判断这次是不是模型评审（退回规则版
-    // 时 backend 会是 'rules'），再生成 P2 决策。两者都不改写 verdict。
-    const quality = evaluateDebateQuality({
-      state,
-      verdict,
-      modelAssessed: verdict.backend === 'model'
+      onVerdict: (conversationId, verdict) => verdictByConversation.set(conversationId, verdict)
     });
-    const judged: JudgeVerdict = {
-      ...verdict,
-      quality,
-      finalDecision: finalizeDebate(state, verdict, quality)
-    };
-    verdicts.save(judged);
-    if (state.conversationId) verdictByConversation.set(state.conversationId, judged);
-    return judged;
   });
 
   ipcMain.handle('judge:get', (event, debateId: unknown) => {

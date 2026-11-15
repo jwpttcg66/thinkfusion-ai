@@ -22,8 +22,7 @@ const path = require('node:path');
 const { DebateStore } = require('../../out-test/main/debate/store.js');
 const { DebateOrchestrator } = require('../../out-test/main/debate/orchestrator.js');
 const { planLead } = require('../../out-test/main/debate/lead.js');
-const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
-const { evaluateDebateQuality, finalizeDebate } = require('../../out-test/main/debate/quality-engine.js');
+const { adjudicateDebate } = require('../../out-test/main/judge/adjudicate.js');
 const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
 const { reviewCompleteness, reviseAnswer } = require('../../out-test/main/debate/completeness.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
@@ -39,7 +38,14 @@ const STAGE_TIMEOUT_MS = 180_000;
 const TOTAL_MS = 300_000;
 const WAIT_MS = 380_000;
 const JUDGE_TIMEOUT_MS = 240_000;
-const RUNNER_VERSION = '2.0.0';
+/**
+ * 2.1.0：裁决改走 `adjudicateDebate`（与 IPC 同一条链，含失败换人）。
+ *
+ * 顺带把旧指纹全部作废。这个常量不含代码 SHA，忘了 bump 就带
+ * `--incremental` 跑，会把上一版的结果原样复用成「本次结果」，报告看起来
+ * 却是新生成的——那一版证据比不跑更糟。
+ */
+const RUNNER_VERSION = '2.1.0';
 
 /**
  * 每题指纹：只包含会影响这一题结果的东西。标准答案按题取，
@@ -89,6 +95,22 @@ function anchorHit(text, anchor) {
 function argValue(name, fallback) {
   const found = process.argv.find(item => item.startsWith(`--${name}=`));
   return found ? found.slice(name.length + 3) : fallback;
+}
+
+/**
+ * 本次跑的是哪份代码。
+ *
+ * 报告必须能自证「这是当前提交跑出来的」：`RUNNER_VERSION` 是手写常量，
+ * 指纹里也没有 SHA，只靠它挡不住「复用旧结果」。写进报告，事后能对。
+ */
+function codeSha() {
+  try {
+    return require('node:child_process')
+      .execSync('git rev-parse HEAD', { cwd: path.join(__dirname, '../../..'), encoding: 'utf8' })
+      .trim();
+  } catch {
+    return null;
+  }
 }
 
 app.setName('ThinkFusion');
@@ -148,6 +170,17 @@ app.whenReady().then(async () => {
   });
   const byId = new Map(MODELS.map(item => [item.id, item.model]));
   const candidates = MODELS.map(item => ({ id: item.id, label: item.model, type: 'cloud', available: true }));
+  // 裁决候选：三个模型全在池里，`preferredJudgeId` 指定本题轮换到的那位。
+  // 它没参辩，所以会被选成独立裁判；万一调用失败，adjudicateDebate 会换人，
+  // 而不是像以前那样直接把规则版当结果。
+  const judgeCandidates = MODELS.map(item => ({
+    id: item.id,
+    label: item.model,
+    type: 'cloud',
+    available: true,
+    modelId: item.model,
+    providerId: 'opencode-go'
+  }));
 
   const askModel = async (agentId, task) => {
     const model = byId.get(agentId);
@@ -223,13 +256,12 @@ app.whenReady().then(async () => {
         state = orchestrator.get(started.debateId) ?? state;
       }
 
-      const engine = new JudgeEngine({
-        judgeAgentId,
-        participants: state.degradation?.actualParticipants ?? state.plan.participants,
-        participantModelIds: state.rounds.flatMap(round => round.messages).map(message => message.modelId).filter(Boolean),
-        judgeModelId: byId.get(judgeAgentId),
-        judgeProviderId: 'opencode-go',
-        sharedWith: state.plan.participants.includes(judgeAgentId) ? judgeAgentId : undefined,
+      // 与产品同一条链：选裁判（本题轮换到的人优先）、失败换人、附带质量
+      // 报告与最终决策。以前脚本自己 new JudgeEngine 并直接指定裁判，产品
+      // 路径坏了回归照样绿。
+      verdict = await adjudicateDebate(state, {
+        candidates: async () => judgeCandidates,
+        preferredJudgeId: judgeAgentId,
         ask: async (agentId, task) => {
           const answer = await askModel(agentId, task);
           judgeUsage = answer.usage ?? null;
@@ -237,13 +269,8 @@ app.whenReady().then(async () => {
           return answer;
         }
       });
-      verdict = await engine.judge(state);
-      quality = evaluateDebateQuality({
-        state,
-        verdict,
-        modelAssessed: verdict.backend === 'model'
-      });
-      decision = finalizeDebate(state, verdict, quality);
+      quality = verdict.quality ?? null;
+      decision = verdict.finalDecision ?? null;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -311,15 +338,11 @@ app.whenReady().then(async () => {
               outcome: 'COMPLETED'
             };
             try {
-              const revisedEngine = new JudgeEngine({
-                judgeAgentId,
-                participants: state.degradation?.actualParticipants ?? state.plan.participants,
-                participantModelIds: state.rounds.flatMap(round => round.messages).map(message => message.modelId).filter(Boolean),
-                judgeModelId: byId.get(judgeAgentId),
-                judgeProviderId: 'opencode-go',
+              const revisedVerdict = await adjudicateDebate(revisedState, {
+                candidates: async () => judgeCandidates,
+                preferredJudgeId: judgeAgentId,
                 ask: askModel
               });
-              const revisedVerdict = await revisedEngine.judge(revisedState);
               revisionJudge = {
                 backend: revisedVerdict.backend,
                 judgeAgentId: revisedVerdict.judgeAgentId,
@@ -368,6 +391,8 @@ app.whenReady().then(async () => {
         undetermined: verdict?.undetermined ?? null,
         confidence: verdict?.confidence?.level ?? null,
         fallbackReason: verdict?.fallbackReason ?? null,
+        // 换过裁判才有；`exhausted` 为 true 表示候选全试过、退回规则版。
+        reselection: verdict?.judgeReselection ?? null,
         usage: judgeUsage,
         latencyMs: judgeLatencyMs
       },
@@ -458,6 +483,13 @@ app.whenReady().then(async () => {
       dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
       models: MODELS.map(model => model.model),
       judgeRotation: IDS,
+      runner: {
+        version: RUNNER_VERSION,
+        promptVersion: PROMPT_VERSION,
+        commit: codeSha(),
+        adjudication: 'main/judge/adjudicate.adjudicateDebate',
+        rulesAuthority: 'debate.claim-judgments'
+      },
       createdAt: new Date().toISOString(),
       workers,
       completeness: completenessEnabled,
