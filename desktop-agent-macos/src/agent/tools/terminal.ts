@@ -21,6 +21,15 @@
 
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
+import { deriveTerminalState, type TerminalProcessState } from '../../shared/terminal-state';
+import {
+  appendTerminalAudit,
+  endAllTerminalAudit,
+  endTerminalAudit,
+  startTerminalAudit,
+  terminalAuditStatus
+} from './terminal-audit';
 
 export interface TerminalSessionView {
   sessionId: string;
@@ -33,6 +42,14 @@ export interface TerminalSessionView {
   exitCode?: number;
   /** 当前缓冲里还能读多少字符。 */
   pending: number;
+  /** 进程状态与面板连接状态分开：关掉面板不等于进程退出。 */
+  state: TerminalProcessState;
+  startedAt: number;
+  endedAt?: number;
+  durationMs: number;
+  auditIncomplete?: boolean;
+  auditTruncated?: boolean;
+  terminateError?: string;
 }
 
 interface Session {
@@ -50,6 +67,16 @@ interface Session {
   exited: boolean;
   exitCode?: number;
   createdAt: number;
+  /** 真实进程事件驱动的状态输入；不把面板 detach 算进来。 */
+  state: TerminalProcessState;
+  exiting: boolean;
+  cancelled: boolean;
+  timedOut: boolean;
+  terminateFailed: boolean;
+  terminateError?: string;
+  cancelReason?: string;
+  exitSignal?: string | null;
+  endedAt?: number;
   listeners: Set<(chunk: TerminalChunk) => void>;
 }
 
@@ -112,6 +139,7 @@ function newId(): string {
 }
 
 function view(session: Session): TerminalSessionView {
+  const audit = terminalAuditStatus(session.id);
   return {
     sessionId: session.id,
     pid: session.pty.pid,
@@ -121,8 +149,32 @@ function view(session: Session): TerminalSessionView {
     rows: session.rows,
     exited: session.exited,
     ...(session.exitCode === undefined ? {} : { exitCode: session.exitCode }),
-    pending: Math.max(0, session.buffer.length + session.baseOffset - session.modelCursor)
+    pending: Math.max(0, session.buffer.length + session.baseOffset - session.modelCursor),
+    state: session.state,
+    startedAt: session.createdAt,
+    ...(session.endedAt === undefined ? {} : { endedAt: session.endedAt }),
+    durationMs: (session.endedAt ?? Date.now()) - session.createdAt,
+    ...(audit.incomplete || session.terminateFailed ? { auditIncomplete: true } : {}),
+    ...(audit.truncated ? { auditTruncated: true } : {}),
+    ...(session.terminateError ? { terminateError: session.terminateError } : {})
   };
+}
+
+function stateInput(session: Session) {
+  return {
+    exited: session.exited,
+    ...(session.exitCode === undefined ? {} : { exitCode: session.exitCode }),
+    ...(session.exitSignal === undefined ? {} : { signal: session.exitSignal }),
+    cancelled: session.cancelled,
+    timedOut: session.timedOut,
+    terminateFailed: session.terminateFailed,
+    exiting: session.exiting
+  };
+}
+
+/** 状态只在真实事件上刷新，并同步写进审计。 */
+function refreshState(session: Session) {
+  session.state = deriveTerminalState(stateInput(session));
 }
 
 function find(sessionId: string): Session {
@@ -163,12 +215,20 @@ export function signalProcessGroup(pid: number, signal: string): boolean {
 
 function pushChunk(session: Session, chunk: string) {
   session.buffer += chunk;
+  let droppedChars = 0;
   if (session.buffer.length > MAX_BUFFER_CHARS) {
     const cut = session.buffer.length - MAX_BUFFER_CHARS;
     session.buffer = session.buffer.slice(cut);
     session.baseOffset += cut;
     session.modelCursor = Math.max(session.modelCursor, session.baseOffset);
+    droppedChars = cut;
   }
+  // 环缓冲丢掉的字节数必须落盘，不能只在内存里报一句。
+  appendTerminalAudit(session.id, {
+    type: 'stdout',
+    data: chunk,
+    ...(droppedChars > 0 ? { dropped: true, droppedChars } : {})
+  });
   if (session.listeners.size === 0) return;
   // 订阅者只拿增量；被裁掉的旧数据通过 cursor/dropped 报出来。
   const event: TerminalChunk = {
@@ -216,13 +276,40 @@ function createSession(input: {
     modelCursor: 0,
     exited: false,
     createdAt: Date.now(),
+    state: 'RUNNING',
+    exiting: false,
+    cancelled: false,
+    timedOut: false,
+    terminateFailed: false,
     listeners: new Set()
   };
+
+  const permissionIndex = input.args.findIndex(item => item === '--permission-mode' || item === '--permission');
+  startTerminalAudit(session.id, {
+    cliName: path.basename(input.file),
+    os: `${os.platform()} ${os.release()}`,
+    cwd: input.cwd,
+    argv: [input.file, ...input.args],
+    ...(permissionIndex >= 0 ? { permissionMode: input.args[permissionIndex + 1] } : {}),
+    stream: 'pty-merged',
+    startedAt: session.createdAt
+  });
+  appendTerminalAudit(session.id, { type: 'resize', cols: session.cols, rows: session.rows });
 
   child.onData(data => pushChunk(session, data));
   child.onExit(event => {
     session.exited = true;
     session.exitCode = event.exitCode;
+    session.endedAt = Date.now();
+    // 只有真的终止成功才算 CANCELLED；强杀失败会保留 FAILED 与错误说明。
+    if (session.cancelled && session.terminateFailed) session.cancelled = false;
+    refreshState(session);
+    endTerminalAudit(session.id, {
+      ...(session.exitCode === undefined ? {} : { exitCode: session.exitCode }),
+      ...(session.exitSignal === undefined ? {} : { signal: session.exitSignal }),
+      state: session.state,
+      ...(session.cancelReason ? { reason: session.cancelReason, cancelReason: session.cancelReason } : {})
+    });
     const chunk: TerminalChunk = {
       sessionId: session.id,
       data: '',
@@ -344,6 +431,8 @@ export function readSince(sessionId: string, cursor: number, maxChars = 8000) {
 /** attach 时一次把现有 backlog 给全；之后用 readSince + 订阅。 */
 export function attachTerminal(sessionId: string) {
   const session = find(sessionId);
+  const audit = terminalAuditStatus(session.id);
+  appendTerminalAudit(session.id, { type: 'connection', data: 'ATTACHED' });
   return {
     sessionId: session.id,
     cols: session.cols,
@@ -352,7 +441,13 @@ export function attachTerminal(sessionId: string) {
     cursor: session.baseOffset + session.buffer.length,
     dropped: 0,
     exited: session.exited,
-    ...(session.exitCode === undefined ? {} : { exitCode: session.exitCode })
+    ...(session.exitCode === undefined ? {} : { exitCode: session.exitCode }),
+    state: session.state,
+    startedAt: session.createdAt,
+    durationMs: (session.endedAt ?? Date.now()) - session.createdAt,
+    ...(audit.incomplete ? { auditIncomplete: true } : {}),
+    ...(audit.truncated ? { auditTruncated: true } : {}),
+    ...(session.terminateError ? { terminateError: session.terminateError } : {})
   };
 }
 
@@ -368,6 +463,8 @@ export function sendTerminal(sessionId: string, input: string, submit = true) {
   const session = find(sessionId);
   if (session.exited) throw new Error(`终端已退出（exit ${String(session.exitCode)}），不能再写入`);
   const data = submit ? `${input}\r` : input;
+  // stdin 可能粘着 API Key 或密码；审计模块在落盘前统一脱敏。
+  appendTerminalAudit(session.id, { type: 'stdin', data });
   session.pty.write(data);
   return { sessionId, bytes: data.length, submitted: submit };
 }
@@ -379,6 +476,8 @@ export function resizeTerminal(sessionId: string, cols: number, rows: number) {
   session.cols = nextCols;
   session.rows = nextRows;
   session.pty.resize(nextCols, nextRows);
+  // 回放要能重现 resize，不只是把 stdout 重放一遍。
+  appendTerminalAudit(session.id, { type: 'resize', cols: nextCols, rows: nextRows });
   return { sessionId, cols: nextCols, rows: nextRows };
 }
 
@@ -397,12 +496,32 @@ export function signalTerminal(sessionId: string, signal = 'SIGINT') {
       // 已经退出时 kill 会报 ESRCH；这个动作本身仍然算完成。
     }
   }
+  session.cancelled = true;
+  session.cancelReason = `用户发送 ${signal}`;
+  session.exitSignal = signal;
+  session.exiting = true;
+  refreshState(session);
+  appendTerminalAudit(session.id, {
+    type: 'cancel',
+    signal,
+    reason: session.cancelReason,
+    state: session.state
+  });
   return { sessionId, signal, delivered: true, processGroup: grouped };
 }
 
 export function closeTerminal(sessionId: string) {
   const session = find(sessionId);
   const pid = session.pty.pid;
+  session.exiting = true;
+  session.cancelled = true;
+  session.cancelReason = '用户结束会话';
+  refreshState(session);
+  appendTerminalAudit(session.id, {
+    type: 'cancel',
+    reason: session.cancelReason,
+    state: session.state
+  });
   if (!session.exited) {
     const grouped = signalProcessGroup(pid, 'SIGTERM');
     if (!grouped) {
@@ -419,10 +538,19 @@ export function closeTerminal(sessionId: string) {
       if (!killed) {
         try {
           session.pty.kill('SIGKILL');
-        } catch {
-          // 同上。
+        } catch (error) {
+          // 强杀也失败：保留 FAILED 与错误说明，不粉饰成「已取消」。
+          session.terminateFailed = true;
+          session.terminateError = error instanceof Error ? error.message : String(error);
         }
       }
+      session.timedOut = true;
+      refreshState(session);
+      appendTerminalAudit(session.id, {
+        type: 'audit-error',
+        reason: session.terminateError ?? 'SIGTERM 后 5 秒仍未退出，已尝试强杀进程组',
+        state: session.state
+      });
     }, 5000);
     timer.unref?.();
   }
@@ -434,8 +562,9 @@ export function listTerminals() {
   return { sessions: [...sessions.values()].map(view) };
 }
 
-/** 应用退出时收掉所有 pty：不把交互式进程留在后台。 */
-export function closeAllTerminals() {
+/** 应用退出时收掉所有 pty：不把交互式进程留在后台，也不留没有结尾的审计文件。 */
+export function closeAllTerminals(reason = '应用退出，Runtime 正在终止所有 PTY') {
+  endAllTerminalAudit(reason);
   for (const session of sessions.values()) {
     try {
       if (!session.exited) {

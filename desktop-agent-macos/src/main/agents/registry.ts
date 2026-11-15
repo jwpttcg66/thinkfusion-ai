@@ -63,8 +63,33 @@ export class SubAgentRegistry implements SubAgentPool {
     return this.byId.get(id);
   }
 
+  /**
+   * 每个成员此刻的健康状态。
+   *
+   * 一家探测抛错不能带走整轮：`available()` 直接建在这份状态上，
+   * `Promise.all` 一 reject 整轮就没有提问者了——真机 2026-11-15 复现过：
+   * 唯一一个网页还没加载完，CLI 明明可用，这一问却直接失败，理由是那句
+   * 「页面尚未加载」。抛出来的原因照样要让人看见，所以写进 `detail`，
+   * 而不是丢掉。
+   */
   async statuses(): Promise<ChannelStatus[]> {
-    return Promise.all(this.list().map(agent => agent.health()));
+    return Promise.all(
+      this.list().map(async agent => {
+        try {
+          return await agent.health();
+        } catch (error) {
+          return {
+            id: agent.id,
+            label: agent.label,
+            available: false,
+            loggedIn: false,
+            pageReady: false,
+            generating: false,
+            detail: error instanceof Error ? error.message : String(error)
+          };
+        }
+      })
+    );
   }
 
   /**

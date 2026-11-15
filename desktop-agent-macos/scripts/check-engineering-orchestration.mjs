@@ -93,6 +93,32 @@ test('云端主导但只有本地模型可用时退回 fallback，不偷偷拉�
   assert.match(p.reason, /没有可用的云端模型/);
 });
 
+test('CLI 属云端一类：云端档进工程编排，排在 API 模型后面；本地档不进', () => {
+  // 真机 2026-11-15：这台机器上云端 API Key 全被区域限制（403），工程空间
+  // 的普通问答因为没有「可用的云端模型」直接失败；CLI 来源开着可用却不在
+  // 编排名单里。裁决是「CLI 可以主导、可以回答、可以辩论」，云端档要带上它。
+  const cli = { agentId: 'cli:qoder', label: 'Qoder CLI', kind: 'cloud', cli: true, available: true };
+
+  const cloudMode = plan({ mode: 'cloud', models: [cloud(), cli] });
+  assert.equal(cloudMode.fallback, false);
+  assert.deepEqual(cloudMode.members.map(item => item.agentId), ['openai:gpt', 'cli:qoder']);
+  assert.equal(cloudMode.members[1].cli, true);
+  assert.equal(cloudMode.lead.agentId, 'openai:gpt', 'API 模型在前，主导优先给它');
+  assert.deepEqual(cloudMode.debaters, ['openai:gpt', 'cli:qoder']);
+  assert.match(cloudMode.reason, /1 位云端模型 \+ 1 位 CLI 来源/);
+
+  // API 模型一个都用不了、只剩 CLI：照样跑，CLI 自己主导。
+  const cliOnly = plan({ mode: 'cloud', models: [cloud('openai:x', 'X', false), cli] });
+  assert.equal(cliOnly.fallback, false);
+  assert.deepEqual(cliOnly.members.map(item => item.agentId), ['cli:qoder']);
+  assert.equal(cliOnly.lead.agentId, 'cli:qoder');
+  assert.deepEqual(cliOnly.debaters, ['cli:qoder']);
+
+  // 本地主导只用本地：CLI 算云端一类，不进名单。
+  const localMode = plan({ mode: 'local', models: [local(), cli] });
+  assert.deepEqual(localMode.members.map(item => item.agentId), ['ollama:qwen']);
+});
+
 test('主导人本地优先；点名云端模型就用它', () => {
   assert.equal(plan().lead.agentId, 'ollama:qwen');
   const p = plan({ leadAgentId: 'openai:gpt' });
@@ -638,6 +664,37 @@ test('混合档网页成员失败：如实记一条失败，不假装拿到了�
     !messages.some(message => message.role === 'channel' && message.channelId === 'chatgpt'),
     '失败不能留一条空回答'
   );
+});
+
+test('主导人汇总失败：换同一归属里答过的成员再汇总一次', async () => {
+  // 真机 2026-11-15：云端主导选中的 API 模型周额度 429，CLI 明明答出来了，
+  // 整轮却只剩一条回答、没有汇总与最终意见。汇总失败要换人重试，
+  // 但只能在同一归属里换——本地主导不许拉网页来汇总。
+  const leadModel = fakeModel('openai:a', 'A', 'cloud', {
+    challengeReply: () => {
+      throw new Error('云端限流（429）：usage limit reached');
+    }
+  });
+  const backup = fakeModel('openai:b', 'B', 'cloud', {
+    challengeReply: () =>
+      '【结论】依据 log.txt:1，全文共 3 行\n【一致】没有\n【分歧】没有\n【存疑】没有\n【辩题】无'
+  });
+  const { runner } = makeRunner({ models: [leadModel, backup] });
+
+  const started = await runner.start(engineeringInput(FACT, { executionMode: 'cloud' }));
+  const done = await settle(runner, started.conversationId);
+
+  const messages = runner.messages(started.conversationId);
+  assert.ok(
+    messages.some(message => message.role === 'system' && /主导人 A 没能完成汇总/.test(message.text)),
+    '失败原因要如实写出来'
+  );
+  assert.ok(
+    messages.some(message => message.role === 'system' && /改由 B 汇总/.test(message.text)),
+    '换人要写明，不能悄悄换'
+  );
+  assert.equal(backup.challengeCount, 1, '备用成员真的做了汇总');
+  assert.equal(done.status, 'answered', '换人成功就算这一轮跑完');
 });
 
 test('云端主导：模型全失败也不退回网页', async () => {

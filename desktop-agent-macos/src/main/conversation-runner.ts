@@ -98,12 +98,14 @@ function ownershipOf(
 ): { mode: 'web' | 'local' | 'cloud'; reason: string } {
   const explicit = config.leadAgentId;
   if (explicit) {
-    if (answers.some(answer => answer.channelId === explicit)) {
+    // 先看来源再看「它答过没有」：CLI 也进 answers，先判 answers 会把点名的
+    // CLI 主导算成网页主导。CLI 归云端一类，理由里写清是哪一种。
+    const source = sourceOf(explicit);
+    if (source === 'cloud') return { mode: 'cloud', reason: '你指定了云端模型（或 CLI）主导' };
+    if (source === 'local') return { mode: 'local', reason: '你指定了本地模型主导' };
+    if (source === 'web' || answers.some(answer => answer.channelId === explicit)) {
       return { mode: 'web', reason: '你指定了网页通道主导' };
     }
-    const source = sourceOf(explicit);
-    if (source === 'local') return { mode: 'local', reason: '你指定了本地模型主导' };
-    if (source === 'cloud') return { mode: 'cloud', reason: '你指定了云端模型主导' };
   }
   if (config.executionMode !== 'hybrid') {
     return { mode: config.executionMode, reason: `执行模式指定${config.executionMode}` };
@@ -118,14 +120,20 @@ function ownershipOf(
   return { mode: 'web', reason: '混合：没有可用的本地/云端模型，由网页通道全程执行' };
 }
 
-/** 归属方式对应的辩手名单。网页方式直接用回答者，其余按成员来源过滤。 */
+/** 归属方式对应的辩手名单。网页方式只留网页，其余按成员来源过滤。 */
 function debatersFor(
   mode: 'web' | 'local' | 'cloud',
   answers: ReadonlyArray<{ channelId: string }>,
   executorIds: ReadonlySet<string>,
   sourceOf: (agentId: string) => 'web' | 'local' | 'cloud' | undefined
 ): string[] {
-  if (mode === 'web') return answers.map(answer => answer.channelId);
+  // 网页归属只留网页通道：CLI 属云端一类（sourceOf 返回 cloud），不该在
+  // 「只用网页」的一场里当主导或辩手。
+  if (mode === 'web') {
+    return answers
+      .filter(answer => sourceOf(answer.channelId) !== 'cloud' && sourceOf(answer.channelId) !== 'local')
+      .map(answer => answer.channelId);
+  }
   return [...executorIds].filter(id => sourceOf(id) === mode);
 }
 
@@ -300,7 +308,19 @@ export interface ConversationDeps {
    * 这个成员是什么来源。网页主导和云端主导在产物上要分开标注，所以要能问
    * 出来。不传就当网页（老行为）。
    */
-  agentSource?: (agentId: string) => 'web' | 'local' | 'cloud' | undefined;
+  agentSource?: (agentId: string) => 'web' | 'local' | 'cloud' | 'cli' | undefined;
+  /**
+   * 成员的显示名。CLI 软件源与本地/云端模型都不在网页注册表里，只查注册表
+   * 会把这些回答者显示成 `cli:qoder` 这种 id——状态条与失败提示都要人读。
+   */
+  agentLabel?: (agentId: string) => string | undefined;
+  /**
+   * 「停止等待」时要掐断谁。
+   *
+   * 网页靠注册表 `cancelAll`，CLI 靠终止它自己的子进程；两者不在同一个地方，
+   * 所以由装配处决定，而不是让 runner 认识 CLI 这个概念。
+   */
+  cancelAgent?: (agentId: string) => void;
   /** Phase F：每个子任务状态变化时的旁路通知，给界面和记录用。 */
   onCollaborationRecord?: (record: CollaborationRecord) => void;
   /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
@@ -467,7 +487,30 @@ export class ConversationRunner {
   }
 
   private traceLabelOf(agentId: string): string {
-    return this.deps.registry.get(agentId)?.label ?? agentId;
+    return this.labelOf(agentId);
+  }
+
+  /** 成员的显示名：装配处优先，其次网页注册表，最后退回 id。 */
+  private labelOf(agentId: string): string {
+    return this.deps.agentLabel?.(agentId) ?? this.deps.registry.get(agentId)?.label ?? agentId;
+  }
+
+  /** 掐断一个成员正在等的回答（网页取消等待，CLI 终止进程）。 */
+  private cancelOne(agentId: string): void {
+    if (this.deps.cancelAgent) this.deps.cancelAgent(agentId);
+    else this.deps.registry.cancelAll(agentId);
+  }
+
+  /**
+   * 归属规则只认三类成员：网页 / 本地模型 / 云端模型。
+   *
+   * CLI 归**云端这一类**（2026-11-15 用户裁决：「CLI 属于云端主导的一种，可以
+   * 主导，可以回答，可以辩论，可以执行」）。所以它对归属计算返回 cloud：
+   * 云端主导的汇总、交锋、最终意见都可以由它来做；本地主导下照旧不进场。
+   */
+  private ownershipSourceOf(agentId: string): 'web' | 'local' | 'cloud' | undefined {
+    const source = this.deps.agentSource?.(agentId);
+    return source === 'cli' ? 'cloud' : source;
   }
 
   private traceMetaFor(conversation: Conversation): TraceMeta {
@@ -549,7 +592,7 @@ export class ConversationRunner {
     // A running turn would keep typing into a page whose row is being removed.
     this.cancelled.add(conversationId);
     this.release(conversationId);
-    for (const agentId of asked) this.deps.registry.cancelAll(agentId);
+    for (const agentId of asked) this.cancelOne(agentId);
 
     this.deps.store.deleteConversation(conversationId);
     // 会话内辩论的产物随会话一起消失，否则辩论面板会留下一场没有归属的记录。
@@ -574,7 +617,7 @@ export class ConversationRunner {
         // 的侧栏找记录。非网页来源没有需要清理的副本，直接跳过。
         if (!isPage) return;
 
-        const label = this.deps.registry.get(agentId)?.label ?? agentId;
+        const label = this.labelOf(agentId);
         const threadUrl = threads[agentId];
 
         if (threadUrl) {
@@ -1498,7 +1541,7 @@ export class ConversationRunner {
     this.release(conversationId);
     const conversation = this.deps.store.getConversation(conversationId);
     for (const agentId of conversation?.channels ?? []) {
-      this.deps.registry.cancelAll(agentId);
+      this.cancelOne(agentId);
     }
     if (!conversation) return;
     conversation.status = 'cancelled';
@@ -1556,11 +1599,11 @@ export class ConversationRunner {
     this.cancelled.add(conversationId);
     this.release(conversationId);
     for (const agentId of conversation.channels) {
-      this.deps.registry.cancelAll(agentId);
+      this.cancelOne(agentId);
     }
 
     const waiting = conversation.channels
-      .map(id => this.deps.registry.get(id)?.label ?? id)
+      .map(id => this.labelOf(id))
       .join('、');
     const spent = budget >= 60_000
       ? `${String(Math.round(budget / 60_000))} 分钟`
@@ -1723,6 +1766,19 @@ export class ConversationRunner {
       if (allowWebFallback) {
         sink.note(
           `${orchestration.reason}。工程空间退回网页通道：网页读不到本机文件，回答多半是「请上传文件」。`
+        );
+        return null;
+      }
+      // 云端主导、又没有可用的云端 API 模型（这台机器只配了 CLI 来源），
+      // 但这一问本来就不需要读本机文件：没有工程证据、也没有附件。
+      // 这种问题交给标准回答链是安全的——CLI 属云端一类，照常被问，
+      // 不能因为编排名单里只有「API 模型」就让普通问答直接失败。
+      // 真要读证据（有 material 或附件）才保持如实失败：CLI 读不到本机文件。
+      const needsLocalMaterial = !!material || attachmentCount > 0;
+      if (config.executionMode === 'cloud' && !needsLocalMaterial) {
+        sink.note(
+          `${orchestration.reason}。这一问不需要读本机文件，改由标准回答链提问：` +
+            `CLI 来源属云端一类，照常被问；云端 API 模型有 Key 也会一起问。`
         );
         return null;
       }
@@ -2375,7 +2431,7 @@ export class ConversationRunner {
     // 「不足两位」跳过——这是归属规则里明确要求过的。
     if (answers.length < (orchestration ? 1 : 2)) return null;
 
-    const lead = orchestration?.lead
+    let lead = orchestration?.lead
       ? {
           agentId: orchestration.lead.agentId,
           label: orchestration.lead.label,
@@ -2385,15 +2441,15 @@ export class ConversationRunner {
         }
       : await this.resolveLead(config, question, answers, executorIds);
     if (!lead) {
-      const ownership = ownershipOf(config, answers, executorIds, id => this.deps.agentSource?.(id));
+      const ownership = ownershipOf(config, answers, executorIds, id => this.ownershipSourceOf(id));
       this.addMessage(conversation, {
         role: 'system',
         text: `${ownership.mode} 归属方式下没有可用成员；按归属规则不借用其他类型的成员，这一轮只保留网页回答与规则版综合。`
       });
       return null;
     }
-    const isPage = lead.kind === 'web';
-    const label = lead.label;
+    let isPage = lead.kind === 'web';
+    let label = lead.label;
 
     // 第一轮答完才进入主导汇总；不再在对话里贴一段进度公告，
     // 通道条的第二轮 + leading 相位已经说明了这件事。
@@ -2423,82 +2479,125 @@ export class ConversationRunner {
     let summaryReasoning: string | null = null;
     let verdictReasoning: string | null = null;
     let leadStep: { turn: number; step: number } | undefined;
-    try {
-      // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
-      // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
-      // 进页面」机制，页面上第一段用户发言仍然只有原话。
-      //
-      // 附件排在最前：它是用户这一问亲手递过来的原文，优先级不低于程序扫描
-      // 到的工程证据。真机 2026-11-09 的教训——附件排在问题里时，汇总会用
-      // 工程证据把它否掉，用户看到的结论跟文件内容相反。
-      const material = [attachments, engineering, page].filter(Boolean).join('\n\n') || null;
-      // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
-      const taskKind: LeadTaskKind | undefined =
-        conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
-      // 附件与工程证据都是真实材料，必须明确写进纪律里。否则「只依据这些回答」
-      // 会被理解为「不能引用用户给的文件」，出现真机那种「文件里明明写着，
-      // 结论却说无法确定」。API 主导时这些句子进 system，网页主导时（页面不认
-      // system）拼进同一条用户消息，两边口径一致。
-      const materialInstructions = [
-        ...(attachments
-          ? ['【用户随这一问附上的文件】是用户亲手挑的本机文件原文，和各家回答一样是可引用的依据；文件里写明的事实（数字、行数、命令、清单）优先于任何人的推测。']
-          : []),
-        ...(engineering
-          ? ['工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
-          : []),
-        ...(attachments && engineering
-          ? ['附件与工程证据冲突时，指出冲突本身（各自写了什么），不要默默采用其中一份。']
-          : [])
-      ];
-      const baseQuestion = isPage
-        ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
-        : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
-      leadStep = trace?.beginStep({
-        stage: 'lead',
-        group: 'lead',
-        actorId: lead.agentId,
-        actorLabel: label,
-        sourceType: this.traceSourceOf(lead.agentId),
-        reason: followUp ? '追加轮更新汇总' : '汇总',
-        inputPreview: baseQuestion
-      });
-      const leadTask = {
-        question: baseQuestion,
-        stage: 'challenge' as const,
-        // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
-        timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
-        // 只有 API 主导用得上 system；网页通道会忽略它。
-        system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
-      };
-      const answer = isPage
-        ? await pool.ask(lead.agentId, leadTask)
-        : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
-      const text = rewriteSourceRefs(answer.text.trim(), answers);
-      summaryText = text || null;
-      if (answer.reasoning) summaryReasoning = answer.reasoning;
-      trace?.endStep(leadStep, {
-        status: summaryText ? 'ok' : 'skipped',
-        usage: answer.usage ?? null,
-        ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
-        ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
-        ...(text ? { outputPreview: text } : {}),
-        meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
-      });
-      if (!summaryText) {
-        sink.phase(lead.agentId, 'answered', '汇总未写出内容');
-      } else {
-        // 整段执行阶段都保持 leading：中途改成 answered，第二轮通道条会空掉，
-        // 真机上看起来像「第二轮没有通道条」。细节文字区分进度即可。
-        sink.phase(lead.agentId, 'leading', '汇总完成，继续执行阶段');
+    // 材料与纪律只跟「问什么」有关，跟谁汇总无关，先算好放外面。
+    // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
+    // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
+    // 进页面」机制，页面上第一段用户发言仍然只有原话。
+    //
+    // 附件排在最前：它是用户这一问亲手递过来的原文，优先级不低于程序扫描
+    // 到的工程证据。真机 2026-11-09 的教训——附件排在问题里时，汇总会用
+    // 工程证据把它否掉，用户看到的结论跟文件内容相反。
+    const material = [attachments, engineering, page].filter(Boolean).join('\n\n') || null;
+    // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
+    const taskKind: LeadTaskKind | undefined =
+      conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
+
+    // 主导人挂掉（额度用完 / 限流 / 区域限制）不该让整轮停在没有结论上：
+    // 换本轮真正答出来的成员再汇总一次，最多再试两位，并如实写明换了谁。
+    // 真机 2026-11-15：云端主导选中的 API 模型周额度 429，CLI 明明已答出内容，
+    // 整轮却只剩一条回答、没有汇总与最终意见。
+    const primaryLead = lead;
+    const summaryTargets = [
+      primaryLead,
+      ...answers
+        .filter(
+          answer =>
+            answer.channelId !== primaryLead.agentId &&
+            answer.text.trim() &&
+            // 只在同一归属里换人：本地主导不许拉网页来汇总，网页主导也不拉模型。
+            // 归属规则管的是「用哪一类成员」，换人不能把它换掉。
+            (this.ownershipSourceOf(answer.channelId) ?? 'web') === primaryLead.kind
+        )
+        .slice(0, 2)
+        .map(answer => ({
+          agentId: answer.channelId,
+          label: answer.label,
+          kind: this.ownershipSourceOf(answer.channelId) ?? ('cloud' as const),
+          auto: false,
+          reason: '原主导人没能完成汇总'
+        }))
+    ];
+
+    for (const target of summaryTargets) {
+      if (target !== lead) {
+        lead = target;
+        isPage = lead.kind === 'web';
+        label = target.label;
+        sink.note(`原主导人没能完成汇总，改由 ${label} 汇总。`);
+        for (const answer of answers) {
+          if (answer.channelId !== lead.agentId) {
+            sink.phase(answer.channelId, 'answered', '第一轮已回答');
+          }
+        }
+        sink.phase(lead.agentId, 'leading', `${label} 当主导人：汇总各家回答并指定辩题`);
       }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      trace?.endStep(leadStep, {
-        status: 'failed',
-        error: { code: errorCodeOf(detail), detail }
-      });
-      sink.phase(lead.agentId, 'failed', detail);
-      this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
+      try {
+        // 附件与工程证据都是真实材料，必须明确写进纪律里。否则「只依据这些回答」
+        // 会被理解为「不能引用用户给的文件」，出现真机那种「文件里明明写着，
+        // 结论却说无法确定」。API 主导时这些句子进 system，网页主导时（页面不认
+        // system）拼进同一条用户消息，两边口径一致。
+        const materialInstructions = [
+          ...(attachments
+            ? ['【用户随这一问附上的文件】是用户亲手挑的本机文件原文，和各家回答一样是可引用的依据；文件里写明的事实（数字、行数、命令、清单）优先于任何人的推测。']
+            : []),
+          ...(engineering
+            ? ['工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+            : []),
+          ...(attachments && engineering
+            ? ['附件与工程证据冲突时，指出冲突本身（各自写了什么），不要默默采用其中一份。']
+            : [])
+        ];
+        const baseQuestion = isPage
+          ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
+          : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
+        leadStep = trace?.beginStep({
+          stage: 'lead',
+          group: 'lead',
+          actorId: lead.agentId,
+          actorLabel: label,
+          sourceType: this.traceSourceOf(lead.agentId),
+          reason: followUp ? '追加轮更新汇总' : '汇总',
+          inputPreview: baseQuestion
+        });
+        const leadTask = {
+          question: baseQuestion,
+          stage: 'challenge' as const,
+          // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
+          timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
+          // 只有 API 主导用得上 system；网页通道会忽略它。
+          system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
+        };
+        const answer = isPage
+          ? await pool.ask(lead.agentId, leadTask)
+          : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
+        const text = rewriteSourceRefs(answer.text.trim(), answers);
+        summaryText = text || null;
+        if (answer.reasoning) summaryReasoning = answer.reasoning;
+        trace?.endStep(leadStep, {
+          status: summaryText ? 'ok' : 'skipped',
+          usage: answer.usage ?? null,
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
+          ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
+          ...(text ? { outputPreview: text } : {}),
+          meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
+        });
+        if (!summaryText) {
+          sink.phase(lead.agentId, 'answered', '汇总未写出内容');
+        } else {
+          // 整段执行阶段都保持 leading：中途改成 answered，第二轮通道条会空掉，
+          // 真机上看起来像「第二轮没有通道条」。细节文字区分进度即可。
+          sink.phase(lead.agentId, 'leading', '汇总完成，继续执行阶段');
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(leadStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
+        sink.phase(lead.agentId, 'failed', detail);
+        this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
+      }
+      if (summaryText) break;
     }
     if (!summaryText) {
       return { lead, summaryText: null, topics: [], debate: null, verdictText: null, reasoning: summaryReasoning };
@@ -2512,7 +2611,7 @@ export class ConversationRunner {
     if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
-    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const sourceOf = (id: string) => this.ownershipSourceOf(id);
     // 知识空间：归属规则限定主导人与辩手同类。工程编排：名单直接来自编排
     // 计划（本地 + 云端模型全进场），不按 executionMode 收敛成一类。
     const ownership = orchestration
@@ -2915,7 +3014,7 @@ export class ConversationRunner {
     auto: boolean;
     reason: string | null;
   } | null> {
-    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const sourceOf = (id: string) => this.ownershipSourceOf(id);
     const ownership = ownershipOf(config, answers, executorIds, sourceOf);
     // 归属规则：只在这一类成员里挑。这一类没人就如实不做执行阶段，不再
     // 偷偷退回网页回答者冒充「本地主导」。

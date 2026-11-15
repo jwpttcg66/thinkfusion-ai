@@ -552,6 +552,15 @@ export interface ConversationDeleteOutcome {
 export interface ChannelStatus {
   id: string;
   label: string;
+  /**
+   * 这条状态属于哪一类回答源。缺省（老数据、全部网页通道）= `web`。
+   *
+   * `cli` 是 2026-11-15 用户裁决的第四类：**回答问题的软件源**，跟网页源同一
+   * 层级——它像网页一样被提问、一样出回答，差别只是没有页面可看（答案从进程
+   * 输出里来）。所以它必须出现在状态条与转录里，同时不能被算进「网页就绪
+   * N/M」那个只数页面的计数。
+   */
+  sourceType?: 'web' | 'local' | 'cloud' | 'cli';
   /** Usable right now: logged in, page ready, not mid-generation. */
   available: boolean;
   loggedIn: boolean;
@@ -631,6 +640,17 @@ export interface ConversationExecutionConfig {
    * - `undefined`：老会话缺这个字段时按「全部」读，避免升级把旧对话的参与名单清空。
    */
   selectedCloudModels?: string[];
+  /**
+   * 这一问让哪些 CLI 来源回答（cli:qoder 这类 id）。
+   *
+   * - `undefined`（默认）：设置里开着的 CLI 全部跟网页一起被问——现状行为，
+   *   老会话缺这个字段不能被收成「一个都不问」；
+   * - `[]`：这一问一个 CLI 都不问；
+   * - 非空：只让勾上的那些进场。
+   *
+   * 和 `selectedCloudModels` 同一种三态语义；勾选入口在输入框「模型」弹层。
+   */
+  selectedCliAgents?: string[];
   fallbackEnabled: boolean;
   privacyMode: PrivacyMode;
   /** 协作策略，Phase F 才用；这里先留位置，避免到时候再改一次持久化结构。 */
@@ -763,6 +783,12 @@ export function normalizeExecutionConfig(
   if (webChannels) result.selectedWebChannels = webChannels;
   if (localModels) result.selectedLocalModels = localModels;
   if (cloudModels !== undefined) result.selectedCloudModels = cloudModels;
+  // CLI 与云端同一套规则：空数组要留下（「明确一个都不问」），缺失按 undefined
+  // （「设置里开着的全部」）。非数组一律 undefined，不猜。
+  const cliAgents = Array.isArray(input?.selectedCliAgents)
+    ? strings(input.selectedCliAgents) ?? []
+    : undefined;
+  if (cliAgents !== undefined) result.selectedCliAgents = cliAgents;
   if (input?.strategy) result.strategy = input.strategy;
   const debateStrategies: DebateStrategyChoice[] = [
     'truth', 'adversarial', 'expert', 'assumption', 'solution', 'discovery'

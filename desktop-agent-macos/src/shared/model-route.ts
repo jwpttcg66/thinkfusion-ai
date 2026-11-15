@@ -31,11 +31,18 @@ export interface ModelRouteInput {
     local: string[];
     /** 可用（配了 Key 且健康）的云端模型 id。 */
     cloud: string[];
+    /**
+     * 开着的 CLI 软件源 id（`cli:<id>`）。第三类回答源，归属上算云端一类
+     * （2026-11-15 裁决：可以主导、回答、辩论、执行）。
+     */
+    cli?: string[];
   };
   /** 用户点名只用这几条网页通道时，按这个来。 */
   selectedWebChannels?: string[];
   /** 云端主导时用户勾选的参与模型；空数组 = 一个都不问。 */
   selectedCloudModels?: string[];
+  /** 这一问勾选的 CLI 来源；undefined = 开着的全部。 */
+  selectedCliAgents?: string[];
   /** 用户点名的主导人；有值就直接用，不再挑。 */
   leadAgentId?: string;
 }
@@ -88,7 +95,12 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
   const webAnswerers = input.selectedWebChannels?.length
     ? input.available.web.filter(id => input.selectedWebChannels!.includes(id))
     : input.available.web;
-  const executors = [...new Set([...input.available.local, ...input.available.cloud])];
+  // CLI 是第三类回答源，归属上算云端一类：没勾（undefined）= 开着的全部，
+  // 明确清空（[]）= 这一问一个都不问。
+  const cliAnswerers = (input.available.cli ?? []).filter(
+    id => input.selectedCliAgents === undefined || input.selectedCliAgents.includes(id)
+  );
+  const executors = [...new Set([...input.available.local, ...input.available.cloud, ...cliAnswerers])];
 
   const notes: string[] = [];
   let mode: ExecutionMode = input.executionMode;
@@ -96,14 +108,15 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
   let answerers: string[] = [];
 
   if (input.executionMode === 'cloud') {
-    answerers = pickCloud(input.available.cloud, input.selectedCloudModels, input.leadAgentId);
+    const models = pickCloud(input.available.cloud, input.selectedCloudModels, input.leadAgentId);
+    answerers = [...new Set([...models, ...cliAnswerers])];
     synthesizers = input.leadAgentId && answerers.includes(input.leadAgentId)
       ? [input.leadAgentId]
       : [...answerers];
     if (answerers.length === 0) {
-      notes.push('云端主导但没有可用/勾选的云端模型：这一轮无法回答，不退回网页');
+      notes.push('云端主导但没有可用/勾选的云端模型或 CLI：这一轮无法回答，不退回网页');
     } else {
-      notes.push(`云端主导：第一手与汇总都走远程 API（${answerers.length} 个）`);
+      notes.push(`云端主导：第一手与汇总都走远程 API 与 CLI（${models.length} 个模型 + ${cliAnswerers.length} 个 CLI）`);
     }
   } else if (input.executionMode === 'local') {
     answerers = [...input.available.local];
@@ -116,13 +129,17 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
       notes.push(`本地主导：第一手与汇总都走本机模型（${answerers.length} 个）`);
     }
   } else {
-    // web / hybrid：第一手仍是网页。
-    answerers = [...new Set(webAnswerers)];
+    // web / hybrid：第一手是网页 + CLI 软件源。
+    answerers = [...new Set([...webAnswerers, ...cliAnswerers])];
+    if (cliAnswerers.length > 0) {
+      notes.push(`另有 CLI 来源 ${cliAnswerers.length} 个一起被问（属云端一类，可主导与辩论）`);
+    }
     if (input.leadAgentId) {
       synthesizers = [input.leadAgentId];
       notes.push(`主导人由用户指定：${input.leadAgentId}`);
     } else if (mode === 'web') {
-      synthesizers = answerers;
+      // 网页归属只用网页通道：CLI 属云端一类，不在这一场当主导。
+      synthesizers = webAnswerers;
       notes.push('网页主导：由回答过的网页通道汇总');
     } else {
       // hybrid：这一层才是真正在「综合决定」。
@@ -137,17 +154,17 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
         mode = 'local';
         synthesizers = input.available.local;
         notes.push('混合：短结论类任务交给本地模型，不上网');
-      } else if (input.available.cloud.length > 0) {
+      } else if (input.available.cloud.length > 0 || cliAnswerers.length > 0) {
         mode = 'cloud';
-        synthesizers = input.available.cloud;
-        notes.push('混合：长链条任务交给云端模型');
+        synthesizers = [...new Set([...input.available.cloud, ...cliAnswerers])];
+        notes.push('混合：长链条任务交给云端模型与 CLI');
       } else if (input.available.local.length > 0) {
         mode = 'local';
         synthesizers = input.available.local;
         notes.push('混合：没有云端模型，改用本地模型');
       } else {
         mode = 'web';
-        synthesizers = answerers;
+        synthesizers = webAnswerers;
         notes.push('混合：没有可用 API 模型，降级为网页主导');
       }
     }

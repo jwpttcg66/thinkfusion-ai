@@ -31,6 +31,8 @@ export interface OrchestrationMember {
   agentId: string;
   label: string;
   kind: 'local' | 'cloud' | 'web';
+  /** CLI 软件源（归 cloud 一类）。排不进名单不代表不能当主导/辩手。 */
+  cli?: boolean;
 }
 
 export interface EngineeringOrchestrationPlan {
@@ -77,15 +79,23 @@ export function planEngineeringOrchestration(input: {
     member => member.available && kinds.has(member.kind)
   );
   // 本地优先、云端补充（仅在模式允许两类同时进场时有意义）。
+  // CLI 属云端一类（2026-11-15 裁决），但排在 API 模型后面：它每条问题都要
+  // 起一次进程，前面有能用的模型时先让用户看到答案。
   const models: OrchestrationMember[] = [
     ...available.filter(member => member.kind === 'local'),
-    ...available.filter(member => member.kind === 'cloud')
-  ].map(member => ({ agentId: member.agentId, label: member.label, kind: member.kind }));
+    ...available.filter(member => member.kind === 'cloud' && !member.cli),
+    ...available.filter(member => member.kind === 'cloud' && member.cli)
+  ].map(member => ({
+    agentId: member.agentId,
+    label: member.label,
+    kind: member.kind,
+    ...(member.cli ? { cli: true } : {})
+  }));
 
   if (models.length === 0) {
     const why =
       input.mode === 'cloud'
-        ? '云端主导但没有可用的云端模型（没勾选，或没有配 API Key）'
+        ? '云端主导但没有可用的云端模型（没勾选、没有配 API Key，CLI 来源也没开或不可用）'
         : input.mode === 'local'
           ? '本地主导但没有可用的本地模型（Ollama 未启动或未启用）'
           : '本机没有可用的本地/云端模型（Ollama 未启动，或没有配 API Key）';
@@ -146,15 +156,25 @@ export function planEngineeringOrchestration(input: {
 
   const localCount = models.filter(item => item.kind === 'local').length;
   const cloudCount = models.filter(item => item.kind === 'cloud').length;
+  // CLI 算在云端一类里，但它是起进程的慢路径，报人数时分开写清楚是哪几位。
+  const cliCount = models.filter(item => item.cli).length;
+  const apiCloudCount = cloudCount - cliCount;
+  const cloudRoster =
+    [
+      apiCloudCount > 0 ? `${apiCloudCount} 位云端模型` : '',
+      cliCount > 0 ? `${cliCount} 位 CLI 来源` : ''
+    ]
+      .filter(Boolean)
+      .join(' + ') || '0 位云端模型';
   // 只描述第一轮谁进场。真机 2026-11-10：「由 X 汇总」写在开场系统消息里，
   // 各家还在答、通道条还是「提问中」，界面却像已经进入汇总，第一轮像被冲掉。
   // 主导汇总的宣布挪到执行阶段开始（conversation-runner.runExecutionStage）。
   const roster =
     input.mode === 'cloud'
-      ? `云端主导：第一轮由 ${cloudCount} 位云端模型各自回答（不用本地）`
+      ? `云端主导：第一轮由 ${cloudRoster}各自回答（不用本地）`
       : input.mode === 'local'
         ? `本地主导：第一轮由 ${localCount} 位本地模型各自回答（不用云端）`
-        : `工程空间多 agent 编排：第一轮由 ${localCount} 位本地模型 + ${cloudCount} 位云端模型各自回答`;
+        : `工程空间多 agent 编排：第一轮由 ${localCount} 位本地模型 + ${cloudRoster}各自回答`;
 
   const parts = [
     roster,

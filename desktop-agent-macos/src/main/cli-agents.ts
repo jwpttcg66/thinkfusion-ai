@@ -1,18 +1,35 @@
 /**
  * CLI Agent 注册表：装没装、什么版本、能不能用、用户开没开。
  *
- * 它**不是**网页来源（`PageSource`）的一部分：网页是「被问的通道」，CLI 是
- * 「被派活的执行者」。混在一起会让「所有已开启的通道都要被问」这条规则
- * 错误地作用到 CLI 上——用户问一个事实问题时不该启动一个会改代码的进程。
+ * **一个 CLI 有两个身份，别把它们混成一层**（2026-11-15 用户裁决）：
  *
- * 配置落在 userData/cli-agents.json；每次 task.run 把只读快照随执行下发，
- * Runtime 因此不需要读 userData，执行也没有被搬到主进程。
+ * 1. **回答问题的源**——跟网页源同一层级。用户开着的 CLI 会像 DeepSeek /
+ *    Kimi 那样被问同一句原话，答案从进程输出里回来，进第一轮、进汇总、
+ *    进转录的通道条。实现见 `execution/cli-answer-agent.ts`。
+ * 2. **被派活的执行者**——`agent.exec` 在执行阶段点名它去改代码，走授权与
+ *    工作树（见 `agent/tools/cli-agent.ts`）。
+ *
+ * 两个身份共用这份配置，但用的不是同一组参数：回答源不传 `permissionArgs`
+ * 也不碰工程目录，它只是答一句问题。配置落在 userData/cli-agents.json。
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { isAbsoluteCliCommand, normalizeCliSoftwareSource, validateCliCommand, type CliSoftwareSource } from '../shared/cli-software-source';
 import type { CliAgentConfig, CliAgentView } from '../shared/cli-agents';
+import { isStructuredCliSuccess, parseCliResultJson } from '../shared/cli-result';
+import {
+  capabilityFingerprint,
+  configureCliCapabilities,
+  listCapabilityRecords,
+  recordCapability,
+  resolveHeadless
+} from './cli-capabilities';
+
+const execFileAsync = promisify(execFile);
 
 /** 只有实测过的参数才能标 verified；改参数就要重新跑一次最小任务。 */
 const DEFAULTS: readonly CliAgentConfig[] = [
@@ -57,7 +74,20 @@ const VERSION_TTL_MS = 60 * 60 * 1000;
 
 export function configureCliAgents(input: { userDataDir: string }) {
   configPath = path.join(input.userDataDir, 'cli-agents.json');
+  // 能力记录与注册表同目录：版本/参数变化后自动降级，不再靠写死的 verified。
+  configureCliCapabilities({ userDataDir: input.userDataDir, defaults: DEFAULTS });
   cached = load();
+  refreshCliAgentVersions();
+}
+
+/** 落盘的软件源坏了就当没填，不让它拖垮整个注册表。 */
+function storedSoftwareSource(raw: unknown): { softwareSource: CliSoftwareSource } | null {
+  if (!raw) return null;
+  try {
+    return { softwareSource: normalizeCliSoftwareSource(raw) };
+  } catch {
+    return null;
+  }
 }
 
 function load(): CliAgentConfig[] {
@@ -82,7 +112,8 @@ function load(): CliAgentConfig[] {
           : {}),
         ...(Array.isArray(patch.envAllowlist) && patch.envAllowlist.every(item => typeof item === 'string')
           ? { envAllowlist: patch.envAllowlist }
-          : {})
+          : {}),
+        ...(storedSoftwareSource(patch.softwareSource) ?? {})
       };
     });
   } catch {
@@ -101,7 +132,8 @@ function save(): void {
       args: item.args,
       permissionArgs: item.permissionArgs ?? [],
       interactiveArgs: item.interactiveArgs ?? [],
-      envAllowlist: item.envAllowlist ?? []
+      envAllowlist: item.envAllowlist ?? [],
+      ...(item.softwareSource ? { softwareSource: item.softwareSource } : {})
     };
   }
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -184,24 +216,26 @@ function versionOf(executable: string): { version: string | null; error?: string
 
 function viewOf(config: CliAgentConfig): CliAgentView {
   const executable = resolveExecutable(config.command);
-  const version = executable ? versionOf(executable) : { version: null };
+  const detected = executable ? versionOf(executable) : { version: null };
+  const headless = resolveHeadless(config, detected.version);
   const reason = !executable
     ? `找不到可执行文件「${config.command}」`
     : !config.enabled
       ? '已在设置里关闭'
-      : config.headless === 'unsupported'
+      : headless === 'unsupported'
         ? '不支持非交互执行'
-        : config.headless === 'unverified'
-          ? '非交互能力尚未实测'
-          : version.version === null
+        : headless === 'unverified'
+          ? '当前版本或启动参数没有实测记录，非交互能力未验证（点「重新验证」跑一次最小任务）'
+          : detected.version === null
             ? '能执行，但读不到版本；先自己跑一次 --version 确认'
             : undefined;
   return {
     ...config,
+    headless,
     detected: Boolean(executable),
     executable,
-    version: version.version,
-    available: Boolean(executable) && config.enabled && config.headless === 'verified' && version.version !== null,
+    version: detected.version,
+    available: Boolean(executable) && config.enabled && headless === 'verified' && detected.version !== null,
     ...(reason ? { reason } : {})
   };
 }
@@ -210,13 +244,52 @@ export function listCliAgents(): CliAgentView[] {
   return cached.map(viewOf);
 }
 
+/**
+ * 回答源此刻的状态：可用性、不可用原因、版本都取注册表当前值。
+ *
+ * 不给实例缓存：设置里关掉一个 CLI、换了可执行文件、版本升级导致能力降级，
+ * 都必须在下一轮提问里立刻生效，而不是等应用重启。
+ */
+export function cliAnswerView(id: string): CliAgentView | undefined {
+  const config = cached.find(item => item.id === id);
+  return config ? viewOf(config) : undefined;
+}
+
+/** 回答源真正 spawn 时用的配置：可执行文件已解析、headless 已按版本判定。 */
+export function cliAnswerConfig(id: string): CliAgentConfig | undefined {
+  return cliAgentSnapshot().find(item => item.id === id);
+}
+
+/** 注册表里有哪些 CLI（顺序即右侧栏顺序）。 */
+export function cliAgentIds(): string[] {
+  return cached.map(item => item.id);
+}
+
+/**
+ * 用户开着的 CLI。**不探版本、不碰文件系统**：这条路每条消息都会走一遍，
+ * 只回答「开关状态」，可用性由提问那一刻的 health() 自己报。
+ */
+export function enabledCliAgentIds(): string[] {
+  return cached.filter(item => item.enabled).map(item => item.id);
+}
+
 /** 给 Runtime 的只读快照：包含配置与真实路径，不包含任何用户密钥。 */
 export function cliAgentSnapshot(): CliAgentConfig[] {
   return cached.map(item => {
     const executable = resolveExecutable(item.command);
     const version = executable ? versionOf(executable).version : null;
-    return { ...item, command: executable ?? item.command, version };
+    return {
+      ...item,
+      command: executable ?? item.command,
+      version,
+      // agent.exec 只认这个字段；必须由当前版本的能力记录决定，不能透传写死值。
+      headless: resolveHeadless(item, version)
+    };
   });
+}
+
+export function cliCapabilityRecords() {
+  return listCapabilityRecords();
 }
 
 export function setCliAgentEnabled(input: { id: string; enabled: boolean }): CliAgentView[] {
@@ -227,7 +300,117 @@ export function setCliAgentEnabled(input: { id: string; enabled: boolean }): Cli
   return listCliAgents();
 }
 
+/**
+ * 设置页的「软件源」：改可执行命令，并登记这个 CLI 从哪来。
+ *
+ * 两道闸都在主进程：
+ * 1. 命令只能是 PATH 名字或干净的绝对路径；绝对路径必须是用户本次亲手
+ *    在文件对话框里挑过的（或本来就在配置里），渲染层不能凭空塞一条
+ *    `~/.ssh/...` 之类的路径进来。
+ * 2. 命令必须真的能执行。填错路径会当场报错，而不是把一个可用的 CLI
+ *    悄悄变成「找不到可执行文件」。
+ *
+ * 安装来源与端点只落盘展示，不执行任何安装/更新命令。换掉命令名会让
+ * 参数指纹变化，headless 能力自动降为 unverified（见 cli-capabilities.ts）。
+ */
+export function setCliSoftwareSource(input: {
+  id: string;
+  command?: string;
+  softwareSource?: CliSoftwareSource;
+  isPicked?: (command: string) => boolean;
+}): CliAgentView[] {
+  const target = cached.find(item => item.id === input.id);
+  if (!target) throw new Error(`没有这个 CLI Agent：${input.id}`);
+  if (input.softwareSource === undefined) throw new Error('缺少软件源配置');
+  const softwareSource = normalizeCliSoftwareSource(input.softwareSource);
+
+  if (input.command !== undefined) {
+    const command = validateCliCommand(input.command);
+    if (isAbsoluteCliCommand(command) && command !== target.command && !input.isPicked?.(command)) {
+      throw new Error('绝对路径必须先用「选择…」在文件对话框里挑过');
+    }
+    if (!resolveExecutable(command)) {
+      throw new Error(`找不到可执行文件「${command}」，先安装或选对路径`);
+    }
+    target.command = command;
+  }
+  target.softwareSource = softwareSource;
+  save();
+  refreshCliAgentVersions();
+  return listCliAgents();
+}
+
 /** 版本升级后能力结论要重验：清掉缓存，下一次 list 会重新执行 --version。 */
 export function refreshCliAgentVersions(): void {
   versionCache.clear();
+}
+
+const VERIFY_TASK = 'Reply with exactly: OK';
+const VERIFY_TIMEOUT_MS = 90_000;
+
+/** 主进程跑 CLI 时只透传这些变量，不把整个环境（含无关密钥）交给它。 */
+function verifyEnv(config: CliAgentConfig): NodeJS.ProcessEnv {
+  const keys = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TZ', 'TERM', ...(config.envAllowlist ?? [])];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string') env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * 「重新验证」：真的跑一次最小 headless 任务，通过才写记录。
+ *
+ * 这是 opt-in 动作（会调用云端模型、消耗额度），不自动执行；命令、参数、
+ * 任务文本全部来自注册表与常量，渲染层只能给一个 cliId，不能塞可执行文件。
+ */
+export async function verifyCliHeadless(id: string): Promise<{
+  ok: boolean;
+  version: string | null;
+  error?: string;
+  view?: CliAgentView;
+}> {
+  const config = cached.find(item => item.id === id);
+  if (!config) return { ok: false, version: null, error: `没有这个 CLI Agent：${id}` };
+  const executable = resolveExecutable(config.command);
+  if (!executable) return { ok: false, version: null, error: `找不到可执行文件「${config.command}」` };
+  const version = versionOf(executable).version;
+  if (!version) return { ok: false, version: null, error: '读不到版本，无法把能力结论绑定到版本' };
+
+  const argv = config.args.map(item => (item === '{task}' ? VERIFY_TASK : item));
+  argv.push(...(config.permissionArgs ?? []));
+  let stdout: string;
+  try {
+    const result = await execFileAsync(executable, argv, {
+      cwd: os.tmpdir(),
+      env: verifyEnv(config),
+      timeout: VERIFY_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      encoding: 'utf8'
+    });
+    stdout = result.stdout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, version, error: `最小任务失败：${message}` };
+  }
+
+  // 只认结构化成功结果：能解析、没标 is_error、有 result 文本。
+  // 「进程退出 0 但输出不是 JSON」不足以证明 headless 参数仍然有效。
+  // 解析按行容错：Qoder 会先打一行自定义命令警告，整段 JSON.parse 会把
+  // exit 0、result 正常的任务误判成失败（2026-11-15 真机 E2E 抓到）。
+  const parsed = parseCliResultJson(stdout);
+  if (!isStructuredCliSuccess(parsed)) {
+    return { ok: false, version, error: '最小任务没有返回可识别的结构化成功结果' };
+  }
+
+  recordCapability({
+    cliId: config.id,
+    capability: 'headless',
+    version,
+    fingerprint: capabilityFingerprint(config),
+    note: `真实 CLI 最小任务通过（${new Date().toISOString()}），版本 ${version}`
+  });
+  refreshCliAgentVersions();
+  return { ok: true, version, view: viewOf(config) };
 }

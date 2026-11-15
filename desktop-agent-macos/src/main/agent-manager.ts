@@ -1,11 +1,13 @@
-import { utilityProcess, type UtilityProcess } from 'electron';
+import { app, utilityProcess, type UtilityProcess } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import type { AgentEvent, AgentPlan, ExecutionReport, TaskGrant } from '../shared/contracts';
 import { ExecutionReportSchema } from '../shared/schemas';
 import { searchInBrowser } from './browser-search';
 import { mainCapabilities, type BrowserSearchOutcome } from './capabilities';
 import { disabledCapabilities } from './capability-state';
 import type { CliAgentConfig, TerminalDataEvent } from '../shared/cli-agents';
+import { reconcileTerminalAuditFiles } from './terminal-audit-reconcile';
 import { cliAgentSnapshot } from './cli-agents';
 
 interface PendingRun {
@@ -122,10 +124,62 @@ export function setMainCallHandler(handler: MainCallHandler | null) {
   mainCallHandler = handler;
 }
 
+export function terminalAuditRoot(): string {
+  return path.join(app.getPath('userData'), 'terminal-records');
+}
+
+/**
+ * 应用退出原因单独落一条全局记录，并给没来得及收尾的会话补尾。
+ *
+ * 真机实测修正：Electron 退出会直接杀掉 UtilityProcess，Runtime 的
+ * `process.on('exit') → closeAllTerminals()` 并不会跑，所以「Runtime 会自己补
+ * session-end」这个假设是错的。这里在 `before-quit` 里同步按文件事实补记，
+ * 明确标注退出码未知、记录不完整，不伪造正常关闭。
+ * 用同步 append，崩了也不抛：审计是旁路，绝不能挡住退出。
+ */
+export function recordAppExit(reason: string): void {
+  let reconciled: string[] = [];
+  try {
+    const dir = terminalAuditRoot();
+    fs.mkdirSync(dir, { recursive: true });
+    reconciled = reconcileTerminalAuditFiles(dir, reason).reconciled;
+    const line = `${JSON.stringify({
+      timestamp: Date.now(),
+      type: 'app-exit',
+      reason,
+      pid: process.pid,
+      platform: process.platform,
+      reconciledSessions: reconciled
+    })}\n`;
+    fs.appendFileSync(path.join(dir, 'app-exit.jsonl'), line, { mode: 0o600 });
+  } catch {
+    // 审计是旁路，绝不能挡住退出。
+  }
+}
+
+/**
+ * Runtime 的环境：完整继承当前环境，另外把终端审计目录注入进去。
+ *
+ * 审计必须在 Runtime 里写（PTY 的 onData / stdin / resize 都在那儿），但
+ * Runtime 按设计不读 userData，所以由主进程在 fork 时把路径递过去。
+ * 没有这个变量时审计静默停用，测试里的 PTY 不会往磁盘写东西。
+ */
+function runtimeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') env[key] = value;
+  }
+  env.TF_TERMINAL_AUDIT_DIR = terminalAuditRoot();
+  return env;
+}
+
 export function startAgentProcess() {
   if (child) return;
   const entry = path.join(__dirname, '../agent/index.js');
-  child = utilityProcess.fork(entry, [], { serviceName: 'desktop-agent-runtime' });
+  child = utilityProcess.fork(entry, [], {
+    serviceName: 'desktop-agent-runtime',
+    env: runtimeEnv()
+  });
 
   child.on('message', (message: unknown) => {
     if (!message || typeof message !== 'object' || !('type' in message)) return;

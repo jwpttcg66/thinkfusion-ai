@@ -51,6 +51,18 @@ export function TaskInput(props: {
     onChange: (next: string[]) => void;
   };
   /**
+   * CLI 来源（回答源三类之一）跟在模型清单下面选。
+   *
+   * 同一种三态：`undefined` = 设置里开着的全部 CLI 都跟网页一起被问，
+   * `[]` = 这一问一个都不问，非空 = 只勾的这些。清单来自主进程注册表，
+   * 开着但不可用的照列出来——灭掉并写原因，不悄悄藏。
+   */
+  cliSources?: {
+    all: Array<{ id: string; label: string; enabled: boolean; available: boolean; reason?: string }>;
+    selected?: string[];
+    onChange: (next: string[]) => void;
+  };
+  /**
    * 开着某条会话时，这里写着它的标题；没有会话就是 null。
    *
    * 「接着上一条问」和「问个新问题」在输入框里长得一模一样，只有发出去之后才
@@ -121,6 +133,22 @@ export function TaskInput(props: {
       : checkedCount === selectableModels.length
         ? '全部'
         : `已选 ${checkedCount}/${selectableModels.length}`;
+
+  /**
+   * CLI 来源的勾选状态（undefined = 开着的全部）。
+   * 胶囊摘要把 CLI 拼在模型后面：回答源有三种，只显示模型会让人以为
+   * CLI 开了也没在回答。
+   */
+  const cliItems = props.cliSources?.all ?? [];
+  const enabledCli = cliItems.filter(item => item.enabled);
+  const cliChosenCount = props.cliSources?.selected === undefined
+    ? enabledCli.length
+    : props.cliSources.selected.filter(id => enabledCli.some(item => item.id === id)).length;
+  const cliSummary = cliItems.length === 0
+    ? ''
+    : enabledCli.length === 0
+      ? ' · CLI 未开启'
+      : ` · CLI ${cliChosenCount}/${enabledCli.length}`;
 
   return (
     <div className="composer" style={{ position: 'relative' }} ref={rootRef}>
@@ -244,13 +272,13 @@ export function TaskInput(props: {
             onClick={() => setMenu(menu === 'models' ? 'none' : 'models')}
             disabled={props.disabled}
             aria-expanded={menu === 'models'}
-            title={`这一问用哪些云端模型做推导（${modelSummary}）`}
-            aria-label={`选择模型（${modelSummary}）`}
+            title={`这一问用哪些云端模型做推导（${modelSummary}）${cliSummary ? `，CLI 来源${cliSummary.replace(' · ', '')}` : ''}`}
+            aria-label={`选择模型（${modelSummary}${cliSummary}）`}
           >
             <span>◈</span>
             <span className="label">模型</span>
             <span className="chip-dot" aria-hidden="true">·</span>
-            <span className="chip-sub">{modelSummary}</span>
+            <span className="chip-sub">{modelSummary}{cliSummary}</span>
           </button>
 
           <button
@@ -368,6 +396,74 @@ export function TaskInput(props: {
             勾选只影响这一问和它的追问。一个都不勾 = 这一轮云端模型不参与推导，
             只剩本地模型和网页通道。
           </p>
+
+          {/* CLI 来源（回答源三类之一）跟在模型下面：同一层级的来源放在同一个
+              弹层里选，比拆两个胶囊更像一件事。语义和云端一样——undefined 是
+              「开着的全部」，清空是一个都不问。 */}
+          {props.cliSources && cliItems.length > 0 && (
+            <div className="model-popover-cli">
+              <div className="model-popover-cli-head">
+                <b>CLI 来源</b>
+                <span className="settings-spacer" />
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={enabledCli.length === 0}
+                  onClick={() => props.cliSources!.onChange(enabledCli.map(item => item.id))}
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => props.cliSources!.onChange([])}
+                >
+                  清空
+                </button>
+              </div>
+              <div className="model-popover-list">
+                {cliItems.map(item => {
+                  const selected = props.cliSources!.selected;
+                  const checked = item.enabled
+                    && (selected === undefined || selected.includes(item.id));
+                  const note = !item.enabled
+                    ? '已在设置里关闭'
+                    : !item.available
+                      ? (item.reason ?? '当前不可用')
+                      : undefined;
+                  return (
+                    <label
+                      key={item.id}
+                      className={`model-option${item.enabled ? '' : ' off'}`}
+                      title={item.enabled ? item.label : '先去「设置 → 智能体」打开它'}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!item.enabled}
+                        checked={checked}
+                        onChange={() => {
+                          const base = selected === undefined
+                            ? enabledCli.map(enabled => enabled.id)
+                            : [...selected];
+                          props.cliSources!.onChange(
+                            base.includes(item.id)
+                              ? base.filter(id => id !== item.id)
+                              : [...base, item.id]
+                          );
+                        }}
+                      />
+                      <span className="model-option-label">{item.label}</span>
+                      {note && <span className="model-option-note">{note}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="model-popover-foot">
+                CLI 跟网页一样在第一轮被问（原话逐字发过去）。归属上算云端一类：
+                网页 / 混合 / 云端主导都会问它，也能当主导、辩手；本地主导不问 CLI。
+              </p>
+            </div>
+          )}
         </div>
       )}
 

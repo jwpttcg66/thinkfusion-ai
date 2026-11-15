@@ -1420,13 +1420,17 @@ test('V2.1：工程实施交去出计划，识别结果和项目一起存下来'
   assert.equal(handed.workspaceRoot, v21Root);
 });
 
-test('V2.1：表达含糊时待确认，不默认进高权限执行', async () => {
+test('V2.1：没有动词的普通问题自己驱动成只读问答，不默认进高权限执行', async () => {
+  // 2026-11-15 用户裁决：「应该跟云端模型一样，可以自己驱动的」——
+  // 没有改动词就不会写文件，普通问答按只读分析直接跑；真正要拦的是
+  // 只读词与改动词同时出现的冲突线（见 check-workspace.mjs）。
   const { runner } = makeRunner(execChannels());
   const conversation = await runner.start({
     text: '嗯……这个怎么说', workspaceMode: 'engineering', workspaceRoot: v21Root
   });
-  assert.equal(conversation.status, 'awaiting_user');
-  assert.equal(conversation.routing?.taskKind, 'clarify');
+  assert.equal(conversation.status, 'thinking');
+  assert.equal(conversation.routing?.taskKind, 'engineering_analysis');
+  assert.notEqual(conversation.routing?.engineeringKind, 'execution');
 });
 
 test('V2.1：用户手动改判优先于规则', async () => {
