@@ -64,6 +64,12 @@ export function assertGrant(grant: TaskGrant, tool: ToolName, stepCount: number)
   if (tool === 'test.run' && grant.permissionPreset === 'read-only') {
     throw new Error('当前权限为“仅可查看”，禁止执行测试命令');
   }
+  // 外部 CLI 自带工具循环，TaskGrant 拦不到它内部每一次读写与命令；把
+  // 「启动它」当成一次高风险动作，只在完全访问下放行。plan 生成阶段已经
+  // 把 agent.exec 从 workspace-write 的可选工具里去掉，这里是执行前的第二道。
+  if (tool === 'agent.exec' && grant.permissionPreset !== 'danger-full-access') {
+    throw new Error('外部 CLI Agent 只能在“完全访问”权限下运行：它不会逐条经过 TaskGrant 审批');
+  }
   if (!['read-only', 'workspace-write', 'danger-full-access'].includes(grant.permissionPreset)) throw new Error('未知权限模式');
   if (stepCount < 1 || stepCount > grant.maxSteps || stepCount > 30) throw new Error('步骤数超过授权上限');
   if (!Number.isFinite(grant.expiresAt) || Date.now() > grant.expiresAt) throw new Error('任务授权已过期');

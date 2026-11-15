@@ -23,6 +23,7 @@ import {
   type CapabilityView
 } from '../../../shared/capabilities';
 import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/expertise';
+import type { CliAgentView } from '../../../shared/cli-agents';
 import {
   allVisiblePicked,
   filterModels,
@@ -141,6 +142,10 @@ export function SettingsPanel(props: {
   const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [capabilityBusy, setCapabilityBusy] = useState<string | null>(null);
   const [capabilityNote, setCapabilityNote] = useState('');
+  /** CLI Agent：执行者，不是回答通道；清单与可用性由主进程检测。 */
+  const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
+  const [cliBusy, setCliBusy] = useState<string | null>(null);
+  const [cliNote, setCliNote] = useState('');
   /** 专家与技能：清单也是主进程读盘给的，界面不假装知道 .md 里写了什么。 */
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [expertiseBusy, setExpertiseBusy] = useState<string | null>(null);
@@ -212,8 +217,34 @@ export function SettingsPanel(props: {
     }
   }
 
-  async function toggleExpertise(id: string, enabled: boolean) {
-    setExpertiseBusy(id);
+  useEffect(() => {
+    let alive = true;
+    void window.agentAPI
+      .getCliAgents()
+      .then(list => {
+        if (alive) setCliAgents(list);
+      })
+      .catch(error => {
+        if (alive) setCliNote(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function toggleCliAgent(id: string, enabled: boolean) {
+    setCliBusy(id);
+    setCliNote('');
+    try {
+      setCliAgents(await window.agentAPI.setCliAgentEnabled({ id, enabled }));
+    } catch (error) {
+      setCliNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCliBusy(null);
+    }
+  }
+
+  async function toggleExpertise(id: string, enabled: boolean) {    setExpertiseBusy(id);
     setExpertiseNote('');
     try {
       setExpertise(await window.agentAPI.setExpertiseEnabled(id, enabled));
@@ -1539,14 +1570,52 @@ export function SettingsPanel(props: {
 
             {section === 'agents' && (
               <section className="settings-section">
-                <h3>Agent 预设</h3>
+                <h3>外部 CLI Agent（执行者）</h3>
                 <p className="settings-lead">
-                  规划用的提示词和工具白名单目前写在构建里，还没有可编辑的预设。执行权限在「通用设置」里改。
+                  Qoder / Claude 这类 CLI 是执行者，不是回答通道：打开它不会让它在每个问题上发言，
+                  只决定新任务能不能把工程活派给它。真正启动还要在任务里选「完全访问」权限，
+                  并在计划里逐次批准——它自带工具循环，TaskGrant 拦不到它内部每一步。
                 </p>
                 <p className="settings-lead">
-                  工具面是 29 个 Runtime 能力（27 个本地、2 个联网），另有 4 个主进程插件
-                  （读工程证据、浏览器联网搜索、导出会话、保存网页文档），全部列在「内置插件」里，
-                  可以逐条启用或停用。执行权限决定哪些能真跑。
+                  能力结论绑定版本：CLI 升级后要重新跑一次最小任务，确认参数没漂移，再把
+                  headless 标回 verified。没实测的配置不会被启动。
+                </p>
+                {cliNote && <p className="settings-error">{cliNote}</p>}
+                <div className="settings-list">
+                  {cliAgents.map(item => (
+                    <div className={`capability-row${item.enabled ? '' : ' off'}`} key={item.id}>
+                      <button
+                        type="button"
+                        className="settings-switch"
+                        role="switch"
+                        aria-checked={item.enabled}
+                        aria-label={`${item.label}：${item.enabled ? '已启用' : '已停用'}`}
+                        disabled={cliBusy === item.id}
+                        onClick={() => void toggleCliAgent(item.id, !item.enabled)}
+                      />
+                      <div className="capability-body">
+                        <div className="capability-head">
+                          <b>{item.label}</b>
+                          <code>{item.id}</code>
+                          <span className="capability-permission">
+                            {item.version ? `v${item.version}` : '版本未知'}
+                          </span>
+                        </div>
+                        <p>
+                          {item.available
+                            ? `可执行：${item.executable ?? item.command}`
+                            : (item.reason ?? '当前不可用')}
+                        </p>
+                        <p className="settings-muted">
+                          非交互：{item.headless === 'verified' ? '已实测' : item.headless === 'unverified' ? '未实测' : '不支持'}
+                          {item.permissionArgs?.length ? ` · 权限参数：${item.permissionArgs.join(' ')}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="settings-muted">
+                  规划提示词和工具白名单仍写在构建里；执行权限在「通用设置」里改。
                 </p>
               </section>
             )}

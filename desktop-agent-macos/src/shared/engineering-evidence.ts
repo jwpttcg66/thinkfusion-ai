@@ -50,7 +50,7 @@ function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-const COMMAND_TOOLS = new Set(['test.run', 'shell.run', 'code.run']);
+const COMMAND_TOOLS = new Set(['test.run', 'shell.run', 'code.run', 'agent.exec']);
 
 /**
  * 从一步的 `tool / args / result` 里抽一条证据；抽不出来返回 null。
@@ -67,7 +67,7 @@ export function evidenceFromStep(step: EvidenceStep, at = Date.now()): EvidenceR
     const command =
       str(result.command) ??
       str(args?.command) ??
-      (step.tool === 'test.run' ? 'test.run' : step.tool);
+      (step.tool === 'test.run' ? 'test.run' : step.tool === 'agent.exec' ? `${str(args?.cli) ?? 'agent'}.exec` : step.tool);
     return {
       kind: 'command',
       command,
@@ -107,6 +107,28 @@ function evidenceKey(ref: EvidenceRef): string {
 }
 
 /**
+ * 一步可以不止一条证据：外部 Agent 既跑了一次（退出码），也可能改了多个文件
+ * （运行前后 git status 的差集）。`evidenceFromStep` 保留成单条版本给旧调用方。
+ */
+export function evidenceFromStepMany(step: EvidenceStep, at = Date.now()): EvidenceRef[] {
+  if (step.tool !== 'agent.exec') {
+    const one = evidenceFromStep(step, at);
+    return one ? [one] : [];
+  }
+  const refs: EvidenceRef[] = [];
+  const command = evidenceFromStep(step, at);
+  if (command) refs.push(command);
+  const result = record(step.result);
+  const changed = result?.changedPaths;
+  if (Array.isArray(changed)) {
+    for (const path of changed) {
+      if (typeof path === 'string' && path.length > 0) refs.push({ kind: 'file', path });
+    }
+  }
+  return refs;
+}
+
+/**
  * 把一串步骤收成账本。同一条事实只留一条（同一文件读两次不重复计数），
  * 后出现的覆盖先出现的——后一次带的是更新后的哈希或退出码。
  */
@@ -117,9 +139,7 @@ export function buildEvidenceLedger(
 ): EvidenceLedger {
   const byKey = new Map<string, EvidenceRef>();
   for (const step of steps) {
-    const ref = evidenceFromStep(step, at);
-    if (!ref) continue;
-    byKey.set(evidenceKey(ref), ref);
+    for (const ref of evidenceFromStepMany(step, at)) byKey.set(evidenceKey(ref), ref);
   }
   return {
     refs: [...byKey.values()],

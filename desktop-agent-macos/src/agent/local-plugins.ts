@@ -11,6 +11,7 @@
  * 记日志和推进计划，不再认识任何具体工具。
  */
 
+import path from 'node:path';
 import { CapabilityRegistry, capabilityMeta } from '../shared/capabilities';
 import type { ToolName } from '../shared/contracts';
 import type { TaskGrant } from '../shared/contracts';
@@ -44,6 +45,9 @@ import {
 import { jobOutput, killJob, listJobs } from './tools/jobs';
 import { browserSearchCapability } from './browser-search-bridge';
 import { verifyWrittenFile } from './verify';
+import type { CliAgentConfig } from '../shared/cli-agents';
+import { assertUsableCwd, cliAgentConfigError, runCliAgent } from './tools/cli-agent';
+import { resolveGrantedPath } from './policy';
 
 export interface AskUserInput {
   question: string;
@@ -65,6 +69,11 @@ export interface LocalContext {
   ask?: (input: AskUserInput) => Promise<AskUserOutcome>;
   /** 只读主进程能力的桥；没接就明确报错。 */
   callMain?: (id: string, args: unknown) => Promise<unknown>;
+  /**
+   * 本次执行可用的 CLI Agent 配置快照。由主进程随 task.run 下发：
+   * Runtime 不读 userData，也不接受模型在参数里指定可执行文件。
+   */
+  cliAgents?: readonly CliAgentConfig[];
 }
 
 /** 第一次动某个文件之前留一份原文；没有桥就不留（脚本里直接调插件时）。 */
@@ -277,6 +286,52 @@ const PLUGINS = [
   local('term.signal', async args => ok(signalTerminal(args.sessionId, args.signal))),
   local('term.close', async args => ok(closeTerminal(args.sessionId))),
   local('term.list', async () => ok(listTerminals())),
+
+  local('agent.exec', async (args, ctx) => {
+    if (!ctx.cliAgents) throw new Error('当前执行环境没有下发 CLI Agent 配置，agent.exec 不可用');
+    const config = ctx.cliAgents.find(item => item.id === args.cli);
+    const configError = cliAgentConfigError(config);
+    if (configError) throw new Error(configError);
+    // 有独立工作树时，相对 cwd 以它为准，并显式检查越界；没有工作树才退回
+    // 授权根目录（普通只读分析等场景）。路径由主进程写进 grant，模型改不了。
+    const executionRoot = ctx.grant.worktreeDir ?? ctx.grant.rootDir;
+    const requested = args.cwd ?? '.';
+    let cwd: string;
+    if (ctx.grant.worktreeDir) {
+      const resolved = path.resolve(executionRoot, requested);
+      const relative = path.relative(executionRoot, resolved);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('路径越过外部 Agent 的独立工作树');
+      }
+      cwd = assertUsableCwd(resolved);
+    } else {
+      cwd = assertUsableCwd(await resolveGrantedPath(ctx.grant, requested, false));
+    }
+    const remaining = ctx.grant.expiresAt - Date.now();
+    if (remaining <= 1000) throw new Error('任务授权已过期，无法启动外部 Agent');
+    const run = await runCliAgent(config as CliAgentConfig, {
+      taskId: ctx.grant.taskId,
+      cwd,
+      task: args.task,
+      // 单步上限、授权剩余时间、硬上限三者取小：授权过期后不能再跑。
+      timeoutMs: Math.min(args.timeoutMs ?? 600_000, remaining, 1_800_000)
+    });
+    if (run.cancelled) {
+      return { result: run, verified: true, failure: '外部 Agent 被取消（进程组已终止）', errorCode: 'COMMAND_FAILED' as const };
+    }
+    if (run.timedOut) {
+      return { result: run, verified: true, failure: '外部 Agent 执行超时（已终止进程组）', errorCode: 'COMMAND_FAILED' as const };
+    }
+    if (run.exitCode !== 0) {
+      return {
+        result: run,
+        verified: true,
+        failure: `外部 Agent 退出码 ${String(run.exitCode)}`,
+        errorCode: 'COMMAND_FAILED' as const
+      };
+    }
+    return ok(run);
+  }),
 
   local('session.search', async (args, ctx) => {
     if (!ctx.callMain) throw new Error('当前执行环境没有接入主进程桥，session.search 不可用');

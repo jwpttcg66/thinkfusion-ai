@@ -30,6 +30,14 @@ import type {
 } from '../shared/workspace';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
+import type { CliAgentView, TerminalAttach, TerminalDataEvent } from '../shared/cli-agents';
+import type {
+  TaskWorktreeCommitInput,
+  TaskWorktreeDiff,
+  TaskWorktreeMergeResult,
+  TaskWorktreeRemoveInput,
+  TaskWorktreeView
+} from '../shared/worktree';
 
 /**
  * The renderer gets exactly these calls and nothing else. No generic
@@ -107,6 +115,37 @@ const api: AgentApi = {
   cancelTask: (taskId: string) => ipcRenderer.invoke('task:cancel', taskId),
   answerClarification: (input: { taskId: string; answer: string }) => ipcRenderer.invoke('task:answer', input),
   deleteTask: (taskId: string) => ipcRenderer.invoke('task:delete', taskId),
+
+  getCliAgents: (): Promise<CliAgentView[]> => ipcRenderer.invoke('cli:list'),
+  setCliAgentEnabled: (input: { id: string; enabled: boolean }): Promise<CliAgentView[]> =>
+    ipcRenderer.invoke('cli:set-enabled', input),
+
+  attachTerminal: (sessionId: string): Promise<TerminalAttach> =>
+    ipcRenderer.invoke('terminal:attach', sessionId),
+  writeTerminal: (sessionId: string, data: string): Promise<void> =>
+    ipcRenderer.invoke('terminal:write', { sessionId, data }),
+  resizeTerminal: (sessionId: string, cols: number, rows: number): Promise<void> =>
+    ipcRenderer.invoke('terminal:resize', { sessionId, cols, rows }),
+  closeTerminal: (sessionId: string): Promise<void> => ipcRenderer.invoke('terminal:close', sessionId),
+  onTerminalData: (listener: (event: TerminalDataEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TerminalDataEvent) => listener(payload);
+    ipcRenderer.on('terminal:data', handler);
+    return () => ipcRenderer.removeListener('terminal:data', handler);
+  },
+
+  getTaskWorktree: (taskId: string): Promise<TaskWorktreeView | null> =>
+    ipcRenderer.invoke('worktree:get', taskId),
+  openTaskWorktree: (taskId: string): Promise<{ opened: boolean; error?: string }> =>
+    ipcRenderer.invoke('worktree:open', taskId),
+  copyTaskWorktreePath: (taskId: string): Promise<void> => ipcRenderer.invoke('worktree:copy-path', taskId),
+  getTaskWorktreeDiff: (taskId: string): Promise<TaskWorktreeDiff> =>
+    ipcRenderer.invoke('worktree:diff', taskId),
+  commitTaskWorktree: (input: TaskWorktreeCommitInput): Promise<TaskWorktreeView> =>
+    ipcRenderer.invoke('worktree:commit', input),
+  mergeTaskWorktree: (taskId: string): Promise<TaskWorktreeMergeResult> =>
+    ipcRenderer.invoke('worktree:merge', taskId),
+  removeTaskWorktree: (input: TaskWorktreeRemoveInput): Promise<void> =>
+    ipcRenderer.invoke('worktree:remove', input),
 
   getPermissionPreset: () => ipcRenderer.invoke('permission:get'),
   setPermissionPreset: (preset: PermissionPreset) => ipcRenderer.invoke('permission:set', preset),

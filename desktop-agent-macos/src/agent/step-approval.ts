@@ -27,7 +27,7 @@ export function needsApproval(tool: string, mode: StepApprovalMode): boolean {
 /** 风险分级只影响界面强调，不改变「问不问」——问不问由 `needsApproval` 决定。 */
 export function riskOf(tool: string): 'read' | 'write' | 'danger' {
   if ((READ_ONLY_TOOLS as readonly string[]).includes(tool)) return 'read';
-  if (['shell.run', 'code.run', 'test.run', 'process.kill', 'fs.remove', 'fs.move'].includes(tool)) {
+  if (['shell.run', 'code.run', 'test.run', 'process.kill', 'fs.remove', 'fs.move', 'agent.exec'].includes(tool)) {
     return 'danger';
   }
   return 'write';

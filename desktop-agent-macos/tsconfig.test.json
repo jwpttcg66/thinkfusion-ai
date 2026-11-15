@@ -12,6 +12,8 @@
     "src/main/attachments.ts",
     "src/main/capabilities/**/*.ts",
     "src/main/capability-state.ts",
+    "src/main/cli-agents.ts",
+    "src/main/task-worktree.ts",
     "src/main/capability-store.ts",
     "src/main/expertise/**/*.ts",
     "src/main/research/**/*.ts",
