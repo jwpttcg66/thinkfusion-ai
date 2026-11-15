@@ -21,6 +21,13 @@ export interface ModelMemberView {
   kind: 'local' | 'cloud';
   available: boolean;
   detail?: string;
+  /**
+   * 这一位是 CLI 软件源（`cli:qoder` 这种），归属上算云端一类。
+   *
+   * 它跟 API 模型一样能回答、能主导、能辩论，但慢一档：每条问题都要起一次
+   * 进程。编排里排在 API 模型后面，前面有能用的模型时用户先拿到答案。
+   */
+  cli?: boolean;
 }
 
 /**

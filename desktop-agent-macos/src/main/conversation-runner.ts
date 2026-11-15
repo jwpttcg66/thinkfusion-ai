@@ -1769,6 +1769,19 @@ export class ConversationRunner {
         );
         return null;
       }
+      // 云端主导、又没有可用的云端 API 模型（这台机器只配了 CLI 来源），
+      // 但这一问本来就不需要读本机文件：没有工程证据、也没有附件。
+      // 这种问题交给标准回答链是安全的——CLI 属云端一类，照常被问，
+      // 不能因为编排名单里只有「API 模型」就让普通问答直接失败。
+      // 真要读证据（有 material 或附件）才保持如实失败：CLI 读不到本机文件。
+      const needsLocalMaterial = !!material || attachmentCount > 0;
+      if (config.executionMode === 'cloud' && !needsLocalMaterial) {
+        sink.note(
+          `${orchestration.reason}。这一问不需要读本机文件，改由标准回答链提问：` +
+            `CLI 来源属云端一类，照常被问；云端 API 模型有 Key 也会一起问。`
+        );
+        return null;
+      }
       sink.note(`${orchestration.reason}。本地/云端主导不退回网页，这一轮没有可问的模型。`);
       const outcome: ResearchOutcome = {
         answers: [],
@@ -2418,7 +2431,7 @@ export class ConversationRunner {
     // 「不足两位」跳过——这是归属规则里明确要求过的。
     if (answers.length < (orchestration ? 1 : 2)) return null;
 
-    const lead = orchestration?.lead
+    let lead = orchestration?.lead
       ? {
           agentId: orchestration.lead.agentId,
           label: orchestration.lead.label,
@@ -2435,8 +2448,8 @@ export class ConversationRunner {
       });
       return null;
     }
-    const isPage = lead.kind === 'web';
-    const label = lead.label;
+    let isPage = lead.kind === 'web';
+    let label = lead.label;
 
     // 第一轮答完才进入主导汇总；不再在对话里贴一段进度公告，
     // 通道条的第二轮 + leading 相位已经说明了这件事。
@@ -2466,82 +2479,125 @@ export class ConversationRunner {
     let summaryReasoning: string | null = null;
     let verdictReasoning: string | null = null;
     let leadStep: { turn: number; step: number } | undefined;
-    try {
-      // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
-      // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
-      // 进页面」机制，页面上第一段用户发言仍然只有原话。
-      //
-      // 附件排在最前：它是用户这一问亲手递过来的原文，优先级不低于程序扫描
-      // 到的工程证据。真机 2026-11-09 的教训——附件排在问题里时，汇总会用
-      // 工程证据把它否掉，用户看到的结论跟文件内容相反。
-      const material = [attachments, engineering, page].filter(Boolean).join('\n\n') || null;
-      // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
-      const taskKind: LeadTaskKind | undefined =
-        conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
-      // 附件与工程证据都是真实材料，必须明确写进纪律里。否则「只依据这些回答」
-      // 会被理解为「不能引用用户给的文件」，出现真机那种「文件里明明写着，
-      // 结论却说无法确定」。API 主导时这些句子进 system，网页主导时（页面不认
-      // system）拼进同一条用户消息，两边口径一致。
-      const materialInstructions = [
-        ...(attachments
-          ? ['【用户随这一问附上的文件】是用户亲手挑的本机文件原文，和各家回答一样是可引用的依据；文件里写明的事实（数字、行数、命令、清单）优先于任何人的推测。']
-          : []),
-        ...(engineering
-          ? ['工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
-          : []),
-        ...(attachments && engineering
-          ? ['附件与工程证据冲突时，指出冲突本身（各自写了什么），不要默默采用其中一份。']
-          : [])
-      ];
-      const baseQuestion = isPage
-        ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
-        : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
-      leadStep = trace?.beginStep({
-        stage: 'lead',
-        group: 'lead',
-        actorId: lead.agentId,
-        actorLabel: label,
-        sourceType: this.traceSourceOf(lead.agentId),
-        reason: followUp ? '追加轮更新汇总' : '汇总',
-        inputPreview: baseQuestion
-      });
-      const leadTask = {
-        question: baseQuestion,
-        stage: 'challenge' as const,
-        // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
-        timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
-        // 只有 API 主导用得上 system；网页通道会忽略它。
-        system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
-      };
-      const answer = isPage
-        ? await pool.ask(lead.agentId, leadTask)
-        : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
-      const text = rewriteSourceRefs(answer.text.trim(), answers);
-      summaryText = text || null;
-      if (answer.reasoning) summaryReasoning = answer.reasoning;
-      trace?.endStep(leadStep, {
-        status: summaryText ? 'ok' : 'skipped',
-        usage: answer.usage ?? null,
-        ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
-        ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
-        ...(text ? { outputPreview: text } : {}),
-        meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
-      });
-      if (!summaryText) {
-        sink.phase(lead.agentId, 'answered', '汇总未写出内容');
-      } else {
-        // 整段执行阶段都保持 leading：中途改成 answered，第二轮通道条会空掉，
-        // 真机上看起来像「第二轮没有通道条」。细节文字区分进度即可。
-        sink.phase(lead.agentId, 'leading', '汇总完成，继续执行阶段');
+    // 材料与纪律只跟「问什么」有关，跟谁汇总无关，先算好放外面。
+    // 附件、工程证据与网页正文都只在这里（执行阶段的汇总）追加，绝不进第
+    // 一手网页问题。网页主导时同样拼进那一条用户消息，走既有的「把材料递
+    // 进页面」机制，页面上第一段用户发言仍然只有原话。
+    //
+    // 附件排在最前：它是用户这一问亲手递过来的原文，优先级不低于程序扫描
+    // 到的工程证据。真机 2026-11-09 的教训——附件排在问题里时，汇总会用
+    // 工程证据把它否掉，用户看到的结论跟文件内容相反。
+    const material = [attachments, engineering, page].filter(Boolean).join('\n\n') || null;
+    // 任务类型决定汇总写法：比较要有对比，提取只依据正文。
+    const taskKind: LeadTaskKind | undefined =
+      conversation.intent === 'workspace' ? undefined : (conversation.intent as LeadTaskKind);
+
+    // 主导人挂掉（额度用完 / 限流 / 区域限制）不该让整轮停在没有结论上：
+    // 换本轮真正答出来的成员再汇总一次，最多再试两位，并如实写明换了谁。
+    // 真机 2026-11-15：云端主导选中的 API 模型周额度 429，CLI 明明已答出内容，
+    // 整轮却只剩一条回答、没有汇总与最终意见。
+    const primaryLead = lead;
+    const summaryTargets = [
+      primaryLead,
+      ...answers
+        .filter(
+          answer =>
+            answer.channelId !== primaryLead.agentId &&
+            answer.text.trim() &&
+            // 只在同一归属里换人：本地主导不许拉网页来汇总，网页主导也不拉模型。
+            // 归属规则管的是「用哪一类成员」，换人不能把它换掉。
+            (this.ownershipSourceOf(answer.channelId) ?? 'web') === primaryLead.kind
+        )
+        .slice(0, 2)
+        .map(answer => ({
+          agentId: answer.channelId,
+          label: answer.label,
+          kind: this.ownershipSourceOf(answer.channelId) ?? ('cloud' as const),
+          auto: false,
+          reason: '原主导人没能完成汇总'
+        }))
+    ];
+
+    for (const target of summaryTargets) {
+      if (target !== lead) {
+        lead = target;
+        isPage = lead.kind === 'web';
+        label = target.label;
+        sink.note(`原主导人没能完成汇总，改由 ${label} 汇总。`);
+        for (const answer of answers) {
+          if (answer.channelId !== lead.agentId) {
+            sink.phase(answer.channelId, 'answered', '第一轮已回答');
+          }
+        }
+        sink.phase(lead.agentId, 'leading', `${label} 当主导人：汇总各家回答并指定辩题`);
       }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      trace?.endStep(leadStep, {
-        status: 'failed',
-        error: { code: errorCodeOf(detail), detail }
-      });
-      sink.phase(lead.agentId, 'failed', detail);
-      this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
+      try {
+        // 附件与工程证据都是真实材料，必须明确写进纪律里。否则「只依据这些回答」
+        // 会被理解为「不能引用用户给的文件」，出现真机那种「文件里明明写着，
+        // 结论却说无法确定」。API 主导时这些句子进 system，网页主导时（页面不认
+        // system）拼进同一条用户消息，两边口径一致。
+        const materialInstructions = [
+          ...(attachments
+            ? ['【用户随这一问附上的文件】是用户亲手挑的本机文件原文，和各家回答一样是可引用的依据；文件里写明的事实（数字、行数、命令、清单）优先于任何人的推测。']
+            : []),
+          ...(engineering
+            ? ['工程证据是本机真实读取到的文件片段，比网页回答里的推测更可靠；引用它时写明路径:行号。']
+            : []),
+          ...(attachments && engineering
+            ? ['附件与工程证据冲突时，指出冲突本身（各自写了什么），不要默默采用其中一份。']
+            : [])
+        ];
+        const baseQuestion = isPage
+          ? inlineLeadInstructions(question, answers, { taskKind, material, followUp, extraInstructions: materialInstructions })
+          : buildLeadSummaryQuestion(question, answers, { taskKind, material, followUp });
+        leadStep = trace?.beginStep({
+          stage: 'lead',
+          group: 'lead',
+          actorId: lead.agentId,
+          actorLabel: label,
+          sourceType: this.traceSourceOf(lead.agentId),
+          reason: followUp ? '追加轮更新汇总' : '汇总',
+          inputPreview: baseQuestion
+        });
+        const leadTask = {
+          question: baseQuestion,
+          stage: 'challenge' as const,
+          // 网页主导要把一整段重新键入并等它写完，和第一次回答一样慢，给足时间。
+          timeoutMs: isPage ? 180_000 : LEAD_SUMMARY_TIMEOUT_MS,
+          // 只有 API 主导用得上 system；网页通道会忽略它。
+          system: isPage ? undefined : [...leadSummarySystem(taskKind, followUp), ...materialInstructions]
+        };
+        const answer = isPage
+          ? await pool.ask(lead.agentId, leadTask)
+          : await this.askStreaming(pool, lead.agentId, leadTask, conversation);
+        const text = rewriteSourceRefs(answer.text.trim(), answers);
+        summaryText = text || null;
+        if (answer.reasoning) summaryReasoning = answer.reasoning;
+        trace?.endStep(leadStep, {
+          status: summaryText ? 'ok' : 'skipped',
+          usage: answer.usage ?? null,
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
+          ...(typeof answer.firstTokenAt === 'number' ? { firstTokenAt: answer.firstTokenAt } : {}),
+          ...(text ? { outputPreview: text } : {}),
+          meta: text ? { outputChars: text.length } : { code: 'empty-summary' }
+        });
+        if (!summaryText) {
+          sink.phase(lead.agentId, 'answered', '汇总未写出内容');
+        } else {
+          // 整段执行阶段都保持 leading：中途改成 answered，第二轮通道条会空掉，
+          // 真机上看起来像「第二轮没有通道条」。细节文字区分进度即可。
+          sink.phase(lead.agentId, 'leading', '汇总完成，继续执行阶段');
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        trace?.endStep(leadStep, {
+          status: 'failed',
+          error: { code: errorCodeOf(detail), detail }
+        });
+        sink.phase(lead.agentId, 'failed', detail);
+        this.addMessage(conversation, { role: 'system', text: `主导人 ${label} 没能完成汇总：${detail}` });
+      }
+      if (summaryText) break;
     }
     if (!summaryText) {
       return { lead, summaryText: null, topics: [], debate: null, verdictText: null, reasoning: summaryReasoning };

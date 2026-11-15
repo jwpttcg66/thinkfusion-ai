@@ -4991,26 +4991,42 @@ app.whenReady().then(async () => {
     modelMembers: async config => {
       const selection = selectParticipants(config, registry.list(), extraAgents, cliAnswerAgents);
       const members = extraAgents.filter(agent => selection.executorIds.has(agent.id));
-      return Promise.all(
-        members.map(async agent => {
-          let available = false;
-          let detail: string | undefined;
-          try {
-            const health = await agent.health();
-            available = health.available;
-            detail = health.detail;
-          } catch (error) {
-            detail = error instanceof Error ? error.message : String(error);
-          }
-          return {
+      const health = async (agent: { health(): Promise<{ available: boolean; detail?: string }> }) => {
+        let available = false;
+        let detail: string | undefined;
+        try {
+          const status = await agent.health();
+          available = status.available;
+          detail = status.detail;
+        } catch (error) {
+          detail = error instanceof Error ? error.message : String(error);
+        }
+        return { available, detail };
+      };
+      const models = await Promise.all(
+        members.map(async agent => ({
+          agentId: agent.id,
+          label: agent.label,
+          kind: (agent.sourceType === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
+          ...(await health(agent))
+        }))
+      );
+      // CLI 属云端一类：云端档下也进工程编排名单（2026-11-15 裁决「可以主导、
+      // 可以回答、可以辩论」）。不进的话，这台机器上没有一个能用的 API 模型时，
+      // 工程空间连普通问答都发不出去——真机 403 区域限制就是这个结果。
+      // 名单仍按 selectParticipants 的 executors 过滤：本地档不含 CLI。
+      const cli = await Promise.all(
+        cliAnswerAgents
+          .filter(agent => selection.executorIds.has(agent.id))
+          .map(async agent => ({
             agentId: agent.id,
             label: agent.label,
-            kind: (agent.sourceType === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
-            available,
-            detail
-          };
-        })
+            kind: 'cloud' as const,
+            cli: true as const,
+            ...(await health(agent))
+          }))
       );
+      return [...models, ...cli];
     },
     /**
      * V2.1 Model Router：把「这一轮用哪些模型、为什么」在提问之前算出来。
