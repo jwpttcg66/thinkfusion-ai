@@ -45,6 +45,13 @@ export interface CliRunRequest {
   /** 交给 CLI 的任务原文。 */
   task: string;
   timeoutMs: number;
+  /**
+   * 是否带上 `permissionArgs`。缺省 `true`（执行者：要批准才能改文件）。
+   *
+   * 「回答问题的源」传 `false`：它只被问一句话，不该顺手获得改文件的权限，
+   * 也不该让一个 `accept_edits` 参数把问答变成一次写盘授权。
+   */
+  withPermissionArgs?: boolean;
 }
 
 export function cliAgentConfigError(config: CliAgentConfig | undefined): string | null {
@@ -59,9 +66,9 @@ export function cliAgentConfigError(config: CliAgentConfig | undefined): string 
   return null;
 }
 
-function buildArgs(config: CliAgentConfig, task: string): string[] {
+function buildArgs(config: CliAgentConfig, task: string, withPermissionArgs: boolean): string[] {
   const args = config.args.map(arg => arg.split('{task}').join(task));
-  args.push(...(config.permissionArgs ?? []));
+  if (withPermissionArgs) args.push(...(config.permissionArgs ?? []));
   return args;
 }
 
@@ -250,7 +257,7 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
 
   const before = snapshotWorkspace(request.cwd);
   const started = Date.now();
-  const args = buildArgs(config, request.task);
+  const args = buildArgs(config, request.task, request.withPermissionArgs !== false);
   const env = buildEnv(config);
   const stdout = collector(MAX_CAPTURE_BYTES);
   const stderr = collector(MAX_CAPTURE_BYTES);

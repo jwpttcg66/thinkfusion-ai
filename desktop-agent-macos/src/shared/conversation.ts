@@ -552,6 +552,15 @@ export interface ConversationDeleteOutcome {
 export interface ChannelStatus {
   id: string;
   label: string;
+  /**
+   * 这条状态属于哪一类回答源。缺省（老数据、全部网页通道）= `web`。
+   *
+   * `cli` 是 2026-11-15 用户裁决的第四类：**回答问题的软件源**，跟网页源同一
+   * 层级——它像网页一样被提问、一样出回答，差别只是没有页面可看（答案从进程
+   * 输出里来）。所以它必须出现在状态条与转录里，同时不能被算进「网页就绪
+   * N/M」那个只数页面的计数。
+   */
+  sourceType?: 'web' | 'local' | 'cloud' | 'cli';
   /** Usable right now: logged in, page ready, not mid-generation. */
   available: boolean;
   loggedIn: boolean;

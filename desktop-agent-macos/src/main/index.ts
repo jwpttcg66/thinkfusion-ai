@@ -101,7 +101,24 @@ import {
 import { AgentOrchestrator } from './orchestrator';
 import { recordAppExit, setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
 import type { CliAgentView } from '../shared/cli-agents';
-import { cliCapabilityRecords, configureCliAgents, listCliAgents, setCliAgentEnabled, setCliSoftwareSource, verifyCliHeadless } from './cli-agents';
+import {
+  cliAnswerConfig,
+  cliAnswerView,
+  cliAgentIds,
+  cliCapabilityRecords,
+  configureCliAgents,
+  enabledCliAgentIds,
+  listCliAgents,
+  setCliAgentEnabled,
+  setCliSoftwareSource,
+  verifyCliHeadless
+} from './cli-agents';
+import {
+  cancelCliAnswer,
+  CliAnswerAgent,
+  runCliAnswer,
+  CLI_ANSWER_TIMEOUT_MS
+} from './execution/cli-answer-agent';
 import {
   commitTaskWorktree,
   configureTaskWorktrees,
@@ -559,6 +576,21 @@ let lastChannelSnapshotAt = 0;
 const providerRegistry = new ProviderRegistry();
 let apiKeys: ApiKeyStore | null = null;
 let extraAgents: ProviderBackedSubAgent[] = [];
+/**
+ * 第三类回答源：CLI（2026-11-15 用户裁决「网页 / 模型 / CLI 三个来源」）。
+ *
+ * 它们跟网页源同一层级——第一轮就被问、答案进转录与汇总；开关在设置页的
+ * 「Agent 预设」里，跟网页源的开关是同一件事：关掉就不问。
+ *
+ * 只建一次实例，状态与参数每次提问时问注册表（`cliAnswerView` /
+ * `cliAnswerConfig`），所以在设置里改了命令或重新验证过能力，下一问立刻生效。
+ */
+let cliAnswerAgents: CliAnswerAgent[] = [];
+
+/** CLI 那一份回答源的健康快照（网页在 registry，模型在各自的 Provider）。 */
+async function cliAnswerHealth(): Promise<ChannelStatus[]> {
+  return Promise.all(cliAnswerAgents.map(agent => agent.health()));
+}
 /**
  * 本地模型的可用清单。
  *
@@ -1064,11 +1096,13 @@ function watchDebateInConversation(debateId: string, conversationId: string): vo
   const seenFailures = new Set<string>();
   const labelOfActor = (agentId: string): string =>
     extraAgents.find(agent => agent.id === agentId)?.label
+    ?? cliAnswerAgents.find(agent => agent.id === agentId)?.label
     ?? registry.get(agentId)?.label
     ?? agentId;
   const sourceOfActor = (agentId: string): TraceSource => {
     const extra = extraAgents.find(agent => agent.id === agentId);
     if (extra) return extra.sourceType;
+    if (cliAnswerAgents.some(agent => agent.id === agentId)) return 'cli';
     return registry.get(agentId) ? 'web' : 'system';
   };
 
@@ -2711,6 +2745,10 @@ function registerIpc() {
     exportDeps: () => {
       const labels: Record<string, string> = {};
       for (const agent of registry.list()) labels[agent.id] = agent.label;
+      // 三类回答源都要有名字：导出的「通道」一列与逐条回答的抬头都读这张表，
+      // 缺了就只能显示 `cli:qoder` / `openai:gpt-4o-mini` 这种 id。
+      for (const agent of extraAgents) labels[agent.id] = agent.label;
+      for (const agent of cliAnswerAgents) labels[agent.id] = agent.label;
       for (const item of cloudCatalog) {
         for (const model of item.models) labels[`${item.id}:${model}`] = `${item.label} · ${model}`;
       }
@@ -2886,7 +2924,8 @@ function registerIpc() {
     await orchestrator.cancel(TaskIdSchema.parse(taskId));
   });
 
-  // CLI Agent 是执行者，不是回答通道：这里的开关只影响新任务能不能选它。
+  // CLI 有两个身份：回答源（第一轮被问，见 execution/cli-answer-agent.ts）
+  // 与执行者（新任务能不能把工程活派给它）。这里的开关同时管这两件事。
   /** 本次亲手在文件对话框里挑过的绝对路径；渲染层不能凭空塞路径。 */
   const pickedCliExecutables = new Set<string>();
 
@@ -3499,7 +3538,10 @@ function isMissingTerminal(error: unknown): boolean {
 
   ipcMain.handle('channel:statuses', async event => {
     trustedUiSender(event);
-    return registry.statuses();
+    // 回答源有三类（网页 / 模型 / CLI），界面要能一处拿到全部：通道条、
+    // 转录里的名字、失败原因都靠这份列表。模型源不在注册表里，所以这里
+    // 只并 CLI；模型的下发走各自的运行事件。
+    return [...(await registry.statuses()), ...(await cliAnswerHealth())];
   });
   ipcMain.handle('deepseek:status', async event => {
     trustedUiSender(event);
@@ -4751,6 +4793,19 @@ app.whenReady().then(async () => {
   setDisabledCapabilities(capabilityStore.disabledIds());
   // CLI 执行者的配置与开关：注册表读 userData，每次 task.run 下发快照。
   configureCliAgents({ userDataDir: app.getPath('userData') });
+  // 回答源在这一刻建好：注册表已经读完磁盘，之后状态与参数都实时问它。
+  cliAnswerAgents = cliAgentIds().map(
+    id =>
+      new CliAnswerAgent(id, {
+        view: cliId => cliAnswerView(cliId),
+        run: async ({ cliId, task, requestId }) => {
+          const config = cliAnswerConfig(cliId);
+          if (!config) throw new Error(`没有这个 CLI Agent：${cliId}`);
+          return runCliAnswer(config, { task, requestId, timeoutMs: CLI_ANSWER_TIMEOUT_MS });
+        },
+        cancel: requestId => cancelCliAnswer(requestId)
+      })
+  );
   configureTaskWorktrees({ root: path.join(app.getPath('userData'), 'worktrees') });
   // 开发态从项目 resources/ 读；打包后这些 .md 由 extraResources 放到
   // Contents/Resources/expertise/，两个候选都列上，哪个先找到用哪个。
@@ -4874,10 +4929,17 @@ app.whenReady().then(async () => {
     registry,
     emit: emitConversation,
     poolFor: (config, base) => {
-      const selection = selectParticipants(config, registry.list(), extraAgents);
-      return new ExecutionPool(base, extraAgents, selection.answerIds, selection.executorIds);
+      const selection = selectParticipants(config, registry.list(), extraAgents, cliAnswerAgents);
+      return new ExecutionPool(
+        base,
+        extraAgents,
+        selection.answerIds,
+        selection.executorIds,
+        cliAnswerAgents
+      );
     },
-    executorIdsFor: config => selectParticipants(config, registry.list(), extraAgents).executorIds,
+    executorIdsFor: config =>
+      selectParticipants(config, registry.list(), extraAgents, cliAnswerAgents).executorIds,
     /**
      * 专家常驻、技能按场景加载，拼出来的 system 段只给工程空间第一意见。
      * 知识空间、网页通道、汇总与裁决都拿不到它们（buildEngineeringExpertise
@@ -4910,7 +4972,7 @@ app.whenReady().then(async () => {
      * 报错，用户看到的就是「模型不能用」而不是「网页读不了本地文件」。
      */
     modelMembers: async config => {
-      const selection = selectParticipants(config, registry.list(), extraAgents);
+      const selection = selectParticipants(config, registry.list(), extraAgents, cliAnswerAgents);
       const members = extraAgents.filter(agent => selection.executorIds.has(agent.id));
       return Promise.all(
         members.map(async agent => {
@@ -4947,7 +5009,9 @@ app.whenReady().then(async () => {
         available: {
           web: registry.list().map(agent => agent.id),
           local: extraAgents.filter(agent => agent.sourceType === 'local').map(agent => agent.id),
-          cloud: extraAgents.filter(agent => agent.sourceType === 'cloud').map(agent => agent.id)
+          cloud: extraAgents.filter(agent => agent.sourceType === 'cloud').map(agent => agent.id),
+          // 第三类回答源：开着的 CLI 会跟网页一起被问，路由说明里要如实写。
+          cli: enabledCliAgentIds().map(id => `cli:${id}`)
         },
         selectedWebChannels: config.selectedWebChannels,
         selectedCloudModels: config.selectedCloudModels,
@@ -4970,7 +5034,25 @@ app.whenReady().then(async () => {
     agentSource: agentId => {
       const extra = extraAgents.find(agent => agent.id === agentId);
       if (extra) return extra.sourceType;
+      if (cliAnswerAgents.some(agent => agent.id === agentId)) return 'cli';
       return registry.get(agentId) ? 'web' : undefined;
+    },
+    /**
+     * 显示名。CLI 与本地/云端模型都不在网页注册表里，只查注册表的话状态条
+     * 与失败提示会显示 `cli:qoder` 这种 id。
+     */
+    agentLabel: agentId =>
+      extraAgents.find(agent => agent.id === agentId)?.label ??
+      cliAnswerAgents.find(agent => agent.id === agentId)?.label ??
+      registry.get(agentId)?.label,
+    /** 「停止等待」：CLI 掐自己的进程，网页取消页面等待。 */
+    cancelAgent: agentId => {
+      const cli = cliAnswerAgents.find(agent => agent.id === agentId);
+      if (cli) {
+        cli.cancelAll();
+        return;
+      }
+      registry.cancelAll(agentId);
     },
     fusionEnabled: true,
     // 会话内辩论：归属方式决定用哪一类成员；这里只负责起一场、等它跑完、

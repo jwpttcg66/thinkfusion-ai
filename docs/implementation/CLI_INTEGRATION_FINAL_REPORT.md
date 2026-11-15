@@ -145,22 +145,13 @@ npm run replay:terminal -- <sessionId> --markers
 - 只做本地 `git commit`，**不 push**，**不合并 main**；合并由用户决定。
 - 遵守 `AGENTS.md` 第 5 节与 `docs/git-workflow.md` 第 3 节。
 
-## 9. 追加：软件源设置与「问题源」边界（同分支，后一次提交）
+## 9. 追加：软件源设置，以及「回答源三类」的最终形态（2026-11-15 两次提交）
 
-用户追加提问「支持问题源了吗，软件源设置也要支持」。先按事实核对，再只改确定的一项。
+用户先问「支持问题源了吗，软件源设置也要支持」，随后两次纠正方向：
+「那现在回答通道里有cli了吗，新设计是要在问题源里的」→「不对，是回答问题的源，
+跟网页源一个层级」→「回答问题三个来源 网页，模型，cli，按照这个设计」。
 
-**「问题源」：当前刻意不支持，本轮不改。** 依据不是猜测，是代码原文：
-`src/main/cli-agents.ts` 文件头与 `src/shared/contracts.ts` 都写明
-「CLI 是执行者，不是回答通道」，理由是硬规则「所有已开启且页面可用的通道都要问」
-不能作用到会改代码的进程；`SubAgentRegistry` 是网页通道池，`ExecutionPool` 按
-`web / local / cloud` 归属收敛，把 CLI 塞进去会同时破坏知识空间与工程空间的
-选人规则。重读《CLI 接入实施计划书 V1.0》全文（附件 (15)，814 行）也确认：
-里面没有「问题源 / 软件源」这两项，§2.3 架构预留只提到 OpenCode CLI /
-CodeBuddy CLI 的 Adapter 类型标识，§16 更明确「本项目只负责 CLI 的接入、
-承载、交互和应用层治理，辩论系统升级是另一个独立项目」。因此这项保持
-`NOT_IMPLEMENTED`，要支持必须先由用户裁决提问链路的归属规则。
-
-**「软件源设置」：`IMPLEMENTED / INTEGRATED / VERIFIED / TESTED`。**
+**第一次提交（`01cf94c`）**：按当时的事实只做了「软件源设置」。
 
 | 能力 | 落点 |
 | --- | --- |
@@ -171,15 +162,57 @@ CodeBuddy CLI 的 Adapter 类型标识，§16 更明确「本项目只负责 CLI
 | 换命令名自动降级能力 | 既有参数指纹机制，无需新逻辑 |
 | 自动化测试 | `npm run test:cli-source`，8/8 |
 
-明确不做的：不替用户安装/更新、不联网、不把端点混进 argv、不放凭据、
-不因为一个开关就把 CLI 变成回答通道。
+同一提交里曾把「问题源」判成 `NOT_IMPLEMENTED`，理由是代码里写着「CLI 是执行者，
+不是回答通道」。**该结论已被用户裁决推翻**：新设计里 CLI 是**回答问题的源**，
+跟网页源同一层级。这段历史保留在此，是为了说明当时的判断依据，而不是现行边界。
 
-验收追加：`npm run typecheck` 三套绿、`npm run build` 成功、
-`test:cli-source` 8/8、`test:cli-production` 35/35。全量 `npm test`
-（`/tmp/tf-027-full-test-source.log`，9225 行）跑到最后一个
-`test:cli-source` 8/8，`not ok` 0 条、`error TS` 0 条、每个套件 `# fail 0`。
+**本次提交：回答源 = 网页 / 模型 / CLI 三类，同一层级。**
 
-真机（Electron 调试实例，CDP 复核）：
+| 环节 | 改动 |
+| --- | --- |
+| 选人 | `execution/policy.ts`：`web` / `hybrid` 的第一轮 = 网页 + CLI；`local` / `cloud` 不问 CLI（跟不问网页同一条归属规则） |
+| 成员 | `execution/cli-answer-agent.ts`：`CliAnswerAgent implements SubAgent`，`sourceType='cli'`，`id='cli:<cliId>'` |
+| 执行 | 同一文件里 `runCliAnswer()` 真 spawn：问题原文作为**单个 argv**、不传 `permissionArgs`、cwd 固定系统临时目录、超时 240s、按进程组终止、输出先脱敏再返回 |
+| 名单收敛 | `execution/execution-pool.ts`：第三份名单（网页 / 模型 / CLI），`available()` 按 health 筛，`cancelAll` 掐 CLI 子进程 |
+| 归属 | `conversation-runner.ts` 的 `ownershipSourceOf()`：CLI 对归属计算返回 `undefined`——它回答，不当主导、不当辩手 |
+| 取消 | runner 新增 `cancelAgent` 依赖：停止等待时网页取消页面等待、CLI 终止自己的进程 |
+| 状态与名字 | `channel:statuses` 合并 CLI health；Claude/Qoder 在通道条与轨迹里显示真名，不再显示 `cli:qoder` |
+| 路由说明 | `shared/model-route.ts` 增加 `available.cli`，说明里如实写「另有 CLI 来源 N 个一起被问（只回答，不参与汇总与交锋）」 |
+| 界面 | 右侧栏 CLI 按钮的点改为「能不能被问」；设置页文案改成「外部 CLI 来源（回答 + 执行）」 |
+| 测试 | `npm run test:cli-answer`，8/8：三类选人、可用性筛选、原话逐字、真实 spawn 不带权限参数、失败按 CLI 错误分类 |
+
+明确不做的：CLI 不当主导、不进辩论名单、不参与汇总与裁决（那要能读全场材料的
+模型）；`local` / `cloud` 主导下不问 CLI；回答链永不传 `permissionArgs`；工程空间
+仍按 2026-11-08 的多 agent 编排（本地 + 云端模型为主、混合档才拉网页），CLI 不
+进工程编排成员名单——它读不动本机工程证据，进去只会答「请上传文件」。
+
+验收：三套 `typecheck` 绿、`build` 成功、`test:cli-answer` 8/8、`test:execution` 13/13、
+`test:model-route` 12/12、`test:cli-production` 35/35、`test:cli-source` 8/8；全量
+`npm test` 见 `/tmp/tf-027-full-test-cli-answer.log`（`not ok` 0、`error TS` 0、95 个套件
+`# fail 0`）。
+
+真机（Electron 调试实例，CDP；本机 ChatGPT 未登录、DeepSeek 未开启，所以是 CLI 单独
+回答的一轮）：
+
+- `getCliAgents()`：`qoder v1.1.89`、`claude 2.1.325`，两个 `available=true`、
+  `headless=verified`。
+- `getChannelStatuses()` 里出现 `cli:qoder` / `cli:claude`，带 `sourceType: 'cli'`。
+- 知识空间提「用一句话回答：1 加 1 等于几？只回答结果。」并显式清空网页名单：
+  `channels = ['cli:qoder','cli:claude']`，状态 `answered`；`[cli:qoder]` 回「2」。
+- Claude 那一份是周额度 429：转录写「Claude CLI：cli:claude: RATE_LIMITED（…OpenCode Go
+  usage limit reached…）」，而不是把它算成回答成功——错误分类在这条链上同样有效。
+- 测完这条会话当场删除（`deleteConversation`），侧栏回读残留 0。
+
+真机抓到并修掉的一个真问题：只要有一个网页 `health()` 抛错，`registry.statuses()` 的
+`Promise.all` 就会 reject，`available()` 随之整轮失败——CLI 明明可用也跟着一起挂。
+现在逐个成员兜住，抛出的原因写进 `detail`（`agents/registry.ts`），`ExecutionPool`
+对模型与 CLI 的探测也各自兜住。
+
+没验到的（如实记）：网页与 CLI **同场**的那一轮。本机唯一启用的 ChatGPT 没有登录、
+DeepSeek 未开启，没有可用网页可同场；这条路径由 `test:execution` / `test:cli-answer`
+的选人断言覆盖，真机要等有登录态的机器再补。
+
+## 10. 软件源设置的真机验收（沿用 `01cf94c`）
 
 - `getCliAgents()` → `setCliSoftwareSource()` → `getCliAgents()`：Qoder 从
   `softwareSource: null` 变成 `npm 包 / @qoder/cli / 端点 / 备注`，重读一致；

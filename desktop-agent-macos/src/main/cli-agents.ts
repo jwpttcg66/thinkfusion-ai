@@ -1,12 +1,16 @@
 /**
  * CLI Agent 注册表：装没装、什么版本、能不能用、用户开没开。
  *
- * 它**不是**网页来源（`PageSource`）的一部分：网页是「被问的通道」，CLI 是
- * 「被派活的执行者」。混在一起会让「所有已开启的通道都要被问」这条规则
- * 错误地作用到 CLI 上——用户问一个事实问题时不该启动一个会改代码的进程。
+ * **一个 CLI 有两个身份，别把它们混成一层**（2026-11-15 用户裁决）：
  *
- * 配置落在 userData/cli-agents.json；每次 task.run 把只读快照随执行下发，
- * Runtime 因此不需要读 userData，执行也没有被搬到主进程。
+ * 1. **回答问题的源**——跟网页源同一层级。用户开着的 CLI 会像 DeepSeek /
+ *    Kimi 那样被问同一句原话，答案从进程输出里回来，进第一轮、进汇总、
+ *    进转录的通道条。实现见 `execution/cli-answer-agent.ts`。
+ * 2. **被派活的执行者**——`agent.exec` 在执行阶段点名它去改代码，走授权与
+ *    工作树（见 `agent/tools/cli-agent.ts`）。
+ *
+ * 两个身份共用这份配置，但用的不是同一组参数：回答源不传 `permissionArgs`
+ * 也不碰工程目录，它只是答一句问题。配置落在 userData/cli-agents.json。
  */
 
 import { execFile, execFileSync } from 'node:child_process';
@@ -238,6 +242,35 @@ function viewOf(config: CliAgentConfig): CliAgentView {
 
 export function listCliAgents(): CliAgentView[] {
   return cached.map(viewOf);
+}
+
+/**
+ * 回答源此刻的状态：可用性、不可用原因、版本都取注册表当前值。
+ *
+ * 不给实例缓存：设置里关掉一个 CLI、换了可执行文件、版本升级导致能力降级，
+ * 都必须在下一轮提问里立刻生效，而不是等应用重启。
+ */
+export function cliAnswerView(id: string): CliAgentView | undefined {
+  const config = cached.find(item => item.id === id);
+  return config ? viewOf(config) : undefined;
+}
+
+/** 回答源真正 spawn 时用的配置：可执行文件已解析、headless 已按版本判定。 */
+export function cliAnswerConfig(id: string): CliAgentConfig | undefined {
+  return cliAgentSnapshot().find(item => item.id === id);
+}
+
+/** 注册表里有哪些 CLI（顺序即右侧栏顺序）。 */
+export function cliAgentIds(): string[] {
+  return cached.map(item => item.id);
+}
+
+/**
+ * 用户开着的 CLI。**不探版本、不碰文件系统**：这条路每条消息都会走一遍，
+ * 只回答「开关状态」，可用性由提问那一刻的 health() 自己报。
+ */
+export function enabledCliAgentIds(): string[] {
+  return cached.filter(item => item.enabled).map(item => item.id);
 }
 
 /** 给 Runtime 的只读快照：包含配置与真实路径，不包含任何用户密钥。 */

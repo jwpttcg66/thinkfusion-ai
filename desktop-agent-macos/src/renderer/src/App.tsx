@@ -434,13 +434,16 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // CLI 开关在设置里改；关掉设置面板时重新取一次，右侧栏立即反映。
+  //
+  // 只按「开着」筛，不按「可用」筛：跟网页源一样，开着的来源就该出现在栏里，
+  // 不可用时用灭掉的点表示——把整条藏起来，用户会以为自己的开关没生效。
   useEffect(() => {
     if (settingsOpen) return;
     let alive = true;
     void window.agentAPI
       .getCliAgents()
       .then(list => {
-        if (alive) setCliAgents(list.filter(item => item.enabled && item.available));
+        if (alive) setCliAgents(list.filter(item => item.enabled));
       })
       .catch(() => undefined);
     return () => {
@@ -1786,7 +1789,8 @@ export default function App() {
       closeTerminalPane();
       return;
     }
-    const agent = cliAgents[0];
+    // 优先挑能被问的那一个：栏里也可能有「开着但不可用」的 CLI。
+    const agent = cliAgents.find(item => item.available) ?? cliAgents[0];
     if (agent) {
       void selectCliAgent(agent.id);
       return;
@@ -2056,12 +2060,15 @@ export default function App() {
           <div className="topbar-right">
             {/* 跟设置里「启动时打开网页源」同一开关：打开就显示就绪条，关闭就不显示。 */}
             {showWebSourceStatusBar(sources.openOnLaunch) && (() => {
-              const ready = channelStatuses.filter(channel => channel.available).length;
-              const blocked = channelStatuses.filter(channel => !channel.available);
+              // 只数网页：`channel:statuses` 现在也带 CLI 软件源（它跟网页同一
+              // 层级，转录要显示它的名字与失败原因），但这一句写的是「页面就绪」。
+              const pages = channelStatuses.filter(channel => (channel.sourceType ?? 'web') === 'web');
+              const ready = pages.filter(channel => channel.available).length;
+              const blocked = pages.filter(channel => !channel.available);
               const detail = blocked.map(channel => `${channel.label}: ${channel.detail ?? '不可用'}`).join('；');
               return (
                 <span className={`pill ${ready > 0 ? 'ok' : 'warn'}`} title={detail || status?.detail || undefined}>
-                  {channelStatuses.length === 0 ? '连接中…' : `${ready}/${channelStatuses.length} 页面就绪`}
+                  {pages.length === 0 ? '连接中…' : `${ready}/${pages.length} 页面就绪`}
                 </span>
               );
             })()}
@@ -2075,15 +2082,16 @@ export default function App() {
               // was cut mid-sentence, and next to a green 「3/3 页面就绪」 it read
               // as "not connected" no matter what it said. The full sentence is
               // still there, as the tooltip.
-              const blocked = channelStatuses.find(channel => !channel.available && channel.detail);
-              const hint = blocked ?? channelStatuses.find(channel => channel.available && !channel.loggedIn && channel.detail);
+              const pages = channelStatuses.filter(channel => (channel.sourceType ?? 'web') === 'web');
+              const blocked = pages.find(channel => !channel.available && channel.detail);
+              const hint = blocked ?? pages.find(channel => channel.available && !channel.loggedIn && channel.detail);
               if (!hint?.detail) return null;
               return (
                 <span
                   className="status-detail"
                   title={
                     blocked
-                      ? channelStatuses.map(channel => channel.detail).filter(Boolean).join('；')
+                      ? pages.map(channel => channel.detail).filter(Boolean).join('；')
                       : `${hint.label}：${hint.detail}`
                   }
                 >
@@ -2154,8 +2162,14 @@ export default function App() {
                 conversation={activeConversation}
                 messages={messages}
                 channelStatuses={channelStatuses}
-                // 综合里的「观点A/B/C」要配上站点图标，读者才知道是哪一家。
-                glyphs={new Map(sources.sources.map(source => [source.id, source.glyph]))}
+                // 综合里的「观点A/B/C」要配上来源图标，读者才知道是哪一家。
+                // CLI 软件源跟网页源并列，所以它的 id（`cli:<id>`）也要有图标。
+                glyphs={new Map([
+                  ...sources.sources.map(source => [source.id, source.glyph] as const),
+                  ...cliAgents.map(
+                    agent => [`cli:${agent.id}`, agent.glyph ?? agent.label.slice(0, 1)] as const
+                  )
+                ])}
                 phases={phases}
                 deltas={answerDeltas}
                 debate={debateLive}
@@ -2769,7 +2783,8 @@ export default function App() {
             label: agent.label,
             glyph: agent.glyph ?? agent.label.slice(0, 1),
             running: Boolean(state?.running),
-            viewing: Boolean(state && state.sessionId === terminalPaneSession)
+            viewing: Boolean(state && state.sessionId === terminalPaneSession),
+            available: agent.available
           };
         })}
         onSelectCli={id => void selectCliAgent(id)}

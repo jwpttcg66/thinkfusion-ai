@@ -149,7 +149,7 @@ export function SettingsPanel(props: {
   const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [capabilityBusy, setCapabilityBusy] = useState<string | null>(null);
   const [capabilityNote, setCapabilityNote] = useState('');
-  /** CLI Agent：执行者，不是回答通道；清单与可用性由主进程检测。 */
+  /** CLI Agent：第三类回答源（网页 / 模型 / CLI）+ 执行者，清单与可用性由主进程检测。 */
   const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
   const [cliBusy, setCliBusy] = useState<string | null>(null);
   const [cliNote, setCliNote] = useState('');
@@ -1669,15 +1669,18 @@ export function SettingsPanel(props: {
 
             {section === 'agents' && (
               <section className="settings-section">
-                <h3>外部 CLI Agent（执行者）</h3>
+                <h3>外部 CLI 来源（回答 + 执行）</h3>
                 <p className="settings-lead">
-                  Qoder / Claude 这类 CLI 是执行者，不是回答通道：打开它不会让它在每个问题上发言，
-                  只决定新任务能不能把工程活派给它。真正启动还要在任务里选「完全访问」权限，
-                  并在计划里逐次批准——它自带工具循环，TaskGrant 拦不到它内部每一步。
+                  回答源只有三类：网页、模型、CLI。打开的 CLI 会像 DeepSeek / Kimi 一样被问同一句
+                  原话，答案进第一轮、进汇总，也出现在转录的通道条上——它只回答，不主导、不当辩手。
+                  它同时也还是执行者：工程活能不能派给它，取决于这里的开关和任务里的逐次批准。
+                </p>
+                <p className="settings-lead">
+                  回答时不带权限参数、不在工程目录里跑：它拿不到改文件的能力，只答这一句问题。
                 </p>
                 <p className="settings-lead">
                   能力结论绑定版本：CLI 升级后要重新跑一次最小任务，确认参数没漂移，再把
-                  headless 标回 verified。没实测的配置不会被启动。
+                  headless 标回 verified。没实测的配置既不会被启动，也不会被当作回答源。
                 </p>
                 <p className="settings-lead">
                   「软件源」记录每个 CLI 从哪装、用哪个可执行文件、走哪个端点。它只是配置与排障信息：
@@ -1708,6 +1711,9 @@ export function SettingsPanel(props: {
                           {item.available
                             ? `可执行：${item.executable ?? item.command}`
                             : (item.reason ?? '当前不可用')}
+                        </p>
+                        <p className="settings-muted">
+                          回答源：{item.available ? '会跟网页一起被问（第一轮），只回答不主导' : '这一轮不会被问'}
                         </p>
                         <p className="settings-muted">
                           非交互：{item.headless === 'verified' ? '已实测' : item.headless === 'unverified' ? '未实测' : '不支持'}

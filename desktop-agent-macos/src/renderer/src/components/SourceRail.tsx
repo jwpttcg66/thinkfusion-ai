@@ -46,8 +46,16 @@ export function SourceRail(props: {
   terminals?: Array<{ sessionId: string; label: string; exited: boolean }>;
   viewingTerminalId?: string | null;
   onSelectTerminal?: (sessionId: string) => void;
-  /** 已启用的 CLI：点击在右侧面板显示它的交互终端。 */
-  cliAgents?: Array<{ id: string; label: string; glyph: string; running: boolean; viewing: boolean }>;
+  /** 已启用的 CLI：跟网页源同一层级的回答源，点击看它的交互终端。 */
+  cliAgents?: Array<{
+    id: string;
+    label: string;
+    glyph: string;
+    running: boolean;
+    viewing: boolean;
+    /** 能不能作为回答源被提问：装了、开着、非交互能力已验证。 */
+    available: boolean;
+  }>;
   onSelectCli?: (id: string) => void;
 }) {
   return (
@@ -101,12 +109,21 @@ export function SourceRail(props: {
           key={`cli-${agent.id}`}
           type="button"
           className={`rail-btn cli ${agent.viewing ? 'active' : ''}`}
-          title={`${agent.label}${agent.running ? '（终端已运行）' : ''} · 点击在右侧面板查看`}
+          title={[
+            `${agent.label} · 回答源（CLI）`,
+            agent.available ? '会跟网页一起被提问' : '不可用，这一轮不会被问',
+            agent.running ? '终端已运行' : '',
+            '点击在右侧面板查看'
+          ]
+            .filter(Boolean)
+            .join(' · ')}
           aria-pressed={agent.viewing}
           onClick={() => props.onSelectCli?.(agent.id)}
         >
           <span className="rail-glyph">{agent.glyph}</span>
-          <span className={`rail-dot${agent.running ? '' : ' off'}`} />
+          {/* 点的含义跟网页源一致：可用/不可用，而不是「终端有没有开」。
+              终端状态写进 title，两件事不能共用一个点。 */}
+          <span className={`rail-dot${agent.available ? '' : ' off'}`} />
         </button>
       ))}
       {(props.terminals ?? []).map(terminal => {

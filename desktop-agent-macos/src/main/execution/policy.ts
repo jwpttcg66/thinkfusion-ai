@@ -6,13 +6,16 @@ import type { SubAgent } from '../agents/types';
 import type { ProviderBackedSubAgent } from './provider-sub-agent';
 
 /**
- * 选人（2026-11-09 更新）。
+ * 选人（2026-11-15 更新）。
  *
  * 执行模式同时决定「谁第一手回答」与「谁做汇总/交锋/最终意见」：
  *
- * - `web` / `hybrid`：第一手仍是网页通道；本地 + 云端只进执行阶段。
- * - `local`：第一手与执行都是本地模型，不问网页。
- * - `cloud`：第一手与执行都是勾选的云端模型（可点名主导人），不问网页。
+ * - `web` / `hybrid`：第一手是网页通道 + **CLI 软件源**；本地 + 云端只进执行阶段。
+ * - `local`：第一手与执行都是本地模型，不问网页、不问 CLI。
+ * - `cloud`：第一手与执行都是勾选的云端模型（可点名主导人），不问网页、不问 CLI。
+ *
+ * CLI 跟网页同一层级但不是网页（2026-11-15 用户裁决）：它按「用户开着的软件源」
+ * 进场，不受 `selectedWebChannels` 约束——那个字段选的是站点，不是软件。
  *
  * 工程空间另有编排：`executorIds` 里的本地 + 云端仍可供 `modelMembers` 使用；
  * 网页只在混合档由编排计划单独拉进场，不走这里的 `answerIds`。
@@ -42,7 +45,9 @@ function pushUnique(list: string[], id: string): void {
 export function selectParticipants(
   config: ConversationExecutionConfig | undefined,
   webAgents: readonly SubAgent[],
-  extraAgents: readonly ProviderBackedSubAgent[]
+  extraAgents: readonly ProviderBackedSubAgent[],
+  /** CLI 软件源：跟网页同一层级的第一手回答成员，缺省空。 */
+  cliAgents: readonly SubAgent[] = []
 ): ParticipantSelection {
   const effective = normalizeExecutionConfig(config);
   const blocked: ParticipantSelection['blocked'] = [];
@@ -83,10 +88,13 @@ export function selectParticipants(
     for (const agent of webAgents) {
       blocked.push({ id: agent.id, why: '云端主导不问网页通道' });
     }
+    for (const agent of cliAgents) {
+      blocked.push({ id: agent.id, why: '云端主导不问 CLI 来源' });
+    }
     return {
       answerIds: new Set(answers),
       executorIds: new Set(executors),
-      reason: `云端主导：回答 = 云端 ${answers.length} 个；执行阶段候选 = ${executors.length} 个；不问网页`,
+      reason: `云端主导：回答 = 云端 ${answers.length} 个；执行阶段候选 = ${executors.length} 个；不问网页与 CLI`,
       blocked
     };
   }
@@ -99,15 +107,18 @@ export function selectParticipants(
     for (const agent of webAgents) {
       blocked.push({ id: agent.id, why: '本地主导不问网页通道' });
     }
+    for (const agent of cliAgents) {
+      blocked.push({ id: agent.id, why: '本地主导不问 CLI 来源' });
+    }
     return {
       answerIds: new Set(answers),
       executorIds: new Set(executors),
-      reason: `本地主导：回答 = 本地 ${answers.length} 个；执行阶段候选 = ${executors.length} 个；不问网页`,
+      reason: `本地主导：回答 = 本地 ${answers.length} 个；执行阶段候选 = ${executors.length} 个；不问网页与 CLI`,
       blocked
     };
   }
 
-  // web / hybrid：第一手仍是网页。
+  // web / hybrid：第一手是网页 + CLI 软件源。
   for (const agent of webAgents) {
     if (!matchesSelection(agent, effective.selectedWebChannels)) {
       blocked.push({ id: agent.id, why: '没有在这一轮被选中' });
@@ -115,10 +126,13 @@ export function selectParticipants(
     }
     answers.push(agent.id);
   }
+  // CLI 不看 `selectedWebChannels`：那是站点名单，不是软件名单。开关在设置里。
+  const webCount = answers.length;
+  for (const agent of cliAgents) pushUnique(answers, agent.id);
 
   const reason =
     mode === 'hybrid'
-      ? `混合：回答 = 网页 ${answers.length} 个；执行阶段候选 = ${executors.length} 个`
-      : `网页主导：回答 = 网页 ${answers.length} 个；执行阶段候选 = ${executors.length} 个`;
+      ? `混合：回答 = 网页 ${webCount} 个 + CLI ${cliAgents.length} 个；执行阶段候选 = ${executors.length} 个`
+      : `网页主导：回答 = 网页 ${webCount} 个 + CLI ${cliAgents.length} 个；执行阶段候选 = ${executors.length} 个`;
   return { answerIds: new Set(answers), executorIds: new Set(executors), reason, blocked };
 }

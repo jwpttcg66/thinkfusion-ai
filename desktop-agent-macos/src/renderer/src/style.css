@@ -4874,6 +4874,8 @@ button:disabled {
 
 .trace-source.s-local { background: #eef7ee; color: #2d6a36; }
 .trace-source.s-cloud { background: #eef2fb; color: #2b4a8a; }
+/* 第三类回答源：CLI 软件源，跟网页 / 模型同一层级但不是网页。 */
+.trace-source.s-cli { background: #fdf3e8; color: #8a5a1f; }
 .trace-source.s-system { background: #f3f3f4; color: var(--text-3); }
 
 .trace-status {

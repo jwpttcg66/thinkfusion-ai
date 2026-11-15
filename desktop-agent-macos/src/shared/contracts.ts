@@ -2321,7 +2321,7 @@ export interface AgentApi {
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
 
-  // CLI Agents — 执行者，不是回答通道
+  // CLI 来源：第三类回答源（网页 / 模型 / CLI），同时也是执行者
   /** 安装/版本/可用性/开关；不包含任何密钥。 */
   getCliAgents(): Promise<CliAgentView[]>;
   setCliAgentEnabled(input: { id: string; enabled: boolean }): Promise<CliAgentView[]>;

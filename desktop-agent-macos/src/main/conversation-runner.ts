@@ -300,7 +300,19 @@ export interface ConversationDeps {
    * 这个成员是什么来源。网页主导和云端主导在产物上要分开标注，所以要能问
    * 出来。不传就当网页（老行为）。
    */
-  agentSource?: (agentId: string) => 'web' | 'local' | 'cloud' | undefined;
+  agentSource?: (agentId: string) => 'web' | 'local' | 'cloud' | 'cli' | undefined;
+  /**
+   * 成员的显示名。CLI 软件源与本地/云端模型都不在网页注册表里，只查注册表
+   * 会把这些回答者显示成 `cli:qoder` 这种 id——状态条与失败提示都要人读。
+   */
+  agentLabel?: (agentId: string) => string | undefined;
+  /**
+   * 「停止等待」时要掐断谁。
+   *
+   * 网页靠注册表 `cancelAll`，CLI 靠终止它自己的子进程；两者不在同一个地方，
+   * 所以由装配处决定，而不是让 runner 认识 CLI 这个概念。
+   */
+  cancelAgent?: (agentId: string) => void;
   /** Phase F：每个子任务状态变化时的旁路通知，给界面和记录用。 */
   onCollaborationRecord?: (record: CollaborationRecord) => void;
   /** Phase I：打开融合引擎。不传时继续用规则版 synthesize，老行为不变。 */
@@ -467,7 +479,30 @@ export class ConversationRunner {
   }
 
   private traceLabelOf(agentId: string): string {
-    return this.deps.registry.get(agentId)?.label ?? agentId;
+    return this.labelOf(agentId);
+  }
+
+  /** 成员的显示名：装配处优先，其次网页注册表，最后退回 id。 */
+  private labelOf(agentId: string): string {
+    return this.deps.agentLabel?.(agentId) ?? this.deps.registry.get(agentId)?.label ?? agentId;
+  }
+
+  /** 掐断一个成员正在等的回答（网页取消等待，CLI 终止进程）。 */
+  private cancelOne(agentId: string): void {
+    if (this.deps.cancelAgent) this.deps.cancelAgent(agentId);
+    else this.deps.registry.cancelAll(agentId);
+  }
+
+  /**
+   * 归属规则只认三类成员：网页 / 本地模型 / 云端模型。
+   *
+   * CLI 是**回答源**（跟网页同一层级被问），但它不做主导、不当辩手——
+   * 汇总与交锋要的是能读全场材料的模型，而不是一个进程。所以它对归属计算
+   * 返回 undefined，两边都不算。
+   */
+  private ownershipSourceOf(agentId: string): 'web' | 'local' | 'cloud' | undefined {
+    const source = this.deps.agentSource?.(agentId);
+    return source === 'cli' ? undefined : source;
   }
 
   private traceMetaFor(conversation: Conversation): TraceMeta {
@@ -549,7 +584,7 @@ export class ConversationRunner {
     // A running turn would keep typing into a page whose row is being removed.
     this.cancelled.add(conversationId);
     this.release(conversationId);
-    for (const agentId of asked) this.deps.registry.cancelAll(agentId);
+    for (const agentId of asked) this.cancelOne(agentId);
 
     this.deps.store.deleteConversation(conversationId);
     // 会话内辩论的产物随会话一起消失，否则辩论面板会留下一场没有归属的记录。
@@ -574,7 +609,7 @@ export class ConversationRunner {
         // 的侧栏找记录。非网页来源没有需要清理的副本，直接跳过。
         if (!isPage) return;
 
-        const label = this.deps.registry.get(agentId)?.label ?? agentId;
+        const label = this.labelOf(agentId);
         const threadUrl = threads[agentId];
 
         if (threadUrl) {
@@ -1498,7 +1533,7 @@ export class ConversationRunner {
     this.release(conversationId);
     const conversation = this.deps.store.getConversation(conversationId);
     for (const agentId of conversation?.channels ?? []) {
-      this.deps.registry.cancelAll(agentId);
+      this.cancelOne(agentId);
     }
     if (!conversation) return;
     conversation.status = 'cancelled';
@@ -1556,11 +1591,11 @@ export class ConversationRunner {
     this.cancelled.add(conversationId);
     this.release(conversationId);
     for (const agentId of conversation.channels) {
-      this.deps.registry.cancelAll(agentId);
+      this.cancelOne(agentId);
     }
 
     const waiting = conversation.channels
-      .map(id => this.deps.registry.get(id)?.label ?? id)
+      .map(id => this.labelOf(id))
       .join('、');
     const spent = budget >= 60_000
       ? `${String(Math.round(budget / 60_000))} 分钟`
@@ -2385,7 +2420,7 @@ export class ConversationRunner {
         }
       : await this.resolveLead(config, question, answers, executorIds);
     if (!lead) {
-      const ownership = ownershipOf(config, answers, executorIds, id => this.deps.agentSource?.(id));
+      const ownership = ownershipOf(config, answers, executorIds, id => this.ownershipSourceOf(id));
       this.addMessage(conversation, {
         role: 'system',
         text: `${ownership.mode} 归属方式下没有可用成员；按归属规则不借用其他类型的成员，这一轮只保留网页回答与规则版综合。`
@@ -2512,7 +2547,7 @@ export class ConversationRunner {
     if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
-    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const sourceOf = (id: string) => this.ownershipSourceOf(id);
     // 知识空间：归属规则限定主导人与辩手同类。工程编排：名单直接来自编排
     // 计划（本地 + 云端模型全进场），不按 executionMode 收敛成一类。
     const ownership = orchestration
@@ -2915,7 +2950,7 @@ export class ConversationRunner {
     auto: boolean;
     reason: string | null;
   } | null> {
-    const sourceOf = (id: string) => this.deps.agentSource?.(id);
+    const sourceOf = (id: string) => this.ownershipSourceOf(id);
     const ownership = ownershipOf(config, answers, executorIds, sourceOf);
     // 归属规则：只在这一类成员里挑。这一类没人就如实不做执行阶段，不再
     // 偷偷退回网页回答者冒充「本地主导」。

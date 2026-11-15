@@ -31,6 +31,11 @@ export interface ModelRouteInput {
     local: string[];
     /** 可用（配了 Key 且健康）的云端模型 id。 */
     cloud: string[];
+    /**
+     * 开着的 CLI 软件源 id（`cli:<id>`）。第三类回答源，跟网页同一层级被问：
+     * 它只回答，不参与汇总、交锋与裁决（那要能读全场材料的模型）。
+     */
+    cli?: string[];
   };
   /** 用户点名只用这几条网页通道时，按这个来。 */
   selectedWebChannels?: string[];
@@ -116,8 +121,12 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
       notes.push(`本地主导：第一手与汇总都走本机模型（${answerers.length} 个）`);
     }
   } else {
-    // web / hybrid：第一手仍是网页。
-    answerers = [...new Set(webAnswerers)];
+    // web / hybrid：第一手是网页 + CLI 软件源。
+    const cliAnswerers = input.available.cli ?? [];
+    answerers = [...new Set([...webAnswerers, ...cliAnswerers])];
+    if (cliAnswerers.length > 0) {
+      notes.push(`另有 CLI 来源 ${cliAnswerers.length} 个一起被问（只回答，不参与汇总与交锋）`);
+    }
     if (input.leadAgentId) {
       synthesizers = [input.leadAgentId];
       notes.push(`主导人由用户指定：${input.leadAgentId}`);
