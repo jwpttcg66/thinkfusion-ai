@@ -138,6 +138,8 @@ function mockTrace(conversationId: string): TraceEntry[] {
 export function createMockApi(): AgentApi {
   /** 预览里的终端窗口开关；让侧栏按钮在浏览器里也能真的开/关。 */
   const openTerminalWindows = new Set<string>(['term-preview-a1']);
+  /** 预览里的 CLI 交互终端：点侧栏按钮时才创建，和真实实现一致。 */
+  const cliTerminals = new Map<string, string>();
   const terminalWindowListeners = new Set<(event: { sessionId: string; open: boolean }) => void>();
   const notifyTerminalWindows = (sessionId: string, open: boolean) => {
     for (const listener of terminalWindowListeners) listener({ sessionId, open });
@@ -266,13 +268,28 @@ export function createMockApi(): AgentApi {
         label: 'Qoder CLI',
         command: 'qoder',
         args: ['-p', '{task}', '--output-format', 'json'],
-        headless: 'unverified',
+        interactiveArgs: [],
+        glyph: 'Q',
+        headless: 'verified',
         enabled: true,
-        detected: false,
-        executable: null,
-        version: null,
-        available: false,
-        reason: '预览模式没有本机 CLI'
+        detected: true,
+        executable: '/preview/bin/qoder',
+        version: '1.1.89',
+        available: true
+      },
+      {
+        id: 'claude',
+        label: 'Claude CLI',
+        command: 'claude',
+        args: ['-p', '{task}', '--output-format', 'json'],
+        interactiveArgs: [],
+        glyph: 'C',
+        headless: 'verified',
+        enabled: true,
+        detected: true,
+        executable: '/preview/bin/claude',
+        version: '2.1.325',
+        available: true
       }
     ],
     setCliAgentEnabled: async () => [],
@@ -289,6 +306,16 @@ export function createMockApi(): AgentApi {
     // 预览模式固定两个会话：一个运行中、一个已退出，用来检查右侧栏
     // 「一个终端一个按钮」和状态点，不需要真实 PTY。
     listTerminals: async () => [
+      ...[...cliTerminals].map(([cliId, sessionId]) => ({
+        sessionId,
+        pid: 2000,
+        shell: '/bin/zsh',
+        cwd: `/preview/${cliId}`,
+        cols: 120,
+        rows: 30,
+        exited: false,
+        pending: 0
+      })),
       {
         sessionId: 'term-preview-a1',
         pid: 1001,
@@ -337,6 +364,24 @@ export function createMockApi(): AgentApi {
         notifyTerminalWindows(sessionId, true);
       }
     },
+    openCliTerminal: async cliId => {
+      const existing = cliTerminals.get(cliId);
+      if (existing) return existing;
+      const sessionId = `term-cli-${cliId}`;
+      cliTerminals.set(cliId, sessionId);
+      if (!openTerminalWindows.has(sessionId)) {
+        openTerminalWindows.add(sessionId);
+        notifyTerminalWindows(sessionId, true);
+      }
+      return sessionId;
+    },
+    listCliTerminals: async () =>
+      [...cliTerminals.entries()].map(([id, sessionId]) => ({
+        id,
+        sessionId,
+        running: true,
+        open: openTerminalWindows.has(sessionId)
+      })),
     writeTerminal: async () => undefined,
     resizeTerminal: async () => undefined,
     closeTerminal: async () => undefined,

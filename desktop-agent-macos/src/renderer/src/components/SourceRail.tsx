@@ -46,6 +46,9 @@ export function SourceRail(props: {
   terminals?: Array<{ sessionId: string; label: string; exited: boolean }>;
   openTerminalIds?: string[];
   onToggleTerminal?: (sessionId: string) => void;
+  /** 已启用的 CLI：点一下起交互终端，再点关窗口。 */
+  cliAgents?: Array<{ id: string; label: string; glyph: string; running: boolean; open: boolean }>;
+  onToggleCli?: (id: string) => void;
 }) {
   return (
     <nav className="source-rail" style={{ width: RAIL_WIDTH }} aria-label="内嵌网页">
@@ -90,9 +93,22 @@ export function SourceRail(props: {
           </button>
         );
       })}
-      {(props.terminals?.length ?? 0) > 0 && (
+      {((props.cliAgents?.length ?? 0) > 0 || (props.terminals?.length ?? 0) > 0) && (
         <span className="rail-sep" aria-hidden="true" />
       )}
+      {(props.cliAgents ?? []).map(agent => (
+        <button
+          key={`cli-${agent.id}`}
+          type="button"
+          className={`rail-btn cli ${agent.open ? 'active' : ''}`}
+          title={`${agent.label}${agent.running ? '（终端已运行）' : ''} · ${agent.open ? '点击关闭窗口' : '点击打开终端'}`}
+          aria-pressed={agent.open}
+          onClick={() => props.onToggleCli?.(agent.id)}
+        >
+          <span className="rail-glyph">{agent.glyph}</span>
+          <span className={`rail-dot${agent.running ? '' : ' off'}`} />
+        </button>
+      ))}
       {(props.terminals ?? []).map(terminal => {
         const open = (props.openTerminalIds ?? []).includes(terminal.sessionId);
         return (

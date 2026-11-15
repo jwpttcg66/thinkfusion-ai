@@ -368,6 +368,10 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
   });
 }
 
+export function cliProcessEnv(config: Pick<CliAgentConfig, 'envAllowlist'>): NodeJS.ProcessEnv {
+  return buildEnv(config as CliAgentConfig);
+}
+
 /** 让 `agent.exec` 即使在 cwd 被删除后也能给出可读错误。 */
 export function assertUsableCwd(cwd: string) {
   let stat: fs.Stats;

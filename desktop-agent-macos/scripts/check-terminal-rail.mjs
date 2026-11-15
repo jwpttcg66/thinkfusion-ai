@@ -34,7 +34,8 @@ function render(props) {
           sources: props.sources,
           onSelect: () => {},
           onToggleCollapse: () => {},
-          onToggleTerminal: () => {}
+          onToggleTerminal: () => {},
+          onToggleCli: () => {}
         })));
       `,
       resolveDir: root,
@@ -91,9 +92,29 @@ test('没有终端时不渲染终端按钮，也不多画分隔线', () => {
     loading: false,
     collapsed: false,
     terminals: [],
-    activeTerminalId: null
+    openTerminalIds: []
   });
   assert.equal((html.match(/rail-btn terminal/g) ?? []).length, 0);
+});
+
+test('已启用的 CLI 各有一个按钮，开着的显示为打开态', () => {
+  const html = render({
+    sources: [source],
+    activeId: 'chatgpt',
+    planningId: null,
+    loading: false,
+    collapsed: false,
+    terminals: [],
+    openTerminalIds: [],
+    cliAgents: [
+      { id: 'qoder', label: 'Qoder CLI', glyph: 'Q', running: true, open: true },
+      { id: 'claude', label: 'Claude CLI', glyph: 'C', running: true, open: false }
+    ]
+  });
+  assert.equal((html.match(/rail-btn cli/g) ?? []).length, 2);
+  assert.equal((html.match(/rail-btn cli active/g) ?? []).length, 1);
+  assert.match(html, /Qoder CLI/);
+  assert.match(html, /Claude CLI/);
 });
 
 test.after(() => {

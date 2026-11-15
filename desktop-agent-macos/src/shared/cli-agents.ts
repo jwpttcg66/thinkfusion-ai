@@ -27,6 +27,13 @@ export interface CliAgentConfig {
   command: string;
   /** 参数模板：必须且只能含一个 `{task}` 占位符。 */
   args: string[];
+  /**
+   * 交互模式参数。空数组表示直接运行 CLI 本身（Qoder / Claude 不带参数就是交互模式）。
+   * 与 headless 参数分开，避免把 `-p` 带到终端窗口里。
+   */
+  interactiveArgs?: string[];
+  /** 右侧栏按钮上的一个字符。 */
+  glyph?: string;
   /** 权限参数单独列，便于界面说明与按版本调整；同样逐项作为 argv。 */
   permissionArgs?: string[];
   /**
@@ -128,6 +135,16 @@ export interface TerminalSessionSummary {
 
 export interface TerminalWindowState {
   sessionId: string;
+  open: boolean;
+}
+
+/** 某个 CLI 当前的交互终端：主进程记账，界面只读。 */
+export interface CliTerminalState {
+  id: string;
+  sessionId: string;
+  /** 会话还活着（PTY 没退出）。 */
+  running: boolean;
+  /** 它自己的窗口是否打开。 */
   open: boolean;
 }
 

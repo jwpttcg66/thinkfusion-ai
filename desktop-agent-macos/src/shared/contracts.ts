@@ -32,6 +32,7 @@ import type {
 import type { TraceEntry, TraceTotals } from './trace';
 import type {
   CliAgentView,
+  CliTerminalState,
   TerminalAttach,
   TerminalDataEvent,
   TerminalSessionSummary,
@@ -2321,6 +2322,10 @@ export interface AgentApi {
   onTerminalWindow(listener: (event: TerminalWindowState) => void): () => void;
   /** 把终端移到独立窗口（与网页的「放大」同一套交互）。 */
   detachTerminal(sessionId: string): Promise<void>;
+  /** 为某个已启用的 CLI 打开交互式终端；返回 Runtime 里的会话 id。 */
+  openCliTerminal(cliId: string): Promise<string>;
+  /** 每个 CLI 当前的交互终端与窗口是否打开。 */
+  listCliTerminals(): Promise<CliTerminalState[]>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
   closeTerminal(sessionId: string): Promise<void>;

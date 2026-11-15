@@ -98,6 +98,7 @@ import {
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
 import { setAgentEventSink, setMainCallHandler, setTerminalSink, requestTerminal, startAgentProcess } from './agent-manager';
+import type { CliAgentView } from '../shared/cli-agents';
 import { configureCliAgents, listCliAgents, setCliAgentEnabled } from './cli-agents';
 import {
   commitTaskWorktree,
@@ -330,6 +331,8 @@ let detachedSaveOverlay: {
  * 同一个会话重复点「放大」只聚焦已有窗口；不同会话各自开窗。
  */
 const terminalWindows = new Map<string, BrowserWindow>();
+/** CLI id → 它当前的交互终端会话；点同一个 CLI 不会重复起进程。 */
+const cliSessions = new Map<string, string>();
 
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
@@ -1248,7 +1251,7 @@ function terminalUrl(sessionId: string): { url: string } | { file: string; query
  * 终端「放大」：每个会话一个独立窗口，不做标签页。
  * 标题用会话的 cwd 末级目录，拿不到就退到会话 id 末尾。
  */
-async function openTerminalWindow(sessionId: string): Promise<void> {
+async function openTerminalWindow(sessionId: string, labelOverride?: string): Promise<void> {
   const existing = terminalWindows.get(sessionId);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
@@ -1257,7 +1260,7 @@ async function openTerminalWindow(sessionId: string): Promise<void> {
     return;
   }
 
-  let label = sessionId.slice(-6);
+  let label = labelOverride ?? sessionId.slice(-6);
   try {
     // 只等 800ms：拿不到会话目录就用 id 末尾，不让「放大」卡在一次
     // Runtime 查询上（Runtime 没起时 requestTerminal 也会直接拒绝）。
@@ -1303,6 +1306,62 @@ async function openTerminalWindow(sessionId: string): Promise<void> {
   if (win && !win.isDestroyed()) {
     win.webContents.send('terminal:window', { sessionId, open: true });
   }
+}
+
+/** 一个 CLI 当前的交互终端：复用活着的会话，否则起一个新的。 */
+async function ensureCliTerminal(agent: CliAgentView): Promise<string> {
+  const existing = cliSessions.get(agent.id);
+  if (existing) {
+    const listed = (await requestTerminal('list', {})) as {
+      sessions?: Array<{ sessionId?: unknown; exited?: unknown }>;
+    };
+    const alive = Array.isArray(listed?.sessions)
+      ? listed.sessions.some(item => item?.sessionId === existing && item?.exited !== true)
+      : false;
+    if (alive) {
+      await openTerminalWindow(existing, agent.label);
+      return existing;
+    }
+    cliSessions.delete(agent.id);
+  }
+
+  const cwd = workspaceStore?.get()?.workspaceRoot || process.env.HOME || process.cwd();
+  const created = (await requestTerminal('open-cli', {
+    // 命令来自注册表/主进程解析出的绝对路径，渲染层传不进路径。
+    command: agent.executable ?? agent.command,
+    args: agent.interactiveArgs ?? [],
+    cwd,
+    envAllowlist: agent.envAllowlist ?? []
+  })) as { sessionId?: unknown };
+  const sessionId = typeof created?.sessionId === 'string' ? created.sessionId : '';
+  if (!sessionId) throw new Error('CLI 终端没有返回会话 id');
+  cliSessions.set(agent.id, sessionId);
+  await openTerminalWindow(sessionId, agent.label);
+  return sessionId;
+}
+
+/**
+ * 设置里的 CLI 开关是窗口开关：
+ * 打开 → 起（或复用）交互终端并开窗；关闭 → 关窗并结束这个终端。
+ */
+async function syncCliTerminal(agentId: string, enabled: boolean): Promise<void> {
+  const agent = listCliAgents().find(item => item.id === agentId);
+  if (!agent) return;
+  if (enabled && agent.available) {
+    await ensureCliTerminal(agent);
+    return;
+  }
+  const sessionId = cliSessions.get(agentId);
+  if (!sessionId) return;
+  terminalWindows.get(sessionId)?.close();
+  cliSessions.delete(agentId);
+  await requestTerminal('close', { sessionId }).catch(() => undefined);
+}
+
+/** 应用启动：设置里开着的 CLI 直接开各自的窗口。 */
+async function bootstrapCliTerminals(): Promise<void> {
+  const enabled = listCliAgents().filter(agent => agent.enabled && agent.available);
+  await Promise.allSettled(enabled.map(agent => ensureCliTerminal(agent)));
 }
 
 
@@ -2830,10 +2889,13 @@ function registerIpc() {
     return listCliAgents();
   });
 
-  ipcMain.handle('cli:set-enabled', (event, raw: unknown) => {
+  ipcMain.handle('cli:set-enabled', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = CliAgentToggleSchema.parse(raw);
-    return setCliAgentEnabled(input);
+    const list = setCliAgentEnabled(input);
+    // 设置里的开关就是窗口开关：开 → 起终端并开窗，关 → 关窗并结束终端。
+    await syncCliTerminal(input.id, input.enabled);
+    return list;
   });
 
   ipcMain.handle('terminal:attach', async (event, sessionId: unknown) => {
@@ -2865,6 +2927,34 @@ function registerIpc() {
     await openTerminalWindow(TerminalSessionIdSchema.parse(sessionId));
   });
 
+  // 右侧栏的 CLI 按钮：只接受注册表里的 id，命令与环境由主进程构造。
+  ipcMain.handle('terminal:open-cli', async (event, cliId: unknown) => {
+    trustedUiSender(event);
+    const id = TerminalSessionIdSchema.parse(cliId);
+    const agent = listCliAgents().find(item => item.id === id);
+    if (!agent) throw new Error(`没有这个 CLI Agent：${id}`);
+    if (!agent.available) throw new Error(agent.reason ?? `CLI Agent ${agent.label} 当前不可用`);
+    return ensureCliTerminal(agent);
+  });
+
+  ipcMain.handle('terminal:cli-state', async event => {
+    trustedUiSender(event);
+    const listed = (await requestTerminal('list', {}).catch(() => ({ sessions: [] }))) as {
+      sessions?: Array<{ sessionId?: unknown; exited?: unknown }>;
+    };
+    const sessions = Array.isArray(listed?.sessions) ? listed.sessions : [];
+    return [...cliSessions.entries()].map(([id, sessionId]) => {
+      const window = terminalWindows.get(sessionId);
+      const session = sessions.find(item => item?.sessionId === sessionId);
+      return {
+        id,
+        sessionId,
+        running: Boolean(session && session.exited !== true),
+        open: Boolean(window && !window.isDestroyed())
+      };
+    });
+  });
+
   ipcMain.handle('terminal:reattach', event => {
     trustedTerminalSender(event);
     terminalWindowForSender(event.sender.id)?.close();
@@ -2888,6 +2978,9 @@ function registerIpc() {
     await requestTerminal('close', { sessionId: id });
     // 会话结束后它自己的独立窗口没有内容可看了，一并关掉。
     terminalWindows.get(id)?.close();
+    for (const [cliId, session] of cliSessions) {
+      if (session === id) cliSessions.delete(cliId);
+    }
   });
 
   // 任务级 Worktree：只按 taskId 操作；路径与分支由主进程记账，界面传不进来。
@@ -4952,6 +5045,8 @@ app.whenReady().then(async () => {
     const own = terminalWindows.get(event.sessionId);
     if (own && !own.isDestroyed()) own.webContents.send('terminal:data', event);
   });
+  // 设置里开着的 CLI 在应用启动时各自开一个窗口；关着的不起进程。
+  void bootstrapCliTerminals().catch(() => undefined);
 
   /**
    * Runtime 拿不到会话库、设置状态与定时存储。这里的桥只认显式登记的能力，
