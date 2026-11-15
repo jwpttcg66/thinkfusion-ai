@@ -334,6 +334,8 @@ let detachedSaveOverlay: {
 const terminalWindows = new Map<string, BrowserWindow>();
 /** CLI id → 它当前的交互终端会话；点同一个 CLI 不会重复起进程。 */
 const cliSessions = new Map<string, string>();
+/** 右侧面板占用网页区域时，内嵌网页停止绘制（否则原生视图会盖住 DOM）。 */
+let pageHiddenForTerminal = false;
 
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
@@ -1320,7 +1322,6 @@ async function ensureCliTerminal(agent: CliAgentView): Promise<string> {
       ? listed.sessions.some(item => item?.sessionId === existing && item?.exited !== true)
       : false;
     if (alive) {
-      await openTerminalWindow(existing, agent.label);
       return existing;
     }
     cliSessions.delete(agent.id);
@@ -1337,13 +1338,13 @@ async function ensureCliTerminal(agent: CliAgentView): Promise<string> {
   const sessionId = typeof created?.sessionId === 'string' ? created.sessionId : '';
   if (!sessionId) throw new Error('CLI 终端没有返回会话 id');
   cliSessions.set(agent.id, sessionId);
-  await openTerminalWindow(sessionId, agent.label);
   return sessionId;
 }
 
 /**
- * 设置里的 CLI 开关是窗口开关：
- * 打开 → 起（或复用）交互终端并开窗；关闭 → 关窗并结束这个终端。
+ * 设置里的 CLI 开关只决定「有没有这个终端会话」：
+ * 打开 → 起（或复用）交互终端；关闭 → 结束这个终端（若它被放大过也一并关窗）。
+ * 默认显示在右侧面板，只有点「放大」才开独立窗口。
  */
 async function syncCliTerminal(agentId: string, enabled: boolean): Promise<void> {
   const agent = listCliAgents().find(item => item.id === agentId);
@@ -1359,7 +1360,7 @@ async function syncCliTerminal(agentId: string, enabled: boolean): Promise<void>
   await requestTerminal('close', { sessionId }).catch(() => undefined);
 }
 
-/** 应用启动：设置里开着的 CLI 直接开各自的窗口。 */
+/** 应用启动：设置里开着的 CLI 先准备好终端会话，不自动弹窗。 */
 async function bootstrapCliTerminals(): Promise<void> {
   const enabled = listCliAgents().filter(agent => agent.enabled && agent.available);
   await Promise.allSettled(enabled.map(agent => ensureCliTerminal(agent)));
@@ -1430,7 +1431,7 @@ function layout() {
     // is not laid out against the current split. A folded pane is the same
     // situation, which is why it goes through this branch rather than through a
     // zero-width bounds.
-    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed;
+    const onScreen = id === activeSourceId && !draggingPage && !pageCollapsed && !pageHiddenForTerminal;
     const bounds = onScreen ? shown : offstage;
     const last = applied.get(id);
     if (!last || last.x !== bounds.x || last.y !== bounds.y || last.width !== bounds.width || last.height !== bounds.height) {
@@ -2958,7 +2959,20 @@ function registerIpc() {
 
   ipcMain.handle('terminal:reattach', event => {
     trustedTerminalSender(event);
-    terminalWindowForSender(event.sender.id)?.close();
+    const window = terminalWindowForSender(event.sender.id);
+    if (!window) return;
+    const entry = [...terminalWindows.entries()].find(([, candidate]) => candidate === window);
+    // 放大窗口关掉后回到主窗口的面板，而不是让终端消失。
+    if (entry && win && !win.isDestroyed()) {
+      win.webContents.send('terminal:select', entry[0]);
+    }
+    window.close();
+  });
+
+  ipcMain.handle('terminal:set-pane', (event, open: unknown) => {
+    trustedUiSender(event);
+    pageHiddenForTerminal = open === true;
+    layout();
   });
 
   ipcMain.handle('terminal:write', async (event, raw: unknown) => {
