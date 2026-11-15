@@ -59,28 +59,41 @@ docs: 补充 Git 工作流说明
 git config hooks.protectMain true
 ```
 
-开启后推送 main 必须走「特性分支 → 合并」，或者显式 `--no-verify`。个人项目建议保持关闭，多人协作或接远程仓库时打开。
+这个钩子只保护推送，与第 3 节的 main 开发规则分开：无论钩子开关如何，`main` 都只接收已验证的任务分支合并，不在 `main` 直接提交代码。推送仍由用户执行。
 
-## 3. 分支模型
+## 3. 分支与 worktree 模型
 
 ```
-main            始终可发布，受保护
- └─ feat/xxx    新功能
- └─ fix/xxx     缺陷修复
- └─ chore/xxx   杂务
+main                         仅作为集成分支，只接受任务分支合并
+  ├─ feat/<task> + worktree  新功能任务
+  ├─ fix/<task> + worktree   缺陷修复任务
+  └─ chore/<task> + worktree 文档与杂务任务
 ```
 
-流程：
+**每个新任务都必须有自己的 worktree 和分支。** 不在 `main` 工作区直接写代码；不同并发任务不能共用 worktree 或分支。创建任务工作区：
 
 ```bash
-git switch -c feat/sms-login    # 从 main 切出
-# ... 开发、提交 ...
-git switch main
-git merge --no-ff feat/sms-login
-git branch -d feat/sms-login
+git worktree add -b feat/sms-login ../thinkfusion-sms-login main
+cd ../thinkfusion-sms-login
+# ... 在这个 worktree 开发、测试、提交 ...
 ```
 
-`--no-ff` 保留分支上下文，历史里能看出一次功能是一组提交，而不是散落的碎片。
+任务分支从最新 `main` 提出；`main` 上禁止直接开发/提交、rebase、cherry-pick、reset。`main` 只通过 merge 接收经过验证的任务分支，使用 `--no-ff` 保留任务边界。
+
+任务首次提交后的所有后续修改——评审意见、冲突修复、合并后的缺陷修复——都继续在该任务自己的 worktree/分支进行。任务未完成并通过测试、typecheck 前，不得合并到 `main` 或其他分支。合并后发现问题时，回原 worktree 增加修复提交，验证通过后再合并；不要在 `main` 或别人的任务分支直接补代码。
+
+### 并发任务的集成顺序
+
+按任务首次有效提交时间从早到晚排队。**后提交任务的负责人负责把自己的任务集成到已更新的 `main`，并修复自己的冲突或回归。**
+
+例如 A 先提交、B 后提交：
+
+1. 先把 A 合入 `main`，运行相关测试与 typecheck，确认 A 正常。
+2. B 的负责人在 B 的 worktree 执行 `git merge main`，解决冲突，并验证 A、B 两项功能。
+3. B 的负责人在自己的 worktree 修复自己引入的问题；所有相关测试与 typecheck 通过后，再提交修复并把 B 合入 `main`。
+4. B 合并后发现问题，仍回 B 的 worktree 修复、验证、提交，再将修复合入 `main`。合并前确认 `main` 工作区干净；未通过验证的任务不得合入；任务确认完成前不要删除对应 worktree。
+
+`git worktree list` 查看所有工作区；任务合并并确认完成后，再清理已合并分支与 worktree。
 
 ## 4. 版本发布
 
