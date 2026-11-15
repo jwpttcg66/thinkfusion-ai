@@ -136,6 +136,12 @@ function mockTrace(conversationId: string): TraceEntry[] {
 }
 
 export function createMockApi(): AgentApi {
+  /** 预览里的终端窗口开关；让侧栏按钮在浏览器里也能真的开/关。 */
+  const openTerminalWindows = new Set<string>(['term-preview-a1']);
+  const terminalWindowListeners = new Set<(event: { sessionId: string; open: boolean }) => void>();
+  const notifyTerminalWindows = (sessionId: string, open: boolean) => {
+    for (const listener of terminalWindowListeners) listener({ sessionId, open });
+  };
   let capabilityDisabled: string[] = [];
   let expertiseDisabled: string[] = [];
   /** 浏览器预览读不到 .md：给一份静态清单让设置页能看，不假装有文件内容。 */
@@ -274,11 +280,63 @@ export function createMockApi(): AgentApi {
       sessionId,
       cols: 120,
       rows: 30,
-      backlog: '预览模式没有真实终端\n',
+      backlog: `预览终端 ${sessionId}\n$ `,
       cursor: 10,
       dropped: 0,
-      exited: false
+      exited: sessionId.endsWith('c3'),
+      ...(sessionId.endsWith('c3') ? { exitCode: 0 } : {})
     }),
+    // 预览模式固定两个会话：一个运行中、一个已退出，用来检查右侧栏
+    // 「一个终端一个按钮」和状态点，不需要真实 PTY。
+    listTerminals: async () => [
+      {
+        sessionId: 'term-preview-a1',
+        pid: 1001,
+        shell: '/bin/zsh',
+        cwd: '/preview/repo-a',
+        cols: 120,
+        rows: 30,
+        exited: false,
+        pending: 0
+      },
+      {
+        sessionId: 'term-preview-b2',
+        pid: 1002,
+        shell: '/bin/zsh',
+        cwd: '/preview/repo-b',
+        cols: 120,
+        rows: 30,
+        exited: false,
+        pending: 0
+      },
+      {
+        sessionId: 'term-preview-c3',
+        pid: 1003,
+        shell: '/bin/zsh',
+        cwd: '/preview/repo-c',
+        cols: 120,
+        rows: 30,
+        exited: true,
+        exitCode: 0,
+        pending: 0
+      }
+    ],
+    listTerminalWindows: async () => [...openTerminalWindows],
+    closeTerminalWindow: async sessionId => {
+      if (openTerminalWindows.delete(sessionId)) notifyTerminalWindows(sessionId, false);
+    },
+    onTerminalWindow: listener => {
+      terminalWindowListeners.add(listener);
+      return () => {
+        terminalWindowListeners.delete(listener);
+      };
+    },
+    detachTerminal: async sessionId => {
+      if (!openTerminalWindows.has(sessionId)) {
+        openTerminalWindows.add(sessionId);
+        notifyTerminalWindows(sessionId, true);
+      }
+    },
     writeTerminal: async () => undefined,
     resizeTerminal: async () => undefined,
     closeTerminal: async () => undefined,

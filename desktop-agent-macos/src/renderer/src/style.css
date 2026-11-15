@@ -5504,3 +5504,134 @@ button:disabled {
   font-size: 12px;
   line-height: 1.45;
 }
+
+/* 右侧终端面板：按钮常驻，打开时占用内嵌网页的区域（原生视图由主进程隐藏）。 */
+.terminal-pane {
+  position: fixed;
+  bottom: 0;
+  z-index: 30;
+  background: #0f1115;
+  border-left: 1px solid var(--line);
+  display: flex;
+  min-width: 0;
+}
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  color: #d7dae0;
+}
+.terminal-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+}
+.terminal-panel-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.terminal-panel-tabs button {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-panel-tabs button.is-active {
+  border-color: rgba(120, 170, 255, 0.7);
+  background: rgba(120, 170, 255, 0.14);
+}
+.terminal-panel-status {
+  font-size: 11px;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+.terminal-panel-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.terminal-panel-actions .btn {
+  font-size: 11.5px;
+  padding: 2px 8px;
+}
+.terminal-panel-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px;
+}
+.terminal-panel-host .xterm {
+  height: 100%;
+}
+.terminal-panel-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+.terminal-panel-empty p {
+  max-width: 360px;
+  line-height: 1.7;
+}
+.terminal-panel-hint {
+  margin: 0;
+  padding: 6px 10px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.66;
+}
+.terminal-panel .settings-error {
+  margin: 0 10px 8px;
+}
+
+/* 独立终端窗口：只放这块面板。 */
+.terminal-window {
+  height: 100vh;
+  display: flex;
+  background: #0f1115;
+  color: #d7dae0;
+}
+.terminal-window .terminal-panel {
+  padding: 0;
+}
+
+.page-btn.is-active {
+  border-color: rgba(120, 170, 255, 0.65);
+  background: rgba(120, 170, 255, 0.14);
+}
+
+.terminal-panel-title {
+  font-size: 11.5px;
+  opacity: 0.85;
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 终端在右侧栏的按钮：与网页按钮同一尺寸，图标是 18px 线稿。 */
+.rail-btn.terminal .rail-glyph {
+  display: grid;
+  place-items: center;
+}
+.rail-dot.off {
+  background: var(--text-3);
+}

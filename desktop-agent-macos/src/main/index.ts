@@ -324,6 +324,14 @@ let detachedSaveOverlay: {
   onResize: () => void;
 } | null = null;
 
+/**
+ * 独立终端窗口：一个会话一个窗口。
+ *
+ * 文档里的约定是「每个 Agent 一个独立 Workspace/窗口」，所以这里不做标签页。
+ * 同一个会话重复点「放大」只聚焦已有窗口；不同会话各自开窗。
+ */
+const terminalWindows = new Map<string, BrowserWindow>();
+
 /** Height of the toolbar drawn above the page inside a detached window. */
 const DETACHED_BAR_HEIGHT = 40;
 
@@ -1198,6 +1206,106 @@ function trustedUiSender(event: Electron.IpcMainInvokeEvent) {
   const isDev = url.startsWith('http://localhost:') || url.startsWith('http://127.0.0.1:');
   if (!isDev && !url.startsWith('file://')) throw new Error('Untrusted renderer origin');
 }
+
+/**
+ * 终端相关调用允许两个来源：主窗口，以及我们自己开的独立终端窗口。
+ *
+ * 独立窗口只加载 terminal.html；即使它被注入，能调到的也只有 PTY 读写，
+ * 没有任务、文件或设置。
+ */
+function trustedTerminalSender(event: Electron.IpcMainInvokeEvent) {
+  for (const window of terminalWindows.values()) {
+    if (window.isDestroyed() || event.sender.id !== window.webContents.id) continue;
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted terminal renderer origin');
+    const url = event.senderFrame?.url ?? '';
+    const isDev = url.startsWith('http://localhost:') || url.startsWith('http://127.0.0.1:');
+    if (isDev || url.includes('terminal.html')) return;
+    throw new Error('Untrusted terminal renderer origin');
+  }
+  trustedUiSender(event);
+}
+
+function terminalWindowForSender(senderId: number): BrowserWindow | null {
+  for (const window of terminalWindows.values()) {
+    if (!window.isDestroyed() && window.webContents.id === senderId) return window;
+  }
+  return null;
+}
+
+function terminalUrl(sessionId: string): { url: string } | { file: string; query: Record<string, string> } {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const query = `?session=${encodeURIComponent(sessionId)}`;
+  if (rendererUrl) {
+    const base = rendererUrl.endsWith('/') ? rendererUrl : `${rendererUrl}/`;
+    return { url: new URL(`terminal.html${query}`, base).toString() };
+  }
+  return {
+    file: path.join(__dirname, '../renderer/terminal.html'),
+    query: { session: sessionId }
+  };
+}
+
+/**
+ * 终端「放大」：每个会话一个独立窗口，不做标签页。
+ * 标题用会话的 cwd 末级目录，拿不到就退到会话 id 末尾。
+ */
+async function openTerminalWindow(sessionId: string): Promise<void> {
+  const existing = terminalWindows.get(sessionId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return;
+  }
+
+  let label = sessionId.slice(-6);
+  try {
+    // 只等 800ms：拿不到会话目录就用 id 末尾，不让「放大」卡在一次
+    // Runtime 查询上（Runtime 没起时 requestTerminal 也会直接拒绝）。
+    const lookup = requestTerminal('list', {})
+      .then(result => {
+        const listed = result as { sessions?: Array<{ sessionId?: unknown; cwd?: unknown }> };
+        const found = Array.isArray(listed?.sessions)
+          ? listed.sessions.find(item => item?.sessionId === sessionId)
+          : undefined;
+        return found && typeof found.cwd === 'string' ? found.cwd : null;
+      })
+      .catch(() => null);
+    const cwd = await Promise.race([lookup, new Promise<null>(resolve => setTimeout(() => resolve(null), 800))]);
+    if (cwd) label = cwd.split('/').filter(Boolean).slice(-1)[0] ?? label;
+  } catch {
+    // 运行时没起来也能开窗；窗口里会给出明确错误。
+  }
+
+  const target = terminalUrl(sessionId);
+  const created = new BrowserWindow({
+    width: 960,
+    height: 640,
+    minWidth: 520,
+    minHeight: 360,
+    title: `终端 · ${label}`,
+    backgroundColor: '#0f1115',
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, '../preload/terminal.js')
+    }
+  });
+  terminalWindows.set(sessionId, created);
+  created.on('closed', () => {
+    if (terminalWindows.get(sessionId) === created) terminalWindows.delete(sessionId);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('terminal:window', { sessionId, open: false });
+    }
+  });
+  if ('url' in target) await created.loadURL(target.url);
+  else await created.loadFile(target.file, { query: target.query });
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('terminal:window', { sessionId, open: true });
+  }
+}
+
 
 /**
  * 渲染进程递上来的搜索设置，只认这三个字段。
@@ -2730,25 +2838,57 @@ function registerIpc() {
   });
 
   ipcMain.handle('terminal:attach', async (event, sessionId: unknown) => {
-    trustedUiSender(event);
+    trustedTerminalSender(event);
     return requestTerminal('attach', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
   });
 
-  ipcMain.handle('terminal:write', async (event, raw: unknown) => {
+  ipcMain.handle('terminal:list', async event => {
+    trustedTerminalSender(event);
+    const result = (await requestTerminal('list', {})) as { sessions?: unknown };
+    return Array.isArray(result?.sessions) ? result.sessions : [];
+  });
+
+  // 终端独立窗口的开关状态：界面用它画侧栏按钮的「开/关」。
+  ipcMain.handle('terminal:windows', event => {
     trustedUiSender(event);
+    return [...terminalWindows.entries()]
+      .filter(([, window]) => !window.isDestroyed())
+      .map(([sessionId]) => sessionId);
+  });
+
+  ipcMain.handle('terminal:window-close', (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    terminalWindows.get(TerminalSessionIdSchema.parse(sessionId))?.close();
+  });
+
+  ipcMain.handle('terminal:detach', async (event, sessionId: unknown) => {
+    trustedUiSender(event);
+    await openTerminalWindow(TerminalSessionIdSchema.parse(sessionId));
+  });
+
+  ipcMain.handle('terminal:reattach', event => {
+    trustedTerminalSender(event);
+    terminalWindowForSender(event.sender.id)?.close();
+  });
+
+  ipcMain.handle('terminal:write', async (event, raw: unknown) => {
+    trustedTerminalSender(event);
     const input = TerminalWriteSchema.parse(raw);
     await requestTerminal('write', input);
   });
 
   ipcMain.handle('terminal:resize', async (event, raw: unknown) => {
-    trustedUiSender(event);
+    trustedTerminalSender(event);
     const input = TerminalResizeSchema.parse(raw);
     await requestTerminal('resize', input);
   });
 
   ipcMain.handle('terminal:close', async (event, sessionId: unknown) => {
-    trustedUiSender(event);
-    await requestTerminal('close', { sessionId: TerminalSessionIdSchema.parse(sessionId) });
+    trustedTerminalSender(event);
+    const id = TerminalSessionIdSchema.parse(sessionId);
+    await requestTerminal('close', { sessionId: id });
+    // 会话结束后它自己的独立窗口没有内容可看了，一并关掉。
+    terminalWindows.get(id)?.close();
   });
 
   // 任务级 Worktree：只按 taskId 操作；路径与分支由主进程记账，界面传不进来。
@@ -4824,9 +4964,12 @@ app.whenReady().then(async () => {
   registerIpc();
   startAgentProcess();
   setAgentEventSink(event => emit(event));
-  // 终端输出从 Runtime 一路推到主窗口；主进程只转发，不解析内容。
+  // 终端输出从 Runtime 一路推到两个窗口；主进程只转发，不解析内容。
   setTerminalSink(event => {
     if (win && !win.isDestroyed()) win.webContents.send('terminal:data', event);
+    // 每个会话只推给它自己的窗口，不让 A 会话的输出出现在 B 的窗口里。
+    const own = terminalWindows.get(event.sessionId);
+    if (own && !own.isDestroyed()) own.webContents.send('terminal:data', event);
   });
 
   /**

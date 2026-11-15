@@ -20,7 +20,7 @@ import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
 import { ExecutionLog, toolLabel } from './components/ExecutionLog';
-import { AgentTerminal } from './components/AgentTerminal';
+import { terminalSessionsFrom } from './components/terminal-sessions';
 import { TaskWorktree } from './components/TaskWorktree';
 import { CodeIndexPanel } from './components/CodeIndexPanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
@@ -31,9 +31,11 @@ import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
 import { computeSplit, PAGE_GUTTER, PAGE_HEADER_HEIGHT, RAIL_WIDTH } from '../../shared/layout';
 import { showWebSourceStatusBar } from '../../shared/sources';
+import type { TerminalSessionSummary } from '../../shared/cli-agents';
 import {
   ICON_DOCK_BACK_PATHS,
   ICON_EXPAND_PATHS,
+  ICON_TERMINAL_PATHS,
   ICON_GAUGE_PATHS,
   ICON_REFRESH_PATHS,
   ICON_SAVE_PATHS,
@@ -113,6 +115,8 @@ type PendingQuestion = Extract<AgentEvent, { type: 'step.question' }>;
 const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 /** 吸附回来：放回它原来的位置。 */
 const IconDockBack = () => <Glyph paths={ICON_DOCK_BACK_PATHS} />;
+/** 终端：任务里真实开过的 PTY 会话。 */
+const IconTerminal = () => <Glyph paths={ICON_TERMINAL_PATHS} />;
 /** 刷新：把这一页重新加载一次，会话还留在原地。 */
 const IconRefresh = () => <Glyph paths={ICON_REFRESH_PATHS} />;
 /** 诊断：这一页到底找到了什么。 */
@@ -207,6 +211,19 @@ function baseName(path?: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/**
+ * 终端组件按需加载：xterm 及其 CSS 只在真的有 PTY 会话时下载/解析。
+ * 首屏因此回到「不碰终端实现」的体积。
+ */
+const AgentTerminal = React.lazy(() =>
+  import('./components/AgentTerminal').then(module => ({ default: module.AgentTerminal }))
+);
+
+function terminalLabelOf(session: TerminalSessionSummary): string {
+  const base = session.cwd.split('/').filter(Boolean).slice(-1)[0];
+  return base || session.sessionId.slice(-6);
+}
+
 export default function App() {
   const [platform, setPlatform] = useState('');
   const [permission, setPermission] = useState<PermissionPreset>('workspace-write');
@@ -261,6 +278,54 @@ export default function App() {
     webViewsOpen: false
   });
   const [page, setPage] = useState<PageState>({ detachedId: null, collapsed: false });
+  /** 终端：一个会话一个独立窗口；侧栏按钮是开关，可同时开多个。 */
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
+  const [openTerminalWindows, setOpenTerminalWindows] = useState<string[]>([]);
+  /** 已经自动开过窗的会话，避免用户关窗后又被下一次轮询打开。 */
+  const autoOpenedTerminals = useRef<Set<string>>(new Set());
+
+  // 会话列表：2 秒一次，新会话出现就自动开它自己的窗口；已关掉的窗口不会被重开。
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void window.agentAPI
+        .listTerminals()
+        .then(list => {
+          if (!alive) return;
+          setTerminalSessions(list);
+          for (const session of list) {
+            if (session.exited || autoOpenedTerminals.current.has(session.sessionId)) continue;
+            autoOpenedTerminals.current.add(session.sessionId);
+            // 开窗失败（Runtime 刚退出）不该打断轮询；侧栏按钮仍然可以手动开。
+            void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // 窗口的开/关状态由主进程推：用户直接点窗口的关闭按钮也能同步到侧栏。
+  useEffect(() => {
+    void window.agentAPI
+      .listTerminalWindows()
+      // 与自动开窗的推送合并，不能用初始列表覆盖：两个请求几乎同时回来，
+      // 后到的空列表会把刚刚自动打开的那一个抹掉。
+      .then(ids => setOpenTerminalWindows(previous => [...new Set([...previous, ...ids])]))
+      .catch(() => undefined);
+    return window.agentAPI.onTerminalWindow(event => {
+      setOpenTerminalWindows(previous =>
+        event.open
+          ? [...new Set([...previous, event.sessionId])]
+          : previous.filter(id => id !== event.sessionId)
+      );
+    });
+  }, []);
   /** True while 「更新样式」 is running its three passes over the page. */
   const [learning, setLearning] = useState(false);
   /** True from the press of 「刷新」 until the reload settles or its budget ends. */
@@ -1584,6 +1649,31 @@ export default function App() {
    * which reports the rail plus the stub rather than zero, so the app column
    * still stops short of the source buttons.
    */
+  /** 侧栏点某个终端：开/关它自己的窗口，会话本身不受影响。 */
+  function toggleTerminalWindow(sessionId: string) {
+    if (openTerminalWindows.includes(sessionId)) {
+      void window.agentAPI.closeTerminalWindow(sessionId).catch(e => setError(errorText(e)));
+      return;
+    }
+    void window.agentAPI.detachTerminal(sessionId).catch(e => setError(errorText(e)));
+  }
+
+  /**
+   * 页面工具栏的终端按钮是总开关：有窗口开着就全关，否则把所有会话的
+   * 窗口都打开。单个终端仍然由右侧栏的按钮控制。
+   */
+  function toggleTerminal() {
+    if (openTerminalWindows.length > 0) {
+      for (const id of openTerminalWindows) {
+        void window.agentAPI.closeTerminalWindow(id).catch(() => undefined);
+      }
+      return;
+    }
+    for (const session of terminalSessions) {
+      void window.agentAPI.detachTerminal(session.sessionId).catch(() => undefined);
+    }
+  }
+
   async function toggleCollapse() {
     try {
       setPage(await window.agentAPI.setPageCollapsed(!page.collapsed));
@@ -2240,7 +2330,12 @@ export default function App() {
 
             {/* 只对任务里真实开过的 term.* 会话出现；headless CLI 没有 PTY，
                 它的输出在上一块执行日志里，不会被伪装成终端。 */}
-            {activeTask && <AgentTerminal events={events} />}
+            {/* xterm 只在真的有 PTY 会话时才加载；首屏不解析终端实现。 */}
+            {activeTask && terminalSessionsFrom(events).length > 0 && (
+              <React.Suspense fallback={null}>
+                <AgentTerminal events={events} />
+              </React.Suspense>
+            )}
           </div>
         </div>
 
@@ -2413,6 +2508,20 @@ export default function App() {
               >
                 {isDetached ? <IconDockBack /> : <IconExpand />}
               </button>
+              <button
+                className={`page-btn icon${openTerminalWindows.length > 0 ? ' is-active' : ''}`}
+                type="button"
+                onClick={toggleTerminal}
+                data-action="terminal"
+                aria-label="终端窗口"
+                title={
+                  openTerminalWindows.length > 0
+                    ? `关闭全部 ${String(openTerminalWindows.length)} 个终端窗口（会话继续运行）`
+                    : `打开全部 ${String(terminalSessions.length)} 个终端窗口`
+                }
+              >
+                <IconTerminal />
+              </button>
             </span>
           </div>
           <div
@@ -2466,6 +2575,13 @@ export default function App() {
         collapsed={isCollapsed}
         onSelect={selectSource}
         onToggleCollapse={toggleCollapse}
+        terminals={terminalSessions.map(session => ({
+          sessionId: session.sessionId,
+          label: terminalLabelOf(session),
+          exited: session.exited
+        }))}
+        openTerminalIds={openTerminalWindows}
+        onToggleTerminal={toggleTerminalWindow}
       />
 
       {researchOpen && (

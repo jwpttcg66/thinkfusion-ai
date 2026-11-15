@@ -4,12 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { AgentEvent } from '../../../shared/contracts';
 import type { TerminalDataEvent } from '../../../shared/cli-agents';
-
-interface SessionInfo {
-  sessionId: string;
-  label: string;
-  stepId: string;
-}
+import { terminalSessionsFrom } from './terminal-sessions';
 
 /**
  * 已存在的 PTY 会话的只读/可交互面板。
@@ -24,25 +19,8 @@ interface SessionInfo {
  *   往 xterm 里写；丢字节时 Runtime 会带 dropped，由状态行如实显示。
  */
 
-function sessionsFrom(events: readonly AgentEvent[]): SessionInfo[] {
-  const found = new Map<string, SessionInfo>();
-  for (const event of events) {
-    if (event.type !== 'step.completed') continue;
-    if (!event.tool.startsWith('term.')) continue;
-    const result = event.result as { sessionId?: unknown } | null;
-    const sessionId = typeof result?.sessionId === 'string' ? result.sessionId : '';
-    if (!sessionId || found.has(sessionId)) continue;
-    found.set(sessionId, {
-      sessionId,
-      label: event.tool === 'term.open' ? '终端' : event.tool,
-      stepId: event.stepId
-    });
-  }
-  return [...found.values()];
-}
-
 export function AgentTerminal({ events }: { events: readonly AgentEvent[] }) {
-  const sessions = useMemo(() => sessionsFrom(events), [events]);
+  const sessions = useMemo(() => terminalSessionsFrom(events), [events]);
   const [active, setActive] = useState<string | null>(sessions[0]?.sessionId ?? null);
   const [dropped, setDropped] = useState(0);
   const [exitCode, setExitCode] = useState<number | null>(null);
