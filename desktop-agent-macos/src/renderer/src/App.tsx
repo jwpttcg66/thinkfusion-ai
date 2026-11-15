@@ -45,6 +45,7 @@ import type { ChannelStatus, Conversation, ConversationExecutionConfig, Conversa
 import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
 import { pruneCloudParticipantsAgainstPool } from '../../shared/cloud-selection';
 import { dedupeAttachments, type ConversationAttachment } from '../../shared/attachments';
+import { describeEffective } from '../../shared/redact';
 import type { ExpertiseId, ExpertiseView } from '../../shared/expertise';
 import { classifyIntent } from '../../shared/intent';
 import {
@@ -2248,6 +2249,16 @@ export default function App() {
                   </span>
                 </div>
                 <pre className="step-args">{pendingStep.argsPreview}</pre>
+                {/* 用户点头的是实际会启动的参数，不是计划里的配置名。
+                    老事件没有 effective：照旧只显示原始参数，不假装有。 */}
+                {pendingStep.effective && describeEffective(pendingStep.effective).length > 0 && (
+                  <div className="step-effective">
+                    <b>最终有效参数</b>
+                    {describeEffective(pendingStep.effective).map((line, index) => (
+                      <p key={index} className="muted">{line}</p>
+                    ))}
+                  </div>
+                )}
                 <p className="muted">这一步还没有执行。拒绝会让整份计划停在这里，不会继续后面的步骤。</p>
                 <div className="row">
                   <button className="btn" type="button" onClick={() => void decideStep(true)}>

@@ -9,10 +9,22 @@
  * Runtime 因此不需要读 userData，执行也没有被搬到主进程。
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import type { CliAgentConfig, CliAgentView } from '../shared/cli-agents';
+import { isStructuredCliSuccess, parseCliResultJson } from '../shared/cli-result';
+import {
+  capabilityFingerprint,
+  configureCliCapabilities,
+  listCapabilityRecords,
+  recordCapability,
+  resolveHeadless
+} from './cli-capabilities';
+
+const execFileAsync = promisify(execFile);
 
 /** 只有实测过的参数才能标 verified；改参数就要重新跑一次最小任务。 */
 const DEFAULTS: readonly CliAgentConfig[] = [
@@ -57,7 +69,10 @@ const VERSION_TTL_MS = 60 * 60 * 1000;
 
 export function configureCliAgents(input: { userDataDir: string }) {
   configPath = path.join(input.userDataDir, 'cli-agents.json');
+  // 能力记录与注册表同目录：版本/参数变化后自动降级，不再靠写死的 verified。
+  configureCliCapabilities({ userDataDir: input.userDataDir, defaults: DEFAULTS });
   cached = load();
+  refreshCliAgentVersions();
 }
 
 function load(): CliAgentConfig[] {
@@ -184,24 +199,26 @@ function versionOf(executable: string): { version: string | null; error?: string
 
 function viewOf(config: CliAgentConfig): CliAgentView {
   const executable = resolveExecutable(config.command);
-  const version = executable ? versionOf(executable) : { version: null };
+  const detected = executable ? versionOf(executable) : { version: null };
+  const headless = resolveHeadless(config, detected.version);
   const reason = !executable
     ? `找不到可执行文件「${config.command}」`
     : !config.enabled
       ? '已在设置里关闭'
-      : config.headless === 'unsupported'
+      : headless === 'unsupported'
         ? '不支持非交互执行'
-        : config.headless === 'unverified'
-          ? '非交互能力尚未实测'
-          : version.version === null
+        : headless === 'unverified'
+          ? '当前版本或启动参数没有实测记录，非交互能力未验证（点「重新验证」跑一次最小任务）'
+          : detected.version === null
             ? '能执行，但读不到版本；先自己跑一次 --version 确认'
             : undefined;
   return {
     ...config,
+    headless,
     detected: Boolean(executable),
     executable,
-    version: version.version,
-    available: Boolean(executable) && config.enabled && config.headless === 'verified' && version.version !== null,
+    version: detected.version,
+    available: Boolean(executable) && config.enabled && headless === 'verified' && detected.version !== null,
     ...(reason ? { reason } : {})
   };
 }
@@ -215,8 +232,18 @@ export function cliAgentSnapshot(): CliAgentConfig[] {
   return cached.map(item => {
     const executable = resolveExecutable(item.command);
     const version = executable ? versionOf(executable).version : null;
-    return { ...item, command: executable ?? item.command, version };
+    return {
+      ...item,
+      command: executable ?? item.command,
+      version,
+      // agent.exec 只认这个字段；必须由当前版本的能力记录决定，不能透传写死值。
+      headless: resolveHeadless(item, version)
+    };
   });
+}
+
+export function cliCapabilityRecords() {
+  return listCapabilityRecords();
 }
 
 export function setCliAgentEnabled(input: { id: string; enabled: boolean }): CliAgentView[] {
@@ -230,4 +257,74 @@ export function setCliAgentEnabled(input: { id: string; enabled: boolean }): Cli
 /** 版本升级后能力结论要重验：清掉缓存，下一次 list 会重新执行 --version。 */
 export function refreshCliAgentVersions(): void {
   versionCache.clear();
+}
+
+const VERIFY_TASK = 'Reply with exactly: OK';
+const VERIFY_TIMEOUT_MS = 90_000;
+
+/** 主进程跑 CLI 时只透传这些变量，不把整个环境（含无关密钥）交给它。 */
+function verifyEnv(config: CliAgentConfig): NodeJS.ProcessEnv {
+  const keys = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'TZ', 'TERM', ...(config.envAllowlist ?? [])];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string') env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * 「重新验证」：真的跑一次最小 headless 任务，通过才写记录。
+ *
+ * 这是 opt-in 动作（会调用云端模型、消耗额度），不自动执行；命令、参数、
+ * 任务文本全部来自注册表与常量，渲染层只能给一个 cliId，不能塞可执行文件。
+ */
+export async function verifyCliHeadless(id: string): Promise<{
+  ok: boolean;
+  version: string | null;
+  error?: string;
+  view?: CliAgentView;
+}> {
+  const config = cached.find(item => item.id === id);
+  if (!config) return { ok: false, version: null, error: `没有这个 CLI Agent：${id}` };
+  const executable = resolveExecutable(config.command);
+  if (!executable) return { ok: false, version: null, error: `找不到可执行文件「${config.command}」` };
+  const version = versionOf(executable).version;
+  if (!version) return { ok: false, version: null, error: '读不到版本，无法把能力结论绑定到版本' };
+
+  const argv = config.args.map(item => (item === '{task}' ? VERIFY_TASK : item));
+  argv.push(...(config.permissionArgs ?? []));
+  let stdout: string;
+  try {
+    const result = await execFileAsync(executable, argv, {
+      cwd: os.tmpdir(),
+      env: verifyEnv(config),
+      timeout: VERIFY_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      encoding: 'utf8'
+    });
+    stdout = result.stdout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, version, error: `最小任务失败：${message}` };
+  }
+
+  // 只认结构化成功结果：能解析、没标 is_error、有 result 文本。
+  // 「进程退出 0 但输出不是 JSON」不足以证明 headless 参数仍然有效。
+  // 解析按行容错：Qoder 会先打一行自定义命令警告，整段 JSON.parse 会把
+  // exit 0、result 正常的任务误判成失败（2026-11-15 真机 E2E 抓到）。
+  const parsed = parseCliResultJson(stdout);
+  if (!isStructuredCliSuccess(parsed)) {
+    return { ok: false, version, error: '最小任务没有返回可识别的结构化成功结果' };
+  }
+
+  recordCapability({
+    cliId: config.id,
+    capability: 'headless',
+    version,
+    fingerprint: capabilityFingerprint(config),
+    note: `真实 CLI 最小任务通过（${new Date().toISOString()}），版本 ${version}`
+  });
+  refreshCliAgentVersions();
+  return { ok: true, version, view: viewOf(config) };
 }

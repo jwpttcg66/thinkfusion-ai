@@ -16,6 +16,9 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CliAgentConfig, CliModelIdentity, CliRunResult } from '../../shared/cli-agents';
+import { classifyCliError } from '../../shared/cli-errors';
+import { parseCliResultJson } from '../../shared/cli-result';
+import { redactSecrets } from '../../shared/redact';
 
 /** 每个流最多留 2 MB；再多就不是「输出」，是把日志塞进内存。 */
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
@@ -166,35 +169,6 @@ function changedPathsBetween(before: WorkspaceSnapshot, after: WorkspaceSnapshot
   return [...changed].sort();
 }
 
-/** 从 stdout 里找出 CLI 的结构化结果；找不到返回 null。 */
-function parseResultJson(stdout: string): Record<string, unknown> | null {
-  const whole = stdout.trim();
-  if (whole) {
-    try {
-      const parsed = JSON.parse(whole) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      // 不是整段 JSON，继续按行找。
-    }
-  }
-  const lines = whole.split('\n').reverse();
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
 function modelFrom(parsed: Record<string, unknown> | null): Omit<CliModelIdentity, 'cliId' | 'cliVersion'> {
   if (!parsed) {
     return { declaredModel: null, provider: null, provenance: 'unverified' };
@@ -307,11 +281,23 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
       running.delete(request.taskId);
       const out = stdout.done();
       const err = stderr.done();
-      const parsed = parseResultJson(out.text);
+      const parsed = parseCliResultJson(out.text);
       const after = snapshotWorkspace(request.cwd);
       const model = modelFrom(parsed);
-      const text =
-        parsed && typeof parsed.result === 'string' ? parsed.result : trimTail(out.text, TAIL_CHARS);
+      // 结构与文本都可能带 Key：进报告前统一脱敏，审计也同样处理。
+      const text = redactSecrets(
+        parsed && typeof parsed.result === 'string' ? parsed.result : trimTail(out.text, TAIL_CHARS)
+      );
+      const stdoutTail = redactSecrets(trimTail(out.text, TAIL_CHARS));
+      const stderrTail = redactSecrets(trimTail(err.text, TAIL_CHARS));
+      const errorClassification = classifyCliError({
+        exitCode,
+        signal,
+        timedOut: entry.timedOut,
+        cancelled: entry.cancelled,
+        parsed,
+        stderrTail: err.text
+      });
       resolve({
         cli: config.id,
         cwd: request.cwd,
@@ -322,8 +308,8 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
         durationMs: Date.now() - started,
         stdoutBytes: out.bytes,
         stderrBytes: err.bytes,
-        stdoutTail: trimTail(out.text, TAIL_CHARS),
-        stderrTail: trimTail(err.text, TAIL_CHARS),
+        stdoutTail,
+        stderrTail,
         truncated: out.truncated || err.truncated,
         changedPaths: changedPathsBetween(before, after, request.cwd),
         text,
@@ -336,6 +322,7 @@ export function runCliAgent(config: CliAgentConfig, request: CliRunRequest): Pro
         costUsd: parsed && typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
         sessionId: parsed && typeof parsed.session_id === 'string' ? parsed.session_id : null,
         permissionDenials: denialsFrom(parsed),
+        ...(errorClassification ? { errorClassification } : {}),
         terminalSessionId: null
       });
     };

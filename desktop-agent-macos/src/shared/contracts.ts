@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EffectiveExecution } from './redact';
 import type { ConversationAttachment } from './attachments';
 import type { CapabilityView } from './capabilities';
 import type { EvidenceLedger } from './engineering-evidence';
@@ -32,7 +33,9 @@ import type {
 import type { TraceEntry, TraceTotals } from './trace';
 import type {
   CliAgentView,
+  CliCapabilityRecordView,
   CliTerminalState,
+  CliVerifyResult,
   TerminalAttach,
   TerminalDataEvent,
   TerminalSessionSummary,
@@ -1345,6 +1348,12 @@ export type AgentEvent = AgentEventBase &
         /** 参数预览（截断后），用户要看着参数点头，而不是看一句描述。 */
         argsPreview: string;
         risk: 'read' | 'write' | 'danger';
+        /**
+         * 展开后的最终有效参数：CLI 类型、实际权限模式、真实工作目录、
+         * 是否允许改文件、是否高风险、启动 argv（已脱敏）。
+         * 老事件没有这个字段，界面要能容忍缺省。
+         */
+        effective?: EffectiveExecution;
         /** 到期时间：到点没答复按拒绝处理。 */
         expiresAt: number;
       }
@@ -2315,6 +2324,10 @@ export interface AgentApi {
   /** 安装/版本/可用性/开关；不包含任何密钥。 */
   getCliAgents(): Promise<CliAgentView[]>;
   setCliAgentEnabled(input: { id: string; enabled: boolean }): Promise<CliAgentView[]>;
+  /** 版本/参数绑定的能力验证记录；界面据此说明「为什么这一版不可用」。 */
+  getCliCapabilities(): Promise<CliCapabilityRecordView[]>;
+  /** 主动重新验证：真的跑一次 headless 最小任务，会消耗云端额度。 */
+  verifyCliAgent(id: string): Promise<CliVerifyResult>;
 
   // Terminal — 附加到 Runtime 里已经存在的 PTY 会话
   attachTerminal(sessionId: string): Promise<TerminalAttach>;

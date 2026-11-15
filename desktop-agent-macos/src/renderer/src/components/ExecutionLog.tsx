@@ -110,6 +110,39 @@ function CommandView(props: { result: Record<string, unknown> }) {
   );
 }
 
+function CliAgentView(props: { result: Record<string, unknown> }) {
+  const { result } = props;
+  const classification = result.errorClassification;
+  const info =
+    classification && typeof classification === 'object'
+      ? (classification as Record<string, unknown>)
+      : null;
+  const stdout = typeof result.stdoutTail === 'string' ? result.stdoutTail : '';
+  const stderr = typeof result.stderrTail === 'string' ? result.stderrTail : '';
+  return (
+    <div className="exec-command">
+      <p className="muted">
+        CLI {String(result.cli ?? '—')} · 退出码 {String(result.exitCode ?? '—')}
+        {typeof result.durationMs === 'number' ? ` · ${duration(result.durationMs)}` : ''}
+        {result.timedOut === true ? ' · 超时' : ''}
+        {result.cancelled === true ? ' · 已取消' : ''}
+      </p>
+      {info && (
+        <p className="muted">
+          错误分类 {String(info.kind ?? '—')} · 依据 {String(info.source ?? '—')} · 置信度{' '}
+          {String(info.confidence ?? '—')}
+          {typeof info.evidence === 'string' ? ` · ${info.evidence}` : ''}
+        </p>
+      )}
+      {Array.isArray(result.changedPaths) && result.changedPaths.length > 0 && (
+        <p className="muted">改动 {result.changedPaths.length} 个文件（运行前后工作区快照差集）</p>
+      )}
+      {stdout && <pre className="exec-output">{lines(stdout).join('\n')}</pre>}
+      {stderr && <pre className="exec-output is-error">{lines(stderr).join('\n')}</pre>}
+    </div>
+  );
+}
+
 function DiffView(props: { before?: string; after?: string; patch?: string }) {
   if (props.patch) {
     return (
@@ -235,6 +268,7 @@ function ResultView(props: { card: StepCard }) {
     );
   }
   if ((tool === 'test.run' || tool === 'shell.run' || tool === 'code.run') && data) return <CommandView result={data} />;
+  if (tool === 'agent.exec' && data) return <CliAgentView result={data} />;
   if ((tool === 'fs.edit' || tool === 'fs.writeFile' || tool === 'fs.applyPatch') && data) {
     return (
       <div>

@@ -23,7 +23,7 @@ import {
   type CapabilityView
 } from '../../../shared/capabilities';
 import { EXPERTISE_KIND_LABELS, type ExpertiseView } from '../../../shared/expertise';
-import type { CliAgentView } from '../../../shared/cli-agents';
+import type { CliAgentView, CliCapabilityRecordView } from '../../../shared/cli-agents';
 import {
   allVisiblePicked,
   filterModels,
@@ -146,6 +146,8 @@ export function SettingsPanel(props: {
   const [cliAgents, setCliAgents] = useState<CliAgentView[]>([]);
   const [cliBusy, setCliBusy] = useState<string | null>(null);
   const [cliNote, setCliNote] = useState('');
+  /** 版本/参数绑定的能力验证记录；界面照实显示，不把 verified 当永久状态。 */
+  const [cliCapabilities, setCliCapabilities] = useState<CliCapabilityRecordView[]>([]);
   /** 专家与技能：清单也是主进程读盘给的，界面不假装知道 .md 里写了什么。 */
   const [expertise, setExpertise] = useState<ExpertiseView[]>([]);
   const [expertiseBusy, setExpertiseBusy] = useState<string | null>(null);
@@ -227,10 +229,39 @@ export function SettingsPanel(props: {
       .catch(error => {
         if (alive) setCliNote(error instanceof Error ? error.message : String(error));
       });
+    void window.agentAPI
+      .getCliCapabilities()
+      .then(list => {
+        if (alive) setCliCapabilities(list);
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
   }, []);
+
+  /**
+   * 重新验证是 opt-in：真的跑一次云端最小任务，会消耗额度。
+   * 版本升级或改过参数后由用户自己点，不自动跑。
+   */
+  async function verifyCliAgent(id: string) {
+    setCliBusy(id);
+    setCliNote('');
+    try {
+      const result = await window.agentAPI.verifyCliAgent(id);
+      if (!result.ok) {
+        setCliNote(`验证未通过：${result.error ?? '未知原因'}`);
+      } else {
+        setCliNote('已通过最小任务，当前版本与参数的非交互能力重新标记为已实测。');
+      }
+      setCliAgents(await window.agentAPI.getCliAgents());
+      setCliCapabilities(await window.agentAPI.getCliCapabilities());
+    } catch (error) {
+      setCliNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCliBusy(null);
+    }
+  }
 
   async function toggleCliAgent(id: string, enabled: boolean) {
     setCliBusy(id);
@@ -1610,6 +1641,26 @@ export function SettingsPanel(props: {
                           非交互：{item.headless === 'verified' ? '已实测' : item.headless === 'unverified' ? '未实测' : '不支持'}
                           {item.permissionArgs?.length ? ` · 权限参数：${item.permissionArgs.join(' ')}` : ''}
                         </p>
+                        {(() => {
+                          const last = cliCapabilities.filter(row => row.cliId === item.id).slice(-1)[0];
+                          return last ? (
+                            <p className="settings-muted">
+                              实测记录：v{last.version} · {last.os} · 参数指纹 {last.fingerprint} ·{' '}
+                              {new Date(last.verifiedAt).toLocaleString()}
+                            </p>
+                          ) : (
+                            <p className="settings-muted">尚无与当前版本/参数匹配的实测记录</p>
+                          );
+                        })()}
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          disabled={cliBusy !== null || !item.detected}
+                          aria-label={`重新验证 ${item.label} 的非交互能力`}
+                          onClick={() => void verifyCliAgent(item.id)}
+                        >
+                          {cliBusy === item.id ? '验证中…（最多 90 秒）' : '重新验证'}
+                        </button>
                       </div>
                     </div>
                   ))}

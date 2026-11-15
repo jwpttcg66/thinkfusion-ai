@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import type { TerminalDataEvent } from '../../../shared/cli-agents';
+import type { TerminalDataEvent, TerminalProcessState } from '../../../shared/cli-agents';
+import { describeDuration, describeTerminalState } from '../../../shared/terminal-state';
 
 /**
  * 一个可切换多个 PTY 会话的终端面板。
@@ -29,6 +30,13 @@ export interface TerminalPanelBridge {
     exited: boolean;
     missing?: boolean;
     exitCode?: number;
+    /** 进程状态由后端给；面板连接状态由本组件自己维护。 */
+    state?: TerminalProcessState;
+    startedAt?: number;
+    durationMs?: number;
+    auditIncomplete?: boolean;
+    auditTruncated?: boolean;
+    terminateError?: string;
   }>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
@@ -69,7 +77,30 @@ export function TerminalPanel({
   const [dropped, setDropped] = useState(0);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [processState, setProcessState] = useState<TerminalProcessState>('STARTING');
+  const [connection, setConnection] = useState<'ATTACHED' | 'DETACHED'>('DETACHED');
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [endedAt, setEndedAt] = useState<number | null>(null);
+  const [auditIncomplete, setAuditIncomplete] = useState(false);
+  const [auditTruncated, setAuditTruncated] = useState(false);
+  const [terminateError, setTerminateError] = useState('');
+  const [now, setNow] = useState(Date.now());
+  /** 「结束会话」分两步：进程会被终止，不能一键误点。 */
+  const [confirmClose, setConfirmClose] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
+
+  // 状态栏的运行时长每秒走一次；进程退出后不再刷新。
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 二次确认 5 秒后自动收起，避免按钮一直停在危险态。
+  useEffect(() => {
+    if (!confirmClose) return;
+    const timer = setTimeout(() => setConfirmClose(false), 5000);
+    return () => clearTimeout(timer);
+  }, [confirmClose, active]);
 
   // 会话列表变化时：原来选中的没了就退到第一个，一个都没有就保持空状态。
   useEffect(() => {
@@ -99,12 +130,26 @@ export function TerminalPanel({
     setDropped(0);
     setExitCode(null);
     setError('');
+    setProcessState('STARTING');
+    setConnection('DETACHED');
+    setStartedAt(null);
+    setEndedAt(null);
+    setAuditIncomplete(false);
+    setAuditTruncated(false);
+    setTerminateError('');
+    setConfirmClose(false);
 
     const apply = (event: TerminalDataEvent) => {
       if (event.sessionId !== active) return;
       if (event.data) terminal.write(event.data);
       if (event.dropped > 0) setDropped(previous => previous + event.dropped);
-      if (event.exited) setExitCode(event.exitCode ?? null);
+      if (event.exited) {
+        setExitCode(event.exitCode ?? null);
+        setEndedAt(previous => previous ?? Date.now());
+        // 被信号/非零退出码终止的不能写成「正常退出」。
+        setProcessState(event.exitCode === undefined || event.exitCode === 0 ? 'EXITED' : 'FAILED');
+        setConnection('DETACHED');
+      }
     };
 
     const start = async () => {
@@ -114,17 +159,29 @@ export function TerminalPanel({
         if (attached.missing) {
           // 会话已经被结束：显示明确状态，不订阅、不再缩放。
           setExitCode(attached.exitCode ?? null);
+          setProcessState('EXITED');
+          setEndedAt(Date.now());
           setError('这个终端会话已经结束');
           return;
         }
         if (attached.backlog) terminal.write(attached.backlog);
         if (attached.dropped > 0) setDropped(attached.dropped);
-        if (attached.exited) setExitCode(attached.exitCode ?? null);
+        if (attached.exited) {
+          setExitCode(attached.exitCode ?? null);
+          setEndedAt(Date.now());
+        }
+        setProcessState(attached.state ?? (attached.exited ? 'EXITED' : 'RUNNING'));
+        setStartedAt(attached.startedAt ?? null);
+        setAuditIncomplete(attached.auditIncomplete === true);
+        setAuditTruncated(attached.auditTruncated === true);
+        setTerminateError(attached.terminateError ?? '');
+        setConnection('ATTACHED');
         unsubscribe = bridge.onTerminalData(apply);
         fit.fit();
         await bridge.resizeTerminal(active, terminal.cols, terminal.rows);
       } catch (cause) {
         if (!disposed) {
+          setConnection('DETACHED');
           setError(cause instanceof Error ? cause.message : String(cause));
         }
       }
@@ -157,7 +214,13 @@ export function TerminalPanel({
     () => sessions.find(item => item.sessionId === active) ?? null,
     [active, sessions]
   );
-  const status = exitCode !== null ? `已退出（exit ${String(exitCode)}）` : '运行中';
+  // 进程状态、连接状态、运行时长三件事分开显示：关掉面板不等于进程退出。
+  const status = describeTerminalState({
+    exited: exitCode !== null,
+    ...(exitCode === null ? {} : { exitCode }),
+    state: processState
+  });
+  const duration = startedAt ? describeDuration((endedAt ?? now) - startedAt) : '—';
 
   return (
     <div className="terminal-panel">
@@ -182,9 +245,14 @@ export function TerminalPanel({
           )}
           {!single && sessions.length === 0 && <span className="muted">还没有终端会话</span>}
         </div>
-        <span className="terminal-panel-status">
+        <span className="terminal-panel-status" title={terminateError || undefined}>
           {current ? status : ''}
+          {current ? ` · 连接：${connection === 'ATTACHED' ? '已连接' : '已断开'}` : ''}
+          {current ? ` · 运行 ${duration}` : ''}
           {dropped > 0 ? ` · 已丢弃 ${String(dropped)} 字符` : ''}
+          {auditIncomplete ? ' · 审计不完整' : ''}
+          {auditTruncated ? ' · 审计已截断' : ''}
+          {terminateError ? ' · 终止有错误' : ''}
         </span>
         <span className="terminal-panel-actions">
           {!detached && active && onDetach && (
@@ -202,24 +270,41 @@ export function TerminalPanel({
               吸附回来
             </button>
           )}
-          {active && sessions.length > 0 && (
+          {active && sessions.length > 0 && !confirmClose && (
             <button
               type="button"
               className="btn ghost"
               title="结束这个终端会话（进程组会被终止）"
-              onClick={() => {
-                const target = active;
-                void bridge
-                  .closeTerminal(target)
-                  .then(() => {
-                    setActive(null);
-                    onSessionsChanged?.();
-                  })
-                  .catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
-              }}
+              onClick={() => setConfirmClose(true)}
             >
               结束会话
             </button>
+          )}
+          {active && confirmClose && (
+            <>
+              <span className="terminal-confirm-text">将终止进程组，确认？</span>
+              <button
+                type="button"
+                className="btn danger"
+                aria-label="确认终止终端进程"
+                onClick={() => {
+                  const target = active;
+                  setConfirmClose(false);
+                  void bridge
+                    .closeTerminal(target)
+                    .then(() => {
+                      setActive(null);
+                      onSessionsChanged?.();
+                    })
+                    .catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
+                }}
+              >
+                确认终止
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setConfirmClose(false)}>
+                取消
+              </button>
+            </>
           )}
           {!detached && onClosePane && (
             <button type="button" className="btn ghost" onClick={() => onClosePane()}>

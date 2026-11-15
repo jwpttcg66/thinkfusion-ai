@@ -32,7 +32,9 @@ import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
 import type {
   CliAgentView,
+  CliCapabilityRecordView,
   CliTerminalState,
+  CliVerifyResult,
   TerminalAttach,
   TerminalDataEvent,
   TerminalSessionSummary,
@@ -126,6 +128,8 @@ const api: AgentApi = {
   getCliAgents: (): Promise<CliAgentView[]> => ipcRenderer.invoke('cli:list'),
   setCliAgentEnabled: (input: { id: string; enabled: boolean }): Promise<CliAgentView[]> =>
     ipcRenderer.invoke('cli:set-enabled', input),
+  getCliCapabilities: (): Promise<CliCapabilityRecordView[]> => ipcRenderer.invoke('cli:capabilities'),
+  verifyCliAgent: (id: string): Promise<CliVerifyResult> => ipcRenderer.invoke('cli:verify', id),
 
   attachTerminal: (sessionId: string): Promise<TerminalAttach> =>
     ipcRenderer.invoke('terminal:attach', sessionId),

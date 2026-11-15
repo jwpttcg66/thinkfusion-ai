@@ -98,9 +98,9 @@ import {
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
-import { setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
+import { recordAppExit, setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
 import type { CliAgentView } from '../shared/cli-agents';
-import { configureCliAgents, listCliAgents, setCliAgentEnabled } from './cli-agents';
+import { cliCapabilityRecords, configureCliAgents, listCliAgents, setCliAgentEnabled, verifyCliHeadless } from './cli-agents';
 import {
   commitTaskWorktree,
   configureTaskWorktrees,
@@ -2891,6 +2891,19 @@ function registerIpc() {
     return listCliAgents();
   });
 
+  /** 能力验证记录：让设置页能说清「哪一版、哪组参数、什么时候验过」。 */
+  ipcMain.handle('cli:capabilities', event => {
+    trustedUiSender(event);
+    return cliCapabilityRecords();
+  });
+
+  /** 版本/参数变化后由用户主动触发；会真的跑一次云端最小任务，不自动执行。 */
+  ipcMain.handle('cli:verify', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    if (typeof raw !== 'string' || !raw.trim()) throw new Error('无效的 CLI id');
+    return verifyCliHeadless(raw);
+  });
+
   ipcMain.handle('cli:set-enabled', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = CliAgentToggleSchema.parse(raw);
@@ -5645,6 +5658,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  // 应用退出会连带终止 Runtime 里所有 PTY；原因要同步落盘，不能只靠异步消息。
+  recordAppExit('应用正常退出（before-quit）');
   if (statusTimer) clearInterval(statusTimer);
   lspRegistry?.dispose();
   codeIndexService?.close();

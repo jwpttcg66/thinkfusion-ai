@@ -4442,6 +4442,19 @@ button:disabled {
   word-break: break-word;
 }
 
+/* 最终有效参数：与原始 args 分开，用户确认的是实际会启动的东西。
+   长 argv 允许折行，但不让它把三个按钮顶出视野。 */
+.step-effective {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  font-size: 12px;
+}
+.step-effective b { display: block; margin-bottom: 4px; }
+.step-effective p { margin: 2px 0; word-break: break-word; font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11px; }
+
 /* ---------------------------------------------------------------------------
    对话视图页签：对话 / 轨迹 / 统计。
    topbar 之下、滚动区之外，所以滚正文时它不会跟着滚走。
@@ -5557,8 +5570,24 @@ button:disabled {
 }
 .terminal-panel-status {
   font-size: 11px;
-  opacity: 0.72;
-  white-space: nowrap;
+  opacity: 0.82;
+  /* 状态栏现在同时显示进程状态、连接状态、运行时长与审计标记，
+     强制 nowrap 会把操作按钮挤出面板。 */
+  white-space: normal;
+  word-break: break-word;
+  max-width: 46%;
+  line-height: 1.5;
+}
+/* 结束会话是唯一会终止进程组的动作，确认态要和普通按钮明显不同。 */
+.terminal-panel-actions .btn.danger {
+  border-color: #e08b83;
+  color: #a83228;
+  background: #fff3f1;
+}
+.terminal-confirm-text {
+  align-self: center;
+  font-size: 11px;
+  color: #a83228;
 }
 .terminal-panel-actions {
   display: flex;

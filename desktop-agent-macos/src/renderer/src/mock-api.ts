@@ -296,6 +296,8 @@ export function createMockApi(): AgentApi {
       }
     ],
     setCliAgentEnabled: async () => [],
+    getCliCapabilities: async () => [],
+    verifyCliAgent: async () => ({ ok: false, version: null, error: '预览模式不能运行真实 CLI 验证' }),
     attachTerminal: async sessionId => ({
       sessionId,
       cols: 120,

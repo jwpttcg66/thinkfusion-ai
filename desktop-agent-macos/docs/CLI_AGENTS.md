@@ -106,6 +106,35 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 - 多 CLI 并发时的订阅额度与限流行为；
 - CLI 自动升级后参数是否漂移。**升级后必须重新跑上面的最小任务**，再决定是否保留 `verified`。
 
+### 5.1 0.2.7 复跑（同日，`--run --all`）
+
+`node scripts/spikes/cli-real-e2e.mjs --run --all` 会联网、消耗额度，结果写到系统
+临时目录的 JSON 报告。本轮结论：
+
+| 用例 | Qoder 1.1.89 | Claude 2.1.325 |
+| --- | --- | --- |
+| detect | PASS | PASS |
+| headless-minimal | PASS（`OK`） | BLOCK：OpenCode Go **周额度耗尽**（429，19h31m 后重置） |
+| write-file | PASS（`hello.txt` = `OK`） | BLOCK：同上 |
+| cancel-process-group | PASS（真实 `kill(-pgid, 0)` 探测，取消后进程组不存在） | BLOCK：任务在取消信号发出前就因 429 退出 |
+| concurrent-minimal | — | BLOCK：只有 Qoder 跑起来了，并发无从验证 |
+
+合计 **5 PASS / 0 FAIL / 4 BLOCK**，因此脚本退出码仍为 1（没全验证到，不算通过）。
+BLOCK 是「本轮没验证到」，不写成产品缺陷；等额度恢复后重跑同一条命令即可补齐。
+
+这轮真机还抓出两个真实缺陷，均已修：
+
+1. **Qoder 会在 JSON 之前打一行自定义命令重命名警告**。整段 `JSON.parse` 会把
+   `exit 0`、`result:"OK"`、文件也真写出来了的任务判成「没有结构化结果」。
+   `src/shared/cli-result.ts` 统一为「先整段、再倒序逐行找最后一个 JSON 对象」，
+   主进程「重新验证」、Runtime 执行器、E2E 脚本三处共用同一口径；复跑后
+   `verifyCliHeadless('qoder')` 真机返回 `ok:true, version:1.1.89, headless:verified`。
+2. **取消检查原先靠 `ps -eo pid,pgid` 数成员**，受限环境里 `ps` 直接 EPERM 返回
+   空列表，「进程组已清空」是空集上的假阳性。改用 `process.kill(-pgid, 0)` 真发
+   信号探测；CLI 提前退出或探测不可用时一律标 BLOCK，不冒充 PASS。
+
+详细记录见 `docs/implementation/QODER_CLI_SPIKE_REPORT.md`。
+
 ## 6. 结果与验证
 
 `agent.exec` 返回：
@@ -164,12 +193,107 @@ claude -p "Create a file named hello.txt containing exactly the word OK." \
 ## 9. 测试
 
 ```bash
-npm run test:cli        # 真实子进程：argv、退出码、超时、取消、改动路径、权限门
-npm run test:worktree   # 真实 git：建树、复用、隔离、提交、合并、删除
-npm run test:terminal   # 真实 PTY
-npm run test:verify     # 验证规则（含 CLI 改动）
+npm run test:cli             # 真实子进程：argv、退出码、超时、取消、改动路径、权限门
+npm run test:cli-production  # 脱敏、有效参数、状态机、错误分类、能力记录、终端审计（28 条）
+npm run test:worktree        # 真实 git：建树、复用、隔离、提交、合并、删除
+npm run test:terminal        # 真实 PTY
+npm run test:verify          # 验证规则（含 CLI 改动）
 npm run test:capabilities
+npm run replay:terminal -- <sessionId> --markers   # 终端事件回放
+npm run replay:terminal -- <sessionId> --verify    # 审计完整性校验
+npm run test:cli-real -- --run --all               # opt-in：真实 Qoder / Claude E2E
 ```
 
 `test:cli` 用 `scripts/fixtures/fake-cli.mjs`，是真进程、真 argv，不是模块 mock。
 真实 CLI 回归仍要在有登录态的机器上跑，并记录版本与日期——见上面的实测记录。
+`test:cli-real` 不传 `--run` 时只做版本探测，绝不联网，因此普通 CI 不会因本机
+没装 CLI 而失败。传 `--run` 才有三种结果：`PASS` 真跑过且满足判定、`FAIL` 真跑过
+但不满足、`BLOCK` 前置条件不具备（额度/鉴权/CLI 提前退出，本轮没验证到）。
+BLOCK 不算通过，退出码仍非 0；报告里会分别列出「未通过」和「本轮无法验证」。
+
+## 10. 版本绑定与「重新验证」
+
+`headless: 'verified'` 不再是永久有效的常量。记录落在
+`userData/cli-capabilities.json`，一条记录 =
+`(cliId, 能力项, 语义化版本, 系统, 参数指纹)` + 验证时间 + 结果：
+
+- 版本比较取第一个 `x.y.z`（Claude 输出 `2.1.325 (Claude Code)`，Qoder 输出 `1.1.89`）；
+- 指纹覆盖 `args` / `permissionArgs` / `interactiveArgs` / 可执行文件 basename；
+- 改版本或改参数 → 只让 `headless` 这一项降级 `unverified`，不清零其它能力；
+- 首次运行种入 2026-11-15 Spike 的两条记录，保证当时实测过的版本继续可用；
+- 设置 → 智能体 → 对应 CLI 行 →「重新验证」会真的跑一次 headless 最小任务
+  （消耗云端额度，最多 90 秒），通过才写新记录。这是 opt-in，不自动执行。
+- 「重新验证」与执行器共用 `src/shared/cli-result.ts` 的按行容错解析：Qoder 的
+  自定义命令警告行不会再把成功任务误判为失败；成功标准本身没有放宽
+  （`is_error` 为真、没有非空 `result` 依然算失败）。
+
+`agent.exec` 只认下发的 `headless` 字段；`cliAgentSnapshot()` 用当前版本重算它，
+所以「升级了但还没重验」在这里就被挡住，不会等到运行时报错。
+
+## 11. 审批卡上的最终有效参数
+
+用户点「执行这一步」时确认的是**实际会启动的东西**，不是计划里的配置名：
+
+- CLI 类型、展开后的 argv（`{task}` 已替换、权限参数已追加）、真实工作目录
+  （worktree 路径，不是相对路径）、有效权限模式、是否允许改文件、是否高风险；
+- argv 与 `argsPreview` 都先过 `src/shared/redact.ts` 脱敏；
+- 配置名对不上时卡片会明确写「注册表里没有这个 CLI 的配置」，不假装能展开。
+
+## 12. 终端审计与状态
+
+审计在 Runtime 里写（PTY 的 onData / stdin / resize 都在那儿），目录由主进程
+在 `utilityProcess.fork` 时通过 `TF_TERMINAL_AUDIT_DIR` 注入，缺省静默停用。
+
+- 位置：`userData/terminal-records/<sessionId>.jsonl`，每会话一份 append-only；
+- 事件：`session-start` / `stdout` / `stderr` / `stdin` / `resize` / `connection` /
+  `cancel` / `exit` / `session-end` / `audit-error` / `audit-truncated`，`sequence` 单调递增；
+- **PTY 是合并流**：node-pty 只给一个 onData，没有独立 stderr。PTY 输出一律记
+  `stdout` 并在 `session-start` 标 `stream: 'pty-merged'`，不假装分得开；
+- 所有 `data` / `argv` / `reason` 落盘前脱敏；`dropped` 与 `droppedChars` 落盘；
+- 写失败标记 `auditIncomplete` 并在下次成功写入时补一条 `audit-error`；
+- 单文件上限 8 MB，超过后只记结构事件、正文置空并标 `dropped`；保留期 14 天，
+  配置时清理过期文件；
+- 应用退出在 `before-quit` 同步写 `app-exit.jsonl`。**别指望 Runtime 自己补尾**：
+  真机实测 Electron 退出会直接终止 UtilityProcess，`process.on('exit') →
+  closeAllTerminals()` 不会执行，仍在跑的 PTY 那份 JSONL 会永远停在最后一条
+  stdout。所以 `recordAppExit()` 同时调用
+  `src/main/terminal-audit-reconcile.ts`，同步给「有 session-start、没有
+  session-end」的文件补 `exit` + `session-end`，带
+  `recoveredBy: 'main-process'`、`auditIncomplete: true`，不伪造退出码。
+  `replay --verify` 会明确报「退出码/信号未知，这份记录不完整」，不会把补尾
+  误读成完整审计。补尾幂等，已有 session-end 的文件一个字节都不动。
+
+`npm run replay:terminal -- <id> --markers` 按 sequence 重现输出顺序与 resize；
+`--verify` 检查 sequence 单调、结构完整、resize 保留、写入失败标记。
+`--list` 一次列出所有会话及其完整性结论。
+
+**状态分开记**：进程状态由真实进程事件驱动（`STARTING / RUNNING / EXITING /
+EXITED / FAILED / CANCELLED`），连接状态由面板 attach/detach 驱动。
+`CANCELLED` 只在终止成功后置位；强杀失败保留 `FAILED` 与错误说明。
+面板状态栏并列显示进程状态、连接状态、运行时长、丢弃字符数与审计标记。
+「结束会话」需二次确认（5 秒内点「确认终止」），关面板只 detach。
+
+## 13. 错误分类
+
+三层信任（不再只靠 stderr 文本）：
+
+1. `structured`（high）—— CLI JSON 里的错误码字段（`is_error` / `subtype` /
+   `error.code` / `status`）；
+2. `structured`（medium）—— 错误 JSON 的 `result` / `error_message` 正文。
+   Claude Code 2.1.325 真机周额度耗尽时，`subtype` 只有笼统的 `error`，
+   「Request rejected (429) · usage limit reached」全在 `result` 里；旧实现会
+   直接短路成 `UNKNOWN_ERROR(high)`，现已按 medium 分到 `RATE_LIMITED`；
+3. `process`（high/medium）—— 超时、信号、非零退出码、spawn errno；
+4. `text`（low）—— stderr 文本兜底，附命中片段，界面明确标低置信度。
+
+成功结果的正文即使提到「rate limit / 429」也不参与错误分类。
+
+成功与用户取消返回 `null`，不硬塞一个「无错误」类别。`stdoutTail` /
+`stderrTail` / `text` 进报告前也统一脱敏。
+
+## 14. 交付文档
+
+- `docs/implementation/ADR_CONFIG_DRIVEN_CLI_ADAPTER.md`
+- `docs/implementation/CLI_INTEGRATION_BASELINE_AUDIT.md`
+- `docs/implementation/QODER_CLI_SPIKE_REPORT.md`
+- `docs/implementation/CLI_INTEGRATION_FINAL_REPORT.md`
