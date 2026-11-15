@@ -1714,7 +1714,9 @@ export function SettingsPanel(props: {
                             : (item.reason ?? '当前不可用')}
                         </p>
                         <p className="settings-muted">
-                          回答源：{item.available ? '会跟网页一起被问（第一轮），只回答不主导' : '这一轮不会被问'}
+                          回答源：{item.available
+                            ? '会跟网页一起被问（第一轮），也能当主导 / 辩手；本地主导的那一场不问它'
+                            : '这一轮不会被问'}
                         </p>
                         <p className="settings-muted">
                           非交互：{item.headless === 'verified' ? '已实测' : item.headless === 'unverified' ? '未实测' : '不支持'}
