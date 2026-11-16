@@ -89,7 +89,11 @@ export class EvidencePackStore {
         packId,
         status: 'ready',
         idempotencyKey: draft.idempotencyKey,
-        repo: { commit: draft.repo.commit, dirty: Boolean(draft.repo.dirty) },
+        repo: {
+          commit: draft.repo.commit,
+          dirty: Boolean(draft.repo.dirty),
+          ...(draft.repo.branch ? { branch: draft.repo.branch } : {})
+        },
         items: items.map(({ content: _content, ...rest }) => rest),
         manifestHash,
         createdAt: draft.createdAt ?? Date.now()
@@ -205,13 +209,6 @@ function deriveItem(draft: EvidencePackItemDraft, repoRoot: string, commit: stri
     throw new EvidencePackError('INVALID_PATH', `路径越出仓库：${draft.locator.path}`);
   }
 
-  let source: string;
-  try {
-    source = fs.readFileSync(absolute, 'utf8');
-  } catch {
-    throw new EvidencePackError('INVALID_PATH', `读不到证据文件：${relPath}`);
-  }
-  const lines = source.split(/\r?\n/);
   const { startLine, endLine } = draft.locator;
   if (!Number.isInteger(startLine) || startLine < 1) {
     throw new EvidencePackError('INVALID_RANGE', `startLine 必须从 1 开始：${String(startLine)}`);
@@ -219,11 +216,28 @@ function deriveItem(draft: EvidencePackItemDraft, repoRoot: string, commit: stri
   if (!Number.isInteger(endLine) || endLine < startLine) {
     throw new EvidencePackError('INVALID_RANGE', `endLine 必须 >= startLine：${String(endLine)}`);
   }
-  if (endLine > lines.length) {
-    throw new EvidencePackError('INVALID_RANGE', `endLine ${String(endLine)} 超过文件行数 ${String(lines.length)}`);
-  }
 
-  const content = lines.slice(startLine - 1, endLine).join('\n');
+  let content: string;
+  if (draft.content !== undefined) {
+    // 调用方已经冻结了内容：校验行数与长度，不再重读文件。
+    content = draft.content;
+    const lines = content.split('\n');
+    if (lines.length !== endLine - startLine + 1) {
+      throw new EvidencePackError('INVALID_RANGE', `冻结内容行数与 locator 不一致：${relPath}:${startLine}-${endLine}`);
+    }
+  } else {
+    let source: string;
+    try {
+      source = fs.readFileSync(absolute, 'utf8');
+    } catch {
+      throw new EvidencePackError('INVALID_PATH', `读不到证据文件：${relPath}`);
+    }
+    const lines = source.split(/\r?\n/);
+    if (endLine > lines.length) {
+      throw new EvidencePackError('INVALID_RANGE', `endLine ${String(endLine)} 超过文件行数 ${String(lines.length)}`);
+    }
+    content = lines.slice(startLine - 1, endLine).join('\n');
+  }
   if (content.length === 0) throw new EvidencePackError('INVALID_CONTENT', '证据片段不能为空');
   if (content.length > MAX_ITEM_CHARS) {
     throw new EvidencePackError(

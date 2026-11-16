@@ -6,6 +6,9 @@ import { analyseRound, challengesFor } from './claims';
 import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { refreshClaimEvidenceLinks } from './claim-evidence-links';
+import { publishRepositoryBaseline } from '../evidence-pack/baseline';
+import { resolveRepositoryContext } from '../evidence-pack/repository';
+import type { EvidencePackStore } from '../evidence-pack/store';
 import { judgeDebate } from './judges';
 import { debateMetrics, roundProgress } from './metrics';
 import { PROMPT_VERSION, renderInstructions } from './prompts';
@@ -29,6 +32,7 @@ import {
   type DebateMessageKind,
   type DebateOrigin,
   type DebatePhase,
+  type DebateRepositoryInput,
   type DebateRevision,
   type DebateRole,
   type DebateRound,
@@ -57,6 +61,8 @@ export interface DebateDeps {
   judgeCandidateId?: string;
   /** 裁判实际模型；用于判断 modelIndependence。 */
   judgeModelId?: string;
+  /** 工程证据 Pack 存储；不传时工程辩论照常跑，只是 Pack 标 unavailable。 */
+  evidencePacks?: EvidencePackStore;
 }
 
 const SIMILAR = 0.34;
@@ -91,7 +97,8 @@ export class DebateOrchestrator {
     configInput: Partial<DebateConfig>,
     conversationId?: string,
     plan?: LeadPlan,
-    origin: DebateOrigin = 'manual'
+    origin: DebateOrigin = 'manual',
+    repository?: DebateRepositoryInput
   ): DebateState {
     const config = normalizeDebateConfig(configInput);
     const candidates = this.deps.candidates?.() ?? config.participants.map(id => ({
@@ -129,6 +136,7 @@ export class DebateOrchestrator {
       createdAt: at,
       updatedAt: at
     };
+    if (repository) this.attachRepositoryBaseline(state, repository);
     // 事件流从创建那一刻开始记（AC-14）。此时还没有任何发言，所以这条
     // 事件只说明「谁、什么时候、按什么配置起了这场辩论」。
     appendEvent(state, {
@@ -141,6 +149,51 @@ export class DebateOrchestrator {
     this.stopped.delete(state.debateId);
     void this.launch(state);
     return state;
+  }
+
+  /**
+   * 开场冻结工程基准。失败只影响 `evidencePack`，不阻断辩论：
+   * Pack 是证据增强，不是多模型辩论的单点依赖。
+   */
+  private attachRepositoryBaseline(state: DebateState, input: DebateRepositoryInput): void {
+    const at = this.now();
+    try {
+      const resolution = resolveRepositoryContext(input.rootDir);
+      if (!resolution.context) {
+        state.evidencePack = {
+          status: 'unavailable',
+          itemCount: 0,
+          reason: resolution.error ?? '无法解析工程目录',
+          createdAt: at
+        };
+        return;
+      }
+      const context = resolution.context;
+      state.repository = {
+        root: context.root,
+        requestedRoot: context.requestedRoot,
+        source: input.source,
+        commit: context.commit,
+        branch: context.branch,
+        dirty: context.dirty,
+        dirtyFiles: new Set(context.chunks.map(chunk => chunk.path)).size,
+        ...(context.dirtyFingerprint ? { dirtyFingerprint: context.dirtyFingerprint } : {}),
+        resolvedAt: context.resolvedAt
+      };
+      state.evidencePack = publishRepositoryBaseline({
+        store: this.deps.evidencePacks,
+        debateId: state.debateId,
+        context,
+        createdAt: at
+      });
+    } catch (error) {
+      state.evidencePack = {
+        status: 'failed',
+        itemCount: 0,
+        reason: error instanceof Error ? error.message : String(error),
+        createdAt: at
+      };
+    }
   }
 
   get(debateId: string): DebateState | null {

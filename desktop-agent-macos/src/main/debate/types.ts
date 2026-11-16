@@ -541,6 +541,40 @@ export interface DebateDegradation {
   createdAt: number;
 }
 
+/** 工程证据基准快照的状态；与事实核验状态是两件事。 */
+export type DebatePackStatus = 'complete' | 'partial' | 'failed' | 'unavailable';
+
+export interface DebateRepositoryInput {
+  rootDir: string;
+  source: 'conversation' | 'workspace' | 'task-worktree';
+}
+
+export interface DebateRepositoryContext {
+  /** 真正参与冻结的 Git 仓库根；不是用户传入的目录。 */
+  root: string;
+  requestedRoot: string;
+  source: 'conversation' | 'workspace' | 'task-worktree';
+  commit: string;
+  branch: string;
+  dirty: boolean;
+  /** 捕获到的脏文件条目数（不是整个仓库文件数）。 */
+  dirtyFiles: number;
+  /** 脏内容指纹；干净仓库没有这个字段。 */
+  dirtyFingerprint?: string;
+  resolvedAt: number;
+}
+
+export interface DebateEvidencePackState {
+  status: DebatePackStatus;
+  baselinePackId?: string;
+  itemCount: number;
+  reason?: string;
+  createdAt: number;
+  commit?: string;
+  branch?: string;
+  dirty?: boolean;
+}
+
 export interface DebateState {
   debateId: string;
   /** 关联的 Conversation；可以没有（独立发起的辩论）。 */
@@ -556,6 +590,10 @@ export interface DebateState {
   lead: DebateLead;
   /** planLead 的完整结果：界面照实显示，编排器也用它决定每轮谁发言。 */
   plan: LeadPlan;
+  /** 工程空间辩论的 Git 基准；没有工程上下文时不存在。 */
+  repository?: DebateRepositoryContext;
+  /** 开场基准 Pack 的状态；创建失败不阻断辩论，但必须如实记录。 */
+  evidencePack?: DebateEvidencePackState;
   status: DebateStatus;
   /** 辩论执行结果，和 status（生命周期）分开。 */
   outcome?: 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';
