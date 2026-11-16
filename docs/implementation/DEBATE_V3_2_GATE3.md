@@ -96,8 +96,8 @@ npm test                      # 101 个文件全过
 | 工程证据评分 | IMPLEMENTED + TESTED | `judges.ts`；3 条测试 |
 | 工程质量门 | IMPLEMENTED + TESTED | `quality.ts`；2 条测试 |
 | 快照独立性（按 commit） | IMPLEMENTED + TESTED | `mapping.ts`；映射测试 |
-| Pack 创建入口 | NOT STARTED | 需要定创建时机 |
-| Claim 关联写入 | NOT STARTED | 只有类型与映射消费端 |
+| Pack 创建入口 | DEFERRED（用户决策：暂不接线） | 创建时机与关联规则未定 |
+| Claim 关联写入 | DEFERRED（用户决策：暂不接线） | 只有类型与映射消费端 |
 | 工程辩论闭环 | NOT STARTED | 未接编排器 |
 | 外部事实核验 | NOT STARTED | Gate 4 |
 
@@ -113,3 +113,19 @@ npm test                      # 101 个文件全过
 4. `repoRoot` / `commit` 从哪里取，工作区脏时是否允许冻结？
 
 这四个问题不回答就接线，只会把「有 Pack」变成「不知道 Pack 对应哪次代码」。
+
+---
+
+## 7. 接线决策（2026-11-16）
+
+用户决定：**暂不接线**。
+
+理由不是「做不到」，而是关联口径没有定：显式引用需要发言带 `path:line`，
+裁判配对会把模型判断变成关联来源，两者都会影响评分含义。先把 Pack 与评分
+规则留在这里，等关联规则定清楚再接编排器；在那之前：
+
+- 真实辩论不会自动生成 Pack；
+- `ClaimEvidenceLink` 没有写入方，映射结果不会进入评分；
+- 24 题结果与工程辩论行为都不受影响。
+
+Gate 3 到此只完成「规则 + 存储 + 映射」，不宣称闭环。
