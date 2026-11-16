@@ -2,7 +2,7 @@
 
 - 分支 / 工作树：`0.2.8` / `/Users/yalla/data/localLab/thinkfusion-ai-0.2.8`
 - 依据代码：HEAD `a122a08`（Gate 0 收尾提交）
-- 状态：**契约 PROPOSED，等用户批准后才进 Gate 2**
+- 状态：**APPROVED（2026-11-16）**；Gate 2 已按此实现，接入边界见 `DEBATE_V3_2_GATE2.md`
 - 范围：只定契约与 Spike 验收；本轮不实现正式存储、不改辩论链路
 
 ---

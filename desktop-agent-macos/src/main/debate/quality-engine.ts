@@ -33,6 +33,28 @@ export type QualityStatus =
   | 'insufficient'
   | 'unknown';
 
+/**
+ * 外部事实核验状态。与 `QualityStatus` 是两个维度：质量评估回答「论证/证据/
+ * 逻辑是否成立」，这里只回答「外部资料是否支持某个主张」。
+ *
+ * Gate 4 之前没有产生方；老裁决没有这个对象，读成「未做外部核验」。
+ */
+export type FactVerificationStatus =
+  | 'verified'
+  | 'contradicted'
+  | 'partially_verified'
+  | 'insufficient'
+  | 'conflicting'
+  | 'not_verifiable';
+
+export interface FactVerification {
+  status: FactVerificationStatus;
+  basis: string[];
+  sourceRefs: Array<{ url: string; version?: string; readAt: number }>;
+  verifier: { modelId?: string; method: string; independent: boolean };
+  checkedClaimIds: string[];
+}
+
 export interface QualityDimension {
   status: QualityStatus;
   basis: string[];
@@ -68,6 +90,11 @@ export interface DebateQualityReport {
   explanation: string;
   rule: QualityAssessment;
   modelAssessed: boolean;
+  /**
+   * 外部事实核验结果，只有 Gate 4 的核验器才会写。八个质量维度不读它，
+   * 它也不会把 `model-assessed` 变成「事实已核验」。
+   */
+  factVerification?: FactVerification;
 }
 
 export interface FinalDebateDecision {

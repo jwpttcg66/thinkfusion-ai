@@ -260,7 +260,18 @@ export interface DebateRevision {
  *   的说法，不是我们核对过的来源。
  * - `unverified`：连说法都没有，只有一句断言或一个数字。
  */
-export type EvidenceVerification = 'page-link' | 'reported' | 'unverified';
+export type EvidenceVerification = 'page-link' | 'reported' | 'unverified' | 'snapshot';
+
+/** 主张与证据的关联。支持/反驳/上下文只在这里表达，不在 Claim 上再挂数组。 */
+export interface ClaimEvidenceLink {
+  debateId: string;
+  claimId: string;
+  evidenceId: string;
+  relation: 'supports' | 'contradicts' | 'context';
+  source: 'author' | 'reviewer' | 'judge' | 'pack';
+  /** 人可读的关联理由；不能只留一个枚举值。 */
+  reason: string;
+}
 
 /**
  * 一条证据（任务书 5 的 `DebateEvidence` + 7.3 要求的来源元数据）。
@@ -271,6 +282,12 @@ export type EvidenceVerification = 'page-link' | 'reported' | 'unverified';
  */
 export interface DebateEvidence {
   evidenceId: string;
+  /**
+   * 这条证据来自网页，还是来自冻结的仓库快照。
+   * 老记录没有这个字段，按 `web` 处理；`repo-snapshot` 的 `messageId` 是
+   * 合成 id（`pack:<packId>:<itemId>`），不是任何一条真实发言。
+   */
+  origin?: 'web' | 'repo-snapshot';
   /** 支持或反驳哪些主张。空数组 = 页面给了这条来源，但没法归到某一句上。 */
   claimIds: string[];
   kind: EvidenceKind;
@@ -561,6 +578,11 @@ export interface DebateState {
    * 老文件没有这个字段，读出来是 undefined。
    */
   evidence?: DebateEvidence[];
+  /**
+   * 主张与证据的显式关联（Gate 1 契约）。老文件没有这个字段，读出来是
+   * undefined；不拿它替代 `DebateEvidence.claimIds`，也不回填旧记录。
+   */
+  claimEvidenceLinks?: ClaimEvidenceLink[];
   /**
    * 论证图（Phase 3 / AC-08）。每轮追加，边带轮次与来源对象。
    * 老文件没有这个字段。
