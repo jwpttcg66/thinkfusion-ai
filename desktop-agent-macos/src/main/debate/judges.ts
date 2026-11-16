@@ -289,9 +289,37 @@ export function judgeEvidence(
   }
 
   const links = mine.filter(item => item.verified === 'page-link');
+  const snapshots = mine.filter(item => item.verified === 'snapshot');
+  // 工程证据的口径：快照只证明「这段代码/这条命令存在」，还要有成功的
+  // 执行结果才算已核验。只有快照时给 partial，不冒充 sufficient。
+  const executed = snapshots.filter(item => item.execution?.exitCode === 0);
   const external = mine.filter(isExternal);
 
   if (links.length === 0) {
+    if (snapshots.length > 0) {
+      const signals = [
+        `冻结快照 ${String(snapshots.length)} 条`,
+        `成功执行 ${String(executed.length)} 条`
+      ];
+      if (executed.length === 0) {
+        return {
+          dimension: 'evidence',
+          outcome: 'partial',
+          rationale: '有代码快照，但没有成功的测试/命令执行结果，只能当线索，不能算已核验',
+          signals,
+          evidenceIds: ids,
+          sourceRefs: refs
+        };
+      }
+      return {
+        dimension: 'evidence',
+        outcome: 'sufficient',
+        rationale: `有 ${String(executed.length)} 条成功执行结果与 ${String(snapshots.length)} 条冻结快照相互印证`,
+        signals,
+        evidenceIds: ids,
+        sourceRefs: refs
+      };
+    }
     return {
       dimension: 'evidence',
       outcome: 'unverifiable',
@@ -313,6 +341,7 @@ export function judgeEvidence(
   const signals = [
     `可核验链接 ${String(links.length)} 条`,
     `独立来源 ${String(independent)} 个`,
+    ...(snapshots.length > 0 ? [`冻结快照 ${String(snapshots.length)} 条`] : []),
     ...(duplicates.length > 0 ? [`同源重复 ${String(duplicates.length)} 条（不额外计数）`] : []),
     ...(relevant.length < links.length ? ['有链接与这句主张对不上'] : [])
   ];

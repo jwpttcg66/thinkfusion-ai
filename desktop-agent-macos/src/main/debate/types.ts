@@ -316,6 +316,11 @@ export interface DebateEvidence {
   /** 同一份材料只算一次独立来源：第一条为 true，其后为 false。 */
   independent: boolean;
   verified: EvidenceVerification;
+  /**
+   * 工程证据的执行结果。只有 `origin === 'repo-snapshot'` 且条目是
+   * `test-result` / `command-result` 时才有；`exitCode === 0` 才算成功执行。
+   */
+  execution?: { kind: 'test-result' | 'command-result'; exitCode?: number };
   /** 评价理由，必须能读成人话。 */
   assessment: string;
   /**

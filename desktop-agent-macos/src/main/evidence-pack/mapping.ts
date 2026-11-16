@@ -29,9 +29,9 @@ export function packEvidenceIdOf(packId: string, itemId: string): string {
 }
 
 /**
- * 映射整个 Pack。独立性按 `originKey`（commit + 文件）收敛：同一个文件的
- * 第一条是独立来源，其余标 `independent: false` 并指回第一条——三个片段
- * 不是三个独立来源。
+ * 映射整个 Pack。独立性按 `originKey`（commit）收敛：同一个 commit 下的
+ * 第一条是独立来源，其余标 `independent: false` 并指回第一条——同一份快照
+ * 里取几个片段，仍然只有一个来源。
  */
 export function mapPackToDebateEvidence(pack: EvidencePackRead, options: MapPackOptions = {}): DebateEvidence[] {
   const firstOfOrigin = new Map<string, string>();
@@ -45,7 +45,7 @@ export function mapPackToDebateEvidence(pack: EvidencePackRead, options: MapPack
 
   return pack.items.map(item => {
     const evidenceId = packEvidenceIdOf(pack.manifest.packId, item.itemId);
-    const originKey = `repo:${pack.manifest.repo.commit}:${item.locator.path}`;
+    const originKey = `repo:${pack.manifest.repo.commit}`;
     const first = firstOfOrigin.get(originKey);
     if (!first) firstOfOrigin.set(originKey, evidenceId);
 
@@ -66,6 +66,9 @@ export function mapPackToDebateEvidence(pack: EvidencePackRead, options: MapPack
       ...(first ? { duplicateOf: first } : {}),
       independent: !first,
       verified: 'snapshot',
+      ...(item.kind === 'test-result' || item.kind === 'command-result'
+        ? { execution: { kind: item.kind, exitCode: item.meta.exitCode } }
+        : {}),
       assessment: `来自冻结快照 ${pack.manifest.repo.commit.slice(0, 12)} ${item.locator.path}:${item.locator.startLine}-${item.locator.endLine}`,
       soleAttribution: false
     };
