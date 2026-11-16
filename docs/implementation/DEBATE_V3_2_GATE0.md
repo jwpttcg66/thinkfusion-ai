@@ -246,7 +246,7 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 `npm run typecheck`（主进程 / 渲染层 / 测试三套）全绿；`npm test` 全量 **1217 / 1217**，
 `not ok` 0 条（日志 `/tmp/tf-028-test.log`）；`npm run build`（renderer + agent）通过。
 
-新增 `test:judge-adjudicate` 已并入 `test:judge` 与 `test:p0-gaps`，12 条：
+新增 `test:judge-adjudicate` 已并入 `test:judge` 与 `test:p0-gaps`，15 条：
 
 - 没有候选 → 规则版，且不写 `judgeReselection`（「没得换」≠「换过没换成」）
 - 首选调用失败 → 换下一个独立候选，七个身份字段按新人重算
@@ -256,6 +256,10 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 - 全部候选都不可解析 → 换完退回规则版，保留每次失败原因
 - 规则版记权威口径；权威侧没给结论时是「不可比」，不是「一致」
 - IPC 四条：非字符串入参拒绝且不落盘 / 找不到辩论不落空裁决 / 落盘并广播同一份对象 / 降级也落盘
+- 质量链路三条：`IPC → 裁决 → 质量报告 → VerdictStore 落盘 → 按 debateId 读回`，
+  读回的质量报告与刚生成的逐字段相同（不是测试里另调一次 `evaluateDebateQuality`）；
+  规则版读回仍是 `modelAssessed=false`，且 `factualAccuracy` 不会凭空变成 `supported`；
+  旧裁决文件没有 `quality` 时读回 `undefined`，不补一份假报告
 
 **这不等于生产可用**：handler 层测的是函数，不是真机上点「裁决」按钮那条路。界面侧仍待
 一次带 UI 的验证。
@@ -268,6 +272,7 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
 | --- | --- | --- |
 | Judge 失败重选 | IMPLEMENTED + TESTED | `adjudicate.ts`；`check-judge-adjudicate.mjs` 12 条 |
 | Judge 降级 IPC 链 | IMPLEMENTED + TESTED（handler 层） | `handler.ts`；未真机点按钮验证 |
+| 质量报告真实链路 | IMPLEMENTED + TESTED（落盘 → 读回） | `check-judge-adjudicate.mjs` 三条；未接 UI |
 | 公共裁决核 | IMPLEMENTED + INTEGRATED | IPC 与 24 题回归共用 |
 | 权威 rules 结论 | SPECIFIED + IMPLEMENTED（只记录，不改结论来源） | `rulesConclusion.authority` |
 | 24 题当前 main 回归 | **DONE（两套口径，均不结构化通过）**：云端直连 24/24 跑完、V1 19/24（§4.5）；CLI 口径 24/24、V1 20/24（§4.4） | 云端 2 题 PARTIAL（`mq-delivery`、`schema-migration`）单独记，未用单题重跑改写；`structuralOk=false` |

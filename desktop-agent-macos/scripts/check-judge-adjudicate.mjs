@@ -11,9 +11,13 @@
  * Run with: npm run test:judge-adjudicate
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { adjudicateDebate } from '../out-test/main/judge/adjudicate.js';
 import { handleJudgeAdjudicate } from '../out-test/main/judge/handler.js';
+import { VerdictStore } from '../out-test/main/judge/store.js';
 
 const JUDGE_JSON = JSON.stringify({
   questionType: 'CONTEXTUAL',
@@ -276,4 +280,68 @@ test('IPC：降级也照样落盘，失败原因可追踪', async () => {
   assert.equal(verdict.backend, 'rules');
   assert.equal(verdict.judgeReselection.exhausted, true);
   assert.match(verdict.fallbackReason, /网关超时/);
+});
+
+// ---------------------------------------------------------------------------
+// Gate 0B：质量引擎在真实链路里，而不是测试里单独调一次
+// ---------------------------------------------------------------------------
+
+test('IPC → 裁决 → 质量报告 → 落盘 → 读回：读到的是刚生成的那一份', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-verdict-'));
+  try {
+    const store = new VerdictStore(dir);
+    const { deps } = ipcDeps({ saveVerdict: verdict => store.save(verdict) });
+    const verdict = await handleJudgeAdjudicate('debate-1', deps);
+
+    assert.ok(verdict.quality, '裁决必须带质量报告');
+    assert.ok(verdict.finalDecision, '裁决必须带最终决策');
+    assert.equal(verdict.quality.modelAssessed, true, '模型裁判要学会区分「模型评估过」');
+
+    // judge:get 在产品里就是 `verdicts.get(debateId)`，这里直接走同一个 store。
+    const read = store.get('debate-1');
+    assert.ok(read, '落盘后必须能按 debateId 读回');
+    assert.deepEqual(read.quality, verdict.quality, '读回的质量报告不能是另算一份');
+    assert.deepEqual(read.finalDecision, verdict.finalDecision);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('规则版落盘后读回：质量报告仍标 modelAssessed=false', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-verdict-rules-'));
+  try {
+    const store = new VerdictStore(dir);
+    const { deps } = ipcDeps({
+      saveVerdict: verdict => store.save(verdict),
+      candidates: async () => [],
+      ask: async () => answer('')
+    });
+    const verdict = await handleJudgeAdjudicate('debate-1', deps);
+    const read = store.get('debate-1');
+
+    assert.equal(verdict.backend, 'rules');
+    assert.ok(read.quality, '规则版也要有质量报告');
+    assert.equal(read.quality.modelAssessed, false, '没有模型评审就不能说模型评估过');
+    assert.notEqual(read.quality.dimensions.factualAccuracy.status, 'supported',
+      '规则版不能凭空给出「事实已支持」');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('旧裁决文件没有 quality：读回是 undefined，不补一份假报告', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-verdict-legacy-'));
+  try {
+    fs.writeFileSync(
+      path.join(dir, 'debate-old.json'),
+      JSON.stringify({ verdictId: 'v-old', debateId: 'debate-old', createdAt: 1, backend: 'rules', conclusion: null }),
+      'utf8'
+    );
+    const read = new VerdictStore(dir).get('debate-old');
+    assert.ok(read);
+    assert.equal(read.quality, undefined);
+    assert.equal(read.finalDecision, undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
