@@ -668,6 +668,15 @@ app.whenReady().then(async () => {
     dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
     models: MODELS.map(item => item.model),
     judgeRotation: IDS,
+    runner: {
+      version: RUNNER_VERSION,
+      promptVersion: PROMPT_VERSION,
+      commit: codeSha(),
+      adjudication: 'main/judge/adjudicate.adjudicateDebate',
+      rulesAuthority: 'debate.claim-judgments',
+      backend: providerId,
+      economy: ECONOMY
+    },
     createdAt,
     workers,
     completeness: completenessEnabled,
