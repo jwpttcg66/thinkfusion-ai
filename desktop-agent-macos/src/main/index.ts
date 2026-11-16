@@ -83,6 +83,7 @@ import {
 import { CloudConfigStore } from './providers/cloud-config';
 import { handleJudgeAdjudicate } from './judge/handler';
 import { VerdictStore } from './judge/store';
+import { EvidencePackStore } from './evidence-pack/store';
 import type { JudgeVerdict } from './judge/types';
 import { classifyIntent } from '../shared/intent';
 import {
@@ -637,6 +638,7 @@ let codeIntelligenceConfig: CodeIntelligenceConfig = {
   managed: false, autoStart: false, autoStop: false, neo4jHome: '', passwordConfigured: false
 };
 let verdicts: VerdictStore | null = null;
+let evidencePacks: EvidencePackStore | null = null;
 const verdictByConversation = new Map<string, JudgeVerdict>();
 
 /**
@@ -3993,7 +3995,24 @@ function isMissingTerminal(error: unknown): boolean {
     };
     store.appendMessage(userMessage);
     emitConversation({ type: 'message.added', at, message: userMessage });
-    const state = debates.start(question, rawConfig, conversation.conversationId, plan, 'manual');
+    // 工程辩论只冻结会话自己绑定的工程目录；不拿全局默认目录兜底，
+    // 否则历史辩论会随着今天切换工作区指向另一份代码。
+    const engineering = conversation.workspaceMode === 'engineering' || input.workspaceMode === 'engineering';
+    const selectedWorkspaceRoot = typeof input.workspaceId === 'string'
+      ? workspaceList?.get(input.workspaceId)?.root
+      : undefined;
+    const repositoryRoot = engineering
+      ? conversation.workspaceRoot
+        || (typeof input.workspaceRoot === 'string' ? input.workspaceRoot : '')
+        || selectedWorkspaceRoot
+      : undefined;
+    const repository = repositoryRoot
+      ? {
+          rootDir: repositoryRoot,
+          source: conversation.workspaceRoot ? 'conversation' as const : 'workspace' as const
+        }
+      : undefined;
+    const state = debates.start(question, rawConfig, conversation.conversationId, plan, 'manual', repository);
     watchDebateInConversation(state.debateId, conversation.conversationId);
     return state;
   });
@@ -4795,6 +4814,7 @@ app.whenReady().then(async () => {
   expertiseStore = new ExpertiseStore(path.join(app.getPath('userData'), 'expertise.json'));
 
   verdicts = new VerdictStore(path.join(app.getPath('userData'), 'verdicts'));
+  evidencePacks = new EvidencePackStore(path.join(app.getPath('userData'), 'evidence-packs'));
 
   debates = new DebateOrchestrator(new DebateStore(path.join(app.getPath('userData'), 'debates')), {
     ask: (agentId, task) => {
@@ -4808,6 +4828,7 @@ app.whenReady().then(async () => {
     },
     // 谁参与由 debate:start 里的 planLead 按 health() 决定，编排器不再
     // 维护第二套名单。网页成员在计划里被标成 webOnly，只第一轮发言。
+    ...(evidencePacks ? { evidencePacks } : {})
   });
 
   tasks = new TaskManager(store, emit);

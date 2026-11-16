@@ -43,6 +43,8 @@ export interface EvidencePackItemMeta {
   /** 不参与 hash：同一条证据换一次采集时间，仍然算同一份内容。 */
   capturedAt: number;
   generation?: number;
+  /** 这条条目在快照里的角色；不参与 hash，只供人读。 */
+  snapshotRole?: 'dirty-overlay' | 'round';
   command?: string;
   exitCode?: number;
   /** `doc-excerpt` 必须显式给出，否则映射层拒绝猜来源类型。 */
@@ -75,7 +77,7 @@ export interface EvidencePackManifest {
   packId: string;
   status: 'ready';
   idempotencyKey: string;
-  repo: { commit: string; dirty: boolean };
+  repo: { commit: string; dirty: boolean; branch?: string };
   items: EvidencePackManifestItem[];
   manifestHash: string;
   createdAt: number;
@@ -85,7 +87,7 @@ export interface EvidencePackDraft {
   /** 只用于读源码，不写入 manifest。 */
   repoRoot: string;
   idempotencyKey: string;
-  repo: { commit: string; dirty?: boolean };
+  repo: { commit: string; dirty?: boolean; branch?: string };
   createdAt?: number;
   items: EvidencePackItemDraft[];
 }

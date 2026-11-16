@@ -89,7 +89,11 @@ export class EvidencePackStore {
         packId,
         status: 'ready',
         idempotencyKey: draft.idempotencyKey,
-        repo: { commit: draft.repo.commit, dirty: Boolean(draft.repo.dirty) },
+        repo: {
+          commit: draft.repo.commit,
+          dirty: Boolean(draft.repo.dirty),
+          ...(draft.repo.branch ? { branch: draft.repo.branch } : {})
+        },
         items: items.map(({ content: _content, ...rest }) => rest),
         manifestHash,
         createdAt: draft.createdAt ?? Date.now()
