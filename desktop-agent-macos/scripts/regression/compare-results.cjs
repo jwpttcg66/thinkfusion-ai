@@ -52,6 +52,16 @@ function comparability(baseline, current) {
   const currentModels = [...(current?.models ?? [])].sort().join(',');
   if (baseModels !== currentModels) problems.push(`模型池不同：基线 ${baseModels} / 本次 ${currentModels}`);
 
+  // 标准答案变了就不再是同一把尺子。旧报告没有 `standard` 元数据，
+  // 不能默认「没写就是一样」——那是把口径变化当成模型退化。
+  const baseStandard = baseline?.standard?.sha256 ?? null;
+  const currentStandard = current?.standard?.sha256 ?? null;
+  if (!baseStandard || !currentStandard) {
+    problems.push('缺少标准答案 sha256，无法确认评分口径一致');
+  } else if (baseStandard !== currentStandard) {
+    problems.push(`标准答案不同：基线 ${baseStandard.slice(0, 12)}… / 本次 ${currentStandard.slice(0, 12)}…`);
+  }
+
   return problems;
 }
 

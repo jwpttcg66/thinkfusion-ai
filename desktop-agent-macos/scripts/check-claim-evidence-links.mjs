@@ -17,6 +17,7 @@ import test from 'node:test';
 import { DebateStore } from '../out-test/main/debate/store.js';
 import {
   buildClaimEvidenceLinks,
+  refreshClaimEvidenceLinks,
   validateClaimEvidenceLinks
 } from '../out-test/main/debate/claim-evidence-links.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
@@ -148,6 +149,18 @@ test('反例维度 refuted：即使主张 supported，也记 contradicts', () =>
   assert.match(links[0].reason, /反例/);
 });
 
+test('方向冲突：同一对证据同时 supports 与 contradicts 时，contradicts 优先', () => {
+  const c = claim('c1');
+  const e = evidence('e1', ['c1']);
+  const links = buildClaimEvidenceLinks(stateOf({
+    claims: [c],
+    evidenceList: [e],
+    judgments: [judgment('c1', 'supported', ['e1'], { outcome: 'refuted', evidenceIds: ['e1'] })]
+  }));
+  assert.equal(links.length, 1);
+  assert.equal(links[0].relation, 'contradicts');
+});
+
 test('重复重建是幂等的，且顺序稳定', () => {
   const c1 = claim('c1');
   const c2 = claim('c2');
@@ -162,6 +175,43 @@ test('重复重建是幂等的，且顺序稳定', () => {
   const second = buildClaimEvidenceLinks(state);
   assert.deepEqual(first, second);
   assert.deepEqual(first.map(link => link.claimId), ['c1', 'c2']);
+});
+
+test('Pack 证据不自动标成 author；有规则裁判引用时仍可写 judge 关联', () => {
+  const c = claim('c1');
+  const packEvidence = {
+    ...evidence('e-pack', ['c1']),
+    origin: 'repo-snapshot',
+    kind: 'source-code',
+    verified: 'snapshot',
+    originKey: 'repo:c0ffee'
+  };
+  const authorOnly = buildClaimEvidenceLinks(stateOf({
+    claims: [c],
+    evidenceList: [packEvidence],
+    judgments: []
+  }));
+  assert.deepEqual(authorOnly, [], 'repo-snapshot 不能冒充作者引用');
+
+  const withJudge = buildClaimEvidenceLinks(stateOf({
+    claims: [c],
+    evidenceList: [packEvidence],
+    judgments: [judgment('c1', 'supported', ['e-pack'])]
+  }));
+  assert.equal(withJudge.length, 1);
+  assert.equal(withJudge[0].source, 'judge');
+  assert.equal(withJudge[0].relation, 'supports');
+});
+
+test('统一写入入口：refresh 设置 rules-judge，并且不产生非法项', () => {
+  const c = claim('c1');
+  const e = evidence('e1', ['c1']);
+  const state = stateOf({ claims: [c], evidenceList: [e], judgments: [judgment('c1', 'supported', ['e1'])] });
+  const refreshed = refreshClaimEvidenceLinks(state);
+  assert.equal(refreshed.writer, 'rules-judge');
+  assert.deepEqual(refreshed.errors, []);
+  assert.equal(state.claimEvidenceLinksSource, 'rules-judge');
+  assert.deepEqual(state.claimEvidenceLinks, refreshed.links);
 });
 
 test('校验器：未知 claim/evidence、跨 debate、重复项都报错并过滤', () => {
@@ -185,7 +235,7 @@ test('校验器：未知 claim/evidence、跨 debate、重复项都报错并过�
   ]);
   assert.equal(result.valid.length, 1);
   assert.equal(result.errors.length, 4);
-  assert.ok(result.errors.some(error => error.includes('重复关联')));
+  assert.ok(result.errors.some(error => error.includes('同一对证据出现多条关联')));
   assert.ok(result.errors.some(error => error.includes('未知主张')));
   assert.ok(result.errors.some(error => error.includes('未知证据')));
   assert.ok(result.errors.some(error => error.includes('debateId')));
@@ -202,11 +252,12 @@ test('持久化：关联随 DebateStore 落盘并原样读回', () => {
       evidenceList: [e],
       judgments: [judgment('c1', 'supported', ['e1'])]
     });
-    state.claimEvidenceLinks = buildClaimEvidenceLinks(state);
+    refreshClaimEvidenceLinks(state);
     store.save(state);
     const read = store.get('debate-links');
     assert.ok(read);
     assert.deepEqual(read.claimEvidenceLinks, state.claimEvidenceLinks);
+    assert.equal(read.claimEvidenceLinksSource, 'rules-judge');
     assert.equal(read.claimEvidenceLinks[0].relation, 'supports');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -243,6 +294,7 @@ test('真实辩论结束后会写入关联，且没有悬空引用', async () =>
     assert.ok(Array.isArray(state.claimEvidenceLinks));
     const validation = validateClaimEvidenceLinks(state, state.claimEvidenceLinks);
     assert.deepEqual(validation.errors, [], '真实辩论不能产生悬空关联');
+    assert.equal(state.claimEvidenceLinksSource, 'rules-judge');
     if ((state.evidence ?? []).length > 0) {
       assert.ok(state.claimEvidenceLinks.length > 0, '有证据就应该有关联记录');
     }
@@ -251,4 +303,24 @@ test('真实辩论结束后会写入关联，且没有悬空引用', async () =>
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('校验器：同一对证据两个方向直接报错，不返回两份', () => {
+  const c = claim('c1');
+  const e = evidence('e1', ['c1']);
+  const state = stateOf({ claims: [c], evidenceList: [e], judgments: [] });
+  const base = {
+    debateId: 'debate-links',
+    claimId: 'c1',
+    evidenceId: 'e1',
+    source: 'judge',
+    reason: 'test'
+  };
+  const result = validateClaimEvidenceLinks(state, [
+    { ...base, relation: 'supports' },
+    { ...base, relation: 'contradicts' }
+  ]);
+  assert.equal(result.valid.length, 1);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /同一对证据出现多条关联/);
 });

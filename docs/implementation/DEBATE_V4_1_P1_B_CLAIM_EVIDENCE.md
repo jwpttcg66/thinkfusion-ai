@@ -13,7 +13,7 @@
 | 项 | 决定 |
 | --- | --- |
 | 时机 | `DebateOrchestrator.conclude()`：裁判生成 `judgments / verdict` 之后、落盘之前 |
-| 责任方 | 确定性代码 `buildClaimEvidenceLinks(state)`，不让模型直接写关联 |
+| 责任方 | 确定性代码 `refreshClaimEvidenceLinks(state)`（唯一写入入口），不让模型直接写关联 |
 | 输入 | 当前轮次的 `claims`、`evidence`、`judgments` |
 | 输出 | `DebateState.claimEvidenceLinks`（整体重建，不做增量拼接） |
 | 旧记录 | 字段缺失读成 `undefined`；不迁移、不回填 |
@@ -26,11 +26,11 @@
 | --- | --- | --- | --- |
 | `judge` | 裁判在 `evidence` / `counterexample` 维度引用了该证据 | 由主张结论派生 | `supported/partially_supported → supports`；`unsupported/contradicted → contradicts`；其余 `context` |
 | `judge` | 反例维度 `refuted` | `contradicts` | 反例成立优先于主张结论 |
-| `author` | 证据的 `claimIds` 指向该主张，且裁判没有对同一对给方向 | `context` | 作者/页面只标明「这句话引用了它」，没有标明支持或反驳 |
+| `author` | 非 `repo-snapshot` 证据的 `claimIds` 指向该主张，且裁判没有对同一对给方向 | `context` | 作者/页面只标明「这句话引用了它」，没有标明支持或反驳 |
 | `reviewer` | **未实现** | — | 没有可靠的 reviewer→evidence 记录；不猜 |
 | `pack` | **未实现（P2）** | — | Pack 条目的 relation 必须由 P2 的显式关联输入给出，映射层不自动生成 supports |
 
-同一对 `(claimId, evidenceId)` 只保留一条：裁判方向优先，作者 `context` 不重复写入。
+同一对 `(claimId, evidenceId)` 只保留一条。冲突时按 **`contradicts > supports > context`** 处理：反例/反驳优先于支持，不能让维度顺序决定方向；同方向时裁判优先于作者。
 
 ### 1.3 校验
 
@@ -53,7 +53,8 @@
 | Claim 变化 | 旧 claimId 不再出现在当前 claims → 重建时自动消失 |
 | Evidence 去重 | 去重后的证据仍以原 id 存在；若上游删除某条，重建时不再写入 |
 | Pack 回放 | 只影响 evidence 内容；关联在状态层，不会从 Pack 里再生成一套 |
-| 持久化 | 随 `DebateState` 由 `DebateStore` 写盘；读取旧文件得到 `undefined` |
+| 持久化 | 随 `DebateState` 由 `DebateStore` 写盘；`claimEvidenceLinksSource: 'rules-judge'` 标明写入层；旧文件得到 `undefined` |
+| 模型裁决 | **不写关联**：`JudgeVerdict.evidence` 是消息级，没有 evidenceId；强写只能猜。最终结论以 Verdict 为准，关联只表达规则裁判引用过哪条证据 |
 
 ### 1.5 不做的事
 
@@ -69,7 +70,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/main/debate/claim-evidence-links.ts` | `buildClaimEvidenceLinks` / `validateClaimEvidenceLinks` / `isSupportLink` |
+| `src/main/debate/claim-evidence-links.ts` | `refreshClaimEvidenceLinks`（唯一写入入口）/ `buildClaimEvidenceLinks` / `validateClaimEvidenceLinks` |
 | `src/main/debate/orchestrator.ts` | `conclude()` 中写入 `state.claimEvidenceLinks` |
 | `src/main/debate/types.ts` | 既有 `ClaimEvidenceLink` 与可选字段 |
 
@@ -79,7 +80,7 @@
 
 ## 3. 测试
 
-`npm run test:claim-evidence-links`：**7/7 通过**。
+`npm run test:claim-evidence-links`：**11/11 通过**。
 
 | 用例 | 钉住的事 |
 | --- | --- |
@@ -90,6 +91,9 @@
 | 校验器 | 未知 claim、未知 evidence、跨 debate、重复项全部报错 |
 | 持久化 | 写入 `DebateStore` 后原样读回 |
 | 真实辩论 | 跑完一场带页面引用的辩论，关联非空且无悬空引用，读盘一致 |
+| 方向冲突 | 同一对证据同时 supports/contradicts → contradicts |
+| Pack 来源 | `repo-snapshot` 不自动写 author；裁判引用时仍可写 judge |
+| 唯一入口 | `refresh` 设置 `rules-judge`，非法项不进入状态 |
 
 ---
 

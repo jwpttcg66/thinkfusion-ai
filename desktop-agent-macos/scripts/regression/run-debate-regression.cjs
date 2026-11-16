@@ -58,7 +58,7 @@ const JUDGE_TIMEOUT_MS = 240_000;
  * `--incremental` 跑，会把上一版的结果原样复用成「本次结果」，报告看起来
  * 却是新生成的——那一版证据比不跑更糟。
  */
-const RUNNER_VERSION = '2.2.0';
+const RUNNER_VERSION = '2.3.0';
 
 /**
  * 每题指纹：只包含会影响这一题结果的东西。标准答案按题取，
@@ -952,6 +952,7 @@ app.whenReady().then(async () => {
       models: MODELS.map(item => item.model),
       judgeRotation: IDS,
       runner: config.runner,
+      standard: config.standard,
       sampling: config.sampling,
       retryPolicy: config.retryPolicy,
       createdAt,

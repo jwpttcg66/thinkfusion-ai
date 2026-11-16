@@ -74,7 +74,7 @@ node scripts/regression/recompute-baseline-stats.cjs \
 
 ### 2.2 报告保留可追溯摘录
 
-后续运行（runner `2.2.0` 起）的每题结果新增：
+后续运行（runner `2.3.0` 起）的每题结果新增：
 
 - `debate.messageExcerpts`：每条发言的 `agentId / modelId / roundIndex / chars / excerpt(800 字)`；
 - `answerExcerpt`：实际送去 rubric 的答案前 4000 字；`answerChars` 记录全文长度；
@@ -84,7 +84,18 @@ node scripts/regression/recompute-baseline-stats.cjs \
 
 ---
 
-## 3. 测试
+## 3. 比较工具
+
+| 工具 | 用途 | 兼容性检查 |
+| --- | --- | --- |
+| `compare-results.cjs` | 单次 24 题逐题对比 | 数据集、completeness、模型池、标准答案 SHA |
+| `compare-baselines.cjs` | N 次基线分类对比 | 数据集、标准答案/SHA、runner、重试策略、模型池、样本数、temperature/seed |
+
+`compare-baselines` 按 `stable-pass / stable-fail / fluctuating / incomplete` 比较；一个转移可以同时计为「稳定通过丢失」和「新增稳定失败」，不会因为单一 delta 标签漏掉一半。
+
+---
+
+## 4. 测试
 
 新增 / 修改：
 
@@ -100,11 +111,12 @@ node scripts/regression/recompute-baseline-stats.cjs \
 npm run test:regression-baseline      # 10/10
 npm run test:debate-standard-answers  # 8/8
 npm run test:debate-rubric            # 12/12
+npm run test:compare-baselines        # 7/7
 ```
 
 ---
 
-## 4. 对 P1-B 的交接
+## 5. 对 P1-B 的交接
 
 - 回归门槛改用 `stableCompletePass / stableFail / fluctuating / incomplete`，不再比较单次 24 题总数；
 - 后续引用 P0 基线时，统计口径以 `stats-corrected` 为准，原始冻结文件只作为原始数据；

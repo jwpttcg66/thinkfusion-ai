@@ -28,6 +28,25 @@ export interface LinkValidation {
   errors: string[];
 }
 
+export interface LinkRefresh {
+  links: ClaimEvidenceLink[];
+  errors: string[];
+  writer: 'rules-judge';
+}
+
+/**
+ * 唯一写入入口。规则裁判收尾时调用；模型裁决不经过这里，也不直接改
+ * `claimEvidenceLinks`——`JudgeVerdict.evidence` 是消息级，没有 evidenceId，
+ * 强写只能猜。需要模型关联时必须先给裁决增加 claim/evidence 引用契约（P3）。
+ */
+export function refreshClaimEvidenceLinks(state: DebateState): LinkRefresh {
+  const built = buildClaimEvidenceLinks(state);
+  const validation = validateClaimEvidenceLinks(state, built);
+  state.claimEvidenceLinks = validation.valid;
+  state.claimEvidenceLinksSource = 'rules-judge';
+  return { links: validation.valid, errors: validation.errors, writer: 'rules-judge' };
+}
+
 export function buildClaimEvidenceLinks(state: DebateState): ClaimEvidenceLink[] {
   const claims = state.rounds.flatMap(round => round.claims ?? []);
   const claimIds = new Set(claims.map(claim => claim.claimId));
@@ -56,6 +75,9 @@ export function buildClaimEvidenceLinks(state: DebateState): ClaimEvidenceLink[]
   }
 
   for (const evidence of state.evidence ?? []) {
+    // Pack 证据的关联由 P2 显式输入；这里自动写会把 repo-snapshot 误标成
+    // 作者引用。快照只证明「代码/命令存在」，不证明作者引用了它。
+    if (evidence.origin === 'repo-snapshot') continue;
     for (const claimId of evidence.claimIds) {
       if (!claimIds.has(claimId)) continue;
       if (judgePairs.has(pairKey(claimId, evidence.evidenceId))) continue;
@@ -100,9 +122,11 @@ export function validateClaimEvidenceLinks(
       errors.push(`未知证据：${link.evidenceId}`);
       continue;
     }
-    const key = `${link.claimId}\0${link.evidenceId}\0${link.relation}\0${link.source}`;
+    // 同一对 (claim, evidence) 只能有一条关联；方向不同不是「两条记录」，
+    // 而是语义冲突，必须报出来，不能让消费方按数组顺序挑一个。
+    const key = pairKey(link.claimId, link.evidenceId);
     if (seen.has(key)) {
-      errors.push(`重复关联：${link.claimId} / ${link.evidenceId} / ${link.relation} / ${link.source}`);
+      errors.push(`同一对证据出现多条关联：${link.claimId} / ${link.evidenceId}`);
       continue;
     }
     seen.add(key);
@@ -112,19 +136,41 @@ export function validateClaimEvidenceLinks(
   return { valid, errors };
 }
 
-/** 同一个 (claim, evidence) 只保留一条；裁判已经给方向时不再重复。 */
+/**
+ * 同一个 (claim, evidence) 只保留一条。
+ *
+ * 方向冲突时按 contradicts > supports > context 处理：反例/反驳比支持更强，
+ * 不能让「证据维度先被 push」决定最终方向。同方向时裁判优先于作者。
+ */
 function dedupe(links: readonly ClaimEvidenceLink[]): ClaimEvidenceLink[] {
-  const seen = new Set<string>();
-  const out: ClaimEvidenceLink[] = [];
+  const best = new Map<string, ClaimEvidenceLink>();
   for (const link of links) {
     const key = pairKey(link.claimId, link.evidenceId);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(link);
+    const current = best.get(key);
+    if (!current || stronger(link, current)) best.set(key, link);
   }
-  return out.sort((a, b) =>
+  return [...best.values()].sort((a, b) =>
     a.claimId.localeCompare(b.claimId) || a.evidenceId.localeCompare(b.evidenceId)
   );
+}
+
+const RELATION_RANK: Record<ClaimEvidenceLink['relation'], number> = {
+  contradicts: 3,
+  supports: 2,
+  context: 1
+};
+
+const SOURCE_RANK: Record<ClaimEvidenceLink['source'], number> = {
+  judge: 4,
+  pack: 3,
+  reviewer: 2,
+  author: 1
+};
+
+function stronger(candidate: ClaimEvidenceLink, current: ClaimEvidenceLink): boolean {
+  const relation = RELATION_RANK[candidate.relation] - RELATION_RANK[current.relation];
+  if (relation !== 0) return relation > 0;
+  return SOURCE_RANK[candidate.source] > SOURCE_RANK[current.source];
 }
 
 function pairKey(claimId: string, evidenceId: string): string {
@@ -157,7 +203,7 @@ function reasonOf(
     : relation === 'contradicts'
       ? '反驳'
       : '作为背景引用';
-  return `裁判在${where}（${dimension.outcome}）引用该证据，按主张结论 ${judgment.verdict} 记为${direction}`;
+  return `规则裁判在${where}（${dimension.outcome}）引用该证据，按主张结论 ${judgment.verdict} 记为${direction}`;
 }
 
 /** 测试与外部校验用：这条证据是否被当成「支持」以外的关系。 */
