@@ -110,3 +110,26 @@ test('评分规则存在，且不保存模型生成的参考答案', () => {
     assert.equal(item.modelAnswer, undefined, `${item.id} 不应保存模型答案`);
   }
 });
+
+test('unicode-utf8 复合项拆成独立子项，要求没有降低', () => {
+  const standard = load();
+  const item = standard.questions.find(question => question.id === 'unicode-utf8');
+  assert.ok(item);
+  const ids = item.requiredClaims.map(claim => claim.id);
+  for (const id of ['c3a', 'c3b', 'c3c', 'c3d', 'c3e']) {
+    const claim = item.requiredClaims.find(entry => entry.id === id);
+    assert.ok(claim, `缺少 ${id}`);
+    assert.equal(claim.severity, 'must', `${id} 必须仍是 must`);
+  }
+  for (const id of ['c4a', 'c4b', 'c4c']) {
+    const claim = item.requiredClaims.find(entry => entry.id === id);
+    assert.ok(claim, `缺少 ${id}`);
+    assert.equal(claim.severity, 'should', `${id} 保持 should`);
+  }
+  assert.equal(ids.includes('c3'), false, '旧的复合 c3 不能继续存在');
+  assert.equal(ids.includes('c4'), false, '旧的复合 c4 不能继续存在');
+  const text = item.requiredClaims.map(claim => claim.text).join(' ');
+  for (const keyword of ['错误解码', '重复编码', '截断', '声明错误', '有损替换', '原始字节', '可逆']) {
+    assert.ok(text.includes(keyword), `拆分后仍要覆盖 ${keyword}`);
+  }
+});

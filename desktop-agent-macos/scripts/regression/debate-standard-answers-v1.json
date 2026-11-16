@@ -1,9 +1,9 @@
 {
   "schema": "thinkfusion.tech-fact-regression/v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "reviewedBy": "user",
   "reviewedAt": "2026-11-14",
-  "note": "24 道题的人工复核基线。分类和必答主张来自用户逐条审查；这是技术知识基线，不是对所有世界事实的自动核验。",
+  "note": "24 道题的人工复核基线。分类和必答主张来自用户逐条审查；这是技术知识基线，不是对所有世界事实的自动核验。1.1.0 将 unicode-utf8 的复合 c3/c4 拆成可定位子项，必答要求未降低。",
   "classificationRule": {
     "FACT": "稳定、可验证的客观事实；必须给出明确结论。",
     "CONTEXTUAL": "依赖场景或约束的技术决策；必须给条件、边界和推荐方案。",
@@ -25,7 +25,7 @@
       "允许不同表达，只要语义覆盖 requiredClaim；不按字面匹配。"
     ]
   },
-  "sha256": "27a08d1fa9ed22c7486305b22dec47e402b6dc94ce200d1b71269eabe9704c7a",
+  "sha256": "2ee2a94984179b1f11fa4caf767f31057d1c740cfa672a9d1cfc69b1ac83516c",
   "questions": [
     {
       "id": "float-equality",
@@ -1326,13 +1326,43 @@
           "severity": "must"
         },
         {
-          "id": "c3",
-          "text": "乱码原因包括错误解码、重复编码、截断、声明错误、有损替换。",
+          "id": "c3a",
+          "text": "乱码可能来自错误解码：用错误的字符集/编码去解释原始字节。",
           "severity": "must"
         },
         {
-          "id": "c4",
-          "text": "诊断需要原始字节和编码声明；乱码不一定可逆。",
+          "id": "c3b",
+          "text": "乱码可能来自重复编码或重复转码：同一段文本被编码/转码两次。",
+          "severity": "must"
+        },
+        {
+          "id": "c3c",
+          "text": "乱码可能来自字节截断：多字节字符被截断成不完整序列。",
+          "severity": "must"
+        },
+        {
+          "id": "c3d",
+          "text": "乱码可能来自编码声明错误：声明与实际字节不一致。",
+          "severity": "must"
+        },
+        {
+          "id": "c3e",
+          "text": "乱码可能来自有损替换：例如 U+FFFD 替换字符，原字节可能已丢失。",
+          "severity": "must"
+        },
+        {
+          "id": "c4a",
+          "text": "诊断乱码需要原始字节。",
+          "severity": "should"
+        },
+        {
+          "id": "c4b",
+          "text": "诊断乱码需要确认实际编码声明。",
+          "severity": "should"
+        },
+        {
+          "id": "c4c",
+          "text": "乱码不一定可逆；有损替换后原字节可能已经丢失。",
           "severity": "should"
         }
       ],

@@ -589,6 +589,11 @@ export interface DebateState {
    */
   claimEvidenceLinks?: ClaimEvidenceLink[];
   /**
+   * 关联的写入层。目前只有规则裁判会写；模型裁决的 `evidence` 是消息级，
+   * 没有 evidenceId，不能据此伪造关联。老记录没有这个字段。
+   */
+  claimEvidenceLinksSource?: 'rules-judge';
+  /**
    * 论证图（Phase 3 / AC-08）。每轮追加，边带轮次与来源对象。
    * 老文件没有这个字段。
    */

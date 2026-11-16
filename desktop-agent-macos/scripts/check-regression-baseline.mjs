@@ -181,11 +181,15 @@ test('逐题统计：PARTIAL 的 V1 通过单独计入，波动与稳定分开',
   assert.equal(stats.aggregate.v1Pass, 3);
   assert.equal(stats.aggregate.v1PassRate, 50);
   assert.equal(stats.aggregate.stablePass, 1, 'q1 两次都过');
+  assert.equal(stats.aggregate.stableCompletePass, 1);
   assert.equal(stats.aggregate.stableFail, 1, 'q3 两次都没过');
-  assert.equal(stats.aggregate.fluctuating, 1, 'q2 一次过、一次没过');
+  assert.equal(stats.aggregate.fluctuating, 0, 'q2 有 PARTIAL，不能算「完整执行里的波动」');
+  assert.equal(stats.aggregate.incomplete, 1, 'q2 两次都 403，归到不完整');
   assert.equal(stats.aggregate.providerUnavailable, 2);
-  assert.equal(stats.perQuestion.find(row => row.id === 'q2').partial, 2);
-  assert.equal(stats.perQuestion.find(row => row.id === 'q2').v1Pass, 1);
+  const q2 = stats.perQuestion.find(row => row.id === 'q2');
+  assert.equal(q2.partial, 2);
+  assert.equal(q2.v1Pass, 1);
+  assert.equal(q2.category, 'incomplete');
 });
 
 test('逐题统计：executionCompleteRate 不把 PARTIAL 算成完整运行', () => {
@@ -208,4 +212,40 @@ test('逐题统计：executionCompleteRate 不把 PARTIAL 算成完整运行', (
   assert.equal(stats.aggregate.partial, 1);
   assert.equal(stats.aggregate.executionCompleteRate, 0);
   assert.equal(stats.aggregate.v1Pass, 1);
+});
+
+test('统计分类：评分稳定与端到端稳定分开，PARTIAL 不混进波动', () => {
+  const questions = [
+    { id: 'all-pass', strategy: 'truth', category: 'truth' },
+    { id: 'all-fail', strategy: 'truth', category: 'truth' },
+    { id: 'mixed', strategy: 'truth', category: 'truth' },
+    { id: 'partial-pass', strategy: 'truth', category: 'truth' }
+  ];
+  const result = (id, { outcome = 'COMPLETED', pass = false } = {}) => ({
+    id,
+    debate: { outcome, failures: [] },
+    judge: { backend: 'model' },
+    quality: { status: 'passed' },
+    standard: { passed: pass }
+  });
+  const runs = [
+    { runId: 'run-1', startedAt: 't1', endedAt: 't2', summary: {}, results: [
+      result('all-pass', { pass: true }),
+      result('all-fail'),
+      result('mixed', { pass: true }),
+      result('partial-pass', { outcome: 'PARTIAL', pass: true })
+    ] },
+    { runId: 'run-2', startedAt: 't3', endedAt: 't4', summary: {}, results: [
+      result('all-pass', { pass: true }),
+      result('all-fail'),
+      result('mixed', { pass: false }),
+      result('partial-pass', { outcome: 'PARTIAL', pass: true })
+    ] }
+  ];
+  const stats = buildBaselineStats(runs, questions);
+  assert.equal(stats.aggregate.stablePass, 2, 'all-pass 和 partial-pass 的评分都稳定');
+  assert.equal(stats.aggregate.stableCompletePass, 1, '只有 all-pass 端到端稳定');
+  assert.equal(stats.aggregate.stableFail, 1);
+  assert.equal(stats.aggregate.fluctuating, 1, 'mixed 是完整执行里的波动');
+  assert.equal(stats.aggregate.incomplete, 1, 'partial-pass 归不完整');
 });

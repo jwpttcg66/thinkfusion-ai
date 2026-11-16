@@ -74,17 +74,33 @@ function buildBaselineStats(runs, datasetQuestions) {
     }
   }
 
-  const perQuestion = [...byId.values()].map(row => ({
-    ...row,
-    v1PassRate: roundRate(row.v1Pass / Math.max(1, sampleCount)),
-    completeRate: roundRate(row.completed / Math.max(1, sampleCount))
-  }));
+  const perQuestion = [...byId.values()].map(row => {
+    const assessed = row.v1Pass + row.v1Fail;
+    const incomplete = row.completed < sampleCount || row.v1Unavailable > 0 || assessed < sampleCount;
+    const category = incomplete
+      ? 'incomplete'
+      : row.v1Pass === sampleCount
+        ? 'stable-pass'
+        : row.v1Fail === sampleCount
+          ? 'stable-fail'
+          : 'fluctuating';
+    return {
+      ...row,
+      v1PassRate: roundRate(row.v1Pass / Math.max(1, sampleCount)),
+      completeRate: roundRate(row.completed / Math.max(1, sampleCount)),
+      category
+    };
+  });
 
   const totalAttempts = perQuestion.length * sampleCount;
   const sum = key => perQuestion.reduce((acc, row) => acc + row[key], 0);
+  // 「评分稳定通过」只看 V1 次数；「端到端稳定通过」还要求每次都 COMPLETED。
+  // 两者分开，避免把一次 PARTIAL/评分不可用混成「稳定」。
   const stablePass = perQuestion.filter(row => row.v1Pass === sampleCount).length;
-  const stableFail = perQuestion.filter(row => row.v1Pass === 0).length;
-  const fluctuating = perQuestion.length - stablePass - stableFail;
+  const stableCompletePass = perQuestion.filter(row => row.category === 'stable-pass').length;
+  const stableFail = perQuestion.filter(row => row.category === 'stable-fail').length;
+  const fluctuating = perQuestion.filter(row => row.category === 'fluctuating').length;
+  const incomplete = perQuestion.filter(row => row.category === 'incomplete').length;
 
   return {
     sampleCount,
@@ -111,8 +127,10 @@ function buildBaselineStats(runs, datasetQuestions) {
       qualityCompleteRate: roundRate(sum('qualityPassed') / Math.max(1, totalAttempts)),
       providerUnavailable: sum('providerUnavailable'),
       stablePass,
+      stableCompletePass,
       stableFail,
-      fluctuating
+      fluctuating,
+      incomplete
     },
     perQuestion
   };
@@ -144,9 +162,11 @@ function markdownBaseline({ stats, config, runs }) {
   lines.push(`| FAILED / CANCELLED | ${stats.aggregate.failed} / ${stats.aggregate.cancelled} |`);
   lines.push(`| V1 通过 | ${stats.aggregate.v1Pass}/${stats.totalAttempts}（${stats.aggregate.v1PassRate}%） |`);
   lines.push(`| 质量报告通过 | ${stats.aggregate.qualityPassed}/${stats.totalAttempts}（${stats.aggregate.qualityCompleteRate}%） |`);
-  lines.push(`| 稳定通过题 | ${stats.aggregate.stablePass} |`);
-  lines.push(`| 波动题 | ${stats.aggregate.fluctuating} |`);
-  lines.push(`| 稳定未通过题 | ${stats.aggregate.stableFail} |`);
+  lines.push(`| 稳定通过（评分） | ${stats.aggregate.stablePass} |`);
+  lines.push(`| 稳定通过（完整执行） | ${stats.aggregate.stableCompletePass} |`);
+  lines.push(`| 稳定未通过（完整执行） | ${stats.aggregate.stableFail} |`);
+  lines.push(`| 波动（完整执行） | ${stats.aggregate.fluctuating} |`);
+  lines.push(`| 不完整（PARTIAL/UNAVAILABLE/缺失） | ${stats.aggregate.incomplete} |`);
   lines.push(`| Provider 不可用 | ${stats.aggregate.providerUnavailable} 次 |`);
   lines.push('');
   lines.push('## 每次运行');
@@ -160,13 +180,13 @@ function markdownBaseline({ stats, config, runs }) {
   lines.push('');
   lines.push('## 逐题统计');
   lines.push('');
-  lines.push('| 题目 | 策略 | 完整运行 | V1 通过 | 通过率 | PARTIAL | Provider 不可用 |');
-  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| 题目 | 策略 | 分类 | 完整运行 | V1 通过 | 通过率 | PARTIAL | Provider 不可用 |');
+  lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for (const row of stats.perQuestion) {
-    lines.push(`| ${row.id} | ${row.strategy} | ${row.completed}/${stats.sampleCount} | ${row.v1Pass}/${stats.sampleCount} | ${row.v1PassRate}% | ${row.partial} | ${row.providerUnavailable} |`);
+    lines.push(`| ${row.id} | ${row.strategy} | ${row.category} | ${row.completed}/${stats.sampleCount} | ${row.v1Pass}/${stats.sampleCount} | ${row.v1PassRate}% | ${row.partial} | ${row.providerUnavailable} |`);
   }
   lines.push('');
-  const fluctuating = stats.perQuestion.filter(row => row.v1Pass > 0 && row.v1Pass < stats.sampleCount);
+  const fluctuating = stats.perQuestion.filter(row => row.category === 'fluctuating');
   lines.push('## 波动题');
   lines.push('');
   if (fluctuating.length === 0) lines.push('无。');

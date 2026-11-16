@@ -200,3 +200,31 @@ test('评分模型调用失败：unavailable，不伪造分数', async () => {
   assert.equal(result.passed, false);
   assert.match(result.fallbackReason, /模型不可用/);
 });
+
+test('拆分后的必答项：缺 c3e 能单独定位，不是整条 c3 失败', async () => {
+  const item = byId.get('unicode-utf8');
+  const all = ['c1', 'c2', 'c3a', 'c3b', 'c3c', 'c3d', 'c3e', 'c4a', 'c4b', 'c4c'];
+  const result = await assessStandardAnswer({
+    item,
+    answerText: 'Unicode 是字符标准，UTF-8 是 1 到 4 字节的变长编码；乱码可能来自错误解码、重复编码、截断、声明错误。',
+    ask: respond(payload({ matchedClaims: all.filter(id => id !== 'c3e'), missingClaims: ['c3e'] })),
+    agentId: 'rubric-judge'
+  });
+  assert.deepEqual(result.missingClaims.map(id => id.toLowerCase()), ['c3e']);
+  assert.equal(result.passed, false);
+  assert.ok(result.score <= 69);
+});
+
+test('拆分后全部覆盖：仍然通过，不因拆项而降低门槛', async () => {
+  const item = byId.get('unicode-utf8');
+  const all = ['c1', 'c2', 'c3a', 'c3b', 'c3c', 'c3d', 'c3e', 'c4a', 'c4b', 'c4c'];
+  const result = await assessStandardAnswer({
+    item,
+    answerText: 'Unicode 是字符标准，UTF-8 是变长编码；乱码来自错误解码、重复编码、截断、声明错误、有损替换（U+FFFD）；诊断要看原始字节和编码声明，有损后不可逆。',
+    ask: respond(payload({ matchedClaims: all })),
+    agentId: 'rubric-judge'
+  });
+  assert.deepEqual(result.missingClaims, []);
+  assert.equal(result.passed, true);
+  assert.equal(result.score, 100);
+});
