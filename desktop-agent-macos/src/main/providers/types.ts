@@ -89,6 +89,16 @@ export interface ModelRequest {
   context?: string[];
   /** 结构化指令（辩论角色、裁判规则）。不拼进 question，网页通道忽略。 */
   system?: string[];
+  /**
+   * 采样温度。只有回归链路会显式传，产品默认不传——不同网关对
+   * temperature 的支持不一致，不能替用户改默认行为。
+   */
+  temperature?: number;
+  /**
+   * 随机种子。Provider 接受时才传；是否真正生效无法从响应证明，
+   * 调用方要在报告里如实标「accepted / unsupported」。
+   */
+  seed?: number;
 }
 
 export interface ModelUsage {
@@ -194,7 +204,9 @@ export class ProviderError extends Error {
     readonly code: ProviderErrorCode,
     message: string,
     readonly providerId: string,
-    readonly cause?: unknown
+    readonly cause?: unknown,
+    /** 429/503 的 Retry-After 换算成毫秒；没有就是 undefined。 */
+    readonly retryAfterMs?: number
   ) {
     super(message);
     this.name = 'ProviderError';

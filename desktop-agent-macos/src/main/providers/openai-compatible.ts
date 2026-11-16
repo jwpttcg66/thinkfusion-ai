@@ -195,7 +195,10 @@ export class OpenAICompatibleProvider implements ModelProvider {
     const model = request.modelId ?? this.defaultModel;
     this.assertBudget();
     const started = this.now();
-    const body = this.body(request.question, model, false, request.context, request.system);
+    const body = this.body(request.question, model, false, request.context, request.system, {
+      ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+      ...(request.seed !== undefined ? { seed: request.seed } : {})
+    });
 
     const data = await this.withRetry(body, signal) as ChatCompletion;
     const text = data.choices?.[0]?.message?.content ?? '';
@@ -241,7 +244,13 @@ export class OpenAICompatibleProvider implements ModelProvider {
     try {
       // 重试只能发生在第一个字之前。拿到响应头之后就一路读到底，
       // 中途失败不会重新发一次请求把两段回答拼在一起。
-      const res = await this.withRetryResponse(this.body(request.question, model, true, request.context, request.system), controller.controller.signal);
+      const res = await this.withRetryResponse(
+        this.body(request.question, model, true, request.context, request.system, {
+          ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+          ...(request.seed !== undefined ? { seed: request.seed } : {})
+        }),
+        controller.controller.signal
+      );
       for await (const chunk of this.readSse(res)) {
         if (chunk.usage) lastUsage = chunk.usage;
         const delta = chunk.choices?.[0]?.delta as
@@ -382,11 +391,20 @@ export class OpenAICompatibleProvider implements ModelProvider {
     return { inputTokens, outputTokens, ...cache, cost };
   }
 
-  private body(question: string, model: string, stream: boolean, context?: string[], system?: string[]) {
+  private body(
+    question: string,
+    model: string,
+    stream: boolean,
+    context?: string[],
+    system?: string[],
+    sampling?: { temperature?: number; seed?: number }
+  ) {
     return JSON.stringify({
       model,
       messages: this.messages(question, context, system),
       stream,
+      ...(sampling?.temperature !== undefined ? { temperature: sampling.temperature } : {}),
+      ...(sampling?.seed !== undefined ? { seed: sampling.seed } : {}),
       ...(stream ? { stream_options: { include_usage: true } } : {})
     });
   }
@@ -427,7 +445,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         });
         if (!res.ok) {
           const text = await res.text().catch(() => '');
-          const error = this.httpError(res.status, text);
+          const error = this.httpError(res.status, text, res.headers);
           if (this.retryable(res.status) && attempt < this.maxRetries) {
             lastError = error;
             await this.backoff(attempt, signal);
@@ -464,7 +482,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         });
         if (!res.ok) {
           const text = await res.text().catch(() => '');
-          const error = this.httpError(res.status, text);
+          const error = this.httpError(res.status, text, res.headers);
           if (this.retryable(res.status) && attempt < this.maxRetries) {
             lastError = error;
             await this.backoff(attempt, signal);
@@ -555,19 +573,19 @@ export class OpenAICompatibleProvider implements ModelProvider {
     return { controller, detach: () => cleanups.forEach(fn => fn()) };
   }
 
-  private httpError(status: number, body: string): ProviderError {
+  private httpError(status: number, body: string, headers?: Headers): ProviderError {
     const detail = body.trim().slice(0, 200);
     if (status === 401 || status === 403) {
       return new ProviderError('auth', `API Key 被拒绝（${status}）：${detail}`, this.id);
     }
     if (status === 429) {
-      return new ProviderError('busy', `云端限流（429）：${detail}`, this.id);
+      return new ProviderError('busy', `云端限流（429）：${detail}`, this.id, undefined, retryAfterOf(headers));
     }
     if (status === 404 && /model/i.test(detail)) {
       return new ProviderError('model-not-found', `云端没有这个模型：${detail}`, this.id);
     }
     if (status >= 500) {
-      return new ProviderError('unavailable', `云端服务错误 ${status}：${detail}`, this.id);
+      return new ProviderError('unavailable', `云端服务错误 ${status}：${detail}`, this.id, undefined, retryAfterOf(headers));
     }
     if (status >= 400) {
       return new ProviderError('bad-request', `云端说请求有问题（${status}）：${detail}`, this.id);
@@ -593,4 +611,15 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.seq += 1;
     return `${this.id}-${this.seq}`;
   }
+}
+
+/** 429/503 的 Retry-After：秒数或 HTTP 日期；不合法就当没有。 */
+function retryAfterOf(headers?: Headers): number | undefined {
+  const raw = headers?.get('retry-after');
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000);
+  const at = Date.parse(raw);
+  if (Number.isFinite(at)) return Math.min(Math.max(0, at - Date.now()), 60_000);
+  return undefined;
 }

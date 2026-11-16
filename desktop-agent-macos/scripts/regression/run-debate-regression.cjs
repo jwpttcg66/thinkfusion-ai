@@ -28,6 +28,8 @@ const { reviewCompleteness, reviseAnswer } = require('../../out-test/main/debate
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
 const { PROMPT_VERSION } = require('../../out-test/main/debate/prompts.js');
 const { buildSummary, markdown } = require('./summary.cjs');
+const { RETRY_POLICY_VERSION, withRetryPolicy, retryPolicySnapshot } = require('./retry-policy.cjs');
+const { buildBaselineStats, markdownBaseline } = require('./baseline-stats.cjs');
 const { fingerprintFor, canReuseResult } = require('./incremental.cjs');
 const { execFile } = require('node:child_process');
 const { parseCliResultJson, isStructuredCliSuccess } = require('../../out-test/shared/cli-result.js');
@@ -56,7 +58,7 @@ const JUDGE_TIMEOUT_MS = 240_000;
  * `--incremental` 跑，会把上一版的结果原样复用成「本次结果」，报告看起来
  * 却是新生成的——那一版证据比不跑更糟。
  */
-const RUNNER_VERSION = '2.1.0';
+const RUNNER_VERSION = '2.2.0';
 
 /**
  * 每题指纹：只包含会影响这一题结果的东西。标准答案按题取，
@@ -101,6 +103,18 @@ const CLI_BIN = argValue('cli-bin', path.join(process.env.HOME ?? '', '.qoder', 
  * 跑法，**两种跑法的分数不能混着比**，所以报告里如实记 `runner.economy`。
  */
 const ECONOMY = process.argv.includes('--economy') || argValue('economy', '0') === '1';
+
+/**
+ * P0 基线冻结的固定口径。
+ *
+ * `--runs` 默认 3：单次 24 题会被模型随机性带偏，18 和 19 都出现过。
+ * `--temperature` 固定 0；`--seed` 只有在探测确认 Provider 接受后才发送，
+ * 探测失败就如实记 unsupported，不伪造可复现。
+ */
+const RUNS = Math.max(1, Math.min(5, Number.parseInt(argValue('runs', '3'), 10) || 3));
+const TEMPERATURE = Number.parseFloat(argValue('temperature', '0'));
+const SEED_VALUE = Number.parseInt(argValue('seed', '42'), 10);
+const BASELINE_TAG = argValue('tag', '').trim() || null;
 
 /** 读取用户在设置里勾选的模型；不把模型名硬编码在回归脚本里。 */
 function loadSelectedModels(appData) {
@@ -156,6 +170,11 @@ function argValue(name, fallback) {
  * 报告必须能自证「这是当前提交跑出来的」：`RUNNER_VERSION` 是手写常量，
  * 指纹里也没有 SHA，只靠它挡不住「复用旧结果」。写进报告，事后能对。
  */
+/** 报告与数据集的侧车 hash：报告本身写不了自己的 hash，只能另写一行。 */
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
 function codeSha() {
   try {
     return require('node:child_process')
@@ -165,6 +184,86 @@ function codeSha() {
     return null;
   }
 }
+
+/**
+ * 采样能力探测。
+ *
+ * 只做一次，用最小请求（max_tokens=16）确认网关是否接受 temperature/seed。
+ * 200 只证明「接受字段」，不能证明 seed 真的决定了输出——这个区别写进报告，
+ * 不能把 accepted 当成 enforced。
+ */
+async function probeSampling({ baseUrl, key, model }) {
+  const headers = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${key}`,
+    'user-agent': 'thinkfusion-debate-regression',
+    'x-opencode-session': 'p0-sampling-probe'
+  };
+  const call = async extra => {
+    try {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Reply OK.' }],
+          max_tokens: 16,
+          ...extra
+        })
+      });
+      const text = await res.text();
+      return { status: res.status, ok: res.ok, text: text.slice(0, 300) };
+    } catch (error) {
+      return { status: 0, ok: false, text: error instanceof Error ? error.message : String(error) };
+    }
+  };
+  const supportOf = (result, value) => {
+    if (result.ok) return { value, support: 'accepted', enforcement: 'unverified' };
+    if (result.status === 400) return { value, support: 'unsupported', detail: result.text };
+    return { value, support: 'unverified', detail: `probe ${result.status || 'network'}: ${result.text}` };
+  };
+
+  const both = await call({ temperature: TEMPERATURE, seed: SEED_VALUE });
+  if (both.ok) {
+    return {
+      temperature: { value: TEMPERATURE, support: 'accepted', enforcement: 'unverified' },
+      seed: { value: SEED_VALUE, support: 'accepted', enforcement: 'unverified' },
+      evidence: ['temperature+seed accepted in one probe'],
+      requests: 1
+    };
+  }
+  if (both.status !== 400) {
+    return {
+      temperature: { value: TEMPERATURE, support: 'unverified', detail: both.text },
+      seed: { value: SEED_VALUE, support: 'unverified', detail: both.text },
+      evidence: [`combined probe failed with ${both.status || 'network'}`],
+      requests: 1
+    };
+  }
+
+  const tempOnly = await call({ temperature: TEMPERATURE });
+  const seedOnly = await call({ seed: SEED_VALUE });
+  return {
+    temperature: supportOf(tempOnly, TEMPERATURE),
+    seed: supportOf(seedOnly, SEED_VALUE),
+    evidence: ['combined probe rejected with 400; tested separately'],
+    requests: 3
+  };
+}
+
+/** 采样开关在探测后确定；报告里必须能看出「发送了」还是「不支持」。 */
+let temperatureEnabled = false;
+let seedAccepted = false;
+let samplingSnapshot = {
+  temperature: { value: null, support: 'unsupported' },
+  seed: { value: null, support: 'unsupported' },
+  evidence: ['not probed'],
+  requests: 0
+};
+
+/** 每次重试都记在这里；不记录请求内容，只记录模型、错误类别和等待时间。 */
+const retryEvents = [];
+let currentRunRetryStart = 0;
 
 app.setName('ThinkFusion');
 app.whenReady().then(async () => {
@@ -214,17 +313,34 @@ app.whenReady().then(async () => {
 
   // CLI 档不读云端 Key，也不建 Provider：qoder 自己管鉴权。
   let provider = null;
+  let apiKey = null;
   if (BACKEND !== 'cli') {
-    const key = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(
+    apiKey = safeStorage.decryptString(Buffer.from(JSON.parse(fs.readFileSync(
       path.join(app.getPath('appData'), 'thinkfusion-ai', 'api-keys.json'), 'utf8'
     ))['opencode-go'].cipher, 'base64'));
     provider = new OpenAICompatibleProvider({
       id: 'opencode-go', label: 'OpenCode Go', baseUrl: BASE,
       models: MODELS.map(item => item.model), defaultModel: MODELS[0].model,
-      keyStore: { has: () => true, get: () => key },
-      maxConcurrency: providerConcurrency, maxRetries: 1, timeoutMs: JUDGE_TIMEOUT_MS,
+      keyStore: { has: () => true, get: () => apiKey },
+      // 重试由回归自己的策略层负责，Provider 不再重试：两层重试会让
+      // 「尝试次数」和「退避时间」在报告里对不上。
+      maxConcurrency: providerConcurrency, maxRetries: 0, timeoutMs: JUDGE_TIMEOUT_MS,
       extraHeaders: { 'user-agent': 'thinkfusion-debate-regression', 'x-opencode-session': '24q-regression' }
     });
+    samplingSnapshot = await probeSampling({ baseUrl: BASE, key: apiKey, model: MODELS[0].model });
+    temperatureEnabled = samplingSnapshot.temperature.support === 'accepted';
+    seedAccepted = samplingSnapshot.seed.support === 'accepted';
+    console.log(
+      `采样探测：temperature=${samplingSnapshot.temperature.support} · seed=${samplingSnapshot.seed.support}` +
+      `（${samplingSnapshot.temperature.support === 'unsupported' ? '不发送' : '发送'}）`
+    );
+  } else {
+    samplingSnapshot = {
+      temperature: { value: null, support: 'unsupported' },
+      seed: { value: null, support: 'unsupported' },
+      evidence: ['CLI backend does not expose sampling options'],
+      requests: 0
+    };
   }
   const providerId = BACKEND === 'cli' ? 'qoder-cli' : 'opencode-go';
   const byId = new Map(MODELS.map(item => [item.id, item.model]));
@@ -297,16 +413,38 @@ app.whenReady().then(async () => {
     return { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
   }
 
-  const askModel = async (agentId, task) => {
+  /**
+   * 所有模型调用都从这里走：辩论、裁判、完整度复核、标准答案评分。
+   * 重试只在同一个 agent/model 上做，绝不换模型；每次重试记进 `retryEvents`。
+   */
+  const askModel = async (agentId, task, questionId = 'unknown') => {
     const model = byId.get(agentId);
     if (!model) throw new Error(`没有模型映射：${agentId}`);
-    if (BACKEND === 'cli') return askQoderCli(agentId, model, task);
-    const response = await provider.generate({
-      modelId: model,
-      question: task.question,
-      ...(task.system ? { system: task.system } : {}),
-      ...(task.context ? { context: task.context } : {}),
-      timeoutMs: JUDGE_TIMEOUT_MS
+    if (BACKEND === 'cli') {
+      const answer = await askQoderCli(agentId, model, task);
+      return { ...answer, attempts: 1, retryPolicyVersion: RETRY_POLICY_VERSION };
+    }
+    const { value: response, attempts } = await withRetryPolicy({
+      run: () => provider.generate({
+        modelId: model,
+        question: task.question,
+        ...(task.system ? { system: task.system } : {}),
+        ...(task.context ? { context: task.context } : {}),
+        timeoutMs: JUDGE_TIMEOUT_MS,
+        ...(temperatureEnabled ? { temperature: TEMPERATURE } : {}),
+        ...(seedAccepted ? { seed: SEED_VALUE } : {})
+      }),
+      onAttempt: info => {
+        retryEvents.push({
+          at: new Date().toISOString(),
+          questionId,
+          agentId,
+          modelId: model,
+          policyVersion: RETRY_POLICY_VERSION,
+          ...info
+        });
+        console.log(`[retry] ${questionId} · ${model} · ${info.policyClass} · 等待 ${info.delayMs}ms`);
+      }
     });
     return {
       agentId,
@@ -317,7 +455,9 @@ app.whenReady().then(async () => {
       usage: response.usage,
       providerId,
       modelId: model,
-      latencyMs: response.latencyMs
+      latencyMs: response.latencyMs,
+      attempts,
+      retryPolicyVersion: RETRY_POLICY_VERSION
     };
   };
 
@@ -328,7 +468,7 @@ app.whenReady().then(async () => {
     const startedAt = Date.now();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `tf-regression-${item.id}-`));
     const store = new DebateStore(dir);
-    const orchestrator = new DebateOrchestrator(store, { ask: askModel });
+    const orchestrator = new DebateOrchestrator(store, { ask: (agentId, task) => askModel(agentId, task, item.id) });
     let state = null;
     let timedOut = false;
     let error = null;
@@ -379,7 +519,7 @@ app.whenReady().then(async () => {
         candidates: async () => judgeCandidates,
         preferredJudgeId: judgeAgentId,
         ask: async (agentId, task) => {
-          const answer = await askModel(agentId, task);
+          const answer = await askModel(agentId, task, item.id);
           judgeUsage = answer.usage ?? null;
           judgeLatencyMs = answer.latencyMs ?? null;
           return answer;
@@ -409,7 +549,7 @@ app.whenReady().then(async () => {
       completeness = await reviewCompleteness({
         question: item.question,
         answer: standardAnswerText,
-        ask: askModel,
+        ask: (agentId, task) => askModel(agentId, task, item.id),
         agentId: reviewerAgentId
       });
       if (completeness.backend === 'model' && completeness.hasGap && completeness.missing.length > 0) {
@@ -418,7 +558,7 @@ app.whenReady().then(async () => {
           question: item.question,
           answer: standardAnswerText,
           missing: completeness.missing,
-          ask: askModel,
+          ask: (agentId, task) => askModel(agentId, task, item.id),
           agentId: reviserAgentId
         });
         if (revision.backend === 'model' && revision.revisedAnswer) {
@@ -457,7 +597,7 @@ app.whenReady().then(async () => {
               const revisedVerdict = await adjudicateDebate(revisedState, {
                 candidates: async () => judgeCandidates,
                 preferredJudgeId: judgeAgentId,
-                ask: askModel
+                ask: (agentId, task) => askModel(agentId, task, item.id)
               });
               revisionJudge = {
                 backend: revisedVerdict.backend,
@@ -486,7 +626,7 @@ app.whenReady().then(async () => {
       standardAssessment = await assessStandardAnswer({
         item: standardItem,
         answerText: standardAnswerText,
-        ask: askModel,
+        ask: (agentId, task) => askModel(agentId, task, item.id),
         agentId: rubricAgentId
       });
     }
@@ -566,108 +706,30 @@ app.whenReady().then(async () => {
           }
         : null,
       anchor: anchorHit(combinedText, item.anchor),
+      retryCount: retryEvents.slice(currentRunRetryStart).filter(event => event.questionId === item.id).length,
+      retries: retryEvents.slice(currentRunRetryStart).filter(event => event.questionId === item.id),
       error
     };
     console.log(`[w${workerId}] [${position + 1}/${questions.length}] -> ${result.debate.outcome} · judge=${verdict?.backend ?? 'missing'} · quality=${quality?.status ?? 'missing'} · V1=${standardAssessment?.passed ? 'pass' : standardAssessment ? 'fail' : '-'} · ${result.debate.durationSec}s`);
     return result;
   }
 
-  const baseline = incrementalPath && fs.existsSync(incrementalPath)
+  if (RUNS > 1 && incrementalPath) {
+    throw new Error('--runs>1 时不能用 --incremental：多次运行必须各自完整重跑');
+  }
+  if (RUNS > 1 && mergeInto) throw new Error('--runs>1 时不支持 --merge-into');
+
+  const baseline = RUNS === 1 && incrementalPath && fs.existsSync(incrementalPath)
     ? JSON.parse(fs.readFileSync(incrementalPath, 'utf8'))
     : null;
   const baselineById = new Map((baseline?.results ?? []).map(item => [item.id, item]));
-  const slots = new Array(questions.length).fill(null);
-  const pending = [];
-  questions.forEach((entry, position) => {
-    const standardItem = standardById.get(entry.item.id);
-    const currentFingerprint = fingerprint(entry.item, standardItem);
-    const old = baselineById.get(entry.item.id);
-    // 旧结果没有 fingerprint 一律重跑；不能拿当前配置反算一个“旧指纹”。
-    if (canReuseResult(old, currentFingerprint)) {
-      slots[position] = { ...old, reused: true };
-    } else {
-      pending.push({ entry, position });
-    }
-  });
-  console.log(`增量：复用 ${questions.length - pending.length} 题，重跑 ${pending.length} 题${incrementalPath ? `（baseline: ${incrementalPath}）` : ''}`);
 
-  const writeLatest = () => {
-    const current = slots.filter(Boolean);
-    const summary = buildSummary(current);
-    fs.mkdirSync(OUT_DIR, { recursive: true });
-    const partial = {
-      dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
-      models: MODELS.map(model => model.model),
-      judgeRotation: IDS,
-      runner: {
-        version: RUNNER_VERSION,
-        promptVersion: PROMPT_VERSION,
-        commit: codeSha(),
-        adjudication: 'main/judge/adjudicate.adjudicateDebate',
-        rulesAuthority: 'debate.claim-judgments',
-        // 报告必须自证「模型是怎么问出来的」：Provider 直连，还是过 CLI 外壳。
-        // 两者的答案不是同一口径，逐题差异也只在同一 backend 内才成立。
-        backend: providerId,
-        economy: ECONOMY
-      },
-      createdAt: new Date().toISOString(),
-      workers,
-      completeness: completenessEnabled,
-      incremental: incrementalPath ? {
-        baseline: incrementalPath,
-        reused: questions.length - pending.length,
-        pending: pending.length
-      } : null,
-      summary,
-      results: current
-    };
-    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.json`), JSON.stringify(partial, null, 2), 'utf8');
-    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, current), 'utf8');
-  };
-  if (slots.some(Boolean)) writeLatest();
-
-  let cursor = 0;
-  const runWorker = async workerId => {
-    for (;;) {
-      const pendingIndex = cursor;
-      cursor += 1;
-      if (pendingIndex >= pending.length) return;
-      const { entry, position } = pending[pendingIndex];
-      try {
-        slots[position] = await runQuestion(entry, position, workerId);
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        console.error(`[w${workerId}] 题目 ${entry.item.id} 未捕获错误：${message}`);
-        slots[position] = {
-          id: entry.item.id,
-          category: entry.item.category,
-          strategy: entry.item.strategy,
-          question: entry.item.question,
-          fingerprint: fingerprint(entry.item, standardById.get(entry.item.id)),
-          judge: { agentId: null, backend: 'missing', sharedWith: null },
-          debate: { outcome: 'FAILED', rounds: 0, messages: 0, failures: [], durationMs: 0, durationSec: 0 },
-          quality: null,
-          decision: null,
-          standard: null,
-          anchor: null,
-          error: message
-        };
-      }
-      writeLatest();
-    }
-  };
-
-  await Promise.all(
-    Array.from({ length: Math.min(workers, pending.length) }, (_, index) => runWorker(index + 1))
-  );
-
-  const results = slots.filter(Boolean);
-  const summary = buildSummary(results);
-  const createdAt = new Date().toISOString();
-  const payload = {
-    dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
-    models: MODELS.map(item => item.model),
-    judgeRotation: IDS,
+  const startedAtAll = new Date().toISOString();
+  const repoRoot = path.join(__dirname, '../../..');
+  const relativeToRepo = file => path.relative(repoRoot, file).split(path.sep).join('/');
+  const config = {
+    createdAt: startedAtAll,
+    baselineTag: BASELINE_TAG,
     runner: {
       version: RUNNER_VERSION,
       promptVersion: PROMPT_VERSION,
@@ -675,42 +737,265 @@ app.whenReady().then(async () => {
       adjudication: 'main/judge/adjudicate.adjudicateDebate',
       rulesAuthority: 'debate.claim-judgments',
       backend: providerId,
+      provider: BACKEND === 'cli' ? 'qoder-cli' : 'opencode-go',
+      baseUrl: BACKEND === 'cli' ? null : BASE,
+      node: process.versions.node,
+      platform: process.platform,
       economy: ECONOMY
     },
-    createdAt,
-    workers,
-    completeness: completenessEnabled,
-    incremental: incrementalPath ? {
-      baseline: incrementalPath,
-      reused: questions.length - pending.length,
-      pending: pending.length
-    } : null,
-    summary,
-    results
+    dataset: {
+      version: dataset.version,
+      sha256: dataset.sha256,
+      note: dataset.note,
+      file: relativeToRepo(DATASET_PATH)
+    },
+    standard: { sha256: standardHash, file: relativeToRepo(STANDARD_PATH) },
+    models: MODELS.map(item => ({ id: item.id, model: item.model, provider: providerId })),
+    judgeRotation: IDS,
+    sampling: samplingSnapshot,
+    retryPolicy: retryPolicySnapshot(),
+    runtime: {
+      runs: RUNS,
+      workers,
+      providerConcurrency,
+      stageTimeoutMs: STAGE_TIMEOUT_MS,
+      totalMs: TOTAL_MS,
+      waitMs: WAIT_MS,
+      judgeTimeoutMs: JUDGE_TIMEOUT_MS,
+      completeness: completenessEnabled,
+      economy: ECONOMY
+    }
   };
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-  const latest = path.join(OUT_DIR, `debate-regression${suffix}-latest.json`);
-  fs.writeFileSync(latest, JSON.stringify(payload, null, 2), 'utf8');
-  const stamp = createdAt.replace(/[:.]/g, '-');
-  fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-${stamp}.json`), JSON.stringify(payload, null, 2), 'utf8');
-  fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, results), 'utf8');
-  if (mergeInto) {
-    const existing = JSON.parse(fs.readFileSync(mergeInto, 'utf8'));
-    const existingById = new Map((existing.results ?? []).map(item => [item.id, item]));
-    for (const item of results) existingById.set(item.id, item);
-    const merged = dataset.questions.map(item => existingById.get(item.id)).filter(Boolean);
-    const mergedPayload = {
-      ...existing,
-      updatedAt: new Date().toISOString(),
-      summary: buildSummary(merged),
-      results: merged
+
+  /** 跑完一轮 24 题；`RUNS=1` 时仍保留增量与 latest 行为。 */
+  async function executeRun(runIndex) {
+    currentRunRetryStart = retryEvents.length;
+    const runStartedAt = new Date().toISOString();
+    const slots = new Array(questions.length).fill(null);
+    const pending = [];
+    questions.forEach((entry, position) => {
+      if (baseline) {
+        const standardItem = standardById.get(entry.item.id);
+        const currentFingerprint = fingerprint(entry.item, standardItem);
+        const old = baselineById.get(entry.item.id);
+        // 旧结果没有 fingerprint 一律重跑；不能拿当前配置反算一个“旧指纹”。
+        if (canReuseResult(old, currentFingerprint)) {
+          slots[position] = { ...old, reused: true };
+          return;
+        }
+      }
+      pending.push({ entry, position });
+    });
+    console.log(`RUN ${runIndex + 1}/${RUNS}：重跑 ${pending.length} 题${baseline ? `（增量复用 ${questions.length - pending.length} 题）` : ''}`);
+
+    const writeLatest = () => {
+      if (RUNS > 1) return;
+      const current = slots.filter(Boolean);
+      const summary = buildSummary(current);
+      fs.mkdirSync(OUT_DIR, { recursive: true });
+      const partial = {
+        dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
+        models: MODELS.map(model => model.model),
+        judgeRotation: IDS,
+        runner: config.runner,
+        sampling: config.sampling,
+        retryPolicy: config.retryPolicy,
+        createdAt: new Date().toISOString(),
+        workers,
+        completeness: completenessEnabled,
+        incremental: baseline ? {
+          baseline: incrementalPath,
+          reused: questions.length - pending.length,
+          pending: pending.length
+        } : null,
+        summary,
+        results: current
+      };
+      fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.json`), JSON.stringify(partial, null, 2), 'utf8');
+      fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(summary, dataset, current), 'utf8');
     };
-    fs.writeFileSync(mergeInto, JSON.stringify(mergedPayload, null, 2), 'utf8');
-    fs.writeFileSync(mergeInto.replace(/\.json$/, '.md'), markdown(mergedPayload.summary, dataset, merged), 'utf8');
-    console.log(`MERGED ${mergeInto} · ${merged.length}/${dataset.questions.length}`);
+    if (RUNS === 1 && slots.some(Boolean)) writeLatest();
+
+    let cursor = 0;
+    const runWorker = async workerId => {
+      for (;;) {
+        const pendingIndex = cursor;
+        cursor += 1;
+        if (pendingIndex >= pending.length) return;
+        const { entry, position } = pending[pendingIndex];
+        try {
+          slots[position] = await runQuestion(entry, position, workerId);
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          console.error(`[w${workerId}] 题目 ${entry.item.id} 未捕获错误：${message}`);
+          slots[position] = {
+            id: entry.item.id,
+            category: entry.item.category,
+            strategy: entry.item.strategy,
+            question: entry.item.question,
+            fingerprint: fingerprint(entry.item, standardById.get(entry.item.id)),
+            judge: { agentId: null, backend: 'missing', sharedWith: null },
+            debate: { outcome: 'FAILED', rounds: 0, messages: 0, failures: [], durationMs: 0, durationSec: 0 },
+            quality: null,
+            decision: null,
+            standard: null,
+            anchor: null,
+            error: message
+          };
+        }
+        writeLatest();
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(workers, pending.length) }, (_, index) => runWorker(index + 1))
+    );
+
+    const results = slots.filter(Boolean);
+    return {
+      runId: `run-${runIndex + 1}`,
+      startedAt: runStartedAt,
+      endedAt: new Date().toISOString(),
+      summary: buildSummary(results),
+      results,
+      retryEvents: retryEvents.slice(currentRunRetryStart)
+    };
   }
-  console.log(`DONE ${JSON.stringify(summary)}`);
-  app.exit(summary.structuralOk ? 0 : 2);
+
+  const stamp = startedAtAll.replace(/[:.]/g, '-');
+  const runs = [];
+  const runFiles = [];
+  let stoppedEarly = null;
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  for (let runIndex = 0; runIndex < RUNS; runIndex += 1) {
+    const run = await executeRun(runIndex);
+    runs.push(run);
+    const runFile = path.join(OUT_DIR, `debate-regression${suffix}-p0-run${runIndex + 1}-${stamp}.json`);
+    const runPayload = {
+      kind: 'debate-regression-run',
+      config,
+      runId: run.runId,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      summary: run.summary,
+      retryEvents: run.retryEvents,
+      results: run.results
+    };
+    fs.writeFileSync(runFile, JSON.stringify(runPayload, null, 2), 'utf8');
+    fs.writeFileSync(runFile.replace(/\.json$/, '.md'), markdown(run.summary, dataset, run.results), 'utf8');
+    runFiles.push(runFile);
+    console.log(`RUN ${runIndex + 1} DONE ${JSON.stringify(run.summary)}`);
+
+    // 周额度用尽时，再跑下一轮只会得到整轮 429。宁可把样本停在完整的一轮，
+    // 也不要把「额度不足」混成「模型失败」；报告里明确写 stoppedEarly。
+    if (RUNS > 1 && runIndex < RUNS - 1) {
+      const quotaFailures = run.results.filter(item => {
+        const text = JSON.stringify(item.debate?.failures ?? '') + String(item.error ?? '');
+        return /429|usage limit|rate.?limit/i.test(text);
+      }).length;
+      if (quotaFailures >= 4) {
+        stoppedEarly = {
+          reason: 'quota-or-rate-limit',
+          afterRun: run.runId,
+          quotaFailures,
+          requestedRuns: RUNS,
+          completedRuns: runs.length
+        };
+        console.log(`STOP：${run.runId} 有 ${quotaFailures} 题因 429/额度失败，保留已完成轮次`);
+        break;
+      }
+    }
+  }
+
+  if (RUNS === 1) {
+    const run = runs[0];
+    const createdAt = run.endedAt;
+    const runPayload = {
+      dataset: { version: dataset.version, sha256: dataset.sha256, note: dataset.note },
+      models: MODELS.map(item => item.model),
+      judgeRotation: IDS,
+      runner: config.runner,
+      sampling: config.sampling,
+      retryPolicy: config.retryPolicy,
+      createdAt,
+      workers,
+      completeness: completenessEnabled,
+      incremental: baseline ? {
+        baseline: incrementalPath,
+        reused: run.results.filter(item => item.reused).length,
+        pending: run.results.filter(item => !item.reused).length
+      } : null,
+      summary: run.summary,
+      results: run.results
+    };
+    const latest = path.join(OUT_DIR, `debate-regression${suffix}-latest.json`);
+    fs.writeFileSync(latest, JSON.stringify(runPayload, null, 2), 'utf8');
+    const runStamp = createdAt.replace(/[:.]/g, '-');
+    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-${runStamp}.json`), JSON.stringify(runPayload, null, 2), 'utf8');
+    fs.writeFileSync(path.join(OUT_DIR, `debate-regression${suffix}-latest.md`), markdown(run.summary, dataset, run.results), 'utf8');
+    if (mergeInto) {
+      const existing = JSON.parse(fs.readFileSync(mergeInto, 'utf8'));
+      const existingById = new Map((existing.results ?? []).map(item => [item.id, item]));
+      for (const item of run.results) existingById.set(item.id, item);
+      const merged = dataset.questions.map(item => existingById.get(item.id)).filter(Boolean);
+      const mergedPayload = {
+        ...existing,
+        updatedAt: new Date().toISOString(),
+        summary: buildSummary(merged),
+        results: merged
+      };
+      fs.writeFileSync(mergeInto, JSON.stringify(mergedPayload, null, 2), 'utf8');
+      fs.writeFileSync(mergeInto.replace(/\.json$/, '.md'), markdown(mergedPayload.summary, dataset, merged), 'utf8');
+      console.log(`MERGED ${mergeInto} · ${merged.length}/${dataset.questions.length}`);
+    }
+  } else {
+    const stats = buildBaselineStats(runs, dataset.questions);
+    config.stoppedEarly = stoppedEarly;
+    const baselinePayload = {
+      kind: 'debate-p0-baseline',
+      config,
+      requestedRuns: RUNS,
+      sampleCount: runs.length,
+      stoppedEarly,
+      stats,
+      runs: runs.map((run, index) => ({
+        runId: run.runId,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt,
+        summary: run.summary,
+        retryEvents: run.retryEvents,
+        reportFile: relativeToRepo(runFiles[index]),
+        results: run.results
+      }))
+    };
+    const baselinePath = path.join(OUT_DIR, `debate-regression${suffix}-p0-baseline-${stamp}.json`);
+    const baselineMarkdown = markdownBaseline({ stats, config, runs });
+    fs.writeFileSync(baselinePath, JSON.stringify(baselinePayload, null, 2), 'utf8');
+    fs.writeFileSync(baselinePath.replace(/\.json$/, '.md'), baselineMarkdown, 'utf8');
+    fs.writeFileSync(
+      path.join(OUT_DIR, `debate-regression${suffix}-p0-baseline-latest.json`),
+      JSON.stringify(baselinePayload, null, 2),
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(OUT_DIR, `debate-regression${suffix}-p0-baseline-latest.md`),
+      baselineMarkdown,
+      'utf8'
+    );
+    const hashLines = [baselinePath, DATASET_PATH, STANDARD_PATH, ...runFiles]
+      .map(file => `${sha256File(file)}  ${relativeToRepo(file)}`);
+    fs.writeFileSync(baselinePath.replace(/\.json$/, '.sha256'), `${hashLines.join('\n')}\n`, 'utf8');
+    console.log(`BASELINE ${baselinePath}`);
+    console.log(`BASELINE STATS ${JSON.stringify(stats.aggregate)}`);
+  }
+
+  const allStructural = runs.every(run => run.summary.structuralOk);
+  console.log(`DONE ${JSON.stringify(RUNS === 1 ? runs[0].summary : {
+    sampleCount: RUNS,
+    runs: runs.map(run => run.summary)
+  })}`);
+  app.exit(allStructural ? 0 : 2);
 }).catch(error => {
   console.error(error instanceof Error ? error.stack ?? error.message : String(error));
   app.exit(1);
