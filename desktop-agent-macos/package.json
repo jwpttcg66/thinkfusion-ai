@@ -47,6 +47,7 @@
     "test:trace-stats": "npm run build:test && node --test scripts/check-trace-stats.mjs",
     "test:dsh-coverage": "npm run build:test && node --test scripts/check-dsh-coverage.mjs",
     "test:evidence": "npm run build:test && node --test scripts/check-evidence.mjs",
+    "test:evidence-pack-spike": "node scripts/spike-evidence-pack.mjs",
     "test:ask-user": "npm run build:test && node --test scripts/check-ask-user.mjs",
     "test:diagnostics": "npm run build:test && node --test scripts/check-diagnostics.mjs",
     "test:terminal": "npm run build:test && node --test --test-force-exit scripts/check-terminal.mjs",
