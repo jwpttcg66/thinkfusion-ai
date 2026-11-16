@@ -31,6 +31,8 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
 
   const items: EvidencePackItemDraft[] = context.chunks.map(chunk => ({
     kind: 'source-file',
+    // 用解析时已经读到的内容，避免发布时重读文件造成指纹与 Pack 不一致。
+    content: chunk.content,
     source: { commit: context.commit, path: chunk.path },
     locator: {
       path: chunk.path,

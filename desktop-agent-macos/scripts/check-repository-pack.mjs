@@ -103,6 +103,37 @@ test('删除文件无法冻结：正文缺失，标记 partial 原因', () => {
   }
 });
 
+test('未跟踪目录里的文件：逐个冻结，不能只记一个目录', () => {
+  const root = makeRepo({ dirty: true });
+  try {
+    fs.mkdirSync(path.join(root, 'nested'));
+    fs.writeFileSync(path.join(root, 'nested', 'new.ts'), 'export const nested = 1;\n', 'utf8');
+    const context = resolveRepositoryContext(root).context;
+    assert.ok(context);
+    assert.ok(context.chunks.some(chunk => chunk.path === 'nested/new.ts'), context.chunks.map(c => c.path).join(','));
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('符号链接：不冻结目标内容，标 partial', () => {
+  const root = makeRepo({ dirty: true });
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-outside-'));
+  try {
+    const secret = path.join(outside, 'secret.txt');
+    fs.writeFileSync(secret, 'do not leak', 'utf8');
+    fs.symlinkSync(secret, path.join(root, 'link.txt'));
+    const context = resolveRepositoryContext(root).context;
+    assert.ok(context);
+    assert.ok(context.errors.some(error => error.includes('符号链接')), context.errors.join('；'));
+    assert.ok(context.chunks.every(chunk => chunk.path !== 'link.txt'));
+    assert.ok(context.chunks.every(chunk => !chunk.content.includes('do not leak')));
+  } finally {
+    cleanup(root);
+    cleanup(outside);
+  }
+});
+
 test('二进制/非 UTF-8 文件：标记错误，不把替换字符当成内容', () => {
   const root = makeRepo({ dirty: true });
   try {
@@ -186,6 +217,67 @@ function orchestratorHarness(packStore) {
   });
   return { dir, store, orchestrator };
 }
+
+test('发布使用解析时的内容：文件在发布前被删，Pack 仍可回放原内容', () => {
+  const root = makeRepo({ dirty: true });
+  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
+  try {
+    const context = resolveRepositoryContext(root).context;
+    assert.ok(context);
+    fs.rmSync(path.join(root, 'a.ts'));
+    const store = new EvidencePackStore(storeDir);
+    const state = publishRepositoryBaseline({ store, debateId: 'debate-frozen', context, createdAt: 1 });
+    assert.equal(state.status, 'complete');
+    const replay = store.replay(state.baselinePackId);
+    const contents = replay.items.map(item => item.content).join('\n');
+    assert.match(contents, /export const a = 2/, '必须冻结解析时的内容，而不是发布时重读');
+  } finally {
+    cleanup(root);
+    cleanup(storeDir);
+  }
+});
+
+test('Pack 损坏：读取必须失败，不能把损坏内容当有效证据', () => {
+  const root = makeRepo({ dirty: true });
+  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
+  try {
+    const store = new EvidencePackStore(storeDir);
+    const context = resolveRepositoryContext(root).context;
+    assert.ok(context);
+    const state = publishRepositoryBaseline({ store, debateId: 'debate-corrupt', context, createdAt: 1 });
+    const replay = store.replay(state.baselinePackId);
+    fs.writeFileSync(
+      path.join(storeDir, 'packs', state.baselinePackId, 'blobs', replay.items[0].contentHash),
+      'tampered',
+      'utf8'
+    );
+    assert.throws(
+      () => store.get(state.baselinePackId),
+      error => error.code === 'BLOB_CORRUPT'
+    );
+  } finally {
+    cleanup(root);
+    cleanup(storeDir);
+  }
+});
+
+test('删除文件导致的部分冻结：Pack 标 partial，不冒充 complete', () => {
+  const root = makeRepo({ dirty: true });
+  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
+  try {
+    fs.rmSync(path.join(root, 'a.ts'));
+    const context = resolveRepositoryContext(root).context;
+    assert.ok(context);
+    const store = new EvidencePackStore(storeDir);
+    const state = publishRepositoryBaseline({ store, debateId: 'debate-partial', context, createdAt: 1 });
+    assert.equal(state.status, 'partial');
+    assert.ok(state.baselinePackId);
+    assert.match(state.reason, /删除的文件/);
+  } finally {
+    cleanup(root);
+    cleanup(storeDir);
+  }
+});
 
 test('辩论开始：干净仓库生成基准 Pack，并随 DebateStore 落盘', async () => {
   const root = makeRepo();

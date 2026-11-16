@@ -37,9 +37,10 @@
   - `status --porcelain=v1 -z`
 - 干净仓库：只返回 commit/branch，不复制整仓。
 - dirty 仓库：
+  - 用 `--untracked-files=all` 列出未跟踪目录内的每个文件；
   - 修改/未跟踪文件按行切成 ≤1900 字符片段；
-  - 每个片段有 `contentHash`；
-  - 删除、空文件、读不到、二进制/非 UTF-8 文件进入 `errors`，Pack 只能标 `partial`；
+  - 每个片段有 `contentHash`，发布时使用解析时已读到的内容，避免重读漂移；
+  - 删除、空文件、读不到、符号链接、二进制/非 UTF-8 文件进入 `errors`，Pack 只能标 `partial`；
   - `dirtyFingerprint` 对片段 hash 与错误排序后计算。
 - 非 Git / 目录不存在返回明确错误，不抛到辩论主流程。
 
@@ -114,13 +115,16 @@ conversation.workspaceRoot
 
 ## 4. 测试
 
-`npm run test:repository-pack`：**10/10 通过**。
+`npm run test:repository-pack`：**15/15 通过**。
 
 覆盖：
 
 - 干净仓库解析 commit/branch，不产生片段；
 - dirty 修改与未跟踪文件冻结，指纹随内容变化；
-- 删除文件、二进制/非 UTF-8 文件标错误；
+- 删除文件、符号链接、二进制/非 UTF-8 文件标错误；
+- 嵌套未跟踪文件逐个冻结；
+- 发布前文件被删除，Pack 仍回放解析时内容；
+- Pack 损坏读取抛 `BLOB_CORRUPT`，partial 不冒充 complete；
 - 非 Git 目录返回错误；
 - 干净仓库基准 Pack 为零条目且可回放；
 - dirty 内容回放可读到原文；
@@ -146,3 +150,11 @@ npm test           → 105 个文件全过（27.2s）
 - 再按轮生成 Pack，并用显式 `source: 'pack'` 建立 ClaimEvidenceLink。
 
 在它存在之前，每轮 Pack 只能冻结「仓库变了什么」，不能回答「这条主张引用了哪段代码」。
+
+
+---
+
+## 6. 合并标记
+
+本切片建议记录为 **P2 Foundation**（tag：`debate-v4.1-p2-foundation`）。
+合并前审计见 `DEBATE_V4_1_P2_PRE_MERGE_AUDIT.md`；不创建 `p2-complete` 标签。

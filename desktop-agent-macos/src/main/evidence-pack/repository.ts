@@ -137,7 +137,7 @@ export function resolveRepositoryContext(rootDir: string): RepositoryResolution 
 
   let statusRaw = '';
   try {
-    statusRaw = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '-z'], {
+    statusRaw = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], {
       encoding: 'utf8',
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: 32 * 1024 * 1024,
@@ -155,9 +155,25 @@ export function resolveRepositoryContext(rootDir: string): RepositoryResolution 
       errors.push(`删除的文件无法冻结内容：${entry.path}`);
       continue;
     }
+    const absolute = path.resolve(root, entry.path);
+    if (absolute !== root && !absolute.startsWith(`${root}${path.sep}`)) {
+      errors.push(`路径越出仓库：${entry.path}`);
+      continue;
+    }
     let content: string;
     try {
-      const raw = fs.readFileSync(path.join(root, entry.path));
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink()) {
+        // 只冻结链接目标字符串会泄露仓库外路径；冻结链接指向的内容则会把
+        // 仓库外文件带进证据。这里直接标 partial，让人明确看见缺口。
+        errors.push(`符号链接不冻结目标内容：${entry.path}`);
+        continue;
+      }
+      if (!stat.isFile()) {
+        errors.push(`不是普通文件：${entry.path}`);
+        continue;
+      }
+      const raw = fs.readFileSync(absolute);
       if (raw.includes(0) || Buffer.from(raw.toString('utf8'), 'utf8').compare(raw) !== 0) {
         errors.push(`二进制/非 UTF-8 文件无法冻结：${entry.path}`);
         continue;

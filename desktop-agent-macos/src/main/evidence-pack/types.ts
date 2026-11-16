@@ -53,6 +53,11 @@ export interface EvidencePackItemMeta {
 
 export interface EvidencePackItemDraft {
   kind: EvidencePackItemKind;
+  /**
+   * 已经冻结好的内容。给 baseline/dirty overlay 用：避免「解析时读到的是 A，
+   * 发布时又重读成 B」。不传时 Store 从 repoRoot 读文件。
+   */
+  content?: string;
   source: EvidencePackItemSource;
   locator: EvidencePackItemLocator;
   meta: EvidencePackItemMeta;
