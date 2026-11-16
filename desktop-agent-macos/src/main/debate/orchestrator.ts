@@ -5,6 +5,7 @@ import { buildGraph } from './argument-graph';
 import { analyseRound, challengesFor } from './claims';
 import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
+import { buildClaimEvidenceLinks } from './claim-evidence-links';
 import { judgeDebate } from './judges';
 import { debateMetrics, roundProgress } from './metrics';
 import { PROMPT_VERSION, renderInstructions } from './prompts';
@@ -360,6 +361,9 @@ export class DebateOrchestrator {
     const run = judgeDebate(state, { at: this.now() });
     state.judgments = run.judgments;
     state.verdict = run.verdict;
+    // 关联从刚刚生成的判断重建：裁判引用哪条证据，就在这一步落成
+    // `supports/contradicts/context`。没有判断依据的关联不凭空生成。
+    state.claimEvidenceLinks = buildClaimEvidenceLinks(state);
     // 图要带上判断节点，所以结论之后再建一次。
     state.graph = buildGraph(state);
     // 指标跟着结论一起落盘：它要读的就是最后一轮的证据与修订。

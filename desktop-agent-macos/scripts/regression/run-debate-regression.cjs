@@ -631,6 +631,26 @@ app.whenReady().then(async () => {
       });
     }
 
+    const claimResults = standardItem && standardAssessment
+      ? standardItem.requiredClaims.map(claim => {
+          const id = claim.id.toLowerCase();
+          const matched = standardAssessment.matchedClaims.map(value => value.toLowerCase()).includes(id);
+          const explicitlyMissing = standardAssessment.missingClaims
+            .map(value => value.toLowerCase())
+            .includes(id);
+          return {
+            id: claim.id,
+            severity: claim.severity,
+            text: claim.text,
+            status: matched && !explicitlyMissing
+              ? 'matched'
+              : explicitlyMissing || claim.severity === 'must'
+                ? 'missing'
+                : 'unassessed'
+          };
+        })
+      : null;
+
     const result = {
       id: item.id,
       category: item.category,
@@ -667,6 +687,15 @@ app.whenReady().then(async () => {
           modelId: message.modelId,
           inputTokens: message.usage?.inputTokens ?? null,
           outputTokens: message.usage?.outputTokens ?? null
+        })),
+        // 逐轮保留可追溯的答案摘录；完整原文不进报告（体积），但缺了这几百字
+        // 就没法解释「rubric 为什么判它缺 c3」。长度单独记录，避免把截断当全文。
+        messageExcerpts: messages.map(message => ({
+          agentId: message.agentId,
+          modelId: message.modelId,
+          roundIndex: message.roundIndex,
+          chars: message.text.length,
+          excerpt: message.text.slice(0, 800)
         }))
       },
       quality: quality
@@ -696,11 +725,14 @@ app.whenReady().then(async () => {
       revision,
       revisionJudge,
       standardAnswerSource,
+      answerChars: standardAnswerText.length,
+      answerExcerpt: standardAnswerText.slice(0, 4000),
       standard: standardAssessment && standardItem
         ? {
             id: standardItem.id,
             classification: standardItem.classification,
             ...standardAssessment,
+            claimResults,
             rubricAgentId,
             participatedInDebate: Boolean(state?.plan?.participants?.includes(rubricAgentId))
           }
@@ -749,7 +781,11 @@ app.whenReady().then(async () => {
       note: dataset.note,
       file: relativeToRepo(DATASET_PATH)
     },
-    standard: { sha256: standardHash, file: relativeToRepo(STANDARD_PATH) },
+    standard: {
+      version: standard.version,
+      sha256: standardHash,
+      file: relativeToRepo(STANDARD_PATH)
+    },
     models: MODELS.map(item => ({ id: item.id, model: item.model, provider: providerId })),
     judgeRotation: IDS,
     sampling: samplingSnapshot,
