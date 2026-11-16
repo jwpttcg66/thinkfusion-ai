@@ -976,7 +976,7 @@ function DebateReport({ debate }: { debate: DebateView }) {
           <span className="research-tag">{EVIDENCE_LABEL[item.verified] ?? item.verified}{item.independent ? '' : ' · 与别的记录同源'}</span>
           <p>{item.excerpt}</p>
           <p className="muted">
-            {(item.finalUrl ?? item.url) ? <a href={item.finalUrl ?? item.url} target="_blank" rel="noreferrer">{item.finalUrl ?? item.url}</a> : '没有地址（只有主张自己的说法）'}
+            {renderEvidenceAddress(item.finalUrl ?? item.url)}
             {item.pageTitle ? ` · ${item.pageTitle}` : ''}
           </p>
           <p className="muted">{item.assessment}</p>
@@ -1074,8 +1074,22 @@ const DISPUTE_LABEL: Record<string, string> = {
 const EVIDENCE_LABEL: Record<string, string> = {
   'page-link': '页面给了链接',
   reported: '自称有出处',
-  unverified: '只有断言'
+  unverified: '只有断言',
+  snapshot: '冻结快照'
 };
+
+/**
+ * 网页地址才给外链；`repo://` 是冻结快照的定位，不是能打开的网站。
+ * 把它渲染成 <a> 会让浏览器去启动一个不存在的协议，也会让人以为点开就能
+ * 看到源码——这里只把它当文字显示。
+ */
+function renderEvidenceAddress(address: string | undefined): React.ReactNode {
+  if (!address) return '没有地址（只有主张自己的说法）';
+  if (/^https?:\/\//i.test(address)) {
+    return <a href={address} target="_blank" rel="noreferrer">{address}</a>;
+  }
+  return <span>{address}</span>;
+}
 
 const CLAIM_STATUS_LABEL: Record<string, string> = {
   proposed: '提出',

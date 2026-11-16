@@ -2,7 +2,7 @@
 
 - 分支：`0.2.8`（从 `main` `dbeca16` 切出）
 - 工作树：`/Users/yalla/data/localLab/thinkfusion-ai-0.2.8`（与仓库既有「一版本一 worktree」惯例一致）
-- 本轮范围：Gate 0A / 0B / 0D 已落地；0C 先用 **CLI 口径 + 经济模式**跑完 24/24（§4.4），云端直连口径仍 DEFERRED
+- 本轮范围：Gate 0A / 0B / 0D 已落地；0C 两套口径都跑完：**云端直连 3 模型 24/24、V1 19/24**（§4.5），CLI 口径 + 经济模式 24/24、V1 20/24（§4.4）
 - 结论口径：只写跑过的东西。没跑、没实现、没真机验证的，一律标 SPECIFIED / NOT STARTED / DEFERRED
 
 ---
@@ -126,7 +126,7 @@ pass 翻 fail，24 题里已过的题会变成 `needs_revision`。本轮规则�
 并在数据集 sha256、completeness 开关、模型池任一不同时**拒绝给出差异结论**
 （打印「口径不同，不作逐题差异」），不硬比。
 
-### 4.3 结果：**DEFERRED（未执行，不得当作已完成）**
+### 4.3 首跑：429 限流（已恢复后重跑，见 §4.5）
 
 2026-11-15 首跑在 `0.2.8` 上启动过，24 题**全部失败于 429**：
 
@@ -197,12 +197,56 @@ deepseek-v4.1-flash/gpt-6-luna`）、`completeness` 开关也不同（基线 `un
 
 ---
 
+### 4.5 云端直连口径重跑（2026-11-16 03:32 UTC）
+
+429 限流恢复后，按同一口径重新跑云端 3 模型：
+
+```bash
+cd /Users/yalla/data/localLab/thinkfusion-ai-0.2.8/desktop-agent-macos
+env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS \
+  ./node_modules/.bin/electron scripts/regression/run-debate-regression.cjs \
+  --no-sandbox --disable-gpu --workers=3 --completeness --suffix=gate0-cloud
+```
+
+没有 `--incremental`。报告：
+
+- `docs/implementation/regression/debate-regression-gate0-cloud-latest.json`
+- `docs/implementation/regression/debate-regression-gate0-cloud-latest.md`
+- 逐题对比：`docs/implementation/regression/gate0-cloud-vs-18.md`
+
+| 项 | 本次云端直连 | 历史 18/24 |
+| --- | --- | --- |
+| 执行 | COMPLETED 22 / PARTIAL 2 | COMPLETED 21 / PARTIAL 3 |
+| 裁判 | model 24/24，独立 24/24 | 同 |
+| 质量 | passed 24 | passed 24 |
+| V1 | **passed 19/24**，平均分 93 | 18/24 |
+| 事实维度 | `model-assessed` 24 | 同 |
+| 结构化 | 否（2 题 PARTIAL + 5 题 V1 fail） | 否 |
+
+逐题差异：新增通过 `mq-delivery`、`unicode-utf8`；退化 `process-thread`；其余 21 题不变。
+
+2 道 PARTIAL：`mq-delivery`、`schema-migration`（连接失败）。V1 上 `mq-delivery` 通过，`schema-migration` 仍缺 c2。
+
+5 道 V1 未过：`acid` c3、`jwt-revoke` c3、`schema-migration` c2、`process-thread` c3、`memory-leak` c3。
+
+报告 `runner` 字段已修复为最终 payload 也写入：
+
+```json
+{"version":"2.1.0","promptVersion":"1.1.0","commit":"4403514...","backend":"opencode-go","economy":false}
+```
+
+顶层 `incremental` 为 `null`（没有带增量）。
+
+旧的在 03:06 UTC、缺 `runner` 字段的那份报告已删除，不留在仓库里。
+
+**结论：这是 3 模型云端直连口径的新基线，不是把历史 18/24 改写；19/24 仍需区分 2 道 PARTIAL。**
+
 ## 5. Gate 0D：全量测试与类型检查
 
 `npm run typecheck`（主进程 / 渲染层 / 测试三套）全绿；`npm test` 全量 **1217 / 1217**，
-`not ok` 0 条（日志 `/tmp/tf-028-test.log`）。
+`not ok` 0 条（日志 `/tmp/tf-028-test.log`）；`npm run build`（renderer + agent）通过。
 
-新增 `test:judge-adjudicate` 已并入 `test:judge` 与 `test:p0-gaps`，12 条：
+新增 `test:judge-adjudicate` 已并入 `test:judge` 与 `test:p0-gaps`，15 条：
 
 - 没有候选 → 规则版，且不写 `judgeReselection`（「没得换」≠「换过没换成」）
 - 首选调用失败 → 换下一个独立候选，七个身份字段按新人重算
@@ -212,6 +256,10 @@ deepseek-v4.1-flash/gpt-6-luna`）、`completeness` 开关也不同（基线 `un
 - 全部候选都不可解析 → 换完退回规则版，保留每次失败原因
 - 规则版记权威口径；权威侧没给结论时是「不可比」，不是「一致」
 - IPC 四条：非字符串入参拒绝且不落盘 / 找不到辩论不落空裁决 / 落盘并广播同一份对象 / 降级也落盘
+- 质量链路三条：`IPC → 裁决 → 质量报告 → VerdictStore 落盘 → 按 debateId 读回`，
+  读回的质量报告与刚生成的逐字段相同（不是测试里另调一次 `evaluateDebateQuality`）；
+  规则版读回仍是 `modelAssessed=false`，且 `factualAccuracy` 不会凭空变成 `supported`；
+  旧裁决文件没有 `quality` 时读回 `undefined`，不补一份假报告
 
 **这不等于生产可用**：handler 层测的是函数，不是真机上点「裁决」按钮那条路。界面侧仍待
 一次带 UI 的验证。
@@ -224,9 +272,10 @@ deepseek-v4.1-flash/gpt-6-luna`）、`completeness` 开关也不同（基线 `un
 | --- | --- | --- |
 | Judge 失败重选 | IMPLEMENTED + TESTED | `adjudicate.ts`；`check-judge-adjudicate.mjs` 12 条 |
 | Judge 降级 IPC 链 | IMPLEMENTED + TESTED（handler 层） | `handler.ts`；未真机点按钮验证 |
+| 质量报告真实链路 | IMPLEMENTED + TESTED（落盘 → 读回） | `check-judge-adjudicate.mjs` 三条；未接 UI |
 | 公共裁决核 | IMPLEMENTED + INTEGRATED | IPC 与 24 题回归共用 |
 | 权威 rules 结论 | SPECIFIED + IMPLEMENTED（只记录，不改结论来源） | `rulesConclusion.authority` |
-| 24 题当前 main 回归 | **PARTIAL**：CLI 口径跑完 24/24，V1 20/24、结构化通过=否 | 见 §4.4；换后端即换口径，**不与历史 18/24 逐题比**；云端直连口径仍 DEFERRED（§4.3） |
+| 24 题当前 main 回归 | **DONE（两套口径，均不结构化通过）**：云端直连 24/24 跑完、V1 19/24（§4.5）；CLI 口径 24/24、V1 20/24（§4.4） | 云端 2 题 PARTIAL（`mq-delivery`、`schema-migration`）单独记，未用单题重跑改写；`structuralOk=false` |
 | Evidence Pack | SPECIFIED | 本轮未动 |
 | 工程辩论闭环 | NOT STARTED | 本轮未动 |
 | 外部事实核验 | NOT STARTED | 本轮未动 |
@@ -238,9 +287,13 @@ deepseek-v4.1-flash/gpt-6-luna`）、`completeness` 开关也不同（基线 `un
 
 ## 7. 本轮没做的事（避免被读成已完成）
 
-- **Gate 0C 只跑成一半**：云端直连口径仍因周额度 429 未跑（§4.3）；CLI 口径 + 经济模式
-  跑完 24/24，但 `V1 20/24`、`structuralOk=false`，而且换后端即换口径——它不能替云端
-  口径的结论。所以「Gate 0 通过、可进 Evidence Pack」**仍然不成立**；
+- **Gate 0C 的结论是「基线已建立」，不是「结构化通过」**：云端直连 3 模型 24/24 跑完，
+  `V1 19/24`、`structuralOk=false`，另有 2 题 PARTIAL（连接失败，单独列，不并入主结论）；
+  CLI 口径 + 经济模式是另一把尺子（`V1 20/24`），两者不互相替代，也不与历史 18/24 混用；
+  「Gate 0 通过、可进 Evidence Pack」**仍然不成立**——Gate 0 只证明基线可复现；
+- 历史 18/24 仍是 `debate-regression-v1-1-completeness-latest.json` 的口径，没有被 19/24 覆盖：
+  本次 19/24 是当前 3 模型云端直连 + 当前代码的新基线，逐题差异（2 增 1 退 21 不变）
+  由 `compare-results.cjs` 机械产出，见 `gate0-cloud-vs-18.md`；
 - 经济模式下的分数**不能当基线能力值**：`--thinking disabled` 是省钱的跑法，不是默认产品行为；
 - 没有新增 Evidence Pack / EvidencePackItem / ClaimEvidenceLink / FactVerification 的任何类型；
 - 没有给 `DebateState` 加 `schemaVersion`，也没有改两个 store 的解析失败返回 null 的行为；
