@@ -48,6 +48,7 @@ function fixture() {
     'utf8'
   );
   fs.writeFileSync(path.join(repo, 'docs.md'), '# 设计\n\n冻结快照先冻结内容，再冻结位置。\n', 'utf8');
+  fs.writeFileSync(path.join(repo, 'test-output.txt'), 'ok 3 tests\n', 'utf8');
   return { root, repo, storeDir };
 }
 
@@ -250,11 +251,44 @@ test('映射：snapshot / repo-snapshot / 合成 messageId，不冒充真实发�
     assert.ok(call);
     assert.deepEqual(call.claimIds, ['c1'], 'context 不进 claimIds');
 
-    const sameFile = mapped.filter(item => item.originKey === 'repo:c0ffee:src/math.ts');
-    assert.equal(sameFile.length, 2);
-    assert.equal(sameFile.filter(item => item.independent).length, 1, '同一文件只算一个独立来源');
-    const duplicate = sameFile.find(item => !item.independent);
-    assert.ok(duplicate.duplicateOf, '同源条目要指回第一条');
+    const sameCommit = mapped.filter(item => item.originKey === 'repo:c0ffee');
+    assert.equal(sameCommit.length, 3);
+    assert.equal(sameCommit.filter(item => item.independent).length, 1, '同一 commit 只算一个独立来源');
+    assert.equal(sameCommit.filter(item => item.duplicateOf).length, 2, '同源条目要指回第一条');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('映射：test-result / command-result 带 exitCode，其他条目没有', () => {
+  const { root, repo, storeDir } = fixture();
+  try {
+    const store = new EvidencePackStore(storeDir);
+    const commit = 'c0ffee';
+    const { manifest } = store.publish({
+      repoRoot: repo,
+      idempotencyKey: 'exec:0',
+      repo: { commit },
+      items: [
+        {
+          kind: 'test-result',
+          source: { commit },
+          locator: { path: 'test-output.txt', startLine: 1, endLine: 1 },
+          meta: { tool: 'test', capturedAt: 1, exitCode: 0, command: 'npm test' }
+        },
+        {
+          kind: 'symbol',
+          source: { commit },
+          locator: { path: 'src/math.ts', startLine: 6, endLine: 8 },
+          meta: { tool: 'test', capturedAt: 1, exitCode: 1 }
+        }
+      ]
+    });
+    const mapped = mapPackToDebateEvidence(store.replay(manifest.packId));
+    const testResult = mapped.find(item => item.evidenceId === packEvidenceIdOf(manifest.packId, manifest.items[0].itemId));
+    assert.deepEqual(testResult.execution, { kind: 'test-result', exitCode: 0 });
+    const symbol = mapped.find(item => item.evidenceId === packEvidenceIdOf(manifest.packId, manifest.items[1].itemId));
+    assert.equal(symbol.execution, undefined, '源码条目不能伪装成执行结果');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

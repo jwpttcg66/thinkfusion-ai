@@ -159,21 +159,28 @@ export function assessDebate(state: DebateState): QualityAssessment {
     'AC-13：insufficient_evidence 不等于 unsupported；任务书 §7.3 充分性'
   );
 
-  // 5. 没有页面链接时，任何一句都不许被判成「有证据支持」。
-  //    这里只看「有没有可点开的地址」，不管独立性——同源是第 6 项的事。
-  //    `independent` 是整场视角的「谁是第一条」，转载那条也有真实地址，
-  //    拿它过滤会凭空把转载主张说成「没有链接」。
+  // 5. 没有可核验来源时，任何一句都不许被判成「有证据支持」。
+  //    网页来源看是否有可点开的地址；工程来源看「冻结快照 + 成功执行」，
+  //    只有快照不算——否则「代码里确实有这行」会被读成事实已核验。
+  //    这里不管独立性——同源是第 6 项的事。
   const pageLinks = evidence.filter(item => item.verified === 'page-link');
-  const supported = judgments.filter(item => item.verdict === 'supported');
-  const noLinkOverclaim = supported.filter(item =>
-    !evidence.some(e => e.claimIds.includes(item.claimId) && e.verified === 'page-link')
+  const executedSnapshots = evidence.filter(
+    item => item.verified === 'snapshot' && item.execution?.exitCode === 0
   );
+  const supported = judgments.filter(item => item.verdict === 'supported');
+  const hasVerifiableSource = (claimId: string) =>
+    evidence.some(
+      e =>
+        e.claimIds.includes(claimId) &&
+        (e.verified === 'page-link' || (e.verified === 'snapshot' && e.execution?.exitCode === 0))
+    );
+  const noLinkOverclaim = supported.filter(item => !hasVerifiableSource(item.claimId));
   add(
     'evidence.no_support_without_link',
-    '没有可核验链接就不能判 supported',
+    '没有可核验来源就不能判 supported',
     noLinkOverclaim.length === 0,
-    `${pageLinks.length} 条页面链接 / ${supported.length} 条 supported 主张；越界 ${noLinkOverclaim.length} 条`,
-    '任务书 §7.2 证据优先级；「页面没给链接」不能当成「来源已核验」'
+    `${pageLinks.length} 条页面链接 / ${executedSnapshots.length} 条快照+执行 / ${supported.length} 条 supported 主张；越界 ${noLinkOverclaim.length} 条`,
+    '任务书 §7.2 证据优先级；页面链接或「冻结快照 + 成功执行」才算来源，只有快照不算'
   );
 
   // 6. 同源只算一个独立来源。口径与 `independentSourceCount` 保持一致：

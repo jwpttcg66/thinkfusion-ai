@@ -641,3 +641,63 @@ test('「在一定程度上」不是绝对化断言', () => {
   const strong = judgeDebate(stateOf([claim('b', 'WAL 模式一定可以解决所有并发写入问题。', { messageId: 'm-strong' })], []));
   assert.equal(logicOutcome(strong.judgments[0]), 'questionable');
 });
+
+// ---------------------------------------------------------------------------
+// Gate 3：工程证据（冻结快照 + 执行结果）
+// ---------------------------------------------------------------------------
+
+function snapshotEvidence(id, claimIds, overrides = {}) {
+  return evidence(id, claimIds, {
+    kind: 'source-code',
+    excerpt: 'export function multiply(a, b) { return a * b; }',
+    origin: 'repo-snapshot',
+    originKey: 'repo:c0ffee',
+    url: 'repo://c0ffee/src/math.ts#L6-L8',
+    finalUrl: 'repo://c0ffee/src/math.ts#L6-L8',
+    verified: 'snapshot',
+    assessment: '来自冻结快照 c0ffee src/math.ts:6-8',
+    ...overrides
+  });
+}
+
+test('只有快照、没有执行结果：证据判 partial，不冒充已核验', () => {
+  const item = claim('a', 'multiply 的实现就是两个数相乘。');
+  const run = judgeDebate(stateOf([item], [snapshotEvidence('ev-snap', [item.claimId])]));
+  const judged = run.judgments[0];
+
+  assert.equal(dimension(judged, 'evidence').outcome, 'partial');
+  assert.match(dimension(judged, 'evidence').rationale, /执行结果/);
+  assert.notEqual(judged.verdict, 'supported');
+});
+
+test('快照 + 成功执行：证据判 sufficient', () => {
+  const item = claim('a', 'multiply 的实现就是两个数相乘。');
+  const run = judgeDebate(stateOf([item], [
+    snapshotEvidence('ev-snap', [item.claimId]),
+    snapshotEvidence('ev-run', [item.claimId], {
+      excerpt: 'ok 3 tests',
+      execution: { kind: 'test-result', exitCode: 0 },
+      url: 'repo://c0ffee/test-output.txt#L1-L1'
+    })
+  ]));
+  const judged = run.judgments[0];
+
+  assert.equal(dimension(judged, 'evidence').outcome, 'sufficient');
+  assert.match(dimension(judged, 'evidence').rationale, /成功执行/);
+  assert.equal(judged.verdict, 'supported');
+});
+
+test('执行失败（exitCode != 0）：不能算成功执行', () => {
+  const item = claim('a', 'multiply 的实现就是两个数相乘。');
+  const run = judgeDebate(stateOf([item], [
+    snapshotEvidence('ev-snap', [item.claimId]),
+    snapshotEvidence('ev-run', [item.claimId], {
+      excerpt: '3 tests failed',
+      execution: { kind: 'test-result', exitCode: 1 }
+    })
+  ]));
+  const judged = run.judgments[0];
+
+  assert.equal(dimension(judged, 'evidence').outcome, 'partial');
+  assert.notEqual(judged.verdict, 'supported');
+});

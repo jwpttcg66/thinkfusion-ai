@@ -149,7 +149,7 @@ publish(draft)
 | `roundIndex` | `-1` | 明确表示不来自任何辩论轮次；Gate 3 前不得据此排序 |
 | `url` / `finalUrl` | `repo://<commit>/<path>#L<start>-L<end>` | 可显示、不可网络打开 |
 | `fingerprint` | 复用现有 FNV-1a（去空白与标点） | 与页面证据同一算法 |
-| `originKey` | `'repo:' + commit + ':' + path` | 同一文件收敛；同文件第一条 `independent: true`，其余 `false` + `duplicateOf` |
+| `originKey` | `'repo:' + commit` | 同一 commit 收敛（用户 Gate 3 决策）；第一条 `independent: true`，其余 `false` + `duplicateOf` |
 | `verified` | `'snapshot'` | 新增枚举成员，见 §3.1 |
 | `assessment` | `'来自冻结快照 <commit> <path>:<start>-<end>'` | 人可读，不写「已核验事实」 |
 | `origin`（新增可选） | `'repo-snapshot'` | 让 UI / 评审能分辨合成 messageId |

@@ -14,6 +14,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { judgeDebate } from '../out-test/main/debate/judges.js';
+import { assessDebate } from '../out-test/main/debate/quality.js';
 import { DebateStore } from '../out-test/main/debate/store.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
 import {
@@ -167,4 +169,95 @@ test('归一化：规则版没有 argumentQuality/undetermined，模型版没有
   assert.equal(judged.fiveTier, null);
   assert.equal(judged.undetermined, false);
   assert.equal(judged.argumentQuality.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// Gate 3：工程证据的质量门
+// ---------------------------------------------------------------------------
+
+function engineeringState(evidenceList) {
+  const claim = {
+    claimId: 'c1',
+    messageId: 'm1',
+    agentId: 'a',
+    roundIndex: 0,
+    text: 'multiply 的实现就是两个数相乘。',
+    kind: 'fact',
+    kindCue: '陈述句',
+    span: { messageId: 'm1', start: 0, end: 16 },
+    assumptions: [],
+    evidenceDrafts: [],
+    status: 'proposed'
+  };
+  const base = {
+    debateId: 'd-engineering',
+    question: 'multiply 的实现是什么？',
+    config: { strategy: 'standard', maxRounds: 1, participants: ['a'], convergenceStop: false },
+    rounds: [{
+      index: 0,
+      phase: 'analysis',
+      messages: [],
+      startedAt: 1,
+      endedAt: 2,
+      converged: false,
+      failures: [],
+      claims: [claim]
+    }],
+    minorities: [],
+    disputes: [],
+    evidence: evidenceList,
+    createdAt: 1,
+    updatedAt: 2
+  };
+  const run = judgeDebate(base);
+  return { base, run };
+}
+
+function engineeringEvidence(id, overrides = {}) {
+  return {
+    evidenceId: id,
+    claimIds: ['c1'],
+    kind: 'source-code',
+    excerpt: 'export function multiply(a, b) { return a * b; }',
+    span: { messageId: id, start: 0, end: 8 },
+    sourceId: 'evidence-pack:pack_x',
+    messageId: id,
+    roundIndex: -1,
+    origin: 'repo-snapshot',
+    fingerprint: `fp-${id}`,
+    originKey: 'repo:c0ffee',
+    independent: true,
+    verified: 'snapshot',
+    assessment: '来自冻结快照 c0ffee src/math.ts:6-8',
+    ...overrides
+  };
+}
+
+test('工程质量门：只有快照的 supported 主张会被拦下', () => {
+  const { base, run } = engineeringState([engineeringEvidence('e-snap')]);
+  const state = {
+    ...base,
+    judgments: [{ ...run.judgments[0], verdict: 'supported' }],
+    verdict: run.verdict
+  };
+  const gate = assessDebate(state).gates.find(item => item.id === 'evidence.no_support_without_link');
+  assert.ok(gate);
+  assert.equal(gate.passed, false);
+  assert.match(gate.detail, /越界 1 条/);
+});
+
+test('工程质量门：快照 + 成功执行可以通过', () => {
+  const { base, run } = engineeringState([
+    engineeringEvidence('e-snap'),
+    engineeringEvidence('e-run', {
+      kind: 'source-code',
+      excerpt: 'ok 3 tests',
+      execution: { kind: 'test-result', exitCode: 0 }
+    })
+  ]);
+  const state = { ...base, judgments: run.judgments, verdict: run.verdict };
+  const gate = assessDebate(state).gates.find(item => item.id === 'evidence.no_support_without_link');
+  assert.ok(gate);
+  assert.equal(gate.passed, true);
+  assert.match(gate.detail, /1 条快照\+执行/);
 });
