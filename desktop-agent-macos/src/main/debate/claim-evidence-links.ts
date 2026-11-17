@@ -22,6 +22,7 @@ import type {
   DimensionJudgment,
   Verdict
 } from './types';
+import type { JudgeVerdict } from '../judge/types';
 
 export interface LinkValidation {
   valid: ClaimEvidenceLink[];
@@ -31,7 +32,7 @@ export interface LinkValidation {
 export interface LinkRefresh {
   links: ClaimEvidenceLink[];
   errors: string[];
-  writer: 'rules-judge';
+  writer: 'rules-judge' | 'model-judge';
 }
 
 /**
@@ -39,12 +40,15 @@ export interface LinkRefresh {
  * `claimEvidenceLinks`——`JudgeVerdict.evidence` 是消息级，没有 evidenceId，
  * 强写只能猜。需要模型关联时必须先给裁决增加 claim/evidence 引用契约（P3）。
  */
-export function refreshClaimEvidenceLinks(state: DebateState): LinkRefresh {
+export function refreshClaimEvidenceLinks(
+  state: DebateState,
+  writer: 'rules-judge' | 'model-judge' = 'rules-judge'
+): LinkRefresh {
   const built = buildClaimEvidenceLinks(state);
   const validation = validateClaimEvidenceLinks(state, built);
   state.claimEvidenceLinks = validation.valid;
-  state.claimEvidenceLinksSource = 'rules-judge';
-  return { links: validation.valid, errors: validation.errors, writer: 'rules-judge' };
+  state.claimEvidenceLinksSource = writer;
+  return { links: validation.valid, errors: validation.errors, writer };
 }
 
 export function buildClaimEvidenceLinks(state: DebateState): ClaimEvidenceLink[] {
@@ -72,6 +76,13 @@ export function buildClaimEvidenceLinks(state: DebateState): ClaimEvidenceLink[]
         });
       }
     }
+  }
+
+  // 模型裁判明确给出的方向优先；没有判断时退回 pack context。
+  for (const link of state.judgePackEvidenceLinks ?? []) {
+    if (!claimIds.has(link.claimId)) continue;
+    if (!evidenceById.has(link.evidenceId)) continue;
+    links.push({ ...link, debateId: state.debateId });
   }
 
   // Pack 来源只写 context：引用代码不等于代码支持主张。若同一对证据
@@ -212,6 +223,28 @@ function reasonOf(
       ? '反驳'
       : '作为背景引用';
   return `规则裁判在${where}（${dimension.outcome}）引用该证据，按主张结论 ${judgment.verdict} 记为${direction}`;
+}
+
+/**
+ * 把模型裁判对 Pack 证据的判断写成关联。只接受已经存在的 evidenceId；
+ * 关系来自 Verdict 的显式输出，不从引用自动推导。
+ */
+export function applyJudgePackEvidence(state: DebateState, verdict: JudgeVerdict): ClaimEvidenceLink[] {
+  const evidenceIds = new Set((state.packEvidence ?? []).map(item => item.evidenceId));
+  const links: ClaimEvidenceLink[] = [];
+  for (const item of verdict.packEvidence ?? []) {
+    if (!evidenceIds.has(item.evidenceId)) continue;
+    links.push({
+      debateId: state.debateId,
+      claimId: item.claimId,
+      evidenceId: item.evidenceId,
+      relation: item.relation,
+      source: 'judge',
+      reason: `${item.reason}（confidence=${item.confidence}；snapshot=${item.sourceSnapshot.packId}@${item.sourceSnapshot.commit.slice(0, 12)}）`
+    });
+  }
+  state.judgePackEvidenceLinks = links;
+  return links;
 }
 
 /** 测试与外部校验用：这条证据是否被当成「支持」以外的关系。 */

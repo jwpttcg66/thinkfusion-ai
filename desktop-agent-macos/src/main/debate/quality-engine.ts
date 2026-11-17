@@ -257,6 +257,21 @@ export function evaluateDebateQuality(inputs: QualityInputs): DebateQualityRepor
       ? `裁判退回规则版：${verdict.fallbackReason}`
       : '裁判退回规则版：没有模型评审');
   }
+  if (verdict && isJudgeVerdict(verdict) && verdict.packEvidence?.length) {
+    const byId = new Map((state.packEvidence ?? []).map(item => [item.evidenceId, item]));
+    const codeOnlySupports = verdict.packEvidence.filter(item => {
+      if (item.relation !== 'supports') return false;
+      const evidence = byId.get(item.evidenceId);
+      return Boolean(evidence && !evidence.execution);
+    });
+    if (codeOnlySupports.length > 0) {
+      critical.push(
+        `工程证据被判 supports 但没有成功执行结果：${codeOnlySupports
+          .map(item => item.evidenceId)
+          .join('、')}`
+      );
+    }
+  }
 
   const factualBasis: string[] = [];
   if (sourceRefs.length > 0) {
@@ -264,6 +279,9 @@ export function evaluateDebateQuality(inputs: QualityInputs): DebateQualityRepor
   }
   if (modelAssessed) {
     factualBasis.push('模型裁判评估了主张与引用的一致性，未经外部事实核验');
+  }
+  if (verdict && isJudgeVerdict(verdict) && verdict.packEvidence?.length) {
+    factualBasis.push(`${String(verdict.packEvidence.length)} 条工程证据由模型裁判引用；代码存在不等于主张成立`);
   }
   if (factualBasis.length === 0) factualBasis.push('没有外部可验证来源');
 

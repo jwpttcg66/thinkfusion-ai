@@ -4141,7 +4141,8 @@ function isMissingTerminal(error: unknown): boolean {
         providerId: item.type === 'cloud' && item.id.includes(':') ? item.id.split(':')[0] : undefined
       })),
       ask: askAgent,
-      onVerdict: (conversationId, verdict) => verdictByConversation.set(conversationId, verdict)
+      onVerdict: (conversationId, verdict) => verdictByConversation.set(conversationId, verdict),
+      saveDebate: state => debates?.save(state)
     });
   });
 

@@ -9,6 +9,7 @@ import {
   type EvidenceAssessment,
   type JudgeVerdict,
   type MinorityView,
+  type PackEvidenceAssessment,
   type UnresolvedQuestion
 } from './types';
 
@@ -59,6 +60,114 @@ function judgeIndependence(options: JudgeEngineOptions, judgeAgentId: string): {
   return { judgeMode: 'independent-judge', judgeIndependent: true, modelIndependence: true, reason: 'Judge 未参与前序辩论，且模型身份与参辩成员不同' };
 }
 
+interface PackContextItem {
+  claimId: string;
+  evidenceId: string;
+  packId: string;
+  commit: string;
+  path: string;
+  excerpt: string;
+  roundIndex?: number;
+}
+
+/** 从 packEvidenceLinks 收集可被裁判引用的证据；只接受显式 context 关联。 */
+function packContextOf(state: DebateState): PackContextItem[] {
+  const evidenceById = new Map((state.packEvidence ?? []).map(item => [item.evidenceId, item]));
+  const claims = new Map(state.rounds.flatMap(round => round.claims ?? []).map(claim => [claim.claimId, claim]));
+  const items: PackContextItem[] = [];
+  const seen = new Set<string>();
+  for (const link of state.packEvidenceLinks ?? []) {
+    if (link.source !== 'pack' || link.relation !== 'context') continue;
+    if (!claims.has(link.claimId)) continue;
+    const evidence = evidenceById.get(link.evidenceId);
+    if (!evidence) continue;
+    const key = `${link.claimId}\0${link.evidenceId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const packId = link.evidenceId.split(':')[1] ?? '';
+    const url = evidence.url ?? '';
+    const match = /^repo:\/\/[^/]+\/(.+?)#L(\d+)-L(\d+)$/.exec(url);
+    items.push({
+      claimId: link.claimId,
+      evidenceId: link.evidenceId,
+      packId,
+      commit: state.repository?.commit ?? '',
+      path: match?.[1] ?? 'unknown',
+      excerpt: evidence.excerpt.slice(0, 240),
+      ...(match ? { roundIndex: undefined } : {})
+    });
+  }
+  return items;
+}
+
+function packPrompt(context: readonly PackContextItem[]): string[] {
+  if (context.length === 0) return [];
+  return [
+    '本轮有冻结的工程证据。你只能引用下面列出的 claimId + evidenceId 组合，不得编造或改写 ID：',
+    ...context.map(item => `- claim ${item.claimId} ← ${item.evidenceId} · ${item.path} · ${item.excerpt}`),
+    '如果工程证据只能说明「代码存在」但不能证明主张，relation 必须是 context，不能写成 supports。',
+    '输出 JSON 增加 packEvidence 数组：{"claimId":string,"evidenceId":string,"relation":"supports"|"contradicts"|"context","reason":string,"confidence":"low"|"medium"|"high","limitations":string[]}'
+  ];
+}
+
+function validatePackAssessments(
+  raw: unknown,
+  context: readonly PackContextItem[],
+  commit: string
+): { accepted: PackEvidenceAssessment[]; rejected: string[] } {
+  const accepted: PackEvidenceAssessment[] = [];
+  const rejected: string[] = [];
+  if (!Array.isArray(raw)) return { accepted, rejected };
+  const allowed = new Map(context.map(item => [`${item.claimId}\0${item.evidenceId}`, item]));
+  for (const value of raw) {
+    if (!value || typeof value !== 'object') {
+      rejected.push('packEvidence 项不是对象');
+      continue;
+    }
+    const item = value as Record<string, unknown>;
+    const claimId = typeof item.claimId === 'string' ? item.claimId : '';
+    const evidenceId = typeof item.evidenceId === 'string' ? item.evidenceId : '';
+    const key = `${claimId}\0${evidenceId}`;
+    if (!allowed.has(key)) {
+      rejected.push(`未提供的 claim/evidence 组合：${claimId} / ${evidenceId}`);
+      continue;
+    }
+    const relation = item.relation;
+    if (relation !== 'supports' && relation !== 'contradicts' && relation !== 'context') {
+      rejected.push(`非法 relation：${String(relation)}`);
+      continue;
+    }
+    const confidence = item.confidence;
+    if (confidence !== 'low' && confidence !== 'medium' && confidence !== 'high') {
+      rejected.push(`非法 confidence：${String(confidence)}`);
+      continue;
+    }
+    const reason = typeof item.reason === 'string' ? item.reason.trim() : '';
+    if (!reason) {
+      rejected.push(`缺少 reason：${claimId} / ${evidenceId}`);
+      continue;
+    }
+    const limitations = Array.isArray(item.limitations)
+      ? item.limitations.filter((entry): entry is string => typeof entry === 'string')
+      : [];
+    const source = allowed.get(key)!;
+    accepted.push({
+      claimId,
+      evidenceId,
+      relation,
+      reason,
+      confidence,
+      limitations,
+      sourceSnapshot: {
+        packId: source.packId,
+        commit: commit || source.commit,
+        ...(source.roundIndex !== undefined ? { roundIndex: source.roundIndex } : {})
+      }
+    });
+  }
+  return { accepted, rejected };
+}
+
 const EVIDENCE_HINTS = /(根据|文档|来源|出处|链接|引用|实验|数据|报告|官方|测试|统计|版本)/;
 const CONDITION_HINTS = /(如果|若|当|仅当|只有在|在.{0,8}条件下|前提是|假设)/;
 const REASONING_HINTS = /(因为|所以|因此|由于|导致|说明|意味着|推导出|由此可见)/;
@@ -89,8 +198,10 @@ export class JudgeEngine {
       };
     }
 
+    const packContext = packContextOf(state);
     const system: string[] = [
       '你是独立裁判。先读完所有发言，再判断哪些主张有依据、哪些只是断言。',
+      ...packPrompt(packContext),
       '不要把「多数模型都这么说」当成正确的理由，也不要为了达成一致删掉少数派。',
       '先判断题目类型：FACT 是可验证的客观事实，必须给明确结论；CONTEXTUAL 依赖场景，必须给条件、边界和推荐方案；INSUFFICIENT 才表示缺少必要信息且没有成熟默认框架。',
       'CONTEXTUAL 不等于 INSUFFICIENT：没有普遍最优答案，不代表不能给条件性结论。',
@@ -132,6 +243,11 @@ export class JudgeEngine {
         };
       }
       const independence = judgeIndependence(this.options, this.options.judgeAgentId);
+      const validated = validatePackAssessments(
+        parsed.packEvidence,
+        packContext,
+        state.repository?.commit ?? ''
+      );
       return {
         ...base,
         backend: 'model',
@@ -160,7 +276,9 @@ export class JudgeEngine {
         confidence: {
           level: parsed.undetermined ? 'low' : 'medium',
           why: '由独立裁判模型给出，但仍未经过外部事实验证；不等于世界真伪'
-        }
+        },
+        ...(validated.accepted.length > 0 ? { packEvidence: validated.accepted } : {}),
+        ...(validated.rejected.length > 0 ? { packEvidenceRejected: validated.rejected } : {})
       };
     } catch (error) {
       return {
@@ -328,6 +446,7 @@ function parseVerdictJson(text: string): {
   reason: string;
   disagreement: string;
   unresolved: string[];
+  packEvidence: unknown[];
 } | null {
   const blocks = extractJsonBlocks(text);
   for (const block of blocks.reverse()) {
@@ -347,7 +466,8 @@ function parseVerdictJson(text: string): {
         disagreement: typeof parsed.disagreement === 'string' ? parsed.disagreement : '',
         unresolved: Array.isArray(parsed.unresolved)
           ? parsed.unresolved.filter((item): item is string => typeof item === 'string')
-          : []
+          : [],
+        packEvidence: Array.isArray(parsed.packEvidence) ? parsed.packEvidence : []
       };
     } catch {
       // 换下一块。
