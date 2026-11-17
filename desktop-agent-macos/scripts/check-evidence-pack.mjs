@@ -376,3 +376,109 @@ test('旧辩论文件没有 claimEvidenceLinks：读成 undefined，不补空数
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// P3-F.3：执行断言必须进入 Item Hash
+// ---------------------------------------------------------------------------
+
+function attestation(commit, overrides = {}) {
+  return {
+    executionId: 'exec-1',
+    testId: 'cache.test.ts',
+    assertionId: 'assert-hit-rate',
+    claimId: 'c1',
+    assertion: 'passed',
+    exitCode: 0,
+    repoCommit: commit,
+    snapshotFingerprint: 'f'.repeat(64),
+    resultHash: 'a'.repeat(64),
+    producer: { name: 'test-runner', version: '1.0.0' },
+    ...overrides
+  };
+}
+
+test('attestation 进入 manifest hash：篡改 assertion 会被发现', () => {
+  const { root, repo, storeDir } = fixture();
+  try {
+    const store = new EvidencePackStore(storeDir);
+    const commit = 'c0ffee';
+    const { manifest } = store.publish({
+      repoRoot: repo,
+      idempotencyKey: 'attestation:1',
+      repo: { commit },
+      items: [{
+        kind: 'test-result',
+        source: { commit },
+        locator: { path: 'test-output.txt', startLine: 1, endLine: 1 },
+        meta: { tool: 'test', capturedAt: 1 },
+        attestation: attestation(commit)
+      }]
+    });
+
+    const replay = store.replay(manifest.packId);
+    assert.deepEqual(replay.items[0].attestation, attestation(commit));
+    assert.equal(replay.items[0].attestation.assertion, 'passed');
+
+    const manifestPath = path.join(storeDir, 'packs', manifest.packId, 'manifest.json');
+    const tampered = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    tampered.items[0].attestation.assertion = 'failed';
+    fs.writeFileSync(manifestPath, JSON.stringify(tampered, null, 2), 'utf8');
+    assert.throws(() => store.get(manifest.packId), error => error.code === 'MANIFEST_CORRUPT');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('attestation 与 Pack commit 不一致：发布直接失败', () => {
+  const { root, repo, storeDir } = fixture();
+  try {
+    const store = new EvidencePackStore(storeDir);
+    assert.throws(
+      () => store.publish({
+        repoRoot: repo,
+        idempotencyKey: 'attestation:bad',
+        repo: { commit: 'c0ffee' },
+        items: [{
+          kind: 'test-result',
+          source: { commit: 'c0ffee' },
+          locator: { path: 'test-output.txt', startLine: 1, endLine: 1 },
+          meta: { tool: 'test', capturedAt: 1 },
+          attestation: attestation('other-commit')
+        }]
+      }),
+      error => error.code === 'INVALID_CONTENT'
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('映射优先使用 attestation，而不是不参与 hash 的 meta', () => {
+  const { root, repo, storeDir } = fixture();
+  try {
+    const store = new EvidencePackStore(storeDir);
+    const commit = 'c0ffee';
+    const { manifest } = store.publish({
+      repoRoot: repo,
+      idempotencyKey: 'attestation:map',
+      repo: { commit },
+      items: [{
+        kind: 'test-result',
+        source: { commit },
+        locator: { path: 'test-output.txt', startLine: 1, endLine: 1 },
+        meta: { tool: 'test', capturedAt: 1, assertion: 'failed', verifiesClaimIds: ['wrong'] },
+        attestation: attestation(commit)
+      }]
+    });
+    const mapped = mapPackToDebateEvidence(store.replay(manifest.packId));
+    assert.deepEqual(mapped[0].execution, {
+      kind: 'test-result',
+      exitCode: 0,
+      assertion: 'passed',
+      verifiesClaimIds: ['c1'],
+      reference: 'cache.test.ts'
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

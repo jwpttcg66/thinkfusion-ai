@@ -68,13 +68,21 @@ export function mapPackToDebateEvidence(pack: EvidencePackRead, options: MapPack
       verified: 'snapshot',
       ...(item.kind === 'test-result' || item.kind === 'command-result'
         ? {
-            execution: {
-              kind: item.kind,
-              exitCode: item.meta.exitCode,
-              ...(item.meta.assertion ? { assertion: item.meta.assertion } : {}),
-              ...(item.meta.verifiesClaimIds ? { verifiesClaimIds: item.meta.verifiesClaimIds } : {}),
-              ...(item.meta.reference ? { reference: item.meta.reference } : {})
-            }
+            execution: item.attestation
+              ? {
+                  kind: item.kind,
+                  exitCode: item.attestation.exitCode,
+                  assertion: item.attestation.assertion,
+                  verifiesClaimIds: [item.attestation.claimId],
+                  reference: item.attestation.testId ?? item.attestation.assertionId
+                }
+              : {
+                  kind: item.kind,
+                  exitCode: item.meta.exitCode,
+                  ...(item.meta.assertion ? { assertion: item.meta.assertion } : {}),
+                  ...(item.meta.verifiesClaimIds ? { verifiesClaimIds: item.meta.verifiesClaimIds } : {}),
+                  ...(item.meta.reference ? { reference: item.meta.reference } : {})
+                }
           }
         : {}),
       assessment: `来自冻结快照 ${pack.manifest.repo.commit.slice(0, 12)} ${item.locator.path}:${item.locator.startLine}-${item.locator.endLine}`,
