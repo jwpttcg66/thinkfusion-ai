@@ -274,7 +274,15 @@ test('映射：test-result / command-result 带 exitCode，其他条目没有', 
           kind: 'test-result',
           source: { commit },
           locator: { path: 'test-output.txt', startLine: 1, endLine: 1 },
-          meta: { tool: 'test', capturedAt: 1, exitCode: 0, command: 'npm test' }
+          meta: {
+            tool: 'test',
+            capturedAt: 1,
+            exitCode: 0,
+            command: 'npm test',
+            assertion: 'passed',
+            verifiesClaimIds: ['c1'],
+            reference: 'cache.test.ts > hit rate'
+          }
         },
         {
           kind: 'symbol',
@@ -286,7 +294,13 @@ test('映射：test-result / command-result 带 exitCode，其他条目没有', 
     });
     const mapped = mapPackToDebateEvidence(store.replay(manifest.packId));
     const testResult = mapped.find(item => item.evidenceId === packEvidenceIdOf(manifest.packId, manifest.items[0].itemId));
-    assert.deepEqual(testResult.execution, { kind: 'test-result', exitCode: 0 });
+    assert.deepEqual(testResult.execution, {
+      kind: 'test-result',
+      exitCode: 0,
+      assertion: 'passed',
+      verifiesClaimIds: ['c1'],
+      reference: 'cache.test.ts > hit rate'
+    });
     const symbol = mapped.find(item => item.evidenceId === packEvidenceIdOf(manifest.packId, manifest.items[1].itemId));
     assert.equal(symbol.execution, undefined, '源码条目不能伪装成执行结果');
   } finally {

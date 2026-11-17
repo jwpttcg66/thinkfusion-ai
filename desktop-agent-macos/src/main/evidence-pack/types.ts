@@ -80,6 +80,10 @@ export interface EvidencePackItemMeta {
   generation?: number;
   /** 这条条目在快照里的角色；不参与 hash，只供人读。 */
   snapshotRole?: 'dirty-overlay' | 'round';
+  /** 执行条目的 Claim 级断言；普通命令成功不能替代。 */
+  assertion?: 'passed' | 'failed';
+  verifiesClaimIds?: string[];
+  reference?: string;
   command?: string;
   exitCode?: number;
   /** `doc-excerpt` 必须显式给出，否则映射层拒绝猜来源类型。 */

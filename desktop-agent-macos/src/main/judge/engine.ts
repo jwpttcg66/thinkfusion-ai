@@ -69,8 +69,10 @@ interface PackContextItem {
   excerpt: string;
   /** Claim 创建方给出的层级；缺失时裁判不得自行推断。 */
   scope?: 'code' | 'runtime';
-  /** 证据是否包含成功执行结果；runtime Claim 的必要条件。 */
-  hasExecution: boolean;
+  /** Claim 级执行断言；普通命令退出码不算。 */
+  executionStatus?: 'passed' | 'failed';
+  /** 这条执行证据是否明确验证了当前 Claim。 */
+  verifiesClaim: boolean;
   roundIndex?: number;
 }
 
@@ -100,7 +102,8 @@ function packContextOf(state: DebateState): PackContextItem[] {
       path: match?.[1] ?? 'unknown',
       excerpt: evidence.excerpt.slice(0, 240),
       ...(claim.claimScope ? { scope: claim.claimScope } : {}),
-      hasExecution: evidence.execution?.exitCode === 0
+      ...(evidence.execution?.assertion ? { executionStatus: evidence.execution.assertion } : {}),
+      verifiesClaim: Boolean(evidence.execution?.verifiesClaimIds?.includes(link.claimId))
     });
   }
   return items;
@@ -110,13 +113,13 @@ function packPrompt(context: readonly PackContextItem[]): string[] {
   if (context.length === 0) return [];
   return [
     '本轮有冻结的工程证据。你只能引用下面列出的 claimId + evidenceId 组合，不得编造或改写 ID：',
-    ...context.map(item => `- claim ${item.claimId} · scope=${item.scope ?? 'missing'} · execution=${item.hasExecution ? 'yes' : 'no'} ← ${item.evidenceId} · ${item.path} · ${item.excerpt}`),
+    ...context.map(item => `- claim ${item.claimId} · scope=${item.scope ?? 'missing'} · execution=${item.executionStatus ?? 'none'} · verifiesClaim=${item.verifiesClaim ? 'yes' : 'no'} ← ${item.evidenceId} · ${item.path} · ${item.excerpt}`),
     'relation 是这段证据相对于原 Claim 的方向；如果证据表明 Claim 不成立，必须写 contradicts。不要因为「证据支持你认为 Claim 错了」就写 supports。',
     '源码片段只能证明代码存在/结构。涉及运行时行为（命中率、一定发生、实际调用、所有异常都被处理等）时，除非有成功执行结果，否则只能是 context。',
     'absence of evidence ≠ evidence of absence：片段没有展示某行为，不等于它证明该行为不存在；覆盖不足只能是 context。',
     '只有片段直接展示与 Claim 相反的代码路径/条件时，才用 contradicts；并在 reason 里说明反向证据与覆盖范围。',
     'TODO / FIXME / XXX 或纯注释表达的是设计意图或未完成状态，不能作为 supports/contradicts，只能是 context。',
-    'scope 由 Claim 创建方提供，不是你要猜的：scope=code 可由完整方法/分支的代码结构支持或反驳；scope=runtime 只有静态片段时只能是 context，必须有成功执行结果才可 supports/contradicts。scope=missing 时只能给 context。',
+    'scope 由 Claim 创建方提供，不是你要猜的：scope=code 可由完整方法/分支的代码结构支持或反驳；scope=runtime 只有静态片段时只能是 context，且执行证据必须明确 verifiesClaim=yes 并与方向一致（passed→supports，failed→contradicts）。普通命令 exitCode=0 不算。scope=missing 时只能给 context。',
     'evidenceId 必须逐字复制上面列出的完整字符串（包含 pack: 前缀）；不允许省略前缀或只写 item id。',
     '如果 Claim 只声称代码包含某结构/循环/分支（不声称运行时一定发生），直接结构匹配即可 supports，不需要失败条件或执行结果。',
     '对上面列出的每条证据都要给出一个判断；证据不足时用 context，不要省略。',
@@ -190,9 +193,19 @@ function validatePackAssessments(
       rejected.push(`Claim 缺少 claimScope，不能判 ${relation}：${claimId} / ${evidenceId}`);
       continue;
     }
-    if (relation !== 'context' && source.scope === 'runtime' && !source.hasExecution) {
-      rejected.push(`runtime Claim 缺少执行证据，不能判 ${relation}：${claimId} / ${evidenceId}`);
-      continue;
+    if (relation !== 'context' && source.scope === 'runtime') {
+      if (!source.verifiesClaim || !source.executionStatus) {
+        rejected.push(`runtime Claim 缺少 Claim 级执行断言，不能判 ${relation}：${claimId} / ${evidenceId}`);
+        continue;
+      }
+      if (relation === 'supports' && source.executionStatus !== 'passed') {
+        rejected.push(`runtime supports 需要 passed 断言：${claimId} / ${evidenceId}`);
+        continue;
+      }
+      if (relation === 'contradicts' && source.executionStatus !== 'failed') {
+        rejected.push(`runtime contradicts 需要 failed 断言：${claimId} / ${evidenceId}`);
+        continue;
+      }
     }
     const unfinished = /\b(?:TODO|FIXME|XXX)\b/i.test(source.excerpt) || isCommentOnly(source.excerpt);
     if (relation !== 'context' && unfinished) {

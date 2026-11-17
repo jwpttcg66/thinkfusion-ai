@@ -22,8 +22,8 @@ const DATASET = datasetArg
   ? path.resolve(process.cwd(), datasetArg.slice('--dataset='.length))
   : path.join(__dirname, '..', '..', '..', 'docs', 'implementation', 'regression', 'pack-judge-regression-v1.json');
 const OUT_DIR = path.dirname(DATASET);
-const PROMPT_VERSION = 'p3f1-1.2.0';
-const FILE_PREFIX = 'pack-judge-regression-p3f1';
+const PROMPT_VERSION = 'p3f2-1.3.0';
+const FILE_PREFIX = 'pack-judge-regression-p3f2';
 const RUNS_PER_CASE = 3;
 const TEMPERATURE = 0;
 const SEED = 42;
@@ -84,6 +84,7 @@ function stateFor(item, commit) {
     independent: true,
     verified: 'snapshot',
     assessment: `来自冻结快照 ${commit.slice(0, 12)} ${entry.path}:${entry.startLine}-${entry.endLine}`,
+    ...(entry.execution ? { execution: entry.execution } : {}),
     soleAttribution: false
   }));
   const links = item.evidence.filter(entry => entry.allowed).map(entry => ({

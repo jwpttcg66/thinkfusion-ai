@@ -327,7 +327,16 @@ export interface DebateEvidence {
    * 工程证据的执行结果。只有 `origin === 'repo-snapshot'` 且条目是
    * `test-result` / `command-result` 时才有；`exitCode === 0` 才算成功执行。
    */
-  execution?: { kind: 'test-result' | 'command-result'; exitCode?: number };
+  execution?: {
+    kind: 'test-result' | 'command-result';
+    exitCode?: number;
+    /** 与 Claim 直接关联的行为断言；没有这个字段的退出码不能证明 Runtime Claim。 */
+    assertion?: 'passed' | 'failed';
+    /** 这条执行结果验证了哪些 Claim；必须明确包含被判断的 claimId。 */
+    verifiesClaimIds?: string[];
+    /** 测试/断言的名称或位置，供追溯。 */
+    reference?: string;
+  };
   /** 评价理由，必须能读成人话。 */
   assessment: string;
   /**
