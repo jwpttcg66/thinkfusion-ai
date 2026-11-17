@@ -266,6 +266,11 @@ export class DebateOrchestrator {
     return this.store.get(debateId);
   }
 
+  /** 给模型裁决链路落盘关联更新；仍然只写这一场辩论。 */
+  save(state: DebateState): void {
+    this.store.save(state);
+  }
+
   list(): DebateState[] {
     return this.store.list();
   }
