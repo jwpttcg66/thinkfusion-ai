@@ -7,6 +7,7 @@ import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { refreshClaimEvidenceLinks } from './claim-evidence-links';
 import { publishRepositoryBaseline } from '../evidence-pack/baseline';
+import { publishRoundEvidencePack } from '../evidence-pack/round-evidence';
 import { resolveRepositoryContext } from '../evidence-pack/repository';
 import type { EvidencePackStore } from '../evidence-pack/store';
 import { judgeDebate } from './judges';
@@ -149,6 +150,24 @@ export class DebateOrchestrator {
     this.stopped.delete(state.debateId);
     void this.launch(state);
     return state;
+  }
+
+  /**
+   * 每轮结束后把代码引用落到 Pack。没有引用就不写空记录；Pack 失败只写
+   * `roundEvidencePacks[].failed`，不阻断辩论。
+   */
+  private attachRoundEvidencePack(state: DebateState, round: DebateRound): void {
+    if (!state.repository || !state.evidencePack?.baselinePackId) return;
+    if (state.roundEvidencePacks?.some(item => item.roundIndex === round.index)) return;
+    const record = publishRoundEvidencePack({
+      state,
+      round,
+      store: this.deps.evidencePacks,
+      baselinePackId: state.evidencePack.baselinePackId,
+      createdAt: this.now()
+    });
+    if (!record) return;
+    state.roundEvidencePacks = [...(state.roundEvidencePacks ?? []), record];
   }
 
   /**
@@ -302,6 +321,7 @@ export class DebateOrchestrator {
         // 图里的 `status` 与主张本身一致；条数很小，代价可以忽略。
         state.evidence = buildEvidence(state);
         state.graph = buildGraph(state);
+        this.attachRoundEvidencePack(state, round);
         state.updatedAt = this.now();
         if (!this.persist(state)) {
           // 用户中止：已经说出口的话保留，但仍然给一个结论，别让记录停在半场。

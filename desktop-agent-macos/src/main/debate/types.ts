@@ -575,6 +575,17 @@ export interface DebateEvidencePackState {
   dirty?: boolean;
 }
 
+export interface DebateRoundEvidencePack {
+  roundIndex: number;
+  status: DebatePackStatus;
+  packId?: string;
+  itemCount: number;
+  /** 引用了该 Pack 条目的主张；关联关系尚未写入 ClaimEvidenceLink。 */
+  claimIds: string[];
+  errors: string[];
+  createdAt: number;
+}
+
 export interface DebateState {
   debateId: string;
   /** 关联的 Conversation；可以没有（独立发起的辩论）。 */
@@ -594,6 +605,8 @@ export interface DebateState {
   repository?: DebateRepositoryContext;
   /** 开场基准 Pack 的状态；创建失败不阻断辩论，但必须如实记录。 */
   evidencePack?: DebateEvidencePackState;
+  /** 每轮代码引用 Pack；没有代码引用时不写空记录。 */
+  roundEvidencePacks?: DebateRoundEvidencePack[];
   status: DebateStatus;
   /** 辩论执行结果，和 status（生命周期）分开。 */
   outcome?: 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';

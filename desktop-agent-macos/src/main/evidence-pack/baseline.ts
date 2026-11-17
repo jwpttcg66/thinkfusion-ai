@@ -54,6 +54,7 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
       idempotencyKey: `debate:${debateId}:baseline`,
       repo: { commit: context.commit, dirty: context.dirty, branch: context.branch },
       createdAt,
+      context: { kind: 'baseline', debateId },
       snapshot: snapshotOfResolvedRepository(context),
       items
     });

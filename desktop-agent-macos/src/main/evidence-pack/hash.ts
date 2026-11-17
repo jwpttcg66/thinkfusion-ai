@@ -7,7 +7,7 @@
  * 能绕过校验。
  */
 import { createHash } from 'node:crypto';
-import type { EvidencePackManifestItem, EvidencePackSnapshot } from './types';
+import type { EvidencePackContext, EvidencePackManifestItem, EvidencePackSnapshot } from './types';
 
 export const EVIDENCE_PACK_SCHEMA_VERSION = 1;
 
@@ -63,13 +63,15 @@ export function manifestHashOf(input: {
   commit: string;
   itemHashes: readonly string[];
   snapshot?: EvidencePackSnapshot;
+  context?: EvidencePackContext;
 }): string {
   return sha256Hex(
     canonicalJson({
       schemaVersion: EVIDENCE_PACK_SCHEMA_VERSION,
       commit: input.commit,
       items: [...input.itemHashes].sort(),
-      ...(input.snapshot ? { snapshot: input.snapshot } : {})
+      ...(input.snapshot ? { snapshot: input.snapshot } : {}),
+      ...(input.context ? { context: input.context } : {})
     })
   );
 }
