@@ -6,6 +6,7 @@
  * 因为 diff 不包含未跟踪文件。
  */
 import type { DebateEvidencePackState } from '../debate/types';
+import { snapshotOfResolvedRepository } from './repository';
 import type { ResolvedRepository } from './repository';
 import type { EvidencePackStore } from './store';
 import type { EvidencePackItemDraft } from './types';
@@ -53,6 +54,7 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
       idempotencyKey: `debate:${debateId}:baseline`,
       repo: { commit: context.commit, dirty: context.dirty, branch: context.branch },
       createdAt,
+      snapshot: snapshotOfResolvedRepository(context),
       items
     });
     return {
@@ -60,7 +62,9 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
       status,
       baselinePackId: published.manifest.packId,
       itemCount: published.manifest.items.length,
-      ...(context.errors.length > 0 ? { reason: context.errors.join('；') } : {})
+      ...(context.errors.length > 0
+        ? { reason: context.errors.map(issue => issue.message).join('；') }
+        : {})
     };
   } catch (error) {
     return {

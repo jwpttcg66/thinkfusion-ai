@@ -7,7 +7,7 @@
  * 能绕过校验。
  */
 import { createHash } from 'node:crypto';
-import type { EvidencePackManifestItem } from './types';
+import type { EvidencePackManifestItem, EvidencePackSnapshot } from './types';
 
 export const EVIDENCE_PACK_SCHEMA_VERSION = 1;
 
@@ -55,13 +55,21 @@ export function itemHashOf(item: Pick<EvidencePackManifestItem, 'kind' | 'source
   );
 }
 
-/** manifest hash：对排序后的条目 hash 列表计算；顺序不影响结果，内容影响。 */
-export function manifestHashOf(input: { commit: string; itemHashes: readonly string[] }): string {
+/**
+ * manifest hash：条目 hash 排序 + 可选快照元数据。
+ * 旧 Pack 没有 snapshot，计算输入与之前完全一致，因此仍能通过校验。
+ */
+export function manifestHashOf(input: {
+  commit: string;
+  itemHashes: readonly string[];
+  snapshot?: EvidencePackSnapshot;
+}): string {
   return sha256Hex(
     canonicalJson({
       schemaVersion: EVIDENCE_PACK_SCHEMA_VERSION,
       commit: input.commit,
-      items: [...input.itemHashes].sort()
+      items: [...input.itemHashes].sort(),
+      ...(input.snapshot ? { snapshot: input.snapshot } : {})
     })
   );
 }

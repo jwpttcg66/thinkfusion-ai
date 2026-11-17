@@ -9,9 +9,12 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { snapshotFingerprintOf } from './snapshot';
+import type { EvidencePackSnapshot, EvidencePackSnapshotFile, EvidencePackSnapshotIssue } from './types';
 
 const GIT_TIMEOUT_MS = 15_000;
 const MAX_CHUNK_CHARS = 1_900;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export interface DirtyFileChunk {
   path: string;
@@ -22,6 +25,23 @@ export interface DirtyFileChunk {
   contentHash: string;
 }
 
+export type RepositoryIssueCode =
+  | 'deleted'
+  | 'empty'
+  | 'unreadable'
+  | 'symlink'
+  | 'binary'
+  | 'too-large'
+  | 'path-escape'
+  | 'line-too-long'
+  | 'non-file';
+
+export interface RepositoryIssue {
+  code: RepositoryIssueCode;
+  path?: string;
+  message: string;
+}
+
 export interface ResolvedRepository {
   requestedRoot: string;
   root: string;
@@ -30,7 +50,7 @@ export interface ResolvedRepository {
   dirty: boolean;
   chunks: DirtyFileChunk[];
   /** 无法完整冻结的文件/行；有内容时 Pack 只能标 partial。 */
-  errors: string[];
+  errors: RepositoryIssue[];
   dirtyFingerprint?: string;
   resolvedAt: number;
 }
@@ -97,7 +117,9 @@ function chunksOf(relative: string, status: string, content: string): DirtyFileC
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line.length > MAX_CHUNK_CHARS) {
-      throw new Error(`单行超过 ${String(MAX_CHUNK_CHARS)} 字符：${relative}:${String(index + 1)}`);
+      const error = new Error(`单行超过 ${String(MAX_CHUNK_CHARS)} 字符：${relative}:${String(index + 1)}`);
+      error.name = 'TOO_LONG_LINE';
+      throw error;
     }
     if (buffer.length > 0 && chars + line.length + 1 > MAX_CHUNK_CHARS) {
       flush(index);
@@ -149,15 +171,15 @@ export function resolveRepositoryContext(rootDir: string): RepositoryResolution 
 
   const entries = parseStatus(statusRaw);
   const chunks: DirtyFileChunk[] = [];
-  const errors: string[] = [];
+  const errors: RepositoryIssue[] = [];
   for (const entry of entries) {
     if (entry.status.includes('D')) {
-      errors.push(`删除的文件无法冻结内容：${entry.path}`);
+      errors.push({ code: 'deleted', path: entry.path, message: `删除的文件无法冻结内容：${entry.path}` });
       continue;
     }
     const absolute = path.resolve(root, entry.path);
     if (absolute !== root && !absolute.startsWith(`${root}${path.sep}`)) {
-      errors.push(`路径越出仓库：${entry.path}`);
+      errors.push({ code: 'path-escape', path: entry.path, message: `路径越出仓库：${entry.path}` });
       continue;
     }
     let content: string;
@@ -166,44 +188,42 @@ export function resolveRepositoryContext(rootDir: string): RepositoryResolution 
       if (stat.isSymbolicLink()) {
         // 只冻结链接目标字符串会泄露仓库外路径；冻结链接指向的内容则会把
         // 仓库外文件带进证据。这里直接标 partial，让人明确看见缺口。
-        errors.push(`符号链接不冻结目标内容：${entry.path}`);
+        errors.push({ code: 'symlink', path: entry.path, message: `符号链接不冻结目标内容：${entry.path}` });
         continue;
       }
       if (!stat.isFile()) {
-        errors.push(`不是普通文件：${entry.path}`);
+        errors.push({ code: 'non-file', path: entry.path, message: `不是普通文件：${entry.path}` });
+        continue;
+      }
+      if (stat.size > MAX_FILE_BYTES) {
+        errors.push({ code: 'too-large', path: entry.path, message: `文件超过 ${String(MAX_FILE_BYTES)} 字节：${entry.path}` });
         continue;
       }
       const raw = fs.readFileSync(absolute);
       if (raw.includes(0) || Buffer.from(raw.toString('utf8'), 'utf8').compare(raw) !== 0) {
-        errors.push(`二进制/非 UTF-8 文件无法冻结：${entry.path}`);
+        errors.push({ code: 'binary', path: entry.path, message: `二进制/非 UTF-8 文件无法冻结：${entry.path}` });
         continue;
       }
       content = raw.toString('utf8');
     } catch {
-      errors.push(`读不到文件：${entry.path}`);
+      errors.push({ code: 'unreadable', path: entry.path, message: `读不到文件：${entry.path}` });
       continue;
     }
     if (content.length === 0) {
-      errors.push(`空文件没有可冻结的内容：${entry.path}`);
+      errors.push({ code: 'empty', path: entry.path, message: `空文件没有可冻结的内容：${entry.path}` });
       continue;
     }
     try {
       chunks.push(...chunksOf(entry.path, entry.status, content));
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      const code = error instanceof Error && error.name === 'TOO_LONG_LINE' ? 'line-too-long' : 'unreadable';
+      errors.push({ code, path: entry.path, message });
     }
   }
 
-  const fingerprint = createHash('sha256')
-    .update(
-      chunks
-        .map(chunk => `${chunk.path}:${chunk.startLine}-${chunk.endLine}:${chunk.contentHash}`)
-        .concat(errors.map(error => `error:${error}`))
-        .sort()
-        .join('\n'),
-      'utf8'
-    )
-    .digest('hex');
+  const snapshot = snapshotOfRepository(chunks, errors);
+  const fingerprint = snapshotFingerprintOf(snapshot.files, snapshot.errors);
 
   return {
     context: {
@@ -217,5 +237,54 @@ export function resolveRepositoryContext(rootDir: string): RepositoryResolution 
       ...(entries.length > 0 ? { dirtyFingerprint: fingerprint } : {}),
       resolvedAt: Date.now()
     }
+  };
+}
+
+/** 把 chunks + issues 转成结构化的 snapshot 元数据，供 manifest 校验。 */
+export function snapshotOfRepository(
+  chunks: readonly DirtyFileChunk[],
+  errors: readonly RepositoryIssue[]
+): EvidencePackSnapshot {
+  const byPath = new Map<string, EvidencePackSnapshotFile>();
+  const globalErrors: EvidencePackSnapshotIssue[] = [];
+  const fileOf = (relative: string): EvidencePackSnapshotFile => {
+    let file = byPath.get(relative);
+    if (!file) {
+      file = { path: relative, ranges: [], issues: [] };
+      byPath.set(relative, file);
+    }
+    return file;
+  };
+  for (const chunk of chunks) {
+    fileOf(chunk.path).ranges.push({
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+      contentHash: chunk.contentHash
+    });
+  }
+  for (const error of errors) {
+    const issue: EvidencePackSnapshotIssue = {
+      code: error.code,
+      ...(error.path ? { path: error.path } : {}),
+      message: error.message
+    };
+    if (error.path) fileOf(error.path).issues.push(issue);
+    else globalErrors.push(issue);
+  }
+  return {
+    version: 1,
+    dirty: chunks.length > 0 || errors.length > 0,
+    files: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
+    errors: globalErrors
+  };
+}
+
+/** 给 baseline 用：把解析结果转成可写入 manifest 的快照。 */
+export function snapshotOfResolvedRepository(context: ResolvedRepository): EvidencePackSnapshot {
+  const snapshot = snapshotOfRepository(context.chunks, context.errors);
+  return {
+    ...snapshot,
+    dirty: context.dirty,
+    ...(context.dirtyFingerprint ? { dirtyFingerprint: context.dirtyFingerprint } : {})
   };
 }

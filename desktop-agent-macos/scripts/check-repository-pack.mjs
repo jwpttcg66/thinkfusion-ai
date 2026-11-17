@@ -96,7 +96,7 @@ test('删除文件无法冻结：正文缺失，标记 partial 原因', () => {
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
     assert.equal(context.dirty, true);
-    assert.ok(context.errors.some(error => error.includes('删除的文件')), context.errors.join('；'));
+    assert.ok(context.errors.some(issue => issue.message.includes('删除的文件')), context.errors.map(issue => issue.message).join('；'));
     assert.ok(context.chunks.every(chunk => chunk.path !== 'a.ts'));
   } finally {
     cleanup(root);
@@ -125,7 +125,7 @@ test('符号链接：不冻结目标内容，标 partial', () => {
     fs.symlinkSync(secret, path.join(root, 'link.txt'));
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
-    assert.ok(context.errors.some(error => error.includes('符号链接')), context.errors.join('；'));
+    assert.ok(context.errors.some(issue => issue.message.includes('符号链接')), context.errors.map(issue => issue.message).join('；'));
     assert.ok(context.chunks.every(chunk => chunk.path !== 'link.txt'));
     assert.ok(context.chunks.every(chunk => !chunk.content.includes('do not leak')));
   } finally {
@@ -140,7 +140,7 @@ test('二进制/非 UTF-8 文件：标记错误，不把替换字符当成内容
     fs.writeFileSync(path.join(root, 'bin.dat'), Buffer.from([0, 1, 2, 3]));
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
-    assert.ok(context.errors.some(error => error.includes('二进制')), context.errors.join('；'));
+    assert.ok(context.errors.some(issue => issue.message.includes('二进制')), context.errors.map(issue => issue.message).join('；'));
     assert.ok(context.chunks.every(chunk => chunk.path !== 'bin.dat'));
   } finally {
     cleanup(root);
