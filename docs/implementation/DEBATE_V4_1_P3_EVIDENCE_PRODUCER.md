@@ -85,13 +85,35 @@ P3 相关：evidence-pack 12/12、judge-pack 15/15、typecheck 全绿。
 
 `test:execution-evidence` 6/6。
 
-## 5. 仍未接线
+## 5. Runtime Claim 验证规划
+
+`claim-verification-planner.ts`：
+
+- `DebateClaim.verification` 是显式意图：`testCommand / assertionId /
+  testId? / source / reason`；
+- `source` 只允许 `author | reviewer | user`，模型来源直接拒绝；
+- 只有 `claimScope=runtime` 且带意图的 Claim 生成任务；没有意图不自动跑；
+- 命令必须是 `test.run` 支持的固定命令；
+- 没有 repository 时跳过并记录原因；
+- `executeClaimVerificationTasks` 顺序执行，一个 Claim 失败不阻止其他 Claim。
+
+新增测试：
+
+- 有意图 → 任务；无意图 → `no-intent`；
+- code scope → `not-runtime`；
+- 模型来源 → `invalid-source`；
+- 不支持的命令 → `unsupported-command`；
+- 真实报告 → attestation。
+
+`test:execution-evidence` 8/8。
+
+## 6. 仍未接线
 
 | 缺口 | 说明 |
 | --- | --- |
 | Claim → 验证任务 | 没有把 Runtime Claim 转成测试/命令并交给 AgentOrchestrator |
-| Runtime Claim → testCommand 映射 | 还没有规划器把 Claim 变成具体验证命令 |
-| 辩论编排器调用 | `verifyClaim` 目前没有调用方 |
+| Claim.verification 意图的生产方 | 还没有 UI/评审入口写入；规划器只消费显式意图 |
+| 辩论编排器调用 | `executeClaimVerificationTasks` 目前没有调用方 |
 | UI 审批触发 | 未接 |
 | 真实执行 → Pack → Judge E2E | 未做 |
 | 多模型 | 仍只有 deepseek 配置 |

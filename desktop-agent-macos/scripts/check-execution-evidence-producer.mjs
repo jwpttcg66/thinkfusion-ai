@@ -16,6 +16,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { produceExecutionEvidence, ExecutionEvidenceError } from '../out-test/main/evidence-pack/execution-producer.js';
 import { buildClaimVerificationPlan, verifyClaim } from '../out-test/main/evidence-pack/claim-verification.js';
+import { planRuntimeClaimVerifications, executeClaimVerificationTasks } from '../out-test/main/evidence-pack/claim-verification-planner.js';
 import { EvidencePackStore } from '../out-test/main/evidence-pack/store.js';
 import { mapPackToDebateEvidence } from '../out-test/main/evidence-pack/mapping.js';
 
@@ -224,6 +225,101 @@ test('verifyClaim：真实报告 → attestation；runPlan 失败不生产证据
       }),
       /审批被拒绝/
     );
+  } finally {
+    cleanup(h.root);
+  }
+});
+
+function plannerState(claims, overrides = {}) {
+  return {
+    debateId: 'debate-plan',
+    repository: { root: '/repo', commit, branch: 'main', dirty: false },
+    evidencePack: { status: 'complete', baselinePackId: 'pack_aaaaaaaaaaaaaaaa' },
+    rounds: [{
+      index: 0,
+      phase: 'analysis',
+      messages: [],
+      startedAt: 1,
+      endedAt: 2,
+      converged: false,
+      failures: [],
+      claims
+    }],
+    minorities: [],
+    disputes: [],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides
+  };
+}
+
+function runtimeClaim(overrides = {}) {
+  return {
+    claimId: 'c1',
+    messageId: 'm1',
+    agentId: 'a',
+    roundIndex: 0,
+    text: '运行时缓存命中率超过 90%。',
+    claimScope: 'runtime',
+    verification: {
+      testCommand: 'npm test',
+      assertionId: 'assert-hit-rate',
+      testId: 'cache.test.ts',
+      source: 'user',
+      reason: '这条测试直接验证命中率'
+    },
+    kind: 'fact',
+    kindCue: '陈述句',
+    span: { messageId: 'm1', start: 0, end: 10 },
+    assumptions: [],
+    evidenceDrafts: [],
+    status: 'proposed',
+    ...overrides
+  };
+}
+
+test('验证规划：只有带显式意图的 runtime Claim 才生成任务', () => {
+  const planned = planRuntimeClaimVerifications(plannerState([runtimeClaim()]));
+  assert.equal(planned.tasks.length, 1);
+  assert.equal(planned.tasks[0].claimId, 'c1');
+  assert.equal(planned.tasks[0].intent.testCommand, 'npm test');
+
+  const missing = planRuntimeClaimVerifications(plannerState([runtimeClaim({ verification: undefined })]));
+  assert.equal(missing.tasks.length, 0);
+  assert.equal(missing.skipped[0].reason, 'no-intent');
+
+  const code = planRuntimeClaimVerifications(plannerState([runtimeClaim({ claimScope: 'code' })]));
+  assert.equal(code.tasks.length, 0);
+  assert.equal(code.skipped[0].reason, 'not-runtime');
+
+  const badCommand = planRuntimeClaimVerifications(plannerState([runtimeClaim({
+    verification: { ...runtimeClaim().verification, testCommand: 'rm -rf /' }
+  })]));
+  assert.equal(badCommand.skipped[0].reason, 'unsupported-command');
+
+  const noRepo = planRuntimeClaimVerifications(plannerState([runtimeClaim()], { repository: undefined }));
+  assert.equal(noRepo.skipped[0].reason, 'no-repository');
+});
+
+test('验证规划：模型来源被拒绝，执行失败不阻止其他 Claim', async () => {
+  const modelSource = planRuntimeClaimVerifications(plannerState([runtimeClaim({
+    verification: { ...runtimeClaim().verification, source: 'model' }
+  })]));
+  assert.equal(modelSource.tasks.length, 0);
+  assert.equal(modelSource.skipped[0].reason, 'invalid-source');
+
+  const h = setup();
+  try {
+    const tasks = planRuntimeClaimVerifications(plannerState([runtimeClaim()])).tasks;
+    assert.equal(tasks.length, 1);
+    const executed = await executeClaimVerificationTasks(tasks, {
+      store: h.store,
+      runPlan: async () => report({ status: 'passed', exitCode: 0, command: 'npm test', detail: 'ok' }),
+      now: () => 3000
+    });
+    assert.equal(executed.length, 1);
+    assert.ok(executed[0].result);
+    assert.equal(executed[0].result.attestation.claimId, 'c1');
   } finally {
     cleanup(h.root);
   }
