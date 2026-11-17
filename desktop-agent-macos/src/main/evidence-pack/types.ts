@@ -145,6 +145,32 @@ export interface EvidencePackRead {
   items: EvidencePackItem[];
 }
 
+export type EvidencePackLifecycleStatus = 'ready' | 'corrupt' | 'unavailable';
+
+export interface EvidencePackListEntry {
+  packId: string;
+  status: EvidencePackLifecycleStatus;
+  createdAt: number | null;
+  commit: string | null;
+  dirty: boolean | null;
+  context: EvidencePackContext | null;
+  itemCount: number;
+  bytes: number;
+  error?: string;
+}
+
+export interface EvidencePackInspection extends EvidencePackListEntry {
+  manifestHash?: string;
+  schemaVersion?: number;
+}
+
+export interface EvidencePackDeleteResult {
+  packId: string;
+  deleted: boolean;
+  bytes: number;
+  reason?: string;
+}
+
 export interface EvidencePackPublishResult {
   /** true = 同键同内容，返回已有 Pack；false = 本次新发布。 */
   reused: boolean;

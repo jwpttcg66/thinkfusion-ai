@@ -3,7 +3,18 @@
 - 分支 / 工作树：`evidence-producer` / `/Users/yalla/data/localLab/thinkfusion-ai-evidence-producer`
 - 前置：基准一致性 resolver（`2700a64`）
 - 本轮范围：把每轮发言/主张里的代码引用冻结成 round Pack
-- 明确未做：ClaimEvidenceLink(source: 'pack')、supports/contradicts 判断
+- 明确未做：supports/contradicts 判断
+
+> **状态更新（P2-Final）**
+>
+> 下文记录了 round Pack 的第一版状态结构；当前代码已增加：
+>
+> - `items[]`：itemId / path / 行范围 / 候选 claimIds；
+> - `DebateState.packEvidence`：映射后的 `DebateEvidence`；
+> - `DebateState.packEvidenceLinks`：`source: 'pack'` 的 context 关联；
+> - Pack 生命周期与 GC：见 `DEBATE_V4_1_P2_FINAL_GC.md`。
+>
+> supports/contradicts 仍未实现。
 
 ---
 

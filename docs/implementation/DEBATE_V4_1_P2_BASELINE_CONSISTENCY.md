@@ -5,6 +5,15 @@
 - 目标：同一条代码引用，无论辩论后工作区如何变化，都必须从开场基准恢复相同内容
 - 本轮不做：每轮增量 Pack、ClaimEvidenceLink(source: 'pack')、真实辩论接线
 
+> **状态更新（P2-Final，保留上文为历史记录）**
+>
+> - resolver 已接入 round producer（`round-evidence.ts`）；
+> - 每轮 Pack 已接入编排器；
+> - `ClaimEvidenceLink(source: 'pack')` 已实现，但仅 `context`；
+> - `supports/contradicts` 仍未接入，属于 P3；
+> - Pack GC 已实现并测试，见 `DEBATE_V4_1_P2_FINAL_GC.md`；
+> - 本轮不改写下面的历史测试数字，它们是当时实测结果。
+
 ---
 
 ## 1. 快照元数据（阶段 A）

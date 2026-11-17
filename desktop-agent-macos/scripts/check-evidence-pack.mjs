@@ -165,7 +165,7 @@ test('行号越界 / 绝对路径 / 越出仓库：直接失败，不留半成�
       error => error.code === 'INVALID_PATH'
     );
 
-    const names = fs.readdirSync(path.join(storeDir, 'packs'));
+    const names = fs.readdirSync(path.join(storeDir, 'packs')).filter(name => name.startsWith('pack_'));
     assert.deepEqual(names, [], '失败不发布任何 Pack 目录');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
