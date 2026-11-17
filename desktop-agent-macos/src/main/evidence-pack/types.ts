@@ -90,6 +90,24 @@ export interface EvidencePackItemMeta {
   sourceType?: 'official-doc' | 'paper' | 'blog';
 }
 
+/**
+ * 执行断言的可信来源。它决定 Runtime Claim 能否被 supports/contradicts，
+ * 因此必须进入 Item Hash；不能只放在不参与 hash 的 meta 里。
+ */
+export interface ExecutionAttestation {
+  executionId: string;
+  testId?: string;
+  assertionId: string;
+  claimId: string;
+  assertion: 'passed' | 'failed';
+  exitCode?: number;
+  repoCommit: string;
+  snapshotFingerprint?: string;
+  /** 执行结果的完整性 hash；64 位 hex。 */
+  resultHash: string;
+  producer: { name: string; version: string };
+}
+
 export interface EvidencePackItemDraft {
   kind: EvidencePackItemKind;
   /**
@@ -97,6 +115,8 @@ export interface EvidencePackItemDraft {
    * 发布时又重读成 B」。不传时 Store 从 repoRoot 读文件。
    */
   content?: string;
+  /** 执行类条目的可信断言；普通源码条目没有。 */
+  attestation?: ExecutionAttestation;
   source: EvidencePackItemSource;
   locator: EvidencePackItemLocator;
   meta: EvidencePackItemMeta;
@@ -105,6 +125,7 @@ export interface EvidencePackItemDraft {
 export interface EvidencePackItem {
   itemId: string;
   kind: EvidencePackItemKind;
+  attestation?: ExecutionAttestation;
   source: EvidencePackItemSource;
   locator: EvidencePackItemLocator;
   /** 冻结原文，不改写、不省略。 */

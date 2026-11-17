@@ -41,7 +41,7 @@ export function contentHashOf(content: string): string {
 }
 
 /** 条目 hash：只收「这条证据是什么」的字段，不收 capturedAt / repoRoot。 */
-export function itemHashOf(item: Pick<EvidencePackManifestItem, 'kind' | 'source' | 'locator' | 'contentHash'>): string {
+export function itemHashOf(item: Pick<EvidencePackManifestItem, 'kind' | 'source' | 'locator' | 'contentHash' | 'attestation'>): string {
   return sha256Hex(
     canonicalJson({
       kind: item.kind,
@@ -50,7 +50,8 @@ export function itemHashOf(item: Pick<EvidencePackManifestItem, 'kind' | 'source
       startLine: item.locator.startLine,
       endLine: item.locator.endLine,
       symbolId: item.locator.symbolId ?? null,
-      contentHash: item.contentHash
+      contentHash: item.contentHash,
+      ...(item.attestation ? { attestation: item.attestation } : {})
     })
   );
 }

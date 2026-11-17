@@ -482,11 +482,34 @@ function deriveItem(draft: EvidencePackItemDraft, repoRoot: string, commit: stri
     );
   }
 
+  if (draft.attestation) {
+    if (draft.kind !== 'test-result' && draft.kind !== 'command-result') {
+      throw new EvidencePackError('INVALID_CONTENT', 'attestation 只能用于 test-result / command-result');
+    }
+    const attestation = draft.attestation;
+    if (attestation.repoCommit !== commit) {
+      throw new EvidencePackError('INVALID_CONTENT', 'attestation 的 repoCommit 与 Pack 不一致');
+    }
+    if (!attestation.executionId || !attestation.assertionId || !attestation.claimId) {
+      throw new EvidencePackError('INVALID_CONTENT', 'attestation 缺少 executionId/assertionId/claimId');
+    }
+    if (!/^[a-f0-9]{64}$/.test(attestation.resultHash)) {
+      throw new EvidencePackError('INVALID_CONTENT', 'attestation.resultHash 必须是 sha256 hex');
+    }
+    if (attestation.assertion === 'passed' && attestation.exitCode !== undefined && attestation.exitCode !== 0) {
+      throw new EvidencePackError('INVALID_CONTENT', 'passed 断言的 exitCode 必须为 0');
+    }
+    if (!attestation.producer?.name || !attestation.producer?.version) {
+      throw new EvidencePackError('INVALID_CONTENT', 'attestation 缺少 producer 名称/版本');
+    }
+  }
+
   return {
     itemId: `item_${sha256Hex(
       [draft.kind, relPath, startLine, endLine, draft.locator.symbolId ?? ''].join('\0')
     ).slice(0, 16)}`,
     kind: draft.kind,
+    ...(draft.attestation ? { attestation: draft.attestation } : {}),
     source: {
       commit,
       path: relPath,
