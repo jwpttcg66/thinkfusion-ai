@@ -17,8 +17,13 @@ const { JudgeEngine } = require('../../out-test/main/judge/engine.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
 
 const BASE = 'https://opencode.ai/inference/go/openai/v1';
-const DATASET = path.join(__dirname, '..', '..', '..', 'docs', 'implementation', 'regression', 'pack-judge-regression-v1.json');
+const datasetArg = process.argv.find(item => item.startsWith('--dataset='));
+const DATASET = datasetArg
+  ? path.resolve(process.cwd(), datasetArg.slice('--dataset='.length))
+  : path.join(__dirname, '..', '..', '..', 'docs', 'implementation', 'regression', 'pack-judge-regression-v1.json');
 const OUT_DIR = path.dirname(DATASET);
+const PROMPT_VERSION = 'p3f-1.1.0';
+const FILE_PREFIX = 'pack-judge-regression-p3f';
 const RUNS_PER_CASE = 3;
 const TEMPERATURE = 0;
 const SEED = 42;
@@ -304,6 +309,8 @@ app.whenReady().then(async () => {
       temperature: TEMPERATURE,
       seed: SEED,
       runsPerCase: RUNS_PER_CASE,
+      promptVersion: PROMPT_VERSION,
+      datasetFile: path.basename(DATASET),
       capturedAt: startedAt,
       finishedAt
     },
@@ -311,7 +318,7 @@ app.whenReady().then(async () => {
     metrics,
     consistency
   };
-  const jsonPath = path.join(OUT_DIR, `pack-judge-regression-${stamp}.json`);
+  const jsonPath = path.join(OUT_DIR, `${FILE_PREFIX}-${stamp}.json`);
   const mdPath = jsonPath.replace(/\.json$/, '.md');
   const shaPath = jsonPath.replace(/\.json$/, '.sha256');
   fs.writeFileSync(jsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');

@@ -107,10 +107,21 @@ function packPrompt(context: readonly PackContextItem[]): string[] {
     ...context.map(item => `- claim ${item.claimId} ← ${item.evidenceId} · ${item.path} · ${item.excerpt}`),
     'relation 是这段证据相对于原 Claim 的方向；如果证据表明 Claim 不成立，必须写 contradicts。不要因为「证据支持你认为 Claim 错了」就写 supports。',
     '源码片段只能证明代码存在/结构。涉及运行时行为（命中率、一定发生、实际调用、所有异常都被处理等）时，除非有成功执行结果，否则只能是 context。',
-    '片段没有覆盖或没有展示某行为，不等于该行为不存在；这种情况用 context，不要用 contradicts。',
-    '只有片段直接展示与 Claim 相反的代码路径/条件时，才用 contradicts。',
+    'absence of evidence ≠ evidence of absence：片段没有展示某行为，不等于它证明该行为不存在；覆盖不足只能是 context。',
+    '只有片段直接展示与 Claim 相反的代码路径/条件时，才用 contradicts；并在 reason 里说明反向证据与覆盖范围。',
+    'TODO / FIXME / XXX 或纯注释表达的是设计意图或未完成状态，不能作为 supports/contradicts，只能是 context。',
+    '判断前先看 Claim 的层级：明确说「这个方法/这段代码实现了…」属于代码级 Claim；说「生产环境一定/命中率/实际执行」属于运行级。代码级 Claim 可以由完整方法/分支的代码结构支持或反驳；运行级 Claim 只有静态片段时只能是 context。',
+    '对上面列出的每条证据都要给出一个判断；证据不足时用 context，不要省略。',
     '输出 JSON 增加 packEvidence 数组：{"claimId":string,"evidenceId":string,"relation":"supports"|"contradicts"|"context","reason":string,"confidence":"low"|"medium"|"high","limitations":string[]}'
   ];
+}
+
+function isCommentOnly(text: string): boolean {
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  return lines.every(line =>
+    line.startsWith('//') || line.startsWith('/*') || line.startsWith('*') || line.startsWith('#')
+  );
 }
 
 function validatePackAssessments(
@@ -154,6 +165,11 @@ function validatePackAssessments(
       ? item.limitations.filter((entry): entry is string => typeof entry === 'string')
       : [];
     const source = allowed.get(key)!;
+    const unfinished = /\b(?:TODO|FIXME|XXX)\b/i.test(source.excerpt) || isCommentOnly(source.excerpt);
+    if (relation !== 'context' && unfinished) {
+      rejected.push(`证据是 TODO/注释/设计意图，不能判 ${relation}：${claimId} / ${evidenceId}`);
+      continue;
+    }
     accepted.push({
       claimId,
       evidenceId,
