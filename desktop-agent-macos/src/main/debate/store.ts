@@ -31,18 +31,48 @@ export class DebateStore {
 
   get(id: string): DebateState | null {
     try {
-      const state = JSON.parse(fs.readFileSync(this.file(id), 'utf8')) as DebateState;
-      // 主导模式上线之前的文件没有 lead / plan。读的时候补齐，但不写回盘：
-      // 一次只读不该产生写入，也不该把「未记录」伪装成某个真实模式。
-      return {
-        ...state,
-        lead: state.lead ?? LEGACY_LEAD,
-        plan: state.plan ?? LEGACY_PLAN,
-        config: { ...state.config, leadMode: state.config.leadMode ?? 'hybrid' }
-      };
+      return this.parse(fs.readFileSync(this.file(id), 'utf8'));
     } catch {
       return null;
     }
+  }
+
+  private parse(raw: string): DebateState {
+    const state = JSON.parse(raw) as DebateState;
+    // 主导模式上线之前的文件没有 lead / plan。读的时候补齐，但不写回盘：
+    // 一次只读不该产生写入，也不该把「未记录」伪装成某个真实模式。
+    return {
+      ...state,
+      lead: state.lead ?? LEGACY_LEAD,
+      plan: state.plan ?? LEGACY_PLAN,
+      config: { ...state.config, leadMode: state.config.leadMode ?? 'hybrid' }
+    };
+  }
+
+  /**
+   * 给 GC 用：同时返回能读的记录和读不了的记录。
+   *
+   * `list()` 会静默跳过坏文件；GC 不能这样——读不了的辩论可能引用着
+   * 某个 Pack，把「读不了」当成「没引用」会误删。
+   */
+  scanAll(): { states: DebateState[]; errors: string[] } {
+    const states: DebateState[] = [];
+    const errors: string[] = [];
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(this.dir).filter(name => name.endsWith('.json'));
+    } catch (error) {
+      return { states, errors: [`读不到辩论目录：${error instanceof Error ? error.message : String(error)}`] };
+    }
+    for (const name of names) {
+      try {
+        states.push(this.parse(fs.readFileSync(path.join(this.dir, name), 'utf8')));
+      } catch (error) {
+        errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    states.sort((a, b) => b.updatedAt - a.updatedAt);
+    return { states, errors };
   }
 
   list(): DebateState[] {

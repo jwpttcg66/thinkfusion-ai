@@ -2,7 +2,16 @@
 
 - 分支 / 工作树：`evidence-producer` / `/Users/yalla/data/localLab/thinkfusion-ai-evidence-producer`
 - 起点：`main` = `929d5a7`（P2 Foundation tag）
-- 本轮范围：**候选发现 + 仓库定位**，不接每轮 Pack，不建 Claim 关联
+- 本轮范围（历史）：**候选发现 + 仓库定位**，不接每轮 Pack，不建 Claim 关联
+
+> **状态更新（P2-Final）**
+>
+> - 基准一致性 resolver 已接入 round producer；
+> - 每轮 Pack 已接入 orchestrator；
+> - Pack 已映射到 `DebateEvidence`；
+> - `ClaimEvidenceLink(source: 'pack')` 已实现，仅 `context`；
+> - supports/contradicts 尚未实现（P3）；
+> - Pack GC 已实现并测试。
 
 ---
 

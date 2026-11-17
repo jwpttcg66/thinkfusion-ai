@@ -25,9 +25,12 @@ import {
 import { snapshotFingerprint } from './snapshot';
 import {
   EvidencePackError,
+  type EvidencePackDeleteResult,
   type EvidencePackDraft,
+  type EvidencePackInspection,
   type EvidencePackItem,
   type EvidencePackItemDraft,
+  type EvidencePackListEntry,
   type EvidencePackManifest,
   type EvidencePackPublishResult,
   type EvidencePackRead
@@ -39,10 +42,15 @@ let tempSeq = 0;
 
 export class EvidencePackStore {
   private readonly packsDir: string;
+  private readonly quarantineDir: string;
+  /** 同一进程内的读取保护；跨进程仍靠原子 rename 与宽限期。 */
+  private readonly activeReads = new Set<string>();
 
   constructor(private readonly dir: string) {
     this.packsDir = path.join(dir, 'packs');
+    this.quarantineDir = path.join(this.packsDir, '.quarantine');
     fs.mkdirSync(this.packsDir, { recursive: true });
+    fs.mkdirSync(this.quarantineDir, { recursive: true });
   }
 
   publish(draft: EvidencePackDraft): EvidencePackPublishResult {
@@ -128,6 +136,15 @@ export class EvidencePackStore {
   /** 读不到返回 null；读得到但校验不过抛类型化错误，不给「尽量读出来」的半份结果。 */
   get(packId: string): EvidencePackRead | null {
     this.assertPackId(packId);
+    this.activeReads.add(packId);
+    try {
+      return this.read(packId);
+    } finally {
+      this.activeReads.delete(packId);
+    }
+  }
+
+  private read(packId: string): EvidencePackRead | null {
     const manifestFile = this.manifestPath(packId);
     if (!fs.existsSync(manifestFile)) return null;
     const manifest = this.readManifest(packId);
@@ -191,6 +208,191 @@ export class EvidencePackStore {
     const pack = this.get(packId);
     if (!pack) throw new EvidencePackError('PACK_NOT_FOUND', '找不到要回放的 Pack');
     return pack;
+  }
+
+  /**
+   * 轻量扫描：只读 manifest，不加载 Blob。GC 用它建立候选集合；
+   * 损坏的 Pack 标 corrupt，不当成「没有引用」。
+   */
+  list(): EvidencePackListEntry[] {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(this.packsDir);
+    } catch {
+      return [];
+    }
+    const entries: EvidencePackListEntry[] = [];
+    for (const name of names) {
+      if (!PACK_ID_PATTERN.test(name)) continue;
+      const packId = name;
+      try {
+        const manifest = this.readManifest(packId);
+        entries.push({
+          packId,
+          status: 'ready',
+          createdAt: typeof manifest.createdAt === 'number' ? manifest.createdAt : null,
+          commit: manifest.repo?.commit ?? null,
+          dirty: typeof manifest.repo?.dirty === 'boolean' ? manifest.repo.dirty : null,
+          context: manifest.context ?? null,
+          itemCount: manifest.items.length,
+          bytes: this.bytesOf(this.packDir(packId))
+        });
+      } catch (error) {
+        entries.push({
+          packId,
+          status: 'corrupt',
+          createdAt: null,
+          commit: null,
+          dirty: null,
+          context: null,
+          itemCount: 0,
+          bytes: this.bytesOf(this.packDir(packId)),
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    return entries.sort((a, b) => a.packId.localeCompare(b.packId));
+  }
+
+  /** 完整校验一个 Pack；不存在返回 unavailable，损坏返回 corrupt。 */
+  inspect(packId: string): EvidencePackInspection {
+    this.assertPackId(packId);
+    if (!fs.existsSync(this.packDir(packId))) {
+      return {
+        packId,
+        status: 'unavailable',
+        createdAt: null,
+        commit: null,
+        dirty: null,
+        context: null,
+        itemCount: 0,
+        bytes: 0,
+        error: 'Pack 不存在'
+      };
+    }
+    try {
+      const pack = this.get(packId);
+      if (!pack) {
+        return {
+          packId,
+          status: 'unavailable',
+          createdAt: null,
+          commit: null,
+          dirty: null,
+          context: null,
+          itemCount: 0,
+          bytes: this.bytesOf(this.packDir(packId)),
+          error: 'manifest 不存在'
+        };
+      }
+      return {
+        packId,
+        status: 'ready',
+        createdAt: pack.manifest.createdAt,
+        commit: pack.manifest.repo.commit,
+        dirty: pack.manifest.repo.dirty,
+        context: pack.manifest.context ?? null,
+        itemCount: pack.manifest.items.length,
+        bytes: this.bytesOf(this.packDir(packId)),
+        manifestHash: pack.manifest.manifestHash,
+        schemaVersion: pack.manifest.schemaVersion
+      };
+    } catch (error) {
+      return {
+        packId,
+        status: 'corrupt',
+        createdAt: null,
+        commit: null,
+        dirty: null,
+        context: null,
+        itemCount: 0,
+        bytes: this.bytesOf(this.packDir(packId)),
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * 删除一个 Pack：先原子 rename 到 quarantine，再递归删除。
+   * 正在被读取的 Pack 不删；引用保护由 GC 层负责。
+   */
+  delete(packId: string): EvidencePackDeleteResult {
+    this.assertPackId(packId);
+    if (this.activeReads.has(packId)) {
+      return { packId, deleted: false, bytes: 0, reason: 'active-read' };
+    }
+    const target = this.packDir(packId);
+    if (!fs.existsSync(target)) return { packId, deleted: false, bytes: 0, reason: 'not-found' };
+    const bytes = this.bytesOf(target);
+    fs.mkdirSync(this.quarantineDir, { recursive: true });
+    const quarantine = path.join(this.quarantineDir, `${packId}-${process.pid}-${Date.now()}`);
+    try {
+      fs.renameSync(target, quarantine);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return {
+        packId,
+        deleted: false,
+        bytes: 0,
+        reason: code === 'ENOENT' ? 'not-found' : `rename-failed:${String(code)}`
+      };
+    }
+    fs.rmSync(quarantine, { recursive: true, force: true });
+    return { packId, deleted: true, bytes };
+  }
+
+  /** 发布中断留下的临时目录；GC 只清理超过宽限期的。 */
+  listTemporary(): Array<{ name: string; path: string; ageMs: number; bytes: number }> {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(this.packsDir);
+    } catch {
+      return [];
+    }
+    const now = Date.now();
+    return names
+      .filter(name => /^pack_[a-f0-9]{16}\.tmp-/.test(name))
+      .flatMap(name => {
+        try {
+          const absolute = path.join(this.packsDir, name);
+          const stat = fs.statSync(absolute);
+          return [{ name, path: absolute, ageMs: Math.max(0, now - stat.mtimeMs), bytes: this.bytesOf(absolute) }];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  /** 上次 GC 崩溃留下的 quarantine 目录。 */
+  listQuarantine(): Array<{ name: string; path: string; ageMs: number; bytes: number }> {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(this.quarantineDir);
+    } catch {
+      return [];
+    }
+    const now = Date.now();
+    return names.flatMap(name => {
+      try {
+        const absolute = path.join(this.quarantineDir, name);
+        const stat = fs.statSync(absolute);
+        return [{ name, path: absolute, ageMs: Math.max(0, now - stat.mtimeMs), bytes: this.bytesOf(absolute) }];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  private bytesOf(target: string): number {
+    let total = 0;
+    try {
+      const stat = fs.statSync(target);
+      if (!stat.isDirectory()) return stat.size;
+      for (const name of fs.readdirSync(target)) total += this.bytesOf(path.join(target, name));
+    } catch {
+      return total;
+    }
+    return total;
   }
 
   private readManifest(packId: string): EvidencePackManifest {
