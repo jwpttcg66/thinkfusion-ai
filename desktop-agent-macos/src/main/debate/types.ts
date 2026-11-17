@@ -621,6 +621,8 @@ export interface DebateState {
   packEvidence?: DebateEvidence[];
   /** Pack 来源的 context 关联；裁判方向仍以 rules/model judge 为准。 */
   packEvidenceLinks?: ClaimEvidenceLink[];
+  /** 模型裁判对 Pack 证据给出的方向判断；随 Verdict 一起更新。 */
+  judgePackEvidenceLinks?: ClaimEvidenceLink[];
   status: DebateStatus;
   /** 辩论执行结果，和 status（生命周期）分开。 */
   outcome?: 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';
@@ -657,7 +659,7 @@ export interface DebateState {
    * 关联的写入层。目前只有规则裁判会写；模型裁决的 `evidence` 是消息级，
    * 没有 evidenceId，不能据此伪造关联。老记录没有这个字段。
    */
-  claimEvidenceLinksSource?: 'rules-judge';
+  claimEvidenceLinksSource?: 'rules-judge' | 'model-judge';
   /**
    * 论证图（Phase 3 / AC-08）。每轮追加，边带轮次与来源对象。
    * 老文件没有这个字段。

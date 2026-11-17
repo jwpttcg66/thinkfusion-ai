@@ -20,6 +20,16 @@ export interface EvidenceAssessment {
   signals: string[];
 }
 
+export interface PackEvidenceAssessment {
+  claimId: string;
+  evidenceId: string;
+  relation: 'supports' | 'contradicts' | 'context';
+  reason: string;
+  confidence: 'low' | 'medium' | 'high';
+  limitations: string[];
+  sourceSnapshot: { packId: string; commit: string; roundIndex?: number };
+}
+
 export interface ArgumentQuality {
   agentId: string;
   score: number;
@@ -135,6 +145,12 @@ export interface JudgeVerdict {
   confidence: JudgeConfidence;
   /** 关联回辩论里的原始发言，一条都能查到。 */
   sourceMessageIds: string[];
+  /**
+   * 模型裁判对 Pack 工程证据的逐条判断。只允许引用调用方提供的
+   * evidenceId；淘汰的引用写在 `packEvidenceRejected`，不静默吞掉。
+   */
+  packEvidence?: PackEvidenceAssessment[];
+  packEvidenceRejected?: string[];
   /** 仅描述，不作为正确性依据。 */
   supportCount: Record<string, number>;
   /** 模型裁决解析失败时会退回规则版，原因写在这里，不假装是模型给的。 */

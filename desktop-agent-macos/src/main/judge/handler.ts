@@ -21,6 +21,8 @@ export interface JudgeAdjudicateDeps {
   ask: (agentId: string, task: SubAgentTask) => Promise<SubAgentAnswer>;
   /** 让会话维度能立刻读到这份裁决（内存索引，不是第二份存盘）。 */
   onVerdict?: (conversationId: string, verdict: JudgeVerdict) => void;
+  /** 模型裁判写回了 pack 证据关联；有就落盘，否则状态只留在内存。 */
+  saveDebate?: (state: DebateState) => void;
   preferredJudgeId?: string;
   maxReselections?: number;
 }
@@ -41,6 +43,7 @@ export async function handleJudgeAdjudicate(
   });
 
   deps.saveVerdict(verdict);
+  deps.saveDebate?.(state);
   if (state.conversationId) deps.onVerdict?.(state.conversationId, verdict);
   return verdict;
 }

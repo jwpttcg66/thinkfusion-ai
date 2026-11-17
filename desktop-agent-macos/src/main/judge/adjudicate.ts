@@ -1,6 +1,7 @@
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { judgeDebate } from '../debate/judges';
 import { evaluateDebateQuality, finalizeDebate } from '../debate/quality-engine';
+import { applyJudgePackEvidence, refreshClaimEvidenceLinks } from '../debate/claim-evidence-links';
 import type { DebateState } from '../debate/types';
 import { JudgeEngine } from './engine';
 import { resolveJudge, type JudgeCandidateInfo } from './resolve';
@@ -118,8 +119,12 @@ function finish(state: DebateState, verdict: JudgeVerdict): JudgeVerdict {
     quality,
     finalDecision: finalizeDebate(state, verdict, quality)
   };
-  if (verdict.backend !== 'rules') return judged;
-  return { ...judged, rulesConclusion: noteRulesConclusion(state, verdict) };
+  const finished = verdict.backend !== 'rules'
+    ? judged
+    : { ...judged, rulesConclusion: noteRulesConclusion(state, verdict) };
+  applyJudgePackEvidence(state, finished);
+  refreshClaimEvidenceLinks(state, finished.packEvidence?.length ? 'model-judge' : 'rules-judge');
+  return finished;
 }
 
 /**
