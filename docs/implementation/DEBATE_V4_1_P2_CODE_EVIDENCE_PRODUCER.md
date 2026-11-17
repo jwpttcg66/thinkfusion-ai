@@ -59,14 +59,14 @@ P2 Foundation 只能冻结「辩论开始时的仓库状态」。要生成每轮
 | 层 | 状态 | 说明 |
 | --- | --- | --- |
 | 基准确认 | DONE（未接编排器） | `BaselineCodeReferenceResolver` 只从 Pack/commit 恢复；见 `DEBATE_V4_1_P2_BASELINE_CONSISTENCY.md` |
-| 每轮 Pack | NOT DONE | 需要把 resolved 引用按轮写入 Evidence Pack |
-| Claim↔Pack 关联 | NOT DONE | 需要显式判断支持/反驳/上下文，不能自动生成 |
+| 每轮 Pack | DONE（未接 Claim 关系） | 见 `DEBATE_V4_1_P2_ROUND_PACK.md`；只写 claimIds 候选，不写 supports |
+| Claim↔Pack 关联 | PARTIAL | `source: 'pack'` + `context` 已写；supports/contradicts 仍待裁判接线 |
 
 下一步顺序：
 
 1. ~~用开场 Pack 的 commit/dirty 指纹校验 resolved 内容~~（已完成，见基准一致性文档）；
 2. 把 resolved 引用转成 Pack 条目（`source-code` / 行范围 / hash）；
-3. 每轮生成增量 Pack；
+3. ~~每轮生成增量 Pack~~（已完成，见 round Pack 文档）；
 4. 用显式规则生成 `ClaimEvidenceLink(source: 'pack')`，并保留候选与最终关系两套状态。
 
 在第 4 步完成前，不能宣称「工程辩论闭环」。

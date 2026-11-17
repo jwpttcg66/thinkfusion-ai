@@ -324,3 +324,33 @@ test('校验器：同一对证据两个方向直接报错，不返回两份', ()
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /同一对证据出现多条关联/);
 });
+
+test('Pack 只给 context；同一对证据被裁判判 supports 时以裁判为准', () => {
+  const c = claim('c1');
+  const e = evidence('e1', []);
+  const state = stateOf({
+    claims: [c],
+    evidenceList: [e],
+    judgments: []
+  });
+  state.packEvidenceLinks = [{
+    debateId: 'debate-links',
+    claimId: 'c1',
+    evidenceId: 'e1',
+    relation: 'context',
+    source: 'pack',
+    reason: '引用代码'
+  }];
+  const contextOnly = buildClaimEvidenceLinks(state);
+  assert.equal(contextOnly.length, 1);
+  assert.equal(contextOnly[0].source, 'pack');
+  assert.equal(contextOnly[0].relation, 'context');
+
+  const withJudge = buildClaimEvidenceLinks({
+    ...state,
+    judgments: [judgment('c1', 'supported', ['e1'])]
+  });
+  assert.equal(withJudge.length, 1);
+  assert.equal(withJudge[0].source, 'judge');
+  assert.equal(withJudge[0].relation, 'supports');
+});

@@ -64,7 +64,8 @@ export class EvidencePackStore {
     const manifestHash = manifestHashOf({
       commit: draft.repo.commit,
       itemHashes: items.map(itemHashOf),
-      ...(draft.snapshot ? { snapshot: draft.snapshot } : {})
+      ...(draft.snapshot ? { snapshot: draft.snapshot } : {}),
+      ...(draft.context ? { context: draft.context } : {})
     });
     const target = this.packDir(packId);
 
@@ -98,6 +99,7 @@ export class EvidencePackStore {
         },
         items: items.map(({ content: _content, ...rest }) => rest),
         ...(draft.snapshot ? { snapshot: draft.snapshot } : {}),
+        ...(draft.context ? { context: draft.context } : {}),
         manifestHash,
         createdAt: draft.createdAt ?? Date.now()
       };
@@ -133,7 +135,8 @@ export class EvidencePackStore {
     const expected = manifestHashOf({
       commit: manifest.repo.commit,
       itemHashes: manifest.items.map(itemHashOf),
-      ...(manifest.snapshot ? { snapshot: manifest.snapshot } : {})
+      ...(manifest.snapshot ? { snapshot: manifest.snapshot } : {}),
+      ...(manifest.context ? { context: manifest.context } : {})
     });
     if (expected !== manifest.manifestHash) {
       throw new EvidencePackError('MANIFEST_CORRUPT', 'manifest hash 对不上');

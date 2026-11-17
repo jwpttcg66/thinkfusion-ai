@@ -74,6 +74,14 @@ export function buildClaimEvidenceLinks(state: DebateState): ClaimEvidenceLink[]
     }
   }
 
+  // Pack 来源只写 context：引用代码不等于代码支持主张。若同一对证据
+  // 裁判给了 supports/contradicts，dedupe 会按方向优先级覆盖 context。
+  for (const link of state.packEvidenceLinks ?? []) {
+    if (!claimIds.has(link.claimId)) continue;
+    if (!evidenceById.has(link.evidenceId)) continue;
+    links.push({ ...link, debateId: state.debateId, source: 'pack', relation: 'context' });
+  }
+
   for (const evidence of state.evidence ?? []) {
     // Pack 证据的关联由 P2 显式输入；这里自动写会把 repo-snapshot 误标成
     // 作者引用。快照只证明「代码/命令存在」，不证明作者引用了它。

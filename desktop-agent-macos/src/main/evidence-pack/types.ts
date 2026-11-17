@@ -66,6 +66,13 @@ export interface EvidencePackSnapshot {
   errors: EvidencePackSnapshotIssue[];
 }
 
+export interface EvidencePackContext {
+  kind: 'baseline' | 'round';
+  debateId: string;
+  roundIndex?: number;
+  baselinePackId?: string;
+}
+
 export interface EvidencePackItemMeta {
   tool: string;
   /** 不参与 hash：同一条证据换一次采集时间，仍然算同一份内容。 */
@@ -114,6 +121,8 @@ export interface EvidencePackManifest {
   items: EvidencePackManifestItem[];
   /** 结构化 dirty overlay 元数据；旧 Schema v1 Pack 没有。 */
   snapshot?: EvidencePackSnapshot;
+  /** Pack 属于哪场辩论/哪一轮；旧 Pack 没有。 */
+  context?: EvidencePackContext;
   manifestHash: string;
   createdAt: number;
 }
@@ -123,6 +132,8 @@ export interface EvidencePackDraft {
   repoRoot: string;
   /** 结构化快照元数据；旧 Pack 没有这个字段。 */
   snapshot?: EvidencePackSnapshot;
+  /** Pack 属于哪场辩论/哪一轮；旧 Pack 没有。 */
+  context?: EvidencePackContext;
   idempotencyKey: string;
   repo: { commit: string; dirty?: boolean; branch?: string };
   createdAt?: number;
