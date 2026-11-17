@@ -67,12 +67,32 @@ P3 相关：evidence-pack 12/12、judge-pack 15/15、typecheck 全绿。
 
 全量 `npm test` 仍只失败在既有 `check-cli-agent` 注册表测试（main 同样失败，CLI 版本/指纹漂移）。
 
-## 4. 仍未接线
+## 4. Claim 验证计划边界
+
+`claim-verification.ts`：
+
+- `buildClaimVerificationPlan()` 只接受 `test.run` 支持的固定命令；
+- 计划通过 `PlanSchema` 校验，TaskGrant `workspace-write`、`approvalPolicy=ask`、
+  `allowedTools=['test.run']`、`maxSteps=1`；
+- 不自动执行：`verifyClaim()` 必须由调用方传入现有 `runPlan`，先走 Runtime/审批；
+- 只有真实 `ExecutionReport` 返回后才生成 attestation；`runPlan` 失败不生产证据。
+
+新增测试：
+
+- 计划只含 `test.run`，命令不在允许列表直接拒绝；
+- TaskGrant 只能 `test.run`、最多一步、必须审批；
+- `runPlan` 成功 → attestation；失败 → 不生产。
+
+`test:execution-evidence` 6/6。
+
+## 5. 仍未接线
 
 | 缺口 | 说明 |
 | --- | --- |
 | Claim → 验证任务 | 没有把 Runtime Claim 转成测试/命令并交给 AgentOrchestrator |
-| 辩论编排器调用 | `produceExecutionEvidence` 目前没有调用方 |
+| Runtime Claim → testCommand 映射 | 还没有规划器把 Claim 变成具体验证命令 |
+| 辩论编排器调用 | `verifyClaim` 目前没有调用方 |
+| UI 审批触发 | 未接 |
 | 真实执行 → Pack → Judge E2E | 未做 |
 | 多模型 | 仍只有 deepseek 配置 |
 

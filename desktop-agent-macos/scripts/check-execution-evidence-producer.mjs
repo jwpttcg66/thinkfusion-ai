@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { produceExecutionEvidence, ExecutionEvidenceError } from '../out-test/main/evidence-pack/execution-producer.js';
+import { buildClaimVerificationPlan, verifyClaim } from '../out-test/main/evidence-pack/claim-verification.js';
 import { EvidencePackStore } from '../out-test/main/evidence-pack/store.js';
 import { mapPackToDebateEvidence } from '../out-test/main/evidence-pack/mapping.js';
 
@@ -156,6 +157,73 @@ test('重复生产同一条执行：幂等复用同一 Pack', () => {
     const second = produceExecutionEvidence(request(h.store, h.root, tests));
     assert.equal(first.packId, second.packId);
     assert.equal(first.itemId, second.itemId);
+  } finally {
+    cleanup(h.root);
+  }
+});
+
+test('Claim 验证计划：只允许 test.run 固定命令，受 TaskGrant 约束', () => {
+  const built = buildClaimVerificationPlan({
+    debateId: 'debate-exec',
+    roundIndex: 1,
+    claimId: 'c1',
+    assertionId: 'assert-1',
+    testCommand: 'npm test',
+    rootDir: '/tmp/repo',
+    repoCommit: commit
+  }, 1000);
+  assert.equal(built.plan.steps[0].tool, 'test.run');
+  assert.deepEqual(built.plan.steps[0].args, { command: 'npm test' });
+  assert.equal(built.grant.allowedTools.length, 1);
+  assert.equal(built.grant.allowedTools[0], 'test.run');
+  assert.equal(built.grant.permissionPreset, 'workspace-write');
+  assert.equal(built.grant.approvalPolicy, 'ask');
+  assert.equal(built.grant.maxSteps, 1);
+  assert.throws(
+    () => buildClaimVerificationPlan({
+      debateId: 'd', roundIndex: 0, claimId: 'c1', assertionId: 'a1',
+      testCommand: 'rm -rf /', rootDir: '/tmp/repo', repoCommit: commit
+    }),
+    /test.run 不支持/
+  );
+});
+
+test('verifyClaim：真实报告 → attestation；runPlan 失败不生产证据', async () => {
+  const h = setup();
+  try {
+    let called = null;
+    const result = await verifyClaim({
+      debateId: 'debate-exec',
+      roundIndex: 1,
+      claimId: 'c1',
+      assertionId: 'assert-1',
+      testCommand: 'npm test',
+      rootDir: h.root,
+      repoCommit: commit
+    }, {
+      store: h.store,
+      runPlan: async (plan, grant, roundId, planId) => {
+        called = { plan, grant, roundId, planId };
+        return report({ status: 'passed', exitCode: 0, command: 'npm test', detail: 'ok' });
+      },
+      now: () => 2000
+    });
+    assert.ok(called);
+    assert.equal(called.plan.taskId, called.grant.taskId);
+    assert.equal(result.attestation.claimId, 'c1');
+    assert.equal(result.attestation.assertion, 'passed');
+    assert.ok(h.store.get(result.packId));
+
+    await assert.rejects(
+      () => verifyClaim({
+        debateId: 'debate-exec', roundIndex: 1, claimId: 'c1', assertionId: 'a2',
+        testCommand: 'npm test', rootDir: h.root, repoCommit: commit
+      }, {
+        store: h.store,
+        runPlan: async () => { throw new Error('审批被拒绝'); }
+      }),
+      /审批被拒绝/
+    );
   } finally {
     cleanup(h.root);
   }
