@@ -22,6 +22,7 @@ const claim = {
   agentId: 'a',
   roundIndex: 0,
   text: '这段代码证明了缓存会失效。',
+  claimScope: 'code',
   kind: 'fact',
   kindCue: '陈述句',
   span: { messageId: 'm1', start: 0, end: 10 },
@@ -292,4 +293,90 @@ test('IPC handler：模型 Pack 关联通过 saveDebate 落盘', async () => {
   assert.equal(saved.judgePackEvidenceLinks.length, 1);
   assert.equal(saved.judgePackEvidenceLinks[0].evidenceId, evidenceId);
   assert.equal(verdict.packEvidence.length, 1);
+});
+
+test('claimScope 缺失：非 context 判断被拒绝', async () => {
+  const debate = state();
+  delete debate.rounds[0].claims[0].claimScope;
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1',
+        evidenceId,
+        relation: 'supports',
+        reason: '代码存在',
+        confidence: 'high',
+        limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence, undefined);
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('claimScope')));
+});
+
+test('runtime Claim + 静态代码：supports 被拒绝', async () => {
+  const debate = state();
+  debate.rounds[0].claims[0].claimScope = 'runtime';
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1',
+        evidenceId,
+        relation: 'supports',
+        reason: '代码存在',
+        confidence: 'high',
+        limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence, undefined);
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('执行证据')));
+});
+
+test('evidenceId 规范化：只允许补 pack: 前缀且必须唯一匹配', async () => {
+  const debate = state();
+  const raw = evidenceId.replace(/^pack:/, '');
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1',
+        evidenceId: raw,
+        relation: 'context',
+        reason: '引用代码',
+        confidence: 'medium',
+        limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence.length, 1);
+  assert.equal(verdict.packEvidence[0].evidenceId, evidenceId);
+  assert.equal(verdict.packEvidence[0].normalized, true);
+  assert.equal(verdict.packEvidence[0].normalizationRule, 'add-pack-prefix');
+  assert.equal(verdict.packEvidence[0].rawEvidenceId, raw);
+});
+
+test('evidenceId 无法唯一匹配：拒绝，不做模糊补全', async () => {
+  const debate = state();
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1',
+        evidenceId: 'item_1',
+        relation: 'context',
+        reason: '引用代码',
+        confidence: 'medium',
+        limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence, undefined);
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('未提供')));
 });
