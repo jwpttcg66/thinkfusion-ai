@@ -8,6 +8,7 @@ import { buildEvidence } from './evidence';
 import { refreshClaimEvidenceLinks } from './claim-evidence-links';
 import { publishRepositoryBaseline } from '../evidence-pack/baseline';
 import { publishRoundEvidencePack } from '../evidence-pack/round-evidence';
+import { mapPackToDebateEvidence, packEvidenceIdOf } from '../evidence-pack/mapping';
 import { resolveRepositoryContext } from '../evidence-pack/repository';
 import type { EvidencePackStore } from '../evidence-pack/store';
 import { judgeDebate } from './judges';
@@ -34,6 +35,7 @@ import {
   type DebateOrigin,
   type DebatePhase,
   type DebateRepositoryInput,
+  type DebateRoundEvidencePack,
   type DebateRevision,
   type DebateRole,
   type DebateRound,
@@ -168,6 +170,51 @@ export class DebateOrchestrator {
     });
     if (!record) return;
     state.roundEvidencePacks = [...(state.roundEvidencePacks ?? []), record];
+    this.attachPackEvidence(state, record);
+  }
+
+  /** 把 round Pack 条目映射成辩论证据，并写 context 关联；不写 supports。 */
+  private attachPackEvidence(state: DebateState, record: DebateRoundEvidencePack): void {
+    const items = record.items ?? [];
+    if (!record.packId || items.length === 0 || !this.deps.evidencePacks) return;
+    let pack: ReturnType<EvidencePackStore['get']>;
+    try {
+      pack = this.deps.evidencePacks.get(record.packId);
+    } catch {
+      return;
+    }
+    if (!pack) return;
+
+    const mapped = mapPackToDebateEvidence(pack, {
+      links: items.flatMap(item => item.claimIds.map(claimId => ({
+        itemId: item.itemId,
+        claimId,
+        relation: 'context' as const
+      })))
+    });
+    const evidenceById = new Map((state.packEvidence ?? []).map(item => [item.evidenceId, item]));
+    for (const item of mapped) evidenceById.set(item.evidenceId, item);
+    state.packEvidence = [...evidenceById.values()];
+    this.mergePackEvidence(state);
+
+    const linkKeys = new Set((state.packEvidenceLinks ?? []).map(link => `${link.claimId}\0${link.evidenceId}`));
+    const links = items.flatMap(item => item.claimIds.map(claimId => ({
+      debateId: state.debateId,
+      claimId,
+      evidenceId: packEvidenceIdOf(record.packId!, item.itemId),
+      relation: 'context' as const,
+      source: 'pack' as const,
+      reason: `该主张引用了冻结快照 ${item.path}:${String(item.startLine)}-${String(item.endLine)}`
+    }))).filter(link => !linkKeys.has(`${link.claimId}\0${link.evidenceId}`));
+    state.packEvidenceLinks = [...(state.packEvidenceLinks ?? []), ...links];
+  }
+
+  /** 每轮 buildEvidence 会重建页面证据；Pack 证据要按 evidenceId 合并回来。 */
+  private mergePackEvidence(state: DebateState): void {
+    if (!state.packEvidence || state.packEvidence.length === 0) return;
+    const byId = new Map((state.evidence ?? []).map(item => [item.evidenceId, item]));
+    for (const item of state.packEvidence) byId.set(item.evidenceId, item);
+    state.evidence = [...byId.values()];
   }
 
   /**
@@ -320,6 +367,7 @@ export class DebateOrchestrator {
         // 证据与论证图每轮重算：主张状态会被后面的决策改写，重算才能保证
         // 图里的 `status` 与主张本身一致；条数很小，代价可以忽略。
         state.evidence = buildEvidence(state);
+        this.mergePackEvidence(state);
         state.graph = buildGraph(state);
         this.attachRoundEvidencePack(state, round);
         state.updatedAt = this.now();

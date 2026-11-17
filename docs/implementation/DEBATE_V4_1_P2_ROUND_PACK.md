@@ -46,7 +46,24 @@ round.messages + round.claims
 - 引用来自 dirty 文件还是 clean 文件，由基准 resolver 决定，round Pack 只冻结结果；
 - Pack 失败：记录 `failed`，不阻断辩论。
 
-### 1.3 状态
+### 1.3 映射与关联
+
+round Pack 发布后：
+
+1. 用 `mapPackToDebateEvidence` 把 Pack 条目映射成 `DebateEvidence`；
+2. 追加到 `DebateState.packEvidence`，每轮 `buildEvidence` 后按 evidenceId 合并回
+   `state.evidence`；
+3. 为每条 `claimIds` 写 `ClaimEvidenceLink`：
+   - `source: 'pack'`
+   - `relation: 'context'`（只表示引用，不表示支持）
+   - `evidenceId = pack:<packId>:<itemId>`
+4. `conclude()` 重建关联时保留 pack 链接；若同一对证据被裁判判 supports/contradicts，
+   方向优先级覆盖 context。
+
+**边界**：Pack 证据的 `claimIds` 为空（context 不能冒充支持），所以当前
+`judgeEvidence` 不会把它计为支持证据；裁判真正引用 Pack 留在 P3。
+
+### 1.4 状态
 
 `DebateState.roundEvidencePacks?: DebateRoundEvidencePack[]`：
 
@@ -63,7 +80,6 @@ round.messages + round.claims
 ```
 
 `claimIds` 只表示「这条主张的原文里出现了这个代码引用」，**不表示支持/反驳**。
-真正的 `ClaimEvidenceLink(source: 'pack')` 还没写。
 
 ---
 
@@ -78,6 +94,7 @@ round.messages + round.claims
 | 只有无效引用 | `partial`，无 Pack，错误保留 |
 | 没有代码引用 | 不写空记录 |
 | 基准 partial | round Pack 也只能 `partial` |
+| 映射与关联 | Pack 条目进入 `state.evidence`，写 `source: 'pack'` 的 context 关联；校验无悬空 |
 
 全量：`npm test` **108 个文件全过**；typecheck 三套全绿。
 
@@ -85,7 +102,7 @@ round.messages + round.claims
 
 ## 3. 已知限制
 
-1. **没有 ClaimEvidenceLink**：`claimIds` 只是候选关联，不能当 supports。
+1. **Pack 关联只有 context**：`source: 'pack'` 已写入，但不会自动变成 supports。
 2. **同步生成**：round Pack 在轮次收尾同步发布；dirty 文件多时会增加该轮耗时。
 3. **重复轮次**：幂等键是 `debate:<id>:round:<index>`；如果同一轮因恢复被重跑且内容变化，会得到 `PACK_CONFLICT` 并记 `failed`，不会覆盖旧 Pack。
 4. **没有符号/代码索引解析**：只有文本里的 `path:line` / `#Lx-Ly` 才会成为候选。

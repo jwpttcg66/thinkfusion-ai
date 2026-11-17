@@ -60,7 +60,7 @@ P2 Foundation 只能冻结「辩论开始时的仓库状态」。要生成每轮
 | --- | --- | --- |
 | 基准确认 | DONE（未接编排器） | `BaselineCodeReferenceResolver` 只从 Pack/commit 恢复；见 `DEBATE_V4_1_P2_BASELINE_CONSISTENCY.md` |
 | 每轮 Pack | DONE（未接 Claim 关系） | 见 `DEBATE_V4_1_P2_ROUND_PACK.md`；只写 claimIds 候选，不写 supports |
-| Claim↔Pack 关联 | NOT DONE | 需要显式判断支持/反驳/上下文，不能自动生成 |
+| Claim↔Pack 关联 | PARTIAL | `source: 'pack'` + `context` 已写；supports/contradicts 仍待裁判接线 |
 
 下一步顺序：
 

@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { EvidencePackStore } from '../out-test/main/evidence-pack/store.js';
+import { validateClaimEvidenceLinks } from '../out-test/main/debate/claim-evidence-links.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
 import { DebateStore } from '../out-test/main/debate/store.js';
 
@@ -86,6 +87,15 @@ test('每轮引用：生成 round Pack，内容来自开场 commit', async () =>
     assert.equal(replay.manifest.context.kind, 'round');
     assert.equal(replay.manifest.context.baselinePackId, state.evidencePack.baselinePackId);
     assert.equal(replay.items[0].content, 'line two');
+
+    // Pack 条目必须进入辩论证据表，且只写 context 关联。
+    assert.ok(state.evidence.some(item => item.origin === 'repo-snapshot'));
+    const packLinks = state.claimEvidenceLinks.filter(item => item.source === 'pack');
+    assert.ok(packLinks.length > 0);
+    assert.ok(packLinks.every(item => item.relation === 'context'));
+    assert.ok(packLinks.every(item => !item.reason.includes('支持')));
+    const validation = validateClaimEvidenceLinks(state, state.claimEvidenceLinks);
+    assert.deepEqual(validation.errors, []);
   } finally {
     cleanup(root, h.dir, h.packDir);
   }

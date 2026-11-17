@@ -90,6 +90,7 @@ export function publishRoundEvidencePack(input: RoundEvidenceInput): DebateRound
       status: 'partial',
       itemCount: 0,
       claimIds: [],
+      items: [],
       errors: [...new Set(errors)],
       createdAt
     };
@@ -128,12 +129,20 @@ export function publishRoundEvidencePack(input: RoundEvidenceInput): DebateRound
       createdAt,
       items
     });
+    const itemLinks = published.manifest.items.map(item => ({
+      itemId: item.itemId,
+      path: item.locator.path,
+      startLine: item.locator.startLine,
+      endLine: item.locator.endLine,
+      claimIds: [...(claimMap.get(keyOf(item.locator.path, item.locator.startLine, item.locator.endLine)) ?? [])].sort()
+    }));
     return {
       roundIndex: round.index,
       status,
       packId: published.manifest.packId,
       itemCount: published.manifest.items.length,
       claimIds,
+      items: itemLinks,
       errors: [...new Set(errors)],
       createdAt
     };
@@ -143,6 +152,7 @@ export function publishRoundEvidencePack(input: RoundEvidenceInput): DebateRound
       status: 'failed',
       itemCount: 0,
       claimIds,
+      items: [],
       errors: [...new Set([...errors, error instanceof Error ? error.message : String(error)])],
       createdAt
     };
