@@ -17,11 +17,12 @@ import path from 'node:path';
 import {
   EVIDENCE_PACK_SCHEMA_VERSION,
   contentHashOf,
+  sha256Hex,
   itemHashOf,
   manifestHashOf,
-  packIdOf,
-  sha256Hex
+  packIdOf
 } from './hash';
+import { snapshotFingerprint } from './snapshot';
 import {
   EvidencePackError,
   type EvidencePackDraft,
@@ -62,7 +63,8 @@ export class EvidencePackStore {
 
     const manifestHash = manifestHashOf({
       commit: draft.repo.commit,
-      itemHashes: items.map(itemHashOf)
+      itemHashes: items.map(itemHashOf),
+      ...(draft.snapshot ? { snapshot: draft.snapshot } : {})
     });
     const target = this.packDir(packId);
 
@@ -95,6 +97,7 @@ export class EvidencePackStore {
           ...(draft.repo.branch ? { branch: draft.repo.branch } : {})
         },
         items: items.map(({ content: _content, ...rest }) => rest),
+        ...(draft.snapshot ? { snapshot: draft.snapshot } : {}),
         manifestHash,
         createdAt: draft.createdAt ?? Date.now()
       };
@@ -129,7 +132,8 @@ export class EvidencePackStore {
 
     const expected = manifestHashOf({
       commit: manifest.repo.commit,
-      itemHashes: manifest.items.map(itemHashOf)
+      itemHashes: manifest.items.map(itemHashOf),
+      ...(manifest.snapshot ? { snapshot: manifest.snapshot } : {})
     });
     if (expected !== manifest.manifestHash) {
       throw new EvidencePackError('MANIFEST_CORRUPT', 'manifest hash 对不上');
@@ -149,7 +153,34 @@ export class EvidencePackStore {
       return { ...item, content };
     });
 
+    this.verifySnapshot(manifest, items);
     return { manifest, items };
+  }
+
+  /** 快照元数据必须与 manifest 条目一致；旧 Pack 没有 snapshot 时跳过。 */
+  private verifySnapshot(manifest: EvidencePackManifest, items: readonly EvidencePackItem[]): void {
+    if (!manifest.snapshot) return;
+    if (manifest.snapshot.dirty) {
+      if (!manifest.snapshot.dirtyFingerprint ||
+          snapshotFingerprint(manifest.snapshot) !== manifest.snapshot.dirtyFingerprint) {
+        throw new EvidencePackError('SNAPSHOT_CORRUPT', 'dirtyFingerprint 与快照元数据不一致');
+      }
+    }
+    const byLocator = new Map(
+      items.map(item => [
+        `${item.locator.path}\0${String(item.locator.startLine)}\0${String(item.locator.endLine)}`,
+        sha256Hex(item.content)
+      ])
+    );
+    for (const file of manifest.snapshot.files) {
+      for (const range of file.ranges) {
+        const key = `${file.path}\0${String(range.startLine)}\0${String(range.endLine)}`;
+        const actual = byLocator.get(key);
+        if (!actual || actual !== range.contentHash) {
+          throw new EvidencePackError('SNAPSHOT_CORRUPT', `快照范围与条目不一致：${file.path}:${String(range.startLine)}-${String(range.endLine)}`);
+        }
+      }
+    }
   }
 
   /** 回放入口：与 `get` 同一条校验路径，但找不到 Pack 视为错误而不是 null。 */

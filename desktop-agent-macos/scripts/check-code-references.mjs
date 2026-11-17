@@ -60,7 +60,7 @@ test('定位：行号、内容、hash 与文件一致', () => {
     assert.equal(outcome.resolved.endLine, 3);
     assert.equal(outcome.resolved.content, 'export const b = 2;\nexport const c = 3;');
     assert.match(outcome.resolved.contentHash, /^[a-f0-9]{64}$/);
-    assert.equal(outcome.resolved.lineCount, 4);
+    assert.equal(outcome.resolved.lineCount, 3, '末尾换行不产生虚假空行');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -119,6 +119,58 @@ test('批量提取：有效引用进 resolved，错误逐条进 errors', () => {
     assert.equal(batch.resolved[0].path, 'src/a.ts');
     assert.ok(batch.errors.some(error => error.includes('文件不存在')));
     assert.ok(batch.errors.some(error => error.includes('没有行号')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('中间目录是符号链接：拒绝，不能只查最终文件', () => {
+  const root = fixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-outside-'));
+  try {
+    fs.mkdirSync(path.join(outside, 'dir'));
+    fs.writeFileSync(path.join(outside, 'dir', 'secret.ts'), 'secret\n', 'utf8');
+    fs.symlinkSync(path.join(outside, 'dir'), path.join(root, 'linked'));
+    const outcome = resolveCodeReference(root, {
+      path: 'linked/secret.ts',
+      startLine: 1,
+      endLine: 1,
+      confidence: 'explicit-line',
+      raw: ''
+    });
+    assert.equal(outcome.resolved, undefined);
+    assert.match(outcome.error, /符号链接/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('超大文件 / 超大片段：明确失败，不截断', () => {
+  const root = fixture();
+  try {
+    fs.writeFileSync(path.join(root, 'huge.ts'), 'x'.repeat(2 * 1024 * 1024 + 10), 'utf8');
+    const huge = resolveCodeReference(root, {
+      path: 'huge.ts',
+      startLine: 1,
+      endLine: 1,
+      confidence: 'explicit-line',
+      raw: ''
+    });
+    assert.equal(huge.resolved, undefined);
+    assert.match(huge.error, /超过/);
+
+    const longLines = Array.from({ length: 80 }, () => 'z'.repeat(40)).join('\n');
+    fs.writeFileSync(path.join(root, 'long.ts'), `${longLines}\n`, 'utf8');
+    const range = resolveCodeReference(root, {
+      path: 'long.ts',
+      startLine: 1,
+      endLine: 80,
+      confidence: 'explicit-line',
+      raw: ''
+    });
+    assert.equal(range.resolved, undefined);
+    assert.match(range.error, /超过上限/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

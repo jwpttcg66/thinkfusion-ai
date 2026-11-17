@@ -38,6 +38,34 @@ export interface EvidencePackItemLocator {
   symbolName?: string;
 }
 
+export interface EvidencePackSnapshotRange {
+  startLine: number;
+  endLine: number;
+  /** 片段原始 UTF-8 内容的 sha256，不是 Pack blob hash。 */
+  contentHash: string;
+}
+
+export interface EvidencePackSnapshotIssue {
+  code: string;
+  path?: string;
+  message: string;
+}
+
+export interface EvidencePackSnapshotFile {
+  path: string;
+  ranges: EvidencePackSnapshotRange[];
+  issues: EvidencePackSnapshotIssue[];
+}
+
+export interface EvidencePackSnapshot {
+  version: 1;
+  dirty: boolean;
+  dirtyFingerprint?: string;
+  files: EvidencePackSnapshotFile[];
+  /** 无法冻结的文件/全局错误；不能只拼成一句 reason。 */
+  errors: EvidencePackSnapshotIssue[];
+}
+
 export interface EvidencePackItemMeta {
   tool: string;
   /** 不参与 hash：同一条证据换一次采集时间，仍然算同一份内容。 */
@@ -84,6 +112,8 @@ export interface EvidencePackManifest {
   idempotencyKey: string;
   repo: { commit: string; dirty: boolean; branch?: string };
   items: EvidencePackManifestItem[];
+  /** 结构化 dirty overlay 元数据；旧 Schema v1 Pack 没有。 */
+  snapshot?: EvidencePackSnapshot;
   manifestHash: string;
   createdAt: number;
 }
@@ -91,6 +121,8 @@ export interface EvidencePackManifest {
 export interface EvidencePackDraft {
   /** 只用于读源码，不写入 manifest。 */
   repoRoot: string;
+  /** 结构化快照元数据；旧 Pack 没有这个字段。 */
+  snapshot?: EvidencePackSnapshot;
   idempotencyKey: string;
   repo: { commit: string; dirty?: boolean; branch?: string };
   createdAt?: number;
@@ -119,6 +151,7 @@ export type EvidencePackErrorCode =
   | 'UNSUPPORTED_VERSION'
   | 'MANIFEST_CORRUPT'
   | 'BLOB_CORRUPT'
+  | 'SNAPSHOT_CORRUPT'
   | 'UNMAPPED_ITEM';
 
 export class EvidencePackError extends Error {

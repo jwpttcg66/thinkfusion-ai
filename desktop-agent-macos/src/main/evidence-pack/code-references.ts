@@ -38,6 +38,10 @@ export interface CodeReferenceResolution {
   error?: string;
 }
 
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_LINE_COUNT = 20_000;
+const MAX_EXCERPT_CHARS = 2_000;
+
 const PATH_WITH_LINE = /(?:^|[^\w/])((?:[\w.@+-]+\/)*[\w.@+-]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?(?![\w])/g;
 const PATH_WITH_HASH = /(?:^|[^\w/])((?:[\w.@+-]+\/)*[\w.@+-]+\.[A-Za-z0-9]+)#L(\d+)(?:-L(\d+))?/gi;
 const PATH_IN_BACKTICKS = /`((?:[\w.@+-]+\/)*[\w.@+-]+\.[A-Za-z0-9]+)`/g;
@@ -130,36 +134,71 @@ export function resolveCodeReference(
     return { error: `路径越出仓库：${candidate.path}` };
   }
 
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(absolute);
-  } catch {
-    return { error: `文件不存在：${candidate.path}` };
+  // 逐级检查目录组件：只检查最终文件挡不住 `src -> /outside` 这种中间链接。
+  let cursor = root;
+  const parts = relative.split('/').filter(Boolean);
+  for (const [index, part] of parts.entries()) {
+    cursor = path.join(cursor, part);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(cursor);
+    } catch {
+      return { error: `文件不存在：${candidate.path}` };
+    }
+    if (stat.isSymbolicLink()) return { error: `路径包含符号链接：${candidate.path}` };
+    if (index < parts.length - 1 && !stat.isDirectory()) {
+      return { error: `路径中间不是目录：${candidate.path}` };
+    }
+    if (index === parts.length - 1 && !stat.isFile()) {
+      return { error: `不是普通文件：${candidate.path}` };
+    }
+    if (stat.size > MAX_FILE_BYTES) {
+      return { error: `文件超过 ${String(MAX_FILE_BYTES)} 字节：${candidate.path}` };
+    }
   }
-  if (stat.isSymbolicLink()) return { error: `符号链接不读取目标内容：${candidate.path}` };
-  if (!stat.isFile()) return { error: `不是普通文件：${candidate.path}` };
 
   let content: string;
   try {
-    const raw = fs.readFileSync(absolute);
-    if (raw.includes(0) || Buffer.from(raw.toString('utf8'), 'utf8').compare(raw) !== 0) {
-      return { error: `二进制/非 UTF-8 文件不能作为代码证据：${candidate.path}` };
+    // O_NOFOLLOW 挡住「检查后最终文件被替换成符号链接」这一种竞态；
+    // 父目录在检查和打开之间被整体替换的竞态无法完全消除，见文档。
+    const fd = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) return { error: `不是普通文件：${candidate.path}` };
+      if (stat.size > MAX_FILE_BYTES) {
+        return { error: `文件超过 ${String(MAX_FILE_BYTES)} 字节：${candidate.path}` };
+      }
+      const raw = Buffer.alloc(stat.size);
+      fs.readSync(fd, raw, 0, stat.size, 0);
+      if (raw.includes(0) || Buffer.from(raw.toString('utf8'), 'utf8').compare(raw) !== 0) {
+        return { error: `二进制/非 UTF-8 文件不能作为代码证据：${candidate.path}` };
+      }
+      content = raw.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
     }
-    content = raw.toString('utf8');
   } catch {
     return { error: `读不到文件：${candidate.path}` };
   }
 
-  const lines = content.split(/\r?\n/);
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  if (lines.length > MAX_LINE_COUNT) {
+    return { error: `文件行数超过 ${String(MAX_LINE_COUNT)}：${candidate.path}` };
+  }
   const startLine = candidate.startLine ?? 1;
   const endLine = candidate.endLine ?? startLine;
-  if (startLine < 1 || endLine < startLine || endLine > lines.length) {
+  if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine) ||
+      startLine < 1 || endLine < startLine || endLine > lines.length) {
     return {
       error: `行号越界：${candidate.path}:${String(startLine)}-${String(endLine)}（文件 ${String(lines.length)} 行）`
     };
   }
   const excerpt = lines.slice(startLine - 1, endLine).join('\n');
   if (excerpt.length === 0) return { error: `引用片段为空：${candidate.path}:${String(startLine)}-${String(endLine)}` };
+  if (excerpt.length > MAX_EXCERPT_CHARS) {
+    return { error: `引用片段 ${String(excerpt.length)} 字符，超过上限 ${String(MAX_EXCERPT_CHARS)}` };
+  }
 
   return {
     resolved: {
