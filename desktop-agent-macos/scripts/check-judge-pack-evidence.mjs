@@ -334,7 +334,7 @@ test('runtime Claim + 静态代码：supports 被拒绝', async () => {
     })
   }).judge(debate);
   assert.equal(verdict.packEvidence, undefined);
-  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('执行证据')));
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('执行断言')));
 });
 
 test('evidenceId 规范化：只允许补 pack: 前缀且必须唯一匹配', async () => {
@@ -379,4 +379,78 @@ test('evidenceId 无法唯一匹配：拒绝，不做模糊补全', async () => 
   }).judge(debate);
   assert.equal(verdict.packEvidence, undefined);
   assert.ok(verdict.packEvidenceRejected.some(item => item.includes('未提供')));
+});
+
+function runtimeState(execution) {
+  const debate = state();
+  debate.rounds[0].claims[0].claimScope = 'runtime';
+  debate.packEvidence[0].execution = execution;
+  debate.evidence[0].execution = execution;
+  return debate;
+}
+
+test('runtime + 与 Claim 关联的 passed 断言：supports 接受', async () => {
+  const debate = runtimeState({
+    kind: 'test-result', exitCode: 0, assertion: 'passed', verifiesClaimIds: ['c1'], reference: 'cache.test.ts'
+  });
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1', evidenceId, relation: 'supports', reason: '对应断言通过', confidence: 'high', limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence.length, 1);
+  assert.equal(verdict.packEvidence[0].relation, 'supports');
+});
+
+test('runtime + 无关成功测试：supports 被拒绝', async () => {
+  const debate = runtimeState({
+    kind: 'test-result', exitCode: 0, assertion: 'passed', verifiesClaimIds: ['other-claim'], reference: 'unrelated.test.ts'
+  });
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1', evidenceId, relation: 'supports', reason: '测试通过', confidence: 'high', limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence, undefined);
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('执行断言')));
+});
+
+test('runtime + 与 Claim 关联的 failed 断言：contradicts 接受', async () => {
+  const debate = runtimeState({
+    kind: 'test-result', exitCode: 1, assertion: 'failed', verifiesClaimIds: ['c1'], reference: 'cache.test.ts'
+  });
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1', evidenceId, relation: 'contradicts', reason: '对应断言失败', confidence: 'high', limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence.length, 1);
+  assert.equal(verdict.packEvidence[0].relation, 'contradicts');
+});
+
+test('runtime + 只有 exitCode=0、没有 assertion：supports 被拒绝', async () => {
+  const debate = runtimeState({ kind: 'command-result', exitCode: 0 });
+  const verdict = await new JudgeEngine({
+    judgeAgentId: 'judge',
+    ask: async () => answer({
+      ...base,
+      packEvidence: [{
+        claimId: 'c1', evidenceId, relation: 'supports', reason: '命令成功', confidence: 'high', limitations: []
+      }]
+    })
+  }).judge(debate);
+  assert.equal(verdict.packEvidence, undefined);
+  assert.ok(verdict.packEvidenceRejected.some(item => item.includes('执行断言')));
 });

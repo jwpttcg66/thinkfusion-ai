@@ -1,0 +1,838 @@
+{
+  "schema": "thinkfusion.pack-judge-regression/v1",
+  "version": "1.3.0",
+  "commit": "c0ffee0000000000000000000000000000000000",
+  "note": "P3-F.2：保留 v1.2；E11 拆 code/runtime，F03/F04 改为同一结构 Claim，新增 Runtime 执行证据 R01–R03。",
+  "cases": [
+    {
+      "id": "A1-code-exists-not-called",
+      "question": "这段代码能证明该函数在请求路径中被调用吗？",
+      "claim": {
+        "id": "c1",
+        "text": "该函数在请求处理路径中被调用。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000001",
+          "path": "src/util.ts",
+          "startLine": 1,
+          "endLine": 3,
+          "excerpt": "export function normalize(input: string) {\n  return input.trim();\n}",
+          "evidenceId": "pack:pack_0000000000000001:item_0000000000000001",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "调用",
+          "运行"
+        ]
+      },
+      "packId": "pack_0000000000000001",
+      "fixtureSha256": "9ac1889b1399c559099a7b823db01a6a9b1db0edf5731572781b5ebdf9f83f5f"
+    },
+    {
+      "id": "A2-cache-write-not-hit",
+      "question": "代码存在缓存写入，能证明缓存一定命中吗？",
+      "claim": {
+        "id": "c1",
+        "text": "生产环境中缓存一定会命中。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000002",
+          "path": "src/cache.ts",
+          "startLine": 10,
+          "endLine": 14,
+          "excerpt": "cache.set(key, value);\n// write-through\nreturn value;",
+          "evidenceId": "pack:pack_0000000000000002:item_0000000000000002",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "命中",
+          "运行"
+        ]
+      },
+      "packId": "pack_0000000000000002",
+      "fixtureSha256": "bb3ebd631e04668ddf138bc70454f785b10dc0b616948fe2f691504339423a60"
+    },
+    {
+      "id": "A3-catch-not-all-errors",
+      "question": "存在 try/catch 能证明所有异常都被处理吗？",
+      "claim": {
+        "id": "c1",
+        "text": "所有异常都会被这段代码处理。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000003",
+          "path": "src/job.ts",
+          "startLine": 20,
+          "endLine": 26,
+          "excerpt": "try {\n  await run();\n} catch (error) {\n  log(error);\n}",
+          "evidenceId": "pack:pack_0000000000000003:item_0000000000000003",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "范围",
+          "所有"
+        ]
+      },
+      "packId": "pack_0000000000000003",
+      "fixtureSha256": "0d78080badd1e50ee00e2916fc8d965d63718ae2f7688be1312d9aa949130311"
+    },
+    {
+      "id": "B4-condition-branch",
+      "question": "代码是否实现了 flag=true 时走 fastPath 的条件分支？",
+      "claim": {
+        "id": "c1",
+        "text": "当 flag 为 true 时，代码会调用 fastPath()。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000004",
+          "path": "src/router.ts",
+          "startLine": 42,
+          "endLine": 47,
+          "excerpt": "if (flag) {\n  return fastPath(input);\n}\nreturn slowPath(input);",
+          "evidenceId": "pack:pack_0000000000000004:item_0000000000000004",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "分支",
+          "条件"
+        ]
+      },
+      "packId": "pack_0000000000000004",
+      "fixtureSha256": "6ef5013b555a2a234ca01e33f881024a050163508946f88a7b14321869fb8c63"
+    },
+    {
+      "id": "B5-param-validation",
+      "question": "代码是否实现了“id 必须是非空字符串，否则抛错”？",
+      "claim": {
+        "id": "c1",
+        "text": "参数 id 必须是非空字符串，否则会抛出错误。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000005",
+          "path": "src/validate.ts",
+          "startLine": 5,
+          "endLine": 11,
+          "excerpt": "if (typeof id !== \"string\" || id.length === 0) {\n  throw new Error(\"invalid id\");\n}",
+          "evidenceId": "pack:pack_0000000000000005:item_0000000000000005",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "参数",
+          "校验"
+        ]
+      },
+      "packId": "pack_0000000000000005",
+      "fixtureSha256": "6ce9b6d9b4a10268eeb422b389d2a5d219d81a9b973b1d91a39227ebf3d60180"
+    },
+    {
+      "id": "C6-else-branch-contradicts",
+      "question": "Claim 说条件成立时只执行 A，不执行 B；代码是否相反？",
+      "claim": {
+        "id": "c1",
+        "text": "条件成立时一定执行 A，不会执行 B。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000006",
+          "path": "src/branch.ts",
+          "startLine": 30,
+          "endLine": 36,
+          "excerpt": "if (condition) {\n  executeB();\n} else {\n  executeA();\n}",
+          "evidenceId": "pack:pack_0000000000000006:item_0000000000000006",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "contradicts",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "分支",
+          "相反"
+        ]
+      },
+      "packId": "pack_0000000000000006",
+      "fixtureSha256": "313d8ce842c2ea2eb555f4d23d3f0bec5e190890a4cd6258a0f3bb142802b877"
+    },
+    {
+      "id": "C7-limit-has-cap",
+      "question": "Claim 说 limit 没有上限；代码是否有上限检查？",
+      "claim": {
+        "id": "c1",
+        "text": "limit 参数没有上限。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000007",
+          "path": "src/query.ts",
+          "startLine": 12,
+          "endLine": 18,
+          "excerpt": "if (limit > 100) {\n  throw new RangeError(\"limit too large\");\n}\nreturn query(limit);",
+          "evidenceId": "pack:pack_0000000000000007:item_0000000000000007",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "contradicts",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "上限",
+          "检查"
+        ]
+      },
+      "packId": "pack_0000000000000007",
+      "fixtureSha256": "c68240197caf2024704f8348d1b3a5ef45f80437c5d850fc66152775a0205ed8"
+    },
+    {
+      "id": "D8-call-without-implementation",
+      "question": "只有调用点、没有实现，能证明函数返回 42 吗？",
+      "claim": {
+        "id": "c1",
+        "text": "函数 compute 返回 42。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000008",
+          "path": "src/caller.ts",
+          "startLine": 8,
+          "endLine": 10,
+          "excerpt": "const result = compute(input);\nreturn result;",
+          "evidenceId": "pack:pack_0000000000000008:item_0000000000000008",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "实现",
+          "调用"
+        ]
+      },
+      "packId": "pack_0000000000000008",
+      "fixtureSha256": "805bc72114c224d07265f5f82f2b9bc87d8b78476c17d5e3ace2ca4e673358a6"
+    },
+    {
+      "id": "D9-static-code-runtime-claim",
+      "question": "静态代码能证明生产缓存命中率超过 90% 吗？",
+      "claim": {
+        "id": "c1",
+        "text": "生产环境缓存命中率在 90% 以上。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000009",
+          "path": "src/cache.ts",
+          "startLine": 60,
+          "endLine": 66,
+          "excerpt": "const cached = cache.get(key);\nif (cached) return cached;\nreturn fetchFresh(key);",
+          "evidenceId": "pack:pack_0000000000000009:item_0000000000000009",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "运行",
+          "命中率"
+        ]
+      },
+      "packId": "pack_0000000000000009",
+      "fixtureSha256": "bd0f7f33b7ad51b8d944aa183e99405ba6a0bcabeb117276ccb43fc9d420a6fc"
+    },
+    {
+      "id": "E12-valid-id-irrelevant",
+      "question": "合法 evidenceId 但证据不相关时，不能自动判 supports。",
+      "claim": {
+        "id": "c1",
+        "text": "这段代码会执行三次重试。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000013",
+          "path": "src/noop.ts",
+          "startLine": 1,
+          "endLine": 3,
+          "excerpt": "// TODO: implement retry\nreturn;",
+          "evidenceId": "pack:pack_0000000000000012:item_0000000000000013",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "未实现",
+          "重试"
+        ]
+      },
+      "packId": "pack_0000000000000012",
+      "fixtureSha256": "16846a9408725d0d97b1b916de7a72dd9bfb43b3aabb60e33e268e00b7536833"
+    },
+    {
+      "id": "F01-no-retry-code",
+      "question": "片段没有重试代码，能证明系统不重试吗？",
+      "claim": {
+        "id": "c1",
+        "text": "系统会重试三次。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000014",
+          "path": "src/run.ts",
+          "startLine": 1,
+          "endLine": 3,
+          "excerpt": "attemptOnce();\nreturn result;",
+          "evidenceId": "pack:pack_0000000000000013:item_0000000000000014",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "未覆盖",
+          "片段"
+        ]
+      },
+      "packId": "pack_0000000000000013",
+      "fixtureSha256": "c2ef44674e2a91ff561f8ef1bcfd94bdbee9c83af7b9e4146399ed03faf1e0a7"
+    },
+    {
+      "id": "F02-todo-retry",
+      "question": "TODO retry 能证明重试已实现吗？",
+      "claim": {
+        "id": "c1",
+        "text": "系统会重试三次。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000015",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 3,
+          "excerpt": "// TODO: implement retry\nreturn result;",
+          "evidenceId": "pack:pack_0000000000000014:item_0000000000000015",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports",
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "TODO",
+          "未完成"
+        ]
+      },
+      "packId": "pack_0000000000000014",
+      "fixtureSha256": "3afe0b1cc3215832c2dde0c84059d4b44899d018de5ac3c0f6b4773abfa9e3dd"
+    },
+    {
+      "id": "F03-complete-three-retries",
+      "question": "完整方法实现了三次重试吗？",
+      "claim": {
+        "id": "c1",
+        "text": "run() 中存在一个最多迭代三次并调用 attempt() 的循环",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000016",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 6,
+          "excerpt": "function run() {\n  for (let i = 0; i < 3; i += 1) {\n    attempt();\n  }\n}",
+          "evidenceId": "pack:pack_0000000000000015:item_0000000000000016",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "方法",
+          "三次"
+        ]
+      },
+      "packId": "pack_0000000000000015",
+      "fixtureSha256": "935792e62a67e48343d51b9ded6ec810bb39fdc9b06cb119b51d9eea0477bd01"
+    },
+    {
+      "id": "F04-complete-single-attempt",
+      "question": "完整方法只执行一次，是否反驳“重试三次”？",
+      "claim": {
+        "id": "c1",
+        "text": "run() 中存在一个最多迭代三次并调用 attempt() 的循环",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000017",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 3,
+          "excerpt": "function run() {\n  return attempt();\n}",
+          "evidenceId": "pack:pack_0000000000000016:item_0000000000000017",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "contradicts",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "方法",
+          "一次"
+        ]
+      },
+      "packId": "pack_0000000000000016",
+      "fixtureSha256": "eef577b65b52b2de76a61bf7ce20900f1009673aebe31710815169be6e88b9fe"
+    },
+    {
+      "id": "F05-caller-only",
+      "question": "只有调用方，能证明被调方法返回 42 吗？",
+      "claim": {
+        "id": "c1",
+        "text": "compute 方法返回 42。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000018",
+          "path": "src/call.ts",
+          "startLine": 1,
+          "endLine": 2,
+          "excerpt": "const value = compute(input);",
+          "evidenceId": "pack:pack_0000000000000017:item_0000000000000018",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "实现",
+          "调用"
+        ]
+      },
+      "packId": "pack_0000000000000017",
+      "fixtureSha256": "38a6ab06be686f1837022c91d406e56564cea23aac4c4feb90d2a8abe404293d"
+    },
+    {
+      "id": "F06-retry-five",
+      "question": "代码把重试次数设为 5，Claim 说 3，方向是什么？",
+      "claim": {
+        "id": "c1",
+        "text": "代码会重试三次。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000019",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 4,
+          "excerpt": "const MAX_RETRIES = 5;\nfor (let i = 0; i < MAX_RETRIES; i += 1) {\n  attempt();\n}",
+          "evidenceId": "pack:pack_0000000000000018:item_0000000000000019",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "contradicts",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "5",
+          "次数"
+        ]
+      },
+      "packId": "pack_0000000000000018",
+      "fixtureSha256": "f6d3acb3b612c3ee7c6def1885f1a6e8afa2d6bc9f9f7399988e11d5889daacc"
+    },
+    {
+      "id": "F07-comment-only",
+      "question": "只有注释说支持重试，能证明实现了吗？",
+      "claim": {
+        "id": "c1",
+        "text": "系统实现了三次重试。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000020",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 1,
+          "excerpt": "// retry is supported by the runtime",
+          "evidenceId": "pack:pack_0000000000000019:item_0000000000000020",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports",
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "注释",
+          "实现"
+        ]
+      },
+      "packId": "pack_0000000000000019",
+      "fixtureSha256": "ccc1cd96bc75c0898e408278d92a439598c918e97bd4903e27945362d9bb933a"
+    },
+    {
+      "id": "F08-other-module-uncovered",
+      "question": "当前证据只包含配置读取，能证明系统重试三次吗？",
+      "claim": {
+        "id": "c1",
+        "text": "系统会重试三次。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000021",
+          "path": "src/config.ts",
+          "startLine": 1,
+          "endLine": 2,
+          "excerpt": "const retry = config.retry;",
+          "evidenceId": "pack:pack_0000000000000020:item_0000000000000021",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "其他模块",
+          "覆盖"
+        ]
+      },
+      "packId": "pack_0000000000000020",
+      "fixtureSha256": "34f922592fa48d3cc63656b25d4af3a76f0a981c7628359bfe093cc6c1bd9979"
+    },
+    {
+      "id": "E10-CODE",
+      "question": "该方法实现了三次重试循环。",
+      "claim": {
+        "id": "c1",
+        "text": "该方法实现了三次重试循环。",
+        "scope": "code"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000022",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 6,
+          "excerpt": "for (let i = 0; i < 3; i += 1) {\n  attempt();\n}",
+          "evidenceId": "pack:pack_0000000000000022:item_0000000000000022",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "循环",
+          "三次"
+        ]
+      },
+      "packId": "pack_0000000000000022",
+      "fixtureSha256": "9bfdcbcd9ede8cb550c5593ac6ae3f304ca5ecb3e2fab50204247c10a410bdb3"
+    },
+    {
+      "id": "E10-RUNTIME",
+      "question": "系统运行时会执行三次重试。",
+      "claim": {
+        "id": "c1",
+        "text": "系统运行时会执行三次重试。",
+        "scope": "runtime"
+      },
+      "evidence": [
+        {
+          "itemId": "item_0000000000000023",
+          "path": "src/retry.ts",
+          "startLine": 1,
+          "endLine": 6,
+          "excerpt": "for (let i = 0; i < 3; i += 1) {\n  attempt();\n}",
+          "evidenceId": "pack:pack_0000000000000023:item_0000000000000023",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "运行",
+          "执行"
+        ]
+      },
+      "packId": "pack_0000000000000023",
+      "fixtureSha256": "53d8e48b31112e14239ab79eaa1db08d6bee99bbc5948c125f28ce254914100c"
+    },
+    {
+      "id": "E11-CODE",
+      "question": "代码是否调用了日志记录函数？",
+      "claim": {
+        "id": "c1",
+        "text": "代码调用 logger.info() 记录日志。",
+        "scope": "code"
+      },
+      "packId": "pack_0000000000000024",
+      "evidence": [
+        {
+          "itemId": "item_0000000000000024",
+          "path": "src/log.ts",
+          "startLine": 1,
+          "endLine": 2,
+          "excerpt": "logger.info(\"started\");\nlogger.info(\"finished\");",
+          "evidenceId": "pack:pack_0000000000000024:item_0000000000000024",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "日志",
+          "调用"
+        ]
+      },
+      "fixtureSha256": "7c39ba948f7d3fa7e3d4b611655f0aa3a72914ea92c12e4e7d1315ae06a46a90"
+    },
+    {
+      "id": "E11-RUNTIME",
+      "question": "运行时日志是否实际写入目标日志系统？",
+      "claim": {
+        "id": "c1",
+        "text": "运行时日志会写入目标日志系统。",
+        "scope": "runtime"
+      },
+      "packId": "pack_0000000000000024",
+      "evidence": [
+        {
+          "itemId": "item_0000000000000024",
+          "path": "src/log.ts",
+          "startLine": 1,
+          "endLine": 2,
+          "excerpt": "logger.info(\"started\");\nlogger.info(\"finished\");",
+          "evidenceId": "pack:pack_0000000000000024:item_0000000000000024",
+          "allowed": true
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "运行",
+          "写入"
+        ]
+      },
+      "fixtureSha256": "7c39ba948f7d3fa7e3d4b611655f0aa3a72914ea92c12e4e7d1315ae06a46a90"
+    },
+    {
+      "id": "R01-runtime-unrelated-test",
+      "question": "运行时缓存命中率是否超过 90%？",
+      "claim": {
+        "id": "c1",
+        "text": "运行时缓存命中率超过 90%。",
+        "scope": "runtime"
+      },
+      "packId": "pack_0000000000000025",
+      "evidence": [
+        {
+          "itemId": "item_0000000000000025",
+          "path": "tests/unrelated.test.ts",
+          "startLine": 1,
+          "endLine": 1,
+          "excerpt": "PASS unrelated.test.ts",
+          "evidenceId": "pack:pack_0000000000000025:item_0000000000000025",
+          "allowed": true,
+          "execution": {
+            "kind": "test-result",
+            "exitCode": 0,
+            "assertion": "passed",
+            "verifiesClaimIds": [
+              "c-other"
+            ],
+            "reference": "unrelated.test.ts"
+          }
+        }
+      ],
+      "expected": {
+        "relation": "context",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "无关",
+          "断言"
+        ]
+      },
+      "fixtureSha256": "e011abe77706394c396ecb4db4e8f1f76a2815f46e1fa416e64dbd8a09de6fb0"
+    },
+    {
+      "id": "R02-runtime-linked-pass",
+      "question": "运行时缓存命中率是否超过 90%？",
+      "claim": {
+        "id": "c1",
+        "text": "运行时缓存命中率超过 90%。",
+        "scope": "runtime"
+      },
+      "packId": "pack_0000000000000026",
+      "evidence": [
+        {
+          "itemId": "item_0000000000000026",
+          "path": "tests/cache.test.ts",
+          "startLine": 1,
+          "endLine": 1,
+          "excerpt": "PASS cache.test.ts > hit rate > 90%",
+          "evidenceId": "pack:pack_0000000000000026:item_0000000000000026",
+          "allowed": true,
+          "execution": {
+            "kind": "test-result",
+            "exitCode": 0,
+            "assertion": "passed",
+            "verifiesClaimIds": [
+              "c1"
+            ],
+            "reference": "cache.test.ts > hit rate"
+          }
+        }
+      ],
+      "expected": {
+        "relation": "supports",
+        "forbidden": [
+          "contradicts"
+        ],
+        "limitationsKeywords": [
+          "断言",
+          "命中率"
+        ]
+      },
+      "fixtureSha256": "4236fae07d46f5b135e9d395aab721aac1bde011bb90dba1b4d444e0a710051d"
+    },
+    {
+      "id": "R03-runtime-linked-fail",
+      "question": "运行时缓存命中率是否超过 90%？",
+      "claim": {
+        "id": "c1",
+        "text": "运行时缓存命中率超过 90%。",
+        "scope": "runtime"
+      },
+      "packId": "pack_0000000000000027",
+      "evidence": [
+        {
+          "itemId": "item_0000000000000027",
+          "path": "tests/cache.test.ts",
+          "startLine": 1,
+          "endLine": 1,
+          "excerpt": "FAIL cache.test.ts > hit rate > 90%",
+          "evidenceId": "pack:pack_0000000000000027:item_0000000000000027",
+          "allowed": true,
+          "execution": {
+            "kind": "test-result",
+            "exitCode": 1,
+            "assertion": "failed",
+            "verifiesClaimIds": [
+              "c1"
+            ],
+            "reference": "cache.test.ts > hit rate"
+          }
+        }
+      ],
+      "expected": {
+        "relation": "contradicts",
+        "forbidden": [
+          "supports"
+        ],
+        "limitationsKeywords": [
+          "断言",
+          "失败"
+        ]
+      },
+      "fixtureSha256": "8439ab3fba497b2a4d367e58650aaed1ecc463cd2161b3539467369203a2698b"
+    }
+  ],
+  "sha256": "c28ae15d01d31a6e7e30afb6565658941da9c54a4f4db94828de6057d37287d1"
+}
