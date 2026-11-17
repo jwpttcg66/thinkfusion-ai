@@ -105,7 +105,10 @@ function packPrompt(context: readonly PackContextItem[]): string[] {
   return [
     '本轮有冻结的工程证据。你只能引用下面列出的 claimId + evidenceId 组合，不得编造或改写 ID：',
     ...context.map(item => `- claim ${item.claimId} ← ${item.evidenceId} · ${item.path} · ${item.excerpt}`),
-    '如果工程证据只能说明「代码存在」但不能证明主张，relation 必须是 context，不能写成 supports。',
+    'relation 是这段证据相对于原 Claim 的方向；如果证据表明 Claim 不成立，必须写 contradicts。不要因为「证据支持你认为 Claim 错了」就写 supports。',
+    '源码片段只能证明代码存在/结构。涉及运行时行为（命中率、一定发生、实际调用、所有异常都被处理等）时，除非有成功执行结果，否则只能是 context。',
+    '片段没有覆盖或没有展示某行为，不等于该行为不存在；这种情况用 context，不要用 contradicts。',
+    '只有片段直接展示与 Claim 相反的代码路径/条件时，才用 contradicts。',
     '输出 JSON 增加 packEvidence 数组：{"claimId":string,"evidenceId":string,"relation":"supports"|"contradicts"|"context","reason":string,"confidence":"low"|"medium"|"high","limitations":string[]}'
   ];
 }
