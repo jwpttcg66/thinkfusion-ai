@@ -86,3 +86,12 @@
 - 当前只有 `deepseek-v4.1-flash`，不能宣称多模型通过。
 
 P3-F 通过后仍不等于 P3 完成：UI 展示、执行证据、P4 外部核验未做。
+
+
+---
+
+## 6. P3-F.1 结果
+
+claimScope 与 evidenceId 规范化已实现；v1.2 把 E10 拆成 code/runtime 两例。
+真实回归仍未通过：E11 的 code scope 与数据集 context 预期冲突，F03/F04 的“重试”措辞仍含糊。
+详见 `DEBATE_V4_1_P3_F1_SCOPE.md`。

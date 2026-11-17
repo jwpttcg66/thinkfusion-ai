@@ -22,8 +22,8 @@ const DATASET = datasetArg
   ? path.resolve(process.cwd(), datasetArg.slice('--dataset='.length))
   : path.join(__dirname, '..', '..', '..', 'docs', 'implementation', 'regression', 'pack-judge-regression-v1.json');
 const OUT_DIR = path.dirname(DATASET);
-const PROMPT_VERSION = 'p3f-1.1.0';
-const FILE_PREFIX = 'pack-judge-regression-p3f';
+const PROMPT_VERSION = 'p3f1-1.2.0';
+const FILE_PREFIX = 'pack-judge-regression-p3f1';
 const RUNS_PER_CASE = 3;
 const TEMPERATURE = 0;
 const SEED = 42;
@@ -64,7 +64,8 @@ function stateFor(item, commit) {
     span: { messageId: `m-${item.id}`, start: 0, end: item.claim.text.length },
     assumptions: [],
     evidenceDrafts: [],
-    status: 'proposed'
+    status: 'proposed',
+    ...(item.claim.scope ? { claimScope: item.claim.scope } : {})
   };
   const evidence = item.evidence.map(entry => ({
     evidenceId: entry.evidenceId,
@@ -258,6 +259,7 @@ app.whenReady().then(async () => {
     }
     cases.push({
       caseId: item.id,
+      claim: item.claim,
       packId: item.packId,
       fixtureSha256: item.fixtureSha256,
       judgeModel,
@@ -282,8 +284,20 @@ app.whenReady().then(async () => {
     const relations = item.runs.map(run => run.primaryRelation ?? 'none');
     return { caseId: item.caseId, relations, consistent: new Set(relations).size === 1 };
   });
+  const byScope = {};
+  for (const item of cases) {
+    const scope = item.claim?.scope ?? 'missing';
+    byScope[scope] = byScope[scope] ?? { total: 0, correct: 0 };
+    byScope[scope].total += item.runs.length;
+    byScope[scope].correct += item.runs.filter(run => run.relationCorrect).length;
+  }
+  const acceptedAll = allRuns.flatMap(run => run.accepted);
   const metrics = {
     calls: allRuns.reduce((sum, run) => sum + run.rawCalls.length, 0),
+    noJudgment: allRuns.filter(run => !run.primaryRelation).length,
+    normalizedIds: acceptedAll.filter(item => item.normalized).length,
+    missingScope: cases.filter(item => !item.claim?.scope).length,
+    scopeAccuracy: Object.fromEntries(Object.entries(byScope).map(([key, value]) => [key, rate(value.correct, value.total)])),
     caseRuns: allRuns.length,
     modelBackend: modelRuns.length,
     modelSuccessRate: rate(modelRuns.length, allRuns.length),

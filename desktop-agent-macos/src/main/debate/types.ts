@@ -88,8 +88,15 @@ export type ClaimStatus = 'proposed' | 'supported' | 'challenged' | 'revised' | 
 export type DisputeType = 'factual' | 'logical' | 'scope' | 'evidence_conflict' | 'definitional';
 
 /** 从发言里抽出的一句可单独判断真假的话。 */
+export type ClaimScope = 'code' | 'runtime';
+
 export interface DebateClaim {
   claimId: string;
+  /**
+   * Claim 的语义层级。由 Claim 创建方提供，裁判不得自行猜测；
+   * 老记录没有这个字段，裁判对非 context 判断采取保守拒绝。
+   */
+  claimScope?: ClaimScope;
   messageId: string;
   /** 谁说的。跨参与者才算得出争议，靠的就是这一列。 */
   agentId: string;

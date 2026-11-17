@@ -23,6 +23,11 @@ export interface EvidenceAssessment {
 export interface PackEvidenceAssessment {
   claimId: string;
   evidenceId: string;
+  /** 模型原始输出的 ID；规范化前的值。 */
+  rawEvidenceId: string;
+  canonicalEvidenceId: string;
+  normalized: boolean;
+  normalizationRule?: 'add-pack-prefix';
   relation: 'supports' | 'contradicts' | 'context';
   reason: string;
   confidence: 'low' | 'medium' | 'high';
