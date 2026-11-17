@@ -14,9 +14,10 @@ function relationOf(run) {
   return run.primaryRelation ?? 'none';
 }
 
-function compare(baseline, current) {
+function compare(baseline, current, options = {}) {
   const problems = [];
-  if (baseline?.dataset?.sha256 !== current?.dataset?.sha256) problems.push('数据集不同，不能比较');
+  const datasetChanged = baseline?.dataset?.sha256 !== current?.dataset?.sha256;
+  if (datasetChanged && !options.allowDatasetOverlap) problems.push('数据集不同，不能比较');
   if (baseline?.environment?.runsPerCase !== current?.environment?.runsPerCase) problems.push('每次运行次数不同');
   const modelsA = (baseline.environment.models ?? []).join(',');
   const modelsB = (current.environment.models ?? []).join(',');
@@ -24,7 +25,19 @@ function compare(baseline, current) {
 
   const before = new Map((baseline.cases ?? []).map(item => [item.caseId, item]));
   const after = new Map((current.cases ?? []).map(item => [item.caseId, item]));
-  const ids = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const overlap = [...before.keys()].filter(id => after.has(id));
+  if (datasetChanged && options.allowDatasetOverlap) {
+    for (const id of overlap) {
+      const a = before.get(id);
+      const b = after.get(id);
+      if (a.fixtureSha256 !== b.fixtureSha256 || a.expected?.relation !== b.expected?.relation) {
+        problems.push(`共同题 ${id} 的 fixture 或预期变了，不能按重叠题比较`);
+      }
+    }
+  }
+  const ids = (datasetChanged && options.allowDatasetOverlap
+    ? overlap
+    : [...new Set([...before.keys(), ...after.keys()])]).sort();
   const rows = ids.map(id => {
     const a = before.get(id);
     const b = after.get(id);
@@ -41,6 +54,7 @@ function compare(baseline, current) {
   return {
     comparable: problems.length === 0,
     problems,
+    overlapOnly: datasetChanged && options.allowDatasetOverlap,
     rows,
     metrics: { before: baseline.metrics ?? {}, after: current.metrics ?? {} }
   };
@@ -51,6 +65,9 @@ function markdown(outcome, labels) {
   if (!outcome.comparable) {
     lines.push('## 口径不同，不作逐题差异', '', ...outcome.problems.map(item => `- ${item}`), '');
     return lines.join('\n');
+  }
+  if (outcome.overlapOnly) {
+    lines.push('> 数据集 hash 不同；本次只比较 fixture 与预期未变的共同题。', '');
   }
   lines.push('## 指标', '', '| 指标 | 基线 | 本次 |', '| --- | ---: | ---: |');
   const keys = ['modelSuccessRate', 'jsonFirstAttempt', 'fallbackRate', 'invalidIdAccepted', 'forbiddenAccepted', 'sourceMismatch', 'consistencyRate'];
@@ -68,8 +85,10 @@ function markdown(outcome, labels) {
 function main() {
   const args = process.argv.slice(2).filter(item => !item.startsWith('--'));
   const outArg = process.argv.find(item => item.startsWith('--out='));
-  if (args.length < 2) throw new Error('用法：node scripts/regression/compare-pack-judge.cjs <baseline.json> <current.json> [--out=x.md]');
-  const outcome = compare(read(args[0]), read(args[1]));
+  if (args.length < 2) throw new Error('用法：node scripts/regression/compare-pack-judge.cjs <baseline.json> <current.json> [--out=x.md] [--overlap]');
+  const outcome = compare(read(args[0]), read(args[1]), {
+    allowDatasetOverlap: process.argv.includes('--overlap')
+  });
   const text = markdown(outcome, { baseline: args[0], current: args[1] });
   if (outArg) {
     const out = path.resolve(process.cwd(), outArg.slice('--out='.length));
