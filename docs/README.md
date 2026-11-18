@@ -16,6 +16,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
+| [implementation/P1-001-MIGRATION-AUDIT.md](implementation/P1-001-MIGRATION-AUDIT.md) | 迁移审计：现有代码、重复职责、状态与目标映射 |
 | [implementation/00-master-plan.md](implementation/00-master-plan.md) | 阶段表、门禁、flag、回滚与删除策略、提案 P0–P12 映射 |
 | [implementation/01-p0-contracts.md](implementation/01-p0-contracts.md) | 审计矩阵、契约冻结、事件、持久化、开关 |
 | [implementation/02-p1-collaboration-engine.md](implementation/02-p1-collaboration-engine.md) | 参与者、Planner、Scheduler、Replanner、行为、辩论降级、shadow |
