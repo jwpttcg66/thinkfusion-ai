@@ -5,13 +5,8 @@
 > 的**全部 76 条工具 schema（71 个唯一名字）**，以及本仓库已有的 94 个能力插件（2026-11-11 增加 8 个代码智能/多 Agent 工具 + 1 个还原本轮）。
 >
 > 相关文档：[ARCHITECTURE](../ARCHITECTURE.md)（五层）、
-> [CAPABILITY_PLUGINS](../implementation/CAPABILITY_PLUGINS.md)（能力插件与清单）、
-> [LOCAL_HARNESS_TOOLS](../implementation/LOCAL_HARNESS_TOOLS.md)（上一轮只对齐了「本机干活」那一半）、
-> [ENGINEERING_ROUTING](../implementation/ENGINEERING_ROUTING.md)、
-> [ENGINEERING_READ_TOOLS](../implementation/ENGINEERING_READ_TOOLS.md)、
-> [ENGINEERING_EXPERTISE](../implementation/ENGINEERING_EXPERTISE.md)。
->
-> 逐期改动见 [GENERAL_ENGINEERING_ROLLOUT](../implementation/GENERAL_ENGINEERING_ROLLOUT.md)。
+> [CAPABILITY_PLUGINS](CAPABILITY_PLUGINS.md)（能力插件与清单）、
+> [LOCAL_HARNESS_TOOLS](LOCAL_HARNESS_TOOLS.md)（本机工具对齐）。
 >
 > **当前状态（2026-11-10）**：P0 已落地——76 条清单冻结在 `src/shared/dsh-tools.ts`，
 > 85 个本机能力归族在 `src/shared/engineering-capabilities.ts`，`test:dsh-coverage` 与

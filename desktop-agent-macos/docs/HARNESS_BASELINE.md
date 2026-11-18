@@ -114,7 +114,7 @@ type StreamChunk =
   全部登记，按「本地 / 联网 / 保存」分组。
 - 仍然**不开放第三方插件**，理由见 ROADMAP「明确不排期的事」。
 
-实现与验证见 `docs/implementation/CAPABILITY_PLUGINS.md`。
+实现与验证见 `docs/spec/CAPABILITY_PLUGINS.md`。
 
 ## 风险
 
@@ -133,7 +133,7 @@ type StreamChunk =
   **代码已完成（2026-11-09）**：`TaskGrant.stepApproval` 三档（`every` / `mutating` 缺省 /
   `off`），Runtime 每步执行前发 `step.approval`、等回包，超时按拒绝、拒绝即停；
   同一轮里还有「同类不再问」，报告一到就清空。沙箱也在这一轮按 `packages/sandbox`
-  的形状落地（spawn 前包 argv）。见 `docs/implementation/HARNESS_ALIGNMENT.md`。
+  的形状落地（spawn 前包 argv）。历史记录见 git 提交历史。
   **已知限制**：macOS 26.3 拒绝任何带 `deny` 的 seatbelt profile（`sandbox_apply:
   Operation not permitted`），本机只能如实报 `sandboxed:false`；探测通过的系统上自动启用。
 - **M3**：Electron 壳内嵌 DeepSeek 页面，用 `WebContentsView` 实现 `WebPage`。

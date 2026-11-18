@@ -1,6 +1,6 @@
 {
   "name": "thinkfusion-ai",
-  "version": "0.6.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "description": "Gather, challenge and synthesize perspectives from multiple AI models and web sources — starting with a web AI page driven as the model channel",

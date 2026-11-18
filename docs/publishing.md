@@ -57,5 +57,5 @@ git push -u origin main
 
 - **版权人**：`LICENSE` 现在是 `Copyright (c) 2026 ThinkFusion contributors`，
   要写个人或组织名就改这一行。
-- **版本标签**：本地只有旧的 `v0.1.0`，`package.json` 是 `0.6.0`。
-  要对齐就打 `git tag -a v0.6.0 -m "ThinkFusion v0.6.0"`；标签推上去不方便改，不想发 Release 就先别打。
+- **版本标签**：本地只有旧的 `v0.1.0`，`package.json` 是 `0.3.0`。
+  要对齐就打 `git tag -a v0.3.0 -m "ThinkFusion v0.3.0"`；标签推上去不方便改，不想发 Release 就先别打。

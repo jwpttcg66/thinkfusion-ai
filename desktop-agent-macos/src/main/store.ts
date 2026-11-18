@@ -31,7 +31,7 @@ const MAX_EVENTS = 5000;
  * would drag node-gyp into the install on Apple Silicon, and this store has to
  * be readable by both the main process and the runtime. Every mutation writes
  * a temp file, fsyncs, then renames — so a crash leaves either the old or the
- * new file, never a half-written one. See DELIVERY_STATUS.md for the tradeoff.
+ * new file, never a half-written one. See git history for the tradeoff.
  */
 export class AgentStore {
   private state: StoreState = {

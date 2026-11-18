@@ -34,43 +34,41 @@ ThinkFusion AI 是一个开源的多智协同平台，把来自多个 AI 模型�
 
 ## 它到底是什么
 
-用户提出一个问题或任务，ThinkFusion 先判断这属于哪一类，再组织多个 AI 与信息源分头思考、
-交叉质疑，最后综合出比任何单一回答更好的结果。**只有确实需要动本地文件时**，才生成一份
-可审批的执行计划。
+用户提出一个问题，ThinkFusion 让多个 AI **各自独立作答**，把真正有分歧的主张挑出来
+定向互驳，再用证据校验，最后给出**带分歧与不确定性的结论**。只有确实需要动本地文件时，
+才生成一份可审批的执行计划。
 
-> AI Orchestrator + Multi-AI Collaboration + Knowledge Synthesis + **Optional** Local Agent Runtime
+> 可验证的多模型审辩 + **Optional** Local Agent Runtime
 
-`Optional` 是这句话里最重要的词。本地 Agent 运行时是一个子系统，不是产品本体——而现在的代码
-正好反了：每个任务都被塞进固定的「你是任务规划引擎，输出 `desktop-agent/v1` JSON」提示词，
-一个研究型问题在流水线里找不到出口。
+`Optional` 仍然是最重要的词：本地运行时是子系统，不是产品本体。没有它，问答、辩论与结论
+照样成立。
 
-三份文档定义目标形态，写法上都能拿去跟代码对账，而不是只供浏览：
-
-| 文档 | 解决什么 |
-| --- | --- |
-| [docs/PRODUCT.md](docs/PRODUCT.md) | 产品是什么、不是什么；五类任务；做取舍时的六条原则 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 五层架构、`AiChannel` 抽象、三套协议、两套状态机、迁移路径 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | P0–P6，每阶段给的是完成判据而不是功能清单 |
+目标形态与取舍见 [docs/PRODUCT.md](docs/PRODUCT.md)，技术架构见
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，版本路线与完成判据见
+[docs/ROADMAP.md](docs/ROADMAP.md)，全部文档见 [docs/README.md](docs/README.md)。
 
 ## 现在真的能做到什么
 
-上面那段讲的是这个平台**为了什么**。下面讲代码**当前做了什么**——
-README 许的愿超过仓库能兑现的东西，那就只是宣传：
+上面讲的是产品**为了什么**，下面讲代码**当前做了什么**——README 许的愿超过仓库能兑现的
+东西，那就只是宣传：
 
 | 能力 | 状态 |
 | --- | --- |
-| 从一个来源收集观点 | ✅ 真实浏览器视图里的网页版 AI，不需要 API Key |
-| 把回答变成可校验的方案 | ✅ 严格 schema；不合格的整份拒绝，不做"尽力修复" |
-| 同时挂多个 AI 网页 | ✅ 窗口右缘一排按钮切换前台页面；每页独立 Cookie、独立主机白名单 |
-| **只问一个问题，不产出计划** | ✅ 已支持。问题按自然语言发出，回答里不含任何协议块 |
-| **判断这是哪一类任务** | ✅ 已支持。规则路由：问答 / 研究 / 比较 / 网页提取 / 工作区任务 |
-| 从多个来源收集 | ✅ 通道抽象已落地（DeepSeek + ChatGPT 画像），每通道独立队列、全局并发上限 |
-| 视角分析 / 交叉质疑 | ✅ 规则版：共识、分歧、覆盖缺口、仅单方提及；抽取失败会明确标为降级 |
-| 知识综合 | ⏳ 未做。互相冲突的方案既不合并也不投票 |
-| 知识索引 | ⏳ 未做。任务历史有落库，但没有为检索建立索引 |
-| 迭代精炼 | ✅ 执行报告回传给网页，一轮接一轮，直到任务完成 |
+| 多通道独立作答 | ✅ 网页版 AI，无需 API Key；原话直发，通道间互不可见 |
+| 多页面管理 | ✅ 窗口右缘切换；每页独立 Cookie 与主机白名单 |
+| 主张抽取 / 争议检测 | ✅ 辩论引擎，分歧指到具体两句 |
+| 定向辩论与修订 | ✅ 质疑、反例、修订；六种协作策略 |
+| 裁判与方向判断 | ✅ supports / contradicts / context，含置信度与局限 |
+| 证据包与内容哈希 | ✅ 证据与执行断言进入 Item Hash，篡改可发现 |
+| 真实执行证据生产者 | ✅ 代码就绪；尚未接入辩论编排器 |
+| 知识学习空间 | 🟡 多轮研究与网页正文抽取可用；知识索引、跨会话复用待 0.4 |
+| 工程空间 | ✅ 读盘证据、方案评审、审批执行；代码智能 V3.2 |
+| 本地执行 Runtime | ✅ 27 个白名单工具；审批、路径校验、sha256 复验 |
+| 外部 CLI Agent | ✅ Qoder / Claude 作为通道接入 |
+| 知识索引 / 跨会话证据检索 | ⏳ 0.4 |
+| 外部事实核验 | ⏳ 0.3.3 |
 
-一句话概括：**执行子系统是成熟的；编排与综合已经补上第一版，索引与多轮自主研究还没有。**
+一句话概括：**审辩与证据链已经能跑，缺的是把裁判与证据接到用户面前（0.3.x）与跨会话索引（0.4）。**
 
 ## 工程介绍
 
@@ -145,12 +143,11 @@ README 许的愿超过仓库能兑现的东西，那就只是宣传：
 
 ### 测试
 
-- **离线 59 项**：协议 24、网页通道时序 27、状态机 8。CI 每次 push 都跑，
-  见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
-- **实机 50 项**：分栏 15、应用列 9、拖动 16、新任务反馈 10。这些需要真实运行的应用和已登录的页面，
-  所以是手动跑的；脚本通过 CDP 读真实状态，不读像素。
-- 这些测试**证不了什么**，逐条写在 [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) 里——
-  那份清单本身就是交付物的一部分。
+- **离线测试**：`npm test` 跑 `package.json` 里的全部子脚本（协议、适配器、状态机、辩论、
+  证据包、代码智能等）。CI 每次 push 都跑，见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
+- **实机检查**：需要真实运行的应用和已登录的页面，所以是手动跑的；脚本通过 CDP 读真实状态，
+  不读像素。清单见 [`desktop-agent-macos/docs/TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md)。
+- 这些测试**证不了什么**，逐条写在 `TEST_PLAN.md` 里——那份清单本身就是交付物的一部分。
 
 ## 快速开始
 
@@ -160,7 +157,7 @@ README 许的愿超过仓库能兑现的东西，那就只是宣传：
 cd desktop-agent-macos
 npm install --no-audit --no-fund
 npm run typecheck
-npm test          # 协议 24 + 适配器 27 + 状态机 8
+npm test          # 全部离线测试
 npm run dev
 ```
 
@@ -186,7 +183,7 @@ desktop-agent-macos/   Electron 应用：主进程 / 预加载 / 渲染进程 / 
   src/shared/          协议、IPC 契约、分栏计算（主进程与渲染进程共用）
   scripts/             离线测试 + 实机检查（scripts/lib/cdp.mjs 是共用底座）
 packages/              可复用的模型通道包（零依赖，与 Electron 解耦）
-docs/                  仓库工作流文档（提交规范、分支模型、发版）
+docs/                  产品定位、架构、规格、ADR 与文档索引
 scripts/               版本管理基础设施（钩子、发版脚本）
 ```
 
@@ -194,10 +191,13 @@ scripts/               版本管理基础设施（钩子、发版脚本）
 
 | 文档 | 内容 |
 | --- | --- |
+| [`docs/PRODUCT.md`](docs/PRODUCT.md) | 产品定位、原则与成功判据 |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 五层架构、三套协议、两条主链路 |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | 现在在哪、下一阶段是什么、怎么算完成 |
+| [`docs/README.md`](docs/README.md) | 全部文档索引（规格、ADR、测试、应用层） |
 | [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | 协议词汇、三级解析、回声剥离、回答归属 |
 | [`IPC.md`](desktop-agent-macos/docs/IPC.md) | 通道清单、信任检查、为什么某些参数是字面量 |
 | [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) | 离线测什么、实机断言什么、证不了什么 |
-| [`HARNESS_BASELINE.md`](desktop-agent-macos/docs/HARNESS_BASELINE.md) | 借鉴了谁的设计、明确没有依赖谁 |
 
 ## 参与开发
 
@@ -206,13 +206,9 @@ scripts/               版本管理基础设施（钩子、发版脚本）
 
 ## Roadmap
 
-- [ ] **接第二个来源** — 通道层已与 Electron 解耦，加一个网页 AI 或 RSS / 搜索源
-- [ ] **交叉质疑** — 把 A 的方案喂给 B，让 B 指出漏洞，而不是各自独立作答
-- [ ] **方案融合** — 同类步骤去重、写入路径冲突检测、按证据排序取舍
-- [ ] 知识索引：对积累的任务建立索引与检索
-- [ ] 崩溃恢复：执行中断的任务进入待核对状态，而不是停在 `executing`
-- [ ] 逐步骤审批：整份计划批准后，仍可在危险步骤前停下
-- [ ] 打包、签名、公证
+0.3.x 的主题是**可验证**：把裁判、证据与执行断言接到用户面前，让每条结论都能追到证据。
+之后依次是知识学习（0.4：索引、复用、知识地图）、工程能力（0.5：代码智能、评审、
+可验证的改动）与通道/模型扩展（0.6），判据见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
 ## License
 

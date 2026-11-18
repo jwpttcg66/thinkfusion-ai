@@ -1,7 +1,7 @@
 /**
  * 统一模型 Provider 的接口。
  *
- * 这是 `docs/proposals/UPGRADE_PROPOSAL.md` 第三章的落地，但有两处按仓库
+ * 这是早期升级提案的落地，但有两处按仓库
  * 现状改了写法，理由写在字段旁边：
  *
  * 1. `supportsCancellation: boolean` 换成三态的 `cancellation`。网页通道能

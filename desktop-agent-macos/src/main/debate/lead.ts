@@ -18,7 +18,7 @@
  * 消息**递进页面；`webOnly` 标记的是「材料只能走 question，不发 context /
  * system」，不再是「只在第一轮发言」。
  *
- * 详见 docs/implementation/DEBATE_LEAD_MODES.md 开头「归属规则」节。
+ * 详见 docs/spec/DEBATE_LEAD_MODES.md 开头「归属规则」节。
  */
 import type { DebateMessageKind, DebateRole, DebateStrategy } from './types';
 import { strategyProfile } from './strategies';
