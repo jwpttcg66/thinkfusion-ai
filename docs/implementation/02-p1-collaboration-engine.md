@@ -91,7 +91,7 @@ export interface ParticipantManager {
 
 | 任务类型 | 计划规模 | 说明 |
 | --- | --- | --- |
-| 简单事实/解释 | 1 个 fan-out 任务 | 所有通道独立作答 + 综合，不拆子任务 |
+| 简单事实/解释 | 1 个 fan-out 任务 | 参与者由 Planner 选定（可 1 个），独立作答 + 综合 |
 | 比较 / 选型 | 2–4 个任务 | 按维度拆，或按来源拆 |
 | 研究 / 调查 | 3–6 个任务 | 含至少一个验证任务 |
 | 工程理解 | 2–5 个任务 | 搜索、读取、取证 |
@@ -169,7 +169,7 @@ export interface ParticipantManager {
 - 默认关闭；预算上限；输出不合法或超时 → 回退规则，不阻塞交付；
 - 审核记录写进 `CollaborationState.replans` 或事件，能回答「谁审的、改了什么」。
 
-每波结束调用一次，输入 `TaskGraphState`，输出「继续 / 加任务 / 停」。
+每波结束调用一次，输入 `CollaborationState`，输出「继续 / 加任务 / 停」。
 
 触发规则（按优先级）：
 

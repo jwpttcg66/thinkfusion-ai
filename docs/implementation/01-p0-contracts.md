@@ -2,7 +2,7 @@
 
 目标：**冻结接口、给出迁移矩阵、装好开关**，不改变任何用户可见行为。
 
-前置：代码基线为 `45ccb11`（或更新的代码提交；先更新 00 文档的基线）。
+前置：设计基线 `product-v3`；代码基线 `cd30be3`（先更新 00 文档的基线）。
 出口：本文件 §7 的清单全绿。
 
 ---
@@ -148,51 +148,21 @@ export interface EvidenceRef {
 }
 ```
 
-### 2.5 TaskGraphState（新增，解决持久化）
+### 2.5 TaskGraphState（已删除）
 
-```ts
-export interface TaskGraphState {
-  goalId: string;
-  planVersion: number;
-  tasks: Array<TaskSpec & { status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' }>;
-  assignments: Assignment[];
-  observations: Observation[];
-  evidence: EvidenceRef[];
-  replans: Array<{ at: number; reason: string; added: string[]; removed: string[] }>;
-  stop?: { reason: StopReason; at: number };
-}
-```
+> P0-A D4 决定：不单独持久化 TaskGraph。DAG 由 `Plan.tasks` + `dependsOn` 派生；
+> 运行状态只在 `CollaborationState` 里。字段以
+> [P1-002](P1-002-DOMAIN-RUNTIME-CONTRACT.md) 为准。
 
 ### 2.6 CollaborationState（单一运行时状态）
 
-**新增，解决「Planner / Scheduler / Runner / Replanner 各维护一份状态」的问题。**
+**权威定义见 [P1-002 §3.8](P1-002-DOMAIN-RUNTIME-CONTRACT.md)。** 这里只列不变量：
 
-```ts
-export interface CollaborationState {
-  goal: Goal;
-  /** 先定范围再选人：local / remote / hybrid；网页是否参与单独标记。 */
-  policy: { modelScope: 'local' | 'remote' | 'hybrid'; includeWeb: boolean };
-  planVersion: number;
-  tasks: Array<TaskSpec & {
-    status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'blocked';
-  }>;
-  assignments: Assignment[];
-  observations: Observation[];
-  evidence: EvidenceRef[];
-  budget: { maxCalls: number; maxMs: number; usedCalls: number; startedAt: number };
-  replans: Array<{ at: number; reason: string; added: string[]; removed: string[] }>;
-  stop?: { reason: StopReason; at: number };
-  deliverable?: Deliverable;
-}
-```
-
-规则：
-
-- 这是唯一事实源；`planner / scheduler / runner / replanner / deliver` 只能通过
-  纯函数「旧状态 → 新状态」修改，不得各存一份 task 列表。
-- 落盘时作为对话/任务记录的可选字段；P1.0 接入 `AgentStore`，P0 只冻结类型。
-- `budget` 在 P1.0 至少记调用数与耗时；成本估算可以后加。
-- `stopReason` 与 `deliverable` 在停止后写入，界面与报告都读这里。
+- 唯一运行时事实源；Planner / Scheduler / Runner / Replanner 不得各存一份任务列表。
+- `Plan` 不可变；重规划产生新 `version`，旧版本进 `planHistory`。
+- `tasks[]` 保存运行状态（status / attempts）；任务定义来自 `activePlan`。
+- 落盘复用 `AgentStore`；`running` 任务重启后标 `failed(interrupted)`，不重放写操作。
+- `budget` / `stop` / `deliverable` 只在状态里，界面与报告都读这里。
 
 ### 2.7 StopReason / Verdict / Deliverable
 
@@ -269,7 +239,7 @@ export function writeCollaborationMode(mode: CollaborationMode, source: string):
 P0 只冻结「存哪、恢复到什么状态」，不写落盘代码。决策：
 
 - **复用 `AgentStore` 的原子 JSON journal**（`store.ts`），不新建数据库、不新建 Journal。
-- `TaskGraphState` 作为对话/任务记录的可选字段落盘；旧记录没有该字段时按无任务图读取。
+- `CollaborationState` 作为对话/任务记录的可选字段落盘；旧记录没有该字段时按无协作状态读取。
 - 事件与状态同文件，保证 `seq` 单调；恢复时以最后一条已提交状态为准。
 - 崩溃恢复语义：`running` 的任务在重启后标记为 `failed`（reason=`interrupted`），
   由 Replanner 决定是否重跑；**不静默重放写操作**。
@@ -291,7 +261,7 @@ P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0�
 
 | ID | 任务 | 文件 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| P0-01 | 迁移审计（初稿完成） | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | 无 | 18 项审计可评审 |
+| P0-01 | 迁移审计（已提交，待评审） | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | 无 | 18 项审计 + P0-A 决策清单 |
 | P0-02 | 领域契约 | `src/main/collaboration/domain/*` | 01 | typecheck + 序列化单测 |
 | P0-03 | 事件类型 | `src/shared/conversation.ts`（增量） | 02 | 事件枚举与载荷测试 |
 | P0-04 | Flag | `src/main/collaboration/mode.ts` | 02 | 单测 + 手工开关 |
@@ -302,9 +272,9 @@ P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0�
 
 ## 7. P0 出口清单
 
-- [ ] 代码基线在各文档中一致（文档提交不计；当前为 `45ccb11`）
+- [ ] 基线口径一致：设计 `product-v3`、代码 `cd30be3`
 - [ ] 迁移矩阵覆盖 §1 列出的全部文件，含「不许迁移」与「职责冲突」
-- [ ] `Goal / TaskEnvelope / TaskSpec / Claim / Dispute / TaskGraphState / CollaborationState / EvidenceRef / StopReason / Verdict / Deliverable` 类型冻结
+- [ ] `Goal / TaskEnvelope / TaskSpec / Plan / Claim / Dispute / CollaborationState / EvidenceRef / StopReason / Verdict / Deliverable` 类型冻结
 - [ ] 事件枚举与载荷冻结，且不新增事件总线
 - [ ] flag 默认 legacy、可持久化、可回滚
 - [ ] 状态契约（CollaborationState）冻结，落盘位置与恢复语义写明（实现放 P1.0）

@@ -7,6 +7,9 @@
 持久化与事件一次冻结，供 P1-003 映射和 P1-004 实现使用。
 
 > 本文只定义契约，不写实现，不改代码。
+>
+> **D4 已采纳**：`Plan` 不可变、版本化；`planHistory` 保留旧版本；`TaskGraphState` 删除，
+> DAG 由 `Plan.tasks` + `dependsOn` 派生。
 
 ---
 
@@ -72,7 +75,7 @@ Task（通用）
 | `TaskEnvelope` | Planner | 不可变 | State | Runner / Adapter |
 | `Participant` | ParticipantManager | 健康状态刷新 | 配置 + 内存 | Planner / Scheduler |
 | `Capability` | 代码常量 | 不可变 | 代码 | Planner |
-| `Plan` | Planner | Replanner（P1.1） | State | Scheduler / UI |
+| `Plan` | Planner | Replanner（新版本，不修改旧版） | State | Scheduler / UI |
 | `Assignment` | Scheduler | 不可变 | State | Runner / UI |
 | `Observation` | Runner | 不可变 | State | Replanner / Deliver |
 | `EvidenceRef` | Runner / Tool | 不可变 | State + Pack | Verifier / Deliver |
@@ -215,10 +218,15 @@ export interface EngineeringContext {
 ### 3.5 Plan / Assignment
 
 ```ts
+/**
+ * 不可变。重规划不修改旧 Plan，而是生成新 version，并写 supersedes。
+ */
 export interface Plan {
   planId: string;
   goalId: string;
   version: number;
+  /** 新版本指回上一版 planId；首版为空。 */
+  supersedes?: string;
   policy: Policy;
   tasks: Task[];
   /** 参与者选择结果与理由；跳过也要记录。 */
@@ -313,7 +321,11 @@ export interface CollaborationState {
   /** 状态版本；用于迁移与恢复。 */
   version: 1;
   goal: Goal;
-  plan: Plan;
+  /** 当前生效的计划；不可变。 */
+  activePlan: Plan;
+  /** 历史计划，按 version 升序；只追加，不修改。 */
+  planHistory: Plan[];
+  /** 任务定义来自 activePlan；这里只加运行状态。 */
   tasks: Task[];
   assignments: Assignment[];
   observations: Observation[];
@@ -399,8 +411,10 @@ export interface Deliverable {
 
 ```text
 Goal: created ──► planning ──► running ──► stopping ──► stopped ──► delivered
-Plan: draft ──► validated ──► active ──► revised(P1.1) ──► closed
+Plan: draft ──► validated ──► active ──► superseded（新版本产生时） ──► closed
 ```
+
+Plan 不可变：重规划产生新的 `version`，旧版本进 `planHistory`，不原地改。
 
 ### 5.2 Task
 
@@ -446,7 +460,7 @@ Dispute: open ──► resolved
 6. 证据引用必须有 `source` 与 `hash`；没有就标 `unverified`。
 7. `Deliverable.stopReason` 必须来自 `StopReason`，不能自造字符串。
 8. 任何跳过/失败必须出现在 State 与 UI。
-9. 一次只允许一个 `Plan` 处于 `active`；修订产生新版本。
+9. 一次只允许一个 `activePlan`；修订产生新 Plan 进 `planHistory`，旧版不可改。
 10. 预算只能减少，不能中途上调（用户显式加预算除外）。
 
 ---
@@ -569,6 +583,25 @@ risk floor（高风险 ≥ 2）
 | Redis 连接数过高，分析项目 | hybrid + web=false | 代码搜索/读取 + 1–2 个模型 + 测试能力 |
 | 方案争议需要复核 | hybrid + web=true | 2 个模型 + 网页证据（按需） |
 
+### 10.1 Planner 的模型 / 规则 / 系统边界
+
+| 责任 | 承担者 |
+| --- | --- |
+| 理解目标、判断复杂度、产生候选任务 | 模型（P1.1 起）；P1.0 用规则 |
+| 校验 DAG、依赖、预算、范围、能力 | 系统（规则） |
+| 选择参与者与理由 | Planner，在系统约束内 |
+| 执行、权限、审批 | 现有 `AgentOrchestrator` |
+| 记录 Observation / 状态 | Runner |
+| 是否继续 / 是否 Debate | Replanner / Conflict 状态 |
+
+护栏：
+
+- 模型只能产出 `Plan` 候选，必须通过 schema 与规则校验；
+- 模型不能直接调用 Runtime、不能改权限、不能决定停止；
+- 规则可以否决模型计划，否决理由必须可见；
+- P1.0 纯规则；P1.1 才引入模型审核（数据 + schema）。
+
+
 ---
 
 ## 11. 冲突、辩论与验证
@@ -588,6 +621,18 @@ risk floor（高风险 ≥ 2）
 - `start/end` 由工程任务自己持有；
 - 快照是证据，不是流程基线；
 - 写操作必须经审批；CLI 执行者走 `agent.exec` 链，不复用只读回答源。
+
+### 12.1 三空间契约
+
+| 空间 | Task.context | 能力 | 交付 | 专属存储 |
+| --- | --- | --- | --- | --- |
+| General | `GeneralContext` | reasoning / web-research | answer | 无 |
+| Knowledge | `KnowledgeContext` | knowledge / web-research | research / knowledge_map | MemoryStore（P2） |
+| Engineering | `EngineeringContext` | code-search / read / java / test / review | engineering_change / test_report | 证据 + 工程状态（P3） |
+
+空间不增加 Engine：只增加上下文、能力与交付模板。禁止 `KnowledgeEngine` /
+`EngineeringEngine` / `ResearchEngine`。
+
 
 ---
 
