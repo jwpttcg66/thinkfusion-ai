@@ -1,5 +1,11 @@
 # 技术架构
 
+> **2026-11-18 方向更新**：产品定位已改为「多模型协作智能工作平台」，辩论降级为按需协作行为。
+> 新的协作引擎、工程空间与迁移方案见 [architecture/COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md)、
+> [architecture/ENGINEERING_WORKSPACE.md](architecture/ENGINEERING_WORKSPACE.md)、
+> [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)。本文描述的五层基础架构仍然成立；
+> 凡与新产品方向冲突处，以新设计为准。
+
 产品定位见 [PRODUCT.md](PRODUCT.md)。这份文档只回答一个问题：**要让那个定位成立，代码该怎么切。**
 
 一句话结论：

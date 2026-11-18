@@ -1,5 +1,5 @@
 /**
- * P2：工程上下文解析与开场基准 Pack。
+ * P2：工程上下文解析与仓库快照 Pack。
  *
  * 钉住的是「Pack 是证据增强，不是辩论的单点依赖」：
  * - 干净仓库只记 commit/branch，不复制整仓；
@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { publishRepositoryBaseline } from '../out-test/main/evidence-pack/baseline.js';
+import { publishRepositorySnapshot } from '../out-test/main/evidence-pack/repository-snapshot.js';
 import { resolveRepositoryContext } from '../out-test/main/evidence-pack/repository.js';
 import { EvidencePackStore } from '../out-test/main/evidence-pack/store.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
@@ -158,18 +158,18 @@ test('非 Git 目录：返回明确错误，不抛未捕获异常', () => {
   }
 });
 
-test('开场基准 Pack：干净仓库只写 commit，可回放为空条目', () => {
+test('仓库快照 Pack：干净仓库只写 commit，可回放为空条目', () => {
   const root = makeRepo();
   const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
   try {
     const store = new EvidencePackStore(storeDir);
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
-    const state = publishRepositoryBaseline({ store, debateId: 'debate-clean', context, createdAt: 1 });
+    const state = publishRepositorySnapshot({ store, ownerId: 'task-clean', context, createdAt: 1 });
     assert.equal(state.status, 'complete');
     assert.equal(state.itemCount, 0);
-    assert.ok(state.baselinePackId);
-    const replay = store.replay(state.baselinePackId);
+    assert.ok(state.snapshotPackId);
+    const replay = store.replay(state.snapshotPackId);
     assert.equal(replay.manifest.items.length, 0);
     assert.equal(replay.manifest.repo.commit, context.commit);
     assert.equal(replay.manifest.repo.dirty, false);
@@ -179,18 +179,18 @@ test('开场基准 Pack：干净仓库只写 commit，可回放为空条目', ()
   }
 });
 
-test('开场基准 Pack：dirty 内容冻结且可重新读取', () => {
+test('仓库快照 Pack：dirty 内容冻结且可重新读取', () => {
   const root = makeRepo({ dirty: true });
   const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
   try {
     const store = new EvidencePackStore(storeDir);
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
-    const state = publishRepositoryBaseline({ store, debateId: 'debate-dirty', context, createdAt: 1 });
+    const state = publishRepositorySnapshot({ store, ownerId: 'task-dirty', context, createdAt: 1 });
     assert.equal(state.status, 'complete');
     assert.ok(state.itemCount >= 2);
-    assert.ok(state.baselinePackId);
-    const replay = store.replay(state.baselinePackId);
+    assert.ok(state.snapshotPackId);
+    const replay = store.replay(state.snapshotPackId);
     assert.equal(replay.manifest.repo.dirty, true);
     assert.ok(replay.manifest.repo.branch);
     const contents = replay.items.map(item => item.content).join('\n');
@@ -226,9 +226,9 @@ test('发布使用解析时的内容：文件在发布前被删，Pack 仍可回
     assert.ok(context);
     fs.rmSync(path.join(root, 'a.ts'));
     const store = new EvidencePackStore(storeDir);
-    const state = publishRepositoryBaseline({ store, debateId: 'debate-frozen', context, createdAt: 1 });
+    const state = publishRepositorySnapshot({ store, ownerId: 'task-frozen', context, createdAt: 1 });
     assert.equal(state.status, 'complete');
-    const replay = store.replay(state.baselinePackId);
+    const replay = store.replay(state.snapshotPackId);
     const contents = replay.items.map(item => item.content).join('\n');
     assert.match(contents, /export const a = 2/, '必须冻结解析时的内容，而不是发布时重读');
   } finally {
@@ -244,15 +244,15 @@ test('Pack 损坏：读取必须失败，不能把损坏内容当有效证据', 
     const store = new EvidencePackStore(storeDir);
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
-    const state = publishRepositoryBaseline({ store, debateId: 'debate-corrupt', context, createdAt: 1 });
-    const replay = store.replay(state.baselinePackId);
+    const state = publishRepositorySnapshot({ store, ownerId: 'task-corrupt', context, createdAt: 1 });
+    const replay = store.replay(state.snapshotPackId);
     fs.writeFileSync(
-      path.join(storeDir, 'packs', state.baselinePackId, 'blobs', replay.items[0].contentHash),
+      path.join(storeDir, 'packs', state.snapshotPackId, 'blobs', replay.items[0].contentHash),
       'tampered',
       'utf8'
     );
     assert.throws(
-      () => store.get(state.baselinePackId),
+      () => store.get(state.snapshotPackId),
       error => error.code === 'BLOB_CORRUPT'
     );
   } finally {
@@ -269,83 +269,12 @@ test('删除文件导致的部分冻结：Pack 标 partial，不冒充 complete'
     const context = resolveRepositoryContext(root).context;
     assert.ok(context);
     const store = new EvidencePackStore(storeDir);
-    const state = publishRepositoryBaseline({ store, debateId: 'debate-partial', context, createdAt: 1 });
+    const state = publishRepositorySnapshot({ store, ownerId: 'task-partial', context, createdAt: 1 });
     assert.equal(state.status, 'partial');
-    assert.ok(state.baselinePackId);
+    assert.ok(state.snapshotPackId);
     assert.match(state.reason, /删除的文件/);
   } finally {
     cleanup(root);
     cleanup(storeDir);
-  }
-});
-
-test('辩论开始：干净仓库生成基准 Pack，并随 DebateStore 落盘', async () => {
-  const root = makeRepo();
-  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pack-store-'));
-  const { dir, orchestrator, store } = orchestratorHarness(new EvidencePackStore(packDir));
-  try {
-    const started = orchestrator.start('这个方案可靠吗？', {
-      strategy: 'truth',
-      maxRounds: 1,
-      participants: ['a', 'b'],
-      convergenceStop: false
-    }, undefined, undefined, 'manual', { rootDir: root, source: 'conversation' });
-    assert.ok(started.repository);
-    assert.equal(started.repository.commit.length, 40);
-    assert.equal(started.repository.source, 'conversation');
-    assert.equal(started.evidencePack.status, 'complete');
-    assert.ok(started.evidencePack.baselinePackId);
-    const read = store.get(started.debateId);
-    assert.ok(read);
-    assert.equal(read.evidencePack.baselinePackId, started.evidencePack.baselinePackId);
-    await orchestrator.waitFor(started.debateId, 5_000);
-  } finally {
-    cleanup(root);
-    cleanup(packDir);
-    cleanup(dir);
-  }
-});
-
-test('辩论开始：非 Git 目录只标 unavailable，辩论照常启动', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-not-git-'));
-  const { dir, orchestrator } = orchestratorHarness(null);
-  try {
-    const started = orchestrator.start('这个方案可靠吗？', {
-      strategy: 'truth',
-      maxRounds: 1,
-      participants: ['a', 'b'],
-      convergenceStop: false
-    }, undefined, undefined, 'manual', { rootDir: root, source: 'workspace' });
-    assert.equal(started.evidencePack.status, 'unavailable');
-    assert.match(started.evidencePack.reason, /Git 仓库/);
-    assert.equal(started.status, 'running');
-    await orchestrator.waitFor(started.debateId, 5_000);
-  } finally {
-    cleanup(root);
-    cleanup(dir);
-  }
-});
-
-test('Pack 存储失败：标 failed，不阻断辩论', async () => {
-  const root = makeRepo({ dirty: true });
-  const { dir, orchestrator } = orchestratorHarness({
-    publish() {
-      throw new Error('磁盘已满');
-    }
-  });
-  try {
-    const started = orchestrator.start('这个方案可靠吗？', {
-      strategy: 'truth',
-      maxRounds: 1,
-      participants: ['a', 'b'],
-      convergenceStop: false
-    }, undefined, undefined, 'manual', { rootDir: root, source: 'workspace' });
-    assert.equal(started.evidencePack.status, 'failed');
-    assert.match(started.evidencePack.reason, /磁盘已满/);
-    assert.equal(started.status, 'running');
-    await orchestrator.waitFor(started.debateId, 5_000);
-  } finally {
-    cleanup(root);
-    cleanup(dir);
   }
 });

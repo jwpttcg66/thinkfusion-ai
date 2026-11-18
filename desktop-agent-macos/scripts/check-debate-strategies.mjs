@@ -146,13 +146,9 @@ test('真跑一场假设审查：system 里出现前提清单要求，回应轮�
 
   assert.equal(state.config.strategy, 'assumption');
   assert.equal(state.rounds.length, 3);
-  const firstRound = h.seen.slice(0, 2);
-  assert.ok(
-    firstRound.every(item => item.system.join('\n').includes('前提逐条列出来')),
-    '第一轮应当要求列前提'
-  );
-  // 用户问题始终是原话，策略指令不进 question。
+  // 用户问题始终是原话；策略不再化作文本指令。
   assert.ok(h.seen.every(item => item.question === QUESTION));
+  assert.ok(h.seen.every(item => item.system.length === 0), '不发送任务提示词');
   assert.ok(state.rounds[0].messages.every(message => message.role === 'proposer' || message.role === 'evidence_reviewer'));
   assert.equal(state.revisions.length, 2);
   assert.ok(state.revisions.every(revision => revision.decision === 'defend'));
@@ -170,7 +166,7 @@ test('旧策略名还能跑：standard 仍是两轮，行为等同真理发现',
   assert.equal(state.config.strategy, 'standard');
   assert.equal(state.config.maxRounds, 2);
   assert.equal(state.rounds.length, 2);
-  assert.ok(h.seen[0].system.join('\n').includes('先给结论'));
+  assert.equal(h.seen[0].system.length, 0, '不发送任务提示词');
 });
 
 test('策略不改裁判口径：同一份证据换策略，结论一样', async () => {

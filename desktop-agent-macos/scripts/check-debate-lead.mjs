@@ -259,8 +259,9 @@ test('网页主导真跑：两轮全由网页，第一轮原话、后续拼接�
     const later = h.seen.filter(call => call.stage === 'followup');
     assert.equal(later.length, 3);
     for (const call of later) {
-      assert.match(call.question, /【问题】/, '交锋材料拼进用户消息');
-      assert.match(call.question, /【观点】/, '交锋要看到上一轮观点');
+      assert.match(call.question, /问题：/, '交锋材料作为数据拼进用户消息');
+      assert.match(call.question, /已有观点：/, '交锋要看到上一轮观点');
+      assert.ok(!/请指出|说明结论是否修改|你的职责/.test(call.question), '不夹带任务指令');
       assert.deepEqual(call.system, [], '网页成员仍不收 system');
       assert.deepEqual(call.context, [], '网页成员仍不收 context');
     }

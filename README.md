@@ -1,14 +1,15 @@
 # ThinkFusion AI
 
-**Many Minds. One Better Answer.**
+**Many Minds. One Intelligent Workflow.**
 
-ThinkFusion AI is an open-source collective intelligence platform designed to bring together
-ideas, knowledge, and perspectives from multiple AI models and web sources to produce deeper
-insights and better answers.
+ThinkFusion AI is an open-source multi-model collaborative intelligence work platform. It brings
+together multiple AI models, tools and knowledge sources, organises their collaboration around a
+user's goal, and works through exploration, synthesis and evidence verification from problem
+understanding to final delivery.
 
-Instead of relying on a single AI model or information source, ThinkFusion AI collects diverse
-viewpoints, analyzes agreements and disagreements, identifies missing information, and
-synthesizes them into a unified, well-reasoned result.
+It does not have models take turns opining. It has them genuinely work on the same task:
+**the user states a goal, ThinkFusion organises the collaboration; models decide how to explore,
+the system coordinates, gathers evidence, verifies and delivers.**
 
 **中文文档：[README.zh-CN.md](README.zh-CN.md)**
 
@@ -16,39 +17,43 @@ synthesizes them into a unified, well-reasoned result.
 
 ## Core Capabilities
 
-- **Multi-AI Aggregation** — Gather responses and insights from multiple AI models.
-- **Web Intelligence** — Extract and summarize information from web pages and online sources.
-- **Perspective Analysis** — Compare different viewpoints, identify consensus, and detect contradictions.
-- **Knowledge Synthesis** — Combine complementary ideas into a more comprehensive answer.
-- **Critical Reasoning** — Challenge assumptions, identify gaps, and improve the quality of conclusions.
-- **Knowledge Indexing** — Organize, index, and retrieve accumulated knowledge.
-- **Iterative Refinement** — Continuously refine conclusions through additional research and analysis.
+- **Dynamic collaboration** — who participates, how work is split, parallel or progressive, is
+  decided by the task, not by one fixed pipeline.
+- **Multi-model evidence** — web, local, cloud and CLI agents contribute different views and
+  evidence, not just different prose.
+- **Evidence and verification** — conclusions bind to sources, versions and execution
+  attestations; anything unverifiable is labelled as an assertion.
+- **Knowledge learning** — research results accumulate, index and get reused with timestamps.
+- **Engineering workspace** — code understanding, design, changes, tests, review and rollback.
+- **General collaboration** — Q&A, comparisons, planning and research.
 
 ## Vision
 
-Turn fragmented information and diverse perspectives into collective intelligence.
-ThinkFusion AI aims to make the combined intelligence of multiple AI systems and knowledge
-sources more useful than any single response.
+Organise many models, tools and knowledge sources into a team that can work toward a goal,
+so the result is more reliable and more complete than any single model or single workflow.
 
-**Many Minds. One Better Answer.**
+**Many Minds. One Intelligent Workflow.**
 
 ---
 
 ## What this is, precisely
 
-A question goes in. ThinkFusion has several AIs answer it **independently**, isolates the claims
-they actually disagree on, runs a targeted debate, checks those claims against evidence, and
-returns a conclusion that keeps its disagreements and uncertainty. **Only when the work actually
-has to touch local files** does it produce an approvable execution plan.
+The user states a goal. ThinkFusion decides what the task needs, which models and tools should
+participate, how to divide the work, keeps gathering evidence and verifying as it explores, and
+delivers an answer, a research report, a knowledge map or an engineering change. Debate,
+challenge, counter-examples and cross-review are available collaboration behaviours, not mandatory
+stages of every task.
 
-> Verifiable multi-model deliberation + **Optional** Local Agent Runtime
+> Multi-model collaboration engine + **Optional** Local Agent Runtime
 
 The `Optional` is still the load-bearing word. The local runtime is a subsystem, not the product:
-without it, Q&A, debate and conclusions still work.
+without it, knowledge learning and general collaboration still work.
 
-The target shape is in [docs/PRODUCT.md](docs/PRODUCT.md), the architecture in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the version roadmap in
-[docs/ROADMAP.md](docs/ROADMAP.md), and every document in [docs/README.md](docs/README.md).
+One engine, three workspaces: **knowledge learning** (research, accumulation, knowledge maps),
+**engineering** (understanding, design, changes, verification) and **general collaboration**
+(Q&A, analysis, comparison). See [docs/PRODUCT.md](docs/PRODUCT.md) for the target shape,
+[docs/architecture/COLLABORATION_ARCHITECTURE.md](docs/architecture/COLLABORATION_ARCHITECTURE.md)
+for the collaboration engine, and [docs/ROADMAP.md](docs/ROADMAP.md) for the roadmap.
 
 ## What actually works today
 
@@ -59,20 +64,19 @@ stated plainly — a README that promises more than the repository delivers is j
 | --- | --- |
 | Independent answers from several channels | ✅ Web AI pages, no API key; the question goes out verbatim, channels cannot see each other |
 | Several pages at once | ✅ Right-edge rail; per-page cookies and host allow-list |
-| Claim extraction / dispute detection | ✅ Debate engine, pointing at the two specific sentences |
-| Targeted debate and revision | ✅ Challenge, counter-example, revision; six collaboration strategies |
-| Judges and direction verdicts | ✅ supports / contradicts / context, with confidence and limitations |
+| Debate engine (claims / disputes / revision / judges) | ✅ Available; to be demoted to an on-demand behaviour |
 | Evidence packs and content hashes | ✅ Evidence and execution attestations enter the Item Hash; tampering is detectable |
-| Real execution-evidence producer | ✅ Code ready; not yet wired into the debate orchestrator |
-| Knowledge-learning space | 🟡 Multi-round research and page-body extraction work; indexing and cross-session reuse land in 0.4 |
-| Engineering space | ✅ Disk-backed evidence, plan review, approved execution; code intelligence V3.2 |
+| Real execution-evidence producer | ✅ Code ready; not yet wired into the orchestrator |
+| Collaboration scheduling (task graph / re-planning) | ⏳ Design frozen, lands in P1 |
+| Knowledge-learning space | 🟡 Multi-round research and page-body extraction work; indexing and reuse land in P2 |
+| Engineering space | ✅ Partial: disk-backed evidence, plan review, approved execution, code intelligence V3.2 |
 | Local execution runtime | ✅ 27 allow-listed tools; approval, path checks, sha256 re-verify |
 | External CLI agents | ✅ Qoder / Claude as channels |
-| Knowledge indexing / cross-session evidence | ⏳ 0.4 |
-| External fact verification | ⏳ 0.3.3 |
+| Knowledge indexing / cross-session reuse | ⏳ P2 |
+| Unified evidence references across spaces | ⏳ P4 |
 
-Stated as one line: **the debate and evidence chain already run; what is missing is putting the
-verdicts in front of the user (0.3.x) and indexing evidence across sessions (0.4).**
+Stated as one line: **the debate and evidence chain already run; the unified collaboration engine,
+knowledge accumulation and the engineering loop are designed and frozen, waiting for P1–P4.**
 
 ## How it works
 
@@ -248,10 +252,13 @@ criteria are tracked in
 
 | Document | Contents |
 | --- | --- |
-| [`docs/PRODUCT.md`](docs/PRODUCT.md) | Positioning, principles, success criteria |
+| [`docs/PRODUCT.md`](docs/PRODUCT.md) | Positioning, three workspaces, principles, success criteria |
+| [`docs/architecture/COLLABORATION_ARCHITECTURE.md`](docs/architecture/COLLABORATION_ARCHITECTURE.md) | Collaboration engine, task lifecycle, scheduling, evidence contracts |
+| [`docs/architecture/ENGINEERING_WORKSPACE.md`](docs/architecture/ENGINEERING_WORKSPACE.md) | Engineering workspace, Agentic Search, CLI collaboration, safety |
+| [`docs/architecture/MIGRATION_PLAN.md`](docs/architecture/MIGRATION_PLAN.md) | How debate / evidence / engineering code migrates |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Five layers, three protocols, two main chains |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Where we are, what is next, how completion is judged |
-| [`docs/README.md`](docs/README.md) | Full index: specs, ADRs, testing, app-level docs |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | P0–P5: where we are, what is next, how completion is judged |
+| [`docs/README.md`](docs/README.md) | Full index: design, specs, ADRs, testing, app-level docs |
 | [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | Protocol vocabulary, three-stage parsing, echo stripping, reply attribution |
 | [`IPC.md`](desktop-agent-macos/docs/IPC.md) | Channel list, trust checks, why some arguments are literals |
 | [`TEST_PLAN.md`](desktop-agent-macos/docs/TEST_PLAN.md) | What offline tests cover, what live checks assert, what neither can prove |
@@ -263,11 +270,11 @@ conventions are in [`docs/git-workflow.md`](docs/git-workflow.md).
 
 ## Roadmap
 
-0.3.x is about **verifiability**: put verdicts, evidence and execution attestations in front of
-the user so every conclusion can be traced to its evidence. After that: knowledge learning
-(0.4: indexing, reuse, knowledge maps), engineering capability (0.5: code intelligence, review,
-verifiable changes) and channel/model expansion (0.6). Completion criteria are in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+The product direction is frozen as a multi-model collaborative intelligence work platform: rebuild
+the collaboration engine and task model first (P0), make dynamic collaboration work (P1), then add
+knowledge learning (P2), the engineering workspace (P3), evidence and quality (P4), and channels and
+models (P5). Debate is no longer the main line; it is one on-demand behaviour inside P1.
+Completion criteria are in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## License
 

@@ -136,7 +136,7 @@ const options = await window.agentAPI.getExecutionOptions();
 | `rounds[].phase` | `undefined` | 不按轮次下标猜它是质疑还是回应 |
 | `rounds[].claims` / `disputes` / `evidence` / `graph` / `judgments` / `verdict` / `metrics` / `events` | `undefined` | 补空数组等于伪造「分析过但没抽到」 |
 | `minorities` | 兜空数组 | 裁判取这个字段时不能让整场判不了 |
-| `promptVersion` | `undefined` | 不补成当前版本；历史得看得出当时用的哪一版 |
+| `promptVersion` | `undefined` | 2026-11-18 起不再写入；只作为历史记录出现 |
 
 `DebateStore.get()` 是唯一补默认值的地方，且**不写回盘**。`save()` 只在辩论
 真的推进时调用。
@@ -153,10 +153,9 @@ const options = await window.agentAPI.getExecutionOptions();
 | `1.0.0` | 从 `orchestrator.ts` 抽出独立模板模块，登记七个模板的契约；**文案逐字未改** | 只是把版本写进 `DebateState.promptVersion`。之前的所有辩论该文件字段为 `undefined` |
 | `1.1.0` | 发言 system 增加通用要求：“给出结论时同时说明适用边界、失败模式和常见误区；不要只给主结论。” | 只改 system 指令，不改用户问题，不含具体题目的标准答案 |
 
-模板在 `src/main/debate/prompts.ts`。改任何一条 `system` 文案、或改任一规则模板的
-输入 / 输出约束，都要：① 推高 `PROMPT_VERSION`；② 在上表加一行；③ 更新
-`check-debate-prompts.mjs` 的快照用例。快照用例锁着渲染结果逐字不变，改文案
-会红——这是有意的。
+**2026-11-18 起硬规则：不再使用任务提示词。** `prompts.ts` 已删除，
+`PROMPT_VERSION` / `DebateState.promptVersion` 不再写入；上表仅作为历史记录保留。
+辩论任务只接收用户原话与上下文数据，不再接收 role / stage / format / challenge 文案。
 
 ### 2.4 删除辩论记录
 
@@ -189,7 +188,6 @@ const out = await window.agentAPI.cleanupDebateWeb(debateId); // 连带删网页
 | `test:debate-strategies` | 六种策略、角色、争议排序、4×6 归一 | 8 |
 | `test:debate-metrics` | 指标、成本、历史复用 | 9 |
 | `test:debate-eval` / `quality:debate` | 十一项硬门槛 + 13 条基准场景，输出达标/不达标报告 | 1 |
-| `test:debate-prompts` | 模板契约、文案快照、版本落盘、网页原话 | 11 |
 
 另有适配器 / 融合 / 文本 / 状态等基础用例，见 `package.json` 的 `test` 链。
 
@@ -256,7 +254,7 @@ npm run start:debug      # 带 CDP 9222 调试端口，验证界面时用这个
 | 结论是「证据不足（不等于错）」 | 没有可核验的页面来源，或证据互相冲突 | 正常结果，不是故障；`insufficient_evidence` 与 `unsupported` 是两回事 |
 | 可追溯率 0% | 本地模型不会给链接 | 只有网页通道的回答才可能带 `a[href]`；这项指标衡量来源可核验，不衡量答案对错 |
 | 小模型没写「决策：」行 | 输出太短 | 记成 `decision: null` 且标 `inferred`，系统不替它圆 |
-| 论点变更想复查 | 模板版本 | 看 `DebateState.promptVersion`，对照本文 2.3 表 |
+| 论点变更想复查 | 历史模板版本 | 只有 2026-11-18 之前的记录有 `promptVersion`；新记录没有 |
 
 ### 4.4 取消、恢复、失败
 
@@ -273,9 +271,9 @@ JSON 文件里，`seq` 单调。
 ### 4.5 权限与安全边界
 
 - 辩论文件 `0600`，`debateId` 经过 `/^[a-zA-Z0-9-]+$/` 校验挡路径穿越。
-- 网页 / 文档 / 代码内容一律作为**待分析的证据文本**，不进 `system`，不覆盖指令。
+- 网页 / 文档 / 代码内容一律作为**待分析的证据数据**，不作为指令。
 - 网页成员的 task 只有 `question`（用户原话），没有 `context`、没有 `system`；
-  `check-debate-lead.mjs` 和 `check-debate-prompts.mjs` 都有用例守着。
+  `check-debate-lead.mjs` 有用例守着。
 - 模型输出按纯文本落盘，不执行生成的 JSON / 代码；决策行只认五个固定词，
   解析不出来记 `null`。
 - 结构化结果全部由本地规则产出，不把「模型自称有官方文档」当成已核验证据。

@@ -77,15 +77,9 @@ test('单模型六策略：第二轮角色不能仍等于第一轮 lead 角色',
   }
 });
 
-test('单模型角色与提示词职责一致', async () => {
+test('单模型角色轮转：不再依赖提示词职责', async () => {
   const { state, seen } = await runStrategy('adversarial');
   const secondRole = state.rounds[1]?.messages[0]?.role;
   assert.ok(['critic', 'opponent'].includes(secondRole), `第二轮角色应为 critic/opponent，实际 ${secondRole}`);
-  const questionCall = seen.find(call => call.system.some(line => line.includes('逐条质疑')));
-  assert.ok(questionCall, '缺少第二轮质疑指令调用');
-  assert.ok(
-    questionCall.system.some(line => line.includes('检验主张的漏洞') || line.includes('核对前提与证据')),
-    '第二轮提示词没有使用 critic/evidence reviewer 职责'
-  );
-  assert.ok(!questionCall.system.some(line => line.includes('提出并维护主张')), '第二轮仍在用 proposer 职责');
+  assert.ok(seen.every(call => call.system.length === 0), '不发送任务提示词');
 });
