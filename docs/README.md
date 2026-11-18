@@ -17,6 +17,7 @@
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
+| [implementation/P0-B-TO-E-DESIGN-RESOLUTION.md](implementation/P0-B-TO-E-DESIGN-RESOLUTION.md) | 类型/状态机/文档统一/评审/冻结的解决方案 |
 | [implementation/P1-001-MIGRATION-AUDIT.md](implementation/P1-001-MIGRATION-AUDIT.md) | 迁移审计：现有代码、重复职责、状态与目标映射 |
 | [implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md](implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md) | 领域与运行时契约：对象、所有权、状态机、错误与预算 |
 | [implementation/00-master-plan.md](implementation/00-master-plan.md) | 阶段表、门禁、flag、回滚与删除策略、提案 P0–P12 映射 |

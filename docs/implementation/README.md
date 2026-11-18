@@ -11,6 +11,7 @@
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
+| [P0-B-TO-E-DESIGN-RESOLUTION.md](P0-B-TO-E-DESIGN-RESOLUTION.md) | P0 前置 | B.1 类型、B.2 状态机、C 文档统一、D 评审清单、E 冻结与任务书 |
 | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
 | [P1-002-DOMAIN-RUNTIME-CONTRACT.md](P1-002-DOMAIN-RUNTIME-CONTRACT.md) | P1 前置 | 领域对象、所有权、生命周期、状态机、错误/重试/取消/并发/预算、持久化与事件 |
 | [00-master-plan.md](00-master-plan.md) | 全局 | 阶段、门禁、开关、回滚、删除策略、与提案 P0–P12 的映射 |

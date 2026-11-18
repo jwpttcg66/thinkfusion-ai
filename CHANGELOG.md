@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(design): P0-B.1/B.2/C 完成——TaskSpec/TaskRuntimeState/Attempt 三层拆分、Plan/Assignment 所有权、Dispute 独立、重试/取消状态机、文档契约统一到 P1-002
 - docs(design): P0-B 契约收敛——Plan 不可变化 + planHistory、删除 TaskGraphState、Planner 模型/规则边界、三空间契约；设计只留在 product-v3
 - docs(implementation): 新增 P0-A 设计一致性审查（11 处矛盾、D1–D8 决策清单），修正参与者规则残留与基线/状态口径
 - docs(implementation): 新增 P1-002 领域与运行时契约（对象、所有权、生命周期、状态机、错误/重试/取消/并发/预算、持久化与事件）
