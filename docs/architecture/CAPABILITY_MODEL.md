@@ -52,14 +52,20 @@ export interface RoutingDecision {
   taskId: string;
   selected: Array<{ participantId: string; reason: string }>;
   skipped: Array<{ participantId: string; reason: string }>;
-  policy: { modelScope: 'local' | 'remote' | 'hybrid'; includeWeb: boolean };
+  policy: {
+    modelScope: 'local' | 'remote' | 'hybrid';
+    includeWeb: boolean;
+    /** 知识/通用可为 true；工程必须 false。 */
+    allowWebQuestioner: boolean;
+  };
 }
 ```
 
 顺序（不可调换）：
 
 1. **范围**：`local` 去掉远端，`remote` 去掉本地；越界直接拒绝；
-2. **网页**：`includeWeb=false` 去掉全部 `kind='web'`；
+2. **网页**：`includeWeb=false` 去掉全部 `kind='web'`；即使启用，工程空间也只允许回答，
+   网页 `questioner` 必须被拒绝；
 3. **能力**：去掉缺少 `requiredCapabilities` 的参与者；
 4. **可用性**：去掉 unavailable，记原因；
 5. **风险下限**：高风险/有争议/多视角要求 → 至少 2 个；

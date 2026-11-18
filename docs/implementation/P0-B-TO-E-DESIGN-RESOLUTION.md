@@ -149,7 +149,7 @@ running ──► done | failed | cancelled
 
 ---
 
-## 5. P0-E 设计冻结（待 D 完成后）
+## 5. P0-E 设计完成与任务书（P0-J 前）
 
 ### 5.1 冻结条件
 
