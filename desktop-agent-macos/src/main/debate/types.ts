@@ -90,6 +90,19 @@ export type DisputeType = 'factual' | 'logical' | 'scope' | 'evidence_conflict' 
 /** 从发言里抽出的一句可单独判断真假的话。 */
 export type ClaimScope = 'code' | 'runtime';
 
+/**
+ * Runtime Claim 的显式验证意图。测试命令与 Claim 的关联只能由
+ * author/reviewer/user 提供；模型不能填写，也不能由裁判猜。
+ */
+export interface ClaimVerificationIntent {
+  /** 只允许 test.run 支持的命令 */
+  testCommand: string;
+  assertionId: string;
+  testId?: string;
+  source: 'author' | 'reviewer' | 'user';
+  reason: string;
+}
+
 export interface DebateClaim {
   claimId: string;
   /**
@@ -97,6 +110,8 @@ export interface DebateClaim {
    * 老记录没有这个字段，裁判对非 context 判断采取保守拒绝。
    */
   claimScope?: ClaimScope;
+  /** 运行级 Claim 的显式验证意图；没有就永远不自动跑测试。 */
+  verification?: ClaimVerificationIntent;
   messageId: string;
   /** 谁说的。跨参与者才算得出争议，靠的就是这一列。 */
   agentId: string;
