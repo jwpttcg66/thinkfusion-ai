@@ -140,7 +140,7 @@ EvidenceService  ◄──────────  EngineeringTaskState
 
 - 用 `collaboration/strategy.ts` 升级出任务图调度器 MVP：独立、并行、递进、交叉验证。
 - 计划可视化：参与者、分工、依赖、停止条件可读。
-- 辩论保持可选，默认不启动；第一手仍覆盖所有已启用通道。
+- 辩论保持可选，默认不启动；参与者由 Planner 决定（AGENTS 第 2 条）。
 - 验收：同一组问题在旧路径与新调度器下质量不降；计划可解释；单点失败不影响同批。
 - 回滚：feature flag 切回 `MasterAgent` 老路径。
 

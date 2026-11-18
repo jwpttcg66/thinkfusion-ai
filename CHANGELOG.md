@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(implementation): 新增 P0-A 设计一致性审查（11 处矛盾、D1–D8 决策清单），修正参与者规则残留与基线/状态口径
+- docs(implementation): 新增 P1-002 领域与运行时契约（对象、所有权、生命周期、状态机、错误/重试/取消/并发/预算、持久化与事件）
 - docs(implementation): 新增 P1-001 迁移审计（18 项：架构、重复职责、状态、Runtime、Planner、Debate、Evidence、工程、Java、增删改清单、风险与边界）
 - rule(scope): 明确「网页渠道」与「模型驱动」是两类；模型范围分 local / remote / hybrid，越界不得降级改道
 - rule(agent): 第 2 条改为「参与者数量由任务决定」——简单问题可 1 个，高风险至少 2 个，选择理由与跳过原因可见（ADR 0008）
