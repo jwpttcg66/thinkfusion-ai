@@ -1,7 +1,7 @@
 # 实施总计划 V1.1
 
 状态：**实施基线**（2026-11-18）。
-设计基线：`main@d7cd030`；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。
+设计基线：`product-v3`（设计分支）；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。
 依据：[PRODUCT V3](../PRODUCT.md)、[协作架构 V1](../architecture/COLLABORATION_ARCHITECTURE.md)、
 [工程空间 V1](../architecture/ENGINEERING_WORKSPACE.md)、[迁移计划](../architecture/MIGRATION_PLAN.md)、
 [路线](../ROADMAP.md)，以及 2026-11-18 的计划审核意见。

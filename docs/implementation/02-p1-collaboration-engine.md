@@ -169,7 +169,7 @@ export interface ParticipantManager {
 - 默认关闭；预算上限；输出不合法或超时 → 回退规则，不阻塞交付；
 - 审核记录写进 `CollaborationState.replans` 或事件，能回答「谁审的、改了什么」。
 
-每波结束调用一次，输入 `TaskGraphState`，输出「继续 / 加任务 / 停」。
+每波结束调用一次，输入 `CollaborationState`，输出「继续 / 加任务 / 停」。
 
 触发规则（按优先级）：
 
