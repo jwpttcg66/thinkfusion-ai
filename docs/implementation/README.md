@@ -3,7 +3,7 @@
 这组文档把 V3 的产品与架构设计拆成**可以交给 Codex 分阶段执行**的计划。
 历史实现日志仍然只在 `git log` 里；这里只放**还没做完或正在做**的计划。
 
-**设计基线：`product-v3`（设计分支）；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。**
+**设计基线：`product-v3`（快照 `89b447c`）；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。**
 基线变了就先改这里的提交号，再改各计划里的文件行号。
 
 ## 计划集
@@ -11,6 +11,7 @@
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
 | [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
+| [P0-F-TO-J-DESIGN-REVISION.md](P0-F-TO-J-DESIGN-REVISION.md) | P0 修订 | 状态所有权、输入契约/16 个 Prompt、证据归属、任务书一致性、评审门禁 |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
 | [P0-B-TO-E-DESIGN-RESOLUTION.md](P0-B-TO-E-DESIGN-RESOLUTION.md) | P0 前置 | B.1 类型、B.2 状态机、C 文档统一、D 评审清单、E 冻结与任务书 |
 | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
@@ -28,7 +29,7 @@
 
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
-| P0 契约与开关 | ✅ 设计冻结（用户确认 2026-11-18） | 进入 P1 实施 | — |
+| P0 契约与开关 | 🟡 方向确认；P0-J 待评审 | P0-J 通过后进入 P1 | — |
 | P1.0 协作引擎骨架 | 未开始（设计完成） | Goal → DAG → Run → Observation → Deliver 可跑 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |

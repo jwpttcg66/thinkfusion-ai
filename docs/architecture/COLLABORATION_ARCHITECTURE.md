@@ -210,29 +210,15 @@ export interface AgentCapabilities {
 
 ### 7.1 统一引用
 
-```ts
-export type EvidenceKind = 'web' | 'code' | 'execution' | 'knowledge' | 'tool';
+`EvidenceRef` 的权威定义见 [P1-002 §3.6](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)；
+本文不重复接口。
 
-export interface EvidenceRef {
-  evidenceId: string;
-  kind: EvidenceKind;
-  /** 这条证据属于哪一个任务 / 辩论 / 会话。 */
-  scope: { goalId: string; taskId?: string; conversationId?: string };
-  source: {
-    uri?: string;          // 网页 URL / 仓库路径
-    commit?: string;       // 代码与执行证据
-    snapshot?: string;     // 快照指纹
-    capturedAt: number;
-  };
-  locator?: { path: string; startLine?: number; endLine?: number };
-  hash: string;            // 内容哈希，防静默改写
-  trust: 'verified' | 'unverified' | 'degraded';
-  summary: string;
-}
-```
+规则：
 
-现有 `EvidencePack` 是这套引用的**冻结形态**：一次发布把若干 `EvidenceRef` 与内容哈希固定下来。
-协作引擎不重造证据格式，只决定「什么时候取证、取哪些证、把哪些证交给谁」。
+- `CollaborationState` 存 `EvidenceRef`，不复制 Pack 正文；
+- 证据内容仍在 `EvidencePackStore`，按 `packId/itemId` 引用；
+- P2–P5 只允许定义扩展类型，通用对象必须引用 P1-002；
+- 证据包归属用 `ownerType`（goal/task/debate）+ `ownerId`，不再复用 `debateId`。
 
 ### 7.2 知识记忆
 

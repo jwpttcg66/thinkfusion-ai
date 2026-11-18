@@ -1,7 +1,7 @@
 # P1-002 领域与运行时契约
 
-状态：**设计冻结候选（2026-11-18）**，待评审。
-设计分支：`product-v3`；设计快照：`7d27c6e`（P0-B）；代码基线：`cd30be3`；`main` 只做集成。
+状态：**P0-F..J 设计修订版（2026-11-18）**；产品方向已确认，P0-J 技术门禁待评审。
+设计分支：`product-v3`；设计快照：`89b447c`（本修订前；历史 P0-B 为 `7d27c6e`）；代码基线：`cd30be3`；`main` 只做集成。
 前置：[P1-001 迁移审计](P1-001-MIGRATION-AUDIT.md)。
 目标：把 V3 的对象、所有权、生命周期、状态转移、错误/重试/取消/并发/预算、
 持久化与事件一次冻结，供 P1-003 映射和 P1-004 实现使用。
@@ -36,8 +36,11 @@ MemoryStore         知识记忆（P2，暂不建）
 
 规则：
 
-- `CollaborationState` 只存**引用 id**，不复制领域内容；
-- 领域存储不反过来驱动调度；
+- `CollaborationState` 是**运行时聚合根**：存 Goal、Plan、TaskRuntimeState、Assignment、
+  Observation、EvidenceRef、Claim/Conflict/Dispute、Budget、Stop、Deliverable，
+  工程任务另有可选 `EngineeringTaskState`。
+- 对**大块正文**（证据内容、代码、辩论发言）只存引用 id，不复制正文；
+- 领域存储是数据仓库，不反过来驱动调度；
 - 不允许出现第二个「当前任务列表」。
 
 ### 1.2 一个任务模型，三种上下文
@@ -70,8 +73,9 @@ Task（通用）
 | --- | --- | --- | --- | --- |
 | `Goal` | Runner/入口 | 不可变 | `AgentStore`（会话） | Planner / Deliver |
 | `Policy` | Planner | 不可变（重规划可出新版） | State | Scheduler / UI |
-| `Task` | Planner | Runner（状态） | State | Scheduler / Runner |
-| `TaskGraph` | Planner | Replanner（P1.1） | State | Scheduler |
+| `TaskSpec` | Planner | 不可变 | Plan | Scheduler / Runner |
+| `TaskRuntimeState` | Runner | Runner（纯转移） | State | Scheduler / UI |
+| `TaskGraph` | Planner | 不修改 | **派生，不持久化** | Scheduler |
 | `TaskEnvelope` | Planner | 不可变 | State | Runner / Adapter |
 | `Participant` | ParticipantManager | 健康状态刷新 | 配置 + 内存 | Planner / Scheduler |
 | `Capability` | 代码常量 | 不可变 | 代码 | Planner |
@@ -85,6 +89,7 @@ Task（通用）
 | `CollaborationState` | Runner | Runner（纯转移） | `AgentStore` | 全部 |
 | `Execution` | AgentOrchestrator | 状态 | 领域存储 | Runner / Verifier |
 | `Verification` | Verifier | 不可变 | State | Deliver |
+| `EngineeringTaskState` | 工程任务 | 任务自身 | State（可选） | Deliver / Review |
 | `Deliverable` | Deliver | 不可变 | State + 会话 | UI |
 
 ---
@@ -377,6 +382,8 @@ export interface CollaborationState {
   replans: Array<{ at: number; reason: string; added: string[]; removed: string[] }>;
   stop?: { reason: StopReason; at: number };
   deliverable?: Deliverable;
+  /** 仅工程任务；快照/测试/diff/review 在这里，不新建 EngineeringStore。 */
+  engineering?: EngineeringTaskState;
   updatedAt: number;
 }
 
@@ -426,6 +433,34 @@ export interface Deliverable {
   createdAt: number;
 }
 ```
+
+### 3.10 ModelInput（通道边界）
+
+```ts
+/** 网页通道唯一允许的输入：问题 + 数据，不含指令。 */
+export interface QuestionInput {
+  kind: 'question';
+  question: string;
+  transcript?: Array<{ source: string; text: string }>;
+}
+
+/** 本地/云端可接收的契约：数据 + 输出 schema，不含角色/阶段话术。 */
+export interface ContractInput {
+  kind: 'contract';
+  question: string;
+  schema: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  constraints?: { tools?: string[]; permission?: string; timeoutMs?: number };
+}
+```
+
+- 网页只收 `QuestionInput`；任何「请指出 / 你的职责 / 第一步」都非法；
+- 本地/云端可收 `ContractInput`；schema 是契约，不是话术；
+- **执行计划必须由 `ContractInput` 产生**；没有 local/cloud 规划者时任务 `blocked`，
+  不得把规划提示词塞进网页；
+- 现存 16 个 Prompt 构造器的处置见
+  [P0-F..J 修订 §2.2](P0-F-TO-J-DESIGN-REVISION.md)。
+
 
 ---
 

@@ -64,7 +64,8 @@ export interface EngineeringTaskState {
 规则：
 
 - `Snapshot` 是证据/回退依据，不叫 baseline；
-- `EngineeringTaskState` 挂在任务上，不塞进 `TaskSpec`；
+- `EngineeringTaskState` 挂在 `CollaborationState.engineering`（仅工程任务），
+  不塞进 `TaskSpec`，不新建 EngineeringStore；
 - 写操作必须有 `start`；`done` 前必须有 `end` 与测试结果（或明确 skipped）。
 
 ## 2. 生命周期
