@@ -257,7 +257,7 @@ criteria are tracked in
 | [`docs/architecture/ENGINEERING_WORKSPACE.md`](docs/architecture/ENGINEERING_WORKSPACE.md) | Engineering workspace, Agentic Search, CLI collaboration, safety |
 | [`docs/architecture/MIGRATION_PLAN.md`](docs/architecture/MIGRATION_PLAN.md) | How debate / evidence / engineering code migrates |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Five layers, three protocols, two main chains |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | P0–P5: where we are, what is next, how completion is judged |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | P0–P6: where we are, what is next, how completion is judged |
 | [`docs/README.md`](docs/README.md) | Full index: design, specs, ADRs, testing, app-level docs |
 | [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | Protocol vocabulary, three-stage parsing, echo stripping, reply attribution |
 | [`IPC.md`](desktop-agent-macos/docs/IPC.md) | Channel list, trust checks, why some arguments are literals |

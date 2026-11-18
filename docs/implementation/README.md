@@ -10,7 +10,9 @@
 
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
+| [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
+| [P0-B-TO-E-DESIGN-RESOLUTION.md](P0-B-TO-E-DESIGN-RESOLUTION.md) | P0 前置 | B.1 类型、B.2 状态机、C 文档统一、D 评审清单、E 冻结与任务书 |
 | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
 | [P1-002-DOMAIN-RUNTIME-CONTRACT.md](P1-002-DOMAIN-RUNTIME-CONTRACT.md) | P1 前置 | 领域对象、所有权、生命周期、状态机、错误/重试/取消/并发/预算、持久化与事件 |
 | [00-master-plan.md](00-master-plan.md) | 全局 | 阶段、门禁、开关、回滚、删除策略、与提案 P0–P12 的映射 |
@@ -26,13 +28,14 @@
 
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
-| P0 契约与开关 | **进行中**（P1-001 已提交，待评审） | 01 出口清单 + P0-A 决策 | — |
-| P1.0 协作引擎骨架 | 未开始 | Goal → DAG → Run → Observation → Deliver 可跑 | — |
+| P0 契约与开关 | ✅ 设计冻结（用户确认 2026-11-18） | 进入 P1 实施 | — |
+| P1.0 协作引擎骨架 | 未开始（设计完成） | Goal → DAG → Run → Observation → Deliver 可跑 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |
 | P3 工程空间 | 未开始 | 一次真实改动全链路通过 | — |
 | P4 证据与质量 | 未开始 | 跨空间引用 + 门槛可回归 | — |
 | P5 模型与通道 | 未开始 | 新增通道不改主流程 | — |
+| P6 发布与运维 | 未开始 | 干净机器安装/迁移/回滚/签名 | — |
 | V3 发布 | 未开始 | 06 文档的发布判据 | — |
 
 ## 使用方式

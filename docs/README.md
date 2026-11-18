@@ -9,14 +9,26 @@
 | --- | --- |
 | [PRODUCT.md](PRODUCT.md) | 产品要成为什么、三个空间、按什么原则取舍、什么算成功 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 五层基础架构、三套协议、两条主链路、目录职责 |
-| [ROADMAP.md](ROADMAP.md) | P0–P5：现在在哪、下一阶段是什么、每阶段的完成判据 |
+| [ROADMAP.md](ROADMAP.md) | P0–P6：现在在哪、下一阶段是什么、每阶段的完成判据 |
 
-## 实施计划（P0–P5）
+## 领域设计（P2–P5）
+
+| 文档 | 内容 |
+| --- | --- |
+| [architecture/KNOWLEDGE_SPACE.md](architecture/KNOWLEDGE_SPACE.md) | 知识卡、主题、时效、复用、知识地图 |
+| [architecture/ENGINEERING_CONTRACT.md](architecture/ENGINEERING_CONTRACT.md) | 工程任务状态、S1/S2、CLI 执行者、Java、验收 |
+| [architecture/EVIDENCE_QUALITY.md](architecture/EVIDENCE_QUALITY.md) | Pack→EvidenceRef、验证、指标、回放 |
+| [architecture/CAPABILITY_MODEL.md](architecture/CAPABILITY_MODEL.md) | 能力、参与者、路由、降级、费用 |
+| [architecture/RELEASE_OPERATIONS.md](architecture/RELEASE_OPERATIONS.md) | 版本、打包签名、迁移、备份、诊断、回滚 |
+
+## 实施计划（P0–P6）
 
 | 文档 | 内容 |
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
+| [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
+| [implementation/P0-B-TO-E-DESIGN-RESOLUTION.md](implementation/P0-B-TO-E-DESIGN-RESOLUTION.md) | 类型/状态机/文档统一/评审/冻结的解决方案 |
 | [implementation/P1-001-MIGRATION-AUDIT.md](implementation/P1-001-MIGRATION-AUDIT.md) | 迁移审计：现有代码、重复职责、状态与目标映射 |
 | [implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md](implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md) | 领域与运行时契约：对象、所有权、状态机、错误与预算 |
 | [implementation/00-master-plan.md](implementation/00-master-plan.md) | 阶段表、门禁、flag、回滚与删除策略、提案 P0–P12 映射 |

@@ -38,26 +38,16 @@ src/main/collaboration/
 
 ### 1.1 单一状态 CollaborationState（P1.0 第一件事）
 
-所有模块只操作一份状态，**不允许 Planner / Scheduler / Runner 各存一份任务列表**：
+所有模块只操作一份状态，**不允许 Planner / Scheduler / Runner 各存一份任务列表**。
+字段与状态机以 [P1-002 §3.8](P1-002-DOMAIN-RUNTIME-CONTRACT.md) 为唯一权威，这里不复述接口。
 
-```ts
-interface CollaborationState {
-  goal: Goal;
-  policy: { modelScope: 'local' | 'remote' | 'hybrid'; includeWeb: boolean };
-  tasks: Array<TaskSpec & { status: ... }>;
-  assignments: Assignment[];
-  observations: Observation[];
-  evidence: EvidenceRef[];
-  budget: { maxCalls: number; maxMs: number; usedCalls: number; startedAt: number };
-  replans: ...;          // P1.0 恒为空，P1.1 才写
-  stop?: { reason: StopReason; at: number };
-  deliverable?: Deliverable;
-}
-```
+规则：
 
+- `Plan` 不可变；重规划产生新 `version`，旧版进 `planHistory`；
+- 任务定义在 `activePlan.tasks`（`TaskSpec`），运行状态在 `taskStates`；
+- 每次执行一个 `Attempt`；`Observation` 对应 Attempt；
 - 每次转移都是纯函数：`(state, event) -> state`；
-- 落盘复用 `AgentStore`（P1.0 接线，不新建 Journal）；
-- 事件由转移函数产生，Runner 不再自己拼状态。
+- 落盘复用 `AgentStore`，不新建 Journal。
 
 ---
 

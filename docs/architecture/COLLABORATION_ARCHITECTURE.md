@@ -262,67 +262,23 @@ export interface EvidenceRef {
 
 ---
 
-## 9. 数据契约（草案）
+## 9. 数据契约
 
-```ts
-export interface Goal {
-  goalId: string;
-  workspace: 'knowledge' | 'engineering' | 'general';
-  statement: string;            // 用户原话
-  constraints: string[];
-  acceptance: string[];         // 什么算完成
-  createdAt: number;
-}
+**唯一权威定义：[P1-002 领域与运行时契约](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)。**
+本文不重复 TypeScript 接口，避免与契约文档漂移。
 
-export interface TaskSpec {
-  taskId: string;
-  goalId: string;
-  kind: 'analyze' | 'research' | 'verify' | 'review' | 'execute' | 'synthesize';
-  question: string;
-  dependsOn: string[];
-  requiredCapabilities: Partial<AgentCapabilities>;
-  timeoutMs?: number;
-  acceptance: string[];
-}
+对象与职责速查：
 
-export interface Assignment {
-  taskId: string;
-  agentId: string;
-  reason: string;
-  contextRefs: string[];        // EvidenceRef / 前序 Observation
-}
-
-export interface Observation {
-  taskId: string;
-  agentId: string;
-  status: 'done' | 'failed' | 'skipped';
-  text?: string;
-  toolCalls?: Array<{ tool: string; args: unknown; resultHash?: string }>;
-  evidenceRefs: string[];
-  error?: string;
-  startedAt: number;
-  endedAt: number;
-}
-
-export interface CollaborationPlan {
-  goalId: string;
-  strategy: string;             // 可读的策略名，不是枚举黑话
-  reason: string;
-  tasks: TaskSpec[];
-  assignments: Assignment[];
-  stopWhen: string[];
-}
-
-export interface Verdict {
-  claimId: string;
-  relation: 'supports' | 'contradicts' | 'context' | 'unverified';
-  confidence: 'low' | 'medium' | 'high';
-  limitations: string[];
-  evidenceRefs: string[];
-}
-```
-
----
+| 对象 | 作用 | 权威位置 |
+| --- | --- | --- |
+| Goal / Policy | 目标、范围、预算 | P1-002 §3.1 |
+| TaskEnvelope / TaskSpec | 任务定义（不可变） | §3.3 |
+| TaskRuntimeState / Attempt | 运行状态与尝试（只追加） | §3.3 |
+| Plan / Assignment | 计划（不可变）/ 派发（运行时） | §3.5 |
+| Observation / EvidenceRef | 单次尝试结果 / 证据引用 | §3.6 |
+| Claim / Conflict / Dispute | 主张 / 矛盾 / 未决争议 | §3.7 |
+| CollaborationState | 唯一运行时状态 | §3.8 |
+| Verification / Deliverable | 验证 / 交付 | §3.9 |
 
 ## 10. 与现有模块的映射
 

@@ -1,7 +1,7 @@
 # P1-002 领域与运行时契约
 
 状态：**设计冻结候选（2026-11-18）**，待评审。
-代码基线：`main@29062c3`（P1-001 审计已合并）。
+设计分支：`product-v3`；设计快照：`7d27c6e`（P0-B）；代码基线：`cd30be3`；`main` 只做集成。
 前置：[P1-001 迁移审计](P1-001-MIGRATION-AUDIT.md)。
 目标：把 V3 的对象、所有权、生命周期、状态转移、错误/重试/取消/并发/预算、
 持久化与事件一次冻结，供 P1-003 映射和 P1-004 实现使用。
@@ -149,7 +149,7 @@ export interface Participant {
 }
 ```
 
-### 3.3 Task / TaskEnvelope / TaskGraph
+### 3.3 TaskEnvelope / TaskSpec / TaskRuntimeState / Attempt
 
 ```ts
 export interface TaskEnvelope {
@@ -162,7 +162,8 @@ export interface TaskEnvelope {
   evidenceRequired: boolean;
 }
 
-export interface Task {
+/** 计划内的任务定义：不可变。运行状态不在这里。 */
+export interface TaskSpec {
   taskId: string;
   goalId: string;
   kind: 'analyze' | 'research' | 'verify' | 'review' | 'execute' | 'synthesize';
@@ -172,17 +173,39 @@ export interface Task {
   timeoutMs?: number;
   degradable?: boolean;
   context?: GeneralContext | KnowledgeContext | EngineeringContext;
-  status: TaskStatus;
-  attempts: number;
 }
 
 export type TaskStatus =
-  | 'pending' | 'assigned' | 'running'
-  | 'done' | 'failed' | 'skipped' | 'blocked' | 'cancelled';
+  | 'pending' | 'assigned' | 'running' | 'retrying'
+  | 'done' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
 
+/** 一次执行尝试；只追加，不修改历史。 */
+export interface Attempt {
+  attemptId: string;
+  taskId: string;
+  participantId: string;
+  /** 1 起；只读任务最多 2 次。 */
+  number: number;
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  startedAt: number;
+  endedAt?: number;
+  error?: { code: ErrorCode; message: string };
+}
+
+/** 运行状态与定义分离；每个 taskId 只有一条。 */
+export interface TaskRuntimeState {
+  taskId: string;
+  status: TaskStatus;
+  attempts: Attempt[];
+  currentAttemptId?: string;
+  /** 跳过/阻塞/取消的原因；失败原因在 Attempt.error。 */
+  reason?: string;
+}
+
+/** 由 Plan.tasks + dependsOn 派生，不单独持久化。 */
 export interface TaskGraph {
   goalId: string;
-  tasks: Task[];
+  tasks: TaskSpec[];
   maxDepth: number;
   createdAt: number;
 }
@@ -215,11 +238,13 @@ export interface EngineeringContext {
 }
 ```
 
-### 3.5 Plan / Assignment
+### 3.5 Plan / ParticipantChoice / Assignment
 
 ```ts
 /**
  * 不可变。重规划不修改旧 Plan，而是生成新 version，并写 supersedes。
+ * Plan 只含规划结果：任务定义 + 参与者选择 + 停止条件。
+ * 派发结果（Assignment）属于运行时，不在 Plan 里。
  */
 export interface Plan {
   planId: string;
@@ -228,33 +253,39 @@ export interface Plan {
   /** 新版本指回上一版 planId；首版为空。 */
   supersedes?: string;
   policy: Policy;
-  tasks: Task[];
-  /** 参与者选择结果与理由；跳过也要记录。 */
+  tasks: TaskSpec[];
+  /** 规划阶段的参与者选择与理由；跳过也要记录。 */
   participants: Array<{ participantId: string; reason: string }>;
   skipped: Array<{ participantId: string; reason: string }>;
-  assignments: Assignment[];
   stopWhen: string[];
   reason: string;
   createdAt: number;
 }
 
+/** 派发结果：任务 → 参与者的一次配对；由 Scheduler 创建。 */
 export interface Assignment {
   assignmentId: string;
   taskId: string;
   participantId: string;
   reason: string;
   contextRefs: string[];
+  assignedAt: number;
 }
 ```
 
 ### 3.6 Observation / EvidenceRef
 
 ```ts
+/**
+ * 只对应一次 Attempt；skipped/blocked 不产生 Observation，
+ * 原因写在 TaskRuntimeState.reason。
+ */
 export interface Observation {
   observationId: string;
   taskId: string;
+  attemptId: string;
   participantId: string;
-  status: 'done' | 'failed' | 'skipped';
+  status: 'done' | 'failed' | 'cancelled';
   text?: string;
   toolCalls?: Array<{ tool: string; args: unknown; resultHash?: string }>;
   evidenceRefs: string[];
@@ -307,9 +338,17 @@ export interface Conflict {
   createdAt: number;
 }
 
-/** 影响交付且未解决的冲突，才允许进入 Debate。id 沿用 conflictId。 */
-export interface Dispute extends Conflict {
+/**
+ * 影响交付且未解决的冲突，才允许进入 Debate。
+ * 不继承 Conflict：两者状态集合不兼容，且生命周期独立；用 conflictId 关联。
+ */
+export interface Dispute {
+  disputeId: string;
+  conflictId: string;
+  goalId: string;
   status: 'open' | 'resolved' | 'unresolved';
+  openedAt: number;
+  resolvedAt?: number;
   resolution?: { relation: 'supports' | 'contradicts' | 'context' | 'unverified'; evidenceRefs: string[] };
 }
 ```
@@ -325,8 +364,9 @@ export interface CollaborationState {
   activePlan: Plan;
   /** 历史计划，按 version 升序；只追加，不修改。 */
   planHistory: Plan[];
-  /** 任务定义来自 activePlan；这里只加运行状态。 */
-  tasks: Task[];
+  /** 运行状态；与 activePlan.tasks 按 taskId 对应。 */
+  taskStates: TaskRuntimeState[];
+  /** 派发结果；属于运行时。 */
   assignments: Assignment[];
   observations: Observation[];
   evidence: EvidenceRef[];
@@ -394,9 +434,13 @@ export interface Deliverable {
 | 动作 | 唯一负责人 | 禁止 |
 | --- | --- | --- |
 | 生成 Goal | 入口 | Planner 改写用户原话 |
-| 选范围/选参与者/拆任务 | Planner | Scheduler 自行增删 |
+| 选范围/选参与者/拆任务/生成 TaskSpec | Planner | Scheduler 自行增删 |
+| 生成 Plan 新版本 | Planner（首版）/ Replanner（P1.1） | 原地修改旧 Plan |
+| 创建 Assignment | Scheduler | Runner 改派 |
+| 创建 Attempt / 写 TaskRuntimeState | Runner | Planner 直接改状态 |
 | 校验范围与能力、排期 | Scheduler | Runner 改计划 |
 | 执行任务、写 Observation | Runner | Planner 直接执行 |
+| 写 Plan / taskStates / observations | Runner（状态）/ Planner（Plan） | 模块各存一份 |
 | 状态转移 | Runner（纯函数） | 模块各存一份状态 |
 | 冲突检测 | Conflict Detector | Debate 自己造冲突 |
 | 验证 | Verifier | Deliver 给证据加分 |
@@ -416,22 +460,30 @@ Plan: draft ──► validated ──► active ──► superseded（新版�
 
 Plan 不可变：重规划产生新的 `version`，旧版本进 `planHistory`，不原地改。
 
-### 5.2 Task
+### 5.2 Task / Attempt
 
 ```text
+Task:
 pending ──► assigned ──► running ──┬─► done
-                                   ├─► failed
-                                   ├─► skipped
-                                   └─► blocked
-pending/assigned/running ──► cancelled（用户取消）
+                                   ├─► retrying ──► running（只读重试，新 Attempt）
+                                   ├─► failed（写操作失败 / 重试耗尽）
+                                   ├─► blocked
+                                   └─► skipped
+任意非终态 ──► cancelled（用户取消）
+
+Attempt:
+running ──► done | failed | cancelled
 ```
 
 规则：
 
-- `done` 必须有 Observation 且满足 `acceptance`；
-- `skipped` 必须有原因（能力不匹配 / 通道不可用 / 被取消）；
-- `failed` 不自动重跑写操作；
-- 状态只前进，不回退（重规划生成新 Task）。
+- `Plan` 里的 `TaskSpec` 不可变；运行状态只在 `TaskRuntimeState`。
+- 每次执行创建新的 `Attempt`；旧 `Attempt` 与 `Observation` 不修改。
+- 只读任务最多 2 次 Attempt：第 1 次失败 → `retrying` → 第 2 次；仍失败 → `failed`。
+- 写/执行任务只有 1 次 Attempt；失败直接 `failed`，重跑必须新 Plan + 审批。
+- `done` 必须满足 `acceptance`，且有 `Observation`。
+- `skipped` / `blocked` 不产生 `Observation`，原因写 `TaskRuntimeState.reason`。
+- `failed` 是终态；不允许 `failed → running`。
 
 ### 5.3 Conflict / Dispute
 
@@ -445,7 +497,8 @@ Dispute: open ──► resolved
 
 ### 5.4 Observation / Deliverable
 
-- `Observation` 创建后不可变；
+- `Observation` 只对应一次 `Attempt`，创建后不可变；
+- `skipped` / `blocked` 没有 Observation，只有状态与原因；
 - `Deliverable` 只能在 `stop` 之后创建，且必须带 `stopReason`。
 
 ---
@@ -455,13 +508,18 @@ Dispute: open ──► resolved
 1. 只有 Runner 写 `CollaborationState`；Planner/Scheduler 返回新对象，不原地改。
 2. 任务参与者必须在 `Policy` 范围内；越界直接拒绝，不改道。
 3. 高风险任务 `minParticipants >= 2`；降到 1 必须拒绝。
-4. 每个 `Task` 必须有非空 `acceptance`。
+4. 每个 `TaskSpec` 必须有非空 `acceptance`。
 5. `done` 任务必须至少有一个 Observation 或明确的「无外部结果」说明。
 6. 证据引用必须有 `source` 与 `hash`；没有就标 `unverified`。
 7. `Deliverable.stopReason` 必须来自 `StopReason`，不能自造字符串。
 8. 任何跳过/失败必须出现在 State 与 UI。
 9. 一次只允许一个 `activePlan`；修订产生新 Plan 进 `planHistory`，旧版不可改。
 10. 预算只能减少，不能中途上调（用户显式加预算除外）。
+11. `Plan` 与 `TaskSpec` 不可变；新计划产生新 `version`，旧版进 `planHistory`。
+12. `taskStates` 每个 `taskId` 只有一条；`attempts` 只追加。
+13. `Observation.attemptId` 必须指向已存在的 `Attempt`。
+14. 只读重试最多 2 次 Attempt；写操作不自动重试。
+15. 取消已开始的 Attempt 必须产生 `cancelled` Observation；未开始则只记录状态原因。
 
 ---
 
@@ -502,14 +560,18 @@ export type ErrorCode =
 
 ### 8.2 重试
 
-- 只读任务：最多 1 次；
-- 写/执行任务：**不自动重试**，必须重新计划与审批；
-- Planner 自身：P1 无模型调用；P1.1 模型审核失败回退规则，不重试模型。
+- 只读任务：最多 2 次 Attempt；第 1 次失败进 `retrying`，第 2 次失败进 `failed`；
+- 每次重试创建新 `Attempt`，不改旧 Attempt / Observation；
+- 写/执行任务：只有 1 次 Attempt，**不自动重试**；重跑必须重新计划与审批；
+- `failed` 是终态，不允许 `failed → running`；
+- Planner 本身：P1 无模型调用；P1.1 模型审核失败回退规则，不重试模型。
 
 ### 8.3 取消
 
-- 用户取消 → 停止派发 → 通知在途任务 → 标记 `cancelled`；
-- 网页：触发停止生成；CLI：kill；Runtime：走既有取消；
+- 用户取消 → 停止派发 → 通知在途任务 → 非终态任务标 `cancelled`；
+- 已开始的 Attempt：标 `cancelled`，并产生 `Observation(status='cancelled')`；
+- 未开始的任务：只写 `TaskRuntimeState.reason`，不产生 Observation；
+- 网页触发停止生成；CLI kill；Runtime 走既有取消；
 - 已产生的 Observation 保留，不删。
 
 ### 8.4 并发
