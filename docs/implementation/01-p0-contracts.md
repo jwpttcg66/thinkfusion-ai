@@ -290,7 +290,7 @@ P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0�
 
 | ID | 任务 | 文件 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| P0-01 | 迁移矩阵 | `docs/implementation/migration-matrix.md` | 无 | 全覆盖清单，逐行可评审 |
+| P0-01 | 迁移矩阵（初稿完成） | [migration-matrix.md](migration-matrix.md) | 无 | 逐行可评审；待确认参与者规则 |
 | P0-02 | 领域契约 | `src/main/collaboration/domain/*` | 01 | typecheck + 序列化单测 |
 | P0-03 | 事件类型 | `src/shared/conversation.ts`（增量） | 02 | 事件枚举与载荷测试 |
 | P0-04 | Flag | `src/main/collaboration/mode.ts` | 02 | 单测 + 手工开关 |
