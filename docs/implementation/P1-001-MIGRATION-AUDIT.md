@@ -5,7 +5,7 @@
 范围：现有代码的架构、状态、Runtime、Planner、Debate、Evidence、Engineering、Java、
 删除/保留/改造/新增清单、风险、P1 顺序与不可触碰边界。
 
-> 分支提示：设计分支 `product-v3`（快照 `2d05b12`，含 P1-002/P0-A/P0-B）；代码基线 `cd30be3`。
+> 分支提示：设计分支 `product-v3`（评审快照 `2d05b12`，当前 HEAD 见 git log；含 P1-002/P0-A/P0-B）；代码基线 `cd30be3`。
 > `main` 仅集成；本文以代码基线 `cd30be3` 为准。
 
 ---
