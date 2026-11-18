@@ -117,6 +117,8 @@ export interface Policy {
   includeWeb: boolean;
   /** 高风险时的参与者下限；默认 1，高风险为 2。 */
   minParticipants: number;
+  /** 知识/通用可为 true；工程必须 false。 */
+  allowWebQuestioner: boolean;
   /** 调用/时间预算。 */
   budget: Budget;
 }
@@ -444,6 +446,13 @@ export interface QuestionInput {
   transcript?: Array<{ source: string; text: string }>;
 }
 
+/** 仅知识/通用：网页提问者输入，单条问题 + 数据，无 system/格式。 */
+export interface QuestionerInput {
+  kind: 'questioner';
+  question: string;
+  transcript: Array<{ source: string; text: string }>;
+}
+
 /** 本地/云端可接收的契约：数据 + 输出 schema，不含角色/阶段话术。 */
 export interface ContractInput {
   kind: 'contract';
@@ -454,10 +463,13 @@ export interface ContractInput {
 }
 ```
 
-- 网页只收 `QuestionInput`；任何「请指出 / 你的职责 / 第一步」都非法；
+- 网页只收 `QuestionInput`；知识问答可额外收 `QuestionerInput`（单条追问 + 数据），
+  工程模式必须拒绝网页 `questioner`；
+- 任何「请指出 / 你的职责 / 第一步 / 按格式」都非法；
 - 本地/云端可收 `ContractInput`；schema 是契约，不是话术；
 - **执行计划必须由 `ContractInput` 产生**；没有 local/cloud 规划者时任务 `blocked`，
   不得把规划提示词塞进网页；
+- 网页 `questioner` 只生成追问，不规划执行、不调用工具、不审批、不决定停止；
 - 现存 16 个 Prompt 构造器的处置见
   [P0-F..J 修订 §2.2](P0-F-TO-J-DESIGN-REVISION.md)。
 

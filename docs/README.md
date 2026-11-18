@@ -86,6 +86,7 @@
 | [0006](adr/0006-tree-sitter-runtime.md) | Tree-sitter 运行时与打包 | Accepted（Gate 0 spike） |
 | [0007](adr/0007-config-driven-cli-adapter.md) | 配置驱动的 CLI Adapter | Accepted |
 | [0008](adr/0008-participant-selection.md) | 参与者数量由任务决定 | Accepted |
+| [0009](adr/0009-web-roles.md) | 网页通道角色：知识可提问，工程只回答 | Accepted |
 
 状态说明见 [adr/README.md](adr/README.md)。
 

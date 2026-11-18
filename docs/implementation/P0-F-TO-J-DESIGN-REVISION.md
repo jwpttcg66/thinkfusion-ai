@@ -103,7 +103,8 @@ export interface ContractInput {
 
 规则：
 
-1. 网页通道只接受 `QuestionInput`；不得附加「请指出」「你的职责是」「第一步…」等指令。
+1. 网页通道只接受 `QuestionInput`；知识/通用可额外接受 `QuestionerInput`（单条追问 + 数据）。
+   不得附加「请指出」「你的职责是」「第一步…」等指令。工程模式网页只能是回答者。
 2. 本地/云端可接受 `ContractInput`；schema 是契约，不是话术。
 3. **执行计划必须由 `ContractInput` 产生**；网页通道不能承担规划角色。
    若没有可用的本地/云端规划者，执行任务 `blocked`，不得把计划提示词塞进网页。
@@ -121,6 +122,7 @@ export interface ContractInput {
 | `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 网页消息含四步指令 | 改为数据块（问题+回答），去掉指令 | P1 |
 | `synthesis/lead-stage.ts` | `leadSummarySystem` | system 角色/阶段 | 仅 local/cloud；改为 schema | P1 |
 | `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | 网页消息含汇总要求 | 改为数据块 | P1 |
+| `research/*` | 网页追问 | 单条追问 | 仅知识/通用；`QuestionerInput` | P1 |
 | `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 把要求拼进问题 | 删除；需要契约时走 ContractInput | P1 |
 | `synthesis/lead-stage.ts` | `buildVerdictQuestion` | 结论指令 | 改为数据块或 ContractInput | P1 |
 | `research/engineering-round.ts` | `buildEngineeringAnswerQuestion` | 工程回答指令 | 改为数据块 | P1 |
@@ -136,8 +138,9 @@ export interface ContractInput {
 
 ### 2.3 后果（必须明说）
 
-- 网页通道从「可规划/可主导汇总」降为「回答者」；
-- 结构化计划、汇总、修复、澄清只在 local/cloud 上执行；
+- 网页通道在**知识/通用**可担任提问者（只生成追问），但仍是回答者为主；
+- 工程模式下网页只能是回答者，不得提问/规划；
+- 结构化执行计划、修复、澄清只在 local/cloud 上执行；
 - 没有 local/cloud 时，执行类任务 `blocked`，而不是退回网页提示词；
 - 纯网页问答仍可用：问题 + 数据，无指令。
 

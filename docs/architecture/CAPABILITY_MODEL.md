@@ -37,6 +37,14 @@
 - 本地/远端：可收 system/工具，受 `ModelScope` 约束；
 - CLI：只读参与者与执行者分开（执行者不在本表）。
 
+角色：
+
+| 空间 | 网页可担任 | 说明 |
+| --- | --- | --- |
+| 知识学习 / 通用 | answerer / questioner | 提问者只收 `QuestionerInput`（单条问题 + 数据） |
+| 工程 | **仅 answerer** | 不得提问、不得规划、不得主导 |
+| 执行规划 | 所有空间都由 local/cloud 承担 | 网页不得生成 `desktop-agent` 计划 |
+
 ## 3. 路由
 
 ```ts

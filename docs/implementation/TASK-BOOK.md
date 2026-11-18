@@ -362,8 +362,9 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ### P1-02 Planner MVP
 
-- 目标：规则版 DAG；`Policy`（modelScope/includeWeb）；参与者数量与理由；
+- 目标：规则版 DAG；`Policy`（modelScope/includeWeb/allowWebQuestioner）；参与者数量与理由；
   简单问题 1–2 任务。
+- 角色：知识/通用可让网页做提问者；工程只允许网页回答。
 - 文件：`collaboration/planner/planner.ts`。
 - 验收：越界计划拒绝；高风险 ≥2；计划含 stopWhen；无固定阶段链。
 - 回滚：shadow 只算计划。
@@ -393,7 +394,8 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ### P1-06 网页边界
 
-- 目标：第一手只收原话；后续只附数据块，不含指令。
+- 目标：第一手只收原话；知识/通用可追加 `QuestionerInput`（单条追问）；工程只回答；
+  后续只附数据块，不含指令。
 - 文件：`adapters/*` 增量。
 - 验收：无「请指出」「说明是否修改」等词；跳过有原因。
 - 回滚：网页通道暂停。
