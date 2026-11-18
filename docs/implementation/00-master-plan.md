@@ -1,7 +1,7 @@
 # 实施总计划 V1.1
 
 状态：**实施基线**（2026-11-18）。
-设计基线：`product-v3`（快照 `89b447c`）；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。
+设计基线：`product-v3`（评审快照 `2d05b12`；当前 HEAD 见 git log）；代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。
 依据：[PRODUCT V3](../PRODUCT.md)、[协作架构 V1](../architecture/COLLABORATION_ARCHITECTURE.md)、
 [工程空间 V1](../architecture/ENGINEERING_WORKSPACE.md)、[迁移计划](../architecture/MIGRATION_PLAN.md)、
 [路线](../ROADMAP.md)，以及 2026-11-18 的计划审核意见。
@@ -109,7 +109,7 @@ type CollaborationMode = 'legacy' | 'shadow' | 'active';
 允许在三个节点引入模型：计划生成后、重规划决策前、辩论触发前。
 
 - 输入是结构化数据（计划 / 观察 / 争议）+ 输出 schema，不含角色、阶段、话术；
-- 只允许能接收 system 的 local/cloud；网页通道只收原话，不参与审核；
+- 只允许能接收 system 的 local/cloud；网页只收问题/数据，不参与审核；
 - 默认关闭、有预算上限、输出不合法回退规则；
 - 审核记录必须可追溯，不覆盖原计划而不留痕。
 

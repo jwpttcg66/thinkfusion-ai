@@ -1,7 +1,7 @@
 # P0-F → P0-J 设计修订
 
 状态：**设计修订完成；P0-J 评审未完成**（2026-11-18）。
-设计分支：`product-v3`；设计快照：`89b447c`。
+设计分支：`product-v3`；评审快照：`2d05b12`（当前 HEAD 见 git log）。
 代码基线：`cd30be3`（此后无源代码变更）。
 
 依据：2026-11-18 复审意见。本文只做设计修订，不改生产代码。
@@ -122,7 +122,6 @@ export interface ContractInput {
 | `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 网页消息含四步指令 | 改为数据块（问题+回答），去掉指令 | P1 |
 | `synthesis/lead-stage.ts` | `leadSummarySystem` | system 角色/阶段 | 仅 local/cloud；改为 schema | P1 |
 | `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | 网页消息含汇总要求 | 改为数据块 | P1 |
-| `research/*` | 网页追问 | 单条追问 | 仅知识/通用；`QuestionerInput` | P1 |
 | `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 把要求拼进问题 | 删除；需要契约时走 ContractInput | P1 |
 | `synthesis/lead-stage.ts` | `buildVerdictQuestion` | 结论指令 | 改为数据块或 ContractInput | P1 |
 | `research/engineering-round.ts` | `buildEngineeringAnswerQuestion` | 工程回答指令 | 改为数据块 | P1 |
@@ -196,7 +195,7 @@ export interface EvidencePackContext {
 | --- | --- |
 | V3 产品方向与核心决策 | 已由用户确认 |
 | P0 技术审查门禁 | **未全部通过**（P0-J） |
-| 设计快照 | `89b447c`（product-v3） |
+| 评审快照 | `2d05b12`（product-v3；当前 HEAD 见 git log） |
 | 历史快照 | `7d27c6e`（P0-B）、`8489df5`（B.1/B.2） |
 | 代码基线 | `cd30be3` |
 | `main` | 仅集成 |
@@ -208,8 +207,8 @@ export interface EvidencePackContext {
 
 - P1-001：删除「后续设计基线 main@d7cd030」「product-v3 只到 P1-001」；
 - P0-A：D7 统一为 product-v3；旧 `tasks[]` 描述改为 `taskStates[]`；
-- P0-B-TO-E：状态改为「方向确认，P0 门禁未过」；P1-T 编号映射 TASK-BOOK；
-- TASK-BOOK：快照写 `89b447c`；新增 P1-00A。
+- P0-B-TO-E：状态改为「方向确认，P0 门禁未过」；旧 P1-T 编号已删除，统一 TASK-BOOK；
+- TASK-BOOK：快照写 `2d05b12`；新增 P1-00A。
 
 ### 4.3 新增 P1-00A：代码职责映射
 
@@ -224,7 +223,7 @@ export interface EvidencePackContext {
 ### 4.4 P1 编号
 
 - 只保留 TASK-BOOK 的 `P1-xx` 编号；
-- P0-B-TO-E 的 `P1-T0..T7` 改为映射表（T0→P1-00，T1→P1-02，…），不再作为第二套任务书。
+- P0-B-TO-E 的旧 `P1-T0..T7` 已删除，统一为 TASK-BOOK 的 `P1-xx` 编号。
 
 ---
 

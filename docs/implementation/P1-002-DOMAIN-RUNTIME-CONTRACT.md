@@ -1,7 +1,7 @@
 # P1-002 领域与运行时契约
 
 状态：**P0-F..J 设计修订版（2026-11-18）**；产品方向已确认，P0-J 技术门禁待评审。
-设计分支：`product-v3`；设计快照：`89b447c`（本修订前；历史 P0-B 为 `7d27c6e`）；代码基线：`cd30be3`；`main` 只做集成。
+设计分支：`product-v3`；评审快照：`2d05b12`（当前 HEAD 见 git log；历史 P0-B 为 `7d27c6e`）；代码基线：`cd30be3`；`main` 只做集成。
 前置：[P1-001 迁移审计](P1-001-MIGRATION-AUDIT.md)。
 目标：把 V3 的对象、所有权、生命周期、状态转移、错误/重试/取消/并发/预算、
 持久化与事件一次冻结，供 P1-003 映射和 P1-004 实现使用。
@@ -463,13 +463,19 @@ export interface ContractInput {
 }
 ```
 
-- 网页只收 `QuestionInput`；知识问答可额外收 `QuestionerInput`（单条追问 + 数据），
-  工程模式必须拒绝网页 `questioner`；
+- 网页只收 `QuestionInput`；知识/通用可额外收 `QuestionerInput`（单条追问 + 数据），
+  工程模式必须拒绝网页 `questioner`（见下表）；
 - 任何「请指出 / 你的职责 / 第一步 / 按格式」都非法；
 - 本地/云端可收 `ContractInput`；schema 是契约，不是话术；
 - **执行计划必须由 `ContractInput` 产生**；没有 local/cloud 规划者时任务 `blocked`，
   不得把规划提示词塞进网页；
-- 网页 `questioner` 只生成追问，不规划执行、不调用工具、不审批、不决定停止；
+- 网页 `questioner` 只生成追问，不规划执行、不调用工具、不审批、不决定停止。
+
+| 空间 | 网页角色 | 输入 |
+| --- | --- | --- |
+| 知识学习 / 通用 | answerer / questioner | `QuestionInput` / `QuestionerInput` |
+| 工程 | 仅 answerer | `QuestionInput` |
+| 执行规划（所有空间） | 不允许 | 仅 local/cloud `ContractInput` |
 - 现存 16 个 Prompt 构造器的处置见
   [P0-F..J 修订 §2.2](P0-F-TO-J-DESIGN-REVISION.md)。
 
@@ -667,6 +673,9 @@ Task.requiredCapabilities
 filter Policy.modelScope / includeWeb
         │
         ▼
+filter role（知识/通用允许网页 questioner；工程拒绝）
+        │
+        ▼
 filter available + capability match
         │
         ▼
@@ -680,7 +689,8 @@ risk floor（高风险 ≥ 2）
 
 - 先范围，后能力，最后数量；
 - `local` 只选本地模型，`remote` 只选远端模型；越界拒绝；
-- 网页由 `includeWeb` 决定；网页不参与需要工具/看他人输出的任务；
+- 网页由 `includeWeb` 决定；知识/通用可担任 `questioner`，工程只能 `answerer`；
+  网页不参与需要工具/看他人输出的任务；
 - 选择理由写进 `Plan.participants[].reason`；跳过写 `Plan.skipped[]`；
 - 高风险判定（初始规则）：涉及写操作、用户要求多视角、存在未决争议。
 

@@ -43,7 +43,7 @@ P1-001、P0 契约、P1 计划、P1-002 契约。
 | C1 | `MIGRATION_PLAN.md:143` | 「第一手仍覆盖所有已启用通道」 | ADR-0008 / AGENTS 第 2 条 | 高 | 已修正 |
 | C2 | `02-p1-collaboration-engine.md:94` | 「所有通道独立作答 + 综合」 | 同上 | 高 | 已修正 |
 | C3 | `COLLABORATION_ARCHITECTURE.md:91` | Independent 停止条件「所有可用通道返回或超时」 | 把「行为」与「选人」混为一谈 | 高 | 已修正 |
-| C4 | 00/01/README | 代码基线写 `45ccb11` | 审计写 `cd30be3`；设计在 `d7cd030` | 中 | 已统一口径 |
+| C4 | 00/01/README | 代码基线写 `45ccb11` | 审计写 `cd30be3`；设计已迁到 product-v3 | 中 | 已统一口径 |
 | C5 | 01 / README | P1-001 标「初稿完成」 | 审计写「待评审」 | 中 | 已统一为「已提交，待评审」 |
 | C6 | 01 §2.5/2.6 | `TaskGraphState` 与 `CollaborationState` 字段重叠 | P1-002 又定义了 `Plan` + `State` | 高 | 已采纳 D4：删除 TaskGraphState |
 | C7 | 02 / P1-002 | 规则 Planner 与模型职责未成文 | 实施时容易让模型控制 Runtime | 高 | 已采纳 D5：P1-002 §10.1 |
@@ -60,7 +60,7 @@ P1-001、P0 契约、P1 计划、P1-002 契约。
 
 - 决定：`product-v3` 是唯一设计分支；`main` 只做集成，不承载进行中的设计。
 - 理由：用户 2026-11-18 裁决；P1-002 与 P0-A 已并入 product-v3。
-- 动作：设计文档与后续 P0-B 只在 product-v3 提交；main 等设计冻结后再合并。
+- 动作：设计文档与后续 P0-B 只在 product-v3 提交；main 等 P0-J 后再合并。
 - 状态：**已采纳**。
 
 ### D2 参与者规则统一（已决，已修正）
@@ -115,7 +115,7 @@ P1-001、P0 契约、P1 计划、P1-002 契约。
 
 ### D7 基线与状态口径（已决，已修正）
 
-- 口径：设计分支 `product-v3`；设计快照 `89b447c`；代码基线 `cd30be3`。
+- 口径：设计分支 `product-v3`；评审快照 `2d05b12`（当前 HEAD 见 git log）；代码基线 `cd30be3`。
 - P1-001 状态统一为「已提交，待评审」。
 - 状态：**已执行**。
 
@@ -181,7 +181,7 @@ TaskGraph = 从 activePlan.tasks + dependsOn 派生（不单独持久化）
 
 ---
 
-## 8. 设计冻结出口
+## 8. 设计收敛出口（P0-J）
 
 - [x] D1 设计只在 product-v3（已采纳）
 - [x] D4 状态所有权确认，删除 `TaskGraphState`
