@@ -6,6 +6,10 @@
 文件、验收、回滚与风险。**本文不写实现代码。**
 
 > 契约唯一权威：[P1-002 领域与运行时契约](P1-002-DOMAIN-RUNTIME-CONTRACT.md)。
+> P2–P5 领域设计：[KNOWLEDGE_SPACE](../architecture/KNOWLEDGE_SPACE.md)、
+> [ENGINEERING_CONTRACT](../architecture/ENGINEERING_CONTRACT.md)、
+> [EVIDENCE_QUALITY](../architecture/EVIDENCE_QUALITY.md)、
+> [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)。
 > 本文只做任务设计；出现接口冲突时，以 P1-002 为准。
 
 ---
@@ -19,6 +23,9 @@
 | 🔒 | 门禁，不通过不进入下一阶段 |
 
 任务编号与已有文档对齐：P0-xx、P1-xx、P2-xx、P3-xx、P4-xx、P5-xx、UI-xx、X-xx。
+
+**P2–P5 领域设计已完成**（知识空间、工程契约、证据与质量、能力路由）；
+下表中的任务状态仍表示「实现待做」，不代表代码已存在。
 
 并行与集成：P2 与 P3 可在 P1.1 后并行开发，但按 AGENTS 第 5 条**串行集成**；
 UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。

@@ -11,6 +11,15 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 五层基础架构、三套协议、两条主链路、目录职责 |
 | [ROADMAP.md](ROADMAP.md) | P0–P5：现在在哪、下一阶段是什么、每阶段的完成判据 |
 
+## 领域设计（P2–P5）
+
+| 文档 | 内容 |
+| --- | --- |
+| [architecture/KNOWLEDGE_SPACE.md](architecture/KNOWLEDGE_SPACE.md) | 知识卡、主题、时效、复用、知识地图 |
+| [architecture/ENGINEERING_CONTRACT.md](architecture/ENGINEERING_CONTRACT.md) | 工程任务状态、S1/S2、CLI 执行者、Java、验收 |
+| [architecture/EVIDENCE_QUALITY.md](architecture/EVIDENCE_QUALITY.md) | Pack→EvidenceRef、验证、指标、回放 |
+| [architecture/CAPABILITY_MODEL.md](architecture/CAPABILITY_MODEL.md) | 能力、参与者在、路由、降级、费用 |
+
 ## 实施计划（P0–P5）
 
 | 文档 | 内容 |

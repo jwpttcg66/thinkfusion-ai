@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(design): 补齐 P2–P5 领域设计（知识空间、工程契约、证据与质量、能力与通道路由）
 - docs(design): 记录设计冻结（用户确认 2026-11-18）；P0 退出，进入 P1 实施准备
 - docs(implementation): 新增 TASK-BOOK（P0–P5、UI、发布与跨阶段的全部任务设计）
 - docs(design): P0-B.1/B.2/C 完成——TaskSpec/TaskRuntimeState/Attempt 三层拆分、Plan/Assignment 所有权、Dispute 独立、重试/取消状态机、文档契约统一到 P1-002
