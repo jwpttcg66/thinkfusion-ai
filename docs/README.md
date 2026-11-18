@@ -69,6 +69,7 @@
 | [0005](adr/0005-build-trust.md) | 构建信任边界 | Proposed |
 | [0006](adr/0006-tree-sitter-runtime.md) | Tree-sitter 运行时与打包 | Accepted（Gate 0 spike） |
 | [0007](adr/0007-config-driven-cli-adapter.md) | 配置驱动的 CLI Adapter | Accepted |
+| [0008](adr/0008-participant-selection.md) | 参与者数量由任务决定 | Accepted |
 
 状态说明见 [adr/README.md](adr/README.md)。
 

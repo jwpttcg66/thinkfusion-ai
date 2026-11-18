@@ -67,19 +67,20 @@ interface CollaborationState {
 ```ts
 export interface ParticipantManager {
   list(): ParticipantView[];                 // 可用性、健康、类型
-  firstHand(question: string): Promise<Observation[]>; // 所有已开启且可用通道
+  ask(input: { question: string; participants: string[] }): Promise<Observation[]>;
   failures(): ParticipantFailure[];
 }
 ```
 
-- 第一手仍覆盖**所有已开启且可用的通道**（AGENTS 第 2 条）；跳过必须记录原因。
-  这是**兼容策略**，不是永久产品原则：V3.1 若允许 Planner 只选一个 Agent，
-  必须先修改 AGENTS 第 2 条并单独评审；P1 不得悄悄放宽。
+- **问几个由 Planner 决定**（AGENTS 第 2 条，2026-11-18 裁决）：Manager 只执行名单，
+  不再默认全部参与。
+- 简单事实/单点核对可 1 个；有争议、高风险、用户要求多视角时至少 2 个。
+- 每个参与者写入 `reason`；被跳过的通道写清原因，对用户可见。
 - 网页 / 本地 / 云端 / CLI（只读）都实现同一 `SubAgent` 接口，不新增协议。
 - `MasterAgent.research()` 在 legacy 模式下保持原样；新代码只调用 Manager。
 - 删除条件：见 00 文档 5.3；在此之前两套并存但只由 flag 决定走哪套。
 
-验收：`check-collaboration-participants.mjs` 覆盖「全部通道被问」「跳过有原因」「单通道失败不影响同批」。
+验收：`check-collaboration-participants.mjs` 覆盖「按名单执行」「1 个也能跑」「跳过有原因」「高风险至少 2 个」。
 
 ---
 
@@ -116,11 +117,12 @@ export interface ParticipantManager {
 
 ### 4.1 选人
 
-1. **第一手**：所有已开启且可用通道，全部参与；网页通道串行、本地/云端按并发上限。
+1. **数量来自 Planner**：计划里已有参与者数量与名单；Scheduler 不自作主张增删。
 2. **后续任务**：按 `requiredCapabilities` 过滤（工具、system、stream、并发、成本），
    再按当前负载与成本排序；每次分配写 `Assignment.reason`。
-3. 网页通道不分配需要工具或需要看他人输出的任务（除系统转述数据）。
-4. 跳过、降级、失败都进 Observation，不静默。
+3. 简单任务允许只有 1 个参与者；有争议/高风险/多视角要求时，Scheduler 拒绝降到 1 个。
+4. 网页通道不分配需要工具或需要看他人输出的任务（除系统转述数据）。
+5. 跳过、降级、失败都进 Observation，不静默。
 
 ### 4.2 并发与依赖
 
@@ -148,6 +150,16 @@ export interface ParticipantManager {
 
 **P1.0 不实现自动重规划**；先让 Goal → DAG → Run → Observation → Deliver 跑通，
 再单独加这一节。以下规则在 P1.1 生效。
+
+### 6.1 关键阶段的模型审核（P1.1）
+
+允许在「计划生成后 / 重规划前 / 辩论触发前」调用一个模型做审核：
+
+- 输入：结构化计划、Observation、Dispute；输出：`{verdict: approve|adjust|reject, reason, changes}`；
+- 不含角色、阶段、挑战话术；只是数据 + 输出 schema；
+- 只允许能接收 system 的 local/cloud；网页通道不参与审核；
+- 默认关闭；预算上限；输出不合法或超时 → 回退规则，不阻塞交付；
+- 审核记录写进 `CollaborationState.replans` 或事件，能回答「谁审的、改了什么」。
 
 每波结束调用一次，输入 `TaskGraphState`，输出「继续 / 加任务 / 停」。
 
@@ -272,13 +284,10 @@ export interface DebateBehaviorOutput {
   - 简单问题平均任务数 ≤ 2；
   - 人工抽检 5 个计划，理由可读。
 
-### 11.2 P1.1：可选只读双跑
+### 11.2 不做双跑
 
-- 只对**只读任务**双跑（写操作绝不双跑），调用预算硬上限；
-- 比较 Observation、证据覆盖与停止原因，不是比措辞；
-- 双跑结果不覆盖 legacy 交付物，只写对比报告。
-
-验收：shadow 报告可复跑；flag 可瞬间回滚；双跑超预算立即停。
+2026-11-18 裁决：暂不引入第二份真实调用成本。需要对照真实结果时，先用录制回放
+（fixture）验证；回放也不做，就只保留 plan-only。
 
 ---
 
@@ -296,6 +305,7 @@ export interface DebateBehaviorOutput {
 | P1-07 | P1.0 | 行为 MVP（四个） | `behaviors/*` | P1-04 | 行为测试 |
 | P1-08 | P1.0 | 网页边界 | `adapters/*` 增量 | P1-07 | web-boundary 测试 |
 | P1-09 | P1.1 | 辩论适配 | `behaviors/debate.ts` | P1-06/07 | adapter 测试 |
+| P1-13 | P1.1 | 关键阶段模型审核 | `adapt/reviewer.ts` | P1-06 | reviewer 测试 |
 | P1-10 | P1.0 | 日志/调试可观察 | `engine.ts` 增量 | P1-04 | 日志场景 |
 | P1-11 | P1.0 | Shadow plan-only | `engine.ts` 分支 | P1-02..04 | shadow 报告 |
 | P1-12 | P1.0 | 切 active（可先保持 shadow） | flag | P1-11 | 回滚演练 |
@@ -307,7 +317,7 @@ export interface DebateBehaviorOutput {
 ### P1.0（现在）
 
 - [ ] 简单问题 1–2 个任务，不生成固定阶段链
-- [ ] 第一手覆盖所有已开启可用通道，跳过有原因（标注为兼容策略）
+- [ ] 参与者数量由 Planner 决定；1 个能跑；跳过有原因；高风险不单点
 - [ ] 任务图支持依赖、并发上限、超时、取消
 - [ ] 失败与跳过都是 Observation，不静默
 - [ ] 单一 CollaborationState 落盘，模块不另存状态
@@ -322,4 +332,4 @@ export interface DebateBehaviorOutput {
 - [ ] Replanner 有护栏，能解释停止原因
 - [ ] 辩论只在满足 §9.1 时触发，且不再创建基线
 - [ ] counterexample / review 行为可用
-- [ ] 可选只读双跑，超预算即停
+- [ ] 关键阶段模型审核可开关、有预算、失败回退规则

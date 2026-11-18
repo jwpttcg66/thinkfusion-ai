@@ -42,7 +42,7 @@ export interface AgentCapabilities {
 
 顺序：
 
-1. **第一手**：所有已开启且可用通道，全部参与（AGENTS 第 2 条）。
+1. **参与者**：由 Planner 决定数量与名单（AGENTS 第 2 条）；Scheduler 只按能力过滤，不自作主张增删。
 2. **后续任务**：按能力过滤 → 按负载/成本排序 → 写 `Assignment.reason`。
 3. **降级阶梯**（每级都要说出来）：
    - 首选模型不可用 → 次选同能力模型；
@@ -65,7 +65,7 @@ export interface AgentCapabilities {
 5. 加 live 检查（可选，登录态下）；
 6. 不改 Planner/Scheduler/Verifier。
 
-验收：新增一个 mock 通道，只需 Adapter + 能力声明；第一手覆盖率仍为 100%。
+验收：新增一个 mock 通道，只需 Adapter + 能力声明；选择理由可读、跳过有原因。
 
 ---
 
