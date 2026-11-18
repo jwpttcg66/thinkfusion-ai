@@ -1,7 +1,7 @@
 # ThinkFusion V3 全任务设计书
 
 状态：**设计稿（2026-11-18）**，设计分支 `product-v3`。
-代码基线：`cd30be3`。设计快照：本文提交前为 `8489df5`。
+代码基线：`cd30be3`。设计快照：`89b447c`（P0-F..J 修订前）；下次修订更新。
 用途：把 P0–P6、UI 与跨阶段工作拆成可执行任务；每个任务都有目标、依赖、
 文件、验收、回滚与风险。**本文不写实现代码。**
 
@@ -25,7 +25,7 @@
 
 任务编号与已有文档对齐：P0-xx、P1-xx、P2-xx、P3-xx、P4-xx、P5-xx、P6-xx、UI-xx、X-xx。
 
-任务总数：**68**（P0 6、P1 16、P2 6、P3 9、P4 7、P5 5、P6 8、UI 7、X 4）。
+任务总数：**69**（P0 6、P1 17、P2 6、P3 9、P4 7、P5 5、P6 8、UI 7、X 4）。
 
 **P2–P5 领域设计已完成**（知识空间、工程契约、证据与质量、能力路由）；
 下表中的任务状态仍表示「实现待做」，不代表代码已存在。
@@ -61,7 +61,7 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 
 | 阶段 | 大任务 | 设计文档 |
 | --- | --- | --- |
-| P0 | 契约、事件、Flag、持久化 | [01](01-p0-contracts.md)、[P1-002](P1-002-DOMAIN-RUNTIME-CONTRACT.md)、[P0-A](P0-A-DESIGN-CONSISTENCY-REVIEW.md) |
+| P0 | 契约、事件、Flag、持久化 | [01](01-p0-contracts.md)、[P1-002](P1-002-DOMAIN-RUNTIME-CONTRACT.md)、[P0-F..J](P0-F-TO-J-DESIGN-REVISION.md) |
 | P1.0 | State / Planner / Scheduler / Runner / Deliver / Shadow | [02](02-p1-collaboration-engine.md)、P1-002 |
 | P1.1 | Replanner / Debate / 模型审核 | 02、P1-002 |
 | P2 | 知识卡、索引、时效、地图 | [KNOWLEDGE_SPACE](../architecture/KNOWLEDGE_SPACE.md)、[03](03-p2-knowledge.md) |
@@ -114,7 +114,8 @@ P1.1 Replan / Debate / 模型审核
 
 | 门禁 | 条件 |
 | --- | --- |
-| P0-E | P1-001 评审通过；P0-02..06 类型/状态机评审通过；无重复契约；基线一致 |
+| P0-E | P0-F..J 修订完成；P1-001 评审通过；无重复契约；基线一致 |
+| P0-J | 设计修订评审通过（独立评审人） |
 | P1.0 | 简单问题 1–2 任务；高风险 ≥2 参与者；跳过有原因；legacy 无回归 |
 | P1.1 | Replanner 有护栏；Debate 按需；模型审核可关闭/回退 |
 | P2 | 第二次研究复用旧结论并标时效 |
@@ -136,6 +137,7 @@ P1.1 Replan / Debate / 模型审核
 | P0-04 | Feature Flag | P0 | P0-02 | ⏳ |
 | P0-05 | 持久化/恢复契约 | P0 | P0-02 | ✅ |
 | P0-06 | 回滚演练设计 | P0 | P0-04 | ⏳ |
+| P1-00A | 现有代码职责映射与迁移矩阵 | P1.0 | P0-01 | ⏳ |
 | P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | ⏳ |
 | P1-01 | ParticipantManager | P1.0 | P0-02 | ⏳ |
 | P1-02 | Planner MVP | P1.0 | P1-01 | ⏳ |
@@ -214,6 +216,7 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 | P0-04 | `src/main/collaboration/mode.ts` | 删除 flag | 默认不是 legacy |
 | P0-05 | `src/main/store.ts` | 忽略新字段 | 重放写操作 |
 | P0-06 | 无代码；演练记录 | 不适用 | 只设计不演练 |
+| P1-00A | `docs/implementation/P1-003-CODE-MAPPING.md` | 文档回退 | 直接新建重复模块 |
 | P1-00 | `collaboration/domain/state.ts`、`state-store.ts` | flag legacy | 多份状态 |
 | P1-01 | `collaboration/participants/manager.ts` | 走 `MasterAgent` | 默认全通道 |
 | P1-02 | `collaboration/planner/planner.ts` | shadow 只算计划 | 退化成固定 Pipeline |
@@ -332,6 +335,15 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ## 5. P1 任务详设
 
+### P1-00A 现有代码职责映射
+
+- 目标：逐文件回答「创建/修改哪些对象、属于哪条旧回路、新归属、读写哪个存储、删除条件、测试迁移」。
+- 文件：`docs/implementation/P1-003-CODE-MAPPING.md`。
+- 验收：矩阵覆盖 ConversationRunner、MasterAgent、AgentOrchestrator、Debate、EvidencePack、Engineering；评审通过后才建新模块。
+- 回滚：文档回退。
+- 风险：跳过映射直接创建第二套 Planner/Scheduler。
+
+
 ### P1-00 CollaborationState 存储与转移
 
 - 目标：单一状态；纯函数转移；落盘复用 `AgentStore`。
@@ -350,8 +362,9 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ### P1-02 Planner MVP
 
-- 目标：规则版 DAG；`Policy`（modelScope/includeWeb）；参与者数量与理由；
+- 目标：规则版 DAG；`Policy`（modelScope/includeWeb/allowWebQuestioner）；参与者数量与理由；
   简单问题 1–2 任务。
+- 角色：知识/通用可让网页做提问者；工程只允许网页回答。
 - 文件：`collaboration/planner/planner.ts`。
 - 验收：越界计划拒绝；高风险 ≥2；计划含 stopWhen；无固定阶段链。
 - 回滚：shadow 只算计划。
@@ -381,7 +394,8 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ### P1-06 网页边界
 
-- 目标：第一手只收原话；后续只附数据块，不含指令。
+- 目标：第一手只收原话；知识/通用可追加 `QuestionerInput`（单条追问）；工程只回答；
+  后续只附数据块，不含指令。
 - 文件：`adapters/*` 增量。
 - 验收：无「请指出」「说明是否修改」等词；跳过有原因。
 - 回滚：网页通道暂停。

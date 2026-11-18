@@ -1,6 +1,6 @@
 # P0-B → P0-E 设计解决方案
 
-状态：**设计冻结（用户确认 2026-11-18）**。B.1/B.2/C 已完成；D 未单独评审，E 由用户确认冻结。
+状态：**V3 方向已确认；P0 技术门禁未全部通过（P0-J）**。B.1/B.2/C 已完成；D 未单独评审。
 设计分支：`product-v3`；上一设计快照：`7d27c6e`（P0-B）；本文提交后以新 HEAD 为准。
 代码基线：`cd30be3`。`main` 只做集成。
 
@@ -14,7 +14,7 @@
 | P0-B.2 | 状态机：重试、取消、恢复、失败、阻塞、重规划 | **完成** |
 | P0-C | 统一所有架构文档，P1-002 为唯一契约源 | **完成** |
 | P0-D | P1-001 代码审计评审 | 🟡 未单独评审；由用户以「设计完成」接受 |
-| P0-E | 完整设计冻结 + Codex P1 任务书 | ✅ 用户确认冻结（任务书见 TASK-BOOK） |
+| P0-E | 完整设计 + Codex P1 任务书 | 🟡 方向确认；P0-J 门禁未过 |
 
 ---
 
@@ -161,20 +161,21 @@ running ──► done | failed | cancelled
 - [ ] 无「全通道」规则残留
 - [ ] 风险清单与不可触碰边界确认
 
-### 5.2 Codex P1 任务书（冻结后生成；骨架见 TASK-BOOK）
+### 5.2 Codex P1 任务书（唯一编号以 TASK-BOOK 为准）
 
 任务书只包含可执行任务，不再讨论产品方向：
 
 | 任务 | 内容 | 验收 |
 | --- | --- | --- |
-| P1-T0 | domain 类型 + CollaborationState + mode flag | typecheck + 序列化测试 |
-| P1-T1 | 规则版 Planner（范围 + 参与者数量 + 理由） | 简单问题 1–2 任务；越界拒绝 |
-| P1-T2 | Scheduler（依赖/并发/超时/取消） | 调度测试 |
-| P1-T3 | Runner（Attempt/Observation/状态转移） | 状态机测试 |
-| P1-T4 | Deliver | 交付含 stopReason 与缺口 |
-| P1-T5 | shadow plan-only 接线 | 日志可读；legacy 不变 |
-| P1-T6 | 测试迁移与回归 | 现有测试全绿 |
-| P1-T7 | 评审与切 active 门禁 | 回滚演练 |
+| P1-00A | 现有代码职责映射 | 逐文件迁移矩阵 |
+| P1-00 | domain 类型 + CollaborationState + mode flag | typecheck + 序列化测试 |
+| P1-02 | 规则版 Planner | 简单问题 1–2 任务；越界拒绝 |
+| P1-03 | Scheduler | 调度测试 |
+| P1-04 | Runner（Attempt/Observation/状态转移） | 状态机测试 |
+| P1-05 | Deliver | 交付含 stopReason 与缺口 |
+| P1-08 | shadow plan-only 接线 | 日志可读；legacy 不变 |
+| P1-15 | 测试迁移与回归 | 现有测试全绿 |
+| P1-14 | 评审与切 active 门禁 | 回滚演练 |
 
 ### 5.3 冻结后仍不做
 

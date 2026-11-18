@@ -27,6 +27,7 @@
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
+| [implementation/P0-F-TO-J-DESIGN-REVISION.md](implementation/P0-F-TO-J-DESIGN-REVISION.md) | P0-F..J：状态模型、输入契约、证据归属、任务书、评审 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
 | [implementation/P0-B-TO-E-DESIGN-RESOLUTION.md](implementation/P0-B-TO-E-DESIGN-RESOLUTION.md) | 类型/状态机/文档统一/评审/冻结的解决方案 |
 | [implementation/P1-001-MIGRATION-AUDIT.md](implementation/P1-001-MIGRATION-AUDIT.md) | 迁移审计：现有代码、重复职责、状态与目标映射 |
@@ -85,6 +86,7 @@
 | [0006](adr/0006-tree-sitter-runtime.md) | Tree-sitter 运行时与打包 | Accepted（Gate 0 spike） |
 | [0007](adr/0007-config-driven-cli-adapter.md) | 配置驱动的 CLI Adapter | Accepted |
 | [0008](adr/0008-participant-selection.md) | 参与者数量由任务决定 | Accepted |
+| [0009](adr/0009-web-roles.md) | 网页通道角色：知识可提问，工程只回答 | Accepted |
 
 状态说明见 [adr/README.md](adr/README.md)。
 

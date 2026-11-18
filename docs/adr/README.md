@@ -12,5 +12,6 @@ Gate 0 的架构决策记录。状态为 `Proposed` 的条目尚未进入正式�
 | 0006 | Tree-sitter 运行时与打包 | Accepted（Gate 0 spike） |
 | 0007 | 配置驱动的 CLI Adapter | Accepted |
 | 0008 | 参与者数量由任务决定 | Accepted |
+| 0009 | 网页通道角色：知识可提问，工程只回答 | Accepted |
 
 更早的 Gate 0 材料见 git 提交历史。

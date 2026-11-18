@@ -1,6 +1,6 @@
 # P0-A V3 全量设计一致性审查
 
-状态：**设计冻结（用户确认 2026-11-18）**；D1/D4/D5/D6/D8 已采纳。
+状态：**方向确认；P0 技术门禁未全部通过（P0-J）**。D1/D4/D5/D6/D8 已采纳。
 设计分支：`product-v3`；设计快照：`7d27c6e`（P0-B）。
 代码基线：`cd30be3`（P1-001 审计时；此后仅文档变化）。`main` 只做集成。
 范围：AGENTS、PRODUCT、ROADMAP、协作架构、工程空间、迁移计划、ADR-0008、
@@ -79,7 +79,7 @@ P1-001、P0 契约、P1 计划、P1-002 契约。
 
 - 决定：
   - `Plan` **不可变**；重规划产生新 `version`，旧版本进 `planHistory`；
-  - `Task` 的定义（envelope/依赖/能力）不可变，运行状态在 `CollaborationState.tasks[]`；
+  - `TaskSpec` 的定义（envelope/依赖/能力）不可变，运行状态在 `CollaborationState.taskStates[]`；
   - **删除 `TaskGraphState`**：DAG 由 `Plan.tasks` + `dependsOn` 派生，不单独存；
   - 只有 Runner 写状态；Planner/Scheduler 返回新对象；
   - 取消、失败、重试的转换只由 Runner 执行（重试策略见契约）。
@@ -115,7 +115,7 @@ P1-001、P0 契约、P1 计划、P1-002 契约。
 
 ### D7 基线与状态口径（已决，已修正）
 
-- 口径：设计基线 `main@<commit>`；代码基线 `cd30be3`；文档提交不计入代码基线。
+- 口径：设计分支 `product-v3`；设计快照 `89b447c`；代码基线 `cd30be3`。
 - P1-001 状态统一为「已提交，待评审」。
 - 状态：**已执行**。
 
@@ -141,7 +141,7 @@ CollaborationState（唯一运行时事实）
   ├── goal
   ├── activePlan
   ├── planHistory[]
-  ├── tasks[]（定义 + status + attempts）
+  ├── taskStates[]（status + attempts）
   ├── observations[]
   ├── evidence[]
   ├── claims / conflicts / disputes

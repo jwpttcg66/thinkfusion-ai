@@ -48,169 +48,31 @@
 
 ## 2. M0.2 契约冻结（Task 002）
 
-**产出**：`desktop-agent-macos/src/main/collaboration/domain/*.ts`（只加类型与纯函数，不改行为）。
+**唯一权威：[P1-002 领域与运行时契约](P1-002-DOMAIN-RUNTIME-CONTRACT.md)。**
+本节只列冻结对象与不变量，**不重复 TypeScript 接口**。
 
-契约以 [协作架构 V1](../architecture/COLLABORATION_ARCHITECTURE.md) 第 9 节为基础，
-这里只补审核后新增的部分，并明确「不做什么」。
+| 对象 | 冻结要点 |
+| --- | --- |
+| `Goal` / `Policy` | 用户原话；modelScope + includeWeb；预算 |
+| `TaskEnvelope` / `TaskSpec` | 任务定义不可变；问题 + 验收 + schema |
+| `TaskRuntimeState` / `Attempt` | 运行状态与尝试分离；Attempt 只追加 |
+| `Plan` | 不可变、版本化、`supersedes`；`planHistory` |
+| `Assignment` | Scheduler 派发结果，属于运行时 |
+| `Observation` | 只对应一次 Attempt |
+| `EvidenceRef` | 引用 Pack，不复制正文 |
+| `Claim` / `Conflict` / `Dispute` | 主张 / 矛盾 / 未决争议分离 |
+| `CollaborationState` | 唯一运行时聚合根 |
+| `Verification` / `Deliverable` | 验证四态；交付必须带 stopReason |
 
-### 2.1 Goal
+不变量：
 
-```ts
-export interface Goal {
-  goalId: string;
-  workspace: 'knowledge' | 'engineering' | 'general';
-  /** 用户原话，逐字保留；系统不得改写。 */
-  statement: string;
-  constraints: string[];
-  acceptance: string[];
-  createdAt: number;
-}
-```
+- 只有 Runner 写 `CollaborationState`；Planner/Scheduler 返回新对象；
+- 任务参与者必须在 `Policy` 范围内；越界拒绝；
+- 高风险任务至少 2 个参与者；
+- 任务定义不可变；重规划产生新 Plan；
+- 交付必须有 `stopReason`；未核验项必须显式标记。
 
-### 2.2 TaskEnvelope（新增，解决「提示词藏进 question」）
-
-```ts
-export interface TaskEnvelope {
-  /** 用户原话或系统转述；网页通道只允许这一项。 */
-  question: string;
-  /** 机器可读的范围与验收，不发给人设/阶段话术。 */
-  scope?: { paths?: string[]; symbols?: string[]; sources?: string[] };
-  acceptance: string[];
-  /** 输出契约：字段与类型，不是自然语言要求。 */
-  outputSchema?: Record<string, unknown>;
-  /** 证据要求：没有证据时必须标 unverified。 */
-  evidenceRequired: boolean;
-}
-
-export interface TaskSpec {
-  taskId: string;
-  goalId: string;
-  kind: 'analyze' | 'research' | 'verify' | 'review' | 'execute' | 'synthesize';
-  envelope: TaskEnvelope;
-  dependsOn: string[];
-  requiredCapabilities: Partial<AgentCapabilities>;
-  timeoutMs?: number;
-  /** 失败是否允许降级；默认 false。 */
-  degradable?: boolean;
-}
-```
-
-规则：
-
-- `envelope.question` 不得包含角色、阶段、格式、挑战话术；渲染层也不得追加。
-- 网页 Adapter 只接收 `question`；`scope/acceptance/outputSchema` 由系统在汇总侧使用。
-- local / CLI 可以把 `outputSchema` 作为契约传入，但不得写成人设。
-
-### 2.3 Claim / Dispute（新增，解决「辩论外没有主张模型」）
-
-```ts
-export interface Claim {
-  claimId: string;
-  goalId: string;
-  taskId?: string;
-  text: string;
-  kind: 'fact' | 'inference' | 'assumption' | 'recommendation' | 'prediction';
-  /** 出处：消息 / 证据 / 代码位置。 */
-  source: { agentId?: string; messageId?: string; evidenceId?: string };
-  scope?: 'code' | 'runtime' | 'world';
-  createdAt: number;
-}
-
-export interface Dispute {
-  disputeId: string;
-  goalId: string;
-  claimA: string;
-  claimB: string;
-  type: 'factual' | 'logical' | 'scope' | 'definitional' | 'evidence_conflict';
-  /** 是否影响交付：由 Planner 依据 acceptance 判定，不是模型自称。 */
-  matters: boolean;
-  createdAt: number;
-}
-```
-
-现有 `debate/claims.ts` 的抽取逻辑可以复用，但输入必须从 `DebateMessage[]` 泛化为
-`{ text, agentId, messageId }[]`；这一步在 P1 M1.2 做，P0 只定类型。
-
-### 2.4 Observation / Assignment / EvidenceRef
-
-沿用协作架构第 9 节，补两个字段：
-
-```ts
-export interface Observation {
-  // ...同架构文档
-  stopReason?: StopReason;
-}
-
-export interface EvidenceRef {
-  // ...同架构文档
-  /** 旧 Pack 条目迁移时保留来源 id，便于回溯。 */
-  legacy?: { packId: string; itemId: string };
-}
-```
-
-### 2.5 TaskGraphState（已删除）
-
-> P0-A D4 决定：不单独持久化 TaskGraph。DAG 由 `Plan.tasks` + `dependsOn` 派生；
-> 运行状态只在 `CollaborationState` 里。字段以
-> [P1-002](P1-002-DOMAIN-RUNTIME-CONTRACT.md) 为准。
-
-### 2.6 CollaborationState（单一运行时状态）
-
-**权威定义见 [P1-002 §3.8](P1-002-DOMAIN-RUNTIME-CONTRACT.md)。** 这里只列不变量：
-
-- 唯一运行时事实源；Planner / Scheduler / Runner / Replanner 不得各存一份任务列表。
-- `Plan` 不可变；重规划产生新 `version`，旧版本进 `planHistory`。
-- `tasks[]` 保存运行状态（status / attempts）；任务定义来自 `activePlan`。
-- 落盘复用 `AgentStore`；`running` 任务重启后标 `failed(interrupted)`，不重放写操作。
-- `budget` / `stop` / `deliverable` 只在状态里，界面与报告都读这里。
-
-### 2.7 StopReason / Verdict / Deliverable
-
-```ts
-export type StopReason =
-  | 'acceptance_satisfied'
-  | 'no_new_information'
-  | 'budget_exhausted'
-  | 'blocked'
-  | 'user_cancelled';
-
-export interface Verdict {
-  claimId: string;
-  relation: 'supports' | 'contradicts' | 'context' | 'unverified';
-  confidence: 'low' | 'medium' | 'high';
-  limitations: string[];
-  evidenceRefs: string[];
-}
-
-export interface Deliverable {
-  goalId: string;
-  kind: 'answer' | 'research' | 'knowledge_map' | 'engineering_change' | 'test_report';
-  content: string;
-  claims: Claim[];
-  verdicts: Verdict[];
-  openQuestions: string[];
-  stopReason: StopReason;
-}
-```
-
-### 2.7 事件契约（新增）
-
-事件必须落在现有 `ConversationEvent` 体系内，**不新建事件总线**：
-
-| 事件 | 关键字段 | 谁发 |
-| --- | --- | --- |
-| `collaboration.mode.changed` | from / to / source | 设置页 |
-| `goal.started` | goalId / workspace / statement | Runner |
-| `plan.created` | goalId / tasks / strategy / reason | Planner |
-| `plan.revised` | added / removed / reason | Replanner |
-| `task.started` | taskId / agentId / reason | Scheduler |
-| `observation.recorded` | taskId / status / evidenceRefs | Runner |
-| `goal.stopped` | reason / at | Runner |
-| `deliverable.ready` | kind / evidence coverage | Deliver |
-
-验收：`npm run typecheck` 通过；`test:collaboration-domain`（新增）覆盖序列化与纯函数。
-
----
+> P0-02 的验收不是「01 里有接口」，而是「P1-002 通过评审，且 P1 实现只引用 P1-002」。
 
 ## 3. M0.3 Feature Flag（Task 003）
 

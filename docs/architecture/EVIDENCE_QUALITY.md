@@ -31,6 +31,27 @@ P4 只补映射、验证、质量与回放。
 
 ---
 
+## 1.1 归属与兼容
+
+```ts
+export interface EvidencePackContext {
+  kind: 'snapshot' | 'baseline' | 'round';
+  /** 归属类型：目标 / 任务 / 辩论。 */
+  ownerType: 'goal' | 'task' | 'debate';
+  ownerId: string;
+  roundIndex?: number;
+  baselinePackId?: string;
+}
+```
+
+- 新数据必须写 `ownerType/ownerId`；
+- 旧数据没有 `ownerType` 时按 `ownerType='debate'`、`ownerId=debateId` 读取；
+- 仓库快照写 `{ kind:'snapshot', ownerType:'task', ownerId }`，不再把任务 id 填进 `debateId`；
+- `EvidenceRef` 单一定义在 P1-002，其他文档只引用。
+
+
+---
+
 ## 2. 验证
 
 ```ts
