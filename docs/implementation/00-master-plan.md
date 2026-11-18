@@ -17,7 +17,7 @@
 | 阶段 | 主题 | 出口判据（摘要） | 状态 |
 | --- | --- | --- | --- |
 | **P0** | 契约与开关 | 契约冻结、迁移矩阵、flag 默认 legacy、无行为变化 | 进行中 |
-| **P1** | 统一协作引擎 | 任务图 + 观测 + 重规划可跑；shadow 达标后切 active | 未开始 |
+| **P1** | 统一协作引擎 | P1.0：任务图 + 观测 + 交付可跑；P1.1：重规划与辩论适配；shadow 达标后切 active | 未开始 |
 | **P2** | 知识学习空间 | 第二次研究复用旧结论并标时效 | 未开始 |
 | **P3** | 工程工作空间 | 一次真实改动全链路通过、可复验、可回退 | 未开始 |
 | **P4** | 证据与质量 | 跨空间同一套证据引用；门槛可回归 | 未开始 |
@@ -32,26 +32,29 @@
 | 提案阶段 | 本计划位置 | 说明 |
 | --- | --- | --- |
 | P0 契约 / Flag | **P0** M0.1–M0.5 | 审计、契约、flag、事件、回滚演练 |
-| P1 CollaborationEngine | **P1** M1.1–M1.5 | 含 Planner / Scheduler / Runner / Replanner |
+| P1 CollaborationEngine | **P1.0** M1.0–M1.5 | Goal / State / Planner / Scheduler / Runner / Deliver；不含自动重规划 |
 | P2 AgentCapabilities | **P1** M1.6 + **P5** M5.1 | 能力模型在 P1 先够用，P5 再扩展 |
-| P3 DAG / Replan | **P1** M1.3 / M1.5 | DAG 与重规划分两个里程碑验收 |
-| P4 Debate 降级 | **P1** M1.8 | Adapter + 触发规则 + 入口移除 |
+| P3 DAG / Replan | **P1.0** M1.2–M1.4（DAG）/ **P1.1** M1.6（Replan） | 真做出来先不自动重规划 |
+| P4 Debate 降级 | **P1.1** M1.9 | Adapter + 触发规则；入口移除可随 UI 后置 |
 | P5 Evidence 统一 | **P4** M4.1–M4.3（契约在 P0） | 映射与验证在 P4，契约不后移 |
 | P6 Knowledge | **P2** | — |
 | P7 Engineering | **P3** M3.1–M3.6 | — |
 | P8 CLI Agents | **P3** M3.6（执行者）+ **P5** M5.2（通道） | 只读参与者与写执行者分开 |
 | P9 Verification | **P4** M4.2 | — |
-| P10 UI | **P1** M1.9（最小可观察）+ **P3/P4** 增量 | UI 不能拖到全部做完 |
+| P10 UI | **P3/P4 之后** | P1 只写事件日志，不做产品 UI 改版 |
 | P11 Quality | **P4** M4.4 | — |
 
 ---
 
-## 3. 三条纪律（违反即停）
+## 3. 四条纪律（违反即停）
 
 1. **先搬职责，再删代码。** 旧路径（legacy）在 active 验证通过前必须保持可用。
 2. **不新建第二套** Runtime、审批、Journal、TaskGrant、Verifier、Evidence 存储。
 3. **不把动态协作做成新的固定 Pipeline。** 如果每个任务都必须走同一组阶段，
    那只是把辩论换了个名字。
+4. **单一运行时状态。** Goal / Task / Assignment / Observation / Evidence / Budget /
+   StopReason / Deliverable 只存在一份 `CollaborationState` 里；Planner、Scheduler、
+   Runner、Replanner 只能通过状态转移读写，不各自维护私有状态。
 
 补充：`AGENTS.md` 第 6 节是硬约束——不使用任务提示词，不冻结流程基线。
 任务上下文只能以「数据 + 机器契约」的形式出现。
@@ -77,6 +80,19 @@ type CollaborationMode = 'legacy' | 'shadow' | 'active';
 - flag 变更必须写一条事件（`collaboration.mode.changed`），并记录旧值/新值/操作者。
 - `shadow` **禁止**调用付费模型；需要模型才能算的计划，只记录「无法 shadow」。
 - 每次启动打印当前模式与配置来源（日志），便于排查。
+
+### 4.1 两阶段 shadow
+
+| 阶段 | 行为 | 目的 |
+| --- | --- | --- |
+| P1.0 | 旧路径执行；新 Planner 只算计划，零模型调用、零任务执行 | 比较计划结构、任务数、参与者覆盖 |
+| P1.1（可选） | 只读任务双跑（写操作绝不双跑），有调用预算上限 | 比较真实观察与证据覆盖 |
+
+### 4.2 兼容策略，不是最终原则
+
+「第一手覆盖所有已开启可用通道」目前是**兼容策略**，原因是 `AGENTS.md` 第 2 条仍然有效。
+V3 的目标允许 Planner 判断「这个任务只需要一个 Agent」，但那需要先修改第 2 条并单独评审，
+**不能在 P1 里悄悄放宽**。P1 只把它标注为 compat，不写成永久产品原则。
 
 ---
 

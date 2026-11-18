@@ -2,6 +2,8 @@
 
 目标：让 ThinkFusion 真正**理解、修改、验证**一个工程，而不是围绕代码辩论。
 前置：P1 active（DAG/重规划可跑）。
+**工程空间不是独立 Engine**：它是 CollaborationEngine 上的一类任务、能力与工具集合，
+不新建 EngineeringEngine；审批与执行仍复用现有 Runtime。
 出口：一次真实改动走完「理解 → 计划 → 审批 → 执行 → 验证 → 评审」，可复验、可回退。
 
 ---

@@ -36,6 +36,28 @@ src/main/collaboration/
 - 不新建 `Runtime / Journal / TaskGrant / Verifier / EvidenceStore`。
 - 新目录只放编排与纯逻辑；I/O 仍走既有 Store、Agent、EvidencePack。
 
+### 1.1 单一状态 CollaborationState（P1.0 第一件事）
+
+所有模块只操作一份状态，**不允许 Planner / Scheduler / Runner 各存一份任务列表**：
+
+```ts
+interface CollaborationState {
+  goal: Goal;
+  tasks: Array<TaskSpec & { status: ... }>;
+  assignments: Assignment[];
+  observations: Observation[];
+  evidence: EvidenceRef[];
+  budget: { maxCalls: number; maxMs: number; usedCalls: number; startedAt: number };
+  replans: ...;          // P1.0 恒为空，P1.1 才写
+  stop?: { reason: StopReason; at: number };
+  deliverable?: Deliverable;
+}
+```
+
+- 每次转移都是纯函数：`(state, event) -> state`；
+- 落盘复用 `AgentStore`（P1.0 接线，不新建 Journal）；
+- 事件由转移函数产生，Runner 不再自己拼状态。
+
 ---
 
 ## 2. M1.1 ParticipantManager
@@ -51,6 +73,8 @@ export interface ParticipantManager {
 ```
 
 - 第一手仍覆盖**所有已开启且可用的通道**（AGENTS 第 2 条）；跳过必须记录原因。
+  这是**兼容策略**，不是永久产品原则：V3.1 若允许 Planner 只选一个 Agent，
+  必须先修改 AGENTS 第 2 条并单独评审；P1 不得悄悄放宽。
 - 网页 / 本地 / 云端 / CLI（只读）都实现同一 `SubAgent` 接口，不新增协议。
 - `MasterAgent.research()` 在 legacy 模式下保持原样；新代码只调用 Manager。
 - 删除条件：见 00 文档 5.3；在此之前两套并存但只由 flag 决定走哪套。
@@ -120,7 +144,10 @@ export interface ParticipantManager {
 
 ---
 
-## 6. M1.5 Replanner
+## 6. M1.5 Replanner（P1.1，P1.0 不做）
+
+**P1.0 不实现自动重规划**；先让 Goal → DAG → Run → Observation → Deliver 跑通，
+再单独加这一节。以下规则在 P1.1 生效。
 
 每波结束调用一次，输入 `TaskGraphState`，输出「继续 / 加任务 / 停」。
 
@@ -142,7 +169,10 @@ export interface ParticipantManager {
 
 ---
 
-## 7. M1.6 行为目录（P1 只做这些）
+## 7. M1.6 行为目录
+
+**P1.0 只做四个**：independent / parallel / progressive / cross-check。
+counterexample、review、debate 放 P1.1（review 可在 P3 工程任务只读场景提前用）。
 
 | 行为 | 触发 | 产出 | 成本 | 停止 |
 | --- | --- | --- | --- | --- |
@@ -169,7 +199,7 @@ export interface ParticipantManager {
 
 ---
 
-## 9. M1.8 辩论降级
+## 9. M1.8 辩论降级（P1.1）
 
 ### 9.1 触发
 
@@ -212,23 +242,23 @@ export interface DebateBehaviorOutput {
 
 ---
 
-## 10. M1.9 最小可观察面（不能等到 P10）
+## 10. M1.9 可观察性（不做产品 UI 改版）
 
-界面上至少能看到：
+**P1 不改产品界面。** 只做内部可观察：
 
-- 当前目标与工作空间；
-- 计划摘要：几个任务、谁参与、为什么；
-- 任务状态：等待/进行/完成/失败/跳过；
-- 停止原因；
-- 关键证据与未核验项（哪怕只是列表）。
+- 把 CollaborationState 与事件写到日志/调试文件（`out-test/collaboration/<goalId>.json`）；
+- 设置页保留一个只读调试入口（开发者模式），显示当前计划与停止原因；
+- 产品 UI 的正式改造放在 P3/P4 之后（见 07-ui.md）。
 
-实现方式：读 P0 事件，不新建页面；先放右侧面板或现有进度区。
+验收：不登录、不打开新页面，也能从日志判断「谁在做什么、为什么停」。
 
-验收：手工跑一个问答 + 一个多任务研究，能从界面解释「为什么停」。
+> 若确实需要一个最小界面，只允许在现有进度区加只读文本，不做布局重排。
 
 ---
 
 ## 11. M1.10 Shadow 协议
+
+### 11.1 P1.0：plan-only
 
 - `shadow`：旧路径执行；新 Planner 只算计划，**不调用模型、不执行任务**。
 - 若规划必须模型参与：标 `unrated`，不估算成本。
@@ -242,37 +272,54 @@ export interface DebateBehaviorOutput {
   - 简单问题平均任务数 ≤ 2；
   - 人工抽检 5 个计划，理由可读。
 
-验收：shadow 报告可复跑；flag 可瞬间回滚。
+### 11.2 P1.1：可选只读双跑
+
+- 只对**只读任务**双跑（写操作绝不双跑），调用预算硬上限；
+- 比较 Observation、证据覆盖与停止原因，不是比措辞；
+- 双跑结果不覆盖 legacy 交付物，只写对比报告。
+
+验收：shadow 报告可复跑；flag 可瞬间回滚；双跑超预算立即停。
 
 ---
 
 ## 12. 任务清单
 
-| ID | 任务 | 文件 | 依赖 | 验收 |
-| --- | --- | --- | --- | --- |
-| P1-01 | 参与者管理 | `participants/manager.ts` | P0 | participants 测试 |
-| P1-02 | Planner | `planner/planner.ts` | P1-01 | plan 测试 |
-| P1-03 | Scheduler | `scheduler/scheduler.ts` | P1-02 | scheduler 测试 |
-| P1-04 | Runner/Observation | `runner/*` | P1-03 | runner 测试 |
-| P1-05 | Replanner | `adapt/replanner.ts` | P1-04 | replan 测试 |
-| P1-06 | 行为 MVP | `behaviors/*` | P1-04 | 行为测试 |
-| P1-07 | 网页边界 | `adapters/*` 增量 | P1-06 | web-boundary 测试 |
-| P1-08 | 辩论适配 | `behaviors/debate.ts` | P1-05/06 | adapter 测试 |
-| P1-09 | 最小 UI | renderer 增量 | P1-04 | 手工场景 |
-| P1-10 | Shadow | `engine.ts` 分支 | P1-02..04 | shadow 报告 |
-| P1-11 | 切 active | flag | P1-10 | 回滚演练 |
+| ID | 阶段 | 任务 | 文件 | 依赖 | 验收 |
+| --- | --- | --- | --- | --- | --- |
+| P1-00 | P1.0 | 单一状态 + 落盘 | `domain/state.ts` + `engine.ts` | P0 | 状态转移测试 |
+| P1-01 | P1.0 | 参与者管理 | `participants/manager.ts` | P0 | participants 测试 |
+| P1-02 | P1.0 | Planner | `planner/planner.ts` | P1-00/01 | plan 测试 |
+| P1-03 | P1.0 | Scheduler | `scheduler/scheduler.ts` | P1-02 | scheduler 测试 |
+| P1-04 | P1.0 | Runner/Observation | `runner/*` | P1-03 | runner 测试 |
+| P1-05 | P1.0 | Deliver | `synthesize/deliver.ts` | P1-04 | deliver 测试 |
+| P1-06 | P1.1 | Replanner | `adapt/replanner.ts` | P1.0 | replan 测试 |
+| P1-07 | P1.0 | 行为 MVP（四个） | `behaviors/*` | P1-04 | 行为测试 |
+| P1-08 | P1.0 | 网页边界 | `adapters/*` 增量 | P1-07 | web-boundary 测试 |
+| P1-09 | P1.1 | 辩论适配 | `behaviors/debate.ts` | P1-06/07 | adapter 测试 |
+| P1-10 | P1.0 | 日志/调试可观察 | `engine.ts` 增量 | P1-04 | 日志场景 |
+| P1-11 | P1.0 | Shadow plan-only | `engine.ts` 分支 | P1-02..04 | shadow 报告 |
+| P1-12 | P1.0 | 切 active（可先保持 shadow） | flag | P1-11 | 回滚演练 |
 
 ---
 
 ## 13. 出口清单
 
+### P1.0（现在）
+
 - [ ] 简单问题 1–2 个任务，不生成固定阶段链
-- [ ] 第一手覆盖所有已开启可用通道，跳过有原因
+- [ ] 第一手覆盖所有已开启可用通道，跳过有原因（标注为兼容策略）
 - [ ] 任务图支持依赖、并发上限、超时、取消
 - [ ] 失败与跳过都是 Observation，不静默
+- [ ] 单一 CollaborationState 落盘，模块不另存状态
+- [ ] 停止原因可解释（P1.0 允许只有 acceptance / budget / cancel）
+- [ ] 网页后续轮只收数据，不含指令
+- [ ] 日志能解释「谁在做什么、为什么停」
+- [ ] shadow plan-only 报告可复跑；flag 回滚演练通过
+- [ ] typecheck + P1.0 测试全绿；legacy 行为无回归
+
+### P1.1（之后）
+
 - [ ] Replanner 有护栏，能解释停止原因
 - [ ] 辩论只在满足 §9.1 时触发，且不再创建基线
-- [ ] 网页后续轮只收数据，不含指令
-- [ ] 界面上能解释「谁在做什么、为什么停」
-- [ ] shadow 报告达标，flag 回滚演练通过
-- [ ] typecheck + P1 测试全绿；legacy 行为无回归
+- [ ] counterexample / review 行为可用
+- [ ] 可选只读双跑，超预算即停

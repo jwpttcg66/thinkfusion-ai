@@ -2,6 +2,8 @@
 
 目标：让一次研究的结论**可沉淀、可检索、可复用、可过期**，而不是每次从零开始。
 前置：P1 active。
+**知识学习不是独立 Engine**：它是 CollaborationEngine 上的一类任务与能力集合，
+不新建 ResearchEngine / KnowledgeEngine。
 出口：同一主题第二次研究能复用旧结论并标时效；旧结论被推翻可追溯。
 
 ---

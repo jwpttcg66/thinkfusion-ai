@@ -162,7 +162,36 @@ export interface TaskGraphState {
 }
 ```
 
-### 2.6 StopReason / Verdict / Deliverable
+### 2.6 CollaborationState（单一运行时状态）
+
+**新增，解决「Planner / Scheduler / Runner / Replanner 各维护一份状态」的问题。**
+
+```ts
+export interface CollaborationState {
+  goal: Goal;
+  planVersion: number;
+  tasks: Array<TaskSpec & {
+    status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'blocked';
+  }>;
+  assignments: Assignment[];
+  observations: Observation[];
+  evidence: EvidenceRef[];
+  budget: { maxCalls: number; maxMs: number; usedCalls: number; startedAt: number };
+  replans: Array<{ at: number; reason: string; added: string[]; removed: string[] }>;
+  stop?: { reason: StopReason; at: number };
+  deliverable?: Deliverable;
+}
+```
+
+规则：
+
+- 这是唯一事实源；`planner / scheduler / runner / replanner / deliver` 只能通过
+  纯函数「旧状态 → 新状态」修改，不得各存一份 task 列表。
+- 落盘时作为对话/任务记录的可选字段；P1.0 接入 `AgentStore`，P0 只冻结类型。
+- `budget` 在 P1.0 至少记调用数与耗时；成本估算可以后加。
+- `stopReason` 与 `deliverable` 在停止后写入，界面与报告都读这里。
+
+### 2.7 StopReason / Verdict / Deliverable
 
 ```ts
 export type StopReason =
@@ -232,9 +261,9 @@ export function writeCollaborationMode(mode: CollaborationMode, source: string):
 
 ---
 
-## 4. M0.4 持久化与恢复
+## 4. M0.4 状态与恢复契约（实现放 P1.0）
 
-决策：
+P0 只冻结「存哪、恢复到什么状态」，不写落盘代码。决策：
 
 - **复用 `AgentStore` 的原子 JSON journal**（`store.ts`），不新建数据库、不新建 Journal。
 - `TaskGraphState` 作为对话/任务记录的可选字段落盘；旧记录没有该字段时按无任务图读取。
@@ -242,7 +271,7 @@ export function writeCollaborationMode(mode: CollaborationMode, source: string):
 - 崩溃恢复语义：`running` 的任务在重启后标记为 `failed`（reason=`interrupted`），
   由 Replanner 决定是否重跑；**不静默重放写操作**。
 
-验收：单测覆盖「旧记录无字段可读」「running → interrupted」「事件 seq 单调」。
+P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0）。
 
 ---
 
@@ -263,19 +292,19 @@ export function writeCollaborationMode(mode: CollaborationMode, source: string):
 | P0-02 | 领域契约 | `src/main/collaboration/domain/*` | 01 | typecheck + 序列化单测 |
 | P0-03 | 事件类型 | `src/shared/conversation.ts`（增量） | 02 | 事件枚举与载荷测试 |
 | P0-04 | Flag | `src/main/collaboration/mode.ts` | 02 | 单测 + 手工开关 |
-| P0-05 | 持久化 | `src/main/store.ts`（增量） | 02/03 | 旧记录兼容测试 |
+| P0-05 | 状态契约 | `collaboration/domain/state.ts` | 02 | 类型 + 序列化单测 |
 | P0-06 | 回滚演练 | 无代码 | 04 | 演练记录 |
 
 ---
 
 ## 7. P0 出口清单
 
-- [ ] 基线提交号在 00/01 中一致，且等于当前 HEAD
+- [ ] 代码基线在各文档中一致（文档提交不计；当前为 `45ccb11`）
 - [ ] 迁移矩阵覆盖 §1 列出的全部文件，含「不许迁移」与「职责冲突」
-- [ ] `Goal / TaskEnvelope / TaskSpec / Claim / Dispute / TaskGraphState / EvidenceRef / StopReason / Verdict / Deliverable` 类型冻结
+- [ ] `Goal / TaskEnvelope / TaskSpec / Claim / Dispute / TaskGraphState / CollaborationState / EvidenceRef / StopReason / Verdict / Deliverable` 类型冻结
 - [ ] 事件枚举与载荷冻结，且不新增事件总线
 - [ ] flag 默认 legacy、可持久化、可回滚
-- [ ] 旧记录无新字段时能正常读；running 任务重启标 interrupted
+- [ ] 状态契约（CollaborationState）冻结，落盘位置与恢复语义写明（实现放 P1.0）
 - [ ] `npm run typecheck` 通过
 - [ ] 新增测试通过；现有测试无回归
 - [ ] diff 只含类型、文档、开关、无行为变化
