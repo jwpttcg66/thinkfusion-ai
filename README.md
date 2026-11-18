@@ -64,7 +64,8 @@ stated plainly — a README that promises more than the repository delivers is j
 | Judges and direction verdicts | ✅ supports / contradicts / context, with confidence and limitations |
 | Evidence packs and content hashes | ✅ Evidence and execution attestations enter the Item Hash; tampering is detectable |
 | Real execution-evidence producer | ✅ Code ready; not yet wired into the debate orchestrator |
-| Code intelligence | ✅ V3.2: symbols, references, impact, build trust |
+| Knowledge-learning space | 🟡 Multi-round research and page-body extraction work; indexing and cross-session reuse land in 0.4 |
+| Engineering space | ✅ Disk-backed evidence, plan review, approved execution; code intelligence V3.2 |
 | Local execution runtime | ✅ 27 allow-listed tools; approval, path checks, sha256 re-verify |
 | External CLI agents | ✅ Qoder / Claude as channels |
 | Knowledge indexing / cross-session evidence | ⏳ 0.4 |
@@ -263,8 +264,9 @@ conventions are in [`docs/git-workflow.md`](docs/git-workflow.md).
 ## Roadmap
 
 0.3.x is about **verifiability**: put verdicts, evidence and execution attestations in front of
-the user so every conclusion can be traced to its evidence. After that: knowledge indexing (0.4)
-and channel/model expansion (0.5). Completion criteria are in
+the user so every conclusion can be traced to its evidence. After that: knowledge learning
+(0.4: indexing, reuse, knowledge maps), engineering capability (0.5: code intelligence, review,
+verifiable changes) and channel/model expansion (0.6). Completion criteria are in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## License
