@@ -32,6 +32,43 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 
 ---
 
+## 0.1 阶段上限与设计覆盖
+
+**实施计划的最高阶段是 P5。没有 P6/P7；P5 之后是 V3 发布门禁，不是新的 P 阶段。**
+
+原提案的 P0–P12 已映射进 P0–P5：
+
+| 提案阶段 | 现位置 |
+| --- | --- |
+| P0 契约 / Flag | P0 |
+| P1 CollaborationEngine | P1.0 |
+| P2 AgentCapabilities | P1 + P5 |
+| P3 DAG / Replan | P1.0 / P1.1 |
+| P4 Debate 降级 | P1.1 |
+| P5 Evidence 统一 | P4 |
+| P6 Knowledge | P2 |
+| P7 Engineering | P3 |
+| P8 CLI Agents | P3 / P5 |
+| P9 Verification | P4 |
+| P10 UI | UI |
+| P11 Quality | P4 |
+
+工程大任务与设计文档的对应：
+
+| 阶段 | 大任务 | 设计文档 |
+| --- | --- | --- |
+| P0 | 契约、事件、Flag、持久化 | [01](01-p0-contracts.md)、[P1-002](P1-002-DOMAIN-RUNTIME-CONTRACT.md)、[P0-A](P0-A-DESIGN-CONSISTENCY-REVIEW.md) |
+| P1.0 | State / Planner / Scheduler / Runner / Deliver / Shadow | [02](02-p1-collaboration-engine.md)、P1-002 |
+| P1.1 | Replanner / Debate / 模型审核 | 02、P1-002 |
+| P2 | 知识卡、索引、时效、地图 | [KNOWLEDGE_SPACE](../architecture/KNOWLEDGE_SPACE.md)、[03](03-p2-knowledge.md) |
+| P3 | 工程状态、搜索、审批、执行、评审、CLI | [ENGINEERING_WORKSPACE](../architecture/ENGINEERING_WORKSPACE.md)、[ENGINEERING_CONTRACT](../architecture/ENGINEERING_CONTRACT.md)、[04](04-p3-engineering.md) |
+| P4 | 证据、验证、指标、场景、回放 | [EVIDENCE_QUALITY](../architecture/EVIDENCE_QUALITY.md)、[05](05-p4-evidence-quality.md) |
+| P5 | 能力、路由、降级、通道、费用 | [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)、[06](06-p5-channels.md) |
+| UI | 计划、参与者、证据、工程、知识 | [07](07-ui.md) |
+| X | 文档、测试工具、删除、发布 | 本文件 + [00](00-master-plan.md) |
+
+---
+
 ## 1. 依赖图
 
 ```text
@@ -144,6 +181,76 @@ P1.1 Replan / Debate / 模型审核
 | X-02 | 测试基线工具 | 跨阶段 | P1-00 | ⏳ |
 | X-03 | 旧路径删除 | 跨阶段 | P1-14 | ⏳ |
 | X-04 | V3 发布清单 | 跨阶段 | P5-05 | ⏳ |
+
+---
+
+## 3.1 任务实施字段（文件 / 回滚 / 风险）
+
+每个任务的「目标 / 依赖 / 验收」见任务总表与所属阶段章节；这里补齐实施字段。
+UI 与 X 是跨阶段任务，不占 P 编号。
+
+| ID | 文件 | 回滚 | 风险 |
+| --- | --- | --- | --- |
+| P0-01 | `docs/implementation/P1-001-MIGRATION-AUDIT.md` | 文档回退 | 把已提交当已评审 |
+| P0-02 | `src/main/collaboration/domain/*` | 删除新增文件 | 类型里塞运行状态 |
+| P0-03 | `src/shared/conversation.ts` | 删除新增事件 | 新建事件总线 |
+| P0-04 | `src/main/collaboration/mode.ts` | 删除 flag | 默认不是 legacy |
+| P0-05 | `src/main/store.ts` | 忽略新字段 | 重放写操作 |
+| P0-06 | 无代码；演练记录 | 不适用 | 只设计不演练 |
+| P1-00 | `collaboration/domain/state.ts`、`state-store.ts` | flag legacy | 多份状态 |
+| P1-01 | `collaboration/participants/manager.ts` | 走 `MasterAgent` | 默认全通道 |
+| P1-02 | `collaboration/planner/planner.ts` | shadow 只算计划 | 退化成固定 Pipeline |
+| P1-03 | `collaboration/scheduler/scheduler.ts` | flag legacy | 越界选人 |
+| P1-04 | `collaboration/runner/*` | flag legacy | `failed → running` 复活 |
+| P1-05 | `collaboration/deliver/*` | 旧综合 | 无证据结论 |
+| P1-06 | `adapters/*` 增量 | 停用网页通道 | 后续轮夹带指令 |
+| P1-07 | `collaboration/behaviors/*` | 只留 Independent | 无争议也 Debate |
+| P1-08 | `collaboration/engine.ts` | flag legacy | 偷调模型 |
+| P1-09 | `conversation-runner.ts` | 删分支 | 决策回流 runner |
+| P1-10 | `engine.ts` + `out-test/collaboration/*` | 删日志 | 日志不可读 |
+| P1-11 | `collaboration/adapt/replanner.ts` | 关闭 replan | 无限重规划 |
+| P1-12 | `collaboration/behaviors/debate.ts` | 关闭 Debate | 每次必辩 |
+| P1-13 | `collaboration/reviewer.ts` | 关闭 reviewer | 模型控制 Runtime |
+| P1-14 | flag / settings | 切回 legacy | 未达标就切 |
+| P1-15 | `scripts/*`、`package.json` | 保留旧测试 | flaky / 旧 out-test |
+| P2-01 | `knowledge/store.ts` | 关闭知识空间 | 长报告塞一卡 |
+| P2-02 | `knowledge/index.ts` | 关闭召回 | 相似当正确 |
+| P2-03 | `knowledge/freshness.ts` | 只读历史 | 旧卡被覆盖 |
+| P2-04 | `planner` / `replanner` 增量 | 关闭缺口驱动 | 无限补研究 |
+| P2-05 | `deliver` 增量 | 只出列表 | 无来源条目 |
+| P2-06 | `scripts/check-knowledge-*.mjs` | 不适用 | 场景变脚本堆 |
+| P3-01 | `engineering/task-state.ts` | 旧任务无 context | 又叫 baseline |
+| P3-02 | `engineering/*`、`code-index/*` | 降级文本搜索 | 启动即全仓扫描 |
+| P3-03 | `engineering/*`、`orchestrator.ts` | 旧执行入口 | 只读阶段写盘 |
+| P3-04 | `execution-producer.ts`、`evidence-pack` | 只读模式 | 未跑标通过 |
+| P3-05 | `engineering/review.ts` | 跳过评审 | 评审者=实现者 |
+| P3-06 | `execution/cli-executor.ts` | 停用 Executor | 复用只读回答源 |
+| P3-07 | `snapshots/*` | 回 S1 | 永久删除当回退 |
+| P3-08 | `code-index/*` | 只用文本搜索 | 把 JDT 引入核心 |
+| P3-09 | `scripts/check-engineering-*.mjs` | 不适用 | 假仓库验收 |
+| P4-01 | `evidence-pack/mapping.ts` | 旧映射只读 | 第二套证据存储 |
+| P4-02 | `collaboration/verifier/*` | 只走规则 | judge 当唯一验证 |
+| P4-03 | `collaboration/metrics/*` | 只报告不拦截 | 指标只算不拦 |
+| P4-04 | `scripts/fixtures/*` | 不适用 | live 依赖登录 |
+| P4-05 | `scripts/check-scenario-*.mjs` | 不适用 | 场景变脚本堆 |
+| P4-06 | `package.json` / CI | 记录原因后跳过 | 门禁虚设 |
+| P4-07 | `scripts/replay-*.mjs` | 不适用 | 回放联网 |
+| P5-01 | `agents/capabilities.ts` | 回固定名单 | 声明与实现不符 |
+| P5-02 | `scheduler/routing.ts` | 回固定名单 | 降级越界 |
+| P5-03 | `adapters/*` + 文档 | 移除新通道 | Adapter 夹带提示词 |
+| P5-04 | `telemetry/*` | 关闭观测 | 网页/模型混算 |
+| P5-05 | `docs/release` | 不适用 | 组合未测就发 |
+| UI-01 | `renderer/components/*` | 隐藏面板 | 提前大改版 |
+| UI-02 | 右栏 | 隐藏原因 | 无理由减员 |
+| UI-03 | 左栏 | 隐藏原因 | 与 State 不一致 |
+| UI-04 | 结论卡 | 收起证据 | 无证据标已验证 |
+| UI-05 | 工程面板 | 隐藏视图 | 测试结果不可见 |
+| UI-06 | 设置/输入区 | 恢复旧入口 | 旧会话崩溃 |
+| UI-07 | 知识面板 | 隐藏地图 | 来源点不通 |
+| X-01 | `docs/**` | 文档回退 | 契约漂移 |
+| X-02 | `scripts/lib/*` | 不适用 | 旧 out-test 误判 |
+| X-03 | 旧模块删除 | `git restore` | 删除过早 |
+| X-04 | `docs/release` | 不适用 | 判据放水 |
 
 ---
 
