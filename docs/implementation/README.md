@@ -10,6 +10,7 @@
 
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
+| [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
 | [00-master-plan.md](00-master-plan.md) | 全局 | 阶段、门禁、开关、回滚、删除策略、与提案 P0–P12 的映射 |
 | [01-p0-contracts.md](01-p0-contracts.md) | P0 | 审计矩阵、契约冻结、Feature Flag、事件与持久化 |
 | [02-p1-collaboration-engine.md](02-p1-collaboration-engine.md) | P1 | 协作引擎、参与者管理、DAG、重规划、行为目录、辩论降级 |
@@ -23,7 +24,7 @@
 
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
-| P0 契约与开关 | **进行中**（P0-01 初稿完成） | 01 文档的出口清单全绿 | — |
+| P0 契约与开关 | **进行中**（P1-001 审计初稿完成） | 01 文档的出口清单全绿 | — |
 | P1.0 协作引擎骨架 | 未开始 | Goal → DAG → Run → Observation → Deliver 可跑 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |

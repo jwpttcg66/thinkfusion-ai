@@ -9,7 +9,7 @@
 
 ## 1. M0.1 实施审计（Task 001）
 
-**产出**：`docs/implementation/migration-matrix.md`（新增，随代码评审更新）。
+**产出**：[P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md)（正式审计，随代码评审更新）。
 
 **为什么先做**：现有 `MasterAgent`、`ConversationRunner`、`collaboration/`、`debate/`、
 `engineering/`、`orchestrator.ts` 各自承担了一部分编排职责。不先把职责写清楚，
@@ -290,7 +290,7 @@ P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0�
 
 | ID | 任务 | 文件 | 依赖 | 验收 |
 | --- | --- | --- | --- | --- |
-| P0-01 | 迁移矩阵（初稿完成） | [migration-matrix.md](migration-matrix.md) | 无 | 逐行可评审；待确认参与者规则 |
+| P0-01 | 迁移审计（初稿完成） | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | 无 | 18 项审计可评审 |
 | P0-02 | 领域契约 | `src/main/collaboration/domain/*` | 01 | typecheck + 序列化单测 |
 | P0-03 | 事件类型 | `src/shared/conversation.ts`（增量） | 02 | 事件枚举与载荷测试 |
 | P0-04 | Flag | `src/main/collaboration/mode.ts` | 02 | 单测 + 手工开关 |
