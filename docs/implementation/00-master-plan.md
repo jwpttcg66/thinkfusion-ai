@@ -159,6 +159,7 @@ type CollaborationMode = 'legacy' | 'shadow' | 'active';
 
 ## 7. 文档索引
 
+- 全任务书：[TASK-BOOK.md](TASK-BOOK.md)
 - 契约与开关：[01-p0-contracts.md](01-p0-contracts.md)
 - 协作引擎：[02-p1-collaboration-engine.md](02-p1-collaboration-engine.md)
 - 知识学习：[03-p2-knowledge.md](03-p2-knowledge.md)

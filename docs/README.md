@@ -16,6 +16,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
+| [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P5、UI、发布、跨阶段 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
 | [implementation/P0-B-TO-E-DESIGN-RESOLUTION.md](implementation/P0-B-TO-E-DESIGN-RESOLUTION.md) | 类型/状态机/文档统一/评审/冻结的解决方案 |
 | [implementation/P1-001-MIGRATION-AUDIT.md](implementation/P1-001-MIGRATION-AUDIT.md) | 迁移审计：现有代码、重复职责、状态与目标映射 |

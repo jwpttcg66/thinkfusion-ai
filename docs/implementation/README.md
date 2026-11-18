@@ -10,6 +10,7 @@
 
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
+| [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P5、UI、发布与跨阶段全部任务的任务书 |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
 | [P0-B-TO-E-DESIGN-RESOLUTION.md](P0-B-TO-E-DESIGN-RESOLUTION.md) | P0 前置 | B.1 类型、B.2 状态机、C 文档统一、D 评审清单、E 冻结与任务书 |
 | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
