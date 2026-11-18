@@ -169,6 +169,8 @@ export interface TaskGraphState {
 ```ts
 export interface CollaborationState {
   goal: Goal;
+  /** 先定范围再选人：local / remote / hybrid；网页是否参与单独标记。 */
+  policy: { modelScope: 'local' | 'remote' | 'hybrid'; includeWeb: boolean };
   planVersion: number;
   tasks: Array<TaskSpec & {
     status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'blocked';

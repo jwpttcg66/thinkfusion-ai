@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- rule(scope): 明确「网页渠道」与「模型驱动」是两类；模型范围分 local / remote / hybrid，越界不得降级改道
 - rule(agent): 第 2 条改为「参与者数量由任务决定」——简单问题可 1 个，高风险至少 2 个，选择理由与跳过原因可见（ADR 0008）
 - docs(implementation): 不做 shadow 双跑；关键阶段允许模型审核（计划后 / 重规划前 / 辩论触发前），输入仅数据与 schema
 - docs(implementation): 新增 P0–P5 逐任务实施计划（契约、协作引擎、知识、工程、证据、通道），含门禁、flag、回滚、删除条件与 40 场景

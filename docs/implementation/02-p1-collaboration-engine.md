@@ -43,6 +43,7 @@ src/main/collaboration/
 ```ts
 interface CollaborationState {
   goal: Goal;
+  policy: { modelScope: 'local' | 'remote' | 'hybrid'; includeWeb: boolean };
   tasks: Array<TaskSpec & { status: ... }>;
   assignments: Assignment[];
   observations: Observation[];
@@ -103,6 +104,12 @@ export interface ParticipantManager {
 - 计划必须写明 `stopWhen`；
 - **不允许**把所有任务都拆成「独立 → 质疑 → 修订 → 裁判」。
 
+先定范围：
+
+- 计划必须写出 `policy`：`local` 只用本地，`remote` 只用远端，`hybrid` 可混用；
+- 网页是否参与由 `includeWeb` 单独决定，不因 `hybrid` 自动加入；
+- `local` 计划里出现远端模型、`remote` 计划里出现本地模型，直接判为非法计划。
+
 策略选择：
 
 - 默认 `independent`；问题长或依赖前序结论才 `progressive`；
@@ -117,7 +124,8 @@ export interface ParticipantManager {
 
 ### 4.1 选人
 
-1. **数量来自 Planner**：计划里已有参与者数量与名单；Scheduler 不自作主张增删。
+1. **先校验范围**：`local` 不得选远端，`remote` 不得选本地；越界直接拒绝，不降级改道。
+2. **数量来自 Planner**：计划里已有参与者数量与名单；Scheduler 不自作主张增删。
 2. **后续任务**：按 `requiredCapabilities` 过滤（工具、system、stream、并发、成本），
    再按当前负载与成本排序；每次分配写 `Assignment.reason`。
 3. 简单任务允许只有 1 个参与者；有争议/高风险/多视角要求时，Scheduler 拒绝降到 1 个。

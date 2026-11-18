@@ -1,40 +1,69 @@
 # P5 模型与通道
 
-目标：Web / Local / Cloud / CLI 作为同一类参与者接入；新增通道不改主流程。
+目标：把「网页渠道」和「模型驱动」分开；模型范围内（local / remote / hybrid）按任务选人，新增通道不改主流程。
 前置：P1 引擎稳定、P4 证据统一。
 出口：新增一个来源只加 Adapter 与能力描述。
 
 ---
 
-## 1. 能力模型
+## 1. 两个维度：渠道类型 vs 调用范围
+
+不要把它们混成一个分类：
+
+```text
+来源类型
+├── 网页渠道（页面驱动）
+└── 模型驱动
+    ├── 本地模型
+    ├── 远端模型
+    └── CLI（也是模型驱动）
+
+调用范围（只对模型驱动生效）
+├── local  只调本地模型
+├── remote 只调远端模型
+└── hybrid 本地 + 远端都可调
+```
+
+**网页是渠道，不是模型。** 是否参与由任务决定；不因为 `hybrid` 就自动加入。
 
 ```ts
+export type ModelScope = 'local' | 'remote' | 'hybrid';
+
 export interface AgentCapabilities {
-  kind: 'web' | 'local' | 'cloud' | 'cli';
+  kind: 'web' | 'local' | 'cloud' | 'cli';   // 传输/执行形态，不是调用范围
   canSystemPrompt: boolean;
   canUseTools: boolean;
   canStream: boolean;
   canSeeOtherAgents: boolean;
   maxConcurrency: number;
   costClass: 'low' | 'medium' | 'high';
-  /** 新增：是否需要人工登录/授权。 */
   requiresLogin?: boolean;
+}
+
+/** 计划里显式记录本次允许的模型范围。 */
+export interface ParticipationPolicy {
+  modelScope: ModelScope;
+  /** 网页是否参与；与 modelScope 正交。 */
+  includeWeb: boolean;
 }
 ```
 
-| 类型 | system | 工具 | 流式 | 看他人 | 并发 | 说明 |
+| 来源 | 驱动 | system | 工具 | 流式 | 看他人 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Web | ✗ | ✗ | 轮询增量 | ✗ | 1/页面 | 只收原话或系统转述的数据块 |
-| Local | ✓ | ✓ | ✓ | ✓ | 1–2 | 本机模型 |
-| Cloud | ✓ | 视模型 | ✓ | ✓ | 2–4 | API 模型 |
-| CLI（只读） | ✗ | ✗ | ✗ | ✗ | 1 | 回答源，临时目录 |
-| CLI（执行） | — | ✓ | ✗ | — | 1 | 走 TaskGrant/审批，不在本能力表 |
+| 网页渠道 | 页面 | ✗ | ✗ | 轮询增量 | ✗ | 只收原话或系统转述的数据块 |
+| 本地模型 | 模型 | ✓ | ✓ | ✓ | ✓ | 只在 `local` / `hybrid` 下可选 |
+| 远端模型 | 模型 | ✓ | 视模型 | ✓ | ✓ | 只在 `remote` / `hybrid` 下可选 |
+| CLI（只读） | 模型 | ✗ | ✗ | ✗ | ✗ | 回答源；临时目录；按范围归类 |
+| CLI（执行） | 模型 | — | ✓ | ✗ | — | 走 TaskGrant/审批，不在本能力表 |
 
 规则：
 
+- **先守范围，再按能力**：`local` 不得选远端模型，`remote` 不得选本地模型；
+  只有 `hybrid` 可混用。网页是否参与看 `includeWeb`，与范围无关。
 - 能力由 Adapter 声明，调度器只读声明，不猜。
 - 网页通道 `canSystemPrompt=false`、`canUseTools=false`；任何需要工具的任务不得分配。
-- 降级（模型不可用、LSP 不可用、页面结构变化）必须显式记录。
+- 降级（模型不可用、LSP 不可用、页面结构变化）必须显式记录；降级不得越界
+  （`local` 不能因为本地不可用就悄悄改用远端，只能标失败/阻塞）。
 
 ---
 
@@ -42,15 +71,15 @@ export interface AgentCapabilities {
 
 顺序：
 
-1. **参与者**：由 Planner 决定数量与名单（AGENTS 第 2 条）；Scheduler 只按能力过滤，不自作主张增删。
-2. **后续任务**：按能力过滤 → 按负载/成本排序 → 写 `Assignment.reason`。
-3. **降级阶梯**（每级都要说出来）：
-   - 首选模型不可用 → 次选同能力模型；
-   - 本地不可用 → 云端（若允许且有 Key）；
+1. **先定范围**：Planner 写出 `ParticipationPolicy`（local / remote / hybrid + 是否含网页）。
+2. **再定名单**：在范围内按能力、负载、成本选人；Scheduler 不得越界增删。
+3. **降级阶梯**（每级都要说出来，且不能越界）：
+   - 首选模型不可用 → 同范围内的次选；
+   - 本地不可用（`local`）→ 阻塞或失败，不得改用远端；
    - 工具不可用 → 文本搜索，并标 `degraded`；
    - 全部不可用 → 任务 `skipped`，交付物写缺口。
 
-禁止：静默改用低质量模型、静默减少参与者、把降级结果标成正常。
+禁止：静默越界、静默改用低质量模型、静默减少参与者、把降级结果标成正常。
 
 ---
 
