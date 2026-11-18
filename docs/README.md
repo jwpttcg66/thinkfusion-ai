@@ -7,9 +7,19 @@
 
 | 文档 | 回答什么问题 |
 | --- | --- |
-| [PRODUCT.md](PRODUCT.md) | 产品要成为什么、按什么原则取舍、什么算成功 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 五层架构、三套协议、两条主链路、目录职责 |
-| [ROADMAP.md](ROADMAP.md) | 现在在哪、下一阶段是什么、每阶段的完成判据 |
+| [PRODUCT.md](PRODUCT.md) | 产品要成为什么、三个空间、按什么原则取舍、什么算成功 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 五层基础架构、三套协议、两条主链路、目录职责 |
+| [ROADMAP.md](ROADMAP.md) | P0–P5：现在在哪、下一阶段是什么、每阶段的完成判据 |
+
+## 产品与架构设计（V3，2026-11-18 冻结，未实施）
+
+| 文档 | 内容 |
+| --- | --- |
+| [architecture/COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md) | 统一协作引擎：任务图、调度、异构 Agent、证据与验证契约 |
+| [architecture/ENGINEERING_WORKSPACE.md](architecture/ENGINEERING_WORKSPACE.md) | 工程空间：能力地图、任务状态、Agentic Search、CLI 协作与安全 |
+| [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md) | Debate / Evidence / 工程代码的迁移顺序、保留与降级清单 |
+
+> 方向冲突时，以这三份设计为准；[ARCHITECTURE.md](ARCHITECTURE.md) 保留为基础架构描述。
 
 ## 工作流
 

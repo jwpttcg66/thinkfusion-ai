@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 [Semantic Versioning](https://semver.org/). Entries are generated from
 Conventional Commits by `scripts/release.sh`.
 
+## Unreleased
+
+- docs(product): 产品定位 V3——从「可验证的多模型审辩平台」改为「多模型协作智能工作平台」；一个协作引擎、三个工作空间（知识学习 / 工程 / 通用）
+- docs(architecture): 新增协作架构 V1、工程工作空间 V1、迁移计划；辩论降级为按需协作行为，明确不新建第二套 Runtime / 审批 / 证据格式
+- docs(roadmap): 路线重排为 P0–P5，辩论不再单独占据主线
+- docs: README 中英双版、文档索引与 ARCHITECTURE / 辩论任务书同步新方向
+
 ## v0.3.0 - 2026-11-18
 
 - docs(product): 重新定位为「可验证的多模型审辩」——独立作答、定向辩论、证据校验、条件化结论；PRODUCT 只保留目标形态、取舍原则与成功判据

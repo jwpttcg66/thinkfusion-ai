@@ -1,5 +1,9 @@
 # ThinkFusion AI 真理发现与多模型辩论引擎 · Codex 实施任务书 V1.0
 
+> **2026-11-18 方向更新**：辩论已降级为按需协作行为，不再是产品主线，也不再给用户提供
+> 「辩论模式」入口。本文保留为辩论能力的历史契约与验收依据；协作引擎与迁移方案见
+> [architecture/COLLABORATION_ARCHITECTURE.md](../architecture/COLLABORATION_ARCHITECTURE.md)。
+>
 > 本文是任务书原文的仓库内副本，供实施与评审引用；由 docx 转 Markdown，正文未改写。
 > 原始 docx 不再随仓库保留，历史版本见 git 提交历史。
 >

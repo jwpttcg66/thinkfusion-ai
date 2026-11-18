@@ -1,0 +1,349 @@
+# 协作架构 V1
+
+状态：**设计冻结（2026-11-18），未实施。**
+范围：统一协作引擎的职责、任务模型、动态调度、异构 Agent、证据接口与验证交付。
+不涉及具体 UI 与视觉稿。
+
+定位见 [PRODUCT.md](../PRODUCT.md)，迁移步骤见 [MIGRATION_PLAN.md](MIGRATION_PLAN.md)。
+
+---
+
+## 1. 目标与约束
+
+### 1.1 目标
+
+1. **任务决定流程**：同一个引擎能接住一句话问答与数小时工程任务，不要求它们走同一组阶段。
+2. **动态调度**：参与者、分工、并发、依赖与下一步行动，由任务状态与运行时证据决定。
+3. **异构协作**：网页模型、本地模型、云端模型、CLI Agent 能力不同，但能参与同一个任务。
+4. **证据可检查**：协作产出的每条重要结论都能追到证据，证据能追到来源与版本。
+5. **可停止**：知道什么时候完成，也知道什么时候该停（预算、无新增信息、被阻塞）。
+
+### 1.2 约束
+
+- **不新建第二套** Runtime、审批、Journal、TaskGrant、Verifier；全部复用现有系统。
+- **网页通道仍然只收到用户原话**：不发 system、不发角色设定、不发工具协议。
+- **所有已启用且可用的通道，第一手提问仍然都要被问**（AGENTS.md 第 2 条）。
+  动态选择发生在**后续任务与角色分配**，而不是把已开启的通道从第一轮里悄悄去掉。
+- **辩论不删除**：降级为按需调用的协作行为，保留裁判、论证图与证据包能力。
+- **迁移优先于重写**：先搬职责，再删旧代码；设计阶段不改生产代码。
+
+---
+
+## 2. 核心概念
+
+| 概念 | 定义 | 不变量 |
+| --- | --- | --- |
+| **Goal** | 用户的一次目标，含约束与交付要求 | 原话不被改写；系统不改用户意图 |
+| **TaskSpec** | 引擎拆出的一个可执行任务（问题 / 读取 / 验证 / 修改…） | 每个任务有明确输入、期望产物、验收方式 |
+| **AgentProfile** | 参与者及其能力：通道类型、是否支持 system、工具、并发、成本 | 能力由 Adapter 声明，不由引擎假设 |
+| **Assignment** | 任务到参与者的分配，含上下文与截止条件 | 分配理由必须可读 |
+| **Observation** | 一次执行的可观察结果：文本、工具输出、错误、耗时 | 失败与跳过都要显式记录 |
+| **EvidenceRef** | 指向证据的引用：网页快照、代码位置、执行断言、知识记忆 | 有来源、版本、哈希与采集时间 |
+| **Deliverable** | 面向用户的最终产物 | 结论与证据/断言分类一起给出 |
+| **CollaborationPlan** | 一份可检查的 DAG：任务、依赖、并发、停止条件 | 计划可被展示、质疑与修改 |
+
+### 2.1 计划不是轮次
+
+现有辩论用「轮」推进；协作引擎用 **任务图（DAG）** 推进：
+
+```
+t1 (理解目标)
+ ├─► t2 独立分析 A ─┐
+ ├─► t3 独立分析 B ─┼─► t6 交叉验证 ─► t8 综合 ─► t9 交付
+ ├─► t4 代码取证   ─┤        ▲
+ └─► t5 网页取证   ─┘        │
+                     t7 反例探索（仅当 t6 发现矛盾）
+```
+
+每一波任务结束后，引擎拿到 `Observation` 与新的 `EvidenceRef`，**重新评估**是否继续、
+增加任务或收敛。轮次是执行细节，不是产品概念。
+
+---
+
+## 3. 生命周期
+
+```
+Understand → Plan → Dispatch → Observe → Adapt → Verify → Deliver
+```
+
+| 阶段 | 输入 | 做什么 | 输出 | 失败处理 |
+| --- | --- | --- | --- | --- |
+| Understand | 用户目标、空间、历史 | 识别交付类型、约束、完成判据 | `Goal` + 验收标准 | 不明确时先问用户，不猜 |
+| Plan | Goal、可用 Agent、预算 | 生成任务 DAG、分配、并发、停止条件 | `CollaborationPlan` | 计划不可行则降级并说明 |
+| Dispatch | Plan、证据 | 按依赖与并发下发任务 | `Assignment[]` | 单个失败不影响同批其他人 |
+| Observe | 执行结果 | 归一化文本/工具结果/错误 | `Observation[]` | 错误进证据层，不静默 |
+| Adapt | Observations、缺口 | 重规划：补证据、换角度、加验证或停止 | 新 Plan（局部） | 预算/无新增信息即停 |
+| Verify | 关键 Claim | 独立验证：代码、执行、来源 | `Verdict[]` | 无法验证则标「未核验」 |
+| Deliver | 结论、证据、分歧 | 按交付物模板组装 | `Deliverable` | 缺证据的部分降级为断言 |
+
+**Adapt 是引擎的核心**：没有 Adapt，就只是把固定流程换了个名字。
+
+---
+
+## 4. 协作行为目录
+
+行为不是产品入口，而是引擎可调用的策略。每种行为声明「何时值得用」与「怎么停」。
+
+| 行为 | 何时用 | 成本 | 证据要求 | 停止条件 |
+| --- | --- | --- | --- | --- |
+| 独立作答 | 默认第一步；问题需要多视角 | 低 | 回答带来源 | 所有可用通道返回或超时 |
+| 递进分析 | 问题长、需以前序结论为输入 | 中 | 前序结论被引用 | 无新增信息 |
+| 并行研究 | 子问题彼此独立 | 中 | 每路带出处 | 子问题都有了回答 |
+| 交叉验证 | 关键结论有冲突或高风险 | 中高 | 每条判断指向具体证据 | 争议已验够或证据耗尽 |
+| 反例探索 | 结论看起来过于一致，或用户要求审计 | 高 | 反例必须具体、可复核 | 找到反例或确认找不到 |
+| 辩论 | 存在**成对且未定论**的争议 | 高 | 主张、质疑、修订、裁判全留痕 | 无新证据 / 关系稳定 / 预算耗尽 |
+| 方案评审 | 工程计划有写入、覆盖写或缺测试 | 中 | 评审意见回到计划 | 风险项都有结论 |
+| Agentic 取证 | 需要读代码、跑命令、抓网页 | 中高 | 工具调用与结果进证据层 | 证据足够或工具不可用 |
+
+**辩论的门槛**：只有在交叉验证后仍有未定论争议时才启动；没有矛盾就不辩。
+这条要写进调度器，而不是靠提示词「请判断是否需要辩论」。
+
+---
+
+## 5. 调度器
+
+### 5.1 参与者选择
+
+1. **第一手提问**：所有已开启、可用的通道都参与（规则 2）。跳过必须说明原因。
+2. **后续任务**：按能力匹配 + 当前负载 + 成本选择；分配理由随计划展示。
+3. **角色不是身份**：同一模型可以在不同任务里分别做分析者、反例者、评审者；
+   角色由任务决定，不预先绑定成「辩手 / 裁判」。
+4. **不静默减员**：任何被跳过的通道、失败的任务、降级的结论都要出现在结果里。
+
+### 5.2 并发与依赖
+
+- 任务图决定并发：无依赖的任务并行，有依赖的串行。
+- 每个通道有自己的并发上限；全局有上限，避免把网页通道打爆。
+- 超时是任务属性，不是全局常量；超时按失败记录，不重试到预算耗尽。
+
+### 5.3 停止条件
+
+任意一条成立即收敛，并写清是哪一条：
+
+- 交付标准已满足（结论覆盖目标，关键 Claim 已验证或已标未核验）；
+- 连续一波没有新增信息或新证据；
+- 预算（时间 / 调用数 / token）耗尽；
+- 现有工具与通道解决不了，需要用户补充输入；
+- 用户中止。
+
+### 5.4 失败与重规划
+
+- 单任务失败：重试一次；仍失败则记录，不把任务偷偷转给别人（那会改变参与名单）。
+- 关键证据缺失：降级交付并列出缺口，不编造。
+- 计划不可行：回到 Plan，缩小范围并说明；不允许静默改需求。
+
+---
+
+## 6. 异构 Agent 能力模型
+
+网页模型不能接收 system 指令，这是 Adapter 的技术限制，不是可以靠架构统一掉的差异。
+
+```ts
+export interface AgentCapabilities {
+  kind: 'web' | 'local' | 'cloud' | 'cli';
+  canSystemPrompt: boolean;      // 网页通道为 false
+  canUseTools: boolean;
+  canStream: boolean;
+  canSeeOtherAgents: boolean;    // 网页通道只看到用户原话
+  maxConcurrency: number;
+  costClass: 'low' | 'medium' | 'high';
+}
+```
+
+任务分配规则：
+
+- `canSystemPrompt: false` 的通道只接收**任务问题本身**；结构化上下文由系统在汇总阶段使用，
+  不塞进用户消息。
+- 需要工具的任务只分配给 `canUseTools: true` 的参与者；其余参与者可承担分析、比较、
+  反例等不需要工具的任务。
+- 需要「看到别人观点」的递进任务，只分配给 `canSeeOtherAgents: true` 的参与者；
+  网页通道不参与这类任务，或由系统把前序结论转述成新的用户问题（需明确标注这是系统的转述）。
+
+**不允许为了统一架构，假设所有模型都能执行同一套 Agent 协议。**
+
+### 6.1 提示词与任务上下文
+
+取消固定提示词流程，不等于不需要 Prompt。模型仍然需要知道：当前任务是什么、能用哪些工具、
+权限边界、要返回什么、什么时候停、哪些结论必须有证据。这些是**任务上下文与工具契约**，
+不是预先规定的思考阶段。
+
+| 保留 | 取消 |
+| --- | --- |
+| 通用 Agent 行为约束 | 固定辩论角色（辩手 / 裁判 / 修订者） |
+| 工具调用说明 | 固定三轮流程 |
+| 权限与安全规则 | 固定质疑次序 |
+| 输出结构契约 | 固定修订决策行 |
+| 证据引用要求 | 为每个任务套同一套辩论模板 |
+| 动态任务上下文 | 固定辩论基线 |
+
+> 「取消固定流程」不能变成「换一套新的固定流程」：任务图与停止条件由调度器生成，
+> 而不是在代码里再写死一组阶段名。
+
+### 6.2 网页通道的边界
+
+网页模型不能接收 system 指令，这是现有 Adapter 的技术限制：
+
+- 网页通道只收到用户原话（或系统明确标注的转述问题）；
+- 任务上下文不能通过「塞进用户消息」来假装 system；
+- 需要结构化输出、工具调用或长上下文的角色，只分配给支持这些能力的参与者；
+- 能力差异由 `AgentCapabilities` 表达，分配时检查，而不是运行时祈祷。
+
+---
+
+## 7. 证据与知识层
+
+### 7.1 统一引用
+
+```ts
+export type EvidenceKind = 'web' | 'code' | 'execution' | 'knowledge' | 'tool';
+
+export interface EvidenceRef {
+  evidenceId: string;
+  kind: EvidenceKind;
+  /** 这条证据属于哪一个任务 / 辩论 / 会话。 */
+  scope: { goalId: string; taskId?: string; conversationId?: string };
+  source: {
+    uri?: string;          // 网页 URL / 仓库路径
+    commit?: string;       // 代码与执行证据
+    snapshot?: string;     // 快照指纹
+    capturedAt: number;
+  };
+  locator?: { path: string; startLine?: number; endLine?: number };
+  hash: string;            // 内容哈希，防静默改写
+  trust: 'verified' | 'unverified' | 'degraded';
+  summary: string;
+}
+```
+
+现有 `EvidencePack` 是这套引用的**冻结形态**：一次发布把若干 `EvidenceRef` 与内容哈希固定下来。
+协作引擎不重造证据格式，只决定「什么时候取证、取哪些证、把哪些证交给谁」。
+
+### 7.2 知识记忆
+
+- 结论、Claim、证据、交付物都可以进入知识层，按主题 / 来源 / 版本 / 时间索引；
+- 复用旧结论必须带版本与时效，不允许把旧证据当新证据；
+- 知识层是 P2 的主题，本文只定义接口边界，不定义存储实现。
+
+---
+
+## 8. 验证与综合
+
+### 8.1 验证
+
+验证不是「再问一个模型」：
+
+1. 从交付物里挑出**会影响结论的 Claim**；
+2. 为每条 Claim 选择验证方式：代码位置、真实执行、来源核对、交叉引用；
+3. 每条判断给出 `supports | contradicts | context | unverified` 与置信度、局限；
+4. 验证失败或无法验证时，保留原结论并标记，不静默删除。
+
+### 8.2 综合
+
+- 综合按**交付物模板**组织，不按辩论轮次组织；
+- 分歧与不确定性是一等字段，不是脚注；
+- 少数派观点保留其成立条件；
+- 写作阶段只能引用已算好的证据，不能给证据「加分」。
+
+---
+
+## 9. 数据契约（草案）
+
+```ts
+export interface Goal {
+  goalId: string;
+  workspace: 'knowledge' | 'engineering' | 'general';
+  statement: string;            // 用户原话
+  constraints: string[];
+  acceptance: string[];         // 什么算完成
+  createdAt: number;
+}
+
+export interface TaskSpec {
+  taskId: string;
+  goalId: string;
+  kind: 'analyze' | 'research' | 'verify' | 'review' | 'execute' | 'synthesize';
+  question: string;
+  dependsOn: string[];
+  requiredCapabilities: Partial<AgentCapabilities>;
+  timeoutMs?: number;
+  acceptance: string[];
+}
+
+export interface Assignment {
+  taskId: string;
+  agentId: string;
+  reason: string;
+  contextRefs: string[];        // EvidenceRef / 前序 Observation
+}
+
+export interface Observation {
+  taskId: string;
+  agentId: string;
+  status: 'done' | 'failed' | 'skipped';
+  text?: string;
+  toolCalls?: Array<{ tool: string; args: unknown; resultHash?: string }>;
+  evidenceRefs: string[];
+  error?: string;
+  startedAt: number;
+  endedAt: number;
+}
+
+export interface CollaborationPlan {
+  goalId: string;
+  strategy: string;             // 可读的策略名，不是枚举黑话
+  reason: string;
+  tasks: TaskSpec[];
+  assignments: Assignment[];
+  stopWhen: string[];
+}
+
+export interface Verdict {
+  claimId: string;
+  relation: 'supports' | 'contradicts' | 'context' | 'unverified';
+  confidence: 'low' | 'medium' | 'high';
+  limitations: string[];
+  evidenceRefs: string[];
+}
+```
+
+---
+
+## 10. 与现有模块的映射
+
+| 现有模块 | 新职责 | 处置 |
+| --- | --- | --- |
+| `MasterAgent` | 参与者管理与第一手并发提问 | 保留，扩展为参与者管理器 |
+| `collaboration/strategy.ts` | 并行 / 递进 / smart 的计划雏形 | 保留，升级为 DAG 调度器的第一版 |
+| `collaboration/runner.ts` | 按计划执行、记录每个子任务 | 保留，扩展 Observation / 重规划 |
+| `ConversationRunner` | 对话入口与生命周期 | 保留，逐步承担协作入口 |
+| `DebateOrchestrator` | 一种协作行为 + 论证能力 | 降级，不再作为全局主流程 |
+| `prompts.ts` / `strategies.ts` | 固定辩论模板与策略 | 不再作为通用协作基础 |
+| `judge/` | 方向判断与验证 | 保留为可选验证能力 |
+| `argument-graph.ts` | 论证关系 | 保留 |
+| `EvidencePack` | 证据冻结与引用 | 保留，解除辩论专属绑定 |
+| `AgentOrchestrator` | 计划审批与执行治理 | 保留，不重复建设 |
+| `CodeIndex` | 工程事实提供 | 保留，轻量化、按需查询 |
+| CLI Adapters | 外部 Agent 参与者 | 保留，接入统一能力模型 |
+
+---
+
+## 11. 失败模式与对策
+
+| 失败模式 | 后果 | 对策 |
+| --- | --- | --- |
+| 所有任务都被拆成辩论 | 简单问题变慢、变贵 | 调度器按任务类型选择行为；默认独立作答 |
+| 固定轮次冒充动态 | 该停不停、该继续却结束 | 停止条件显式化；每波结束必须重评估 |
+| 网页模型被塞工具协议 | 取回答失败、页面回显污染 | 能力描述决定分配；网页只收原话 |
+| 证据与结论脱节 | 「凭什么」答不出 | Claim → EvidenceRef 强制关联；未核验显式标记 |
+| 失败被静默重分配 | 参与名单被悄悄改变 | 失败记录在案；不转派 |
+| 知识层变成向量库 | 召回越多越像在猜 | 结论带版本与时效；Claim 关系优先于相似度 |
+
+---
+
+## 12. 不做什么
+
+- 不新建第二套执行 Runtime、审批系统、Journal、TaskGrant 或 Verifier。
+- 不把网页通道改造成工具 Agent（Adapter 能力边界不突破）。
+- 不因为「统一」而要求所有参与者输出同一种 JSON。
+- 不让协作行为变成用户必须选择的产品入口。
+- 不在设计未冻结前改生产代码。
