@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(design): 新增 P6 发布与运维（版本/打包签名/迁移/备份/诊断/回滚）与 8 个任务；阶段上限改为 P6
 - docs(design): 补齐 P2–P5 领域设计（知识空间、工程契约、证据与质量、能力与通道路由）
 - docs(design): 记录设计冻结（用户确认 2026-11-18）；P0 退出，进入 P1 实施准备
 - docs(implementation): 新增 TASK-BOOK（P0–P5、UI、发布与跨阶段的全部任务设计）

@@ -197,7 +197,7 @@ scripts/               版本管理基础设施（钩子、发版脚本）
 | [`docs/architecture/ENGINEERING_WORKSPACE.md`](docs/architecture/ENGINEERING_WORKSPACE.md) | 工程空间、Agentic Search、CLI 协作与安全边界 |
 | [`docs/architecture/MIGRATION_PLAN.md`](docs/architecture/MIGRATION_PLAN.md) | 现有辩论 / 证据 / 工程代码如何迁移 |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 五层架构、三套协议、两条主链路 |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | P0–P5：现在在哪、下一阶段是什么、怎么算完成 |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | P0–P6：现在在哪、下一阶段是什么、怎么算完成 |
 | [`docs/README.md`](docs/README.md) | 全部文档索引（设计、规格、ADR、测试、应用层） |
 | [`PROTOCOL.md`](desktop-agent-macos/docs/PROTOCOL.md) | 协议词汇、三级解析、回声剥离、回答归属 |
 | [`IPC.md`](desktop-agent-macos/docs/IPC.md) | 通道清单、信任检查、为什么某些参数是字面量 |

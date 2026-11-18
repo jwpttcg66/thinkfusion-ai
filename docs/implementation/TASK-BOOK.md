@@ -2,14 +2,15 @@
 
 状态：**设计稿（2026-11-18）**，设计分支 `product-v3`。
 代码基线：`cd30be3`。设计快照：本文提交前为 `8489df5`。
-用途：把 P0–P5、UI、发布与跨阶段工作拆成可执行任务；每个任务都有目标、依赖、
+用途：把 P0–P6、UI 与跨阶段工作拆成可执行任务；每个任务都有目标、依赖、
 文件、验收、回滚与风险。**本文不写实现代码。**
 
 > 契约唯一权威：[P1-002 领域与运行时契约](P1-002-DOMAIN-RUNTIME-CONTRACT.md)。
 > P2–P5 领域设计：[KNOWLEDGE_SPACE](../architecture/KNOWLEDGE_SPACE.md)、
 > [ENGINEERING_CONTRACT](../architecture/ENGINEERING_CONTRACT.md)、
 > [EVIDENCE_QUALITY](../architecture/EVIDENCE_QUALITY.md)、
-> [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)。
+> [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)、
+> [RELEASE_OPERATIONS](../architecture/RELEASE_OPERATIONS.md)。
 > 本文只做任务设计；出现接口冲突时，以 P1-002 为准。
 
 ---
@@ -22,7 +23,9 @@
 | ⏳ | 待实现 |
 | 🔒 | 门禁，不通过不进入下一阶段 |
 
-任务编号与已有文档对齐：P0-xx、P1-xx、P2-xx、P3-xx、P4-xx、P5-xx、UI-xx、X-xx。
+任务编号与已有文档对齐：P0-xx、P1-xx、P2-xx、P3-xx、P4-xx、P5-xx、P6-xx、UI-xx、X-xx。
+
+任务总数：**68**（P0 6、P1 16、P2 6、P3 9、P4 7、P5 5、P6 8、UI 7、X 4）。
 
 **P2–P5 领域设计已完成**（知识空间、工程契约、证据与质量、能力路由）；
 下表中的任务状态仍表示「实现待做」，不代表代码已存在。
@@ -34,9 +37,9 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 
 ## 0.1 阶段上限与设计覆盖
 
-**实施计划的最高阶段是 P5。没有 P6/P7；P5 之后是 V3 发布门禁，不是新的 P 阶段。**
+**实施计划的最高阶段是 P6（发布与运维）。P6 不是产品功能阶段，而是交付门禁。**
 
-原提案的 P0–P12 已映射进 P0–P5：
+原提案的 P0–P12 已映射进 P0–P6：
 
 | 提案阶段 | 现位置 |
 | --- | --- |
@@ -52,6 +55,7 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 | P9 Verification | P4 |
 | P10 UI | UI |
 | P11 Quality | P4 |
+| P12 Release | P6 |
 
 工程大任务与设计文档的对应：
 
@@ -64,6 +68,7 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 | P3 | 工程状态、搜索、审批、执行、评审、CLI | [ENGINEERING_WORKSPACE](../architecture/ENGINEERING_WORKSPACE.md)、[ENGINEERING_CONTRACT](../architecture/ENGINEERING_CONTRACT.md)、[04](04-p3-engineering.md) |
 | P4 | 证据、验证、指标、场景、回放 | [EVIDENCE_QUALITY](../architecture/EVIDENCE_QUALITY.md)、[05](05-p4-evidence-quality.md) |
 | P5 | 能力、路由、降级、通道、费用 | [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)、[06](06-p5-channels.md) |
+| P6 | 发布、迁移、备份、诊断、回滚 | [RELEASE_OPERATIONS](../architecture/RELEASE_OPERATIONS.md) |
 | UI | 计划、参与者、证据、工程、知识 | [07](07-ui.md) |
 | X | 文档、测试工具、删除、发布 | 本文件 + [00](00-master-plan.md) |
 
@@ -97,6 +102,9 @@ P1.1 Replan / Debate / 模型审核
                     UI 改造
                         │
                         ▼
+                    P6 发布与运维
+                        │
+                        ▼
                     V3 发布
 ```
 
@@ -113,6 +121,7 @@ P1.1 Replan / Debate / 模型审核
 | P3 | 一次真实改动全链路通过，可复验、可回退 |
 | P4 | 跨空间 EvidenceRef 统一；40 场景受控集通过 |
 | P5 | 新增通道只加 Adapter + 能力声明 |
+| P6 | 干净机器安装、迁移/备份/回滚演练、签名可验证 |
 | V3 | 产品/协作/工程/知识/安全判据全部满足 |
 
 ---
@@ -170,6 +179,14 @@ P1.1 Replan / Debate / 模型审核
 | P5-03 | 新通道模板 | P5 | P5-02 | ⏳ |
 | P5-04 | 费用/延迟观测 | P5 | P5-02 | ⏳ |
 | P5-05 | 发布矩阵 | P5 | P5-01..04 | ⏳ |
+| P6-01 | 版本与发布清单 | P6 | P5-05 | ⏳ |
+| P6-02 | 打包/签名/公证 | P6 | P6-01 | ⏳ |
+| P6-03 | 数据迁移 | P6 | P0-05 | ⏳ |
+| P6-04 | 备份/恢复 | P6 | P6-03 | ⏳ |
+| P6-05 | 诊断与日志 | P6 | P1-10 | ⏳ |
+| P6-06 | 回滚与降级 | P6 | P6-03 | ⏳ |
+| P6-07 | 安全复核 | P6 | P6-02 | ⏳ |
+| P6-08 | 发布门禁与支持矩阵 | P6 | P6-01..07 | ⏳ |
 | UI-01 | 计划/任务视图 | UI | P1-10 | ⏳ |
 | UI-02 | 参与者/跳过原因 | UI | P1-01 | ⏳ |
 | UI-03 | 停止原因 | UI | P1-05 | ⏳ |
@@ -240,6 +257,14 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 | P5-03 | `adapters/*` + 文档 | 移除新通道 | Adapter 夹带提示词 |
 | P5-04 | `telemetry/*` | 关闭观测 | 网页/模型混算 |
 | P5-05 | `docs/release` | 不适用 | 组合未测就发 |
+| P6-01 | `VERSION` / `package.json` / 发布脚本 | 回退版本号 | 版本不一致 |
+| P6-02 | `scripts/package*` / 签名配置 | 重新签名 | 公证失败 |
+| P6-03 | `store.ts` / 迁移脚本 | 恢复备份 | 迁移丢数据 |
+| P6-04 | `backup/*` | 恢复前先备份 | 导入路径穿越 |
+| P6-05 | `diagnostics/*` | 关闭日志 | 泄露正文/密钥 |
+| P6-06 | 回滚文档 + flag | 重装旧版 | 降级读不了新数据 |
+| P6-07 | `SECURITY.md` / 检查 | 不发布 | 签名/权限缺口 |
+| P6-08 | `docs/release` | 不发布 | 清单放水 |
 | UI-01 | `renderer/components/*` | 隐藏面板 | 提前大改版 |
 | UI-02 | 右栏 | 隐藏原因 | 无理由减员 |
 | UI-03 | 左栏 | 隐藏原因 | 与 State 不一致 |
@@ -603,7 +628,59 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ---
 
-## 10. UI 任务
+## 10. P6 发布与运维任务
+
+### P6-01 版本与发布清单
+
+- 目标：`VERSION`、`package.json`、tag、发布说明一致；不一致阻断。
+- 验收：发布脚本检查；ReleaseManifest 生成。
+- 风险：把 V3 当 SemVer。
+
+### P6-02 打包/签名/公证
+
+- 目标：dmg/zip、Developer ID 签名、notarytool、SHA-256。
+- 验收：`codesign --verify`、`stapler validate`、干净机器安装。
+- 回滚：重新签名/重新打包。
+
+### P6-03 数据迁移
+
+- 目标：journal / packs / knowledge 的 schema 迁移；先备份；只加不删。
+- 验收：旧数据升级不丢；失败进入只读恢复。
+- 风险：不可逆迁移未标注。
+
+### P6-04 备份/恢复
+
+- 目标：导出/导入非敏感数据；路径校验；恢复前备份当前状态。
+- 验收：导入后会话/知识/证据可读；拒绝绝对路径。
+- 风险：备份含密钥。
+
+### P6-05 诊断与日志
+
+- 目标：分级日志、诊断面板、崩溃最小转储、默认无遥测。
+- 验收：日志脱敏；可关闭；不记录用户正文。
+- 风险：日志泄露。
+
+### P6-06 回滚与降级
+
+- 目标：flag、旧版本重装、数据恢复；降级未知字段忽略。
+- 验收：回滚演练通过；旧版本可读。
+- 风险：降级拒绝启动未说明。
+
+### P6-07 安全复核
+
+- 目标：密钥、签名、TCC、默认无遥测、删除默认废纸篓。
+- 验收：`test:security`、`test:prompt-policy`、清单签字。
+- 风险：权限提示不可执行。
+
+### P6-08 发布门禁与支持矩阵
+
+- 目标：V3 发布清单、支持矩阵、已知问题。
+- 验收：清单全绿；干净环境升级/回滚通过。
+- 风险：判据放水。
+
+---
+
+## 11. UI 任务
 
 ### UI-01 计划/任务视图
 
@@ -642,7 +719,7 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ---
 
-## 11. 跨阶段任务
+## 12. 跨阶段任务
 
 ### X-01 文档/索引同步
 
@@ -668,7 +745,7 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ---
 
-## 12. 任务模板（Definition of Done）
+## 13. 任务模板（Definition of Done）
 
 每个任务提交前必须回答：
 
@@ -682,7 +759,7 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 
 ---
 
-## 13. 风险总表
+## 14. 风险总表
 
 | 风险 | 任务 | 对策 |
 | --- | --- | --- |
