@@ -595,7 +595,7 @@ export interface ChannelStatus {
  *
  * `local` 只用本地模型、`web` 只用网页通道、`cloud` 只用远程 API；只有一个
  * 可用成员时由它一个主导（自辩），不再因「不足两位」跳过。详见
- * docs/implementation/DEBATE_LEAD_MODES.md 开头「归属规则」节。
+ * docs/spec/DEBATE_LEAD_MODES.md 开头「归属规则」节。
  *
  * - `web`    网页主导：第一手与主导都是网页通道。
  * - `local`  本地主导：第一手与主导都是本机 Ollama（不上网页）。

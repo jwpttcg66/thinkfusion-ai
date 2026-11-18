@@ -30,7 +30,7 @@
 | --- | --- | --- | --- |
 | **1. User Interaction** | 输入、进度、对话呈现 | `App.tsx`、`SourceRail.tsx`、`TaskInput.tsx`、`ConversationView.tsx` | ✅ 已落地 |
 | **2. Intent & Task Orchestrator** | 判定任务类型、选流程 | `shared/intent.ts`（纯函数）+ `ConversationRunner` | ✅ 已落地 |
-| **3. AI Collaboration Engine** | 分头发问、收集、比较 | `MasterAgent` + `SubAgentRegistry` + `ProviderSubAgent` + `BrowserAdapter` | ✅ 已落地（辩论轮未做，见 2.2 末） |
+| **3. AI Collaboration Engine** | 分头发问、收集、比较 | `MasterAgent` + `SubAgentRegistry` + `ProviderSubAgent` + `BrowserAdapter`；辩论与证据见 `src/main/debate/`、`evidence-pack/`、`judge/` | ✅ 已落地（辩论引擎独立演进，规格见 [spec/DEBATE_ENGINE_TASK_V1.0.md](spec/DEBATE_ENGINE_TASK_V1.0.md)） |
 | **4. Tool & Execution Runtime** | 工具、权限、复验 | `src/agent/*`、`agent-manager.ts`、`orchestrator.ts` | ✅ 收敛为按需（只有 `workspace` 进来） |
 | **5. Knowledge & Synthesis** | 观点、证据、分歧、索引 | `shared/synthesizer.ts`（规则式，已接进链路） | 部分落地；目标形态见第 11 节 |
 
@@ -205,7 +205,7 @@ export interface ResearchSink {
 
 **Master 管预算，SubAgent 不能自己叫人。** 谁能被问、一次问几个、问几轮，只有 `MasterAgent` 决定。一个能自行召集同伴的参与者会把用户的时间和页面的额度花在没人计数的地方。所以 `SubAgent` 接口里没有 `askOther()`，`SubAgentPool` 也没有暴露给参与者。
 
-**辩论轮：设计在，实现不在。** `AskStage = 'challenge'` 是留给它的，规则式综合也已经能指出分歧在哪一句。但这一轮**刻意没有接进链路**：先有可靠的"谁在说什么、页面怎么驱动"，再有"让它们互相质疑"。在那之前，分歧就如实报成分歧，而不是被一轮没人要求的二次提问抹平。（原先这里还留了一份挑战提示词模板，已随"不发固定提示词"一并删除：要接这一轮时，把两种说法并列给通道就够了，不需要一段预设话术。）
+**辩论轮：已经落地，但不在 `MasterAgent` 里。** `AskStage = 'challenge'` 是留给它的，规则式综合也能指出分歧在哪一句；真正的挑战、修订与裁判由 `src/main/debate/` 的独立引擎驱动（主张 → 争议 → 质疑 → 修订 → 裁判），`MasterAgent` 仍然只管第一手提问与预算。两者的边界与契约见 [spec/DEBATE_ENGINE_TASK_V1.0.md](spec/DEBATE_ENGINE_TASK_V1.0.md)。
 
 #### 只有一种参与者：provider
 
@@ -333,7 +333,7 @@ export interface ResearchSink {
 
 所以现在整份身份一起搬，而不是改一个字段：
 
-- `app.setName('ThinkFusion')` 改的是 Electron 自己派生出来的一切：菜单、崩溃报告、user-agent（现在是 `ThinkFusion/0.6.0`，不再是包名）。
+- `app.setName('ThinkFusion')` 改的是 Electron 自己派生出来的一切：菜单、崩溃报告、user-agent（现在是 `ThinkFusion/0.3.0`，不再是包名）。
 - `scripts/rename-dev-app.mjs` 搬的是 bundle 本身：目录名、里面的可执行文件、`CFBundleExecutable`、两个名字键、以及 bundle identifier（Electron 出厂的 `com.github.Electron` 是全机器所有开发副本共用的，本来也不该占着）。`node_modules/electron/path.txt` 跟着重写，因为 `electron` CLI 靠这个文件找二进制。
 - 两件事让它在这里是安全的而不是取巧：npm 装下来的 Electron.app 是 ad-hoc 签名、`Info.plist=not bound`、`Sealed Resources=none`，plist 没有被封进去，而改文件名不影响「签名签的是内容」；并且**不复制第二份 bundle**——只有一个路径上的一份，就不存在「副本去申请同一份权限」。辅助功能权限本来就属于 `resources/ax-bridge`（一个被 spawn 的独立二进制），与这个路径无关；早先这里写着相反的理由，是错的。
 - 打包版不需要这些：`build.productName` 已经是 ThinkFusion，bundle 生来就叫这个名字。
@@ -605,7 +605,11 @@ M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Run
 
 ---
 
-## 11. 观点融合引擎（目标形态，未实现）
+## 11. 观点融合引擎（目标形态）
+
+> **2026-11 更新**：本节写于 V2.1。其后辩论引擎 V1–V4 已把 Claim 抽取、争议检测、修订、
+> 裁判与证据包落到 `src/main/debate/`、`evidence-pack/`、`judge/`；仍未完成的是 UI 全量接线、
+> 外部事实核验与跨会话知识索引（见 [ROADMAP.md](ROADMAP.md)）。下文保留为设计依据。
 
 第 5 层现在是规则版：把两段回答切成句子、比 bigram、找共同数字和主题词，产出 `consensus` / `disputed` / `unique` / `gaps`。它能回答「这两句说的是不是一回事」，回答不了「这条观点凭什么成立、谁反驳了它、反驳成不成立」。
 
@@ -627,14 +631,16 @@ M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Run
 
 | 阶段 | 模块 | 职责 | 现在有没有 |
 | --- | --- | --- | --- |
-| 1 | ClaimExtractor | 拆成 Claim，标类型（事实 / 推断 / 假设 / 建议 / 预测 / 提问），保留原文位置 | 只有切句：`synthesize()` 把句子当观点，没有类型，也没有原文位置 |
-| 2 | SemanticClusterer | 召回相似 Claim，判断是重复、互补、条件不同还是实质不同 | 部分：同数字 / 共同主题词 / bigram |
-| 3 | RelationDetector | 给关系类型与置信度 | 只有「冲突 / 一致」两分 |
-| 4 | ArgumentGraph | 节点与边的存储、查询、遍历 | 无 |
-| 5 | EvidenceEvaluator | 权威性、相关性、可核验、直接性、独立性、时效、一致性 | 无（`evidence` 只是原话片段） |
-| 6 | DebateController | 找最值得研究的争议，定向分配质疑任务 | 设计在（`buildChallengePrompt` + `stage:'challenge'`），未接线 |
-| 7 | OpinionRanker | 多维评分与排序 | 无 |
-| 8 | SynthesisEngine | 共识、争议、条件化结论、未解决问题 | 规则版 |
+| 1 | ClaimExtractor | 拆成 Claim，标类型（事实 / 推断 / 假设 / 建议 / 预测 / 提问），保留原文位置 | 已落地：`src/main/debate/claims.ts`（Claim、类型、出处） |
+| 2 | SemanticClusterer | 召回相似 Claim，判断是重复、互补、条件不同还是实质不同 | 部分：辩论内的同一性判断 + synthesizer 的规则召回 |
+| 3 | RelationDetector | 给关系类型与置信度 | 已落地：supports / contradicts / context，见 `debate/evidence.ts` 与 `judge/` |
+| 4 | ArgumentGraph | 节点与边的存储、查询、遍历 | 已落地：`src/main/debate/argument-graph.ts` |
+| 5 | EvidenceEvaluator | 权威性、相关性、可核验、直接性、独立性、时效、一致性 | 部分：`evidence-pack/` 管 Pack、哈希与执行断言；外部权威性未做 |
+| 6 | DebateController | 找最值得研究的争议，定向分配质疑任务 | 已落地：`debate/orchestrator.ts` + `revision.ts` |
+| 7 | OpinionRanker | 多维评分与排序 | 部分：`judge/` 的三维评分 + `debate/quality.ts` |
+| 8 | SynthesisEngine | 共识、争议、条件化结论、未解决问题 | 规则版 + 局部条件化结论 |
+
+> 上表只说明**模块存在**；哪些已接到界面、哪些还只是库，以 [ROADMAP.md](ROADMAP.md) 的「现在的位置」为准。
 
 四道边界，任何一道合并，系统就会退化成「让一个模型先定结论，再回头挑支持材料」：
 
@@ -722,7 +728,8 @@ Score = w_e·Evidence + w_r·Reasoning + w_s·Source + w_i·Independence − w_a
 
 ### 11.5 定向辩论：只有三条例外
 
-第 3 层刻意没接辩论轮（见 2.2 末）。接的时候要守住三条，否则它就是「多问几轮」的别名：
+辩论轮已经由 `src/main/debate/` 独立实现（`orchestrator.ts` + `revision.ts`），第 3 层主链路仍不直接调用它。
+接入时要守住三条，否则它就是「多问几轮」的别名：
 
 1. **不是所有人都参与所有观点。** Master 从图里挑出「有反对但没定论」的那些，再把任务派给最合适的一方——找支持的、找反例的、查文档和源码的、专门检查「证据有没有真的回答问题」的。全员无差别讨论的产物是四份措辞不同的原文。
 2. **默认最多两轮。** 只有出现新证据或新推理才继续。停止条件是「争议已验够 / 这轮没有新增信息 / 关系稳定 / 预算耗尽 / 现有资料解决不了」，五个里任意一个成立就停。
@@ -798,7 +805,7 @@ Score = w_e·Evidence + w_r·Reasoning + w_s·Source + w_i·Independence − w_a
 - 新增 `src/main/engineering/review.ts` 做执行后独立评审，通过 `review.ready` 事件回传；没有可用模型时明确标 `backend: 'rules'`。
 - 全局默认空间与项目存 `userData/workspace-state.json`（`src/main/workspace-store.ts`），与会话级字段互相补充。
 
-详见 `docs/implementation/V2.1_IMPLEMENTATION_REPORT.md`。
+V2.1 两次增量的实现记录见 git 提交历史；本文只保留仍然成立的架构关系。
 
 ---
 

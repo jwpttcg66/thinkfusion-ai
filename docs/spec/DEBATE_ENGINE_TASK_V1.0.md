@@ -1,19 +1,11 @@
 # ThinkFusion AI 真理发现与多模型辩论引擎 · Codex 实施任务书 V1.0
 
-> 本文是任务书原文的仓库内副本，供实施与评审引用。
-> 原始文件：`ThinkFusion_AI_真理发现与多模型辩论引擎_Codex实施任务书_V1.0.docx`
-> （同目录保留，格式与表格以 docx 为准）。由 docx 转 Markdown，正文未改写。
+> 本文是任务书原文的仓库内副本，供实施与评审引用；由 docx 转 Markdown，正文未改写。
+> 原始 docx 不再随仓库保留，历史版本见 git 提交历史。
 >
-> 实施状态见 `docs/architecture/DEBATE_ENGINE_AUDIT.md`（Phase 0 审计）与
-> `docs/implementation/PHASE-1-DEBATE-CLAIMS.md`（Phase 1 交付）。
-> Phase 2 见 `PHASE-2-DEBATE-REVISION.md`，Phase 3 见
-> `PHASE-3-DEBATE-ARGUMENT-JUDGE.md`（论证图与三维裁判），Phase 4 见
-> `PHASE-4-DEBATE-STRATEGIES.md`（六种策略与结果展示），Phase 5 见
-> `PHASE-5-DEBATE-METRICS.md`（指标、历史复用、成本）。§12 Prompt 模板版本化见
-> `src/main/debate/prompts.ts`；配置、迁移、测试、运行见
-> `docs/implementation/DEBATE_RUNBOOK.md`（§17 收尾）。验收对照
-> `docs/architecture/DEBATE_ACCEPTANCE.md`（含 AC 之外逐节对照），指标报告
-> `docs/reports/DEBATE_QUALITY.md`（质量达标报告）。
+> 实施状态与分阶段交付见 git 提交历史；配置、迁移、测试、运行见
+> `docs/spec/DEBATE_RUNBOOK.md`（§17 收尾）；§12 Prompt 模板版本化见
+> `src/main/debate/prompts.ts`。
 
 ---
 

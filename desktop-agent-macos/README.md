@@ -1,4 +1,4 @@
-# ThinkFusion v0.6.0 — macOS Apple Silicon
+# ThinkFusion v0.3.0 — macOS Apple Silicon
 
 > 仓库总览、核心能力、工程介绍与 Roadmap，见[根目录 README（中文）](../README.zh-CN.md)
 > 或 [English README](../README.md)。
@@ -37,7 +37,7 @@
 
 ## 本地工具
 
-共 27 个，前 4 个与 v1 兼容。完整对照与「刻意不做」见 `../docs/implementation/LOCAL_HARNESS_TOOLS.md`。
+共 27 个，前 4 个与 v1 兼容。完整对照与「刻意不做」见 `../docs/spec/LOCAL_HARNESS_TOOLS.md`。
 
 - 文件：`fs.list` / `fs.readFile` / `fs.stat` / `fs.tree` / `fs.search` / `fs.find` / `fs.readImage` / `fs.mkdir` / `fs.writeFile` / `fs.edit` / `fs.move` / `fs.copy` / `fs.remove`
 - 命令：`test.run`（固定命令→固定 argv，`shell:false`）、`shell.run`（真 shell，按权限分层）、`job.list` / `job.output` / `job.kill`（后台作业）
@@ -108,7 +108,7 @@ npm run package:mac
 
 - **DeepSeek 的 DOM 结构不受我们控制。** 选择器是一组启发式候选，实测可用（输入框是 `textarea[placeholder]`，发送键是无 aria-label 的圆形主按钮，页面没有停止按钮），但对方改版就会失效。`getStatus()` 会如实报告，诊断面板会显示每个候选的命中数——某一项归零就是改版的信号。
 - **回答归属判定**依赖「发送前消息数快照 + 最新气泡文本 + 增量含协议标记 + 连续 3 次轮询一致」。如果 DeepSeek 改用虚拟列表或没有稳定的消息节点，判定会失败并返回 `ANSWER_TIMEOUT`——此时任务停止，不会猜测执行。
-- **持久化仍是原子 JSON journal**，不是 SQLite。原因见 `DELIVERY_STATUS.md`：避免 node-gyp 在 Apple Silicon 上的安装问题。高并发或大量历史任务下应替换为事务数据库。
+- **持久化仍是原子 JSON journal**，不是 SQLite。原因是避免 node-gyp 在 Apple Silicon 上的安装问题。高并发或大量历史任务下应替换为事务数据库。
 - **UtilityProcess 不是 OS 沙箱**。没有 Seatbelt profile，路径检查仍存在 TOCTOU 边界。不要授权包含密钥或生产凭据的目录。
 - **崩溃恢复未实现**：执行中被中断的任务会停在 `executing`，需要手动处理。
 - **真实鼠标拖动未被测试覆盖**：实机脚本用合成指针事件，绕过了 macOS 原生命中测试；手势本身依赖「拖动期间把视图停到窗口外」的设计规避。

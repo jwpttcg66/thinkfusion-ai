@@ -3,8 +3,6 @@
 > 2026-11-10。问题：一轮研究里，界面只有「思考中 / 收集中 / 综合中」三个粗状态，
 > 看不到现在走到哪一段、等了多久、模型在做什么。用户的原话是「什么都没有，看着
 > 就像是卡死了」。
->
-> 实现见 [PROGRESS_VISIBILITY_ROLLOUT](../implementation/PROGRESS_VISIBILITY_ROLLOUT.md)。
 
 ## 0. 一句话结论
 

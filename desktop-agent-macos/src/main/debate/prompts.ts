@@ -28,7 +28,7 @@ import type { DebateStrategy } from './types';
 
 /**
  * 模板版本。改动任何一条 `system` 文案、或改动任一规则模板的输入 / 输出约束，
- * 都必须同时把这个值往前推，并在 `docs/implementation/DEBATE_RUNBOOK.md`
+ * 都必须同时把这个值往前推，并在 `docs/spec/DEBATE_RUNBOOK.md`
  * 的「模板版本历史」里写清改了什么。老辩论文件里的数字不动。
  */
 export const PROMPT_VERSION = '1.1.0';

@@ -133,8 +133,6 @@ BLOCK 是「本轮没验证到」，不写成产品缺陷；等额度恢复后�
    空列表，「进程组已清空」是空集上的假阳性。改用 `process.kill(-pgid, 0)` 真发
    信号探测；CLI 提前退出或探测不可用时一律标 BLOCK，不冒充 PASS。
 
-详细记录见 `docs/implementation/QODER_CLI_SPIKE_REPORT.md`。
-
 ## 6. 结果与验证
 
 `agent.exec` 返回：
@@ -354,7 +352,5 @@ EXITED / FAILED / CANCELLED`），连接状态由面板 attach/detach 驱动。
 
 ## 15. 交付文档
 
-- `docs/implementation/ADR_CONFIG_DRIVEN_CLI_ADAPTER.md`
-- `docs/implementation/CLI_INTEGRATION_BASELINE_AUDIT.md`
-- `docs/implementation/QODER_CLI_SPIKE_REPORT.md`
-- `docs/implementation/CLI_INTEGRATION_FINAL_REPORT.md`
+- [ADR 0007：配置驱动的 CLI Adapter](../../docs/adr/0007-config-driven-cli-adapter.md)
+- 接入期的一次性报告（基线审计、Spike、最终验收）见 git 提交历史。

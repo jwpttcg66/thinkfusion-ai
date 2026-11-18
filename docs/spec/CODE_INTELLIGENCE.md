@@ -10,7 +10,7 @@
 
 对照的是本机现状：`src/shared/contracts.ts` 的 85 条能力、`src/agent/tools/*`、
 `src/main/engineering/*`、`docs/spec/GENERAL_ENGINEERING_CAPABILITIES.md`（§3.1
-`code.read`、§3.2 `code.change`）、`docs/implementation/LOCAL_HARNESS_TOOLS.md`
+`code.read`、§3.2 `code.change`）、`docs/spec/LOCAL_HARNESS_TOOLS.md`
 （那里把 LSP 明确划到「不在这层」）。
 
 ## 0. 一句话结论
@@ -26,7 +26,7 @@ tsc / eslint / ruff，`test.run` / `shell.run` / `git.worktree` 都在。
 
 1. **读没有寻址**：`fs.readFile` 返回原始文本、256KB 直接拒，没有行号、没有
    offset/limit；模型改一处只能整段拿、靠猜位置。**0.1.9 已补**：分页/行号/
-   总行数，见 [`CODE_INTELLIGENCE_AUDIT.md`](../implementation/CODE_INTELLIGENCE_AUDIT.md)。
+   总行数。
 2. **没有符号级理解**：没有 definition / references，影响面只能靠 grep 猜；
    `project.outline` 是正则大纲，评语里已注明「按正则识别」。
 3. **改完没有自动验证闭环**：诊断要模型自己记得调；计划门禁只管「有没有写判据」，
@@ -298,8 +298,7 @@ type RelationConfidence = 'EXACT' | 'HIGH' | 'POSSIBLE' | 'UNKNOWN';
 | P2 | 基础 CodeGraph（定义/引用/实现）→ Call Hierarchy 与影响分析 → 按需 AST；单 Agent 闭环稳定后再做多 Agent 编码 | 后续 |
 | P3 | 大型工程持久化索引、向量检索与长期工程知识库 | 视需求 |
 
-每期的复用点、交付物、测试与验收写在
-[`docs/implementation/CODE_INTELLIGENCE_ROLLOUT.md`](../implementation/CODE_INTELLIGENCE_ROLLOUT.md)。
+每期的复用点、交付物、测试与验收见 git 提交历史。
 旧的 P7–P10 编号作废，一律以 P0–P3 为准。
 
 ## 4. 风险与不做的事
