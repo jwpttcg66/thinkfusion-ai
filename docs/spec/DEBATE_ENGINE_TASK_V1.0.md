@@ -8,8 +8,8 @@
 > 原始 docx 不再随仓库保留，历史版本见 git 提交历史。
 >
 > 实施状态与分阶段交付见 git 提交历史；配置、迁移、测试、运行见
-> `docs/spec/DEBATE_RUNBOOK.md`（§17 收尾）；§12 Prompt 模板版本化见
-> `src/main/debate/prompts.ts`。
+> `docs/spec/DEBATE_RUNBOOK.md`（§17 收尾）。2026-11-18 起按硬规则移除任务提示词，
+> `prompts.ts` 已删除，§12 的模板版本只作为历史记录。
 
 ---
 

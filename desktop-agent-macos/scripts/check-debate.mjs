@@ -145,14 +145,14 @@ test('standard/deep/adversarial 的轮数，第一轮独立、后续轮带前序
   }
 });
 
-test('问题文本永远原样；指令只走 system，不拼进 question', async () => {
+test('问题文本永远原样；不发送任何任务提示词', async () => {
   const h = harness();
   const started = h.orchestrator.start(QUESTION, config({ convergenceStop: false }));
   await h.orchestrator.waitFor(started.debateId);
   assert.ok(h.seen.length > 0);
   for (const item of h.seen) {
     assert.equal(item.question, QUESTION);
-    assert.ok(item.system.length > 0, '每轮都要有结构化指令');
+    assert.equal(item.system.length, 0, '不再发送任务提示词');
     assert.ok(!item.question.includes('质疑'), '问题里不能出现挑战话术');
   }
   h.cleanup();
@@ -296,7 +296,7 @@ test('会话内辩论：第一轮读到网页回答与主导人指定的辩题',
     const context = (task.context ?? []).join('\n');
     assert.match(context, /会涨/, '第一轮读到网页已经给出的回答');
     assert.match(context, /哪一方的证据更硬/, '第一轮读到主导人指定的辩题');
-    assert.match((task.system ?? []).join('\n'), /网页通道的回答已经在上下文里/, '不是从零重复回答');
+    assert.equal((task.system ?? []).length, 0, '不发送任务提示词');
   }
   fs.rmSync(dir, { recursive: true, force: true });
 });

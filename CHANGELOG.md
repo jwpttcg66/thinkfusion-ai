@@ -7,6 +7,10 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- rule(agent): 新增 AGENTS 第 6 节——不使用任务提示词、不冻结流程基线（含允许的机器可读契约与工程快照）
+- refactor(debate): 删除 `prompts.ts`；辩论不再向模型发送 role / stage / format / challenge 指令，网页后续轮只附带数据
+- refactor(evidence-pack): `baseline.ts` 改为 `repository-snapshot.ts`，`publishRepositorySnapshot()` 由任务按需调用；辩论开场不再创建基线，`round-evidence` 接线移除
+- test: 删除 prompt 模板与开场基线用例，辩论用例改为断言「不发送提示词、争议只落盘」
 - docs(product): 产品定位 V3——从「可验证的多模型审辩平台」改为「多模型协作智能工作平台」；一个协作引擎、三个工作空间（知识学习 / 工程 / 通用）
 - docs(architecture): 新增协作架构 V1、工程工作空间 V1、迁移计划；辩论降级为按需协作行为，明确不新建第二套 Runtime / 审批 / 证据格式
 - docs(roadmap): 路线重排为 P0–P5，辩论不再单独占据主线

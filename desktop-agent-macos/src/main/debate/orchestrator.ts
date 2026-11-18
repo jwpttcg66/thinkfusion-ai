@@ -2,21 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { features, jaccard } from '../../shared/synthesizer';
 import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { buildGraph } from './argument-graph';
-import { analyseRound, challengesFor } from './claims';
+import { analyseRound } from './claims';
 import { appendEvent } from './events';
 import { buildEvidence } from './evidence';
 import { refreshClaimEvidenceLinks } from './claim-evidence-links';
-import { publishRepositoryBaseline } from '../evidence-pack/baseline';
-import { publishRoundEvidencePack } from '../evidence-pack/round-evidence';
-import { mapPackToDebateEvidence, packEvidenceIdOf } from '../evidence-pack/mapping';
 import { resolveRepositoryContext } from '../evidence-pack/repository';
 import type { EvidencePackStore } from '../evidence-pack/store';
 import { judgeDebate } from './judges';
 import { debateMetrics, roundProgress } from './metrics';
-import { PROMPT_VERSION, renderInstructions } from './prompts';
 import { applyDecisions, revisionOf } from './revision';
 import { DebateStore } from './store';
-import { orderDisputes } from './strategies';
 import {
   kindFor,
   normalizeLeadMode,
@@ -134,12 +129,10 @@ export class DebateOrchestrator {
       rounds: [],
       minorities: [],
       disputes: [],
-      // 版本跟着这场辩论落盘：以后升级模板，老记录仍看得出当时用的哪一版。
-      promptVersion: PROMPT_VERSION,
       createdAt: at,
       updatedAt: at
     };
-    if (repository) this.attachRepositoryBaseline(state, repository);
+    if (repository) this.attachRepositoryContext(state, repository);
     // 事件流从创建那一刻开始记（AC-14）。此时还没有任何发言，所以这条
     // 事件只说明「谁、什么时候、按什么配置起了这场辩论」。
     appendEvent(state, {
@@ -155,85 +148,14 @@ export class DebateOrchestrator {
   }
 
   /**
-   * 每轮结束后把代码引用落到 Pack。没有引用就不写空记录；Pack 失败只写
-   * `roundEvidencePacks[].failed`，不阻断辩论。
+   * 解析仓库状态（commit / branch / dirty），作为任务的上下文数据。
+   *
+   * 不在开场冻结任何共享基线：需要快照时由工程任务创建，辩论只读。
    */
-  private attachRoundEvidencePack(state: DebateState, round: DebateRound): void {
-    if (!state.repository || !state.evidencePack?.baselinePackId) return;
-    if (state.roundEvidencePacks?.some(item => item.roundIndex === round.index)) return;
-    const record = publishRoundEvidencePack({
-      state,
-      round,
-      store: this.deps.evidencePacks,
-      baselinePackId: state.evidencePack.baselinePackId,
-      createdAt: this.now()
-    });
-    if (!record) return;
-    state.roundEvidencePacks = [...(state.roundEvidencePacks ?? []), record];
-    this.attachPackEvidence(state, record);
-  }
-
-  /** 把 round Pack 条目映射成辩论证据，并写 context 关联；不写 supports。 */
-  private attachPackEvidence(state: DebateState, record: DebateRoundEvidencePack): void {
-    const items = record.items ?? [];
-    if (!record.packId || items.length === 0 || !this.deps.evidencePacks) return;
-    let pack: ReturnType<EvidencePackStore['get']>;
-    try {
-      pack = this.deps.evidencePacks.get(record.packId);
-    } catch {
-      return;
-    }
-    if (!pack) return;
-
-    const mapped = mapPackToDebateEvidence(pack, {
-      links: items.flatMap(item => item.claimIds.map(claimId => ({
-        itemId: item.itemId,
-        claimId,
-        relation: 'context' as const
-      })))
-    });
-    const evidenceById = new Map((state.packEvidence ?? []).map(item => [item.evidenceId, item]));
-    for (const item of mapped) evidenceById.set(item.evidenceId, item);
-    state.packEvidence = [...evidenceById.values()];
-    this.mergePackEvidence(state);
-
-    const linkKeys = new Set((state.packEvidenceLinks ?? []).map(link => `${link.claimId}\0${link.evidenceId}`));
-    const links = items.flatMap(item => item.claimIds.map(claimId => ({
-      debateId: state.debateId,
-      claimId,
-      evidenceId: packEvidenceIdOf(record.packId!, item.itemId),
-      relation: 'context' as const,
-      source: 'pack' as const,
-      reason: `该主张引用了冻结快照 ${item.path}:${String(item.startLine)}-${String(item.endLine)}`
-    }))).filter(link => !linkKeys.has(`${link.claimId}\0${link.evidenceId}`));
-    state.packEvidenceLinks = [...(state.packEvidenceLinks ?? []), ...links];
-  }
-
-  /** 每轮 buildEvidence 会重建页面证据；Pack 证据要按 evidenceId 合并回来。 */
-  private mergePackEvidence(state: DebateState): void {
-    if (!state.packEvidence || state.packEvidence.length === 0) return;
-    const byId = new Map((state.evidence ?? []).map(item => [item.evidenceId, item]));
-    for (const item of state.packEvidence) byId.set(item.evidenceId, item);
-    state.evidence = [...byId.values()];
-  }
-
-  /**
-   * 开场冻结工程基准。失败只影响 `evidencePack`，不阻断辩论：
-   * Pack 是证据增强，不是多模型辩论的单点依赖。
-   */
-  private attachRepositoryBaseline(state: DebateState, input: DebateRepositoryInput): void {
-    const at = this.now();
+  private attachRepositoryContext(state: DebateState, input: DebateRepositoryInput): void {
     try {
       const resolution = resolveRepositoryContext(input.rootDir);
-      if (!resolution.context) {
-        state.evidencePack = {
-          status: 'unavailable',
-          itemCount: 0,
-          reason: resolution.error ?? '无法解析工程目录',
-          createdAt: at
-        };
-        return;
-      }
+      if (!resolution.context) return;
       const context = resolution.context;
       state.repository = {
         root: context.root,
@@ -246,19 +168,8 @@ export class DebateOrchestrator {
         ...(context.dirtyFingerprint ? { dirtyFingerprint: context.dirtyFingerprint } : {}),
         resolvedAt: context.resolvedAt
       };
-      state.evidencePack = publishRepositoryBaseline({
-        store: this.deps.evidencePacks,
-        debateId: state.debateId,
-        context,
-        createdAt: at
-      });
-    } catch (error) {
-      state.evidencePack = {
-        status: 'failed',
-        itemCount: 0,
-        reason: error instanceof Error ? error.message : String(error),
-        createdAt: at
-      };
+    } catch {
+      // 仓库信息只是上下文；读不到就不带，不阻断辩论。
     }
   }
 
@@ -372,9 +283,7 @@ export class DebateOrchestrator {
         // 证据与论证图每轮重算：主张状态会被后面的决策改写，重算才能保证
         // 图里的 `status` 与主张本身一致；条数很小，代价可以忽略。
         state.evidence = buildEvidence(state);
-        this.mergePackEvidence(state);
         state.graph = buildGraph(state);
-        this.attachRoundEvidencePack(state, round);
         state.updatedAt = this.now();
         if (!this.persist(state)) {
           // 用户中止：已经说出口的话保留，但仍然给一个结论，别让记录停在半场。
@@ -553,22 +462,6 @@ export class DebateOrchestrator {
     // 网页第一轮的观点本来就在提问阶段拿到了，先放进来，界面不用空等。
     round.messages.push(...seeded);
     this.persist(state);
-    /**
-     * 挑战指向具体两句。
-     *
-     * 上一轮结束后算出的争议是「谁的哪一句」对「谁的哪一句」，这一轮就照着
-     * 这几条问，而不是「请逐条质疑上一轮」。只在上一轮真的算出争议时才有；
-     * 没有就照旧给通用指令，不硬造。
-     */
-    const challenges = index === 0
-      ? []
-      : challengesFor(
-          orderDisputes(
-            (state.disputes ?? []).filter(dispute => dispute.roundIndex === index - 1),
-            state.config.strategy
-          ),
-          state.rounds.at(-1)?.claims ?? []
-        );
     // 谁被质疑了哪几句：回应阶段要把决策写回这几条主张。
     const targetsByAgent = targetsOf(state, index);
 
@@ -584,14 +477,10 @@ export class DebateOrchestrator {
         // context / system，交锋材料只能拼进这一条用户消息——归属规则要求
         // 网页主导完全由网页完成，不靠本地模型补位。
         question: isWebOnly && index > 0
-          ? webDebateQuestion(state.question, context, kind)
+          ? webDebateQuestion(state.question, context)
           : state.question,
         stage: index === 0 ? 'initial' : 'followup',
-        context: !isWebOnly && context.length > 0 ? context : undefined,
-        system: isWebOnly ? undefined : renderInstructions(state.config.strategy, kind, role, state.lead, {
-          seeded: index === 0 && Boolean(seed?.positions.length),
-          challenges
-        })
+        context: !isWebOnly && context.length > 0 ? context : undefined
       };
       const startedAt = this.now();
       try {
@@ -915,19 +804,10 @@ function webContextText(context: readonly string[]): string {
  * 拼进这一条用户消息。第一轮不走这条：那时页面收到的仍是用户原话。
  * 文案刻意短——页面会把用户消息回显进转录，套话越长越难剥干净。
  */
-function webDebateQuestion(
-  question: string,
-  context: readonly string[],
-  kind: DebateMessageKind
-): string {
+function webDebateQuestion(question: string, context: readonly string[]): string {
   const views = webContextText(context);
-  return [
-    `【问题】${question}`,
-    views ? `【观点】${views}` : '',
-    kind === 'question'
-      ? '【回应】指出上面哪一句证据不足或推理不成立，只写那一句和理由。'
-      : '【回应】看过质疑后，说明结论是否修改；不改就写明为什么不改。'
-  ].filter(Boolean).join('\n\n');
+  // 只附带数据，不写「请指出」「说明是否修改」这类指令：网页通道只收材料。
+  return views ? `问题：${question}\n\n已有观点：${views}` : question;
 }
 
 /**

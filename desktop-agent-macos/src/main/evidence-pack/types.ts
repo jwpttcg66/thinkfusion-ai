@@ -67,7 +67,7 @@ export interface EvidencePackSnapshot {
 }
 
 export interface EvidencePackContext {
-  kind: 'baseline' | 'round';
+  kind: 'snapshot' | 'baseline' | 'round';
   debateId: string;
   roundIndex?: number;
   baselinePackId?: string;

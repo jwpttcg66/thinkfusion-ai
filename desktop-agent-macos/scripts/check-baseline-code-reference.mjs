@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { publishRepositoryBaseline } from '../out-test/main/evidence-pack/baseline.js';
+import { publishRepositorySnapshot } from '../out-test/main/evidence-pack/repository-snapshot.js';
 import { resolveBaselineCodeReference, reconstructDirtyFile } from '../out-test/main/evidence-pack/baseline-code-reference-resolver.js';
 import { resolveRepositoryContext } from '../out-test/main/evidence-pack/repository.js';
 import { snapshotFingerprint } from '../out-test/main/evidence-pack/snapshot.js';
@@ -49,7 +49,7 @@ function harness(root, debateId = 'debate-baseline') {
   const store = new EvidencePackStore(storeDir);
   const context = resolveRepositoryContext(root).context;
   assert.ok(context);
-  const pack = publishRepositoryBaseline({ store, debateId, context, createdAt: 1 });
+  const pack = publishRepositorySnapshot({ store, ownerId: debateId, context, createdAt: 1 });
   const state = {
     debateId,
     repository: {
@@ -59,7 +59,7 @@ function harness(root, debateId = 'debate-baseline') {
       dirty: context.dirty,
       ...(context.dirtyFingerprint ? { dirtyFingerprint: context.dirtyFingerprint } : {})
     },
-    evidencePack: { status: pack.status, baselinePackId: pack.baselinePackId }
+    evidencePack: { status: pack.status, baselinePackId: pack.snapshotPackId }
   };
   return { store, storeDir, context, pack, state };
 }
@@ -78,7 +78,7 @@ test('干净仓库：引用从开场 commit 恢复，辩论后改工作区不影
   try {
     const before = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 2)
     });
@@ -90,7 +90,7 @@ test('干净仓库：引用从开场 commit 恢复，辩论后改工作区不影
     fs.writeFileSync(path.join(root, 'src.ts'), 'changed\n', 'utf8');
     const after = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 2)
     });
@@ -108,7 +108,7 @@ test('dirty 文件：修改与未跟踪文件只从 Pack 恢复，辩论后再�
   try {
     const modified = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1, 2)
     });
@@ -118,7 +118,7 @@ test('dirty 文件：修改与未跟踪文件只从 Pack 恢复，辩论后再�
 
     const untracked = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('untracked.ts', 1)
     });
@@ -129,7 +129,7 @@ test('dirty 文件：修改与未跟踪文件只从 Pack 恢复，辩论后再�
     fs.rmSync(path.join(root, 'untracked.ts'));
     const again = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1, 2)
     });
@@ -147,7 +147,7 @@ test('跨 chunk 重组：引用范围跨边界仍得到完整片段', () => {
   try {
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 44, 48)
     });
@@ -164,7 +164,7 @@ test('仓库 dirty 时，开场干净的文件仍从 commit 读', () => {
   try {
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('clean.ts', 2)
     });
@@ -185,7 +185,7 @@ test('基准漂移：HEAD 已变化，仍从开场 commit 恢复', () => {
     git(root, ['commit', '-qm', 'second']);
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 2)
     });
@@ -200,15 +200,15 @@ test('Pack 损坏：返回 rejected，不产生 baseline-verified', () => {
   const root = makeRepo({ dirty: true });
   const h = harness(root);
   try {
-    const replay = h.store.replay(h.pack.baselinePackId);
+    const replay = h.store.replay(h.pack.snapshotPackId);
     fs.writeFileSync(
-      path.join(h.storeDir, 'packs', h.pack.baselinePackId, 'blobs', replay.items[0].contentHash),
+      path.join(h.storeDir, 'packs', h.pack.snapshotPackId, 'blobs', replay.items[0].contentHash),
       'tampered',
       'utf8'
     );
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });
@@ -226,7 +226,7 @@ test('partial 基准：未冻结文件拒绝；其它文件只能标 partial', (
   try {
     const unfrozen = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });
@@ -235,7 +235,7 @@ test('partial 基准：未冻结文件拒绝；其它文件只能标 partial', (
 
     const clean = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('clean.ts', 1)
     });
@@ -313,7 +313,7 @@ test('Hash 语义：excerptHash 是片段 sha256，不是 Pack blob hash', () =>
   try {
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });
@@ -348,7 +348,7 @@ test('commit / fingerprint 与辩论状态不一致：拒绝', () => {
     };
     const commitMismatch = resolveBaselineCodeReference({
       state: wrongCommit,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });
@@ -361,7 +361,7 @@ test('commit / fingerprint 与辩论状态不一致：拒绝', () => {
     };
     const fingerprintMismatch = resolveBaselineCodeReference({
       state: wrongFingerprint,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });
@@ -381,7 +381,7 @@ test('开场 commit 中的符号链接 / 开场不存在的文件：拒绝', () 
   try {
     const link = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('link.ts', 1)
     });
@@ -391,7 +391,7 @@ test('开场 commit 中的符号链接 / 开场不存在的文件：拒绝', () 
     fs.writeFileSync(path.join(root, 'created-later.ts'), 'later\n', 'utf8');
     const created = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('created-later.ts', 1)
     });
@@ -410,7 +410,7 @@ test('引用片段超限：拒绝，不截断后伪装成完整证据', () => {
   try {
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1, 120)
     });
@@ -425,7 +425,7 @@ test('快照元数据被篡改：manifest 校验失败，不能当有效基准',
   const root = makeRepo({ dirty: true });
   const h = harness(root);
   try {
-    const manifestPath = path.join(h.storeDir, 'packs', h.pack.baselinePackId, 'manifest.json');
+    const manifestPath = path.join(h.storeDir, 'packs', h.pack.snapshotPackId, 'manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     manifest.snapshot.dirtyFingerprint = '0'.repeat(64);
     manifest.manifestHash = manifestHashOf({
@@ -436,7 +436,7 @@ test('快照元数据被篡改：manifest 校验失败，不能当有效基准',
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
     const result = resolveBaselineCodeReference({
       state: h.state,
-      baselinePackId: h.pack.baselinePackId,
+      baselinePackId: h.pack.snapshotPackId,
       store: h.store,
       candidate: candidate('src.ts', 1)
     });

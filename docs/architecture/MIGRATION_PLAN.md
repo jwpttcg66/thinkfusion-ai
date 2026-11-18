@@ -15,6 +15,8 @@
 2. **辩论不删除，降级。** 保留 `debate/`、`judge/`、`argument-graph` 作为按需能力。
 3. **不新建第二套** Runtime、审批、Journal、TaskGrant、Verifier、证据格式。
 4. **网页通道的边界不突破。** 不发 system、不发工具协议、不改用户原话。
+6. **不使用任务提示词、不冻结流程基线。** `prompts.ts` 删除；辩论开场不再创建仓库基线；
+   仓库快照改由工程任务持有（允许保留快照能力，但不叫流程基线）。
 5. **每一步都有验收与回滚点。** 没有可观察判据的迁移不算完成。
 
 ---
@@ -24,14 +26,14 @@
 | 模块 | 现在是什么 | 目标职责 | 处置 |
 | --- | --- | --- | --- |
 | `debate/orchestrator.ts`（955 行） | 辩论主流程：开场、分轮、证据包、裁判 | 一种可选协作行为 | **降级 + 拆职责** |
-| `debate/prompts.ts` | 固定辩论提示词与阶段次序 | 仅辩论行为内部使用 | 保留，移出通用路径 |
-| `debate/strategies.ts` | 固定辩论策略 | 仅辩论行为内部使用 | 保留，不再是全局策略 |
+| `debate/prompts.ts` | 固定辩论提示词与阶段次序 | —— | **已删除**（P0 同步，硬规则：不使用任务提示词） |
+| `debate/strategies.ts` | 固定辩论策略 | 仅辩论行为内部使用 | 保留，但不再生成文本指令 |
 | `debate/revision.ts` / `claims.ts` | 修订与主张 | 辩论行为内部 | 保留 |
 | `judge/` | 三维裁判、方向判断 | 可选验证能力 | 保留 |
 | `debate/argument-graph.ts` | 论证关系图 | 可选论证能力 | 保留 |
 | `debate/eval.ts` / `metrics.ts` / `quality.ts` | 质量与回归 | 辩论质量与回归 | 保留 |
 | `evidence-pack/` | 冻结证据包、哈希、attestation | 统一证据层 | **保留，解除辩论绑定** |
-| `evidence-pack/baseline.ts` | 辩论开场冻结仓库基线 | 工程任务状态管理 | **迁出辩论** |
+| `evidence-pack/baseline.ts` | 辩论开场冻结仓库基线 | 仓库快照（任务自持） | **改为 `repository-snapshot.ts`，辩论不再调用** |
 | `master-agent.ts` | 第一手并发提问 + 规则综合 | 参与者管理器 | 保留，扩展 |
 | `collaboration/strategy.ts` | 并行 / 递进 / smart 计划 | 调度器雏形 | 升级为任务图 |
 | `collaboration/runner.ts` | 按计划执行、逐任务记录 | 执行与观察层 | 保留，扩展 |
@@ -73,22 +75,23 @@ EvidenceService  ◄──────────  EngineeringTaskState
 
 ### 4.1 移出「开场自动基线」
 
-现在 `DebateOrchestrator.start()` 收到 `repository` 就调用
-`attachRepositoryBaseline()`，为辩论发布一份仓库基线 Pack。
+**已完成（P0 同步）**：`DebateOrchestrator.start()` 不再创建仓库基线 Pack，
+`attachRepositoryBaseline()` 改为 `attachRepositoryContext()`，只解析 commit / branch / dirty
+作为任务上下文；`baseline.ts` 改名为 `repository-snapshot.ts`，`publishRepositorySnapshot()`
+由工程任务按需调用。
 
 目标：
 
-- 辩论不再自动创建仓库基线；
-- 仓库上下文由**工程任务**在 Understand/Evidence 阶段获取并持有；
+- 仓库状态由**工程任务**持有，辩论只读；
 - 辩论若需要代码证据，向工程任务或证据层**申请引用**，不自己冻结一份；
-- `resolveRepositoryContext()` / `publishRepositoryBaseline()` 迁到工程证据服务，
-  由工程任务调用；标记为 `kind: 'code'` 的证据。
+- 快照 Pack 只在工程任务需要时创建，不成为任何流程的前提。
 
 ### 4.2 移出「固定提示词次序」
 
-- `prompts.ts` 不再作为通用协作基础，只服务辩论行为；
+- `prompts.ts` **已删除**；辩论与工程任务都不再接收 role / stage / format / challenge 文案；
 - 工程任务不套用「独立分析 → 质疑 → 修订 → 裁判」；
-- 通用 Agent 约束保留：任务上下文、工具说明、权限、输出契约、停止条件、证据要求。
+- 通用 Agent 约束保留：任务上下文、工具说明、权限、输出契约、停止条件、证据要求——
+  它们以机器可读契约存在，不写成话术。
 
 ### 4.3 移除产品入口
 
@@ -110,8 +113,8 @@ EvidenceService  ◄──────────  EngineeringTaskState
 | 现有 | 目标 | 动作 |
 | --- | --- | --- |
 | `EvidencePack` 条目 | 统一证据引用 | 保留结构；补可选 `scope`（goal / task） |
-| `baseline.ts` | 工程任务状态 | 迁出 `debate/`，由工程任务调用 |
-| `round-evidence.ts` | 辩论轮证据 | 保留在辩论行为内部 |
+| `repository-snapshot.ts`（原 `baseline.ts`） | 工程任务状态 | 已迁出辩论，由工程任务按需调用 |
+| `round-evidence.ts` | 辩论轮证据（依赖开场基线） | **已移除**，待 P4 按新证据层重建 |
 | `execution-producer.ts` | 执行证据 | 保留，接入工程任务与验证 |
 | `mapping.ts` | Pack → 辩论证据 | 保留，改为通用引用适配 |
 | `hash.ts` | 内容哈希 | 不动，作为统一哈希实现 |
@@ -123,12 +126,15 @@ EvidenceService  ◄──────────  EngineeringTaskState
 
 ## 6. 分阶段迁移
 
-### P0 产品与协作架构重构（设计冻结）
+### P0 产品与协作架构重构（设计冻结 + 硬规则同步）
 
 - 交付：PRODUCT V3、协作架构 V1、工程空间 V1、本迁移计划、ROADMAP 重排。
-- 改动：文档与类型草案；不碰生产行为。
-- 验收：文档评审通过；现有测试、typecheck 全绿；新旧定位的冲突点全部列出。
-- 回滚：纯文档，回滚即还原文档。
+- 硬规则同步（2026-11-18 已执行）：AGENTS 第 6 节；删除 `debate/prompts.ts`；
+  `baseline.ts` 改为 `repository-snapshot.ts`，辩论开场不再创建基线；
+  移除 `round-evidence` 接线；辩论与工程任务不再接收任务提示词。
+- 剩余改动：类型草案与 feature flag；协作调度行为不变。
+- 验收：文档评审通过；typecheck 与受影响测试全绿（275/275）；新旧定位的冲突点全部列出。
+- 回滚：文档与规则回滚；代码回滚以本次提交为界，不涉及数据迁移。
 
 ### P1 多模型协作能力
 

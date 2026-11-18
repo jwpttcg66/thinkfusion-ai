@@ -26,7 +26,6 @@ const { adjudicateDebate } = require('../../out-test/main/judge/adjudicate.js');
 const { assessStandardAnswer } = require('../../out-test/main/debate/standard-rubric.js');
 const { reviewCompleteness, reviseAnswer } = require('../../out-test/main/debate/completeness.js');
 const { OpenAICompatibleProvider } = require('../../out-test/main/providers/openai-compatible.js');
-const { PROMPT_VERSION } = require('../../out-test/main/debate/prompts.js');
 const { buildSummary, markdown } = require('./summary.cjs');
 const { RETRY_POLICY_VERSION, withRetryPolicy, retryPolicySnapshot } = require('./retry-policy.cjs');
 const { buildBaselineStats, markdownBaseline } = require('./baseline-stats.cjs');
@@ -67,7 +66,7 @@ const RUNNER_VERSION = '2.3.0';
 function fingerprint(item, standardItem) {
   return fingerprintFor({
     runnerVersion: RUNNER_VERSION,
-    promptVersion: PROMPT_VERSION,
+    promptVersion: 'none',
     item,
     standardItem,
     models: MODELS.map(model => model.model),
@@ -764,7 +763,7 @@ app.whenReady().then(async () => {
     baselineTag: BASELINE_TAG,
     runner: {
       version: RUNNER_VERSION,
-      promptVersion: PROMPT_VERSION,
+      promptVersion: 'none',
       commit: codeSha(),
       adjudication: 'main/judge/adjudicate.adjudicateDebate',
       rulesAuthority: 'debate.claim-judgments',

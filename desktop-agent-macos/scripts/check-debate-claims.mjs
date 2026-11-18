@@ -179,7 +179,7 @@ test('挑战照着具体两句写，最多三条', () => {
   assert.deepEqual(challengesFor(disputes, []), []);
 });
 
-test('编排器：第一轮不带挑战，第二轮 system 里出现具体冲突', async () => {
+test('编排器：两轮都不发送挑战提示词，争议只落盘', async () => {
   const h = harness((agentId, call) => {
     // 两个参与者第一轮各说一句相反的；第二轮给个普通回应。
     if (call <= 2) return agentId === 'a' ? CONTRADICT_A : CONTRADICT_B;
@@ -195,13 +195,10 @@ test('编排器：第一轮不带挑战，第二轮 system 里出现具体冲突
 
   assert.equal(state.rounds.length, 2);
   const firstRound = h.seen.slice(0, 2);
-  assert.ok(firstRound.every(item => !item.system.join('\n').includes('具体冲突')), '第一轮没有可挑战的对象');
+  assert.ok(firstRound.every(item => item.system.length === 0), '第一轮没有任务提示词');
 
   const secondRound = h.seen.slice(2);
-  const text = secondRound.map(item => item.system.join('\n')).join('\n');
-  assert.match(text, /具体冲突/, '第二轮应当带着上一轮算出来的冲突');
-  assert.match(text, /直接矛盾/);
-  assert.match(text, /多线程安全保证/);
+  assert.ok(secondRound.every(item => item.system.length === 0), '第二轮也不发送挑战话术');
 
   // 结构化结果落盘：主张与争议都能在读回来的状态里找到。
   assert.ok((state.rounds[0].claims ?? []).length >= 2);

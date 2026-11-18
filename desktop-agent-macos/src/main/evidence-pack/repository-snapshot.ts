@@ -1,25 +1,37 @@
 /**
- * 开场基准 Pack：一场辩论只冻结一次工程状态。
+ * 仓库快照 Pack：工程任务需要时创建一次，记录当时的仓库状态。
  *
- * 干净仓库只写 commit/branch（items 为空）——它已经能被 Git 还原；
- * dirty 仓库把实际改动和未跟踪文件切成片段冻结，不能用 `git diff` 代替，
+ * 它不是「任务开场基线」：没有任何流程围着它转；需要证据时由任务自己调用，
+ * 不需要就完全不创建。干净仓库只写 commit/branch（items 为空）；
+ * dirty 仓库把实际改动和未跟踪文件切成片段冻结——不能用 `git diff` 代替，
  * 因为 diff 不包含未跟踪文件。
  */
-import type { DebateEvidencePackState } from '../debate/types';
 import { snapshotOfResolvedRepository } from './repository';
 import type { ResolvedRepository } from './repository';
 import type { EvidencePackStore } from './store';
 import type { EvidencePackItemDraft } from './types';
 
-export interface BaselinePackInput {
+export interface RepositorySnapshotInput {
   store: EvidencePackStore | null | undefined;
-  debateId: string;
+  /** 谁持有这份快照：工程任务 id，不是辩论 id。 */
+  ownerId: string;
   context: ResolvedRepository;
   createdAt: number;
 }
 
-export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvidencePackState {
-  const { store, debateId, context, createdAt } = input;
+export interface RepositorySnapshotResult {
+  status: 'complete' | 'partial' | 'unavailable' | 'failed';
+  snapshotPackId?: string;
+  itemCount: number;
+  createdAt: number;
+  commit: string;
+  branch?: string;
+  dirty: boolean;
+  reason?: string;
+}
+
+export function publishRepositorySnapshot(input: RepositorySnapshotInput): RepositorySnapshotResult {
+  const { store, ownerId, context, createdAt } = input;
   const base = {
     createdAt,
     commit: context.commit,
@@ -41,7 +53,7 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
       endLine: chunk.endLine
     },
     meta: {
-      tool: 'repository-baseline',
+      tool: 'repository-snapshot',
       capturedAt: createdAt,
       snapshotRole: 'dirty-overlay'
     }
@@ -51,17 +63,17 @@ export function publishRepositoryBaseline(input: BaselinePackInput): DebateEvide
   try {
     const published = store.publish({
       repoRoot: context.root,
-      idempotencyKey: `debate:${debateId}:baseline`,
+      idempotencyKey: `snapshot:${ownerId}`,
       repo: { commit: context.commit, dirty: context.dirty, branch: context.branch },
       createdAt,
-      context: { kind: 'baseline', debateId },
+      context: { kind: 'snapshot', debateId: ownerId },
       snapshot: snapshotOfResolvedRepository(context),
       items
     });
     return {
       ...base,
       status,
-      baselinePackId: published.manifest.packId,
+      snapshotPackId: published.manifest.packId,
       itemCount: published.manifest.items.length,
       ...(context.errors.length > 0
         ? { reason: context.errors.map(issue => issue.message).join('；') }

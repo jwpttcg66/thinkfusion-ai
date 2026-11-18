@@ -184,9 +184,8 @@ test('回应轮里，模型写的决策变成修订记录，原话都在', async
     assert.ok(revision.after.includes('只有 6.0 之后'), '这一次发言原文');
   }
 
-  // 回应轮的 system 里必须有决策行格式，否则模型无从知道该写什么。
-  const responseCall = h.seen.find(item => item.system.join('\n').includes('决策：accept'));
-  assert.ok(responseCall, '回应轮要说明决策行怎么写');
+  // 不再向模型发送任何任务提示词；决策行只能来自模型自己的输出。
+  assert.ok(h.seen.every(item => item.system.length === 0), '不发送任务提示词');
   h.cleanup();
 });
 
