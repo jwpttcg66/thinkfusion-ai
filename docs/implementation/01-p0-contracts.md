@@ -9,7 +9,8 @@
 
 ## 1. M0.1 实施审计（Task 001）
 
-**产出**：[P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md)（正式审计，随代码评审更新）。
+**产出**：[P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md)（正式审计）。
+详细对象契约见 [P1-002-DOMAIN-RUNTIME-CONTRACT.md](P1-002-DOMAIN-RUNTIME-CONTRACT.md)；本文只保留 P0 冻结要点。
 
 **为什么先做**：现有 `MasterAgent`、`ConversationRunner`、`collaboration/`、`debate/`、
 `engineering/`、`orchestrator.ts` 各自承担了一部分编排职责。不先把职责写清楚，

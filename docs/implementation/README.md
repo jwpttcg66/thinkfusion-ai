@@ -11,6 +11,7 @@
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
 | [P1-001-MIGRATION-AUDIT.md](P1-001-MIGRATION-AUDIT.md) | P1 前置 | 当前代码架构、重复职责、状态/Runtime/Planner/Debate/Evidence/工程/Java 审计 |
+| [P1-002-DOMAIN-RUNTIME-CONTRACT.md](P1-002-DOMAIN-RUNTIME-CONTRACT.md) | P1 前置 | 领域对象、所有权、生命周期、状态机、错误/重试/取消/并发/预算、持久化与事件 |
 | [00-master-plan.md](00-master-plan.md) | 全局 | 阶段、门禁、开关、回滚、删除策略、与提案 P0–P12 的映射 |
 | [01-p0-contracts.md](01-p0-contracts.md) | P0 | 审计矩阵、契约冻结、Feature Flag、事件与持久化 |
 | [02-p1-collaboration-engine.md](02-p1-collaboration-engine.md) | P1 | 协作引擎、参与者管理、DAG、重规划、行为目录、辩论降级 |
