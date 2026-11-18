@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(implementation): 新增 P0–P5 逐任务实施计划（契约、协作引擎、知识、工程、证据、通道），含门禁、flag、回滚、删除条件与 40 场景
 - rule(agent): 新增 AGENTS 第 6 节——不使用任务提示词、不冻结流程基线（含允许的机器可读契约与工程快照）
 - refactor(debate): 删除 `prompts.ts`；辩论不再向模型发送 role / stage / format / challenge 指令，网页后续轮只附带数据
 - refactor(evidence-pack): `baseline.ts` 改为 `repository-snapshot.ts`，`publishRepositorySnapshot()` 由任务按需调用；辩论开场不再创建基线，`round-evidence` 接线移除

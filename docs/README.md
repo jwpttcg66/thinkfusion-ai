@@ -11,6 +11,20 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 五层基础架构、三套协议、两条主链路、目录职责 |
 | [ROADMAP.md](ROADMAP.md) | P0–P5：现在在哪、下一阶段是什么、每阶段的完成判据 |
 
+## 实施计划（P0–P5）
+
+| 文档 | 内容 |
+| --- | --- |
+| [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
+| [implementation/00-master-plan.md](implementation/00-master-plan.md) | 阶段表、门禁、flag、回滚与删除策略、提案 P0–P12 映射 |
+| [implementation/01-p0-contracts.md](implementation/01-p0-contracts.md) | 审计矩阵、契约冻结、事件、持久化、开关 |
+| [implementation/02-p1-collaboration-engine.md](implementation/02-p1-collaboration-engine.md) | 参与者、Planner、Scheduler、Replanner、行为、辩论降级、shadow |
+| [implementation/03-p2-knowledge.md](implementation/03-p2-knowledge.md) | 知识卡、索引、时效、复用、知识地图 |
+| [implementation/04-p3-engineering.md](implementation/04-p3-engineering.md) | 工程状态、Agentic Search、worktree、CLI 执行者、回退 |
+| [implementation/05-p4-evidence-quality.md](implementation/05-p4-evidence-quality.md) | EvidenceRef 映射、验证计划、指标、40 场景 |
+| [implementation/06-p5-channels.md](implementation/06-p5-channels.md) | 能力模型、路由降级、新增通道 |
+| [implementation/07-ui.md](implementation/07-ui.md) | UI 结构、事件映射、移除辩论入口、分阶段落地 |
+
 ## 产品与架构设计（V3，2026-11-18 冻结，未实施）
 
 | 文档 | 内容 |

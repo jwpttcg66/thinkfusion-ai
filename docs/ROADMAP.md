@@ -2,7 +2,8 @@
 
 定位见 [PRODUCT.md](PRODUCT.md)，协作机制见
 [architecture/COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md)，
-迁移步骤见 [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)。
+迁移步骤见 [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)，
+逐任务执行计划见 [implementation/README.md](implementation/README.md)。
 
 **排序原则：先冻结产品与协作架构（P0），再让协作引擎跑起来（P1），然后依次补齐知识学习（P2）、
 工程能力（P3）、证据与质量（P4）、模型与通道（P5）。**
