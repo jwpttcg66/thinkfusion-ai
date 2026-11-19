@@ -7,6 +7,14 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(engineering): P3-01 EngineeringTaskState（S1/S2/测试/构建/评审）、
+  P3-03 计划/审批、P3-04 执行断言、P3-05 评审独立性
+- test(engineering): 新增 task-state/plan 6 项测试
+- feat(knowledge): P2-04 缺口检测/任务化/接 Replanner；P2-05 知识地图三块+出处
+- test(knowledge): 新增 gap/map 测试，knowledge 共 12/12
+- feat(knowledge): P2-01 KnowledgeStore（原子写/旧数据兼容/证据必填）、
+  P2-02 规则召回、P2-03 时效三态；P2-06 六场景测试
+- test(knowledge): 4 组测试，共 8 项
 - feat(collaboration): P1-11 Replanner 纯逻辑、P1-12 Debate 触发/映射、
   P1-13 规则+模型审核、P1-14 Active 门禁函数
 - test(collaboration): 新增 10 项 P1.1 测试，collaboration 共 35/35
