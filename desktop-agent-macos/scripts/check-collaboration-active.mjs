@@ -14,6 +14,22 @@ test('active 管线跑通：计划/分配/状态/交付/审核', async () => {
   assert.equal(result.state.taskStates.every(t => t.status === 'done'), true);
   assert.match(result.deliverable.content, /递归/);
   assert.equal(result.review.ok, true);
+  assert.equal(result.replan.needed, false);
+  assert.deepEqual(result.debates, []);
+});
+
+test('可选模型审核：不合法回退规则；合法采用', async () => {
+  const manager = { ask: async () => [{ participantId: 'm1', status: 'done', text: 'ok' }] };
+  const good = await runCollaboration({
+    goal, participants, manager,
+    reviewer: async () => ({ ok: true, source: 'model', notes: [] })
+  });
+  assert.equal(good.review.source, 'model');
+  const bad = await runCollaboration({
+    goal, participants, manager,
+    reviewer: async () => ({ ok: false, source: 'model', notes: ['bad'] })
+  }).catch(error => error);
+  assert.match(String(bad), /审核未通过/);
 });
 
 test('审核失败时不调度/不执行', async () => {

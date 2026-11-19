@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): active 管线接入 Replanner 判定、Debate 触发、可选模型审核
 - build(mac): electron-builder 增加 zip target；P6-02 配置检查测试
 - test(engineering): P3-09 六场景验收
 - test(release): P6-06 应用/数据回滚钻取；文档 P6-06-ROLLBACK-DRILL

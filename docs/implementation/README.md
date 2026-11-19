@@ -33,7 +33,7 @@
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
 | P0 契约与开关 | ✅ 完成（P0-J 通过，2026-11-19） | 进入 P1 | — |
-| P1.0/1.1 | 🟡 shadow 已接；active 管线函数完成但未接；Replanner/Debate/Reviewer/Gate 纯逻辑完成 | 旧路径零变化 + shadow 计划 | — |
+| P1.0/1.1 | 🟡 shadow 已接；active 管线含 Replanner 判定/Debate 触发/可选审核；未接 ConversationRunner | 旧路径零变化 + shadow 计划 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |
 | P3 工程空间 | 未开始 | 一次真实改动全链路通过 | — |
