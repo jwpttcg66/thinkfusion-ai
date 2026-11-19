@@ -10,6 +10,7 @@
  */
 import fs from 'node:fs';
 import { writeFileAtomic } from '../atomic-write';
+import { canRequestMode, type ShadowMetrics } from './gate';
 
 export type CollaborationMode = 'legacy' | 'shadow' | 'active';
 
@@ -44,6 +45,14 @@ export class CollaborationModeStore {
     } catch {
       return 'legacy';
     }
+  }
+
+  /** 设置 active 前必须过门禁；legacy/shadow 不拦。 */
+  setGated(mode: unknown, metrics: ShadowMetrics, source = 'settings'): CollaborationMode {
+    const next = normalizeCollaborationMode(mode);
+    const check = canRequestMode(next, metrics);
+    if (!check.ok) throw new Error(`active 门禁未通过：${check.reasons.join('；')}`);
+    return this.set(next, source);
   }
 
   set(mode: unknown, source = 'settings'): CollaborationMode {

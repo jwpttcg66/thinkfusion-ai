@@ -138,48 +138,48 @@ P1.1 Replan / Debate / 模型审核
 | P0-05 | 持久化/恢复契约 | P0 | P0-02 | ✅ |
 | P0-06 | 回滚演练 | P0 | P0-04 | ✅ |
 | P1-00A | 现有代码职责映射与迁移矩阵 | P1.0 | P0-01 | ✅ |
-| P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | 🟡 Domain/State 完成；接线待 P1-09 |
+| P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | 🟡 Domain/State 完成；接线待做 |
 | P1-01 | ParticipantManager | P1.0 | P0-02 | ✅ |
 | P1-02 | Planner MVP | P1.0 | P1-01 | ✅ |
 | P1-03 | Scheduler | P1.0 | P1-02 | ✅ |
 | P1-04 | Runner / Attempt / Observation | P1.0 | P1-03 | 🟡 顺序执行完成；并发/取消待 P1.1 |
 | P1-05 | Deliver | P1.0 | P1-04 | ✅ |
 | P1-06 | 网页边界 | P1.0 | P1-04 | ✅ |
-| P1-07 | 行为：Independent/Parallel/Progressive/CrossCheck | P1.0 | P1-04 | ⏳ |
-| P1-08 | Shadow plan-only | P1.0 | P1-02..04 | ⏳ |
-| P1-09 | ConversationRunner 路由（legacy/shadow） | P1.0 | P1-08 | ⏳ |
+| P1-07 | 行为：Independent/Parallel/Progressive/CrossCheck | P1.0 | P1-04 | 🟡 Independent 行为已有；其余待做 |
+| P1-08 | Shadow plan-only | P1.0 | P1-02..04 | ✅ |
+| P1-09 | ConversationRunner 路由（legacy/shadow） | P1.0 | P1-08 | ✅ shadow + active 已接 |
 | P1-10 | 日志与调试可观察 | P1.0 | P1-04 | 🟡 计划/跳过已写；停止原因待补 |
 | P1-11 | Replanner | P1.1 | P1.0 | ✅ 纯逻辑 + active 判定 |
-| P1-12 | DebateBehavior 适配 | P1.1 | P1-11 | ✅ 触发/映射/回写；未接 DebateOrchestrator |
+| P1-12 | DebateBehavior 适配 | P1.1 | P1-11 | ✅ 触发/映射/回写 |
 | P1-13 | 关键阶段模型审核 | P1.1 | P1-11 | ✅ active 可选审核 + 规则回退 |
 | P1-14 | Active 门禁与回滚 | P1.1 | P1-08..13 | 🟡 门禁/请求校验；未接设置入口 |
-| P1-15 | 测试迁移与回归 | P1.0/1.1 | 各任务 | 🟡 新增 10 项；legacy 全量待跑 |
-| P2-01 | 知识卡/主题存储 | P2 | P1.0 | ⏳ |
+| P1-15 | 测试迁移与回归 | P1.0/1.1 | 各任务 | 🟡 新增测试；全量待跑 |
+| P2-01 | 知识卡/主题存储 | P2 | P1.0 | ✅ |
 | P2-02 | 索引与召回 | P2 | P2-01 | ✅ |
-| P2-03 | 时效与复用 | P2 | P2-02 | ⏳ |
+| P2-03 | 时效与复用 | P2 | P2-02 | ✅ |
 | P2-04 | 缺口驱动研究 | P2 | P2-03 | ✅ |
 | P2-05 | 知识地图 | P2 | P2-03 | ✅ |
 | P2-06 | 知识场景验收 | P2 | P2-01..05 | ✅ 6 场景 |
-| P3-01 | EngineeringContext / 任务状态 | P3 | P1.0 | ⏳ |
-| P3-02 | Agentic Search 工具 | P3 | P3-01 | ⏳ |
+| P3-01 | EngineeringContext / 任务状态 | P3 | P1.0 | ✅ |
+| P3-02 | Agentic Search 工具 | P3 | P3-01 | ✅ 决策层 |
 | P3-03 | 计划/审批/worktree | P3 | P3-01 | ✅ |
-| P3-04 | 执行与 attestation | P3 | P3-03 | ⏳ |
-| P3-05 | 独立评审 | P3 | P3-04 | ⏳ |
+| P3-04 | 执行与 attestation | P3 | P3-03 | ✅ |
+| P3-05 | 独立评审 | P3 | P3-04 | ✅ |
 | P3-06 | CLI Executor | P3 | P3-03 | ✅ 分流 |
-| P3-07 | 快照/回退 | P3 | P3-04 | ⏳ |
-| P3-08 | Java 轻量能力 | P3 | P3-02 | ⏳ |
-| P3-09 | 工程闭环验收 | P3 | P3-01..08 | ⏳ |
-| P4-01 | Pack → EvidenceRef 映射 | P4 | P1-02 | ⏳ |
-| P4-02 | 验证计划 | P4 | P4-01 | ⏳ |
+| P3-07 | 快照/回退 | P3 | P3-04 | ✅ |
+| P3-08 | Java 轻量能力 | P3 | P3-02 | ✅ 文本降级 |
+| P3-09 | 工程闭环验收 | P3 | P3-01..08 | ✅ 6 场景 |
+| P4-01 | Pack → EvidenceRef 映射 | P4 | P1-02 | ✅ |
+| P4-02 | 验证计划 | P4 | P4-01 | ✅ |
 | P4-03 | 质量指标 | P4 | P4-02 | ✅ |
-| P4-04 | 测试夹具 | P4 | P4-01 | ⏳ |
-| P4-05 | 40 场景矩阵 | P4 | P4-04 | ⏳ |
-| P4-06 | CI 门禁 | P4 | P4-05 | ⏳ |
-| P4-07 | 回放与篡改检测 | P4 | P4-01 | ⏳ |
+| P4-04 | 测试夹具 | P4 | P4-01 | ✅ 6 场景 |
+| P4-05 | 40 场景矩阵 | P4 | P4-04 | ✅ |
+| P4-06 | CI 门禁 | P4 | P4-05 | 🟡 函数完成；未接 CI |
+| P4-07 | 回放与篡改检测 | P4 | P4-01 | ✅ |
 | P5-01 | 能力注册表 | P5 | P1.0 | ✅ |
 | P5-02 | 路由与降级 | P5 | P5-01 | ✅ |
-| P5-03 | 新通道模板 | P5 | P5-02 | ⏳ |
-| P5-04 | 费用/延迟观测 | P5 | P5-02 | ⏳ |
+| P5-03 | 新通道模板 | P5 | P5-02 | ✅ 声明校验 |
+| P5-04 | 费用/延迟观测 | P5 | P5-02 | ✅ |
 | P5-05 | 发布矩阵 | P5 | P5-01..04 | ✅ 5 组 |
 | P6-01 | 版本与发布清单 | P6 | P5-05 | ✅ |
 | P6-02 | 打包/签名/公证 | P6 | P6-01 | 🟡 dmg+zip 配置与检查完成；实际签名/公证未执行 |

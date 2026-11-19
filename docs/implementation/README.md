@@ -13,6 +13,7 @@
 | [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
 | [P0-06-ROLLBACK-DRILL.md](P0-06-ROLLBACK-DRILL.md) | P0 | 模式 Flag 的升级/降级/损坏钻取 |
 | [P1-00A-CODE-MAPPING.md](P1-00A-CODE-MAPPING.md) | P1 | 逐文件职责映射与第一刀顺序 |
+| [COMPLETION-AUDIT.md](COMPLETION-AUDIT.md) | 全阶段 | 47/69 完成、11 部分、11 未开始 |
 | [P0-J-REVIEW-RECORD.md](P0-J-REVIEW-RECORD.md) | P0 评审 | 独立文档/代码评审结论、修复项与残余门禁 |
 | [P0-F-TO-J-DESIGN-REVISION.md](P0-F-TO-J-DESIGN-REVISION.md) | P0 修订 | 状态所有权、输入契约/27 个输入构造点、证据归属、任务书一致性、评审门禁 |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
