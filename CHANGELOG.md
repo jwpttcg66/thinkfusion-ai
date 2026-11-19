@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(release): P6-01 版本清单、P6-03 迁移备份、P6-04 备份恢复、P6-08 发布门禁
+- test(release): 4 项；P4/P5/P6 相关 12/12
 - feat(collaboration): P5-01 能力注册表、P5-02 路由/降级、P5-04 通道观测
 - test(collaboration): P5 4 项；P4/P5 相关 12/12
 - feat(evidence): P4-01 Pack→EvidenceRef 映射、P4-02 统一 Verifier、
