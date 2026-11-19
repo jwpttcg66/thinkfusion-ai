@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P1-01 ParticipantManager、P1-02 规则 Planner、P1-03 Scheduler、
+  P1-04 顺序 Runner、P1-05 Deliver；网页只收问题的边界测试
+- test(collaboration): 新增 participants/plan/runner 3 组测试，collaboration 共 23 项
 - feat(collaboration): P0-04 CollaborationMode 存储（legacy/shadow/active，默认 legacy，损坏回退）
 - test(collaboration): 模式/回滚/域状态 3 个测试脚本，共 13 项
 - docs(implementation): P0-06 回滚钻取、P1-00A 代码映射；P1-001 签收、P0-J 关闭

@@ -139,12 +139,12 @@ P1.1 Replan / Debate / 模型审核
 | P0-06 | 回滚演练 | P0 | P0-04 | ✅ |
 | P1-00A | 现有代码职责映射与迁移矩阵 | P1.0 | P0-01 | ✅ |
 | P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | 🟡 Domain/State 完成；接线待 P1-09 |
-| P1-01 | ParticipantManager | P1.0 | P0-02 | ⏳ |
-| P1-02 | Planner MVP | P1.0 | P1-01 | ⏳ |
-| P1-03 | Scheduler | P1.0 | P1-02 | ⏳ |
-| P1-04 | Runner / Attempt / Observation | P1.0 | P1-03 | ⏳ |
-| P1-05 | Deliver | P1.0 | P1-04 | ⏳ |
-| P1-06 | 网页边界 | P1.0 | P1-04 | ⏳ |
+| P1-01 | ParticipantManager | P1.0 | P0-02 | ✅ |
+| P1-02 | Planner MVP | P1.0 | P1-01 | ✅ |
+| P1-03 | Scheduler | P1.0 | P1-02 | ✅ |
+| P1-04 | Runner / Attempt / Observation | P1.0 | P1-03 | 🟡 顺序执行完成；并发/取消待 P1.1 |
+| P1-05 | Deliver | P1.0 | P1-04 | ✅ |
+| P1-06 | 网页边界 | P1.0 | P1-04 | ✅ |
 | P1-07 | 行为：Independent/Parallel/Progressive/CrossCheck | P1.0 | P1-04 | ⏳ |
 | P1-08 | Shadow plan-only | P1.0 | P1-02..04 | ⏳ |
 | P1-09 | ConversationRunner 路由（legacy/shadow） | P1.0 | P1-08 | ⏳ |
