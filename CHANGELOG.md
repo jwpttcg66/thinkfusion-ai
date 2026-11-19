@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(engineering): P3-02 搜索动作计划、P3-06 CLI 回答/执行分流、P3-08 Java 文本降级
+- test(engineering): 相关 10/10
 - feat(collaboration): P1.1 active 管线（Planner→审核→Scheduler→Runner→Deliver），未接 ConversationRunner
 - feat(engineering): P3-07 git S1/S2 快照（commit/dirty/diff 指纹）
 - feat(collaboration): P5-03 通道声明校验、P5-05 5 组发布矩阵

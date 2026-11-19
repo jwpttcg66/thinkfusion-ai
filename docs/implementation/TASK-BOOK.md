@@ -165,7 +165,7 @@ P1.1 Replan / Debate / 模型审核
 | P3-03 | 计划/审批/worktree | P3 | P3-01 | ✅ |
 | P3-04 | 执行与 attestation | P3 | P3-03 | ⏳ |
 | P3-05 | 独立评审 | P3 | P3-04 | ⏳ |
-| P3-06 | CLI Executor | P3 | P3-03 | ⏳ |
+| P3-06 | CLI Executor | P3 | P3-03 | ✅ 分流 |
 | P3-07 | 快照/回退 | P3 | P3-04 | ⏳ |
 | P3-08 | Java 轻量能力 | P3 | P3-02 | ⏳ |
 | P3-09 | 工程闭环验收 | P3 | P3-01..08 | ⏳ |
