@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(knowledge): P2-01 KnowledgeStore（原子写/旧数据兼容/证据必填）、
+  P2-02 规则召回、P2-03 时效三态；P2-06 六场景测试
+- test(knowledge): 4 组测试，共 8 项
 - feat(collaboration): P1-11 Replanner 纯逻辑、P1-12 Debate 触发/映射、
   P1-13 规则+模型审核、P1-14 Active 门禁函数
 - test(collaboration): 新增 10 项 P1.1 测试，collaboration 共 35/35
