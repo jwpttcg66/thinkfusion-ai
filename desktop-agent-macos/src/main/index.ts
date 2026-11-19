@@ -32,6 +32,7 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
 import { TraceRecorder, type StepHandle } from './trace/trace-recorder';
@@ -409,6 +410,8 @@ let traceStore: TraceStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
 let conversations: ConversationRunner;
+/** P1-08：协作模式与 shadow 计划落点；默认 legacy。 */
+let collaborationModeStore: CollaborationModeStore | null = null;
 
 /**
  * One adapter per source, created on first use.
@@ -4752,6 +4755,9 @@ function buildCodeIntelligenceExternal(config: CodeIntelligenceConfig): { cgc: C
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  collaborationModeStore = new CollaborationModeStore(
+    collaborationModePath(app.getPath('userData'))
+  );
   traceStore = new TraceStore(path.join(app.getPath('userData'), 'traces'));
   windowStateFile = path.join(app.getPath('userData'), 'window-state.json');
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
@@ -4935,6 +4941,14 @@ app.whenReady().then(async () => {
     store,
     registry,
     emit: emitConversation,
+    collaborationMode: () => collaborationModeStore?.get() ?? 'legacy',
+    onShadowPlan: ({ conversationId, plan }) => {
+      fs.appendFile(
+        path.join(app.getPath('userData'), 'collaboration-shadow.jsonl'),
+        `${JSON.stringify({ at: Date.now(), conversationId, plan })}\n`,
+        () => {}
+      );
+    },
     poolFor: (config, base) => {
       const selection = selectParticipants(config, registry.list(), extraAgents, cliAnswerAgents);
       return new ExecutionPool(

@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P1-08 Shadow plan-only；P1-09 ConversationRunner shadow 分支
+  （legacy 默认零行为变化，shadow 计划写 collaboration-shadow.jsonl）
+- test(collaboration): shadow 零 ask 测试；runner shadow 分支测试
 - feat(collaboration): P1-01 ParticipantManager、P1-02 规则 Planner、P1-03 Scheduler、
   P1-04 顺序 Runner、P1-05 Deliver；网页只收问题的边界测试
 - test(collaboration): 新增 participants/plan/runner 3 组测试，collaboration 共 23 项
