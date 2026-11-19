@@ -24,6 +24,8 @@ import type { SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types'
 import { notToolRequest } from '../shared/partial-stream';
 import { MasterAgent, type ChannelOutcome, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
+import { buildShadowPlan } from './collaboration/engine';
+import type { Plan } from './collaboration/domain/types';
 import { synthesizeWithFusion } from './synthesis/engine';
 import {
   buildLeadSummaryQuestion,
@@ -207,6 +209,12 @@ export interface ConversationDeps {
    * 不传就是老行为（整份网页注册表），所以现有测试和没有接线的环境都不受影响。
    */
   poolFor?: (config: ConversationExecutionConfig, base: SubAgentPool) => SubAgentPool;
+  /**
+   * P1-08：只读模式。shadow 时旧路径照常运行，另外用规则 Planner 算一份计划，
+   * 不调用模型、不执行任务；legacy 时什么都不做。
+   */
+  collaborationMode?: () => 'legacy' | 'shadow' | 'active';
+  onShadowPlan?: (input: { conversationId: string; plan: Plan }) => void;
   /**
    * 执行阶段成员（本地 + 云端模型）：它们不参与第一轮回答，但可以当主导人，
    * 也可以当辩手。不传表示没有执行阶段成员。
@@ -1617,6 +1625,29 @@ export class ConversationRunner {
     );
   }
 
+  /**
+   * P1-08：shadow 只算计划。任何异常都吞掉——影子路径不能影响旧路径。
+   */
+  private async recordShadowPlan(conversation: Conversation, question: string, pool: SubAgentPool): Promise<void> {
+    try {
+      const workspace: 'knowledge' | 'engineering' | 'general' =
+        conversation.workspaceMode === 'engineering'
+          ? 'engineering'
+          : conversation.workspaceMode === 'knowledge'
+            ? 'knowledge'
+            : 'general';
+      const plan = await buildShadowPlan({
+        conversationId: conversation.conversationId,
+        workspace,
+        question,
+        pool
+      });
+      this.deps.onShadowPlan?.({ conversationId: conversation.conversationId, plan });
+    } catch {
+      // 影子计划失败不改变本轮行为。
+    }
+  }
+
   private async run(
     conversation: Conversation,
     question: string,
@@ -1626,6 +1657,9 @@ export class ConversationRunner {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
     const executorIds = this.deps.executorIdsFor?.(config) ?? new Set<string>();
+    if (this.deps.collaborationMode?.() === 'shadow' && this.deps.onShadowPlan) {
+      void this.recordShadowPlan(conversation, question, pool);
+    }
     // 默认（含 parallel）仍走原来的 MasterAgent，老路径零风险。只有显式选了
     // sequential / all-selected / smart 才换协作执行器。
     const master: ResearchRunner =

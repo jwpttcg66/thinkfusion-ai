@@ -1467,3 +1467,25 @@ test('V2.1：辩论关闭时主导人只汇总，不发起交锋', async () => {
     .filter(message => message.role === 'system').map(message => message.text).join('\n');
   assert.doesNotMatch(system, /关闭了辩论/, '关闭辩论是轨迹事件，不再每轮贴系统消息');
 });
+
+test('shadow 模式：旧路径照常回答，同时记录一份计划', async () => {
+  const plans = [];
+  const { runner } = makeRunner(
+    [
+      fakeChannel('a', () => answer('这是回答 A。')),
+      fakeChannel('b', () => answer('这是回答 B。'))
+    ],
+    {
+      deps: {
+        collaborationMode: () => 'shadow',
+        onShadowPlan: input => plans.push(input)
+      }
+    }
+  );
+  const started = await runner.start({ text: '什么是连接池' });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(done.status, 'answered');
+  await waitFor(() => plans.length === 1);
+  assert.equal(plans[0].conversationId, started.conversationId);
+  assert.ok(plans[0].plan.tasks.length >= 2);
+});
