@@ -77,6 +77,7 @@ Task（通用）
 | `TaskRuntimeState` | Runner | Runner（纯转移） | State | Scheduler / UI |
 | `TaskGraph` | Planner | 不修改 | **派生，不持久化** | Scheduler |
 | `TaskEnvelope` | Planner | 不可变 | State | Runner / Adapter |
+| `AgentCapabilities` | Adapter | 不可变 | 代码 | Planner / Scheduler |
 | `Participant` | ParticipantManager | 健康状态刷新 | 配置 + 内存 | Planner / Scheduler |
 | `Capability` | 代码常量 | 不可变 | 代码 | Planner |
 | `Plan` | Planner | Replanner（新版本，不修改旧版） | State | Scheduler / UI |
@@ -153,18 +154,10 @@ export interface Capability {
   source: 'model' | 'tool' | 'lsp' | 'cli' | 'runtime';
 }
 
-export interface Participant {
+export interface Participant extends AgentCapabilities {
   participantId: string;
-  kind: 'web' | 'local' | 'cloud' | 'cli';
   label: string;
   capabilities: CapabilityId[];
-  /** 网页为 false；本地/云端为 true。 */
-  canSystemPrompt: boolean;
-  canUseTools: boolean;
-  canStream: boolean;
-  canSeeOtherAgents: boolean;
-  maxConcurrency: number;
-  costClass: 'low' | 'medium' | 'high';
   available: boolean;
   unavailableReason?: string;
 }
@@ -745,7 +738,7 @@ risk floor（高风险 ≥ 2）
 - Conflict 可由规则、Planner（P1.1）、Reviewer 产生；
 - 只有 `matters=true` 且 `open` 的 Dispute 才允许 Debate；
 - DebateService 输入：goalId、question、claims、disputes、participants；
-- DebateService 输出：Observation + Verdict + EvidenceRef；
+- DebateService 输出：Observation + Verdict[] + EvidenceRef；
 - Debate 不创建基线、不接收任务提示词、不成为入口；
 - Verifier 独立于提出者；无法验证标 `unverified`，不删除 Claim。
 

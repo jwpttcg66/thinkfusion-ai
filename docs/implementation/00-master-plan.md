@@ -54,8 +54,8 @@
 2. **不新建第二套** Runtime、审批、Journal、TaskGrant、Verifier、Evidence 存储。
 3. **不把动态协作做成新的固定 Pipeline。** 如果每个任务都必须走同一组阶段，
    那只是把辩论换了个名字。
-4. **单一运行时状态。** Goal / Task / Assignment / Observation / Evidence / Budget /
-   StopReason / Deliverable 只存在一份 `CollaborationState` 里；Planner、Scheduler、
+4. **单一运行时状态。** Goal / Plan / TaskSpec / TaskRuntimeState / Assignment / Observation / EvidenceRef /
+   Budget / StopReason / Deliverable 只存在一份 `CollaborationState` 里；Planner、Scheduler、
    Runner、Replanner 只能通过状态转移读写，不各自维护私有状态。
 
 补充：`AGENTS.md` 第 6 节是硬约束——不使用任务提示词，不冻结流程基线。

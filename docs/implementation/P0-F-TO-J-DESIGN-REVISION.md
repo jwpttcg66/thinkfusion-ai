@@ -94,8 +94,10 @@ State 存对象与引用，不存这些正文。
 
 ### 2.2 现存构造器清单与处置
 
-代码中与模型输入相关的构造点共 **27 个**：21 个函数 + 6 个 `SYSTEM` 常量。
+本文列出 **27 个**与模型输入相关的构造点：21 个函数 + 6 个 `SYSTEM` 常量。
 附件拼接（`composeQuestionWithAttachments`）只拼数据，不产生指令，单列在末尾。
+另有 3 个输入装配点（`buildAttachmentMaterial`、`buildEngineeringExpertise`、`LEAD_FOLLOWUP_SECTION`）
+未逐行列出，P1-00A 代码映射时补入；因此下文的「27 个」指本文清单，不是穷尽。
 
 | # | 文件 | 构造器 | 现状 | 处置 | 阶段 |
 | --- | --- | --- | --- | --- | --- |
@@ -103,15 +105,15 @@ State 存对象与引用，不存这些正文。
 | 2 | `shared/protocol.ts` | `buildReportPrompt` | 执行报告 + 指令 | `ContractInput` | P1 |
 | 3 | `shared/protocol.ts` | `buildPlanRepairPrompt` | 修复指令 | `ContractInput` | P1 |
 | 4 | `shared/protocol.ts` | `buildClarificationAnswerPrompt` | 澄清指令 | `ContractInput` | P1 |
-| 5 | `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 网页消息含四步指令 | 改为数据块（问题+回答） | P1 |
-| 6 | `synthesis/lead-prompt.ts` | `LEAD_SYSTEM` | system 角色/流程 | 仅 local/cloud；改 schema | P1 |
+| 5 | `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 已被 lead-stage 取代，仅测试引用；原为四步指令 | 清理/仅测试保留 | P1 |
+| 6 | `synthesis/lead-prompt.ts` | `LEAD_SYSTEM` | 已被 lead-stage 取代，仅测试引用 | 清理/仅测试保留 | P1 |
 | 7 | `synthesis/lead-stage.ts` | `LEAD_SUMMARY_SYSTEM` | system 汇总要求 | 仅 local/cloud；改 schema | P1 |
-| 8 | `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | 网页消息含汇总要求 | 改为数据块 | P1 |
-| 9 | `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 把要求拼进问题 | 删除；需要契约走 `ContractInput` | P1 |
+| 8 | `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | **非网页**（local/cloud）汇总问题；网页走第 9 项 | 改为数据块/schema | P1 |
+| 9 | `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 网页实际收的汇总要求（拼进问题） | 改为数据块；不得含指令 | P1 |
 | 10 | `synthesis/lead-stage.ts` | `LEAD_VERDICT_SYSTEM` | system 结论要求 | 仅 local/cloud；改 schema | P1 |
 | 11 | `synthesis/lead-stage.ts` | `buildVerdictQuestion` | 网页消息含结论指令 | 改为数据块 | P1 |
 | 12 | `synthesis/lead-selector.ts` | `PICK_SYSTEM` | system 选择主导 | 仅 local/cloud；改 schema | P1 |
-| 13 | `synthesis/lead-selector.ts` | `buildPickPrompt` | 网页消息「请选择、指出错误」 | 改为数据块 | P1 |
+| 13 | `synthesis/lead-selector.ts` | `buildPickPrompt` | 仅 local/cloud 主导选择；生产未引用 | 清理/`ContractInput` | P1 |
 | 14 | `synthesis/local-summary.ts` | `SUMMARY_SYSTEM` | system 汇总 | 仅 local/cloud；改 schema | P1 |
 | 15 | `synthesis/local-summary.ts` | `buildSummaryQuestion` | 汇总问题 | 数据块 / schema | P1 |
 | 16 | `research/routing-classifier.ts` | `ROUTING_SYSTEM` | system 路由 | 仅 local/cloud；规则优先 | P1 |
@@ -127,7 +129,7 @@ State 存对象与引用，不存这些正文。
 | 26 | `engineering/plan-review.ts` | `planReviewQuestion` | 计划评审指令 | 仅 local/cloud；`ContractInput` | P1 |
 | 27 | `shared/attachments.ts` | `composeQuestionWithAttachments` | 只拼数据（原话+附件） | 保留 | P1 |
 
-**结论：`buildInitialPrompt` 不再推迟到 P3**结论：`buildInitialPrompt` 不再推迟到 P3，必须在 P1 与规划链一起替换。**
+**结论：`buildInitialPrompt` 不再推迟到 P3，必须在 P1 与规划链一起替换。**
 否则 P1 一边禁用提示词，一边继续用旧执行链，规则无法自洽。
 
 ### 2.3 后果（必须明说）
@@ -140,7 +142,8 @@ State 存对象与引用，不存这些正文。
 
 ### 2.4 测试
 
-- `check-prompt-policy` 扩展：扫描全部 27 个构造点与网页消息，禁止角色/阶段/挑战/汇总指令；
+- `check-prompt-policy` 扩展：扫描本文列出的 27 个构造点与网页消息，禁止角色/阶段/挑战/汇总指令；
+  P1-00A 补全其余装配点后，清单同步扩展；
 - 新增 `check-web-input`：网页输入只含 `QuestionInput` 字段；
 - 新增 `check-contract-input`：schema 合法、无话术；
 - 回归：网页问答、追问、纯网页总结仍可运行（允许无结构）。
@@ -221,7 +224,7 @@ P0-J 通过前不开工 P1-004。评审内容：
 - [ ] 本修订 F/G/H/I 的决策逐条确认
 - [ ] P1-001 审计逐项核对（18 节）
 - [ ] 无重复 TS 契约（通用对象只在 P1-002）
-- [ ] 27 个输入构造点全部有处置，网页无指令
+- [ ] 本文列出的 27 个构造点有处置；P1-00A 补全其余装配点
 - [ ] EvidencePackContext 新归属设计确认
 - [ ] 任务书无两套编号
 - [ ] 基线/快照/状态一致

@@ -1,6 +1,6 @@
 # 协作架构 V1
 
-状态：**方向确认（2026-11-18）；P0 技术门禁未全部通过；未实施。**
+状态：**方向确认（2026-11-18）；P0 门禁未过；未实施。**
 范围：统一协作引擎的职责、任务模型、动态调度、异构 Agent、证据接口与验证交付。
 不涉及具体 UI 与视觉稿。
 
@@ -258,7 +258,7 @@ Understand → Plan → Dispatch → Observe → Adapt → Verify → Deliver
 | Observation / EvidenceRef | 单次尝试结果 / 证据引用 | §3.6 |
 | Claim / Conflict / Dispute | 主张 / 矛盾 / 未决争议 | §3.7 |
 | CollaborationState | 唯一运行时状态 | §3.8 |
-| Verification / Deliverable | 验证 / 交付 | §3.9 |
+| Verdict（Verification）/ Deliverable | 验证 / 交付 | §3.9 |
 
 ## 10. 与现有模块的映射
 
