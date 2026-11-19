@@ -51,19 +51,13 @@
 
 ```bash
 cd desktop-agent-macos
-npm run build:test
 npm run typecheck
-node --test scripts/check-collaboration-*.mjs \
-  scripts/check-knowledge-*.mjs \
-  scripts/check-engineering-*.mjs \
-  scripts/check-evidence-*.mjs \
-  scripts/check-release-*.mjs \
-  scripts/check-rollback-drill.mjs \
-  scripts/check-package-config.mjs
+npm run test:core
 ```
 
-最近一次：collaboration 相关 61/61，runner 52/52，知识/工程/P4/P6 分组均通过；
-typecheck 通过。
+最近一次：`test:core` **159/159 通过**；typecheck 通过。
+`test:core` 覆盖 collaboration、knowledge、engineering、evidence、release 与
+rollback/package 检查；不包含 live/需登录项。
 
 ## 6. 结论
 
