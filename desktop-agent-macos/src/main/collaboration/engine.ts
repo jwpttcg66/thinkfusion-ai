@@ -12,6 +12,8 @@ import { schedule } from './scheduler/scheduler';
 import { runPlan } from './runner/runner';
 import { deliver } from './deliver/deliver';
 import { reviewPlanRules, type ReviewResult } from './reviewer';
+import { needsReplan, type ReplanDecision } from './adapt/replanner';
+import { selectDebates, type DebateRequest } from './behaviors/debate';
 import type { ParticipantView } from './participants/manager';
 
 export interface ShadowPlanInput {
@@ -41,6 +43,8 @@ export interface ActiveRunInput {
   participants: readonly ParticipantView[];
   manager: ParticipantManager;
   options?: PlannerOptions;
+  /** 可选：模型审核；不传只走规则。 */
+  reviewer?: (plan: Plan) => Promise<ReviewResult>;
 }
 
 export interface ActiveRunResult {
@@ -49,6 +53,8 @@ export interface ActiveRunResult {
   state: CollaborationState;
   deliverable: Deliverable;
   review: ReviewResult;
+  replan: ReplanDecision;
+  debates: DebateRequest[];
 }
 
 /**
@@ -57,9 +63,17 @@ export interface ActiveRunResult {
  */
 export async function runCollaboration(input: ActiveRunInput): Promise<ActiveRunResult> {
   const plan = planGoal(input.goal, input.participants, input.options);
-  const review = reviewPlanRules(plan);
+  const review = input.reviewer ? await input.reviewer(plan) : reviewPlanRules(plan);
   if (!review.ok) throw new Error(`计划审核未通过：${review.notes.join('；')}`);
   const assignments = schedule(plan, input.participants);
   const state = await runPlan({ goal: input.goal, plan, assignments, manager: input.manager });
-  return { plan, assignments, state, deliverable: deliver(state), review };
+  return {
+    plan,
+    assignments,
+    state,
+    deliverable: deliver(state),
+    review,
+    replan: needsReplan(state),
+    debates: selectDebates(state)
+  };
 }
