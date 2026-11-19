@@ -67,7 +67,7 @@ stated plainly — a README that promises more than the repository delivers is j
 | Debate engine (claims / disputes / revision / judges) | ✅ Available; to be demoted to an on-demand behaviour |
 | Evidence packs and content hashes | ✅ Evidence and execution attestations enter the Item Hash; tampering is detectable |
 | Real execution-evidence producer | ✅ Code ready; not yet wired into the orchestrator |
-| Collaboration scheduling (task graph / re-planning) | ⏳ Design frozen, lands in P1 |
+| Collaboration scheduling (task graph / re-planning) | ⏳ Designed; P0 gates pending, lands in P1 |
 | Knowledge-learning space | 🟡 Multi-round research and page-body extraction work; indexing and reuse land in P2 |
 | Engineering space | ✅ Partial: disk-backed evidence, plan review, approved execution, code intelligence V3.2 |
 | Local execution runtime | ✅ 27 allow-listed tools; approval, path checks, sha256 re-verify |
@@ -76,7 +76,7 @@ stated plainly — a README that promises more than the repository delivers is j
 | Unified evidence references across spaces | ⏳ P4 |
 
 Stated as one line: **the debate and evidence chain already run; the unified collaboration engine,
-knowledge accumulation and the engineering loop are designed and frozen, waiting for P1–P4.**
+knowledge accumulation and the engineering loop are designed, with P0 gates still open, waiting for P1–P4.**
 
 ## How it works
 

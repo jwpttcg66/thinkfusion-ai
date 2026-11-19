@@ -10,32 +10,8 @@
 
 ## 1. 领域模型
 
-```ts
-export interface KnowledgeCard {
-  cardId: string;
-  topicId: string;
-  /** 一条可独立复述的结论，不是整篇报告。 */
-  statement: string;
-  claims: Claim[];
-  evidence: EvidenceRef[];
-  /** 结论成立的条件与边界。 */
-  conditions: string[];
-  /** 时效：依据的版本 / 提交 / 网页时间。 */
-  freshness: { asOf: number; version?: string; commit?: string; sourceAt?: number };
-  status: 'active' | 'superseded' | 'refuted';
-  supersedes?: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface Topic {
-  topicId: string;
-  title: string;
-  aliases: string[];
-  createdAt: number;
-  updatedAt: number;
-}
-```
+`KnowledgeCard` / `Topic` 的唯一权威定义见
+[KNOWLEDGE_SPACE](../architecture/KNOWLEDGE_SPACE.md)；本节不重复字段。
 
 规则：
 

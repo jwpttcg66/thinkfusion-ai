@@ -295,7 +295,8 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 ### P0-02 Domain 类型冻结
 
 - 目标：`Goal / Policy / TaskEnvelope / TaskSpec / TaskRuntimeState / Attempt / Plan /
-  Assignment / Observation / EvidenceRef / Claim / Conflict / Dispute / CollaborationState`。
+  Assignment / Observation / EvidenceRef / Claim / Conflict / Dispute / CollaborationState /
+  Verdict / StopReason / Deliverable`。
 - 文件：`src/main/collaboration/domain/*`（只类型 + 纯函数）。
 - 验收：typecheck；序列化往返；旧记录缺字段可读；无行为变化。
 - 回滚：删除新增文件。

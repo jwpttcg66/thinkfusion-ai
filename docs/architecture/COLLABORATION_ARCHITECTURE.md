@@ -38,12 +38,12 @@
 | --- | --- | --- |
 | **Goal** | 用户的一次目标，含约束与交付要求 | 原话不被改写；系统不改用户意图 |
 | **TaskSpec** | 引擎拆出的一个可执行任务（问题 / 读取 / 验证 / 修改…） | 每个任务有明确输入、期望产物、验收方式 |
-| **AgentProfile** | 参与者及其能力：通道类型、是否支持 system、工具、并发、成本 | 能力由 Adapter 声明，不由引擎假设 |
+| **Participant**（旧称 AgentProfile） | 参与者及其能力：通道类型、是否支持 system、工具、并发、成本 | 能力由 Adapter 声明，不由引擎假设 |
 | **Assignment** | 任务到参与者的分配，含上下文与截止条件 | 分配理由必须可读 |
 | **Observation** | 一次执行的可观察结果：文本、工具输出、错误、耗时 | 失败与跳过都要显式记录 |
 | **EvidenceRef** | 指向证据的引用：网页快照、代码位置、执行断言、知识记忆 | 有来源、版本、哈希与采集时间 |
 | **Deliverable** | 面向用户的最终产物 | 结论与证据/断言分类一起给出 |
-| **CollaborationPlan** | 一份可检查的 DAG：任务、依赖、并发、停止条件 | 计划可被展示、质疑与修改 |
+| **Plan**（旧称 CollaborationPlan） | 一份可检查的 DAG：任务、依赖、并发、停止条件 | 计划可被展示、质疑与修改 |
 
 ### 2.1 计划不是轮次
 
@@ -155,17 +155,8 @@ Understand → Plan → Dispatch → Observe → Adapt → Verify → Deliver
 
 网页模型不能接收 system 指令，这是 Adapter 的技术限制，不是可以靠架构统一掉的差异。
 
-```ts
-export interface AgentCapabilities {
-  kind: 'web' | 'local' | 'cloud' | 'cli';
-  canSystemPrompt: boolean;      // 网页通道为 false
-  canUseTools: boolean;
-  canStream: boolean;
-  canSeeOtherAgents: boolean;    // 网页通道只看到用户原话
-  maxConcurrency: number;
-  costClass: 'low' | 'medium' | 'high';
-}
-```
+`AgentCapabilities` 的权威定义见 [P1-002 §3.2](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)；
+这里只列分配规则。
 
 任务分配规则：
 
@@ -201,10 +192,11 @@ export interface AgentCapabilities {
 网页模型不能接收 system 指令，这是现有 Adapter 的技术限制：
 
 - 第一轮：网页只收用户原话；
-- 知识/通用后续轮：可收 `QuestionerInput`（单条追问 + 带来源数据）；
+- 知识/通用后续轮：目标为可收 `QuestionerInput`（单条追问 + 带来源数据，P1 实现）；
 - 工程空间：网页只能回答，不得提问/规划/主导；
 - 所有空间：网页不接收 `ContractInput`、system、角色/阶段/格式指令；
-- 能力差异由 `AgentCapabilities` 与 `Policy.allowWebQuestioner` 表达，分配时检查。
+- 能力差异目标由 `AgentCapabilities` 与 `Policy.allowWebQuestioner` 表达；
+  代码尚未实现，P1 落地前按旧规则运行。
 
 ---
 

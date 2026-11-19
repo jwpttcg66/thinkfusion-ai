@@ -1,6 +1,7 @@
 # P5 能力与通道路由设计
 
-状态：**设计完成（2026-11-18）**。
+状态：**设计稿完成（2026-11-18）；方向确认；P0 门禁未过；未实施。**
+评审快照：`2d05b12`（当前 HEAD 见 git log）；代码基线：`cd30be3`。
 设计分支：`product-v3`。代码基线：`cd30be3`。
 上游：[P1-002 领域与运行时契约](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)。
 
@@ -44,6 +45,8 @@
 | 知识学习 / 通用 | answerer / questioner | 提问者只收 `QuestionerInput`（单条问题 + 数据） |
 | 工程 | **仅 answerer** | 不得提问、不得规划、不得主导 |
 | 执行规划 | 所有空间都由 local/cloud 承担 | 网页不得生成 `desktop-agent` 计划 |
+
+> 四要素：第一轮只发原话；知识/通用可发单条追问；工程只回答；全空间不接收 `ContractInput`。
 
 ## 3. 路由
 

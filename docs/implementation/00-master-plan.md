@@ -65,9 +65,7 @@
 
 ## 4. Feature Flag
 
-```ts
-type CollaborationMode = 'legacy' | 'shadow' | 'active';
-```
+`CollaborationMode` 定义见 [01 §3](01-p0-contracts.md)；这里不重复类型。
 
 | 模式 | 行为 | 用途 |
 | --- | --- | --- |
@@ -153,7 +151,7 @@ type CollaborationMode = 'legacy' | 'shadow' | 'active';
 | Shadow 没有意义 | 只比计划条数 | shadow 指标见 02 文档第 8 节 |
 | 网页通道被塞指令 | 后续轮 question 出现「请指出」 | Adapter 层测试 + 代码审查 |
 | 证据两套并存 | 出现第二个哈希/存储 | P0 契约 + P4 映射表 |
-| 参与者被静默减少 | 状态条少了通道 | 第一手全覆盖测试 |
+| 参与者被静默减少 | 状态条少了通道 | 选中参与者覆盖测试 |
 | 删除过早 | 旧路径不可用 | 删除条件 5.3 |
 | 计划与代码漂移 | 文件/行号对不上 | 基线变更先改计划 |
 

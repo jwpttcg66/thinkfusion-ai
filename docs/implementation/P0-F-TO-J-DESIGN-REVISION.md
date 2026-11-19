@@ -79,27 +79,8 @@ State 存对象与引用，不存这些正文。
 
 ### 2.1 决策：两层输入
 
-```ts
-/** 网页通道唯一允许的输入：问题 + 数据，不含任何指令。 */
-export interface QuestionInput {
-  kind: 'question';
-  question: string;
-  /** 跨通道材料，作为数据附带；必须标注来源。 */
-  transcript?: Array<{ source: string; text: string }>;
-}
-
-/** 本地/云端可接收的契约输入：数据 + 输出 schema，不含角色/阶段话术。 */
-export interface ContractInput {
-  kind: 'contract';
-  question: string;
-  /** 机器可读输出契约。 */
-  schema: Record<string, unknown>;
-  /** 结构化数据（计划、报告、观察），不是自然语言要求。 */
-  data?: Record<string, unknown>;
-  /** 仅限系统级约束：权限、工具、超时；不得写人设/阶段。 */
-  constraints?: { tools?: string[]; permission?: string; timeoutMs?: number };
-}
-```
+`QuestionInput` / `ContractInput` 的权威定义见 [P1-002 §3.10](P1-002-DOMAIN-RUNTIME-CONTRACT.md)；
+本节只列规则，不重复接口。
 
 规则：
 
@@ -113,26 +94,40 @@ export interface ContractInput {
 
 ### 2.2 现存构造器清单与处置
 
-| 文件 | 构造器 | 现状 | 处置 | 阶段 |
-| --- | --- | --- | --- | --- |
-| `shared/protocol.ts` | `buildInitialPrompt` | 规划角色 + 12 条规则 | 替换为 `ContractInput`；网页不能规划 | P1 |
-| `shared/protocol.ts` | `buildReportPrompt` | 执行报告 + 指令 | 替换为 `ContractInput` | P1 |
-| `shared/protocol.ts` | `buildPlanRepairPrompt` | 修复指令 | 替换为 `ContractInput` | P1 |
-| `shared/protocol.ts` | `buildClarificationAnswerPrompt` | 澄清指令 | 替换为 `ContractInput` | P1 |
-| `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 网页消息含四步指令 | 改为数据块（问题+回答），去掉指令 | P1 |
-| `synthesis/lead-stage.ts` | `leadSummarySystem` | system 角色/阶段 | 仅 local/cloud；改为 schema | P1 |
-| `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | 网页消息含汇总要求 | 改为数据块 | P1 |
-| `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 把要求拼进问题 | 删除；需要契约时走 ContractInput | P1 |
-| `synthesis/lead-stage.ts` | `buildVerdictQuestion` | 结论指令 | 改为数据块或 ContractInput | P1 |
-| `research/engineering-round.ts` | `buildEngineeringAnswerQuestion` | 工程回答指令 | 改为数据块 | P1 |
-| `research/engineering-round.ts` | `engineeringAnswerSystem` | 工程角色指令 | 仅 local/cloud；改 schema | P1 |
-| `research/engineering-round.ts` | `engineeringToolSystem` | 工具指令 | 仅 local/cloud；工具契约 | P1 |
-| `research/engineering-round.ts` | `buildToolFollowupQuestion` | 工具追问指令 | 数据块 | P1 |
-| `research/follow-up.ts` | `buildFollowUpQuestion` | 「请直接回答这几点」 | 数据块（问题+缺口） | P1 |
-| `research/follow-up.ts` | `buildFollowUpSummaryQuestion` | 汇总指令 | 数据块/ContractInput | P1 |
-| `research/follow-up.ts` | `followUpNote` | 备注文本 | 数据 | P1 |
+代码中与模型输入相关的构造点共 **27 个**：21 个函数 + 6 个 `SYSTEM` 常量。
+附件拼接（`composeQuestionWithAttachments`）只拼数据，不产生指令，单列在末尾。
 
-**结论：`buildInitialPrompt` 不再推迟到 P3，必须在 P1 与规划链一起替换。**
+| # | 文件 | 构造器 | 现状 | 处置 | 阶段 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `shared/protocol.ts` | `buildInitialPrompt` | 规划角色 + 12 条规则 | 替换为 `ContractInput`；网页不能规划 | P1 |
+| 2 | `shared/protocol.ts` | `buildReportPrompt` | 执行报告 + 指令 | `ContractInput` | P1 |
+| 3 | `shared/protocol.ts` | `buildPlanRepairPrompt` | 修复指令 | `ContractInput` | P1 |
+| 4 | `shared/protocol.ts` | `buildClarificationAnswerPrompt` | 澄清指令 | `ContractInput` | P1 |
+| 5 | `synthesis/lead-prompt.ts` | `buildLeadPrompt` | 网页消息含四步指令 | 改为数据块（问题+回答） | P1 |
+| 6 | `synthesis/lead-prompt.ts` | `LEAD_SYSTEM` | system 角色/流程 | 仅 local/cloud；改 schema | P1 |
+| 7 | `synthesis/lead-stage.ts` | `LEAD_SUMMARY_SYSTEM` | system 汇总要求 | 仅 local/cloud；改 schema | P1 |
+| 8 | `synthesis/lead-stage.ts` | `buildLeadSummaryQuestion` | 网页消息含汇总要求 | 改为数据块 | P1 |
+| 9 | `synthesis/lead-stage.ts` | `inlineLeadInstructions` | 把要求拼进问题 | 删除；需要契约走 `ContractInput` | P1 |
+| 10 | `synthesis/lead-stage.ts` | `LEAD_VERDICT_SYSTEM` | system 结论要求 | 仅 local/cloud；改 schema | P1 |
+| 11 | `synthesis/lead-stage.ts` | `buildVerdictQuestion` | 网页消息含结论指令 | 改为数据块 | P1 |
+| 12 | `synthesis/lead-selector.ts` | `PICK_SYSTEM` | system 选择主导 | 仅 local/cloud；改 schema | P1 |
+| 13 | `synthesis/lead-selector.ts` | `buildPickPrompt` | 网页消息「请选择、指出错误」 | 改为数据块 | P1 |
+| 14 | `synthesis/local-summary.ts` | `SUMMARY_SYSTEM` | system 汇总 | 仅 local/cloud；改 schema | P1 |
+| 15 | `synthesis/local-summary.ts` | `buildSummaryQuestion` | 汇总问题 | 数据块 / schema | P1 |
+| 16 | `research/routing-classifier.ts` | `ROUTING_SYSTEM` | system 路由 | 仅 local/cloud；规则优先 | P1 |
+| 17 | `research/routing-classifier.ts` | `buildRoutingQuestion` | 路由问题 | 数据 / schema | P1 |
+| 18 | `research/engineering-round.ts` | `buildEngineeringAnswerQuestion` | **数据块**（问题+材料，无指令） | 保留 | P1 |
+| 19 | `research/engineering-round.ts` | `engineeringAnswerSystem` | system 工程角色 | 仅 local/cloud；改 schema | P1 |
+| 20 | `research/engineering-round.ts` | `engineeringToolSystem` | 工具契约 | 仅 local/cloud；保留为契约 | P1 |
+| 21 | `research/engineering-round.ts` | `buildToolFollowupQuestion` | 仅 local/cloud 的工具追问 | `ContractInput`；不是网页 | P1 |
+| 22 | `research/engineering-orchestration.ts` | `buildWebOrchestrationQuestion` | **数据块**（委托第 18 项） | 保留 | P1 |
+| 23 | `research/follow-up.ts` | `buildFollowUpQuestion` | 网页「请直接回答这几点」 | 改为数据块（问题+缺口） | P1 |
+| 24 | `research/follow-up.ts` | `buildFollowUpSummaryQuestion` | 汇总指令 | 数据块 / schema | P1 |
+| 25 | `research/follow-up.ts` | `followUpNote` | 备注文本 | 数据 | P1 |
+| 26 | `engineering/plan-review.ts` | `planReviewQuestion` | 计划评审指令 | 仅 local/cloud；`ContractInput` | P1 |
+| 27 | `shared/attachments.ts` | `composeQuestionWithAttachments` | 只拼数据（原话+附件） | 保留 | P1 |
+
+**结论：`buildInitialPrompt` 不再推迟到 P3**结论：`buildInitialPrompt` 不再推迟到 P3，必须在 P1 与规划链一起替换。**
 否则 P1 一边禁用提示词，一边继续用旧执行链，规则无法自洽。
 
 ### 2.3 后果（必须明说）
@@ -145,7 +140,7 @@ export interface ContractInput {
 
 ### 2.4 测试
 
-- `check-prompt-policy` 扩展：扫描全部 16 个构造器与网页消息，禁止角色/阶段/挑战/汇总指令；
+- `check-prompt-policy` 扩展：扫描全部 27 个构造点与网页消息，禁止角色/阶段/挑战/汇总指令；
 - 新增 `check-web-input`：网页输入只含 `QuestionInput` 字段；
 - 新增 `check-contract-input`：schema 合法、无话术；
 - 回归：网页问答、追问、纯网页总结仍可运行（允许无结构）。
@@ -156,16 +151,8 @@ export interface ContractInput {
 
 ### 3.1 EvidencePackContext 归属
 
-```ts
-export interface EvidencePackContext {
-  kind: 'snapshot' | 'baseline' | 'round';
-  /** 归属类型：目标 / 任务 / 辩论。 */
-  ownerType: 'goal' | 'task' | 'debate';
-  ownerId: string;
-  roundIndex?: number;
-  baselinePackId?: string;
-}
-```
+`EvidencePackContext` 的权威定义见 [EVIDENCE_QUALITY §1.1](../architecture/EVIDENCE_QUALITY.md)；
+本节只列归属规则。
 
 - 新数据必须写 `ownerType/ownerId`；
 - `repository-snapshot.ts` 写 `{ kind:'snapshot', ownerType:'task', ownerId }`；
@@ -234,7 +221,7 @@ P0-J 通过前不开工 P1-004。评审内容：
 - [ ] 本修订 F/G/H/I 的决策逐条确认
 - [ ] P1-001 审计逐项核对（18 节）
 - [ ] 无重复 TS 契约（通用对象只在 P1-002）
-- [ ] 16 个输入构造器全部有处置，网页无指令
+- [ ] 27 个输入构造点全部有处置，网页无指令
 - [ ] EvidencePackContext 新归属设计确认
 - [ ] 任务书无两套编号
 - [ ] 基线/快照/状态一致

@@ -18,7 +18,7 @@
 
 ---
 
-## 1. P0-B.1 领域类型（已落地）
+## 1. P0-B.1 领域类型（已写入文档）
 
 ### 1.1 三层拆分
 
@@ -62,7 +62,7 @@ Dispute { disputeId, conflictId, goalId, status, openedAt, resolvedAt?, resoluti
 
 ---
 
-## 2. P0-B.2 状态机（已落地）
+## 2. P0-B.2 状态机（已写入文档）
 
 ### 2.1 Task
 
@@ -106,7 +106,7 @@ running ──► done | failed | cancelled
 
 ---
 
-## 3. P0-C 文档统一（已落地）
+## 3. P0-C 文档统一（已写入文档）
 
 | 文档 | 修改 |
 | --- | --- |

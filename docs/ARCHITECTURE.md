@@ -437,6 +437,9 @@ export interface Synthesis {
 
 ### 3.2 `thinkfusion/research/v1`
 
+> **旧类型**：以下 `Claim` 属于 V2.1 `research/v1`，不是 V3 `Claim`；
+> V3 以 [P1-002 §3.7](implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md) 为准。
+
 这是 `Synthesis` 的持久化形态，`Claim` 至少包含：
 
 ```ts
@@ -658,6 +661,8 @@ M6 的验收就是 [PRODUCT.md](PRODUCT.md) 第 7 节最后一条：**拔掉 Run
 这四条不是洁癖。第一版最省事的做法就是一个提示词让模型「读三份回答，输出 JSON 的共识与争议」——那样得到的是一份**看起来结构化**的总结，而它和 `synthesize()` 的区别只是换了个地方说谎。
 
 ### 11.3 数据协议
+
+> **旧类型**：以下同样是 V2.1 的 Claim 设计，不是 V3 契约。
 
 现在 `Claim` 只有三个字段（`conversation.ts`）。目标形态在这三个字段上长，不推倒：
 

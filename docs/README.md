@@ -41,7 +41,7 @@
 | [implementation/06-p5-channels.md](implementation/06-p5-channels.md) | 能力模型、路由降级、新增通道 |
 | [implementation/07-ui.md](implementation/07-ui.md) | UI 结构、事件映射、移除辩论入口、分阶段落地 |
 
-## 产品与架构设计（V3，2026-11-18 冻结，未实施）
+## 产品与架构设计（V3，方向确认；P0 门禁未过；未实施）
 
 | 文档 | 内容 |
 | --- | --- |

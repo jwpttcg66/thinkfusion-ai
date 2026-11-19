@@ -275,7 +275,7 @@ export interface DebateBehaviorOutput {
 - 输出：`out-test/shadow/<goalId>.json` + 汇总报告：
   - 任务数、fan-out、依赖深度；
   - 是否覆盖 acceptance；
-  - 参与者覆盖（是否所有通道）；
+  - 参与者覆盖（是否覆盖选中参与者）；
   - 风险（任务过多、固定链、网页越界）。
 - 切 active 的门槛（初始建议）：
   - 20 个真实问题：计划覆盖率 ≥ 90%；无固定阶段链；无网页越界；
