@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- build(mac): electron-builder 增加 zip target；P6-02 配置检查测试
 - test(engineering): P3-09 六场景验收
 - test(release): P6-06 应用/数据回滚钻取；文档 P6-06-ROLLBACK-DRILL
 - feat(engineering): P3-02 搜索动作计划、P3-06 CLI 回答/执行分流、P3-08 Java 文本降级
