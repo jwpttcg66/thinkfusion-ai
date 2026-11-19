@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs(review): 完成 P0-J 独立评审（文档/代码双评审），3 阻断关闭、2 复评项修复；记录残余门禁 P0-04/P0-06
 - docs(design): P0 最终一致性收敛——网页角色/Policy 字段统一、快照更新 2d05b12、ROADMAP 状态、01 与 P1-002 对照
 - rule(roles): 知识/通用允许网页担任提问者（单条追问 + 数据），工程模式网页只能回答；执行规划仍只允许 local/cloud（ADR 0009）
 - docs(design): P0-F..J 修订——CollaborationState 聚合根、TaskGraph 不持久化、ModelInput/16 个 Prompt 处置、EvidencePack 归属、P1-00A 映射任务、P0-J 门禁

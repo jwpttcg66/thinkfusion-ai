@@ -11,6 +11,7 @@
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
 | [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
+| [P0-J-REVIEW-RECORD.md](P0-J-REVIEW-RECORD.md) | P0 评审 | 独立文档/代码评审结论、修复项与残余门禁 |
 | [P0-F-TO-J-DESIGN-REVISION.md](P0-F-TO-J-DESIGN-REVISION.md) | P0 修订 | 状态所有权、输入契约/27 个输入构造点、证据归属、任务书一致性、评审门禁 |
 | [P0-A-DESIGN-CONSISTENCY-REVIEW.md](P0-A-DESIGN-CONSISTENCY-REVIEW.md) | P0 前置 | 全量设计一致性审查、11 处不一致、D1–D8 决策清单 |
 | [P0-B-TO-E-DESIGN-RESOLUTION.md](P0-B-TO-E-DESIGN-RESOLUTION.md) | P0 前置 | B.1 类型、B.2 状态机、C 文档统一、D 评审清单、E 冻结与任务书 |
@@ -29,7 +30,7 @@
 
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
-| P0 契约与开关 | 🟡 方向确认；P0-J 待评审 | P0-J 通过后进入 P1 | — |
+| P0 契约与开关 | 🟡 P0-J 有条件通过；P0-04/06 待完成 | 完成 P0-04/06 + 签收后进入 P1 | — |
 | P1.0 协作引擎骨架 | 未开始（设计完成） | Goal → DAG → Run → Observation → Deliver 可跑 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |
