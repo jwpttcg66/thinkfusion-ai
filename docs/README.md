@@ -27,6 +27,8 @@
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
+| [implementation/P0-06-ROLLBACK-DRILL.md](implementation/P0-06-ROLLBACK-DRILL.md) | 模式 Flag 回滚钻取记录 |
+| [implementation/P1-00A-CODE-MAPPING.md](implementation/P1-00A-CODE-MAPPING.md) | 代码职责映射与迁移矩阵 |
 | [implementation/P0-J-REVIEW-RECORD.md](implementation/P0-J-REVIEW-RECORD.md) | P0 独立评审记录与残余门禁 |
 | [implementation/P0-F-TO-J-DESIGN-REVISION.md](implementation/P0-F-TO-J-DESIGN-REVISION.md) | P0-F..J：状态模型、输入契约、证据归属、任务书、评审 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
