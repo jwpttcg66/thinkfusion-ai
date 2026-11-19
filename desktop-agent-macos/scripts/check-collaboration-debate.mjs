@@ -1,7 +1,7 @@
 /** P1-12：只对 matters && open 的 Dispute 触发辩论；无基线、无提示词。 */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveDispute, selectDebates } from '../out-test/main/collaboration/behaviors/debate.js';
+import { resolveDispute, runDebates, selectDebates } from '../out-test/main/collaboration/behaviors/debate.js';
 
 const state = (conflict, dispute) => ({
   version: 1, goal: { goalId: 'g', workspace: 'general', statement: 'q', constraints: [], acceptance: [], createdAt: 1 },
@@ -24,4 +24,18 @@ test('争议可解析；unverified 保持 unresolved', () => {
   assert.equal(resolved.disputes[0].status, 'resolved');
   const unresolved = resolveDispute(base, 'd1', { claimId: 'a', relation: 'unverified', confidence: 'low', limitations: [], evidenceRefs: [] });
   assert.equal(unresolved.disputes[0].status, 'unresolved');
+});
+
+
+test('runDebates 只把选中争议交给外部 Debate，并回写状态', async () => {
+  const base = state(conflict(true), dispute('open'));
+  const seen = [];
+  const next = await runDebates(base, async requests => {
+    seen.push(...requests);
+    return [{ disputeId: 'd1', verdict: { claimId: 'a', relation: 'supports', confidence: 'high', limitations: [], evidenceRefs: ['e1'] } }];
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(next.disputes[0].status, 'resolved');
+  const none = await runDebates(state(conflict(true), dispute('resolved')), async () => { throw new Error('不应调用'); });
+  assert.equal(none.disputes[0].status, 'resolved');
 });

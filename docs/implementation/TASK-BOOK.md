@@ -150,9 +150,9 @@ P1.1 Replan / Debate / 模型审核
 | P1-09 | ConversationRunner 路由（legacy/shadow） | P1.0 | P1-08 | ⏳ |
 | P1-10 | 日志与调试可观察 | P1.0 | P1-04 | 🟡 计划/跳过已写；停止原因待补 |
 | P1-11 | Replanner | P1.1 | P1.0 | ✅ 纯逻辑 + active 判定 |
-| P1-12 | DebateBehavior 适配 | P1.1 | P1-11 | 🟡 active 触发/映射；未实际调 Debate |
+| P1-12 | DebateBehavior 适配 | P1.1 | P1-11 | ✅ 触发/映射/回写；未接 DebateOrchestrator |
 | P1-13 | 关键阶段模型审核 | P1.1 | P1-11 | ✅ active 可选审核 + 规则回退 |
-| P1-14 | Active 门禁与回滚 | P1.1 | P1-08..13 | 🟡 门禁函数；未启用 |
+| P1-14 | Active 门禁与回滚 | P1.1 | P1-08..13 | 🟡 门禁/请求校验；未接设置入口 |
 | P1-15 | 测试迁移与回归 | P1.0/1.1 | 各任务 | 🟡 新增 10 项；legacy 全量待跑 |
 | P2-01 | 知识卡/主题存储 | P2 | P1.0 | ⏳ |
 | P2-02 | 索引与召回 | P2 | P2-01 | ✅ |
