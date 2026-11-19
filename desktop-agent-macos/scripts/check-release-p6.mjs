@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { sha256File, validateManifest } from '../out-test/main/release/manifest.js';
-import { migrateWithBackup } from '../out-test/main/release/migrate.js';
-import { createBackup, restoreBackup } from '../out-test/main/release/backup.js';
-import { evaluateReleaseGate, REQUIRED_RELEASE_CHECKS } from '../out-test/main/release/gate.js';
+import { sha256File, validateManifest } from '../out-test/main/release-ops/manifest.js';
+import { migrateWithBackup } from '../out-test/main/release-ops/migrate.js';
+import { createBackup, restoreBackup } from '../out-test/main/release-ops/backup.js';
+import { evaluateReleaseGate, REQUIRED_RELEASE_CHECKS } from '../out-test/main/release-ops/gate.js';
 
 const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tf-release-'));
 
