@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P1-11 Replanner 纯逻辑、P1-12 Debate 触发/映射、
+  P1-13 规则+模型审核、P1-14 Active 门禁函数
+- test(collaboration): 新增 10 项 P1.1 测试，collaboration 共 35/35
 - feat(collaboration): P1-08 Shadow plan-only；P1-09 ConversationRunner shadow 分支
   （legacy 默认零行为变化，shadow 计划写 collaboration-shadow.jsonl）
 - test(collaboration): shadow 零 ask 测试；runner shadow 分支测试
