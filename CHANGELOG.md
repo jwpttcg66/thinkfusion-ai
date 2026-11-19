@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(evidence): P4-04/05/07 六个场景夹具与确定性回放；执行失败映射 contradicts
+- feat(release): P6-02 打包配置检查、P6-05 诊断脱敏、P6-06 回滚计划、P6-07 安全检查
+- test: P4/P6 相关 10/10
 - feat(release): P6-01 版本清单、P6-03 迁移备份、P6-04 备份恢复、P6-08 发布门禁
 - test(release): 4 项；P4/P5/P6 相关 12/12
 - feat(collaboration): P5-01 能力注册表、P5-02 路由/降级、P5-04 通道观测
