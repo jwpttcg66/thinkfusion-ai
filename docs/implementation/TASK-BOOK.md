@@ -162,7 +162,7 @@ P1.1 Replan / Debate / 模型审核
 | P2-06 | 知识场景验收 | P2 | P2-01..05 | ✅ 6 场景 |
 | P3-01 | EngineeringContext / 任务状态 | P3 | P1.0 | ⏳ |
 | P3-02 | Agentic Search 工具 | P3 | P3-01 | ⏳ |
-| P3-03 | 计划/审批/worktree | P3 | P3-01 | ⏳ |
+| P3-03 | 计划/审批/worktree | P3 | P3-01 | ✅ |
 | P3-04 | 执行与 attestation | P3 | P3-03 | ⏳ |
 | P3-05 | 独立评审 | P3 | P3-04 | ⏳ |
 | P3-06 | CLI Executor | P3 | P3-03 | ⏳ |

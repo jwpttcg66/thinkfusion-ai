@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(engineering): P3-01 EngineeringTaskState（S1/S2/测试/构建/评审）、
+  P3-03 计划/审批、P3-04 执行断言、P3-05 评审独立性
+- test(engineering): 新增 task-state/plan 6 项测试
 - feat(knowledge): P2-04 缺口检测/任务化/接 Replanner；P2-05 知识地图三块+出处
 - test(knowledge): 新增 gap/map 测试，knowledge 共 12/12
 - feat(knowledge): P2-01 KnowledgeStore（原子写/旧数据兼容/证据必填）、
