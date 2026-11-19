@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P1-12 runDebates 注入/回写；P1-14 canRequestMode 门禁校验
 - feat(collaboration): ConversationRunner active 分支与 index activeRunner 接线（planner→scheduler→runner→deliver）；默认 legacy
 - feat(collaboration): active 管线接入 Replanner 判定、Debate 触发、可选模型审核
 - build(mac): electron-builder 增加 zip target；P6-02 配置检查测试

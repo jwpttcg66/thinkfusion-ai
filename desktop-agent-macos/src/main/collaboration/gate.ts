@@ -22,3 +22,13 @@ export function evaluateActiveGate(metrics: ShadowMetrics): GateResult {
   if (metrics.maxTasksSimple > 2) reasons.push('简单问题超过 2 个任务');
   return { ok: reasons.length === 0, reasons };
 }
+
+
+/** 设置 active 前必须先过门禁；legacy/shadow 不受限。 */
+export function canRequestMode(
+  mode: 'legacy' | 'shadow' | 'active',
+  metrics: ShadowMetrics
+): { ok: boolean; reasons: string[] } {
+  if (mode !== 'active') return { ok: true, reasons: [] };
+  return evaluateActiveGate(metrics);
+}
