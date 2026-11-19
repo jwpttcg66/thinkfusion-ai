@@ -20,6 +20,7 @@
 | [architecture/EVIDENCE_QUALITY.md](architecture/EVIDENCE_QUALITY.md) | Pack→EvidenceRef、验证、指标、回放 |
 | [architecture/CAPABILITY_MODEL.md](architecture/CAPABILITY_MODEL.md) | 能力、参与者、路由、降级、费用 |
 | [architecture/RELEASE_OPERATIONS.md](architecture/RELEASE_OPERATIONS.md) | 版本、打包签名、迁移、备份、诊断、回滚 |
+| [operations/SUPPORT_MATRIX.md](operations/SUPPORT_MATRIX.md) | 运行环境、通道、数据迁移与发布范围 |
 
 ## 实施计划（P0–P6）
 
