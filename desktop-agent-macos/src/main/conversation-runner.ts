@@ -225,6 +225,7 @@ export interface ConversationDeps {
   }) => Promise<{
     content: string;
     answers?: Array<{ participantId: string; text: string }>;
+    stopReason?: string;
   }>;
   /**
    * 执行阶段成员（本地 + 云端模型）：它们不参与第一轮回答，但可以当主导人，
@@ -1677,6 +1678,9 @@ export class ConversationRunner {
       conversation.updatedAt = Date.now();
       this.save(conversation);
       this.addMessage(conversation, { role: 'synthesis', text: result.content, synthesis });
+      if (result.stopReason) {
+        this.addMessage(conversation, { role: 'system', text: `停止原因：${result.stopReason}` });
+      }
     } catch (error) {
       this.fail(conversation, error);
     }

@@ -1501,6 +1501,7 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
           called += 1;
           return {
             content: '协作引擎交付',
+            stopReason: 'acceptance_satisfied',
             answers: [{ participantId: 'a', text: 'A 的观点' }]
           };
         }
@@ -1514,4 +1515,5 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
   const messages = runner.messages(started.conversationId);
   assert.ok(messages.some(m => m.role === 'channel' && m.text === 'A 的观点'));
   assert.ok(messages.some(m => m.role === 'synthesis' && m.text === '协作引擎交付'));
+  assert.ok(messages.some(m => m.role === 'system' && m.text.includes('停止原因')));
 });

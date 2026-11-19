@@ -125,6 +125,8 @@ export interface MigrationStep {
 
 ## 8. 支持矩阵
 
+详见 [SUPPORT_MATRIX](../operations/SUPPORT_MATRIX.md)。
+
 | 项 | 范围 |
 | --- | --- |
 | macOS | 当前主版本及前两个大版本（发布时确认） |

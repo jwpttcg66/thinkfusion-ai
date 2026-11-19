@@ -4967,6 +4967,7 @@ app.whenReady().then(async () => {
       });
       return {
         content: result.deliverable.content,
+        stopReason: result.deliverable.stopReason,
         answers: result.state.observations
           .filter(item => item.status === 'done' && item.text)
           .map(item => ({ participantId: item.participantId, text: item.text ?? '' }))

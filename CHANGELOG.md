@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): active 停止原因落盘；docs: 支持矩阵
 - docs: 新增 COMPLETION-AUDIT；同步 TASK-BOOK 全部任务状态到真实进度
 - feat(collaboration): P1-12 runDebates 注入/回写；P1-14 canRequestMode 门禁校验
 - feat(collaboration): ConversationRunner active 分支与 index activeRunner 接线（planner→scheduler→runner→deliver）；默认 legacy
