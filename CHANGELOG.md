@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- test: 新增 test:core 核心回归命令；docs: 发布清单
 - feat(collaboration): active 停止原因落盘；docs: 支持矩阵
 - docs: 新增 COMPLETION-AUDIT；同步 TASK-BOOK 全部任务状态到真实进度
 - feat(collaboration): P1-12 runDebates 注入/回写；P1-14 canRequestMode 门禁校验
