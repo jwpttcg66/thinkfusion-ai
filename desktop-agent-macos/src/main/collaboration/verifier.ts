@@ -13,6 +13,15 @@ export interface VerificationInput {
 
 export function verifyClaim(input: VerificationInput): Verdict {
   const executions = (input.executions ?? []).filter(item => item.claimId === input.claim.claimId);
+  if (executions.some(item => isVerifiedExecution(item) && item.exitCode !== 0)) {
+    return {
+      claimId: input.claim.claimId,
+      relation: 'contradicts',
+      confidence: 'high',
+      limitations: ['执行断言失败'],
+      evidenceRefs: executions.map(item => item.command)
+    };
+  }
   if (executions.some(item => isVerifiedExecution(item) && item.exitCode === 0)) {
     return {
       claimId: input.claim.claimId,
@@ -22,9 +31,9 @@ export function verifyClaim(input: VerificationInput): Verdict {
       evidenceRefs: executions.map(item => item.command)
     };
   }
-  const refs = input.evidence.filter(item =>
-    item.scope.taskId === input.claim.taskId || item.evidenceId === input.claim.source.evidenceId
-  );
+  const refs = input.claim.source.evidenceId
+    ? input.evidence.filter(item => item.evidenceId === input.claim.source.evidenceId)
+    : [];
   if (refs.length === 0) {
     return {
       claimId: input.claim.claimId,
