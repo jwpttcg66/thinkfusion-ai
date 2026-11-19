@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(evidence): P4-01 Pack→EvidenceRef 映射、P4-02 统一 Verifier、
+  P4-03 质量指标、P4-06 质量门禁函数
+- test(evidence): P4 4 项；P3/P4/knowledge 22/22
 - feat(engineering): P3-01 EngineeringTaskState（S1/S2/测试/构建/评审）、
   P3-03 计划/审批、P3-04 执行断言、P3-05 评审独立性
 - test(engineering): 新增 task-state/plan 6 项测试
