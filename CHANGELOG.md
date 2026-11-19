@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(engineering): P3-07 git S1/S2 快照（commit/dirty/diff 指纹）
+- feat(collaboration): P5-03 通道声明校验、P5-05 5 组发布矩阵
+- test: 相关 7/7
 - feat(evidence): P4-04/05/07 六个场景夹具与确定性回放；执行失败映射 contradicts
 - feat(release): P6-02 打包配置检查、P6-05 诊断脱敏、P6-06 回滚计划、P6-07 安全检查
 - test: P4/P6 相关 10/10
