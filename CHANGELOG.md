@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(knowledge): P2-04 缺口检测/任务化/接 Replanner；P2-05 知识地图三块+出处
+- test(knowledge): 新增 gap/map 测试，knowledge 共 12/12
 - feat(knowledge): P2-01 KnowledgeStore（原子写/旧数据兼容/证据必填）、
   P2-02 规则召回、P2-03 时效三态；P2-06 六场景测试
 - test(knowledge): 4 组测试，共 8 项
