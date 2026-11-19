@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P5-01 能力注册表、P5-02 路由/降级、P5-04 通道观测
+- test(collaboration): P5 4 项；P4/P5 相关 12/12
 - feat(evidence): P4-01 Pack→EvidenceRef 映射、P4-02 统一 Verifier、
   P4-03 质量指标、P4-06 质量门禁函数
 - test(evidence): P4 4 项；P3/P4/knowledge 22/22
