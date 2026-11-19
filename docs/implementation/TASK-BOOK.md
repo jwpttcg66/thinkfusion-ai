@@ -115,7 +115,7 @@ P1.1 Replan / Debate / 模型审核
 | 门禁 | 条件 |
 | --- | --- |
 | P0-E | P0-F..J 修订完成；P1-001 评审通过；无重复契约；基线一致 |
-| P0-J | 设计修订评审通过（独立评审人） |
+| P0-J | 设计修订评审：有条件通过（见 P0-J 记录） |
 | P1.0 | 简单问题 1–2 任务；高风险 ≥2 参与者；跳过有原因；legacy 无回归 |
 | P1.1 | Replanner 有护栏；Debate 按需；模型审核可关闭/回退 |
 | P2 | 第二次研究复用旧结论并标时效 |
@@ -295,7 +295,8 @@ UI 与 X 是跨阶段任务，不占 P 编号。
 ### P0-02 Domain 类型冻结
 
 - 目标：`Goal / Policy / TaskEnvelope / TaskSpec / TaskRuntimeState / Attempt / Plan /
-  Assignment / Observation / EvidenceRef / Claim / Conflict / Dispute / CollaborationState`。
+  Assignment / Observation / EvidenceRef / Claim / Conflict / Dispute / CollaborationState /
+  Verdict / StopReason / Deliverable`。
 - 文件：`src/main/collaboration/domain/*`（只类型 + 纯函数）。
 - 验收：typecheck；序列化往返；旧记录缺字段可读；无行为变化。
 - 回滚：删除新增文件。

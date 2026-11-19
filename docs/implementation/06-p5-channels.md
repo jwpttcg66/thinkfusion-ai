@@ -26,27 +26,8 @@
 
 **网页是渠道，不是模型。** 是否参与由任务决定；不因为 `hybrid` 就自动加入。
 
-```ts
-export type ModelScope = 'local' | 'remote' | 'hybrid';
-
-export interface AgentCapabilities {
-  kind: 'web' | 'local' | 'cloud' | 'cli';   // 传输/执行形态，不是调用范围
-  canSystemPrompt: boolean;
-  canUseTools: boolean;
-  canStream: boolean;
-  canSeeOtherAgents: boolean;
-  maxConcurrency: number;
-  costClass: 'low' | 'medium' | 'high';
-  requiresLogin?: boolean;
-}
-
-/** 计划里显式记录本次允许的模型范围。 */
-export interface ParticipationPolicy {
-  modelScope: ModelScope;
-  /** 网页是否参与；与 modelScope 正交。 */
-  includeWeb: boolean;
-}
-```
+`ModelScope` / `AgentCapabilities` / `Policy` 的权威定义见
+[P1-002 §3.1/§3.2](P1-002-DOMAIN-RUNTIME-CONTRACT.md)；本章只列路由规则。
 
 | 来源 | 驱动 | system | 工具 | 流式 | 看他人 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -71,7 +52,7 @@ export interface ParticipationPolicy {
 
 顺序：
 
-1. **先定范围**：Planner 写出 `ParticipationPolicy`（local / remote / hybrid + 是否含网页）。
+1. **先定范围**：Planner 写出 `Policy`（modelScope + includeWeb + allowWebQuestioner）。
 2. **再定名单**：在范围内按能力、负载、成本选人；Scheduler 不得越界增删。
 3. **降级阶梯**（每级都要说出来，且不能越界）：
    - 首选模型不可用 → 同范围内的次选；
@@ -129,7 +110,7 @@ export interface ParticipationPolicy {
 ## 7. 出口清单
 
 - [ ] 四类参与者能力声明齐全，网页边界类型化
-- [ ] 第一手全覆盖；后续选择有理由
+- [ ] 选中参与者覆盖；后续选择有理由
 - [ ] 四级降级都有记录，不静默
 - [ ] 新增通道只改 Adapter + 能力声明
 - [ ] 费用/延迟按通道可观察

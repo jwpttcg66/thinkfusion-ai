@@ -265,7 +265,7 @@ Task → requiredCapabilities → availableParticipants → Planner → selected
 | `buildInitialPrompt`（`shared/protocol.ts`） | **当前仍存在，且是固定角色提示词**；P3 改为结构化计划契约后删除。这是最后一个违反 AGENTS §6 的实现 |
 | `collaboration/strategy.ts` 的 stage 计划 | DAG Planner 接管后 |
 | `debate/orchestrator` 的开场基线/轮次入口 | 已移除基线；入口在 DebateBehavior 接管后 |
-| `round-evidence` 接线 | 已移除；P4 按新证据层重建 |
+| `round-evidence` 接线 | 已停止写入；类型与 GC 读取仍在，P4 清理 |
 | `baseline` 命名/上下文 | P4 映射后，旧 Pack 只读 |
 
 **不删**：Debate 引擎、judge、argument-graph、evidence-pack、Runtime、审批、Journal。

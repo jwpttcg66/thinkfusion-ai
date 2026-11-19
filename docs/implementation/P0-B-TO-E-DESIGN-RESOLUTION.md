@@ -13,12 +13,12 @@
 | P0-B.1 | 领域类型：TaskSpec / TaskRuntimeState / Attempt / Plan / Assignment / Dispute | **完成** |
 | P0-B.2 | 状态机：重试、取消、恢复、失败、阻塞、重规划 | **完成** |
 | P0-C | 统一所有架构文档，P1-002 为唯一契约源 | **完成** |
-| P0-D | P1-001 代码审计评审 | 🟡 未单独评审；不得视为通过 |
+| P0-D | P1-001 代码审计评审 | 🟡 代码事实已由独立评审核对；形式签收待用户 |
 | P0-E | 完整设计 + Codex P1 任务书 | 🟡 方向确认；P0-J 门禁未过 |
 
 ---
 
-## 1. P0-B.1 领域类型（已落地）
+## 1. P0-B.1 领域类型（已写入文档）
 
 ### 1.1 三层拆分
 
@@ -62,7 +62,7 @@ Dispute { disputeId, conflictId, goalId, status, openedAt, resolvedAt?, resoluti
 
 ---
 
-## 2. P0-B.2 状态机（已落地）
+## 2. P0-B.2 状态机（已写入文档）
 
 ### 2.1 Task
 
@@ -106,7 +106,7 @@ running ──► done | failed | cancelled
 
 ---
 
-## 3. P0-C 文档统一（已落地）
+## 3. P0-C 文档统一（已写入文档）
 
 | 文档 | 修改 |
 | --- | --- |

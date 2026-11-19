@@ -1,12 +1,12 @@
 # P1-002 领域与运行时契约
 
-状态：**P0-F..J 设计修订版（2026-11-18）**；产品方向已确认，P0-J 技术门禁待评审。
+状态：**P0-F..J 设计修订版（2026-11-18）**；产品方向已确认；P0 门禁未过；P0-J 待评审。
 设计分支：`product-v3`；评审快照：`2d05b12`（当前 HEAD 见 git log；历史 P0-B 为 `7d27c6e`）；代码基线：`cd30be3`；`main` 只做集成。
 前置：[P1-001 迁移审计](P1-001-MIGRATION-AUDIT.md)。
 目标：把 V3 的对象、所有权、生命周期、状态转移、错误/重试/取消/并发/预算、
 持久化与事件一次冻结，供 P1-003 映射和 P1-004 实现使用。
 
-> 本文只定义契约，不写实现，不改代码。
+> 本文只定义契约，不写实现，不改代码。**所有接口均为目标契约，代码尚未实现（P1 落地）。**
 >
 > **D4 已采纳**：`Plan` 不可变、版本化；`planHistory` 保留旧版本；`TaskGraphState` 删除，
 > DAG 由 `Plan.tasks` + `dependsOn` 派生。
@@ -77,6 +77,7 @@ Task（通用）
 | `TaskRuntimeState` | Runner | Runner（纯转移） | State | Scheduler / UI |
 | `TaskGraph` | Planner | 不修改 | **派生，不持久化** | Scheduler |
 | `TaskEnvelope` | Planner | 不可变 | State | Runner / Adapter |
+| `AgentCapabilities` | Adapter | 不可变 | 代码 | Planner / Scheduler |
 | `Participant` | ParticipantManager | 健康状态刷新 | 配置 + 内存 | Planner / Scheduler |
 | `Capability` | 代码常量 | 不可变 | 代码 | Planner |
 | `Plan` | Planner | Replanner（新版本，不修改旧版） | State | Scheduler / UI |
@@ -88,7 +89,7 @@ Task（通用）
 | `Dispute` | Detector | 状态（resolved） | State | Debate / Deliver |
 | `CollaborationState` | Runner | Runner（纯转移） | `AgentStore` | 全部 |
 | `Execution` | AgentOrchestrator | 状态 | 领域存储 | Runner / Verifier |
-| `Verification` | Verifier | 不可变 | State | Deliver |
+| `Verdict`（别名 `Verification`） | Verifier | 不可变 | State | Deliver |
 | `EngineeringTaskState` | 工程任务 | 任务自身 | State（可选） | Deliver / Review |
 | `Deliverable` | Deliver | 不可变 | State + 会话 | UI |
 
@@ -110,9 +111,11 @@ export interface Goal {
   createdAt: number;
 }
 
+export type ModelScope = 'local' | 'remote' | 'hybrid';
+
 export interface Policy {
   /** 模型范围：先守范围，再选人。 */
-  modelScope: 'local' | 'remote' | 'hybrid';
+  modelScope: ModelScope;
   /** 网页是渠道，不是模型；与范围正交。 */
   includeWeb: boolean;
   /** 高风险时的参与者下限；默认 1，高风险为 2。 */
@@ -133,24 +136,28 @@ export type CapabilityId =
   | 'java' | 'test-run' | 'shell-read'
   | 'review' | 'verification';
 
-export interface Capability {
-  id: CapabilityId;
-  /** 事实来源：模型 / 工具 / LSP / CLI；便于解释为什么选它。 */
-  source: 'model' | 'tool' | 'lsp' | 'cli' | 'runtime';
-}
-
-export interface Participant {
-  participantId: string;
+/** 参与者的能力声明；权威定义，P5 只引用。 */
+export interface AgentCapabilities {
   kind: 'web' | 'local' | 'cloud' | 'cli';
-  label: string;
-  capabilities: CapabilityId[];
-  /** 网页为 false；本地/云端为 true。 */
   canSystemPrompt: boolean;
   canUseTools: boolean;
   canStream: boolean;
   canSeeOtherAgents: boolean;
   maxConcurrency: number;
   costClass: 'low' | 'medium' | 'high';
+  requiresLogin?: boolean;
+}
+
+export interface Capability {
+  id: CapabilityId;
+  /** 事实来源：模型 / 工具 / LSP / CLI；便于解释为什么选它。 */
+  source: 'model' | 'tool' | 'lsp' | 'cli' | 'runtime';
+}
+
+export interface Participant extends AgentCapabilities {
+  participantId: string;
+  label: string;
+  capabilities: CapabilityId[];
   available: boolean;
   unavailableReason?: string;
 }
@@ -384,7 +391,7 @@ export interface CollaborationState {
   replans: Array<{ at: number; reason: string; added: string[]; removed: string[] }>;
   stop?: { reason: StopReason; at: number };
   deliverable?: Deliverable;
-  /** 仅工程任务；快照/测试/diff/review 在这里，不新建 EngineeringStore。 */
+  /** 仅工程任务；定义见 ENGINEERING_CONTRACT §1，不新建 EngineeringStore。 */
   engineering?: EngineeringTaskState;
   updatedAt: number;
 }
@@ -401,7 +408,7 @@ export type StopReason =
   | 'budget_exhausted' | 'blocked' | 'user_cancelled' | 'failed';
 ```
 
-### 3.9 Execution / Verification / Deliverable
+### 3.9 Execution / Verdict / Deliverable
 
 ```ts
 /** 执行治理的引用，不复制 Runtime 的内部状态。 */
@@ -414,7 +421,7 @@ export interface ExecutionRef {
   reportHash?: string;
 }
 
-export interface Verification {
+export interface Verdict {
   claimId: string;
   relation: 'supports' | 'contradicts' | 'context' | 'unverified';
   confidence: 'low' | 'medium' | 'high';
@@ -422,13 +429,16 @@ export interface Verification {
   evidenceRefs: string[];
 }
 
+/** 旧名；V3 文档统一用 Verdict。 */
+export type Verification = Verdict;
+
 export interface Deliverable {
   deliverableId: string;
   goalId: string;
   kind: 'answer' | 'research' | 'knowledge_map' | 'engineering_change' | 'test_report';
   content: string;
   claims: Claim[];
-  verifications: Verification[];
+  verifications: Verdict[];
   openQuestions: string[];
   stopReason: StopReason;
   evidenceCoverage: number;
@@ -476,7 +486,7 @@ export interface ContractInput {
 | 知识学习 / 通用 | answerer / questioner | `QuestionInput` / `QuestionerInput` |
 | 工程 | 仅 answerer | `QuestionInput` |
 | 执行规划（所有空间） | 不允许 | 仅 local/cloud `ContractInput` |
-- 现存 16 个 Prompt 构造器的处置见
+- 现存 27 个输入构造点的处置见
   [P0-F..J 修订 §2.2](P0-F-TO-J-DESIGN-REVISION.md)。
 
 
@@ -728,7 +738,7 @@ risk floor（高风险 ≥ 2）
 - Conflict 可由规则、Planner（P1.1）、Reviewer 产生；
 - 只有 `matters=true` 且 `open` 的 Dispute 才允许 Debate；
 - DebateService 输入：goalId、question、claims、disputes、participants；
-- DebateService 输出：Observation + Verdict + EvidenceRef；
+- DebateService 输出：Observation + Verdict[] + EvidenceRef；
 - Debate 不创建基线、不接收任务提示词、不成为入口；
 - Verifier 独立于提出者；无法验证标 `unverified`，不删除 Claim。
 

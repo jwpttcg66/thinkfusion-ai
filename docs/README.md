@@ -27,6 +27,7 @@
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
+| [implementation/P0-J-REVIEW-RECORD.md](implementation/P0-J-REVIEW-RECORD.md) | P0 独立评审记录与残余门禁 |
 | [implementation/P0-F-TO-J-DESIGN-REVISION.md](implementation/P0-F-TO-J-DESIGN-REVISION.md) | P0-F..J：状态模型、输入契约、证据归属、任务书、评审 |
 | [implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md](implementation/P0-A-DESIGN-CONSISTENCY-REVIEW.md) | 设计一致性审查：矛盾清单与 D1–D8 决策 |
 | [implementation/P0-B-TO-E-DESIGN-RESOLUTION.md](implementation/P0-B-TO-E-DESIGN-RESOLUTION.md) | 类型/状态机/文档统一/评审/冻结的解决方案 |
@@ -41,7 +42,7 @@
 | [implementation/06-p5-channels.md](implementation/06-p5-channels.md) | 能力模型、路由降级、新增通道 |
 | [implementation/07-ui.md](implementation/07-ui.md) | UI 结构、事件映射、移除辩论入口、分阶段落地 |
 
-## 产品与架构设计（V3，2026-11-18 冻结，未实施）
+## 产品与架构设计（V3，方向确认；P0 门禁未过；未实施）
 
 | 文档 | 内容 |
 | --- | --- |

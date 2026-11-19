@@ -1,7 +1,8 @@
 # P4 证据与质量设计
 
-状态：**设计完成（2026-11-18）**。
-设计分支：`product-v3`。代码基线：`cd30be3`。
+状态：**设计稿完成（2026-11-18）；方向确认；P0 门禁未过；未实施。**
+评审快照：`2d05b12`（当前 HEAD 见 git log）；代码基线：`cd30be3`。
+设计分支：`product-v3`。
 上游：[P1-002 领域与运行时契约](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)。
 
 原则：**不新建 EvidenceStore**。`EvidenceRef` 是现有 `EvidencePack` 条目的引用视图；

@@ -10,22 +10,8 @@
 
 ## 1. 工程任务状态（不是基线）
 
-```ts
-export interface EngineeringTaskState {
-  taskId: string;
-  repoRoot: string;
-  branch: string;
-  worktree?: string;
-  start: { commit: string; dirty: boolean; dirtyFiles: string[]; snapshot: string }; // S1
-  end?: { commit: string; dirty: boolean; dirtyFiles: string[]; snapshot: string; diffHash: string }; // S2
-  testReports: Array<{
-    command: string;
-    exitCode: number;
-    status: 'passed' | 'failed' | 'skipped';
-    attestationId?: string;
-  }>;
-}
-```
+`EngineeringTaskState` 的唯一权威定义见
+[ENGINEERING_CONTRACT §1](../architecture/ENGINEERING_CONTRACT.md)；本节不重复字段。
 
 - 状态由**工程任务**创建并持有；辩论、知识空间只能引用。
 - S1/S2 是快照，不是「开场基线」；不进入任何流程前提。

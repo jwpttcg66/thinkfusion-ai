@@ -1,6 +1,6 @@
 # 工程工作空间 V1
 
-状态：**方向确认（2026-11-18）；P0 技术门禁未全部通过；未实施。**
+状态：**方向确认（2026-11-18）；P0 门禁未过；未实施。**
 范围：工程空间的定位、能力地图、任务生命周期、证据与状态、CLI Agent 协作与安全边界。
 
 定位见 [PRODUCT.md](../PRODUCT.md)，协作机制见
@@ -64,33 +64,8 @@ Intake → Understand → Evidence → Plan → Approve → Execute → Verify �
 
 工程任务需要一个明确的**前后状态**，但这属于工程任务的状态管理，不属于辩论：
 
-```ts
-export interface EngineeringTaskState {
-  taskId: string;
-  repoRoot: string;
-  branch: string;
-  worktree?: string;
-  start: {
-    commit: string;
-    dirty: boolean;
-    dirtyFiles: string[];
-    snapshot: string;        // S1
-  };
-  end?: {
-    commit: string;
-    dirty: boolean;
-    dirtyFiles: string[];
-    snapshot: string;        // S2
-    diffHash: string;
-  };
-  testReports: Array<{
-    command: string;
-    exitCode: number;
-    status: 'passed' | 'failed' | 'skipped';
-    attestationId?: string;
-  }>;
-}
-```
+`EngineeringTaskState` 的唯一权威定义见 [ENGINEERING_CONTRACT §1](ENGINEERING_CONTRACT.md)；
+本节不重复字段。
 
 原则：
 

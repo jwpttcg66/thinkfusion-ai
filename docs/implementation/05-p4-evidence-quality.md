@@ -23,7 +23,7 @@
 
 规则：
 
-- `EvidenceRef` 必须带 `source.hash`（或 `locator + itemHash`）、`capturedAt`、`trust`。
+- `EvidenceRef` 必须带顶层 `hash`、`source.capturedAt`、`trust`；`locator` 可选，没有 `itemHash` 字段。
 - 跨空间复用同一条证据时复用同一个 `packId/itemId`，不复制内容。
 - 旧 Pack 的 `context.kind='baseline'` 只作为历史读取；新代码写 `snapshot`。
 - 不出现第三套哈希：统一用 `evidence-pack/hash.ts`。

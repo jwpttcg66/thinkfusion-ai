@@ -54,8 +54,8 @@
 2. **不新建第二套** Runtime、审批、Journal、TaskGrant、Verifier、Evidence 存储。
 3. **不把动态协作做成新的固定 Pipeline。** 如果每个任务都必须走同一组阶段，
    那只是把辩论换了个名字。
-4. **单一运行时状态。** Goal / Task / Assignment / Observation / Evidence / Budget /
-   StopReason / Deliverable 只存在一份 `CollaborationState` 里；Planner、Scheduler、
+4. **单一运行时状态。** Goal / Plan / TaskSpec / TaskRuntimeState / Assignment / Observation / EvidenceRef /
+   Budget / StopReason / Deliverable 只存在一份 `CollaborationState` 里；Planner、Scheduler、
    Runner、Replanner 只能通过状态转移读写，不各自维护私有状态。
 
 补充：`AGENTS.md` 第 6 节是硬约束——不使用任务提示词，不冻结流程基线。
@@ -65,9 +65,7 @@
 
 ## 4. Feature Flag
 
-```ts
-type CollaborationMode = 'legacy' | 'shadow' | 'active';
-```
+`CollaborationMode` 定义见 [01 §3](01-p0-contracts.md)；这里不重复类型。
 
 | 模式 | 行为 | 用途 |
 | --- | --- | --- |
@@ -153,7 +151,7 @@ type CollaborationMode = 'legacy' | 'shadow' | 'active';
 | Shadow 没有意义 | 只比计划条数 | shadow 指标见 02 文档第 8 节 |
 | 网页通道被塞指令 | 后续轮 question 出现「请指出」 | Adapter 层测试 + 代码审查 |
 | 证据两套并存 | 出现第二个哈希/存储 | P0 契约 + P4 映射表 |
-| 参与者被静默减少 | 状态条少了通道 | 第一手全覆盖测试 |
+| 参与者被静默减少 | 状态条少了通道 | 选中参与者覆盖测试 |
 | 删除过早 | 旧路径不可用 | 删除条件 5.3 |
 | 计划与代码漂移 | 文件/行号对不上 | 基线变更先改计划 |
 

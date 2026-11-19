@@ -62,7 +62,7 @@
 | `EvidenceRef` | 引用 Pack，不复制正文 |
 | `Claim` / `Conflict` / `Dispute` | 主张 / 矛盾 / 未决争议分离 |
 | `CollaborationState` | 唯一运行时聚合根 |
-| `Verification` / `Deliverable` | 验证四态；交付必须带 stopReason |
+| `Verdict`（别名 `Verification`）/ `Deliverable` | 验证四态；交付必须带 stopReason |
 
 不变量：
 
@@ -149,7 +149,7 @@ P0 验收：契约与恢复语义评审通过；实现与测试放 P1.0（M1.0�
 
 - [ ] 基线口径一致：设计 `product-v3`、代码 `cd30be3`
 - [ ] 迁移矩阵覆盖 §1 列出的全部文件，含「不许迁移」与「职责冲突」
-- [ ] `Goal / TaskEnvelope / TaskSpec / Plan / Claim / Dispute / CollaborationState / EvidenceRef / StopReason / Verdict / Deliverable` 类型冻结
+- [ ] `Goal / Policy / TaskEnvelope / TaskSpec / TaskRuntimeState / Attempt / Plan / Assignment / Observation / EvidenceRef / Claim / Conflict / Dispute / CollaborationState / Verdict / StopReason / Deliverable` 类型冻结
 - [ ] 事件枚举与载荷冻结，且不新增事件总线
 - [ ] flag 默认 legacy、可持久化、可回滚
 - [ ] 状态契约（CollaborationState）冻结，落盘位置与恢复语义写明（实现放 P1.0）
