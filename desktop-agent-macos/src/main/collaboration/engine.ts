@@ -5,9 +5,14 @@
  * 供 ConversationRunner 在 shadow 模式下调用；异常由调用方吞掉。
  */
 import type { SubAgentPool } from '../agents/types';
-import type { Goal, Plan } from './domain/types';
+import type { Assignment, CollaborationState, Deliverable, Goal, Plan } from './domain/types';
 import { ParticipantManager } from './participants/manager';
 import { planGoal, type PlannerOptions } from './planner/planner';
+import { schedule } from './scheduler/scheduler';
+import { runPlan } from './runner/runner';
+import { deliver } from './deliver/deliver';
+import { reviewPlanRules, type ReviewResult } from './reviewer';
+import type { ParticipantView } from './participants/manager';
 
 export interface ShadowPlanInput {
   conversationId: string;
@@ -28,4 +33,33 @@ export async function buildShadowPlan(input: ShadowPlanInput): Promise<Plan> {
     createdAt: Date.now()
   };
   return planGoal(goal, participants, input.options);
+}
+
+
+export interface ActiveRunInput {
+  goal: Goal;
+  participants: readonly ParticipantView[];
+  manager: ParticipantManager;
+  options?: PlannerOptions;
+}
+
+export interface ActiveRunResult {
+  plan: Plan;
+  assignments: Assignment[];
+  state: CollaborationState;
+  deliverable: Deliverable;
+  review: ReviewResult;
+}
+
+/**
+ * P1.1 active 管线：Planner → 规则审核 → Scheduler → Runner → Deliver。
+ * 不接 ConversationRunner；供 P1-09 active 分支调用。
+ */
+export async function runCollaboration(input: ActiveRunInput): Promise<ActiveRunResult> {
+  const plan = planGoal(input.goal, input.participants, input.options);
+  const review = reviewPlanRules(plan);
+  if (!review.ok) throw new Error(`计划审核未通过：${review.notes.join('；')}`);
+  const assignments = schedule(plan, input.participants);
+  const state = await runPlan({ goal: input.goal, plan, assignments, manager: input.manager });
+  return { plan, assignments, state, deliverable: deliver(state), review };
 }
