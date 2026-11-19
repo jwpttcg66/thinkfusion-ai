@@ -33,6 +33,8 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
+import { ParticipantManager } from './collaboration/participants/manager';
+import { runCollaboration } from './collaboration/engine';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
 import { TraceRecorder, type StepHandle } from './trace/trace-recorder';
@@ -4942,6 +4944,34 @@ app.whenReady().then(async () => {
     registry,
     emit: emitConversation,
     collaborationMode: () => collaborationModeStore?.get() ?? 'legacy',
+    activeRunner: async ({ conversation, question, pool }) => {
+      const manager = new ParticipantManager(pool);
+      const participants = await manager.list();
+      const workspace =
+        conversation.workspaceMode === 'engineering'
+          ? 'engineering'
+          : conversation.workspaceMode === 'knowledge'
+            ? 'knowledge'
+            : 'general';
+      const result = await runCollaboration({
+        goal: {
+          goalId: conversation.conversationId,
+          workspace,
+          statement: question,
+          constraints: [],
+          acceptance: [],
+          createdAt: Date.now()
+        },
+        participants,
+        manager
+      });
+      return {
+        content: result.deliverable.content,
+        answers: result.state.observations
+          .filter(item => item.status === 'done' && item.text)
+          .map(item => ({ participantId: item.participantId, text: item.text ?? '' }))
+      };
+    },
     onShadowPlan: ({ conversationId, plan }) => {
       fs.appendFile(
         path.join(app.getPath('userData'), 'collaboration-shadow.jsonl'),

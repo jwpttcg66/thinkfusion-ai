@@ -1489,3 +1489,29 @@ test('shadow 模式：旧路径照常回答，同时记录一份计划', async (
   assert.equal(plans[0].conversationId, started.conversationId);
   assert.ok(plans[0].plan.tasks.length >= 2);
 });
+
+test('active 模式：走注入的 activeRunner，落 channel + synthesis', async () => {
+  let called = 0;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('legacy')), fakeChannel('b', () => answer('legacy'))],
+    {
+      deps: {
+        collaborationMode: () => 'active',
+        activeRunner: async () => {
+          called += 1;
+          return {
+            content: '协作引擎交付',
+            answers: [{ participantId: 'a', text: 'A 的观点' }]
+          };
+        }
+      }
+    }
+  );
+  const started = await runner.start({ text: '什么是连接池' });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(called, 1);
+  assert.equal(done.status, 'answered');
+  const messages = runner.messages(started.conversationId);
+  assert.ok(messages.some(m => m.role === 'channel' && m.text === 'A 的观点'));
+  assert.ok(messages.some(m => m.role === 'synthesis' && m.text === '协作引擎交付'));
+});

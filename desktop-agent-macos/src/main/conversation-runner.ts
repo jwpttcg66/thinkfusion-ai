@@ -216,6 +216,17 @@ export interface ConversationDeps {
   collaborationMode?: () => 'legacy' | 'shadow' | 'active';
   onShadowPlan?: (input: { conversationId: string; plan: Plan }) => void;
   /**
+   * P1.1：active 执行入口。只有 mode=active 且注入时才走；不注入行为不变。
+   */
+  activeRunner?: (input: {
+    conversation: Conversation;
+    question: string;
+    pool: SubAgentPool;
+  }) => Promise<{
+    content: string;
+    answers?: Array<{ participantId: string; text: string }>;
+  }>;
+  /**
    * 执行阶段成员（本地 + 云端模型）：它们不参与第一轮回答，但可以当主导人，
    * 也可以当辩手。不传表示没有执行阶段成员。
    */
@@ -1626,6 +1637,52 @@ export class ConversationRunner {
   }
 
   /**
+   * P1.1：active 执行。新引擎给出交付物后，按旧会话的消息结构落盘。
+   * 失败走 fail()，与旧路径一致。
+   */
+  private async runActive(conversation: Conversation, question: string, pool: SubAgentPool): Promise<void> {
+    try {
+      const result = await this.deps.activeRunner!({ conversation, question, pool });
+      const answers = result.answers ?? [];
+      for (const answer of answers) {
+        if (!conversation.channels.includes(answer.participantId)) conversation.channels.push(answer.participantId);
+        conversation.answered = [...new Set([...(conversation.answered ?? []), answer.participantId])];
+        this.addMessage(conversation, {
+          role: 'channel',
+          channelId: answer.participantId,
+          text: answer.text
+        });
+      }
+      const synthesis: Synthesis = {
+        consensus: [],
+        disputed: [],
+        unique: [],
+        gaps: [],
+        recommendation: result.content,
+        leadSummary: true,
+        degraded: answers.length === 0,
+        fusion: {
+          backend: 'local',
+          finalDecision: result.content,
+          undetermined: false,
+          confidence: { level: 'medium', why: 'active collaboration engine' },
+          rejected: [],
+          unresolvedQuestions: [],
+          evidenceCount: 0,
+          relationCount: 0,
+          limits: []
+        }
+      };
+      conversation.status = 'answered';
+      conversation.updatedAt = Date.now();
+      this.save(conversation);
+      this.addMessage(conversation, { role: 'synthesis', text: result.content, synthesis });
+    } catch (error) {
+      this.fail(conversation, error);
+    }
+  }
+
+  /**
    * P1-08：shadow 只算计划。任何异常都吞掉——影子路径不能影响旧路径。
    */
   private async recordShadowPlan(conversation: Conversation, question: string, pool: SubAgentPool): Promise<void> {
@@ -1657,6 +1714,10 @@ export class ConversationRunner {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
     const executorIds = this.deps.executorIdsFor?.(config) ?? new Set<string>();
+    if (this.deps.collaborationMode?.() === 'active' && this.deps.activeRunner) {
+      await this.runActive(conversation, question, pool);
+      return;
+    }
     if (this.deps.collaborationMode?.() === 'shadow' && this.deps.onShadowPlan) {
       void this.recordShadowPlan(conversation, question, pool);
     }

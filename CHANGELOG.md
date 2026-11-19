@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): ConversationRunner active 分支与 index activeRunner 接线（planner→scheduler→runner→deliver）；默认 legacy
 - feat(collaboration): active 管线接入 Replanner 判定、Debate 触发、可选模型审核
 - build(mac): electron-builder 增加 zip target；P6-02 配置检查测试
 - test(engineering): P3-09 六场景验收
