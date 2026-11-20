@@ -146,6 +146,25 @@ export const ExecutionReportSchema = z
         primaryFamily: z.string().max(40).optional()
       })
       .strict()
+      .optional(),
+    // Runtime 的执行验收信息；老报告没有，不能因此失败。
+    verification: z
+      .object({
+        verified: z.boolean(),
+        reasons: z.array(z.string().max(2000)).max(50),
+        changedFiles: z.number().int().min(0),
+        changedPaths: z.array(z.string().max(4000)).max(200).optional(),
+        checks: z
+          .object({
+            compile: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
+            tests: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
+            diagnostics: z.object({ status: z.enum(['passed', 'failed', 'skipped']), errors: z.number().int().min(0), warnings: z.number().int().min(0), source: z.string().max(100).optional(), path: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
+            changedFiles: z.array(z.string().max(4000)).max(200)
+          })
+          .strict()
+          .optional()
+      })
+      .strict()
       .optional()
   })
   .strict()
