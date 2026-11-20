@@ -185,6 +185,8 @@ const api: AgentApi = {
   removeTaskWorktree: (input: TaskWorktreeRemoveInput): Promise<void> =>
     ipcRenderer.invoke('worktree:remove', input),
 
+  getCollaborationPlanView: (conversationId: string) =>
+    ipcRenderer.invoke('collaboration:view:get', conversationId),
   getCollaborationSettings: () => ipcRenderer.invoke('collaboration:settings:get'),
   setCollaborationMode: (mode: 'legacy' | 'shadow' | 'active') =>
     ipcRenderer.invoke('collaboration:settings:set', mode),

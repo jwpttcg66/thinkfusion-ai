@@ -5716,3 +5716,26 @@ button:disabled {
 .rail-dot.off {
   background: var(--text-3);
 }
+
+
+/* B-01 协作计划面板 */
+.collab-plan {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.collab-plan-head { display: flex; gap: 10px; align-items: baseline; }
+.collab-plan-title { font-weight: 600; }
+.collab-plan-behavior, .collab-plan-stop { font-size: 12px; opacity: 0.7; }
+.collab-plan-reason { margin: 6px 0; font-size: 12px; opacity: 0.7; }
+.collab-plan-tasks { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.collab-task { display: flex; gap: 8px; font-size: 13px; align-items: baseline; }
+.collab-task-status { min-width: 48px; opacity: 0.8; }
+.collab-task.is-failed .collab-task-status, .collab-task.is-blocked .collab-task-status { color: #e57373; }
+.collab-task.is-done .collab-task-status { color: #81c784; }
+.collab-task-who, .collab-task-attempts, .collab-task-reason { font-size: 12px; opacity: 0.65; }
+.collab-plan-people summary { cursor: pointer; font-size: 12px; opacity: 0.75; }
+.collab-plan-people ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+.collab-plan-people .is-skipped { opacity: 0.6; }
