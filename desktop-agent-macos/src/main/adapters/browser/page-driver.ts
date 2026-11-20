@@ -2591,6 +2591,23 @@ function cutPrompt(text: string, prompt?: string): string {
   return looksLikePlaceholder(leftover) ? rest : text;
 }
 
+
+/** 执行规划器需要的适配器能力；网页与 Provider 都实现它。 */
+export interface PlanningAdapter {
+  readonly siteLabel: string;
+  getStatus(): Promise<DeepSeekStatus>;
+  sendMessage(text: string, requestId: string): Promise<SendOutcome>;
+  waitForAnswer(
+    requestId: string,
+    snapshot: MessageSnapshot,
+    timeoutMs: number,
+    sentText?: string,
+    onFirstToken?: (at: number) => void,
+    onPartial?: (text: string) => void
+  ): Promise<string>;
+  newConversation(leaving?: string): Promise<{ ok: boolean; method: string; detail?: string }>;
+  cancelWait(requestId: string): void;
+}
 export class ChatPageDriver {
   private waits = new Map<string, AbortController>();
   private tuning: AdapterTuning = { ...DEFAULT_TUNING };

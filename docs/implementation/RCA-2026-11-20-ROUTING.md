@@ -55,3 +55,28 @@ classifyEngineeringIntent("制作一个spring boot的示例工程，")
 
 - 重新构建并切到 `shadow` 观察计划，再切 `active`；
 - 若仍复现，保留该会话的 `collaboration-shadow.jsonl` / trace 与设置，继续按链路排查。
+
+
+## 6. 追加排查：执行规划仍走网页
+
+读 `agent-store.json` 最后两次任务：
+
+```text
+routing.taskKind = engineering_execution
+executionMode = cloud
+selectedCloudModels = [opencode-go:deepseek-v4.1-flash]
+taskId = null
+error = ChatGPT 未登录：页面尚未加载
+```
+
+根因不是本机权限，而是 `AgentOrchestrator` 的 `adapter: () => planningAdapter()`
+仍选网页源生成执行计划；云端模式只影响问答/辩论，不影响执行规划。
+计划没生成 → 没有 taskId → 没有审批/执行/验证。
+
+修复：
+
+- 新增 `PlanningAdapter` 抽象；
+- `ProviderPlanningAdapter` 用选中的云端/本地 Provider 生成计划；
+- `submitWorkspace` 在 cloud/local 模式选择 Provider；没有可用模型时明确报
+  “Planner 不可用”，不再退回网页；
+- web/hybrid 才保留网页规划兜底。

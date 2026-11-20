@@ -19,7 +19,7 @@ import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './eng
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
-import { ChatPageDriver, ContextLimitError } from './adapters/browser/page-driver';
+import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
 import { runPlan, decideStepApproval, answerStepQuestion, cancelPlan } from './agent-manager';
 import { ensureTaskWorktree } from './task-worktree';
 
@@ -29,7 +29,7 @@ export interface OrchestratorDeps {
   tasks: TaskManager;
   store: AgentStore;
   /** 每次取用时都重新解析：运行时切换规划源后，执行链路不能还连着旧页面。 */
-  adapter: () => ChatPageDriver;
+  adapter: () => PlanningAdapter;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
   /**
