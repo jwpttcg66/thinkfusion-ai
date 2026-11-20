@@ -4,6 +4,12 @@
 基线：本地 `main`（未推送）+ 任务分支 `p0-p1-bootstrap`。
 依据：`TASK-BOOK.md` 任务总表、`typecheck`、新增测试脚本。
 
+## 0. 设计状态
+
+A-03/A-04、B、C、D、E 的设计已完成，见
+[V3-FORMAL-FEATURES-DESIGN.md](V3-FORMAL-FEATURES-DESIGN.md)。
+下表统计的是**实施完成度**，不是设计完成度。
+
 ## 1. 总览
 
 | 阶段 | 完成 | 部分 | 未开始 | 合计 |

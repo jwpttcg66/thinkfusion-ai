@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- docs: 标记 A-03..E 设计完成；实施状态与设计状态分离
 - docs(design): 新增 V3-FORMAL-FEATURES-DESIGN，覆盖 A-03/A-04、B UI-01..07、C、D、E
 - feat(collaboration): P1-04 并发/取消/超时；Runner 依赖感知、最大并发、AbortSignal、timeout
 - feat(collaboration): P1-00 CollaborationState 存 AgentStore；重启恢复把 running 标 blocked；active 路径保存/恢复
