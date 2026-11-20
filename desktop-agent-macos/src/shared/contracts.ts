@@ -1033,12 +1033,25 @@ export const PlanSchema = z
     planId: Id.optional(),
     title: z.string().min(1).max(120),
     description: z.string().max(2000),
+    /** 云端 Planner 标记：设计文档/观点，或实现计划。 */
+    kind: z.enum(['design', 'implementation']).default('implementation'),
+    /** kind=design 时必填：设计文档正文与观点。 */
+    design: z
+      .object({
+        document: z.string().min(1).max(20000),
+        viewpoints: z.array(z.string().min(1).max(1000)).min(1).max(20)
+      })
+      .strict()
+      .optional(),
     steps: z.array(StepSchema).min(1).max(30),
     completion: z.object({ condition: z.string().min(1).max(1000) }).strict()
   })
   .strict()
   .refine(plan => new Set(plan.steps.map(step => step.id)).size === plan.steps.length, {
     message: 'step id 必须唯一'
+  })
+  .refine(plan => plan.kind !== 'design' || !!plan.design, {
+    message: 'kind=design 必须提供 design.document 与 viewpoints'
   })
   .refine(
     plan => plan.steps.every(step =>
