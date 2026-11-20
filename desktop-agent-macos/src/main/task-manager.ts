@@ -61,7 +61,7 @@ export class TaskManager {
       updatedAt: now,
       maxRounds: 20,
       maxSteps: 30,
-      timeoutMs: 180_000
+      timeoutMs: 600_000
     };
     this.store.upsertTask(task);
     this.publish(task);
