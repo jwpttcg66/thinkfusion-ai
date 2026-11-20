@@ -32,6 +32,8 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
+import type { PlanningAdapter } from './adapters/browser/page-driver';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
 import { ParticipantManager } from './collaboration/participants/manager';
 import { runCollaboration } from './collaboration/engine';
@@ -416,6 +418,8 @@ let store: AgentStore;
 let traceStore: TraceStore;
 let tasks: TaskManager;
 let orchestrator: AgentOrchestrator;
+/** 当前这次执行规划用哪个适配器；conversation submit 串行设置。 */
+let planningOverride: PlanningAdapter | null = null;
 let conversations: ConversationRunner;
 /** P1-08：协作模式与 shadow 计划落点；默认 legacy。 */
 let collaborationModeStore: CollaborationModeStore | null = null;
@@ -4862,10 +4866,43 @@ app.whenReady().then(async () => {
   });
 
   tasks = new TaskManager(store, emit);
+
+  /**
+   * 云端/本地模式用选中的 Provider 做计划，不再去网页规划器。
+   * 只有 web 或 hybrid 没有可用模型时才返回 null，走网页兜底。
+   */
+  async function pickPlanningAgent(input: {
+    executionMode?: 'web' | 'local' | 'cloud' | 'hybrid';
+    plannerAgentId?: string;
+    selectedCloudModels?: string[];
+  }): Promise<(typeof extraAgents)[number] | null> {
+    if (!input.executionMode || input.executionMode === 'web') return null;
+    const available: typeof extraAgents = [];
+    for (const agent of extraAgents) {
+      try {
+        if ((await agent.health()).available) available.push(agent);
+      } catch { /* 不可用就跳过 */ }
+    }
+    const lead = input.plannerAgentId
+      ? available.find(agent => agent.id === input.plannerAgentId)
+      : undefined;
+    if (lead) return lead;
+    if (input.executionMode === 'cloud') {
+      return available.find(agent =>
+        agent.sourceType === 'cloud' &&
+        (!input.selectedCloudModels || input.selectedCloudModels.includes(agent.id))
+      ) ?? null;
+    }
+    if (input.executionMode === 'local') {
+      return available.find(agent => agent.sourceType === 'local') ?? null;
+    }
+    return available.find(agent => agent.sourceType === 'cloud') ?? available.find(agent => agent.sourceType === 'local') ?? null;
+  }
+
   orchestrator = new AgentOrchestrator({
     tasks,
     store,
-    adapter: () => planningAdapter(),
+    adapter: () => planningOverride ?? planningAdapter(),
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
     onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
@@ -5318,13 +5355,23 @@ app.whenReady().then(async () => {
     },
     submitWorkspace: async input => {
       await ensureChannelSnapshot();
-      return orchestrator.submit({
-        prompt: input.prompt,
-        permissionPreset: input.permissionPreset as PermissionPreset,
-        workspaceRoot: input.workspaceRoot,
-        planDebate: input.planDebate,
-        expertise: input.expertise
-      });
+      const planner = await pickPlanningAgent(input);
+      if (planner) {
+        planningOverride = new ProviderPlanningAdapter(planner);
+      } else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
+        throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
+      }
+      try {
+        return await orchestrator.submit({
+          prompt: input.prompt,
+          permissionPreset: input.permissionPreset as PermissionPreset,
+          workspaceRoot: input.workspaceRoot,
+          planDebate: input.planDebate,
+          expertise: input.expertise
+        });
+      } finally {
+        planningOverride = null;
+      }
     }
   });
 

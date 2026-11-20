@@ -168,6 +168,9 @@ export interface ConversationDeps {
     /** V2.1 D-03：会话里的辩论开关，决定计划要不要先辩一场。 */
     planDebate?: 'auto' | 'on' | 'off';
     expertise?: readonly string[];
+    executionMode?: ConversationExecutionConfig['executionMode'];
+    plannerAgentId?: string;
+    selectedCloudModels?: string[];
   }) => Promise<AgentTask>;
   /**
    * V2.1 Model Router（产品定义第 8 节）：这一轮用哪些模型、为什么。
@@ -785,6 +788,11 @@ export class ConversationRunner {
           permissionPreset: input.permissionPreset ?? 'workspace-write',
           workspaceRoot: input.workspaceRoot,
           expertise,
+          executionMode: executionConfig.executionMode,
+          ...(executionConfig.leadAgentId ? { plannerAgentId: executionConfig.leadAgentId } : {}),
+          ...(executionConfig.selectedCloudModels
+            ? { selectedCloudModels: executionConfig.selectedCloudModels }
+            : {}),
           // 方案评审辩论跟着这条会话的辩论开关走：用户关掉时不能因为「进入执行
           // 链路」就自己开一场，那正是「不得无声扩大模型调用」要防的事。
           planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
@@ -1414,7 +1422,11 @@ export class ConversationRunner {
             prompt: outgoing,
             permissionPreset: 'workspace-write',
             workspaceRoot: conversation.workspaceRoot,
-            planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
+            planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto',
+            executionMode: normalizeExecutionConfig(conversation.executionConfig).executionMode,
+            ...(normalizeExecutionConfig(conversation.executionConfig).leadAgentId
+              ? { plannerAgentId: normalizeExecutionConfig(conversation.executionConfig).leadAgentId }
+              : {}),
           });
           conversation.taskId = task.taskId;
           conversation.status = 'answered';
