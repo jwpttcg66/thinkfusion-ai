@@ -70,7 +70,7 @@ UI 可以晚于 P5，也可以从 P1-10 之后增量做，但不阻塞引擎。
 | P5 | 能力、路由、降级、通道、费用 | [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)、[06](06-p5-channels.md) |
 | P6 | 发布、迁移、备份、诊断、回滚 | [RELEASE_OPERATIONS](../architecture/RELEASE_OPERATIONS.md) |
 | UI | 计划、参与者、证据、工程、知识 | [07](07-ui.md)、[V3 设计包](V3-FORMAL-FEATURES-DESIGN.md) |
-| A-03..E | 行为、Gate、UI、质量、退出、验收 | [V3 设计包](V3-FORMAL-FEATURES-DESIGN.md) |
+| A-03..E | 行为、Gate、UI、质量、退出、E-01..04 验收 | [V3 设计包](V3-FORMAL-FEATURES-DESIGN.md) |
 | X | 文档、测试工具、删除、发布 | 本文件 + [00](00-master-plan.md) |
 
 ---
