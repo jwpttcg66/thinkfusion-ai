@@ -2128,6 +2128,38 @@ export interface TraceResult {
   totals: TraceTotals;
 }
 
+export interface CollaborationParticipantView {
+  participantId: string;
+  role: 'answerer' | 'questioner';
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  outputPreview?: string;
+  reason?: string;
+  taskIds: string[];
+}
+
+export interface CollaborationEvidenceView {
+  evidenceId: string;
+  kind: 'web' | 'code' | 'execution' | 'knowledge' | 'tool';
+  summary: string;
+  source: string;
+  trust: 'verified' | 'unverified' | 'degraded';
+  taskId?: string;
+}
+
+export interface CollaborationDeliverableView {
+  content: string;
+  stopReason: string;
+  evidenceCoverage: number;
+  openQuestions: string[];
+  claims: Array<{ text: string; relation: 'supports' | 'contradicts' | 'context' | 'unverified' }>;
+}
+
+export interface CollaborationDetailsView {
+  participants: CollaborationParticipantView[];
+  evidence: CollaborationEvidenceView[];
+  deliverable?: CollaborationDeliverableView;
+}
+
 export interface CollaborationTaskView {
   taskId: string;
   kind: string;
@@ -2403,6 +2435,7 @@ export interface AgentApi {
 
   // environment
   getCollaborationPlanView(conversationId: string): Promise<CollaborationPlanView | null>;
+  getCollaborationDetails(conversationId: string): Promise<CollaborationDetailsView | null>;
   getCollaborationSettings(): Promise<{
     mode: 'legacy' | 'shadow' | 'active';
     gate: { ok: boolean; reasons: string[] };

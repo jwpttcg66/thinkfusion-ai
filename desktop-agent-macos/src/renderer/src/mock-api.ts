@@ -430,6 +430,7 @@ export function createMockApi(): AgentApi {
     }),
     removeTaskWorktree: async () => undefined,
     getCollaborationPlanView: async () => null,
+    getCollaborationDetails: async () => null,
     getCollaborationSettings: async () => null,
     setCollaborationMode: async () => null,
     getPermissionPreset: async () => preset,

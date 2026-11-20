@@ -5739,3 +5739,18 @@ button:disabled {
 .collab-plan-people summary { cursor: pointer; font-size: 12px; opacity: 0.75; }
 .collab-plan-people ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
 .collab-plan-people .is-skipped { opacity: 0.6; }
+
+
+/* B-02/B-03 参与者与证据 */
+.collab-people, .collab-evidence { margin: 0 0 12px; }
+.collab-section-head { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.collab-people ul, .collab-evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.collab-person, .collab-evidence-item { border-left: 2px solid rgba(255,255,255,0.12); padding: 4px 10px; }
+.collab-person-line, .collab-evidence-line { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.collab-person-role, .collab-person-status, .collab-evidence-kind, .collab-evidence-trust, .collab-evidence-task { font-size: 12px; opacity: 0.7; }
+.collab-person-reason, .collab-evidence-source { font-size: 12px; opacity: 0.6; }
+.collab-person-output { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+.collab-person.is-failed { border-left-color: #e57373; }
+.collab-person.is-done { border-left-color: #81c784; }
+.collab-evidence-item.is-degraded { border-left-color: #ffb74d; }
+.collab-evidence-summary { font-size: 13px; }

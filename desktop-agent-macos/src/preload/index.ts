@@ -187,6 +187,8 @@ const api: AgentApi = {
 
   getCollaborationPlanView: (conversationId: string) =>
     ipcRenderer.invoke('collaboration:view:get', conversationId),
+  getCollaborationDetails: (conversationId: string) =>
+    ipcRenderer.invoke('collaboration:details:get', conversationId),
   getCollaborationSettings: () => ipcRenderer.invoke('collaboration:settings:get'),
   setCollaborationMode: (mode: 'legacy' | 'shadow' | 'active') =>
     ipcRenderer.invoke('collaboration:settings:set', mode),
