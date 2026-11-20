@@ -5217,6 +5217,7 @@ app.whenReady().then(async () => {
       if (input.effectiveMode === 'web' && input.seeds.length > 0) {
         plan.warnings.push('会话内网页主导：基准观点取本轮全部网页回答（不再重复提问），质疑与回应由主导人一个页面完成');
       }
+      const singleModel = plan.participants.length === 1;
       const state = debates.start(
         input.question,
         {
@@ -5224,7 +5225,9 @@ app.whenReady().then(async () => {
           strategy: input.debateStrategy ?? 'truth',
           // 三步各一轮：独立表态 → 质疑 → 回应修订。两轮的话「回应」那一轮
           // 根本不存在，AC-06 要求的决策就永远记不到。
-          maxRounds: 3,
+          // 单模型自辩只跑一轮：同一模型连续三轮会长时间只有「运行中」，
+          // 且没有第二方可供修订；一轮自质疑足够暴露问题。
+          maxRounds: singleModel ? 1 : 3,
           participants: plan.participants,
           convergenceStop: true,
           leadMode: input.mode,
@@ -5239,7 +5242,11 @@ app.whenReady().then(async () => {
           // 任务书原值是 4 分钟，但会话里前面还有第一轮和汇总；4 分钟辩论再
           // 加 2 分钟最终意见，用户会以为卡死。收敛停止照常生效，真的需要
           // 更多轮的手动辩论仍走 120 秒 / 3 分钟那一档。
-          budget: { stageTimeoutMs: 60_000, totalMs: 150_000, maxConcurrency: 3 }
+          budget: {
+            stageTimeoutMs: singleModel ? 45_000 : 60_000,
+            totalMs: singleModel ? 60_000 : 150_000,
+            maxConcurrency: 3
+          }
         },
         input.conversationId,
         plan,
