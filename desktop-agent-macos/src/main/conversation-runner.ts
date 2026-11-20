@@ -37,6 +37,7 @@ import {
   LEAD_VERDICT_SYSTEM,
   leadSummarySystem,
   parseTopics,
+  parseDoubts,
   rewriteSourceRefs,
   sourceTags,
   type LeadTaskKind
@@ -2724,6 +2725,11 @@ export class ConversationRunner {
     // on 在主导人没找到分歧时拿原问题兜一个辩题，保证「开启」真的开了。
     const debateMode = normalizeDebateMode(config.debateMode);
     let topics = debateMode === 'off' ? [] : parseTopics(summaryText);
+    // 没有辩题但有存疑：把存疑变成核查题，不能停在综合分析卡。
+    if (debateMode !== 'off' && topics.length === 0) {
+      const doubts = parseDoubts(summaryText);
+      if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
+    }
     if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
