@@ -35,6 +35,8 @@ import { AgentStore } from './store';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
 import { ParticipantManager } from './collaboration/participants/manager';
 import { runCollaboration } from './collaboration/engine';
+import { CollaborationSettings } from './collaboration/settings';
+import { ShadowMetricsStore } from './collaboration/metrics-store';
 import { loadState, needsResume, recoverState, saveState } from './collaboration/persistence';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
@@ -415,6 +417,8 @@ let orchestrator: AgentOrchestrator;
 let conversations: ConversationRunner;
 /** P1-08：协作模式与 shadow 计划落点；默认 legacy。 */
 let collaborationModeStore: CollaborationModeStore | null = null;
+let collaborationMetrics: ShadowMetricsStore | null = null;
+let collaborationSettings: CollaborationSettings | null = null;
 
 /**
  * One adapter per source, created on first use.
@@ -4761,6 +4765,12 @@ app.whenReady().then(async () => {
   collaborationModeStore = new CollaborationModeStore(
     collaborationModePath(app.getPath('userData'))
   );
+  collaborationMetrics = new ShadowMetricsStore(
+    path.join(app.getPath('userData'), 'collaboration-metrics.json')
+  );
+  collaborationSettings = new CollaborationSettings(collaborationModeStore, collaborationMetrics);
+  ipcMain.handle('collaboration:settings:get', () => collaborationSettings?.get() ?? null);
+  ipcMain.handle('collaboration:settings:set', (_event, mode: unknown) => collaborationSettings?.set(mode) ?? null);
   traceStore = new TraceStore(path.join(app.getPath('userData'), 'traces'));
   windowStateFile = path.join(app.getPath('userData'), 'window-state.json');
   selectorStore = new SelectorStore(path.join(app.getPath('userData'), 'selector-profile.json'));
@@ -4990,6 +5000,12 @@ app.whenReady().then(async () => {
       };
     },
     onShadowPlan: ({ conversationId, plan }) => {
+      collaborationMetrics?.record({
+        planned: true,
+        covered: plan.tasks.length > 0,
+        tasks: plan.tasks.length,
+        simple: plan.tasks.length <= 2
+      });
       fs.appendFile(
         path.join(app.getPath('userData'), 'collaboration-shadow.jsonl'),
         `${JSON.stringify({ at: Date.now(), conversationId, plan })}\n`,
