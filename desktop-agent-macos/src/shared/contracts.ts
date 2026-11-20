@@ -2158,7 +2158,8 @@ export interface CollaborationEngineeringView {
   repoRoot: string;
   branch?: string;
   start?: { commit: string; dirty: boolean; snapshot: string };
-  end?: { commit: string; dirty: boolean; snapshot: string; diffHash?: string };
+  end?: { commit: string; dirty: boolean; snapshot: string; diffHash?: string; diff?: string };
+  progress?: { done: number; total: number };
   tests: Array<{ command: string; status: string }>;
   build?: { status: string };
   review?: { verdict: string; issues: string[] };

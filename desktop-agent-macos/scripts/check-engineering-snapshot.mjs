@@ -26,6 +26,7 @@ test('S1 干净；修改后 dirty 且指纹变化；提交后恢复干净', () =
   fs.writeFileSync(path.join(dir, 'a.txt'), 'two');
   const s2 = captureSnapshot(dir, 'S2');
   assert.equal(s2.dirty, true);
+  assert.match(s2.diff ?? '', /two/);
   assert.deepEqual(s2.dirtyFiles, ['a.txt']);
   assert.equal(sameSnapshot(s1, s2), false);
   execFileSync('git', ['commit', '-qam', 'change'], { cwd: dir });

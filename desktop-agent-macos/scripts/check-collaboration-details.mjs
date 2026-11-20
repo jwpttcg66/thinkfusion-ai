@@ -36,6 +36,7 @@ test('工程/知识 View 映射', async () => {
   });
   assert.equal(engineering.engineering.repoRoot, '/r');
   assert.equal(engineering.engineering.tests[0].status, 'passed');
+  assert.ok(engineering.engineering.progress.total > 0);
 
   const knowledge = buildCollaborationDetails({
     ...base,
