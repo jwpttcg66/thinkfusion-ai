@@ -79,6 +79,7 @@ export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
 
 /** 计划里值得辩的风险点，最多三条，按严重程度排序。 */
 export function planDebateTopics(plan: AgentPlan): string[] {
+  if (plan.kind === 'design' && plan.design) return [...plan.design.viewpoints];
   const steps = plan.steps ?? [];
   const tools = steps.map(step => step.tool);
   const writes = steps.filter(step =>
@@ -145,12 +146,8 @@ export function shouldDebatePlan(
 ): { debate: boolean; reason?: string } {
   const effective = mode ?? 'auto';
   const steps = plan.steps ?? [];
-  // 新建工程 / 写文件不再受开关影响：这是用户明确要求的强制评审。
-  const writes = steps.some(step =>
-    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
-    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
-  );
-  if (writes) return { debate: true, reason: '计划包含新建/写文件，强制方案评审' };
+  // 设计文档/观点：强制评审，不受开关影响；与写文件等工具无关。
+  if (plan.kind === 'design') return { debate: true, reason: '设计文档/观点，强制评审' };
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
@@ -176,6 +173,18 @@ export function shouldDebatePlan(
  * 它需要知道要判断什么，也需要看到计划本身。
  */
 export function planReviewQuestion(plan: AgentPlan): string {
+  if (plan.kind === 'design' && plan.design) {
+    return [
+      `【待评审的设计文档】${plan.title}`,
+      plan.design.document,
+      '',
+      '【设计观点】',
+      ...plan.design.viewpoints.map((item, index) => `${String(index + 1)}. ${item}`),
+      '',
+      '请判断：这份设计是否成立？哪些观点互相矛盾、缺了什么依据、有没有更稳妥的替代方案。' +
+        '结论要指向具体观点编号。'
+    ].join('\n');
+  }
   const steps = (plan.steps ?? [])
     .map((step, index) => `${index + 1}. [${step.tool}] ${step.description ?? ''} ${JSON.stringify(step.args)}`)
     .join('\n');

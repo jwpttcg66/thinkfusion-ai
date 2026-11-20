@@ -420,6 +420,8 @@ const PLAN_SHAPE = `{
   "roundId": "<原样回填>",
   "title": "计划标题",
   "description": "计划说明",
+  "kind": "design | implementation",
+  "design": { "document": "设计文档正文（仅 design）", "viewpoints": ["观点（仅 design）"] },
   "steps": [
     { "id": "step-1", "tool": "fs.list", "description": "说明", "args": { "path": "." } }
   ],
@@ -696,6 +698,8 @@ export function buildInitialPrompt(input: {
     web.search；拿到结果后再决定是否 web.fetch 读正文。引用必须带 url。
     搜索返回 0 条就如实说没查到，不要用记忆里的链接凑数——链接失效比没有链接更糟。
 12. 写完代码要验证时用 code.run 跑一遍真实的解释器，不要只描述「理论上可行」。
+13. 如果这次产出的是**设计文档或设计观点**（不是直接改代码），把 kind 设为 design，
+    并在 design 里给出完整文档与观点列表；design 计划会强制评审。其余情况 kind=implementation。
 
 ${TOOL_SPEC}
 
