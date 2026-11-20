@@ -67,6 +67,9 @@ export interface TaskEnvelope {
 
 export type TaskKind = 'analyze' | 'research' | 'verify' | 'review' | 'execute' | 'synthesize';
 
+/** A-03：协作行为只决定任务图，不新增 Runtime。 */
+export type CollaborationBehavior = 'independent' | 'parallel' | 'progressive' | 'crosscheck';
+
 export interface EngineeringTaskState {
   taskId: string;
   context: Record<string, unknown>;
@@ -131,6 +134,8 @@ export interface Plan {
   skipped: Array<{ participantId: string; reason: string }>;
   stopWhen: string[];
   reason: string;
+  behavior?: CollaborationBehavior;
+  behaviorReason?: string;
   createdAt: number;
 }
 

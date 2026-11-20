@@ -12,10 +12,10 @@ import type {
   Goal,
   ModelScope,
   Plan,
-  Policy,
-  TaskSpec
+  Policy
 } from '../domain/types';
 import type { ParticipantView } from '../participants/manager';
+import { buildBehaviorTasks, chooseBehavior } from '../behaviors/strategy';
 
 export interface PlannerOptions {
   modelScope?: ModelScope;
@@ -47,7 +47,7 @@ function score(participant: ParticipantView): number {
 export function planGoal(goal: Goal, participants: readonly ParticipantView[], options: PlannerOptions = {}): Plan {
   const scope = options.modelScope ?? 'hybrid';
   const includeWeb = options.includeWeb ?? true;
-  const complex = isComplex(goal.statement);
+  const complex = isComplex(goal.statement) || goal.workspace === 'engineering';
   const policy: Policy = {
     modelScope: scope,
     includeWeb,
@@ -70,35 +70,8 @@ export function planGoal(goal: Goal, participants: readonly ParticipantView[], o
       reason: !item.available ? item.reason ?? '不可用' : '未满足范围/数量'
     }));
 
-  const tasks: TaskSpec[] = selected.map((participant, index) => ({
-    taskId: `t-analyze-${String(index)}`,
-    goalId: goal.goalId,
-    kind: 'analyze',
-    envelope: {
-      question: goal.statement,
-      acceptance: goal.acceptance,
-      evidenceRequired: false
-    },
-    dependsOn: [],
-    requiredCapabilities: [],
-    context: { participantId: participant.participantId }
-  }));
-
-  const synthesizer =
-    selected.find(item => item.kind !== 'web')?.participantId ?? selected[0].participantId;
-  tasks.push({
-    taskId: 't-synthesize',
-    goalId: goal.goalId,
-    kind: 'synthesize',
-    envelope: {
-      question: goal.statement,
-      acceptance: goal.acceptance,
-      evidenceRequired: false
-    },
-    dependsOn: tasks.map(task => task.taskId),
-    requiredCapabilities: ['reasoning'],
-    context: { participantId: synthesizer }
-  });
+  const choice = chooseBehavior(goal, selected, complex);
+  const tasks = buildBehaviorTasks(goal, selected, choice.behavior);
 
   return {
     planId: randomUUID(),
@@ -112,7 +85,9 @@ export function planGoal(goal: Goal, participants: readonly ParticipantView[], o
     })),
     skipped,
     stopWhen: ['acceptance_satisfied', 'no_new_information', 'budget_exhausted'],
-    reason: complex ? '规则：复杂问题，多参与者 + 汇总' : '规则：简单问题，单参与者 + 汇总',
+    reason: `规则：${choice.reason}`,
+    behavior: choice.behavior,
+    behaviorReason: choice.reason,
     createdAt: Date.now()
   };
 }
