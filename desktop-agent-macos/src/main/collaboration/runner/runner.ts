@@ -51,6 +51,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 export async function runPlan(input: RunnerInput): Promise<CollaborationState> {
   const now = input.now ?? (() => Date.now());
   let state = createCollaborationState(input.goal, input.plan, input.plan.policy.budget);
+  state = { ...state, assignments: [...input.assignments] };
   const byTask = new Map(input.plan.tasks.map(task => [task.taskId, task]));
   const pending = input.assignments.filter(item => byTask.has(item.taskId));
   const max = Math.max(1, input.maxConcurrency ?? 3);
