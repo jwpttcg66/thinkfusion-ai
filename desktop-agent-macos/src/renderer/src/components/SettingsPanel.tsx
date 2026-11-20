@@ -41,6 +41,8 @@ import { Glyph } from './Glyph';
 import { CodeIntelligenceSettings } from './CodeIntelligenceSettings';
 import { PERMISSIONS } from './TaskInput';
 
+import { CollaborationSettingsSection } from './CollaborationSettingsSection';
+
 export type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents' | 'intelligence';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> = [
@@ -887,6 +889,8 @@ export function SettingsPanel(props: {
 
           <div className="settings-main">
             {section === 'general' && (
+              <>
+              <CollaborationSettingsSection />
               <section className="settings-section">
                 <h3>通用设置</h3>
                 <p className="settings-lead">这个应用只跑在这台机器上，任务、对话和网页登录都留在本地。</p>
@@ -949,6 +953,7 @@ export function SettingsPanel(props: {
                   </div>
                 </div>
               </section>
+              </>
             )}
 
             {section === 'models' && (
