@@ -18,15 +18,35 @@ test('简单问题：1 个参与者、2 个任务（分析+汇总）', () => {
   assert.equal(plan.tasks.length, 2);
   assert.equal(plan.tasks[1].kind, 'synthesize');
   assert.equal(plan.policy.minParticipants, 1);
-  assert.match(plan.reason, /简单/);
+  assert.equal(plan.behavior, 'independent');
 });
 
-test('复杂问题：至少 2 个参与者、3 个任务', () => {
+test('比较问题：crosscheck，2 组分析 + 2 组复核 + 汇总', () => {
   const participants = [p('cloud', 'cloud'), p('local', 'local'), p('web', 'web')];
   const plan = planGoal(goal('比较 Envoy 和 Nginx 的优劣'), participants);
   assert.equal(plan.participants.length, 2);
+  assert.equal(plan.behavior, 'crosscheck');
   assert.equal(plan.tasks.filter(t => t.kind === 'analyze').length, 2);
+  assert.equal(plan.tasks.filter(t => t.kind === 'review').length, 2);
+  assert.equal(plan.tasks.length, 5);
+});
+
+test('复杂分析：parallel，2 分析 + 汇总', () => {
+  const plan = planGoal(goal('分析 Redis 连接数过高的原因'), [p('cloud', 'cloud'), p('local', 'local')]);
+  assert.equal(plan.behavior, 'parallel');
   assert.equal(plan.tasks.length, 3);
+});
+
+test('工程只读：progressive，分析→验证→汇总', () => {
+  const plan = planGoal(goal('分析这个仓库的分层', 'engineering'), [p('web', 'web'), p('cloud', 'cloud')]);
+  assert.equal(plan.behavior, 'progressive');
+  assert.deepEqual(plan.tasks.map(t => t.kind), ['analyze', 'analyze', 'verify', 'synthesize']);
+});
+
+test('工程写操作：crosscheck', () => {
+  const plan = planGoal(goal('修复 a.ts 的 bug', 'engineering'), [p('web', 'web'), p('cloud', 'cloud')]);
+  assert.equal(plan.behavior, 'crosscheck');
+  assert.equal(plan.tasks.filter(t => t.kind === 'review').length, 2);
 });
 
 test('范围过滤：local 不选 cloud；web 由 includeWeb 决定', () => {

@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): A-03/P1-07 四种行为任务图（independent/parallel/progressive/crosscheck），Planner 选择与理由
 - docs(design): 补全 E-01..E-04 验收设计（三空间 E2E、异常矩阵、一致性、报告模板）与覆盖清单
 - docs: 标记 A-03..E 设计完成；实施状态与设计状态分离
 - docs(design): 新增 V3-FORMAL-FEATURES-DESIGN，覆盖 A-03/A-04、B UI-01..07、C、D、E
