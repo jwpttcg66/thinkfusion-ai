@@ -683,11 +683,18 @@ export class ConversationRunner {
     const attachments = await this.attachmentTexts(input.attachments);
     const outgoing = composeQuestionWithAttachments(text, attachments);
 
-    const intent = classifyIntent(text);
     const workspaceMode = normalizeWorkspaceMode(input.workspaceMode);
     const executionConfig = normalizeExecutionConfig(input.executionConfig);
+    /**
+     * 云端/本地驱动：工程请求不做本地词表/分类提示词预判，直接交给 Planner。
+     * 只有纯网页模式（没有可用模型）才保留规则兜底。
+     */
+    const plannerFirst = workspaceMode === 'engineering' && executionConfig.executionMode !== 'web';
+    const intent = plannerFirst
+      ? { kind: 'workspace' as const, reason: '工程请求交给 Planner 判定' }
+      : classifyIntent(text);
     const routing: TaskRouting | undefined =
-      workspaceMode === 'engineering'
+      workspaceMode === 'engineering' && !plannerFirst
         ? await this.engineeringRouting({
             text,
             attachments,
@@ -812,6 +819,13 @@ export class ConversationRunner {
     // just records that it happened.
     if (intent.kind === 'workspace' && workspaceMode === 'knowledge') {
       return handoff('这是一次工作区操作');
+    }
+
+    if (plannerFirst) {
+      if (!input.workspaceRoot) {
+        return this.awaitUser(conversation, '工程工作空间还没有选择项目目录。先点输入框上的「选择项目」，再重新问一次。');
+      }
+      return handoff('已交给工程 Planner 判定');
     }
 
     if (routing) {

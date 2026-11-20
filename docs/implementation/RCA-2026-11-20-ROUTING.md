@@ -29,11 +29,13 @@ classifyEngineeringIntent("制作一个spring boot的示例工程，")
 
 ## 3. 本次修复
 
-- `EXECUTION_VERBS` 增加：`制作|生成|搭建|初始化|脚手架`；
-- 新增回归 `check-v3-routing`：
-  - “制作/生成/搭建”必须 `engineering_execution`；
-  - “分析目录结构”仍是 `engineering_analysis`；
-  - 云端主导不把网页放进回答名单。
+1. **云端/本地驱动不再预判**：`executionMode !== 'web'` 时，工程请求跳过
+   `routeTask` 词表和 `ROUTING_SYSTEM` 分类提示词，直接交给 Planner；
+   只有纯网页模式保留规则兜底。
+2. `EXECUTION_VERBS` 增加：`制作|生成|搭建|初始化|脚手架`（仅网页兜底）。
+3. 新增回归：
+   - `check-runner`：云端工程“分析目录结构”也直接交 Planner，不问网页；
+   - `check-v3-routing`：制作/生成/搭建判实施；云端主导不问网页。
 
 ## 4. 仍需确认
 

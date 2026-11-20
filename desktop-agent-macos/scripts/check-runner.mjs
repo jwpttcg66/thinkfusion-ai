@@ -1517,3 +1517,29 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
   assert.ok(messages.some(m => m.role === 'synthesis' && m.text === '协作引擎交付'));
   assert.ok(messages.some(m => m.role === 'system' && m.text.includes('停止原因')));
 });
+
+test('云端工程：不做词表预判，直接交 Planner', async () => {
+  let submitted = null;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('不应该被问到'))],
+    {
+      deps: {
+        submitWorkspace: async input => {
+          submitted = input;
+          return { taskId: 'task-cloud' };
+        }
+      }
+    }
+  );
+  const started = await runner.start({
+    text: '分析这个仓库的目录结构',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/project',
+    executionConfig: { executionMode: 'cloud' }
+  });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(done.status, 'answered');
+  assert.equal(done.intent, 'workspace');
+  assert.ok(submitted, '应交给 Planner，而不是问网页');
+  assert.match(submitted.prompt, /分析这个仓库/);
+});

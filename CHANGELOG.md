@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- fix(routing): 云端/本地工程请求跳过词表/分类提示词，直接交 Planner；仅网页模式规则兜底
 - fix(routing): 工程动词补 制作/生成/搭建/初始化/脚手架；新增 routing 回归与云端主导不问网页测试
 - feat(ui): UI-05 工程 diff/进度；验收报告改为“正式功能范围通过”
 - feat(ui/settings): P1-14 协作设置页；UI-06 移除直接辩论入口；X-04 发布清单完成
