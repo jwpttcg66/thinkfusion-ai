@@ -288,6 +288,31 @@ export function containsEcho(text: string, echo?: string): boolean {
  * 真机要跑什么，容错在那里就是把「模型写错了」变成「机器做错事」。
  */
 function normalizePlanShape(value: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...value };
+  // 模型常见别名：stepId / summary；计划字段缺失时用摘要兜底。
+  delete next.summary;
+  delete next.status;
+  delete next.reason;
+  delete next.knownResults;
+  delete next.nextAction;
+  if (Array.isArray(next.steps)) {
+    next.steps = next.steps.map((step, index) => {
+      if (!step || typeof step !== 'object' || Array.isArray(step)) return step;
+      const item = { ...(step as Record<string, unknown>) };
+      if (!item.id) item.id = item.stepId ?? `step-${String(index + 1)}`;
+      delete item.stepId;
+      return item;
+    });
+  }
+  if (typeof next.title !== 'string' || !next.title.trim()) {
+    const summary = typeof value.summary === 'string' ? value.summary.trim() : '';
+    next.title = (summary || '执行计划').slice(0, 120);
+  }
+  if (typeof next.description !== 'string') {
+    next.description = typeof value.summary === 'string' ? value.summary.slice(0, 2000) : '';
+  }
+  if (!next.completion) next.completion = { condition: '完成用户目标' };
+  value = next;
   const completion = value.completion;
   const asCondition = (raw: unknown): string | null => {
     if (typeof raw === 'string') return raw.trim() || null;
