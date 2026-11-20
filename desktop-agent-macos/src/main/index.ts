@@ -32,6 +32,7 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
@@ -299,6 +300,7 @@ let sourceLoading = false;
 
 const accessibility = new PlatformAccessibility();
 let permissionPreset: PermissionPreset = 'workspace-write';
+let permissionPresetFile: string | null = null;
 let statusTimer: NodeJS.Timeout | null = null;
 /** Width the user dragged the page pane to, or null for the default ratio. */
 let preferredSplit: number | null = null;
@@ -3201,6 +3203,7 @@ function isMissingTerminal(error: unknown): boolean {
       throw new Error('未知权限预设');
     }
     permissionPreset = preset as PermissionPreset;
+    if (permissionPresetFile) savePermissionPreset(permissionPresetFile, permissionPreset);
     return { preset: permissionPreset, approvalPolicy: 'ask' as const };
   });
 
@@ -4768,6 +4771,8 @@ function buildCodeIntelligenceExternal(config: CodeIntelligenceConfig): { cgc: C
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  permissionPresetFile = path.join(app.getPath('userData'), 'permission-preset.json');
+  permissionPreset = loadPermissionPreset(permissionPresetFile);
   collaborationModeStore = new CollaborationModeStore(
     collaborationModePath(app.getPath('userData'))
   );
@@ -4902,7 +4907,7 @@ app.whenReady().then(async () => {
   orchestrator = new AgentOrchestrator({
     tasks,
     store,
-    adapter: () => planningOverride ?? planningAdapter(),
+    adapter: () => planningAdapter(),
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
     onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
@@ -5367,7 +5372,8 @@ app.whenReady().then(async () => {
           permissionPreset: input.permissionPreset as PermissionPreset,
           workspaceRoot: input.workspaceRoot,
           planDebate: input.planDebate,
-          expertise: input.expertise
+          expertise: input.expertise,
+          ...(planningOverride ? { planningAdapter: planningOverride } : {})
         });
       } finally {
         planningOverride = null;

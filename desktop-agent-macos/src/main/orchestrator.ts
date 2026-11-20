@@ -29,7 +29,7 @@ export interface OrchestratorDeps {
   tasks: TaskManager;
   store: AgentStore;
   /** 每次取用时都重新解析：运行时切换规划源后，执行链路不能还连着旧页面。 */
-  adapter: () => PlanningAdapter;
+  adapter: (taskId?: string) => PlanningAdapter;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
   /**
@@ -106,6 +106,8 @@ export class AgentOrchestrator {
    */
   private pageQueue: Promise<void> = Promise.resolve();
 
+  private readonly planningAdapters = new Map<string, PlanningAdapter>();
+
   constructor(private readonly deps: OrchestratorDeps) {}
 
   private get tasks() {
@@ -119,8 +121,8 @@ export class AgentOrchestrator {
    * 已经换了，真正发问题的却还是旧页面——DeepSeek 掉登录时，整个工程执行会
    * 一直报「DeepSeek 未登录」，而用户看到的规划源是 ChatGPT。
    */
-  private get adapter() {
-    return this.deps.adapter();
+  private adapterFor(taskId?: string): PlanningAdapter {
+    return (taskId ? this.planningAdapters.get(taskId) : undefined) ?? this.deps.adapter(taskId);
   }
 
   private async withPage<T>(work: () => Promise<T>): Promise<T> {
@@ -148,9 +150,12 @@ export class AgentOrchestrator {
     /** V2.1 D-03：这份计划要不要先做方案评审辩论（默认 auto）。 */
     planDebate?: 'auto' | 'on' | 'off';
     expertise?: readonly string[];
+    /** 这次规划显式指定的适配器（云端/本地 Provider）；缺省走网页。 */
+    planningAdapter?: PlanningAdapter;
   }): Promise<AgentTask> {
-    const site = this.adapter.siteLabel;
-    const status = await this.adapter.getStatus();
+    const planner = input.planningAdapter ?? this.deps.adapter();
+    const site = planner.siteLabel;
+    const status = await planner.getStatus();
     if (!status.loggedIn) throw new Error(`${site} 未登录：${status.detail ?? '请先在内嵌页面登录'}`);
     if (!status.pageReady) throw new Error(`${site} 页面不可用：${status.detail ?? '未找到输入框'}`);
     if (status.generating) throw new Error(`${site} 正在生成上一条回答，请等待完成后再提交`);
@@ -162,6 +167,7 @@ export class AgentOrchestrator {
       planDebate: input.planDebate
     });
     this.tasks.transition(task.taskId, 'planning');
+    this.planningAdapters.set(task.taskId, planner);
 
     // The round id is part of the prompt, so create the round first and then
     // persist the text it was actually driven with.
@@ -195,7 +201,7 @@ export class AgentOrchestrator {
     if (hashPlan(stored.plan) !== stored.contentHash) throw new Error('计划内容已变化，请重新审阅');
     if (Date.now() > stored.createdAt + 10 * 60 * 1000) {
       this.deps.store.updatePlan(stored.planId, { approvalStatus: 'expired' });
-      throw new Error(`计划已过期，请让 ${this.adapter.siteLabel} 重新生成`);
+      throw new Error(`计划已过期，请让 ${this.adapterFor(input.taskId).siteLabel} 重新生成`);
     }
 
     const rootDir = await this.resolveWorkspace(task);
@@ -391,7 +397,7 @@ export class AgentOrchestrator {
     if (TERMINAL.includes(task.status)) return;
 
     const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
-    if (round) this.adapter.cancelWait(round.requestId);
+    if (round) this.adapterFor(taskId).cancelWait(round.requestId);
 
     // 取消要传到 Runtime：否则它还在跑计划，外部 CLI 也还在改文件。
     cancelPlan(taskId);
@@ -491,9 +497,9 @@ export class AgentOrchestrator {
    */
   private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
     const attempt = async (requestId: string) => {
-      const { snapshotBefore } = await this.adapter.sendMessage(prompt, requestId);
+      const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId);
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
-      return this.adapter.waitForAnswer(
+      return this.adapterFor(taskId).waitForAnswer(
         requestId,
         snapshotBefore,
         this.tasks.get(taskId).timeoutMs,
@@ -508,10 +514,10 @@ export class AgentOrchestrator {
     } catch (error) {
       if (!(error instanceof ContextLimitError)) throw error;
 
-      const reset = await this.adapter.newConversation();
+      const reset = await this.adapterFor(taskId).newConversation();
       if (!reset.ok) {
         throw new Error(
-          `${this.adapter.siteLabel} 这条会话的上下文已满，自动开新会话也没成功（${reset.detail ?? '原因未知'}）。` +
+          `${this.adapterFor(taskId).siteLabel} 这条会话的上下文已满，自动开新会话也没成功（${reset.detail ?? '原因未知'}）。` +
             '在右侧页面点一次「新对话」，再重新提交。'
         );
       }
@@ -520,7 +526,7 @@ export class AgentOrchestrator {
         at: Date.now(),
         taskId,
         level: 'warn',
-        message: `${this.adapter.siteLabel} 这条会话的上下文已满，已自动开新会话后重问`
+        message: `${this.adapterFor(taskId).siteLabel} 这条会话的上下文已满，已自动开新会话后重问`
       });
       // 换一条新 requestId：上一问即使没发出去，也可能已经在页面侧留下了
       // 一个等待句柄，复用同一个 id 会让「这一问的回答」和上一问撞在一起。
@@ -580,7 +586,7 @@ export class AgentOrchestrator {
           at: Date.now(),
           taskId,
           level: 'warn',
-          message: `${this.adapter.siteLabel} 声明完成，但本地仍有未处理的轮次，拒绝标记完成`
+          message: `${this.adapterFor(taskId).siteLabel} 声明完成，但本地仍有未处理的轮次，拒绝标记完成`
         });
         throw new Error('本地状态与完成声明不一致，已停止并等待人工处理');
       }
