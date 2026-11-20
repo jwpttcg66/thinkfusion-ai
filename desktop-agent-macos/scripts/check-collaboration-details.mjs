@@ -26,3 +26,22 @@ test('参与者状态/输出、证据、交付映射', async () => {
   assert.equal(details.evidence[0].trust, 'verified');
   assert.equal(details.deliverable.stopReason, 'acceptance_satisfied');
 });
+
+test('工程/知识 View 映射', async () => {
+  const manager = { ask: async () => [{ participantId: 'm1', status: 'done', text: 'ok' }] };
+  const base = (await runCollaboration({ goal, participants, manager })).state;
+  const engineering = buildCollaborationDetails({
+    ...base,
+    engineering: { taskId: 't', context: { repoRoot: '/r', branch: 'b' }, testReports: [{ command: 'npm test', status: 'passed' }] }
+  });
+  assert.equal(engineering.engineering.repoRoot, '/r');
+  assert.equal(engineering.engineering.tests[0].status, 'passed');
+
+  const knowledge = buildCollaborationDetails({
+    ...base,
+    goal: { ...base.goal, workspace: 'knowledge' },
+    claims: [{ claimId: 'c1', goalId: 'g1', text: '结论', kind: 'fact', source: { evidenceId: 'e1' }, createdAt: 1 }]
+  });
+  assert.equal(knowledge.knowledge.unanswered.length, 1);
+  assert.equal(knowledge.knowledge.unanswered[0].evidenceRefs[0], 'e1');
+});

@@ -18,6 +18,7 @@ import { ConversationView } from './components/ConversationView';
 import { CollaborationPlanPanel } from './components/CollaborationPlanPanel';
 import { ParticipantPanel } from './components/ParticipantPanel';
 import { EvidencePanel } from './components/EvidencePanel';
+import { WorkspacePanel } from './components/WorkspacePanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
@@ -2163,6 +2164,11 @@ export default function App() {
               <>
                 <ParticipantPanel conversationId={activeConversation.conversationId} />
                 <EvidencePanel conversationId={activeConversation.conversationId} />
+                <WorkspacePanel
+                  conversationId={activeConversation.conversationId}
+                  workspaceMode={activeConversation.workspaceMode}
+                  workspaceRoot={activeConversation.workspaceRoot}
+                />
               </>
             )}
 

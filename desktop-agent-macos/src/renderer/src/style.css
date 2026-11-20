@@ -5754,3 +5754,18 @@ button:disabled {
 .collab-person.is-done { border-left-color: #81c784; }
 .collab-evidence-item.is-degraded { border-left-color: #ffb74d; }
 .collab-evidence-summary { font-size: 13px; }
+
+
+/* B-04/05/06/07 工作空间与交付 */
+.collab-workspace, .collab-deliverable { margin: 0 0 12px; }
+.collab-muted { font-size: 12px; opacity: 0.6; margin: 4px 0; }
+.collab-kv { display: grid; grid-template-columns: 56px 1fr; gap: 4px 8px; font-size: 12px; }
+.collab-kv code { font-size: 12px; opacity: 0.8; }
+.collab-knowledge-block { margin: 6px 0; }
+.collab-knowledge-label { font-size: 12px; opacity: 0.7; margin-bottom: 2px; }
+.collab-knowledge-block ul, .collab-open ul, .collab-claims ul { margin: 2px 0 0; padding-left: 18px; font-size: 13px; }
+.collab-deliverable-meta { display: flex; gap: 12px; font-size: 12px; opacity: 0.7; }
+.collab-deliverable-body { white-space: pre-wrap; margin: 6px 0; font-size: 14px; }
+.collab-claims .is-supports { color: #81c784; }
+.collab-claims .is-contradicts { color: #e57373; }
+.collab-claims .is-unverified { color: #ffb74d; }

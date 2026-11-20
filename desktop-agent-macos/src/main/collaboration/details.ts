@@ -5,6 +5,7 @@ import type {
   CollaborationParticipantView
 } from '../../shared/contracts';
 import type { CollaborationState } from './domain/types';
+import { buildKnowledgeMap } from '../knowledge/map';
 
 function participantStatus(
   state: CollaborationState,
@@ -66,5 +67,50 @@ export function buildCollaborationDetails(state: CollaborationState): Collaborat
       }
     : undefined;
 
-  return { participants, evidence, ...(deliverable ? { deliverable } : {}) };
+  const engineering = state.engineering
+    ? {
+        repoRoot: String(state.engineering.context.repoRoot ?? ''),
+        ...(state.engineering.context.branch ? { branch: String(state.engineering.context.branch) } : {}),
+        ...(state.engineering.start
+          ? { start: state.engineering.start as { commit: string; dirty: boolean; snapshot: string } }
+          : {}),
+        ...(state.engineering.end
+          ? { end: state.engineering.end as { commit: string; dirty: boolean; snapshot: string; diffHash?: string } }
+          : {}),
+        tests: state.engineering.testReports.map(item => ({
+          command: String(item.command ?? ''),
+          status: String(item.status ?? 'unknown')
+        })),
+        ...(state.engineering.build
+          ? { build: { status: String(state.engineering.build.status ?? 'unknown') } }
+          : {}),
+        ...(state.engineering.review
+          ? {
+              review: {
+                verdict: String(state.engineering.review.verdict ?? 'unknown'),
+                issues: Array.isArray(state.engineering.review.issues)
+                  ? state.engineering.review.issues.map(String)
+                  : []
+              }
+            }
+          : {})
+      }
+    : undefined;
+
+  const knowledge = state.goal.workspace === 'knowledge'
+    ? buildKnowledgeMap({
+        cards: [],
+        claims: state.claims,
+        disputes: state.disputes,
+        conflicts: state.conflicts
+      })
+    : undefined;
+
+  return {
+    participants,
+    evidence,
+    ...(deliverable ? { deliverable } : {}),
+    ...(engineering ? { engineering } : {}),
+    ...(knowledge ? { knowledge } : {})
+  };
 }
