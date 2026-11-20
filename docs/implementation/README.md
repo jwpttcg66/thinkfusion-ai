@@ -16,6 +16,7 @@
 | [V3-FORMAL-FEATURES-PLAN.md](V3-FORMAL-FEATURES-PLAN.md) | 全阶段 | 正式功能实施计划（不含发布） |
 | [V3-FORMAL-FEATURES-DESIGN.md](V3-FORMAL-FEATURES-DESIGN.md) | 全阶段 | A-03..E 的完整设计包 |
 | [D-LEGACY-EXIT-AUDIT.md](D-LEGACY-EXIT-AUDIT.md) | D | 旧模块调用链与删除证据 |
+| [E-ACCEPTANCE-REPORT.md](E-ACCEPTANCE-REPORT.md) | E | 正式功能验收报告与已知限制 |
 | [COMPLETION-AUDIT.md](COMPLETION-AUDIT.md) | 全阶段 | 49/69 完成、9 部分、11 未开始 |
 | [../operations/RELEASE_CHECKLIST.md](../operations/RELEASE_CHECKLIST.md) | P6 | 发布前检查清单 |
 | [P0-J-REVIEW-RECORD.md](P0-J-REVIEW-RECORD.md) | P0 评审 | 独立文档/代码评审结论、修复项与残余门禁 |

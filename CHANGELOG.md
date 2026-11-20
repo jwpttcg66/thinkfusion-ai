@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- test: E-02 异常矩阵 11/11；docs: E-04 验收报告（有条件通过）
 - test: E-01/E-03 三空间端到端与一致性（4/4）；test:e2e 接入 verify
 - feat(ui): 工程面板显示 diffHash
 - refactor: D 阶段删除无生产调用的 synthesis/lead-prompt.ts；旧路径调用链审计
