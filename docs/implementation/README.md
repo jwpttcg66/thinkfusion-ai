@@ -13,6 +13,7 @@
 | [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
 | [P0-06-ROLLBACK-DRILL.md](P0-06-ROLLBACK-DRILL.md) | P0 | 模式 Flag 的升级/降级/损坏钻取 |
 | [P1-00A-CODE-MAPPING.md](P1-00A-CODE-MAPPING.md) | P1 | 逐文件职责映射与第一刀顺序 |
+| [V3-FORMAL-FEATURES-PLAN.md](V3-FORMAL-FEATURES-PLAN.md) | 全阶段 | 正式功能实施计划（不含发布） |
 | [COMPLETION-AUDIT.md](COMPLETION-AUDIT.md) | 全阶段 | 49/69 完成、9 部分、11 未开始 |
 | [../operations/RELEASE_CHECKLIST.md](../operations/RELEASE_CHECKLIST.md) | P6 | 发布前检查清单 |
 | [P0-J-REVIEW-RECORD.md](P0-J-REVIEW-RECORD.md) | P0 评审 | 独立文档/代码评审结论、修复项与残余门禁 |
@@ -35,7 +36,7 @@
 | 阶段 | 状态 | 出口条件 | 负责人 |
 | --- | --- | --- | --- |
 | P0 契约与开关 | ✅ 完成（P0-J 通过，2026-11-19） | 进入 P1 | — |
-| P1.0/1.1 | 🟡 shadow/active 均已接；active 含 Replanner/Debate/审核；门禁未接设置入口 | 旧路径零变化 + active 可切 | — |
+| P1.0/1.1 | 🟡 持久化/并发/取消/超时完成；行为与 Gate 入口待补 | 旧路径零变化 + active 可切 | — |
 | P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
 | P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |
 | P3 工程空间 | 未开始 | 一次真实改动全链路通过 | — |

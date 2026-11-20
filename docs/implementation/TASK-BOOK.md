@@ -138,11 +138,11 @@ P1.1 Replan / Debate / 模型审核
 | P0-05 | 持久化/恢复契约 | P0 | P0-02 | ✅ |
 | P0-06 | 回滚演练 | P0 | P0-04 | ✅ |
 | P1-00A | 现有代码职责映射与迁移矩阵 | P1.0 | P0-01 | ✅ |
-| P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | 🟡 Domain/State 完成；接线待做 |
+| P1-00 | CollaborationState 存储与转移 | P1.0 | P0-02 | 🟡 AgentStore 持久化/恢复完成；UI 恢复入口未接 |
 | P1-01 | ParticipantManager | P1.0 | P0-02 | ✅ |
 | P1-02 | Planner MVP | P1.0 | P1-01 | ✅ |
 | P1-03 | Scheduler | P1.0 | P1-02 | ✅ |
-| P1-04 | Runner / Attempt / Observation | P1.0 | P1-03 | 🟡 顺序执行完成；并发/取消待 P1.1 |
+| P1-04 | Runner / Attempt / Observation | P1.0 | P1-03 | ✅ 并发/取消/超时 |
 | P1-05 | Deliver | P1.0 | P1-04 | ✅ |
 | P1-06 | 网页边界 | P1.0 | P1-04 | ✅ |
 | P1-07 | 行为：Independent/Parallel/Progressive/CrossCheck | P1.0 | P1-04 | 🟡 Independent 行为已有；其余待做 |

@@ -7,6 +7,9 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(collaboration): P1-04 并发/取消/超时；Runner 依赖感知、最大并发、AbortSignal、timeout
+- feat(collaboration): P1-00 CollaborationState 存 AgentStore；重启恢复把 running 标 blocked；active 路径保存/恢复
+- docs: 新增 V3 正式功能实施计划；AGENTS §7 固定“不重建基线”原则
 - test: 新增 test:core 核心回归命令；docs: 发布清单
 - feat(collaboration): active 停止原因落盘；docs: 支持矩阵
 - docs: 新增 COMPLETION-AUDIT；同步 TASK-BOOK 全部任务状态到真实进度
