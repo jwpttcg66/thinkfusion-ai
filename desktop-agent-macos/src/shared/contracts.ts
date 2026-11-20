@@ -2154,10 +2154,28 @@ export interface CollaborationDeliverableView {
   claims: Array<{ text: string; relation: 'supports' | 'contradicts' | 'context' | 'unverified' }>;
 }
 
+export interface CollaborationEngineeringView {
+  repoRoot: string;
+  branch?: string;
+  start?: { commit: string; dirty: boolean; snapshot: string };
+  end?: { commit: string; dirty: boolean; snapshot: string; diffHash?: string };
+  tests: Array<{ command: string; status: string }>;
+  build?: { status: string };
+  review?: { verdict: string; issues: string[] };
+}
+
+export interface CollaborationKnowledgeView {
+  confirmed: Array<{ statement: string; evidenceRefs: string[] }>;
+  disputed: Array<{ statement: string; evidenceRefs: string[] }>;
+  unanswered: Array<{ statement: string; evidenceRefs: string[] }>;
+}
+
 export interface CollaborationDetailsView {
   participants: CollaborationParticipantView[];
   evidence: CollaborationEvidenceView[];
   deliverable?: CollaborationDeliverableView;
+  engineering?: CollaborationEngineeringView;
+  knowledge?: CollaborationKnowledgeView;
 }
 
 export interface CollaborationTaskView {
