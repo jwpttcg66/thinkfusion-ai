@@ -26,6 +26,9 @@
 
 ## 2. 阶段
 
+详细设计见 [V3-FORMAL-FEATURES-DESIGN.md](V3-FORMAL-FEATURES-DESIGN.md)。
+
+
 ### A. 协作引擎可靠性
 
 | 任务 | 内容 |
