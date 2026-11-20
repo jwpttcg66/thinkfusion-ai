@@ -606,6 +606,11 @@ export default function App() {
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
   );
+  /** 任务对应的原会话：任务视图不能把“对话/轨迹/思考过程”弄丢。 */
+  const taskConversation = useMemo(
+    () => (activeTask ? conversations.find(item => item.taskId === activeTask.taskId) ?? null : null),
+    [conversations, activeTask]
+  );
   /**
    * A conversation whose intent turned out to be `workspace` hands off to a
    * task. From then on the task view owns the screen — showing a conversation
@@ -2230,6 +2235,16 @@ export default function App() {
                 <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
                 <span className="muted">{platform === 'darwin' ? 'macOS' : platform || 'macOS'}</span>
                 {activeTask.workspaceRoot && <span className="muted">· {activeTask.workspaceRoot}</span>}
+                {taskConversation && (
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={() => void selectConversation(taskConversation.conversationId)}
+                    title="回到这条任务的原会话，查看思考过程与轨迹"
+                  >
+                    对话 / 轨迹
+                  </button>
+                )}
               </div>
             )}
 
