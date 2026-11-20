@@ -1443,7 +1443,7 @@ test('V2.1：用户手动改判优先于规则', async () => {
   assert.equal(conversation.routing?.source, 'user_selected');
 });
 
-test('V2.1：辩论关闭时主导人只汇总，不发起交锋', async () => {
+test('旧 off 不再关闭辩论：仍发起交锋', async () => {
   const channels = execChannels();
   const seen = [];
   let debateCalls = 0;
@@ -1461,11 +1461,11 @@ test('V2.1：辩论关闭时主导人只汇总，不发起交锋', async () => {
     executionConfig: { executionMode: 'local', debateMode: 'off' }
   });
   await settle(runner, conversation.conversationId);
-  assert.equal(debateCalls, 0, 'off 时不应发起辩论');
+  assert.equal(debateCalls, 1, 'off 已归一为 on，必须辩论');
   assert.equal(seen.length, 1, '只做一次汇总');
   const system = store.listMessages(conversation.conversationId)
     .filter(message => message.role === 'system').map(message => message.text).join('\n');
-  assert.doesNotMatch(system, /关闭了辩论/, '关闭辩论是轨迹事件，不再每轮贴系统消息');
+  assert.doesNotMatch(system, /关闭了辩论/);
 });
 
 test('shadow 模式：旧路径照常回答，同时记录一份计划', async () => {

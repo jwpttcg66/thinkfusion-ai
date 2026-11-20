@@ -471,20 +471,19 @@ export function ResearchPanel({ config, onConfigChange, latestSynthesis, onClose
                 {STRATEGIES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
 
-              <h3>辩论开关（V2.1）</h3>
+              <h3>辩论</h3>
               <p className="muted">
-                自动＝主导人找到实质分歧才辩；关闭＝这一轮只汇总，不交锋、不出最终意见；
-                开启＝即使没有分歧也辩一次。用户明确关闭时不会强制启动。
+                默认辩。自动＝主导人找到实质分歧才辩；开启＝即使没有分歧也辩一次。
+                有存疑时会强制核查，不再提供关闭。
               </p>
               <select
-                value={config.debateMode ?? 'auto'}
+                value={config.debateMode === 'auto' ? 'auto' : 'on'}
                 onChange={event => onConfigChange({
-                  debateMode: event.target.value as 'auto' | 'on' | 'off'
+                  debateMode: event.target.value as 'auto' | 'on'
                 })}
               >
                 <option value="auto">自动（有分歧才辩）</option>
                 <option value="on">开启（一定辩）</option>
-                <option value="off">关闭（不辩）</option>
               </select>
 
               <h3>研究轮次（P6）</h3>
