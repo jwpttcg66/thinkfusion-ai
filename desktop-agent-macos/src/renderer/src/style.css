@@ -5775,3 +5775,10 @@ button:disabled {
 .collab-diagnostics { margin: 0 0 12px; font-size: 12px; opacity: 0.8; }
 .collab-diagnostics summary { cursor: pointer; }
 .collab-diagnostics ul { margin: 4px 0 0; padding-left: 18px; }
+
+
+/* A-04 协作设置 */
+.collab-mode-row { display: flex; gap: 8px; margin: 8px 0; }
+.collab-gate { font-size: 12px; opacity: 0.85; }
+.collab-gate ul { margin: 4px 0; padding-left: 18px; }
+.collab-metrics { font-size: 12px; opacity: 0.65; margin-top: 4px; }

@@ -284,17 +284,6 @@ export function TaskInput(props: {
           <button
             className="chip-btn"
             type="button"
-            onClick={props.onStartDebate}
-            disabled={props.disabled || !props.value.trim()}
-            title="跳过第一轮与汇总，直接用这句话开一场正式辩论；成员与策略按「研究设置」"
-          >
-            <span>⚔</span>
-            <span className="label">直接辩论</span>
-          </button>
-
-          <button
-            className="chip-btn"
-            type="button"
             onClick={props.onOpenResearch}
             title={`研究设置：主导人、参辩模型与报告。下一条提问用「${props.researchLabel} / ${props.researchDetail}」`}
             aria-label={`研究设置（下一条：${props.researchLabel}）`}
