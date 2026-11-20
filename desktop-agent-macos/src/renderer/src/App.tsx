@@ -19,6 +19,7 @@ import { CollaborationPlanPanel } from './components/CollaborationPlanPanel';
 import { ParticipantPanel } from './components/ParticipantPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
+import { CollaborationDiagnostics } from './components/CollaborationDiagnostics';
 import { ProgressPanel } from './components/ProgressPanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
@@ -2169,6 +2170,7 @@ export default function App() {
                   workspaceMode={activeConversation.workspaceMode}
                   workspaceRoot={activeConversation.workspaceRoot}
                 />
+                <CollaborationDiagnostics conversationId={activeConversation.conversationId} />
               </>
             )}
 

@@ -5769,3 +5769,9 @@ button:disabled {
 .collab-claims .is-supports { color: #81c784; }
 .collab-claims .is-contradicts { color: #e57373; }
 .collab-claims .is-unverified { color: #ffb74d; }
+
+
+/* C-03 协作诊断 */
+.collab-diagnostics { margin: 0 0 12px; font-size: 12px; opacity: 0.8; }
+.collab-diagnostics summary { cursor: pointer; }
+.collab-diagnostics ul { margin: 4px 0 0; padding-left: 18px; }

@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- test: test:features/verify（core+features+prompt+security）；CI 使用 verify
+- feat(ui): C-03 协作诊断面板；C-04 安全基线脚本
 - feat(ui): B-04 工程面板、B-05 知识面板、B-06 General、B-07 交付视图
 - feat(ui): B-02 参与者面板、B-03 证据面板；details View/IPC；Runner 保存 assignments
 - feat(ui): B-01/UI-01 协作计划面板；collaboration:view IPC
