@@ -56,7 +56,7 @@ export interface TaskRouting {
 }
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = 'knowledge';
-export const DEFAULT_DEBATE_MODE: DebateMode = 'auto';
+export const DEFAULT_DEBATE_MODE: DebateMode = 'on';
 
 /** 全局默认：下次启动仍然停在用户上次的空间与项目。 */
 export interface WorkspaceState {
@@ -239,7 +239,8 @@ export function normalizeWorkspaceMode(value: unknown): WorkspaceMode {
 }
 
 export function normalizeDebateMode(value: unknown): DebateMode {
-  return value === 'on' || value === 'off' ? value : DEFAULT_DEBATE_MODE;
+  // 旧数据里的 off 不再关闭辩论；保留 auto，其余一律 on。
+  return value === 'auto' ? 'auto' : 'on';
 }
 
 // --- 工程意图 ---------------------------------------------------------------

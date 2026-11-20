@@ -2724,9 +2724,10 @@ export class ConversationRunner {
     // V2.1：辩论开关。auto 与老行为完全一致；off 连辩题都不生成；
     // on 在主导人没找到分歧时拿原问题兜一个辩题，保证「开启」真的开了。
     const debateMode = normalizeDebateMode(config.debateMode);
-    let topics = debateMode === 'off' ? [] : parseTopics(summaryText);
+    // 默认必须辩；旧 off 已归一为 on。
+    let topics = parseTopics(summaryText);
     // 没有辩题但有存疑：把存疑变成核查题，不能停在综合分析卡。
-    if (debateMode !== 'off' && topics.length === 0) {
+    if (topics.length === 0) {
       const doubts = parseDoubts(summaryText);
       if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
     }
@@ -2743,9 +2744,7 @@ export class ConversationRunner {
       ? orchestration.debaters
       : debatersFor(ownership.mode, answers, executorIds, sourceOf);
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
-    if (debateMode === 'off') {
-      trace?.note('这一轮按设置关闭了辩论：只汇总，不交锋、不出最终意见。');
-    } else if (topics.length === 0) {
+    if (topics.length === 0) {
       trace?.note(`${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总。`);
     } else if (debaters.length === 0) {
       trace?.note(

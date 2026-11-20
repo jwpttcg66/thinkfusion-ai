@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(debate): 默认辩论（on）；旧 off 归一为 on；移除“关闭辩论”选项；存疑强制核查
 - feat(plan): 设计文档/观点计划（kind=design）强制评审；单模型允许自辩
 - feat(expertise): 技能作为规划上下文传给 Planner，并在转交消息显示加载数量
 - fix(routing): 云端/本地工程请求跳过词表/分类提示词，直接交 Planner；仅网页模式规则兜底
