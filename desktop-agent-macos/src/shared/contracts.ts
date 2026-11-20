@@ -294,7 +294,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       command: z.string().min(1).max(2000),
       /** 相对工作区的目录；不给就是工作区根目录。 */
       cwd: RelativePath.optional(),
-      timeoutMs: z.number().int().min(1000).max(300_000).optional(),
+      timeoutMs: z.number().int().min(1000).max(1_800_000).optional(),
       /** 放到后台跑，立刻返回作业 id；后续用 job.output / job.kill。 */
       background: z.boolean().optional()
     }).strict(),
@@ -711,7 +711,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       language: z.enum(CODE_LANGUAGES),
       code: z.string().min(1).max(200_000),
-      timeoutMs: z.number().int().min(1000).max(300_000).optional(),
+      timeoutMs: z.number().int().min(1000).max(1_800_000).optional(),
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
     }).strict(),
@@ -911,7 +911,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 只检查这些文件（相对工作区）；不给就按 path/工程根扫。 */
       paths: z.array(RelativePath).min(1).max(50).optional(),
       maxItems: z.number().int().min(1).max(200).optional(),
-      timeoutMs: z.number().int().min(1000).max(300_000).optional()
+      timeoutMs: z.number().int().min(1000).max(1_800_000).optional()
     }).strict(),
     description: z.string().max(500).optional()
   }).strict(),
