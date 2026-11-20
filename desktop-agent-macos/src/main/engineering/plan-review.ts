@@ -144,11 +144,17 @@ export function shouldDebatePlan(
   plan: AgentPlan
 ): { debate: boolean; reason?: string } {
   const effective = mode ?? 'auto';
+  const steps = plan.steps ?? [];
+  // 新建工程 / 写文件不再受开关影响：这是用户明确要求的强制评审。
+  const writes = steps.some(step =>
+    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
+    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
+  );
+  if (writes) return { debate: true, reason: '计划包含新建/写文件，强制方案评审' };
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
   if (effective === 'on') return { debate: true };
-  const steps = plan.steps ?? [];
   const risky = steps.some(step =>
     step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
     // shell / 截屏 / 启动应用的影响面在工作区之外，auto 下同样值得先辩一轮。

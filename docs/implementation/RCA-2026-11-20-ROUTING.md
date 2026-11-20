@@ -33,7 +33,9 @@ classifyEngineeringIntent("制作一个spring boot的示例工程，")
    `routeTask` 词表和 `ROUTING_SYSTEM` 分类提示词，直接交给 Planner；
    只有纯网页模式保留规则兜底。
 2. `EXECUTION_VERBS` 增加：`制作|生成|搭建|初始化|脚手架`（仅网页兜底）。
-3. 新增回归：
+3. 方案评审：新建/写文件计划强制辩，off 也辩；单模型可自辩。
+4. 技能：expertiseFor 结果注入 Planner，并在转交消息提示加载数量。
+5. 新增回归：
    - `check-runner`：云端工程“分析目录结构”也直接交 Planner，不问网页；
    - `check-v3-routing`：制作/生成/搭建判实施；云端主导不问网页。
 

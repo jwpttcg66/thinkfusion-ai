@@ -166,6 +166,7 @@ export interface ConversationDeps {
     workspaceRoot?: string;
     /** V2.1 D-03：会话里的辩论开关，决定计划要不要先辩一场。 */
     planDebate?: 'auto' | 'on' | 'off';
+    expertise?: readonly string[];
   }) => Promise<AgentTask>;
   /**
    * V2.1 Model Router（产品定义第 8 节）：这一轮用哪些模型、为什么。
@@ -777,10 +778,12 @@ export class ConversationRunner {
 
     const handoff = async (label: string): Promise<Conversation> => {
       try {
+        const expertise = this.deps.expertiseFor?.({ workspaceMode, question: text })?.system ?? [];
         const task = await this.deps.submitWorkspace({
           prompt: outgoing,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
           workspaceRoot: input.workspaceRoot,
+          expertise,
           // 方案评审辩论跟着这条会话的辩论开关走：用户关掉时不能因为「进入执行
           // 链路」就自己开一场，那正是「不得无声扩大模型调用」要防的事。
           planDebate: normalizeExecutionConfig(conversation.executionConfig).debateMode ?? 'auto'
@@ -791,7 +794,7 @@ export class ConversationRunner {
         this.save(conversation);
         this.addMessage(conversation, {
           role: 'system',
-          text: `${label}，已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
+          text: `${label}，已转交执行计划（任务 ${task.taskId.slice(0, 8)}）${expertise.length > 0 ? `，已加载 ${String(expertise.length)} 项技能` : ''}。左侧会显示计划与审批；未审批前不会改动任何文件。`
         });
         trace?.event({
           stage: 'execute',

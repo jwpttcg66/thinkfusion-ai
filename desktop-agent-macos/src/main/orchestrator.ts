@@ -147,6 +147,7 @@ export class AgentOrchestrator {
     workspaceRoot?: string;
     /** V2.1 D-03：这份计划要不要先做方案评审辩论（默认 auto）。 */
     planDebate?: 'auto' | 'on' | 'off';
+    expertise?: readonly string[];
   }): Promise<AgentTask> {
     const site = this.adapter.siteLabel;
     const status = await this.adapter.getStatus();
@@ -172,6 +173,7 @@ export class AgentOrchestrator {
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot ?? '(未指定工作区)',
       allowedTools: allowedToolsForPreset(input.permissionPreset),
+      expertise: input.expertise,
       maxSteps: task.maxSteps
     });
     this.tasks.updateRound(round.roundId, { requestText: prompt });
