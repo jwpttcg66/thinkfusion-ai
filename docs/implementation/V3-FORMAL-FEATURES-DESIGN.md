@@ -372,30 +372,124 @@ CI 失败条件：类型错误、核心测试失败、prompt policy 失败、构
 
 ## 6. E：总验收
 
-### 6.1 三空间 E2E
+### 6.1 E-01 三空间端到端
 
-- General：对话、复杂分析、多模型、按需 Debate、交付；
-- Knowledge：资料、阅读、提取、分析、证据、交付；
-- Engineering：任务、上下文、规划、执行、diff、build/test、review、交付。
+每个场景都要有：前置数据、操作步骤、预期状态、预期 UI、证据/交付断言。
 
-### 6.2 异常场景
+#### General
 
-本地不可用、远端不可用、Web 失败、参与者失败、部分失败、并发超时、用户取消、重启恢复、权限不足、证据缺失、Reviewer 不通过。
+| 编号 | 场景 | 步骤 | 预期 |
+| --- | --- | --- | --- |
+| G1 | 简单问答 | 输入单点问题 | 1 个参与者；independent；≤2 任务；交付含 stopReason |
+| G2 | 复杂分析 | 输入比较/分析问题 | ≥2 参与者；parallel/crosscheck；计划与理由可见 |
+| G3 | 按需 Debate | 构造未决争议 | 仅 matters && open 触发；无争议不触发 |
+| G4 | 取消/重启 | 执行中取消；重启恢复 | 取消后不再提交；running 恢复为中断，不重跑 |
 
-### 6.3 一致性
+#### Knowledge
 
-- 同一 Engine；
-- 执行模式与协作策略解耦；
-- Local 不偷偷切 Remote；
-- Web 不被当模型；
-- Debate 按需；
-- Evidence 可追溯；
-- UI 与状态一致；
-- 交付含证据/验证。
+| 编号 | 场景 | 步骤 | 预期 |
+| --- | --- | --- | --- |
+| K1 | 资料输入 | 贴网页/文件 | 来源、提取内容、阅读状态可见 |
+| K2 | 知识分析 | 生成结论 | 已确认/争议/未回答三块；一卡一结论 |
+| K3 | 证据关联 | 点结论 | 追到 EvidenceRef 与来源；无来源条目不出现 |
+| K4 | 复用/过期 | 二次提问旧卡 | fresh 可复用；stale/refuted 显式提示 |
 
-### 6.4 完成报告
+#### Engineering
 
-功能清单、测试结果、E2E、未解决问题、已知限制、架构退出、验收结论。
+| 编号 | 场景 | 步骤 | 预期 |
+| --- | --- | --- | --- |
+| E1 | 只读分析 | 提代码问题 | 不写盘；结论带路径:行号 |
+| E2 | 计划/审批 | 提修改任务 | 计划含影响面/测试/回退；写前审批 |
+| E3 | 执行/worktree | 批准执行 | 独立 worktree；不污染主工作区 |
+| E4 | 测试/评审 | 跑测试 | Build/Test/Review 状态来自 EngineeringTaskState |
+| E5 | 回退 | 执行后回退 | S1/S2 可恢复；失败有原因 |
+
+### 6.2 E-02 异常矩阵
+
+| 场景 | 注入方式 | 预期 |
+| --- | --- | --- |
+| 本地不可用 | health=false | 不偷偷切 Remote；标记不可用 |
+| 远端不可用 | 401/超时 | 降级/阻塞；原因可见 |
+| Web 失败 | 页面错误 | 不影响其他参与者；记录失败 |
+| 参与者失败 | ask reject | 任务 failed；依赖跳过 |
+| 部分失败 | 1/3 失败 | 其余完成；交付列未完成 |
+| 并发超时 | timeoutMs | 任务 failed=timeout；状态一致 |
+| 用户取消 | AbortSignal | 不再提交；cancelled |
+| 重启恢复 | 运行中重启 | running→blocked(restart_interrupted) |
+| 权限不足 | 无审批 | 执行被拒绝；无写盘 |
+| 证据缺失 | 无 EvidenceRef | unverified；不标已验证 |
+| Reviewer 不通过 | verdict=fail | 不完成；列 issues |
+
+每个场景必须同时断言：State、UI View、交付文案三者一致。
+
+### 6.3 E-03 产品一致性
+
+| 检查 | 断言 |
+| --- | --- |
+| 同一 Engine | 三空间都走 `runCollaboration`/ConversationRunner active |
+| 策略/模式解耦 | `behavior` 与 `modelScope` 独立字段 |
+| Local 不越界 | local 模式下无 remote 参与者 |
+| Web 不是模型 | web 只回答/追问，不参与 modelScope 计数 |
+| Debate 按需 | 无 matters && open 时不调用 |
+| Evidence 可追溯 | 每条结论有 evidenceRefs 或显式 unverified |
+| 状态一致 | PlanView/参与者/证据/交付同源 |
+| 交付完整 | stopReason、openQuestions、evidenceCoverage 存在 |
+
+### 6.4 E-04 完成报告模板
+
+```md
+# V3 正式功能验收报告
+日期：
+基线：
+范围：A-03..E（不含发布）
+
+## 功能清单
+| 项 | 状态 | 证据 |
+
+## 测试
+- typecheck:
+- test:core:
+- test:features:
+- E2E:
+
+## 三空间 E2E
+- General:
+- Knowledge:
+- Engineering:
+
+## 异常场景
+| 场景 | 结果 |
+
+## 一致性
+| 检查 | 结果 |
+
+## 未解决问题 / 已知限制
+## 架构退出
+## 结论
+```
+
+### 6.5 E 完成门槛
+
+- E-01 三空间全通过；
+- E-02 至少 11 个异常场景通过；
+- E-03 一致性检查全通过；
+- E-04 报告完成并附测试输出；
+- 任何未通过项必须列为已知限制，不能标记完成。
+
+---
+
+## 6A. 设计覆盖清单
+
+| 任务 | 设计章节 |
+| --- | --- |
+| A-03 | §1 |
+| A-04 | §2 |
+| B-01..07 | §3.3–3.9 |
+| C-01..04 | §4.1–4.4 |
+| D（X-01/X-03） | §5 |
+| E-01..04 | §6.1–6.4 |
+
+A-03 到 E 均有设计；本文不代替实施与验收。
 
 ---
 
