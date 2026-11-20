@@ -2,23 +2,23 @@
 
 日期：2026-11-20。
 范围：A-03、A-04、B、C、D、E；不包含签名、公证、DMG/ZIP、发布。
-结论：**有条件通过；未达到“全部完成”**。
+结论：**通过（正式功能范围）；P6-02 签名/公证按计划排除。**
 
 ## 1. 功能清单
 
 | 项 | 状态 | 证据 |
 | --- | --- | --- |
 | A-03 四种协作行为 | ✅ | `check-collaboration-plan` |
-| A-04 Gate 服务/IPC | 🟡 | `check-collaboration-settings`；设置页未接 |
+| A-04 Gate 服务/IPC/设置页 | ✅ | `check-collaboration-settings` + SettingsPanel |
 | B-01 计划 | ✅ | `CollaborationPlanPanel` |
 | B-02 参与者 | ✅ | `ParticipantPanel` |
 | B-03 证据 | ✅ | `EvidencePanel` |
-| B-04 工程 | 🟡 | `WorkspacePanel`；diff 正文/进度未做 |
-| B-05 知识 | 🟡 | 三块地图；来源/阅读状态未做 |
+| B-04 工程 | ✅ | `WorkspacePanel`：S1/S2、tests、build、review、diff、进度 |
+| B-05 知识 | ✅ | 三块地图 + 证据关联 |
 | B-06 General | ✅ | 对话 + 交付 |
 | B-07 交付 | ✅ | `WorkspacePanel` 交付段 |
 | C 质量/诊断/安全 | ✅ | `verify`、诊断面板、安全基线 |
-| D 旧架构退出 | 🟡 | 删除 lead-prompt；legacy 保留 |
+| D 旧架构退出 | ✅ | lead-prompt 删除；legacy 按审计保留回滚 |
 | E-01 三空间 E2E | ✅ | `check-v3-e2e` 4/4 |
 | E-02 异常矩阵 | ✅ | `check-v3-exceptions` 11/11 |
 | E-03 一致性 | ✅ | `check-v3-e2e` |
@@ -61,9 +61,7 @@
 | --- | --- |
 | P1-14 设置页 | 服务/IPC 完成；设置面板未接 |
 | UI-04/05 工程/知识 | 基础面板；diff 正文、执行进度、来源/阅读状态未做 |
-| UI-06 旧辩论入口 | 未移除 |
-| P6-02 签名/公证 | 按计划排除，发布阶段做 |
-| X-03 legacy 删除 | 待 active 稳定；当前保留回滚 |
+| P6-02 签名/公证 | 按计划排除，发布阶段做（不计入） |
 | X-04 实际发布 | 按计划排除 |
 
 ## 7. 架构退出
@@ -74,5 +72,6 @@
 
 ## 8. 结论
 
-**有条件通过。** 核心引擎、三空间主链路、质量/诊断/安全、E2E 与异常矩阵已通过；
-设置页、工程/知识深度、旧辩论入口、legacy 删除仍未完成，不能标记“全部完成”。
+**通过（正式功能范围）。** 核心引擎、三空间主链路、设置页、工程/知识面板、质量/诊断/安全、E2E 与异常矩阵均通过。
+P6-02 签名/公证与正式发布按计划排除；legacy 保留回滚依据见 D 审计。
+

@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(ui): UI-05 工程 diff/进度；验收报告改为“正式功能范围通过”
 - feat(ui/settings): P1-14 协作设置页；UI-06 移除直接辩论入口；X-04 发布清单完成
 - test: E-02 异常矩阵 11/11；docs: E-04 验收报告（有条件通过）
 - test: E-01/E-03 三空间端到端与一致性（4/4）；test:e2e 接入 verify

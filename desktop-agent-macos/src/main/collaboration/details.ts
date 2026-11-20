@@ -75,8 +75,12 @@ export function buildCollaborationDetails(state: CollaborationState): Collaborat
           ? { start: state.engineering.start as { commit: string; dirty: boolean; snapshot: string } }
           : {}),
         ...(state.engineering.end
-          ? { end: state.engineering.end as { commit: string; dirty: boolean; snapshot: string; diffHash?: string } }
+          ? { end: state.engineering.end as { commit: string; dirty: boolean; snapshot: string; diffHash?: string; diff?: string } }
           : {}),
+        progress: {
+          done: state.taskStates.filter(task => task.status === 'done').length,
+          total: state.taskStates.length
+        },
         tests: state.engineering.testReports.map(item => ({
           command: String(item.command ?? ''),
           status: String(item.status ?? 'unknown')

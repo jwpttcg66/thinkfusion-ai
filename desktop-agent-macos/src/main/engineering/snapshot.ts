@@ -11,6 +11,8 @@ export interface EngineeringSnapshot {
   dirty: boolean;
   dirtyFiles: string[];
   diffHash: string;
+  /** 截断后的 diff 正文；只用于 UI 展示，不参与哈希。 */
+  diff?: string;
   snapshot: string;
   at: number;
 }
@@ -38,6 +40,7 @@ export function captureSnapshot(repoRoot: string, kind: 'S1' | 'S2'): Engineerin
     dirty: dirtyFiles.length > 0,
     dirtyFiles,
     diffHash,
+    ...(diff ? { diff: diff.slice(0, 20_000) } : {}),
     snapshot,
     at: Date.now()
   };

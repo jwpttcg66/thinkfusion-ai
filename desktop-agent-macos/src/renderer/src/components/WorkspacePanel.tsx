@@ -21,10 +21,17 @@ function EngineeringSection(props: { details: CollaborationDetailsView; workspac
         <span>起点</span><code>{engineering.start?.commit ?? '—'}</code>
         <span>终点</span><code>{engineering.end?.commit ?? '—'}</code>
         <span>diff</span><code>{engineering.end?.diffHash ?? '—'}</code>
+        <span>进度</span><code>{engineering.progress ? `${engineering.progress.done}/${engineering.progress.total}` : '—'}</code>
         <span>测试</span><code>{engineering.tests.map(t => `${t.command}:${t.status}`).join(' / ') || '—'}</code>
         <span>构建</span><code>{engineering.build?.status ?? '—'}</code>
         <span>评审</span><code>{engineering.review ? `${engineering.review.verdict}${engineering.review.issues.length ? `（${engineering.review.issues.length} 个问题）` : ''}` : '—'}</code>
       </div>
+      {engineering.end?.diff && (
+        <details className="collab-diff">
+          <summary>查看 diff</summary>
+          <pre>{engineering.end.diff}</pre>
+        </details>
+      )}
     </section>
   );
 }
