@@ -20,6 +20,14 @@ interface StoreState {
    */
   conversations: Conversation[];
   messages: ConversationMessage[];
+  /** P1-00：协作运行状态，和会话同一个 journal。 */
+  collaborations?: StoredCollaboration[];
+}
+
+export interface StoredCollaboration {
+  goalId: string;
+  state: unknown;
+  updatedAt: number;
 }
 
 const MAX_EVENTS = 5000;
@@ -42,7 +50,8 @@ export class AgentStore {
     reports: [],
     events: [],
     conversations: [],
-    messages: []
+    messages: [],
+    collaborations: []
   };
 
   constructor(private readonly file: string) {
@@ -61,7 +70,8 @@ export class AgentStore {
         reports: parsed.reports ?? [],
         events: parsed.events ?? [],
         conversations: parsed.conversations ?? [],
-        messages: parsed.messages ?? []
+        messages: parsed.messages ?? [],
+        collaborations: parsed.collaborations ?? []
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -203,7 +213,23 @@ export class AgentStore {
   deleteConversation(conversationId: string) {
     this.state.conversations = this.state.conversations.filter(item => item.conversationId !== conversationId);
     this.state.messages = this.state.messages.filter(item => item.conversationId !== conversationId);
+    this.state.collaborations = (this.state.collaborations ?? []).filter(item => item.goalId !== conversationId);
     this.persist();
+  }
+
+  /** P1-00：整个 CollaborationState 作为一个 journal 条目。 */
+  saveCollaboration(goalId: string, state: unknown) {
+    const next = { goalId, state, updatedAt: Date.now() };
+    const list = this.state.collaborations ?? [];
+    const index = list.findIndex(item => item.goalId === goalId);
+    if (index >= 0) list[index] = next;
+    else list.push(next);
+    this.state.collaborations = list;
+    this.persist();
+  }
+
+  getCollaboration(goalId: string): unknown | null {
+    return (this.state.collaborations ?? []).find(item => item.goalId === goalId)?.state ?? null;
   }
 
   appendMessage(message: ConversationMessage) {

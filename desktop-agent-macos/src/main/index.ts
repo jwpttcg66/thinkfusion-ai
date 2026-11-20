@@ -35,6 +35,7 @@ import { AgentStore } from './store';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
 import { ParticipantManager } from './collaboration/participants/manager';
 import { runCollaboration } from './collaboration/engine';
+import { loadState, needsResume, recoverState, saveState } from './collaboration/persistence';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
 import { TraceRecorder, type StepHandle } from './trace/trace-recorder';
@@ -4945,6 +4946,20 @@ app.whenReady().then(async () => {
     emit: emitConversation,
     collaborationMode: () => collaborationModeStore?.get() ?? 'legacy',
     activeRunner: async ({ conversation, question, pool }) => {
+      const existing = loadState(store, conversation.conversationId);
+      if (existing?.deliverable) {
+        return {
+          content: existing.deliverable.content,
+          stopReason: existing.deliverable.stopReason
+        };
+      }
+      if (existing && needsResume(existing)) {
+        saveState(store, conversation.conversationId, recoverState(existing));
+        return {
+          content: '上次协作在应用重启前中断。已完成的任务不会重跑；未完成任务已标记为中断，请重新发起或继续。',
+          stopReason: 'blocked'
+        };
+      }
       const manager = new ParticipantManager(pool);
       const participants = await manager.list();
       const workspace =
@@ -4965,6 +4980,7 @@ app.whenReady().then(async () => {
         participants,
         manager
       });
+      saveState(store, conversation.conversationId, result.state);
       return {
         content: result.deliverable.content,
         stopReason: result.deliverable.stopReason,
