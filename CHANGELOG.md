@@ -7,6 +7,8 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- test: E-01/E-03 三空间端到端与一致性（4/4）；test:e2e 接入 verify
+- feat(ui): 工程面板显示 diffHash
 - refactor: D 阶段删除无生产调用的 synthesis/lead-prompt.ts；旧路径调用链审计
 - test: test:features/verify（core+features+prompt+security）；CI 使用 verify
 - feat(ui): C-03 协作诊断面板；C-04 安全基线脚本
