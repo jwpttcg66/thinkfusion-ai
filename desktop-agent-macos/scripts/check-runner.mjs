@@ -1524,6 +1524,7 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
     [fakeChannel('a', () => answer('不应该被问到'))],
     {
       deps: {
+        expertiseFor: () => ({ system: ['技能A：先给最小可运行示例'], note: '' }),
         submitWorkspace: async input => {
           submitted = input;
           return { taskId: 'task-cloud' };
@@ -1542,4 +1543,5 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
   assert.equal(done.intent, 'workspace');
   assert.ok(submitted, '应交给 Planner，而不是问网页');
   assert.match(submitted.prompt, /分析这个仓库/);
+  assert.deepEqual(submitted.expertise, ['技能A：先给最小可运行示例']);
 });

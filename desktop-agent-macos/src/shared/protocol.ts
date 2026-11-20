@@ -668,6 +668,8 @@ export function buildInitialPrompt(input: {
   workspaceRoot: string;
   allowedTools: readonly string[];
   maxSteps: number;
+  /** 已启用的领域技能/约束；只作为规划上下文，不改变用户目标。 */
+  expertise?: readonly string[];
 }): string {
   return `你是本地 ThinkFusion 的任务规划引擎。
 
@@ -716,7 +718,7 @@ ${PLAN_SHAPE}
 { "protocol": "${PROTOCOL}", "type": "task_complete", "taskId": "${input.taskId}", "roundId": "${input.roundId}", "summary": "完成摘要" }
 \`\`\`
 
-用户任务：
+${input.expertise && input.expertise.length > 0 ? `已启用的领域技能/约束（只作为规划依据，不改变用户目标）：\n${input.expertise.join('\n')}\n\n` : ''}用户任务：
 ${input.prompt}`;
 }
 

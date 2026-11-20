@@ -5315,7 +5315,8 @@ app.whenReady().then(async () => {
         prompt: input.prompt,
         permissionPreset: input.permissionPreset as PermissionPreset,
         workspaceRoot: input.workspaceRoot,
-        planDebate: input.planDebate
+        planDebate: input.planDebate,
+        expertise: input.expertise
       });
     }
   });
