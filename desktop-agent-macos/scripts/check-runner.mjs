@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
-import { buildLeadSummaryQuestion, inlineLeadInstructions, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
+import { buildLeadSummaryQuestion, inlineLeadInstructions, parseDoubts, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
 
 function fakeStore() {
   const conversations = new Map();
@@ -1544,4 +1544,14 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
   assert.ok(submitted, '应交给 Planner，而不是问网页');
   assert.match(submitted.prompt, /分析这个仓库/);
   assert.deepEqual(submitted.expertise, ['技能A：先给最小可运行示例']);
+});
+
+
+test('存疑段可解析成下一步核查项', () => {
+  const summary = '【结论】能给代码\n【一致】没有\n【分歧】没有\n【存疑】没有构建日志，无法证明能跑起来\n只有一份回答，无法交叉核对\n【辩题】无';
+  const doubts = parseDoubts(summary);
+  assert.equal(doubts.length, 2);
+  assert.match(doubts[0], /构建日志/);
+  assert.match(doubts[1], /交叉核对/);
+  assert.deepEqual(parseTopics(summary), []);
 });

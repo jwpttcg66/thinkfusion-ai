@@ -212,6 +212,20 @@ export function inlineLeadInstructions(
  * 从汇总里取辩题。写「无」「没有」或整段缺失都表示不辩——宁可少辩一场，
  * 也不要为了一句空话让几个模型空转好几轮。
  */
+/** 【存疑】段：不是展示项，必须能转成下一步核查/辩论。 */
+export function parseDoubts(summary: string): string[] {
+  const match = summary.match(/【存疑】([\s\S]*?)(?:\n【|$)/);
+  if (!match) return [];
+  const body = match[1];
+  if (/^\s*(无|没有|无需|none|n\/a)(?:[。.！!？?，,、\s]|$)/i.test(body)) return [];
+  return body
+    .replace(/([？?。！!])\s*(?=\d{1,2}[.、)）](?!\d))/g, '$1\n')
+    .split(/\n|\s(?=\d{1,2}[.、)）](?!\d))/)
+    .map(line => line.replace(/^(?:[\s\-*]+|\d{1,2}[.、)）]\s*)+/, '').trim())
+    .filter(line => line.length >= 4)
+    .slice(0, 5);
+}
+
 export function parseTopics(summary: string): string[] {
   const match = summary.match(/【辩题】([\s\S]*?)(?:\n【|$)/);
   if (!match) return [];
