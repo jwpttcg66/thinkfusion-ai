@@ -185,6 +185,9 @@ const api: AgentApi = {
   removeTaskWorktree: (input: TaskWorktreeRemoveInput): Promise<void> =>
     ipcRenderer.invoke('worktree:remove', input),
 
+  getCollaborationSettings: () => ipcRenderer.invoke('collaboration:settings:get'),
+  setCollaborationMode: (mode: 'legacy' | 'shadow' | 'active') =>
+    ipcRenderer.invoke('collaboration:settings:set', mode),
   getPermissionPreset: () => ipcRenderer.invoke('permission:get'),
   setPermissionPreset: (preset: PermissionPreset) => ipcRenderer.invoke('permission:set', preset),
   chooseDirectory: () => ipcRenderer.invoke('agent:choose-directory'),

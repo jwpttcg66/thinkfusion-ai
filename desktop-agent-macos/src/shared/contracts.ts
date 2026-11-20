@@ -2381,6 +2381,16 @@ export interface AgentApi {
   removeTaskWorktree(input: TaskWorktreeRemoveInput): Promise<void>;
 
   // environment
+  getCollaborationSettings(): Promise<{
+    mode: 'legacy' | 'shadow' | 'active';
+    gate: { ok: boolean; reasons: string[] };
+    metrics: { questions: number; planned: number; covered: number; maxTasksSimple: number };
+  } | null>;
+  setCollaborationMode(mode: 'legacy' | 'shadow' | 'active'): Promise<{
+    mode: 'legacy' | 'shadow' | 'active';
+    gate: { ok: boolean; reasons: string[] };
+    metrics: { questions: number; planned: number; covered: number; maxTasksSimple: number };
+  } | null>;
   getPermissionPreset(): Promise<PermissionPreset>;
   setPermissionPreset(preset: PermissionPreset): Promise<{ preset: PermissionPreset; approvalPolicy: 'ask' }>;
   chooseDirectory(): Promise<string | null>;
