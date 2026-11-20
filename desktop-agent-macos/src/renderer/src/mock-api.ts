@@ -429,6 +429,7 @@ export function createMockApi(): AgentApi {
       message: '预览模式没有合并'
     }),
     removeTaskWorktree: async () => undefined,
+    getCollaborationPlanView: async () => null,
     getCollaborationSettings: async () => null,
     setCollaborationMode: async () => null,
     getPermissionPreset: async () => preset,

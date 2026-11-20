@@ -37,6 +37,7 @@ import { ParticipantManager } from './collaboration/participants/manager';
 import { runCollaboration } from './collaboration/engine';
 import { CollaborationSettings } from './collaboration/settings';
 import { ShadowMetricsStore } from './collaboration/metrics-store';
+import { buildPlanView } from './collaboration/view';
 import { loadState, needsResume, recoverState, saveState } from './collaboration/persistence';
 import { aggregateTotals, errorCodeOf, foldTrace, preview, traceFromMessages, type TraceSource } from '../shared/trace';
 import { TraceStore } from './trace/trace-store';
@@ -4769,6 +4770,10 @@ app.whenReady().then(async () => {
     path.join(app.getPath('userData'), 'collaboration-metrics.json')
   );
   collaborationSettings = new CollaborationSettings(collaborationModeStore, collaborationMetrics);
+  ipcMain.handle('collaboration:view:get', (_event, conversationId: unknown) => {
+    const state = loadState(store, String(conversationId));
+    return state ? buildPlanView(state) : null;
+  });
   ipcMain.handle('collaboration:settings:get', () => collaborationSettings?.get() ?? null);
   ipcMain.handle('collaboration:settings:set', (_event, mode: unknown) => collaborationSettings?.set(mode) ?? null);
   traceStore = new TraceStore(path.join(app.getPath('userData'), 'traces'));

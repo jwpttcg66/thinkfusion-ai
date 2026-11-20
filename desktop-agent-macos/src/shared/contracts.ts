@@ -2128,6 +2128,27 @@ export interface TraceResult {
   totals: TraceTotals;
 }
 
+export interface CollaborationTaskView {
+  taskId: string;
+  kind: string;
+  status: 'pending' | 'assigned' | 'running' | 'retrying' | 'done' | 'failed' | 'blocked' | 'skipped' | 'cancelled';
+  participantId?: string;
+  attempts: number;
+  reason?: string;
+}
+
+export interface CollaborationPlanView {
+  goalId: string;
+  planId: string;
+  version: number;
+  behavior?: 'independent' | 'parallel' | 'progressive' | 'crosscheck';
+  behaviorReason?: string;
+  tasks: CollaborationTaskView[];
+  participants: Array<{ participantId: string; reason: string }>;
+  skipped: Array<{ participantId: string; reason: string }>;
+  stopReason?: string;
+}
+
 export interface AgentApi {
   // conversations — the primary path
   /**
@@ -2381,6 +2402,7 @@ export interface AgentApi {
   removeTaskWorktree(input: TaskWorktreeRemoveInput): Promise<void>;
 
   // environment
+  getCollaborationPlanView(conversationId: string): Promise<CollaborationPlanView | null>;
   getCollaborationSettings(): Promise<{
     mode: 'legacy' | 'shadow' | 'active';
     gate: { ok: boolean; reasons: string[] };

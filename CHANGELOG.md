@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- feat(ui): B-01/UI-01 协作计划面板；collaboration:view IPC
 - feat(collaboration): A-04 Gate 设置服务/IPC/metrics；active 只能经 setGated
 - feat(collaboration): A-03/P1-07 四种行为任务图（independent/parallel/progressive/crosscheck），Planner 选择与理由
 - docs(design): 补全 E-01..E-04 验收设计（三空间 E2E、异常矩阵、一致性、报告模板）与覆盖清单
