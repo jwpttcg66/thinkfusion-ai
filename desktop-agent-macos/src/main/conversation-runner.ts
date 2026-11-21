@@ -695,7 +695,12 @@ export class ConversationRunner {
      * 云端/本地驱动：工程请求不做本地词表/分类提示词预判，直接交给 Planner。
      * 只有纯网页模式（没有可用模型）才保留规则兜底。
      */
-    const plannerFirst = workspaceMode === 'engineering' && executionConfig.executionMode !== 'web';
+    // 只有用户显式选「本次按实施」才直达 Planner；普通工程问题仍先让
+    // 模型/规则判定分析还是执行——否则常识题会被直接送进高权限执行。
+    const plannerFirst =
+      workspaceMode === 'engineering' &&
+      executionConfig.executionMode !== 'web' &&
+      input.taskKindOverride === 'execution';
     const intent = plannerFirst
       ? { kind: 'workspace' as const, reason: '工程请求交给 Planner 判定' }
       : classifyIntent(text);
