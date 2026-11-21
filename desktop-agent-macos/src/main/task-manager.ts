@@ -78,6 +78,24 @@ export class TaskManager {
     return this.store.listTasks();
   }
 
+  /**
+   * 应用启动时收敛上一次进程留下的在途任务。
+   *
+   * planning/executing/verifying 依赖内存里的 Runner；应用退出后这些 Runner
+   * 已经不存在，任务却会永远显示“正在规划/执行”。只能明确标失败，不能
+   * 假装还在跑，也不能自动重跑有副作用的执行。
+   */
+  reconcileInterrupted(): number {
+    const interrupted = new Set<TaskStatus>(['planning', 'executing', 'verifying']);
+    let count = 0;
+    for (const task of this.store.listTasks()) {
+      if (!interrupted.has(task.status)) continue;
+      this.transition(task.taskId, 'failed', { error: '应用退出前任务未结束，已标记为中断；请重新提交。' });
+      count += 1;
+    }
+    return count;
+  }
+
   transition(taskId: string, to: TaskStatus, patch: Partial<AgentTask> = {}): AgentTask {
     const current = this.get(taskId);
     if (current.status === to) return current;

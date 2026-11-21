@@ -7,8 +7,13 @@ import type { ProviderBackedSubAgent } from './provider-sub-agent';
 export class ProviderPlanningAdapter implements PlanningAdapter {
   readonly siteLabel: string;
   private readonly pending = new Map<string, Promise<string>>();
+  private readonly progress = new Map<string, { text: number; reasoning: number }>();
 
-  constructor(private readonly agent: ProviderBackedSubAgent) {
+  constructor(
+    private readonly agent: ProviderBackedSubAgent,
+    /** 规划阶段的硬上限：推理模型只输出 reasoning 时不能无限等待。 */
+    private readonly planTimeoutMs = 120_000
+  ) {
     this.siteLabel = agent.label;
   }
 
@@ -31,6 +36,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
     requestId: string,
     onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SendOutcome> {
+    this.progress.set(requestId, { text: 0, reasoning: 0 });
     const promise = (async () => {
       if (!onDelta) {
         const answer = await this.agent.ask({ question: text, stage: 'initial', timeoutMs: 180_000 });
@@ -47,6 +53,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
           }
           if (chunk.text) accumulated += chunk.text;
           if (chunk.reasoning) reasoning += chunk.reasoning;
+          this.progress.set(requestId, { text: accumulated.length, reasoning: reasoning.length });
           onDelta({ text: accumulated, reasoning, reset: false });
         }
       );
@@ -78,10 +85,17 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   ): Promise<string> {
     const promise = this.pending.get(requestId);
     if (!promise) throw new Error('没有找到这次规划请求');
+    const effective = Math.min(timeoutMs, this.planTimeoutMs);
     try {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`规划超时（${Math.round(timeoutMs / 1000)} 秒）`)), timeoutMs);
+        timer = setTimeout(() => {
+          const progress = this.progress.get(requestId);
+          const detail = progress
+            ? `模型只输出了 ${progress.reasoning} 字符推理，没有计划文本。请换一个非推理模型，或取消后重试。`
+            : '模型没有返回计划文本。请重试或换模型。';
+          reject(new Error(`规划超时（${Math.round(effective / 1000)} 秒）：${detail}`));
+        }, effective);
       });
       try {
         return await Promise.race([promise, timeout]);
@@ -90,6 +104,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
       }
     } finally {
       this.pending.delete(requestId);
+      this.progress.delete(requestId);
     }
   }
 
