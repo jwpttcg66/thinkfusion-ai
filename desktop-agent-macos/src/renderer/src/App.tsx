@@ -235,6 +235,19 @@ function terminalLabelOf(session: TerminalSessionSummary): string {
   return base || session.sessionId.slice(-6);
 }
 
+/** 从规划回答里取出模型的思考说明；原始 JSON 不再直接铺在任务页。 */
+function planThinking(text: string): string {
+  if (!text) return '';
+  const block = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const raw = block ? block[1] : text;
+  try {
+    const value = JSON.parse(raw) as { description?: unknown; title?: unknown };
+    if (typeof value.description === 'string' && value.description.trim()) return value.description.trim();
+    if (typeof value.title === 'string' && value.title.trim()) return value.title.trim();
+  } catch { /* 不是 JSON 就按普通回答处理 */ }
+  return '';
+}
+
 export default function App() {
   const [platform, setPlatform] = useState('');
   const [permission, setPermission] = useState<PermissionPreset>('workspace-write');
@@ -2480,6 +2493,13 @@ export default function App() {
                 )}
                 <p className="muted">修复不会自动执行：如需继续，请重新提问生成计划并再次审批。</p>
               </section>
+            )}
+
+            {activeTask && planThinking(derived.answer) && (
+              <details className="card thinking">
+                <summary>思考过程</summary>
+                <p>{planThinking(derived.answer)}</p>
+              </details>
             )}
 
             {busy && !showPlan && (
