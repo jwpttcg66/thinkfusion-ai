@@ -25,6 +25,7 @@ import { EvidencePanel } from './components/EvidencePanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { CollaborationDiagnostics } from './components/CollaborationDiagnostics';
 import { ProgressPanel } from './components/ProgressPanel';
+import { EventInspector } from './components/EventInspector';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
@@ -148,6 +149,8 @@ export default function App() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
+  const [activityQuery, setActivityQuery] = useState('');
+  const [activityCategory, setActivityCategory] = useState('all');
   const [events, setEvents] = useState<AgentEvent[]>([]);
   /**
    * 正在等用户点头的那一步。
@@ -515,6 +518,16 @@ export default function App() {
     for (const event of activity) if (event.stepId) map.set(event.stepId, event);
     return map;
   }, [activity]);
+  const filteredActivity = useMemo(() => {
+    const query = activityQuery.trim().toLowerCase();
+    return activity.filter(event => {
+      if (activityCategory !== 'all' && event.category !== activityCategory) return false;
+      if (!query) return true;
+      return `${event.category} ${event.phase} ${event.actor.label} ${String(event.payload.type ?? '')} ${JSON.stringify(event.payload)}`
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [activity, activityQuery, activityCategory]);
   /** 任务对应的原会话：任务视图不能把“对话/轨迹/思考过程”弄丢。 */
   const taskConversation = useMemo(
     () => (activeTask ? conversations.find(item => item.taskId === activeTask.taskId) ?? null : null),
@@ -2192,13 +2205,32 @@ export default function App() {
                 <section className="card wb-feed">
                   <div className="card-head">
                     <h2>活动流</h2>
-                    <span className="muted">{activity.length} 条 · 按真实事件顺序</span>
+                    <span className="muted">{filteredActivity.length} / {activity.length} 条</span>
+                  </div>
+                  <div className="wb-filters">
+                    <input
+                      value={activityQuery}
+                      onChange={event => setActivityQuery(event.target.value)}
+                      placeholder="搜索事件、参数、结果"
+                      aria-label="搜索活动流"
+                    />
+                    <select value={activityCategory} onChange={event => setActivityCategory(event.target.value)} aria-label="按分类筛选">
+                      <option value="all">全部</option>
+                      <option value="reasoning">reasoning</option>
+                      <option value="assistant">assistant</option>
+                      <option value="tool">tool</option>
+                      <option value="planning">planning</option>
+                      <option value="test">test</option>
+                      <option value="review">review</option>
+                      <option value="delivery">delivery</option>
+                      <option value="lifecycle">lifecycle</option>
+                    </select>
                   </div>
                   {activity.length === 0 ? (
                     <p className="muted">还没有可展示的事件。</p>
                   ) : (
                     <div className="wb-feed-list">
-                      {activity.map(event => (
+                      {filteredActivity.map(event => (
                         <button
                           key={event.eventId}
                           type="button"
@@ -2225,10 +2257,7 @@ export default function App() {
                   </div>
                   {selectedActivity ? (
                     <>
-                      <p className="muted">
-                        {selectedActivity.category} · {selectedActivity.phase} · seq {selectedActivity.sequence}
-                      </p>
-                      <pre>{JSON.stringify(maskSecrets(selectedActivity.payload), null, 2)}</pre>
+                      <EventInspector event={selectedActivity} />
                     </>
                   ) : <p className="muted">点击活动流中的事件查看完整参数与返回。</p>}
                 </aside>

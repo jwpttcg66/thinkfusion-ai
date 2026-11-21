@@ -5853,3 +5853,7 @@ button:disabled {
   border-radius: 8px;
   background: var(--bg, #fff);
 }
+
+.wb-filters { display: flex; gap: 6px; margin-bottom: 6px; }
+.wb-filters input { flex: 1; min-width: 0; padding: 4px 8px; }
+.wb-filters select { padding: 4px 6px; }

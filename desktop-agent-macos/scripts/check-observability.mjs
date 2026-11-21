@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fromAgentEvent, fromConversationEvent, fromTraceEntry, projectActivity } from '../out-test/shared/observability.js';
+import { fromAgentEvent, fromConversationEvent, fromTraceEntry, maskSecrets, projectActivity } from '../out-test/shared/observability.js';
 
 test('AgentEvent 投影：reasoning 与 tool 分类/阶段/身份正确', () => {
   const reasoning = fromAgentEvent({
@@ -49,4 +49,12 @@ test('同一 stream 的 reasoning 增量合并为一条活动', () => {
   const list = projectActivity([a, b, c]);
   assert.equal(list.length, 2);
   assert.equal(list[0].payload.reasoning, 'ab');
+});
+
+
+test('检查器/导出前敏感字段脱敏', () => {
+  const masked = maskSecrets({ apiKey: 'secret', nested: { token: 'x', safe: 1 } });
+  assert.equal(masked.apiKey, '***');
+  assert.equal(masked.nested.token, '***');
+  assert.equal(masked.nested.safe, 1);
 });
