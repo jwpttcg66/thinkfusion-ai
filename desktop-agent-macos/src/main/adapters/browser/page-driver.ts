@@ -2595,6 +2595,8 @@ function cutPrompt(text: string, prompt?: string): string {
 /** 执行规划器需要的适配器能力；网页与 Provider 都实现它。 */
 export interface PlanningAdapter {
   readonly siteLabel: string;
+  /** true = 不占用单个网页页面的串行队列（Provider 可并发）。 */
+  readonly concurrent?: boolean;
   getStatus(): Promise<DeepSeekStatus>;
   sendMessage(
     text: string,
