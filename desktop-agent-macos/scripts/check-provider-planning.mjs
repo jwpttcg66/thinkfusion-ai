@@ -29,3 +29,23 @@ test('Provider 不可用时 status 明确', async () => {
   assert.equal(status.loggedIn, false);
   assert.match(status.detail, /no key/);
 });
+
+
+test('规划阶段只输出 reasoning 时按硬超时失败，不一直转圈', async () => {
+  const stuck = {
+    id: 'cloud', label: 'Cloud', sourceType: 'cloud',
+    health: async () => ({ available: true }),
+    ask: async () => ({ text: '' }),
+    askStream: async (_task, onDelta) => {
+      onDelta({ reasoning: '推理'.repeat(5) });
+      return new Promise(() => {});
+    },
+    cancel: () => {}
+  };
+  const adapter = new ProviderPlanningAdapter(stuck, 50);
+  const sent = await adapter.sendMessage('plan', 'r1', () => {});
+  await assert.rejects(
+    () => adapter.waitForAnswer('r1', sent.snapshotBefore, 5000),
+    /规划超时.*推理/
+  );
+});

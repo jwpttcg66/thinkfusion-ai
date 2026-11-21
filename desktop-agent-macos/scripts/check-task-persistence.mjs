@@ -32,6 +32,12 @@ test('任务状态机拒绝终态回退，事件序号持久化后可恢复', ()
   });
   assert.equal(store.nextSequence(task.taskId), seq + 1);
 
+  const interrupted = tasks.create({ prompt: 'i', permissionPreset: 'workspace-write', workspaceRoot: dir });
+  tasks.transition(interrupted.taskId, 'planning');
+  assert.equal(tasks.reconcileInterrupted(), 1);
+  assert.equal(tasks.get(interrupted.taskId).status, 'failed');
+  assert.match(tasks.get(interrupted.taskId).error, /中断/);
+
   const reloaded = new AgentStore(file);
   assert.equal(reloaded.getTask(task.taskId)?.status, 'completed');
   assert.equal(reloaded.listEvents(task.taskId).length, 1);

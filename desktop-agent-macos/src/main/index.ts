@@ -4899,6 +4899,7 @@ app.whenReady().then(async () => {
   });
 
   tasks = new TaskManager(store, emit);
+  tasks.reconcileInterrupted();
 
   /**
    * 云端/本地模式用选中的 Provider 做计划，不再去网页规划器。
