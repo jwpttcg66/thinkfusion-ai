@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentEvent, AgentRound, AgentTask, ExecutionReport, StoredPlan } from '../shared/contracts';
 import type { Conversation, ConversationMessage } from '../shared/conversation';
+import type { TaskEventEnvelope } from '../shared/task-events';
 
 interface StoreState {
   version: number;
@@ -10,6 +11,8 @@ interface StoreState {
   plans: StoredPlan[];
   reports: ExecutionReport[];
   events: AgentEvent[];
+  /** General/Knowledge 会话事件映射后的统一 TaskEvent。 */
+  runEvents?: TaskEventEnvelope[];
   /**
    * Conversations live in the same journal as tasks.
    *
@@ -49,6 +52,7 @@ export class AgentStore {
     plans: [],
     reports: [],
     events: [],
+    runEvents: [],
     conversations: [],
     messages: [],
     collaborations: []
@@ -69,6 +73,7 @@ export class AgentStore {
         plans: parsed.plans ?? [],
         reports: parsed.reports ?? [],
         events: parsed.events ?? [],
+        runEvents: parsed.runEvents ?? [],
         conversations: parsed.conversations ?? [],
         messages: parsed.messages ?? [],
         collaborations: parsed.collaborations ?? []
@@ -179,6 +184,29 @@ export class AgentStore {
   insertReport(report: ExecutionReport) {
     this.state.reports.push(report);
     this.persist();
+  }
+
+  // --- unified run events (General/Knowledge) -------------------------------
+
+  nextRunSequence(taskId: string): number {
+    let max = 0;
+    for (const event of this.state.runEvents ?? []) {
+      if (event.taskId === taskId && event.sequence > max) max = event.sequence;
+    }
+    return max + 1;
+  }
+
+  appendRunEvent(event: TaskEventEnvelope): void {
+    this.state.runEvents ??= [];
+    this.state.runEvents.push(event);
+    if (this.state.runEvents.length > MAX_EVENTS) {
+      this.state.runEvents.splice(0, this.state.runEvents.length - MAX_EVENTS);
+    }
+    this.persist();
+  }
+
+  listRunEvents(taskId: string): TaskEventEnvelope[] {
+    return (this.state.runEvents ?? []).filter(event => event.taskId === taskId);
   }
 
   // --- events --------------------------------------------------------------
