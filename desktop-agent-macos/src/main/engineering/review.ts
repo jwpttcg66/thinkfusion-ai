@@ -116,13 +116,22 @@ export async function reviewExecution(
     ]);
     const verdict = text.trim();
     const needsFix = /【结论】\s*需修复|需要修复|不通过/.test(verdict);
+    // 只有能指向具体条目的“需修复”才阻塞交付；只有结论、没有问题的评审
+    // 无法执行，按“无具体问题”记录，避免下一轮空转或生成非法计划。
+    const modelIssues = verdict
+      .split('\n')
+      .map(line => line.replace(/^\s*(?:[-*]|\d{1,2}[.、)）])\s*/, '').trim())
+      .filter(line => line.length >= 4)
+      .filter(line => /问题|风险|缺失|失败|不一致|需要修复|应补|未覆盖/.test(line))
+      .filter(line => !/^【?(结论|总评)】?/.test(line))
+      .slice(0, 8);
+    const actionable = [...base.issues, ...modelIssues];
     return {
       reviewer: options.reviewer ?? '独立模型',
       backend: 'model',
       verdict,
-      // 规则查出的硬失败永远保留：模型再乐观也不能把非零退出码抹掉。
-      issues: [...new Set([...base.issues, ...(needsFix ? ['独立评审认为需要修复'] : [])])],
-      needsFix: needsFix || base.issues.length > 0,
+      issues: [...new Set(actionable)],
+      needsFix: actionable.length > 0,
       at: now()
     };
   } catch (error) {

@@ -396,7 +396,22 @@ export function parseAnswer(
     }
 
     if (type === 'task_complete') {
-      const message = TaskCompleteSchema.parse(value);
+      // 模型常在完成消息里附带 reason / verification / issueResolution。
+      // 这些是证据，不是协议字段；保留 summary（或 reason）后收敛，避免
+      // 一个已经完成的真实任务被严格 schema 判成非法计划。
+      const normalized = {
+        protocol: PROTOCOL,
+        type: 'task_complete' as const,
+        taskId: value.taskId,
+        roundId: value.roundId,
+        summary:
+          typeof value.summary === 'string' && value.summary.trim()
+            ? value.summary
+            : typeof value.reason === 'string' && value.reason.trim()
+              ? value.reason
+              : '任务完成'
+      };
+      const message = TaskCompleteSchema.parse(normalized);
       if (message.taskId !== expected.taskId || message.roundId !== expected.roundId) {
         return { kind: 'invalid', error: '完成消息的 taskId / roundId 不匹配' };
       }
