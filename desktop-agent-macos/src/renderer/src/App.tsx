@@ -14,6 +14,7 @@ import type {
 import { isLive, reduceTaskStream } from '../../shared/task-stream';
 import { EMPTY_TASK_VIEW, projectTaskView, type TaskView } from '../../shared/task-view';
 import { mergeTaskEvent } from '../../shared/task-events';
+import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
@@ -146,6 +147,7 @@ export default function App() {
   const [prompt, setPrompt] = useState('');
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   /**
    * 正在等用户点头的那一步。
@@ -503,6 +505,11 @@ export default function App() {
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
   );
+  const activity = useMemo<ObservabilityEvent[]>(
+    () => projectActivity(events.map(fromAgentEvent).filter((item): item is ObservabilityEvent => item !== null)),
+    [events]
+  );
+  const selectedActivity = activity.find(item => item.eventId === selectedActivityId) ?? null;
   /** 任务对应的原会话：任务视图不能把“对话/轨迹/思考过程”弄丢。 */
   const taskConversation = useMemo(
     () => (activeTask ? conversations.find(item => item.taskId === activeTask.taskId) ?? null : null),
@@ -2127,6 +2134,66 @@ export default function App() {
                   直接提问，问题会发给 AI 并交叉比较；只有当你需要改动本地文件时，才会生成计划、请求授权、在目录内执行。
                 </p>
               </section>
+            )}
+
+            {activeTask && (
+              <div className="wb-status">
+                <div className="wb-status-main">
+                  <b>工程可观测工作台</b>
+                  <span>{activeTask.title}</span>
+                </div>
+                <div className="wb-status-meta">
+                  <span>{activeTask.workspaceRoot ?? '未指定工作区'}</span>
+                  <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
+                  <span>
+                    步骤 {new Set(events.filter(event => event.type === 'step.completed').map(event => event.stepId)).size}
+                    {derived.plan ? ` / ${String(derived.plan.steps.length)}` : ''}
+                  </span>
+                  <span>{derived.live.modelId ?? derived.live.providerId ?? '模型待定'}</span>
+                </div>
+              </div>
+            )}
+
+            {activeTask && (
+              <section className="card wb-feed">
+                <div className="card-head">
+                  <h2>活动流</h2>
+                  <span className="muted">{activity.length} 条 · 按真实事件顺序</span>
+                </div>
+                {activity.length === 0 ? (
+                  <p className="muted">还没有可展示的事件。</p>
+                ) : (
+                  <div className="wb-feed-list">
+                    {activity.map(event => (
+                      <button
+                        key={event.eventId}
+                        type="button"
+                        className={`wb-event ${selectedActivityId === event.eventId ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedActivityId(event.eventId)}
+                      >
+                        <span className="wb-event-time">{new Date(event.occurredAt).toLocaleTimeString()}</span>
+                        <span className="wb-event-category">{event.category}</span>
+                        <span className="wb-event-phase">{event.phase}</span>
+                        <span className="wb-event-actor">{event.actor.label}</span>
+                        <span className="wb-event-type">{String(event.payload.type ?? '')}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {selectedActivity && (
+              <aside className="card wb-inspector">
+                <div className="card-head">
+                  <h2>事件详情</h2>
+                  <button className="btn ghost" type="button" onClick={() => setSelectedActivityId(null)}>关闭</button>
+                </div>
+                <p className="muted">
+                  {selectedActivity.category} · {selectedActivity.phase} · seq {selectedActivity.sequence}
+                </p>
+                <pre>{JSON.stringify(maskSecrets(selectedActivity.payload), null, 2)}</pre>
+              </aside>
             )}
 
             {activeTask && (

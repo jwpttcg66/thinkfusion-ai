@@ -5787,3 +5787,43 @@ button:disabled {
 /* UI-05 工程 diff */
 .collab-diff { margin-top: 6px; font-size: 12px; }
 .collab-diff pre { max-height: 260px; overflow: auto; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+
+/* Engineering Observability Workbench */
+.wb-status {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(120, 120, 120, 0.28);
+  border-radius: 8px;
+  background: var(--bg, #fff);
+  backdrop-filter: blur(8px);
+}
+.wb-status-main { display: flex; min-width: 0; gap: 10px; align-items: baseline; }
+.wb-status-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-status-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; opacity: 0.8; }
+.wb-feed-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
+.wb-event {
+  display: grid;
+  grid-template-columns: 76px 92px 76px minmax(80px, 1fr) 160px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wb-event:hover { background: rgba(120, 120, 120, 0.08); }
+.wb-event.is-selected { border-color: rgba(70, 120, 255, 0.5); background: rgba(70, 120, 255, 0.08); }
+.wb-event-category { font-weight: 600; }
+.wb-event-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.7; }
+.wb-inspector pre { max-height: 420px; overflow: auto; white-space: pre-wrap; font-size: 12px; }

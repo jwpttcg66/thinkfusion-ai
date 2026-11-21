@@ -18,6 +18,7 @@ export interface ObservabilityEvent {
   stepId?: string;
   attemptId?: string;
   callId?: string;
+  streamId?: string;
   parentEventId?: string;
   sequence: number;
   occurredAt: number;
@@ -61,6 +62,7 @@ export function fromAgentEvent(event: AgentEvent): ObservabilityEvent | null {
   const roundId = 'roundId' in event ? event.roundId : undefined;
   const stepId = 'stepId' in event ? event.stepId : undefined;
   const callId = 'callId' in event ? event.callId : stepId;
+  const streamId = 'streamId' in event ? event.streamId : undefined;
   const provider = 'providerId' in event ? event.providerId : undefined;
   const model = 'modelId' in event ? event.modelId : undefined;
   const isTool = inferCategory(event.type) === 'tool';
@@ -76,6 +78,7 @@ export function fromAgentEvent(event: AgentEvent): ObservabilityEvent | null {
     ...(roundId ? { roundId } : {}),
     ...(stepId ? { stepId } : {}),
     ...(callId ? { callId } : {}),
+    ...(streamId ? { streamId } : {}),
     sequence: event.sequence ?? event.at,
     occurredAt: event.at,
     actor,
@@ -137,7 +140,7 @@ export function fromConversationEvent(event: ConversationEvent, meta: { eventId:
   };
 }
 
-/** 同一任务的活动流：按 sequence 排序，按 eventId 去重。 */
+/** 同一任务的活动流：按 sequence 排序、按 eventId 去重、同一 stream 的增量合成一条。 */
 export function projectActivity(events: readonly ObservabilityEvent[]): ObservabilityEvent[] {
   const seen = new Set<string>();
   const unique: ObservabilityEvent[] = [];
@@ -146,5 +149,35 @@ export function projectActivity(events: readonly ObservabilityEvent[]): Observab
     seen.add(event.eventId);
     unique.push(event);
   }
-  return unique.sort((a, b) => a.sequence - b.sequence || a.occurredAt - b.occurredAt);
+  const ordered = unique.sort((a, b) => a.sequence - b.sequence || a.occurredAt - b.occurredAt);
+  const merged: ObservabilityEvent[] = [];
+  const streamAt = new Map<string, number>();
+  for (const event of ordered) {
+    const streamKey = event.streamId && (event.category === 'reasoning' || event.category === 'assistant')
+      ? `${event.category}:${event.roundId ?? ''}:${event.streamId}`
+      : null;
+    if (streamKey && streamAt.has(streamKey)) {
+      const at = streamAt.get(streamKey)!;
+      merged[at] = { ...merged[at], occurredAt: event.occurredAt, phase: event.phase, payload: event.payload };
+      continue;
+    }
+    if (streamKey) streamAt.set(streamKey, merged.length);
+    merged.push(event);
+  }
+  return merged;
+}
+
+/** 详情检查器/导出前脱敏；只按字段名判断，不改写非敏感值。 */
+export function maskSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(maskSecrets);
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (/api[-_]?key|token|password|secret|authorization|cookie/i.test(key)) {
+      out[key] = item ? '***' : item;
+      continue;
+    }
+    out[key] = maskSecrets(item);
+  }
+  return out;
 }

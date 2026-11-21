@@ -40,3 +40,13 @@ test('Trace / Conversation 可投影到同一事件，按 sequence 去重排序'
   assert.equal(list.length, 2);
   assert.deepEqual(list.map(e => e.sequence), [1, 3]);
 });
+
+
+test('同一 stream 的 reasoning 增量合并为一条活动', () => {
+  const a = fromAgentEvent({ type: 'round.delta', at: 1, taskId: 't', roundId: 'r', streamId: 's', reasoning: 'a', eventId: 'e1', sequence: 1, runId: 't' });
+  const b = fromAgentEvent({ type: 'round.delta', at: 2, taskId: 't', roundId: 'r', streamId: 's', reasoning: 'ab', eventId: 'e2', sequence: 2, runId: 't' });
+  const c = fromAgentEvent({ type: 'round.delta', at: 3, taskId: 't', roundId: 'r2', streamId: 's2', reasoning: 'x', eventId: 'e3', sequence: 3, runId: 't' });
+  const list = projectActivity([a, b, c]);
+  assert.equal(list.length, 2);
+  assert.equal(list[0].payload.reasoning, 'ab');
+});
