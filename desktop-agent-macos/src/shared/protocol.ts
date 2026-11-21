@@ -311,7 +311,6 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
   if (typeof next.description !== 'string') {
     next.description = typeof value.summary === 'string' ? value.summary.slice(0, 2000) : '';
   }
-  if (!next.completion) next.completion = { condition: '完成用户目标' };
   value = next;
   const completion = value.completion;
   const asCondition = (raw: unknown): string | null => {
