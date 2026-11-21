@@ -207,6 +207,7 @@
     "test:permission-store": "npm run build:test && node --test scripts/check-permission-store.mjs",
     "test:conversation-task-event": "npm run build:test && node --test scripts/check-conversation-task-event.mjs",
     "test:task-concurrency": "npm run build:test && node --test scripts/check-task-concurrency.mjs",
+    "test:observability": "npm run build:test && node --test scripts/check-observability.mjs",
     "test:tool-lifecycle": "npm run build:test && node --test scripts/check-tool-lifecycle.mjs",
     "test:task-lifecycle": "npm run build:test && node --test scripts/check-task-lifecycle.mjs",
     "test:task-persistence": "npm run build:test && node --test scripts/check-task-persistence.mjs",
