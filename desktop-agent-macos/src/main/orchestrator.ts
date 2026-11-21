@@ -127,6 +127,11 @@ export class AgentOrchestrator {
     return (taskId ? this.planningAdapters.get(taskId) : undefined) ?? this.deps.adapter(taskId);
   }
 
+  /** Provider 不占网页队列；网页适配器仍然串行。 */
+  private withPlanningSlot<T>(taskId: string, work: () => Promise<T>): Promise<T> {
+    return this.adapterFor(taskId).concurrent ? work() : this.withPage(work);
+  }
+
   private async withPage<T>(work: () => Promise<T>): Promise<T> {
     const previous = this.pageQueue;
     let release = () => {};
@@ -474,27 +479,26 @@ export class AgentOrchestrator {
       const round = this.tasks.getRound(roundId);
       if (!round) throw new Error('轮次不存在');
 
-      const answer = await this.withPage(async () => {
-        // The wait for the page can be long; a task cancelled while queued must
-        // not send anything when its turn comes.
-        const queued = this.tasks.get(taskId);
-        if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
-
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          return await Promise.race([
-            this.askPage(taskId, roundId, prompt),
-            new Promise<string>((_, reject) => {
-              timer = setTimeout(() => {
-                this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
-                reject(new Error('模型规划超时（120 秒）：没有返回可解析的计划。请换模型或重试。'));
-              }, PLANNING_TIMEOUT_MS);
-            })
-          ]);
-        } finally {
-          if (timer) clearTimeout(timer);
-        }
-      });
+      // 超时从排队前开始计时：队列被旧请求占住时也必须能失败收敛。
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let answer: string;
+      try {
+        answer = await Promise.race([
+          this.withPlanningSlot(taskId, async () => {
+            const queued = this.tasks.get(taskId);
+            if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
+            return this.askPage(taskId, roundId, prompt);
+          }),
+          new Promise<string>((_, reject) => {
+            timer = setTimeout(() => {
+              this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
+              reject(new Error('模型规划超时（120 秒）：没有返回可解析的计划。请换模型或重试。'));
+            }, PLANNING_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer });
 

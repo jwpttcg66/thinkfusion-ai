@@ -6,6 +6,7 @@ import type { ProviderBackedSubAgent } from './provider-sub-agent';
 
 export class ProviderPlanningAdapter implements PlanningAdapter {
   readonly siteLabel: string;
+  readonly concurrent = true;
   private readonly pending = new Map<string, Promise<string>>();
   private readonly progress = new Map<string, { text: number; reasoning: number }>();
   private readonly controllers = new Map<string, AbortController>();
