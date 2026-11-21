@@ -11,6 +11,9 @@ import type {
   PlanPreview as PlanPreviewType,
   SourcesState
 } from '../../shared/contracts';
+import { isLive, reduceTaskStream } from '../../shared/task-stream';
+import { EMPTY_TASK_VIEW, projectTaskView, type TaskView } from '../../shared/task-view';
+import { mergeTaskEvent } from '../../shared/task-events';
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
@@ -63,43 +66,8 @@ import {
 } from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
-const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', stream: '', review: null, verification: null, diagnostics: [], changes: [] };
-type DiagnosticCard = {
-  path: string;
-  source: string;
-  errors: number;
-  warnings: number;
-  issues: Array<{ line: number; column: number; message: string }>;
-};
-interface Derived {
-  plan: PlanPreviewType | null;
-  questions: string[];
-  answer: string;
-  /** 模型边生成边推到页面的实时文本。 */
-  stream: string;
-  review: {
-    reviewer: string;
-    backend: 'model' | 'rules';
-    verdict: string;
-    issues: string[];
-    needsFix: boolean;
-  } | null;
-  /** 本轮执行报告里的验证结论；老报告没有字段就是 null。 */
-  verification: {
-    verified: boolean;
-    reasons: string[];
-    changedFiles: number;
-    checks?: {
-      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
-      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
-      diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; detail?: string };
-    };
-  } | null;
-  /** 写操作里自动带的诊断，按文件列出（来自 code.diagnostics）。 */
-  diagnostics: DiagnosticCard[];
-  /** 本轮改动（编辑的前后字面量 / 补丁原文），给 diff 卡。 */
-  changes: Array<{ path: string; before?: string; after?: string; patch?: string }>;
-}
+type Derived = TaskView;
+const EMPTY_DERIVED = EMPTY_TASK_VIEW;
 
 /** 逐次审批里正在等答复的那一步（事件本身带齐了要显示的全部信息）。 */
 type PendingStep = Extract<AgentEvent, { type: 'step.approval' }>;
@@ -107,18 +75,6 @@ type PendingStep = Extract<AgentEvent, { type: 'step.approval' }>;
 /** 执行中提问：和逐次审批一样是阻塞态，界面上不能被日志淹掉。 */
 type PendingQuestion = Extract<AgentEvent, { type: 'step.question' }>;
 
-/**
- * The page-pane actions, as icons.
- *
- * Text was wrong here for a structural reason: this bar lives inside the page
- * pane, and the pane can be dragged down to 380px. Two four-character labels ate
- * most of that width and pushed the status out of sight — the one thing the bar
- * exists to show. An icon is a fixed 24px whatever the language.
- *
- * The drawing itself is `components/Glyph`, shared with the sidebar and the
- * settings panel; the paths come from `shared/icons.ts` so the detached
- * window's toolbar can draw byte-identical glyphs.
- */
 /** 放大：把这个页面交给一整扇窗。 */
 const IconExpand = () => <Glyph paths={ICON_EXPAND_PATHS} />;
 /** 吸附回来：放回它原来的位置。 */
@@ -133,82 +89,6 @@ const IconGauge = () => <Glyph paths={ICON_GAUGE_PATHS} />;
 const IconSave = () => <Glyph paths={ICON_SAVE_PATHS} />;
 /** 保存为 Word：同一张纸，里面是横线而不是箭头。 */
 const IconSaveWord = () => <Glyph paths={ICON_SAVE_WORD_PATHS} />;
-function derive(events: AgentEvent[]): Derived {
-  let plan: PlanPreviewType | null = null;
-  let questions: string[] = [];
-  let answer = '';
-  let stream = '';
-  let review: Derived['review'] = null;
-  let verification: Derived['verification'] = null;
-  let diagnostics: DiagnosticCard[] = [];
-  let changes: Derived['changes'] = [];
-
-  for (const event of events) {
-    // A new round supersedes whatever the previous one asked. Without this a
-    // replayed task keeps showing a question that has already been answered —
-    // the card stays on screen with a disabled box, which reads as stuck.
-    if (event.type === 'round.started') questions = [];
-    if (event.type === 'plan.ready') plan = event.plan;
-    // V2.1 D-03：方案评审辩论的结论挂回同一张计划卡。
-    // 辩论事件是后到的，别把计划替换掉——审批的人要同时看到计划与结论。
-    if (event.type === 'plan.debated' && plan && plan.planId === event.planId) {
-      plan = { ...plan, debate: event.debate };
-    }
-    if (event.type === 'clarification.required') questions = event.questions;
-    if (event.type === 'round.delta') stream = event.reasoning || event.text || stream;
-    if (event.type === 'round.answer') { answer = event.text; stream = ''; }
-    if (event.type === 'report.ready') {
-      const report = event.report as {
-        verification?: {
-          verified: boolean;
-          reasons: string[];
-          changedFiles: number;
-          checks?: NonNullable<Derived['verification']>['checks'];
-        };
-        results?: Array<{ result?: { diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
-      };
-      verification = report.verification ?? null;
-      changes = (report.results ?? [])
-        .map((item): Derived['changes'][number] | null => {
-          const result = (item as { result?: { path?: string; before?: string; after?: string; patch?: string } }).result;
-          if (!result?.path) return null;
-          if (typeof result.before === 'string' && typeof result.after === 'string') {
-            return { path: result.path, before: result.before, after: result.after };
-          }
-          if (typeof result.patch === 'string') return { path: result.path, patch: result.patch };
-          return null;
-        })
-        .filter((item): item is Derived['changes'][number] => item !== null);
-      diagnostics = (report.results ?? [])
-        .map(item => item.result?.diagnostics)
-        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
-        .map(item => ({
-          path: String(item.path),
-          source: String(item.source ?? 'tsserver'),
-          errors: Number(item.counts?.errors ?? 0),
-          warnings: Number(item.counts?.warnings ?? 0),
-          issues: (item.issues ?? []).slice(0, 10).map(issue => ({
-            line: Number(issue.line ?? 0),
-            column: Number(issue.column ?? 0),
-            message: String(issue.message ?? '')
-          }))
-        }));
-    }
-    if (event.type === 'review.ready') {
-      review = {
-        reviewer: event.reviewer,
-        backend: event.backend,
-        verdict: event.verdict,
-        issues: event.issues,
-        needsFix: event.needsFix
-      };
-    }
-    if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
-      questions = [];
-    }
-  }
-  return { plan, questions, answer, stream, review, verification, diagnostics, changes };
-}
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
   const next = list.filter(item => item.taskId !== task.taskId);
@@ -721,17 +601,18 @@ export default function App() {
       }
       if (!('taskId' in event) || event.taskId !== activeRef.current) return;
 
-      setEvents(prev => [...prev, event]);
+      setEvents(prev => mergeTaskEvent(prev, event));
       setDerived(prev => {
-        if (event.type === 'round.started') return { ...prev, questions: [] };
-        if (event.type === 'plan.ready') return { ...prev, plan: event.plan };
-        if (event.type === 'clarification.required') return { ...prev, questions: event.questions };
-        if (event.type === 'round.delta') return { ...prev, stream: event.reasoning || event.text || prev.stream };
-        if (event.type === 'round.answer') return { ...prev, answer: event.text, stream: '' };
+        const live = reduceTaskStream(prev.live, event);
+        if (event.type === 'round.started') return { ...prev, live, questions: [], answer: '', plan: null };
+        if (event.type === 'plan.ready') return { ...prev, live, plan: event.plan };
+        if (event.type === 'clarification.required') return { ...prev, live, questions: event.questions };
+        if (event.type === 'round.delta') return { ...prev, live };
+        if (event.type === 'round.answer') return { ...prev, live, answer: event.text };
         if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
-          return { ...prev, questions: [] };
+          return { ...prev, live, questions: [] };
         }
-        return prev;
+        return { ...prev, live };
       });
       if (event.type === 'task.failed') setError(event.error);
 
@@ -1040,8 +921,8 @@ export default function App() {
     setClarifyText('');
     try {
       const history = await window.agentAPI.getTaskEvents(taskId);
-      setEvents(history);
-      setDerived(derive(history));
+      setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
+      setDerived(projectTaskView(history));
     } catch (e) {
       setError(errorText(e));
     }
@@ -2500,11 +2381,20 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && derived.stream && !derived.answer && (
-              <details className="card stream" open>
-                <summary>实时输出</summary>
-                <pre>{derived.stream}</pre>
-              </details>
+            {activeTask && isLive(derived.live) && (
+              <section className="card running">
+                <span className="spinner" />
+                <div>
+                  <b>当前工作进展</b>
+                  <p className="muted">
+                    {activeTask.status === 'planning' ? '正在生成执行计划' : '正在生成回答'}
+                    {' · '}已接收 {derived.live.textChars} 字符
+                    {derived.live.reasoningChars > 0
+                      ? `（内部推理 ${derived.live.reasoningChars} 字符，不展示原文）`
+                      : ''}
+                  </p>
+                </div>
+              </section>
             )}
 
             {activeTask && planThinking(derived.answer) && (

@@ -32,6 +32,7 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { phaseOfEvent, taskIdOf } from '../shared/task-events';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
@@ -1067,12 +1068,22 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
 function emit(event: AgentEvent) {
+  const taskId = taskIdOf(event);
+  const enriched: AgentEvent = taskId
+    ? {
+        ...event,
+        eventId: event.eventId ?? randomUUID(),
+        runId: event.runId ?? taskId,
+        sequence: event.sequence ?? store?.nextSequence(taskId) ?? 1,
+        phase: event.phase ?? phaseOfEvent(event.type)
+      }
+    : event;
   try {
-    store?.appendEvent(event);
+    store?.appendEvent(enriched);
   } catch {
     /* Persisting events must never break the running task. */
   }
-  win?.webContents.send('agent:event', event);
+  win?.webContents.send('agent:event', enriched);
 }
 
 function emitDeepSeek(event: DeepSeekEvent) {

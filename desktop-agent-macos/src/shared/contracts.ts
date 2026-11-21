@@ -1327,14 +1327,29 @@ export interface ExecutionReport {
 
 export interface AgentEventBase {
   at: number;
+  /** 统一任务事件字段；旧事件可能没有，读取方必须容忍。 */
+  eventId?: string;
+  runId?: string;
+  sequence?: number;
+  phase?: TaskEventPhase;
 }
+
+export type TaskEventPhase =
+  | 'understanding'
+  | 'planning'
+  | 'approval'
+  | 'execution'
+  | 'verification'
+  | 'review'
+  | 'delivery'
+  | 'terminal';
 
 export type AgentEvent = AgentEventBase &
   (
     | { type: 'task.updated'; task: AgentTask }
     | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType'] }
     | { type: 'round.answer'; taskId: string; roundId: string; text: string }
-    | { type: 'round.delta'; taskId: string; roundId: string; text?: string; reasoning?: string }
+    | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; text?: string; reasoning?: string }
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }
