@@ -11,6 +11,7 @@ import type {
   PlanPreview as PlanPreviewType,
   SourcesState
 } from '../../shared/contracts';
+import { EMPTY_TASK_STREAM, isLive, reduceTaskStream, type TaskStreamState } from '../../shared/task-stream';
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
@@ -63,7 +64,7 @@ import {
 } from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
-const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', stream: '', review: null, verification: null, diagnostics: [], changes: [] };
+const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', live: EMPTY_TASK_STREAM, review: null, verification: null, diagnostics: [], changes: [] };
 type DiagnosticCard = {
   path: string;
   source: string;
@@ -75,8 +76,8 @@ interface Derived {
   plan: PlanPreviewType | null;
   questions: string[];
   answer: string;
-  /** 模型边生成边推到页面的实时文本。 */
-  stream: string;
+  /** 流式进度：只含轮次和字符数，不展示 reasoning 原文。 */
+  live: TaskStreamState;
   review: {
     reviewer: string;
     backend: 'model' | 'rules';
@@ -137,7 +138,7 @@ function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
   let answer = '';
-  let stream = '';
+  let live: TaskStreamState = EMPTY_TASK_STREAM;
   let review: Derived['review'] = null;
   let verification: Derived['verification'] = null;
   let diagnostics: DiagnosticCard[] = [];
@@ -155,8 +156,9 @@ function derive(events: AgentEvent[]): Derived {
       plan = { ...plan, debate: event.debate };
     }
     if (event.type === 'clarification.required') questions = event.questions;
-    if (event.type === 'round.delta') stream = event.reasoning || event.text || stream;
-    if (event.type === 'round.answer') { answer = event.text; stream = ''; }
+    live = reduceTaskStream(live, event);
+    if (event.type === 'round.started') { answer = ''; plan = null; }
+    if (event.type === 'round.answer') answer = event.text;
     if (event.type === 'report.ready') {
       const report = event.report as {
         verification?: {
@@ -207,7 +209,7 @@ function derive(events: AgentEvent[]): Derived {
       questions = [];
     }
   }
-  return { plan, questions, answer, stream, review, verification, diagnostics, changes };
+  return { plan, questions, answer, live, review, verification, diagnostics, changes };
 }
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
@@ -723,15 +725,16 @@ export default function App() {
 
       setEvents(prev => [...prev, event]);
       setDerived(prev => {
-        if (event.type === 'round.started') return { ...prev, questions: [] };
-        if (event.type === 'plan.ready') return { ...prev, plan: event.plan };
-        if (event.type === 'clarification.required') return { ...prev, questions: event.questions };
-        if (event.type === 'round.delta') return { ...prev, stream: event.reasoning || event.text || prev.stream };
-        if (event.type === 'round.answer') return { ...prev, answer: event.text, stream: '' };
+        const live = reduceTaskStream(prev.live, event);
+        if (event.type === 'round.started') return { ...prev, live, questions: [], answer: '', plan: null };
+        if (event.type === 'plan.ready') return { ...prev, live, plan: event.plan };
+        if (event.type === 'clarification.required') return { ...prev, live, questions: event.questions };
+        if (event.type === 'round.delta') return { ...prev, live };
+        if (event.type === 'round.answer') return { ...prev, live, answer: event.text };
         if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
-          return { ...prev, questions: [] };
+          return { ...prev, live, questions: [] };
         }
-        return prev;
+        return { ...prev, live };
       });
       if (event.type === 'task.failed') setError(event.error);
 
@@ -2500,11 +2503,20 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && derived.stream && !derived.answer && (
-              <details className="card stream" open>
-                <summary>实时输出</summary>
-                <pre>{derived.stream}</pre>
-              </details>
+            {activeTask && isLive(derived.live) && (
+              <section className="card running">
+                <span className="spinner" />
+                <div>
+                  <b>当前工作进展</b>
+                  <p className="muted">
+                    {activeTask.status === 'planning' ? '正在生成执行计划' : '正在生成回答'}
+                    {' · '}已接收 {derived.live.textChars} 字符
+                    {derived.live.reasoningChars > 0
+                      ? `（内部推理 ${derived.live.reasoningChars} 字符，不展示原文）`
+                      : ''}
+                  </p>
+                </div>
+              </section>
             )}
 
             {activeTask && planThinking(derived.answer) && (

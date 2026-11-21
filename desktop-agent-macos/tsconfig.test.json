@@ -5,6 +5,7 @@
     "rootDir": "src"
   },
   "include": [
+    "src/shared/task-stream.ts",
     "src/shared/**/*.ts",
     "src/agent/**/*.ts",
     "src/main/atomic-write.ts",
