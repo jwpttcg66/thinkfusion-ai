@@ -1,5 +1,20 @@
 /** 统一任务事件契约的兼容层：旧 AgentEvent 逐步补齐，不要求一次改完所有 emit。 */
 import type { AgentEvent, TaskEventPhase } from './contracts';
+import type { ConversationEvent } from './conversation';
+
+export interface TaskEventEnvelope {
+  eventId: string;
+  taskId: string;
+  runId: string;
+  roundId?: string;
+  stepId?: string;
+  attemptId?: string;
+  sequence: number;
+  occurredAt: number;
+  phase: TaskEventPhase;
+  type: string;
+  payload: Record<string, unknown>;
+}
 
 export function phaseOfEvent(type: AgentEvent['type']): TaskEventPhase {
   switch (type) {
@@ -40,4 +55,39 @@ export function mergeTaskEvent<T extends AgentEvent>(list: readonly T[], event: 
     }
     return a.at - b.at;
   });
+}
+
+
+/** General/Knowledge 的会话事件 → 统一 TaskEvent 适配器；不创建假 AgentTask。 */
+export function conversationEventToTaskEvent(
+  event: ConversationEvent,
+  meta: { eventId: string; sequence: number; runId?: string }
+): TaskEventEnvelope | null {
+  const conversationId =
+    'conversationId' in event
+      ? event.conversationId
+      : event.type === 'conversation.created' || event.type === 'conversation.updated'
+        ? event.conversation.conversationId
+        : event.type === 'message.added'
+          ? event.message.conversationId
+          : null;
+  if (!conversationId) return null;
+  const phase: TaskEventPhase =
+    event.type === 'conversation.deleted'
+      ? 'terminal'
+      : event.type === 'debate.progress'
+        ? 'review'
+        : event.type === 'answer.delta' || event.type === 'message.added'
+          ? 'delivery'
+          : 'understanding';
+  return {
+    eventId: meta.eventId,
+    taskId: conversationId,
+    runId: meta.runId ?? conversationId,
+    sequence: meta.sequence,
+    occurredAt: event.at,
+    phase,
+    type: event.type,
+    payload: { ...event, phase }
+  };
 }
