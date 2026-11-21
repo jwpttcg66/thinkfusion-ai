@@ -1536,7 +1536,7 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
   assert.ok(messages.some(m => m.role === 'system' && m.text.includes('停止原因')));
 });
 
-test('云端工程：不做词表预判，直接交 Planner', async () => {
+test('云端工程：显式“按实施”直达 Planner，不再做词表预判', async () => {
   let submitted = null;
   const { runner } = makeRunner(
     [fakeChannel('a', () => answer('不应该被问到'))],
@@ -1554,6 +1554,7 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
     text: '分析这个仓库的目录结构',
     workspaceMode: 'engineering',
     workspaceRoot: '/tmp/project',
+    taskKindOverride: 'execution',
     executionConfig: { executionMode: 'cloud' }
   });
   const done = await settle(runner, started.conversationId);
