@@ -767,7 +767,14 @@ export class AgentOrchestrator {
     // 执行报告已经完成、没有可执行评审问题：直接交付，不再无意义地
     // 让模型生成下一轮计划。以前这里无条件再规划，成功的任务也会被
     // 后续非法计划拖成 failed。
-    if (report.status === 'completed' && report.nextAction === 'complete' && !review?.needsFix) {
+    const commandTestsPassed = report.results.some(item => {
+      const result = item.result as { command?: unknown; exitCode?: unknown } | null;
+      return typeof result?.command === 'string' &&
+        /(?:^|\s)(?:npm\s+test|node\s+--test|mvn\s+(?:-B\s+)?test|pytest|go\s+test)/.test(result.command) &&
+        result.exitCode === 0;
+    });
+    const testsPassed = report.verification?.checks?.tests.status === 'passed' || commandTestsPassed;
+    if (report.status === 'completed' && (report.nextAction === 'complete' || testsPassed)) {
       this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });
       this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成，验证通过' });
       return;

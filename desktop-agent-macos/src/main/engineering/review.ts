@@ -122,7 +122,8 @@ export async function reviewExecution(
       .split('\n')
       .map(line => line.replace(/^\s*(?:[-*]|\d{1,2}[.、)）])\s*/, '').trim())
       .filter(line => line.length >= 4)
-      .filter(line => /问题|风险|缺失|失败|不一致|需要修复|应补|未覆盖/.test(line))
+      .filter(line => /缺少|未通过|失败|不一致|需要修复|应补|未覆盖|错误/.test(line))
+      .filter(line => !/(无明显|没有问题|未发现|不存在|无潜在|没有发现|未引入明显)/.test(line))
       .filter(line => !/^【?(结论|总评)】?/.test(line))
       .slice(0, 8);
     const actionable = [...base.issues, ...modelIssues];
