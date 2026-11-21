@@ -252,6 +252,23 @@ export class AgentStore {
   }
 
   appendEvent(event: AgentEvent) {
+    // 流式 token 不逐条重写整份 journal：10k 条 delta 会把事件循环拖死，
+    // 定时器和 UI 都会停止响应。内存里同一 stream 只保留最新快照，
+    // 等 round.answer / 下一个持久事件到来时一起落盘。
+    if (event.type === 'round.delta') {
+      const index = this.state.events.findIndex(item =>
+        item.type === 'round.delta' &&
+        item.taskId === event.taskId &&
+        item.roundId === event.roundId &&
+        item.streamId === event.streamId
+      );
+      if (index >= 0) this.state.events[index] = event;
+      else {
+        this.state.events.push(event);
+        if (this.state.events.length > MAX_EVENTS) this.state.events.splice(0, this.state.events.length - MAX_EVENTS);
+      }
+      return;
+    }
     this.state.events.push(event);
     if (this.state.events.length > MAX_EVENTS) this.state.events.splice(0, this.state.events.length - MAX_EVENTS);
     this.persist();

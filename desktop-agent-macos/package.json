@@ -92,6 +92,7 @@
     "test:judge-pack-evidence": "npm run build:test && node --test scripts/check-judge-pack-evidence.mjs",
     "test:execution-evidence": "npm run build:test && node --test scripts/check-execution-evidence-producer.mjs",
     "test:ask-user": "npm run build:test && node --test scripts/check-ask-user.mjs",
+    "test:delta-persistence": "npm run build:test && node --test scripts/check-delta-persistence.mjs",
     "test:diagnostics": "npm run build:test && node --test scripts/check-diagnostics.mjs",
     "test:terminal": "npm run build:test && node --test --test-force-exit scripts/check-terminal.mjs",
     "test:terminal-rail": "node scripts/check-terminal-rail.mjs",
