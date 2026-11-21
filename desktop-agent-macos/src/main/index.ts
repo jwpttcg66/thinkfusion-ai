@@ -32,7 +32,7 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
-import { phaseOfEvent, taskIdOf } from '../shared/task-events';
+import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
@@ -1092,6 +1092,17 @@ function emitDeepSeek(event: DeepSeekEvent) {
 
 function emitConversation(event: ConversationEvent) {
   win?.webContents.send('conversation:event', event);
+  // General/Knowledge 也进入统一 TaskEvent；高频 answer.delta 不落盘，
+  // message.added 已经保留最终文本。
+  if (!store || event.type === 'answer.delta') return;
+  try {
+    const mapped = conversationEventToTaskEvent(event, { eventId: randomUUID(), sequence: 0 });
+    if (!mapped) return;
+    const enriched = { ...mapped, sequence: store.nextRunSequence(mapped.taskId) };
+    store.appendRunEvent(enriched);
+  } catch {
+    /* run event 持久化失败不能影响会话 */
+  }
 }
 
 /** 一场辩论在某一刻能读到的东西；实时面板与落盘快照共用同一份。 */
@@ -3457,6 +3468,12 @@ function isMissingTerminal(error: unknown): boolean {
     trustedUiSender(event);
     if (typeof id !== 'string') throw new Error('缺少对话 id');
     return conversations.messages(id);
+  });
+
+  ipcMain.handle('conversation:run-events', (event, id: unknown) => {
+    trustedUiSender(event);
+    if (typeof id !== 'string') throw new Error('缺少对话 id');
+    return store.listRunEvents(id);
   });
 
   /**

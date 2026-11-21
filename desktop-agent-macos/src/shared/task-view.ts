@@ -1,6 +1,7 @@
 /** 工程任务视图投影：Renderer 只读这一份派生结果，不自行拼业务状态。 */
 import type { AgentEvent, PlanPreview } from './contracts';
 import { EMPTY_TASK_STREAM, reduceTaskStream, type TaskStreamState } from './task-stream';
+import type { TaskEventEnvelope } from './task-events';
 
 export type TaskDiagnosticCard = {
   path: string;
@@ -123,4 +124,24 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
   }
 
   return { plan, questions, answer, live, review, verification, diagnostics, changes };
+}
+
+
+/** General/Knowledge 会话的轻量视图投影：阶段、最后事件、事件数。 */
+export interface RunView {
+  phase: TaskEventEnvelope['phase'];
+  count: number;
+  lastType: string | null;
+  lastAt: number | null;
+}
+
+export function projectRunView(events: readonly TaskEventEnvelope[]): RunView {
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  const last = ordered.at(-1) ?? null;
+  return {
+    phase: last?.phase ?? 'understanding',
+    count: ordered.length,
+    lastType: last?.type ?? null,
+    lastAt: last?.occurredAt ?? null
+  };
 }

@@ -2294,6 +2294,8 @@ export interface AgentApi {
   getConversations(): Promise<Conversation[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;
   getConversationMessages(conversationId: string): Promise<ConversationMessage[]>;
+  /** 统一 TaskEvent：General/Knowledge 会话事件映射后的持久化记录。 */
+  getConversationRunEvents(conversationId: string): Promise<import('./task-events').TaskEventEnvelope[]>;
   /**
    * 轨迹与统计的原始记录。旧会话没有 trace 文件时回退到消息级时间线，
    * `source` 会明确写 `messages`，界面不能把它当成完整统计。
