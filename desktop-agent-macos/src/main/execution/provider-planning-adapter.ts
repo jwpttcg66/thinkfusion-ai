@@ -34,7 +34,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   async sendMessage(
     text: string,
     requestId: string,
-    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }) => void
   ): Promise<SendOutcome> {
     this.progress.set(requestId, { text: 0, reasoning: 0 });
     const promise = (async () => {
@@ -54,7 +54,14 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
           if (chunk.text) accumulated += chunk.text;
           if (chunk.reasoning) reasoning += chunk.reasoning;
           this.progress.set(requestId, { text: accumulated.length, reasoning: reasoning.length });
-          onDelta({ text: accumulated, reasoning, reset: false });
+          onDelta({
+            text: accumulated,
+            reasoning,
+            reset: false,
+            mode: 'snapshot',
+            providerId: this.agent.provider.id,
+            ...(this.agent.modelId ? { modelId: this.agent.modelId } : {})
+          });
         }
       );
       return answer.text;

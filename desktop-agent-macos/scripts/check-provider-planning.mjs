@@ -5,7 +5,7 @@ import { ProviderPlanningAdapter } from '../out-test/main/execution/provider-pla
 
 function agent(available = true) {
   return {
-    id: 'cloud', label: 'Cloud', sourceType: 'cloud',
+    id: 'cloud', label: 'Cloud', sourceType: 'cloud', provider: { id: 'cloud' },
     health: async () => ({ available, detail: available ? undefined : 'no key' }),
     ask: async () => ({ text: '{"type":"plan"}' }),
     cancel: () => {}
@@ -33,7 +33,7 @@ test('Provider 不可用时 status 明确', async () => {
 
 test('规划阶段只输出 reasoning 时按硬超时失败，不一直转圈', async () => {
   const stuck = {
-    id: 'cloud', label: 'Cloud', sourceType: 'cloud',
+    id: 'cloud', label: 'Cloud', sourceType: 'cloud', provider: { id: 'cloud' },
     health: async () => ({ available: true }),
     ask: async () => ({ text: '' }),
     askStream: async (_task, onDelta) => {

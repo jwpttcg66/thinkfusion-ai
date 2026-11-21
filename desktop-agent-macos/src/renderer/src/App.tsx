@@ -2450,20 +2450,43 @@ export default function App() {
               </section>
             )}
 
+            {activeTask && derived.modelTrace.some(item => item.reasoning.trim()) && (
+              <details className="card reasoning-history">
+                <summary>模型思考记录（{derived.modelTrace.filter(item => item.reasoning.trim()).length} 轮）</summary>
+                {derived.modelTrace.filter(item => item.reasoning.trim()).map(item => (
+                  <section key={item.roundId}>
+                    <h5>{item.roundId.slice(0, 8)}</h5>
+                    <pre>{item.reasoning}</pre>
+                  </section>
+                ))}
+              </details>
+            )}
+
             {activeTask && isLive(derived.live) && (
-              <section className="card running">
-                <span className="spinner" />
-                <div>
-                  <b>当前工作进展</b>
-                  <p className="muted">
-                    {activeTask.status === 'planning' ? '正在生成执行计划' : '正在生成回答'}
-                    {' · '}已接收 {derived.live.textChars} 字符
-                    {derived.live.reasoningChars > 0
-                      ? `（内部推理 ${derived.live.reasoningChars} 字符，不展示原文）`
-                      : ''}
-                  </p>
-                </div>
-              </section>
+              <>
+                <section className="card running">
+                  <span className="spinner" />
+                  <div>
+                    <b>{activeTask.status === 'planning' ? '正在生成执行计划' : '正在生成回答'}</b>
+                    <p className="muted">
+                      {derived.live.providerId ? `${derived.live.providerId} · ` : ''}
+                      {derived.live.modelId ?? '当前模型'}
+                    </p>
+                  </div>
+                </section>
+                <details className="card reasoning" open>
+                  <summary>模型思考（{derived.live.reasoning.length} 字符）</summary>
+                  {derived.live.reasoning
+                    ? <pre>{derived.live.reasoning}</pre>
+                    : <p className="muted">当前模型/渠道没有提供思考流。</p>}
+                </details>
+                <details className="card assistant" open>
+                  <summary>模型输出（{derived.live.text.length} 字符）</summary>
+                  {derived.live.text
+                    ? <pre>{derived.live.text}</pre>
+                    : <p className="muted">等待模型输出正文…</p>}
+                </details>
+              </>
             )}
 
             {activeTask && planThinking(derived.answer) && (

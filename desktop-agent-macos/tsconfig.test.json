@@ -5,6 +5,7 @@
     "rootDir": "src"
   },
   "include": [
+    "src/shared/execution-timeline.ts",
     "src/shared/task-events.ts",
     "src/shared/task-lifecycle.ts",
     "src/shared/task-view.ts",

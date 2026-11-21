@@ -34,6 +34,8 @@ export interface TaskView {
       diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; detail?: string };
     };
   } | null;
+  /** 按轮次保存的模型思考/输出历史，刷新后可从事件重建。 */
+  modelTrace: Array<{ roundId: string; reasoning: string; text: string }>;
   diagnostics: TaskDiagnosticCard[];
   changes: Array<{ path: string; before?: string; after?: string; patch?: string }>;
 }
@@ -43,6 +45,7 @@ export const EMPTY_TASK_VIEW: TaskView = {
   questions: [],
   answer: '',
   live: EMPTY_TASK_STREAM,
+  modelTrace: [],
   review: null,
   verification: null,
   diagnostics: [],
@@ -56,6 +59,8 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
   let live: TaskStreamState = EMPTY_TASK_STREAM;
   let review: TaskView['review'] = null;
   let verification: TaskView['verification'] = null;
+  const trace = new Map<string, { roundId: string; reasoning: string; text: string }>();
+  const settledRounds = new Set<string>();
   let diagnostics: TaskDiagnosticCard[] = [];
   let changes: TaskView['changes'] = [];
 
@@ -71,7 +76,14 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
     }
     if (event.type === 'clarification.required') questions = event.questions;
     live = reduceTaskStream(live, event);
-    if (event.type === 'round.answer') answer = event.text;
+    if (event.type === 'round.delta' && event.roundId && !settledRounds.has(event.roundId)) {
+      const entry = trace.get(event.roundId) ?? { roundId: event.roundId, reasoning: '', text: '' };
+      const mode = event.mode ?? 'snapshot';
+      if (event.reasoning) entry.reasoning = mode === 'delta' ? entry.reasoning + event.reasoning : event.reasoning;
+      if (event.text) entry.text = mode === 'delta' ? entry.text + event.text : event.text;
+      trace.set(event.roundId, entry);
+    }
+    if (event.type === 'round.answer') { answer = event.text; settledRounds.add(event.roundId); }
     if (event.type === 'report.ready') {
       const report = event.report as {
         verification?: {
@@ -123,7 +135,7 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
     }
   }
 
-  return { plan, questions, answer, live, review, verification, diagnostics, changes };
+  return { plan, questions, answer, live, modelTrace: [...trace.values()], review, verification, diagnostics, changes };
 }
 
 

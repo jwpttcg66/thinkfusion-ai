@@ -7,7 +7,7 @@
 
 import type { AgentEvent } from './contracts';
 
-export type StepStatus = 'waiting' | 'running' | 'completed' | 'failed';
+export type StepStatus = 'preparing' | 'waiting' | 'running' | 'completed' | 'failed';
 
 export interface StepCard {
   stepId: string;
@@ -109,6 +109,7 @@ export function duration(ms?: number): string {
 }
 
 export function statusText(card: StepCard): string {
+  if (card.status === 'preparing') return '准备工具';
   if (card.status === 'waiting') return '等待确认';
   if (card.status === 'running') return '执行中';
   if (card.status === 'failed') return '失败';
@@ -210,6 +211,13 @@ export function buildTimeline(events: AgentEvent[]): TimelineItem[] {
 
   events.forEach((event, index) => {
     switch (event.type) {
+      case 'step.preparing':
+        upsert(event.stepId, event.at, {
+          tool: event.tool,
+          status: 'preparing',
+          args: event.args
+        });
+        return;
       case 'step.started':
         upsert(event.stepId, event.at, {
           tool: event.tool,

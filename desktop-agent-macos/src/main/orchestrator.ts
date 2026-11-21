@@ -504,7 +504,7 @@ export class AgentOrchestrator {
   private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
     const attempt = async (requestId: string) => {
       const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId, chunk => {
-        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}) });
+        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
       });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
       return this.adapterFor(taskId).waitForAnswer(
@@ -629,6 +629,13 @@ export class AgentOrchestrator {
       type: 'plan.ready', at: Date.now(), taskId, roundId,
       plan: toPreview(stored, gate.missing)
     });
+    // 计划选中了这些工具，但一个都还没执行；界面必须能区分“准备”与“开始”。
+    for (const step of stored.plan.steps) {
+      this.deps.emit({
+        type: 'step.preparing', at: Date.now(), taskId, roundId,
+        stepId: step.id, callId: step.id, tool: step.tool, args: step.args as Record<string, unknown>
+      });
+    }
 
     const debate = await this.reviewPlanWithDebate(taskId, roundId, stored);
     this.tasks.transition(taskId, 'awaiting_approval', { currentPlanId: stored.planId });
