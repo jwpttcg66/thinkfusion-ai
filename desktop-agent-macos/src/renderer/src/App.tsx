@@ -2487,7 +2487,7 @@ export default function App() {
                 <span className="spinner" />
                 <div>
                   <b>{statusLabel(activeTask?.status ?? 'planning')}</b>
-                  <p className="muted">正在与 DeepSeek 同步；无需手动复制粘贴，等待本轮结束即可。</p>
+                  <p className="muted">正在规划/执行；无需手动复制粘贴，等待本轮结束即可。</p>
                 </div>
               </section>
             )}
@@ -2501,9 +2501,9 @@ export default function App() {
               </section>
             )}
 
-            {derived.answer && (
+            {derived.answer && !/"type"\s*:\s*"plan"/.test(derived.answer) && (
               <details className="card answer">
-                <summary>最近一轮 DeepSeek 回答（{derived.answer.length} 字符）</summary>
+                <summary>最近一轮模型回答（{derived.answer.length} 字符）</summary>
                 <pre>{derived.answer}</pre>
               </details>
             )}
