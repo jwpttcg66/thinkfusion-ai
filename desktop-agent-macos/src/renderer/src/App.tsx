@@ -510,6 +510,11 @@ export default function App() {
     [events]
   );
   const selectedActivity = activity.find(item => item.eventId === selectedActivityId) ?? null;
+  const stepActivity = useMemo(() => {
+    const map = new Map<string, ObservabilityEvent>();
+    for (const event of activity) if (event.stepId) map.set(event.stepId, event);
+    return map;
+  }, [activity]);
   /** 任务对应的原会话：任务视图不能把“对话/轨迹/思考过程”弄丢。 */
   const taskConversation = useMemo(
     () => (activeTask ? conversations.find(item => item.taskId === activeTask.taskId) ?? null : null),
@@ -2155,45 +2160,99 @@ export default function App() {
             )}
 
             {activeTask && (
-              <section className="card wb-feed">
-                <div className="card-head">
-                  <h2>活动流</h2>
-                  <span className="muted">{activity.length} 条 · 按真实事件顺序</span>
-                </div>
-                {activity.length === 0 ? (
-                  <p className="muted">还没有可展示的事件。</p>
-                ) : (
-                  <div className="wb-feed-list">
-                    {activity.map(event => (
-                      <button
-                        key={event.eventId}
-                        type="button"
-                        className={`wb-event ${selectedActivityId === event.eventId ? 'is-selected' : ''}`}
-                        onClick={() => setSelectedActivityId(event.eventId)}
-                      >
-                        <span className="wb-event-time">{new Date(event.occurredAt).toLocaleTimeString()}</span>
-                        <span className="wb-event-category">{event.category}</span>
-                        <span className="wb-event-phase">{event.phase}</span>
-                        <span className="wb-event-actor">{event.actor.label}</span>
-                        <span className="wb-event-type">{String(event.payload.type ?? '')}</span>
-                      </button>
-                    ))}
+              <div className="wb-grid">
+                <aside className="card wb-plan">
+                  <div className="card-head">
+                    <h2>计划树</h2>
+                    <span className="muted">{derived.plan ? `${String(derived.plan.steps.length)} 步` : '等待计划'}</span>
                   </div>
-                )}
-              </section>
+                  {derived.plan ? (
+                    <ol className="wb-plan-list">
+                      {derived.plan.steps.map((step, index) => {
+                        const event = stepActivity.get(step.id);
+                        return (
+                          <li key={step.id}>
+                            <button
+                              type="button"
+                              className={`wb-plan-step ${selectedActivity?.stepId === step.id ? 'is-selected' : ''}`}
+                              onClick={() => { if (event) setSelectedActivityId(event.eventId); }}
+                            >
+                              <span className="wb-plan-index">{index + 1}</span>
+                              <span className="wb-plan-tool">{step.tool}</span>
+                              <span className="wb-plan-desc">{step.description ?? ''}</span>
+                              {event && <span className={`wb-plan-phase is-${event.phase}`}>{event.phase}</span>}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : <p className="muted">计划生成后显示步骤。</p>}
+                </aside>
+
+                <section className="card wb-feed">
+                  <div className="card-head">
+                    <h2>活动流</h2>
+                    <span className="muted">{activity.length} 条 · 按真实事件顺序</span>
+                  </div>
+                  {activity.length === 0 ? (
+                    <p className="muted">还没有可展示的事件。</p>
+                  ) : (
+                    <div className="wb-feed-list">
+                      {activity.map(event => (
+                        <button
+                          key={event.eventId}
+                          type="button"
+                          className={`wb-event ${selectedActivityId === event.eventId ? 'is-selected' : ''}`}
+                          onClick={() => setSelectedActivityId(event.eventId)}
+                        >
+                          <span className="wb-event-time">{new Date(event.occurredAt).toLocaleTimeString()}</span>
+                          <span className="wb-event-category">{event.category}</span>
+                          <span className="wb-event-phase">{event.phase}</span>
+                          <span className="wb-event-actor">{event.actor.label}</span>
+                          <span className="wb-event-type">{String(event.payload.type ?? '')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <aside className="card wb-inspector">
+                  <div className="card-head">
+                    <h2>事件详情</h2>
+                    {selectedActivity && (
+                      <button className="btn ghost" type="button" onClick={() => setSelectedActivityId(null)}>关闭</button>
+                    )}
+                  </div>
+                  {selectedActivity ? (
+                    <>
+                      <p className="muted">
+                        {selectedActivity.category} · {selectedActivity.phase} · seq {selectedActivity.sequence}
+                      </p>
+                      <pre>{JSON.stringify(maskSecrets(selectedActivity.payload), null, 2)}</pre>
+                    </>
+                  ) : <p className="muted">点击活动流中的事件查看完整参数与返回。</p>}
+                </aside>
+              </div>
             )}
 
-            {selectedActivity && (
-              <aside className="card wb-inspector">
-                <div className="card-head">
-                  <h2>事件详情</h2>
-                  <button className="btn ghost" type="button" onClick={() => setSelectedActivityId(null)}>关闭</button>
-                </div>
-                <p className="muted">
-                  {selectedActivity.category} · {selectedActivity.phase} · seq {selectedActivity.sequence}
-                </p>
-                <pre>{JSON.stringify(maskSecrets(selectedActivity.payload), null, 2)}</pre>
-              </aside>
+            {activeTask && (showPlan || pendingStep || !['completed', 'failed', 'cancelled'].includes(activeTask.status)) && (
+              <div className="wb-actions">
+                {showPlan && derived.plan && (
+                  <>
+                    <button className="btn" type="button" onClick={() => void approve()} disabled={approving}>确认并执行</button>
+                    <button className="btn ghost" type="button" onClick={() => void reject()} disabled={approving}>拒绝计划</button>
+                  </>
+                )}
+                {pendingStep && (
+                  <>
+                    <button className="btn" type="button" onClick={() => void decideStep(true)}>批准这一步</button>
+                    <button className="btn ghost" type="button" onClick={() => void decideStep(false)}>拒绝这一步</button>
+                  </>
+                )}
+                {!['completed', 'failed', 'cancelled'].includes(activeTask.status) && (
+                  <button className="btn ghost" type="button" onClick={() => void cancel()}>取消任务</button>
+                )}
+              </div>
             )}
 
             {activeTask && (
