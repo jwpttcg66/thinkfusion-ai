@@ -205,6 +205,8 @@
     "test:cli-real": "node scripts/spikes/cli-real-e2e.mjs",
     "test:exceptions": "npm run build:test && node --test scripts/check-v3-exceptions.mjs",
     "test:permission-store": "npm run build:test && node --test scripts/check-permission-store.mjs",
+    "test:conversation-task-event": "npm run build:test && node --test scripts/check-conversation-task-event.mjs",
+    "test:task-concurrency": "npm run build:test && node --test scripts/check-task-concurrency.mjs",
     "test:task-lifecycle": "npm run build:test && node --test scripts/check-task-lifecycle.mjs",
     "test:task-persistence": "npm run build:test && node --test scripts/check-task-persistence.mjs",
     "test:review-closure": "npm run build:test && node --test scripts/check-review-closure.mjs",
