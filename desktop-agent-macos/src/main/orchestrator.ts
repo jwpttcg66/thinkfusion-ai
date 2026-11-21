@@ -91,6 +91,8 @@ export interface OrchestratorDeps {
  * Every step re-checks state instead of trusting the previous step's outcome,
  * because the previous step may have been a web page we do not control.
  */
+const PLANNING_TIMEOUT_MS = 120_000;
+
 export class AgentOrchestrator {
   /** taskIds with an active wait or execution, to prevent double-driving. */
   private busy = new Set<string>();
@@ -478,7 +480,20 @@ export class AgentOrchestrator {
         const queued = this.tasks.get(taskId);
         if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
 
-        return this.askPage(taskId, roundId, prompt);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            this.askPage(taskId, roundId, prompt),
+            new Promise<string>((_, reject) => {
+              timer = setTimeout(() => {
+                this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
+                reject(new Error('模型规划超时（120 秒）：没有返回可解析的计划。请换模型或重试。'));
+              }, PLANNING_TIMEOUT_MS);
+            })
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       });
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer });
