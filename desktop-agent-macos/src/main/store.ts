@@ -187,7 +187,12 @@ export class AgentStore {
   nextSequence(taskId: string): number {
     let max = 0;
     for (const event of this.state.events) {
-      if (!('taskId' in event) || event.taskId !== taskId) continue;
+      const eventTaskId = 'taskId' in event
+        ? event.taskId
+        : event.type === 'task.updated'
+          ? event.task.taskId
+          : null;
+      if (eventTaskId !== taskId) continue;
       if (typeof event.sequence === 'number' && event.sequence > max) max = event.sequence;
     }
     return max + 1;
@@ -200,7 +205,11 @@ export class AgentStore {
   }
 
   listEvents(taskId: string): AgentEvent[] {
-    return this.state.events.filter(item => 'taskId' in item && item.taskId === taskId);
+    return this.state.events.filter(item =>
+      'taskId' in item
+        ? item.taskId === taskId
+        : item.type === 'task.updated' && item.task.taskId === taskId
+    );
   }
 
   // --- conversations -------------------------------------------------------
