@@ -205,6 +205,7 @@
     "test:cli-real": "node scripts/spikes/cli-real-e2e.mjs",
     "test:exceptions": "npm run build:test && node --test scripts/check-v3-exceptions.mjs",
     "test:permission-store": "npm run build:test && node --test scripts/check-permission-store.mjs",
+    "test:review-closure": "npm run build:test && node --test scripts/check-review-closure.mjs",
     "test:task-view": "npm run build:test && node --test scripts/check-task-view.mjs",
     "test:task-events": "npm run build:test && node --test scripts/check-task-events.mjs",
     "test:task-stream": "npm run build:test && node --test scripts/check-task-stream.mjs",

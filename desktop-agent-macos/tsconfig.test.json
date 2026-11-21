@@ -32,6 +32,7 @@
     "src/main/source-loading.ts",
     "src/main/profile-store.ts",
     "src/main/execution-defaults-store.ts",
+    "src/main/engineering/review.ts",
     "src/main/engineering/**/*.ts",
     "src/main/lsp/**/*.ts",
     "src/main/coding/**/*.ts",

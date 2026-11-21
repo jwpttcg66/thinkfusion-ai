@@ -152,6 +152,16 @@ test('task_complete is parsed', () => {
   assert.equal(result.summary, '报告已生成');
 });
 
+test('task_complete 带 reason/verification 等证据字段仍能解析', () => {
+  const text = JSON.stringify({
+    protocol: 'desktop-agent/v1', type: 'task_complete', taskId: TASK, roundId: ROUND,
+    status: 'completed', reason: 'mvn test 已通过 6 个测试', verification: { testsRun: 6 }
+  });
+  const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'complete');
+  assert.match(result.summary, /mvn test/);
+});
+
 test('legacy <AGENT_PLAN> wrapper still works', () => {
   const text = `<AGENT_PLAN>${JSON.stringify(plan())}</AGENT_PLAN>`;
   const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });

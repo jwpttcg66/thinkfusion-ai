@@ -734,6 +734,15 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const rounds = this.tasks.listRounds(taskId);
 
+    // 执行报告已经完成、没有可执行评审问题：直接交付，不再无意义地
+    // 让模型生成下一轮计划。以前这里无条件再规划，成功的任务也会被
+    // 后续非法计划拖成 failed。
+    if (report.status === 'completed' && report.nextAction === 'complete' && !review?.needsFix) {
+      this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });
+      this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成，验证通过' });
+      return;
+    }
+
     if (rounds.length >= task.maxRounds) {
       this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，任务未完成` });
       this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
