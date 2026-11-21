@@ -2405,6 +2405,33 @@ export default function App() {
               </section>
             )}
 
+            {activeTask && (derived.verification || derived.review || derived.changes.length > 0) && (
+              <section className="card delivery">
+                <div className="card-head">
+                  <h2>最终交付</h2>
+                  <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
+                </div>
+                <p className="muted">只汇总真实执行报告与评审，不把模型回答直接当完成。</p>
+                {derived.changes.length > 0 && (
+                  <>
+                    <h5>改动文件（{derived.changes.length}）</h5>
+                    <ul>{derived.changes.slice(0, 40).map(change => <li key={change.path}><code>{change.path}</code></li>)}</ul>
+                  </>
+                )}
+                {derived.verification && (
+                  <p>
+                    <b>验证：</b>{derived.verification.verified ? '通过' : '未通过'}
+                    {' · '}编译 {derived.verification.checks?.compile.status ?? '未执行'}
+                    {' · '}测试 {derived.verification.checks?.tests.status ?? '未执行'}
+                    {' · '}诊断 {derived.verification.checks?.diagnostics.status ?? '未执行'}
+                  </p>
+                )}
+                {derived.review && (
+                  <p><b>独立评审：</b>{derived.review.needsFix ? '需修复' : '通过'} · {derived.review.verdict}</p>
+                )}
+              </section>
+            )}
+
             {derived.review && activeTask && (
               <section className={`card review-card${derived.review.needsFix ? ' needs-fix' : ''}`}>
                 <div className="review-head">
