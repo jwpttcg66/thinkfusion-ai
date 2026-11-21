@@ -1069,6 +1069,8 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
 /** Single funnel for events: persist for replay, then push to the renderer. */
 function emit(event: AgentEvent) {
   const taskId = taskIdOf(event);
+  // 任务已被用户删除：在途 Provider 流可能还在吐 delta，不能把事件写回来。
+  if (taskId && store && !store.getTask(taskId)) return;
   const enriched: AgentEvent = taskId
     ? {
         ...event,
@@ -4900,6 +4902,7 @@ app.whenReady().then(async () => {
 
   tasks = new TaskManager(store, emit);
   tasks.reconcileInterrupted();
+  store.pruneOrphanEvents();
 
   /**
    * 云端/本地模式用选中的 Provider 做计划，不再去网页规划器。

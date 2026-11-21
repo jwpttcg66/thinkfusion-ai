@@ -126,7 +126,14 @@ export class AgentStore {
     this.state.rounds = this.state.rounds.filter(item => item.taskId !== taskId);
     this.state.plans = this.state.plans.filter(item => item.taskId !== taskId);
     this.state.reports = this.state.reports.filter(item => item.taskId !== taskId);
-    this.state.events = this.state.events.filter(item => !('taskId' in item) || item.taskId !== taskId);
+    this.state.events = this.state.events.filter(item => {
+      const eventTaskId = 'taskId' in item
+        ? item.taskId
+        : item.type === 'task.updated'
+          ? item.task.taskId
+          : null;
+      return eventTaskId !== taskId;
+    });
     this.persist();
   }
 
@@ -207,6 +214,24 @@ export class AgentStore {
 
   listRunEvents(taskId: string): TaskEventEnvelope[] {
     return (this.state.runEvents ?? []).filter(event => event.taskId === taskId);
+  }
+
+  /** 清掉已不存在任务的 task.updated；老版本删除任务会留下这些孤儿事件。 */
+  pruneOrphanEvents(): number {
+    const ids = new Set(this.state.tasks.map(task => task.taskId));
+    const before = this.state.events.length;
+    this.state.events = this.state.events.filter(item => {
+      const eventTaskId = 'taskId' in item
+        ? item.taskId
+        : item.type === 'task.updated'
+          ? item.task.taskId
+          : null;
+      if (!eventTaskId) return true;
+      return ids.has(eventTaskId);
+    });
+    const removed = before - this.state.events.length;
+    if (removed > 0) this.persist();
+    return removed;
   }
 
   // --- events --------------------------------------------------------------

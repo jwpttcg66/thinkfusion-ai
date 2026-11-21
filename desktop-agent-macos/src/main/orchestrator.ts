@@ -451,7 +451,11 @@ export class AgentOrchestrator {
 
   async deleteTask(taskId: string) {
     const task = this.deps.store.getTask(taskId);
-    if (task && !TERMINAL.includes(task.status)) throw new Error('只能删除已结束的任务');
+    // 删除是用户的最终意图：运行中的任务先取消、停外部进程，再删除记录。
+    // 不能因为“还没结束”把行留在列表里，那会让用户无法清掉卡住的任务。
+    if (task && !TERMINAL.includes(task.status)) {
+      await this.cancel(taskId);
+    }
     this.deps.store.deleteTask(taskId);
   }
 
