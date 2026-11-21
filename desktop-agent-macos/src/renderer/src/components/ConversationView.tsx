@@ -10,6 +10,8 @@ import {
 import { splitSummarySections } from '../../../shared/text';
 import type { DebateView } from '../../../shared/contracts';
 import { routingLabel, workspaceLabel } from '../../../shared/workspace';
+import { projectRunView, type RunView } from '../../../shared/task-view';
+import type { TaskEventEnvelope } from '../../../shared/task-events';
 import { MarkdownBody } from './MarkdownBody';
 
 /**
@@ -91,6 +93,14 @@ export function ConversationView(props: {
   busy: boolean;
 }) {
   const { conversation, messages } = props;
+  const [runView, setRunView] = useState<RunView | null>(null);
+  useEffect(() => {
+    let alive = true;
+    window.agentAPI.getConversationRunEvents(conversation.conversationId)
+      .then((events: TaskEventEnvelope[]) => { if (alive) setRunView(projectRunView(events)); })
+      .catch(() => { if (alive) setRunView(null); });
+    return () => { alive = false; };
+  }, [conversation.conversationId]);
   const synthesis = [...messages].reverse().find(message => message.synthesis)?.synthesis ?? null;
   /**
    * id -> display name, from the health record the main process already sends.
@@ -214,6 +224,20 @@ export function ConversationView(props: {
     container.scrollTop = container.scrollHeight;
   }, [settling, liveRun, messages, props.phases, conversation.status, props.busy]);
 
+  const lifecycleLabel: Record<RunView['phase'], string> = {
+    understanding: '理解任务', planning: '规划', approval: '等待审批',
+    execution: '执行', verification: '验证', review: '评审', delivery: '交付',
+    terminal: '已结束'
+  };
+  const lifecycleCard = runView && runView.count > 0 ? (
+    <section className="card run-view">
+      <div className="card-head">
+        <h2>任务生命周期</h2>
+        <span className="muted">{lifecycleLabel[runView.phase]} · {runView.count} 个事件</span>
+      </div>
+    </section>
+  ) : null;
+
   return (
     <section className="conversation" aria-label="对话" ref={rootRef}>
       <header className="conversation-head">
@@ -314,6 +338,7 @@ export function ConversationView(props: {
           {conversation.error ? ` · ${conversation.error}` : ''}
         </p>
       </header>
+      {lifecycleCard}
 
       <div className="conversation-body">
         {/* V2.1 工程证据卡：路径、行号、指纹都是本机真实读盘的结果。
