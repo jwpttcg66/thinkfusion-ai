@@ -301,6 +301,8 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
       const item = { ...(step as Record<string, unknown>) };
       if (!item.id) item.id = item.stepId ?? `step-${String(index + 1)}`;
       delete item.stepId;
+      delete item.purpose;
+      delete item.reason;
       return item;
     });
   }
