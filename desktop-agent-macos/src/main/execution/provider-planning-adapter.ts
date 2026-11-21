@@ -26,10 +26,32 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
     };
   }
 
-  async sendMessage(text: string, requestId: string): Promise<SendOutcome> {
-    const promise = this.agent
-      .ask({ question: text, stage: 'initial', timeoutMs: 180_000 })
-      .then(answer => answer.text);
+  async sendMessage(
+    text: string,
+    requestId: string,
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+  ): Promise<SendOutcome> {
+    const promise = (async () => {
+      if (!onDelta) {
+        const answer = await this.agent.ask({ question: text, stage: 'initial', timeoutMs: 180_000 });
+        return answer.text;
+      }
+      let accumulated = '';
+      let reasoning = '';
+      const answer = await this.agent.askStream(
+        { question: text, stage: 'initial', timeoutMs: 180_000 },
+        chunk => {
+          if (chunk.reset) {
+            accumulated = '';
+            reasoning = '';
+          }
+          if (chunk.text) accumulated += chunk.text;
+          if (chunk.reasoning) reasoning += chunk.reasoning;
+          onDelta({ text: accumulated, reasoning, reset: false });
+        }
+      );
+      return answer.text;
+    })();
     this.pending.set(requestId, promise);
     const snapshot: MessageSnapshot = {
       messageCount: 0,

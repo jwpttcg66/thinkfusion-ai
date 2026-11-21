@@ -2596,7 +2596,11 @@ function cutPrompt(text: string, prompt?: string): string {
 export interface PlanningAdapter {
   readonly siteLabel: string;
   getStatus(): Promise<DeepSeekStatus>;
-  sendMessage(text: string, requestId: string): Promise<SendOutcome>;
+  sendMessage(
+    text: string,
+    requestId: string,
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+  ): Promise<SendOutcome>;
   waitForAnswer(
     requestId: string,
     snapshot: MessageSnapshot,
