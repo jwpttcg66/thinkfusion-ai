@@ -1768,7 +1768,13 @@ export class ConversationRunner {
     const config = normalizeExecutionConfig(conversation.executionConfig);
     const pool = this.deps.poolFor ? this.deps.poolFor(config, this.deps.registry) : this.deps.registry;
     const executorIds = this.deps.executorIdsFor?.(config) ?? new Set<string>();
-    if (this.deps.collaborationMode?.() === 'active' && this.deps.activeRunner) {
+    // 工程空间只能走 AgentOrchestrator（start 阶段已 handoff）；这里再守一道，
+    // 防止 collaborationMode=active 时把工程任务送进另一条协作执行链。
+    if (
+      this.deps.collaborationMode?.() === 'active' &&
+      this.deps.activeRunner &&
+      conversation.workspaceMode !== 'engineering'
+    ) {
       await this.runActive(conversation, question, pool);
       return;
     }

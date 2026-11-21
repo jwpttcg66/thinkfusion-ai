@@ -1406,6 +1406,24 @@ test('V2.1：结构关系跟着证据一起进主导人材料，不是算完就�
   assert.ok(questions.slice(0, 2).every(item => !item.includes('【结构概览】')));
 });
 
+test('工程空间即使 collaborationMode=active 也不走另一条协作执行链', async () => {
+  let active = 0;
+  const { runner } = makeRunner([fakeChannel('a', () => answer('结构分析结果。'))], {
+    deps: {
+      collaborationMode: () => 'active',
+      activeRunner: async () => {
+        active += 1;
+        return { content: '不该走到这里', answers: [] };
+      }
+    }
+  });
+  const started = await runner.start({
+    text: '分析当前项目结构', workspaceMode: 'engineering', workspaceRoot: v21Root
+  });
+  await settle(runner, started.conversationId);
+  assert.equal(active, 0, '工程任务必须留给 AgentOrchestrator，不能进 Collaboration 执行入口');
+});
+
 test('V2.1：工程实施交去出计划，识别结果和项目一起存下来', async () => {
   let handed = null;
   const { runner } = makeRunner(execChannels(), {
