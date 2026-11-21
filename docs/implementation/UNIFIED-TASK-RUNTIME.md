@@ -128,3 +128,20 @@ General、Knowledge 接入同一生命周期与事件；完成并发、取消、
 5. Renderer 不维护业务状态机。
 6. 未验证不得显示为完成。
 7. 不推送远程 `main`，除非用户明确授权。
+
+## 实施状态（2026-11-21）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| P0-01 实时输出分离 | IMPLEMENTED / VERIFIED | reasoning 只计数不展示；真机显示“已接收 0 字符（内部推理 N 字符，不展示原文）” |
+| P0-02 轮次隔离/终态 | IMPLEMENTED / TESTED | task-stream 2 条回归 |
+| P1-01 TaskEvent 信封 | IMPLEMENTED / TESTED | eventId/runId/sequence/phase；排序/去重测试 |
+| P1-02 TaskView 投影 | IMPLEMENTED / TESTED | shared/task-view；2 条投影回归 |
+| P2-01 工程入口 | IMPLEMENTED | 工程执行统一 submitWorkspace → AgentOrchestrator |
+| P2-02 Collaboration 规划建议 | IMPLEMENTED / TESTED | planGoal 任务图进入规划提示；提示词回归 |
+| P2-03 执行/验证/交付闭环 | IMPLEMENTED / VERIFIED | 真机 `mvn test` 6/6，任务 completed |
+| P3-01 任务概览 | IMPLEMENTED / VERIFIED | 真机任务页显示目标/进度/下一步 |
+| P3-02 实时进展/执行记录 | IMPLEMENTED | 流式进展 + ExecutionLog |
+| P3-03 最终交付 | IMPLEMENTED | 报告/评审汇总卡片 |
+| P4-01 General/Knowledge | NOT STARTED | 仍走 ConversationRunner 旧视图 |
+| P5-01 全链路回归/架构退出 | IN PROGRESS | 已有单条真实任务闭环；并发/取消/重启/旧入口退出未完成 |
