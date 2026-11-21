@@ -1,6 +1,7 @@
 /** 统一任务事件契约的兼容层：旧 AgentEvent 逐步补齐，不要求一次改完所有 emit。 */
 import type { AgentEvent, TaskEventPhase } from './contracts';
 import type { ConversationEvent } from './conversation';
+import { lifecycleOfConversation, type LifecyclePhase } from './task-lifecycle';
 
 export interface TaskEventEnvelope {
   eventId: string;
@@ -77,9 +78,23 @@ export function conversationEventToTaskEvent(
       ? 'terminal'
       : event.type === 'debate.progress'
         ? 'review'
-        : event.type === 'answer.delta' || event.type === 'message.added'
+        : event.type === 'answer.delta'
           ? 'delivery'
-          : 'understanding';
+          : event.type === 'message.added'
+            ? event.message.role === 'synthesis'
+              ? 'delivery'
+              : event.message.role === 'channel'
+                ? 'execution'
+                : 'understanding'
+            : event.type === 'channel.phase'
+              ? event.phase === 'answered'
+                ? 'delivery'
+                : event.phase === 'failed'
+                  ? 'terminal'
+                  : 'execution'
+              : event.type === 'conversation.created' || event.type === 'conversation.updated'
+                ? toEventPhase(lifecycleOfConversation(event.conversation.status))
+                : 'understanding';
   return {
     eventId: meta.eventId,
     taskId: conversationId,
@@ -90,4 +105,21 @@ export function conversationEventToTaskEvent(
     type: event.type,
     payload: { ...event, phase }
   };
+}
+
+
+function toEventPhase(phase: LifecyclePhase): TaskEventPhase {
+  switch (phase) {
+    case 'clarification': return 'planning';
+    case 'executing': return 'execution';
+    case 'verifying': return 'verification';
+    case 'reviewing': return 'review';
+    case 'delivering': return 'delivery';
+    case 'completed': return 'delivery';
+    case 'failed':
+    case 'cancelled': return 'terminal';
+    case 'approval': return 'approval';
+    case 'planning': return 'planning';
+    default: return 'understanding';
+  }
 }
