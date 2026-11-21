@@ -8,6 +8,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   readonly siteLabel: string;
   private readonly pending = new Map<string, Promise<string>>();
   private readonly progress = new Map<string, { text: number; reasoning: number }>();
+  private readonly controllers = new Map<string, AbortController>();
 
   constructor(
     private readonly agent: ProviderBackedSubAgent,
@@ -37,6 +38,8 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
     onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }) => void
   ): Promise<SendOutcome> {
     this.progress.set(requestId, { text: 0, reasoning: 0 });
+    const controller = new AbortController();
+    this.controllers.set(requestId, controller);
     const promise = (async () => {
       if (!onDelta) {
         const answer = await this.agent.ask({ question: text, stage: 'initial', timeoutMs: 180_000 });
@@ -45,7 +48,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
       let accumulated = '';
       let reasoning = '';
       const answer = await this.agent.askStream(
-        { question: text, stage: 'initial', timeoutMs: 180_000 },
+        { question: text, stage: 'initial', timeoutMs: 180_000, signal: controller.signal },
         chunk => {
           if (chunk.reset) {
             accumulated = '';
@@ -97,6 +100,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
+          this.controllers.get(requestId)?.abort();
           const progress = this.progress.get(requestId);
           const detail = progress
             ? `模型只输出了 ${progress.reasoning} 字符推理，没有计划文本。请换一个非推理模型，或取消后重试。`
@@ -112,6 +116,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
     } finally {
       this.pending.delete(requestId);
       this.progress.delete(requestId);
+      this.controllers.delete(requestId);
     }
   }
 
@@ -120,6 +125,8 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   }
 
   cancelWait(requestId: string): void {
+    this.controllers.get(requestId)?.abort();
+    this.controllers.delete(requestId);
     this.pending.delete(requestId);
     this.agent.cancel?.(requestId);
   }
