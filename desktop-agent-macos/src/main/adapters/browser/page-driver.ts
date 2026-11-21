@@ -2599,7 +2599,7 @@ export interface PlanningAdapter {
   sendMessage(
     text: string,
     requestId: string,
-    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }) => void
   ): Promise<SendOutcome>;
   waitForAnswer(
     requestId: string,

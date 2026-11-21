@@ -1349,15 +1349,26 @@ export type AgentEvent = AgentEventBase &
     | { type: 'task.updated'; task: AgentTask }
     | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType'] }
     | { type: 'round.answer'; taskId: string; roundId: string; text: string }
-    | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; text?: string; reasoning?: string }
+    | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }
+    | {
+        type: 'step.preparing';
+        taskId: string;
+        roundId: string;
+        stepId: string;
+        /** 工具调用的稳定身份；计划驱动时等于 stepId。 */
+        callId: string;
+        tool: string;
+        args?: Record<string, unknown>;
+      }
     | {
         type: 'step.started';
         taskId: string;
         stepId: string;
         tool: string;
+        callId?: string;
         /** 这一步的真实参数；界面不用等结果就能显示「改哪个文件/跑什么命令」。 */
         args?: Record<string, unknown>;
       }

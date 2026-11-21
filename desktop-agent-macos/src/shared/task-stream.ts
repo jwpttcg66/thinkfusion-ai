@@ -2,37 +2,53 @@
  * 任务流式状态的唯一归约器。
  *
  * 规则：
- * - reasoning 是模型内部数据，只计数，不进入展示文本；
- * - 流按 roundId 隔离，旧轮次或已结算轮次的迟到 delta 直接丢弃；
- * - 新一轮开始、回答到达或任务终态都必须清理临时流；
- * - 页面只根据这份状态显示“正在做什么 + 已接收多少”，不展示原始 reasoning。
+ * - reasoning 与 assistant text 分开保存，界面分开展示，绝不混合；
+ * - 事件必须带 roundId；旧轮次或已结算轮次的迟到 delta 直接丢弃；
+ * - Provider/Adapter 负责说明这是 snapshot（累计全文）还是 delta（增量）；
+ * - 新一轮开始、回答到达或任务终态都清理临时流。
  */
 
 export interface TaskStreamEvent {
   type: string;
   roundId?: string;
+  streamId?: string;
   text?: string;
   reasoning?: string;
+  reset?: boolean;
+  mode?: 'snapshot' | 'delta';
+  providerId?: string;
+  modelId?: string;
   at?: number;
 }
 
 export interface TaskStreamState {
-  /** 当前正在流式输出的轮次；null 表示没有活动流。 */
   roundId: string | null;
-  /** 已经收到正式 answer 的轮次；该轮后续迟到 delta 必须忽略。 */
+  streamId: string | null;
   settledRoundId: string | null;
-  textChars: number;
-  reasoningChars: number;
+  /** 模型接口实际返回的 reasoning 原文。 */
+  reasoning: string;
+  /** 模型正常 assistant 输出原文。 */
+  text: string;
+  providerId: string | null;
+  modelId: string | null;
   updatedAt: number | null;
 }
 
 export const EMPTY_TASK_STREAM: TaskStreamState = {
   roundId: null,
+  streamId: null,
   settledRoundId: null,
-  textChars: 0,
-  reasoningChars: 0,
+  reasoning: '',
+  text: '',
+  providerId: null,
+  modelId: null,
   updatedAt: null
 };
+
+function apply(current: string, incoming: string | undefined, mode: 'snapshot' | 'delta'): string {
+  if (!incoming) return current;
+  return mode === 'delta' ? current + incoming : incoming;
+}
 
 export function reduceTaskStream(
   state: TaskStreamState,
@@ -41,10 +57,8 @@ export function reduceTaskStream(
   switch (event.type) {
     case 'round.started':
       return {
+        ...EMPTY_TASK_STREAM,
         roundId: event.roundId ?? state.roundId,
-        settledRoundId: null,
-        textChars: 0,
-        reasoningChars: 0,
         updatedAt: event.at ?? state.updatedAt
       };
     case 'round.delta': {
@@ -52,12 +66,15 @@ export function reduceTaskStream(
       if (!roundId) return state;
       if (state.roundId !== roundId) return state;
       if (state.settledRoundId === roundId) return state;
-      // Provider 适配器发的是累计文本；用 max 兼容“累计/增量”两种实现，
-      // 至少不会因为增量片段把进度算小。
+      const reset = event.reset === true;
+      const mode = event.mode ?? 'snapshot';
       return {
         ...state,
-        textChars: Math.max(state.textChars, event.text?.length ?? 0),
-        reasoningChars: Math.max(state.reasoningChars, event.reasoning?.length ?? 0),
+        streamId: event.streamId ?? state.streamId,
+        reasoning: reset ? (event.reasoning ?? '') : apply(state.reasoning, event.reasoning, mode),
+        text: reset ? (event.text ?? '') : apply(state.text, event.text, mode),
+        providerId: event.providerId ?? state.providerId,
+        modelId: event.modelId ?? state.modelId,
         updatedAt: event.at ?? state.updatedAt
       };
     }
@@ -66,8 +83,8 @@ export function reduceTaskStream(
         ...state,
         roundId: event.roundId ?? state.roundId,
         settledRoundId: event.roundId ?? state.settledRoundId,
-        textChars: 0,
-        reasoningChars: 0,
+        reasoning: '',
+        text: '',
         updatedAt: event.at ?? state.updatedAt
       };
     case 'task.completed':
@@ -79,11 +96,11 @@ export function reduceTaskStream(
   }
 }
 
-/** 是否应该显示“当前工作进展”。已结算或没有字符时不显示。 */
+/** 是否应该显示实时区。已结算、无内容且无身份时不显示。 */
 export function isLive(state: TaskStreamState): boolean {
   return (
     state.roundId !== null &&
     state.settledRoundId !== state.roundId &&
-    state.textChars + state.reasoningChars > 0
+    (state.reasoning.length > 0 || state.text.length > 0)
   );
 }
