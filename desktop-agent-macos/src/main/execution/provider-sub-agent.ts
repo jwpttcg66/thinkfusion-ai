@@ -106,7 +106,7 @@ export class ProviderBackedSubAgent implements SubAgent {
       continuation: task.stage === 'followup',
       context: task.context,
       system: task.system
-    })) {
+    }, task.signal)) {
       if (chunk.reasoning) {
         reasoning += chunk.reasoning;
         onDelta({ reasoning: chunk.reasoning });
