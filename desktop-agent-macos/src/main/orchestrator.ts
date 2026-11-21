@@ -150,6 +150,7 @@ export class AgentOrchestrator {
     /** V2.1 D-03：这份计划要不要先做方案评审辩论（默认 auto）。 */
     planDebate?: 'auto' | 'on' | 'off';
     expertise?: readonly string[];
+    collaborationPlan?: string;
     /** 这次规划显式指定的适配器（云端/本地 Provider）；缺省走网页。 */
     planningAdapter?: PlanningAdapter;
   }): Promise<AgentTask> {
@@ -180,6 +181,7 @@ export class AgentOrchestrator {
       workspaceRoot: input.workspaceRoot ?? '(未指定工作区)',
       allowedTools: allowedToolsForPreset(input.permissionPreset),
       expertise: input.expertise,
+      collaborationPlan: input.collaborationPlan,
       maxSteps: task.maxSteps
     });
     this.tasks.updateRound(round.roundId, { requestText: prompt });

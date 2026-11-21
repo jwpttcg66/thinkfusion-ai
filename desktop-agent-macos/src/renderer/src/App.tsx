@@ -2130,6 +2130,48 @@ export default function App() {
             )}
 
             {activeTask && (
+              <section className="card task-overview">
+                <div className="card-head">
+                  <h2>任务概览</h2>
+                  <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
+                </div>
+                <p><b>目标：</b>{activeTask.title}</p>
+                <p className="muted">
+                  已完成 {new Set(events.filter(event => event.type === 'step.completed').map(event => event.stepId)).size}
+                  {derived.plan ? ` / ${String(derived.plan.steps.length)}` : ''} 步
+                  {' · '}
+                  {activeTask.status === 'awaiting_approval'
+                    ? '等待你确认计划'
+                    : activeTask.status === 'planning'
+                      ? '正在生成计划'
+                      : activeTask.status === 'executing'
+                        ? '正在执行本机步骤'
+                        : activeTask.status === 'verifying'
+                          ? '正在验证'
+                          : activeTask.status === 'report_pending'
+                            ? '等待验证/下一步'
+                            : statusLabel(activeTask.status)}
+                </p>
+                <p className="muted">
+                  <b>下一步：</b>
+                  {activeTask.status === 'awaiting_approval'
+                    ? '审阅计划并确认执行'
+                    : activeTask.status === 'planning'
+                      ? '等待模型返回计划'
+                      : activeTask.status === 'executing'
+                        ? '等待当前步骤完成'
+                        : activeTask.status === 'report_pending'
+                          ? '补测试/诊断，或明确接受未验证'
+                          : activeTask.status === 'failed'
+                            ? '查看失败原因后重新提问'
+                            : activeTask.status === 'completed'
+                              ? '查看最终交付'
+                              : '等待任务状态更新'}
+                </p>
+              </section>
+            )}
+
+            {activeTask && (
               <div className="status-row">
                 <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
                 <span className="muted">{platform === 'darwin' ? 'macOS' : platform || 'macOS'}</span>
