@@ -168,6 +168,7 @@ export interface ConversationDeps {
     /** V2.1 D-03：会话里的辩论开关，决定计划要不要先辩一场。 */
     planDebate?: 'auto' | 'on' | 'off';
     expertise?: readonly string[];
+    collaborationPlan?: string;
     executionMode?: ConversationExecutionConfig['executionMode'];
     plannerAgentId?: string;
     selectedCloudModels?: string[];
@@ -783,11 +784,30 @@ export class ConversationRunner {
     const handoff = async (label: string): Promise<Conversation> => {
       try {
         const expertise = this.deps.expertiseFor?.({ workspaceMode, question: text })?.system ?? [];
+        let collaborationPlan: string | undefined;
+        if (workspaceMode === 'engineering') {
+          try {
+            const pool = this.deps.poolFor?.(executionConfig, this.deps.registry) ?? this.deps.registry;
+            const plan = await buildShadowPlan({
+              conversationId: conversation.conversationId,
+              workspace: 'engineering',
+              question: text,
+              pool
+            });
+            const tasks = plan.tasks.slice(0, 8).map((task, index) =>
+              `${String(index + 1)}. [${task.kind}] ${task.envelope.question}${task.envelope.acceptance.length ? `（验收：${task.envelope.acceptance.join('；')}）` : ''}`
+            );
+            if (tasks.length > 0) {
+              collaborationPlan = `行为：${plan.behavior ?? 'independent'}；理由：${plan.reason}\n${tasks.join('\n')}`;
+            }
+          } catch { /* 协作规划是建议，失败不阻塞工程入口 */ }
+        }
         const task = await this.deps.submitWorkspace({
           prompt: outgoing,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
           workspaceRoot: input.workspaceRoot,
           expertise,
+          ...(collaborationPlan ? { collaborationPlan } : {}),
           executionMode: executionConfig.executionMode,
           ...(executionConfig.leadAgentId ? { plannerAgentId: executionConfig.leadAgentId } : {}),
           ...(executionConfig.selectedCloudModels

@@ -5384,6 +5384,7 @@ app.whenReady().then(async () => {
           workspaceRoot: input.workspaceRoot,
           planDebate: input.planDebate,
           expertise: input.expertise,
+          ...(input.collaborationPlan ? { collaborationPlan: input.collaborationPlan } : {}),
           ...(planningOverride ? { planningAdapter: planningOverride } : {})
         });
       } finally {
