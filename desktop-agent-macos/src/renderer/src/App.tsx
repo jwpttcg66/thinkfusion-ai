@@ -63,7 +63,7 @@ import {
 } from '../../shared/workspace';
 
 const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
-const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', review: null, verification: null, diagnostics: [], changes: [] };
+const EMPTY_DERIVED: Derived = { plan: null, questions: [], answer: '', stream: '', review: null, verification: null, diagnostics: [], changes: [] };
 type DiagnosticCard = {
   path: string;
   source: string;
@@ -75,6 +75,8 @@ interface Derived {
   plan: PlanPreviewType | null;
   questions: string[];
   answer: string;
+  /** 模型边生成边推到页面的实时文本。 */
+  stream: string;
   review: {
     reviewer: string;
     backend: 'model' | 'rules';
@@ -135,6 +137,7 @@ function derive(events: AgentEvent[]): Derived {
   let plan: PlanPreviewType | null = null;
   let questions: string[] = [];
   let answer = '';
+  let stream = '';
   let review: Derived['review'] = null;
   let verification: Derived['verification'] = null;
   let diagnostics: DiagnosticCard[] = [];
@@ -152,7 +155,8 @@ function derive(events: AgentEvent[]): Derived {
       plan = { ...plan, debate: event.debate };
     }
     if (event.type === 'clarification.required') questions = event.questions;
-    if (event.type === 'round.answer') answer = event.text;
+    if (event.type === 'round.delta') stream = event.reasoning || event.text || stream;
+    if (event.type === 'round.answer') { answer = event.text; stream = ''; }
     if (event.type === 'report.ready') {
       const report = event.report as {
         verification?: {
@@ -203,7 +207,7 @@ function derive(events: AgentEvent[]): Derived {
       questions = [];
     }
   }
-  return { plan, questions, answer, review, verification, diagnostics, changes };
+  return { plan, questions, answer, stream, review, verification, diagnostics, changes };
 }
 
 function upsert(list: AgentTask[], task: AgentTask): AgentTask[] {
@@ -722,7 +726,8 @@ export default function App() {
         if (event.type === 'round.started') return { ...prev, questions: [] };
         if (event.type === 'plan.ready') return { ...prev, plan: event.plan };
         if (event.type === 'clarification.required') return { ...prev, questions: event.questions };
-        if (event.type === 'round.answer') return { ...prev, answer: event.text };
+        if (event.type === 'round.delta') return { ...prev, stream: event.reasoning || event.text || prev.stream };
+        if (event.type === 'round.answer') return { ...prev, answer: event.text, stream: '' };
         if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
           return { ...prev, questions: [] };
         }
@@ -2493,6 +2498,13 @@ export default function App() {
                 )}
                 <p className="muted">修复不会自动执行：如需继续，请重新提问生成计划并再次审批。</p>
               </section>
+            )}
+
+            {activeTask && derived.stream && !derived.answer && (
+              <details className="card stream" open>
+                <summary>实时输出</summary>
+                <pre>{derived.stream}</pre>
+              </details>
             )}
 
             {activeTask && planThinking(derived.answer) && (

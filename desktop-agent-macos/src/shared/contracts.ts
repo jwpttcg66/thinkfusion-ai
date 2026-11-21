@@ -1334,6 +1334,7 @@ export type AgentEvent = AgentEventBase &
     | { type: 'task.updated'; task: AgentTask }
     | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType'] }
     | { type: 'round.answer'; taskId: string; roundId: string; text: string }
+    | { type: 'round.delta'; taskId: string; roundId: string; text?: string; reasoning?: string }
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }

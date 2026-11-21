@@ -497,7 +497,9 @@ export class AgentOrchestrator {
    */
   private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
     const attempt = async (requestId: string) => {
-      const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId);
+      const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId, chunk => {
+        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}) });
+      });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
       return this.adapterFor(taskId).waitForAnswer(
         requestId,
