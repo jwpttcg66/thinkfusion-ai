@@ -303,6 +303,9 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
       delete item.stepId;
       delete item.purpose;
       delete item.reason;
+      delete item.writes;
+      delete item.notes;
+      delete item.expectation;
       return item;
     });
   }
