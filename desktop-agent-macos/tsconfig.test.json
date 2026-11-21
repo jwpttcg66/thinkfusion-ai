@@ -5,6 +5,8 @@
     "rootDir": "src"
   },
   "include": [
+    "src/shared/task-events.ts",
+    "src/shared/task-view.ts",
     "src/shared/task-stream.ts",
     "src/shared/**/*.ts",
     "src/agent/**/*.ts",

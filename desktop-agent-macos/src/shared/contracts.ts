@@ -1327,7 +1327,22 @@ export interface ExecutionReport {
 
 export interface AgentEventBase {
   at: number;
+  /** 统一任务事件字段；旧事件可能没有，读取方必须容忍。 */
+  eventId?: string;
+  runId?: string;
+  sequence?: number;
+  phase?: TaskEventPhase;
 }
+
+export type TaskEventPhase =
+  | 'understanding'
+  | 'planning'
+  | 'approval'
+  | 'execution'
+  | 'verification'
+  | 'review'
+  | 'delivery'
+  | 'terminal';
 
 export type AgentEvent = AgentEventBase &
   (

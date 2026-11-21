@@ -183,6 +183,16 @@ export class AgentStore {
 
   // --- events --------------------------------------------------------------
 
+  /** 任务内严格递增序号；旧事件没有 sequence 时按已有条数兜底。 */
+  nextSequence(taskId: string): number {
+    let max = 0;
+    for (const event of this.state.events) {
+      if (!('taskId' in event) || event.taskId !== taskId) continue;
+      if (typeof event.sequence === 'number' && event.sequence > max) max = event.sequence;
+    }
+    return max + 1;
+  }
+
   appendEvent(event: AgentEvent) {
     this.state.events.push(event);
     if (this.state.events.length > MAX_EVENTS) this.state.events.splice(0, this.state.events.length - MAX_EVENTS);
