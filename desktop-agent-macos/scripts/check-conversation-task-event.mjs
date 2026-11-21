@@ -16,7 +16,7 @@ test('General/Knowledge 会话事件映射到统一 TaskEvent，不创建假 Age
   assert.equal(mapped.taskId, 'c1');
   assert.equal(mapped.runId, 'c1');
   assert.equal(mapped.sequence, 1);
-  assert.equal(mapped.phase, 'understanding');
+  assert.equal(mapped.phase, 'delivery');
   assert.equal(mapped.payload.type, 'conversation.updated');
 
   const deleted = conversationEventToTaskEvent(
