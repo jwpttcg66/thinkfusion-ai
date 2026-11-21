@@ -4783,6 +4783,19 @@ function isMissingTerminal(error: unknown): boolean {
  */
 app.setName('ThinkFusion');
 
+// 单实例锁：两个实例共用同一 userData 会互相覆盖 agent-store.json，
+// 表现为任务/诊断记录凭空消失。第二个实例只负责把已有窗口唤到前台。
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+}
+
 /**
  * Pin the data folder, because `userData` is derived from the app name.
  *
