@@ -5,6 +5,7 @@
     "rootDir": "src"
   },
   "include": [
+    "src/shared/diagnostics.ts",
     "src/shared/execution-timeline.ts",
     "src/shared/observability.ts",
     "src/shared/task-events.ts",

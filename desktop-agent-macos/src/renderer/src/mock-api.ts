@@ -677,6 +677,7 @@ export function createMockApi(): AgentApi {
     getConversation: async conversationId => conversations.find(item => item.conversationId === conversationId) ?? null,
     getConversationMessages: async () => [],
     getConversationRunEvents: async () => [],
+    exportTaskDiagnostics: async () => '/tmp/mock-diagnostics.json',
     getTrace: async ({ conversationId }: { conversationId: string }) => {
       const entries = mockTrace(conversationId);
       return {

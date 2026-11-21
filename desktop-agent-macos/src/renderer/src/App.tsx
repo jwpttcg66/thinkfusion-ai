@@ -15,6 +15,7 @@ import { isLive, reduceTaskStream } from '../../shared/task-stream';
 import { EMPTY_TASK_VIEW, projectTaskView, type TaskView } from '../../shared/task-view';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
+import { auditActivity } from '../../shared/diagnostics';
 import { TaskSidebar } from './components/TaskSidebar';
 import { TaskInput } from './components/TaskInput';
 import { SourceRail } from './components/SourceRail';
@@ -518,6 +519,7 @@ export default function App() {
     for (const event of activity) if (event.stepId) map.set(event.stepId, event);
     return map;
   }, [activity]);
+  const audit = useMemo(() => auditActivity(activity), [activity]);
   const filteredActivity = useMemo(() => {
     const query = activityQuery.trim().toLowerCase();
     return activity.filter(event => {
@@ -2168,6 +2170,20 @@ export default function App() {
                     {derived.plan ? ` / ${String(derived.plan.steps.length)}` : ''}
                   </span>
                   <span>{derived.live.modelId ?? derived.live.providerId ?? '模型待定'}</span>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const file = await window.agentAPI.exportTaskDiagnostics(activeTask.taskId);
+                        setNotice(`诊断包：${file}`);
+                      } catch (e) {
+                        setError(errorText(e));
+                      }
+                    }}
+                  >
+                    导出诊断
+                  </button>
                 </div>
               </div>
             )}
@@ -2205,7 +2221,12 @@ export default function App() {
                 <section className="card wb-feed">
                   <div className="card-head">
                     <h2>活动流</h2>
-                    <span className="muted">{filteredActivity.length} / {activity.length} 条</span>
+                    <span className="muted">
+                      {filteredActivity.length} / {activity.length} 条
+                      {audit.duplicateEventIds.length + audit.outOfOrder > 0
+                        ? ` · 关联异常 ${String(audit.duplicateEventIds.length + audit.outOfOrder)}`
+                        : ''}
+                    </span>
                   </div>
                   <div className="wb-filters">
                     <input
