@@ -127,8 +127,17 @@ function milestone(event: AgentEvent, index: number): TimelineItem | null {
   switch (event.type) {
     case 'round.started':
       return { kind: 'milestone', key, at: event.at, text: `第 ${String(event.roundNumber)} 轮 · ${roundType(event.inputType)} 已发送`, tone: 'muted' };
-    case 'round.answer':
-      return { kind: 'milestone', key, at: event.at, text: `模型回答（${String(event.text.length)} 字符）`, tone: 'info', detail: event.text };
+    case 'round.answer': {
+      const planAnswer = /"type"\s*:\s*"plan"/.test(event.text);
+      return {
+        kind: 'milestone',
+        key,
+        at: event.at,
+        text: planAnswer ? '模型返回执行计划' : `模型回答（${String(event.text.length)} 字符）`,
+        tone: 'info',
+        ...(planAnswer ? {} : { detail: event.text })
+      };
+    }
     case 'plan.ready':
       return { kind: 'milestone', key, at: event.at, text: `计划就绪：${event.plan.title}（${String(event.plan.steps.length)} 步），等待审批`, tone: 'info' };
     case 'plan.invalid':
