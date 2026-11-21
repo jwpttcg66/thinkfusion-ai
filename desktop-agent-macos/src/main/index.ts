@@ -33,6 +33,8 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
+import { buildDiagnosticBundle } from '../shared/diagnostics';
+import { fromAgentEvent } from '../shared/observability';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
@@ -3205,6 +3207,22 @@ function isMissingTerminal(error: unknown): boolean {
     trustedUiSender(event);
     const input = ClarificationAnswerSchema.parse(raw);
     await orchestrator.answerClarification(input);
+  });
+
+  ipcMain.handle('task:export-diagnostics', (event, taskId: unknown) => {
+    trustedUiSender(event);
+    const id = TaskIdSchema.parse(taskId);
+    const task = store.getTask(id);
+    const plan = task?.currentPlanId ? store.getPlan(task.currentPlanId) : null;
+    const events = store.listEvents(id);
+    const runEvents = store.listRunEvents(id);
+    const activity = events.map(fromAgentEvent).filter((item): item is NonNullable<typeof item> => item !== null);
+    const bundle = buildDiagnosticBundle({ taskId: id, task, plan, events, runEvents, activity });
+    const dir = path.join(app.getPath('downloads'), 'ThinkFusion Diagnostics');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `task-${id}.json`);
+    fs.writeFileSync(file, JSON.stringify(bundle, null, 2), 'utf8');
+    return file;
   });
 
   ipcMain.handle('task:delete', async (event, taskId: unknown) => {
