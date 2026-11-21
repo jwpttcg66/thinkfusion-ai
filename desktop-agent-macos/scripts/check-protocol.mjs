@@ -369,11 +369,12 @@ test('completion 写成一句话、一个数组或 criteria 都能收敛成完�
   }
 });
 
-test('completion 缺失时仍然拒绝，不拿别的东西顶替', () => {
+test('completion 缺失时用可读默认值收敛，不拒绝', () => {
   const broken = plan();
   delete broken.completion;
   const result = parseAnswer(fenced(broken), { taskId: TASK, roundId: ROUND });
-  assert.equal(result.kind, 'invalid');
+  assert.equal(result.kind, 'plan');
+  assert.match(result.plan.completion.condition, /完成/);
 });
 
 test('a protocol block that cannot be parsed reports why', () => {

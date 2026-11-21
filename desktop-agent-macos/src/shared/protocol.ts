@@ -288,7 +288,30 @@ export function containsEcho(text: string, echo?: string): boolean {
  * 真机要跑什么，容错在那里就是把「模型写错了」变成「机器做错事」。
  */
 function normalizePlanShape(value: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = { ...value };
+  // 有的模型把计划包在 { schema, plan: { steps } } 里；先摊平。
+  const wrapped = value.plan;
+  if (value.type === undefined && wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped) && !value.steps) {
+    value = { ...(wrapped as Record<string, unknown>), protocol: value.schema ?? value.protocol, type: 'plan', taskId: value.taskId, roundId: value.roundId };
+  }
+  // 白名单：只保留协议字段，模型爱加多少说明字段都不影响解析。
+  const looksLikePlan = Array.isArray(value.steps);
+  const protocol = value.protocol ?? PROTOCOL;
+  const type = looksLikePlan && (value.type === undefined || value.type === PROTOCOL || value.type === 'plan')
+    ? 'plan'
+    : value.type;
+  const next: Record<string, unknown> = {
+    protocol,
+    type,
+    taskId: value.taskId,
+    roundId: value.roundId,
+    ...(typeof value.planId === 'string' ? { planId: value.planId } : {}),
+    title: value.title,
+    description: value.description,
+    ...(value.kind ? { kind: value.kind } : {}),
+    ...(value.design ? { design: value.design } : {}),
+    steps: value.steps,
+    ...(value.completion ? { completion: value.completion } : {})
+  };
   // 模型常见别名：stepId / summary；计划字段缺失时用摘要兜底。
   delete next.summary;
   delete next.status;
@@ -301,6 +324,28 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
       const item = { ...(step as Record<string, unknown>) };
       if (!item.id) item.id = item.stepId ?? `step-${String(index + 1)}`;
       delete item.stepId;
+      const alias = {
+        'fs.read': 'fs.readFile', 'fs.readText': 'fs.readFile', 'fs.write': 'fs.writeFile',
+        'fs.writeText': 'fs.writeFile', 'project.read': 'fs.readFile'
+      }[String(item.tool ?? '')];
+      if (alias) item.tool = alias;
+      if (item.tool === 'git.status') {
+        item.tool = 'shell.run';
+        item.args = { command: 'git status --short' };
+      }
+      if (item.tool === 'project.dependencies') {
+        item.tool = 'fs.readFile';
+        item.args = { path: 'package.json' };
+      }
+      if (typeof item.args === 'object' && item.args && 'path' in (item.args as Record<string, unknown>)) {
+        const args = item.args as Record<string, unknown>;
+        const raw = args.path;
+        if (typeof raw === 'string' && raw.startsWith('/')) {
+          const marker = '/localLab/';
+          const at = raw.indexOf(marker);
+          if (at >= 0) args.path = raw.slice(at + marker.length).split('/').slice(2).join('/') || '.';
+        }
+      }
       delete item.purpose;
       delete item.reason;
       delete item.writes;
@@ -315,6 +360,9 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
   }
   if (typeof next.description !== 'string') {
     next.description = typeof value.summary === 'string' ? value.summary.slice(0, 2000) : '';
+  }
+  if (!next.completion) {
+    next.completion = { condition: '完成用户目标并通过真实验证' };
   }
   value = next;
   const completion = value.completion;
