@@ -67,6 +67,7 @@ export interface OrchestratorDeps {
     planId: string;
     plan: AgentPlan;
     topics: string[];
+    debateAgentIds?: readonly string[];
   }) => Promise<{
     debateId?: string;
     status: 'completed' | 'stopped';
@@ -109,6 +110,7 @@ export class AgentOrchestrator {
   private pageQueue: Promise<void> = Promise.resolve();
 
   private readonly planningAdapters = new Map<string, PlanningAdapter>();
+  private readonly debateAgents = new Map<string, readonly string[]>();
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -158,6 +160,8 @@ export class AgentOrchestrator {
     planDebate?: 'auto' | 'on' | 'off';
     expertise?: readonly string[];
     collaborationPlan?: string;
+    /** 只允许这些模型参加方案评审；空表示沿用调用方候选。 */
+    debateAgentIds?: readonly string[];
     /** 这次规划显式指定的适配器（云端/本地 Provider）；缺省走网页。 */
     planningAdapter?: PlanningAdapter;
   }): Promise<AgentTask> {
@@ -172,10 +176,14 @@ export class AgentOrchestrator {
       prompt: input.prompt,
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot,
-      planDebate: input.planDebate
+      planDebate: input.planDebate,
+      ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: [...input.debateAgentIds] } : {})
     });
     this.tasks.transition(task.taskId, 'planning');
     this.planningAdapters.set(task.taskId, planner);
+    if (input.debateAgentIds && input.debateAgentIds.length > 0) {
+      this.debateAgents.set(task.taskId, input.debateAgentIds);
+    }
 
     // The round id is part of the prompt, so create the round first and then
     // persist the text it was actually driven with.
@@ -695,7 +703,11 @@ export class AgentOrchestrator {
       message: `方案评审：就「${topics[0].slice(0, 40)}…」等 ${topics.length} 个议题开辩`
     });
     try {
-      const result = await this.deps.debatePlan({ taskId, roundId, planId: stored.planId, plan: stored.plan, topics });
+      const task = this.tasks.get(taskId);
+      const result = await this.deps.debatePlan({
+        taskId, roundId, planId: stored.planId, plan: stored.plan, topics,
+        ...(task.debateAgentIds && task.debateAgentIds.length > 0 ? { debateAgentIds: task.debateAgentIds } : {})
+      });
       if (!result) {
         return {
           status: 'skipped', topics, participants: [], summary: '',
