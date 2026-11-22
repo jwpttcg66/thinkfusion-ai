@@ -1334,6 +1334,16 @@ export interface AgentEventBase {
   runId?: string;
   sequence?: number;
   phase?: TaskEventPhase;
+  /**
+   * V2.1：这条事件属于哪个成员（模型 / CLI / 网页通道）。
+   *
+   * 与 CollaborationState 里的 participant 同源，不另造一套 id。工程工作台要按
+   * 成员分列显示独立输出，没有它就分不清「这个工具是谁发起的」。
+   * 旧事件没有这个字段，按「单成员」退化显示。
+   */
+  participantId?: string;
+  /** V2.1：同一步骤的重试序号。没有重试就不写，不拿 0 冒充「第一次」。 */
+  attemptId?: string;
 }
 
 export type TaskEventPhase =
@@ -1349,9 +1359,9 @@ export type TaskEventPhase =
 export type AgentEvent = AgentEventBase &
   (
     | { type: 'task.updated'; task: AgentTask }
-    | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType'] }
-    | { type: 'round.answer'; taskId: string; roundId: string; text: string }
-    | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }
+    | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType']; modelCallId?: string }
+    | { type: 'round.answer'; taskId: string; roundId: string; text: string; modelCallId?: string }
+    | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; modelCallId?: string; text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }
@@ -1369,6 +1379,8 @@ export type AgentEvent = AgentEventBase &
         type: 'step.started';
         taskId: string;
         stepId: string;
+        /** V2.1：归属轮次。执行期由主进程按 step.preparing 补，旧事件没有。 */
+        roundId?: string;
         tool: string;
         callId?: string;
         /** 这一步的真实参数；界面不用等结果就能显示「改哪个文件/跑什么命令」。 */
@@ -1427,6 +1439,9 @@ export type AgentEvent = AgentEventBase &
         type: 'step.completed';
         taskId: string;
         stepId: string;
+        /** V2.1：与 `step.preparing` 同一个 callId / roundId，三阶段才能聚成一张卡。 */
+        roundId?: string;
+        callId?: string;
         tool: string;
         result: unknown;
         /** 本步耗时；老事件没有这个字段。 */
@@ -1436,6 +1451,8 @@ export type AgentEvent = AgentEventBase &
         type: 'step.failed';
         taskId: string;
         stepId: string;
+        roundId?: string;
+        callId?: string;
         tool: string;
         error: string;
         args?: Record<string, unknown>;

@@ -508,7 +508,9 @@ export class AgentOrchestrator {
         if (timer) clearTimeout(timer);
       }
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
-      this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer });
+      // 同一轮的答案要能对回是哪一次模型调用：streamId/modelCallId 都是这个 requestId。
+      const answerCallId = this.tasks.getRound(roundId)?.requestId;
+      this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer, ...(answerCallId ? { modelCallId: answerCallId } : {}) });
 
       await this.handleAnswer(taskId, roundId, answer);
     } finally {
@@ -531,7 +533,7 @@ export class AgentOrchestrator {
   private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
     const attempt = async (requestId: string) => {
       const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId, chunk => {
-        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
+        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, modelCallId: requestId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
       });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
       return this.adapterFor(taskId).waitForAnswer(

@@ -33,6 +33,7 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
+import { applyEventIdentity, forgetTask, rememberStepIdentity, type StepIdentity } from '../shared/event-identity';
 import { buildDiagnosticBundle } from '../shared/diagnostics';
 import { fromAgentEvent } from '../shared/observability';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
@@ -1068,11 +1069,20 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
   }));
 }
 
+/** 步骤身份索引：step.preparing 记下来，供同一 stepId 的 started/completed 补齐。 */
+const stepIdentity = new Map<string, StepIdentity>();
+
 /** Single funnel for events: persist for replay, then push to the renderer. */
-function emit(event: AgentEvent) {
-  const taskId = taskIdOf(event);
+function emit(raw: AgentEvent) {
+  const taskId = taskIdOf(raw);
   // 任务已被用户删除：在途 Provider 流可能还在吐 delta，不能把事件写回来。
-  if (taskId && store && !store.getTask(taskId)) return;
+  if (taskId && store && !store.getTask(taskId)) {
+    forgetTask(stepIdentity, taskId);
+    return;
+  }
+  // 先记后补：查不到的字段就留空，不拿相邻字段顶替（见 shared/event-identity）。
+  rememberStepIdentity(stepIdentity, raw);
+  const event = applyEventIdentity(stepIdentity, raw);
   const enriched: AgentEvent = taskId
     ? {
         ...event,
