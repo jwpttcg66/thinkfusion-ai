@@ -38,8 +38,8 @@
 
 | 缺口 | 现状 | 归属阶段 |
 | --- | --- | --- |
-| 无 `participantId/modelCallId` | 事件层完全没有 | P1b |
-| `step.*` 无 `roundId/callId`（仅 preparing 有） | `contracts.ts:1358-1444` | P1b |
+| 无 `participantId/modelCallId` | 事件层完全没有 | **已补（P1b）**：`participantId/attemptId` 进 `AgentEventBase`，`modelCallId` 进 round 事件 |
+| `step.*` 无 `roundId/callId`（仅 preparing 有） | `contracts.ts:1358-1444` | **已补（P1b）**：`step.started/completed/failed` 加可选字段，主干按 preparing 索引补齐 |
 | `TraceEntry.modelId` 从不写入 | `trace-recorder.ts:278-320` 支持，无调用方 | P1b |
 | 多模型流互相覆盖 | `task-stream.ts` 单流 | P3 |
 | 每模型输出不持久化 | `store.ts:254-275` delta 只留最新快照、不 persist | P4 |
@@ -122,7 +122,7 @@
 | --- | --- | --- | --- |
 | P0 | 审计 + 契约 + 迁移清单 | 本文件 | **DONE（文档）** |
 | P1 | 统一骨架 + 对话进度容器 | 四页可切；切页/切任务不重启执行；普通会话不回归 | SPECIFIED |
-| P1b | 事件身份字段 | 新字段在真机事件里可见；旧事件不报错 | SPECIFIED |
+| P1b | 事件身份字段 | 新字段在真机事件里可见；旧事件不报错 | **IMPLEMENTED + TESTED**（`43e27c7`）：`shared/event-identity.ts` + `test:event-identity` 9 条，typecheck 三套绿 |
 | P2 | 多任务并行总览 | A 等待审批时 B 继续；A 取消不影响 B | SPECIFIED |
 | P3 | 多模型独立输出 | 三模型同时流式不串流；单模型失败不冻结其他 | SPECIFIED |
 | P4 | 持久化与恢复 | 刷新/重启恢复每模型输出与主任务进度 | SPECIFIED |
