@@ -11,6 +11,13 @@ export type StepStatus = 'preparing' | 'waiting' | 'running' | 'completed' | 'fa
 
 export interface StepCard {
   stepId: string;
+  /**
+   * 这一步属于哪一轮。
+   *
+   * 对话流要按轮次把「问了什么 → 谁答的 → 执行了什么」串起来；只靠 stepId
+   * 分不出这是第几轮做的，计划修复时同一个 `step-1` 会在两轮里各出现一次。
+   */
+  roundId?: string | null;
   tool: string;
   status: StepStatus;
   startedAt?: number;
@@ -28,8 +35,8 @@ export interface StepCard {
 }
 
 export type TimelineItem =
-  | { kind: 'milestone'; key: string; at: number; text: string; tone: 'info' | 'ok' | 'warn' | 'error' | 'muted'; detail?: string }
-  | { kind: 'step'; key: string; at: number; card: StepCard };
+  | { kind: 'milestone'; key: string; at: number; roundId: string | null; text: string; tone: 'info' | 'ok' | 'warn' | 'error' | 'muted'; detail?: string }
+  | { kind: 'step'; key: string; at: number; roundId: string | null; card: StepCard };
 
 export const TOOL_NAME: Record<string, string> = {
   'fs.list': '列目录',
@@ -123,7 +130,10 @@ function roundType(inputType: string) {
   return '澄清回答';
 }
 
-function milestone(event: AgentEvent, index: number): TimelineItem | null {
+function milestone(
+  event: AgentEvent,
+  index: number
+): Omit<Extract<TimelineItem, { kind: 'milestone' }>, 'roundId'> | null {
   const key = `m-${String(event.at)}-${String(index)}`;
   switch (event.type) {
     case 'round.started':
@@ -140,7 +150,9 @@ function milestone(event: AgentEvent, index: number): TimelineItem | null {
       };
     }
     case 'plan.ready':
-      return { kind: 'milestone', key, at: event.at, text: `计划就绪：${event.plan.title}（${String(event.plan.steps.length)} 步），等待审批`, tone: 'info' };
+      // 不写「等待审批」：完全权限下这份计划已经自动批准了，说等待是假话。
+      // 要不要人点，由审批卡和「计划已自动批准」那条日志说，不由这里猜。
+      return { kind: 'milestone', key, at: event.at, text: `计划就绪：${event.plan.title}（${String(event.plan.steps.length)} 步）`, tone: 'info' };
     case 'plan.invalid':
       return { kind: 'milestone', key, at: event.at, text: `计划被拒绝：${event.error}`, tone: 'error' };
     case 'clarification.required':
@@ -195,15 +207,17 @@ export function buildTimeline(events: AgentEvent[]): TimelineItem[] {
   const byStep = new Map<string, StepCard>();
   /** 计划修复可能复用 step-1；按轮次分段，避免上一轮的卡被这一轮改写。 */
   let epoch = 0;
+  /** 当前轮次 id：老事件可能没带 roundId，用最后一条 round.started 兜底。 */
+  let currentRoundId: string | null = null;
   const at = (stepId: string) => `${String(epoch)}:${stepId}`;
 
   const upsert = (stepId: string, eventAt: number, patch: Partial<StepCard>): StepCard => {
     const key = at(stepId);
     let card = byStep.get(key);
     if (!card) {
-      card = { stepId, tool: '', status: 'running' };
+      card = { stepId, roundId: currentRoundId, tool: '', status: 'running' };
       byStep.set(key, card);
-      items.push({ kind: 'step', key: `step-${key}`, at: eventAt, card });
+      items.push({ kind: 'step', key: `step-${key}`, at: eventAt, roundId: currentRoundId, card });
     }
     Object.assign(card, patch);
     return card;
@@ -280,9 +294,12 @@ export function buildTimeline(events: AgentEvent[]): TimelineItem[] {
         });
         return;
       default: {
-        if (event.type === 'round.started') epoch += 1;
+        if (event.type === 'round.started') {
+          epoch += 1;
+          currentRoundId = event.roundId;
+        }
         const item = milestone(event, index);
-        if (item) items.push(item);
+        if (item) items.push({ ...item, roundId: currentRoundId });
       }
     }
   });

@@ -39,7 +39,7 @@ import { SettingsPanel, type Section as SettingsSection } from './components/Set
 import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
-import { ModelOutputGrid } from './components/engineering/ModelOutputGrid';
+import { TaskConversation } from './components/engineering/TaskConversation';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
 import { PageSaveDialog } from './components/PageSaveDialog';
@@ -2234,7 +2234,11 @@ export default function App() {
                   // 一块没渲染出来的区域。
                   hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0)}
                 />
-                <ModelOutputGrid members={derived.members} />
+                {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
+                    每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
+                <TaskConversation task={activeTask} events={events} live={derived.live} />
+                {/* 多列并排只保留在输出页：对话里一轮一列会把下一条消息挤到屏幕外，
+                    而主界面读的是顺序。 */}
               </>
             )}
 
@@ -2653,7 +2657,13 @@ export default function App() {
                     {derived.review.issues.map((issue, index) => <li key={index}>{issue}</li>)}
                   </ul>
                 )}
-                <p className="muted">修复不会自动执行：如需继续，请重新提问生成计划并再次审批。</p>
+                {/* 评审只给结论，自己不改文件。任务已收敛时说「会并入下一轮」是假的：
+                    这里按真实状态说清楚这几点有没有进自动修复。 */}
+                <p className="muted">
+                  {activeTask.status === 'completed'
+                    ? '评审只给结论，不会改文件；这次报告已按完成收敛，这几点留作下次修改的依据。'
+                    : '评审只给结论，不会改文件；需要修的部分会并入下一轮计划（完全权限下自动执行，其他档位仍需你确认计划）。'}
+                </p>
               </section>
             )}
 
