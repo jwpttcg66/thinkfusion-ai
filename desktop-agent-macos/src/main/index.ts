@@ -4949,13 +4949,20 @@ app.whenReady().then(async () => {
 
   /**
    * 云端/本地模式用选中的 Provider 做计划，不再去网页规划器。
-   * 只有 web 或 hybrid 没有可用模型时才返回 null，走网页兜底。
+   *
+   * 没有可用 API 模型时，云端档还要看 CLI：这台机器上可能一个 Key 都没配，
+   * 但 qoder/claude 是通的。原来这里只查 `extraAgents`，于是「云端主导」在
+   * 只有 CLI 的机器上直接报「云端 Planner 不可用」，而设置里明明开着一个能
+   * 回答的 CLI。CLI 属于云端一类（2026-11-15 裁决），所以它在云端档可以主导。
+   *
+   * 本地档不回退 CLI：那会违反「本地主导只用本地模型」。
    */
-  async function pickPlanningAgent(input: {
+  async function pickPlanningAdapter(input: {
     executionMode?: 'web' | 'local' | 'cloud' | 'hybrid';
     plannerAgentId?: string;
     selectedCloudModels?: string[];
-  }): Promise<(typeof extraAgents)[number] | null> {
+    selectedCliAgents?: string[];
+  }): Promise<PlannerMember | null> {
     if (!input.executionMode || input.executionMode === 'web') return null;
     const available: typeof extraAgents = [];
     for (const agent of extraAgents) {
@@ -4963,20 +4970,43 @@ app.whenReady().then(async () => {
         if ((await agent.health()).available) available.push(agent);
       } catch { /* 不可用就跳过 */ }
     }
+    const asMember = (agent: (typeof extraAgents)[number]): PlannerMember => ({
+      id: agent.id,
+      label: agent.label,
+      adapter: new ProviderPlanningAdapter(agent)
+    });
     const lead = input.plannerAgentId
       ? available.find(agent => agent.id === input.plannerAgentId)
       : undefined;
-    if (lead) return lead;
+    if (lead) return asMember(lead);
     if (input.executionMode === 'cloud') {
-      return available.find(agent =>
+      const cloud = available.find(agent =>
         agent.sourceType === 'cloud' &&
         (!input.selectedCloudModels || input.selectedCloudModels.includes(agent.id))
-      ) ?? null;
+      );
+      if (cloud) return asMember(cloud);
+      return pickCliLead(input.selectedCliAgents);
     }
     if (input.executionMode === 'local') {
-      return available.find(agent => agent.sourceType === 'local') ?? null;
+      const local = available.find(agent => agent.sourceType === 'local');
+      return local ? asMember(local) : null;
     }
-    return available.find(agent => agent.sourceType === 'cloud') ?? available.find(agent => agent.sourceType === 'local') ?? null;
+    const hybrid = available.find(agent => agent.sourceType === 'cloud') ?? available.find(agent => agent.sourceType === 'local');
+    return hybrid ? asMember(hybrid) : pickCliLead(input.selectedCliAgents);
+  }
+
+  /** 云端档的兜底：开着的、可用的 CLI 里挑第一个。 */
+  async function pickCliLead(selected?: string[]): Promise<PlannerMember | null> {
+    for (const agent of cliAnswerAgents) {
+      if (Array.isArray(selected) && !selected.includes(agent.id)) continue;
+      try {
+        if (!(await agent.health()).available) continue;
+      } catch {
+        continue;
+      }
+      return { id: agent.id, label: agent.label, adapter: new SubAgentPlanningAdapter(agent) };
+    }
+    return null;
   }
 
   /**
@@ -5059,6 +5089,14 @@ app.whenReady().then(async () => {
     tasks,
     store,
     adapter: () => planningAdapter(),
+    // 进程重启后按任务成员重建适配器，避免把报告发回未登录的网页。
+    memberAdapter: memberId => {
+      const cli = cliAnswerAgents.find(agent => agent.id === memberId);
+      if (cli) return new SubAgentPlanningAdapter(cli);
+      const extra = extraAgents.find(agent => agent.id === memberId);
+      if (extra) return new ProviderPlanningAdapter(extra);
+      return null;
+    },
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
     onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
@@ -5516,14 +5554,7 @@ app.whenReady().then(async () => {
     },
     submitWorkspace: async input => {
       await ensureChannelSnapshot();
-      const planner = await pickPlanningAgent(input);
-      if (planner) {
-        planningOverride = new ProviderPlanningAdapter(planner);
-      } else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
-        throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
-      }
-      // 主导之后，再按这一轮的配置挑并行旁听成员。旁听失败不影响主导，
-      // 但它们的回答必须真的被问过——所以名单在这里定，不在界面拼。
+      // 按这一轮的真实配置挑人：模型优先，云端档没有可用模型时用 CLI 主导。
       const executionConfig =
         input.executionConfig ??
         normalizeExecutionConfig({
@@ -5531,21 +5562,34 @@ app.whenReady().then(async () => {
           ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {}),
           ...(input.plannerAgentId ? { leadAgentId: input.plannerAgentId } : {})
         });
-      const leadAdapter = planningOverride ?? planningAdapter();
-      const leadId = planner?.id ?? planningChannelId();
+      const lead = await pickPlanningAdapter({
+        ...(input.executionMode ? { executionMode: input.executionMode } : {}),
+        ...(input.plannerAgentId ? { plannerAgentId: input.plannerAgentId } : {}),
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {}),
+        ...(executionConfig.selectedCliAgents ? { selectedCliAgents: executionConfig.selectedCliAgents } : {})
+      });
+      if (lead) planningOverride = lead.adapter;
+      else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
+        throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
+      }
+      // 主导之后，再按这一轮的配置挑并行旁听成员。旁听失败不影响主导，
+      // 但它们的回答必须真的被问过——所以名单在这里定，不在界面拼。
+      const webLeadAdapter = lead ? null : planningAdapter();
+      const leadMember: PlannerMember = lead ?? {
+        id: `web:${planningChannelId()}`,
+        label: webLeadAdapter!.siteLabel,
+        adapter: webLeadAdapter!
+      };
       const peers = await parallelPlannerPeers({
         mode: executionConfig.executionMode,
         config: executionConfig,
-        leadId
+        leadId: leadMember.id
       });
-      const members: PlannerMember[] = [
-        { id: planner?.id ?? `web:${leadId}`, label: leadAdapter.siteLabel, adapter: leadAdapter },
-        ...peers
-      ];
+      const members: PlannerMember[] = [leadMember, ...peers];
       const debateAgentIds = members.length > 1
         ? members.map(member => member.id)
-        : planner
-          ? [planner.id]
+        : lead
+          ? [lead.id]
           : input.selectedCloudModels && input.selectedCloudModels.length > 0
             ? input.selectedCloudModels
             : undefined;

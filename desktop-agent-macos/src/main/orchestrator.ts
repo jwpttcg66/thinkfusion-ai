@@ -44,6 +44,14 @@ export interface OrchestratorDeps {
   store: AgentStore;
   /** 每次取用时都重新解析：运行时切换规划源后，执行链路不能还连着旧页面。 */
   adapter: (taskId?: string) => PlanningAdapter;
+  /**
+   * 按成员 id 重建适配器。
+   *
+   * 进程重启后 `planningAdapters` 是空的，原来会直接退回网页 adapter：一个
+   * 由本地/云端/CLI 主导的任务，执行完的报告会发给没登录的网页，然后整任务
+   * 被记成失败。任务里存了 `debateAgentIds`，按它重建就不会换来源。
+   */
+  memberAdapter?: (memberId: string) => PlanningAdapter | null;
   emit: (event: AgentEvent) => void;
   dbPath: () => string;
   /**
@@ -147,7 +155,34 @@ export class AgentOrchestrator {
    * 一直报「DeepSeek 未登录」，而用户看到的规划源是 ChatGPT。
    */
   private adapterFor(taskId?: string): PlanningAdapter {
-    return (taskId ? this.planningAdapters.get(taskId) : undefined) ?? this.deps.adapter(taskId);
+    const cached = taskId ? this.planningAdapters.get(taskId) : undefined;
+    if (cached) return cached;
+    if (taskId) {
+      const rebuilt = this.rebuildAdapter(taskId);
+      if (rebuilt) {
+        this.planningAdapters.set(taskId, rebuilt);
+        return rebuilt;
+      }
+    }
+    return this.deps.adapter(taskId);
+  }
+
+  /** 重启后按任务记录的成员重建；重建不出来才退回默认（网页）适配器。 */
+  private rebuildAdapter(taskId: string): PlanningAdapter | null {
+    if (!this.deps.memberAdapter) return null;
+    let task: AgentTask;
+    try {
+      task = this.tasks.get(taskId);
+    } catch {
+      return null;
+    }
+    const memberId = task.debateAgentIds?.[0];
+    if (!memberId) return null;
+    try {
+      return this.deps.memberAdapter(memberId);
+    } catch {
+      return null;
+    }
   }
 
   /** Provider 不占网页队列；网页适配器仍然串行。 */
@@ -211,7 +246,10 @@ export class AgentOrchestrator {
     });
     this.tasks.transition(task.taskId, 'planning');
     this.planningAdapters.set(task.taskId, planner);
-    if (members.length > 1) this.plannerMembers.set(task.taskId, [...members]);
+    // 单成员也记：成员卡片与「按模型统计」需要一个身份，不然主导这一路
+    // 在界面上没有名字、统计里也没有它。
+    const leadMember = members[0] ?? { id: `lead:${planner.siteLabel}`, label: planner.siteLabel, adapter: planner };
+    this.plannerMembers.set(task.taskId, [leadMember, ...members.slice(1)]);
     if (input.debateAgentIds && input.debateAgentIds.length > 0) {
       this.debateAgents.set(task.taskId, input.debateAgentIds);
     }
@@ -572,22 +610,24 @@ export class AgentOrchestrator {
    * 旁听者回答也参与「合成计划」：那需要再一次模型调用、还会把不同成员的计划
    * 步骤搅成一份没人负责的混合体；V2.1 要的是「各自独立可查」，不是合并。
    */
+  /**
+   * 这份回答能不能当计划用。
+   *
+   * 只看协议层（有没有可解析的 desktop-agent/v1 块），不评价内容质量：
+   * 内容由后续的计划校验与评审负责。这里多判一次，是为了在「主导答坏了、
+   * 旁听答对了」时不必再花一轮修复。
+   */
+  private answerUsable(taskId: string, roundId: string, text: string): boolean {
+    const echo = this.tasks.getRound(roundId)?.requestText;
+    const result = parseAnswer(text, { taskId, roundId }, { ignoreEcho: echo });
+    return result.kind !== 'none' && result.kind !== 'invalid' && result.kind !== 'conflict';
+  }
+
   private async askRound(taskId: string, roundId: string, prompt: string): Promise<string> {
     const members = this.plannerMembers.get(taskId) ?? [];
     const [lead, ...peers] = members;
-    if (!lead || peers.length === 0) return this.askPage(taskId, roundId, prompt, lead?.id);
-    return this.askWithPeers(taskId, roundId, prompt, lead, peers);
-  }
-
-  private async askWithPeers(
-    taskId: string,
-    roundId: string,
-    prompt: string,
-    lead: PlannerMember,
-    peers: readonly PlannerMember[]
-  ): Promise<string> {
-    // 主导先报「开始」再启动旁听：工作台按成员分列，主卡片必须排在最前面，
-    // 不能让「谁先吐了第一个 token」决定谁被当成主导。
+    if (!lead) return this.askPage(taskId, roundId, prompt);
+    // 主导先报「开始」：无论有没有旁听，工作台都要有它这张卡片。
     this.deps.emit({
       type: 'round.peer',
       at: Date.now(),
@@ -598,6 +638,18 @@ export class AgentOrchestrator {
       status: 'started',
       participantId: lead.id
     });
+    if (peers.length === 0) return this.askPage(taskId, roundId, prompt, lead.id);
+    return this.askWithPeers(taskId, roundId, prompt, lead, peers);
+  }
+
+  private async askWithPeers(
+    taskId: string,
+    roundId: string,
+    prompt: string,
+    lead: PlannerMember,
+    peers: readonly PlannerMember[]
+  ): Promise<string> {
+    // 主导的「开始」已经在 askRound 里报过；这里只发旁听。
     // 旁听者与主导并行发；它们的回答不影响主线，失败也只落到自己卡片上。
     const peerRuns = peers.map(peer => this.askPeer(taskId, roundId, prompt, peer));
     const leadOutcome = this.askPage(taskId, roundId, prompt, lead.id).then(
@@ -606,7 +658,30 @@ export class AgentOrchestrator {
     );
 
     const leadResult = await leadOutcome;
-    if (leadResult.ok) return leadResult.text;
+    if (leadResult.ok) {
+      if (this.answerUsable(taskId, roundId, leadResult.text)) return leadResult.text;
+      // 主导答了，但答的东西不能当计划用（常见：模型返回缺字段的 JSON）。
+      // 旁听者里只要有一份可用的，就用它——这正是「多模型并行」该有的价值，
+      // 而不是把一份坏答案送去修复轮再花一次调用。换人要写明，不静默。
+      for (const [index, run] of peerRuns.entries()) {
+        const result = await run;
+        if (!result.ok || !this.answerUsable(taskId, roundId, result.text)) continue;
+        const label = peers[index]?.label ?? '旁听成员';
+        this.deps.emit({
+          type: 'round.peer',
+          at: Date.now(),
+          taskId,
+          roundId,
+          memberId: lead.id,
+          label: lead.label,
+          status: 'failed',
+          error: `${lead.label} 的回答不能作为计划（缺少协议字段），本轮改用 ${label} 的回答`,
+          participantId: lead.id
+        });
+        return result.text;
+      }
+      return leadResult.text;
+    }
 
     // 主导失败：按完成顺序找第一个真的答出东西的旁听者，并把这件事说清楚。
     // 不静默换人——用户要能看出「计划来自 B，不是 A」。
@@ -859,9 +934,13 @@ export class AgentOrchestrator {
       plan: toPreview(stored, gate.missing)
     });
     // 计划选中了这些工具，但一个都还没执行；界面必须能区分“准备”与“开始”。
+    // 计划由主导成员产出，所以这些步骤的「发起者」就是它。带上 participantId，
+    // 工作台才能在轨迹里回答「这个工具是哪个模型发起的」。
+    const planOwner = this.plannerMembers.get(taskId)?.[0]?.id;
     for (const step of stored.plan.steps) {
       this.deps.emit({
         type: 'step.preparing', at: Date.now(), taskId, roundId,
+        ...(planOwner ? { participantId: planOwner } : {}),
         stepId: step.id, callId: step.id, tool: step.tool, args: step.args as Record<string, unknown>
       });
     }
