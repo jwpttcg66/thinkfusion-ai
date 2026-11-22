@@ -2484,6 +2484,13 @@ export interface AgentApi {
   /** 逐次审批：拒绝某一步，该步失败并停止整份计划。 */
   rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
+  /**
+   * 用当前口径重新判定这一轮的验证结论（只读已落库的报告，不重跑步骤）。
+   * 通过则任务按完成收尾；没通过原样返回原因。
+   */
+  recheckVerification(taskId: string): Promise<{ verified: boolean; reasons: string[] }>;
+  /** 明确接受「未验证」并收尾；缺口保留在报告里，不会被当成已验证。 */
+  acceptUnverified(taskId: string): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
   /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;

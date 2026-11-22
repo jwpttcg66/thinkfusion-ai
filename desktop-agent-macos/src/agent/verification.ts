@@ -11,9 +11,9 @@
  */
 
 import type { StepResult } from '../shared/contracts';
+import { stepEvidenceKinds, type EvidenceKind } from '../shared/verification-evidence';
 
 const WRITE_TOOLS = new Set(['fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.remove', 'fs.move', 'fs.copy']);
-const COMPILE_COMMAND = /typecheck|build/i;
 
 export type CheckStatus = 'passed' | 'failed' | 'skipped';
 
@@ -80,12 +80,23 @@ function commandResult(step: StepResult): { status: CheckStatus; exitCode?: numb
   };
 }
 
-function lastCommand(results: readonly StepResult[], predicate: (command: string | undefined) => boolean): CommandCheck {
-  const steps = results.filter(step => step.tool === 'test.run');
-  for (let index = steps.length - 1; index >= 0; index -= 1) {
-    const step = steps[index];
-    const command = (step.args as { command?: unknown } | undefined)?.command;
-    if (predicate(typeof command === 'string' ? command : undefined)) return commandResult(step);
+/**
+ * 取最后一处能归到这一类证据的步骤。
+ *
+ * 候选不只 `test.run`：`shell.run` 里写的 `javac` / `mvn package` / `pytest` /
+ * `[ "$out" = "hello jwp" ]` 同样是跑过的检查（判定在
+ * `shared/verification-evidence.ts`，与计划门禁、评审辩题共用一份口径）。
+ * 「最后一处」优先，是因为同一轮里模型可能先跑失败、再跑成功；以最后的状态
+ * 为准，前面失败过的痕迹已经由 reasons 里的事实记录。
+ */
+function lastCommand(results: readonly StepResult[], kind: EvidenceKind): CommandCheck {
+  for (let index = results.length - 1; index >= 0; index -= 1) {
+    const step = results[index];
+    if (!stepEvidenceKinds({ tool: step.tool, args: step.args }).includes(kind)) continue;
+    const outcome = commandResult(step);
+    // 没执行过的步骤不构成证据，也不要把它写成「跳过但失败」。
+    if (outcome.status === 'skipped') continue;
+    return outcome;
   }
   return { status: 'skipped' };
 }
@@ -138,8 +149,8 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   ].sort();
 
   const checks: VerificationChecks = {
-    compile: lastCommand(results, command => command !== undefined && COMPILE_COMMAND.test(command)),
-    tests: lastCommand(results, command => command === undefined || !COMPILE_COMMAND.test(command)),
+    compile: lastCommand(results, 'compile'),
+    tests: lastCommand(results, 'tests'),
     diagnostics: diagnosticsCheck(results),
     changedFiles: []
   };
@@ -163,11 +174,11 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   }
   if (externalChanged.length > 0 && !anyCheckPassed) {
     reasons.push(
-      `外部 Agent 改了 ${String(externalChanged.length)} 个文件，但没有独立的测试或诊断：本轮不能算已验证`
+      `外部 Agent 改了 ${String(externalChanged.length)} 个文件，但没有独立的构建 / 测试 / 运行断言或诊断：本轮不能算已验证`
     );
   }
   if (completedWrites.length > 0 && !anyCheckPassed) {
-    reasons.push('改了文件但没有成功的测试或诊断：本轮不能算已验证');
+    reasons.push('改了文件，但没有任何成功的构建 / 测试 / 运行断言或诊断：本轮不能算已验证');
   }
   if (completedWrites.length === 0 && failedWrites.length === 0 && externalChanged.length === 0) {
     reasons.push('本轮没有写操作，无需验证');

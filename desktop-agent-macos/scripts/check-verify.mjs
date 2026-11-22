@@ -61,7 +61,49 @@ test('改了文件但只跑了失败测试：不算', () => {
     step('test.run', 'completed', { exitCode: 1 })
   ]);
   assert.equal(outcome.verified, false);
-  assert.match(outcome.reasons.join('；'), /没有成功的测试或诊断/);
+  assert.match(outcome.reasons.join('；'), /不能算已验证/);
+});
+
+test('shell.run 里真编译 + 运行断言：算已验证（真实 Java 工程踩过）', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'hello-jwp/src/main/java/com/example/App.java' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: '实际输出: [hello jwp]\nVERIFIED\n' }, {
+      command: 'rm -rf out && javac -encoding UTF-8 -d out src/main/java/com/example/App.java && out=$(java -cp out com.example.App) && [ "$out" = "hello jwp" ]'
+    })
+  ]);
+  assert.equal(outcome.verified, true, '编译 + 输出断言就是验证过');
+  assert.equal(outcome.checks.compile.status, 'passed');
+  assert.equal(outcome.checks.tests.status, 'passed', '字符串断言算功能验证');
+});
+
+test('shell.run 只跑 mvn package 也算编译证据', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'pom.xml' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: 'mvn -B -q -DskipTests package' })
+  ]);
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.checks.compile.status, 'passed');
+});
+
+test('shell.run 里的版本探测不算编译过', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'a.java' }),
+    step('shell.run', 'completed', { exitCode: 0 }, {
+      command: "echo '== javac =='; javac -version 2>&1 || echo 'javac: NOT FOUND'; java -version 2>&1"
+    })
+  ]);
+  assert.equal(outcome.verified, false, '查版本不等于编译');
+  assert.equal(outcome.checks.compile.status, 'skipped');
+});
+
+test('echo / mkdir / chmod 这类命令不构成任何证据', () => {
+  for (const command of ['mkdir -p a/b && ls -R a', 'chmod +x run.sh && ls -l run.sh', "echo 'make sure it works'"]) {
+    const outcome = verifyExecution([
+      step('fs.writeFile', 'completed', { path: 'a.txt' }),
+      step('shell.run', 'completed', { exitCode: 0 }, { command })
+    ]);
+    assert.equal(outcome.verified, false, command);
+  }
 });
 
 test('诊断里还有 error：不算', () => {

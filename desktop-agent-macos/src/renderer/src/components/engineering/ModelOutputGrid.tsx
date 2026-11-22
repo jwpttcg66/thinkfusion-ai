@@ -29,6 +29,20 @@ function formatTokens(usage: TaskMemberStream['usage']): string {
   return parts.length > 0 ? parts.join(' · ') : '未提供';
 }
 
+/**
+ * 这一路输出是不是协议 JSON。
+ *
+ * 工程任务的模型回答本身就是 `desktop-agent/v1` 的协议对象（计划 / 执行报告），
+ * 原文照实展示是对的，但只给一段 JSON 会让人以为「任务没给我结果」。这里认出
+ * 协议之后补一句「结果在哪看」，不加工、不摘要正文。
+ */
+function protocolNote(text: string): string | null {
+  if (!/"protocol"\s*:\s*"desktop-agent\/v1"/.test(text)) return null;
+  const type = /"type"\s*:\s*"(plan|execution_report|clarification_request)"/.exec(text)?.[1];
+  const kind = type === 'plan' ? '计划' : type === 'execution_report' ? '执行报告' : '协议对象';
+  return `这一路返回的是协议${kind}（机器读的 JSON），不是给你看的最终答复；执行结果与验证见下方「最终交付」。`;
+}
+
 function MemberCard(props: {
   member: TaskMemberStream;
   now: number;
@@ -61,6 +75,10 @@ function MemberCard(props: {
       </div>
       {member.error && <p className="member-card-error">{member.error}</p>}
       <div className="member-card-body">
+        {(() => {
+          const note = protocolNote(member.text);
+          return note ? <p className="muted member-protocol-note">{note}</p> : null;
+        })()}
         {member.reasoningSupported ? (
           <details open={openReasoning} onToggle={event => setOpenReasoning((event.target as HTMLDetailsElement).open)}>
             <summary>思考（{member.reasoning.length} 字符）</summary>

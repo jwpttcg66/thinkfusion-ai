@@ -2990,6 +2990,19 @@ function registerIpc() {
     await orchestrator.cancel(TaskIdSchema.parse(taskId));
   });
 
+  // 验证闸门卡住时的两个出口：重新判定（执行事实不变，只重算结论）与
+  // 明确接受未验证。没有它们，任务会永远停在 report_pending，界面上看似「完了」，
+  // 实际既拿不到交付也没有下一步。
+  ipcMain.handle('task:recheck-verification', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    return orchestrator.recheckVerification(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('task:accept-unverified', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.acceptUnverified(TaskIdSchema.parse(taskId));
+  });
+
   // CLI 有两个身份：回答源（第一轮被问，见 execution/cli-answer-agent.ts）
   // 与执行者（新任务能不能把工程活派给它）。这里的开关同时管这两件事。
   /** 本次亲手在文件对话框里挑过的绝对路径；渲染层不能凭空塞路径。 */

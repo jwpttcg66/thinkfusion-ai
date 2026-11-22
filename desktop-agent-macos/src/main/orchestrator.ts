@@ -18,6 +18,7 @@ import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
 import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
+import { verifyExecution } from '../agent/verification';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -432,7 +433,7 @@ export class AgentOrchestrator {
       if (touchesCode) {
         this.tasks.patch(task.taskId, {
           codingState: 'BLOCKED',
-          error: `未验证：${reason}。补一次 test.run 或 code.diagnostics 后再继续。`
+          error: `未验证：${reason}。补一次会跑构建/测试的命令（或对输出做断言），或 code.diagnostics 后再继续；也可以直接确认收尾。`
         });
         this.deps.emit({
           type: 'log',
@@ -479,6 +480,58 @@ export class AgentOrchestrator {
     cancelled?: boolean;
   }): Promise<void> {
     answerStepQuestion(input);
+  }
+
+  async acceptUnverified(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (task.status !== 'report_pending') {
+      throw new Error(`任务当前状态为 ${task.status}，没有待确认的交付`);
+    }
+    this.tasks.transition(taskId, 'completed', { summary: '执行完成（未验证，已确认接受）', error: undefined });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'warn',
+      message: '你确认接受「未验证」：任务按完成收尾。验证缺口保留在报告里，不会被当成已验证。'
+    });
+    this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成（未验证，已确认接受）' });
+  }
+
+  /**
+   * 用当前口径重新判定这一轮的验证结论。
+   *
+   * 存在的理由：验证口径本身会变（例如把 `shell.run` 里的 javac / mvn / 输出
+   * 断言也算作证据）。口径改宽之后，早先被卡在 report_pending 的任务不该逼着
+   * 用户点「接受未验证」——执行事实没变，只是判定该重算。重算只读已落库的
+   * 报告，不会重新执行任何步骤。
+   */
+  async recheckVerification(taskId: string): Promise<{ verified: boolean; reasons: string[] }> {
+    const task = this.tasks.get(taskId);
+    if (task.status !== 'report_pending') {
+      throw new Error(`任务当前状态为 ${task.status}，只有等待确认的交付可以重新判定`);
+    }
+    const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
+    if (!report) throw new Error('没有找到这一轮的执行报告，无法重新判定');
+
+    const verification = verifyExecution(report.results);
+    const updated: ExecutionReport = { ...report, verification };
+    this.deps.store.updateReport(updated);
+    // 让界面重新读同一条报告（task-view 收到它只更新验证 / 改动 / 诊断，不追加时间线）。
+    this.deps.emit({ type: 'report.ready', at: Date.now(), taskId, roundId: report.roundId, report: updated });
+
+    if (!verification.verified) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: `重新判定仍未通过：${verification.reasons.join('；') || '没有可用的检查证据'}`
+      });
+      return { verified: false, reasons: verification.reasons };
+    }
+
+    this.tasks.transition(taskId, 'completed', { summary: '执行完成，验证通过', error: undefined });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: '按当前口径重新判定：这一轮已有成功的构建 / 测试 / 运行断言，任务按完成收尾。'
+    });
+    this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成，验证通过' });
+    return { verified: true, reasons: verification.reasons };
   }
 
   async cancel(taskId: string): Promise<void> {

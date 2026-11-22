@@ -236,6 +236,29 @@ export class AgentStore {
     this.persist();
   }
 
+  /** 某一轮的执行报告；重新判定验证结论时要拿它当唯一事实来源。 */
+  reportFor(taskId: string, planId?: string): ExecutionReport | null {
+    const matches = this.state.reports.filter(item =>
+      item.taskId === taskId && (planId === undefined || item.planId === planId)
+    );
+    return matches[matches.length - 1] ?? null;
+  }
+
+  /**
+   * 覆盖同一轮的报告。
+   *
+   * 只用于「执行事实没变、判定口径变了」的场合（例如把 shell.run 里的
+   * javac 也算作编译证据后重新判定）。执行结果本身不允许被改写。
+   */
+  updateReport(report: ExecutionReport): void {
+    const index = this.state.reports.findIndex(item =>
+      item.taskId === report.taskId && item.roundId === report.roundId && item.planId === report.planId
+    );
+    if (index === -1) this.state.reports.push(report);
+    else this.state.reports[index] = report;
+    this.persist();
+  }
+
   // --- unified run events (General/Knowledge) -------------------------------
 
   nextRunSequence(taskId: string): number {

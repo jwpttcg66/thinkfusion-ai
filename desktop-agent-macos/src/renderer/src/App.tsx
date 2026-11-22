@@ -1533,6 +1533,38 @@ export default function App() {
     }
   }
 
+  /**
+   * 验证闸门停在 report_pending 时的两个出口。
+   *
+   * 「重新判定」只重算结论（执行事实不变），「接受未验证」是明确收尾。没有这
+   * 两个按钮时，任务在界面上像结束了：没有交付、没有下一步，只能干等。
+   */
+  async function recheckVerification() {
+    if (!activeTask) return;
+    setError('');
+    try {
+      const result = await window.agentAPI.recheckVerification(activeTask.taskId);
+      setNotice(
+        result.verified
+          ? '重新判定通过：这一轮已有成功的构建 / 测试 / 运行断言，任务按完成收尾'
+          : `重新判定仍未通过：${result.reasons.join('；') || '没有可用的检查证据'}`
+      );
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function acceptUnverified() {
+    if (!activeTask) return;
+    setError('');
+    try {
+      await window.agentAPI.acceptUnverified(activeTask.taskId);
+      setNotice('已按完成收尾：这一轮保持「未验证」，缺口记在报告里');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function answerClarification() {
     if (!activeTask || !clarifyText.trim()) return;
     setError('');
@@ -2448,7 +2480,7 @@ export default function App() {
               </section>
             )}
 
-            {derived.verification && activeTask && workbenchTab === 'conversation' && (
+            {derived.verification && activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (
               <section className={`card review-card${derived.verification.verified ? '' : ' needs-fix'}`}>
                 <div className="review-head">
                   <b>本轮验证 · {derived.verification.verified ? '已通过' : '未通过'}</b>
@@ -2508,6 +2540,25 @@ export default function App() {
                   </div>
                 ))}
                 <p className="muted">「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。</p>
+                {/* 停在这里的任务以前没有出口：没有交付、没有下一步，只能干等。
+                    现在给两个明确动作，并且把「按当前口径重算」与「接受未验证」分开——
+                    前者是纠正判定，后者是承认缺口。 */}
+                {activeTask.status === 'report_pending' && (
+                  <div className="row">
+                    <button className="btn" type="button" onClick={() => void recheckVerification()}>
+                      按当前口径重新判定
+                    </button>
+                    <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
+                      接受未验证并结束
+                    </button>
+                  </div>
+                )}
+                {activeTask.status === 'report_pending' && (
+                  <p className="muted">
+                    任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没自动收尾。
+                    也可以在输入框追问一句补跑检查。
+                  </p>
+                )}
                 {derived.verification.changedFiles > 0 && activeTask && (
                   <button className="btn ghost" type="button" onClick={() => void revertSnapshot(activeTask.taskId)}>
                     还原本轮
@@ -2540,7 +2591,7 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && workbenchTab === 'conversation' && (derived.verification || derived.review || derived.changes.length > 0) && (
+            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (derived.verification || derived.review || derived.changes.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
                   <h2>最终交付</h2>
@@ -2562,6 +2613,8 @@ export default function App() {
                    * 像产物不合格。用户看到的第一句必须是事实：没验证，还是验证没过。
                    */
                   const checks = derived.verification!.checks;
+                  const label = (value: 'passed' | 'failed' | 'skipped') =>
+                    value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
                   const rows = [
                     { key: '编译', status: checks?.compile.status ?? 'skipped' },
                     { key: '测试', status: checks?.tests.status ?? 'skipped' },
@@ -2571,7 +2624,7 @@ export default function App() {
                   return (
                     <p>
                       <b>验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
-                      {rows.map(row => ` · ${row.key} ${row.status}`).join('')}
+                      {rows.map(row => ` · ${row.key} ${label(row.status)}`).join('')}
                     </p>
                   );
                 })()}
@@ -3119,7 +3172,7 @@ function statusLabel(status: AgentTask['status']): string {
     awaiting_approval: '等待你确认',
     executing: '正在执行',
     verifying: '正在校验结果',
-    report_pending: '准备回传结果',
+    report_pending: '已完成待确认',
     awaiting_next_round: '等待下一轮',
     completed: '已完成',
     failed: '已失败',

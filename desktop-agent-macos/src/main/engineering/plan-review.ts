@@ -1,4 +1,5 @@
 import type { AgentPlan } from '../../shared/contracts';
+import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 
 /** 会改动工作区的工具；与 PlanPreview 的 isWrite 保持同一口径。 */
 const WRITE_TOOLS = new Set([
@@ -25,21 +26,23 @@ export interface PlanCapabilityGate {
 export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
   const steps = plan.steps ?? [];
   const writes = steps.filter(step => WRITE_TOOLS.has(step.tool));
-  const tests = steps.filter(step => step.tool === 'test.run');
+  // 「验没验」不按工具名判：`shell.run` 里写 javac/mvn/pytest 或对输出做断言，
+  // 与 `test.run` 是同一类事实。用哪条命令由模型按任务决定，这里只问有没有。
+  const tests = steps.filter(step => stepEvidenceKinds({ tool: step.tool, args: step.args }).includes('tests'));
   const screens = steps.filter(step => step.tool === 'screen.capture');
   const dataSteps = steps.filter(step => DATA_TOOLS.has(step.tool));
   const missing: string[] = [];
 
-  if (writes.length > 0 && tests.length === 0) {
-    missing.push('计划改了文件，但没有 test.run：执行后不会标已验证');
+  if (writes.length > 0 && !planHasObservableEvidence(steps)) {
+    missing.push('计划改了文件，但没有任何能看见改动效果的动作（构建、测试、运行断言或诊断）：执行后不会标已验证');
   }
 
   const touchesUi = writes.some(step => {
     const args = step.args as { path?: unknown };
     return typeof args.path === 'string' && args.path.replace(/\\/g, '/').includes('src/renderer/');
   });
-  if (touchesUi && screens.length === 0 && tests.length === 0) {
-    missing.push('计划改了界面，但没有截屏或构建检查：布局与交互没有被验证');
+  if (touchesUi && screens.length === 0 && !planHasObservableEvidence(steps)) {
+    missing.push('计划改了界面，但没有截屏或任何构建 / 运行检查：布局与交互没有被验证');
   }
 
   // 只拦「会把整表读进上下文」的查询；聚合、PRAGMA、EXPLAIN 没有这个问题。
@@ -81,7 +84,6 @@ export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
 export function planDebateTopics(plan: AgentPlan): string[] {
   if (plan.kind === 'design' && plan.design) return [...plan.design.viewpoints];
   const steps = plan.steps ?? [];
-  const tools = steps.map(step => step.tool);
   const writes = steps.filter(step =>
     step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
     step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
@@ -91,8 +93,9 @@ export function planDebateTopics(plan: AgentPlan): string[] {
     const args = step.args as { overwrite?: boolean };
     return args.overwrite === true;
   });
-  const runsTests = tools.includes('test.run');
   const runsShell = steps.filter(step => step.tool === 'shell.run');
+  /** 计划里有没有任何能看见改动效果的动作；有就不该再追着要某一种工具。 */
+  const hasEvidence = planHasObservableEvidence(steps);
   const systemSteps = steps.filter(step =>
     step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
     step.tool === 'code.run'
@@ -105,10 +108,13 @@ export function planDebateTopics(plan: AgentPlan): string[] {
         '逐条说明为什么不能只追加或新建，以及回退办法。'
     );
   }
-  if (writes.length > 0 && !runsTests) {
+  if (writes.length > 0 && !hasEvidence) {
+    // 不写死「必须有 test.run」：验证方式是模型按任务设计的（Java 用 javac +
+    // 运行断言，前端用构建加截屏，脚本用一次真跑）。这里只把「什么时候算
+    // 验证过」抛给它，由它给出这个任务该用的办法。
     topics.push(
-      `改完之后怎么证明没改坏：这份计划有 ${writes.length} 处写入但没有 test.run，` +
-        '是漏了验证步骤，还是这个工程确实没有可跑的命令？'
+      `改完之后怎么证明没改坏：这份计划有 ${writes.length} 处写入，但没有任何能观察结果的动作。` +
+        '请按这个任务本身设计验证方式（跑哪条命令、看什么输出、什么算通过），并说明缺了它能不能算完成。'
     );
   }
   if (steps.length >= 4) {
@@ -117,7 +123,7 @@ export function planDebateTopics(plan: AgentPlan): string[] {
         '哪一步失败会让后面全部作废。'
     );
   }
-  if (runsShell.length > 0 && !runsTests) {
+  if (runsShell.length > 0 && !hasEvidence) {
     topics.push(
       `这 ${runsShell.length} 条 shell 命令凭什么安全：逐条说明它会读还是写、` +
         '作用范围是否只在工作区内、失败时会不会留下半成品。'

@@ -39,13 +39,23 @@ const writePlan = plan([
   { id: 's3', tool: 'test.run', args: { command: 'npm test' } }
 ]);
 
-test('门禁：改文件没跑测试，点名「不会标已验证」', () => {
+test('门禁：改文件且没有任何能观察结果的动作，点名「不会标已验证」', () => {
   const gate = checkPlanCapabilities(plan([
     { id: 's1', tool: 'fs.edit', args: { path: 'src/a.ts', oldString: 'a', newString: 'b' } }
   ]));
   assert.equal(gate.family, 'code.change');
   assert.equal(gate.missing.length, 1);
-  assert.match(gate.missing[0], /test\.run/);
+  assert.match(gate.missing[0], /不会标已验证/);
+  assert.doesNotMatch(gate.missing[0], /test\.run/, '不该把某一种工具写成唯一验证手段');
+});
+
+test('门禁：改文件且用 shell.run 真编译 + 断言，不拦', () => {
+  const gate = checkPlanCapabilities(plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'src/App.java', content: 'x' } },
+    { id: 's2', tool: 'shell.run', args: { command: 'javac -d out src/App.java && out=$(java -cp out App) && [ "$out" = "hello" ]' } }
+  ]));
+  assert.equal(gate.family, 'code.change');
+  assert.deepEqual(gate.missing, []);
 });
 
 test('门禁：改文件且跑测试就通过', () => {
@@ -107,11 +117,20 @@ test('辩题指向具体风险：覆盖写、缺验证、步骤过多', () => {
   assert.ok(topics.some(topic => topic.includes('验收条件')) === false, '已经有测试时不该拿验收条件凑数');
 });
 
-test('有写入没测试时，辩题直接问「怎么证明没改坏」', () => {
+test('有写入、没有任何观察手段时，辩题要求「按任务设计验证方式」，不点名工具', () => {
   const topics = planDebateTopics(plan([
     { id: 's1', tool: 'fs.writeFile', args: { path: 'src/a.ts', content: 'x' } }
   ]));
-  assert.ok(topics.some(topic => topic.includes('test.run')), topics.join(' / '));
+  assert.ok(topics.some(topic => topic.includes('设计验证方式')), topics.join(' / '));
+  assert.ok(topics.every(topic => !topic.includes('test.run')), '不该把 test.run 当成唯一答案');
+});
+
+test('已经写了 javac + 断言，就不再追着问验证方式', () => {
+  const topics = planDebateTopics(plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'App.java', content: 'x' } },
+    { id: 's2', tool: 'shell.run', args: { command: 'javac -d out App.java && [ "$(java -cp out App)" = "hello" ]' } }
+  ]));
+  assert.ok(topics.every(topic => !topic.includes('怎么证明没改坏')), topics.join(' / '));
 });
 
 test('辩题最多三条，避免把审批拖成一场长会', () => {
