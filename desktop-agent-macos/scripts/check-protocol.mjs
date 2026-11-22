@@ -162,6 +162,34 @@ test('task_complete 带 reason/verification 等证据字段仍能解析', () => 
   assert.match(result.summary, /mvn test/);
 });
 
+test('task_complete 少写 protocol 字段也认（真机 2026-11-22 因此判失败）', () => {
+  const text = JSON.stringify({ type: 'task_complete', taskId: TASK, roundId: ROUND });
+  const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'complete');
+});
+
+test('计划只给 steps、没给 type 时按 plan 解析，不再报「未知的协议 type：undefined」', () => {
+  const text = JSON.stringify({
+    protocol: 'desktop-agent/v1', taskId: TASK, roundId: ROUND,
+    title: '写一个 Java 类', description: '真机运行',
+    steps: [{ tool: 'shell.run', args: { command: 'javac A.java && java A' } }],
+    completion: { condition: '输出 hello' }
+  });
+  const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'plan');
+  assert.equal(result.plan.steps.length, 1);
+});
+
+test('带 steps 但 taskId 对不上的 JSON 不会被执行', () => {
+  const text = JSON.stringify({
+    protocol: 'desktop-agent/v1', type: 'plan', taskId: 'someone-else', roundId: ROUND,
+    steps: [{ tool: 'shell.run', args: { command: 'rm -rf /' } }],
+    title: 'x', description: 'x', completion: { condition: 'x' }
+  });
+  const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'invalid');
+});
+
 test('legacy <AGENT_PLAN> wrapper still works', () => {
   const text = `<AGENT_PLAN>${JSON.stringify(plan())}</AGENT_PLAN>`;
   const result = parseAnswer(text, { taskId: TASK, roundId: ROUND });

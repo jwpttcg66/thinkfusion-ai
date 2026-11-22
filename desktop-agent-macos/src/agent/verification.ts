@@ -1,8 +1,8 @@
 /**
  * 「本轮到底验没验过」：只陈述执行报告里读得到的事实。
  *
- * 规则来自设计文档：改了文件就必须有一次真的检查跑过——成功的编译/测试
- * （退出码 0），或 `code.diagnostics` 报 0 个 error。写操作全失败、或写完
+ * 规则来自设计文档：改了文件就必须有一次真的检查跑过——成功的编译 / 运行
+ * （退出码 0，或 `code.diagnostics` 报 0 个 error）。写操作全失败、或写完
  * 什么都没跑，都不能算「已验证」。
  *
  * V1.2 起结果结构化：compile / tests / diagnostics / changedFiles 各自
@@ -22,6 +22,8 @@ export interface CommandCheck {
   exitCode?: number;
   command?: string;
   detail?: string;
+  /** 这一步打在控制台上的第一行输出：`hello everybody` 就是验收证据。 */
+  output?: string;
 }
 
 export interface DiagnosticsCheck {
@@ -35,6 +37,8 @@ export interface DiagnosticsCheck {
 
 export interface VerificationChecks {
   compile: CommandCheck;
+  /** 真的把程序跑起来（java Main / python x.py / node x.js / ./bin）。 */
+  run: CommandCheck;
   tests: CommandCheck;
   diagnostics: DiagnosticsCheck;
   changedFiles: string[];
@@ -51,17 +55,24 @@ export interface ExecutionVerification {
   checks: VerificationChecks;
 }
 
-function commandResult(step: StepResult): { status: CheckStatus; exitCode?: number; command?: string; detail?: string } {
+function commandResult(step: StepResult): { status: CheckStatus; exitCode?: number; command?: string; detail?: string; output?: string } {
   const result = step.result as { exitCode?: unknown; stdout?: unknown; stderr?: unknown; timedOut?: unknown } | null;
   const exitCode = typeof result?.exitCode === 'number' ? result.exitCode : undefined;
   const command = typeof (step.args as { command?: unknown } | undefined)?.command === 'string'
     ? String((step.args as { command: string }).command)
     : undefined;
+  // 控制台上第一行非空输出：`hello everybody` 这种就是「跑起来了、而且是对的」
+  // 的唯一直接证据，界面与评审都直接用它，不再只说一句「通过」。
+  const firstLine = typeof result?.stdout === 'string'
+    ? result.stdout.split('\n').map(line => line.trim()).find(line => line.length > 0)
+    : undefined;
+  const output = firstLine ? firstLine.slice(0, 120) : undefined;
   if (step.status === 'failed') {
     return {
       status: 'failed',
       ...(exitCode === undefined ? {} : { exitCode }),
       ...(command === undefined ? {} : { command }),
+      ...(output === undefined ? {} : { output }),
       detail: step.error ?? '执行失败'
     };
   }
@@ -76,6 +87,7 @@ function commandResult(step: StepResult): { status: CheckStatus; exitCode?: numb
     status: exitCode === 0 ? 'passed' : 'failed',
     exitCode,
     ...(command === undefined ? {} : { command }),
+    ...(output === undefined ? {} : { output }),
     ...(timedOut ? { detail: '超时' } : {})
   };
 }
@@ -99,6 +111,24 @@ function lastCommand(results: readonly StepResult[], kind: EvidenceKind): Comman
     return outcome;
   }
   return { status: 'skipped' };
+}
+
+/**
+ * 真机运行这一项。
+ *
+ * 只有「跑完了、有退出码、退出码 0」才叫跑通。`npm run dev` 这类后台启动的
+ * 进程没有退出码，它证明的是服务起来了，不是这次改动能跑对——按跳过记。
+ */
+function runCheck(results: readonly StepResult[]): CommandCheck {
+  const outcome = lastCommand(results, 'run');
+  if (outcome.status === 'passed' && outcome.exitCode === undefined) {
+    return {
+      status: 'skipped',
+      ...(outcome.command === undefined ? {} : { command: outcome.command }),
+      detail: '程序在后台启动，没有退出码：不算跑完'
+    };
+  }
+  return outcome;
 }
 
 function diagnosticsCheck(results: readonly StepResult[]): DiagnosticsCheck {
@@ -150,6 +180,7 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
 
   const checks: VerificationChecks = {
     compile: lastCommand(results, 'compile'),
+    run: runCheck(results),
     tests: lastCommand(results, 'tests'),
     diagnostics: diagnosticsCheck(results),
     changedFiles: []
@@ -165,6 +196,7 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
 
   const anyCheckPassed =
     checks.compile.status === 'passed' ||
+    checks.run.status === 'passed' ||
     checks.tests.status === 'passed' ||
     checks.diagnostics.status === 'passed';
 
@@ -178,7 +210,7 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     );
   }
   if (completedWrites.length > 0 && !anyCheckPassed) {
-    reasons.push('改了文件，但没有任何成功的构建 / 测试 / 运行断言或诊断：本轮不能算已验证');
+    reasons.push('改了文件，但没有任何成功的构建 / 运行 / 测试 / 诊断：本轮不能算已验证');
   }
   if (completedWrites.length === 0 && failedWrites.length === 0 && externalChanged.length === 0) {
     reasons.push('本轮没有写操作，无需验证');
@@ -190,6 +222,9 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   }
   if (checks.compile.status === 'failed') {
     reasons.push(`编译检查失败（${checks.compile.command ?? 'test.run'}，退出码 ${String(checks.compile.exitCode ?? '未知')}）`);
+  }
+  if (checks.run.status === 'failed') {
+    reasons.push(`程序运行失败（${checks.run.command ?? '运行命令'}，退出码 ${String(checks.run.exitCode ?? '未知')}）`);
   }
   if (checks.tests.status === 'failed') {
     reasons.push(`测试失败（${checks.tests.command ?? 'test.run'}，退出码 ${String(checks.tests.exitCode ?? '未知')}）`);

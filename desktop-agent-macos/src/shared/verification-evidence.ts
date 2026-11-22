@@ -12,7 +12,7 @@
  * 还是 npm test，由模型按任务自己设计。
  */
 
-export type EvidenceKind = 'compile' | 'tests';
+export type EvidenceKind = 'compile' | 'tests' | 'run';
 
 /** 与 `test.run` 的老口径保持一致：命令里带 typecheck / build 就算编译。 */
 export const COMPILE_COMMAND = /typecheck|build/i;
@@ -21,6 +21,16 @@ const SHELL_TEST =
   /(?:\bnpm\s+(?:run\s+)?test\b|\byarn\s+test\b|\bpnpm\s+test\b|\bnode\s+--test\b|\bmvn\b[^&|;]*?\b(?:test|verify)\b|\bgradlew?\b[^&|;]*?\btest\b|\bpytest\b|\bgo\s+test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bvitest\b|\brspec\b|\bphpunit\b|\bctest\b)/;
 const SHELL_BUILD =
   /(?:\bjavac\b|\bmvn\b|\bgradlew?\b|\btsc\b|\bcmake\b|\bdotnet\s+build\b|\bgo\s+build\b|\bcargo\s+(?:build|check)\b|\bnpm\s+run\s+(?:build|compile)\b|\byarn\s+build\b|\bvite\s+build\b|\bwebpack\b)/;
+/**
+ * 真的把程序跑起来。
+ *
+ * 2026-11-22 用户原话：「可以跑 java 程序，输出到控制台或日志，是可以测试的」。
+ * `javac X.java && java X` 这种命令里，编译只是前半段；后半段的运行与它打在
+ * 屏幕上的输出，才是这个任务真正的验收。以前只认 `javac`，于是清单上写着
+ * 「测试 未执行」，用户读成「没验证过」。
+ */
+const SHELL_RUN =
+  /(?:(?<![.\w$-])java\s+(?:-[A-Za-z]\S*\s+)*[A-Za-z_$][\w.$]*|\bpython3?\s+(?:-[A-Za-z]\S*\s+)*\S+\.py\b|\bnode\s+(?:-[A-Za-z]\S*\s+)*\S+\.(?:js|mjs|cjs)\b|\bgo\s+run\b|\bcargo\s+run\b|\bdotnet\s+run\b|\bgradlew?\b[^&|;]*?\brun\b|\bmvn\b[^&|;]*?\b(?:exec:java|spring-boot:run)\b|(?:^|[;&|(]\s*)\.\/[^\s;&|]+|\b(?:ba)?sh\s+\S+\.sh\b|\bnpm\s+run\s+(?:start|serve|dev)\b|\bnpm\s+start\b)/;
 /** `make` 只认命令开头，避免把 `echo 'make sure'` 当成构建过。 */
 const SHELL_MAKE = /(?:^|[;&|(]\s*)make\b/;
 /** `[ "$out" = "hello" ]` / `test "$x" = y` / `grep -q` 才算断言；只 echo 不算。 */
@@ -44,14 +54,30 @@ function stripQuoted(command: string): string {
   return command.replace(/'[^']*'/g, "''").replace(/"[^"]*"/g, '""');
 }
 
+/**
+ * 只去掉**纯字面量**的双引号，保留 `"$(java App)"` 这种命令替换。
+ *
+ * 真机第二次验证踩到：模型把运行写在命令替换里——
+ * `output="$(java HelloEverybody)"; [ "$output" = "hello everybody" ]`。
+ * 整段双引号被当成字面量抹掉后，「跑没跑」就看不见了，评审于是看到
+ * 「运行 skipped」，还要专门解释一句「不能判为运行未验证」。
+ */
+function stripQuotedKeepSubstitution(command: string): string {
+  return command
+    .replace(/'[^']*'/g, "''")
+    .replace(/"(?:[^"\\]|\\.)*"/g, match => (match.includes('$(') || match.includes('`') ? match : '""'));
+}
+
 /** 一条 shell 命令能读出哪几类证据（可能同时有编译与断言）。 */
 export function shellEvidenceKinds(command: string): EvidenceKind[] {
   const executed = stripVersionProbes(stripQuoted(command));
+  const executedForRun = stripVersionProbes(stripQuotedKeepSubstitution(command));
   const raw = stripVersionProbes(command);
   const kinds: EvidenceKind[] = [];
   // 断言先判：`mvn -DskipTests package` 里的 skipTests 不算测试，但末尾的
   // 字符串比较算功能验证。
   if (SHELL_TEST.test(executed) || SHELL_ASSERT.test(raw)) kinds.push('tests');
+  if (SHELL_RUN.test(executedForRun)) kinds.push('run');
   if (SHELL_BUILD.test(executed) || SHELL_MAKE.test(executed)) kinds.push('compile');
   return kinds;
 }

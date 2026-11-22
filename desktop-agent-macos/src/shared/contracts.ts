@@ -1311,12 +1311,14 @@ export interface ExecutionReport {
     changedFiles: number;
     changedPaths?: string[];
     /**
-     * V1.2：compile / tests / diagnostics 各自的状态与退出码。
-     * 老报告没有这个字段，界面按「未记录」处理，不补默认值。
+     * V1.3：compile / run / tests / diagnostics 各自的状态与退出码。
+     * 老报告没有 `run` 字段，界面按「未记录」处理，不补默认值。
      */
     checks?: {
-      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
-      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
+      /** 程序真的跑起来了吗：`java X` / `python x.py` / `node x.js` / `./bin`。 */
+      run?: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
+      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
       diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; path?: string; detail?: string };
       changedFiles: string[];
     };

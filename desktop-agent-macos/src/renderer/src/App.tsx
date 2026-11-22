@@ -2502,6 +2502,10 @@ export default function App() {
                   <div className="verify-checks">
                     {([
                       ['compile', '编译'],
+                      // 运行单独一格：`java X` 跑通了、屏幕上是 hello everybody，
+                      // 这是「真的验过」最直接的证据；只写「测试 未执行」会让人
+                      // 以为什么都没验（2026-11-22 用户原话）。
+                      ['run', '运行'],
                       ['tests', '测试'],
                       ['diagnostics', '诊断']
                     ] as const).map(([key, label]) => {
@@ -2521,9 +2525,11 @@ export default function App() {
                           </div>
                         );
                       }
-                      const check = checks[key];
+                      const check = key === 'run' ? checks.run : checks[key];
+                      // 老报告没有 run 这一项：不画空格子，也不假装「未执行」。
+                      if (!check) return null;
                       const detail = check.command
-                        ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}`
+                        ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}${key === 'run' && check.output ? ` · 输出 ${check.output}` : ''}`
                         : (check.detail ?? '');
                       return (
                         <div key={key} className={`verify-check is-${check.status}`}>
@@ -2612,23 +2618,27 @@ export default function App() {
                   /**
                    * 「一项都没跑」不能写成「未通过」。
                    *
-                   * 只新建了一个文件、计划里没有 test.run 时，三项检查全是 skipped，
-                   * 而 `verified` 按规则是 false；交付卡直接写「验证：未通过」，读起来
+                   * 只新建了一个文件、计划里没有任何检查时，各项全是 skipped，而
+                   * `verified` 按规则是 false；交付卡直接写「验证：未通过」，读起来
                    * 像产物不合格。用户看到的第一句必须是事实：没验证，还是验证没过。
+                   *
+                   * 运行单独列一行：`javac X && java X` 跑通了、屏幕上是 hello
+                   * everybody，这是这个任务最直接的验收，不能只写「测试 未执行」。
                    */
                   const checks = derived.verification!.checks;
                   const label = (value: 'passed' | 'failed' | 'skipped') =>
                     value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
                   const rows = [
-                    { key: '编译', status: checks?.compile.status ?? 'skipped' },
-                    { key: '测试', status: checks?.tests.status ?? 'skipped' },
-                    { key: '诊断', status: checks?.diagnostics.status ?? 'skipped' }
+                    { key: '编译', status: checks?.compile.status ?? 'skipped', output: undefined },
+                    { key: '运行', status: checks?.run?.status ?? 'skipped', output: checks?.run?.output },
+                    { key: '测试', status: checks?.tests.status ?? 'skipped', output: undefined },
+                    { key: '诊断', status: checks?.diagnostics.status ?? 'skipped', output: undefined }
                   ];
                   const ran = rows.some(row => row.status !== 'skipped');
                   return (
                     <p>
                       <b>验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
-                      {rows.map(row => ` · ${row.key} ${label(row.status)}`).join('')}
+                      {rows.map(row => ` · ${row.key} ${label(row.status)}${row.output ? `（${row.output}）` : ''}`).join('')}
                     </p>
                   );
                 })()}

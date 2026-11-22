@@ -40,8 +40,10 @@ export interface TaskView {
     reasons: string[];
     changedFiles: number;
     checks?: {
-      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
-      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string };
+      compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
+      /** 程序真的跑起来了吗（V1.3）。老报告没有这一项。 */
+      run?: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
+      tests: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
       diagnostics: { status: 'passed' | 'failed' | 'skipped'; errors: number; warnings: number; source?: string; detail?: string };
     };
   } | null;
@@ -89,10 +91,73 @@ export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView 
   if (event.type === 'plan.ready') return { ...view, live, members, plan: event.plan };
   if (event.type === 'clarification.required') return { ...view, live, members, questions: event.questions };
   if (event.type === 'round.answer') return { ...view, live, members, answer: event.text };
+  /**
+   * 报告与评审也要走增量路径。
+   *
+   * 只写在 `projectTaskView` 里的话，运行中的任务永远看不到「验证」这一行：
+   * 在线事件走的是这里，视图里 verification / review 一直是 null，直到用户
+   * 重新点开这条任务（走全量重算）才出现——2026-11-22 真机就是这样：任务已经
+   * 完成、验证也通过了，交付卡整块不渲染，用户只看到评审在说「无法验证」。
+   */
+  if (event.type === 'report.ready') return { ...view, live, members, ...reportView(event.report) };
+  if (event.type === 'review.ready') {
+    return {
+      ...view,
+      live,
+      members,
+      review: {
+        reviewer: event.reviewer,
+        backend: event.backend,
+        verdict: event.verdict,
+        issues: event.issues,
+        needsFix: event.needsFix
+      }
+    };
+  }
   if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
     return { ...view, live, members, questions: [] };
   }
   return { ...view, live, members };
+}
+
+/** 执行报告 → 视图里的验证 / 改动 / 诊断三块（全量与增量共用）。 */
+function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' | 'diagnostics'> {
+  const typed = report as {
+    verification?: {
+      verified: boolean;
+      reasons: string[];
+      changedFiles: number;
+      checks?: NonNullable<TaskView['verification']>['checks'];
+    };
+    results?: Array<{ result?: { path?: string; before?: string; after?: string; patch?: string; diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
+  } | null;
+  const verification = typed?.verification ?? null;
+  const changes = (typed?.results ?? [])
+    .map((item): TaskView['changes'][number] | null => {
+      const result = item.result;
+      if (!result?.path) return null;
+      if (typeof result.before === 'string' && typeof result.after === 'string') {
+        return { path: result.path, before: result.before, after: result.after };
+      }
+      if (typeof result.patch === 'string') return { path: result.path, patch: result.patch };
+      return null;
+    })
+    .filter((item): item is TaskView['changes'][number] => item !== null);
+  const diagnostics = (typed?.results ?? [])
+    .map(item => item.result?.diagnostics)
+    .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
+    .map(item => ({
+      path: String(item.path),
+      source: String(item.source ?? 'tsserver'),
+      errors: Number(item.counts?.errors ?? 0),
+      warnings: Number(item.counts?.warnings ?? 0),
+      issues: (item.issues ?? []).slice(0, 10).map(issue => ({
+        line: Number(issue.line ?? 0),
+        column: Number(issue.column ?? 0),
+        message: String(issue.message ?? '')
+      }))
+    }));
+  return { verification, changes, diagnostics };
 }
 
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {
@@ -113,56 +178,7 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
       trace.set(event.roundId, entry);
     }
     if (event.type === 'round.answer') settledRounds.add(event.roundId);
-    if (event.type === 'report.ready') {
-      const report = event.report as {
-        verification?: {
-          verified: boolean;
-          reasons: string[];
-          changedFiles: number;
-          checks?: NonNullable<TaskView['verification']>['checks'];
-        };
-        results?: Array<{ result?: { path?: string; before?: string; after?: string; patch?: string; diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
-      };
-      const verification = report.verification ?? null;
-      const changes = (report.results ?? [])
-        .map((item): TaskView['changes'][number] | null => {
-          const result = item.result;
-          if (!result?.path) return null;
-          if (typeof result.before === 'string' && typeof result.after === 'string') {
-            return { path: result.path, before: result.before, after: result.after };
-          }
-          if (typeof result.patch === 'string') return { path: result.path, patch: result.patch };
-          return null;
-        })
-        .filter((item): item is TaskView['changes'][number] => item !== null);
-      const diagnostics = (report.results ?? [])
-        .map(item => item.result?.diagnostics)
-        .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
-        .map(item => ({
-          path: String(item.path),
-          source: String(item.source ?? 'tsserver'),
-          errors: Number(item.counts?.errors ?? 0),
-          warnings: Number(item.counts?.warnings ?? 0),
-          issues: (item.issues ?? []).slice(0, 10).map(issue => ({
-            line: Number(issue.line ?? 0),
-            column: Number(issue.column ?? 0),
-            message: String(issue.message ?? '')
-          }))
-        }));
-      view = { ...view, verification, changes, diagnostics };
-    }
-    if (event.type === 'review.ready') {
-      view = {
-        ...view,
-        review: {
-          reviewer: event.reviewer,
-          backend: event.backend,
-          verdict: event.verdict,
-          issues: event.issues,
-          needsFix: event.needsFix
-        }
-      };
-    }
+    // 报告与评审由 applyTaskViewEvent 统一处理：全量与增量同源，在线时也看得见。
   }
 
   return { ...view, modelTrace: [...trace.values()] };

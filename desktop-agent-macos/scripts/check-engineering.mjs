@@ -254,7 +254,7 @@ test('新工具进得了协议，未登记的工具与越权调用仍然进不�
   assert.doesNotThrow(() => TaskGrantSchema.parse(grant()));
 });
 
-test('独立 Review：改了文件却没跑测试、测试非零退出码都会被指出', () => {
+test('独立 Review：改了文件却没有任何观察动作、检查非零退出码都会被指出', () => {
   const plan = {
     protocol: 'desktop-agent/v1', type: 'plan', taskId: 't1', roundId: 'r1',
     title: '改文件', description: '演示',
@@ -268,7 +268,9 @@ test('独立 Review：改了文件却没跑测试、测试非零退出码都会�
     errors: [], nextAction: 'complete', createdAt: Date.now()
   };
   const first = ruleReview(report, plan);
-  assert.ok(first.issues.some(issue => issue.includes('没有 test.run')));
+  // 以前这里写死「没有 test.run」，模型真跑 javac、真比对输出也照骂一遍。
+  assert.ok(first.issues.some(issue => issue.includes('没有任何能观察结果的动作')));
+  assert.ok(!first.issues.some(issue => issue.includes('test.run')));
 
   const withTest = {
     ...report,

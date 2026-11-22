@@ -156,8 +156,10 @@ export const ExecutionReportSchema = z
         changedPaths: z.array(z.string().max(4000)).max(200).optional(),
         checks: z
           .object({
-            compile: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
-            tests: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
+            compile: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict(),
+            // V1.3：真机运行这一项；老报告没有它，不能因此解析失败。
+            run: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict().optional(),
+            tests: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict(),
             diagnostics: z.object({ status: z.enum(['passed', 'failed', 'skipped']), errors: z.number().int().min(0), warnings: z.number().int().min(0), source: z.string().max(100).optional(), path: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
             changedFiles: z.array(z.string().max(4000)).max(200)
           })

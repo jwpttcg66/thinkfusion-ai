@@ -187,8 +187,29 @@ export function extractJsonBlocks(text: string): string[] {
   return blocks;
 }
 
+/** 认识的协议 type；缺 `protocol` 字段时靠它认人。 */
+const PROTOCOL_TYPES = new Set(['plan', 'execution_report', 'clarification_required', 'task_complete']);
+
+/**
+ * 这是不是一个协议消息。
+ *
+ * 除了认 `protocol: desktop-agent/v1`，也要认**少写这一行**的：
+ * 2026-11-22 真机，一个已经验证通过的任务在收尾轮只回了
+ * `{"type":"task_complete","taskId":…,"roundId":…}`，没有 protocol 字段，
+ * 于是整轮被判成「回答中没有找到协议块」，重试三次后任务 failed——执行明明
+ * 成功了，却因为少一个字段交不出结论。
+ *
+ * 放宽到「type 认识」或「带着 steps 的计划形状」，剩下的仍由各自的 schema
+ * 与 taskId / roundId 校验兜住：随手写一段带 steps 的 JSON 过不了校验。
+ */
 function isProtocolMessage(value: unknown): boolean {
-  return !!value && typeof value === 'object' && (value as { protocol?: unknown }).protocol === PROTOCOL;
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (record.protocol === PROTOCOL) return true;
+  // 明确写了别的协议版本：那不是我们的消息，别猜。
+  if (typeof record.protocol === 'string' && record.protocol.trim()) return false;
+  if (typeof record.type === 'string' && PROTOCOL_TYPES.has(record.type)) return true;
+  return Array.isArray(record.steps);
 }
 
 /**
@@ -426,7 +447,13 @@ export function parseAnswer(
   if (unique.size > 1) return { kind: 'conflict', blocks: unique.size };
 
   const value = candidates[0].value as Record<string, unknown>;
-  const type = value.type;
+  // 计划有时只给了 steps、没给 type（重试时尤其常见）：按形状当成 plan，
+  // 不再回报「未知的协议 type：undefined」让模型白改一轮。
+  const type = typeof value.type === 'string'
+    ? value.type
+    : Array.isArray(value.steps)
+      ? 'plan'
+      : undefined;
 
   try {
     if (type === 'plan') {

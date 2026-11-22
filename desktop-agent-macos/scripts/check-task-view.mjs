@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectTaskView } from '../out-test/shared/task-view.js';
+import { applyTaskViewEvent, projectTaskView } from '../out-test/shared/task-view.js';
 
 const event = (value) => ({ at: 1, eventId: Math.random().toString(36), sequence: 1, ...value });
 
@@ -60,4 +60,42 @@ test('回答到达后流状态结算，迟到 delta 不复活', () => {
   assert.equal(view.live.text, '');
   assert.equal(view.modelTrace.length, 1);
   assert.equal(view.modelTrace[0].text, 'hello');
+});
+
+// 2026-11-22 真机：任务跑完、验证也通过了，交付卡整块不渲染——因为在线事件
+// 走的是 applyTaskViewEvent，而它当初只处理了轮次 / 计划 / 回答，报告与评审
+// 只在全量重算里落地，用户得重新点开这条任务才看得见验证结果。
+test('在线事件也把验证与评审落进视图，不用等重新打开任务', () => {
+  const report = {
+    protocol: 'desktop-agent/v1', type: 'execution_report', taskId: 't', roundId: 'r1', planId: 'p1',
+    status: 'completed', errors: [], nextAction: 'complete', createdAt: 1,
+    results: [{ stepId: 's1', tool: 'fs.writeFile', status: 'completed', verified: true, durationMs: 1, result: { path: 'a.java', before: 'x', after: 'y' } }],
+    verification: {
+      verified: true, reasons: [], changedFiles: 1, changedPaths: ['a.java'],
+      checks: {
+        compile: { status: 'passed', exitCode: 0 },
+        run: { status: 'passed', exitCode: 0, command: 'java A', output: 'hello everybody' },
+        tests: { status: 'skipped' },
+        diagnostics: { status: 'skipped', errors: 0, warnings: 0 },
+        changedFiles: ['a.java']
+      }
+    }
+  };
+  let view = projectTaskView([event({ type: 'round.started', taskId: 't', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' })]);
+  view = applyTaskViewEvent(view, event({ type: 'report.ready', taskId: 't', roundId: 'r1', report }));
+  view = applyTaskViewEvent(view, event({
+    type: 'review.ready', taskId: 't', roundId: 'r1', reviewer: 'model', backend: 'model',
+    verdict: '通过', issues: [], needsFix: false
+  }));
+  assert.equal(view.verification.verified, true);
+  assert.equal(view.verification.checks.run.output, 'hello everybody');
+  assert.equal(view.changes.length, 1);
+  assert.equal(view.review.needsFix, false);
+  // 全量与增量必须给出同一个结果。
+  const full = projectTaskView([
+    event({ type: 'round.started', taskId: 't', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' }),
+    event({ type: 'report.ready', taskId: 't', roundId: 'r1', report }),
+    event({ type: 'review.ready', taskId: 't', roundId: 'r1', reviewer: 'model', backend: 'model', verdict: '通过', issues: [], needsFix: false })
+  ]);
+  assert.deepEqual(view.verification, full.verification);
 });

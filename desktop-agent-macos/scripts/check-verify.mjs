@@ -97,7 +97,13 @@ test('shell.run 里的版本探测不算编译过', () => {
 });
 
 test('echo / mkdir / chmod 这类命令不构成任何证据', () => {
-  for (const command of ['mkdir -p a/b && ls -R a', 'chmod +x run.sh && ls -l run.sh', "echo 'make sure it works'"]) {
+  for (const command of [
+    'mkdir -p a/b && ls -R a',
+    'chmod +x run.sh && ls -l run.sh',
+    "echo 'make sure it works'",
+    // 文件名里带 .java 不是「跑了 java」：真机 ls 那一步曾被误认成运行。
+    'ls -l HelloEverybody.java HelloEverybody.class'
+  ]) {
     const outcome = verifyExecution([
       step('fs.writeFile', 'completed', { path: 'a.txt' }),
       step('shell.run', 'completed', { exitCode: 0 }, { command })
@@ -135,4 +141,79 @@ test('验证结果带 changedPaths：编排器据此判断改的是不是代码'
     step('test.run', 'completed', { exitCode: 0 })
   ]);
   assert.deepEqual(outcome.changedPaths, ['src/a.ts']);
+});
+
+// ---------------------------------------------------------------------------
+// 2026-11-22 用户原话：「可以跑 java 程序，输出到控制台或日志，是可以测试的」。
+// 真机那条 Java 任务跑了 `javac … && java …`，屏幕上是 hello everybody，验收
+// 界面却写着「测试 未执行」——运行没有被当成检查。
+// ---------------------------------------------------------------------------
+
+test('javac && java 真跑起来：运行单独记一项，带控制台输出', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'java-hello/HelloEverybody.java' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: 'hello everybody\n' }, {
+      command: 'javac -encoding UTF-8 HelloEverybody.java && java -Dfile.encoding=UTF-8 HelloEverybody'
+    })
+  ]);
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.checks.compile.status, 'passed');
+  assert.equal(outcome.checks.run.status, 'passed', '跑起来就是验证过');
+  assert.equal(outcome.checks.run.output, 'hello everybody');
+});
+
+test('只编译不运行：compile 通过，run 记为未执行', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'a.java' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: 'javac -d out a.java' })
+  ]);
+  assert.equal(outcome.checks.compile.status, 'passed');
+  assert.equal(outcome.checks.run.status, 'skipped');
+});
+
+test('java -version 不是运行程序', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'a.java' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: 'java -version 2>&1' })
+  ]);
+  assert.equal(outcome.checks.run.status, 'skipped');
+  assert.equal(outcome.verified, false);
+});
+
+test('后台启动的服务不算跑完：没有退出码就不记通过', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'server.js' }),
+    step('shell.run', 'completed', { stdout: 'listening on 3000\n' }, { command: 'npm run dev' })
+  ]);
+  assert.equal(outcome.checks.run.status, 'skipped');
+  assert.equal(outcome.verified, false);
+});
+
+test('运行失败时理由写清楚是「程序运行失败」', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'Main.java' }),
+    step('shell.run', 'failed', { exitCode: 1, stderr: 'Exception in thread "main"' }, { command: 'java Main' })
+  ]);
+  assert.equal(outcome.verified, false);
+  assert.match(outcome.reasons.join('；'), /程序运行失败/);
+});
+
+test('运行写在命令替换里也认：output="$(java App)" + 字符串断言', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'HelloEverybody.java' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: 'hello everybody\n' }, {
+      command: 'javac HelloEverybody.java\noutput="$(java HelloEverybody)"\necho "$output"\n[ "$output" = "hello everybody" ]'
+    })
+  ]);
+  assert.equal(outcome.checks.run.status, 'passed', '双引号里的 $(java …) 不是字面量');
+  assert.equal(outcome.checks.run.output, 'hello everybody');
+  assert.equal(outcome.verified, true);
+});
+
+test("echo 'java Foo' 这种引号字面量仍不算运行", () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'a.txt' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: "echo 'java Foo'" })
+  ]);
+  assert.equal(outcome.checks.run.status, 'skipped');
 });
