@@ -5,9 +5,9 @@ import { describeBytes, type ConversationAttachment } from '../../../shared/atta
 import { PlusMenu, type PlusMenuProps } from './PlusMenu';
 
 const PERMISSIONS: Array<{ value: PermissionPreset; label: string; desc: string }> = [
-  { value: 'read-only', label: '仅可查看', desc: '列目录、读文件，不允许写入' },
-  { value: 'workspace-write', label: '工作区内修改', desc: '只允许改动本次授权目录' },
-  { value: 'danger-full-access', label: '完全权限', desc: '受 macOS 用户权限与 TCC 约束' }
+  { value: 'read-only', label: '仅可查看', desc: '列目录、读文件，不允许写入；计划仍需你确认一次' },
+  { value: 'workspace-write', label: '工作区内修改', desc: '只允许改动本次授权目录；计划仍需你确认一次' },
+  { value: 'danger-full-access', label: '完全权限', desc: '计划自动批准并执行，步骤不再询问；受 macOS 权限与 TCC 约束' }
 ];
 
 /** The same three labels are shown in 设置 · 通用设置, so they are defined once. */

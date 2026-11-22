@@ -15,6 +15,7 @@ import type {
 } from '../shared/contracts';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
+import { approvalPolicyFor } from '../shared/approval';
 import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { AgentStore } from './store';
@@ -311,7 +312,8 @@ export class AgentOrchestrator {
       maxSteps: Math.min(plan.steps.length, task.maxSteps),
       grantVersion: 1,
       // 审批粒度随授权一起下发：Runtime 只认凭据里的值，界面改不了执行中的计划。
-      stepApproval: this.deps.stepApproval?.() ?? 'mutating'
+      // 完全权限下是 `off`——那一档已经等于「都允许」，再逐步问是重复确认。
+      stepApproval: this.deps.stepApproval?.() ?? approvalPolicyFor(task.permissionPreset).stepApproval
     };
 
     const budgetViolations = checkCodingBudget(plan);
@@ -381,7 +383,8 @@ export class AgentOrchestrator {
     if (TERMINAL.includes(this.tasks.get(task.taskId).status)) return;
 
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
-    // 需要修复时只是给出结论，下一轮计划仍要用户重新批准。
+    // 需要修复时只是给出结论：下一轮计划要不要人重新批准，由权限预设决定
+    // （完全权限下自动执行，其余档位仍需点击）。
     let review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null;
     if (this.deps.review) {
       try {
@@ -952,6 +955,37 @@ export class AgentOrchestrator {
         type: 'plan.debated', at: debate.at, taskId, roundId, planId: stored.planId, debate
       });
     }
+
+    // 完全权限就不再要人点两次：计划审批与逐步骤审批问的都是「这台机器允许
+    // 做这些吗」，而这一档已经回答过了。评审仍然跑（那是质量问题，不是权限
+    // 问题）；评审结束就开工，并留一条事件说明这是自动的，不是漏了审批。
+    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan) {
+      this.autoApprovePlan(taskId, roundId, stored.planId);
+    }
+  }
+
+  /**
+   * 完全权限下的自动批准。
+   *
+   * 不 await：`approve()` 会一路跑到执行、验证、报告结束，把它挂在计划轮的
+   * 收尾上会让 `driveRound` 的 Promise 拖住整条链；失败了也不能让计划轮跟着
+   * 失败——计划本身是好的，只是自动批准没成（例如过期），此时留着可点的
+   * 审批按钮让人接手，比把任务判死有用。
+   */
+  private autoApprovePlan(taskId: string, roundId: string, planId: string): void {
+    setImmediate(() => {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: '完全权限：计划已自动批准并开始执行，步骤不再逐次询问。'
+      });
+      void this.approve({ taskId, roundId, planId, approved: true }).catch(error => {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `自动批准没有成功：${detail}。计划仍可手动确认后执行。`
+        });
+      });
+    });
   }
 
   /**
@@ -1085,9 +1119,12 @@ export class AgentOrchestrator {
     // 修复任务：评审指出的问题必须进到下一轮计划请求里，否则「修复」只是把
     // 同一个计划重新生成一遍。这里显式记一条，界面上能看出这一轮是修什么。
     if (review && review.issues.length > 0) {
+      // 下一轮要不要人点，由权限预设决定：完全权限下说「仍需重新批准」是错的，
+      // 那一档的计划会自动执行。
+      const needsClick = !approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: review.needsFix ? 'warn' : 'info',
-        message: `修复任务：${review.reviewer} 指出 ${review.issues.length} 项问题，已并入下一轮计划请求（仍需你重新批准）`
+        message: `修复任务：${review.reviewer} 指出 ${review.issues.length} 项问题，已并入下一轮计划请求${needsClick ? '（仍需你重新批准）' : '（完全权限：下一轮计划会自动执行）'}`
       });
     }
 

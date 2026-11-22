@@ -2060,7 +2060,9 @@ export default function App() {
                 诊断
               </button>
             )}
-            {(busy || awaitingAnswer || conversationBusy) && (
+            {/* 工程任务视图里「取消任务」在任务头，这里不再重复画一遍；
+                知识空间没有任务头，仍由这里提供停止/取消。 */}
+            {(busy || awaitingAnswer || conversationBusy) && !activeTask && (
               <button className="btn ghost" type="button" onClick={cancel}>
                 {conversationBusy ? '停止等待' : '取消任务'}
               </button>
@@ -2112,6 +2114,7 @@ export default function App() {
                 setError(errorText(e));
               }
             }}
+            onCancel={() => void cancel()}
           />
         )}
 
@@ -2300,25 +2303,8 @@ export default function App() {
               </div>
             )}
 
-            {activeTask && workbenchTab === 'conversation' && (showPlan || pendingStep || !['completed', 'failed', 'cancelled'].includes(activeTask.status)) && (
-              <div className="wb-actions">
-                {showPlan && derived.plan && (
-                  <>
-                    <button className="btn" type="button" onClick={() => void approve()} disabled={approving}>确认并执行</button>
-                    <button className="btn ghost" type="button" onClick={() => void reject()} disabled={approving}>拒绝计划</button>
-                  </>
-                )}
-                {pendingStep && (
-                  <>
-                    <button className="btn" type="button" onClick={() => void decideStep(true)}>批准这一步</button>
-                    <button className="btn ghost" type="button" onClick={() => void decideStep(false)}>拒绝这一步</button>
-                  </>
-                )}
-                {!['completed', 'failed', 'cancelled'].includes(activeTask.status) && (
-                  <button className="btn ghost" type="button" onClick={() => void cancel()}>取消任务</button>
-                )}
-              </div>
-            )}
+            {/* 审批动作只在各自卡片上出现一次（计划卡 / 步骤卡），取消在任务头。
+                这里曾经还有一条悬浮操作栏，会把同一个「确认并执行」画出两遍。 */}
 
             {activeTask && workbenchTab === 'output' && (
               <div className="status-row">

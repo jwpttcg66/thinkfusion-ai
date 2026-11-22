@@ -1,10 +1,11 @@
 import React from 'react';
 import type { PermissionPreset } from '../../../shared/contracts';
+import { approvalHintFor } from '../../../shared/approval';
 
 const OPTIONS: Array<{ value: PermissionPreset; label: string; desc: string }> = [
   { value: 'read-only', label: '仅可查看', desc: '列目录、读文件' },
   { value: 'workspace-write', label: '工作区内修改', desc: '只动授权目录' },
-  { value: 'danger-full-access', label: '完全权限', desc: '受 macOS 权限约束' }
+  { value: 'danger-full-access', label: '完全权限', desc: '自动执行，受 macOS 权限约束' }
 ];
 
 export function PermissionSelector(props: {
@@ -32,6 +33,7 @@ export function PermissionSelector(props: {
           </button>
         ))}
       </div>
+      <p className="permission-hint muted">{approvalHintFor(props.value)}</p>
     </div>
   );
 }

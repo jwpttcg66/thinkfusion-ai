@@ -599,6 +599,13 @@ button:disabled {
   border-bottom: 1px dashed var(--line-strong);
 }
 
+/* 权限档位的后果说明：选了「完全权限」就不该再等一个审批按钮。 */
+.permission-hint {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
 .composer-scope .scope-label {
   font-size: 11.5px;
   color: var(--text-2);

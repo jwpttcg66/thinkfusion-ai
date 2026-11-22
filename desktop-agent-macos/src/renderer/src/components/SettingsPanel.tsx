@@ -10,6 +10,7 @@ import type {
 import type { PageSource } from '../../../shared/sources';
 import { ICON_GEAR_PATHS } from '../../../shared/icons';
 import { DEFAULT_DISPLAY_NAME, MAX_DISPLAY_NAME_LENGTH, initialOf } from '../../../shared/identity';
+import { approvalHintFor } from '../../../shared/approval';
 import {
   SEARCH_PROVIDERS,
   SEARCH_PROVIDER_FIELD,
@@ -951,6 +952,7 @@ export function SettingsPanel(props: {
                       </button>
                     ))}
                   </div>
+                  <p className="settings-hint">{approvalHintFor(props.permission)}</p>
                 </div>
               </section>
               </>

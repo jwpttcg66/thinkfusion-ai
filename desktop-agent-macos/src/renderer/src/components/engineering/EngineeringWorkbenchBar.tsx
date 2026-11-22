@@ -37,6 +37,7 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
 const ACTIVE = new Set<AgentTask['status']>(['planning', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending']);
 /** 半小时没有更新的「运行中」任务不再算同时在跑：那是上次异常退出留下的。 */
 const FRESH_MS = 30 * 60 * 1000;
+const TERMINAL = new Set<AgentTask['status']>(['completed', 'failed', 'cancelled']);
 
 export function EngineeringWorkbenchBar(props: {
   task: AgentTask;
@@ -45,6 +46,7 @@ export function EngineeringWorkbenchBar(props: {
   activeTasks: readonly AgentTask[];
   onSelectTask: (taskId: string) => void;
   onExport: () => void;
+  onCancel: () => void;
 }) {
   const now = Date.now();
   const parallel = props.activeTasks.filter(item =>
@@ -57,6 +59,11 @@ export function EngineeringWorkbenchBar(props: {
         <span className={`pill s-${props.task.status}`}>{STATUS_LABEL[props.task.status]}</span>
         {props.task.workspaceRoot && <span className="muted wb-bar-root">{props.task.workspaceRoot}</span>}
         <button className="btn ghost" type="button" onClick={props.onExport}>导出诊断</button>
+        {/* 取消是整任务的动作，放任务头；审批按钮只在各自卡片上出现一次，
+            不再另起一条悬浮栏，避免同一个「确认并执行」出现两遍。 */}
+        {!TERMINAL.has(props.task.status) && (
+          <button className="btn ghost" type="button" onClick={props.onCancel}>取消任务</button>
+        )}
       </div>
       {parallel.length > 0 && (
         <div className="wb-bar-parallel">
