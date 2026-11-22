@@ -234,3 +234,14 @@ export function summarizePlanDebate(input: {
   }
   return lines.join('\n');
 }
+
+
+/** 方案评审只允许任务选定的模型；没传选择时才保留调用方候选。 */
+export function filterDebateCandidates<T extends { id: string }>(
+  candidates: readonly T[],
+  allowedIds?: readonly string[]
+): T[] {
+  const allowed = new Set(allowedIds ?? []);
+  if (allowed.size === 0) return [...candidates];
+  return candidates.filter(candidate => allowed.has(candidate.id));
+}

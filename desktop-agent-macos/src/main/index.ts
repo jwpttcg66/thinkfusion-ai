@@ -192,7 +192,7 @@ import { WorkspaceListStore } from './workspace-list-store';
 import { runSearchTest, saveSearchSettings, viewSearchSettings } from './search-settings';
 import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
-import { planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
+import { filterDebateCandidates, planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
 import {
   normalizeWorkspaceState,
   routeTask,
@@ -5001,12 +5001,14 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ plan, topics }) => {
+    debatePlan: async ({ plan, topics, debateAgentIds }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
       // 会拖住任务审批链路；它在这一类里不做评审，不代表别人不能用它辩论。
-      const api = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
+      const available = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
+      // 只允许任务实际选定的模型；用户选一个就单模型自辩，不能静默拉全量模型。
+      const api = filterDebateCandidates(available, debateAgentIds);
       if (api.length === 0) return null;
       const mode = api.some(item => item.type === 'local') ? 'local' : 'cloud';
       const selected = api.map(item => item.id);
@@ -5429,6 +5431,11 @@ app.whenReady().then(async () => {
       } else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
         throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
       }
+      const debateAgentIds = planner
+        ? [planner.id]
+        : input.selectedCloudModels && input.selectedCloudModels.length > 0
+          ? input.selectedCloudModels
+          : undefined;
       try {
         return await orchestrator.submit({
           prompt: input.prompt,
@@ -5436,6 +5443,7 @@ app.whenReady().then(async () => {
           workspaceRoot: input.workspaceRoot,
           planDebate: input.planDebate,
           expertise: input.expertise,
+          ...(debateAgentIds ? { debateAgentIds } : {}),
           ...(input.collaborationPlan ? { collaborationPlan: input.collaborationPlan } : {}),
           ...(planningOverride ? { planningAdapter: planningOverride } : {})
         });

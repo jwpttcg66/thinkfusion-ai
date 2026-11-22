@@ -46,6 +46,7 @@ export class TaskManager {
     workspaceRoot?: string;
     /** V2.1 D-03：默认 auto——小计划不辩，带写/测的多步计划才辩。 */
     planDebate?: 'auto' | 'on' | 'off';
+    debateAgentIds?: string[];
   }): AgentTask {
     const now = Date.now();
     const firstLine = input.prompt.trim().split('\n')[0] ?? '';
@@ -57,6 +58,7 @@ export class TaskManager {
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot,
       planDebate: input.planDebate ?? 'auto',
+      ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: input.debateAgentIds } : {}),
       createdAt: now,
       updatedAt: now,
       maxRounds: 20,

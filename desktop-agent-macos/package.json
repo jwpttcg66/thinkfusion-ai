@@ -217,6 +217,7 @@
     "test:task-events": "npm run build:test && node --test scripts/check-task-events.mjs",
     "test:task-stream": "npm run build:test && node --test scripts/check-task-stream.mjs",
     "test:provider-planning": "npm run build:test && node --test scripts/check-provider-planning.mjs",
+    "test:plan-debate-selection": "npm run build:test && node --test scripts/check-plan-debate-selection.mjs",
     "test:plan-debate": "npm run build:test && node --test scripts/check-plan-debate.mjs",
     "test:routing-v3": "npm run build:test && node --test scripts/check-v3-routing.mjs",
     "test:e2e": "npm run build:test && node --test scripts/check-v3-e2e.mjs",

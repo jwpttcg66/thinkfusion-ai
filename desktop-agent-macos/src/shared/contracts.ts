@@ -1151,6 +1151,8 @@ export interface AgentTask {
   status: TaskStatus;
   permissionPreset: PermissionPreset;
   workspaceRoot?: string;
+  /** 任务选定的模型；方案评审只能使用这些模型。 */
+  debateAgentIds?: string[];
   conversationId?: string;
   currentRoundId?: string;
   currentPlanId?: string;
@@ -1681,6 +1683,8 @@ export interface SubmitPromptInput {
   prompt: string;
   permissionPreset: PermissionPreset;
   workspaceRoot?: string;
+  /** 任务选定的模型；方案评审只能使用这些模型。 */
+  debateAgentIds?: string[];
 }
 
 export interface ApprovePlanInput {
