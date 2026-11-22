@@ -8,6 +8,7 @@ import {
   type ProviderCapabilities,
   type ProviderHealth
 } from './types';
+import { systemHashFromMessages } from '../../shared/memory';
 
 /**
  * OpenAI 兼容的云端 Provider（项目书 5.2 第一阶段只要求这一个）。
@@ -100,6 +101,8 @@ export interface UsageRecord {
 
 export class OpenAICompatibleProvider implements ModelProvider {
   readonly type = 'cloud' as const;
+  /** Chat Completions 的 messages 里有 system 轮次，可以反抽 L3。 */
+  readonly supportsSystemHash = true;
   readonly id: string;
   readonly label: string;
 
@@ -191,10 +194,16 @@ export class OpenAICompatibleProvider implements ModelProvider {
     }
   }
 
+  /** L3：与 `generate()` 用同一个 `messages()` 组装逻辑，流式路径也靠它。 */
+  systemHashFor(request: ModelRequest): string | undefined {
+    return systemHashFromMessages(this.messages(request.question, request.context, request.system));
+  }
+
   async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResponse> {
     const model = request.modelId ?? this.defaultModel;
     this.assertBudget();
     const started = this.now();
+    const systemHash = this.systemHashFor(request);
     const body = this.body(request.question, model, false, request.context, request.system, {
       ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
       ...(request.seed !== undefined ? { seed: request.seed } : {})
@@ -223,7 +232,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
       providerId: this.id,
       modelId: model,
       usage,
-      latencyMs: this.now() - started
+      latencyMs: this.now() - started,
+      ...(systemHash ? { systemHash } : {})
     };
   }
 

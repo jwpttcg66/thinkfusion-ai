@@ -7,7 +7,7 @@ import {
   type ResearchRequest,
   type ResearchSink
 } from '../master-agent';
-import type { SubAgentAnswer, SubAgentPool } from '../agents/types';
+import type { MemoryTaskScope, SubAgentAnswer, SubAgentPool } from '../agents/types';
 import {
   planCollaboration,
   type CollaborationPlan,
@@ -53,6 +53,8 @@ export interface RunOptions {
   retries?: number;
   now?: () => number;
   onRecord?: (record: CollaborationRecord) => void;
+  /** 记忆作用域；由调用方（ConversationRunner）填。不填则不参与记忆。 */
+  memory?: MemoryTaskScope;
 }
 
 export async function runCollaboration(
@@ -101,7 +103,8 @@ export async function runCollaboration(
       const batch = tasks.slice(offset, offset + plan.concurrency);
       await Promise.all(
         batch.map(task => runTask(task, pool, sink, records, channels, answers, messageIds, {
-          now, retries, onRecord: options.onRecord
+          now, retries, onRecord: options.onRecord,
+          ...(options.memory ? { memory: options.memory } : {})
         }))
       );
     }
@@ -145,7 +148,12 @@ async function runTask(
   channels: ChannelOutcome[],
   answers: SubAgentAnswer[],
   messageIds: Map<string, string>,
-  options: { now: () => number; retries: number; onRecord?: (record: CollaborationRecord) => void }
+  options: {
+    now: () => number;
+    retries: number;
+    onRecord?: (record: CollaborationRecord) => void;
+    memory?: MemoryTaskScope;
+  }
 ): Promise<void> {
   const record = records.get(task.taskId)!;
   const publish = () => options.onRecord?.({ ...record });
@@ -175,7 +183,9 @@ async function runTask(
       const answer = await pool.ask(task.agentId, {
         question: task.question,
         stage: task.stage === 0 ? 'initial' : 'followup',
-        context: task.context.length > 0 ? task.context : undefined
+        context: task.context.length > 0 ? task.context : undefined,
+        // 池层据此 attach / finalize；网页与 CLI 会在 attachMemory 内判 skipped。
+        ...(options.memory ? { memory: options.memory } : {})
       });
       const messageId = sink.record(answer);
       messageIds.set(task.agentId, messageId);
@@ -230,7 +240,7 @@ export class CollaborationResearch {
     return this.lastPlan;
   }
 
-  async research(_request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome> {
+  async research(request: ResearchRequest, sink: ResearchSink): Promise<ResearchOutcome> {
     const agents = await this.pool.available();
     const plan = planCollaboration({
       strategy: this.strategy,
@@ -242,7 +252,10 @@ export class CollaborationResearch {
       throw new NoUsableAgentError(await describeUnusable(await this.pool.all()));
     }
 
-    const result = await runCollaboration(this.pool, plan, sink, { onRecord: this.onRecord });
+    const result = await runCollaboration(this.pool, plan, sink, {
+      onRecord: this.onRecord,
+      ...(request.memory ? { memory: request.memory } : {})
+    });
     this.lastRecords = result.records;
     this.lastPlan = result.plan;
     return result.outcome;

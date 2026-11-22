@@ -40,6 +40,7 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
 import { TaskConversation } from './components/engineering/TaskConversation';
+import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
 import { PageSaveDialog } from './components/PageSaveDialog';
@@ -2196,6 +2197,9 @@ export default function App() {
                 debate={debateLive}
                 busy={conversationBusy}
               />
+            )}
+            {showingConversation && activeConversation && conversationTab === 'chat' && (
+              <MemoryTraceCard conversationId={activeConversation.conversationId} />
             )}
             {showingConversation && activeConversation && conversationTab === 'trajectory' && (
               <TrajectoryPanel conversationId={activeConversation.conversationId} />

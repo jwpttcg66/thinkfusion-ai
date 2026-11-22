@@ -48,6 +48,7 @@
     "src/main/embeddings/**/*.ts",
     "src/main/snapshots/**/*.ts",
     "src/main/knowledge/**/*.ts",
+    "src/main/memory/**/*.ts",
     "src/main/agents/**/*.ts",
     "src/main/providers/**/*.ts",
     "src/main/execution/**/*.ts",

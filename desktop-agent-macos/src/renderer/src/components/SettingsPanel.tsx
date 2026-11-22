@@ -40,11 +40,12 @@ import {
 } from '../../../shared/cloud-selection';
 import { Glyph } from './Glyph';
 import { CodeIntelligenceSettings } from './CodeIntelligenceSettings';
+import { MemoryPanel } from './MemoryPanel';
 import { PERMISSIONS } from './TaskInput';
 
 import { CollaborationSettingsSection } from './CollaborationSettingsSection';
 
-export type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents' | 'intelligence';
+export type Section = 'general' | 'models' | 'search' | 'plugins' | 'expertise' | 'agents' | 'intelligence' | 'memory';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> = [
   { id: 'general', label: '通用设置', icon: ICON_GEAR_PATHS },
@@ -53,7 +54,8 @@ const SECTIONS: Array<{ id: Section; label: string; icon: readonly string[] }> =
   { id: 'plugins', label: '内置插件', icon: ['M8 2.4 13 5.2v5.6L8 13.6 3 10.8V5.2z', 'M3 5.2 8 8l5-2.8'] },
   { id: 'expertise', label: '专家与技能', icon: ['M4 2.8h8v10.4H4z', 'M6.4 5.6h3.2', 'M6.4 8h3.2'] },
   { id: 'agents', label: 'Agent 预设', icon: ['M5.2 3.2h5.6v2.4H5.2zM3.2 8.4h9.6v4.4H3.2z'] },
-  { id: 'intelligence', label: '工程智能', icon: ['M3 3h10v10H3z', 'M6 6h4v4H6z'] }
+  { id: 'intelligence', label: '工程智能', icon: ['M3 3h10v10H3z', 'M6 6h4v4H6z'] },
+  { id: 'memory', label: '全局记忆', icon: ['M4 3.2h8v9.6H4z', 'M6 6h4M6 8.4h4M6 10.8h2.4'] }
 ];
 
 /**
@@ -1673,6 +1675,7 @@ export function SettingsPanel(props: {
             )}
 
             {section === 'intelligence' && <CodeIntelligenceSettings />}
+            {section === 'memory' && <MemoryPanel />}
 
             {section === 'agents' && (
               <section className="settings-section">

@@ -32,6 +32,10 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { MemoryService } from './memory/service';
+import { projectIdFor } from '../shared/project-id';
+import { setMemoryService } from './memory/runtime';
+import type { CandidateStatusFilter, ListRecordsQuery, RecordPatch, RememberInput } from './memory/types';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
 import { applyEventIdentity, forgetTask, rememberStepIdentity, type StepIdentity } from '../shared/event-identity';
 import { buildDiagnosticBundle } from '../shared/diagnostics';
@@ -654,6 +658,13 @@ let snapshotStore: SnapshotStore | null = null;
 let embeddingService: EmbeddingService | null = null;
 /** 本地工程智能：AST + SQLite/FTS5 + 记忆 + Link；CGC/Graphiti 有运行时再替换 Adapter。 */
 let codeIndexService: CodeIndexService | null = null;
+/**
+ * 全局记忆（横切服务，独立 `userData/memory.sqlite`）。
+ *
+ * 刻意不挂到 code-index 的库上：`deleteProject` 会连工程记忆一起截断，
+ * 而跨会话长期记忆不该因为删一个工程索引就没了。
+ */
+let memoryService: MemoryService | null = null;
 /** 工程智能运行模式/外部服务配置；密码在 apiKeys。 */
 let codeIntelligenceConfigStore: CodeIntelligenceConfigStore | null = null;
 let managedNeo4j: ManagedNeo4j | null = null;
@@ -1075,6 +1086,37 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
 const stepIdentity = new Map<string, StepIdentity>();
 
 /** Single funnel for events: persist for replay, then push to the renderer. */
+/**
+ * 任务完成报告 → 记忆候选（旁路）。
+ *
+ * 只认报告里明确写出的决策/约束；`sourceMessageIds` 必须是**真实**用户消息，
+ * 所以先去会话里找回那一轮的第一条 user 消息。找不到就不生成——宁可漏一条
+ * 候选，也不要一条无法回溯的记忆（MEM-06）。
+ */
+function extractTaskMemoryAsync(taskId: string, summary: string): void {
+  const service = memoryService;
+  if (!service || service.getSettings().writeMode === 'off' || !store) return;
+  const task = store.getTask(taskId);
+  const conversationId = task?.conversationId;
+  const root = task?.workspaceRoot;
+  if (!conversationId || !root) return;
+  const source = store.listMessages(conversationId).find(message => message.role === 'user');
+  if (!source) return;
+  void Promise.resolve()
+    .then(() =>
+      service.extractTaskReport({
+        taskId,
+        conversationId,
+        summary,
+        decisions: [summary],
+        projectId: projectIdFor(root),
+        projectRoot: root,
+        sourceMessageIds: [source.messageId]
+      })
+    )
+    .catch(() => undefined);
+}
+
 function emit(raw: AgentEvent) {
   const taskId = taskIdOf(raw);
   // 任务已被用户删除：在途 Provider 流可能还在吐 delta，不能把事件写回来。
@@ -1082,6 +1124,9 @@ function emit(raw: AgentEvent) {
     forgetTask(stepIdentity, taskId);
     return;
   }
+  // 任务完成报告里明确写出的决策/约束可以进候选（§4.1）。旁路，不 await。
+  // 没有来源消息就**不生成**（MEM-06），所以这里要先找回那一轮的用户消息。
+  if (raw.type === 'task.completed' && raw.taskId) extractTaskMemoryAsync(raw.taskId, raw.summary ?? '');
   // 先记后补：查不到的字段就留空，不拿相邻字段顶替（见 shared/event-identity）。
   rememberStepIdentity(stepIdentity, raw);
   const event = applyEventIdentity(stepIdentity, raw);
@@ -4857,6 +4902,145 @@ function buildCodeIntelligenceExternal(config: CodeIntelligenceConfig): { cgc: C
 
 app.whenReady().then(async () => {
   store = new AgentStore(path.join(app.getPath('userData'), 'agent-store.json'));
+  // ---- 全局记忆：独立库 + 单例 + IPC ----
+  memoryService = new MemoryService({
+    file: path.join(app.getPath('userData'), 'memory.sqlite'),
+    legacyFile: path.join(app.getPath('userData'), 'code-index.sqlite')
+  });
+  setMemoryService(memoryService);
+  {
+    const memory = memoryService;
+    const asRecord = (raw: unknown, what: string): Record<string, unknown> => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`无效输入：${what}`);
+      return raw as Record<string, unknown>;
+    };
+    const asText = (value: unknown, what: string): string => {
+      if (typeof value !== 'string' || !value.trim()) throw new Error(`需要${what}`);
+      return value;
+    };
+
+    ipcMain.handle('memory:status', event => {
+      trustedUiSender(event);
+      return memory.status();
+    });
+    ipcMain.handle('memory:settings:get', event => {
+      trustedUiSender(event);
+      return memory.getSettings();
+    });
+    ipcMain.handle('memory:settings:set', (event, raw: unknown) => {
+      trustedUiSender(event);
+      return memory.updateSettings(asRecord(raw, 'settings'));
+    });
+    ipcMain.handle('memory:candidates:list', (event, status: unknown) => {
+      trustedUiSender(event);
+      const filter = status === 'all' || status === 'approved' || status === 'rejected' ? status : 'pending';
+      return memory.listCandidates(filter as CandidateStatusFilter);
+    });
+    ipcMain.handle('memory:candidates:confirm', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.confirmCandidate(asText(id, '候选 id'));
+    });
+    ipcMain.handle('memory:candidates:reject', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.rejectCandidate(asText(id, '候选 id'));
+    });
+    ipcMain.handle('memory:records:list', (event, raw: unknown) => {
+      trustedUiSender(event);
+      const input = raw ? asRecord(raw, 'records query') : {};
+      return memory.listRecords(input as ListRecordsQuery);
+    });
+    ipcMain.handle('memory:records:get', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.getRecord(asText(id, '记忆 id'));
+    });
+    ipcMain.handle('memory:records:remember', (event, raw: unknown) => {
+      trustedUiSender(event);
+      const input = asRecord(raw, 'memory');
+      const kind = asText(input.kind, '记忆类型');
+      const scope = asText(input.scope, '记忆范围');
+      return memory.remember({
+        kind: kind as RememberInput['kind'],
+        scope: scope as RememberInput['scope'],
+        ...(typeof input.scopeId === 'string' ? { scopeId: input.scopeId } : {}),
+        title: asText(input.title, '标题'),
+        content: asText(input.content, '内容'),
+        ...(typeof input.status === 'string' ? { status: input.status as RememberInput['status'] } : { status: 'active' }),
+        ...(typeof input.confidence === 'number' ? { confidence: input.confidence } : {})
+      });
+    });
+    ipcMain.handle('memory:records:patch', (event, id: unknown, patch: unknown) => {
+      trustedUiSender(event);
+      return memory.patchRecord(asText(id, '记忆 id'), asRecord(patch, 'patch') as RecordPatch);
+    });
+    ipcMain.handle('memory:records:delete', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.deleteRecord(asText(id, '记忆 id'));
+    });
+    ipcMain.handle('memory:conflicts', event => {
+      trustedUiSender(event);
+      return memory.detectConflicts();
+    });
+    ipcMain.handle('memory:governance:refute', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.refute(asText(id, '记忆 id'));
+    });
+    ipcMain.handle('memory:governance:expire', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.expire(asText(id, '记忆 id'));
+    });
+    ipcMain.handle('memory:governance:archive', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.archive(asText(id, '记忆 id'));
+    });
+    ipcMain.handle('memory:governance:supersede', (event, oldId: unknown, raw: unknown) => {
+      trustedUiSender(event);
+      const input = asRecord(raw, 'memory');
+      return memory.supersede(asText(oldId, '被替代的记忆 id'), {
+        kind: asText(input.kind, '记忆类型') as RememberInput['kind'],
+        scope: asText(input.scope, '记忆范围') as RememberInput['scope'],
+        title: asText(input.title, '标题'),
+        content: asText(input.content, '内容'),
+        status: 'active'
+      });
+    });
+    ipcMain.handle('memory:usage:get', (event, requestId: unknown) => {
+      trustedUiSender(event);
+      return memory.getUsage(asText(requestId, 'requestId'));
+    });
+    ipcMain.handle('memory:usage:list', (event, conversationId: unknown) => {
+      trustedUiSender(event);
+      return memory.listUsage(typeof conversationId === 'string' && conversationId ? conversationId : undefined);
+    });
+    ipcMain.handle('memory:audit', (event, limit: unknown) => {
+      trustedUiSender(event);
+      return memory.listAudit(typeof limit === 'number' ? Math.min(Math.max(limit, 1), 200) : 50);
+    });
+    ipcMain.handle('memory:export', event => {
+      trustedUiSender(event);
+      return memory.exportAll();
+    });
+    ipcMain.handle('memory:import', (event, raw: unknown) => {
+      trustedUiSender(event);
+      return memory.importAll(asRecord(raw, 'export') as never);
+    });
+    ipcMain.handle('memory:links', (event, id: unknown) => {
+      trustedUiSender(event);
+      return memory.linksForMemory(asText(id, '记忆 id'));
+    });
+    // 抽取失败后的人工重试入口（MEM-09：事件可见、可重试）。
+    ipcMain.handle('memory:extract', (event, raw: unknown) => {
+      trustedUiSender(event);
+      const input = asRecord(raw, 'extract');
+      return memory.extractMessage({
+        conversationId: asText(input.conversationId, '会话 id'),
+        messageId: asText(input.messageId, '消息 id'),
+        text: asText(input.text, '消息正文'),
+        role: (input.role === 'assistant' || input.role === 'tool' || input.role === 'system' ? input.role : 'user'),
+        ...(typeof input.projectId === 'string' ? { projectId: input.projectId } : {}),
+        ...(typeof input.workspaceId === 'string' ? { workspaceId: input.workspaceId } : {})
+      });
+    });
+  }
   permissionPresetFile = path.join(app.getPath('userData'), 'permission-preset.json');
   permissionPreset = loadPermissionPreset(permissionPresetFile);
   collaborationModeStore = new CollaborationModeStore(
@@ -6190,6 +6374,8 @@ app.on('before-quit', () => {
   if (statusTimer) clearInterval(statusTimer);
   lspRegistry?.dispose();
   codeIndexService?.close();
+  memoryService?.close();
+  setMemoryService(null);
   if (managedNeo4j && codeIntelligenceConfig.autoStop) void managedNeo4j.stop().catch(() => undefined);
   // Every adapter, not the two that used to exist: a source added in 设置 owns
   // one too, and a pending wait on it would otherwise keep the app alive.

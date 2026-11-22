@@ -20,7 +20,9 @@ import { createHash } from 'node:crypto';
 import { mainCapabilities } from './capabilities';
 import type { AgentStore } from './store';
 import type { SubAgentRegistry } from './agents/registry';
-import type { SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
+import type { MemoryTaskScope, SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
+import { projectIdFor } from '../shared/project-id';
+import { getMemoryService } from './memory/runtime';
 import { notToolRequest } from '../shared/partial-stream';
 import { MasterAgent, type ChannelOutcome, type ResearchOutcome, type ResearchRequest, type ResearchSink } from './master-agent';
 import { CollaborationResearch, type CollaborationRecord } from './collaboration/runner';
@@ -1056,6 +1058,8 @@ export class ConversationRunner {
       announce?: (text: string) => void;
       /** 同一用户问题共享的预算/证据上下文。 */
       search?: AgenticSearchContext;
+      /** 记忆作用域；多轮读文件共用同一份，不重复召回。 */
+      memory?: MemoryTaskScope;
     }
   ): Promise<SubAgentAnswer> {
     const ask = (question: string): Promise<SubAgentAnswer> =>
@@ -1066,7 +1070,8 @@ export class ConversationRunner {
         timeoutMs: 180_000,
         // 只对本地/云端 API 生效；网页成员不走这里。
         // 证据纪律在前，专家/技能在后，且只追加 system，不动 question。
-        system: input.system
+        system: input.system,
+        ...(input.memory ? { memory: input.memory } : {})
       }, input.conversation);
 
     const fallbackAnswer = (text: string): SubAgentAnswer => ({
@@ -2017,6 +2022,15 @@ export class ConversationRunner {
     const askMember = async (target: (typeof orchestration.members)[number]): Promise<void> => {
       if (sink.cancelled()) return;
       const isWeb = target.kind === 'web';
+      // 工程入口：记忆只是背景，不是证据；overrideLine 让「只依据这些证据回答」
+      // 不会把记忆一并当作可忽略的噪声。网页成员仍由池层判 skipped。
+      const memoryScope: MemoryTaskScope = {
+        conversationId: conversation.conversationId,
+        ...(conversation.workspaceId ? { workspaceId: conversation.workspaceId } : {}),
+        ...(scope.root ? { projectId: projectIdFor(scope.root) } : {}),
+        injectionPoint: 'engineering',
+        overrideLine: true
+      };
       sink.phase(target.agentId, 'asking', needsLocalRead ? '读工程证据后回答' : '回答');
       try {
         const answer = isWeb
@@ -2024,7 +2038,9 @@ export class ConversationRunner {
               question: webQuestion ?? engineered,
               stage: 'initial',
               // 网页要重新加载、键入整段、等它写完，和网页主导的汇总同一量级。
-              timeoutMs: SECOND_OPINION_BUDGET_MS
+              timeoutMs: SECOND_OPINION_BUDGET_MS,
+              // 带 scope 只为留下「为什么没注入」的记录；question 仍逐字不变。
+              memory: memoryScope
             }, conversation)
           : needsLocalRead
             ? await this.askWithReadTool(target, {
@@ -2035,6 +2051,7 @@ export class ConversationRunner {
                 sink,
                 conversation,
                 ...(searchContext ? { search: searchContext } : {}),
+                memory: memoryScope,
                 announce: text => this.addMessage(conversation, { role: 'system', text }),
                 ...(this.traceFor(conversation.conversationId)
                   ? { trace: this.traceFor(conversation.conversationId)! }
@@ -2044,7 +2061,8 @@ export class ConversationRunner {
                 question: engineered,
                 stage: 'initial',
                 timeoutMs: 180_000,
-                ...(summarySystem.length > 0 ? { system: summarySystem } : {})
+                ...(summarySystem.length > 0 ? { system: summarySystem } : {}),
+                memory: memoryScope
               }, conversation);
         if (sink.cancelled()) return;
         messageIds.set(target.agentId, sink.record(answer));
@@ -2320,7 +2338,13 @@ export class ConversationRunner {
           // failed last turn is not holding this conversation's thread, so a
           // follow-up has to start it clean — otherwise its answer arrives with
           // whatever unrelated history the page was left on.
-          continuing
+          continuing,
+          // 记忆作用域由会话决定；池层按成员来源决定注入或 skipped（网页不改原话）。
+          memory: {
+            conversationId,
+            ...(conversation.workspaceId ? { workspaceId: conversation.workspaceId } : {}),
+            injectionPoint: 'master-agent'
+          }
         },
         sink
       ));
@@ -3035,7 +3059,12 @@ export class ConversationRunner {
             question: followQuestion,
             followup: true,
             // 第一轮答过的通道，页面里正拿着这条会话；不重置才能接着上一轮说。
-            continuing: new Set(outcome.answers.map(answer => answer.agentId))
+            continuing: new Set(outcome.answers.map(answer => answer.agentId)),
+            memory: {
+              conversationId: conversation.conversationId,
+              ...(conversation.workspaceId ? { workspaceId: conversation.workspaceId } : {}),
+              injectionPoint: 'master-agent'
+            }
           },
           sink
         );
@@ -3378,7 +3407,29 @@ export class ConversationRunner {
     };
     this.deps.store.appendMessage(message);
     this.deps.emit({ type: 'message.added', at: message.at, message });
+    // 用户消息落库后异步过一遍规则抽取：只生成**候选**，不等于写入。
+    // 放旁路（不 await、异常在 service 内捕获）——记忆坏了不能影响回答。
+    if (input.role === 'user') this.extractMemoryAsync(conversation, message);
     return message;
+  }
+
+  /** 规则抽取的旁路入口。没有消息 id、关了记忆、或写模式为 off 时什么都不做。 */
+  private extractMemoryAsync(conversation: Conversation, message: ConversationMessage): void {
+    const service = getMemoryService();
+    if (!service || service.getSettings().writeMode === 'off') return;
+    const projectRoot = conversation.workspaceRoot;
+    void Promise.resolve()
+      .then(() =>
+        service.extractMessage({
+          conversationId: conversation.conversationId,
+          messageId: message.messageId,
+          text: message.text,
+          role: 'user',
+          ...(projectRoot ? { projectId: projectIdFor(projectRoot), projectRoot } : {}),
+          ...(conversation.workspaceId ? { workspaceId: conversation.workspaceId } : {})
+        })
+      )
+      .catch(() => undefined);
   }
 
   private fail(conversation: Conversation, error: unknown): void {

@@ -18,6 +18,7 @@ import { describeCapabilities } from '../../shared/capabilities';
 import { EXPERTISE_IDS, expertiseFallback, type ExpertiseView } from '../../shared/expertise';
 import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
 import { aggregateTotals, foldTrace, type TraceEntry } from '../../shared/trace';
+import { MEMORY_DEFAULTS } from '../../shared/memory';
 
 /**
  * Dev-only stand-in for the preload API so the renderer can be opened in a plain
@@ -240,7 +241,44 @@ export function createMockApi(): AgentApi {
     fallbackOnly: true
   };
 
+  const memory: AgentApi['memory'] = {
+    status: async () => ({
+      state: 'degraded',
+      detail: '浏览器预览没有记忆库（真实应用在 userData/memory.sqlite）',
+      file: '（预览不读磁盘）',
+      schemaVersion: 0,
+      records: 0,
+      candidates: 0,
+      migration: 'absent',
+      settings: MEMORY_DEFAULTS,
+      enabled: false
+    }),
+    getSettings: async () => MEMORY_DEFAULTS,
+    setSettings: async patch => ({ ...MEMORY_DEFAULTS, ...patch }),
+    listCandidates: async () => [],
+    confirmCandidate: async () => { throw new Error('预览环境不能审批记忆候选'); },
+    rejectCandidate: async () => { throw new Error('预览环境不能审批记忆候选'); },
+    listRecords: async () => [],
+    getRecord: async () => null,
+    remember: async () => { throw new Error('预览环境不能写记忆'); },
+    patchRecord: async () => null,
+    deleteRecord: async () => false,
+    conflicts: async () => [],
+    refute: async () => null,
+    expire: async () => null,
+    archive: async () => null,
+    supersede: async () => null,
+    getUsage: async () => null,
+    listUsage: async () => [],
+    audit: async () => [],
+    exportAll: async () => ({ version: 1, exportedAt: Date.now(), records: [], candidates: [] }),
+    importAll: async () => ({ imported: 0, archivedForConflict: 0 }),
+    links: async () => [],
+    extract: async () => { throw new Error('预览环境不能抽取候选'); }
+  };
+
   return {
+    memory,
     getSearchSettings: async () => searchSettings,
     saveSearchSettings: async patch => {
       searchSettings = {

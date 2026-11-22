@@ -2,6 +2,7 @@ import { PageBusyError } from '../adapters/browser/types';
 import type { NewSessionResult, DeleteThreadResult } from '../adapters/browser/types';
 import type { ChannelStatus } from '../../shared/conversation';
 import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './types';
+import { attachFromTask } from '../memory/runtime';
 
 /**
  * The agents available right now, and the only place that decides how many run
@@ -123,8 +124,16 @@ export class SubAgentRegistry implements SubAgentPool {
     if (this.active.size >= this.maxConcurrent) throw new PageBusyError(agentId);
 
     this.active.add(agentId);
+    // 记忆在这里统一收口：入口只把 scope 挂在 `task.memory` 上，池负责
+    // attach（只改 system）与 finalize（送达判定），网页/CLI 由 sourceType 判 skipped。
+    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
-      return await agent.ask(task);
+      const answer = await agent.ask(hook.task);
+      hook.finalize(answer);
+      return answer;
+    } catch (error) {
+      hook.finalize(undefined, error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
       this.active.delete(agentId);
     }
@@ -142,8 +151,14 @@ export class SubAgentRegistry implements SubAgentPool {
     if (this.active.size >= this.maxConcurrent) throw new PageBusyError(agentId);
 
     this.active.add(agentId);
+    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
-      return await agent.askStream(task, onDelta);
+      const answer = await agent.askStream(hook.task, onDelta);
+      hook.finalize(answer);
+      return answer;
+    } catch (error) {
+      hook.finalize(undefined, error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
       this.active.delete(agentId);
     }

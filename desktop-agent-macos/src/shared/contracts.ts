@@ -6,6 +6,7 @@ import type { EvidenceLedger } from './engineering-evidence';
 import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
 import type { CodeIndexLink, CodeIndexLinkInput, CodeIndexMemory, CodeIndexMemoryInput, CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus, CodeIndexVectorResult } from './code-index';
+import type { MemoryApi } from './memory-api';
 import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceManagedResult, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
@@ -2290,6 +2291,14 @@ export interface CollaborationPlanView {
 }
 
 export interface AgentApi {
+  /**
+   * 全局记忆（横切服务）：状态、设置、候选审批、记录治理、送达轨迹。
+   *
+   * 单独成组而不是平铺：记忆是一整套生命周期，平铺进这 100 多个方法里
+   * 既不好找，也会让「关掉记忆」这类整体操作没有归属。
+   */
+  memory: MemoryApi;
+
   // conversations — the primary path
   /**
    * Ask something. The router decides whether this becomes a conversation or a

@@ -1,7 +1,7 @@
 import type { ChannelStatus } from '../../shared/conversation';
 import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 import type { SubAgent, SubAgentAnswer, SubAgentIdentity, SubAgentTask } from '../agents/types';
-import type { ModelProvider } from '../providers/types';
+import type { ModelProvider, ModelRequest } from '../providers/types';
 
 /**
  * 把 `ModelProvider` 包成 `SubAgent`。
@@ -57,17 +57,28 @@ export class ProviderBackedSubAgent implements SubAgent {
     };
   }
 
-  async ask(task: SubAgentTask): Promise<SubAgentAnswer> {
-    const requestId = `${this.id}-${++this.seq}`;
-    const response = await this.provider.generate({
-      question: task.question,
-      modelId: this.modelId,
-      timeoutMs: task.timeoutMs,
+  /** 请求身份沿用 task 上已冻结的值，保证 answer / trace / usage 同值。 */
+  private requestOf(task: SubAgentTask): { requestId: string; request: ModelRequest } {
+    const requestId = task.requestId ?? `${this.id}-${++this.seq}`;
+    return {
       requestId,
-      continuation: task.stage === 'followup',
-      context: task.context,
-      system: task.system
-    });
+      request: {
+        question: task.question,
+        modelId: this.modelId,
+        timeoutMs: task.timeoutMs,
+        requestId,
+        continuation: task.stage === 'followup',
+        context: task.context,
+        system: task.system
+      }
+    };
+  }
+
+  async ask(task: SubAgentTask): Promise<SubAgentAnswer> {
+    const { requestId, request } = this.requestOf(task);
+    const response = await this.provider.generate(request);
+    const supportsSystemHash = this.provider.supportsSystemHash ?? false;
+    const systemHash = response.systemHash ?? this.provider.systemHashFor?.(request);
     return {
       agentId: this.id,
       text: response.text,
@@ -81,7 +92,10 @@ export class ProviderBackedSubAgent implements SubAgent {
       usage: response.usage,
       providerId: this.provider.id,
       ...(this.modelId ? { modelId: this.modelId } : { modelId: response.modelId }),
-      latencyMs: response.latencyMs
+      latencyMs: response.latencyMs,
+      requestId,
+      supportsSystemHash,
+      ...(systemHash ? { systemHash } : {})
     };
   }
 
@@ -91,22 +105,17 @@ export class ProviderBackedSubAgent implements SubAgent {
   ): Promise<SubAgentAnswer> {
     if (!this.provider.streamChunks) return this.ask(task);
 
-    const requestId = `${this.id}-${++this.seq}`;
+    const { requestId, request } = this.requestOf(task);
     const started = Date.now();
     let text = '';
     let reasoning = '';
     let usage: SubAgentAnswer['usage'] = null;
     let firstTokenAt: number | undefined;
+    // 流式没有 ModelResponse，L3 由 Provider 用同一套 messages 组装逻辑给出。
+    const supportsSystemHash = this.provider.supportsSystemHash ?? false;
+    const systemHash = this.provider.systemHashFor?.(request);
 
-    for await (const chunk of this.provider.streamChunks({
-      question: task.question,
-      modelId: this.modelId,
-      timeoutMs: task.timeoutMs,
-      requestId,
-      continuation: task.stage === 'followup',
-      context: task.context,
-      system: task.system
-    }, task.signal)) {
+    for await (const chunk of this.provider.streamChunks(request, task.signal)) {
       if (chunk.reasoning) {
         reasoning += chunk.reasoning;
         onDelta({ reasoning: chunk.reasoning });
@@ -131,7 +140,10 @@ export class ProviderBackedSubAgent implements SubAgent {
       stage: task.stage,
       usage,
       latencyMs: Date.now() - started,
-      ...(firstTokenAt === undefined ? {} : { firstTokenAt })
+      ...(firstTokenAt === undefined ? {} : { firstTokenAt }),
+      requestId,
+      supportsSystemHash,
+      ...(systemHash ? { systemHash } : {})
     };
   }
 

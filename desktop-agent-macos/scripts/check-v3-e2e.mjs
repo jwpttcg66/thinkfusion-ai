@@ -6,8 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { runCollaboration } from '../out-test/main/collaboration/engine.js';
 import { routeParticipants } from '../out-test/main/collaboration/routing.js';
-import { KnowledgeStore } from '../out-test/main/knowledge/store.js';
-import { KnowledgeIndex } from '../out-test/main/knowledge/index.js';
+import { MemoryService } from '../out-test/main/memory/service.js';
 import { canComplete, createEngineeringTaskState, recordBuild, recordEnd, recordReview, recordStart, recordTest } from '../out-test/main/engineering/task-state.js';
 import { checkEngineeringPlan } from '../out-test/main/engineering/plan.js';
 import { selectDebates } from '../out-test/main/collaboration/behaviors/debate.js';
@@ -27,15 +26,22 @@ test('General：单问题走通计划→执行→交付', async () => {
   assert.equal(result.deliverable.stopReason, 'acceptance_satisfied');
 });
 
-test('Knowledge：卡片可召回；知识地图三块可用', () => {
+test('Knowledge：记忆写入 → 重启 → 新会话可召回', () => {
+  // 旧的 KnowledgeStore/Index 是生产零调用的死代码，已退役。这条回归改为
+  // 验收真正接线的全局记忆，避免「测试给死代码作证」。
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-e2e-k-'));
-  const store = new KnowledgeStore(path.join(d, 'k.json'));
-  store.upsertTopic({ topicId: 't', title: 'Redis', aliases: [] });
-  store.addCard({
-    cardId: 'c1', topicId: 't', statement: 'SETNX 可做锁', claimIds: ['cl'], evidenceRefs: ['e1'],
-    conditions: [], status: 'active', freshness: { asOf: Date.now(), state: 'fresh', reasons: [] }
+  const file = path.join(d, 'memory.sqlite');
+  const a = new MemoryService({ file });
+  const r = a.remember({
+    kind: 'fact', scope: 'PROJECT', scopeId: 'p_a',
+    title: 'SETNX 可做锁', content: 'SETNX 可做分布式锁', status: 'active'
   });
-  assert.equal(new KnowledgeIndex(store.listCards()).recall('SETNX').length, 1);
+  a.close();
+  const b = new MemoryService({ file });
+  assert.ok(b.getRecord(r.memoryId), '重启后记录仍在');
+  assert.ok(b.recall({ question: 'SETNX', conversationId: 'c1', projectId: 'p_a' })
+    .included.some(x => x.memoryId === r.memoryId), '新会话能召回');
+  b.close();
   fs.rmSync(d, { recursive: true, force: true });
 });
 

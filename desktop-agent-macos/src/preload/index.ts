@@ -29,6 +29,7 @@ import type {
   WorkspaceState
 } from '../shared/workspace';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from '../shared/search';
+import type { MemoryApi } from '../shared/memory-api';
 import type { ExportConversationInput, SavePageDocumentInput } from '../shared/export';
 import type {
   CliAgentView,
@@ -53,7 +54,34 @@ import type {
  * The renderer gets exactly these calls and nothing else. No generic
  * `invoke(channel, ...)` escape hatch, no ipcRenderer passthrough.
  */
+const memoryApi: MemoryApi = {
+  status: () => ipcRenderer.invoke('memory:status'),
+  getSettings: () => ipcRenderer.invoke('memory:settings:get'),
+  setSettings: patch => ipcRenderer.invoke('memory:settings:set', patch),
+  listCandidates: status => ipcRenderer.invoke('memory:candidates:list', status),
+  confirmCandidate: id => ipcRenderer.invoke('memory:candidates:confirm', id),
+  rejectCandidate: id => ipcRenderer.invoke('memory:candidates:reject', id),
+  listRecords: query => ipcRenderer.invoke('memory:records:list', query),
+  getRecord: id => ipcRenderer.invoke('memory:records:get', id),
+  remember: input => ipcRenderer.invoke('memory:records:remember', input),
+  patchRecord: (id, patch) => ipcRenderer.invoke('memory:records:patch', id, patch),
+  deleteRecord: id => ipcRenderer.invoke('memory:records:delete', id),
+  conflicts: () => ipcRenderer.invoke('memory:conflicts'),
+  refute: id => ipcRenderer.invoke('memory:governance:refute', id),
+  expire: id => ipcRenderer.invoke('memory:governance:expire', id),
+  archive: id => ipcRenderer.invoke('memory:governance:archive', id),
+  supersede: (oldId, input) => ipcRenderer.invoke('memory:governance:supersede', oldId, input),
+  getUsage: requestId => ipcRenderer.invoke('memory:usage:get', requestId),
+  listUsage: conversationId => ipcRenderer.invoke('memory:usage:list', conversationId),
+  audit: limit => ipcRenderer.invoke('memory:audit', limit),
+  exportAll: () => ipcRenderer.invoke('memory:export'),
+  importAll: data => ipcRenderer.invoke('memory:import', data),
+  links: id => ipcRenderer.invoke('memory:links', id),
+  extract: input => ipcRenderer.invoke('memory:extract', input)
+};
+
 const api: AgentApi = {
+  memory: memoryApi,
   submitConversation: (input: SubmitConversationInput) => ipcRenderer.invoke('conversation:submit', input),
   classifyIntent: (text: string) => ipcRenderer.invoke('conversation:classify', text),
   routeConversation: (input: { text: string; workspaceMode: WorkspaceMode; hasProject: boolean; override?: EngineeringTaskKind }): Promise<TaskRouting> =>

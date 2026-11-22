@@ -9,6 +9,7 @@ import {
   type ProviderCapabilities,
   type ProviderHealth
 } from './types';
+import { systemHashFromMessages } from '../../shared/memory';
 
 /**
  * Ollama 本地模型 Provider。
@@ -118,6 +119,8 @@ interface AbortReason {
 
 export class OllamaProvider implements ModelProvider {
   readonly type = 'local' as const;
+  /** 本地 /api/chat 的 messages 里确实有 system 轮次，可以反抽 L3。 */
+  readonly supportsSystemHash = true;
   readonly id: string;
   readonly label: string;
 
@@ -263,6 +266,14 @@ export class OllamaProvider implements ModelProvider {
     }
   }
 
+  /**
+   * L3：用与 `generate()` 完全相同的 `messages()` 组装逻辑反抽 system 段。
+   * 流式路径拿不到 `ModelResponse`，由 `ProviderBackedSubAgent` 调这里。
+   */
+  systemHashFor(request: ModelRequest): string | undefined {
+    return systemHashFromMessages(this.messages(request.question, request.context, request.system));
+  }
+
   async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResponse> {
     const model = await this.resolveModel(request);
     const started = this.now();
@@ -275,13 +286,15 @@ export class OllamaProvider implements ModelProvider {
       this.inflight.set(requestId, controller);
 
       try {
+        const messages = this.messages(request.question, request.context, request.system);
+        const systemHash = systemHashFromMessages(messages);
         const res = await this.call(
           '/api/chat',
           {
             method: 'POST',
             body: JSON.stringify({
               model,
-              messages: this.messages(request.question, request.context, request.system),
+              messages,
               stream: false,
               keep_alive: this.keepAlive,
               options: {
@@ -304,7 +317,8 @@ export class OllamaProvider implements ModelProvider {
             inputTokens: data.prompt_eval_count ?? null,
             outputTokens: data.eval_count ?? null
           },
-          latencyMs: this.now() - started
+          latencyMs: this.now() - started,
+          ...(systemHash ? { systemHash } : {})
         };
       } catch (error) {
         throw this.mapError(error, reason, controller.signal.aborted, model);

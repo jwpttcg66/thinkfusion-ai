@@ -1,7 +1,7 @@
 import type { ChannelPhase, ConversationStatus, Synthesis } from '../shared/conversation';
 import { synthesize } from '../shared/synthesizer';
 import { PageBusyError, PageUnavailableError } from './adapters/browser/types';
-import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
+import type { MemoryTaskScope, SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from './agents/types';
 
 /**
  * The Master Agent: who joins a round, and when the round is over.
@@ -55,6 +55,11 @@ export interface ResearchSink {
 export interface ResearchRequest {
   question: string;
   followup: boolean;
+  /**
+   * 记忆作用域。由 ConversationRunner 填（它知道会话/项目/轮次）；
+   * 不填则这一问不参与记忆——老调用方零影响。
+   */
+  memory?: MemoryTaskScope;
   /**
    * Agents that already hold this conversation on their page.
    *
@@ -373,7 +378,9 @@ export class MasterAgent {
         // Verbatim. `request.question` is the text the user typed — nothing
         // is prepended, prefixed, or wrapped for this channel.
         question: request.question,
-        stage: (request.followup ? 'followup' : 'initial') as 'followup' | 'initial'
+        stage: (request.followup ? 'followup' : 'initial') as 'followup' | 'initial',
+        // 记忆只通过 scope 传下去；池层负责 attach（只改 system）与 finalize。
+        ...(request.memory ? { memory: request.memory } : {})
       };
       const answer = await this.askStreaming(agent, task, sink);
       if (sink.cancelled()) return { kind: 'cancelled', agentId: agent.id, label: agent.label };

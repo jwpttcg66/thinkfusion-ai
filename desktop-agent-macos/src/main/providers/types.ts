@@ -141,6 +141,11 @@ export interface ModelResponse {
   modelId: string;
   usage: ModelUsage;
   latencyMs: number;
+  /**
+   * L3 送达指纹：Provider 从**自己拼好的 messages** 反抽 system 段算出。
+   * 不是把入参哈希回显；不支持的通道不填（`undefined`）。
+   */
+  systemHash?: string;
 }
 
 export interface ProviderHealth {
@@ -154,6 +159,15 @@ export interface ModelProvider {
   readonly id: string;
   readonly label: string;
   readonly type: ProviderType;
+
+  /**
+   * 声明「我能从自己拼好的 messages 反抽 system 段算 L3」。
+   * 这个声明是送达判定的输入：声明 true 却没有 L3 视为适配器缺陷，
+   * 不能与「本来就不支持」混为一谈（`GLOBAL_MEMORY.md` §1.1）。
+   */
+  readonly supportsSystemHash?: boolean;
+  /** 从与 `generate()` 相同的组装逻辑反抽 L3；流式路径没有 ModelResponse 时用它。 */
+  systemHashFor?(request: ModelRequest): string | undefined;
 
   capabilities(): Promise<ProviderCapabilities>;
   listModels(): Promise<ModelMetadata[]>;

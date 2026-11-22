@@ -33,10 +33,42 @@ export interface SubAgentIdentity {
   role: string;
 }
 
+/**
+ * 这一问属于哪次会话 / 哪个项目，供记忆子系统召回与记录。
+ *
+ * 刻意挂在 task 上而不是让 registry 去查会话：registry 只认识 agent，
+ * 不认识会话存储；把它做成依赖会把选人逻辑和状态存储绑死。
+ * 四个入口（Master / Collaboration / Engineering / Debate）各自知道自己
+ * 在问谁、属于哪个会话，填上即可。
+ */
+export interface MemoryTaskScope {
+  conversationId: string;
+  workspaceId?: string;
+  projectId?: string;
+  /** 工程/辩论：追加"记忆不是证据"的覆盖句。 */
+  overrideLine?: boolean;
+  /** 已冻结的请求 id；不填由记忆子系统按 `req_<turn>_<agentId>_<seq>` 生成。 */
+  requestId?: string;
+  /** 会话里第几轮，用于 requestId。 */
+  turn?: number;
+  taskId?: string;
+  /** 注入点名字，落库用：master-agent / collaboration / engineering / debate。 */
+  injectionPoint?: string;
+  /** 工程当前 HEAD；决策类记忆据此判 stale。 */
+  headCommit?: string;
+}
+
 export interface SubAgentTask {
   /** The exact text this agent should be sent. Composed by the caller. */
   question: string;
   stage: AskStage;
+  /**
+   * 请求身份。与 `SubAgentAnswer.requestId`、`TraceEntry.callId`、
+   * `MemoryUsageEvent.requestId` 同值（P1 冻结，P4 接线）。
+   */
+  requestId?: string;
+  /** 记忆召回与注入的作用域；不填则这一问不参与记忆（老调用方零影响）。 */
+  memory?: MemoryTaskScope;
   /**
    * Set only for a challenge: the disagreement being adjudicated and the side
    * this agent is being asked to defend or drop. Kept on the task rather than
@@ -62,6 +94,15 @@ export interface SubAgentTask {
 
 export interface SubAgentAnswer extends AdapterAnswer {
   stage: AskStage;
+  /** 与 `SubAgentTask.requestId` 同值；网页通道也回填，便于按请求串轨迹。 */
+  requestId?: string;
+  /**
+   * L3 送达指纹：Provider 从**自己拼好的 messages** 反抽 system 段算出的
+   * sha256。只有本地/云端 Provider 有；网页/CLI 没有这个概念。
+   */
+  systemHash?: string;
+  /** Provider 是否声明能从 assembled messages 反抽 system（判据输入）。 */
+  supportsSystemHash?: boolean;
   /** 推理内容；只有明确返回过的 Provider 才有，网页通道没有。 */
   reasoning?: string;
   /**

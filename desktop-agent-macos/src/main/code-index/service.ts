@@ -12,6 +12,7 @@ import fs from 'node:fs/promises';
 import { watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { projectIdFor } from '../../shared/project-id';
 import { CodeIndexStore } from './store';
 import { DEFAULT_MAX_FILES, indexProject, scanSourceFilesDetailed, type IndexProjectOptions, type IndexProjectResult } from './indexer';
 import {
@@ -27,9 +28,8 @@ import {
 import type { RetrievalItem, RetrievalResult } from './types';
 import type { CgcAdapter, GraphitiAdapter } from './external';
 
-function projectIdFor(root: string): string {
-  return `p_${createHash('sha256').update(root).digest('hex').slice(0, 24)}`;
-}
+// projectId 的算法只允许有一个实现：记忆库的 scopeId 与代码索引的 projectId
+// 必须逐字相同，否则迁移后的链接解析不上（`shared/project-id.ts`）。
 
 function cosine(a: readonly number[], b: Float32Array | readonly number[]): number {
   const length = Math.min(a.length, b.length);
