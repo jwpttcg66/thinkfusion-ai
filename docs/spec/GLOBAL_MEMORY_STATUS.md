@@ -3,7 +3,16 @@
 > 对应 `docs/spec/GLOBAL_MEMORY.md`。四态是**单向证据链**，不许跳级：
 > 已定义（契约冻结）→ 已实现（单测绿）→ 已接线（真实入口调用）→ 已验证（E2E 绿）。
 >
-> 审计基线：`main @ 1e8d5ec9`（本地 `1e8d5ec`）。
+> **正式基线：`main @ 111fba5debd74342d09c27cd9e1df7955131336e`**（`111fba5`，2026-11-22 23:55 +0800）。
+> 本次实施的审计范围是 `111fba5` 相对 `1e8d5ec9` 的 55 个文件（+6819 / −474）：
+> `src/main/memory/**`、`src/shared/{memory,memory-api,project-id,sha256}.ts`、
+> 四个模型的注入接线、`src/renderer/**` 的 `MemoryPanel`/`MemoryTraceCard`、
+> `scripts/check-memory-*.mjs` 与 `scripts/fixtures/memory-recall-corpus.mjs`、
+> `package.json` 的测试链、`tsconfig.test.json`，以及被退役的
+> `src/main/knowledge/{store,index,gap}.ts` 与 4 个旧测试脚本。
+> 更早的 `1e8d5ec9` 只是**前置审计基线**（附录 A 的取证版本），不是本次实现版本；
+> 后续维护时按 `111fba5` 对齐代码，不要拿 `1e8d5ec9` 当「当前实现」。
+>
 > 离线门禁：`npm run verify`（含 `test:memory-store/extract/recall/inject/usage/governance/e2e`）。
 > 真机 CDP 只作留档，不是唯一放行路径。
 
@@ -38,6 +47,24 @@
 
 ---
 
+## 1.5 交付阶段门槛（M1–M5）
+
+`471 ok / 0 not ok` 证明的是**当前测试范围内**的正确性，不等于三个缺口已结束。
+交付按下面五个阶段签字，任何一阶段没签，都不能说「全局记忆已交付」。
+
+| 阶段 | 完成标准 | 当前 | 任务书 |
+|---|---|---|---|
+| **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
+| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ❌ | `GLOBAL_MEMORY_M2_ACCEPTANCE.md` |
+| **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ❌ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md` |
+| **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ❌ | 待建（M3 之后） |
+| **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入（MemoryStore / 旧表 / Debate 缓存）收敛为一套 | ❌ | M2–M4 收口后 |
+
+**终局目标**：全局记忆只有**一个**正式写入、存储、召回与治理体系。不允许
+`MemoryStore`、`code_memory_facts`、Debate 自己的记忆缓存三套并行。
+
+---
+
 ## 2. MEM-01..13 结果
 
 `scripts/check-memory-e2e.mjs`（14 条，含 MEM-14 守门）**全绿**。
@@ -61,26 +88,33 @@
 
 ---
 
-## 3. 未完成项与原因（不谎称完成）
+## 3. 未完成项与已下达的任务书
 
-### 1. Debate 入口注入（未接线）
+三项都已有**可执行任务书**，不再是「口头待办」。按 M2 → M3 → M4 顺序推进。
+
+### 1. 真机 CDP 验收（M2，未做）
+
+- **现状**：`npm run verify` 全绿、`MemoryPanel` / `MemoryTraceCard` typecheck 通过，但没在真机上点过。
+- **任务书**：`docs/spec/GLOBAL_MEMORY_M2_ACCEPTANCE.md`
+- **验收要点**：设置页 S1–S14、对话页 D1–D6、降级场景；每项必须有「点击 + 读回状态 + 截图」三样证据，只截图不算通过；证据存 `docs/spec/evidence/M2/`。
+- **风险**：会写真实 `userData/memory.sqlite`，任务书 §6 要求按 `M2 ` 前缀精确清理并回读确认。
+
+### 2. `code-index:remember` 写入路由切换（M3，未做）
+
+- **现状**：`code-index:remember` 仍写 `code_memory_facts`；新库只读迁移过来的历史，
+  `CodeIndexPanel` 的新写入召回不到。
+- **任务书**：`docs/spec/GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`
+- **验收要点**：IPC 路由切到 `MemoryService`；`MemoryFact` 视图映射集中在一处；旧表零新增（R1）；
+  新写入可跨会话召回（R2）；`check-code-index.mjs` 的 122 条断言一条都不许删。
+
+### 3. Debate 入口注入（M4，未接线）
 
 - **现状**：池层 `attachFromTask()` 已具备能力；`DebateOrchestrator` 的 `deps.ask` 也能拿到 `SubAgentTask`。
-- **为什么没做**：编排器是**单例**（`index.ts` 只构造一次），存一个可变的 `memory` 作用域会让不同会话的辩论串记忆——最坏的情况是把 A 项目的记忆注进 B 项目的辩论，这是隐私事故。要把 scope 透传进 `askWithDeadline` 的整条调用链（`debate/completeness.ts`、`standard-rubric.ts`、`orchestrator.ts` 多处），改动面比 P4 其它三个入口加起来还大。
-- **建议**：单独一个 PR，把 `MemoryTaskScope` 作为 `DebateRun` 的参数（而不是实例状态）透传。验收同 MEM-07/MEM-11。
-
-### 2. `code-index:remember` 写入路由切换（未做）
-
-- **现状**：`code-index:remember` 仍写 `code-index.sqlite` 的 `code_memory_facts`；新库只**读**（迁移已把历史搬过来）。
-- **为什么没做**：`CodeIndexPanel.tsx` 依赖它的返回形状，`check-code-index.mjs` 有 20+ 条断言绑定旧表写入。切换要同时改 UI、旧测试与 `retrieval.ts`，属于独立重构。贸然双写又违反「旧表只读」。
-- **影响**：不阻断新链路——用户在「设置 · 全局记忆」里的写入走新库；`CodeIndexPanel` 的旧入口仍写旧表，但**新库召回不到这些新写入**（只有迁移前的历史）。
-- **建议**：P1 收尾 PR，切 IPC 路由 + 同步改 UI 与测试，并加「旧表行数不变」断言。
-
-### 3. 真机 CDP 留档（未做）
-
-- **现状**：`npm run verify` 全绿、`MemoryPanel` / `MemoryTraceCard` typecheck 通过，但没有在真机上点过设置页与对话页。
-- **原因**：本轮的验收主体是离线门禁（任务书 §7 明确「真机仅留档」）。真机需要重启 Electron + CDP 端口 + 造数据 + 截图，且会写真实 `userData/memory.sqlite`（需事后清理）。
-- **建议**：下一次真机窗口一次跑完：确认设置页四类操作、对话页注入卡、`degraded` 红字，并把截图存进 `docs/spec/evidence/`。
+- **为什么没做**：编排器是**单例**（`index.ts` 只构造一次），存可变的 `memory` 作用域会让不同会话的
+  辩论串记忆——最坏是把 A 项目的记忆注进 B 项目的辩论，这是隐私事故。
+- **待建任务书**（M3 之后）：要求 `MemoryTaskScope` 按 **`DebateRun`** 透传（不是实例状态），
+  验收必须包含「两个不同项目并发辩论、记忆不交叉」与「取消/超时/重试不污染下一次」。单独 PR，
+  不与 M3 合并。
 
 ---
 
