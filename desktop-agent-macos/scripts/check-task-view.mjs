@@ -20,6 +20,34 @@ test('TaskView 按轮次投影：新一轮清空旧计划和旧回答', () => {
   assert.equal(view.live.roundId, 'r2');
 });
 
+test('报告轮不清计划：步骤总数与计划预览不能凭空消失', () => {
+  const steps = [
+    { stepId: 's1', tool: 'fs.writeFile', title: '写文件', args: {}, intent: '写' },
+    { stepId: 's2', tool: 'fs.readFile', title: '读回', args: {}, intent: '读' }
+  ];
+  const plan = { planId: 'p1', taskId: 't', roundId: 'r1', title: '计划', steps, completion: { condition: '完成' } };
+  const events = [
+    event({ type: 'round.started', taskId: 't', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' }),
+    event({ type: 'plan.ready', taskId: 't', roundId: 'r1', plan }),
+    event({ type: 'step.completed', taskId: 't', roundId: 'r1', stepId: 's1', callId: 's1' }),
+    // 执行报告发回模型：新一轮，但问的是同一份计划。
+    event({ type: 'round.started', taskId: 't', roundId: 'r2', roundNumber: 2, inputType: 'execution_report' })
+  ];
+  const view = projectTaskView(events);
+  assert.equal(view.plan?.steps.length, 2, '报告轮之后仍要能数出「已完成 / 总数」');
+  assert.equal(view.answer, '', '回答仍然按轮次清空');
+});
+
+test('补充回答轮同样不清计划', () => {
+  const plan = { planId: 'p1', taskId: 't', roundId: 'r1', title: '计划', steps: [], completion: { condition: '完成' } };
+  const view = projectTaskView([
+    event({ type: 'round.started', taskId: 't', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' }),
+    event({ type: 'plan.ready', taskId: 't', roundId: 'r1', plan }),
+    event({ type: 'round.started', taskId: 't', roundId: 'r2', roundNumber: 2, inputType: 'clarification_answer' })
+  ]);
+  assert.equal(view.plan?.planId, 'p1');
+});
+
 test('回答到达后流状态结算，迟到 delta 不复活', () => {
   const events = [
     event({ type: 'round.started', taskId: 't', roundId: 'r1', roundNumber: 1, inputType: 'user_prompt' }),

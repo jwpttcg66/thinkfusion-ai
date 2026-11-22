@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { AgentTask } from '../../../../shared/contracts';
 import type { ObservabilityEvent } from '../../../../shared/observability';
-import type { TaskMemberStream } from '../../../../shared/task-stream';
+import { TASK_MEMBER_STATUS_LABEL, type TaskMemberStream } from '../../../../shared/task-stream';
 
 /**
  * 任务统计（V2.1 §9.4）。
@@ -117,7 +117,7 @@ export function TaskStats(props: {
               {members.map(member => (
                 <tr key={member.memberId}>
                   <td title={member.memberId}>{member.label}</td>
-                  <td>{member.status}</td>
+                  <td>{TASK_MEMBER_STATUS_LABEL[member.status]}</td>
                   <td>{member.durationMs === null ? '未提供' : formatDuration(member.durationMs)}</td>
                   <td>{member.text.length} 字符</td>
                   <td>{member.tokenSupported ? (typeof member.usage?.totalTokens === 'number' ? `${String(member.usage.totalTokens)}` : '未提供') : '未提供'}</td>

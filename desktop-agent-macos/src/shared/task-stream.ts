@@ -128,6 +128,21 @@ export type TaskMemberStatus =
   | 'cancelled'
   | 'interrupted';
 
+/**
+ * 成员状态的中文文案。
+ *
+ * 放在这里而不是各自组件里：卡片和统计页并排显示同一批成员，一处写「中断」、
+ * 另一处漏出 `interrupted` 会让用户以为是两个不同状态。
+ */
+export const TASK_MEMBER_STATUS_LABEL: Record<TaskMemberStatus, string> = {
+  preparing: '准备中',
+  streaming: '输出中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  interrupted: '中断'
+};
+
 export interface TaskMemberUsage {
   promptTokens?: number;
   completionTokens?: number;

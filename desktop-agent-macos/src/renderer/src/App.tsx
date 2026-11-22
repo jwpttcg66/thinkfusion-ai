@@ -1132,6 +1132,18 @@ export default function App() {
    */
   function startNewConversation() {
     setActiveConversationId(null);
+    /**
+     * 也要把任务工作台一起放下。
+     *
+     * 只清 `activeConversationId` 的话，主区域还在渲染上一条任务的进度卡，
+     * 而输入框的 disabled 是按 `activeTask` 算的——只要那条任务还在跑（或还在
+     * 等审批），用户就永远点不下去。「新对话」在用户眼里就是「我要问下一件
+     * 事」，它必须是可用的：旧任务继续在后台跑，在「同时在跑」里看着。
+     */
+    setActiveId(null);
+    setEvents([]);
+    setDerived(EMPTY_TASK_VIEW);
+    setClarifyText('');
     setMessages([]);
     setPhases({});
     setAnswerDeltas({});
@@ -2183,6 +2195,9 @@ export default function App() {
                   pendingStep={pendingStep}
                   pendingQuestion={pendingQuestion}
                   awaitingAnswer={awaitingAnswer}
+                  // 和下面「最终交付」卡的渲染条件是同一个表达式：进度卡不能承诺
+                  // 一块没渲染出来的区域。
+                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0)}
                 />
                 <ModelOutputGrid members={derived.members} />
               </>
@@ -2552,16 +2567,35 @@ export default function App() {
                     <ul>{derived.changes.slice(0, 40).map(change => <li key={change.path}><code>{change.path}</code></li>)}</ul>
                   </>
                 )}
-                {derived.verification && (
-                  <p>
-                    <b>验证：</b>{derived.verification.verified ? '通过' : '未通过'}
-                    {' · '}编译 {derived.verification.checks?.compile.status ?? '未执行'}
-                    {' · '}测试 {derived.verification.checks?.tests.status ?? '未执行'}
-                    {' · '}诊断 {derived.verification.checks?.diagnostics.status ?? '未执行'}
-                  </p>
-                )}
+                {derived.verification && (() => {
+                  /**
+                   * 「一项都没跑」不能写成「未通过」。
+                   *
+                   * 只新建了一个文件、计划里没有 test.run 时，三项检查全是 skipped，
+                   * 而 `verified` 按规则是 false；交付卡直接写「验证：未通过」，读起来
+                   * 像产物不合格。用户看到的第一句必须是事实：没验证，还是验证没过。
+                   */
+                  const checks = derived.verification!.checks;
+                  const rows = [
+                    { key: '编译', status: checks?.compile.status ?? 'skipped' },
+                    { key: '测试', status: checks?.tests.status ?? 'skipped' },
+                    { key: '诊断', status: checks?.diagnostics.status ?? 'skipped' }
+                  ];
+                  const ran = rows.some(row => row.status !== 'skipped');
+                  return (
+                    <p>
+                      <b>验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
+                      {rows.map(row => ` · ${row.key} ${row.status}`).join('')}
+                    </p>
+                  );
+                })()}
                 {derived.review && (
-                  <p><b>独立评审：</b>{derived.review.needsFix ? '需修复' : '通过'} · {derived.review.verdict}</p>
+                  <p>
+                    <b>独立评审：</b>{derived.review.needsFix ? '需修复' : '通过'}
+                    {derived.review.issues.length > 0
+                      ? ` · ${String(derived.review.issues.length)} 处问题（详见下方评审卡）`
+                      : ''}
+                  </p>
                 )}
               </section>
             )}

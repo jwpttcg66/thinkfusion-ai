@@ -64,6 +64,8 @@ interface ToolChain {
   callId: string;
   tool: string;
   actor: string;
+  /** 发起这次调用的成员（来自事件 participantId）；没有就留空。 */
+  owner: string | null;
   preparing?: ObservabilityEvent;
   started?: ObservabilityEvent;
   completed?: ObservabilityEvent;
@@ -78,7 +80,8 @@ function chainTools(items: readonly ObservabilityEvent[]): ToolChain[] {
     const chain: ToolChain = map.get(callId) ?? {
       callId,
       tool: String(item.payload.tool ?? item.actor.label),
-      actor: item.actor.label
+      actor: item.actor.label,
+      owner: typeof item.payload.participantId === 'string' ? item.payload.participantId : null
     };
     if (item.payload.type === 'step.preparing') chain.preparing = item;
     else if (item.payload.type === 'step.started') chain.started = item;
@@ -98,7 +101,11 @@ export function TaskTrajectory(props: {
     const sorted = [...props.activity].sort((a, b) => a.occurredAt - b.occurredAt);
     if (scope === 'all') return sorted;
     // 默认不列每条 delta：一次输出会有几百条，把它们铺开等于让时间线失效。
-    return sorted.filter(item => item.category !== 'reasoning' || item.phase === 'completed');
+    // task.updated 是状态快照，同一个状态会重复出现多次，也不是「发生了什么」。
+    return sorted.filter(item =>
+      item.payload.type !== 'task.updated' &&
+      (item.category !== 'reasoning' || item.phase === 'completed')
+    );
   }, [props.activity, scope]);
   const chains = useMemo(() => chainTools(props.activity), [props.activity]);
 
@@ -136,22 +143,32 @@ export function TaskTrajectory(props: {
                 <div key={chain.callId} className={`trace-chain is-${status}`}>
                   <div className="trace-chain-head">
                     <b>{chain.tool}</b>
-                    <span className="muted">{chain.actor}</span>
+                    <span className="muted">{chain.owner ? `发起：${chain.owner}` : '发起者未标注'}</span>
                     <span className={`member-pill is-${status === 'failed' ? 'failed' : status === 'completed' ? 'completed' : 'streaming'}`}>
                       {status === 'failed' ? '失败' : status === 'completed' ? '完成' : '进行中'}
                     </span>
                     <span className="muted">{Number.isFinite(duration) ? formatMs(duration) : '未提供时长'}</span>
                   </div>
                   <div className="trace-chain-phases">
+                    {/**
+                     * 只印真实发生过的阶段。
+                     *
+                     * 四格常驻看着整齐，但没失败的调用也会出现一个「失败」标签，
+                     * 扫一眼像是失败了——轨迹页最不该出的就是假信号。
+                     */}
                     {(['preparing', 'started', 'completed', 'failed'] as const).map(phase => {
                       const hit = chain[phase];
+                      if (!hit) return null;
                       return (
-                        <span key={phase} className={`trace-phase${hit ? ' is-hit' : ''}`}>
+                        <span key={phase} className="trace-phase is-hit">
                           {phase === 'preparing' ? '准备' : phase === 'started' ? '开始' : phase === 'completed' ? '完成' : '失败'}
-                          {hit ? ` ${formatTime(hit.occurredAt)}` : ''}
+                          {` ${formatTime(hit.occurredAt)}`}
                         </span>
                       );
                     })}
+                    {!chain.preparing && !chain.started && !chain.completed && !chain.failed && (
+                      <span className="trace-phase">没有阶段时间，只有结果</span>
+                    )}
                   </div>
                 </div>
               );

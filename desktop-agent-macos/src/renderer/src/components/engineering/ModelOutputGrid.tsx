@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { TaskMemberStream, TaskMemberStatus } from '../../../../shared/task-stream';
+import { TASK_MEMBER_STATUS_LABEL, type TaskMemberStream } from '../../../../shared/task-stream';
 
 /**
  * 每个成员一张卡（V2.1 §5.2）。
@@ -9,14 +9,7 @@ import type { TaskMemberStream, TaskMemberStatus } from '../../../../shared/task
  * 一段没有来源的文字，用户就再也分不清哪句话是谁说的。
  */
 
-const STATUS_LABEL: Record<TaskMemberStatus, string> = {
-  preparing: '准备中',
-  streaming: '输出中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  interrupted: '中断'
-};
+const STATUS_LABEL = TASK_MEMBER_STATUS_LABEL;
 
 export type MemberLayout = 'one' | 'two' | 'three';
 

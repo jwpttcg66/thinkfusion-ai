@@ -35,6 +35,8 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
 };
 
 const ACTIVE = new Set<AgentTask['status']>(['planning', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending']);
+/** 半小时没有更新的「运行中」任务不再算同时在跑：那是上次异常退出留下的。 */
+const FRESH_MS = 30 * 60 * 1000;
 
 export function EngineeringWorkbenchBar(props: {
   task: AgentTask;
@@ -44,7 +46,10 @@ export function EngineeringWorkbenchBar(props: {
   onSelectTask: (taskId: string) => void;
   onExport: () => void;
 }) {
-  const parallel = props.activeTasks.filter(item => item.taskId !== props.task.taskId && ACTIVE.has(item.status));
+  const now = Date.now();
+  const parallel = props.activeTasks.filter(item =>
+    item.taskId !== props.task.taskId && ACTIVE.has(item.status) && now - item.updatedAt < FRESH_MS
+  );
   return (
     <div className="wb-bar">
       <div className="wb-bar-task">

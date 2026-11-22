@@ -74,7 +74,17 @@ export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView 
   const live = reduceTaskStream(view.live, event);
   const members = reduceTaskMembers(view.members, event);
   if (event.type === 'round.started') {
-    return { ...view, live, members, questions: [], answer: '', plan: null };
+    /**
+     * 只有「会重新出计划」的轮次才清掉旧计划。
+     *
+     * 报告轮（execution_report）和补充回答轮（clarification_answer）问的是**同一份**
+     * 计划：清掉它，进度卡就从「3 / 3 步」退回「已执行 3 步」、计划预览整块消失，
+     * 看起来像执行过的步骤没人认账。真正换了计划的轮次（user_prompt / plan_repair）
+     * 照旧清空——新计划马上由 `plan.ready` 补上。
+     * 老事件没有 `inputType` 时按「会重新出计划」处理，保持升级前的行为。
+     */
+    const replans = event.inputType !== 'execution_report' && event.inputType !== 'clarification_answer';
+    return { ...view, live, members, questions: [], answer: '', plan: replans ? null : view.plan };
   }
   if (event.type === 'plan.ready') return { ...view, live, members, plan: event.plan };
   if (event.type === 'clarification.required') return { ...view, live, members, questions: event.questions };

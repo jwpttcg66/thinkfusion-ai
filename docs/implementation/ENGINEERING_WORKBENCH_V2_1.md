@@ -1,6 +1,6 @@
 # 工程工作台 V2.1 实施方案（多任务并行 · 多模型独立输出 · 全链路可观测）
 
-状态：**P0 契约已定，代码未动（全部 SPECIFIED）**
+状态：**P0–P6 已落地，P7 真机验收见 §9（部分用例受本机环境限制，逐条标注）**
 依据：《ThinkFusion 工程工作台 多任务多模型并行与可观测性 完整设计实施计划 V2.1》（2026-11-22）
 基线：`main` `92adef53a09ffc80acea0148e1bc243a38a65f74`（本地与 `origin/main` 一致）
 任务分支：`workbench-v21`，工作树 `../thinkfusion-ai-workbench-v21`
@@ -116,19 +116,19 @@
 
 ---
 
-## 4. 阶段与验收（状态：全部 SPECIFIED）
+## 4. 阶段与验收（状态截至 2026-11-22 真机）
 
 | 阶段 | 目标 | 验收 | 状态 |
 | --- | --- | --- | --- |
 | P0 | 审计 + 契约 + 迁移清单 | 本文件 | **DONE（文档）** |
-| P1 | 统一骨架 + 对话进度容器 | 四页可切；切页/切任务不重启执行；普通会话不回归 | SPECIFIED |
+| P1 | 统一骨架 + 对话进度容器 | 四页可切；切页/切任务不重启执行；普通会话不回归 | **IMPLEMENTED + TESTED**：`EngineeringWorkbenchBar`（固定任务头 + 同时在跑 + 四页签）、`TaskProgressCard`；真机切页/切任务后任务继续执行 |
 | P1b | 事件身份字段 | 新字段在真机事件里可见；旧事件不报错 | **IMPLEMENTED + TESTED**（`43e27c7`）：`shared/event-identity.ts` + `test:event-identity` 9 条，typecheck 三套绿 |
-| P2 | 多任务并行总览 | A 等待审批时 B 继续；A 取消不影响 B | SPECIFIED |
-| P3 | 多模型独立输出 | 三模型同时流式不串流；单模型失败不冻结其他 | SPECIFIED |
-| P4 | 持久化与恢复 | 刷新/重启恢复每模型输出与主任务进度 | SPECIFIED |
-| P5 | 轨迹与统计 | 轨迹可定位输出；指标可追溯原始事件 | SPECIFIED |
-| P6 | 视觉收口 | 宽屏多列/窄屏单列或横向滚动；无信息丢失 | SPECIFIED |
-| P7 | 端到端验收 | §5 用例全通过 | SPECIFIED |
+| P2 | 多任务并行总览 | A 等待审批时 B 继续；A 取消不影响 B | **IMPLEMENTED + TESTED**：真机两条任务并发（A `awaiting_approval` 期间 B 独立走到同一状态，A 批准执行后 B 状态未受影响）；「同时在跑」按 `ACTIVE_STATUSES` + 30 分钟窗口列举 |
+| P3 | 多模型独立输出 | 三模型同时流式不串流；单模型失败不冻结其他 | **IMPLEMENTED + TESTED**：`reduceTaskMembers` 按 `participantId` 分桶 + `streamId` 隔离；`test:task-members` 11 条；真机云端模型 + Qoder CLI 两张卡并行、各自耗时/字数独立。三模型受本机可用 Key 数量限制，见 §9 |
+| P4 | 持久化与恢复 | 刷新/重启恢复每模型输出与主任务进度 | **IMPLEMENTED + TESTED**：`MAX_EVENTS_PER_TASK=800` + `KEEP_FOREVER`、delta 2 秒节流落盘、`memberAdapter` 重建；真机重启后计划 3/3 步、两张成员卡、轨迹/统计全部恢复 |
+| P5 | 轨迹与统计 | 轨迹可定位输出；指标可追溯原始事件 | **IMPLEMENTED + TESTED**：`TaskTrajectory`（工具链按 `callId` 聚三阶段 + 阶段时间线 + 点击定位到输出页）、`TaskStats`（任务/按模型/按工具/验证四层，缺失写「未提供」） |
+| P6 | 视觉收口 | 宽屏多列/窄屏单列或横向滚动；无信息丢失 | **IMPLEMENTED + TESTED**：单列/两列/三列 + 聚焦；1240px/900px 两处断点；主题变量（`--ok/--warn/--danger/--member-*`）替换硬编码 |
+| P7 | 端到端验收 | §5 用例全通过 | **见 §9**：21 条逐条记录，已验 15 条、部分 2 条、因环境未验 4 条 |
 
 ---
 
@@ -199,3 +199,81 @@
 P0（本文件）→ P1（骨架 + 对话进度契约）→ P1b（事件字段）→ P2（多任务）→ P3（多模型独立输出）→ P4（持久化恢复）→ P5（轨迹/统计）→ P6（视觉收口）→ P7（端到端）。
 
 每阶段：先提交实施清单 → 改代码 → `npm run typecheck` + 相关 `test:*` → 记录状态（SPECIFIED/IMPLEMENTED/INTEGRATED/VERIFIED/TESTED）。
+
+---
+
+## 9. P7 真机验收记录（2026-11-22）
+
+### 9.1 环境与可用回答源
+
+| 项 | 实测值 |
+| --- | --- |
+| 机器 / 系统 | 本机 macOS 26.3，Electron 本地构建（`npm run build`） |
+| 数据目录 | `~/Library/Application Support/thinkfusion-ai`（`index.ts` 无条件 `setPath`，`--user-data-dir` 不生效） |
+| 工作区 | `~/Downloads`（工程空间，`executionMode=cloud`） |
+| 云端模型 | 1 个可用：`opencode-go:deepseek-v4.1-flash` |
+| CLI 来源 | 1 个可用：`qoder`（成员 id `cli:qoder`），另有一个已关闭的 `claude` |
+| 网页通道 | ChatGPT（**未登录态**，只用于负面验证） |
+| 驱动方式 | `electron --remote-debugging-port=9333` + CDP `Runtime.evaluate`，无鼠标 E2E |
+
+**结论先说**：本机只有 1 个云端 Key + 1 个 CLI，因此「三模型同时流式」只能以**两路并行**验证；
+需要的键（`taskId + roundId + participantId`、`streamId`）与两路/三路无关，两路不串流即证明键生效。
+
+### 9.2 任务级证据（四次真机任务）
+
+| 轮次 | 任务 | 成员 | 结果 |
+| --- | --- | --- | --- |
+| R1 | 「新建 `tf-verify.txt` 内容 hello 并读回」 | 单成员 | 3 步全部 completed，文件内容 `hello` |
+| R2 | 「新建 `tf3.txt` 内容 hi3 并读回」 | 云端模型 + Qoder CLI | 两张卡并存，各自耗时/字数独立；`tf3.txt=hi3` |
+| R3 | 「新建 `tf5.txt` 内容 hi5 并读回」 | 云端模型 + Qoder CLI | 两轮（`user_prompt` + `execution_report`）**都**问了两成员；`round.answer` 两轮各一条；`tf5.txt=hi5` |
+| R4 | A/B 两条任务并发（`tfA.txt` / `tfB.txt`） | 各 2 成员 | A 在 `awaiting_approval` 期间 B 独立走到同一状态；A 批准后执行，B 状态未受影响；`tfA.txt=hiA`、`tfB.txt=hiB` |
+
+### 9.3 §5 用例逐条结论
+
+| # | 用例 | 结论 | 证据 / 说明 |
+| --- | --- | --- | --- |
+| 1 | A 等待审批时 B 继续；A 变化不影响 B | 已验 | R4：两任务并发，「同时在跑」互相可见，A 批准执行后 B 仍 `awaiting_approval` |
+| 2 | 三模型同时流式不串流 | **部分** | R2/R3/R4 两路并行互不串流（`reduceTaskMembers` 分桶 + `streamId` 隔离，`test:task-members` 11 条）；三路受本机 Key 数量限制未构造 |
+| 3 | 完成时间不同，已完成卡片保留结果 | 已验 | R3：Qoder 15.1 s 先完成，主导 46.2 s 后完成，两张卡各自保留全文与耗时 |
+| 4 | 某模型超时/限流，错误只落该卡 | **未验** | 未构造限流场景；错误隔离有单测（`失败隔离` 用例） |
+| 5 | 工具参数/结果/发起模型可追溯 | 已验 | 轨迹页每条链带「发起：opencode-go:deepseek-v4.1-flash」；输出页有原始参数与结果 |
+| 6 | 同模型连调多工具，`callId` 独立三阶段 | 已验 | R1/R3：`fs.list` / `fs.writeFile` / `fs.readFile` 三条链各自「准备 / 开始 / 完成」 |
+| 7 | 汇总/评审后原始输出仍完整可查 | 已验 | 输出页保留 reasoning 历史与原始回答；评审后未覆盖 |
+| 8 | 切页/切任务不中断执行 | 已验 | 执行期切到轨迹/统计再切回，任务照常到 `completed` |
+| 9 | 刷新/重启恢复每模型输出与任务状态 | 已验 | 重启后：计划 3 / 3 步、两张成员卡、轨迹与统计全部重建；`KEEP_FOREVER` 保住 `plan.ready` |
+| 10 | 统计页分模型 Token 与工具消耗 | 已验 | 统计页四层（任务 / 按模型 / 按工具 / 验证），工具按 `callId` 去重聚合 |
+| 11 | 无 reasoning/Token 显式「未提供」 | 已验 | 成员卡与统计表 Token、思考均写「未提供」，不填 0 |
+| 12 | 取消作用范围准确 | **未验** | 本轮未点取消；隔离性由用例 1 间接覆盖 |
+| 13 | 只停留对话页即可知道状态/阶段/步骤/下一步/最近活动 | 已验 | 进度卡五字段齐全（含「完成态下一步」修正） |
+| 14 | 任务启动即出现反馈，不等首 Token | 已验 | 提交后 1 s 内出现「理解与规划」+ 成员「准备中」 |
+| 15 | 多模型并行时主任务进度同步更新 | 已验 | 并行期间进度卡「最近活动 / 正在等待」持续更新 |
+| 16 | 某模型无响应时其他仍更新并标明等待对象 | **未验** | 未构造挂死成员；「正在等待：<成员>」已在 UI |
+| 17 | 步骤完成/失败/重试/审批/交付在对话时间线可见 | 部分 | 步骤、审批、交付、`plan_repair` 重试（A 任务第 3 轮）均可见；「步骤失败」未构造 |
+| 18 | 长等待显示等待对象与持续时长 | 已验 | 「正在等待 你审批计划 · 已等 4 分 45 秒」 |
+| 19 | 切走再回对话页连续且不重复调用 | 已验 | 切任务回来仍是 3 / 3 步，未新增 `round.started` |
+| 20 | 进度数字与真实 DAG 一致；无可信总量不显示百分比 | 已验 | 3 / 3 与三条 `step.completed` 一致；无计划时写「已执行 N 步」不算百分比 |
+| 21 | V1 知识问答多模型独立输出回归 | **未验（真机）** | 本轮未在真机跑知识空间；`npm run verify` 内 `test:knowledge-*` 绿 |
+
+合计：已验 15 条，部分 2 条（2、17），未验 4 条（4、12、16、21，其中 21 有单测覆盖）。
+
+### 9.4 本轮真机暴露并修掉的问题
+
+| # | 现象 | 根因 | 修复 |
+| --- | --- | --- | --- |
+| 1 | 审批后整任务失败「ChatGPT 页面尚未就绪」 | 进程重启后 `planningAdapters` 为空，`adapterFor` 退回网页 adapter，报告发给未登录页面 | `OrchestratorDeps.memberAdapter` + `rebuildAdapter()`，按 `debateAgentIds[0]` 重建 CLI/Provider 适配器 |
+| 2 | 报告轮失败「计划校验失败：未知的协议 type：undefined」 | 主导模型回了缺 `type` 的 JSON，直接判整轮失败 | `answerUsable()` + `askWithPeers` 换第一个可用旁听，并 emit `round.peer failed` 写明换人原因 |
+| 3 | 报告轮之后「计划」整块消失、步骤退回「已执行 N 步」 | `round.started` 无条件 `plan: null`，而报告轮问的是**同一份**计划 | 只有 `user_prompt` / `plan_repair` 清计划；`execution_report` / `clarification_answer` 保留（`test:task-view` 新增 2 条） |
+| 4 | 进度卡「最近活动 · round.peer」 | 直接渲染事件类型名 | `EVENT_LABEL` 换成「并行成员作答」等中文，认不出的原样保留 |
+| 5 | 完成态「下一步：查看最终交付」，但交付卡没渲染 | 交付卡只在有改动/验证/评审时出现 | 进度卡新增 `hasDelivery`，无交付时指向「输出页的执行记录」 |
+| 6 | 交付卡重复整段评审结论；「验证：未通过」其实三项都 skipped | 直接拼 `verdict`；`verified=false` 被当成失败 | 交付卡改为「需修复 · N 处问题（详见下方评审卡）」；三项全 skipped 时写「未执行」 |
+| 7 | 「新对话」后主区域仍挂在上一条任务、输入框被它禁用，多任务并发在界面上不可达 | `startNewConversation` 没清 `activeId`，而 `disabled` 按 `activeTask` 算 | 一并清 `activeId / events / derived / clarifyText`；旧任务继续在后台跑，进「同时在跑」 |
+| 8 | 统计页状态列漏出 `interrupted` | 各组件各写一份文案 | `TASK_MEMBER_STATUS_LABEL` 收进 `shared/task-stream.ts`，卡片与统计共用 |
+| 9 | 轨迹页每条链都印出一个空的「失败」阶段 | 四格阶段常驻，未命中也渲染 | 只渲染真实发生的阶段；一个都没有时写「没有阶段时间，只有结果」 |
+
+### 9.5 已知遗留（不阻塞本版本）
+
+- **三路并行未构造**：本机只有 1 个云端 Key + 1 个 CLI。补第三个来源后按 R3 流程重跑即可，代码路径无差别。
+- **限流 / 挂死成员**：需要人为制造 429 或断网；隔离逻辑有单测，真机未跑（用例 4、16）。
+- **取消作用范围**（用例 12）：未点取消，靠用例 1 的独立性间接覆盖。
+- **报告轮拿不到协议 JSON 时任务标 `failed`**：R5 的 A 任务即此情形（产物 `tfA.txt=hiA` 已生成，模型连改两轮仍未回协议）。当前文案「回答中没有找到可执行计划，已停止自动执行」是诚实的，但后续可考虑把报告轮收敛成「完成 / 继续」两种结构化结论，减少这类假失败。
+- **两个实例重叠运行会互相覆盖 `agent-store.json`**：本轮排查中出现过一次历史任务丢失，发生在同一 userData 上两个实例重叠的窗口内（我的重启脚本与后台任务各起了一次），单实例连续重启两次未复现。产品侧只有 `requestSingleInstanceLock`，没有写锁；若要更强保证，需要给 store 加 pid 锁或版本号校验。
