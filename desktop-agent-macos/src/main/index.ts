@@ -4976,9 +4976,12 @@ app.whenReady().then(async () => {
     onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
     // 独立评审优先用本地/云端模型，不用刚才做规划的那个网页通道。
     // 一个可用模型都没有时 reviewExecution 会退回规则版并明写 backend。
-    review: async (report, plan) => {
+    review: async (report, plan, task) => {
+      // 独立评审也必须尊重任务选定的模型：用户只选一个云端模型时，
+      // 不能偷偷换成本地 Ollama。
+      const chosen = filterDebateCandidates(extraAgents, task.debateAgentIds);
       let reviewer: (typeof extraAgents)[number] | null = null;
-      for (const agent of extraAgents) {
+      for (const agent of chosen) {
         try {
           if ((await agent.health()).available) { reviewer = agent; break; }
         } catch { /* 这一家没就绪就换下一家 */ }

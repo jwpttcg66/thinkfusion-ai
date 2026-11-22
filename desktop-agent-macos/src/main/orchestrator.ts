@@ -40,7 +40,7 @@ export interface OrchestratorDeps {
    * V2.1：执行后的独立 Review。可选——现有测试与「只跑 Runtime」的场景
    * 不提供它时，整条执行链路和以前一模一样。
    */
-  review?: (report: ExecutionReport, plan: AgentPlan) => Promise<{
+  review?: (report: ExecutionReport, plan: AgentPlan, task: AgentTask) => Promise<{
     reviewer: string;
     backend: 'model' | 'rules';
     verdict: string;
@@ -316,7 +316,7 @@ export class AgentOrchestrator {
     let review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null;
     if (this.deps.review) {
       try {
-        const verdict = await this.deps.review(report, plan);
+        const verdict = await this.deps.review(report, plan, task);
         review = {
           reviewer: verdict.reviewer,
           verdict: verdict.verdict,
