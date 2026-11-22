@@ -25,6 +25,20 @@ import { ensureTaskWorktree } from './task-worktree';
 
 const GRANT_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * 一次提问的参与成员：第 0 个是主导，其余并行旁听。
+ *
+ * 为什么放在编排器而不是界面：旁听不是「界面多画一列」，它必须真的发出这次
+ * 提问。只有编排器知道这一轮用了哪条 prompt、哪个 roundId、以及回答要不要送去
+ * 解析计划。界面只读事件，不参与决定问谁。
+ */
+export interface PlannerMember {
+  /** 成员 id，与事件里的 participantId 同源。 */
+  id: string;
+  label: string;
+  adapter: PlanningAdapter;
+}
+
 export interface OrchestratorDeps {
   tasks: TaskManager;
   store: AgentStore;
@@ -110,6 +124,13 @@ export class AgentOrchestrator {
   private pageQueue: Promise<void> = Promise.resolve();
 
   private readonly planningAdapters = new Map<string, PlanningAdapter>();
+  /**
+   * 这一轮真正被问到的成员。只有一个成员时走原有单路，行为与升级前一致；
+   * 两个以上才并行旁听，旁听的回答不进计划解析。
+   */
+  private readonly plannerMembers = new Map<string, PlannerMember[]>();
+  /** 在途的旁听请求（`taskId:requestId`），取消时按它掐断。 */
+  private readonly peerRequests = new Set<string>();
   private readonly debateAgents = new Map<string, readonly string[]>();
 
   constructor(private readonly deps: OrchestratorDeps) {}
@@ -164,8 +185,17 @@ export class AgentOrchestrator {
     debateAgentIds?: readonly string[];
     /** 这次规划显式指定的适配器（云端/本地 Provider）；缺省走网页。 */
     planningAdapter?: PlanningAdapter;
+    /**
+     * V2.1：并行参与这一轮提问的成员，第 0 个是主导。
+     *
+     * 不传就退回 `planningAdapter` / 默认适配器的单路行为——所有既有调用方和
+     * 测试都不受影响。传了就代表「这些模型真的都被问了一次」：主导的回答用于
+     * 生成计划，其余成员的回答作为独立输出落事件，绝不混进计划文本。
+     */
+    planners?: readonly PlannerMember[];
   }): Promise<AgentTask> {
-    const planner = input.planningAdapter ?? this.deps.adapter();
+    const members = (input.planners ?? []).filter(member => member.id);
+    const planner = members[0]?.adapter ?? input.planningAdapter ?? this.deps.adapter();
     const site = planner.siteLabel;
     const status = await planner.getStatus();
     if (!status.loggedIn) throw new Error(`${site} 未登录：${status.detail ?? '请先在内嵌页面登录'}`);
@@ -181,6 +211,7 @@ export class AgentOrchestrator {
     });
     this.tasks.transition(task.taskId, 'planning');
     this.planningAdapters.set(task.taskId, planner);
+    if (members.length > 1) this.plannerMembers.set(task.taskId, [...members]);
     if (input.debateAgentIds && input.debateAgentIds.length > 0) {
       this.debateAgents.set(task.taskId, input.debateAgentIds);
     }
@@ -415,6 +446,7 @@ export class AgentOrchestrator {
 
     const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
     if (round) this.adapterFor(taskId).cancelWait(round.requestId);
+    this.cancelPeers(taskId);
 
     // 取消要传到 Runtime：否则它还在跑计划，外部 CLI 也还在改文件。
     cancelPlan(taskId);
@@ -495,7 +527,7 @@ export class AgentOrchestrator {
           this.withPlanningSlot(taskId, async () => {
             const queued = this.tasks.get(taskId);
             if (queued.status === 'cancelled' || queued.status === 'failed') throw new Error('WAIT_CANCELLED');
-            return this.askPage(taskId, roundId, prompt);
+            return this.askRound(taskId, roundId, prompt);
           }),
           new Promise<string>((_, reject) => {
             timer = setTimeout(() => {
@@ -510,7 +542,9 @@ export class AgentOrchestrator {
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       // 同一轮的答案要能对回是哪一次模型调用：streamId/modelCallId 都是这个 requestId。
       const answerCallId = this.tasks.getRound(roundId)?.requestId;
-      this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer, ...(answerCallId ? { modelCallId: answerCallId } : {}) });
+      // 主导成员也带上 participantId：工作台按成员分列时，主卡片不能没有名字。
+      const leadMember = this.plannerMembers.get(taskId)?.[0];
+      this.deps.emit({ type: 'round.answer', at: Date.now(), taskId, roundId, text: answer, ...(answerCallId ? { modelCallId: answerCallId } : {}), ...(leadMember ? { participantId: leadMember.id } : {}) });
 
       await this.handleAnswer(taskId, roundId, answer);
     } finally {
@@ -530,10 +564,176 @@ export class AgentOrchestrator {
    * 只重试一次：第二次还满就是真的满了（或站点不让开新会话），如实失败，
    * 不要在这里循环重开把页面刷爆。
    */
-  private async askPage(taskId: string, roundId: string, prompt: string): Promise<string> {
+  /**
+   * 这一轮问一次，但可能是多个成员。
+   *
+   * 单成员时完全走 askPage（零行为变化）。多成员时并行发同一句 prompt：
+   * 主导的回答用于生成计划，其余成员的回答只作为独立输出落事件。为什么不让
+   * 旁听者回答也参与「合成计划」：那需要再一次模型调用、还会把不同成员的计划
+   * 步骤搅成一份没人负责的混合体；V2.1 要的是「各自独立可查」，不是合并。
+   */
+  private async askRound(taskId: string, roundId: string, prompt: string): Promise<string> {
+    const members = this.plannerMembers.get(taskId) ?? [];
+    const [lead, ...peers] = members;
+    if (!lead || peers.length === 0) return this.askPage(taskId, roundId, prompt, lead?.id);
+    return this.askWithPeers(taskId, roundId, prompt, lead, peers);
+  }
+
+  private async askWithPeers(
+    taskId: string,
+    roundId: string,
+    prompt: string,
+    lead: PlannerMember,
+    peers: readonly PlannerMember[]
+  ): Promise<string> {
+    // 主导先报「开始」再启动旁听：工作台按成员分列，主卡片必须排在最前面，
+    // 不能让「谁先吐了第一个 token」决定谁被当成主导。
+    this.deps.emit({
+      type: 'round.peer',
+      at: Date.now(),
+      taskId,
+      roundId,
+      memberId: lead.id,
+      label: lead.label,
+      status: 'started',
+      participantId: lead.id
+    });
+    // 旁听者与主导并行发；它们的回答不影响主线，失败也只落到自己卡片上。
+    const peerRuns = peers.map(peer => this.askPeer(taskId, roundId, prompt, peer));
+    const leadOutcome = this.askPage(taskId, roundId, prompt, lead.id).then(
+      text => ({ ok: true as const, text }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+
+    const leadResult = await leadOutcome;
+    if (leadResult.ok) return leadResult.text;
+
+    // 主导失败：按完成顺序找第一个真的答出东西的旁听者，并把这件事说清楚。
+    // 不静默换人——用户要能看出「计划来自 B，不是 A」。
+    const leadError = leadResult.error instanceof Error ? leadResult.error.message : String(leadResult.error);
+    let fallback: string | null = null;
+    let fallbackLabel = '';
+    for (const [index, run] of peerRuns.entries()) {
+      const result = await run;
+      if (result.ok && result.text.trim() && fallback === null) {
+        fallback = result.text;
+        fallbackLabel = peers[index]?.label ?? '其他成员';
+        break;
+      }
+    }
+    this.deps.emit({
+      type: 'round.peer',
+      at: Date.now(),
+      taskId,
+      roundId,
+      memberId: lead.id,
+      label: lead.label,
+      status: 'failed',
+      error: fallback === null
+        ? leadError
+        : `${lead.label} 没给出可用计划（${leadError}），本轮改用 ${fallbackLabel} 的回答`,
+      participantId: lead.id
+    });
+    if (fallback !== null) return fallback;
+    throw leadResult.error;
+  }
+
+  /**
+   * 一个旁听成员的提问。失败只落在它自己的卡片上：限流、超时、没登录都不该
+   * 让主导那条线停摆（V2.1 §10.1-4）。
+   */
+  private async askPeer(
+    taskId: string,
+    roundId: string,
+    prompt: string,
+    peer: PlannerMember
+  ): Promise<{ ok: boolean; text: string; error?: string }> {
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    this.peerRequests.add(`${taskId}:${requestId}`);
+    this.deps.emit({
+      type: 'round.peer',
+      at: startedAt,
+      taskId,
+      roundId,
+      memberId: peer.id,
+      label: peer.label,
+      status: 'started',
+      participantId: peer.id
+    });
+    try {
+      const { snapshotBefore } = await peer.adapter.sendMessage(prompt, requestId, chunk => {
+        this.deps.emit({
+          type: 'round.delta',
+          at: Date.now(),
+          taskId,
+          roundId,
+          streamId: requestId,
+          modelCallId: requestId,
+          participantId: peer.id,
+          ...(chunk.text ? { text: chunk.text } : {}),
+          ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}),
+          ...(chunk.reset ? { reset: true } : {}),
+          ...(chunk.mode ? { mode: chunk.mode } : {}),
+          ...(chunk.providerId ? { providerId: chunk.providerId } : {}),
+          ...(chunk.modelId ? { modelId: chunk.modelId } : {})
+        });
+      });
+      const text = await peer.adapter.waitForAnswer(
+        requestId,
+        snapshotBefore,
+        this.tasks.get(taskId).timeoutMs,
+        prompt
+      );
+      this.deps.emit({
+        type: 'round.peer',
+        at: Date.now(),
+        taskId,
+        roundId,
+        memberId: peer.id,
+        label: peer.label,
+        status: 'answered',
+        text,
+        durationMs: Date.now() - startedAt,
+        participantId: peer.id
+      });
+      return { ok: true, text };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const cancelled = this.tasks.get(taskId).status === 'cancelled';
+      this.deps.emit({
+        type: 'round.peer',
+        at: Date.now(),
+        taskId,
+        roundId,
+        memberId: peer.id,
+        label: peer.label,
+        status: cancelled ? 'cancelled' : 'failed',
+        error: detail,
+        durationMs: Date.now() - startedAt,
+        participantId: peer.id
+      });
+      return { ok: false, text: '', error: detail };
+    } finally {
+      this.peerRequests.delete(`${taskId}:${requestId}`);
+    }
+  }
+
+  /** 取消时连旁听成员一起掐断；它们的 adapter 各自有自己的 AbortController。 */
+  private cancelPeers(taskId: string): void {
+    const members = this.plannerMembers.get(taskId) ?? [];
+    for (const peer of members.slice(1)) {
+      for (const key of [...this.peerRequests]) {
+        if (!key.startsWith(`${taskId}:`)) continue;
+        peer.adapter.cancelWait(key.slice(taskId.length + 1));
+      }
+    }
+  }
+
+  private async askPage(taskId: string, roundId: string, prompt: string, participantId?: string): Promise<string> {
     const attempt = async (requestId: string) => {
       const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId, chunk => {
-        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, modelCallId: requestId, ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
+        this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, modelCallId: requestId, ...(participantId ? { participantId } : {}), ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
       });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
       return this.adapterFor(taskId).waitForAnswer(
@@ -831,6 +1031,8 @@ export class AgentOrchestrator {
 
   private fail(taskId: string, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
+    // 失败或超时后旁听者不能继续占着页面：它们的结果已经没有主线可回。
+    try { this.cancelPeers(taskId); } catch { /* 取消失败不影响失败收敛 */ }
     try {
       const task = this.tasks.get(taskId);
       if (TERMINAL.includes(task.status)) return;

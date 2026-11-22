@@ -11,8 +11,8 @@ import type {
   PlanPreview as PlanPreviewType,
   SourcesState
 } from '../../shared/contracts';
-import { isLive, reduceTaskStream } from '../../shared/task-stream';
-import { EMPTY_TASK_VIEW, projectTaskView, type TaskView } from '../../shared/task-view';
+import { isLive } from '../../shared/task-stream';
+import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, type TaskView } from '../../shared/task-view';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { auditActivity } from '../../shared/diagnostics';
@@ -37,6 +37,11 @@ import { CodeIndexPanel } from './components/CodeIndexPanel';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
+import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
+import { TaskProgressCard } from './components/engineering/TaskProgressCard';
+import { ModelOutputGrid } from './components/engineering/ModelOutputGrid';
+import { TaskTrajectory } from './components/engineering/TaskTrajectory';
+import { TaskStats } from './components/engineering/TaskStats';
 import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
@@ -378,6 +383,11 @@ export default function App() {
   const [researchTab, setResearchTab] = useState<'mode' | 'collab' | 'debate' | 'report'>('mode');
   /** 对话 / 轨迹 / 统计。页签在 topbar 下、滚动区外，切会话时回到对话。 */
   const [conversationTab, setConversationTab] = useState<'chat' | 'trajectory' | 'stats'>('chat');
+  /**
+   * 工程工作台的当前页。切页只切渲染：事件订阅在 App 顶层，不随页签卸载，
+   * 所以切到「统计」再切回来，流仍是连着的（V2.1 §16.7-19）。
+   */
+  const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>('conversation');
   const [executionConfig, setExecutionConfig] = useState<ConversationExecutionConfig>(DEFAULT_EXECUTION_CONFIG);
   /**
    * 跨会话默认值（主导人、参与的云端模型）。
@@ -629,18 +639,7 @@ export default function App() {
       if (!('taskId' in event) || event.taskId !== activeRef.current) return;
 
       setEvents(prev => mergeTaskEvent(prev, event));
-      setDerived(prev => {
-        const live = reduceTaskStream(prev.live, event);
-        if (event.type === 'round.started') return { ...prev, live, questions: [], answer: '', plan: null };
-        if (event.type === 'plan.ready') return { ...prev, live, plan: event.plan };
-        if (event.type === 'clarification.required') return { ...prev, live, questions: event.questions };
-        if (event.type === 'round.delta') return { ...prev, live };
-        if (event.type === 'round.answer') return { ...prev, live, answer: event.text };
-        if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
-          return { ...prev, live, questions: [] };
-        }
-        return { ...prev, live };
-      });
+      setDerived(prev => applyTaskViewEvent(prev, event));
       if (event.type === 'task.failed') setError(event.error);
 
       // 逐次审批：请求进来就占据「阻塞态」位置，回执到了再撤掉。
@@ -2086,6 +2085,24 @@ export default function App() {
           </nav>
         )}
 
+        {activeTask && (
+          <EngineeringWorkbenchBar
+            task={activeTask}
+            tab={workbenchTab}
+            onTab={setWorkbenchTab}
+            activeTasks={tasks}
+            onSelectTask={taskId => void selectTask(taskId)}
+            onExport={async () => {
+              try {
+                const file = await window.agentAPI.exportTaskDiagnostics(activeTask.taskId);
+                setNotice(`诊断包：${file}`);
+              } catch (e) {
+                setError(errorText(e));
+              }
+            }}
+          />
+        )}
+
         <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
           <div className="inner">
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
@@ -2156,39 +2173,22 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && (
-              <div className="wb-status">
-                <div className="wb-status-main">
-                  <b>工程可观测工作台</b>
-                  <span>{activeTask.title}</span>
-                </div>
-                <div className="wb-status-meta">
-                  <span>{activeTask.workspaceRoot ?? '未指定工作区'}</span>
-                  <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
-                  <span>
-                    步骤 {new Set(events.filter(event => event.type === 'step.completed').map(event => event.stepId)).size}
-                    {derived.plan ? ` / ${String(derived.plan.steps.length)}` : ''}
-                  </span>
-                  <span>{derived.live.modelId ?? derived.live.providerId ?? '模型待定'}</span>
-                  <button
-                    className="btn ghost"
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const file = await window.agentAPI.exportTaskDiagnostics(activeTask.taskId);
-                        setNotice(`诊断包：${file}`);
-                      } catch (e) {
-                        setError(errorText(e));
-                      }
-                    }}
-                  >
-                    导出诊断
-                  </button>
-                </div>
-              </div>
+            {activeTask && workbenchTab === 'conversation' && (
+              <>
+                <TaskProgressCard
+                  task={activeTask}
+                  plan={derived.plan}
+                  events={events}
+                  members={derived.members}
+                  pendingStep={pendingStep}
+                  pendingQuestion={pendingQuestion}
+                  awaitingAnswer={awaitingAnswer}
+                />
+                <ModelOutputGrid members={derived.members} />
+              </>
             )}
 
-            {activeTask && (
+            {activeTask && workbenchTab === 'output' && (
               <div className="wb-grid">
                 <aside className="card wb-plan">
                   <div className="card-head">
@@ -2285,7 +2285,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTask && (showPlan || pendingStep || !['completed', 'failed', 'cancelled'].includes(activeTask.status)) && (
+            {activeTask && workbenchTab === 'conversation' && (showPlan || pendingStep || !['completed', 'failed', 'cancelled'].includes(activeTask.status)) && (
               <div className="wb-actions">
                 {showPlan && derived.plan && (
                   <>
@@ -2305,49 +2305,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTask && (
-              <section className="card task-overview">
-                <div className="card-head">
-                  <h2>任务概览</h2>
-                  <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
-                </div>
-                <p><b>目标：</b>{activeTask.title}</p>
-                <p className="muted">
-                  已完成 {new Set(events.filter(event => event.type === 'step.completed').map(event => event.stepId)).size}
-                  {derived.plan ? ` / ${String(derived.plan.steps.length)}` : ''} 步
-                  {' · '}
-                  {activeTask.status === 'awaiting_approval'
-                    ? '等待你确认计划'
-                    : activeTask.status === 'planning'
-                      ? '正在生成计划'
-                      : activeTask.status === 'executing'
-                        ? '正在执行本机步骤'
-                        : activeTask.status === 'verifying'
-                          ? '正在验证'
-                          : activeTask.status === 'report_pending'
-                            ? '等待验证/下一步'
-                            : statusLabel(activeTask.status)}
-                </p>
-                <p className="muted">
-                  <b>下一步：</b>
-                  {activeTask.status === 'awaiting_approval'
-                    ? '审阅计划并确认执行'
-                    : activeTask.status === 'planning'
-                      ? '等待模型返回计划'
-                      : activeTask.status === 'executing'
-                        ? '等待当前步骤完成'
-                        : activeTask.status === 'report_pending'
-                          ? '补测试/诊断，或明确接受未验证'
-                          : activeTask.status === 'failed'
-                            ? '查看失败原因后重新提问'
-                            : activeTask.status === 'completed'
-                              ? '查看最终交付'
-                              : '等待任务状态更新'}
-                </p>
-              </section>
-            )}
-
-            {activeTask && (
+            {activeTask && workbenchTab === 'output' && (
               <div className="status-row">
                 <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
                 <span className="muted">{platform === 'darwin' ? 'macOS' : platform || 'macOS'}</span>
@@ -2365,11 +2323,11 @@ export default function App() {
               </div>
             )}
 
-            {workspaceMode === 'engineering' && !showingConversation && (activeTask?.workspaceRoot || workspace) && (
+            {workspaceMode === 'engineering' && !showingConversation && workbenchTab === 'output' && (activeTask?.workspaceRoot || workspace) && (
               <CodeIndexPanel root={activeTask?.workspaceRoot ?? workspace} />
             )}
 
-            {(derived.questions.length > 0 || awaitingAnswer) && (
+            {activeTask && workbenchTab === 'conversation' && (derived.questions.length > 0 || awaitingAnswer) && (
               <section className="card clarify">
                 <h2>DeepSeek 需要澄清</h2>
                 {derived.questions.length > 0 ? (
@@ -2400,7 +2358,7 @@ export default function App() {
               </section>
             )}
 
-            {showPlan && derived.plan && (
+            {activeTask && workbenchTab === 'conversation' && showPlan && derived.plan && (
               <PlanPreview
                 plan={derived.plan}
                 permission={activeTask?.permissionPreset ?? permission}
@@ -2410,7 +2368,7 @@ export default function App() {
               />
             )}
 
-            {pendingStep && (
+            {activeTask && workbenchTab === 'conversation' && pendingStep && (
               <section className={`card step-approval risk-${pendingStep.risk}`}>
                 <div className="row">
                   <b>
@@ -2446,7 +2404,7 @@ export default function App() {
               </section>
             )}
 
-            {pendingQuestion && (
+            {activeTask && workbenchTab === 'conversation' && pendingQuestion && (
               <section className="card step-approval">
                 <div className="row">
                   <b>模型需要你决定</b>
@@ -2489,7 +2447,7 @@ export default function App() {
               </section>
             )}
 
-            {derived.verification && activeTask && (
+            {derived.verification && activeTask && workbenchTab === 'conversation' && (
               <section className={`card review-card${derived.verification.verified ? '' : ' needs-fix'}`}>
                 <div className="review-head">
                   <b>本轮验证 · {derived.verification.verified ? '已通过' : '未通过'}</b>
@@ -2557,7 +2515,7 @@ export default function App() {
               </section>
             )}
 
-            {derived.changes.length > 0 && (
+            {derived.changes.length > 0 && workbenchTab === 'output' && (
               <section className="card review-card">
                 <div className="review-head">
                   <b>本轮改动 · {derived.changes.length} 个文件</b>
@@ -2581,7 +2539,7 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && (derived.verification || derived.review || derived.changes.length > 0) && (
+            {activeTask && workbenchTab === 'conversation' && (derived.verification || derived.review || derived.changes.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
                   <h2>最终交付</h2>
@@ -2608,7 +2566,7 @@ export default function App() {
               </section>
             )}
 
-            {derived.review && activeTask && (
+            {derived.review && activeTask && workbenchTab === 'conversation' && (
               <section className={`card review-card${derived.review.needsFix ? ' needs-fix' : ''}`}>
                 <div className="review-head">
                   <b>独立评审 · {derived.review.needsFix ? '需修复' : '通过'}</b>
@@ -2626,7 +2584,7 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && derived.modelTrace.some(item => item.reasoning.trim()) && (
+            {activeTask && workbenchTab === 'output' && derived.modelTrace.some(item => item.reasoning.trim()) && (
               <details className="card reasoning-history">
                 <summary>模型思考记录（{derived.modelTrace.filter(item => item.reasoning.trim()).length} 轮）</summary>
                 {derived.modelTrace.filter(item => item.reasoning.trim()).map(item => (
@@ -2638,7 +2596,7 @@ export default function App() {
               </details>
             )}
 
-            {activeTask && isLive(derived.live) && (
+            {activeTask && workbenchTab === 'conversation' && isLive(derived.live) && (
               <>
                 <section className="card running">
                   <span className="spinner" />
@@ -2665,14 +2623,14 @@ export default function App() {
               </>
             )}
 
-            {activeTask && planThinking(derived.answer) && (
+            {activeTask && workbenchTab === 'output' && planThinking(derived.answer) && (
               <details className="card thinking">
                 <summary>思考过程</summary>
                 <p>{planThinking(derived.answer)}</p>
               </details>
             )}
 
-            {busy && !showPlan && (
+            {activeTask && workbenchTab === 'conversation' && derived.members.length === 0 && busy && !showPlan && (
               <section className="card running">
                 <span className="spinner" />
                 <div>
@@ -2684,14 +2642,14 @@ export default function App() {
 
             {/* The opposite of the spinner: nothing is happening, and nothing
                 will until someone types. Saying so is the whole point. */}
-            {awaitingAnswer && (
+            {activeTask && workbenchTab === 'conversation' && awaitingAnswer && (
               <section className="card waiting">
                 <b>等待你回答上面的问题</b>
                 <p className="muted">回答之后才会开始下一轮规划；在这之前不会执行任何本地操作。</p>
               </section>
             )}
 
-            {derived.answer && !/"type"\s*:\s*"plan"/.test(derived.answer) && (
+            {activeTask && workbenchTab === 'output' && derived.answer && !/"type"\s*:\s*"plan"/.test(derived.answer) && (
               <details className="card answer">
                 <summary>最近一轮模型回答（{derived.answer.length} 字符）</summary>
                 <pre>{derived.answer}</pre>
@@ -2702,16 +2660,37 @@ export default function App() {
 
             {notice && <div className="notice">{notice}</div>}
 
-            {activeTask && <TaskWorktree taskId={activeTask.taskId} refreshKey={events.length} />}
-            {events.length > 0 && <ExecutionLog events={events} />}
+            {activeTask && workbenchTab === 'output' && <TaskWorktree taskId={activeTask.taskId} refreshKey={events.length} />}
+            {activeTask && workbenchTab === 'output' && events.length > 0 && <ExecutionLog events={events} />}
 
             {/* 只对任务里真实开过的 term.* 会话出现；headless CLI 没有 PTY，
                 它的输出在上一块执行日志里，不会被伪装成终端。 */}
             {/* xterm 只在真的有 PTY 会话时才加载；首屏不解析终端实现。 */}
-            {activeTask && terminalSessionsFrom(events).length > 0 && (
+            {activeTask && workbenchTab === 'output' && terminalSessionsFrom(events).length > 0 && (
               <React.Suspense fallback={null}>
                 <AgentTerminal events={events} />
               </React.Suspense>
+            )}
+
+            {activeTask && workbenchTab === 'trajectory' && (
+              <TaskTrajectory
+                activity={activity}
+                onLocate={eventId => {
+                  // 「定位」把输出页打开并选中同一条事件：两页读的是同一份投影，
+                  // 所以这里只是切页 + 设选中，不需要再查一次数据。
+                  setSelectedActivityId(eventId);
+                  setWorkbenchTab('output');
+                }}
+              />
+            )}
+
+            {activeTask && workbenchTab === 'stats' && (
+              <TaskStats
+                task={activeTask}
+                members={derived.members}
+                activity={activity}
+                verification={derived.verification}
+              />
             )}
           </div>
         </div>

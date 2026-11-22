@@ -5857,3 +5857,212 @@ button:disabled {
 .wb-filters { display: flex; gap: 6px; margin-bottom: 6px; }
 .wb-filters input { flex: 1; min-width: 0; padding: 4px 8px; }
 .wb-filters select { padding: 4px 6px; }
+
+/* ---------------------------------------------------------------------------
+   V2.1 工程工作台：固定任务头部 + 四页 + 每模型一张卡
+   颜色一律走变量：暗色/高对比主题只要换 :root 一处，不给卡片单独写死色值。
+   --------------------------------------------------------------------------- */
+:root {
+  --ok: #1f8f4e;
+  --warn: #b1731a;
+  --danger: #c0392b;
+  --member-bg: var(--bg);
+  --member-head: #fafafa;
+  --member-line: var(--line-strong);
+}
+
+.wb-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 18px 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.wb-bar-task { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-bar-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 52ch;
+}
+.wb-bar-root { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+
+.wb-bar-parallel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.wb-bar-parallel .btn { padding: 2px 8px; }
+.wb-bar-parallel .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: var(--text-3);
+}
+.wb-bar-parallel .dot.s-executing,
+.wb-bar-parallel .dot.s-planning,
+.wb-bar-parallel .dot.s-verifying { background: var(--accent); }
+.wb-bar-parallel .dot.s-report_pending,
+.wb-bar-parallel .dot.s-awaiting_approval { background: var(--warn); }
+.wb-bar-parallel .dot.s-failed { background: var(--danger); }
+.wb-bar-parallel .dot.s-completed { background: var(--ok); }
+
+.wb-tabs { display: flex; gap: 2px; }
+.wb-tabs button {
+  padding: 7px 14px;
+  border-radius: 8px 8px 0 0;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+}
+.wb-tabs button:hover { background: var(--bg-hover); color: var(--text); }
+.wb-tabs button.is-active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+
+/* 主任务进度 */
+.task-progress-grid,
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.task-progress-grid > div,
+.stats-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.task-progress-key { color: var(--text-3); font-size: 11px; display: block; }
+.task-progress-line { margin: 4px 0; font-size: 12px; }
+.task-progress-line.is-waiting { color: var(--warn); }
+.task-progress-error { margin: 6px 0 0; color: var(--danger); font-size: 12px; }
+
+/* 每模型卡片 */
+.member-section .card-head { align-items: center; }
+.member-layout { display: flex; gap: 4px; }
+.member-layout .btn.is-active { background: var(--accent-soft); color: var(--accent); }
+
+.member-grid { display: grid; gap: 10px; align-items: start; }
+.member-grid.is-one { grid-template-columns: minmax(0, 1fr); }
+.member-grid.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.member-grid.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1240px) {
+  .member-grid.is-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .member-grid.is-two,
+  .member-grid.is-three { grid-template-columns: minmax(0, 1fr); }
+}
+
+.member-card {
+  border: 1px solid var(--member-line);
+  border-radius: 10px;
+  background: var(--member-bg);
+  min-width: 0;
+  overflow: hidden;
+}
+.member-card.is-focused { border-color: var(--accent); }
+.member-card.is-failed { border-color: rgba(192, 57, 43, 0.45); }
+.member-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--member-head);
+  border-bottom: 1px solid var(--member-line);
+}
+.member-card-title { display: flex; flex-direction: column; min-width: 0; }
+.member-card-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  border-bottom: 1px dashed var(--line);
+}
+.member-card-meta .btn { margin-left: auto; padding: 0 6px; }
+.member-card-body { padding: 8px 10px 10px; }
+.member-card-body details summary { cursor: pointer; font-size: 11.5px; color: var(--text-2); }
+.member-card-body pre {
+  margin: 6px 0 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.member-text { color: var(--text); }
+.member-absent { margin: 0 0 6px; }
+.member-card-error { margin: 6px 10px 0; color: var(--danger); font-size: 11.5px; }
+
+.member-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.member-pill.is-streaming,
+.member-pill.is-preparing { color: var(--accent); border-color: rgba(77, 107, 254, 0.35); }
+.member-pill.is-completed { color: var(--ok); border-color: rgba(31, 143, 78, 0.35); }
+.member-pill.is-failed { color: var(--danger); border-color: rgba(192, 57, 43, 0.35); }
+.member-pill.is-cancelled,
+.member-pill.is-interrupted { color: var(--warn); border-color: rgba(177, 115, 26, 0.35); }
+.member-pill .spinner { width: 8px; height: 8px; border-width: 1.5px; }
+
+/* 轨迹 */
+.trace-chains { margin-bottom: 12px; }
+.trace-chains h3,
+.trace-timeline h3 { font-size: 12px; margin: 0 0 6px; color: var(--text-2); }
+.trace-chain-list { display: flex; flex-direction: column; gap: 6px; }
+.trace-chain {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--text-3);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.trace-chain.is-completed { border-left-color: var(--ok); }
+.trace-chain.is-failed { border-left-color: var(--danger); }
+.trace-chain.is-running { border-left-color: var(--accent); }
+.trace-chain-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.trace-chain-phases { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 10.5px; color: var(--text-3); }
+.trace-phase { padding: 1px 6px; border-radius: 4px; background: var(--bg-hover); }
+.trace-phase.is-hit { color: var(--text); background: var(--accent-soft); }
+
+.trace-timeline ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 460px; overflow: auto; }
+.trace-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+.trace-item:hover { background: var(--bg-hover); }
+.trace-item.is-failed { color: var(--danger); }
+.trace-time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.trace-phase-pill { min-width: 44px; color: var(--text-2); }
+.trace-category { min-width: 52px; color: var(--text-2); }
+.trace-actor { min-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-type { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-item .btn { margin-left: auto; padding: 0 6px; }
+
+/* 统计 */
+.task-stats .stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stats-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.stats-table td { padding: 4px 6px; border-bottom: 1px dashed var(--line); }
+.stats-table tr:last-child td { border-bottom: 0; }

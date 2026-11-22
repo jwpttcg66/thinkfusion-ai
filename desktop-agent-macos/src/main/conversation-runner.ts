@@ -172,6 +172,11 @@ export interface ConversationDeps {
     executionMode?: ConversationExecutionConfig['executionMode'];
     plannerAgentId?: string;
     selectedCloudModels?: string[];
+    /**
+     * V2.1 并行成员：按这一轮的真实执行配置挑人，而不是只拿云端名单。
+     * 缺省时退回上面的三个字段（老调用方不受影响）。
+     */
+    executionConfig?: ConversationExecutionConfig;
   }) => Promise<AgentTask>;
   /**
    * V2.1 Model Router（产品定义第 8 节）：这一轮用哪些模型、为什么。
@@ -814,6 +819,7 @@ export class ConversationRunner {
           expertise,
           ...(collaborationPlan ? { collaborationPlan } : {}),
           executionMode: executionConfig.executionMode,
+          executionConfig,
           ...(executionConfig.leadAgentId ? { plannerAgentId: executionConfig.leadAgentId } : {}),
           ...(executionConfig.selectedCloudModels
             ? { selectedCloudModels: executionConfig.selectedCloudModels }

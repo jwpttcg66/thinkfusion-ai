@@ -37,7 +37,7 @@ export interface ObservabilityEvent {
 function inferPhase(type: AgentEvent['type']): ObservabilityPhase {
   if (type === 'round.delta') return 'streaming';
   if (type === 'step.preparing' || type === 'plan.ready' || type === 'step.approval') return 'preparing';
-  if (type === 'step.started' || type === 'task.updated' || type === 'round.started') return 'started';
+  if (type === 'step.started' || type === 'task.updated' || type === 'round.started' || type === 'round.peer') return 'started';
   if (type === 'step.failed' || type === 'plan.invalid' || type === 'task.failed') return 'failed';
   if (type === 'task.cancelled') return 'cancelled';
   if (type === 'task.completed' || type === 'step.completed' || type === 'report.ready' || type === 'review.ready') return 'completed';
@@ -47,6 +47,7 @@ function inferPhase(type: AgentEvent['type']): ObservabilityPhase {
 function inferCategory(type: AgentEvent['type']): ObservabilityCategory {
   if (type === 'round.delta') return 'reasoning';
   if (type === 'round.answer') return 'assistant';
+  if (type === 'round.peer') return 'subagent';
   if (type === 'plan.ready' || type === 'plan.invalid' || type === 'plan.debated') return 'planning';
   if (type === 'step.preparing' || type === 'step.started' || type === 'step.completed' || type === 'step.failed' || type === 'step.approval' || type === 'step.approval-resolved') return 'tool';
   if (type === 'report.ready') return 'test';
@@ -66,11 +67,30 @@ export function fromAgentEvent(event: AgentEvent): ObservabilityEvent | null {
   const provider = 'providerId' in event ? event.providerId : undefined;
   const model = 'modelId' in event ? event.modelId : undefined;
   const isTool = inferCategory(event.type) === 'tool';
+  // 成员身份：round.peer 自带 label；其它事件只有 participantId。两者都要能
+  // 让人看出「这条是哪个模型」，否则轨迹里一排 tool 分不清谁发起的。
+  const participantId = 'participantId' in event ? event.participantId : undefined;
+  const peerLabel = event.type === 'round.peer' ? event.label : undefined;
   const actor = isTool
     ? { type: 'tool' as const, id: stepId ?? 'tool', label: ('tool' in event ? event.tool : stepId) ?? '工具' }
-    : provider || model
-      ? { type: 'model' as const, id: model ?? provider ?? 'model', label: model ?? provider ?? '模型', ...(provider ? { provider } : {}), ...(model ? { model } : {}) }
-      : { type: 'system' as const, id: 'orchestrator', label: '任务编排' };
+    : model
+      ? { type: 'model' as const, id: participantId ?? model, label: model, ...(provider ? { provider } : {}), model }
+      : peerLabel
+        ? { type: 'subagent' as const, id: participantId ?? 'member', label: peerLabel, ...(provider ? { provider } : {}) }
+        : participantId
+          ? { type: 'subagent' as const, id: participantId, label: participantId, ...(provider ? { provider } : {}) }
+          : provider
+            ? { type: 'model' as const, id: provider, label: provider, provider }
+            : { type: 'system' as const, id: 'orchestrator', label: '任务编排' };
+  const peerPhase: ObservabilityPhase | null = event.type === 'round.peer'
+    ? event.status === 'answered'
+      ? 'completed'
+      : event.status === 'failed'
+        ? 'failed'
+        : event.status === 'cancelled'
+          ? 'cancelled'
+          : 'started'
+    : null;
   return {
     eventId: event.eventId ?? `${taskId}:${event.type}:${String(event.sequence ?? event.at)}`,
     taskId,
@@ -83,7 +103,7 @@ export function fromAgentEvent(event: AgentEvent): ObservabilityEvent | null {
     occurredAt: event.at,
     actor,
     category: inferCategory(event.type),
-    phase: inferPhase(event.type),
+    phase: peerPhase ?? inferPhase(event.type),
     payload: { ...event }
   };
 }

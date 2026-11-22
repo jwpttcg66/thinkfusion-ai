@@ -1362,6 +1362,32 @@ export type AgentEvent = AgentEventBase &
     | { type: 'round.started'; taskId: string; roundId: string; roundNumber: number; inputType: AgentRound['inputType']; modelCallId?: string }
     | { type: 'round.answer'; taskId: string; roundId: string; text: string; modelCallId?: string }
     | { type: 'round.delta'; taskId: string; roundId: string; streamId?: string; modelCallId?: string; text?: string; reasoning?: string; reset?: boolean; mode?: 'snapshot' | 'delta'; providerId?: string; modelId?: string }
+    /**
+     * 并行参与本轮提问的成员（主导之外的模型 / CLI / 网页通道）。
+     *
+     * 为什么要单独的收口事件：`round.delta` 只说明「有字来了」，说不出这个成员
+     * 是还在跑、已经答完、还是限流失败；而工作台要给每个模型一张卡片，卡片的
+     * 终态（Completed / Failed / Interrupted）必须有来源。delta 仍复用
+     * `round.delta` + `participantId`，这里只记生命周期与最终全文。
+     *
+     * 一个成员一个 `memberId`，与 `participantId` 同源。主导也用这个事件报
+     * 「开始了」和「失败了」，但它的成功不在这里收口——那由 `round.answer`
+     * 表示「本轮计划来自谁」，两处都写会把同一次回答说两遍。
+     */
+    | {
+        type: 'round.peer';
+        taskId: string;
+        roundId: string;
+        memberId: string;
+        label: string;
+        status: 'started' | 'answered' | 'failed' | 'cancelled';
+        text?: string;
+        error?: string;
+        durationMs?: number;
+        providerId?: string;
+        modelId?: string;
+        usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null;
+      }
     | { type: 'plan.ready'; taskId: string; roundId: string; plan: PlanPreview }
     | { type: 'plan.invalid'; taskId: string; roundId: string; error: string }
     | { type: 'clarification.required'; taskId: string; roundId: string; questions: string[] }

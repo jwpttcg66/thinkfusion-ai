@@ -33,7 +33,33 @@ export interface StoredCollaboration {
   updatedAt: number;
 }
 
-const MAX_EVENTS = 5000;
+const MAX_EVENTS_PER_TASK = 800;
+/** 会话侧（知识空间）事件仍是全局配额：它们属于单条会话，不存在互相挤占。 */
+const MAX_RUN_EVENTS = 5000;
+/**
+ * 任务事件的裁剪按任务算，不按全局条数。
+ *
+ * 全局 5000 条在多任务并行时会互相挤掉：B 任务跑一轮就能把 A 的计划树挤出
+ * 窗口，A 刷新后看到的是「计划未生成」。这里给每个任务一个配额，并且关键
+ * 事件（计划、回答、报告、评审、终态）永不裁剪——它们是恢复所需的最小集。
+ */
+const KEEP_FOREVER: ReadonlySet<string> = new Set([
+  'plan.ready',
+  'plan.debated',
+  'clarification.required',
+  'round.answer',
+  'report.ready',
+  'review.ready',
+  'task.completed',
+  'task.failed',
+  'task.cancelled'
+]);
+
+function taskIdOfEvent(event: AgentEvent): string | null {
+  if ('taskId' in event && typeof event.taskId === 'string') return event.taskId;
+  if (event.type === 'task.updated') return event.task.taskId;
+  return null;
+}
 
 /**
  * Atomic JSON journal for task state.
@@ -91,7 +117,24 @@ export class AgentStore {
     }
   }
 
+  /** delta 的落盘节流：10k 次 token 各写一次 journal 会把事件循环拖死。 */
+  private deltaTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private scheduleDeltaFlush() {
+    if (this.deltaTimer) return;
+    this.deltaTimer = setTimeout(() => {
+      this.deltaTimer = null;
+      this.persist();
+    }, 2000);
+    // 不让一个待写盘把进程钉住：进程退出时 journal 仍由下一次持久事件补齐。
+    this.deltaTimer.unref?.();
+  }
+
   private persist() {
+    if (this.deltaTimer) {
+      clearTimeout(this.deltaTimer);
+      this.deltaTimer = null;
+    }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     const handle = fs.openSync(tmp, 'w', 0o600);
@@ -206,8 +249,8 @@ export class AgentStore {
   appendRunEvent(event: TaskEventEnvelope): void {
     this.state.runEvents ??= [];
     this.state.runEvents.push(event);
-    if (this.state.runEvents.length > MAX_EVENTS) {
-      this.state.runEvents.splice(0, this.state.runEvents.length - MAX_EVENTS);
+    if (this.state.runEvents.length > MAX_RUN_EVENTS) {
+      this.state.runEvents.splice(0, this.state.runEvents.length - MAX_RUN_EVENTS);
     }
     this.persist();
   }
@@ -263,15 +306,44 @@ export class AgentStore {
         item.streamId === event.streamId
       );
       if (index >= 0) this.state.events[index] = event;
-      else {
-        this.state.events.push(event);
-        if (this.state.events.length > MAX_EVENTS) this.state.events.splice(0, this.state.events.length - MAX_EVENTS);
-      }
+      else this.state.events.push(event);
+      this.trimEvents();
+      // 不每条都落盘：2 秒最多一次。刷新只依赖内存，重启才需要它。
+      this.scheduleDeltaFlush();
       return;
     }
     this.state.events.push(event);
-    if (this.state.events.length > MAX_EVENTS) this.state.events.splice(0, this.state.events.length - MAX_EVENTS);
+    this.trimEvents();
     this.persist();
+  }
+
+  /**
+   * 每任务一个配额。超出时删该任务最老的非关键事件，关键事件不动。
+   * 只删到配额以内，不做全局一刀切——那正是多任务互相踩的原因。
+   */
+  private trimEvents() {
+    const groups = new Map<string, number[]>();
+    for (let index = 0; index < this.state.events.length; index += 1) {
+      const id = taskIdOfEvent(this.state.events[index]);
+      if (!id) continue;
+      const list = groups.get(id) ?? [];
+      list.push(index);
+      groups.set(id, list);
+    }
+    const drop = new Set<number>();
+    for (const indexes of groups.values()) {
+      if (indexes.length <= MAX_EVENTS_PER_TASK) continue;
+      let excess = indexes.length - MAX_EVENTS_PER_TASK;
+      // 从最老的开始删，关键事件跳过（它们是恢复的最小集）。
+      for (const index of indexes) {
+        if (excess === 0) break;
+        if (KEEP_FOREVER.has(this.state.events[index].type)) continue;
+        drop.add(index);
+        excess -= 1;
+      }
+    }
+    if (drop.size === 0) return;
+    this.state.events = this.state.events.filter((_, index) => !drop.has(index));
   }
 
   listEvents(taskId: string): AgentEvent[] {

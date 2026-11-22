@@ -1,6 +1,12 @@
 /** 工程任务视图投影：Renderer 只读这一份派生结果，不自行拼业务状态。 */
 import type { AgentEvent, PlanPreview } from './contracts';
-import { EMPTY_TASK_STREAM, reduceTaskStream, type TaskStreamState } from './task-stream';
+import {
+  EMPTY_TASK_STREAM,
+  reduceTaskMembers,
+  reduceTaskStream,
+  type TaskMemberStream,
+  type TaskStreamState
+} from './task-stream';
 import type { TaskEventEnvelope } from './task-events';
 
 export type TaskDiagnosticCard = {
@@ -17,6 +23,11 @@ export interface TaskView {
   answer: string;
   /** 流式进度：只含轮次和字符数，不展示 reasoning 原文。 */
   live: TaskStreamState;
+  /**
+   * V2.1：这一轮每个成员各自的输出。单成员任务时长度为 1 或 0
+   * （旧事件没有 participantId 时为空，界面退回 `live` 一路显示）。
+   */
+  members: TaskMemberStream[];
   review: {
     reviewer: string;
     backend: 'model' | 'rules';
@@ -45,6 +56,7 @@ export const EMPTY_TASK_VIEW: TaskView = {
   questions: [],
   answer: '',
   live: EMPTY_TASK_STREAM,
+  members: [],
   modelTrace: [],
   review: null,
   verification: null,
@@ -52,30 +64,37 @@ export const EMPTY_TASK_VIEW: TaskView = {
   changes: []
 };
 
+/**
+ * 单个事件落到视图上（增量路径）。
+ *
+ * 全量 `projectTaskView` 也走这一支：两处各写一遍「round.started 要清空什么」，
+ * 迟早会变成「刷新后和在线时显示不一样」。恢复与实时必须同源。
+ */
+export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView {
+  const live = reduceTaskStream(view.live, event);
+  const members = reduceTaskMembers(view.members, event);
+  if (event.type === 'round.started') {
+    return { ...view, live, members, questions: [], answer: '', plan: null };
+  }
+  if (event.type === 'plan.ready') return { ...view, live, members, plan: event.plan };
+  if (event.type === 'clarification.required') return { ...view, live, members, questions: event.questions };
+  if (event.type === 'round.answer') return { ...view, live, members, answer: event.text };
+  if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
+    return { ...view, live, members, questions: [] };
+  }
+  return { ...view, live, members };
+}
+
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {
-  let plan: PlanPreview | null = null;
-  let questions: string[] = [];
-  let answer = '';
-  let live: TaskStreamState = EMPTY_TASK_STREAM;
-  let review: TaskView['review'] = null;
-  let verification: TaskView['verification'] = null;
+  let view: TaskView = EMPTY_TASK_VIEW;
   const trace = new Map<string, { roundId: string; reasoning: string; text: string }>();
   const settledRounds = new Set<string>();
-  let diagnostics: TaskDiagnosticCard[] = [];
-  let changes: TaskView['changes'] = [];
 
   for (const event of events) {
-    if (event.type === 'round.started') {
-      questions = [];
-      answer = '';
-      plan = null;
+    view = applyTaskViewEvent(view, event);
+    if (event.type === 'plan.debated' && view.plan && view.plan.planId === event.planId) {
+      view = { ...view, plan: { ...view.plan, debate: event.debate } };
     }
-    if (event.type === 'plan.ready') plan = event.plan;
-    if (event.type === 'plan.debated' && plan && plan.planId === event.planId) {
-      plan = { ...plan, debate: event.debate };
-    }
-    if (event.type === 'clarification.required') questions = event.questions;
-    live = reduceTaskStream(live, event);
     if (event.type === 'round.delta' && event.roundId && !settledRounds.has(event.roundId)) {
       const entry = trace.get(event.roundId) ?? { roundId: event.roundId, reasoning: '', text: '' };
       const mode = event.mode ?? 'snapshot';
@@ -83,7 +102,7 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
       if (event.text) entry.text = mode === 'delta' ? entry.text + event.text : event.text;
       trace.set(event.roundId, entry);
     }
-    if (event.type === 'round.answer') { answer = event.text; settledRounds.add(event.roundId); }
+    if (event.type === 'round.answer') settledRounds.add(event.roundId);
     if (event.type === 'report.ready') {
       const report = event.report as {
         verification?: {
@@ -94,8 +113,8 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
         };
         results?: Array<{ result?: { path?: string; before?: string; after?: string; patch?: string; diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
       };
-      verification = report.verification ?? null;
-      changes = (report.results ?? [])
+      const verification = report.verification ?? null;
+      const changes = (report.results ?? [])
         .map((item): TaskView['changes'][number] | null => {
           const result = item.result;
           if (!result?.path) return null;
@@ -106,7 +125,7 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
           return null;
         })
         .filter((item): item is TaskView['changes'][number] => item !== null);
-      diagnostics = (report.results ?? [])
+      const diagnostics = (report.results ?? [])
         .map(item => item.result?.diagnostics)
         .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
         .map(item => ({
@@ -120,22 +139,23 @@ export function projectTaskView(events: readonly AgentEvent[]): TaskView {
             message: String(issue.message ?? '')
           }))
         }));
+      view = { ...view, verification, changes, diagnostics };
     }
     if (event.type === 'review.ready') {
-      review = {
-        reviewer: event.reviewer,
-        backend: event.backend,
-        verdict: event.verdict,
-        issues: event.issues,
-        needsFix: event.needsFix
+      view = {
+        ...view,
+        review: {
+          reviewer: event.reviewer,
+          backend: event.backend,
+          verdict: event.verdict,
+          issues: event.issues,
+          needsFix: event.needsFix
+        }
       };
-    }
-    if (event.type === 'task.completed' || event.type === 'task.failed' || event.type === 'task.cancelled') {
-      questions = [];
     }
   }
 
-  return { plan, questions, answer, live, modelTrace: [...trace.values()], review, verification, diagnostics, changes };
+  return { ...view, modelTrace: [...trace.values()] };
 }
 
 

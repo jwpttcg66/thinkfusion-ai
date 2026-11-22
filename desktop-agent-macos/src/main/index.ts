@@ -133,6 +133,8 @@ import {
   runCliAnswer,
   CLI_ANSWER_TIMEOUT_MS
 } from './execution/cli-answer-agent';
+import { SubAgentPlanningAdapter } from './execution/subagent-planning-adapter';
+import type { PlannerMember } from './orchestrator';
 import {
   commitTaskWorktree,
   configureTaskWorktrees,
@@ -4977,6 +4979,82 @@ app.whenReady().then(async () => {
     return available.find(agent => agent.sourceType === 'cloud') ?? available.find(agent => agent.sourceType === 'local') ?? null;
   }
 
+  /**
+   * 这一轮除主导外还问谁（V2.1 多模型独立输出）。
+   *
+   * 三条硬边界：
+   * 1. 网页主导不问模型——「网页主导就完全使用网页」是用户裁决过的归属规则，
+   *    旁听也不能把它绕过去；
+   * 2. 本地档只加本地，云端档只加云端 + CLI（CLI 属云端一类），混合档才全上；
+   * 3. 只编入此刻真的可用的成员，且最多 3 个旁听。把没配 Key 的模型全编进来
+   *    只会得到一排失败卡片；探活超过 3 秒没回的也不等，按不可用处理。
+   *
+   * 网页通道不作为旁听：同一张页面既当主导又当旁听会把两次提问搅进一条会话，
+   * 这个问题在页面驱动那一层无解，只能从编排名单里排除。
+   */
+  async function parallelPlannerPeers(input: {
+    mode: ConversationExecutionConfig['executionMode'] | undefined;
+    config: ConversationExecutionConfig;
+    leadId: string;
+  }): Promise<PlannerMember[]> {
+    const mode = input.mode ?? 'web';
+    if (mode === 'web') return [];
+    const selection = selectParticipants(input.config, registry.list(), extraAgents, cliAnswerAgents);
+    const allowed = (kind: 'local' | 'cloud' | 'cli'): boolean =>
+      mode === 'local'
+        ? kind === 'local'
+        : mode === 'cloud'
+          ? kind === 'cloud' || kind === 'cli'
+          : true;
+
+    type Candidate = {
+      id: string;
+      label: string;
+      kind: 'local' | 'cloud' | 'cli';
+      health: () => Promise<{ available: boolean }>;
+      adapter: () => PlannerMember['adapter'];
+    };
+    const candidates: Candidate[] = [];
+    for (const agent of extraAgents) {
+      if (agent.id === input.leadId || !selection.executorIds.has(agent.id)) continue;
+      const kind = agent.sourceType === 'local' ? 'local' : 'cloud';
+      if (!allowed(kind)) continue;
+      candidates.push({
+        id: agent.id,
+        label: agent.label,
+        kind,
+        health: () => agent.health(),
+        adapter: () => new ProviderPlanningAdapter(agent)
+      });
+    }
+    for (const agent of cliAnswerAgents) {
+      if (agent.id === input.leadId || !selection.executorIds.has(agent.id)) continue;
+      if (!allowed('cli')) continue;
+      candidates.push({
+        id: agent.id,
+        label: agent.label,
+        kind: 'cli',
+        health: () => agent.health(),
+        adapter: () => new SubAgentPlanningAdapter(agent)
+      });
+    }
+    if (candidates.length === 0) return [];
+
+    const usable = await Promise.all(
+      candidates.slice(0, 6).map(async candidate => {
+        const available = await Promise.race([
+          candidate.health().then(status => status.available).catch(() => false),
+          new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000))
+        ]);
+        return available ? candidate : null;
+      })
+    );
+    return usable
+      .filter((candidate): candidate is Candidate => candidate !== null)
+      .slice(0, 3)
+      .map(candidate => ({ id: candidate.id, label: candidate.label, adapter: candidate.adapter() }));
+  }
+
   orchestrator = new AgentOrchestrator({
     tasks,
     store,
@@ -5444,11 +5522,33 @@ app.whenReady().then(async () => {
       } else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
         throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
       }
-      const debateAgentIds = planner
-        ? [planner.id]
-        : input.selectedCloudModels && input.selectedCloudModels.length > 0
-          ? input.selectedCloudModels
-          : undefined;
+      // 主导之后，再按这一轮的配置挑并行旁听成员。旁听失败不影响主导，
+      // 但它们的回答必须真的被问过——所以名单在这里定，不在界面拼。
+      const executionConfig =
+        input.executionConfig ??
+        normalizeExecutionConfig({
+          ...(input.executionMode ? { executionMode: input.executionMode } : {}),
+          ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {}),
+          ...(input.plannerAgentId ? { leadAgentId: input.plannerAgentId } : {})
+        });
+      const leadAdapter = planningOverride ?? planningAdapter();
+      const leadId = planner?.id ?? planningChannelId();
+      const peers = await parallelPlannerPeers({
+        mode: executionConfig.executionMode,
+        config: executionConfig,
+        leadId
+      });
+      const members: PlannerMember[] = [
+        { id: planner?.id ?? `web:${leadId}`, label: leadAdapter.siteLabel, adapter: leadAdapter },
+        ...peers
+      ];
+      const debateAgentIds = members.length > 1
+        ? members.map(member => member.id)
+        : planner
+          ? [planner.id]
+          : input.selectedCloudModels && input.selectedCloudModels.length > 0
+            ? input.selectedCloudModels
+            : undefined;
       try {
         return await orchestrator.submit({
           prompt: input.prompt,
@@ -5458,7 +5558,8 @@ app.whenReady().then(async () => {
           expertise: input.expertise,
           ...(debateAgentIds ? { debateAgentIds } : {}),
           ...(input.collaborationPlan ? { collaborationPlan: input.collaborationPlan } : {}),
-          ...(planningOverride ? { planningAdapter: planningOverride } : {})
+          ...(planningOverride ? { planningAdapter: planningOverride } : {}),
+          ...(members.length > 1 ? { planners: members } : {})
         });
       } finally {
         planningOverride = null;
