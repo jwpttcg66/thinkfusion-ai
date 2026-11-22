@@ -2555,8 +2555,8 @@ export default function App() {
                 )}
                 {activeTask.status === 'report_pending' && (
                   <p className="muted">
-                    任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没自动收尾。
-                    也可以在输入框追问一句补跑检查。
+                    任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
+                    上面两个按钮二选一；想让它真的补跑检查，就在输入框重新提一句（会作为新任务）。
                   </p>
                 )}
                 {derived.verification.changedFiles > 0 && activeTask && (
