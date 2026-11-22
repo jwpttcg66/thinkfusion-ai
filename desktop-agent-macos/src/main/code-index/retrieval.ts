@@ -52,7 +52,16 @@ export function retrieve(
   store: CodeIndexStore,
   projectId: string,
   query: string,
-  options: { mode?: KnowledgeMode; limit?: number } = {}
+  options: {
+    mode?: KnowledgeMode;
+    limit?: number;
+    /**
+     * MEMORY 分支的数据源。传了就用它（`[]` 表示新库确实没有记忆，不回落旧表）；
+     * 不传时仍读旧表——保留给迁移前的纯函数单测，业务路径一律由
+     * `CodeIndexService` 注入新库结果。
+     */
+    memoryFacts?: readonly MemoryFact[];
+  } = {}
 ): RetrievalResult {
   const mode = routeMode(query, options.mode);
   const limit = Math.min(Math.max(options.limit ?? 12, 1), 50);
@@ -93,7 +102,7 @@ export function retrieve(
   }
 
   if (mode === 'MEMORY' || mode === 'HYBRID') {
-    const facts = store.searchMemory(projectId, query, limit);
+    const facts = options.memoryFacts ?? store.searchMemory(projectId, query, limit);
     sources.memory = facts.length > 0;
     for (const fact of facts) {
       items.push(memoryItem(fact));

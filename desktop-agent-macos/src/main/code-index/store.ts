@@ -1190,6 +1190,14 @@ export class CodeIndexStore {
 
   // --- memory -------------------------------------------------------------
 
+  /**
+   * @deprecated 旧表写入，**业务路径已不再调用**。
+   *
+   * `CodeIndexService.remember()` 自 M3 起路由到 `memory.sqlite`；这里只剩两处
+   * 合法用途：迁移前的旧单测（`retrieval.remember` 的纯函数测试）与历史数据回填。
+   * 不要再从 IPC / UI 直接调它——那会让 `code_memory_facts` 重新长出数据，
+   * 又变回两套写入。
+   */
   upsertMemory(fact: MemoryFact): void {
     this.db.prepare(`
       INSERT INTO code_memory_facts

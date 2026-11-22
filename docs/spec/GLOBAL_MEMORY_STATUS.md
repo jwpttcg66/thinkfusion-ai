@@ -42,7 +42,7 @@
 | 设置页面板（状态 / 开关 / 候选 / 记录 / 冲突 / 审计 / 导出） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryPanel.tsx`，typecheck 通过，未做真机点击 |
 | 对话页注入卡（命中/跳过/失败 + 三哈希） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryTraceCard.tsx`，同上 |
 | **Debate 入口注入** | ✅ | ✅ | ❌ | ❌ | 见下方未完成项 1 |
-| **`code-index:remember` 写入路由切换** | ✅ | ❌ | ❌ | ❌ | 见下方未完成项 2 |
+| `code-index:remember` 写入路由切换（M3） | ✅ | ✅ | ✅ | ✅ | `code-index/memory-adapter.ts`、`check-memory-codeindex-route.mjs` 8 条（R1–R8） |
 | 真机 CDP 端到端留档 | ✅ | — | — | ❌ | 见下方未完成项 3 |
 
 ---
@@ -56,7 +56,7 @@
 |---|---|---|---|
 | **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
 | **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ❌ | `GLOBAL_MEMORY_M2_ACCEPTANCE.md` |
-| **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ❌ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md` |
+| **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ✅ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`（已实施，见 §1 矩阵与 R1–R8） |
 | **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ❌ | 待建（M3 之后） |
 | **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入（MemoryStore / 旧表 / Debate 缓存）收敛为一套 | ❌ | M2–M4 收口后 |
 
@@ -99,13 +99,21 @@
 - **验收要点**：设置页 S1–S14、对话页 D1–D6、降级场景；每项必须有「点击 + 读回状态 + 截图」三样证据，只截图不算通过；证据存 `docs/spec/evidence/M2/`。
 - **风险**：会写真实 `userData/memory.sqlite`，任务书 §6 要求按 `M2 ` 前缀精确清理并回读确认。
 
-### 2. `code-index:remember` 写入路由切换（M3，未做）
+### 2. `code-index:remember` 写入路由切换（M3，已完成）
 
-- **现状**：`code-index:remember` 仍写 `code_memory_facts`；新库只读迁移过来的历史，
-  `CodeIndexPanel` 的新写入召回不到。
-- **任务书**：`docs/spec/GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`
-- **验收要点**：IPC 路由切到 `MemoryService`；`MemoryFact` 视图映射集中在一处；旧表零新增（R1）；
-  新写入可跨会话召回（R2）；`check-code-index.mjs` 的 122 条断言一条都不许删。
+- **结果**：`CodeIndexService.remember / memory / memories / summary / retrieve` 全部改读
+  `memory.sqlite`；映射只走 `code-index/memory-adapter.ts`；旧表 `upsertMemory` 标 `@deprecated`，
+  业务路径不再调用。
+- **验证**：`check-memory-codeindex-route.mjs` 8 条（R1 旧表零新增 / R2 跨会话召回 / R3 kind 双向
+  映射 / R4 sourceRefs 顺序 / R5 迁移链接可解析 / R6 删工程不删新库记忆 / R7 关闭记忆明确报错 /
+  R8 检索与 summary 计数走新库），`check-code-index.mjs` 23 条。
+- **改造中的两个真实坑**（已写进代码注释）：
+  1. 惰性 `MemoryService` 最初按**目录**命名 `memory.sqlite`，同目录多个索引库会共用一份记忆 →
+     改为按 db 文件名派生 `${dbFile}.memory.sqlite`。
+  2. `store.count()` 不含 memory，切换后 `summary.memory` 恒为 0（界面会以为没有记忆）→
+     改为以新库计数覆盖。
+- **仍保留**：`retrieval.remember()` 纯函数用于迁移前旧表单测；`code_memory_link` 不搬表，
+  由 `MemoryStore.linksForMemory()` 只读解析。
 
 ### 3. Debate 入口注入（M4，未接线）
 

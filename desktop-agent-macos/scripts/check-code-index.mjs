@@ -418,7 +418,14 @@ test('deleteProject：本地索引/记忆/关联/向量一起清理', async () =
     assert.equal(after.nodes, 0);
     assert.equal(after.files, 0);
     assert.equal(after.vectors, 0);
-    assert.equal((await service.memories(path.join(root, 'src'))).length, 0);
+    // M3 起记忆写在独立库：删工程索引会把旧表 `code_memory_facts` 一起清掉，
+    // 但**不能**删掉 `memory.sqlite` 里的 PROJECT 记忆（P1 DoD：删工程索引后
+    // 项目记忆仍在）。所以这里断言「旧表 0 条、记忆库仍 1 条」，不是都归零。
+    const legacyDb = new DatabaseSync(path.join(root, 'delete.sqlite'));
+    const legacyMemories = Number(legacyDb.prepare('SELECT COUNT(*) AS n FROM code_memory_facts').get().n);
+    legacyDb.close();
+    assert.equal(legacyMemories, 0, '旧表记忆随工程索引一起清理');
+    assert.equal((await service.memories(path.join(root, 'src'))).length, 1, '记忆库的 PROJECT 记忆不因删索引消失');
   } finally {
     service.close();
   }

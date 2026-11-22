@@ -5868,6 +5868,9 @@ app.whenReady().then(async () => {
     });
   }
   codeIndexService = new CodeIndexService(path.join(app.getPath('userData'), 'code-index.sqlite'), {
+    // 必须传同一个记忆单例：让 CodeIndexPanel 的写入进 memory.sqlite，
+    // 而不是各建一个 MemoryService（两份 settings 会互相覆盖）。
+    ...(memoryService ? { memory: memoryService } : {}),
     embedder: {
       embed: async texts => {
         if (!embeddingService) throw new Error('EMBEDDING_UNAVAILABLE：embedding 未初始化');

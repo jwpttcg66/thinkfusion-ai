@@ -18,14 +18,15 @@ import { DEFAULT_MAX_FILES, indexProject, scanSourceFilesDetailed, type IndexPro
 import {
   assembleContext,
   linkSymbolToMemory,
-  remember,
   retrieve,
   routeMode,
   type KnowledgeMode,
   type LinkInput,
   type RememberInput
 } from './retrieval';
-import type { RetrievalItem, RetrievalResult } from './types';
+import type { MemoryFact, RetrievalItem, RetrievalResult } from './types';
+import { MemoryService } from '../memory/service';
+import { factInputToRecordInput, memoryRecordToFact } from './memory-adapter';
 import type { CgcAdapter, GraphitiAdapter } from './external';
 
 // projectId 的算法只允许有一个实现：记忆库的 scopeId 与代码索引的 projectId
@@ -52,6 +53,8 @@ export interface CodeIndexSummary {
   edges: number;
   docs: number;
   vectors: number;
+  /** PROJECT 范围的记忆条数（以 `memory.sqlite` 为准；旧表切换后恒为 0）。 */
+  memory?: number;
 }
 
 export interface CodeIndexEmbedder {
@@ -63,10 +66,20 @@ export interface CodeIndexServiceDeps {
   embedder?: CodeIndexEmbedder;
   /** 可选：CGC / Graphiti 的外部只读 Adapter；失败只降级。 */
   external?: { cgc?: CgcAdapter; graphiti?: GraphitiAdapter };
+  /**
+   * 全局记忆服务（主进程单例）。
+   *
+   * 不传时按同目录 `memory.sqlite` 惰性建一个，仅用于测试/独立使用；
+   * 主进程必须传同一个单例，否则两个实例会各自持有一份 settings 并互相覆盖。
+   */
+  memory?: MemoryService;
 }
 
 export class CodeIndexService {
   private readonly store: CodeIndexStore;
+  private readonly memoryService: MemoryService;
+  /** 自己建的才由自己关；主进程传进来的单例由主进程关。 */
+  private readonly ownsMemory: boolean;
   private readonly indexing = new Map<string, Promise<IndexProjectResult>>();
   private readonly watchers = new Map<string, { watcher: FSWatcher; timer: NodeJS.Timeout | null }>();
 
@@ -75,6 +88,21 @@ export class CodeIndexService {
   constructor(dbFile: string, private readonly deps: CodeIndexServiceDeps = {}) {
     this.store = new CodeIndexStore(dbFile);
     this.external = deps.external;
+    if (deps.memory) {
+      this.memoryService = deps.memory;
+      this.ownsMemory = false;
+    } else {
+      // 独立使用（测试 / 单模块脚本）：同目录建一个，legacy 指向本索引库，
+      // 迁移逻辑会顺手把旧 `code_memory_facts` 搬进来。
+      // 按 db 文件名派生命中，不按目录：同目录可能有多个索引库（测试里就是），
+      // 共用一份 `memory.sqlite` 会让它们互相看见对方的记忆。
+      this.memoryService = new MemoryService({
+        file: `${dbFile}.memory.sqlite`,
+        legacyFile: dbFile,
+        settingsFile: `${dbFile}.memory-settings.json`
+      });
+      this.ownsMemory = true;
+    }
   }
 
   /** 设置页切换外部服务后热更新，不需要重启应用。 */
@@ -89,6 +117,7 @@ export class CodeIndexService {
     }
     this.watchers.clear();
     this.store.close();
+    if (this.ownsMemory) this.memoryService.close();
   }
 
   /** 文件变化后自动重建索引；只监听源码扩展名，忽略 node_modules/out/.git。 */
@@ -181,6 +210,9 @@ export class CodeIndexService {
       projectId,
       generation: this.store.currentGeneration(projectId),
       ...counts,
+      // 旧表的 memory 计数在切换后恒为 0（不再写入），界面会以为「没有记忆」。
+      // 记忆数以新库为准，这是 M3 里最容易漏的一处。
+      memory: this.memoryService.listRecords({ scope: 'PROJECT', scopeId: projectId, limit: 1000 }).length,
       vectors: this.store.countVectors(projectId)
     };
   }
@@ -237,7 +269,11 @@ export class CodeIndexService {
     const root = await fs.realpath(rootInput);
     await this.ensureFresh(root);
     const projectId = projectIdFor(root);
-    const result = retrieve(this.store, projectId, query, options);
+    // MEMORY 分支的数据源换成新库；`retrieval.ts` 仍是纯函数，不 import 记忆服务。
+    const result = retrieve(this.store, projectId, query, {
+      ...options,
+      memoryFacts: this.factsFor(projectId, query, Math.min(Math.max(options.limit ?? 12, 1), 50))
+    });
     const mode = routeMode(query, options.mode);
     if ((options.mode === undefined || options.mode === 'CODE' || options.mode === 'HYBRID') &&
         this.deps.embedder && this.store.countVectors(projectId) > 0) {
@@ -363,9 +399,46 @@ export class CodeIndexService {
     };
   }
 
-  async remember(rootInput: string, input: Omit<RememberInput, 'projectId'>): Promise<ReturnType<typeof remember>> {
+  /**
+   * 写记忆：路由到全局记忆库（`memory.sqlite`），**不再写** `code_memory_facts`。
+   *
+   * 返回形状仍是旧的 `MemoryFact`，所以 `CodeIndexPanel` 不用改；映射集中在
+   * `memory-adapter.ts` 一处。记忆关闭时明确报错，不静默回落旧表——
+   * 回落等于又变回两套写入。
+   */
+  async remember(rootInput: string, input: Omit<RememberInput, 'projectId'>): Promise<MemoryFact> {
     const root = await fs.realpath(rootInput);
-    return remember(this.store, { ...input, projectId: projectIdFor(root) });
+    const projectId = projectIdFor(root);
+    const recordInput = factInputToRecordInput({
+      kind: input.kind,
+      title: input.title,
+      content: input.content,
+      source: input.source,
+      ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.confidence === undefined ? {} : { confidence: input.confidence }),
+      ...(input.validFrom === undefined ? {} : { validFrom: input.validFrom }),
+      ...(input.validTo === undefined ? {} : { validTo: input.validTo })
+    });
+    const record = this.memoryService.remember({
+      ...recordInput,
+      scope: 'PROJECT',
+      scopeId: projectId,
+      projectRoot: root
+    });
+    if (!record) throw new Error('记忆已关闭或记忆库不可用：去「设置 · 全局记忆」里打开');
+    return memoryRecordToFact(record);
+  }
+
+  /** 新库的 PROJECT 记忆 → 旧视图；`contains` 走结构化筛选，不用 LIKE。 */
+  private factsFor(projectId: string, query: string | undefined, limit: number): MemoryFact[] {
+    const records = this.memoryService.listRecords({
+      scope: 'PROJECT',
+      scopeId: projectId,
+      ...(query && query.trim() ? { contains: query.trim() } : {}),
+      limit
+    });
+    return records.map(memoryRecordToFact);
   }
 
   async link(rootInput: string, input: Omit<LinkInput, 'projectId'>): Promise<ReturnType<typeof linkSymbolToMemory>> {
@@ -398,14 +471,14 @@ export class CodeIndexService {
     return { local, external, warnings };
   }
 
-  async memory(rootInput: string, query: string, limit = 20): Promise<ReturnType<CodeIndexStore['searchMemory']>> {
+  async memory(rootInput: string, query: string, limit = 20): Promise<MemoryFact[]> {
     const root = await fs.realpath(rootInput);
-    return this.store.searchMemory(projectIdFor(root), query, limit);
+    return this.factsFor(projectIdFor(root), query, limit);
   }
 
-  async memories(rootInput: string, limit = 50): Promise<ReturnType<CodeIndexStore['listMemory']>> {
+  async memories(rootInput: string, limit = 50): Promise<MemoryFact[]> {
     const root = await fs.realpath(rootInput);
-    return this.store.listMemory(projectIdFor(root), undefined, limit);
+    return this.factsFor(projectIdFor(root), undefined, limit);
   }
 
   async linkMemory(
