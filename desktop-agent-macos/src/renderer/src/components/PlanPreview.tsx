@@ -149,7 +149,15 @@ export function PlanPreview(props: {
             <span className="muted">
               {props.plan.debate.status === 'skipped'
                 ? '未辩论'
-                : `${props.plan.debate.status === 'completed' ? '已辩完' : '没辩成（成员超时或忙碌）'}${props.plan.debate.participants.length > 0 ? ` · ${props.plan.debate.participants.join('、')}` : ''}`}
+                : [
+                    props.plan.debate.status === 'completed' ? '已辩完' : '没辩成（成员超时或忙碌）',
+                    // 只有一个成员时是自辩：同一成员分饰质疑与修正，不是多方独立意见，
+                    // 必须写出来，否则读的人会以为这份计划被交叉审过。
+                    props.plan.debate.participants.length === 1 ? '单模型自辩' : null,
+                    props.plan.debate.participants.length > 0 ? props.plan.debate.participants.join('、') : null
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
             </span>
           </div>
           {props.plan.debate.skippedReason && (
