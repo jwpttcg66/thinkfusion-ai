@@ -417,15 +417,23 @@ export function buildTaskConversation(
   if (live && live.roundId && (live.text || live.reasoning)) {
     const settled = ordered.some(event => event.type === 'round.answer' && event.roundId === live.roundId);
     if (!settled) {
-      const key = `${live.roundId}::lead`;
-      const existing = members.get(key);
-      upsertMember(live.roundId, 'lead', {
-        label: existing?.label ?? live.modelId ?? live.providerId ?? '本轮主导模型',
+      // 主导的 participantId 带 provider 前缀（如 `lead:OpenCode Go · deepseek-v4.1-flash`），
+      // 不能硬编码 'lead' 另起一张卡——否则同一模型在界面上出现两张「输出中」。
+      // 先找这一轮已经由 round.peer/delta 建好的流式成员，把 live 并进那一张。
+      const prefix = `${live.roundId}::`;
+      const liveAcc = [...members.values()].find(
+        acc => acc.roundId === live.roundId && acc.status === 'streaming'
+      ) ?? [...members.values()].find(acc => acc.key.startsWith(prefix) && acc.status !== 'completed');
+      const memberId = liveAcc?.memberId ?? 'lead';
+      upsertMember(live.roundId, memberId, {
+        label: liveAcc?.label ?? live.modelId ?? live.providerId ?? '本轮主导模型',
         status: 'streaming',
-        text: existing?.text || live.text,
-        reasoning: existing?.reasoning || live.reasoning,
-        reasoningSupported: existing?.reasoningSupported === true || Boolean(live.reasoning),
-        startedAt: existing?.startedAt ?? lastAt
+        // live 是 TaskStreamState 的累积快照（含这一刻已出的全部文本），以它为准；
+        // 没有 live 内容时才退回事件卡的文本，避免把更全的快照丢掉。
+        text: live.text || liveAcc?.text || '',
+        reasoning: live.reasoning || liveAcc?.reasoning || '',
+        reasoningSupported: liveAcc?.reasoningSupported === true || Boolean(live.reasoning),
+        startedAt: liveAcc?.startedAt ?? lastAt
       });
     }
   }

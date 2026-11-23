@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -107,4 +107,29 @@ test('超过 8MB 的读取明确报上限并提示改用搜索', async () => {
     () => filesystemTools.readFile(grant, { path: 'huge.txt' }),
     /超过读取上限.*fs\.search/
   );
+});
+
+// 重跑同一任务：文件已在盘上，内容一模一样应幂等放行，否则整个工程任务卡在 EEXIST。
+const writeGrant = {
+  ...grant,
+  permissionPreset: 'danger-full-access',
+  allowedTools: ['fs.writeFile', 'fs.readFile']
+};
+
+test('fs.writeFile 重跑同内容幂等成功，不卡 EEXIST', async () => {
+  const result = await filesystemTools.writeFile(writeGrant, { path: 'idem.txt', content: 'hello jwp\n' });
+  assert.equal(result.created, true);
+  const again = await filesystemTools.writeFile(writeGrant, { path: 'idem.txt', content: 'hello jwp\n' });
+  assert.equal(again.created, false);
+  assert.equal(again.unchanged, true);
+  assert.equal(readFileSync(join(root, 'idem.txt'), 'utf8'), 'hello jwp\n');
+});
+
+test('fs.writeFile 目标已存在但内容不同仍拒绝，绝不覆盖别人的改动', async () => {
+  writeFileSync(join(root, 'conflict.txt'), 'original\n');
+  await assert.rejects(
+    () => filesystemTools.writeFile(writeGrant, { path: 'conflict.txt', content: 'different\n' }),
+    /EEXIST/
+  );
+  assert.equal(readFileSync(join(root, 'conflict.txt'), 'utf8'), 'original\n');
 });

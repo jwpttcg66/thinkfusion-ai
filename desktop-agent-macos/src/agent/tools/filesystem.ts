@@ -118,7 +118,20 @@ export const filesystemTools = {
     }
     const finalPath = path.join(parent, path.basename(target));
     const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
-    const handle = await fs.open(finalPath, flags, 0o600);
+    let handle;
+    try {
+      handle = await fs.open(finalPath, flags, 0o600);
+    } catch (error) {
+      // 重跑同一任务时文件已在盘上：内容字节完全一致就是「这条写已经做成过」，
+      // 幂等放行，避免整个工程任务卡在 EEXIST 反复重试永远完成不了。
+      // 内容不同则照旧拒绝——防止拿旧版本盖掉别人刚改的东西，真要改走 overwriteFile + sha256。
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const existing = await fs.lstat(finalPath).catch(() => null);
+      if (!existing || !existing.isFile() || existing.isSymbolicLink()) throw error;
+      const current = await fs.readFile(finalPath, { encoding: 'utf8' });
+      if (current !== args.content) throw error;
+      return { created: false, path: finalPath, bytes: existing.size, unchanged: true };
+    }
     try {
       await handle.writeFile(args.content, { encoding: 'utf8' });
       await handle.sync();

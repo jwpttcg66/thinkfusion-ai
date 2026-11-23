@@ -23,6 +23,24 @@ function peer(at, roundId, memberId, label, status, extra = {}) {
   return { type: 'round.peer', at, taskId: task, roundId, memberId, label, status, ...extra };
 }
 
+test('流式 live 并进已有的主导卡，不再另起一张 lead 卡', () => {
+  const leadId = 'lead:OpenCode Go · deepseek-v4.1-flash';
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'execution_report'),
+    peer(1100, 'r1', leadId, 'OpenCode Go · deepseek-v4.1-flash', 'started'),
+    { type: 'round.delta', at: 1200, taskId: task, roundId: 'r1', participantId: leadId, streamId: 's1', text: '半句', modelId: 'deepseek-v4.1-flash' }
+  ], {
+    live: { roundId: 'r1', text: '半句续', reasoning: '想', providerId: 'OpenCode Go', modelId: 'deepseek-v4.1-flash' }
+  });
+
+  const members = entries.filter(entry => entry.kind === 'member');
+  // 修复前：一张 leadId 卡 + 一张硬编码 lead 卡 = 两张；修复后只一张并合并文本。
+  assert.equal(members.length, 1);
+  assert.equal(members[0].memberId, leadId);
+  assert.equal(members[0].text, '半句续');
+  assert.equal(members[0].status, 'streaming');
+});
+
 test('两轮同名成员各留一条：第 2 轮不覆盖第 1 轮', () => {
   const entries = buildTaskConversation([
     roundStart(1000, 'r1', 1, 'user_prompt'),
