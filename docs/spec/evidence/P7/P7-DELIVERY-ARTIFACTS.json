@@ -1,0 +1,35 @@
+{
+  "steps": [
+    {
+      "name": "task terminal",
+      "ok": true,
+      "status": "completed"
+    },
+    {
+      "name": "dom conclusion",
+      "ok": true
+    },
+    {
+      "name": "dom delivery",
+      "ok": true
+    },
+    {
+      "name": "dom changes",
+      "ok": true
+    },
+    {
+      "name": "dom artifacts",
+      "ok": true
+    }
+  ],
+  "cleanup": {
+    "after": {
+      "conversations": 0,
+      "tasks": 0
+    }
+  },
+  "dom": {
+    "delivery": "最终交付\n已完成\n\n只汇总真实执行报告与评审，不把模型回答直接当完成。\n\n改动文件（1）\n/Users/yalla/Downloads/java-artifact-demo/Main.java · 新建 · 114 字节\n工程产物（1）\n/Users/yalla/Downloads/java-artifact-demo/Main.class · shell.run\n\n验证：通过 · 编译 通过 · 运行 通过（hello jwp） · 测试 未执行 · 诊断 未执行\n\n独立评审：通过",
+    "conclusion": "结论\n13:46:03\n\n任务完成\n\n执行 5 步，完成 5 步\n验证通过\n改动 1 个文件\n工程产物 1 个\n独立评审：通过"
+  }
+}

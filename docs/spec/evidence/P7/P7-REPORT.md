@@ -152,3 +152,26 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 - 测试数据当场删净（含第一次脚本因未刷新 taskId 遗留的那条），store 回到 1 任务 /
   2 会话 / 10 消息 / 62 事件；无残留 dev / Electron 进程。
 - `npm run verify` **492/492**（新增 `test:ui-progress` 3 条）。
+
+### 6.7 交付清单补齐：文件改动与工程产物（2026-11-23 傍晚）
+
+用户指出「任务做完后应该有文件改动、工程产物保存，最后都没有」。真因在投影层：
+`reportView()` 只认带 `before/after` 或 `patch` 的改动，而 `fs.writeFile` 实际只回
+`{path, created, replaced, bytes}`；`verification.changedPaths` 和编译命令 stdout 里的
+`.class/.jar` 也没进视图。于是结论说「改动 1 个文件」，交付卡里却一个路径都没有。
+
+修复：
+- `TaskView.changes` 允许「只有路径+字节」的改动项；从 `fs.writeFile` 结果和
+  `verification.changedPaths` 双向补齐，按路径去重。
+- 新增 `TaskView.artifacts`：从 `shell.run` 的真实 stdout/stderr 与编译检查输出里
+  解析 `.class/.jar/.so/...` 产物，相对路径补 `cwd`，绝对路径/相对路径去重。
+- 结论卡增加「工程产物 N 个」事实；交付卡与输出页分别列出改动文件（新建/覆盖/字节）
+  和工程产物；「最终交付」卡的出现条件同步包含产物。
+- `conversation.updated` 一挂上 `taskId` 就选中任务并补读历史事件，避免事件被
+  `activeRef` 过滤导致报告/结论/交付卡整块不出现。
+
+真机 CDP 复验（`P7-DELIVERY-ARTIFACTS.json` + `p7-12-delivery-files-and-artifacts.png`）：
+任务 `completed`，结论「执行 5 步 / 验证通过 / 改动 1 个文件 / 工程产物 1 个 /
+独立评审：通过」；交付卡列出 `java-artifact-demo/Main.java`（新建 114 字节）与
+`java-artifact-demo/Main.class`（shell.run），验证编译/运行均通过。
+`npm run verify` **495/495**（新增 `test:delivery-artifacts` 3 条）。会话与任务数据当场删净。

@@ -693,6 +693,21 @@ export default function App() {
           event.conversation,
           ...prev.filter(item => item.conversationId !== event.conversation.conversationId && item.conversationId !== pendingId)
         ]);
+        // 任务号是 Planner 转交后才写回会话的，IPC 返回时往往还是 null。
+        // 不等用户手点侧栏：会话一挂上任务就选中并补读历史事件，否则
+        // activeRef 还是 null，后续报告/评审/完成事件全被过滤掉，交付卡永远不出现。
+        const attachedTaskId = event.conversation.taskId;
+        if (
+          attachedTaskId &&
+          activeConversationRef.current === event.conversation.conversationId &&
+          activeRef.current !== attachedTaskId
+        ) {
+          setActiveId(attachedTaskId);
+          void window.agentAPI.getTaskEvents(attachedTaskId).then(history => {
+            setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
+            setDerived(projectTaskView(history));
+          }).catch(() => undefined);
+        }
         return;
       }
       if (event.type === 'conversation.deleted') {
@@ -2303,7 +2318,7 @@ export default function App() {
                   awaitingAnswer={awaitingAnswer}
                   // 和下面「最终交付」卡的渲染条件是同一个表达式：进度卡不能承诺
                   // 一块没渲染出来的区域。
-                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0)}
+                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0)}
                 />
                 {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
                     每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
@@ -2659,20 +2674,26 @@ export default function App() {
                     <summary>{item.path}</summary>
                     {item.patch ? (
                       <pre className="md-code">{item.patch}</pre>
-                    ) : (
+                    ) : item.before !== undefined && item.after !== undefined ? (
                       <>
                         <p className="muted">改之前</p>
                         <pre className="md-code">{item.before}</pre>
                         <p className="muted">改之后</p>
                         <pre className="md-code">{item.after}</pre>
                       </>
+                    ) : (
+                      // fs.writeFile 只回路径和字节，没有 before/after 原文：照实写，
+                      // 不能因为拿不到 diff 就把这次真实改动整个丢掉。
+                      <p className="muted">
+                        {item.created ? '新建' : item.replaced ? '覆盖' : '改动'} · {typeof item.bytes === 'number' ? `${String(item.bytes)} 字节` : '大小未记录'}
+                      </p>
                     )}
                   </details>
                 ))}
               </section>
             )}
 
-            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (derived.verification || derived.review || derived.changes.length > 0) && (
+            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
                   <h2>最终交付</h2>
@@ -2682,7 +2703,28 @@ export default function App() {
                 {derived.changes.length > 0 && (
                   <>
                     <h5>改动文件（{derived.changes.length}）</h5>
-                    <ul>{derived.changes.slice(0, 40).map(change => <li key={change.path}><code>{change.path}</code></li>)}</ul>
+                    <ul>
+                      {derived.changes.slice(0, 40).map(change => (
+                        <li key={change.path}>
+                          <code>{change.path}</code>
+                          {change.created ? ' · 新建' : change.replaced ? ' · 覆盖' : ''}
+                          {typeof change.bytes === 'number' ? ` · ${String(change.bytes)} 字节` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {derived.artifacts.length > 0 && (
+                  <>
+                    <h5>工程产物（{derived.artifacts.length}）</h5>
+                    <ul>
+                      {derived.artifacts.slice(0, 40).map(artifact => (
+                        <li key={artifact.path}>
+                          <code>{artifact.path}</code>
+                          <span className="muted"> · {artifact.source}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </>
                 )}
                 {derived.verification && (() => {

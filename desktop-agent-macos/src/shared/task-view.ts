@@ -50,7 +50,21 @@ export interface TaskView {
   /** 按轮次保存的模型思考/输出历史，刷新后可从事件重建。 */
   modelTrace: Array<{ roundId: string; reasoning: string; text: string }>;
   diagnostics: TaskDiagnosticCard[];
-  changes: Array<{ path: string; before?: string; after?: string; patch?: string }>;
+  /**
+   * 改动文件。没有 before/after 的（fs.writeFile 只回路径+字节）也要留下来：
+   * 「改动 3 个文件」却一个路径都列不出来，就是用户看到的「产物没有保存」。
+   */
+  changes: Array<{
+    path: string;
+    before?: string;
+    after?: string;
+    patch?: string;
+    created?: boolean;
+    replaced?: boolean;
+    bytes?: number;
+  }>;
+  /** 构建产物：编译/运行命令真实打印出来的 .class / .jar 等文件。 */
+  artifacts: Array<{ path: string; source: string; command?: string; output?: string }>;
 }
 
 export const EMPTY_TASK_VIEW: TaskView = {
@@ -63,7 +77,8 @@ export const EMPTY_TASK_VIEW: TaskView = {
   review: null,
   verification: null,
   diagnostics: [],
-  changes: []
+  changes: [],
+  artifacts: []
 };
 
 /**
@@ -120,30 +135,110 @@ export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView 
   return { ...view, live, members };
 }
 
-/** 执行报告 → 视图里的验证 / 改动 / 诊断三块（全量与增量共用）。 */
-function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' | 'diagnostics'> {
+/** 从命令真实 stdout 里认构建产物；只认常见产物后缀，不把源码/日志当产物。 */
+const ARTIFACT_SUFFIX = /\.(?:class|jar|war|exe|bin|so|dylib|dll|o|a|zip)$/i;
+export function artifactPaths(output: string): string[] {
+  const found = output.match(/[^\s'"`<>|;,]+\.(?:class|jar|war|exe|bin|so|dylib|dll|o|a|zip)/gi) ?? [];
+  return [...new Set(found.filter(item => ARTIFACT_SUFFIX.test(item)))];
+}
+
+/** 执行报告 → 视图里的验证 / 改动 / 产物 / 诊断四块（全量与增量共用）。 */
+function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' | 'artifacts' | 'diagnostics'> {
+  type RawResult = {
+    path?: string;
+    before?: string;
+    after?: string;
+    patch?: string;
+    created?: boolean;
+    replaced?: boolean;
+    bytes?: number;
+    command?: string;
+    cwd?: string;
+    stdout?: string;
+    stderr?: string;
+    diagnostics?: {
+      source?: string;
+      path?: string;
+      counts?: { errors?: number; warnings?: number };
+      issues?: Array<{ line?: number; column?: number; message?: string }>;
+    };
+  };
   const typed = report as {
     verification?: {
       verified: boolean;
       reasons: string[];
       changedFiles: number;
+      changedPaths?: string[];
       checks?: NonNullable<TaskView['verification']>['checks'];
     };
-    results?: Array<{ result?: { path?: string; before?: string; after?: string; patch?: string; diagnostics?: { source?: string; path?: string; counts?: { errors?: number; warnings?: number }; issues?: Array<{ line?: number; column?: number; message?: string }> } } }>;
+    results?: Array<{ tool?: string; result?: RawResult }>;
   } | null;
   const verification = typed?.verification ?? null;
-  const changes = (typed?.results ?? [])
-    .map((item): TaskView['changes'][number] | null => {
-      const result = item.result;
-      if (!result?.path) return null;
-      if (typeof result.before === 'string' && typeof result.after === 'string') {
-        return { path: result.path, before: result.before, after: result.after };
-      }
-      if (typeof result.patch === 'string') return { path: result.path, patch: result.patch };
-      return null;
-    })
-    .filter((item): item is TaskView['changes'][number] => item !== null);
-  const diagnostics = (typed?.results ?? [])
+  const results = typed?.results ?? [];
+
+  const changes: TaskView['changes'] = [];
+  const seen = new Set<string>();
+  for (const item of results) {
+    const result = item.result;
+    if (!result) continue;
+    const path = result.path;
+    if (typeof path !== 'string' || seen.has(path)) continue;
+    let change: TaskView['changes'][number] | null = null;
+    if (typeof result.before === 'string' && typeof result.after === 'string') {
+      change = { path, before: result.before, after: result.after };
+    } else if (typeof result.patch === 'string') {
+      change = { path, patch: result.patch };
+    } else if (item.tool === 'fs.writeFile') {
+      // 写文件工具只回 {path, created, replaced, bytes}。以前这里直接丢掉，
+      // 于是「改动 3 个文件」的交付卡里一个路径都没有。
+      change = {
+        path,
+        ...(result.created === true ? { created: true } : {}),
+        ...(result.replaced === true ? { replaced: true } : {}),
+        ...(typeof result.bytes === 'number' ? { bytes: result.bytes } : {})
+      };
+    }
+    if (change) { seen.add(path); changes.push(change); }
+  }
+  // 验证器记录的 changedPaths 是相对路径，作为兜底补齐（写文件事件缺失的老报告）。
+  for (const path of typed?.verification?.changedPaths ?? []) {
+    if (seen.has(path) || [...seen].some(existing => existing.endsWith(`/${path}`) || path.endsWith(`/${existing}`))) continue;
+    seen.add(path);
+    changes.push({ path });
+  }
+
+  const artifacts: TaskView['artifacts'] = [];
+  const seenArtifact = new Set<string>();
+  const addArtifact = (path: string, source: string, command?: string) => {
+    // 同一产物常被 shell 打印成绝对路径、被编译检查打印成相对路径。
+    const duplicate = [...seenArtifact].some(existing =>
+      existing === path || existing.endsWith(`/${path}`) || path.endsWith(`/${existing}`)
+    );
+    if (duplicate) return;
+    seenArtifact.add(path);
+    artifacts.push({ path, source, ...(command ? { command } : {}) });
+  };
+  for (const item of results) {
+    const result = item.result;
+    if (item.tool !== 'shell.run' || !result) continue;
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    for (const match of artifactPaths(output)) {
+      const absolute = /^(\/|[A-Za-z]:[\\/])/.test(match)
+        ? match
+        : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match;
+      addArtifact(absolute, 'shell.run', result.command);
+    }
+  }
+  // 编译器自己打印的产物路径也算，避免 stdout 只列文件名时漏掉。
+  for (const [source, rawCheck] of Object.entries(verification?.checks ?? {})) {
+    const check = rawCheck as { output?: string };
+    if (typeof check.output !== 'string' || !check.output) continue;
+    for (const match of artifactPaths(check.output)) {
+      addArtifact(match, `check.${source}`);
+    }
+  }
+
+  const diagnostics = results
     .map(item => item.result?.diagnostics)
     .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
     .map(item => ({
@@ -157,7 +252,7 @@ function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' 
         message: String(issue.message ?? '')
       }))
     }));
-  return { verification, changes, diagnostics };
+  return { verification, changes, artifacts, diagnostics };
 }
 
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {

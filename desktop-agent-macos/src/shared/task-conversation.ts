@@ -16,6 +16,7 @@
 
 import type { AgentEvent } from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
+import { artifactPaths } from './task-view';
 
 export type ConversationTone = 'info' | 'ok' | 'warn' | 'error' | 'muted';
 
@@ -511,6 +512,23 @@ export function buildConclusion(
         facts.push(`改动 ${String(report.report.verification.changedFiles)} 个文件`);
       }
     }
+    const artifacts = new Set<string>();
+    for (const item of report.report.results ?? []) {
+      const result = item.result as { stdout?: string; stderr?: string; cwd?: string } | undefined;
+      if (!result) continue;
+      for (const match of artifactPaths(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) {
+        artifacts.add(/^(\/|[A-Za-z]:[\\/])/.test(match)
+          ? match
+          : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match);
+      }
+    }
+    for (const rawCheck of Object.values(report.report.verification?.checks ?? {})) {
+      const check = rawCheck as { output?: string };
+      if (typeof check.output === 'string') {
+        for (const match of artifactPaths(check.output)) artifacts.add(match);
+      }
+    }
+    if (artifacts.size > 0) facts.push(`工程产物 ${String(artifacts.size)} 个`);
   }
   if (review?.type === 'review.ready') {
     facts.push(`独立评审：${review.needsFix ? `需修复（${String(review.issues.length)} 项）` : '通过'}`);
