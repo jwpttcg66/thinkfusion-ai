@@ -234,7 +234,8 @@
     "test:memory-governance": "npm run build:test && node --test scripts/check-memory-governance.mjs",
     "test:memory-e2e": "npm run build:test && node --test scripts/check-memory-e2e.mjs",
     "test:memory-codeindex": "npm run build:test && node --test scripts/check-memory-codeindex-route.mjs",
-    "test:memory-debate": "npm run build:test && node --test scripts/check-memory-debate-scope.mjs"
+    "test:memory-debate": "npm run build:test && node --test scripts/check-memory-debate-scope.mjs",
+    "dev:local": "npm run build:agent && electron-vite dev --noSandbox --remoteDebuggingPort 9333"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
