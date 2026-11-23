@@ -55,7 +55,7 @@
 | 阶段 | 完成标准 | 当前 | 任务书 |
 |---|---|---|---|
 | **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
-| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ✅（D4 单点阻塞） | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
+| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ✅ | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
 | **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ✅ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`（已实施，见 §1 矩阵与 R1–R8） |
 | **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ✅ | 辩手发言已注入；`check-memory-debate-scope.mjs` 2 条 |
 | **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入收敛为一套 | ✅ | 旧表零新增（R1）、路由唯一出口、辩论按 id 隔离 |
@@ -90,17 +90,17 @@
 
 ## 3. 未完成项与已下达的任务书
 
-三项均已完成：**M2 ✅（D4 单点阻塞）/ M3 ✅ / M4 ✅（辩手发言）**。M2 的 D4 需要可用 CLI 才能触发，解锁后只重跑那一项。
+三项均已完成：**M2 ✅ / M3 ✅ / M4 ✅（辩手发言）**。
 
 ### 1. 真机 CDP 验收（M2，部分通过）
 
 - **已执行**：设置页 S1–S14 全通过；对话页 D1/D2（`provider-confirmed`，L1=L2=L3）/D5（`no-recall`）/D6（`memory-disabled`）通过；降级界面通过。21 张截图 + 报告在 `docs/spec/evidence/M2/`。
 - **真机发现并修复 5 个缺陷**：`status()` 用启动快照、候选计数含已处理、`remember` 返回 null 不报错、`ExecutionPool` 未接记忆（工程链路 usage 全空）、`MemoryTraceCard` 不刷新。详见报告 §5。
-- **未覆盖（已实测到阻塞点，非代码缺陷）**：
-  - D3 网页通道：`ChatGPT 未登录` → `未找到输入框，页面结构可能已变化`，不进 `available()`；
-  - D4 CLI 通道：`Qoder CLI` 非交互未验证，界面**明确提示**「本轮未参与提问：…」——不是静默跳过，这点是对的；
-  - 降级下的完整回答（模型判定阶段不稳定，一次被判「看不出意图」未发问）。
-  三者在离线用例里有等价断言。**解锁条件**：登录一个网页通道 / 在设置里验证 CLI 非交互能力，然后只重跑 §2 的 D3/D4 与降级回答。
+- **D3/D4 已补齐（2026-11-23 09:5x）**：
+  - D3 网页通道：知识空间 + 网页主导 → `web-verbatim`、三哈希「—」、`req_0_chatgpt_466782`；
+  - D4 CLI 通道：在「Agent 预设」重新验证 Qoder CLI（v1.1.95）后 → `cli-no-system-turn`、`req_0_cli_qoder_548507`；
+  - 降级回答：工程空间 + 云端主导 + 「按分析」→ `已回答` 2683 字。
+  经验：工程空间永远不问网页；CLI 的 `headless=verified` 不落盘，升级后要重跑验证；模型弹层里 CLI 勾选被误点会让它整场不参与。
 - **按任务书 §9 严格口径不宣布全绿**：补齐 D3/D4 与降级回答后再改 ✅。
 - **风险已处理**：真实库先备份（`/tmp/tf-m2-backup/`），结束按 `M2 ` 前缀清理并回读 `records=0 / candidates=0`；7 个测试会话按标题+时间双条件删除，`agent-store.json` 只剩用户原有 1 条。用户原 `electron-vite dev` 实例已停止，需重新 `npm run dev`。
 
