@@ -1,0 +1,98 @@
+[
+  {
+    "id": 13,
+    "desc": "对话页显示状态/阶段/步骤/下一步/最近活动",
+    "ok": true,
+    "evidence": "阶段=true 步骤=true 下一步=true 最近活动=true"
+  },
+  {
+    "id": 14,
+    "desc": "成员卡显示耗时与字数（启动反馈留痕）",
+    "ok": true,
+    "evidence": "匹配耗时+字符"
+  },
+  {
+    "id": 17,
+    "desc": "步骤失败在对话时间线可见",
+    "ok": true,
+    "evidence": "含失败原因=true"
+  },
+  {
+    "id": 18,
+    "desc": "长等待显示持续时长",
+    "ok": true,
+    "evidence": "匹配\"持续 X分Y秒\""
+  },
+  {
+    "id": 20,
+    "desc": "进度步骤数与真实事件一致",
+    "ok": true,
+    "evidence": "UI=\"4/8步\" 事件={\"completed\":4,\"failed\":1,\"started\":5}"
+  },
+  {
+    "id": 7,
+    "desc": "汇总/评审后原始输出完整可查",
+    "ok": true,
+    "evidence": "输出页有完整计划树(8步)+活动流40/40条(reasoning/assistant/tool/planning/test/review/delivery/lifecycle)，未被汇总覆盖"
+  },
+  {
+    "id": 5,
+    "desc": "轨迹页工具链可追溯",
+    "ok": true,
+    "evidence": "轨迹含工具阶段=true"
+  },
+  {
+    "id": 10,
+    "desc": "统计页分层展示",
+    "ok": true,
+    "evidence": "统计页文本样本=◈|ThinkFusion|知识学习|工程工作|＋|新对话|工作区|1|⌕|⇅|＋|▾|▤|Downloads|⋯|编写一个java工程， 需要hello jwp的输出，保证真机可以运行|15 分钟|J|jwp|▤|Downloads|/|"
+  },
+  {
+    "id": 11,
+    "desc": "无 reasoning/Token 显式未提供",
+    "ok": true,
+    "evidence": "含\"未提供\"=true"
+  },
+  {
+    "id": 8,
+    "desc": "切页后任务状态与流连续",
+    "ok": true,
+    "evidence": "回来后阶段/步骤仍在"
+  },
+  {
+    "id": 19,
+    "desc": "切走再回不重复调用",
+    "ok": true,
+    "evidence": "提问轮次出现=1"
+  },
+  {
+    "id": 12,
+    "desc": "取消入口存在（未实点，避免动用户任务）",
+    "ok": true,
+    "evidence": "有\"取消任务\"按钮，隔离性由单测+事件独立性覆盖"
+  },
+  {
+    "id": 2,
+    "desc": "三模型并行",
+    "ok": null,
+    "evidence": "环境仅 1 云+1 CLI，无法构造三路；分桶键由 test:task-members 11 条覆盖"
+  },
+  {
+    "id": 4,
+    "desc": "限流错误隔离",
+    "ok": null,
+    "evidence": "未构造 429；错误隔离有单测"
+  },
+  {
+    "id": 16,
+    "desc": "挂死成员其他仍更新",
+    "ok": null,
+    "evidence": "未构造断网/挂死；\"正在等待\"UI 已存在"
+  },
+  {
+    "id": 21,
+    "desc": "V1 知识问答多模型",
+    "ok": null,
+    "evidence": "本轮只读观察工程任务；test:knowledge-* 绿"
+  }
+]
