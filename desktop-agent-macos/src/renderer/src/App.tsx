@@ -504,6 +504,14 @@ export default function App() {
    * remembering them is exact — no guessing at titles.
    */
   const deletedConversations = useRef<Set<string>>(new Set());
+  /**
+   * 已发送、但主进程还没建出真会话的那一条。
+   *
+   * 工程提交要探活、路由、转交 Planner，IPC 几十秒不返回是常事。这期间停在
+   * 首页和死机没有区别：先在本地把「你问的这句」放出来，主进程建好会话
+   * （或 IPC 返回）后再按标题对齐真实 id；失败则整条撤回、原话还给输入框。
+   */
+  const pendingSubmit = useRef<{ id: string; title: string; previousId: string | null } | null>(null);
   const dragRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   /**
@@ -670,7 +678,21 @@ export default function App() {
     const stopConversation = window.agentAPI.onConversationEvent(event => {
       if (event.type === 'conversation.created' || event.type === 'conversation.updated') {
         if (deletedConversations.current.has(event.conversation.conversationId)) return;
-        setConversations(prev => [event.conversation, ...prev.filter(item => item.conversationId !== event.conversation.conversationId)]);
+        // 主进程建好会话就对齐本地占位：这发生在 Planner 转交之前，比等 IPC
+        // 整条返回早得多。标题截取按主进程的 TITLE_CHARS=42，两个进程同源。
+        const pending = pendingSubmit.current;
+        const pendingId = pending && event.conversation.title === pending.title ? pending.id : null;
+        if (pendingId) {
+          pendingSubmit.current = null;
+          setActiveConversationId(event.conversation.conversationId);
+          setMessages(prev => prev.map(item =>
+            item.conversationId === pendingId ? { ...item, conversationId: event.conversation.conversationId } : item
+          ));
+        }
+        setConversations(prev => [
+          event.conversation,
+          ...prev.filter(item => item.conversationId !== event.conversation.conversationId && item.conversationId !== pendingId)
+        ]);
         return;
       }
       if (event.type === 'conversation.deleted') {
@@ -1242,6 +1264,31 @@ export default function App() {
     setPhases({});
     setAnswerDeltas({});
     setDebateLive(null);
+
+    // 先切视图，再等主进程。工程提交在 main 里要探活/路由/转交，整条 IPC
+    // 可能几十秒不返回；以前这几十秒界面一直停在首页，跟卡死没有区别。
+    const optimisticId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const now = Date.now();
+    const optimistic: Conversation = {
+      conversationId: optimisticId,
+      title: text.slice(0, 42),
+      intent: intent.kind,
+      intentReason: intent.reason,
+      status: 'thinking',
+      channels: [],
+      createdAt: now,
+      updatedAt: now,
+      executionConfig,
+      ...(root ? { workspaceRoot: root } : {}),
+      ...(workspaceMode === 'engineering' ? { workspaceMode } : {})
+    };
+    pendingSubmit.current = { id: optimisticId, title: optimistic.title, previousId: activeConversationId };
+    setConversations(prev => [optimistic, ...prev]);
+    setActiveConversationId(optimisticId);
+    setMessages([{ messageId: `pending-${optimisticId}`, conversationId: optimisticId, role: 'user', text, at: now }]);
+    setPrompt('');
+    setAttachments([]);
+
     try {
       const conversation = await window.agentAPI.submitConversation({
         text,
@@ -1254,15 +1301,23 @@ export default function App() {
         ...(taskKindOverride ? { taskKindOverride } : {}),
         ...(attachmentPaths.length > 0 ? { attachments: attachmentPaths } : {})
       });
+      // 事件可能已经把占位换成真会话；这里再做一次兜底对齐，幂等。
+      const pending = pendingSubmit.current;
+      pendingSubmit.current = null;
+      const pendingId = pending?.id ?? '';
       setConversations(prev => [
         conversation,
-        ...prev.filter(item => item.conversationId !== conversation.conversationId)
+        ...prev.filter(item => item.conversationId !== conversation.conversationId && item.conversationId !== pendingId)
       ]);
       setActiveConversationId(conversation.conversationId);
-      setMessages([]);
+      setMessages(prev => prev.map(item =>
+        item.conversationId === pendingId || item.conversationId === optimisticId
+          ? { ...item, conversationId: conversation.conversationId }
+          : item
+      ));
       setPhases({});
-    setAnswerDeltas({});
-    setDebateLive(null);
+      setAnswerDeltas({});
+      setDebateLive(null);
       setPrompt('');
       setAttachments([]);
       setActiveId(conversation.taskId ?? null);
@@ -1276,6 +1331,15 @@ export default function App() {
       setMessages(seeded);
       if (conversation.taskId) await selectTask(conversation.taskId);
     } catch (e) {
+      // 没发出去就当没发过：撤掉占位、回到原来的会话，原话留给用户输入。
+      const pending = pendingSubmit.current;
+      pendingSubmit.current = null;
+      if (pending) {
+        setConversations(prev => prev.filter(item => item.conversationId !== pending.id));
+        setActiveConversationId(pending.previousId);
+        setMessages([]);
+        setPrompt(prev => prev || text);
+      }
       setError(errorText(e));
     } finally {
       setSubmitting(false);

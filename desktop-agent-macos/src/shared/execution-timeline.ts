@@ -173,6 +173,16 @@ function milestone(
         text: `独立评审（${event.backend === 'rules' ? '规则版' : event.reviewer}）：${event.needsFix ? '需修复' : '通过'}`,
         tone: event.needsFix ? 'warn' : 'ok'
       };
+    case 'plan.review.progress':
+      // 每 10 秒一次的心跳只在进度卡/最近活动里滚动；对话流保留开始和结束
+      // 两个节点即可，否则三轮辩论能把真正的回答挤出屏幕。
+      return event.state === 'started' || event.state === 'done'
+        ? {
+            kind: 'milestone', key, at: event.at,
+            text: event.state === 'started' ? `方案评审开始：${String(event.topics)} 个议题` : '方案评审等待结束',
+            tone: 'muted'
+          }
+        : null;
     case 'plan.debated':
       return {
         kind: 'milestone',

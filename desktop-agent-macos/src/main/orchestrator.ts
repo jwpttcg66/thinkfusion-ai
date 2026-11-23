@@ -1079,10 +1079,21 @@ export class AgentOrchestrator {
     }
 
     const topics = planDebateTopics(stored.plan);
-    this.deps.emit({
-      type: 'log', at: Date.now(), taskId, level: 'info',
-      message: `方案评审：就「${topics[0].slice(0, 40)}…」等 ${topics.length} 个议题开辩`
-    });
+    const startedAt = Date.now();
+    const emitProgress = (state: 'started' | 'waiting' | 'done', message: string) => {
+      this.deps.emit({
+        type: 'plan.review.progress', at: Date.now(), taskId, roundId,
+        planId: stored.planId, state, topics: topics.length,
+        elapsedMs: Date.now() - startedAt, message
+      });
+    };
+    // 最高 180 秒的等待不能只有开头一句 log：每 10 秒一次心跳，界面才有
+    // 「还在跑」的证据。心跳不是审批信号，审批仍只在辩论真正结束后发生。
+    emitProgress('started', `方案评审开始：${topics.length} 个议题，成员逐个给出意见`);
+    const heartbeat = setInterval(() => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      emitProgress('waiting', `方案评审进行中，已等待 ${String(seconds)} 秒`);
+    }, 10_000);
     try {
       const task = this.tasks.get(taskId);
       const result = await this.deps.debatePlan({
@@ -1113,6 +1124,9 @@ export class AgentOrchestrator {
         status: 'skipped', topics, participants: [], summary: '',
         skippedReason: `辩论失败：${detail}`, at: Date.now()
       };
+    } finally {
+      clearInterval(heartbeat);
+      emitProgress('done', '方案评审等待结束');
     }
   }
 

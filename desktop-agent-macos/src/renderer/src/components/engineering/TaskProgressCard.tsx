@@ -53,6 +53,7 @@ const EVENT_LABEL: Record<string, string> = {
   'round.answer': '收到本轮回答',
   'plan.ready': '执行计划已生成',
   'plan.invalid': '计划不合规，准备重出',
+  'plan.review.progress': '方案评审进行中',
   'plan.debated': '计划评审完成',
   'clarification.required': '需要你补充信息',
   'step.preparing': '准备执行步骤',
@@ -126,6 +127,20 @@ export function TaskProgressCard(props: {
   const lastEvent = [...ordered]
     .reverse()
     .find(event => event.type !== 'log' && event.type !== 'task.updated') ?? ordered.at(-1) ?? null;
+  /**
+   * 方案评审是最长的一段静默等待（主进程最多等 3 分钟）。任务状态在辩论
+   * 结束前仍是 plan_ready，光看状态会被误读成「等用户审批、界面卡住了」。
+   * 心跳事件没到 done 且任务还没进审批，就明确写「评审中」并单独计时。
+   */
+  const reviewProgress = [...ordered].reverse().find(
+    (event): event is Extract<AgentEvent, { type: 'plan.review.progress' }> =>
+      event.type === 'plan.review.progress'
+  ) ?? null;
+  const inReview = Boolean(
+    reviewProgress && reviewProgress.state !== 'done' &&
+      (task.status === 'plan_ready' || task.status === 'planning')
+  );
+  const stageLabel = inReview ? '方案评审中' : STAGE_LABEL[task.status];
 
   // 「在等谁」：阻塞态优先（用户/审批），其次是还在跑/还没回的模型。
   const waitingOn = props.awaitingAnswer || task.status === 'awaiting_clarification'
@@ -134,11 +149,13 @@ export function TaskProgressCard(props: {
       ? `你确认第 ${String(props.pendingStep.index)}/${String(props.pendingStep.total)} 步（${props.pendingStep.tool}）`
       : props.pendingQuestion
         ? '你对执行中提问的答复'
-        : task.status === 'awaiting_approval'
-          ? '你审批计划'
-          : working.length > 0
-            ? working.map(item => item.label).join('、')
-            : null;
+        : inReview
+          ? `成员评审方案（${String(reviewProgress?.topics ?? 0)} 个议题）`
+          : task.status === 'awaiting_approval'
+            ? '你审批计划'
+            : working.length > 0
+              ? working.map(item => item.label).join('、')
+              : null;
 
   /**
    * 「下一步」不能指路指空。
@@ -146,20 +163,22 @@ export function TaskProgressCard(props: {
    * 完成态原先一律写「查看最终交付」，但交付卡只在真有改动 / 验证 / 评审时才渲染；
    * 只新建了一个文件、没跑测试的任务就变成「让你去看一个不存在的东西」。
    */
-  const nextStep = task.status === 'completed' && !props.hasDelivery
-    ? '查看输出页的执行记录'
-    : NEXT_STEP[task.status];
+  const nextStep = inReview
+    ? '等待评审结束后确认计划'
+    : task.status === 'completed' && !props.hasDelivery
+      ? '查看输出页的执行记录'
+      : NEXT_STEP[task.status];
 
   return (
     <section className={`card task-progress${active ? ' is-active' : ''}`}>
       <div className="card-head">
         <h2>{task.title}</h2>
-        <span className={`pill s-${task.status}`}>{STAGE_LABEL[task.status]}</span>
+        <span className={`pill s-${task.status}`}>{stageLabel}</span>
       </div>
       <div className="task-progress-grid">
         <div>
           <span className="task-progress-key">阶段</span>
-          <b>{STAGE_LABEL[task.status]}</b>
+          <b>{stageLabel}</b>
         </div>
         <div>
           <span className="task-progress-key">步骤</span>
@@ -186,7 +205,9 @@ export function TaskProgressCard(props: {
         <p className="task-progress-line is-waiting">
           <span className="task-progress-key">正在等待</span>
           {waitingOn}
-          {active ? ` · 已等 ${durationText(Math.max(0, now - task.createdAt))}` : ''}
+          {active
+            ? ` · 已等 ${durationText(Math.max(0, now - (inReview && reviewProgress ? reviewProgress.at : task.createdAt)))}`
+            : ''}
         </p>
       )}
       {task.error && <p className="task-progress-error">失败原因：{task.error}</p>}

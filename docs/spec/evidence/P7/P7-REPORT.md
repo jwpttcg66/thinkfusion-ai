@@ -128,3 +128,27 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 - `p7-07-e2e-submitted.png`：端到端任务提交态
 - `p7-08-e2e-final.png`：端到端完成态（1 / 2 步、成员回答、方案评审、对话流）
 - `npm run verify` **489/489**（0 fail）：新增 check-verify +5（闸门）、check-code-read 改写 1（原子覆盖）。
+
+### 6.6 「界面卡太久」两项感知修复（2026-11-23 下午）
+
+用户两张截图分别对应两个真实等待点，都不是死锁：
+
+1. **发送后停在首页**：`App.submit()` 先 `await submitConversation`，而工程提交在 main 里
+   要探活 → 路由 → 转交 Planner，整条 IPC 几十秒不返回，期间既不切会话也没有自己的
+   提问气泡。修复：点击发送当帧就在本地建占位会话 + 用户消息并切到会话视图；主进程
+   `conversation.created`（按标题 42 字对齐）或 IPC 返回时换成真 id，失败则撤掉占位、
+   原话还给输入框。
+2. **方案评审静默等待**：计划出来后 `reviewPlanWithDebate()` 直接 `await debatePlan`，
+   最长 180 秒没有任何进度；任务状态仍是 `plan_ready`，进度卡写「审阅计划」，像是
+   等用户而用户没看到审批按钮。修复：新增 `plan.review.progress` 事件（开始 / 每 10 秒
+   心跳含已等待秒数 / 结束），进度卡显示「方案评审中 · 成员评审方案（N 个议题）」并单独
+   计时；对话流只留开始与结束两个节点，心跳不刷屏。辩论本身没跳过、审批语义没变。
+
+真机自包含 CDP 复验（`P7-UI-RESPONSIVENESS.json` + 3 张截图）：
+
+- 发送到离开首页 **29 ms**（修复前整条 IPC 等待，截图里仍停在 hero）。
+- 方案评审中状态可见，心跳与结束节点都观察到；任务最终 `completed`，报告
+  `compile=passed / run=passed`，输出 `hello jwp`。
+- 测试数据当场删净（含第一次脚本因未刷新 taskId 遗留的那条），store 回到 1 任务 /
+  2 会话 / 10 消息 / 62 事件；无残留 dev / Electron 进程。
+- `npm run verify` **492/492**（新增 `test:ui-progress` 3 条）。

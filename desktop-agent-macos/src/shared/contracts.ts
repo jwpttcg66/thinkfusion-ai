@@ -1502,6 +1502,20 @@ export type AgentEvent = AgentEventBase &
       }
     /** V2.1 D-03：计划生成后、审批前的方案评审辩论。 */
     | { type: 'plan.debated'; taskId: string; roundId: string; planId: string; debate: PlanDebate }
+    /**
+     * 方案评审进行中的心跳。辩论最长静默三分钟，没有它界面和卡死没有区别。
+     * 审批仍只看 `plan.debated` + 任务状态；这里的 `done` 只表示等待结束。
+     */
+    | {
+        type: 'plan.review.progress';
+        taskId: string;
+        roundId: string;
+        planId: string;
+        state: 'started' | 'waiting' | 'done';
+        topics: number;
+        elapsedMs: number;
+        message: string;
+      }
     | { type: 'report.sent'; taskId: string; roundId: string }
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }

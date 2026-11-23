@@ -1,0 +1,39 @@
+{
+  "steps": [
+    {
+      "name": "engineering routing chip available",
+      "info": false
+    },
+    {
+      "name": "send leaves hero immediately",
+      "ok": true,
+      "ms": 29
+    },
+    {
+      "name": "plan review visible",
+      "ok": true,
+      "heartbeatSamples": 160,
+      "done": true
+    },
+    {
+      "name": "task terminal",
+      "ok": true,
+      "terminal": {
+        "status": "completed",
+        "summary": "hello-jwp 最小 Java 工程已创建于 /Users/yalla/Downloads/hello-jwp，包含 HelloJwp.java、run.sh、README.md。javac 编译通过（COMPILE_OK，生成 HelloJwp.class），运行输出 \"hello jwp\"，退出码 0；报告 verification.verified=true，无 errors，无需继续写入。"
+      },
+      "lastStatus": "已完成 / 已完成 / 已完成"
+    }
+  ],
+  "screenshots": [
+    "p7-09-optimistic-submit.png",
+    "p7-10-plan-reviewing.png",
+    "p7-11-final-state.png"
+  ],
+  "cleanup": {
+    "after": {
+      "conversations": 0,
+      "tasks": 0
+    }
+  }
+}

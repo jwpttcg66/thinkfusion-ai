@@ -26,6 +26,7 @@ export function phaseOfEvent(type: AgentEvent['type']): TaskEventPhase {
     case 'round.answer': return 'planning';
     case 'plan.ready':
     case 'plan.invalid':
+    case 'plan.review.progress':
     case 'plan.debated':
     case 'step.approval':
     case 'step.approval-resolved': return 'approval';

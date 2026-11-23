@@ -48,7 +48,7 @@ function inferCategory(type: AgentEvent['type']): ObservabilityCategory {
   if (type === 'round.delta') return 'reasoning';
   if (type === 'round.answer') return 'assistant';
   if (type === 'round.peer') return 'subagent';
-  if (type === 'plan.ready' || type === 'plan.invalid' || type === 'plan.debated') return 'planning';
+  if (type === 'plan.ready' || type === 'plan.invalid' || type === 'plan.review.progress' || type === 'plan.debated') return 'planning';
   if (type === 'step.preparing' || type === 'step.started' || type === 'step.completed' || type === 'step.failed' || type === 'step.approval' || type === 'step.approval-resolved') return 'tool';
   if (type === 'report.ready') return 'test';
   if (type === 'review.ready') return 'review';
