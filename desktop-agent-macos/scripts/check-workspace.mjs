@@ -59,11 +59,13 @@ test('工作区列表：坏条目跳过、同目录去重、名字取目录末�
   assert.equal(list[1].name, 'two');
 });
 
-test('辩论开关只有三档，坏值退回 auto', () => {
-  assert.equal(normalizeDebateMode('off'), 'off');
+test('辩论开关移除 off：只有 auto/on，旧 off 与非 auto 一律 on', () => {
+  // 对齐 7bca56c「默认辩论，移除 off 例外」：旧数据里的 off 不再关闭辩论。
+  assert.equal(normalizeDebateMode('off'), 'on');
   assert.equal(normalizeDebateMode('on'), 'on');
-  assert.equal(normalizeDebateMode(undefined), 'auto');
-  assert.equal(normalizeDebateMode('sometimes'), 'auto');
+  assert.equal(normalizeDebateMode('auto'), 'auto');
+  assert.equal(normalizeDebateMode(undefined), 'on');
+  assert.equal(normalizeDebateMode('sometimes'), 'on');
 });
 
 test('工程识别：V2.1 的七条回归语句都判对', () => {
