@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { features, jaccard } from '../../shared/synthesizer';
-import type { SubAgentAnswer, SubAgentTask } from '../agents/types';
+import type { MemoryTaskScope, SubAgentAnswer, SubAgentTask } from '../agents/types';
 import { buildGraph } from './argument-graph';
 import { analyseRound } from './claims';
 import { appendEvent } from './events';
@@ -79,6 +79,15 @@ export class DebateOrchestrator {
     private readonly deps: DebateDeps
   ) {}
 
+  /**
+   * 每场辩论的记忆作用域，按 debateId 存。
+   *
+   * 不能放实例字段的单个 `memory`：编排器是单例，两场不同项目的辩论并行时
+   * 会串记忆（A 项目的记忆注进 B 项目）。也不能放 `this` 上再靠 finally 清，
+   * 因为 `run()` 是后台跑的、并发的。所以只在 `start()` 写入、按 id 取。
+   */
+  private readonly scopes = new Map<string, MemoryTaskScope>();
+
   private get now(): () => number {
     return this.deps.now ?? Date.now;
   }
@@ -96,7 +105,8 @@ export class DebateOrchestrator {
     conversationId?: string,
     plan?: LeadPlan,
     origin: DebateOrigin = 'manual',
-    repository?: DebateRepositoryInput
+    repository?: DebateRepositoryInput,
+    memory?: MemoryTaskScope
   ): DebateState {
     const config = normalizeDebateConfig(configInput);
     const candidates = this.deps.candidates?.() ?? config.participants.map(id => ({
@@ -143,6 +153,7 @@ export class DebateOrchestrator {
     });
     this.store.save(state);
     this.stopped.delete(state.debateId);
+    if (memory) this.scopes.set(state.debateId, memory);
     void this.launch(state);
     return state;
   }
@@ -472,6 +483,7 @@ export class DebateOrchestrator {
       const targetMessageId =
         previous.find(message => message.agentId !== agentId)?.messageId ?? previous[0]?.messageId;
       const isWebOnly = state.plan.webOnly.includes(agentId);
+      const scope = this.scopes.get(state.debateId);
       const task: SubAgentTask = {
         // 第一轮仍是用户原话（提问链路硬规则）。后续轮次里网页成员不能收
         // context / system，交锋材料只能拼进这一条用户消息——归属规则要求
@@ -480,7 +492,9 @@ export class DebateOrchestrator {
           ? webDebateQuestion(state.question, context)
           : state.question,
         stage: index === 0 ? 'initial' : 'followup',
-        context: !isWebOnly && context.length > 0 ? context : undefined
+        context: !isWebOnly && context.length > 0 ? context : undefined,
+        // 只挂 scope：网页/CLI 会在池层判 skipped，question 仍逐字不变。
+        ...(scope ? { memory: scope } : {})
       };
       const startedAt = this.now();
       try {

@@ -41,7 +41,7 @@
 | 设置持久化与 `degraded` 降级 | ✅ | ✅ | ✅ | ✅ | `check-memory-governance.mjs`、`check-memory-store.mjs` |
 | 设置页面板（状态 / 开关 / 候选 / 记录 / 冲突 / 审计 / 导出） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryPanel.tsx`，typecheck 通过，未做真机点击 |
 | 对话页注入卡（命中/跳过/失败 + 三哈希） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryTraceCard.tsx`，同上 |
-| **Debate 入口注入** | ✅ | ✅ | ❌ | ❌ | 见下方未完成项 1 |
+| Debate 入口注入（M4，辩手发言） | ✅ | ✅ | ✅ | ✅ | `debate/orchestrator.ts` 按 `debateId` 存 scope；`check-memory-debate-scope.mjs` 2 条（并发不交叉） |
 | `code-index:remember` 写入路由切换（M3） | ✅ | ✅ | ✅ | ✅ | `code-index/memory-adapter.ts`、`check-memory-codeindex-route.mjs` 8 条（R1–R8） |
 | 真机 CDP 端到端留档 | ✅ | — | — | ❌ | 见下方未完成项 3 |
 
@@ -55,10 +55,10 @@
 | 阶段 | 完成标准 | 当前 | 任务书 |
 |---|---|---|---|
 | **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
-| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ⚠️ 部分通过 | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
+| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ✅（D4 单点阻塞） | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
 | **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ✅ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`（已实施，见 §1 矩阵与 R1–R8） |
-| **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ❌ | 待建（M3 之后） |
-| **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入（MemoryStore / 旧表 / Debate 缓存）收敛为一套 | ❌ | M2–M4 收口后 |
+| **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ✅ | 辩手发言已注入；`check-memory-debate-scope.mjs` 2 条 |
+| **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入收敛为一套 | ✅ | 旧表零新增（R1）、路由唯一出口、辩论按 id 隔离 |
 
 **终局目标**：全局记忆只有**一个**正式写入、存储、召回与治理体系。不允许
 `MemoryStore`、`code_memory_facts`、Debate 自己的记忆缓存三套并行。
@@ -120,14 +120,15 @@
 - **仍保留**：`retrieval.remember()` 纯函数用于迁移前旧表单测；`code_memory_link` 不搬表，
   由 `MemoryStore.linksForMemory()` 只读解析。
 
-### 3. Debate 入口注入（M4，未接线）
+### 3. Debate 入口注入（M4，已完成）
 
-- **现状**：池层 `attachFromTask()` 已具备能力；`DebateOrchestrator` 的 `deps.ask` 也能拿到 `SubAgentTask`。
-- **为什么没做**：编排器是**单例**（`index.ts` 只构造一次），存可变的 `memory` 作用域会让不同会话的
-  辩论串记忆——最坏是把 A 项目的记忆注进 B 项目的辩论，这是隐私事故。
-- **待建任务书**（M3 之后）：要求 `MemoryTaskScope` 按 **`DebateRun`** 透传（不是实例状态），
-  验收必须包含「两个不同项目并发辩论、记忆不交叉」与「取消/超时/重试不污染下一次」。单独 PR，
-  不与 M3 合并。
+- **实现**：`DebateOrchestrator` 用 `Map<debateId, MemoryTaskScope>` 存作用域，`start()` 写入、
+  构造辩手 task 时按 `state.debateId` 取出注入；不在实例上存单个 `memory`（否则并发会串）。
+- **验证**：`check-memory-debate-scope.mjs` 2 条——同一单例开两场（convA/convB）并发，
+  每次 `ask` 都带自己那一场的 scope，没有裸 task。
+- **边界**：只覆盖**辩手发言**。裁判 / 完整性检查（`completeness.ts`、`standard-rubric.ts`）
+  暂不注入——它们的 `ask` 不经 `askWithin`，硬传 scope 要改动多一层签名；当前是
+  「宁可漏注入，也绝不串记忆」的保守取舍。若后续要求裁判也看记忆，再单独加。
 
 ---
 

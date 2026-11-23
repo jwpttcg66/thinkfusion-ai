@@ -4149,7 +4149,12 @@ function isMissingTerminal(error: unknown): boolean {
           source: conversation.workspaceRoot ? 'conversation' as const : 'workspace' as const
         }
       : undefined;
-    const state = debates.start(question, rawConfig, conversation.conversationId, plan, 'manual', repository);
+    const state = debates.start(question, rawConfig, conversation.conversationId, plan, 'manual', repository, {
+      conversationId: conversation.conversationId,
+      ...(conversation.workspaceId ? { workspaceId: conversation.workspaceId } : {}),
+      ...(conversation.workspaceRoot ? { projectId: projectIdFor(conversation.workspaceRoot) } : {}),
+      injectionPoint: 'debate'
+    });
     watchDebateInConversation(state.debateId, conversation.conversationId);
     return state;
   });
