@@ -4958,7 +4958,7 @@ app.whenReady().then(async () => {
       const input = asRecord(raw, 'memory');
       const kind = asText(input.kind, '记忆类型');
       const scope = asText(input.scope, '记忆范围');
-      return memory.remember({
+      const record = memory.remember({
         kind: kind as RememberInput['kind'],
         scope: scope as RememberInput['scope'],
         ...(typeof input.scopeId === 'string' ? { scopeId: input.scopeId } : {}),
@@ -4967,6 +4967,10 @@ app.whenReady().then(async () => {
         ...(typeof input.status === 'string' ? { status: input.status as RememberInput['status'] } : { status: 'active' }),
         ...(typeof input.confidence === 'number' ? { confidence: input.confidence } : {})
       });
+      // 关闭记忆 / 库降级时 service 返回 null。必须报错：真机验收时 IPC 直接
+      // 返回 null，界面以为「保存成功」，实际什么都没写。
+      if (!record) throw new Error('记忆未开启或记忆库不可用：去「设置 · 全局记忆」检查');
+      return record;
     });
     ipcMain.handle('memory:records:patch', (event, id: unknown, patch: unknown) => {
       trustedUiSender(event);
@@ -5018,6 +5022,13 @@ app.whenReady().then(async () => {
     ipcMain.handle('memory:export', event => {
       trustedUiSender(event);
       return memory.exportAll();
+    });
+    ipcMain.handle('memory:export-file', event => {
+      trustedUiSender(event);
+      const dump = memory.exportAll();
+      const file = path.join(app.getPath('downloads'), `thinkfusion-memory-export-${String(Date.now())}.json`);
+      fs.writeFileSync(file, JSON.stringify(dump, null, 2), 'utf8');
+      return { path: file, records: dump.records.length, candidates: dump.candidates.length };
     });
     ipcMain.handle('memory:import', (event, raw: unknown) => {
       trustedUiSender(event);

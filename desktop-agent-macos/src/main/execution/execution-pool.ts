@@ -1,6 +1,7 @@
 import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from '../agents/types';
 import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 import { ProviderBackedSubAgent } from './provider-sub-agent';
+import { attachFromTask } from '../memory/runtime';
 
 /**
  * 一轮研究的名单：按两份名单裁过的视图（2026-11-15 更新）。
@@ -85,7 +86,19 @@ export class ExecutionPool implements SubAgentPool {
       throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
     }
     const agent = this.agentOf(agentId);
-    return agent ? agent.ask(task) : this.base.ask(agentId, task);
+    // 走 base（SubAgentRegistry）时由它 attach；这里再包一次会在 system 里
+    // 放两个记忆块，哈希也对不上。所以只有「直接问本地/云端成员」这条分支
+    // 自己 attach——真机验收发现工程链路正是走这条，之前一次 usage 都没记。
+    if (!agent) return this.base.ask(agentId, task);
+    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
+    try {
+      const answer = await agent.ask(hook.task);
+      hook.finalize(answer);
+      return answer;
+    } catch (error) {
+      hook.finalize(undefined, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   /**
@@ -101,10 +114,21 @@ export class ExecutionPool implements SubAgentPool {
       throw new Error(`这一轮不选 ${agentId}，拒绝发问`);
     }
     const agent = this.agentOf(agentId);
-    if (agent?.askStream) return agent.askStream(task, onDelta);
-    if (agent) return agent.ask(task);
-    if (this.base.askStream) return this.base.askStream(agentId, task, onDelta);
-    return this.ask(agentId, task);
+    if (!agent) {
+      if (this.base.askStream) return this.base.askStream(agentId, task, onDelta);
+      return this.ask(agentId, task);
+    }
+    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
+    try {
+      const answer = agent.askStream
+        ? await agent.askStream(hook.task, onDelta)
+        : await agent.ask(hook.task);
+      hook.finalize(answer);
+      return answer;
+    } catch (error) {
+      hook.finalize(undefined, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   async newConversation(agentId: string): Promise<NewSessionResult> {

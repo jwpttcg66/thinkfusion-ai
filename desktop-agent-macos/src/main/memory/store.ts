@@ -315,8 +315,10 @@ export class MemoryStore {
     const records = Number(
       (this.db.prepare('SELECT COUNT(*) AS n FROM memory_records').get() as { n?: number }).n ?? 0
     );
+    // 只算**待审**。全部候选会把已确认/已拒绝的也算进去，界面「待审候选 2」
+    // 而实际 0 条——真机验收踩到的语义错误。
     const candidates = Number(
-      (this.db.prepare('SELECT COUNT(*) AS n FROM memory_candidates').get() as { n?: number }).n ?? 0
+      (this.db.prepare("SELECT COUNT(*) AS n FROM memory_candidates WHERE status = 'pending'").get() as { n?: number }).n ?? 0
     );
     return { records, candidates };
   }

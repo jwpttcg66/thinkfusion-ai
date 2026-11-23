@@ -8,7 +8,17 @@ import { describeInjection, type MemoryUsageEvent } from '../../../shared/memory
  * **不写「模型已使用记忆」**——L3 最多证明「适配器拼装并提交给传输层的
  * 载荷含这段内容」，不能证明对端收到，更不能证明模型照着它回答。
  */
-export function MemoryTraceCard({ conversationId }: { conversationId: string }) {
+export function MemoryTraceCard({
+  conversationId,
+  refreshKey = 0
+}: {
+  conversationId: string;
+  /**
+   * 变化的信号（调用方传消息条数）。只依赖 conversationId 会漏掉「组件先挂载、
+   * 之后回答回来才写入 usage」这段——真机验收就是卡片一直不出现。
+   */
+  refreshKey?: number;
+}) {
   const [events, setEvents] = useState<MemoryUsageEvent[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -19,7 +29,7 @@ export function MemoryTraceCard({ conversationId }: { conversationId: string }) 
       .then(next => { if (alive) setEvents(next); })
       .catch(() => { if (alive) setEvents([]); });
     return () => { alive = false; };
-  }, [conversationId]);
+  }, [conversationId, refreshKey]);
 
   if (events.length === 0) return null;
 

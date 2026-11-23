@@ -220,6 +220,26 @@ test('声明支持却丢掉 system 的 Provider → failed/provider-capability�
   assert.equal(svc.getUsage(hook.task.requestId).status, 'failed/provider-capability');
 });
 
+test('跨重启 requestId 不复用（否则会覆盖上一轮 usage）', () => {
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-mem-reqid-'));
+  const file = path.join(d2, 'memory.sqlite');
+  const mk = () => new MemoryService({ file, settingsFile: path.join(d2, 'settings.json') });
+  const task = {
+    question: '跨重启记忆', stage: 'initial',
+    memory: { conversationId: 'c1', injectionPoint: 'master-agent', turn: 1 }
+  };
+  const a = mk();
+  a.remember({ kind: 'fact', scope: 'GLOBAL', title: '跨重启记忆', content: '跨重启记忆', status: 'active' });
+  const r1 = a.attach(task, local('x')).pending.requestId;
+  a.close();
+  const b = mk();
+  const r2 = b.attach(task, local('x')).pending.requestId;
+  b.close();
+  fs.rmSync(d2, { recursive: true, force: true });
+  assert.notEqual(r1, r2, '两次启动不能生成同一个 requestId');
+  assert.match(r1, /^req_1_x_\d+$/);
+});
+
 test('未装记忆服务时 attachTaskMemory 零影响', () => {
   setMemoryService(null);
   try {

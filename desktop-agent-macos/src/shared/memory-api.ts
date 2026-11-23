@@ -77,6 +77,14 @@ export interface MemoryApi {
   audit(limit?: number): Promise<MemoryAuditEntry[]>;
 
   exportAll(): Promise<unknown>;
+  /**
+   * 导出到磁盘（主进程写 Downloads，返回真实路径）。
+   *
+   * 不用渲染层 `Blob` + `a[download]`：真机验收发现 Electron 里这两步
+   * 不一定落地（下载被 session 拦掉或需要保存框），界面会显示「已导出」
+   * 但磁盘上没有文件。主进程写文件是唯一能验收的方式。
+   */
+  exportToFile(): Promise<{ path: string; records: number; candidates: number }>;
   importAll(data: unknown): Promise<{ imported: number; archivedForConflict: number }>;
   links(memoryId: string): Promise<MemoryLinkView[]>;
 

@@ -158,6 +158,28 @@ test('设置更新后持久化，重开仍是新值；enabled=false 不写入', 
   b.close();
 });
 
+test('status() 计数现读：写入后 records / candidates 立即反映（不是启动快照）', () => {
+  const s = fresh('live-status');
+  assert.equal(s.status().records, 0);
+  assert.equal(s.status().candidates, 0);
+  s.remember(decision('状态计数'));
+  s.extractMessage({
+    conversationId: 'c1', messageId: 'm1', role: 'user', projectId: 'p_alpha',
+    text: '记住：状态计数的候选'
+  });
+  const after = s.status();
+  // 真机验收发现：status 曾用构造时的 baseStatus 快照，写入后仍显示 0。
+  assert.equal(after.records, 1);
+  assert.equal(after.candidates, 1);
+  assert.equal(s.status().records, s.listRecords({ limit: 10 }).length);
+  // 「待审候选」只能算 pending：已拒绝的不该继续占着这个数字。
+  const pendingOne = s.listCandidates('pending')[0];
+  s.rejectCandidate(pendingOne.candidateId);
+  assert.equal(s.status().candidates, 0, '已拒绝的候选不算待审');
+  assert.equal(s.listCandidates('all').length, 1, '但历史候选仍可查');
+  s.close();
+});
+
 test('linksForMemory：没有旧库时返回空，不抛错', () => {
   const s = fresh('links');
   const r = s.remember(decision('带链接'));

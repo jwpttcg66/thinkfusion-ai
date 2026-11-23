@@ -272,6 +272,7 @@ export function createMockApi(): AgentApi {
     listUsage: async () => [],
     audit: async () => [],
     exportAll: async () => ({ version: 1, exportedAt: Date.now(), records: [], candidates: [] }),
+    exportToFile: async () => { throw new Error('预览环境不能导出到磁盘'); },
     importAll: async () => ({ imported: 0, archivedForConflict: 0 }),
     links: async () => [],
     extract: async () => { throw new Error('预览环境不能抽取候选'); }

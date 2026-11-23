@@ -2199,7 +2199,10 @@ export default function App() {
               />
             )}
             {showingConversation && activeConversation && conversationTab === 'chat' && (
-              <MemoryTraceCard conversationId={activeConversation.conversationId} />
+              <MemoryTraceCard
+                conversationId={activeConversation.conversationId}
+                refreshKey={messages.length}
+              />
             )}
             {showingConversation && activeConversation && conversationTab === 'trajectory' && (
               <TrajectoryPanel conversationId={activeConversation.conversationId} />

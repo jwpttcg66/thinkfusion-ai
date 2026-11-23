@@ -75,6 +75,7 @@ const memoryApi: MemoryApi = {
   listUsage: conversationId => ipcRenderer.invoke('memory:usage:list', conversationId),
   audit: limit => ipcRenderer.invoke('memory:audit', limit),
   exportAll: () => ipcRenderer.invoke('memory:export'),
+  exportToFile: () => ipcRenderer.invoke('memory:export-file'),
   importAll: data => ipcRenderer.invoke('memory:import', data),
   links: id => ipcRenderer.invoke('memory:links', id),
   extract: input => ipcRenderer.invoke('memory:extract', input)

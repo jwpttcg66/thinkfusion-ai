@@ -28,6 +28,7 @@ export function MemoryPanel() {
   const [tab, setTab] = useState<'candidates' | 'records' | 'conflicts' | 'audit'>('candidates');
   const [filter, setFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
@@ -163,6 +164,7 @@ export function MemoryPanel() {
       </div>
 
       {error && <p className="settings-error">{error}</p>}
+      {note && <p className="settings-hint">{note}</p>}
 
       <div className="memory-tabs">
         {([
@@ -184,14 +186,9 @@ export function MemoryPanel() {
         <button
           type="button" className="btn" disabled={degraded || busy}
           onClick={() => void run(async () => {
-            const dump = await api.exportAll();
-            const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = 'thinkfusion-memory-export.json';
-            link.click();
-            URL.revokeObjectURL(url);
+            // 主进程写文件：Blob + a[download] 在 Electron 里不一定落地。
+            const result = await api.exportToFile();
+            setNote(`已导出 ${result.records} 条记录、${result.candidates} 条候选到 ${result.path}`);
           })}
         >
           导出

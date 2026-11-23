@@ -75,6 +75,9 @@ const NOOP_HOOK = (task: SubAgentTask): MemoryHook => ({ task, pending: null, fi
  */
 export function attachFromTask(task: SubAgentTask, extra: AttachExtra): MemoryHook {
   const scope = task.memory;
+  if (process.env.TF_MEM_DEBUG) {
+    console.log('[mem] attachFromTask', extra.agentId, extra.sourceType, scope?.conversationId ?? 'NO-SCOPE', current ? 'svc' : 'NO-SVC');
+  }
   if (!scope || !scope.conversationId) return NOOP_HOOK(task);
   return attachTaskMemory(task, extra, {
     conversationId: scope.conversationId,

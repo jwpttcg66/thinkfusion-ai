@@ -74,7 +74,14 @@ export class MemoryService {
   private settings: MemorySettings;
   private baseStatus: MemoryStoreStatus;
   private migration: MigrationResult;
-  private seq = 0;
+  /**
+   * requestId 的序号。**从随机基数起步**，不是从 0。
+   *
+   * 真机验收踩到：重启后 seq 从 1 重来，`req_0_<agent>_1` 与上一轮同值，
+   * `upsertUsage` 把上一条 usage 直接覆盖——历史送达证据就丢了。
+   * 格式仍是 `req_<turn>_<agent>_<seq>`，只是 seq 跨进程不保证连续。
+   */
+  private seq = Math.floor(Math.random() * 1_000_000);
   private store: MemoryStore | null;
 
   constructor(options: MemoryServiceOptions) {
@@ -154,12 +161,22 @@ export class MemoryService {
   }
 
   status(): MemoryServiceStatus {
+    /**
+     * 计数必须**每次现读**，不能用构造时的 `baseStatus` 快照。
+     *
+     * 真机验收发现的缺陷：`baseStatus` 在启动时算一次，之后写入再多，
+     * 设置页的「记录 / 待审候选」仍显示 0——而 `listRecords` 明明有数据。
+     * 单测只断言了 `store.counts()`，没断言 `service.status()`，所以漏了。
+     */
+    const live = this.store
+      ? { ...this.baseStatus, ...this.store.counts() }
+      : this.baseStatus;
     return {
-      ...this.baseStatus,
+      ...live,
       migration: this.migration.status,
       ...(this.migration.detail ? { migrationDetail: this.migration.detail } : {}),
       settings: { ...this.settings },
-      enabled: this.baseStatus.state === 'ready' && this.settings.enabled
+      enabled: live.state === 'ready' && this.settings.enabled
     };
   }
 

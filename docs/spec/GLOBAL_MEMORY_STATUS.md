@@ -55,7 +55,7 @@
 | 阶段 | 完成标准 | 当前 | 任务书 |
 |---|---|---|---|
 | **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
-| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ❌ | `GLOBAL_MEMORY_M2_ACCEPTANCE.md` |
+| **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ⚠️ 部分通过 | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
 | **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ✅ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`（已实施，见 §1 矩阵与 R1–R8） |
 | **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ❌ | 待建（M3 之后） |
 | **M5** | 全部 MEM 用例 + 新增隔离/路由用例通过；三套写入（MemoryStore / 旧表 / Debate 缓存）收敛为一套 | ❌ | M2–M4 收口后 |
@@ -92,12 +92,13 @@
 
 三项都已有**可执行任务书**，不再是「口头待办」。按 M2 → M3 → M4 顺序推进。
 
-### 1. 真机 CDP 验收（M2，未做）
+### 1. 真机 CDP 验收（M2，部分通过）
 
-- **现状**：`npm run verify` 全绿、`MemoryPanel` / `MemoryTraceCard` typecheck 通过，但没在真机上点过。
-- **任务书**：`docs/spec/GLOBAL_MEMORY_M2_ACCEPTANCE.md`
-- **验收要点**：设置页 S1–S14、对话页 D1–D6、降级场景；每项必须有「点击 + 读回状态 + 截图」三样证据，只截图不算通过；证据存 `docs/spec/evidence/M2/`。
-- **风险**：会写真实 `userData/memory.sqlite`，任务书 §6 要求按 `M2 ` 前缀精确清理并回读确认。
+- **已执行**：设置页 S1–S14 全通过；对话页 D1/D2（`provider-confirmed`，L1=L2=L3）/D5（`no-recall`）/D6（`memory-disabled`）通过；降级界面通过。21 张截图 + 报告在 `docs/spec/evidence/M2/`。
+- **真机发现并修复 5 个缺陷**：`status()` 用启动快照、候选计数含已处理、`remember` 返回 null 不报错、`ExecutionPool` 未接记忆（工程链路 usage 全空）、`MemoryTraceCard` 不刷新。详见报告 §5。
+- **未覆盖**：D3（网页通道）/ D4（CLI 通道）需切换研究设置且网页未登录；降级下的完整回答链路（判定阶段模型不稳定）。这四项在离线用例里有等价断言，但没有真机截图。
+- **按任务书 §9 严格口径不宣布全绿**：补齐 D3/D4 与降级回答后再改 ✅。
+- **风险已处理**：真实库先备份（`/tmp/tf-m2-backup/`），结束按 `M2 ` 前缀清理并回读 `records=0 / candidates=0`；7 个测试会话按标题+时间双条件删除，`agent-store.json` 只剩用户原有 1 条。用户原 `electron-vite dev` 实例已停止，需重新 `npm run dev`。
 
 ### 2. `code-index:remember` 写入路由切换（M3，已完成）
 
