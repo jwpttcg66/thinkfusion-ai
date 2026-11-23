@@ -79,7 +79,7 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
-import { reviewPeerEvents } from './debate/review-progress';
+import { reviewPeerEvents, reviewRoundIdOf } from './debate/review-progress';
 import {
   catalogEntryOf,
   CLOUD_PRESETS,
@@ -658,7 +658,17 @@ let debates: DebateOrchestrator | null = null;
  * 开始评审时登记，结束后删除。`onProgress` 按它决定要不要发 round.peer，
  * 手动辩论与知识空间辩论因此完全不受影响。
  */
-const planReviewScopes = new Map<string, { taskId: string; labels: Map<string, string>; seen: Set<string> }>();
+const planReviewScopes = new Map<string, {
+  taskId: string;
+  labels: Map<string, string>;
+  seen: Set<string>;
+  /** 每个成员这一轮的累积全文；通道给的是增量，store 只留快照。 */
+  streams: Map<string, { text: string; reasoning: string }>;
+  /** 每个成员上一次转发的时间：按 150ms 节流，正文仍然一行行长。 */
+  pulse: Map<string, number>;
+}>();
+/** onStart 只能拿到 state；taskId/名字在 debatePlan 里备好，start 内同步消费。 */
+let pendingReview: { taskId: string; labels: Map<string, string> } | null = null;
 /** 语义导航：按工作区根复用 tsserver；只读，不联网。Provider 目前只有 TypeScript。 */
 let lspRegistry: LspProviderRegistry | null = null;
 /** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
@@ -5160,9 +5170,33 @@ app.whenReady().then(async () => {
       if (cli) return cli.ask(task);
       return registry.ask(agentId, task);
     },
+    // 流式版：本地/云端模型有增量，网页/CLI 退回整段（registry.askStream
+    // 内部也会对没有实现的通道自动退回，这里只管名单路由）。
+    askStream: (agentId, task, onDelta) => {
+      const extra = extraAgents.find(agent => agent.id === agentId);
+      if (extra) {
+        return extra.askStream ? extra.askStream(task, onDelta) : extra.ask(task);
+      }
+      const cli = cliAnswerAgents.find(agent => agent.id === agentId);
+      if (cli) return cli.ask(task);
+      return registry.askStream(agentId, task, onDelta);
+    },
     // 谁参与由 debate:start 里的 planLead 按 health() 决定，编排器不再
     // 维护第二套名单。网页成员在计划里被标成 webOnly，只第一轮发言。
     ...(evidencePacks ? { evidencePacks } : {}),
+    onStart: state => {
+      if (!pendingReview) return;
+      // start() 内部同步跑到首次 persist 之前调用，第一轮「输出中」卡因此
+      // 在评审一开始就出现，而不是等第一条发言落盘（50-60 秒）才冒出来。
+      planReviewScopes.set(state.debateId, {
+        taskId: pendingReview.taskId,
+        labels: pendingReview.labels,
+        seen: new Set<string>(),
+        streams: new Map(),
+        pulse: new Map()
+      });
+      pendingReview = null;
+    },
     // 方案评审的辩论每落一次盘就把快照翻成成员事件；没有登记 scope 的辩论
     // （手动/会话内辩论）直接跳过，不改它们现有的展示方式。
     onProgress: state => {
@@ -5173,6 +5207,42 @@ app.whenReady().then(async () => {
       });
       for (const event of batch.events) emit(event);
       for (const key of batch.keys) scope.seen.add(key);
+    },
+    // 成员发言的增量：只有方案评审（登记过 scope 的辩论）转发给界面，
+    // 手动与知识空间辩论没有 scope，一行都不发。
+    //
+    // 这里把通道给的增量手动累积成全文再发（snapshot 语义）：store 对
+    // round.delta 按 streamId 只保留最新快照，直接发增量片段会被后一片
+    // 覆盖掉，刷新后只剩最后一小段。
+    onStream: (debateId, roundIndex, agentId, chunk) => {
+      const scope = planReviewScopes.get(debateId);
+      if (!scope) return;
+      const key = `${String(roundIndex)}:${agentId}`;
+      const acc = scope.streams.get(key) ?? { text: '', reasoning: '' };
+      if (chunk.reset) {
+        acc.text = chunk.text ?? '';
+        acc.reasoning = chunk.reasoning ?? '';
+      } else {
+        acc.text += chunk.text ?? '';
+        acc.reasoning += chunk.reasoning ?? '';
+      }
+      scope.streams.set(key, acc);
+      // 节流：模型 token 级增量可能几十毫秒一块，全量快照逐条过 IPC 会把
+      // 渲染层压住（看起来又像卡死）。150ms 一次，正文照样一行行长；
+      // 落盘的 answered 事件始终带最终全文，中间少发几帧不丢内容。
+      const now = Date.now();
+      if (now - (scope.pulse.get(key) ?? 0) < 150) return;
+      scope.pulse.set(key, now);
+      emit({
+        type: 'round.delta',
+        at: Date.now(),
+        taskId: scope.taskId,
+        roundId: reviewRoundIdOf(debateId),
+        streamId: `review:${debateId}:${key}`,
+        participantId: key,
+        ...(acc.text ? { text: acc.text } : {}),
+        ...(acc.reasoning ? { reasoning: acc.reasoning } : {})
+      });
     }
   });
 
@@ -5381,31 +5451,38 @@ app.whenReady().then(async () => {
         selected,
         leadAgentId: undefined
       });
-      const state = debates.start(
-        planReviewQuestion(plan),
-        {
-          // 方案评审只需要「各自判断 → 互相质疑」两轮：再多也不会让计划本身
-          // 变得更可行，只会把审批拖长。
-          strategy: 'solution',
-          maxRounds: 2,
-          participants: leadPlan.participants,
-          convergenceStop: true,
-          leadMode: mode,
-          // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
-          seed: { positions: [], topics },
-          budget: { stageTimeoutMs: 120_000, totalMs: 180_000, maxConcurrency: 2 }
-        },
-        undefined,
-        leadPlan,
-        'plan-review'
-      );
-      // 辩论结果原来只在 `waitFor` 之后一次性拿到，中间两三分钟对话流里只有
-      // 一个「已等 N 秒」。登记 scope 之后，`onProgress` 会在每次落盘时把
-      // 快照翻成 round.peer，用户就能像看模型思考一样看见每个评审成员的
-      // 意见与推理。`seen` 跨回调保留，同一条发言不会出两次卡。
       const labels = new Map<string, string>();
       for (const candidate of candidates) labels.set(candidate.id, candidate.label ?? candidate.id);
-      planReviewScopes.set(state.debateId, { taskId, labels, seen: new Set<string>() });
+      // 先备好 scope，start() 内部在首次 persist 之前同步消费并登记。
+      pendingReview = { taskId, labels };
+      let state;
+      try {
+        state = debates.start(
+          planReviewQuestion(plan),
+          {
+            // 方案评审只需要「各自判断 → 互相质疑」两轮：再多也不会让计划本身
+            // 变得更可行，只会把审批拖长。
+            strategy: 'solution',
+            maxRounds: 2,
+            participants: leadPlan.participants,
+            convergenceStop: true,
+            leadMode: mode,
+            // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
+            seed: { positions: [], topics },
+            budget: { stageTimeoutMs: 120_000, totalMs: 180_000, maxConcurrency: 2 }
+          },
+          undefined,
+          leadPlan,
+          'plan-review'
+        );
+      } finally {
+        // start 抛错时别把备用的 scope 留给下一场辩论。
+        pendingReview = null;
+      }
+      // 辩论结果原来只在 `waitFor` 之后一次性拿到，中间两三分钟对话流里只有
+      // 一个「已等 N 秒」。scope 已由 onStart 登记：每次落盘把快照翻成
+      // round.peer，每个成员的流式增量再翻成 round.delta，用户看到的就是
+      // 卡片一张张出现、正文一边写一边长。
       const done = await debates.waitFor(state.debateId, 180_000).finally(() => {
         planReviewScopes.delete(state.debateId);
       });

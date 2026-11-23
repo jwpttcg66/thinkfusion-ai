@@ -69,11 +69,14 @@ export function reviewPeerEvents(input: ReviewPeerInput): ReviewPeerBatch {
 
   for (const round of rounds) {
     const index = round.index ?? 0;
+    // 时间戳用轮次/发言自己的真实时间：一律填落盘时刻会让「已等 28 秒」
+    // 变成假数字，也让同一批事件挤在同一个时间点上分不出先后。
+    const roundStart = round.startedAt ?? at;
 
     for (const agentId of round.pending ?? []) {
       push(`${String(index)}:${agentId}:started`, {
         type: 'round.peer',
-        at,
+        at: roundStart,
         taskId: input.taskId,
         roundId,
         memberId: `${String(index)}:${agentId}`,
@@ -83,9 +86,13 @@ export function reviewPeerEvents(input: ReviewPeerInput): ReviewPeerBatch {
     }
 
     for (const message of round.messages) {
+      const endedAt = message.endedAt ?? message.createdAt ?? at;
+      const durationMs = message.startedAt && message.endedAt
+        ? Math.max(0, message.endedAt - message.startedAt)
+        : undefined;
       push(`${String(index)}:${message.messageId}:answered`, {
         type: 'round.peer',
-        at,
+        at: endedAt,
         taskId: input.taskId,
         roundId,
         memberId: `${String(index)}:${message.agentId}`,
@@ -93,6 +100,7 @@ export function reviewPeerEvents(input: ReviewPeerInput): ReviewPeerBatch {
         status: 'answered',
         text: message.text,
         ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+        ...(durationMs === undefined ? {} : { durationMs }),
         ...(message.providerId ? { providerId: message.providerId } : {}),
         ...(message.modelId ? { modelId: message.modelId } : {})
       });
@@ -101,7 +109,7 @@ export function reviewPeerEvents(input: ReviewPeerInput): ReviewPeerBatch {
     for (const failure of round.failures ?? []) {
       push(`${String(index)}:${failure.agentId}:failed`, {
         type: 'round.peer',
-        at,
+        at: round.endedAt ?? at,
         taskId: input.taskId,
         roundId,
         memberId: `${String(index)}:${failure.agentId}`,

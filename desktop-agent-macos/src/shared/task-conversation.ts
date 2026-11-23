@@ -377,10 +377,10 @@ export function buildTaskConversation(
     const roundId = item.roundId ?? currentRoundId;
     if (item.kind === 'step') {
       // 计划一就绪就为每一步生成 preparing 卡，评审阶段还没执行，卡片里
-      // 没有任何输出——真机上就成了一排「这一步没有可展示的输出」，用户
-      // 以为界面坏了。真正执行时同一个 stepId 会更新成有输出的卡，这里
-      // 只跳过尚未开始、也没有参数可看的空壳。
-      if (item.card.status === 'preparing' && !item.card.startedAt && !item.card.args) continue;
+      // 没有任何输出——真机上就成了一排「准备工具 / 这一步没有可展示的输出」，
+      // 用户以为界面坏了。真正执行时同一个 stepId 会更新成有输出的卡，这里
+      // 只跳过尚未开始的占位卡（带参数也不显示：没有输出的一行不叫过程）。
+      if (item.card.status === 'preparing' && !item.card.startedAt) continue;
       push({
         kind: 'step',
         key: `step-${item.key}`,

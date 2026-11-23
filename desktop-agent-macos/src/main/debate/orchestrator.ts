@@ -69,6 +69,35 @@ export interface DebateDeps {
    * 最准。回调只读，不参与辩论决策。
    */
   onProgress?: (state: DebateState) => void;
+  /**
+   * 辩论一创建、后台 run 启动之前调用，用来登记 scope。
+   *
+   * start() 返回前 runRound 的前半段已经同步跑到首次 persist（写 pending），
+   * 若等 start() 返回再登记，这第一次 onProgress 会被跳过，第一轮的
+   * 「输出中」卡要等 50-60 秒发言落盘才冒出来——用户看到的就是干等。
+   */
+  onStart?: (state: DebateState) => void;
+  /**
+   * 流式发问：与 `ask` 同参，多一个增量回调。成员发言动辄 50-60 秒，
+   * 只在整条落盘后才能看见，界面上就是一分钟干等；能流式的通道
+   * （本地/云端模型）实现它，`chunk.text` 是增量不是快照。
+   */
+  askStream?: (
+    agentId: string,
+    task: SubAgentTask,
+    onDelta: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
+  ) => Promise<SubAgentAnswer>;
+  /**
+   * 成员发言的流式增量转发。引擎不落盘 delta——辩论的真相只有落盘的
+   * DebateState 一份；这里只是把「字正在出」递给界面层，方案评审的
+   * scope 由调用方判，手动/知识空间辩论不注册就不受影响。
+   */
+  onStream?: (
+    debateId: string,
+    roundIndex: number,
+    agentId: string,
+    chunk: { text?: string; reasoning?: string; reset?: boolean }
+  ) => void;
 }
 
 const SIMILAR = 0.34;
@@ -162,6 +191,12 @@ export class DebateOrchestrator {
     this.store.save(state);
     this.stopped.delete(state.debateId);
     if (memory) this.scopes.set(state.debateId, memory);
+    // 必须先登记再有 run：run 的前半段同步走到首次 persist，晚一步就丢卡片。
+    try {
+      this.deps.onStart?.(state);
+    } catch {
+      /* 观察者不能打断辩论 */
+    }
     void this.launch(state);
     return state;
   }
@@ -513,7 +548,13 @@ export class DebateOrchestrator {
       };
       const startedAt = this.now();
       try {
-        const answer = await this.askWithin(agentId, task, budget.stageTimeoutMs, deadline);
+        // 流式增量只在 deps 注册了转发时才开：方案评审要「字正在出」，
+        // 手动/知识空间辩论不注册 onStream，行为与从前完全一致。
+        const onDelta = this.deps.onStream
+          ? (chunk: { text?: string; reasoning?: string; reset?: boolean }) =>
+              this.deps.onStream!(state.debateId, index, agentId, chunk)
+          : undefined;
+        const answer = await this.askWithin(agentId, task, budget.stageTimeoutMs, deadline, onDelta);
         round.pending = round.pending?.filter(id => id !== agentId);
         const endedAt = this.now();
         const message: DebateMessage = {
@@ -641,14 +682,19 @@ export class DebateOrchestrator {
     agentId: string,
     task: SubAgentTask,
     stageTimeoutMs: number,
-    deadline: number
+    deadline: number,
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer> {
     const remaining = deadline - this.now();
     const timeoutMs = Math.max(1, Math.min(stageTimeoutMs, remaining));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 有流式通道就流式（评审一分钟里界面不再干等），没有照旧整段拿。
+    const call = onDelta && this.deps.askStream
+      ? this.deps.askStream(agentId, task, onDelta)
+      : this.deps.ask(agentId, task);
     try {
       return await Promise.race([
-        this.deps.ask(agentId, task),
+        call,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error(`超过单次调用时限 ${Math.round(timeoutMs / 1000)} 秒`)), timeoutMs);
         })

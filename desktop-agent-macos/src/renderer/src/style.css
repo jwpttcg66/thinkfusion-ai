@@ -6152,6 +6152,13 @@ button:disabled {
   color: var(--text);
 }
 .chat-reasoning { margin-top: 8px; }
+/* 正文还没出来时，思考就是实时输出：一行小字说清在写什么，别让人以为卡住。 */
+.chat-reasoning-live {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
 .chat-reasoning > summary { cursor: pointer; font-size: 11.5px; color: var(--text-2); }
 .chat-reasoning pre {
   margin: 6px 0 0;

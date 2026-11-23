@@ -147,3 +147,110 @@ test('评审失败的成员如实标失败，不静默消失', () => {
   assert.equal(batch.events[0].status, 'failed');
   assert.equal(batch.events[0].error, '超时 120 秒');
 });
+
+test('成员卡用发言自己的时间：开始取轮次时间，结束取 endedAt 并带真实耗时', () => {
+  const batch = reviewPeerEvents({
+    taskId: 't1', debateId: 'd1', labels, seen: new Set(),
+    state: {
+      rounds: [],
+      runningRound: round(0, {
+        startedAt: 5_000,
+        pending: ['local-a'],
+        messages: [
+          message(0, 'cloud-b', '意见', { startedAt: 6_000, endedAt: 65_000, createdAt: 65_000 })
+        ]
+      })
+    },
+    at: 9_999
+  });
+  const started = batch.events.find(event => event.status === 'started');
+  const answered = batch.events.find(event => event.status === 'answered');
+  // 开始卡不能等到落盘那一刻才出现（否则评审前一分钟没有任何卡）。
+  assert.equal(started.at, 5_000);
+  assert.equal(answered.at, 65_000);
+  assert.equal(answered.durationMs, 59_000);
+});
+
+test('start() 在后台 run 之前就通知 onStart，第一轮「输出中」卡不再等落盘', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-review-onstart-'));
+  const store = new DebateStore(dir);
+  const order = [];
+  const orchestrator = new DebateOrchestrator(store, {
+    ask: async agentId => ({ agentId, text: '意见', receivedAt: Date.now() }),
+    onStart: () => order.push('start'),
+    onProgress: () => order.push('progress')
+  });
+  let started = null;
+  try {
+    started = orchestrator.start('评审', {
+      strategy: 'standard', maxRounds: 1, participants: ['a'], convergenceStop: false
+    });
+    assert.equal(order[0], 'start', `onStart 必须先于首次落盘，实际顺序 ${order.join(',')}`);
+    assert.ok(order.includes('progress'));
+  } finally {
+    if (started) orchestrator.stop(started.debateId);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('注册了 onStream 就走流式：增量逐块转发，最终正文以落盘为准', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-review-stream-'));
+  const store = new DebateStore(dir);
+  const chunks = [];
+  const orchestrator = new DebateOrchestrator(store, {
+    ask: async agentId => ({ agentId, text: '整段', receivedAt: Date.now() }),
+    askStream: async (agentId, task, onDelta) => {
+      onDelta({ text: '前半段' });
+      onDelta({ text: '后半段' });
+      onDelta({ reasoning: '推理中' });
+      return { agentId, text: '前半段后半段', reasoning: '推理中', receivedAt: Date.now() };
+    },
+    onStream: (debateId, roundIndex, agentId, chunk) => chunks.push({ roundIndex, agentId, ...chunk })
+  });
+  let started = null;
+  try {
+    started = orchestrator.start('评审', {
+      strategy: 'standard', maxRounds: 1, participants: ['a'], convergenceStop: false
+    });
+    const done = await orchestrator.waitFor(started.debateId, 8000);
+    assert.ok(done);
+    assert.equal(chunks.length, 3, '三块增量都应转发');
+    assert.equal(chunks.map(item => item.text ?? '').join(''), '前半段后半段');
+    assert.equal(chunks[0].roundIndex, 0);
+    assert.equal(chunks[0].agentId, 'a');
+    const spoken = done.rounds.flatMap(round => round.messages);
+    assert.equal(spoken[0].text, '前半段后半段');
+  } finally {
+    if (started) orchestrator.stop(started.debateId);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('没有 onStream 时不用流式，手动/知识空间辩论行为不变', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-review-nostream-'));
+  const store = new DebateStore(dir);
+  let streamCalls = 0;
+  let askCalls = 0;
+  const orchestrator = new DebateOrchestrator(store, {
+    ask: async agentId => {
+      askCalls += 1;
+      return { agentId, text: '整段', receivedAt: Date.now() };
+    },
+    askStream: async agentId => {
+      streamCalls += 1;
+      return { agentId, text: '流式', receivedAt: Date.now() };
+    }
+  });
+  let started = null;
+  try {
+    started = orchestrator.start('评审', {
+      strategy: 'standard', maxRounds: 1, participants: ['a'], convergenceStop: false
+    });
+    await orchestrator.waitFor(started.debateId, 8000);
+    assert.equal(streamCalls, 0);
+    assert.equal(askCalls, 1);
+  } finally {
+    if (started) orchestrator.stop(started.debateId);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

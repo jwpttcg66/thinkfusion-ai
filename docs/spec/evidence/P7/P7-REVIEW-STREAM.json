@@ -1,0 +1,570 @@
+{
+  "prompt": "编写一个 java 工程，输出 hello stream，编译并运行验证通过",
+  "steps": [
+    {
+      "name": "dev:local + CDP ready",
+      "ok": true
+    },
+    {
+      "name": "preload agentAPI ready",
+      "ok": true
+    },
+    {
+      "name": "composer ready",
+      "ok": true
+    },
+    {
+      "name": "submit clicked",
+      "ok": true
+    },
+    {
+      "name": "user bubble visible",
+      "ok": true
+    },
+    {
+      "name": "review card appears while running",
+      "ok": true
+    },
+    {
+      "name": "review text grows at least 3 times (streaming)",
+      "ok": true,
+      "detail": "1516 -> 1823 -> 2154 -> 2494 -> 2872 -> 3239 -> 3628 -> 4047 -> 4403 -> 4675 -> 5017 -> 5414 -> 5723 -> 6148 -> 6483 -> 6795 -> 7106 -> 7326 -> 7547 -> 7895 -> 8193 -> 8617 -> 8927 -> 9267 -> 9737 -> 10037 -> 10277 -> 10566 -> 10889 -> 11159 -> 11470 -> 12161 -> 12617 -> 12955 -> 13244 -> 13636 -> 13896 -> 14160 -> 14572 -> 14899 -> 15184 -> 15527 -> 15873 -> 16203 -> 16450 -> 16722 -> 17100 -> 17375 -> 17657 -> 17853 -> 18355 -> 18559 -> 18939 -> 19224 -> 19441 -> 19731 -> 20047 -> 20520 -> 20744 -> 20910 -> 21547 -> 21840 -> 22034"
+    },
+    {
+      "name": "first growth within 25s of review card",
+      "ok": true,
+      "detail": "card@32s firstGrowth@40s"
+    },
+    {
+      "name": "task completed",
+      "ok": true
+    },
+    {
+      "name": "test data cleaned",
+      "ok": true
+    }
+  ],
+  "samples": [
+    {
+      "phase": "early",
+      "t": 40,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 1516
+    },
+    {
+      "phase": "mid",
+      "t": 45,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 3239
+    }
+  ],
+  "screenshots": [
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-15-review-stream-early.png",
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-15-review-stream-mid.png",
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-16-review-stream-final.png"
+  ],
+  "cleanup": {
+    "conversations": 0,
+    "tasks": 0
+  },
+  "startedAt": "2026-11-23T07:34:51.008Z",
+  "finalStatus": "completed",
+  "taskId": "ed28e9b9-d2cf-4d87-afbe-9047c1dfd596",
+  "finalCards": [
+    {
+      "label": "OpenCode Go · deepseek-v4.1-flash",
+      "meta": "第 1 轮 · 15:35:16 · 21.1s · 5360 字符",
+      "pill": "已完成",
+      "body": 0,
+      "reasoning": true,
+      "thinking": false
+    },
+    {
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "meta": "15:35:38 · 76.9s · 3900 字符",
+      "pill": "已完成",
+      "body": 3900,
+      "reasoning": true,
+      "thinking": false
+    },
+    {
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 2 轮评审）",
+      "meta": "15:36:55 · 36.7s · 3519 字符",
+      "pill": "已完成",
+      "body": 3519,
+      "reasoning": true,
+      "thinking": false
+    },
+    {
+      "label": "OpenCode Go · deepseek-v4.1-flash",
+      "meta": "第 2 轮 · 15:37:59 · 3.0s · 151 字符",
+      "pill": "已完成",
+      "body": 151,
+      "reasoning": true,
+      "thinking": false
+    }
+  ],
+  "finalNotes": [
+    "方案评审已辩完（opencode-go:deepseek-v4.1-flash）：2 个辩题",
+    "完全权限：计划已自动批准并开始执行，步骤不再逐次询问。",
+    "执行报告：completed · 9 步完成 · 已验证",
+    "独立评审（OpenCode Go · deepseek-v4.1-flash）：通过",
+    "第 2 轮 · 执行报告已发回模型",
+    "任务完成"
+  ],
+  "conclusion": [
+    "结论15:38:02任务完成执行 9 步，完成 9 步验证通过改动 3 个文件工程产物 1 个独立评审：通过"
+  ],
+  "startedSeenAt": 32,
+  "growth": [
+    {
+      "t": 40,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 1516,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 41,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 1823,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 42,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 2154,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 43,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 2494,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 44,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 2872,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 45,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 3239,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 46,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 3628,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 47,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 4047,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 48,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 4403,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 49,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 4675,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 50,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 5017,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 51,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 5414,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 52,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 5723,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 53,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 6148,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 54,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 6483,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 55,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 6795,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 56,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 7106,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 57,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 7326,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 58,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 7547,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 59,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 7895,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 60,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 8193,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 61,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 8617,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 62,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 8927,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 63,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 9267,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 64,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 9737,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 65,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 10037,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 66,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 10277,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 67,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 10566,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 68,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 10889,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 69,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 11159,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 70,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 11470,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 71,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 12161,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 72,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 12617,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 73,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 12955,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 75,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 13244,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 76,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 13636,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 77,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 13896,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 78,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 14160,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 79,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 14572,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 80,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 14899,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 81,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 15184,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 82,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 15527,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 83,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 15873,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 84,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 16203,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 85,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 16450,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 86,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 16722,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 87,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 17100,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 88,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 17375,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 89,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 17657,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 90,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 17853,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 91,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 18355,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 92,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 18559,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 93,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 18939,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 94,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 19224,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 95,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 19441,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 96,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 19731,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 97,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 20047,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 98,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 20520,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 99,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 20744,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 100,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 20910,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 101,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 21547,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 102,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 21840,
+      "pill": "输出中",
+      "thinking": true
+    },
+    {
+      "t": 103,
+      "label": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）",
+      "body": 22034,
+      "pill": "输出中",
+      "thinking": true
+    }
+  ],
+  "passed": true,
+  "finishedAt": "2026-11-23T07:38:06.998Z",
+  "protocolExpanded": {
+    "verified": true,
+    "evidence": "p7-17-protocol-expanded.png",
+    "detail": "只读打开历史任务：计划卡按钮为「收起原文」，8252 字符协议 JSON 原文直接铺开，不再只给一句摘要。"
+  },
+  "dataSafety": "真机脚本启动前备份 agent-store.json、结束前无条件覆盖恢复；核对为 1 任务 / 2 会话 / 10 消息 / 121 事件 / 2 报告。"
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
@@ -74,10 +74,22 @@ function ToneClass(tone: ConversationTone): string {
 
 function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'member' }>; now: number }) {
   const { entry } = props;
-  const [openRaw, setOpenRaw] = useState(false);
+  // 协议对象默认展开原文：用户要的是「整体输出」，只给一句摘要等于把模型
+  // 这一轮真正写了什么藏起来。卡片在流式中就挂载了（那时还不是协议），
+  // 所以不能按初始值算：只要用户没点过「收起」，就一直展开。
+  const [collapsed, setCollapsed] = useState(false);
+  const openRaw = !collapsed;
+  const bodyRef = useRef<HTMLPreElement | null>(null);
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
+  // 流式期间自动跟到底部：正文框最高 420px，不滚的话新字长在看不见的下面，
+  // 看起来还是「没动静」。
+  useEffect(() => {
+    if (!live) return;
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [live, entry.text, entry.reasoning]);
   const protocolLabel =
     entry.protocol === 'plan'
       ? '计划'
@@ -113,17 +125,30 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
           <>
             {/* 协议对象不是给我的答复：先给一句人话，原文折叠在下面。 */}
             <p className="chat-protocol-note">
-              这一路返回的是{protocolLabel}（机器读的 JSON），不是最终答复；
+              这一路返回的是{protocolLabel}（机器读的 JSON），完整原文在下面（可收起）；
               执行结果与结论见本页下方。
             </p>
             {summary && <p className="chat-protocol-summary">{summary}</p>}
-            <button className="btn ghost" type="button" onClick={() => setOpenRaw(value => !value)}>
+            <button className="btn ghost" type="button" onClick={() => setCollapsed(value => !value)}>
               {openRaw ? '收起原文' : '看协议原文'}
             </button>
             {openRaw && <pre className="chat-member-text">{entry.text}</pre>}
           </>
         ) : (
-          <pre className="chat-member-text">{entry.text || (live ? '等待模型输出…' : '这次没有输出正文。')}</pre>
+          <>
+            {/* 思考也是输出。很多模型先写几十秒推理再出正文，只显示「等待模型
+                输出…」会让这一分钟看起来像卡死；正文没来之前就把推理摊开，
+                字一行行长，等正文到了再切换过去。 */}
+            {live && !entry.text && entry.reasoning && (
+              <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
+            )}
+            <pre className="chat-member-text" ref={bodyRef}>
+              {entry.text
+                || (live && entry.reasoning
+                  ? entry.reasoning
+                  : live ? '等待模型输出…' : '这次没有输出正文。')}
+            </pre>
+          </>
         )}
         {entry.reasoningSupported && (
           <details className="chat-reasoning">

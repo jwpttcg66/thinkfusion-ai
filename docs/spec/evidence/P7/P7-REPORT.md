@@ -216,3 +216,34 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 `npm run verify` **502/502**（新增 `test:message-dedupe` 3 条、
 `test:review-detail` 4 条，`test:ui-progress` 改为断言原地滚动）。会话与
 任务数据当场删净，无残留进程。
+
+## 6.9 评审「不停输出」：流式增量 + 思考即输出（502 → 506）
+
+用户三连：「还是不对，需要的是整体输出」「感觉还是很慢，模型不会 28s 还没返回」
+「就是要不停的输出辩论过程，不要让我干等」。真实事件链显示：评审 started 后
+**59 秒界面没有一张卡**（scope 晚登记吞掉首轮 started），而成员发言本身
+50-60 秒里引擎只在整条落盘后才有内容——`DebateOrchestrator.askWithin` 只调
+整段 `ask`，池层已有的 `askStream` 从没被辩论用过。
+
+- **流式增量**：`DebateDeps` 增 `askStream` / `onStream`；`runRound` 把每个
+  成员发言的 chunk 转发，`askWithin` 有 onDelta 就走流式。`main/index.ts`
+  把 chunk 累积成全文快照再 emit `round.delta`（store 对 delta 按 streamId
+  只留最新快照，直接发增量会丢文本），按 150ms 节流防刷屏；scope 未登记
+  （手动/知识空间辩论）一行不发。
+- **首轮卡片不再等落盘**：`start()` 内部在首次 `persist` 之前同步调
+  `onStart`，`planReviewScopes` 由 `pendingReview` 在 start 前备好；
+  `review-progress.ts` 的 started 用 `round.startedAt`、answered 用
+  `message.endedAt` 并带真实 `durationMs`，不再全挤在落盘时刻。
+- **思考也是输出**：模型常先写几十秒推理再出正文，卡上只有「等待模型
+  输出…」。流式期间没有正文就把 `reasoning` 直接铺进成员卡正文、标
+  「思考中 · 已写 N 字符」并自动滚到底部；正文到了再切过去。
+- **整体输出**：协议卡默认展开完整原文（按钮「收起原文」），不再只给一句
+  摘要；准备中的空步骤卡全部不进对话流；进度卡「正在等待」补上正在写的成员。
+
+真机 CDP（`P7-REVIEW-STREAM.json` + `p7-15-* / p7-16-* / p7-17-*`）：
+评审卡在发送后 24-32 秒即出现，正文逐秒从 1516 长到 22034 字符
+（63 个递增采样，首次增长在卡片出现后 8 秒内），任务 `completed`；
+历史任务只读复核协议原文 8252 字符默认展开。
+`npm run verify` **506/506**（`test:review-detail` 4 → 8 条）。
+验收脚本启动前备份 store、结束前无条件文件覆盖恢复，核对仍为
+1 任务 / 2 会话 / 10 消息 / 121 事件 / 2 报告，工作区回到 Downloads。
