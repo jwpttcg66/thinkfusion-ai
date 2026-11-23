@@ -225,7 +225,9 @@ function viewOf(config: CliAgentConfig): CliAgentView {
       : headless === 'unsupported'
         ? '不支持非交互执行'
         : headless === 'unverified'
-          ? '当前版本或启动参数没有实测记录，非交互能力未验证（点「重新验证」跑一次最小任务）'
+          // 不写「点『重新验证』」：这行字显示在模型弹层的 label 里，
+          // 点它只会 toggle 勾选，用户会以为验证跑过了（真机踩到）。
+          ? '当前版本或启动参数没有实测记录，非交互能力未验证（去「设置 → 模型 → CLI 来源」验证）'
           : detected.version === null
             ? '能执行，但读不到版本；先自己跑一次 --version 确认'
             : undefined;
