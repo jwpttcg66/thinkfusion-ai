@@ -114,6 +114,61 @@ export function protocolSummary(text: string): string | null {
 }
 
 /**
+ * 成员卡「正文框」与「思考折叠」的展示分工（去重规则）。
+ *
+ * 真机上出现过同一份 3054 字符思考被画三遍：流式期间正文框铺了 reasoning、
+ * 卡片底部又挂一个「思考（N 字符）」折叠、对话页还留着一张旧的「模型思考」
+ * 卡。规则只有一条：同一时刻、同一份内容只在一个地方可见。
+ *
+ * - 流式且正文还没来：正文框铺思考（让用户看到字在长），底部折叠收掉。
+ * - 正文到了：正文框切回正文，思考是另一份内容，折叠恢复供查证。
+ * - 协议对象：原文铺开，思考折叠照旧（两者不是同一份内容）。
+ */
+export interface MemberBodyInput {
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled';
+  text: string;
+  reasoning: string;
+  reasoningSupported: boolean;
+  protocol: ConversationProtocol;
+}
+
+export interface MemberBodyView {
+  /** 正文框里实际展示的文本；空串表示改显示占位。 */
+  bodyText: string;
+  /** 正文框展示的其实是思考（正文还没来）。 */
+  bodyIsReasoning: boolean;
+  /** 是否显示「思考中 · 已写 N 字符」实时标签。 */
+  showLiveThinking: boolean;
+  /** 是否显示底部可折叠的思考块。 */
+  showReasoningDetails: boolean;
+  /** 正文框没有内容时的占位文案。 */
+  placeholder: string | null;
+  /** meta 行该显示的字符数：以当前真正展示的内容为准。 */
+  displayLength: number;
+}
+
+export function memberBodyView(input: MemberBodyInput): MemberBodyView {
+  const live = input.status === 'streaming';
+  // 只有「流式 + 非协议 + 正文为空 + 有思考」才把思考临时铺进正文框。
+  // 协议对象有原文，不参与这条替换，否则会把那段 JSON 误标成思考。
+  const bodyIsReasoning = live && input.protocol === null
+    && input.text.length === 0 && input.reasoning.length > 0;
+  const bodyText = bodyIsReasoning ? input.reasoning : input.text;
+  return {
+    bodyText,
+    bodyIsReasoning,
+    showLiveThinking: bodyIsReasoning,
+    // 正文框正在展示同一份思考时，底部折叠必须收掉；其余情况思考与正文
+    // 是两份内容，折叠保留（reasoningSupported 但没内容时仍给出「没返回」）。
+    showReasoningDetails: input.reasoningSupported && !bodyIsReasoning,
+    placeholder: bodyText.length === 0
+      ? (live ? '等待模型输出…' : '这次没有输出正文。')
+      : null,
+    displayLength: bodyText.length
+  };
+}
+
+/**
  * 只取 `summary` 字段，不拿计划标题凑数。
  *
  * 结论卡写「写文件」这种事毫无意义——那是计划的标题，不是这件事的结果。

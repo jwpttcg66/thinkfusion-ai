@@ -247,3 +247,32 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 `npm run verify` **506/506**（`test:review-detail` 4 → 8 条）。
 验收脚本启动前备份 store、结束前无条件文件覆盖恢复，核对仍为
 1 任务 / 2 会话 / 10 消息 / 121 事件 / 2 报告，工作区回到 Downloads。
+
+## 6.10 对话页去重：同一份思考不再出现三次（506 → 511）
+
+用户贴出真机截图：一轮流式输出里，**同一份 3054 字符思考被画了三遍**——
+成员卡正文框（流式期间把 reasoning 铺进正文）、成员卡底部「思考（3054 字符）」
+折叠、App 里那张旧的「模型思考（3054 字符）」卡；中间还夹着一张
+「正在生成执行计划」旧状态卡。上一轮 §6.9 解决了「不停输出」，但没发现
+对话页里还并存着历史遗留的实时区，于是「输出」变成了「重复输出」。
+
+- **纯函数统一分工**：`shared/task-conversation.ts` 新增 `memberBodyView`，
+  规则只有一条——同一时刻同一份内容只在一个地方可见。流式且正文未到时
+  正文框铺思考、`showReasoningDetails=false`；正文到了切回正文，思考作为
+  另一份内容恢复折叠；协议对象不把 JSON 原文误标成思考；meta 行的字符数
+  按当前真正展示的内容算，不再显示与正文框不符的 0。
+- **删除旧实时区**：`App.tsx` 的 conversation tab 下 `isLive(derived.live)`
+  三张卡（正在生成执行计划 / 模型思考 / 模型输出）整体移除。主界面是
+  `TaskConversation`，状态由 `TaskProgressCard` 承担；output tab 的历史
+  「模型思考记录」保留（那是不同轮次，不是实时重复）。`isLive` import 一并清掉。
+- **锁进单测**：`check-task-conversation.mjs` 补 5 条（流式去重 / 正文到达 /
+  已完成占位 / 协议不误标 / 无思考占位），`npm run verify` **511/511**。
+
+真机 CDP（`P7-CONVERSATION-DEDUP.json` + `p7-18-conversation-deduped.png`）：
+只读打开历史任务「编写一个java工程，输出本机的ip」，4 张成员卡正常渲染、
+每张最多一个思考折叠、页面里 `模型思考（`/`模型输出（`/`正在生成执行计划`
+文案与 `.card.reasoning`/`.card.assistant` 节点均为 0；浏览器内再跑一次
+`memberBodyView` 验证流式态「思考只出现一次」通过。
+验收脚本自包含启动 dev（清掉宿主 `ELECTRON_RUN_AS_NODE`/`NODE_OPTIONS`）、
+启动前备份 store 与 workspace-state、finally 无条件文件覆盖恢复，核对仍为
+1 任务 / 2 会话 / 10 消息 / 77 事件 / 1 报告，工作区 `/Users/yalla/Downloads`。

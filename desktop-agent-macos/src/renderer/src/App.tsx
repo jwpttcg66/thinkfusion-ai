@@ -11,7 +11,6 @@ import type {
   PlanPreview as PlanPreviewType,
   SourcesState
 } from '../../shared/contracts';
-import { isLive } from '../../shared/task-stream';
 import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, type TaskView } from '../../shared/task-view';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
@@ -2798,33 +2797,6 @@ export default function App() {
                   </section>
                 ))}
               </details>
-            )}
-
-            {activeTask && workbenchTab === 'conversation' && isLive(derived.live) && (
-              <>
-                <section className="card running">
-                  <span className="spinner" />
-                  <div>
-                    <b>{activeTask.status === 'planning' ? '正在生成执行计划' : '正在生成回答'}</b>
-                    <p className="muted">
-                      {derived.live.providerId ? `${derived.live.providerId} · ` : ''}
-                      {derived.live.modelId ?? '当前模型'}
-                    </p>
-                  </div>
-                </section>
-                <details className="card reasoning" open>
-                  <summary>模型思考（{derived.live.reasoning.length} 字符）</summary>
-                  {derived.live.reasoning
-                    ? <pre>{derived.live.reasoning}</pre>
-                    : <p className="muted">当前模型/渠道没有提供思考流。</p>}
-                </details>
-                <details className="card assistant" open>
-                  <summary>模型输出（{derived.live.text.length} 字符）</summary>
-                  {derived.live.text
-                    ? <pre>{derived.live.text}</pre>
-                    : <p className="muted">等待模型输出正文…</p>}
-                </details>
-              </>
             )}
 
             {activeTask && workbenchTab === 'output' && planThinking(derived.answer) && (

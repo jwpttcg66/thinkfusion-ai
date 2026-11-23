@@ -9,6 +9,7 @@ import test from 'node:test';
 import {
   buildConclusion,
   buildTaskConversation,
+  memberBodyView,
   protocolKind,
   protocolSummary
 } from '../out-test/shared/task-conversation.js';
@@ -208,4 +209,64 @@ test('协议识别：plan / execution_report / task_complete 认得出，普通�
     '退出码 0'
   );
   assert.equal(protocolSummary('{"protocol":"desktop-agent/v1","type":"plan","plan":{"title":"写文件"}}'), '写文件');
+});
+
+// 同一份思考在流式期间只能出现一次：正文框铺了它，底部折叠就要收掉。
+// 真机上三处重复（正文框 + 卡内折叠 + App 旧「模型思考」卡）就是这么来的。
+test('流式期间正文未到：思考铺进正文框，卡内思考折叠收起', () => {
+  const view = memberBodyView({
+    status: 'streaming', text: '', reasoning: '先想清楚本机 IP 怎么取',
+    reasoningSupported: true, protocol: null
+  });
+  assert.equal(view.bodyText, '先想清楚本机 IP 怎么取');
+  assert.equal(view.bodyIsReasoning, true);
+  assert.equal(view.showLiveThinking, true);
+  assert.equal(view.showReasoningDetails, false, '同一份内容不能再折一次');
+  assert.equal(view.displayLength, '先想清楚本机 IP 怎么取'.length);
+  assert.equal(view.placeholder, null);
+});
+
+test('正文到了就切回正文，思考折叠恢复供查证（两份不同内容）', () => {
+  const view = memberBodyView({
+    status: 'streaming', text: '本机 IP 是 192.168.1.7', reasoning: '先想清楚本机 IP 怎么取',
+    reasoningSupported: true, protocol: null
+  });
+  assert.equal(view.bodyText, '本机 IP 是 192.168.1.7');
+  assert.equal(view.bodyIsReasoning, false);
+  assert.equal(view.showLiveThinking, false);
+  assert.equal(view.showReasoningDetails, true);
+});
+
+test('已完成成员：正文框只认正文，没正文就如实占位', () => {
+  const withText = memberBodyView({
+    status: 'completed', text: '结论', reasoning: '推理', reasoningSupported: true, protocol: null
+  });
+  assert.equal(withText.bodyText, '结论');
+  assert.equal(withText.showReasoningDetails, true);
+  const without = memberBodyView({
+    status: 'completed', text: '', reasoning: '推理', reasoningSupported: true, protocol: null
+  });
+  assert.equal(without.bodyText, '');
+  assert.equal(without.placeholder, '这次没有输出正文。');
+  assert.equal(without.showReasoningDetails, true);
+});
+
+test('协议对象不把 JSON 原文误标成思考', () => {
+  const plan = '{"protocol":"desktop-agent/v1","type":"plan","summary":"建工程"}';
+  const view = memberBodyView({
+    status: 'streaming', text: '', reasoning: plan, reasoningSupported: true, protocol: 'plan'
+  });
+  assert.equal(view.bodyIsReasoning, false);
+  assert.equal(view.showLiveThinking, false);
+  assert.equal(view.showReasoningDetails, true);
+});
+
+test('流式且思考也没来：只给占位，不显示空折叠', () => {
+  const view = memberBodyView({
+    status: 'streaming', text: '', reasoning: '', reasoningSupported: false, protocol: null
+  });
+  assert.equal(view.bodyText, '');
+  assert.equal(view.placeholder, '等待模型输出…');
+  assert.equal(view.showReasoningDetails, false);
+  assert.equal(view.displayLength, 0);
 });

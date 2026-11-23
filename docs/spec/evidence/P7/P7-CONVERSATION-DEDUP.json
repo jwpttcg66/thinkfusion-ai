@@ -1,0 +1,170 @@
+{
+  "passed": true,
+  "steps": [
+    {
+      "name": "dev:local launched (clean env)",
+      "ok": true,
+      "detail": "pid 91863"
+    },
+    {
+      "name": "CDP page target ready",
+      "ok": true,
+      "detail": "http://localhost:5173/"
+    },
+    {
+      "name": "preload agentAPI ready",
+      "ok": true,
+      "detail": "object"
+    },
+    {
+      "name": "member cards rendered",
+      "ok": true,
+      "detail": "4 张"
+    },
+    {
+      "name": "old live cards removed (no 模型思考/模型输出/正在生成执行计划)",
+      "ok": true,
+      "detail": "{\"thinking\":false,\"output\":false,\"planning\":false,\"cards\":[0,0]}"
+    },
+    {
+      "name": "no streaming leftover + at most one reasoning fold per member",
+      "ok": true,
+      "detail": "liveThinking=0 folds=4 members=4"
+    },
+    {
+      "name": "browser-side memberBodyView: streaming shows thinking once",
+      "ok": true,
+      "detail": "/@fs/Users/yalla/data/localLab/thinkfusion-ai/desktop-agent-macos/src/shared/task-conversation.ts"
+    }
+  ],
+  "samples": {
+    "storeBefore": {
+      "tasks": 1,
+      "conversations": 2,
+      "messages": 10,
+      "events": 77,
+      "reports": 1
+    },
+    "clicked": {
+      "count": 1,
+      "picked": "编写一个java工程，输出本机的ip， 保证本机可以使用53 分钟删除"
+    },
+    "dom": {
+      "url": "http://localhost:5173/",
+      "hasOldModelThinking": false,
+      "hasOldModelOutput": false,
+      "hasOldPlanning": false,
+      "oldReasoningCards": 0,
+      "oldAssistantCards": 0,
+      "reasoningFoldCount": 4,
+      "liveThinkingCount": 0,
+      "memberCount": 4,
+      "members": [
+        {
+          "status": "completed",
+          "bodyLen": 6726,
+          "liveThinking": false,
+          "reasoningFold": true,
+          "rawButton": "收起原文",
+          "head": "OpenCode Go · deepseek-v4.1-flash"
+        },
+        {
+          "status": "completed",
+          "bodyLen": 2264,
+          "liveThinking": false,
+          "reasoningFold": true,
+          "rawButton": "",
+          "head": "OpenCode Go · deepseek-v4.1-flash（第 1 轮评审）"
+        },
+        {
+          "status": "completed",
+          "bodyLen": 2578,
+          "liveThinking": false,
+          "reasoningFold": true,
+          "rawButton": "",
+          "head": "OpenCode Go · deepseek-v4.1-flash（第 2 轮评审）"
+        },
+        {
+          "status": "completed",
+          "bodyLen": 151,
+          "liveThinking": false,
+          "reasoningFold": true,
+          "rawButton": "收起原文",
+          "head": "OpenCode Go · deepseek-v4.1-flash"
+        }
+      ],
+      "conclusion": true,
+      "chatFeed": 1,
+      "bodyLen": 14467,
+      "debug": {
+        "taskRows": [
+          "编写一个java工程，输出本机的ip， 保证本机可以使用53 分钟删除"
+        ],
+        "buttons": [
+          "知识学习",
+          "工程工作",
+          "＋新对话",
+          "⌕",
+          "⇅",
+          "＋",
+          "⋯",
+          "删除",
+          "导出诊断",
+          "对话",
+          "输出",
+          "轨迹",
+          "统计",
+          "收起原文",
+          "收起原文",
+          "还原本轮",
+          "＋",
+          "◐完全权限▾",
+          "◈模型·已选 1/30 · CLI 0/1",
+          "◎研究设置·云端主导",
+          "↑",
+          "G",
+          "Q"
+        ],
+        "head": "◈\nThinkFusion\n知识学习\n工程工作\n＋\n新对话\n工作区\n1\n⌕\n⇅\n＋\n▾\n▤\nDownloads\n⋯\n编写一个java工程，输出本机的ip， 保证本机可以使用\n53 分钟\nJ\njwp\n▤\nDownloads\n/\n编写一个java工程，输出本机的ip， 保证本机可以使用\n·\n第 2 轮\n编写一个java工程，输出本机的ip， 保证本机可以使用\n已完成\n/Users/yalla/Downloads\n导出诊断\n对话\n输出\n轨迹\n"
+      }
+    },
+    "pureCheck": {
+      "ok": true,
+      "used": "/@fs/Users/yalla/data/localLab/thinkfusion-ai/desktop-agent-macos/src/shared/task-conversation.ts",
+      "streaming": {
+        "bodyText": "用户要求：输出本机 IP",
+        "bodyIsReasoning": true,
+        "showLiveThinking": true,
+        "showReasoningDetails": false,
+        "placeholder": null,
+        "displayLength": 12
+      },
+      "withText": {
+        "bodyText": "本机 IP 是 192.168.1.7",
+        "bodyIsReasoning": false,
+        "showLiveThinking": false,
+        "showReasoningDetails": true,
+        "placeholder": null,
+        "displayLength": 19
+      }
+    }
+  },
+  "screenshots": [
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-18-conversation-deduped.png"
+  ],
+  "cleanup": {
+    "restored": true,
+    "storeAfter": {
+      "tasks": 1,
+      "conversations": 2,
+      "messages": 10,
+      "events": 77,
+      "reports": 1
+    },
+    "identical": true
+  },
+  "error": null,
+  "devLogTail": "> tsc -p tsconfig.agent.json\n\nvite v6.3.5 building SSR bundle for development...\ntransforming...\n✓ 248 modules transformed.\nrendering chunks...\nout/main/chunks/docx-Dv_FRnB1.js           12.83 kB\nout/main/index.js                       1,504.19 kB\nout/main/chunks/typescript-LbYuHs6G.js  9,962.13 kB\n✓ built in 4.98s\n\nbuild the electron main process successfully\n\n-----\n\nvite v6.3.5 building SSR bundle for development...\ntransforming...\n✓ 4 modules transformed.\nrendering chunks...\nout/preload/detached.js       0.29 kB\nout/preload/detachedSave.js   0.37 kB\nout/preload/terminal.js       0.84 kB\nout/preload/index.js         16.66 kB\n✓ built in 12ms\n\nbuild the electron preload files successfully\n\n-----\n\ndev server running for the electron renderer process at:\n\n  ➜  Local:   http://localhost:5173/\n  ➜  Network: use --host to expose\n\nstart electron app...\n\n\nDevTools listening on ws://127.0.0.1:9333/devtools/browser/52e54543-c18d-4167-bce0-cd497f658e21\n(electron) 'safeStorage.isEncryptionAvailable' is deprecated and will be removed. Please use 'safeStorage.isAsyncEncryptionAvailable' instead.\n(electron) 'safeStorage.decryptString' is deprecated and will be removed. Please use 'safeStorage.decryptStringAsync' instead.\n[92030:1123/164708.980332:ERROR:content/browser/network_service_instance_impl.cc:652] Network service crashed or was terminated, restarting service.\n[92030:1123/164708.980698:ERROR:content/browser/gpu/gpu_process_host.cc:1044] GPU process exited unexpectedly: exit_code=15\n",
+  "dataSafety": "启动前备份 agent-store.json 与 workspace-state.json，finally 无条件 copyFileSync 覆盖恢复；只读打开历史任务，不新建/不删除/不重跑，未改工作区。核对 1 任务/2 会话/10 消息/77 事件/1 报告，工作区 /Users/yalla/Downloads。",
+  "note": "宿主环境注入 ELECTRON_RUN_AS_NODE=1 会让 electron 以纯 Node 模式启动（electron.app undefined），自包含脚本必须显式清掉该变量与 NODE_OPTIONS。"
+}

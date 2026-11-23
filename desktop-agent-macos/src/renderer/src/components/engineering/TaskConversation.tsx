@@ -4,6 +4,7 @@ import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
 import {
   buildTaskConversation,
+  memberBodyView,
   protocolSummary,
   type ConversationEntry,
   type ConversationTone
@@ -83,6 +84,9 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
+  // 正文框与思考折叠的分工统一由 shared 层决定：流式期间只有一处展示内容，
+  // 不让同一份 thinking 在正文框和折叠里各铺一遍。
+  const view = memberBodyView(entry);
   // 流式期间自动跟到底部：正文框最高 420px，不滚的话新字长在看不见的下面，
   // 看起来还是「没动静」。
   useEffect(() => {
@@ -111,7 +115,7 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
             {entry.roundNumber ? `第 ${String(entry.roundNumber)} 轮 · ` : ''}
             {timeText(entry.at)}
             {elapsed !== null ? ` · ${elapsedText(elapsed)}` : ''}
-            {` · ${entry.text.length} 字符`}
+            {` · ${String(view.displayLength)} 字符`}
           </span>
         </div>
         <span className={`member-pill is-${entry.status}`}>
@@ -138,19 +142,17 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
           <>
             {/* 思考也是输出。很多模型先写几十秒推理再出正文，只显示「等待模型
                 输出…」会让这一分钟看起来像卡死；正文没来之前就把推理摊开，
-                字一行行长，等正文到了再切换过去。 */}
-            {live && !entry.text && entry.reasoning && (
+                字一行行长，等正文到了再切换过去。此时底部折叠收掉，同一份
+                内容只出现一次。 */}
+            {view.showLiveThinking && (
               <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
             )}
             <pre className="chat-member-text" ref={bodyRef}>
-              {entry.text
-                || (live && entry.reasoning
-                  ? entry.reasoning
-                  : live ? '等待模型输出…' : '这次没有输出正文。')}
+              {view.bodyText || view.placeholder}
             </pre>
           </>
         )}
-        {entry.reasoningSupported && (
+        {view.showReasoningDetails && (
           <details className="chat-reasoning">
             <summary>思考（{entry.reasoning.length} 字符）</summary>
             {entry.reasoning ? <pre>{entry.reasoning}</pre> : <p className="muted">这个来源本次没有返回思考内容。</p>}
