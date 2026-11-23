@@ -7,6 +7,7 @@ import {
   memberBodyView,
   protocolSummary,
   type ConversationEntry,
+  type ConversationProtocol,
   type ConversationTone
 } from '../../../../shared/task-conversation';
 
@@ -18,8 +19,8 @@ import {
  * 「现在到哪一步」，它回答「这件事到底发生过什么」——两件事都要有，但主界面
  * 只能是后者，否则一轮新回答就会把上一轮挤掉。
  *
- * 只画真的发生过的东西：没有结论文本就不要编一句，协议 JSON 原文照留但明确
- * 标注「机器读的协议对象」。
+ * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 是给机器读的，
+ * 主界面只留一句人话和摘要，完整原文去「输出」页看——这里每行都该是人能读的。
  */
 
 function timeText(at: number): string {
@@ -73,13 +74,26 @@ function ToneClass(tone: ConversationTone): string {
   return `t-${tone}`;
 }
 
-function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'member' }>; now: number }) {
+function protocolLabel(protocol: ConversationProtocol): string {
+  switch (protocol) {
+    case 'plan':
+      return '计划';
+    case 'execution_report':
+      return '执行报告';
+    case 'clarification_required':
+      return '澄清请求';
+    case 'task_complete':
+      return '完成报告';
+    default:
+      return '协议对象';
+  }
+}
+
+function MemberMessage(props: {
+  entry: Extract<ConversationEntry, { kind: 'member' }>;
+  now: number;
+}) {
   const { entry } = props;
-  // 协议对象默认展开原文：用户要的是「整体输出」，只给一句摘要等于把模型
-  // 这一轮真正写了什么藏起来。卡片在流式中就挂载了（那时还不是协议），
-  // 所以不能按初始值算：只要用户没点过「收起」，就一直展开。
-  const [collapsed, setCollapsed] = useState(false);
-  const openRaw = !collapsed;
   const bodyRef = useRef<HTMLPreElement | null>(null);
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
@@ -94,16 +108,6 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [live, entry.text, entry.reasoning]);
-  const protocolLabel =
-    entry.protocol === 'plan'
-      ? '计划'
-      : entry.protocol === 'execution_report'
-        ? '执行报告'
-        : entry.protocol === 'clarification_required'
-          ? '澄清请求'
-          : entry.protocol === 'task_complete'
-            ? '完成报告'
-            : '协议对象';
 
   return (
     <article className={`chat-member is-${entry.status}`}>
@@ -127,16 +131,13 @@ function MemberMessage(props: { entry: Extract<ConversationEntry, { kind: 'membe
       <div className="chat-member-body">
         {entry.protocol ? (
           <>
-            {/* 协议对象不是给我的答复：先给一句人话，原文折叠在下面。 */}
+            {/* 协议对象不是给我的答复：只给一句人话和摘要。JSON 原文是机器读的，
+                主界面一个字都不展开；要看原文去「输出」页。 */}
             <p className="chat-protocol-note">
-              这一路返回的是{protocolLabel}（机器读的 JSON），完整原文在下面（可收起）；
-              执行结果与结论见本页下方。
+              这一路返回的是{protocolLabel(entry.protocol)}（机器读的 JSON）；
+              执行结果与结论见本页下方，完整原文在「输出」页。
             </p>
             {summary && <p className="chat-protocol-summary">{summary}</p>}
-            <button className="btn ghost" type="button" onClick={() => setCollapsed(value => !value)}>
-              {openRaw ? '收起原文' : '看协议原文'}
-            </button>
-            {openRaw && <pre className="chat-member-text">{entry.text}</pre>}
           </>
         ) : (
           <>
@@ -284,5 +285,49 @@ export function TaskConversation(props: {
         );
       })}
     </section>
+  );
+}
+
+/**
+ * 协议原文归档（「输出」页）。
+ *
+ * 主界面只留摘要，但原文不能丢：这里按轮次列出每一路返回的机器协议 JSON，
+ * 用户点开就能看到完整原文。数据直接来自同一份对话投影，不另存一份。
+ */
+export function ProtocolArchive(props: {
+  task: AgentTask;
+  events: readonly AgentEvent[];
+}) {
+  const entries = useMemo(
+    () => buildTaskConversation(props.events, {
+      prompt: props.task.userPrompt,
+      summary: props.task.summary,
+      status: props.task.status
+    }),
+    [props.events, props.task]
+  );
+  const protocols = entries.filter(
+    (entry): entry is Extract<ConversationEntry, { kind: 'member' }> =>
+      entry.kind === 'member' && entry.protocol !== null
+  );
+  if (protocols.length === 0) return null;
+
+  return (
+    <details className="card protocol-archive" id="protocol-archive" open>
+      <summary>协议原文（{protocols.length} 条 · 机器读的 JSON）</summary>
+      <p className="muted">
+        主界面只显示摘要；每一路返回的完整原文都在这里，按轮次排列。
+      </p>
+      {protocols.map(entry => (
+        <details key={entry.key} className="protocol-archive-item">
+          <summary>
+            {entry.label}
+            {entry.roundNumber ? ` · 第 ${String(entry.roundNumber)} 轮` : ''}
+            {` · ${protocolLabel(entry.protocol)} · ${String(entry.text.length)} 字符`}
+          </summary>
+          <pre className="chat-member-text">{entry.text}</pre>
+        </details>
+      ))}
+    </details>
   );
 }

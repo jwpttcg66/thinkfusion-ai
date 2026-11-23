@@ -38,7 +38,7 @@ import { SettingsPanel, type Section as SettingsSection } from './components/Set
 import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
-import { TaskConversation } from './components/engineering/TaskConversation';
+import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
@@ -2830,6 +2830,11 @@ export default function App() {
                 <summary>最近一轮模型回答（{derived.answer.length} 字符）</summary>
                 <pre>{derived.answer}</pre>
               </details>
+            )}
+
+            {/* 主界面不展开协议 JSON；完整原文统一收在这里，按轮次可查。 */}
+            {activeTask && workbenchTab === 'output' && (
+              <ProtocolArchive task={activeTask} events={events} />
             )}
 
             {error && <div className="error">{error}</div>}
