@@ -10,7 +10,7 @@
  * StepResult，不允许模型自己填写。
  */
 
-import type { StepResult } from '../shared/contracts';
+import type { StepResult, ExecutionReport } from '../shared/contracts';
 import { stepEvidenceKinds, type EvidenceKind } from '../shared/verification-evidence';
 
 const WRITE_TOOLS = new Set(['fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.remove', 'fs.move', 'fs.copy']);
@@ -246,4 +246,33 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     changedPaths,
     checks
   };
+}
+
+/**
+ * 工程任务到底有没有「真交付过」——与单轮的 `verified` 不同，这是跨轮的历史判断。
+ *
+ * 背景（真机事故）：一个任务第 1 轮写文件 EEXIST 失败，第 2 轮只剩 fs.list / fs.tree
+ * 这种空轮，verifyExecution 按既有契约把它记成「没有写操作，无需验证 → verified」，
+ * 第 3 轮模型回一句「任务完成」，编排器就直接用 `complete` 声明标成 completed。
+ * 结果代码从没写成、程序从没跑过，界面却显示完成——用户看到的就是「假完成」。
+ *
+ * 空轮 trivially verified 是对的规则（纯问答轮不该被判失败），不能改；要挡的是
+ * 「把工程任务的空轮/失败轮当成可交付的证据」。判据是整条链里至少有一份报告真的
+ * 跑过一次能观察结果的检查（编译/运行/测试/诊断通过）——不要求必须写过文件：目标
+ * 代码本来就正确时无需改动，跑通就是交付。没有报告的历史任务（旧数据、纯问答会话）
+ * 按兼容处理返回 true，避免翻旧账。
+ */
+export function hasGenuineDelivery(reports: readonly ExecutionReport[]): boolean {
+  if (reports.length === 0) return true; // 没有报告：不是工程执行链，兼容旧行为
+  return reports.some(report => {
+    const checks = report.verification?.checks;
+    if (!checks) return false;
+    // 判据是「真的跑过一次能观察结果的检查」，不是「必须写过文件」。
+    // 目标代码本来就正确、无需改动的任务，只要 javac / java / 测试 / 诊断
+    // 有一次通过就是真交付；反过来只列目录、什么都没跑的空轮一律不算。
+    return checks.compile?.status === 'passed' ||
+      checks.run?.status === 'passed' ||
+      checks.tests?.status === 'passed' ||
+      checks.diagnostics?.status === 'passed';
+  });
 }

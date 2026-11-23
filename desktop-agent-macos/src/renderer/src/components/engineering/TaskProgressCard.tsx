@@ -106,9 +106,19 @@ export function TaskProgressCard(props: {
     return () => clearInterval(timer);
   }, [active]);
 
-  const doneSteps = new Set(
-    events.filter(event => event.type === 'step.completed').map(event => (event as { stepId: string }).stepId)
-  ).size;
+  // 只数「当前这份计划」已完成的步骤：任务会多轮重规划，跨轮把 stepId 去重合起来
+  // 会出现「6 / 2 步」这种分子大于分母的怪值（旧轮 6 个 + 新轮 2 个计划）。
+  // 优先按 roundId 精确匹配；老事件没有 roundId 时退回「当前计划的 stepId 集合」。
+  const completedSteps = events.filter(event => event.type === 'step.completed') as Array<
+    { stepId: string; roundId?: string }
+  >;
+  const planStepIds = new Set((plan?.steps ?? []).map(step => step.id));
+  const currentRoundDone = plan
+    ? completedSteps.filter(event =>
+        event.roundId === plan.roundId ||
+        (event.roundId === undefined && planStepIds.has(event.stepId)))
+    : completedSteps;
+  const doneSteps = new Set(currentRoundDone.map(event => event.stepId)).size;
   const totalSteps = plan?.steps.length ?? null;
   const working = members.filter(item => item.status === 'preparing' || item.status === 'streaming');
   // 「最近活动」跳过 log：它每几秒一条，会把真正的节点（计划、步骤、评审）淹掉。

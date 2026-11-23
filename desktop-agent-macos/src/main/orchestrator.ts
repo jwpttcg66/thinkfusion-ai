@@ -18,7 +18,7 @@ import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
 import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
-import { verifyExecution } from '../agent/verification';
+import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -958,6 +958,19 @@ export class AgentOrchestrator {
         });
         throw new Error('本地状态与完成声明不一致，已停止并等待人工处理');
       }
+      // 空轮假完成闸门：有执行报告历史、但从没真写过文件并通过验证的任务，
+      // 模型一句「任务完成」不能交付。没有报告历史（纯问答）照旧允许完成。
+      const reports = this.deps.store.allReportsFor(taskId);
+      if (reports.length > 0 && !hasGenuineDelivery(reports)) {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: '模型声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成，改为继续修复'
+        });
+        if (this.repairPlan(taskId, '任务尚未真实交付：没有成功写入并验证过的文件，请给出能真正落盘并验证的计划')) return;
+        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        return;
+      }
       this.tasks.transition(taskId, 'completed', { summary: result.summary });
       this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: result.summary });
       return;
@@ -1155,6 +1168,17 @@ export class AgentOrchestrator {
     });
     const testsPassed = report.verification?.checks?.tests.status === 'passed' || commandTestsPassed;
     if (report.status === 'completed' && (report.nextAction === 'complete' || testsPassed)) {
+      // 空轮假完成闸门：报告自报 completed 不等于真交付。整条链从没成功写过
+      // 文件并通过验证（例如只跑了 fs.list/fs.tree 的空轮），不能标完成。
+      if (!hasGenuineDelivery([...this.deps.store.allReportsFor(taskId), report])) {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: '报告声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成'
+        });
+        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        return;
+      }
       this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });
       this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成，验证通过' });
       return;

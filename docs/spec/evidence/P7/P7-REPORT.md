@@ -57,9 +57,9 @@ SUMMARY：`pass=12 / fail=0 / blocked=4`（4 条环境受限，非缺陷）。
 用户上次同名任务）→ step.failed → 验证四格全跳过 → 评审需修复 → 报告轮 → 第2轮
 `plan.invalid`（模型多写 `addresses`）→ 第3轮又写同名文件 → 又 EEXIST → 第4轮
 `Object has been destroyed` → task.failed。根因是 `filesystem.ts:writeFile` 的 `O_EXCL`。
-修复：捕获 EEXIST 后比对现有内容，**字节完全一致才幂等成功**（created:false/unchanged:true），
-内容不同仍拒绝（保留 overwriteFile+sha256 安全语义）。真机对已存在的 `HelloJwp.java`
-写同内容 → created:false、sha256 不变，死循环解除。
+修复（第一版）：捕获 EEXIST 后比对现有内容，**字节完全一致才幂等成功**（created:false/unchanged:true）。
+后续真机发现这仍不够（见第 6 节）：模型重生成的代码与盘上那份不完全相同时依旧 EEXIST，
+遂在第二版改成完全权限档下原子覆盖，见第 6 节 A。
 
 **B. 同一模型两张输出卡**（commit `cfb35a5`）
 `buildTaskConversation` 的 live 段硬编码 `::lead` key，真实 participantId 带 provider
@@ -67,3 +67,64 @@ SUMMARY：`pass=12 / fail=0 / blocked=4`（4 条环境受限，非缺陷）。
 streaming 成员卡。真机复验 `p7-05-after-fix.png`：4 轮各一张卡、输出中只剩 1 张。
 
 回归：`npm run verify` 484/484（0 fail）。新增测试 check-code-read +2、check-task-conversation +1。
+
+## 6. 追加：用户追问「界面跟卡死一样 / 输出两次 / 你确认修复了吗，真机跑通」（11-23 傍晚）
+
+用户连发三图追问，核心诉求从「界面像卡住」升级为「任务要保证完成、自己真机测试」。
+重新读真实任务 `1ee9bcb8-…`（plan_ready→executing），定位到第 5 节修复**没解决根因**，
+并挖出两个新的真 bug。
+
+### 6.1 第 5 节的幂等修复不够：内容不同仍 EEXIST
+第 5 节只认「字节完全相同」，可模型重跑时重新生成的代码与盘上那份格式/注释不完全一致，
+step-5 照样 `EEXIST: file already exists`。真机证据：build 11:37 已含幂等代码，任务
+11:40:34 的 step-5 仍失败。
+
+**修复 A**（`agent/tools/filesystem.ts`）：`danger-full-access`（完全权限，本意就允许改文件）
+下遇 EEXIST 用「同目录临时文件 + rename」原子覆盖成新内容，保留符号链接/类型检查和写后
+回读核对；其他权限档维持「字节相同才幂等」，不覆盖工作区里别人改过的东西。
+真机：对已存在的 `HelloJwp.java` 写**不同内容** → `created:false, replaced:true`、
+文件内容确实被替换、无 `.tmp` 残留、原内容可恢复（脚本已恢复）。
+
+### 6.2 假完成：空轮 + 一句「任务完成」被标 completed
+失败链：第 1 轮写文件失败 → 第 2 轮换了个只有 `fs.list`/`fs.tree` 的**空计划**，
+`verifyExecution` 按既有契约判「没有写操作，无需验证 → verified=true」→ 第 3 轮模型回
+`kind:'complete'` summary「任务完成」→ 编排器 `handleAnswer` 961 行**无条件信任**，
+标成 completed。结果：代码没写成、hello jwp 从没编译运行，界面却显示「已完成」。
+这正是用户看到的「任务完成了但什么都没有 / 界面不对」。
+
+**修复 B**（`agent/verification.ts` + `main/orchestrator.ts` + `main/store.ts`）：
+新增跨轮纯函数 `hasGenuineDelivery(reports)`，判据是「整条执行链至少有一份报告真的跑过
+一次能观察结果的检查（编译/运行/测试/诊断通过）」。在两处完成判定点（`handleAnswer` 的
+`complete`、`continueAfterReport` 的 `status=completed`）接入：空轮/失败轮一律不许交付。
+- 关键设计：**不要求必须写过文件**——目标代码本就正确、无需改动时，编译运行通过就是
+  真交付。第一版误用「必须写文件」判据，真机把合法任务误判并重规划死循环（消耗额度），
+  已当场修正并补测试 `check-verify.mjs`：「没写文件但 javac+java 跑通也算交付」。
+- 不破坏既有契约：`verifyExecution` 的「空轮 trivially verified」保持不变（纯问答轮
+  不该判失败）；挡的是编排层把空轮当工程交付证据。
+
+### 6.3 顺带修：进度卡「6 / 2 步」
+`TaskProgressCard` 的 `doneSteps` 跨所有轮次按 stepId 去重累加（旧轮 6 个），分母只取
+当前 plan（2 步），出现「6 / 2 步」这种分子大于分母的怪值。改为只数当前 plan（优先按
+roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复验显示正常的「1 / 2 步」。
+
+### 6.4 真机端到端跑通（用户明确要求「你自己测试，保证真机运行成功」）
+自包含脚本一次跑完：停旧实例 → 带 CDP 单实例启动 → 真实 UI 切工程空间、选 Downloads
+工作区、发任务 → 轮询到终态 → 独立用 `javac`+`java` 复跑校验 → 截图 → 清理实例与测试数据。
+- 任务 `e4b26f22-…`：`planning → plan_ready → executing → completed`，65 事件，其中
+  `step.started×5 / step.completed×5 / report.ready×2 / review.ready×2`。
+- **完成路径正确**：报告 0 是空轮（compile/run skipped），报告 1 `compile=passed,
+  run=passed, runOut="hello jwp"`——`hasGenuineDelivery` 因报告 1 放行，**不是**被空轮绕过。
+- **独立验证**：`javac -d out src/main/java/com/example/HelloJwp.java` + `java -cp out
+  com.example.HelloJwp` 实跑输出严格等于 `hello jwp`（`EXACT=true`）。
+- 界面：点开会话正确显示任务视图（不再是空欢迎态），进度「1 / 2 步」，成员回答/方案评审/
+  对话流齐全（截图见下）。
+- 关于「卡住」：真机确认慢步骤是**方案评审辩论**（日志「开辩」后等几分钟模型辩论），
+  不是死锁；任务在辩论完成后继续推进。界面缺少「正在评审」提示是观感问题，非功能卡死。
+- 测试数据当场删净（任务/会话/消息/事件/报告/轮次/runEvents），store 回到 1 任务 / 2 会话 /
+  10 消息 / 85 事件；删前备份 `/tmp/tf-store-before-cleanup.json`。
+
+### 6.5 追加截图与验证
+- `p7-06-session-open.png`：点开工程会话后的任务视图（进度卡 + 四页签 + 对话流，非欢迎态）
+- `p7-07-e2e-submitted.png`：端到端任务提交态
+- `p7-08-e2e-final.png`：端到端完成态（1 / 2 步、成员回答、方案评审、对话流）
+- `npm run verify` **489/489**（0 fail）：新增 check-verify +5（闸门）、check-code-read 改写 1（原子覆盖）。

@@ -122,15 +122,39 @@ export const filesystemTools = {
     try {
       handle = await fs.open(finalPath, flags, 0o600);
     } catch (error) {
-      // 重跑同一任务时文件已在盘上：内容字节完全一致就是「这条写已经做成过」，
-      // 幂等放行，避免整个工程任务卡在 EEXIST 反复重试永远完成不了。
-      // 内容不同则照旧拒绝——防止拿旧版本盖掉别人刚改的东西，真要改走 overwriteFile + sha256。
+      // 重跑同一任务时文件已在盘上：不能再用裸 O_EXCL 失败把整个工程任务卡死。
+      // 两种情况放行，其余照旧拒绝：
+      //   1) 内容字节完全一致——这条写已经做成过，幂等返回 created:false；
+      //   2) danger-full-access（完全权限，本意就是允许改文件）——原子覆盖成新内容。
+      // 非完全权限档下内容不同仍拒绝，避免拿新版本盖掉工作区里别人改过的东西。
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const existing = await fs.lstat(finalPath).catch(() => null);
       if (!existing || !existing.isFile() || existing.isSymbolicLink()) throw error;
       const current = await fs.readFile(finalPath, { encoding: 'utf8' });
-      if (current !== args.content) throw error;
-      return { created: false, path: finalPath, bytes: existing.size, unchanged: true };
+      if (current === args.content) {
+        return { created: false, path: finalPath, bytes: existing.size, unchanged: true };
+      }
+      if (grant.permissionPreset !== 'danger-full-access') throw error;
+      // 完全权限：同目录临时文件 + rename，原子替换（和 overwriteFile 同一套安全写法）。
+      // 写完回读核对，不一致不算成功；失败清掉临时文件，不留半成品。
+      const temp = path.join(parent, `.thinkfusion-${randomUUID()}.tmp`);
+      try {
+        const tempHandle = await fs.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+        try {
+          await tempHandle.writeFile(args.content, { encoding: 'utf8' });
+          await tempHandle.sync();
+        } finally {
+          await tempHandle.close();
+        }
+        await fs.rename(temp, finalPath);
+      } catch (writeError) {
+        await fs.unlink(temp).catch(() => undefined);
+        throw writeError;
+      }
+      const written = await fs.readFile(finalPath, 'utf8');
+      if (written !== args.content) throw new Error('写入后回读与预期内容不一致，拒绝把这一步算作成功');
+      const stat2 = await fs.lstat(finalPath);
+      return { created: false, replaced: true, path: finalPath, bytes: stat2.size };
     }
     try {
       await handle.writeFile(args.content, { encoding: 'utf8' });

@@ -125,11 +125,21 @@ test('fs.writeFile 重跑同内容幂等成功，不卡 EEXIST', async () => {
   assert.equal(readFileSync(join(root, 'idem.txt'), 'utf8'), 'hello jwp\n');
 });
 
-test('fs.writeFile 目标已存在但内容不同仍拒绝，绝不覆盖别人的改动', async () => {
+test('fs.writeFile 内容不同：完全权限原子覆盖，工作区写档拒绝', async () => {
   writeFileSync(join(root, 'conflict.txt'), 'original\n');
+  // 完全权限本意就是允许改文件：重跑同一任务要能原子覆盖成新内容，
+  // 否则模型重写的代码和盘上那份不完全一样就 EEXIST，整个任务死循环。
+  const replaced = await filesystemTools.writeFile(writeGrant, { path: 'conflict.txt', content: 'different\n' });
+  assert.equal(replaced.created, false);
+  assert.equal(replaced.replaced, true);
+  assert.equal(readFileSync(join(root, 'conflict.txt'), 'utf8'), 'different\n');
+
+  // 非完全权限档内容不同仍拒绝，避免拿新版本盖掉工作区里别人改过的东西。
+  const wsGrant = { ...grant, permissionPreset: 'workspace-write', allowedTools: ['fs.writeFile', 'fs.readFile'] };
+  writeFileSync(join(root, 'conflict2.txt'), 'original\n');
   await assert.rejects(
-    () => filesystemTools.writeFile(writeGrant, { path: 'conflict.txt', content: 'different\n' }),
+    () => filesystemTools.writeFile(wsGrant, { path: 'conflict2.txt', content: 'different\n' }),
     /EEXIST/
   );
-  assert.equal(readFileSync(join(root, 'conflict.txt'), 'utf8'), 'original\n');
+  assert.equal(readFileSync(join(root, 'conflict2.txt'), 'utf8'), 'original\n');
 });

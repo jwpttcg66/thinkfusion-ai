@@ -5,7 +5,13 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { verifyExecution } from '../out-test/agent/verification.js';
+import { verifyExecution, hasGenuineDelivery } from '../out-test/agent/verification.js';
+
+const report = (verification) => ({ verification });
+const checks = (over = {}) => ({
+  compile: { status: 'skipped' }, run: { status: 'skipped' }, tests: { status: 'skipped' },
+  diagnostics: { status: 'skipped', errors: 0, warnings: 0 }, changedFiles: [], ...over
+});
 
 const step = (tool, status, result = null, args = undefined) => ({ stepId: tool, tool, status, result, durationMs: 1, ...(args ? { args } : {}) });
 
@@ -216,4 +222,51 @@ test("echo 'java Foo' 这种引号字面量仍不算运行", () => {
     step('shell.run', 'completed', { exitCode: 0 }, { command: "echo 'java Foo'" })
   ]);
   assert.equal(outcome.checks.run.status, 'skipped');
+});
+
+// 空轮假完成闸门：复刻真机事故——写失败轮 + 只列目录的空轮 + 模型一句「完成」。
+test('hasGenuineDelivery：无报告历史按兼容放行（纯问答/旧数据）', () => {
+  assert.equal(hasGenuineDelivery([]), true);
+});
+
+test('hasGenuineDelivery：写失败轮 + 空轮 trivially verified 不算真交付', () => {
+  const failedRound = report({
+    verified: false, reasons: ['1 个写操作失败'], changedFiles: 0, changedPaths: [],
+    checks: checks()
+  });
+  const emptyRound = report({
+    verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
+    checks: checks()
+  });
+  assert.equal(hasGenuineDelivery([failedRound, emptyRound]), false);
+});
+
+test('hasGenuineDelivery：至少一轮真的跑过编译/运行/测试才算交付', () => {
+  const failedRound = report({
+    verified: false, reasons: ['写失败'], changedFiles: 0, changedPaths: [], checks: checks()
+  });
+  const realRound = report({
+    verified: true, reasons: ['编译通过'], changedFiles: 1,
+    changedPaths: ['HelloJwp.java'],
+    checks: checks({ compile: { status: 'passed', exitCode: 0 }, changedFiles: ['HelloJwp.java'] })
+  });
+  assert.equal(hasGenuineDelivery([failedRound, realRound]), true);
+});
+
+test('hasGenuineDelivery：目标本就正确、没写文件但 javac+java 跑通也算真交付', () => {
+  // 真机踩过的坑：源码本来就对，两轮只做 fs.stat/编译运行、changedFiles=0，
+  // 曾被误判成假完成并重规划死循环。跑通就是交付，不要求一定写文件。
+  const ranOnly = report({
+    verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
+    checks: checks({ compile: { status: 'passed', exitCode: 0 }, run: { status: 'passed', exitCode: 0, output: 'hello jwp' } })
+  });
+  assert.equal(hasGenuineDelivery([ranOnly]), true);
+});
+
+test('hasGenuineDelivery：写了文件但没有任何通过的检查不算交付', () => {
+  const noCheck = report({
+    verified: true, reasons: [], changedFiles: 1, changedPaths: ['a.java'],
+    checks: checks({ changedFiles: ['a.java'] })
+  });
+  assert.equal(hasGenuineDelivery([noCheck]), false);
 });

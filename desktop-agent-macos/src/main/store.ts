@@ -244,6 +244,11 @@ export class AgentStore {
     return matches[matches.length - 1] ?? null;
   }
 
+  /** 任务全部轮次的执行报告（按落库顺序）；判定「是否真交付过」要看完整历史，不能只看最后一轮。 */
+  allReportsFor(taskId: string): ExecutionReport[] {
+    return this.state.reports.filter(item => item.taskId === taskId);
+  }
+
   /**
    * 覆盖同一轮的报告。
    *
