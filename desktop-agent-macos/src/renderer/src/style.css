@@ -6139,6 +6139,21 @@ button:disabled {
   line-height: 1.62;
   color: var(--text);
 }
+/* 默认只露 5 行：正文先给人一眼结果，全文点「展开全文」再看。 */
+.chat-member-text.is-clamped {
+  max-height: calc(1.62em * 5);
+  overflow: hidden;
+}
+.chat-member-more {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.chat-member-more:hover { color: var(--text); }
 .chat-member-error { margin: 8px 10px 0; color: var(--danger); font-size: 11.5px; }
 .chat-protocol-note { margin: 0 0 4px; font-size: 11.5px; color: var(--text-2); line-height: 1.55; }
 .chat-protocol-summary {

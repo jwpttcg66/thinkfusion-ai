@@ -98,16 +98,24 @@ function MemberMessage(props: {
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
+  // 正文默认只露 5 行，和思考折叠一样点开才看全文。短正文不出现按钮。
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
   // 正文框与思考折叠的分工统一由 shared 层决定：流式期间只有一处展示内容，
   // 不让同一份 thinking 在正文框和折叠里各铺一遍。
   const view = memberBodyView(entry);
-  // 流式期间自动跟到底部：正文框最高 420px，不滚的话新字长在看不见的下面，
-  // 看起来还是「没动静」。
+  // 流式期间自动跟到底部（露最新几行）；结束后回到顶部，别停在流式的最后一屏。
   useEffect(() => {
-    if (!live) return;
     const el = bodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    el.scrollTop = live ? el.scrollHeight : 0;
   }, [live, entry.text, entry.reasoning]);
+  // 5 行以外还有内容才给「展开全文」；展开后按钮保留，用于收起。
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || entry.protocol) return;
+    setOverflowing(el.scrollHeight > el.clientHeight + 1);
+  }, [entry.text, entry.protocol, expanded, view.bodyText]);
 
   return (
     <article className={`chat-member is-${entry.status}`}>
@@ -148,9 +156,14 @@ function MemberMessage(props: {
             {view.showLiveThinking && (
               <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
             )}
-            <pre className="chat-member-text" ref={bodyRef}>
+            <pre className={`chat-member-text${expanded ? '' : ' is-clamped'}`} ref={bodyRef}>
               {view.bodyText || view.placeholder}
             </pre>
+            {(overflowing || expanded) && (
+              <button className="chat-member-more" type="button" onClick={() => setExpanded(value => !value)}>
+                {expanded ? '收起全文' : '展开全文'}
+              </button>
+            )}
           </>
         )}
         {view.showReasoningDetails && (
