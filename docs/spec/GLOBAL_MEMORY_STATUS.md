@@ -39,11 +39,11 @@
 | 守门：声明支持却丢 system → `failed/provider-capability` | ✅ | ✅ | ✅ | ✅ | MEM-14、`check-memory-usage.mjs` |
 | 治理（supersede / refute / expire / archive / 删除留审计 / 冲突裁决） | ✅ | ✅ | ✅ | ✅ | `memory/service.ts`、`check-memory-governance.mjs` 13 条 |
 | 设置持久化与 `degraded` 降级 | ✅ | ✅ | ✅ | ✅ | `check-memory-governance.mjs`、`check-memory-store.mjs` |
-| 设置页面板（状态 / 开关 / 候选 / 记录 / 冲突 / 审计 / 导出） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryPanel.tsx`，typecheck 通过，未做真机点击 |
-| 对话页注入卡（命中/跳过/失败 + 三哈希） | ✅ | ✅ | ✅ | ⚠️ 未真机 | `MemoryTraceCard.tsx`，同上 |
+| 设置页面板（状态 / 开关 / 候选 / 记录 / 冲突 / 审计 / 导出） | ✅ | ✅ | ✅ | ✅ | 真机 S1–S14 全过，`docs/spec/evidence/M2/M2-REPORT.md` |
+| 对话页注入卡（命中/跳过/失败 + 三哈希） | ✅ | ✅ | ✅ | ✅ | 真机 D1–D6 全过（含 D3 web-verbatim、D4 cli-no-system-turn） |
 | Debate 入口注入（M4，辩手发言） | ✅ | ✅ | ✅ | ✅ | `debate/orchestrator.ts` 按 `debateId` 存 scope；`check-memory-debate-scope.mjs` 2 条（并发不交叉） |
 | `code-index:remember` 写入路由切换（M3） | ✅ | ✅ | ✅ | ✅ | `code-index/memory-adapter.ts`、`check-memory-codeindex-route.mjs` 8 条（R1–R8） |
-| 真机 CDP 端到端留档 | ✅ | — | — | ❌ | 见下方未完成项 3 |
+| 真机 CDP 端到端留档 | ✅ | — | — | ✅ | 24 张截图 + `M2-REPORT.md`（`docs/spec/evidence/M2/`） |
 
 ---
 
