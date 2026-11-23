@@ -43,18 +43,19 @@
 | 对话页注入卡（命中/跳过/失败 + 三哈希） | ✅ | ✅ | ✅ | ✅ | 真机 D1–D6 全过（含 D3 web-verbatim、D4 cli-no-system-turn） |
 | Debate 入口注入（M4，辩手发言） | ✅ | ✅ | ✅ | ✅ | `debate/orchestrator.ts` 按 `debateId` 存 scope；`check-memory-debate-scope.mjs` 2 条（并发不交叉） |
 | `code-index:remember` 写入路由切换（M3） | ✅ | ✅ | ✅ | ✅ | `code-index/memory-adapter.ts`、`check-memory-codeindex-route.mjs` 8 条（R1–R8） |
-| 真机 CDP 端到端留档 | ✅ | — | — | ✅ | 24 张截图 + `M2-REPORT.md`（`docs/spec/evidence/M2/`） |
+| 真机 CDP 端到端留档 | ✅ | — | — | ✅ | 28 张截图 + `M2-REPORT.md`（`docs/spec/evidence/M2/`） |
 
 ---
 
 ## 1.5 交付阶段门槛（M1–M5）
 
-`471 ok / 0 not ok` 证明的是**当前测试范围内**的正确性，不等于三个缺口已结束。
-交付按下面五个阶段签字，任何一阶段没签，都不能说「全局记忆已交付」。
+`483 ok / 0 not ok` 证明的是**当前测试范围内**的正确性；三个缺口已由下面的
+M1–M5 五个阶段逐一签字收口，全部为 ✅，全局记忆按本次审计范围可交付。
+真机 CDP 只作留档与回归证据，不是唯一放行路径。
 
 | 阶段 | 完成标准 | 当前 | 任务书 |
 |---|---|---|---|
-| **M1** | 471 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
+| **M1** | 483 项测试全绿；记忆核心链路（存储/迁移/抽取/召回/注入/送达/治理）已验证 | ✅ | 本文件 §1、§2 |
 | **M2** | 设置页与对话页**真机实际操作**通过（含降级场景），证据存 `docs/spec/evidence/` | ✅ | `GLOBAL_MEMORY_M2_ACCEPTANCE.md`，结果见 `docs/spec/evidence/M2/M2-REPORT.md` |
 | **M3** | `CodeIndexPanel` 新写入进入独立记忆库；旧 `code_memory_facts` 零新增；新写入可跨会话召回 | ✅ | `GLOBAL_MEMORY_M3_CODEINDEX_ROUTE.md`（已实施，见 §1 矩阵与 R1–R8） |
 | **M4** | `MemoryTaskScope` 按 `DebateRun` 透传；两个不同项目并发辩论不串记忆；取消/超时/重试不污染下一次 | ✅ | 辩手发言已注入；`check-memory-debate-scope.mjs` 2 条 |
@@ -92,16 +93,16 @@
 
 三项均已完成：**M2 ✅ / M3 ✅ / M4 ✅（辩手发言）**。
 
-### 1. 真机 CDP 验收（M2，部分通过）
+### 1. 真机 CDP 验收（M2，全绿）
 
-- **已执行**：设置页 S1–S14 全通过；对话页 D1/D2（`provider-confirmed`，L1=L2=L3）/D5（`no-recall`）/D6（`memory-disabled`）通过；降级界面通过。21 张截图 + 报告在 `docs/spec/evidence/M2/`。
+- **已执行**：设置页 S1–S14 全通过；对话页 D1/D2（`provider-confirmed`，L1=L2=L3）/D5（`no-recall`）/D6（`memory-disabled`）通过；降级界面通过。28 张截图 + 报告在 `docs/spec/evidence/M2/`。
 - **真机发现并修复 5 个缺陷**：`status()` 用启动快照、候选计数含已处理、`remember` 返回 null 不报错、`ExecutionPool` 未接记忆（工程链路 usage 全空）、`MemoryTraceCard` 不刷新。详见报告 §5。
 - **D3/D4 已补齐（2026-11-23 09:5x）**：
   - D3 网页通道：知识空间 + 网页主导 → `web-verbatim`、三哈希「—」、`req_0_chatgpt_466782`；
   - D4 CLI 通道：在「Agent 预设」重新验证 Qoder CLI（v1.1.95）后 → `cli-no-system-turn`、`req_0_cli_qoder_548507`；
   - 降级回答：工程空间 + 云端主导 + 「按分析」→ `已回答` 2683 字。
   经验：工程空间永远不问网页；CLI 的 `headless=verified` 不落盘，升级后要重跑验证；模型弹层里 CLI 勾选被误点会让它整场不参与。
-- **按任务书 §9 严格口径不宣布全绿**：补齐 D3/D4 与降级回答后再改 ✅。
+- **结论**：按任务书 §9 严格口径，D3/D4 与降级回答均已补齐，M2 六项全通过，转 ✅。
 - **风险已处理**：真实库先备份（`/tmp/tf-m2-backup/`），结束按 `M2 ` 前缀清理并回读 `records=0 / candidates=0`；7 个测试会话按标题+时间双条件删除，`agent-store.json` 只剩用户原有 1 条。用户原 `electron-vite dev` 实例已停止，需重新 `npm run dev`。
 
 ### 2. `code-index:remember` 写入路由切换（M3，已完成）
