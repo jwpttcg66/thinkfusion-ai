@@ -163,6 +163,11 @@ export function PlanPreview(props: {
           {props.plan.debate.skippedReason && (
             <p className="plan-debate-skip">{props.plan.debate.skippedReason}</p>
           )}
+          {props.plan.debate.roundsReason && (
+            <p className="muted small">
+              评审 {props.plan.debate.rounds ?? '?'} 轮 · {props.plan.debate.roundsReason}
+            </p>
+          )}
           {props.plan.debate.topics.length > 0 && (
             <p className="plan-debate-topics">辩题：{props.plan.debate.topics.join('；')}</p>
           )}

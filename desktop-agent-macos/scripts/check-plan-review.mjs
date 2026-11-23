@@ -13,7 +13,9 @@ import test from 'node:test';
 import {
   checkPlanCapabilities,
   planDebateTopics,
+  planReviewBudget,
   planReviewQuestion,
+  planReviewRounds,
   shouldDebatePlan,
   summarizePlanDebate
 } from '../out-test/main/engineering/plan-review.js';
@@ -176,4 +178,95 @@ test('一场没说话的空辩论不许被当成「评审通过」', () => {
     summarizePlanDebate({ rounds: [{ index: 1, messages: [] }], topics: [] }),
     /没有留下发言/
   );
+});
+
+// 轮次不再是全局写死 2：2 轮只有「表态 + 质疑」，被质疑方没机会回应。
+// 这里锁住「按计划规模定轮次」，以及预算必须跟着轮次走。
+test('单成员自辩只跑 2 轮：加回应轮只是同一模型自问自答', () => {
+  const verdict = planReviewRounds(writePlan, 1);
+  assert.equal(verdict.rounds, 2);
+  assert.match(verdict.reason, /单成员自辩/);
+});
+
+test('设计文档给 3 轮：观点编号评审，质疑需要回应才算收口', () => {
+  const design = {
+    ...plan([{ id: 's1', tool: 'fs.readFile', args: { path: 'a.md' } }]),
+    kind: 'design',
+    design: { document: '设计正文', viewpoints: ['观点一', '观点二'] }
+  };
+  const verdict = planReviewRounds(design, 2);
+  assert.equal(verdict.rounds, 3);
+  assert.match(verdict.reason, /设计文档/);
+});
+
+test('3 步以上的计划给 3 轮，2 步的简单计划仍是 2 轮', () => {
+  assert.equal(planReviewRounds(writePlan, 2).rounds, 3);
+  const twoSteps = plan([
+    { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
+    { id: 's2', tool: 'fs.edit', args: { path: 'a.ts', oldString: 'a', newString: 'b' } }
+  ]);
+  const verdict = planReviewRounds(twoSteps, 2);
+  assert.equal(verdict.rounds, 2);
+  assert.match(verdict.reason, /两轮足够/);
+});
+
+test('3 位以上评审给 3 轮：多方分歧要有人接着回应', () => {
+  const twoSteps = plan([
+    { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
+    { id: 's2', tool: 'fs.readFile', args: { path: 'b.ts' } }
+  ]);
+  const verdict = planReviewRounds(twoSteps, 3);
+  assert.equal(verdict.rounds, 3);
+  assert.match(verdict.reason, /3 位评审/);
+});
+
+test('预算跟着轮次走：3 轮不能还停在 180 秒，否则第三轮被直接砍掉', () => {
+  const two = planReviewBudget(2);
+  const three = planReviewBudget(3);
+  assert.equal(two.totalMs, 180_000);
+  assert.equal(three.totalMs, 300_000);
+  // 等待必须长于预算：引擎到点会收尾，卡在同一秒会被误判成超时。
+  assert.ok(two.waitMs > two.totalMs);
+  assert.ok(three.waitMs > three.totalMs);
+  assert.equal(three.stageTimeoutMs, 120_000);
+});
+
+test('只有质疑轮时，结论如实标注「没有回应轮」，不把质疑当收敛意见', () => {
+  const summary = summarizePlanDebate({
+    topics: ['改完怎么验证'],
+    rounds: [
+      { index: 0, phase: 'analysis', messages: [{ author: 'a', kind: 'statement', text: '这个计划可行' }] },
+      { index: 1, phase: 'challenge', messages: [{ author: 'b', kind: 'rebuttal', text: '没有验证步骤，不能算完成' }] }
+    ]
+  });
+  assert.match(summary, /没有回应轮/);
+  assert.match(summary, /被评审方尚未答复/);
+  assert.match(summary, /没有验证步骤/);
+  assert.doesNotMatch(summary, /这个计划可行/, '不该把第一轮表态当结论');
+});
+
+test('有回应轮时取回应轮，而不是把中间的质疑当结论', () => {
+  const summary = summarizePlanDebate({
+    topics: ['改完怎么验证'],
+    rounds: [
+      { index: 0, phase: 'analysis', messages: [{ author: 'a', kind: 'statement', text: '第一轮表态' }] },
+      { index: 1, phase: 'challenge', messages: [{ author: 'b', kind: 'rebuttal', text: '中间质疑' }] },
+      { index: 2, phase: 'response', messages: [{ author: 'a', kind: 'concession', text: '补上运行断言后接受' }] }
+    ]
+  });
+  assert.match(summary, /补上运行断言后接受/);
+  assert.doesNotMatch(summary, /中间质疑/, '质疑不是结论');
+  assert.doesNotMatch(summary, /没有回应轮/);
+});
+
+test('老记录没有 phase 字段：按 index 兜底仍能认出回应轮', () => {
+  const summary = summarizePlanDebate({
+    topics: [],
+    rounds: [
+      { index: 0, messages: [{ author: 'a', kind: 'statement', text: '表态' }] },
+      { index: 1, messages: [{ author: 'b', kind: 'rebuttal', text: '质疑' }] },
+      { index: 2, messages: [{ author: 'a', kind: 'concession', text: '老记录的回应' }] }
+    ]
+  });
+  assert.match(summary, /老记录的回应/);
 });

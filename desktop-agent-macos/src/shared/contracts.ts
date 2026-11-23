@@ -1220,6 +1220,10 @@ export interface PlanDebate {
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
   summary: string;
+  /** 这场评审跑了几轮：2 = 表态 + 质疑，3 = 再加回应收口。老记录没有这个字段。 */
+  rounds?: number;
+  /** 为什么取这个轮数（按计划规模决定），界面直接显示。 */
+  roundsReason?: string;
   /** 为什么没辩：模式是 off / 计划太小 / 没有可用成员。 */
   skippedReason?: string;
   at: number;

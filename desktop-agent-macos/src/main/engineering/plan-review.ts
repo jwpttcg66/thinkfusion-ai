@@ -209,15 +209,73 @@ export function planReviewQuestion(plan: AgentPlan): string {
 }
 
 /**
+ * 方案评审跑几轮。
+ *
+ * 轮次与阶段是死映射（`phaseFor`）：0 = 独立表态，1 = 互相质疑，≥2 = 回应并
+ * 收敛。所以 2 轮意味着「质疑之后就结束」——被质疑方没有机会回一句。
+ *
+ * 这里按计划本身的规模给轮次，而不是全局写死一个数：
+ * - 单成员自辩给 2 轮（自评 + 自质疑）；再加一轮只是同一模型自问自答；
+ * - 设计文档、3 步以上、或 3 位以上评审，分歧是真的，要给回应轮收口；
+ * - 其余（1-2 步的简单计划）2 轮足够，不值得为一次收口多等一分钟。
+ *
+ * 判的是「这份计划有没有需要收口的结构」，不按某个工具名判定。
+ */
+export interface PlanReviewRounds {
+  /** 2 = 表态 + 质疑；3 = 再加回应并收敛。 */
+  rounds: 2 | 3;
+  /** 给审批的人看的一句话理由，界面会显示，不只是日志。 */
+  reason: string;
+}
+
+export function planReviewRounds(plan: AgentPlan, participantCount: number): PlanReviewRounds {
+  if (participantCount <= 1) {
+    return { rounds: 2, reason: '单成员自辩：加回应轮只是同一模型自问自答' };
+  }
+  if (plan.kind === 'design') {
+    return { rounds: 3, reason: '设计文档按观点编号评审，质疑需要回应才算收口' };
+  }
+  const steps = plan.steps ?? [];
+  if (steps.length >= 3) {
+    return { rounds: 3, reason: `${String(steps.length)} 步的计划，分歧要留一轮回应` };
+  }
+  if (participantCount >= 3) {
+    return { rounds: 3, reason: `${String(participantCount)} 位评审，多方分歧要留一轮回应` };
+  }
+  return { rounds: 2, reason: `${String(steps.length)} 步、${String(participantCount)} 位评审，表态与质疑两轮足够` };
+}
+
+/**
+ * 与轮次配套的预算。
+ *
+ * 只改轮数不改预算，第三轮会直接被总时长砍掉，等于没改：`totalMs` 到点
+ * 引擎就 break 并出结论。每轮按 100 秒估（最慢成员要写思考再出正文），
+ * 再留 30 秒落盘与汇总；等待时间比预算多 20 秒，避免「引擎刚收尾就被判超时」。
+ */
+export function planReviewBudget(rounds: number): {
+  stageTimeoutMs: number;
+  totalMs: number;
+  waitMs: number;
+} {
+  const stageTimeoutMs = 120_000;
+  const totalMs = rounds >= 3 ? 300_000 : 180_000;
+  return { stageTimeoutMs, totalMs, waitMs: totalMs + 20_000 };
+}
+
+/**
  * 把一场辩论收成审批前能读的一段话。
  *
- * 只取每人最后一轮的立场和失败记录：审批的人要判断「要不要按这个计划动手」，
- * 不需要读完整交锋过程。失败成员必须点名，否则「三个模型都同意」可能是
- * 只有一个人真的说过话。
+ * 优先取「回应」轮：那才是被质疑之后还坚持的立场。只取最后一轮会有个坑——
+ * 2 轮评审的最后一轮是质疑，把质疑当结论等于说「反对意见已经答复过」，
+ * 而对方其实一个字都没回。没有回应轮时如实标注，不伪装成收敛后的意见。
+ *
+ * 失败成员必须点名，否则「三个模型都同意」可能只有一个人真的说过话。
  */
 export function summarizePlanDebate(input: {
   rounds: Array<{
     index: number;
+    /** 老记录没有这个字段，按 index 兜底推断。 */
+    phase?: 'analysis' | 'challenge' | 'response';
     messages: Array<{ author: string; kind: string; text: string }>;
     failures?: Array<{ agentId: string; detail: string }>;
   }>;
@@ -225,11 +283,19 @@ export function summarizePlanDebate(input: {
 }): string {
   const { rounds, topics } = input;
   if (rounds.length === 0) return '辩论没有产生任何发言，不能据此判断计划是否可行。';
-  const last = rounds[rounds.length - 1];
+  const phaseOf = (round: { index: number; phase?: 'analysis' | 'challenge' | 'response' }) =>
+    round.phase ?? (round.index === 0 ? 'analysis' : round.index === 1 ? 'challenge' : 'response');
+  const spoken = rounds.filter(round => round.messages.some(message => message.text.trim()));
+  const responseRound = [...spoken].reverse().find(round => phaseOf(round) === 'response');
+  const last = spoken.at(-1) ?? rounds[rounds.length - 1];
+  const source = responseRound ?? last;
   const failures = rounds.flatMap(round => round.failures ?? []);
   const lines: string[] = [];
   if (topics.length > 0) lines.push(`辩题：${topics.join('；')}`);
-  const stances = last.messages
+  if (!responseRound && spoken.length > 0 && phaseOf(last) === 'challenge') {
+    lines.push('（这场只跑到互相质疑，没有回应轮：下面是质疑意见，被评审方尚未答复。）');
+  }
+  const stances = source.messages
     .filter(message => message.text.trim())
     .map(message => `【${message.author}】${message.text.trim().slice(0, 400)}`);
   if (stances.length === 0) lines.push('最后一轮没有留下发言。');

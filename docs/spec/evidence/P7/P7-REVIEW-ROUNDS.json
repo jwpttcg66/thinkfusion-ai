@@ -1,0 +1,111 @@
+{
+  "startedAt": "2026-11-23T09:27:51.143Z",
+  "steps": [
+    {
+      "name": "isolated userData prepared (model config copied, real store untouched)",
+      "ok": true
+    },
+    {
+      "name": "dev:local launched with isolated userData",
+      "ok": true,
+      "detail": "pid 34449"
+    },
+    {
+      "name": "preload agentAPI ready",
+      "ok": true
+    },
+    {
+      "name": "engineering task submitted (read-only, 4 steps)",
+      "ok": true,
+      "detail": "7fb38284-763c-4191-85f6-ee1c3bd4eca0"
+    },
+    {
+      "name": "plan.debated received",
+      "ok": true,
+      "detail": "status=completed rounds=3 participants=2"
+    },
+    {
+      "name": "round count and reason exposed to the approver",
+      "ok": true,
+      "detail": "rounds=3 reason=4 步的计划，分歧要留一轮回应"
+    },
+    {
+      "name": "debate file maxRounds matches exposed rounds",
+      "ok": true,
+      "detail": "file maxRounds=3"
+    },
+    {
+      "name": "3-round review ran a response round with content",
+      "ok": true,
+      "detail": "[{\"index\":0,\"phase\":\"analysis\",\"messages\":1},{\"index\":1,\"phase\":\"challenge\",\"messages\":1},{\"index\":2,\"phase\":\"response\",\"messages\":1}]"
+    },
+    {
+      "name": "third-round review cards were visible during the run",
+      "ok": true,
+      "detail": "[\"第 1 轮评审\",\"第 2 轮评审\",\"第 3 轮评审\"]"
+    },
+    {
+      "name": "summary is not labelled as an unanswered challenge",
+      "ok": true,
+      "detail": "辩题：步骤拆分是否合理：4 步里哪些可以合并、哪些顺序可调整，哪一步失败会让后面全部作废。\n【opencode-go:deepseek-v4.1-flash】**结论：按原计划“不能无条件保证完成”，应判为“需修订后可完成”。** 如果工具语义理想、三个文件都存在且内容满足要求，"
+    },
+    {
+      "name": "real user store untouched (sha256 unchanged)",
+      "ok": true,
+      "detail": "f7b659a77121 -> f7b659a77121"
+    }
+  ],
+  "samples": {
+    "isolatedUserData": "/tmp/tf-rounds-userdata",
+    "conversationId": "2437f8f6-9ef4-4bcc-ba9e-08ba6d4dd8a5",
+    "taskId": "7fb38284-763c-4191-85f6-ee1c3bd4eca0",
+    "reviewStarted": true,
+    "roundLabelsSeen": [
+      "第 1 轮评审",
+      "第 2 轮评审",
+      "第 3 轮评审"
+    ],
+    "debate": {
+      "status": "completed",
+      "rounds": 3,
+      "roundsReason": "4 步的计划，分歧要留一轮回应",
+      "participants": [
+        "opencode-go:deepseek-v4.1-flash",
+        "opencode-go:glm-5.2"
+      ],
+      "summaryHead": "辩题：步骤拆分是否合理：4 步里哪些可以合并、哪些顺序可调整，哪一步失败会让后面全部作废。\n【opencode-go:deepseek-v4.1-flash】**结论：按原计划“不能无条件保证完成”，应判为“需修订后可完成”。** 如果工具语义理想、三个文件都存在且内容满足要求，原步骤可以完成；但计划本身缺少读取成功、字段完整性和内容充分性的验证，也没有失败分支。\n\n### 哪些步骤会失败或不可靠\n\n1. **步骤 1：只能做存在性初筛，不能证明可读。**  \n   即使 `fs.list {\"path\":\".\"}` 成功，也必须逐一核对三个名称是否存在、是否为普通文件、是否可读；若 list 结果截断、`.` 不是工作区根目录，或存在同名目录，步骤 1 不能支撑后续读取。缺少“缺失即停止/报告”的规则。\n\n2"
+    },
+    "debateFile": {
+      "maxRounds": 3,
+      "stopReason": "回应里没有新的修订，也没有新的争议",
+      "phases": [
+        {
+          "index": 0,
+          "phase": "analysis",
+          "messages": 1
+        },
+        {
+          "index": 1,
+          "phase": "challenge",
+          "messages": 1
+        },
+        {
+          "index": 2,
+          "phase": "response",
+          "messages": 1
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-19-review-rounds-early.png",
+    "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/P7/p7-20-review-rounds-final.png"
+  ],
+  "passed": true,
+  "isolatedStore": {
+    "tasks": 1,
+    "events": 49
+  },
+  "note": "截图为任务提交/收尾态（欢迎页），轮次证据来自事件流（round.peer 标签）、plan.debated 与辩论文件；只读复核未能显示计划卡，因验收脚本在拿到结论后取消了任务。",
+  "dataSafety": "实例运行在 THINKFUSION_USER_DATA=/tmp/tf-rounds-userdata 隔离目录，只复制模型配置；真实 agent-store.json 的 sha256 前后一致（f7b659a77121）。"
+}

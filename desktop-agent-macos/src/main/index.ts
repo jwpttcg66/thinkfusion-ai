@@ -200,7 +200,13 @@ import { WorkspaceListStore } from './workspace-list-store';
 import { runSearchTest, saveSearchSettings, viewSearchSettings } from './search-settings';
 import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
-import { filterDebateCandidates, planReviewQuestion, summarizePlanDebate } from './engineering/plan-review';
+import {
+  filterDebateCandidates,
+  planReviewBudget,
+  planReviewQuestion,
+  planReviewRounds,
+  summarizePlanDebate
+} from './engineering/plan-review';
 import {
   normalizeWorkspaceState,
   routeTask,
@@ -4900,7 +4906,18 @@ if (!app.requestSingleInstanceLock()) {
  * migration, and a migration that can only be tested on other people's machines
  * is not worth the tidier path.
  */
-app.setPath('userData', path.join(app.getPath('appData'), 'thinkfusion-ai'));
+app.setPath(
+  'userData',
+  // 测试/验收实例必须能隔离数据目录：两个实例共用一个 userData 会互相覆盖
+  // agent-store.json，真机上就出现过用户任务与 121 条事件凭空消失。设了
+  // THINKFUSION_USER_DATA（绝对路径）就只写那个目录，正式运行不受影响。
+  (() => {
+    const override = process.env.THINKFUSION_USER_DATA;
+    return override && path.isAbsolute(override)
+      ? override
+      : path.join(app.getPath('appData'), 'thinkfusion-ai');
+  })()
+);
 
 function buildManagedNeo4j(config: CodeIntelligenceConfig): ManagedNeo4j | null {
   if (!config.managed || !config.neo4jHome || !config.neo4jUrl) return null;
@@ -5453,6 +5470,11 @@ app.whenReady().then(async () => {
       });
       const labels = new Map<string, string>();
       for (const candidate of candidates) labels.set(candidate.id, candidate.label ?? candidate.id);
+      // 轮次按计划规模定，不全局写死：单成员自辩 2 轮，设计文档/多步/多评审
+      // 给 3 轮（多一轮「回应」收口）。预算必须跟着轮次走，否则第三轮会被
+      // 总时长直接砍掉，改了等于没改。
+      const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
+      const reviewBudget = planReviewBudget(reviewRounds.rounds);
       // 先备好 scope，start() 内部在首次 persist 之前同步消费并登记。
       pendingReview = { taskId, labels };
       let state;
@@ -5460,16 +5482,18 @@ app.whenReady().then(async () => {
         state = debates.start(
           planReviewQuestion(plan),
           {
-            // 方案评审只需要「各自判断 → 互相质疑」两轮：再多也不会让计划本身
-            // 变得更可行，只会把审批拖长。
             strategy: 'solution',
-            maxRounds: 2,
+            maxRounds: reviewRounds.rounds,
             participants: leadPlan.participants,
             convergenceStop: true,
             leadMode: mode,
             // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
             seed: { positions: [], topics },
-            budget: { stageTimeoutMs: 120_000, totalMs: 180_000, maxConcurrency: 2 }
+            budget: {
+              stageTimeoutMs: reviewBudget.stageTimeoutMs,
+              totalMs: reviewBudget.totalMs,
+              maxConcurrency: 2
+            }
           },
           undefined,
           leadPlan,
@@ -5483,7 +5507,7 @@ app.whenReady().then(async () => {
       // 一个「已等 N 秒」。scope 已由 onStart 登记：每次落盘把快照翻成
       // round.peer，每个成员的流式增量再翻成 round.delta，用户看到的就是
       // 卡片一张张出现、正文一边写一边长。
-      const done = await debates.waitFor(state.debateId, 180_000).finally(() => {
+      const done = await debates.waitFor(state.debateId, reviewBudget.waitMs).finally(() => {
         planReviewScopes.delete(state.debateId);
       });
       if (!done) return null;
@@ -5496,10 +5520,14 @@ app.whenReady().then(async () => {
         debateId: done.debateId,
         status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
         participants: leadPlan.participants,
+        rounds: reviewRounds.rounds,
+        roundsReason: reviewRounds.reason,
         summary: summarizePlanDebate({
           topics,
           rounds: done.rounds.map(round => ({
             index: round.index,
+            // 带上真实阶段：结论要认「回应」轮，不能靠 index 猜老记录的阶段。
+            ...(round.phase ? { phase: round.phase } : {}),
             messages: round.messages.map(message => ({
               author: message.agentId,
               kind: message.kind,

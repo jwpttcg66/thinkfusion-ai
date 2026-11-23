@@ -276,3 +276,43 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 验收脚本自包含启动 dev（清掉宿主 `ELECTRON_RUN_AS_NODE`/`NODE_OPTIONS`）、
 启动前备份 store 与 workspace-state、finally 无条件文件覆盖恢复，核对仍为
 1 任务 / 2 会话 / 10 消息 / 77 事件 / 1 报告，工作区 `/Users/yalla/Downloads`。
+
+## 6.11 方案评审轮次不再写死 2 轮（511 → 519）
+
+用户问「为什么固定 2 轮评审」。查证结果：`src/main/index.ts` 的 `debatePlan`
+里硬编码 `maxRounds: 2`（`f1970bf` 加的，原注释是「再多也不会让计划本身
+变得更可行，只会把审批拖长」），配套 `totalMs: 180_000` / `waitFor(180_000)`。
+而 `phaseFor()` 是死映射：`0=analysis`（表态）、`1=challenge`（质疑）、
+`≥2=response`（回应收敛）——**2 轮永远跑不到回应轮**；`summarizePlanDebate`
+原来只取最后一轮，于是送进审批的「评审结论」其实是没人答复过的质疑。
+同一仓库会话内辩论的注释还明写着「两轮的话『回应』那一轮根本不存在」，
+那边用 3 轮，两处口径自相矛盾。
+
+按用户选择「按计划规模动态决定」落地：
+
+- `shared` 层纯函数 `planReviewRounds(plan, participantCount)`：单成员自辩
+  2 轮（再加一轮只是同一模型自问自答）；设计文档、≥3 步、或 ≥3 位评审给
+  3 轮；其余 1-2 步简单计划 2 轮。`planReviewBudget()` 让预算跟着轮次走
+  （2 轮 180s / 3 轮 300s，等待多 20s）——**只改轮数不抬预算，第三轮会被
+  `totalMs` 直接砍掉**。
+- `summarizePlanDebate` 优先取 `response` 轮（带真实 `phase` 字段，老记录按
+  index 兜底）；只有质疑轮时如实标注「没有回应轮，被评审方尚未答复」，
+  不把质疑伪装成收敛意见。
+- `PlanDebate` 新增 `rounds` / `roundsReason`，`orchestrator.reviewPlanWithDebate`
+  透传进 `plan.debated`，`PlanPreview` 显示「评审 3 轮 · 理由」，审批的人能
+  解释这次为什么比上次慢。
+- 数据安全根治：`main/index.ts` 支持 `THINKFUSION_USER_DATA`（绝对路径）
+  覆盖 userData，验收实例跑在隔离目录，只复制模型配置，不再碰真实
+  `agent-store.json`。
+
+真机 CDP（`P7-REVIEW-ROUNDS.json`）：工程空间只读任务「4 步计划」，2 位评审，
+`plan.debated` 为 `rounds=3 / 4 步的计划，分歧要留一轮回应`；辩论文件
+`maxRounds=3`，三轮 `analysis / challenge / response` 各有 1 条发言，停因
+「回应里没有新的修订，也没有新的争议」；事件流里出现「第 1 / 2 / 3 轮评审」
+成员卡。真实 store 的 sha256 前后一致。`npm run verify` **519/519**
+（`test:plan-review` 16 → 24 条）。
+
+本轮期间发现：反复跑 `npm run verify` / 启停应用曾把真实 store 写成
+`0 任务 / 0 事件`（丢过用户的「机器名」任务与 121 条事件）。已用 15:28 的
+完整备份恢复并核对为 1 任务 / 2 会话 / 10 消息 / 121 事件 / 2 报告；
+隔离 userData 是根治手段，后续验收一律走隔离目录。

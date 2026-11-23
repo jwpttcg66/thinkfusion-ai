@@ -97,6 +97,9 @@ export interface OrchestratorDeps {
     status: 'completed' | 'stopped';
     participants: string[];
     summary: string;
+    /** 这场评审跑了几轮、为什么（按计划规模定）；老调用方不给也不影响。 */
+    rounds?: number;
+    roundsReason?: string;
   } | null>;
   /**
    * 审批时给外部 Agent 建独立工作树。默认实现是 main/task-worktree。
@@ -1087,7 +1090,7 @@ export class AgentOrchestrator {
         elapsedMs: Date.now() - startedAt, message
       });
     };
-    // 最高 180 秒的等待不能只有开头一句 log：每 10 秒一次心跳，界面才有
+    // 最长 300 秒（3 轮评审）的等待不能只有开头一句 log：每 10 秒一次心跳，界面才有
     // 「还在跑」的证据。心跳不是审批信号，审批仍只在辩论真正结束后发生。
     emitProgress('started', `方案评审开始：${topics.length} 个议题，成员逐个给出意见`);
     const heartbeat = setInterval(() => {
@@ -1112,6 +1115,11 @@ export class AgentOrchestrator {
         topics,
         participants: result.participants,
         summary: result.summary,
+        // 轮次与理由要一起进 plan.debated：审批的人看到「3 轮」才知道
+        // 这场评审有回应轮；丢了字段，界面只能显示结论，解释不了为什么这次
+        // 比上次慢。
+        ...(typeof result.rounds === 'number' ? { rounds: result.rounds } : {}),
+        ...(result.roundsReason ? { roundsReason: result.roundsReason } : {}),
         at: Date.now()
       };
     } catch (error) {
