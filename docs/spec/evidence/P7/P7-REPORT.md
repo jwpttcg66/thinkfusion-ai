@@ -47,3 +47,23 @@ SUMMARY：`pass=12 / fail=0 / blocked=4`（4 条环境受限，非缺陷）。
 - `p7-02-output.png`：输出页（计划树 8 步 + 活动流 40 条）
 - `p7-03-trajectory.png`：轨迹页（工具链三阶段 + 失败行 + 阶段时间线）
 - `p7-04-stats.png`：统计页（四层 + Token「未提供」）
+
+## 5. 追加真机复验：用户报「卡死 / 输出两次 / 任务无法完成」（11-23 下午）
+
+用户三张截图指向两个真 bug（图1「像卡死」是执行失败的副产物）：
+
+**A. 任务无法完成 = EEXIST 死循环**（核心，commit `cfb35a5`）
+真实任务 `c55f53b8-…` 的事件链：第1轮 `fs.writeFile HelloJwp.java` → EEXIST（文件来自
+用户上次同名任务）→ step.failed → 验证四格全跳过 → 评审需修复 → 报告轮 → 第2轮
+`plan.invalid`（模型多写 `addresses`）→ 第3轮又写同名文件 → 又 EEXIST → 第4轮
+`Object has been destroyed` → task.failed。根因是 `filesystem.ts:writeFile` 的 `O_EXCL`。
+修复：捕获 EEXIST 后比对现有内容，**字节完全一致才幂等成功**（created:false/unchanged:true），
+内容不同仍拒绝（保留 overwriteFile+sha256 安全语义）。真机对已存在的 `HelloJwp.java`
+写同内容 → created:false、sha256 不变，死循环解除。
+
+**B. 同一模型两张输出卡**（commit `cfb35a5`）
+`buildTaskConversation` 的 live 段硬编码 `::lead` key，真实 participantId 带 provider
+前缀，导致同一 `deepseek-v4.1-flash` 出两张「输出中」卡。修复：live 并进已有的
+streaming 成员卡。真机复验 `p7-05-after-fix.png`：4 轮各一张卡、输出中只剩 1 张。
+
+回归：`npm run verify` 484/484（0 fail）。新增测试 check-code-read +2、check-task-conversation +1。
