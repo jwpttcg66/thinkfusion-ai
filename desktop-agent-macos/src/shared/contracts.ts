@@ -1385,6 +1385,11 @@ export type AgentEvent = AgentEventBase &
         label: string;
         status: 'started' | 'answered' | 'failed' | 'cancelled';
         text?: string;
+        /**
+         * 模型返回的推理内容。方案评审的成员用同一种卡片展示，所以要能带上
+         * 「它是怎么想的」，而不是只给一段结论。
+         */
+        reasoning?: string;
         error?: string;
         durationMs?: number;
         providerId?: string;

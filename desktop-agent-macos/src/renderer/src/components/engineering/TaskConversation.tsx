@@ -160,7 +160,12 @@ function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }
         )}
         {output.text
           ? <pre className="chat-step-output">{output.text}</pre>
-          : <p className="muted">这一步没有可展示的输出。</p>}
+          : <p className="muted">
+              {card.status === 'running' ? '正在执行，还没有返回输出。'
+                : card.status === 'waiting' ? '等待处理中。'
+                  : card.status === 'failed' ? '这一步失败，没有返回输出。'
+                    : '这一步没有可展示的输出。'}
+            </p>}
       </div>
     </details>
   );

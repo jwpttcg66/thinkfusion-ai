@@ -21,18 +21,27 @@ test('方案评审心跳算在审批阶段，不再默认落到执行', () => {
   assert.equal(phaseOfEvent('plan.review.progress'), 'approval');
 });
 
-test('评审开始与结束留节点，10 秒心跳不刷屏', () => {
-  const items = buildTimeline([
+test('评审心跳原地更新同一行并显示已等秒数，不刷屏也不静默', () => {
+  const events = [
     progress(1000, 'started'),
     progress(11000, 'waiting'),
     progress(21000, 'waiting'),
     progress(22000, 'done')
-  ]).filter(item => item.kind === 'milestone' && item.text.includes('方案评审'));
+  ];
+  const all = events.map(event => buildTimeline([...events.slice(0, events.indexOf(event) + 1)])
+    .filter(item => item.kind === 'milestone' && item.text.includes('方案评审')));
 
-  assert.deepEqual(items.map(item => item.text), [
-    '方案评审开始：2 个议题',
-    '方案评审等待结束'
-  ]);
+  // 任意时刻对话流里只有一条评审节点，不会堆成一排。
+  assert.equal(all[0].length, 1);
+  assert.equal(all[1].length, 1);
+  assert.equal(all[3].length, 1);
+  // 文本随心跳滚动，用户能看到「还在跑」；结束时给出实测等待时长。
+  assert.match(all[0][0].text, /方案评审开始.*2 个议题/);
+  assert.match(all[1][0].text, /已等 10 秒/);
+  assert.match(all[2][0].text, /已等 20 秒/);
+  assert.match(all[3][0].text, /结束.*已等 21 秒/);
+  // 节点位置固定：新增心跳不把这一行挪到对话最底下。
+  assert.equal(all[0][0].key, all[3][0].key);
 });
 
 test('评审心跳不会伪造计划审批状态', () => {

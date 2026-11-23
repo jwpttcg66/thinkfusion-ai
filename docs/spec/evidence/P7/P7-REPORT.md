@@ -175,3 +175,44 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
 独立评审：通过」；交付卡列出 `java-artifact-demo/Main.java`（新建 114 字节）与
 `java-artifact-demo/Main.class`（shell.run），验证编译/运行均通过。
 `npm run verify` **495/495**（新增 `test:delivery-artifacts` 3 条）。会话与任务数据当场删净。
+
+### 6.8 方案评审全过程可见 + 重复气泡 / 空步骤卡（2026-11-23 傍晚）
+
+用户连续指出三类界面问题：「同一句提问出现两个气泡」「这一步没有可展示的输出。
+方案评审开始：2 个议题，之后界面像卡住」「方案评审进行中·已等 30 秒——我要看到
+评审的所有细节，跟模型思考那样，看见整个过程」。
+
+真因：
+- `submit()` 先放本地占位气泡，主进程落库后 `message.added` 又追加一条，
+  两条 messageId 不同；工程提交 IPC 几十秒不返回，重复气泡一直挂着。
+- `plan.review.progress` 的 `waiting` 心跳在 `milestone()` 里被过滤成 `null`，
+  对话流里只剩「评审开始」一句；10 张 `step.preparing` 空卡又显示
+  「这一步没有可展示的输出」，评审两三分钟看起来就是死机。
+- `debatePlan` 原来 `debates.start()` → `waitFor()` 一次性拿结果，中间完全不
+  emit。辩论引擎其实边跑边落盘（`runningRound.pending` / 每条发言），但界面
+  从没读过这些中间态。
+
+修复：
+- `shared/conversation.ts` 新增 `mergeConversationMessage()`：末尾同文
+  `pending-` 占位换成落库消息，不新增气泡；不误并上一次真的问过的同文。
+- `shared/execution-timeline.ts`：评审心跳聚成固定 key 的原地更新节点，
+  文本随「已等 N 秒」滚动，不刷屏也不静默；`shared/task-conversation.ts`
+  跳过尚未开始、无参数可看的 `preparing` 空卡；步骤卡空输出文案改成
+  「正在执行 / 等待处理 / 失败」等真实状态。
+- **评审细节**：`main/debate/review-progress.ts` 把辩论快照翻译成
+  `round.peer`（成员卡）事件——`pending` → 输出中、发言 → 已完成并带
+  正文与 `reasoning`、失败 → 如实标失败；`seen` 跨回调去重。
+  `DebateOrchestrator` 新增 `onProgress` 落盘回调（只读、异常不影响辩论），
+  `main/index.ts` 按 `debateId` 登记 `planReviewScopes`，只有方案评审才发，
+  手动辩论与知识空间辩论零改动。`round.peer` 契约补 `reasoning` 字段，
+  成员卡沿用「模型思考」的推理折叠。
+
+真机 CDP 复验（`P7-REVIEW-DETAIL.json` + `p7-14-review-detail-live.png` /
+`p7-14-review-detail-final.png`）：对话流出现 3 张唯一成员卡——规划 1 张、
+「第 1 轮评审」1 张（8323 字符）、「第 2 轮评审」1 张（8612 字符），
+均带正文与「思考」折叠；进度行从 10 秒滚到 90 秒；任务 `completed`。
+（证据 JSON 里 `reviewPeers` 是逐秒采样状态快照，按 label 去重后的真实卡片见
+`reviewPeersFinal`。）
+`npm run verify` **502/502**（新增 `test:message-dedupe` 3 条、
+`test:review-detail` 4 条，`test:ui-progress` 改为断言原地滚动）。会话与
+任务数据当场删净，无残留进程。

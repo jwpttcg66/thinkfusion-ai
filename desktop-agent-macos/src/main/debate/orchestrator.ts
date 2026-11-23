@@ -61,6 +61,14 @@ export interface DebateDeps {
   judgeModelId?: string;
   /** 工程证据 Pack 存储；不传时工程辩论照常跑，只是 Pack 标 unavailable。 */
   evidencePacks?: EvidencePackStore;
+  /**
+   * 每次落盘后的快照回调（方案评审用）。
+   *
+   * 评审要在对话流里逐条显示「谁评了、说了什么」，靠调用方轮询磁盘既慢
+   * 又会被 `waitFor` 的同步读盘饿死；落盘是唯一的事实变化点，在这里通知
+   * 最准。回调只读，不参与辩论决策。
+   */
+  onProgress?: (state: DebateState) => void;
 }
 
 const SIMILAR = 0.34;
@@ -393,6 +401,13 @@ export class DebateOrchestrator {
       });
     }
     this.store.save(state);
+    // 落盘之后才通知：界面看到的东西一定和磁盘一致，不会出现「卡上已经有
+    // 正文、恢复后却读不到」。回调异常不影响辩论本身。
+    try {
+      this.deps.onProgress?.(state);
+    } catch {
+      /* 观察者不能打断评审 */
+    }
     return state.status !== 'stopped';
   }
 

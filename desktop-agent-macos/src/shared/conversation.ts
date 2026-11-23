@@ -319,6 +319,37 @@ export interface ConversationMessage {
   at: number;
 }
 
+/**
+ * 把主进程推来的消息并入界面列表。
+ *
+ * `submit()` 会先放一条本地占位气泡，让工程提交那几十秒里用户立刻看到自己问了什么；
+ * 主进程落库后同一句话又会以 `message.added` 推过来一次。两条 messageId 不同，
+ * 直接 append 就会出现两个一模一样的「你」，而且要等提交 IPC 返回才会被 seeded
+ * 覆盖掉——工程任务这段等待很长，看起来就是界面重复且卡住。
+ *
+ * 同一会话、同角色、同文本时把占位换成落库消息，不新增气泡。真正的连续两次
+ * 同文提问不会被误合并：第一次落库后 messageId 已是 uuid，不再以 pending- 开头。
+ */
+export function mergeConversationMessage(
+  list: readonly ConversationMessage[],
+  incoming: ConversationMessage
+): ConversationMessage[] {
+  if (list.some(item => item.messageId === incoming.messageId)) return [...list];
+  if (incoming.role === 'user' && list.length > 0) {
+    // 只认列表末尾那条占位：submit() 每次提交都用单条占位重置列表，
+    // 因此「末尾 + 同文 + pending-」才是本次提问的落库回执。若前面还有
+    // 一条已落库的同文消息，那是上一次真的问过同样的话，不能并掉。
+    const index = list.length - 1;
+    const tail = list[index];
+    if (tail.role === 'user' && tail.text === incoming.text && tail.messageId.startsWith('pending-')) {
+      const next = [...list];
+      next[index] = incoming;
+      return next;
+    }
+  }
+  return [...list, incoming];
+}
+
 // ---------------------------------------------------------------------------
 // research/v1 — the structure the app derives. No model is asked to emit this.
 // ---------------------------------------------------------------------------

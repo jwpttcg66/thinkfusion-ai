@@ -59,7 +59,7 @@ import {
   ICON_SAVE_WORD_PATHS
 } from '../../shared/icons';
 import type { ChannelStatus, Conversation, ConversationExecutionConfig, ConversationMessage, ExecutionMode } from '../../shared/conversation';
-import { DEFAULT_EXECUTION_CONFIG, normalizeExecutionConfig } from '../../shared/conversation';
+import { DEFAULT_EXECUTION_CONFIG, mergeConversationMessage, normalizeExecutionConfig } from '../../shared/conversation';
 import { pruneCloudParticipantsAgainstPool } from '../../shared/cloud-selection';
 import { dedupeAttachments, type ConversationAttachment } from '../../shared/attachments';
 import { describeEffective } from '../../shared/redact';
@@ -728,9 +728,7 @@ export default function App() {
         if (event.message.conversationId !== activeConversationRef.current) return;
         // Messages are appended live, so the pane fills in as channels answer
         // instead of appearing all at once when the slowest page finishes.
-        setMessages(prev =>
-          prev.some(item => item.messageId === event.message.messageId) ? prev : [...prev, event.message]
-        );
+        setMessages(prev => mergeConversationMessage(prev, event.message));
         // 综合结论落盘时，主导人的流式预览必须让位：它的最终文本变成了
         // synthesis 消息，不会再有一条 channel 消息来清掉它。
         if (event.message.synthesis) setAnswerDeltas({});

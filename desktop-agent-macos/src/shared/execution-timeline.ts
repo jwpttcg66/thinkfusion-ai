@@ -174,15 +174,18 @@ function milestone(
         tone: event.needsFix ? 'warn' : 'ok'
       };
     case 'plan.review.progress':
-      // 每 10 秒一次的心跳只在进度卡/最近活动里滚动；对话流保留开始和结束
-      // 两个节点即可，否则三轮辩论能把真正的回答挤出屏幕。
-      return event.state === 'started' || event.state === 'done'
-        ? {
-            kind: 'milestone', key, at: event.at,
-            text: event.state === 'started' ? `方案评审开始：${String(event.topics)} 个议题` : '方案评审等待结束',
-            tone: 'muted'
-          }
-        : null;
+      // 固定 key：同一段评审的 started/waiting/done 聚成一条原地更新的节点。
+      // 心跳每 10 秒把「已等 N 秒」写回同一行，对话流里始终能看见它在走；
+      // 如果每条心跳都 push，三轮辩论几十条会把真正的回答挤出屏幕。
+      return {
+        kind: 'milestone', key: `plan-review-${event.roundId}`, at: event.at,
+        text: event.state === 'started'
+          ? `方案评审开始：${String(event.topics)} 个议题，等待成员意见…`
+          : event.state === 'done'
+            ? `方案评审等待结束（已等 ${String(Math.round(event.elapsedMs / 1000))} 秒）`
+            : `方案评审进行中 · 已等 ${String(Math.round(event.elapsedMs / 1000))} 秒（${String(event.topics)} 个议题）`,
+        tone: 'muted'
+      };
     case 'plan.debated':
       return {
         kind: 'milestone',
@@ -309,7 +312,15 @@ export function buildTimeline(events: AgentEvent[]): TimelineItem[] {
           currentRoundId = event.roundId;
         }
         const item = milestone(event, index);
-        if (item) items.push({ ...item, roundId: currentRoundId });
+        if (item) {
+          // 原地更新的里程碑（评审心跳）：同一 key 只留最新一条，且不挪动它在
+          // 列表中的位置——否则每次心跳都会把「评审中」顶到对话最底下。
+          const prior = item.key.startsWith('plan-review-')
+            ? items.findIndex(existing => existing.kind === 'milestone' && existing.key === item.key)
+            : -1;
+          if (prior >= 0) items[prior] = { ...item, roundId: currentRoundId };
+          else items.push({ ...item, roundId: currentRoundId });
+        }
       }
     }
   });

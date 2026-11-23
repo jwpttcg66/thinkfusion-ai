@@ -79,6 +79,7 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
+import { reviewPeerEvents } from './debate/review-progress';
 import {
   catalogEntryOf,
   CLOUD_PRESETS,
@@ -650,6 +651,14 @@ const cloudModelRefresh = new Set<string>();
  */
 let localProvider: OllamaProvider | null = null;
 let debates: DebateOrchestrator | null = null;
+/**
+ * 方案评审辩论 → 任务 / 成员名 / 已发事件键。
+ *
+ * 辩论引擎只知道 debateId，不知道是哪条任务的评审；这里在 `debatePlan`
+ * 开始评审时登记，结束后删除。`onProgress` 按它决定要不要发 round.peer，
+ * 手动辩论与知识空间辩论因此完全不受影响。
+ */
+const planReviewScopes = new Map<string, { taskId: string; labels: Map<string, string>; seen: Set<string> }>();
 /** 语义导航：按工作区根复用 tsserver；只读，不联网。Provider 目前只有 TypeScript。 */
 let lspRegistry: LspProviderRegistry | null = null;
 /** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
@@ -5153,7 +5162,18 @@ app.whenReady().then(async () => {
     },
     // 谁参与由 debate:start 里的 planLead 按 health() 决定，编排器不再
     // 维护第二套名单。网页成员在计划里被标成 webOnly，只第一轮发言。
-    ...(evidencePacks ? { evidencePacks } : {})
+    ...(evidencePacks ? { evidencePacks } : {}),
+    // 方案评审的辩论每落一次盘就把快照翻成成员事件；没有登记 scope 的辩论
+    // （手动/会话内辩论）直接跳过，不改它们现有的展示方式。
+    onProgress: state => {
+      const scope = planReviewScopes.get(state.debateId);
+      if (!scope) return;
+      const batch = reviewPeerEvents({
+        taskId: scope.taskId, debateId: state.debateId, labels: scope.labels, seen: scope.seen, state
+      });
+      for (const event of batch.events) emit(event);
+      for (const key of batch.keys) scope.seen.add(key);
+    }
   });
 
   tasks = new TaskManager(store, emit);
@@ -5343,7 +5363,7 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ plan, topics, debateAgentIds }) => {
+    debatePlan: async ({ taskId, plan, topics, debateAgentIds }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
@@ -5379,7 +5399,16 @@ app.whenReady().then(async () => {
         leadPlan,
         'plan-review'
       );
-      const done = await debates.waitFor(state.debateId, 180_000);
+      // 辩论结果原来只在 `waitFor` 之后一次性拿到，中间两三分钟对话流里只有
+      // 一个「已等 N 秒」。登记 scope 之后，`onProgress` 会在每次落盘时把
+      // 快照翻成 round.peer，用户就能像看模型思考一样看见每个评审成员的
+      // 意见与推理。`seen` 跨回调保留，同一条发言不会出两次卡。
+      const labels = new Map<string, string>();
+      for (const candidate of candidates) labels.set(candidate.id, candidate.label ?? candidate.id);
+      planReviewScopes.set(state.debateId, { taskId, labels, seen: new Set<string>() });
+      const done = await debates.waitFor(state.debateId, 180_000).finally(() => {
+        planReviewScopes.delete(state.debateId);
+      });
       if (!done) return null;
       // 「跑完了」不等于「辩过了」：模型全部超时/忙碌时，引擎仍会把状态记成
       // completed，但一句话都没说。真机第一轮就遇到两个本地模型一个在忙、

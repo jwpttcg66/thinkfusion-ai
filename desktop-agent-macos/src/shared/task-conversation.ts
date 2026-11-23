@@ -287,6 +287,10 @@ export function buildTaskConversation(
           label: event.label || event.modelId || event.providerId || memberId,
           status: 'completed',
           text: event.text ?? '',
+          // 方案评审成员与第一轮回答共用这张卡：推理也要带过来，否则用户只能
+          // 看到结论，看不到它为什么这么评。
+          reasoning: event.reasoning ?? '',
+          reasoningSupported: Boolean(event.reasoning),
           durationMs: event.durationMs ?? null
         });
       } else {
@@ -372,6 +376,11 @@ export function buildTaskConversation(
   for (const item of buildTimeline(ordered)) {
     const roundId = item.roundId ?? currentRoundId;
     if (item.kind === 'step') {
+      // 计划一就绪就为每一步生成 preparing 卡，评审阶段还没执行，卡片里
+      // 没有任何输出——真机上就成了一排「这一步没有可展示的输出」，用户
+      // 以为界面坏了。真正执行时同一个 stepId 会更新成有输出的卡，这里
+      // 只跳过尚未开始、也没有参数可看的空壳。
+      if (item.card.status === 'preparing' && !item.card.startedAt && !item.card.args) continue;
       push({
         kind: 'step',
         key: `step-${item.key}`,
