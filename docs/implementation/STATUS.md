@@ -1,7 +1,7 @@
 # ThinkFusion 单一状态板
 
 状态：当前有效  
-基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24
+基线：`main` · `cdc8308689e65b92017701a7646410c94fa1beb2` · 2026-11-24
 
 > 本文件是**唯一阶段状态来源**。其他文档里的阶段表、完成度表只作为历史计划或
 > 设计依据；与本文件冲突时，以本文件 + 代码/测试事实为准。
@@ -74,6 +74,22 @@
 
 > 长任务文档中的“已完成”只代表设计文档/任务书完成，不代表功能已落地。
 
+## 4.5 主活动区与协作结果表达（V3）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 实施任务书 | DESIGN | `docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md` |
+| U0 现状与数据链路审计 | DESIGN | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md`（代码事实审计完成；功能未改） |
+| U1 统一协作结果投影 | IMPLEMENTED / TESTED | `shared/collaboration-result.ts` + `test:collaboration-result`；UI 未消费 |
+| U2 Debate 争议驱动与展示 | NOT STARTED | — |
+| U3 Review 内容与闭环 | NOT STARTED | — |
+| U4 General / Knowledge 主活动区 | NOT STARTED | — |
+| U5 Engineering 主活动区 | NOT STARTED | — |
+| U6 集成 / 恢复 / 真机验收 | NOT STARTED | — |
+| 功能分支 | 进行中 | `feat/v3-main-activity-collab-result`（未推送） |
+
+> U0 只交付审计与任务书落盘，**不等于**主活动区已重构。
+
 ## 5. 文档分类
 
 | 类别 | 文档 |
@@ -100,4 +116,5 @@
 | `PRODUCT` 旧句“代码尚未迁移” | 已改为“主体已迁移，见状态板” |
 | `implementation/README` 旧状态板与 COMPLETION-AUDIT 不一致 | 旧表标记为历史，本文件为唯一状态 |
 | `UNIFIED-TASK-RUNTIME` 声称重启恢复已完成 | 修正为：当前仅标记中断，长任务恢复在 LT-P5 |
-| 长任务文档基线 `e31b6a3` | 已统一为 `e336ae4`（2026-11-24） |
+| 长任务文档基线 `e31b6a3` | 已统一为当时审计基线；当前仓库基线以本文件顶部 `cdc8308` 为准（2026-11-24） |
+| STATUS 曾写 `e336ae4` | 已与 `origin/main@cdc8308` 对齐 |
