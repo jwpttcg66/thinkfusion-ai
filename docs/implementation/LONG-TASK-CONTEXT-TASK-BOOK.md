@@ -150,7 +150,7 @@ P6 UI 与全链路验收
 | LT-P3-03 | 基础层完成 / TESTED | P0-03 / P3-01 | Checkpoint |
 | LT-P3-04 | 基础层完成 / TESTED | P3-03 | Recovery |
 | LT-P3-05 | 部分完成 | P3-03 | 事件/Trace |
-| LT-P4-01 | 未开始 | P1-02 / P2-03 / P3-04 | Pool Hook |
+| LT-P4-01 | 基础层完成 / TESTED | P1-02 / P2-03 / P3-04 | Pool Hook |
 | LT-P4-02 | 未开始 | P4-01 | 入口策略 |
 | LT-P4-03 | 未开始 | P1-03 / P4-01 | Usage 校准 |
 | LT-P4-04 | 未开始 | P4-02 / P4-03 | 边界回归 |

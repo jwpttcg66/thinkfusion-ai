@@ -2,6 +2,7 @@ import type { SubAgent, SubAgentAnswer, SubAgentPool, SubAgentTask } from '../ag
 import type { DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 import { ProviderBackedSubAgent } from './provider-sub-agent';
 import { attachFromTask } from '../memory/runtime';
+import { finalizeSubAgentTask, prepareSubAgentTask } from '../context/adapters/sub-agent';
 
 /**
  * 一轮研究的名单：按两份名单裁过的视图（2026-11-15 更新）。
@@ -92,8 +93,15 @@ export class ExecutionPool implements SubAgentPool {
     if (!agent) return this.base.ask(agentId, task);
     const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
-      const answer = await agent.ask(hook.task);
+      const meta = {
+        providerId: agent.sourceType ?? 'unknown',
+        modelId: agent.id
+      };
+      // Context Manager 失败不应阻塞普通请求：降级为原 task。
+      const prepared = await prepareSubAgentTask(hook.task, meta).catch(() => null);
+      const answer = await agent.ask(prepared?.task ?? hook.task);
       hook.finalize(answer);
+      if (prepared) await finalizeSubAgentTask(prepared, answer, meta).catch(() => undefined);
       return answer;
     } catch (error) {
       hook.finalize(undefined, error instanceof Error ? error.message : String(error));
@@ -120,10 +128,17 @@ export class ExecutionPool implements SubAgentPool {
     }
     const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
+      const meta = {
+        providerId: agent.sourceType ?? 'unknown',
+        modelId: agent.id
+      };
+      const prepared = await prepareSubAgentTask(hook.task, meta).catch(() => null);
+      const actualTask = prepared?.task ?? hook.task;
       const answer = agent.askStream
-        ? await agent.askStream(hook.task, onDelta)
-        : await agent.ask(hook.task);
+        ? await agent.askStream(actualTask, onDelta)
+        : await agent.ask(actualTask);
       hook.finalize(answer);
+      if (prepared) await finalizeSubAgentTask(prepared, answer, meta).catch(() => undefined);
       return answer;
     } catch (error) {
       hook.finalize(undefined, error instanceof Error ? error.message : String(error));

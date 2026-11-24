@@ -13,6 +13,7 @@ import { estimateTextTokens, TokenEstimator } from '../out-test/main/context/est
 import { computeContextBudget, decideBudget, CONSERVATIVE_INPUT_LIMIT } from '../out-test/main/context/budget.js';
 import { providerContextCapability } from '../out-test/main/context/adapters/provider-context.js';
 import { DefaultContextManager } from '../out-test/main/context/manager.js';
+import { prepareSubAgentTask, finalizeSubAgentTask } from '../out-test/main/context/adapters/sub-agent.js';
 
 const taskOwner = {
   ownerType: 'agent-task',
@@ -134,4 +135,51 @@ test('Manager：prepare 不改原话，finalize 可校准，recover 在 P1 返�
     modelId: 'm'
   });
   assert.equal(await manager.recover(), null);
+});
+
+
+test('P4 SubAgent 适配：无 contextState 时零变化', async () => {
+  const task = { question: 'q', stage: 'answer', context: ['c'], system: ['s'] };
+  assert.equal(await prepareSubAgentTask(task, { providerId: 'p', modelId: 'm' }), null);
+});
+
+test('P4 SubAgent 适配：有 contextState 时只改 system/context，原话不变', async () => {
+  const calls = [];
+  const context = {
+    contextId: 'ctx1',
+    owner: taskOwner,
+    taskId: 'task-1',
+    runId: 'run-1',
+    includedEventIds: ['e1'],
+    retainedEventIds: ['e1'],
+    evidenceRefs: ['ev-1'],
+    estimatedTokens: 10,
+    contextWindow: 1000,
+    compactionStatus: 'not-needed'
+  };
+  const manager = {
+    prepare: async input => {
+      calls.push(input);
+      return { context, question: input.question, contextLines: ['C2'], systemLines: ['S2'] };
+    },
+    finalize: async input => calls.push(input),
+    recover: async () => null
+  };
+  const prepared = await prepareSubAgentTask({
+    question: '原话',
+    stage: 'answer',
+    context: ['C1'],
+    system: ['S1'],
+    contextState: { manager, owner: taskOwner, runId: 'run-1', history, evidenceRefs: ['ev-1'] }
+  }, { providerId: 'p', modelId: 'm' });
+  assert.ok(prepared);
+  assert.equal(prepared.task.question, '原话');
+  assert.deepEqual(prepared.task.context, ['C2']);
+  assert.deepEqual(prepared.task.system, ['S2']);
+  assert.equal(prepared.task.contextState, undefined);
+  assert.equal(calls[0].owner.ownerType, 'agent-task');
+  assert.deepEqual(calls[0].history.map(item => item.eventId), ['e1', 'e2']);
+  await finalizeSubAgentTask(prepared, { text: 'ok', usage: { inputTokens: 12, outputTokens: 3 } }, { providerId: 'p', modelId: 'm' });
+  assert.equal(calls[1].usage.inputTokens, 12);
+  assert.equal(calls[1].contextId, 'ctx1');
 });
