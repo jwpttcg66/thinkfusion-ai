@@ -18,6 +18,7 @@
 | [architecture/KNOWLEDGE_SPACE.md](architecture/KNOWLEDGE_SPACE.md) | 知识卡、主题、时效、复用、知识地图 |
 | [architecture/ENGINEERING_CONTRACT.md](architecture/ENGINEERING_CONTRACT.md) | 工程任务状态、S1/S2、CLI 执行者、Java、验收 |
 | [architecture/EVIDENCE_QUALITY.md](architecture/EVIDENCE_QUALITY.md) | Pack→EvidenceRef、验证、指标、回放 |
+| [architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md](architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) | 长任务执行、上下文预算、裁剪、摘要、检查点与恢复 |
 | [architecture/CAPABILITY_MODEL.md](architecture/CAPABILITY_MODEL.md) | 能力、参与者、路由、降级、费用 |
 | [architecture/RELEASE_OPERATIONS.md](architecture/RELEASE_OPERATIONS.md) | 版本、打包签名、迁移、备份、诊断、回滚 |
 | [operations/SUPPORT_MATRIX.md](operations/SUPPORT_MATRIX.md) | 运行环境、通道、数据迁移与发布范围 |
@@ -28,6 +29,7 @@
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
+| [implementation/LONG-TASK-CONTEXT-TASK-BOOK.md](implementation/LONG-TASK-CONTEXT-TASK-BOOK.md) | 长任务与上下文压缩 LT-P0–P6 正式实施任务书 |
 | [implementation/P0-06-ROLLBACK-DRILL.md](implementation/P0-06-ROLLBACK-DRILL.md) | 模式 Flag 回滚钻取记录 |
 | [implementation/P1-00A-CODE-MAPPING.md](implementation/P1-00A-CODE-MAPPING.md) | 代码职责映射与迁移矩阵 |
 | [implementation/P0-J-REVIEW-RECORD.md](implementation/P0-J-REVIEW-RECORD.md) | P0 独立评审记录与残余门禁 |

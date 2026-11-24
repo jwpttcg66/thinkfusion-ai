@@ -11,6 +11,7 @@
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
 | [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
+| [LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–P6 | 长任务执行与上下文压缩的正式实施任务书；设计基线 `e31b6a3` |
 | [P0-06-ROLLBACK-DRILL.md](P0-06-ROLLBACK-DRILL.md) | P0 | 模式 Flag 的升级/降级/损坏钻取 |
 | [P1-00A-CODE-MAPPING.md](P1-00A-CODE-MAPPING.md) | P1 | 逐文件职责映射与第一刀顺序 |
 | [V3-FORMAL-FEATURES-PLAN.md](V3-FORMAL-FEATURES-PLAN.md) | 全阶段 | 正式功能实施计划（不含发布） |
@@ -48,6 +49,15 @@
 | P5 模型与通道 | ✅ 核心完成（能力/路由/观测/模板/矩阵） | 新增通道不改主流程 | — |
 | P6 发布与运维 | 🟡 清单/迁移/备份/门禁/dmg+zip 配置完成；签名/公证未执行 | 干净机器安装/迁移/回滚/签名 | — |
 | V3 发布 | 未开始 | 06 文档的发布判据 | — |
+
+## 新增设计轨道：长任务与上下文压缩
+
+这组设计不属于现有 P0–P6 的阶段编号，使用独立的 `LT-P0–LT-P6` 编号：
+
+- 架构决议：[../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)
+- 正式任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md)
+
+当前状态：**设计完成，未实施**。P0 契约冻结通过前不进入实现。
 
 ## 使用方式
 
