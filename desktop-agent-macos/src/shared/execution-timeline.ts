@@ -185,10 +185,14 @@ function milestone(
             ? `方案评审等待结束（已等 ${String(Math.round(event.elapsedMs / 1000))} 秒）`
             : `方案评审进行中 · 已等 ${String(Math.round(event.elapsedMs / 1000))} 秒（${String(event.topics)} 个议题）`,
         tone: 'muted',
-        ...((event.reason || (event.topicTexts && event.topicTexts.length > 0))
+        ...((event.reason || event.roundsReason || (event.topicTexts && event.topicTexts.length > 0))
           ? {
               detail: [
-                ...(event.reason ? [`为什么评审：${event.reason}`, ''] : []),
+                ...(event.reason ? [`为什么评审：${event.reason}`] : []),
+                ...(event.rounds !== undefined
+                  ? [`轮次：${String(event.rounds)} 轮${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
+                  : []),
+                ...(event.reason || event.rounds !== undefined ? [''] : []),
                 ...(event.topicTexts ?? []).map((topic, index) => `${String(index + 1)}. ${topic}`)
               ].join('\n')
             }

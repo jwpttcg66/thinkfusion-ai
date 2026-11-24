@@ -244,19 +244,21 @@ export interface PlanReviewRounds {
 
 export function planReviewRounds(plan: AgentPlan, participantCount: number): PlanReviewRounds {
   if (participantCount <= 1) {
-    return { rounds: 2, reason: '单成员自辩：加回应轮只是同一模型自问自答' };
+    // 单模型也要两轮：第一轮是立场，第二轮专门反驳第一轮。没有第二轮就
+    // 只是模型自说自话；再加第三轮又变成同一个模型自问自答。
+    return { rounds: 2, reason: '单成员自辩固定 2 轮：第 1 轮表态，第 2 轮必须质疑第 1 轮；第 3 轮只是同一模型自问自答' };
   }
   if (plan.kind === 'design') {
-    return { rounds: 3, reason: '设计文档按观点编号评审，质疑需要回应才算收口' };
+    return { rounds: 3, reason: '设计文档用 3 轮：表态 → 质疑 → 回应，观点编号必须在质疑后被答复' };
   }
   const steps = plan.steps ?? [];
   if (steps.length >= 3) {
-    return { rounds: 3, reason: `${String(steps.length)} 步的计划，分歧要留一轮回应` };
+    return { rounds: 3, reason: `${String(steps.length)} 步的计划用 3 轮：表态 → 质疑 → 回应，质疑不能没人答复` };
   }
   if (participantCount >= 3) {
-    return { rounds: 3, reason: `${String(participantCount)} 位评审，多方分歧要留一轮回应` };
+    return { rounds: 3, reason: `${String(participantCount)} 位评审用 3 轮：多方分歧需要一轮回应收口` };
   }
-  return { rounds: 2, reason: `${String(steps.length)} 步、${String(participantCount)} 位评审，表态与质疑两轮足够` };
+  return { rounds: 2, reason: `${String(steps.length)} 步、${String(participantCount)} 位评审用 2 轮：表态后质疑一次足够，没有多方分歧需要回应` };
 }
 
 /**

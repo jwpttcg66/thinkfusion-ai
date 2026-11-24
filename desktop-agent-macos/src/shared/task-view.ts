@@ -300,7 +300,7 @@ export function verificationIsComplete(verification: TaskView['verification']): 
   return checks.compile.status === 'passed' &&
     checks.run?.status === 'passed' &&
     checks.tests.status === 'passed' &&
-    checks.diagnostics.status === 'passed';
+    checks.diagnostics?.status === 'passed';
 }
 
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {

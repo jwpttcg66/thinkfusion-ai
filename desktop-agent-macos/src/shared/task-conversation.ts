@@ -498,8 +498,12 @@ export function buildTaskConversation(
         participants: existing?.entry.participants ?? [],
         summary: existing?.entry.summary ?? '',
         elapsedMs: event.elapsedMs,
-        ...(existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
-        ...(existing?.entry.roundsReason ? { roundsReason: existing.entry.roundsReason } : {}),
+        ...(event.rounds !== undefined
+          ? { rounds: event.rounds }
+          : existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
+        ...(event.roundsReason
+          ? { roundsReason: event.roundsReason }
+          : existing?.entry.roundsReason ? { roundsReason: existing.entry.roundsReason } : {}),
         ...(existing?.entry.skippedReason ? { skippedReason: existing.entry.skippedReason } : {}),
         ...(event.reason
           ? { reason: event.reason }

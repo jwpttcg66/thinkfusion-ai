@@ -821,6 +821,9 @@ export function buildInitialPrompt(input: {
 12. 写完代码要验证时用 code.run 跑一遍真实的解释器，不要只描述「理论上可行」。
 13. 如果这次产出的是**设计文档或设计观点**（不是直接改代码），把 kind 设为 design，
     并在 design 里给出完整文档与观点列表；design 计划会强制评审。其余情况 kind=implementation。
+14. 改代码的计划要把四类检查都排进去：编译（javac/go build/tsc 等）、运行（java/go run/./产物）、
+    测试（npm test/go test 等）、诊断（go vet/eslint/tsc --noEmit 等）。确实不适用的检查要在
+    完成条件里说明原因；只跑其中一项不能写「已完成」。
 
 ${TOOL_SPEC}
 
@@ -876,6 +879,9 @@ ${review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')}
 `
     : '';
   return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}
+完成口径：代码改动必须分别有编译、运行、测试、诊断四类检查通过的真实命令；
+缺少哪一项就先补哪一项，不能用「程序跑起来了」代替测试或诊断。
+
 请基于实际结果决定下一步：
 - 需要继续执行：输出下一轮 ${PROTOCOL} 计划（taskId 与 roundId 使用下方给出的新值）。
 - 任务已满足完成条件：输出 task_complete。

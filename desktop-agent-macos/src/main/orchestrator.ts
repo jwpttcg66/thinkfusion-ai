@@ -16,7 +16,7 @@ import type {
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
-import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
+import { checkPlanCapabilities, planDebateTopics, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
@@ -1118,12 +1118,17 @@ export class AgentOrchestrator {
     }
 
     const topics = planDebateTopics(stored.plan);
+    // 轮次由计划规模决定；在评审开始前就给界面一个明确依据，别让人等完
+    // 三分钟才知道为什么是两轮。
+    const plannedRounds = planReviewRounds(stored.plan, task.debateAgentIds?.length ?? 1);
     const startedAt = Date.now();
     const emitProgress = (state: 'started' | 'waiting' | 'done', message: string) => {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
         planId: stored.planId, state, topics: topics.length, topicTexts: topics,
         ...(decision.reason ? { reason: decision.reason } : {}),
+        rounds: plannedRounds.rounds,
+        roundsReason: plannedRounds.reason,
         elapsedMs: Date.now() - startedAt, message
       });
     };

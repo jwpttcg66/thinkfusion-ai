@@ -416,6 +416,8 @@ test('方案评审只有一个条目：心跳原地更新，辩完后带议题�
     state,
     topics: topicTexts.length,
     topicTexts,
+    rounds: 2,
+    roundsReason: '单成员自辩固定 2 轮：第 1 轮表态，第 2 轮必须质疑第 1 轮',
     elapsedMs,
     message: '方案评审'
   });
@@ -467,6 +469,8 @@ test('方案评审等待中也能看到议题原文', () => {
       state: 'waiting',
       topics: 2,
       topicTexts: topics,
+      rounds: 2,
+      roundsReason: '单成员自辩固定 2 轮：第 1 轮表态，第 2 轮必须质疑第 1 轮',
       elapsedMs: 30000,
       message: '方案评审进行中'
     }
@@ -476,4 +480,6 @@ test('方案评审等待中也能看到议题原文', () => {
   assert.equal(debate.status, 'running');
   assert.deepEqual(debate.topics, topics);
   assert.equal(debate.elapsedMs, 30000);
+  assert.equal(debate.rounds, 2);
+  assert.match(debate.roundsReason, /第 2 轮必须质疑/);
 });

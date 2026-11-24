@@ -246,8 +246,11 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
         <p className="muted">参与者：{entry.participants.join('、')}</p>
       )}
       {entry.reason && <p className="muted">为什么评审：{entry.reason}</p>}
+      <p className="muted">
+        轮次规则：第 1 轮表态，第 2 轮必须质疑第 1 轮；多成员、设计文档或 3 步以上计划才加第 3 轮回应。
+      </p>
+      {entry.roundsReason && <p className="muted">本场依据：{entry.roundsReason}</p>}
       {entry.summary && <p className="chat-debate-summary">{entry.summary}</p>}
-      {entry.roundsReason && <p className="muted">轮次依据：{entry.roundsReason}</p>}
       {entry.skippedReason && <p className="muted">未评审原因：{entry.skippedReason}</p>}
     </section>
   );

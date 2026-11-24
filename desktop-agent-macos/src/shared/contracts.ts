@@ -1533,6 +1533,9 @@ export type AgentEvent = AgentEventBase &
         topicTexts?: string[];
         /** 为什么开这场评审；旧事件没有。 */
         reason?: string;
+        /** 计划跑几轮（表态 / 质疑 / 回应）与依据；旧事件没有。 */
+        rounds?: number;
+        roundsReason?: string;
         elapsedMs: number;
         message: string;
       }

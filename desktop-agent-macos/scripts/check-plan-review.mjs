@@ -207,7 +207,7 @@ test('3 步以上的计划给 3 轮，2 步的简单计划仍是 2 轮', () => {
   ]);
   const verdict = planReviewRounds(twoSteps, 2);
   assert.equal(verdict.rounds, 2);
-  assert.match(verdict.reason, /两轮足够/);
+  assert.match(verdict.reason, /2 轮|表态后质疑/);
 });
 
 test('3 位以上评审给 3 轮：多方分歧要有人接着回应', () => {

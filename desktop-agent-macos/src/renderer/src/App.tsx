@@ -2730,8 +2730,8 @@ export default function App() {
                     },
                     {
                       key: '诊断',
-                      status: checks?.diagnostics.status ?? 'skipped',
-                      ...(checks?.diagnostics.source
+                      status: checks?.diagnostics?.status ?? 'skipped',
+                      ...(checks?.diagnostics?.source
                         ? { detail: `${checks.diagnostics.source} · ${String(checks.diagnostics.errors)} error / ${String(checks.diagnostics.warnings)} warn` }
                         : {})
                     }
