@@ -69,9 +69,29 @@ export function CollaborationResultPanel(props: {
             <div className="collab-result-conclusion">
               <MarkdownBody text={result.conclusion.text} />
             </div>
+            {result.conclusion.executionGoal && (
+              <div className="collab-result-exec">
+                <p className="muted">执行目标</p>
+                <p>{result.conclusion.executionGoal}</p>
+              </div>
+            )}
+            {result.conclusion.executionResults && result.conclusion.executionResults.length > 0 && (
+              <div className="collab-result-exec">
+                <p className="muted">执行结果</p>
+                <ul className="collab-result-facts">
+                  {result.conclusion.executionResults.map(item => (
+                    <li key={item}>
+                      <pre className="collab-result-pre">{item}</pre>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {result.conclusion.facts.length > 0 && (
               <ul className="collab-result-facts">
-                {result.conclusion.facts.map(fact => <li key={fact}>{fact}</li>)}
+                {result.conclusion.facts
+                  .filter(fact => !(result.conclusion?.executionResults ?? []).includes(fact))
+                  .map(fact => <li key={fact}>{fact}</li>)}
               </ul>
             )}
             {result.conclusion.uncertainties.length > 0 && (

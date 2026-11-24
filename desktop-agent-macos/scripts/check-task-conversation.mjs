@@ -147,6 +147,78 @@ test('结论带真实事实：步数、验证、评审', () => {
   assert.match(conclusion.facts.join(' / '), /独立评审：通过/);
 });
 
+test('结论必须完整输出执行目标与执行结果', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'plan.ready',
+        at: 1500,
+        taskId: task,
+        roundId: 'r1',
+        plan: {
+          planId: 'p1',
+          title: 'Go hello world',
+          description: '本机写 demo',
+          completion: '终端输出 hello world',
+          steps: [
+            { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go' }, description: '写文件' },
+            { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' }, description: '运行' }
+          ],
+          warnings: []
+        }
+      },
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.writeFile',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { path: 'main.go' },
+              result: { path: 'main.go', bytes: 42 }
+            },
+            {
+              stepId: 's2',
+              tool: 'shell.run',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { command: 'go run main.go' },
+              result: { command: 'go run main.go', exitCode: 0, stdout: 'hello world\n' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: [],
+            changedFiles: 1,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 3000, taskId: task, summary: '完成' }
+    ],
+    { status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.match(conclusion.executionGoal, /终端输出 hello world/);
+  assert.match(conclusion.executionGoal, /Go hello world/);
+  assert.ok(conclusion.executionResults.some(item => /main\.go/.test(item)));
+  assert.ok(conclusion.executionResults.some(item => /hello world/.test(item)));
+  assert.match(conclusion.facts.join(' / '), /执行 2 步/);
+});
+
 test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {
   const conclusion = buildConclusion(
     [
@@ -388,11 +460,10 @@ test('每次验证各占一条并编号：后一次不覆盖前一次', () => {
   assert.equal(verifications[0].reasons.join(''), '测试未执行');
   assert.equal(verifications[1].index, 2);
   assert.equal(verifications[1].verified, true);
-  // 有验证卡就不该再留一条「执行报告：…」的里程碑，重复说同一件事。
-  assert.equal(
-    entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('执行报告：')).length,
-    0
-  );
+  // 验证卡讲 checks；执行报告节点讲逐步结果——两者并存，结果不得被验证卡顶掉。
+  const reportNotes = entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('执行报告：'));
+  assert.equal(reportNotes.length, 2);
+  assert.ok(reportNotes.every(entry => typeof entry.detail === 'string' && entry.detail.includes('[shell.run]')));
 });
 
 test('独立评审按时间落进时间线，位置在两次验证之间', () => {
@@ -413,16 +484,17 @@ test('独立评审按时间落进时间线，位置在两次验证之间', () =>
     reportEvent(4000, verificationOf(true, []))
   ], { status: 'executing' });
 
-  const indexOf = kind => entries.findIndex(entry => entry.kind === kind);
   const reviews = entries.filter(entry => entry.kind === 'review');
+  const verifications = entries.filter(entry => entry.kind === 'verification');
   assert.equal(reviews.length, 1);
   assert.equal(reviews[0].index, 1);
   assert.equal(reviews[0].needsFix, true);
   assert.equal(reviews[0].verdict, '还差一次测试');
   assert.deepEqual(reviews[0].issues, ['测试未执行']);
-  assert.ok(indexOf('review') > indexOf('verification'));
-  assert.equal(entries.filter(entry => entry.kind === 'verification').length, 2);
-  assert.equal(entries.at(-1).kind, 'verification');
+  assert.equal(verifications.length, 2);
+  assert.ok(reviews[0].at > verifications[0].at);
+  assert.ok(reviews[0].at < verifications[1].at);
+  assert.equal(verifications.at(-1).at, 4000);
 });
 
 test('多次验证按时间排序：旧卡留在原位，新的追加在后面', () => {

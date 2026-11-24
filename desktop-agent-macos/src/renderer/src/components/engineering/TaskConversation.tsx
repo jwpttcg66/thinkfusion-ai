@@ -205,7 +205,9 @@ function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }
           );
         })}
       </ol>
-      <p className="muted">完成条件：{entry.completion}</p>
+      <p className="chat-plan-goal">
+        <span className="muted">执行目标：</span>{entry.completion || '未写明'}
+      </p>
       {entry.warnings.length > 0 && (
         <ul>
           {entry.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
@@ -534,6 +536,9 @@ export function TaskConversation(props: {
           return <ReviewMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'conclusion') {
+          const metaFacts = entry.executionResults && entry.executionResults.length > 0
+            ? entry.facts.filter(fact => !entry.executionResults!.includes(fact))
+            : entry.facts;
           return (
             <section key={entry.key} className={`chat-conclusion ${ToneClass(entry.tone)}`}>
               <div className="chat-conclusion-head">
@@ -541,9 +546,27 @@ export function TaskConversation(props: {
                 <span className="muted">{timeText(entry.at)}</span>
               </div>
               <p>{entry.text}</p>
-              {entry.facts.length > 0 && (
+              {entry.executionGoal && (
+                <div className="chat-conclusion-block">
+                  <p className="chat-debate-label">执行目标</p>
+                  <p>{entry.executionGoal}</p>
+                </div>
+              )}
+              {entry.executionResults && entry.executionResults.length > 0 && (
+                <div className="chat-conclusion-block">
+                  <p className="chat-debate-label">执行结果</p>
+                  <ul className="chat-conclusion-results">
+                    {entry.executionResults.map(item => (
+                      <li key={item}>
+                        <pre>{item}</pre>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {metaFacts.length > 0 && (
                 <ul>
-                  {entry.facts.map(fact => <li key={fact}>{fact}</li>)}
+                  {metaFacts.map(fact => <li key={fact}>{fact}</li>)}
                 </ul>
               )}
             </section>

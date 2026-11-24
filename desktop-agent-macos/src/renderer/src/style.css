@@ -6348,6 +6348,29 @@ button:disabled {
   line-height: 1.55;
 }
 
+.chat-conclusion-block { margin-top: 10px; }
+.chat-conclusion-results { margin: 4px 0 0; padding-left: 18px; }
+.chat-conclusion-results li { margin-bottom: 8px; }
+.chat-conclusion-results pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.chat-plan-goal { margin: 8px 0 0; font-size: 12px; line-height: 1.55; }
+.collab-result-exec { margin-top: 10px; }
+.collab-result-exec > .muted { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+.collab-result-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+}
 .chat-conclusion {
   border: 1px solid var(--line-strong);
   border-left: 4px solid var(--accent);

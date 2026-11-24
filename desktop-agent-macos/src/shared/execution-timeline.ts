@@ -157,14 +157,34 @@ function milestone(
       return { kind: 'milestone', key, at: event.at, text: `计划被拒绝：${event.error}`, tone: 'error' };
     case 'clarification.required':
       return { kind: 'milestone', key, at: event.at, text: `需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
-    case 'report.ready':
+    case 'report.ready': {
+      const done = event.report.results.filter(item => item.status === 'completed').length;
+      const detailLines = event.report.results.map((step, index) => {
+        const path = typeof step.args?.path === 'string' ? step.args.path : '';
+        const command = typeof step.args?.command === 'string' ? step.args.command : '';
+        const target = path || command;
+        const result = step.result as { stdout?: unknown; stderr?: unknown; exitCode?: unknown } | undefined;
+        const stdout = typeof result?.stdout === 'string' && result.stdout.trim()
+          ? result.stdout.trim().slice(0, 4000)
+          : '';
+        const err = typeof step.error === 'string' && step.error.trim() ? step.error.trim() : '';
+        const bits = [
+          `${String(index + 1)}. [${step.tool}] ${step.status}${target ? ` · ${target}` : ''}`,
+          typeof result?.exitCode === 'number' ? `退出码 ${String(result.exitCode)}` : '',
+          stdout ? `stdout：${stdout}` : '',
+          err ? `错误：${err}` : ''
+        ].filter(Boolean);
+        return bits.join('\n');
+      });
       return {
         kind: 'milestone',
         key,
         at: event.at,
-        text: `执行报告：${event.report.status} · ${String(event.report.results.filter(item => item.status === 'completed').length)} 步完成${event.report.verification ? ` · ${event.report.verification.verified ? '已验证' : '未验证'}` : ''}`,
-        tone: event.report.status === 'completed' ? 'ok' : 'warn'
+        text: `执行报告：${event.report.status} · ${String(done)} 步完成${event.report.verification ? ` · ${event.report.verification.verified ? '已验证' : '未验证'}` : ''}`,
+        tone: event.report.status === 'completed' ? 'ok' : 'warn',
+        ...(detailLines.length > 0 ? { detail: detailLines.join('\n\n') } : {})
       };
+    }
     case 'review.ready':
       return {
         kind: 'milestone',

@@ -56,6 +56,10 @@ export interface SourceReference {
 export interface ConclusionView {
   text: string;
   facts: string[];
+  /** 执行目标（计划标题 + 完成条件）；老投影没有。 */
+  executionGoal?: string;
+  /** 逐步执行结果；老投影没有。 */
+  executionResults?: string[];
   uncertainties: string[];
   openItems: string[];
   tone: 'info' | 'ok' | 'warn' | 'error' | 'muted';
@@ -547,6 +551,10 @@ export function projectEngineeringCollaborationResult(input: {
     ? {
         text: conclusionRaw.text,
         facts: conclusionRaw.facts,
+        ...(conclusionRaw.executionGoal ? { executionGoal: conclusionRaw.executionGoal } : {}),
+        ...(conclusionRaw.executionResults.length > 0
+          ? { executionResults: conclusionRaw.executionResults }
+          : {}),
         uncertainties: verifications.some(item => !item.fullyVerified)
           ? ['存在未完成或未通过的验证项']
           : [],
