@@ -251,6 +251,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.inflight.set(requestId, controller.controller);
 
     let lastUsage: ChatCompletion['usage'];
+    let receivedChunk = false;
     try {
       // 重试只能发生在第一个字之前。拿到响应头之后就一路读到底，
       // 中途失败不会重新发一次请求把两段回答拼在一起。
@@ -262,6 +263,10 @@ export class OpenAICompatibleProvider implements ModelProvider {
         controller.controller.signal
       );
       for await (const chunk of this.readSse(res)) {
+        // 超时是「多久没有新输出」，不是「总共只能跑多久」：模型一直在吐
+        // 正文或推理时，每一块都重置计时，直到它真正停下。
+        receivedChunk = true;
+        controller.touch();
         if (chunk.usage) lastUsage = chunk.usage;
         const delta = chunk.choices?.[0]?.delta as
           | { content?: string; reasoning_content?: string; reasoning?: string }
@@ -283,9 +288,16 @@ export class OpenAICompatibleProvider implements ModelProvider {
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       if (controller.controller.signal.aborted) {
-        throw signal?.aborted
-          ? new ProviderError('cancelled', '已取消', this.id, error)
-          : new ProviderError('timeout', '请求超时', this.id, error);
+        if (signal?.aborted) throw new ProviderError('cancelled', '已取消', this.id, error);
+        const seconds = Math.max(1, Math.round((request.timeoutMs ?? this.timeoutMs) / 1000));
+        throw new ProviderError(
+          'timeout',
+          receivedChunk
+            ? `模型连续 ${String(seconds)} 秒没有输出，已停止`
+            : `等待模型响应超时（${String(seconds)} 秒）`,
+          this.id,
+          error
+        );
       }
       throw error;
     } finally {
@@ -562,12 +574,28 @@ export class OpenAICompatibleProvider implements ModelProvider {
     if (signal?.aborted) throw new ProviderError('cancelled', '已取消', this.id);
   }
 
+  /**
+   * 可重置的取消器。
+   *
+   * `touch()` 用来把「多久没输出」的计时重新开始：流式模型只要还在吐
+   * 正文/推理就不该被总时长砍掉。非流式调用不会 touch，仍是固定超时。
+   */
   private fork(parent: AbortSignal | undefined, timeoutMs: number): {
     controller: AbortController;
+    touch: () => void;
     detach: () => void;
   } {
     const controller = new AbortController();
     const cleanups: Array<() => void> = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    const arm = () => {
+      if (!active) return;
+      if (timer) clearTimeout(timer);
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => controller.abort(), timeoutMs);
+      }
+    };
     if (parent) {
       if (parent.aborted) controller.abort();
       else {
@@ -576,11 +604,16 @@ export class OpenAICompatibleProvider implements ModelProvider {
         cleanups.push(() => parent.removeEventListener('abort', onAbort));
       }
     }
-    if (timeoutMs > 0) {
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      cleanups.push(() => clearTimeout(timer));
-    }
-    return { controller, detach: () => cleanups.forEach(fn => fn()) };
+    arm();
+    cleanups.push(() => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    });
+    return {
+      controller,
+      touch: arm,
+      detach: () => cleanups.forEach(fn => fn())
+    };
   }
 
   private httpError(status: number, body: string, headers?: Headers): ProviderError {

@@ -99,3 +99,27 @@ test('在线事件也把验证与评审落进视图，不用等重新打开任�
   ]);
   assert.deepEqual(view.verification, full.verification);
 });
+
+test('多轮报告累加：最后一轮只验证，也不能丢掉前面产出的文件与目录', () => {
+  const writeReport = {
+    verification: { verified: true, reasons: [], changedFiles: 1, changedPaths: ['hello-go/main.go'] },
+    results: [{
+      tool: 'fs.writeFile',
+      status: 'completed',
+      result: { path: 'hello-go/main.go', created: true, bytes: 42 }
+    }]
+  };
+  const verifyReport = {
+    verification: { verified: true, reasons: [], changedFiles: 0, changedPaths: [] },
+    results: [{ tool: 'fs.readFile', status: 'completed', result: { path: 'hello-go/main.go' } }]
+  };
+  const view = projectTaskView([
+    event({ type: 'report.ready', taskId: 't', roundId: 'r1', report: writeReport }),
+    event({ type: 'report.ready', taskId: 't', roundId: 'r2', report: verifyReport })
+  ]);
+  assert.equal(view.changes.length, 1);
+  assert.equal(view.changes[0].path, 'hello-go/main.go');
+  assert.equal(view.changes[0].created, true);
+  assert.equal(view.changes[0].bytes, 42);
+  assert.equal(view.verification.verified, true);
+});

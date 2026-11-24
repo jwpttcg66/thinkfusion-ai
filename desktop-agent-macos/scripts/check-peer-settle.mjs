@@ -129,3 +129,61 @@ test('旁听未收尾时不进入 plan.ready', async () => {
 });
 
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+function streamingAdapter(label, totalMs, textOf) {
+  return {
+    ...adapter(label, 0, textOf),
+    streamIdleTimeout: true,
+    sendMessage: async (text, requestId, onDelta) => {
+      // 在 waitForAnswer 之前持续吐字；总时长远超 planningIdleMs。
+      void (async () => {
+        for (let index = 0; index < 8; index += 1) {
+          onDelta?.({ text: `块${String(index)}`, mode: 'snapshot' });
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+      })();
+      return {
+        submitted: true,
+        snapshotBefore: snapshot(),
+        method: 'stub',
+        signals: [],
+        waitedMs: 0
+      };
+    },
+    waitForAnswer: async (requestId, snap, timeoutMs, sentText = '') => {
+      await new Promise(resolve => setTimeout(resolve, totalMs));
+      return textOf(sentText);
+    }
+  };
+}
+
+test('规划看门狗按「无输出」计时：持续吐字时不因总时长被杀', async () => {
+  const lead = streamingAdapter('lead', 180, planFromPrompt);
+  const peer = streamingAdapter('peer', 180, () => '旁听完成');
+  const orchestrator = new AgentOrchestrator({
+    tasks,
+    store,
+    adapter: () => lead,
+    emit: event => events.push(event),
+    dbPath: () => path.join(dir, 'journal.json'),
+    planningIdleMs: 70
+  });
+  const task = await orchestrator.submit({
+    prompt: '持续输出测试',
+    permissionPreset: 'read-only',
+    workspaceRoot: workspace,
+    planDebate: 'off',
+    planners: [
+      { id: 'lead', label: '主导', adapter: lead },
+      { id: 'peer', label: '旁听', adapter: peer }
+    ]
+  });
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const status = tasks.get(task.taskId).status;
+    if (['plan_ready', 'awaiting_approval', 'failed'].includes(status)) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.notEqual(tasks.get(task.taskId).status, 'failed', '持续输出不应触发规划超时');
+  assert.ok(['plan_ready', 'awaiting_approval'].includes(tasks.get(task.taskId).status));
+});

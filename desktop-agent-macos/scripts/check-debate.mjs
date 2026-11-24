@@ -300,3 +300,42 @@ test('会话内辩论：第一轮读到网页回答与主导人指定的辩题',
   }
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('流式输出持续时按「无输出」计时，不被总时长截断', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-debate-idle-'));
+  const store = new DebateStore(dir);
+  const orchestrator = new DebateOrchestrator(store, {
+    ask: async () => {
+      throw new Error('这条用例必须走流式通道');
+    },
+    askStream: async (agentId, task, onDelta) => {
+      // 总 200ms，每 25ms 一块；单次静默阈值 60ms。旧实现会在 60ms
+      // 整段超时，新实现只要还在输出就继续等。
+      for (let index = 0; index < 8; index += 1) {
+        onDelta({ reasoning: `推理 ${String(index)}` });
+        await sleep(25);
+      }
+      return {
+        agentId,
+        text: `${agentId} 的最终观点`,
+        receivedAt: Date.now(),
+        attribution: { requestId: 'r', note: 'test' },
+        stage: task.stage
+      };
+    },
+    onStream: () => {}
+  });
+  try {
+    const started = orchestrator.start(QUESTION, config({
+      maxRounds: 1,
+      convergenceStop: false,
+      budget: { stageTimeoutMs: 60, maxConcurrency: 2 }
+    }));
+    const done = await orchestrator.waitFor(started.debateId, 4000);
+    assert.equal(done.status, 'completed');
+    assert.equal(done.rounds[0].failures.length, 0);
+    assert.equal(done.rounds[0].messages.length, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -2652,7 +2652,7 @@ export default function App() {
             {derived.changes.length > 0 && workbenchTab === 'output' && (
               <section className="card review-card">
                 <div className="review-head">
-                  <b>本轮改动 · {derived.changes.length} 个文件</b>
+                  <b>任务改动 · {derived.changes.length} 个文件</b>
                   <span className="muted">before / after 原文，未经改写</span>
                 </div>
                 {derived.changes.map(item => (
@@ -2690,31 +2690,37 @@ export default function App() {
                   <b>最终结论：</b>
                   {finalConclusion?.text ?? activeTask.summary ?? '任务尚未给出最终结论。'}
                 </p>
-                {derived.changes.length > 0 && (
-                  <>
-                    <h5>改动文件（{derived.changes.length}）</h5>
-                    <ul>
-                      {derived.changes.slice(0, 40).map(change => (
-                        <li key={change.path}>
-                          <code>{change.path}</code>
-                          {change.created ? ' · 新建' : change.replaced ? ' · 覆盖' : ''}
-                          {typeof change.bytes === 'number' ? ` · ${String(change.bytes)} 字节` : ''}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                {derived.changes.length > 0 && (() => {
+                {(() => {
+                  // 交付物按「所有轮次报告的并集」列，不只看最后一轮验证。
+                  // 空列表也要明确写「没有记录到」，不能把整块藏掉让人猜。
                   const dirs = [...new Set(derived.changes.map(change => {
                     const slash = change.path.lastIndexOf('/');
                     return slash > 0 ? change.path.slice(0, slash) : '.';
                   }))].sort();
                   return (
                     <>
-                      <h5>改动目录（{dirs.length}）</h5>
-                      <ul>
-                        {dirs.slice(0, 40).map(dir => <li key={dir}><code>{dir}</code></li>)}
-                      </ul>
+                      <h5>产出文件（{derived.changes.length}）</h5>
+                      {derived.changes.length > 0 ? (
+                        <ul>
+                          {derived.changes.slice(0, 40).map(change => (
+                            <li key={change.path}>
+                              <code>{change.path}</code>
+                              {change.created ? ' · 新建' : change.replaced ? ' · 覆盖' : ''}
+                              {typeof change.bytes === 'number' ? ` · ${String(change.bytes)} 字节` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="muted">执行报告没有记录到文件改动。</p>
+                      )}
+                      <h5>涉及目录（{dirs.length}）</h5>
+                      {dirs.length > 0 ? (
+                        <ul>
+                          {dirs.slice(0, 40).map(dir => <li key={dir}><code>{dir}</code></li>)}
+                        </ul>
+                      ) : (
+                        <p className="muted">没有记录到目录。</p>
+                      )}
                     </>
                   );
                 })()}

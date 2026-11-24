@@ -677,7 +677,13 @@ export class DebateOrchestrator {
     };
   }
 
-  /** 单次调用超时，以及整场预算见底时立刻放弃——不拖着整轮等一个不会来的回答。 */
+  /**
+   * 单次调用超时是「多久没有新输出」，不是「总共只能跑多久」。
+   *
+   * 流式通道上，只要正文或推理还在来，就重置计时并继续等；只有连续
+   * `stageTimeoutMs` 没有任何输出，才中止这一次调用。非流式通道看不到
+   * 中间输出，只能保留固定时限。
+   */
   private async askWithin(
     agentId: string,
     task: SubAgentTask,
@@ -686,17 +692,55 @@ export class DebateOrchestrator {
     onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void
   ): Promise<SubAgentAnswer> {
     const remaining = deadline - this.now();
+    if (Number.isFinite(deadline) && remaining <= 0) {
+      throw new Error('整场时间预算已用尽');
+    }
+    if (onDelta && this.deps.askStream) {
+      const controller = new AbortController();
+      const idleMs = Math.max(1, stageTimeoutMs);
+      return await new Promise<SubAgentAnswer>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let done = false;
+        const finish = (fn: (value: never) => void, value: never) => {
+          if (done) return;
+          done = true;
+          if (timer) clearTimeout(timer);
+          fn(value);
+        };
+        const arm = () => {
+          if (done) return;
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => {
+            controller.abort();
+            finish(
+              reject as (value: never) => void,
+              new Error(`模型连续 ${String(Math.max(1, Math.round(idleMs / 1000)))} 秒没有输出，已停止`) as never
+            );
+          }, idleMs);
+        };
+        arm();
+        this.deps.askStream!(
+          agentId,
+          { ...task, signal: controller.signal },
+          chunk => {
+            arm();
+            onDelta(chunk);
+          }
+        ).then(
+          answer => finish(resolve as (value: never) => void, answer as never),
+          error => finish(reject as (value: never) => void, error as never)
+        );
+      });
+    }
+
     const timeoutMs = Math.max(1, Math.min(stageTimeoutMs, remaining));
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // 有流式通道就流式（评审一分钟里界面不再干等），没有照旧整段拿。
-    const call = onDelta && this.deps.askStream
-      ? this.deps.askStream(agentId, task, onDelta)
-      : this.deps.ask(agentId, task);
+    const call = this.deps.ask(agentId, task);
     try {
       return await Promise.race([
         call,
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`超过单次调用时限 ${Math.round(timeoutMs / 1000)} 秒`)), timeoutMs);
+          timer = setTimeout(() => reject(new Error(`等待模型响应超时（${String(Math.round(timeoutMs / 1000))} 秒）`)), timeoutMs);
         })
       ]);
     } finally {
