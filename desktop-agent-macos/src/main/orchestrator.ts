@@ -821,6 +821,11 @@ export class AgentOrchestrator {
       // 超时从排队前开始计时：队列被旧请求占住时也必须能失败收敛。
       let timer: ReturnType<typeof setTimeout> | undefined;
       let answer: string;
+      // 有旁听时，主导可能几秒就回来，但旁听还要继续输出。等旁听收尾
+      // 不能挤掉主导的 120 秒预算，否则会出现「主计划已好，却因旁听慢而
+      // 整轮超时」。给旁听额外同样长的时间；单旁听自身也在 120 秒截断。
+      const hasPeers = (this.plannerMembers.get(taskId)?.length ?? 0) > 1;
+      const planningBudget = hasPeers ? PLANNING_TIMEOUT_MS + PLANNING_TIMEOUT_MS : PLANNING_TIMEOUT_MS;
       try {
         answer = await Promise.race([
           this.withPlanningSlot(taskId, async () => {
@@ -831,8 +836,9 @@ export class AgentOrchestrator {
           new Promise<string>((_, reject) => {
             timer = setTimeout(() => {
               this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
-              reject(new Error('模型规划超时（120 秒）：没有返回可解析的计划。请换模型或重试。'));
-            }, PLANNING_TIMEOUT_MS);
+              this.cancelPeers(taskId);
+              reject(new Error(`模型规划超时（${String(Math.round(planningBudget / 1000))} 秒）：没有返回可解析的计划。请换模型或重试。`));
+            }, planningBudget);
           })
         ]);
       } finally {
@@ -928,13 +934,18 @@ export class AgentOrchestrator {
     );
 
     const leadResult = await leadOutcome;
+    // 旁听已经开始输出了，就不能在主计划可用时悄悄把评审开在它们前面：
+    // 界面上会出现「模型还在输出，方案评审已进行」；评审成员还会和这些
+    // 未结束的流抢 Provider 并发。先把旁听全部收尾（成功/失败/超时），
+    // 再决定计划并进入评审。单个旁听最多等 PLANNING_TIMEOUT_MS；驱动层
+    // 在有旁听时把整轮预算放宽同样的时间。
+    const peerResults = await Promise.all(peerRuns);
     if (leadResult.ok) {
       if (this.answerUsable(taskId, roundId, leadResult.text)) return leadResult.text;
       // 主导答了，但答的东西不能当计划用（常见：模型返回缺字段的 JSON）。
       // 旁听者里只要有一份可用的，就用它——这正是「多模型并行」该有的价值，
       // 而不是把一份坏答案送去修复轮再花一次调用。换人要写明，不静默。
-      for (const [index, run] of peerRuns.entries()) {
-        const result = await run;
+      for (const [index, result] of peerResults.entries()) {
         if (!result.ok || !this.answerUsable(taskId, roundId, result.text)) continue;
         const label = peers[index]?.label ?? '旁听成员';
         this.deps.emit({
@@ -958,8 +969,7 @@ export class AgentOrchestrator {
     const leadError = leadResult.error instanceof Error ? leadResult.error.message : String(leadResult.error);
     let fallback: string | null = null;
     let fallbackLabel = '';
-    for (const [index, run] of peerRuns.entries()) {
-      const result = await run;
+    for (const [index, result] of peerResults.entries()) {
       if (result.ok && result.text.trim() && fallback === null) {
         fallback = result.text;
         fallbackLabel = peers[index]?.label ?? '其他成员';
@@ -1027,7 +1037,7 @@ export class AgentOrchestrator {
       const text = await peer.adapter.waitForAnswer(
         requestId,
         snapshotBefore,
-        this.tasks.get(taskId).timeoutMs,
+        Math.min(this.tasks.get(taskId).timeoutMs, PLANNING_TIMEOUT_MS),
         prompt
       );
       this.deps.emit({
