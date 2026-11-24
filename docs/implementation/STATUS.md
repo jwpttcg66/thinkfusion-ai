@@ -69,7 +69,7 @@
 | `src/main/context/` 运行时 | NOT STARTED | 当前仓库不存在该目录 |
 | 上下文压缩 | NOT STARTED | 设计完成，未实施 |
 | 暂停/恢复/中断 | NOT STARTED | 当前 `reconcileInterrupted()` 仍把在途任务标 failed |
-| LT-P0–P6 | PARTIAL | P0–P4 基础层 + P5 状态/暂停继续 + P6 上下文行已实现/测试；完整入口策略/恢复/E2E 未完成 |
+| LT-P0–P6 | PARTIAL | P0–P4 基础层 + P5 状态/暂停继续 + P6 上下文行/轨迹已实现/测试；完整恢复/E2E 未完成 |
 | 文档一致性修订（2026-11-24） | ✅ 已应用 | 基线、ContextOwner、归档/裁剪、检查点提交协议、单一状态板 |
 
 > 长任务文档中的“已完成”只代表设计文档/任务书完成，不代表功能已落地。
