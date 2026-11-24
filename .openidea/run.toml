@@ -1,7 +1,8 @@
 # OpenIDEA 运行配置（项目级，随仓库提交）。
 #
-# 真机验证统一从这里启动：不要从对话 shell 里直接 `npm run dev` / 起第二个
-# Electron 实例。OpenIDEA 的 Run 窗口会接管进程、日志和停止动作。
+# 只在全部任务完成后的收尾验收里使用；平时开发不要切到 OpenIDEA。
+# 收尾时不要从对话 shell 再起第二个 Electron 实例，Run 窗口会接管进程、
+# 日志和停止动作。
 
 [[configurations]]
 id = "user:thinkfusion-dev"

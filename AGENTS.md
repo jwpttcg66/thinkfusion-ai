@@ -133,14 +133,13 @@ ThinkFusion 的工程工作台以**可观测性**为第一原则，工程执行�
 - 活动流必须支持连续追加、历史恢复、按任务/轮次/步骤/工具调用关联。
 - P5 真机验收必须完整走通这条链路，包含一次真实文件修改、测试、评审和交付。
 
-## 9. 真机验证通过 OpenIDEA 启动
+## 9. 全部任务完成后用 OpenIDEA 收尾验收
 
-真机验证统一使用 OpenIDEA 的 Run 配置，不从对话 shell 直接拉起 Electron。
+OpenIDEA 不是日常开发入口；只在**所有任务都完成、准备收尾**时使用。
 
-- 打开项目：在仓库根目录执行 `openidea .`，或用 OpenIDEA 的 Recent Projects。
-- 启动应用：运行 `.openidea/run.toml` 里的 **ThinkFusion Dev**（`desktop-agent-macos` 下 `npm run dev`）。
-- 只验证构建：运行 **ThinkFusion Build**（`npm run build`）。
-- 不要在验证时用 `electron . --remote-debugging-port=...` 另起第二个实例；单实例锁会把它转成 `second-instance`，窗口已销毁时会干扰主进程。
-- OpenIDEA 的 agent 使用 OpenCode：`Settings → Agents → Agent Setup`，命令是 `opencode acp`；可执行文件固定为 `/opt/homebrew/bin/opencode`（配置见用户目录 `agents/opencode.toml`）。
-- 确实需要隔离数据时，用环境变量 `THINKFUSION_USER_DATA=<绝对路径>`；不要用 `--user-data-dir`，它不会改变应用读取的 `app.getPath('userData')`。
-- 真机验证完成后，报告里写清楚是从哪个 Run 配置启动的，以及验证用的是现有任务还是新任务。
+- 收尾时在仓库根目录执行 `openidea .` 打开项目，再运行 `.openidea/run.toml` 里的 **ThinkFusion Dev**（`desktop-agent-macos` 下 `npm run dev`），用真实任务做最终验收。
+- 平时开发、调试、单元测试仍用原来的 shell / 测试命令，不要每改一处就切到 OpenIDEA。
+- 收尾启动后不要在对话 shell 里再另起 `electron . --remote-debugging-port=...`；单实例锁会把额外实例转成 `second-instance`，窗口已销毁时会干扰主进程。
+- OpenIDEA 的 agent 使用 OpenCode：`Settings → Agents → Agent Setup`，命令是 `opencode acp`，可执行文件固定为 `/opt/homebrew/bin/opencode`（用户目录 `agents/opencode.toml`）。
+- 需要隔离数据时，用环境变量 `THINKFUSION_USER_DATA=<绝对路径>`；不要用 `--user-data-dir`，它不会改变应用读取的 `app.getPath('userData')`。
+- 收尾报告写清楚：从哪个 Run 配置启动、验证的是现有任务还是新任务。
