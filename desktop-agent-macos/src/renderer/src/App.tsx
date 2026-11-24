@@ -2567,92 +2567,35 @@ export default function App() {
               </section>
             )}
 
-            {derived.verification && activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (
-              <section className={`card review-card${derived.verification.verified ? '' : ' needs-fix'}`}>
+            {/* 验证过程已在对话时间线里逐条展示；这里只保留当前状态需要的动作，
+                不再把「最近一次验证」复用成一张随时变的卡。 */}
+            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output')
+              && (activeTask.status === 'report_pending' || Boolean(derived.verification && derived.verification.changedFiles > 0)) && (
+              <section className="card verify-actions">
                 <div className="review-head">
-                  <b>本轮验证 · {derived.verification.verified ? '已通过' : '未通过'}</b>
-                  <span className="muted">
-                    {derived.verification.changedFiles} 个文件改动
-                    {derived.diagnostics.length > 0 ? ` · ${String(derived.diagnostics.reduce((sum, item) => sum + item.errors, 0))} 个错误` : ''}
-                  </span>
+                  <b>{activeTask.status === 'report_pending' ? '验证待你决定' : '验证后续动作'}</b>
+                  <span className="muted">每次验证的结论见对话时间线</span>
                 </div>
-                {derived.verification.reasons.length > 0 && (
-                  <ul>
-                    {derived.verification.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
-                  </ul>
-                )}
-                {derived.verification.checks && (
-                  <div className="verify-checks">
-                    {([
-                      ['compile', '编译'],
-                      // 运行单独一格：`java X` 跑通了、屏幕上是 hello everybody，
-                      // 这是「真的验过」最直接的证据；只写「测试 未执行」会让人
-                      // 以为什么都没验（2026-11-22 用户原话）。
-                      ['run', '运行'],
-                      ['tests', '测试'],
-                      ['diagnostics', '诊断']
-                    ] as const).map(([key, label]) => {
-                      const checks = derived.verification!.checks!;
-                      const status = (value: 'passed' | 'failed' | 'skipped') =>
-                        value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
-                      if (key === 'diagnostics') {
-                        const check = checks.diagnostics;
-                        return (
-                          <div key={key} className={`verify-check is-${check.status}`}>
-                            <b>{label}</b>
-                            <span>{status(check.status)}</span>
-                            <em>
-                              {String(check.errors)} error / {String(check.warnings)} warn
-                              {check.source ? ` · ${check.source}` : ''}
-                            </em>
-                          </div>
-                        );
-                      }
-                      const check = key === 'run' ? checks.run : checks[key];
-                      // 老报告没有 run 这一项：不画空格子，也不假装「未执行」。
-                      if (!check) return null;
-                      const detail = check.command
-                        ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}${key === 'run' && check.output ? ` · 输出 ${check.output}` : ''}`
-                        : (check.detail ?? '');
-                      return (
-                        <div key={key} className={`verify-check is-${check.status}`}>
-                          <b>{label}</b>
-                          <span>{status(check.status)}</span>
-                          {detail && <em>{detail}</em>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {derived.diagnostics.map(item => (
-                  <div key={item.path} className="research-message">
-                    <span className="research-tag">{item.source} · {item.path} · {item.errors} error / {item.warnings} warn</span>
-                    {item.issues.map((issue, index) => (
-                      <p key={index} className="muted">{issue.line}:{issue.column} {issue.message}</p>
-                    ))}
-                  </div>
-                ))}
-                <p className="muted">「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。</p>
-                {/* 停在这里的任务以前没有出口：没有交付、没有下一步，只能干等。
-                    现在给两个明确动作，并且把「按当前口径重算」与「接受未验证」分开——
-                    前者是纠正判定，后者是承认缺口。 */}
                 {activeTask.status === 'report_pending' && (
-                  <div className="row">
-                    <button className="btn" type="button" onClick={() => void recheckVerification()}>
-                      按当前口径重新判定
-                    </button>
-                    <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
-                      接受未验证并结束
-                    </button>
-                  </div>
+                  <>
+                    <p className="muted">
+                      「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。
+                    </p>
+                    <div className="row">
+                      <button className="btn" type="button" onClick={() => void recheckVerification()}>
+                        按当前口径重新判定
+                      </button>
+                      <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
+                        接受未验证并结束
+                      </button>
+                    </div>
+                    <p className="muted">
+                      任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
+                      上面两个按钮二选一；想让它真的补跑检查，就在输入框重新提一句（会作为新任务）。
+                    </p>
+                  </>
                 )}
-                {activeTask.status === 'report_pending' && (
-                  <p className="muted">
-                    任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
-                    上面两个按钮二选一；想让它真的补跑检查，就在输入框重新提一句（会作为新任务）。
-                  </p>
-                )}
-                {derived.verification.changedFiles > 0 && activeTask && (
+                {derived.verification && derived.verification.changedFiles > 0 && (
                   <button className="btn ghost" type="button" onClick={() => void revertSnapshot(activeTask.taskId)}>
                     还原本轮
                   </button>
@@ -2747,43 +2690,19 @@ export default function App() {
                   const ran = rows.some(row => row.status !== 'skipped');
                   return (
                     <p>
-                      <b>验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
+                      <b>最近一次验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
                       {rows.map(row => ` · ${row.key} ${label(row.status)}${row.output ? `（${row.output}）` : ''}`).join('')}
                     </p>
                   );
                 })()}
                 {derived.review && (
                   <p>
-                    <b>独立评审：</b>{derived.review.needsFix ? '需修复' : '通过'}
+                    <b>最近一次独立评审：</b>{derived.review.needsFix ? '需修复' : '通过'}
                     {derived.review.issues.length > 0
-                      ? ` · ${String(derived.review.issues.length)} 处问题（详见下方评审卡）`
+                      ? ` · ${String(derived.review.issues.length)} 处问题（见时间线中的评审记录）`
                       : ''}
                   </p>
                 )}
-              </section>
-            )}
-
-            {derived.review && activeTask && workbenchTab === 'conversation' && (
-              <section className={`card review-card${derived.review.needsFix ? ' needs-fix' : ''}`}>
-                <div className="review-head">
-                  <b>独立评审 · {derived.review.needsFix ? '需修复' : '通过'}</b>
-                  <span className="muted">
-                    {derived.review.backend === 'rules' ? '本机规则版' : derived.review.reviewer}
-                  </span>
-                </div>
-                <p>{derived.review.verdict}</p>
-                {derived.review.issues.length > 0 && (
-                  <ul>
-                    {derived.review.issues.map((issue, index) => <li key={index}>{issue}</li>)}
-                  </ul>
-                )}
-                {/* 评审只给结论，自己不改文件。任务已收敛时说「会并入下一轮」是假的：
-                    这里按真实状态说清楚这几点有没有进自动修复。 */}
-                <p className="muted">
-                  {activeTask.status === 'completed'
-                    ? '评审只给结论，不会改文件；这次报告已按完成收敛，这几点留作下次修改的依据。'
-                    : '评审只给结论，不会改文件；需要修的部分会并入下一轮计划（完全权限下自动执行，其他档位仍需你确认计划）。'}
-                </p>
               </section>
             )}
 

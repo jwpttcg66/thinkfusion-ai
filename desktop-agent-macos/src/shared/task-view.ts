@@ -238,7 +238,30 @@ function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' 
     }
   }
 
-  const diagnostics = results
+  const diagnostics = diagnosticsOfReport(report);
+  return { verification, changes, artifacts, diagnostics };
+}
+
+/**
+ * 执行报告里的诊断问题（`code.diagnostics` 的原始结果）。
+ *
+ * 对话时间线里每次验证都要带自己那一份诊断，不能只留最新一份；
+ * `reportView` 与对话投影共用这一处，避免两边解释不同。
+ */
+export function diagnosticsOfReport(report: unknown): TaskView['diagnostics'] {
+  const typed = report as {
+    results?: Array<{
+      result?: {
+        diagnostics?: {
+          source?: string;
+          path?: string;
+          counts?: { errors?: number; warnings?: number };
+          issues?: Array<{ line?: number; column?: number; message?: string }>;
+        };
+      };
+    }>;
+  } | null;
+  return (typed?.results ?? [])
     .map(item => item.result?.diagnostics)
     .filter((item): item is NonNullable<typeof item> => Boolean(item && item.path))
     .map(item => ({
@@ -252,7 +275,6 @@ function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' 
         message: String(issue.message ?? '')
       }))
     }));
-  return { verification, changes, artifacts, diagnostics };
 }
 
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {

@@ -177,6 +177,117 @@ function MemberMessage(props: {
   );
 }
 
+function checkStatus(value: 'passed' | 'failed' | 'skipped'): string {
+  return value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
+}
+
+/**
+ * 第 N 次验证。
+ *
+ * 每次 `report.ready` 的验证结论各占一条：后来一次验证不该把前一次覆盖掉，
+ * 也不该只在页面底部留一张「最新状态」的卡——时间线里发生过几次就是几条。
+ */
+function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 'verification' }> }) {
+  const { entry } = props;
+  const checks = entry.checks;
+  const ran = checks
+    ? [checks.compile, checks.run, checks.tests, checks.diagnostics].some(item => item && item.status !== 'skipped')
+    : true;
+  const label = entry.verified ? '已通过' : ran ? '未通过' : '未执行';
+  return (
+    <section className={`card review-card chat-verification${entry.verified ? '' : ' needs-fix'}`}>
+      <div className="review-head">
+        <b>第 {String(entry.index)} 次验证 · {label}</b>
+        <span className="muted">
+          {timeText(entry.at)} · {String(entry.changedFiles)} 个文件改动
+          {` · 执行报告 ${entry.reportStatus}（${String(entry.completedSteps)}/${String(entry.totalSteps)} 步完成）`}
+        </span>
+      </div>
+      {entry.reasons.length > 0 && (
+        <ul>
+          {entry.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
+        </ul>
+      )}
+      {checks && (
+        <div className="verify-checks">
+          {([
+            ['compile', '编译'],
+            ['run', '运行'],
+            ['tests', '测试'],
+            ['diagnostics', '诊断']
+          ] as const).map(([key, text]) => {
+            if (key === 'diagnostics') {
+              const check = checks.diagnostics;
+              return (
+                <div key={key} className={`verify-check is-${check.status}`}>
+                  <b>{text}</b>
+                  <span>{checkStatus(check.status)}</span>
+                  <em>
+                    {String(check.errors)} error / {String(check.warnings)} warn
+                    {check.source ? ` · ${check.source}` : ''}
+                  </em>
+                </div>
+              );
+            }
+            const check = key === 'run' ? checks.run : checks[key];
+            if (!check) return null;
+            const detail = check.command
+              ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}${key === 'run' && check.output ? ` · 输出 ${check.output}` : ''}`
+              : (check.detail ?? '');
+            return (
+              <div key={key} className={`verify-check is-${check.status}`}>
+                <b>{text}</b>
+                <span>{checkStatus(check.status)}</span>
+                {detail && <em>{detail}</em>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {entry.diagnostics.length > 0 && (
+        <details className="chat-note-detail">
+          <summary>诊断问题（{String(entry.diagnostics.length)} 个文件）</summary>
+          {entry.diagnostics.map(item => (
+            <div key={item.path} className="research-message">
+              <span className="research-tag">
+                {item.source} · {item.path} · {String(item.errors)} error / {String(item.warnings)} warn
+              </span>
+              {item.issues.map((issue, index) => (
+                <p key={index} className="muted">{issue.line}:{issue.column} {issue.message}</p>
+              ))}
+            </div>
+          ))}
+        </details>
+      )}
+      {!entry.verified && (
+        <p className="muted">「未通过」是事实，不是失败提示：补一次测试或诊断，或明确接受未验证。</p>
+      )}
+    </section>
+  );
+}
+
+/** 第 N 次独立评审：同样按事件时间落进时间线，不放到页面底部。 */
+function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'review' }> }) {
+  const { entry } = props;
+  return (
+    <section className={`card review-card chat-review${entry.needsFix ? ' needs-fix' : ''}`}>
+      <div className="review-head">
+        <b>第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}</b>
+        <span className="muted">
+          {timeText(entry.at)} · {entry.backend === 'rules' ? '本机规则版' : entry.reviewer}
+        </span>
+      </div>
+      <p>{entry.verdict}</p>
+      {entry.issues.length > 0 && (
+        <ul>
+          {entry.issues.map((issue, index) => <li key={index}>{issue}</li>)}
+        </ul>
+      )}
+      <p className="muted">评审只给结论，不会改文件。</p>
+    </section>
+  );
+}
+
 function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }> }) {
   const { card } = props.entry;
   const output = useMemo(() => stepOutput(card), [card]);
@@ -268,6 +379,12 @@ export function TaskConversation(props: {
         }
         if (entry.kind === 'step') {
           return <StepMessage key={`${entry.key}-${String(index)}`} entry={entry} />;
+        }
+        if (entry.kind === 'verification') {
+          return <VerificationMessage key={entry.key} entry={entry} />;
+        }
+        if (entry.kind === 'review') {
+          return <ReviewMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'conclusion') {
           return (

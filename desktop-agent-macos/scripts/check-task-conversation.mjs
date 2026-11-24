@@ -270,3 +270,104 @@ test('流式且思考也没来：只给占位，不显示空折叠', () => {
   assert.equal(view.showReasoningDetails, false);
   assert.equal(view.displayLength, 0);
 });
+
+function reportEvent(at, verification) {
+  return {
+    type: 'report.ready',
+    at,
+    taskId: task,
+    roundId: 'r1',
+    report: {
+      protocol: 'desktop-agent/v1',
+      type: 'execution_report',
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      status: 'completed',
+      results: [
+        { stepId: 's1', tool: 'shell.run', status: 'completed', verified: true, durationMs: 10 }
+      ],
+      errors: [],
+      nextAction: 'complete',
+      createdAt: at,
+      verification
+    }
+  };
+}
+
+function verificationOf(verified, reasons, changedFiles = 1) {
+  return {
+    verified,
+    reasons,
+    changedFiles,
+    checks: {
+      compile: { status: 'passed' },
+      tests: { status: verified ? 'passed' : 'skipped' },
+      diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+    }
+  };
+}
+
+test('每次验证各占一条并编号：后一次不覆盖前一次', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    reportEvent(2000, verificationOf(false, ['测试未执行'])),
+    reportEvent(4000, verificationOf(true, []))
+  ], { status: 'executing' });
+
+  const verifications = entries.filter(entry => entry.kind === 'verification');
+  assert.equal(verifications.length, 2);
+  assert.equal(verifications[0].index, 1);
+  assert.equal(verifications[0].verified, false);
+  assert.equal(verifications[0].reasons.join(''), '测试未执行');
+  assert.equal(verifications[1].index, 2);
+  assert.equal(verifications[1].verified, true);
+  // 有验证卡就不该再留一条「执行报告：…」的里程碑，重复说同一件事。
+  assert.equal(
+    entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('执行报告：')).length,
+    0
+  );
+});
+
+test('独立评审按时间落进时间线，位置在两次验证之间', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    reportEvent(2000, verificationOf(false, ['测试未执行'])),
+    {
+      type: 'review.ready',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      reviewer: 'OpenCode Go',
+      backend: 'model',
+      verdict: '还差一次测试',
+      issues: ['测试未执行'],
+      needsFix: true
+    },
+    reportEvent(4000, verificationOf(true, []))
+  ], { status: 'executing' });
+
+  const indexOf = kind => entries.findIndex(entry => entry.kind === kind);
+  const reviews = entries.filter(entry => entry.kind === 'review');
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].index, 1);
+  assert.equal(reviews[0].needsFix, true);
+  assert.equal(reviews[0].verdict, '还差一次测试');
+  assert.deepEqual(reviews[0].issues, ['测试未执行']);
+  assert.ok(indexOf('review') > indexOf('verification'));
+  assert.equal(entries.filter(entry => entry.kind === 'verification').length, 2);
+  assert.equal(entries.at(-1).kind, 'verification');
+});
+
+test('多次验证按时间排序：旧卡留在原位，新的追加在后面', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    reportEvent(2000, verificationOf(false, ['第一次'])),
+    reportEvent(2500, verificationOf(false, ['第二次'])),
+    reportEvent(3000, verificationOf(true, []))
+  ], { status: 'executing' });
+
+  const verifications = entries.filter(entry => entry.kind === 'verification');
+  assert.deepEqual(verifications.map(entry => entry.at), [2000, 2500, 3000]);
+  assert.deepEqual(verifications.map(entry => entry.index), [1, 2, 3]);
+});

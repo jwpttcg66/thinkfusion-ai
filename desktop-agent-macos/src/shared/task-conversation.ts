@@ -14,9 +14,9 @@
  * - 结论只写真实发生过的事：`task.completed.summary`、执行报告、验证、评审。
  */
 
-import type { AgentEvent } from './contracts';
+import type { AgentEvent, ExecutionReport } from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
-import { artifactPaths } from './task-view';
+import { artifactPaths, diagnosticsOfReport, type TaskView } from './task-view';
 
 export type ConversationTone = 'info' | 'ok' | 'warn' | 'error' | 'muted';
 
@@ -50,6 +50,29 @@ export type ConversationEntry =
       protocol: ConversationProtocol;
     })
   | (ConversationEntryBase & { kind: 'step'; card: StepCard })
+  | (ConversationEntryBase & {
+      kind: 'verification';
+      /** 第几次验证：同一任务的每次报告各占一条，不覆盖。 */
+      index: number;
+      verified: boolean;
+      reasons: string[];
+      changedFiles: number;
+      checks: NonNullable<ExecutionReport['verification']>['checks'];
+      diagnostics: TaskView['diagnostics'];
+      reportStatus: ExecutionReport['status'];
+      completedSteps: number;
+      totalSteps: number;
+    })
+  | (ConversationEntryBase & {
+      kind: 'review';
+      /** 第几次独立评审；每次 review.ready 各占一条。 */
+      index: number;
+      reviewer: string;
+      backend: 'model' | 'rules';
+      verdict: string;
+      issues: string[];
+      needsFix: boolean;
+    })
   | (ConversationEntryBase & {
       kind: 'conclusion';
       text: string;
@@ -242,6 +265,10 @@ export function buildTaskConversation(
   let firstRound: { roundId: string; at: number } | null = null;
   let seq = 0;
   let lastAt = ordered[0]?.at ?? Date.now();
+  let verificationCount = 0;
+  let reviewCount = 0;
+  /** 已经有验证卡的执行报告，不再让时间线里程碑重复写一句。 */
+  const verificationTimes = new Set<number>();
 
   const push = (entry: ConversationEntry) => {
     entries.push(entry);
@@ -406,18 +433,46 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'report.ready') {
+      const verification = event.report.verification;
+      if (verification) {
+        verificationCount += 1;
+        const results = event.report.results ?? [];
+        verificationTimes.add(event.at);
+        push({
+          kind: 'verification',
+          key: `verification-${String(event.at)}-${String(seq)}`,
+          at: event.at,
+          roundId: event.roundId ?? currentRoundId,
+          roundNumber: roundNumber(event.roundId ?? currentRoundId),
+          index: verificationCount,
+          verified: verification.verified,
+          reasons: verification.reasons,
+          changedFiles: verification.changedFiles,
+          checks: verification.checks,
+          diagnostics: diagnosticsOfReport(event.report),
+          reportStatus: event.report.status,
+          completedSteps: results.filter(item => item.status === 'completed').length,
+          totalSteps: results.length
+        });
+      }
+      continue;
+    }
+
     if (event.type === 'review.ready') {
+      reviewCount += 1;
       push({
-        kind: 'note',
+        kind: 'review',
         key: `review-${String(event.at)}-${String(seq)}`,
         at: event.at,
         roundId: event.roundId ?? currentRoundId,
         roundNumber: roundNumber(event.roundId ?? currentRoundId),
-        tone: event.needsFix ? 'warn' : 'ok',
-        text: `独立评审（${event.backend === 'rules' ? '本机规则版' : event.reviewer}）：${event.needsFix ? '需修复' : '通过'}`,
-        detail: [event.verdict, ...event.issues.map((issue, index) => `${String(index + 1)}. ${issue}`)]
-          .filter(Boolean)
-          .join('\n')
+        index: reviewCount,
+        reviewer: event.reviewer,
+        backend: event.backend,
+        verdict: event.verdict,
+        issues: event.issues,
+        needsFix: event.needsFix
       });
       continue;
     }
@@ -445,8 +500,9 @@ export function buildTaskConversation(
         card: item.card
       });
     } else {
-      // 轮次头、评审已经有自己的条目，避免一句话说两遍。
+      // 轮次头、评审、验证已经有自己的条目，避免一句话说两遍。
       if (/^第 \d+ 轮/.test(item.text) || item.text.startsWith('独立评审')) continue;
+      if (item.text.startsWith('执行报告：') && verificationTimes.has(item.at)) continue;
       // 成员卡的正文就是这条回答：再写一行「模型回答（310 字符）」只是噪音。
       if (/^模型回答（/.test(item.text) || item.text === '模型返回执行计划') continue;
       // 完成摘要留给末尾的结论卡，这里只标时间点。

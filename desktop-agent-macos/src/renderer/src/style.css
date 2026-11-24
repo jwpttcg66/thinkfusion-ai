@@ -6082,6 +6082,10 @@ button:disabled {
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
 .chat-feed { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+/* 验证与评审也是时间线事件：卡片间距交给 feed 的 gap，不再额外加底边距。 */
+.chat-feed > .review-card { margin-bottom: 0; }
+.chat-verification:not(.needs-fix) { border-left: 3px solid #0f7b4f; }
+.verify-actions .row { margin: 8px 0; flex-wrap: wrap; }
 
 .chat-row.is-user { display: flex; justify-content: flex-end; }
 .chat-user-bubble {
