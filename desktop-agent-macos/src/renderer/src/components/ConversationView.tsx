@@ -514,39 +514,53 @@ export function ConversationView(props: {
           );
         })}
 
+        {(() => {
+          const routingDelta = props.deltas?.['__routing__'];
+          const routingReasoning = routingDelta?.reasoning?.trim() ?? '';
+          const routingText = routingDelta?.text?.trim() ?? '';
+          const showRoutingLive = Boolean(
+            conversation.workspaceMode === 'engineering' &&
+            routingDelta &&
+            !routingDelta.done &&
+            (routingReasoning || routingText)
+          );
+          if (!showRoutingLive) return null;
+          return (
+            <article className="channel-card ch-__routing__ is-live">
+              <header className="channel-card-head">
+                <span className="channel-dot" />
+                <b>工程判定</b>
+                <span className="channel-chars">思考中</span>
+              </header>
+              {routingReasoning
+                ? <ChannelReasoning text={routingReasoning} live />
+                : (
+                  <details className="channel-reasoning is-live" open>
+                    <summary>判定输出（{routingText.length} 字）</summary>
+                    <pre>{routingText}</pre>
+                  </details>
+                )}
+            </article>
+          );
+        })()}
+
         {props.busy && conversation.status !== 'synthesizing' && (
           <div className="conv-working">
             <span className="dot-pulse" />
             <div>
               <b>{STATUS_LABEL[conversation.status]}</b>
-              {conversation.status === 'thinking' && (() => {
-                const routingDelta = props.deltas?.['__routing__'];
-                const routingReasoning = routingDelta?.reasoning?.trim() ?? '';
-                const routingText = routingDelta?.text?.trim() ?? '';
-                if (conversation.workspaceMode === 'engineering') {
-                  return (
-                    <>
-                      <p className="muted">
-                        {routingReasoning || routingText
-                          ? '正在请模型判定是否转入工程工作空间；思考内容如下。'
-                          : '正在请模型判定是否转入工程工作空间；若模型返回思考内容，会显示在下方。'}
-                      </p>
-                      {routingReasoning && <ChannelReasoning text={routingReasoning} live={!routingDelta?.done} />}
-                      {routingText && !routingReasoning && (
-                        <details className="channel-reasoning is-live" open>
-                          <summary>判定输出（{routingText.length} 字）</summary>
-                          <pre>{routingText}</pre>
-                        </details>
-                      )}
-                    </>
-                  );
-                }
-                return (
-                  <p className="muted">
-                    若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。
-                  </p>
-                );
-              })()}
+              {conversation.status === 'thinking' && conversation.workspaceMode === 'engineering' && (
+                <p className="muted">
+                  {props.deltas?.['__routing__']?.reasoning || props.deltas?.['__routing__']?.text
+                    ? '正在请模型判定是否转入工程工作空间；思考内容见上方工程判定卡。'
+                    : '正在请模型判定是否转入工程工作空间；模型一开始输出，思考会显示在上方。'}
+                </p>
+              )}
+              {conversation.status === 'thinking' && conversation.workspaceMode !== 'engineering' && (
+                <p className="muted">
+                  若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -643,6 +657,7 @@ function groupTurns(messages: ConversationMessage[]): Array<{
  */
 function labelOf(channelId: string | undefined, labels: ReadonlyMap<string, string>): string {
   if (!channelId) return '通道';
+  if (channelId === '__routing__') return '工程判定';
   const known = labels.get(channelId);
   if (known) return known;
   // 本地/云端成员的 id 形如 `ollama:deepseek-r1:14b`，不在网页通道的状态表里。

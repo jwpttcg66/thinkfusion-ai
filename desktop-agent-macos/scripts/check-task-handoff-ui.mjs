@@ -86,9 +86,19 @@ test('工程判定前先建会话，并把模型思考推到 __routing__ 增量'
   assert.ok(createdAt < routingAt, '必须先 conversation.created 再 engineeringRouting');
   assert.match(src, /__routing__/);
   assert.match(src, /正在请模型判定是否转入工程工作空间/);
+  // 判定思考必须落盘为 channel 消息，不能只靠会被清空的 answer.delta。
+  assert.match(src, /role: 'channel'/);
+  assert.match(src, /channelId: routingChannelId/);
   const view = readFileSync(join(ROOT, 'src/renderer/src/components/ConversationView.tsx'), 'utf8');
   assert.match(view, /__routing__/);
+  assert.match(view, /工程判定/);
   assert.doesNotMatch(view, /尚未开始向模型要思考内容/);
+  const app = readFileSync(join(ROOT, 'src/renderer/src/App.tsx'), 'utf8');
+  assert.match(app, /pending && active === pending\.id/);
+  assert.match(app, /__routing__/);
+  const shadow = readFileSync(join(ROOT, 'src/main/collaboration/engine.ts'), 'utf8');
+  assert.match(shadow, /不要对全员做 health 探活/);
+  assert.doesNotMatch(shadow, /new ParticipantManager\(input\.pool\)\.list\(\)/);
 });
 
 test('方案评审五段一出就要投影并分段画出，不能只留一句状态', () => {

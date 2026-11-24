@@ -6,7 +6,7 @@
  */
 import type { SubAgentPool } from '../agents/types';
 import type { Assignment, CollaborationState, Deliverable, Goal, Plan } from './domain/types';
-import { ParticipantManager } from './participants/manager';
+import { ParticipantManager, type ParticipantView } from './participants/manager';
 import { planGoal, type PlannerOptions } from './planner/planner';
 import { schedule } from './scheduler/scheduler';
 import { runPlan } from './runner/runner';
@@ -14,7 +14,6 @@ import { deliver } from './deliver/deliver';
 import { reviewPlanRules, type ReviewResult } from './reviewer';
 import { needsReplan, type ReplanDecision } from './adapt/replanner';
 import { selectDebates, type DebateRequest } from './behaviors/debate';
-import type { ParticipantView } from './participants/manager';
 
 export interface ShadowPlanInput {
   conversationId: string;
@@ -25,7 +24,25 @@ export interface ShadowPlanInput {
 }
 
 export async function buildShadowPlan(input: ShadowPlanInput): Promise<Plan> {
-  const participants = await new ParticipantManager(input.pool).list();
+  // shadow 计划只是转交前的协作建议：不要对全员做 health 探活。
+  // 以前 list() 会串行/并行问每个通道是否可用，网页探活几秒到十几秒，
+  // 界面已经写了「正在生成计划」却没有任何思考输出，像卡住。
+  const agents = await input.pool.all();
+  const participants = agents.map(agent => {
+    const source = agent.sourceType;
+    const kind = source === 'local' || source === 'cloud' || source === 'cli' ? source : 'web' as const;
+    return {
+      participantId: agent.id,
+      label: agent.label,
+      kind,
+      capabilities: (kind === 'web'
+        ? ['knowledge', 'web-research']
+        : kind === 'cli'
+          ? ['reasoning']
+          : ['reasoning', 'knowledge']) as import('./domain/types').CapabilityId[],
+      available: true
+    };
+  });
   const goal: Goal = {
     goalId: input.conversationId,
     workspace: input.workspace,

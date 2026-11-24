@@ -762,8 +762,10 @@ export class ConversationRunner {
         role: 'system',
         text: executionConfig.executionMode === 'web'
           ? '正在按规则判定是否转入工程工作空间…'
-          : '正在请模型判定是否转入工程工作空间；若模型返回思考内容，会显示在下方。'
+          : '正在请模型判定是否转入工程工作空间；思考过程会显示在下方。'
       });
+      let routingText = '';
+      let routingReasoning = '';
       routing = await this.engineeringRouting({
         text,
         attachments,
@@ -775,20 +777,37 @@ export class ConversationRunner {
           ? { selectedCloudModels: executionConfig.selectedCloudModels }
           : {}),
         onDelta: chunk => {
+          if (chunk.reset) {
+            routingText = chunk.text ?? '';
+            routingReasoning = chunk.reasoning ?? '';
+          } else {
+            if (chunk.text) routingText += chunk.text;
+            if (chunk.reasoning) routingReasoning += chunk.reasoning;
+          }
           this.deps.emit({
             type: 'answer.delta',
             at: Date.now(),
             conversationId: conversation.conversationId,
             channelId: routingChannelId,
-            ...(chunk.text !== undefined ? { text: chunk.text } : {}),
-            ...(chunk.reasoning !== undefined ? { reasoning: chunk.reasoning } : {}),
-            ...(chunk.reset ? { reset: true } : {})
+            text: routingText,
+            reasoning: routingReasoning,
+            reset: true
           });
         }
       });
       conversation.routing = routing;
       conversation.updatedAt = Date.now();
       this.applyModelRoute(conversation, toRouteTaskKind(routing.taskKind));
+      // 判定思考必须落盘：仅靠 answer.delta 会在 IPC 返回时被清空，界面又变回空等。
+      this.addMessage(conversation, {
+        role: 'channel',
+        channelId: routingChannelId,
+        text: [
+          `判定：${routingLabel(routing)}（${routing.reason}）`,
+          routingText.trim() ? `模型输出：\n${routingText.trim()}` : ''
+        ].filter(Boolean).join('\n\n'),
+        ...(routingReasoning.trim() ? { reasoning: routingReasoning.trim() } : {})
+      });
       this.save(conversation);
       this.deps.emit({ type: 'conversation.updated', at: Date.now(), conversation });
       this.deps.emit({
@@ -796,6 +815,9 @@ export class ConversationRunner {
         at: Date.now(),
         conversationId: conversation.conversationId,
         channelId: routingChannelId,
+        text: routingText,
+        reasoning: routingReasoning,
+        reset: true,
         done: true
       });
       trace?.event({

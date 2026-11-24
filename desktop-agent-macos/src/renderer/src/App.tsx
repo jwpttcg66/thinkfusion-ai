@@ -763,7 +763,13 @@ export default function App() {
       if (event.type === 'message.added') {
         // Only the conversation on screen. A message for any other one belongs
         // to its own pane, and appending it here mixed two threads together.
-        if (event.message.conversationId !== activeConversationRef.current) return;
+        // 提交瞬间 active 仍是 pending-*：工程判定落盘的思考卡也要用上。
+        const pending = pendingSubmit.current;
+        const active = activeConversationRef.current;
+        const watching =
+          event.message.conversationId === active ||
+          Boolean(pending && active === pending.id);
+        if (!watching) return;
         // Messages are appended live, so the pane fills in as channels answer
         // instead of appearing all at once when the slowest page finishes.
         setMessages(prev => mergeConversationMessage(prev, event.message));
@@ -793,7 +799,14 @@ export default function App() {
         return;
       }
       if (event.type === 'answer.delta') {
-        if (event.conversationId !== activeConversationRef.current) return;
+        // 提交瞬间 active 还是 pending-*，主进程增量已经是真 conversationId；
+        // 若只认 active，工程判定的思考流会被整段丢掉。
+        const pending = pendingSubmit.current;
+        const active = activeConversationRef.current;
+        const watching =
+          event.conversationId === active ||
+          Boolean(pending && active === pending.id);
+        if (!watching) return;
         setAnswerDeltas(prev => {
           const current = prev[event.channelId] ?? { text: '', reasoning: '', done: false };
           return {
@@ -1371,7 +1384,12 @@ export default function App() {
           : item
       ));
       setPhases({});
-      setAnswerDeltas({});
+      // 保留工程判定增量：后面 getConversationMessages 会带回落盘的思考卡，
+      // 这里清空会让转交前最后几秒又变回「没有思考」。
+      setAnswerDeltas(prev => {
+        const routing = prev['__routing__'];
+        return routing ? { __routing__: routing } : ({} as typeof prev);
+      });
       setDebateLive(null);
       setPrompt('');
       setAttachments([]);

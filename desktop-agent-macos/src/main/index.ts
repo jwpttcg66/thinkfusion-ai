@@ -1061,17 +1061,21 @@ async function routeEngineeringWithModel(input: {
         let text = '';
         let reasoning = '';
         let pulse = 0;
+        let sent = false;
         for await (const chunk of provider.streamChunks(req, signal)) {
           if (chunk.text) text += chunk.text;
           if (chunk.reasoning) reasoning += chunk.reasoning;
           const now = Date.now();
-          if (now - pulse < 120) continue;
-          pulse = now;
-          push({
-            ...(text ? { text } : {}),
-            ...(reasoning ? { reasoning } : {}),
-            reset: true
-          });
+          // 首包立刻推：否则用户只看见「若返回思考会显示」的空壳。
+          if (!sent || now - pulse >= 80) {
+            sent = true;
+            pulse = now;
+            push({
+              ...(text ? { text } : {}),
+              ...(reasoning ? { reasoning } : {}),
+              reset: true
+            });
+          }
         }
         if (text || reasoning) {
           push({
