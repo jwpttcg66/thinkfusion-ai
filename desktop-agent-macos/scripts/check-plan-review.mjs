@@ -12,12 +12,14 @@ import test from 'node:test';
 
 import {
   checkPlanCapabilities,
+  planDebateBriefFromSummary,
   planDebateTopics,
   planReviewBudget,
   planReviewQuestion,
   planReviewRounds,
   shouldDebatePlan,
-  summarizePlanDebate
+  summarizePlanDebate,
+  topicsFromLeadSummary
 } from '../out-test/main/engineering/plan-review.js';
 
 function plan(steps, condition = '测试通过') {
@@ -98,60 +100,68 @@ test('关闭辩论时不辩，并说得出是设置关的', () => {
   assert.match(decision.reason, /关闭/);
 });
 
-test('开启辩论时哪怕两步只读也辩——用户明确要求优先', () => {
+test('off 关闭整段评审；on/auto 都先走五段流水线', () => {
+  assert.equal(shouldDebatePlan('off', writePlan).debate, false);
   assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, true);
+  assert.equal(shouldDebatePlan('auto', writePlan).debate, true);
+  assert.match(shouldDebatePlan('auto', writePlan).reason, /五段|结论\/一致/);
+  // 无五段原文时，绝不从计划结构编造议题。
+  assert.deepEqual(planDebateTopics(writePlan), []);
 });
 
-test('auto 不辩小的只读计划，但带写入或测试的多步计划要辩', () => {
-  assert.equal(shouldDebatePlan('auto', readOnlyPlan).debate, false);
-  assert.match(shouldDebatePlan('auto', readOnlyPlan).reason, /只读/);
-  assert.equal(shouldDebatePlan(undefined, writePlan).debate, true);
-  assert.equal(shouldDebatePlan('auto', plan([
-    { id: 's1', tool: 'fs.list', args: { path: '.' } },
-    { id: 's2', tool: 'fs.readFile', args: { path: 'a.ts' } },
-    { id: 's3', tool: 'fs.readFile', args: { path: 'b.ts' } }
-  ])).debate, true);
+test('议题只从主导五段【辩题】解析，与知识问答一致', () => {
+  const summary = [
+    '【结论】计划可以完成 hello 输出。',
+    '【一致】需要写文件并运行。',
+    '【分歧】是否先跑测试。',
+    '【存疑】没有。',
+    '【辩题】',
+    '1. 覆盖 utils 是否必要？',
+    '2. 测试命令是否够验？'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), [
+    '覆盖 utils 是否必要？',
+    '测试命令是否够验？'
+  ]);
+  const brief = planDebateBriefFromSummary(writePlan, summary);
+  assert.equal(brief.source, 'model');
+  assert.equal(brief.leadSummary, summary);
+  assert.equal(brief.topics.length, 2);
+  assert.match(brief.expressTarget, /五段结论中的议题/);
 });
 
-test('辩题指向具体风险：覆盖写、缺验证、步骤过多', () => {
-  const topics = planDebateTopics(writePlan);
-  assert.ok(topics.some(topic => topic.includes('overwrite')), '覆盖写必须被点名');
-  assert.ok(topics.some(topic => topic.includes('验收条件')) === false, '已经有测试时不该拿验收条件凑数');
+test('五段写「无」辩题：不编造辩论', () => {
+  const summary = [
+    '【结论】计划足够。',
+    '【一致】步骤清楚。',
+    '【分歧】没有。',
+    '【存疑】没有。',
+    '【辩题】无'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), []);
+  const brief = planDebateBriefFromSummary(writePlan, summary);
+  assert.equal(brief.source, 'none');
+  assert.equal(brief.topics.length, 0);
 });
 
-test('有写入、没有任何观察手段时，辩题要求「按任务设计验证方式」，不点名工具', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'src/a.ts', content: 'x' } }
-  ]));
-  assert.ok(topics.some(topic => topic.includes('设计验证方式')), topics.join(' / '));
-  assert.ok(topics.every(topic => !topic.includes('test.run')), '不该把 test.run 当成唯一答案');
+test('多步含 shell：不按结构套「步骤拆分/系统动作」模板', () => {
+  const big = plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'A.java', content: 'x' } },
+    { id: 's2', tool: 'shell.run', args: { command: 'javac A.java' } },
+    { id: 's3', tool: 'shell.run', args: { command: 'java A' } },
+    { id: 's4', tool: 'fs.readFile', args: { path: 'A.java' } },
+    { id: 's5', tool: 'code.run', args: { language: 'java', code: 'class A {}' } }
+  ]);
+  assert.deepEqual(planDebateTopics(big), []);
 });
 
-test('已经写了 javac + 断言，就不再追着问验证方式', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'App.java', content: 'x' } },
-    { id: 's2', tool: 'shell.run', args: { command: 'javac -d out App.java && [ "$(java -cp out App)" = "hello" ]' } }
-  ]));
-  assert.ok(topics.every(topic => !topic.includes('怎么证明没改坏')), topics.join(' / '));
-});
-
-test('辩题最多三条，避免把审批拖成一场长会', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'a', content: 'x', overwrite: true, expectedHash: 'b'.repeat(64) } },
-    { id: 's2', tool: 'fs.mkdir', args: { path: 'a' } },
-    { id: 's3', tool: 'fs.writeFile', args: { path: 'b', content: 'x' } },
-    { id: 's4', tool: 'fs.writeFile', args: { path: 'c', content: 'x' } },
-    { id: 's5', tool: 'fs.list', args: { path: '.' } }
-  ]));
-  assert.ok(topics.length <= 3);
-});
-
-test('交给辩手的问题里必须能看到每一步和完成条件', () => {
+test('交给辩手的材料只有计划数据，没有评审话术', () => {
   const question = planReviewQuestion(writePlan);
   assert.match(question, /给 utils 增加一个函数/);
   assert.match(question, /fs\.writeFile/);
   assert.match(question, /测试通过/);
-  assert.match(question, /步骤编号/);
+  assert.doesNotMatch(question, /请判断/);
+  assert.doesNotMatch(question, /步骤编号/);
 });
 
 test('辩论结论取最后一轮立场，失败的成员必须点名', () => {

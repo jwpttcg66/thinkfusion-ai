@@ -286,30 +286,46 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
 }
 
 /**
- * 工程任务到底有没有「真交付过」——与单轮的 `verified` 不同，这是跨轮的历史判断。
+ * 工程任务有没有「确认过交付」——与单轮 `verified` 不同，这是跨轮历史判断。
  *
- * 背景（真机事故）：一个任务第 1 轮写文件 EEXIST 失败，第 2 轮只剩 fs.list / fs.tree
- * 这种空轮，verifyExecution 按既有契约把它记成「没有写操作，无需验证 → verified」，
- * 第 3 轮模型回一句「任务完成」，编排器就直接用 `complete` 声明标成 completed。
- * 结果代码从没写成、程序从没跑过，界面却显示完成——用户看到的就是「假完成」。
+ * 口径（2026-11-24）：怎么检查交付由模型在计划/步骤里设计，系统只确认那些检查
+ * 是否已经落到执行报告的验证结论上。不在这里规定「必须写入」或「何种工具才算证据」。
  *
- * 空轮 trivially verified 是对的规则（纯问答轮不该被判失败），不能改；要挡的是
- * 「把工程任务的空轮/失败轮当成可交付的证据」。判据是整条链里至少有一份报告真的
- * 跑过一次能观察结果的检查（编译/运行/测试/诊断通过）——不要求必须写过文件：目标
- * 代码本来就正确时无需改动，跑通就是交付。没有报告的历史任务（旧数据、纯问答会话）
- * 按兼容处理返回 true，避免翻旧账。
+ * 仍要挡住真机假完成事故：第 1 轮写失败后，第 2 轮只有空验证（无成功步骤、
+ * 也无任何通过的检查），模型一句「完成」不能过关。没有报告的历史（纯问答/旧数据）
+ * 兼容返回 true。
  */
 export function hasGenuineDelivery(reports: readonly ExecutionReport[]): boolean {
-  if (reports.length === 0) return true; // 没有报告：不是工程执行链，兼容旧行为
+  if (reports.length === 0) return true;
+
+  const hadFailedWrite = reports.some(report =>
+    (report.results ?? []).some(step => WRITE_TOOLS.has(step.tool) && step.status === 'failed')
+  );
+  const hadSuccessfulWrite = reports.some(report =>
+    (report.results ?? []).some(step => WRITE_TOOLS.has(step.tool) && step.status === 'completed') ||
+    (report.verification?.changedFiles ?? 0) > 0
+  );
+
   return reports.some(report => {
-    const checks = report.verification?.checks;
-    if (!checks) return false;
-    // 判据是「真的跑过一次能观察结果的检查」，不是「必须写过文件」。
-    // 目标代码本来就正确、无需改动的任务，只要 javac / java / 测试 / 诊断
-    // 有一次通过就是真交付；反过来只列目录、什么都没跑的空轮一律不算。
-    return checks.compile?.status === 'passed' ||
-      checks.run?.status === 'passed' ||
-      checks.tests?.status === 'passed' ||
-      checks.diagnostics?.status === 'passed';
+    const verification = report.verification;
+    if (!verification?.verified) return false;
+
+    const checks = verification.checks;
+    const checkPassed = Boolean(
+      checks && (
+        checks.compile?.status === 'passed' ||
+        checks.run?.status === 'passed' ||
+        checks.tests?.status === 'passed' ||
+        checks.diagnostics?.status === 'passed'
+      )
+    );
+    const completedSteps = (report.results ?? []).filter(step => step.status === 'completed');
+    // 写失败过的链：必须后续有成功写入，或有一次通过的检查，不能靠空验证收尾。
+    if (hadFailedWrite && !hadSuccessfulWrite && !checkPassed) return false;
+    // 模型设计的检查已反映在验证结论里：要么检查项通过，要么本轮有成功步骤且验证成立。
+    if (checkPassed) return true;
+    if (completedSteps.length > 0) return true;
+    // 老报告可能没有 results，只认检查项通过；全 skipped 的空验证不算。
+    return false;
   });
 }

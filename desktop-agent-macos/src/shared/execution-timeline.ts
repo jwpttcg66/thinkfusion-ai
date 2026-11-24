@@ -157,14 +157,34 @@ function milestone(
       return { kind: 'milestone', key, at: event.at, text: `计划被拒绝：${event.error}`, tone: 'error' };
     case 'clarification.required':
       return { kind: 'milestone', key, at: event.at, text: `需要澄清：${event.questions.join(' / ')}`, tone: 'warn' };
-    case 'report.ready':
+    case 'report.ready': {
+      const done = event.report.results.filter(item => item.status === 'completed').length;
+      const detailLines = event.report.results.map((step, index) => {
+        const path = typeof step.args?.path === 'string' ? step.args.path : '';
+        const command = typeof step.args?.command === 'string' ? step.args.command : '';
+        const target = path || command;
+        const result = step.result as { stdout?: unknown; stderr?: unknown; exitCode?: unknown } | undefined;
+        const stdout = typeof result?.stdout === 'string' && result.stdout.trim()
+          ? result.stdout.trim().slice(0, 4000)
+          : '';
+        const err = typeof step.error === 'string' && step.error.trim() ? step.error.trim() : '';
+        const bits = [
+          `${String(index + 1)}. [${step.tool}] ${step.status}${target ? ` · ${target}` : ''}`,
+          typeof result?.exitCode === 'number' ? `退出码 ${String(result.exitCode)}` : '',
+          stdout ? `stdout：${stdout}` : '',
+          err ? `错误：${err}` : ''
+        ].filter(Boolean);
+        return bits.join('\n');
+      });
       return {
         kind: 'milestone',
         key,
         at: event.at,
-        text: `执行报告：${event.report.status} · ${String(event.report.results.filter(item => item.status === 'completed').length)} 步完成${event.report.verification ? ` · ${event.report.verification.verified ? '已验证' : '未验证'}` : ''}`,
-        tone: event.report.status === 'completed' ? 'ok' : 'warn'
+        text: `执行报告：${event.report.status} · ${String(done)} 步完成${event.report.verification ? ` · ${event.report.verification.verified ? '已验证' : '未验证'}` : ''}`,
+        tone: event.report.status === 'completed' ? 'ok' : 'warn',
+        ...(detailLines.length > 0 ? { detail: detailLines.join('\n\n') } : {})
       };
+    }
     case 'review.ready':
       return {
         kind: 'milestone',
@@ -185,17 +205,26 @@ function milestone(
             ? `方案评审等待结束（已等 ${String(Math.round(event.elapsedMs / 1000))} 秒）`
             : `方案评审进行中 · 已等 ${String(Math.round(event.elapsedMs / 1000))} 秒（${String(event.topics)} 个议题）`,
         tone: 'muted',
-        ...((event.reason || event.roundsReason || (event.topicTexts && event.topicTexts.length > 0))
+        ...((event.reason || event.roundsReason || event.expressTarget || event.expressGoal
+          || (event.topicTexts && event.topicTexts.length > 0))
           ? {
               detail: [
                 ...(event.reason ? [`为什么评审：${event.reason}`] : []),
+                ...(event.expressTarget ? [`表态对象：${event.expressTarget}`] : []),
+                ...(event.expressGoal ? [`表态目标：${event.expressGoal}`] : []),
                 ...(event.maxRounds !== undefined
                   ? [`轮次：最多 ${String(event.maxRounds)} 轮，实际按分歧收敛${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
                   : event.rounds !== undefined
                     ? [`轮次：实际 ${String(event.rounds)} 轮${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
                     : []),
-                ...(event.reason || event.maxRounds !== undefined || event.rounds !== undefined ? [''] : []),
-                ...(event.topicTexts ?? []).map((topic, index) => `${String(index + 1)}. ${topic}`)
+                ...(event.reason || event.expressTarget || event.expressGoal
+                  || event.maxRounds !== undefined || event.rounds !== undefined ? [''] : []),
+                ...(event.topicTexts ?? []).map((topic, index) => {
+                  const goal = event.topicGoals?.[index];
+                  return goal
+                    ? `${String(index + 1)}. ${topic}\n   目标：${goal}`
+                    : `${String(index + 1)}. ${topic}`;
+                })
               ].join('\n')
             }
           : {})
@@ -210,10 +239,19 @@ function milestone(
           : `方案评审已辩完（${event.debate.participants.join('、')}）：${String(event.debate.topics.length)} 个辩题`,
         tone: 'muted',
         ...(event.debate.topics.length > 0 || event.debate.summary
+          || event.debate.expressTarget || event.debate.expressGoal
           ? {
               detail: [
-                ...(event.debate.reason ? [`为什么评审：${event.debate.reason}`, ''] : []),
-                ...event.debate.topics.map((topic, index) => `${String(index + 1)}. ${topic}`),
+                ...(event.debate.reason ? [`为什么评审：${event.debate.reason}`] : []),
+                ...(event.debate.expressTarget ? [`表态对象：${event.debate.expressTarget}`] : []),
+                ...(event.debate.expressGoal ? [`表态目标：${event.debate.expressGoal}`] : []),
+                ...(event.debate.reason || event.debate.expressTarget || event.debate.expressGoal ? [''] : []),
+                ...event.debate.topics.map((topic, index) => {
+                  const goal = event.debate.topicGoals?.[index];
+                  return goal
+                    ? `${String(index + 1)}. ${topic}\n   目标：${goal}`
+                    : `${String(index + 1)}. ${topic}`;
+                }),
                 ...(event.debate.summary ? ['', event.debate.summary] : [])
               ].join('\n')
             }

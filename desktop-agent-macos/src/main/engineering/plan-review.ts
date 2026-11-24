@@ -1,5 +1,15 @@
 import type { AgentPlan } from '../../shared/contracts';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
+import {
+  buildLeadSummaryQuestion,
+  leadSummarySystem,
+  parseDoubts,
+  parseTopics,
+  LEAD_SUMMARY_TIMEOUT_MS,
+  type LeadAnswer
+} from '../synthesis/lead-stage';
+
+export { LEAD_SUMMARY_TIMEOUT_MS };
 
 /** 会改动工作区的工具；与 PlanPreview 的 isWrite 保持同一口径。 */
 const WRITE_TOOLS = new Set([
@@ -80,145 +90,146 @@ export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
  * 「应该改 3 个文件」而扩大到能改 3 个文件。
  */
 
-/** 计划里值得辩的风险点，最多三条，按严重程度排序。 */
-export function planDebateTopics(plan: AgentPlan): string[] {
-  if (plan.kind === 'design' && plan.design) return [...plan.design.viewpoints];
-  const steps = plan.steps ?? [];
-  const writes = steps.filter(step =>
-    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
-    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
-  );
-  const overwrites = steps.filter(step => {
-    if (step.tool !== 'fs.writeFile') return false;
-    const args = step.args as { overwrite?: boolean };
-    return args.overwrite === true;
-  });
-  const runsShell = steps.filter(step => step.tool === 'shell.run');
-  /** 计划里有没有任何能看见改动效果的动作；有就不该再追着要某一种工具。 */
-  const hasEvidence = planHasObservableEvidence(steps);
-  const systemSteps = steps.filter(step =>
-    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
-    step.tool === 'code.run'
-  );
-  const topics: string[] = [];
-
-  if (overwrites.length > 0) {
-    topics.push(
-      `覆盖已有文件是否必要：计划里有 ${overwrites.length} 处 overwrite，` +
-        '逐条说明为什么不能只追加或新建，以及回退办法。'
-    );
-  }
-  if (writes.length > 0 && !hasEvidence) {
-    // 不写死「必须有 test.run」：验证方式是模型按任务设计的（Java 用 javac +
-    // 运行断言，前端用构建加截屏，脚本用一次真跑）。这里只把「什么时候算
-    // 验证过」抛给它，由它给出这个任务该用的办法。
-    topics.push(
-      `改完之后怎么证明没改坏：这份计划有 ${writes.length} 处写入，但没有任何能观察结果的动作。` +
-        '请按这个任务本身设计验证方式（跑哪条命令、看什么输出、什么算通过），并说明缺了它能不能算完成。'
-    );
-  }
-  if (steps.length >= 4) {
-    topics.push(
-      `步骤拆分是否合理：${steps.length} 步里哪些可以合并、哪些顺序可调整，` +
-        '哪一步失败会让后面全部作废。'
-    );
-  }
-  if (runsShell.length > 0 && !hasEvidence) {
-    topics.push(
-      `这 ${runsShell.length} 条 shell 命令凭什么安全：逐条说明它会读还是写、` +
-        '作用范围是否只在工作区内、失败时会不会留下半成品。'
-    );
-  } else if (systemSteps.length > 0) {
-    topics.push(
-      `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用/跑代码）有没有更小的影响面：` +
-        '是否真的需要，以及失败了怎么收尾。'
-    );
-  }
-  if (topics.length === 0) {
-    topics.push(`这份计划的验收条件「${plan.completion?.condition ?? '未写明'}」是否足够，有没有更容易出错的地方。`);
-  }
-  return topics.slice(0, 3);
+/** 单条议题：问什么 + 辩清后要达成什么决策。 */
+export interface PlanDebateTopicItem {
+  text: string;
+  goal: string;
 }
 
 /**
- * 要不要辩。
- *
- * `auto` 只在计划足够大或带风险动作时才辩——任务书要求 Auto 不得无声扩大
- * 模型调用与成本，一次两步的只读计划不值得开一场辩论。
+ * 方案评审与知识问答同一套顺序：
+ * 1) 主导模型先写【结论/一致/分歧/存疑/辩题】五段；
+ * 2) 只从【辩题】（及【存疑】转核查）取议题；
+ * 3) 有议题才辩论。系统不得按步数/工具名套模板编造辩论。
+ */
+export interface PlanDebateBrief {
+  topics: PlanDebateTopicItem[];
+  expressTarget: string;
+  expressGoal: string;
+  /** model = 五段里提出了辩题；none = 五段写无或还没汇总。 */
+  source: 'model' | 'none';
+  /** 主导模型五段原文；老记录没有。 */
+  leadSummary?: string;
+}
+
+/** 计划正文作为「一份材料」交给主导模型做五段汇总（与知识问答同一口径）。 */
+export function planAsLeadAnswer(plan: AgentPlan): LeadAnswer {
+  return { channelId: 'plan', label: '计划', text: planReviewQuestion(plan) };
+}
+
+/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据。 */
+export function buildPlanReviewLeadAsk(
+  plan: AgentPlan,
+  userPrompt?: string
+): { question: string; system: string[] } {
+  const answers = [planAsLeadAnswer(plan)];
+  const question = (userPrompt?.trim() || plan.title || '评审这份计划').trim();
+  return {
+    question: buildLeadSummaryQuestion(question, answers, { taskKind: 'compare' }),
+    system: leadSummarySystem('compare')
+  };
+}
+
+/**
+ * 从五段汇总取议题：先【辩题】，没有再用【存疑】转核查题。
+ * 与会话侧主导人逻辑一致，不拿用户原问凑辩题。
+ */
+export function topicsFromLeadSummary(summary: string): string[] {
+  let topics = parseTopics(summary);
+  if (topics.length === 0) {
+    const doubts = parseDoubts(summary);
+    if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
+  }
+  return topics.slice(0, 5);
+}
+
+/** 五段汇总之后的 brief：议题只来自汇总，不来自计划结构模板。 */
+export function planDebateBriefFromSummary(
+  plan: AgentPlan,
+  leadSummary: string
+): PlanDebateBrief {
+  const topics = topicsFromLeadSummary(leadSummary);
+  if (topics.length === 0) {
+    return {
+      expressTarget: plan.kind === 'design'
+        ? `设计文档「${plan.title}」`
+        : `工程计划「${plan.title}」`,
+      expressGoal: '',
+      topics: [],
+      source: 'none',
+      leadSummary
+    };
+  }
+  return {
+    expressTarget: plan.kind === 'design'
+      ? `设计文档「${plan.title}」· 主导模型五段结论中的议题`
+      : `工程计划「${plan.title}」· 主导模型五段结论中的议题`,
+    expressGoal: '就主导模型五段结论里提出的议题给出可审批判断。',
+    topics: topics.map(text => ({ text, goal: '就该议题给出可审批裁定' })),
+    source: 'model',
+    leadSummary
+  };
+}
+
+/** @deprecated 兼容旧测试：无五段时不再从计划结构编造议题。 */
+export function planDebateBrief(plan: AgentPlan): PlanDebateBrief {
+  return {
+    expressTarget: `工程计划「${plan.title}」`,
+    expressGoal: '',
+    topics: [],
+    source: 'none'
+  };
+}
+
+export function planDebateTopics(plan: AgentPlan): string[] {
+  return planDebateBrief(plan).topics.map(item => item.text);
+}
+
+/**
+ * 要不要走方案评审流水线（先五段，再按辩题决定是否辩论）。
+ * `off` 整段跳过；`on`/`auto` 都先让主导模型写五段——没有辩题就不会开辩。
  */
 export function shouldDebatePlan(
   mode: 'auto' | 'on' | 'off' | undefined,
-  plan: AgentPlan
+  _plan: AgentPlan
 ): { debate: boolean; reason?: string } {
   const effective = mode ?? 'auto';
-  const steps = plan.steps ?? [];
-  // 设计文档/观点：强制评审，不受开关影响；与写文件等工具无关。
-  if (plan.kind === 'design') return { debate: true, reason: '设计文档/观点，强制评审' };
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
-  if (effective === 'on') return { debate: true, reason: '设置要求开启方案评审' };
-  const risky = steps.some(step =>
-    step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
-    // shell / 截屏 / 启动应用的影响面在工作区之外，auto 下同样值得先辩一轮。
-    step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
-    // 删除、结束进程、抓网页会改变磁盘或把内容发到外网，不能按"小计划"跳过评审。
-    step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy' ||
-    step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch' ||
-    // 跑一段代码等于跑一段任意逻辑（能读能写能联网），风险不低于 shell。
-    step.tool === 'code.run'
-  );
-  if (steps.length >= 3 || risky) {
-    const riskyTools = [...new Set(steps
-      .filter(step =>
-        step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
-        step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
-        step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy' ||
-        step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch' ||
-        step.tool === 'code.run'
-      )
-      .map(step => step.tool))];
-    return {
-      debate: true,
-      reason: `计划 ${String(steps.length)} 步${riskyTools.length > 0 ? `，含 ${riskyTools.join('、')}` : ''}，按 auto 规则先评审`
-    };
-  }
-  return { debate: false, reason: `计划只有 ${steps.length} 步且都是只读操作，按 auto 不单独开辩` };
+  return {
+    debate: true,
+    reason: effective === 'on'
+      ? '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
+      : '方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
+  };
 }
 
 /**
- * 交给辩论引擎的问题。
- *
- * 写成一条可以直接被辩手回答的问题，而不是「请评审这份 JSON」：辩手是模型，
- * 它需要知道要判断什么，也需要看到计划本身。
+ * 计划数据正文（给主导模型当材料 / 给辩手当上下文）。
+ * 不追加「请判断…」类评审话术。
  */
 export function planReviewQuestion(plan: AgentPlan): string {
   if (plan.kind === 'design' && plan.design) {
     return [
-      `【待评审的设计文档】${plan.title}`,
+      `【设计文档】${plan.title}`,
       plan.design.document,
       '',
       '【设计观点】',
-      ...plan.design.viewpoints.map((item, index) => `${String(index + 1)}. ${item}`),
-      '',
-      '请判断：这份设计是否成立？哪些观点互相矛盾、缺了什么依据、有没有更稳妥的替代方案。' +
-        '结论要指向具体观点编号。'
+      ...plan.design.viewpoints.map((item, index) => `${String(index + 1)}. ${item}`)
     ].join('\n');
   }
   const steps = (plan.steps ?? [])
     .map((step, index) => `${index + 1}. [${step.tool}] ${step.description ?? ''} ${JSON.stringify(step.args)}`)
     .join('\n');
   return [
-    `【待评审的工程计划】${plan.title}`,
+    `【工程计划】${plan.title}`,
     plan.description,
     '',
     '【步骤】',
     steps,
     '',
-    `【完成条件】${plan.completion?.condition ?? '未写明'}`,
-    '',
-    '请判断：这份计划能不能真正完成上面这件事？哪些步骤会失败、缺了什么验证、' +
-      '有没有更稳妥的顺序。结论要指明具体步骤编号。'
+    `【完成条件】${plan.completion?.condition ?? '未写明'}`
   ].join('\n');
 }
 

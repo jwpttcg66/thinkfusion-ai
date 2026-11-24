@@ -14,7 +14,14 @@
  * - 结论只写真实发生过的事：`task.completed.summary`、执行报告、验证、评审。
  */
 
-import type { AgentEvent, ExecutionReport, PlanDebate, PlanPreview } from './contracts';
+import type {
+  AgentEvent,
+  ExecutionReport,
+  PlanDebate,
+  PlanDebateResultSlice,
+  PlanPreview,
+  ReviewIssueDetail
+} from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
 import { artifactPaths, diagnosticsOfReport, verificationIsComplete, type TaskView } from './task-view';
 
@@ -64,8 +71,18 @@ export type ConversationEntry =
       /** running 只来自心跳；plan.debated 之后变成 completed / stopped / skipped。 */
       status: 'running' | PlanDebate['status'];
       topics: string[];
+      /** 与 topics 一一对应；老事件没有。 */
+      topicGoals?: string[];
+      /** 需要对什么表达立场；老事件没有。 */
+      expressTarget?: string;
+      /** 表态要产出什么判断；老事件没有。 */
+      expressGoal?: string;
+      /** 主导模型五段原文；老事件没有。 */
+      leadSummary?: string;
       participants: string[];
       summary: string;
+      /** 结构化切片；老事件没有。 */
+      result?: PlanDebateResultSlice;
       rounds?: number;
       maxRounds?: number;
       roundsReason?: string;
@@ -96,13 +113,37 @@ export type ConversationEntry =
       reviewer: string;
       backend: 'model' | 'rules';
       verdict: string;
+      rawVerdict?: string;
       issues: string[];
+      issueDetails?: ReviewIssueDetail[];
       needsFix: boolean;
+    })
+  /**
+   * 轮间 / 执行前桥接：先画出「对什么质疑、对什么回应、将执行哪些步骤」，
+   * 再开下一轮或动手。没有这条卡就看不出下一轮从哪来。
+   */
+  | (ConversationEntryBase & {
+      kind: 'bridge';
+      bridgeKind: 'review' | 'execution';
+      action: 'continue' | 'stop' | 'execute';
+      /** 下一轮阶段：质疑 / 回应；执行桥接没有。 */
+      nextPhase?: 'challenge' | 'response';
+      title: string;
+      message: string;
+      targets: Array<{ left: string; right: string; reason: string; agents?: [string, string] }>;
+      steps?: Array<{ index: number; tool: string; description: string; target?: string }>;
+      tone: ConversationTone;
     })
   | (ConversationEntryBase & {
       kind: 'conclusion';
       text: string;
       facts: string[];
+      /** 执行目标：计划标题 + 完成条件；老投影没有。 */
+      executionGoal?: string;
+      /** 逐步执行结果原文摘要；老投影没有。 */
+      executionResults?: string[];
+      /** 目标物：改动文件与工程产物路径；老投影没有。 */
+      deliverables?: string[];
       tone: ConversationTone;
     });
 
@@ -163,6 +204,197 @@ export function protocolSummary(text: string): string | null {
 }
 
 /**
+ * 协议对象的可读推导（主页面用）：不铺 JSON，只抽出计划步骤 / 完成声明。
+ *
+ * 工程空间里模型经常整段返回 plan JSON；若主页面只留「见下方 / 见输出页」，
+ * 思考与主推导会一起丢掉。这里给人看的推导骨架，原文仍去输出页。
+ */
+export function protocolDerivation(text: string): string | null {
+  try {
+    const parsed = JSON.parse(unfence(text)) as {
+      type?: unknown;
+      summary?: unknown;
+      title?: unknown;
+      plan?: {
+        title?: unknown;
+        completion?: { condition?: unknown };
+        steps?: Array<{ tool?: unknown; description?: unknown; args?: Record<string, unknown> }>;
+      };
+      steps?: Array<{ tool?: unknown; description?: unknown }>;
+    };
+    if (parsed.type === 'plan') {
+      const steps = Array.isArray(parsed.plan?.steps)
+        ? parsed.plan!.steps!
+        : Array.isArray(parsed.steps) ? parsed.steps : [];
+      const title = (typeof parsed.plan?.title === 'string' && parsed.plan.title.trim())
+        || (typeof parsed.title === 'string' && parsed.title.trim())
+        || (typeof parsed.summary === 'string' && parsed.summary.trim())
+        || '计划';
+      const lines = [`【计划】${title}`];
+      const condition = parsed.plan?.completion?.condition;
+      if (typeof condition === 'string' && condition.trim()) {
+        lines.push(`完成条件：${condition.trim()}`);
+      }
+      for (const [index, step] of steps.entries()) {
+        const tool = typeof step.tool === 'string' ? step.tool : '步骤';
+        const desc = typeof step.description === 'string' && step.description.trim()
+          ? step.description.trim()
+          : '';
+        lines.push(`${String(index + 1)}. ${tool}${desc ? ` — ${desc}` : ''}`);
+      }
+      return lines.join('\n');
+    }
+    if (parsed.type === 'task_complete') {
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+      return summary ? `【完成声明】${summary}` : '【完成声明】';
+    }
+    if (parsed.type === 'execution_report') {
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+      return summary ? `【执行报告】${summary}` : '【执行报告】已返回';
+    }
+    if (parsed.type === 'clarification_required' || parsed.type === 'clarification_request') {
+      return '【澄清请求】模型需要补充信息后才能继续';
+    }
+    return protocolSummary(text);
+  } catch {
+    return null;
+  }
+}
+
+/** 系统套话，不能单独当「任务完成结论」。 */
+function isGenericConclusion(text: string): boolean {
+  const trimmed = text.trim();
+  return /^(任务完成|执行完成|执行完成[，,]验证通过|完成|完成。|任务完成。)$/.test(trimmed);
+}
+
+/** 工具 stdout/文本预览：完整展示，只在极端超长时截断并标明。 */
+function textPreview(value: string, max = 4000): string {
+  const trimmed = value.replace(/\s+$/u, '');
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}…（已截断，原文 ${String(trimmed.length)} 字符）`;
+}
+
+function argPath(step: { args?: Record<string, unknown>; result?: unknown }): string {
+  const fromArgs = typeof step.args?.path === 'string' ? step.args.path : '';
+  if (fromArgs) return fromArgs;
+  const result = step.result;
+  if (result && typeof result === 'object' && 'path' in result && typeof (result as { path: unknown }).path === 'string') {
+    return (result as { path: string }).path;
+  }
+  return '';
+}
+
+/**
+ * 从执行报告步骤结果抽出可展示的交付事实（只陈述工具返回值）。
+ *
+ * 完成与失败都收录：执行结果必须完整可见，不能只留「验证通过」四个字。
+ */
+export function reportDeliveryFacts(report: ExecutionReport): string[] {
+  const facts: string[] = [];
+  for (const step of report.results ?? []) {
+    const result = step.result as unknown;
+    if (step.status === 'failed') {
+      const path = argPath(step);
+      const err = typeof step.error === 'string' && step.error.trim()
+        ? step.error.trim()
+        : (result && typeof result === 'object' && 'message' in result
+          ? String((result as { message: unknown }).message)
+          : '失败');
+      facts.push(`${step.tool}${path ? ` ${path}` : ''}：${err}`);
+      continue;
+    }
+    if (step.status === 'skipped') {
+      const path = argPath(step);
+      facts.push(`${step.tool}${path ? ` ${path}` : ''}：已跳过`);
+      continue;
+    }
+    if (step.status !== 'completed') continue;
+
+    if (step.tool === 'fs.list' && Array.isArray(result)) {
+      const names = result
+        .map(item => {
+          if (item && typeof item === 'object' && 'name' in item && typeof (item as { name: unknown }).name === 'string') {
+            return (item as { name: string }).name;
+          }
+          return null;
+        })
+        .filter((name): name is string => Boolean(name));
+      if (names.length > 0) facts.push(`目录内容：${names.slice(0, 40).join('、')}${names.length > 40 ? '…' : ''}`);
+      continue;
+    }
+    if (step.tool === 'fs.tree' && result && typeof result === 'object') {
+      const tree = result as { entries?: unknown; root?: unknown };
+      if (Array.isArray(tree.entries)) {
+        const names = tree.entries
+          .map(item => (item && typeof item === 'object' && 'name' in item
+            ? String((item as { name: unknown }).name)
+            : null))
+          .filter((name): name is string => Boolean(name));
+        if (names.length > 0) facts.push(`目录树条目：${names.slice(0, 40).join('、')}`);
+      }
+      continue;
+    }
+    if (step.tool === 'fs.readFile' && result && typeof result === 'object') {
+      const read = result as { path?: unknown; content?: unknown; totalLines?: unknown };
+      const path = typeof read.path === 'string' ? read.path : argPath(step);
+      const preview = typeof read.content === 'string' ? textPreview(read.content, 800) : '';
+      if (path && preview) facts.push(`已读 ${path}：\n${preview}`);
+      else if (path) facts.push(`已读 ${path}`);
+      continue;
+    }
+    if (
+      step.tool === 'fs.writeFile' || step.tool === 'fs.edit' || step.tool === 'fs.mkdir' ||
+      step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy'
+    ) {
+      const path = argPath(step);
+      const to = typeof step.args?.to === 'string' ? step.args.to
+        : typeof step.args?.destination === 'string' ? step.args.destination : '';
+      if (path && to) facts.push(`${step.tool}：${path} → ${to}`);
+      else if (path) facts.push(`${step.tool}：${path}`);
+      else facts.push(`${step.tool}：已完成`);
+      continue;
+    }
+    if ((step.tool === 'shell.run' || step.tool === 'test.run' || step.tool === 'code.run') && result && typeof result === 'object') {
+      const run = result as { stdout?: unknown; stderr?: unknown; exitCode?: unknown; command?: unknown };
+      const command = typeof run.command === 'string' && run.command.trim()
+        ? run.command.trim()
+        : (typeof step.args?.command === 'string' ? step.args.command : step.tool);
+      const exit = typeof run.exitCode === 'number' ? `退出码 ${String(run.exitCode)}` : '';
+      const out = typeof run.stdout === 'string' && run.stdout.trim() ? textPreview(run.stdout.trim()) : '';
+      const err = typeof run.stderr === 'string' && run.stderr.trim() ? textPreview(run.stderr.trim(), 1200) : '';
+      const parts = [`命令：${command}`, exit, out ? `stdout：\n${out}` : '', err ? `stderr：\n${err}` : '']
+        .filter(Boolean);
+      facts.push(parts.join('\n'));
+      continue;
+    }
+    if (step.tool === 'screen.capture') {
+      const path = argPath(step);
+      facts.push(path ? `截屏：${path}` : '截屏：已完成');
+      continue;
+    }
+    if (step.tool === 'app.open') {
+      const app = typeof step.args?.app === 'string' ? step.args.app
+        : typeof step.args?.name === 'string' ? step.args.name : '';
+      facts.push(app ? `启动应用：${app}` : '启动应用：已完成');
+      continue;
+    }
+    const path = argPath(step);
+    facts.push(`${step.tool}${path ? `：${path}` : '：已完成'}`);
+  }
+  return facts;
+}
+
+/** 从计划事件抽出执行目标（标题 + 完成条件），供结论与界面原样展示。 */
+export function executionGoalFromEvents(events: readonly AgentEvent[]): string {
+  const planReady = [...events].reverse().find(event => event.type === 'plan.ready');
+  if (planReady?.type !== 'plan.ready') return '';
+  const title = planReady.plan.title?.trim() || '';
+  const condition = planReady.plan.completion?.trim() || '';
+  if (title && condition) return `${title} — ${condition}`;
+  return condition || title;
+}
+
+/**
  * 成员卡「正文框」与「思考折叠」的展示分工（去重规则）。
  *
  * 真机上出现过同一份 3054 字符思考被画三遍：流式期间正文框铺了 reasoning、
@@ -179,6 +411,8 @@ export interface MemberBodyInput {
   reasoning: string;
   reasoningSupported: boolean;
   protocol: ConversationProtocol;
+  /** 流式且尚无正文/思考时，用于把「空等」说成已等多少秒。 */
+  waitMs?: number | null;
 }
 
 export interface MemberBodyView {
@@ -203,6 +437,9 @@ export function memberBodyView(input: MemberBodyInput): MemberBodyView {
   const bodyIsReasoning = live && input.protocol === null
     && input.text.length === 0 && input.reasoning.length > 0;
   const bodyText = bodyIsReasoning ? input.reasoning : input.text;
+  const waitSec = live && bodyText.length === 0 && input.waitMs != null && input.waitMs >= 3000
+    ? Math.max(3, Math.round(input.waitMs / 1000))
+    : null;
   return {
     bodyText,
     bodyIsReasoning,
@@ -211,7 +448,11 @@ export function memberBodyView(input: MemberBodyInput): MemberBodyView {
     // 是两份内容，折叠保留（reasoningSupported 但没内容时仍给出「没返回」）。
     showReasoningDetails: input.reasoningSupported && !bodyIsReasoning,
     placeholder: bodyText.length === 0
-      ? (live ? '等待模型输出…' : '这次没有输出正文。')
+      ? (live
+        ? (waitSec != null
+          ? `模型尚未返回首字，已等 ${String(waitSec)} 秒（可能在内部思考）…`
+          : '等待模型输出…')
+        : '这次没有输出正文。')
       : null,
     displayLength: bodyText.length
   };
@@ -293,8 +534,6 @@ export function buildTaskConversation(
   let lastAt = ordered[0]?.at ?? Date.now();
   let verificationCount = 0;
   let reviewCount = 0;
-  /** 已经有验证卡的执行报告，不再让时间线里程碑重复写一句。 */
-  const verificationTimes = new Set<number>();
   /** 方案评审按 planId 原地更新：心跳、等待、辩完是同一条，不能越刷越多。 */
   const debates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'debate' }> }>();
 
@@ -491,14 +730,34 @@ export function buildTaskConversation(
     if (event.type === 'plan.review.progress') {
       const key = `debate-${event.planId}`;
       const existing = debates.get(key);
+      // done 心跳只表示等待结束；若 plan.debated 已把状态写成 completed/skipped，
+      // 不能再被冲回 running，否则界面永远停在「方案评审 · 进行中」。
+      const terminal = existing?.entry.status === 'completed'
+        || existing?.entry.status === 'stopped'
+        || existing?.entry.status === 'skipped';
       upsertDebate(key, {
-        status: 'running',
+        status: terminal ? existing!.entry.status : (event.state === 'done' && existing?.entry.status
+          ? existing.entry.status
+          : 'running'),
         topics: event.topicTexts && event.topicTexts.length > 0
           ? event.topicTexts
           : (existing?.entry.topics ?? []),
         participants: existing?.entry.participants ?? [],
         summary: existing?.entry.summary ?? '',
         elapsedMs: event.elapsedMs,
+        ...(event.topicGoals && event.topicGoals.length > 0
+          ? { topicGoals: event.topicGoals }
+          : existing?.entry.topicGoals ? { topicGoals: existing.entry.topicGoals } : {}),
+        ...(event.expressTarget
+          ? { expressTarget: event.expressTarget }
+          : existing?.entry.expressTarget ? { expressTarget: existing.entry.expressTarget } : {}),
+        ...(event.expressGoal
+          ? { expressGoal: event.expressGoal }
+          : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
+        // 五段结论一出就要留在卡上；后续「已等 N 秒」心跳若不带此字段，沿用已有原文。
+        ...(event.leadSummary
+          ? { leadSummary: event.leadSummary }
+          : existing?.entry.leadSummary ? { leadSummary: existing.entry.leadSummary } : {}),
         ...(event.rounds !== undefined
           ? { rounds: event.rounds }
           : existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
@@ -520,6 +779,50 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'plan.review.bridge') {
+      const nextLabel = event.nextPhaseLabel ?? (event.action === 'continue' ? '下一轮' : '收尾');
+      push({
+        kind: 'bridge',
+        key: `review-bridge-${event.planId}-${String(event.fromRound)}-${event.action}`,
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        bridgeKind: 'review',
+        action: event.action,
+        ...(event.nextPhase ? { nextPhase: event.nextPhase } : {}),
+        title: event.action === 'continue'
+          ? `第 ${String(event.fromRound)} 轮${event.fromPhaseLabel}结束 → 先画出依据，再开${nextLabel}`
+          : `第 ${String(event.fromRound)} 轮${event.fromPhaseLabel}结束`,
+        message: event.message,
+        targets: event.targets.map(item => ({
+          left: item.left,
+          right: item.right,
+          reason: item.reason,
+          agents: item.agents
+        })),
+        tone: event.action === 'continue' ? 'warn' : 'muted'
+      });
+      continue;
+    }
+
+    if (event.type === 'execution.bridge') {
+      push({
+        kind: 'bridge',
+        key: `exec-bridge-${event.planId}-${String(event.at)}`,
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        bridgeKind: 'execution',
+        action: 'execute',
+        title: '执行前依据',
+        message: event.message,
+        targets: [],
+        steps: event.steps,
+        tone: 'info'
+      });
+      continue;
+    }
+
     if (event.type === 'plan.debated') {
       const key = `debate-${event.planId}`;
       const existing = debates.get(key);
@@ -530,6 +833,19 @@ export function buildTaskConversation(
         participants: debate.participants,
         summary: debate.summary,
         elapsedMs: existing?.entry.elapsedMs ?? 0,
+        ...(debate.topicGoals && debate.topicGoals.length > 0
+          ? { topicGoals: debate.topicGoals }
+          : existing?.entry.topicGoals ? { topicGoals: existing.entry.topicGoals } : {}),
+        ...(debate.expressTarget
+          ? { expressTarget: debate.expressTarget }
+          : existing?.entry.expressTarget ? { expressTarget: existing.entry.expressTarget } : {}),
+        ...(debate.expressGoal
+          ? { expressGoal: debate.expressGoal }
+          : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
+        ...(debate.leadSummary
+          ? { leadSummary: debate.leadSummary }
+          : existing?.entry.leadSummary ? { leadSummary: existing.entry.leadSummary } : {}),
+        ...(debate.result ? { result: debate.result } : existing?.entry.result ? { result: existing.entry.result } : {}),
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
         ...(typeof debate.maxRounds === 'number' ? { maxRounds: debate.maxRounds } : {}),
         ...(debate.roundsReason ? { roundsReason: debate.roundsReason } : {}),
@@ -586,7 +902,6 @@ export function buildTaskConversation(
       if (verification) {
         verificationCount += 1;
         const results = event.report.results ?? [];
-        verificationTimes.add(event.at);
         push({
           kind: 'verification',
           key: `verification-${String(event.at)}-${String(seq)}`,
@@ -620,7 +935,9 @@ export function buildTaskConversation(
         reviewer: event.reviewer,
         backend: event.backend,
         verdict: event.verdict,
+        ...(event.rawVerdict ? { rawVerdict: event.rawVerdict } : {}),
         issues: event.issues,
+        ...(event.issueDetails ? { issueDetails: event.issueDetails } : {}),
         needsFix: event.needsFix
       });
       continue;
@@ -653,7 +970,7 @@ export function buildTaskConversation(
       if (/^第 \d+ 轮/.test(item.text) || item.text.startsWith('独立评审')) continue;
       // 计划树、方案评审已经有自己的卡片，不再留一句只有计数的里程碑。
       if (item.text.startsWith('计划就绪') || item.text.startsWith('方案评审')) continue;
-      if (item.text.startsWith('执行报告：') && verificationTimes.has(item.at)) continue;
+      // 执行报告与验证卡并存：验证卡讲 checks，报告节点讲逐步结果，不得互相顶替。
       // 成员卡的正文就是这条回答：再写一行「模型回答（310 字符）」只是噪音。
       if (/^模型回答（/.test(item.text) || item.text === '模型返回执行计划') continue;
       // 完成摘要留给末尾的结论卡，这里只标时间点。
@@ -720,6 +1037,13 @@ export function buildTaskConversation(
       roundNumber: roundNumber(currentRoundId),
       text: conclusion.text,
       facts: conclusion.facts,
+      ...(conclusion.executionGoal ? { executionGoal: conclusion.executionGoal } : {}),
+      ...(conclusion.executionResults.length > 0
+        ? { executionResults: conclusion.executionResults }
+        : {}),
+      ...(conclusion.deliverables.length > 0
+        ? { deliverables: conclusion.deliverables }
+        : {}),
       tone: conclusion.tone
     });
   }
@@ -744,7 +1068,15 @@ function orderWeight(entry: ConversationEntry): number {
 export function buildConclusion(
   events: readonly AgentEvent[],
   options: { summary?: string; status?: string } = {}
-): { text: string; facts: string[]; tone: ConversationTone } | null {
+): {
+  text: string;
+  facts: string[];
+  executionGoal: string;
+  executionResults: string[];
+  /** 目标物路径：写出的文件 + 编译/运行产物。 */
+  deliverables: string[];
+  tone: ConversationTone;
+} | null {
   const ordered = [...events].sort((a, b) => a.at - b.at);
   const completed = [...ordered].reverse().find(event => event.type === 'task.completed');
   const failed = [...ordered].reverse().find(event => event.type === 'task.failed');
@@ -762,10 +1094,26 @@ export function buildConclusion(
     completed?.type === 'task.completed' ? completed.summary : undefined,
     lastAnswer?.type === 'round.answer' ? protocolConclusionText(lastAnswer.text) : undefined
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  // 协议 JSON 不是结论，哪怕它带着 summary 字段也已经被上面提取过了。
-  const text = candidates.find(item => !protocolKind(item)) ?? '';
+  // 协议 JSON 不是结论；系统套话（「任务完成」）也不能单独冒充结论。
+  const text = candidates.find(item => !protocolKind(item) && !isGenericConclusion(item)) ?? '';
 
+  const executionGoal = executionGoalFromEvents(ordered);
+  const executionResults = report?.type === 'report.ready' ? reportDeliveryFacts(report.report) : [];
+  const deliverables: string[] = [];
+  const seenDeliverable = new Set<string>();
+  const addDeliverable = (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed || seenDeliverable.has(trimmed)) return;
+    const duplicate = [...seenDeliverable].some(existing =>
+      existing === trimmed || existing.endsWith(`/${trimmed}`) || trimmed.endsWith(`/${existing}`)
+    );
+    if (duplicate) return;
+    seenDeliverable.add(trimmed);
+    deliverables.push(trimmed);
+  };
   const facts: string[] = [];
+  // facts 仍带上执行结果，兼容旧面板；同时单独字段保证界面能分栏完整展示。
+  facts.push(...executionResults);
   if (report?.type === 'report.ready') {
     const done = report.report.results.filter(item => item.status === 'completed').length;
     facts.push(`执行 ${String(report.report.results.length)} 步，完成 ${String(done)} 步`);
@@ -782,13 +1130,21 @@ export function buildConclusion(
       if (typeof report.report.verification.changedFiles === 'number') {
         facts.push(`改动 ${String(report.report.verification.changedFiles)} 个文件`);
       }
+      for (const path of report.report.verification.changedPaths ?? []) addDeliverable(path);
     }
-    const artifacts = new Set<string>();
     for (const item of report.report.results ?? []) {
-      const result = item.result as { stdout?: string; stderr?: string; cwd?: string } | undefined;
+      const path = argPath(item);
+      if (path && (
+        item.tool === 'fs.writeFile' || item.tool === 'fs.edit' || item.tool === 'fs.mkdir' ||
+        item.tool === 'fs.copy' || item.tool === 'fs.move' || item.tool === 'screen.capture'
+      )) {
+        addDeliverable(path);
+      }
+      const result = item.result as { path?: string; stdout?: string; stderr?: string; cwd?: string } | undefined;
+      if (typeof result?.path === 'string') addDeliverable(result.path);
       if (!result) continue;
       for (const match of artifactPaths(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) {
-        artifacts.add(/^(\/|[A-Za-z]:[\\/])/.test(match)
+        addDeliverable(/^(\/|[A-Za-z]:[\\/])/.test(match)
           ? match
           : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match);
       }
@@ -796,23 +1152,30 @@ export function buildConclusion(
     for (const rawCheck of Object.values(report.report.verification?.checks ?? {})) {
       const check = rawCheck as { output?: string };
       if (typeof check.output === 'string') {
-        for (const match of artifactPaths(check.output)) artifacts.add(match);
+        for (const match of artifactPaths(check.output)) addDeliverable(match);
       }
     }
-    if (artifacts.size > 0) facts.push(`工程产物 ${String(artifacts.size)} 个`);
+    if (deliverables.length > 0) facts.push(`目标物 ${String(deliverables.length)} 个`);
   }
   if (review?.type === 'review.ready') {
     facts.push(`独立评审：${review.needsFix ? `需修复（${String(review.issues.length)} 项）` : '通过'}`);
   }
 
   const tone: ConversationTone = status === 'failed' ? 'error' : status === 'cancelled' ? 'warn' : 'ok';
+  // 有真实工具结果时，用第一条交付事实当结论文本，避免主页面只剩「任务完成」。
+  const deliveryText = executionResults[0] ?? '';
   return {
-    text: text || (status === 'failed'
-      ? (failed?.type === 'task.failed' ? failed.error : '任务失败，没有留下结论文本。')
-      : status === 'cancelled'
-        ? '任务已取消，没有留下结论文本。'
-        : `${statusText(status)}，模型没有给出结论文本；以下是真实执行结果。`),
+    text: text
+      || deliveryText
+      || (status === 'failed'
+        ? (failed?.type === 'task.failed' ? failed.error : '任务失败，没有留下结论文本。')
+        : status === 'cancelled'
+          ? '任务已取消，没有留下结论文本。'
+          : `${statusText(status)}，模型没有给出结论文本；以下是真实执行结果。`),
     facts,
+    executionGoal,
+    executionResults,
+    deliverables,
     tone
   };
 }

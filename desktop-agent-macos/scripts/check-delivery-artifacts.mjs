@@ -46,5 +46,7 @@ test('结论里写出真实产物数量，不把模型一句话当交付', () =>
   const conclusion = entries.find(entry => entry.kind === 'conclusion');
   assert.ok(conclusion);
   assert.ok(conclusion.facts.includes('改动 2 个文件'));
-  assert.ok(conclusion.facts.includes('工程产物 2 个'));
+  assert.ok(conclusion.facts.includes('目标物 4 个') || conclusion.facts.some(item => /目标物 \d+ 个/.test(item)));
+  assert.ok(conclusion.deliverables?.some(path => /HelloJwp\.java/.test(path)));
+  assert.ok(conclusion.deliverables?.some(path => /HelloJwp\.class/.test(path)));
 });

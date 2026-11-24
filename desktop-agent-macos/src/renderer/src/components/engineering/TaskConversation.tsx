@@ -5,11 +5,13 @@ import { duration, statusText, target, toolLabel } from '../../../../shared/exec
 import {
   buildTaskConversation,
   memberBodyView,
+  protocolDerivation,
   protocolSummary,
   type ConversationEntry,
   type ConversationProtocol,
   type ConversationTone
 } from '../../../../shared/task-conversation';
+import { splitSummarySections } from '../../../../shared/text';
 
 /**
  * 对话流（工程空间主界面）。
@@ -19,8 +21,8 @@ import {
  * 「现在到哪一步」，它回答「这件事到底发生过什么」——两件事都要有，但主界面
  * 只能是后者，否则一轮新回答就会把上一轮挤掉。
  *
- * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 是给机器读的，
- * 主界面只留一句人话和摘要，完整原文去「输出」页看——这里每行都该是人能读的。
+ * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页，
+ * 但主界面必须留下可读推导与思考过程——不能整段推走。
  */
 
 function timeText(at: number): string {
@@ -98,12 +100,14 @@ function MemberMessage(props: {
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
+  const derivation = entry.protocol ? protocolDerivation(entry.text) : null;
   // 正文默认只露 5 行，和思考折叠一样点开才看全文。短正文不出现按钮。
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   // 正文框与思考折叠的分工统一由 shared 层决定：流式期间只有一处展示内容，
   // 不让同一份 thinking 在正文框和折叠里各铺一遍。
-  const view = memberBodyView(entry);
+  // waitMs：deepseek 一类会先内部想很久才吐首字，空「等待模型输出」像卡死。
+  const view = memberBodyView({ ...entry, waitMs: elapsed });
   // 流式期间自动跟到底部（露最新几行）；结束后回到顶部，别停在流式的最后一屏。
   useEffect(() => {
     const el = bodyRef.current;
@@ -139,13 +143,14 @@ function MemberMessage(props: {
       <div className="chat-member-body">
         {entry.protocol ? (
           <>
-            {/* 协议对象不是给我的答复：只给一句人话和摘要。JSON 原文是机器读的，
-                主界面一个字都不展开；要看原文去「输出」页。 */}
+            {/* 协议 JSON 原文去输出页；主页面必须留下可读推导与思考，不能整段推走。 */}
             <p className="chat-protocol-note">
-              这一路返回的是{protocolLabel(entry.protocol)}（机器读的 JSON）；
-              执行结果与结论见本页下方，完整原文在「输出」页。
+              这一路返回的是{protocolLabel(entry.protocol)}（机器协议）；下方是可读摘要与思考，完整 JSON 在「输出」页。
             </p>
             {summary && <p className="chat-protocol-summary">{summary}</p>}
+            {derivation && (
+              <pre className="chat-member-text chat-protocol-derivation">{derivation}</pre>
+            )}
           </>
         ) : (
           <>
@@ -167,8 +172,8 @@ function MemberMessage(props: {
           </>
         )}
         {view.showReasoningDetails && (
-          <details className="chat-reasoning">
-            <summary>思考（{entry.reasoning.length} 字符）</summary>
+          <details className="chat-reasoning" open={Boolean(entry.protocol && entry.reasoning)}>
+            <summary>思考过程{entry.reasoning ? `（${entry.reasoning.length} 字符）` : ''}</summary>
             {entry.reasoning ? <pre>{entry.reasoning}</pre> : <p className="muted">这个来源本次没有返回思考内容。</p>}
           </details>
         )}
@@ -202,7 +207,9 @@ function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }
           );
         })}
       </ol>
-      <p className="muted">完成条件：{entry.completion}</p>
+      <p className="chat-plan-goal">
+        <span className="muted">执行目标：</span>{entry.completion || '未写明'}
+      </p>
       {entry.warnings.length > 0 && (
         <ul>
           {entry.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
@@ -212,7 +219,84 @@ function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }
   );
 }
 
-/** 方案评审：辩题原文直接列出，等待时也能知道在辩什么。 */
+/** 轮间 / 执行前桥接：先画出对象，再开质疑、回应或执行。 */
+function BridgeMessage(props: { entry: Extract<ConversationEntry, { kind: 'bridge' }> }) {
+  const { entry } = props;
+  const actionLabel = entry.action === 'execute'
+    ? '将执行'
+    : entry.action === 'stop'
+      ? '已收尾'
+      : entry.nextPhase === 'response'
+        ? '将回应'
+        : entry.nextPhase === 'challenge'
+          ? '将质疑'
+          : '将继续';
+  const targetLabel = entry.action === 'continue' && entry.nextPhase === 'response'
+    ? '待答复的质疑对象'
+    : entry.action === 'continue' && entry.nextPhase === 'challenge'
+      ? '将质疑的分歧'
+      : '相关分歧';
+  return (
+    <section className={`card chat-bridge is-${entry.action} ${ToneClass(entry.tone)}`}>
+      <div className="review-head">
+        <b>{entry.title}</b>
+        <span className="muted">{timeText(entry.at)} · {actionLabel}</span>
+      </div>
+      <p className="chat-bridge-message">{entry.message}</p>
+      {entry.targets.length > 0 && (
+        <div className="chat-bridge-targets">
+          <p className="chat-debate-label">{targetLabel}（{String(entry.targets.length)}）</p>
+          <ol className="chat-bridge-list">
+            {entry.targets.map((target, index) => (
+              <li key={index}>
+                <p><span className="muted">一方：</span>{target.left}</p>
+                <p><span className="muted">另一方：</span>{target.right}</p>
+                <p className="muted">依据：{target.reason}</p>
+                {target.agents && (
+                  <p className="muted">成员：{target.agents.join(' · ')}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {entry.steps && entry.steps.length > 0 && (
+        <div className="chat-bridge-targets">
+          <p className="chat-debate-label">将执行的步骤（{String(entry.steps.length)}）</p>
+          <ol className="chat-bridge-list">
+            {entry.steps.map(step => (
+              <li key={step.index}>
+                <p>
+                  <b>{String(step.index)}. {toolLabel(step.tool)}</b>
+                  {' · '}
+                  {step.description}
+                </p>
+                {step.target && <p className="muted"><code>{step.target}</code></p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {entry.action === 'continue' && entry.targets.length === 0 && (
+        <p className="muted">本轮判定要继续，但没有抽出可展示的主张原文；下一轮仍会按引擎规则进行。</p>
+      )}
+    </section>
+  );
+}
+
+/** 与知识问答综合卡同一套底色：结论 / 一致 / 分歧 / 存疑 / 辩题一眼可分。 */
+function leadSectionClass(title: string): string {
+  switch (title) {
+    case '结论': return ' is-conclusion';
+    case '一致': return ' is-agreement';
+    case '分歧': return ' is-dispute';
+    case '存疑': return ' is-doubt';
+    case '辩题': return ' is-topic';
+    default: return '';
+  }
+}
+
+/** 方案评审：五段结论一出就分段画出；辩题原文直接列出，等待时也能知道在辩什么。 */
 function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debate' }> }) {
   const { entry } = props;
   const label = entry.status === 'running'
@@ -222,6 +306,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       : entry.status === 'skipped'
         ? '未进行'
         : '已停止';
+  const leadSections = entry.leadSummary ? splitSummarySections(entry.leadSummary) : [];
   return (
     <section className={`card chat-debate is-${entry.status}`}>
       <div className="review-head">
@@ -234,11 +319,52 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
             : typeof entry.maxRounds === 'number' ? ` · 最多 ${String(entry.maxRounds)} 轮` : ''}
         </span>
       </div>
+      {entry.leadSummary && (
+        <div className="chat-debate-brief">
+          <p className="chat-debate-label">主导五段结论</p>
+          {leadSections.length > 0 ? (
+            <div className="summary-sections">
+              {leadSections.map((section, index) => (
+                <section
+                  key={index}
+                  className={`summary-section${leadSectionClass(section.title)}${section.title ? '' : ' no-title'}`}
+                >
+                  {section.title && <h4 className="summary-section-title">{section.title}</h4>}
+                  <p className="summary-section-body">{section.body || '没有'}</p>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <pre className="chat-debate-lead-summary">{entry.leadSummary}</pre>
+          )}
+        </div>
+      )}
+      {(entry.expressTarget || entry.expressGoal) && (
+        <div className="chat-debate-brief">
+          <p className="chat-debate-label">表态</p>
+          {entry.expressTarget && (
+            <p><span className="muted">对象：</span>{entry.expressTarget}</p>
+          )}
+          {entry.expressGoal && (
+            <p><span className="muted">目标：</span>{entry.expressGoal}</p>
+          )}
+        </div>
+      )}
       {entry.topics.length > 0 ? (
         <>
           <p className="chat-debate-label">议题（{String(entry.topics.length)}）</p>
+          <p className="muted chat-debate-topic-source">
+            来源：主导模型五段结论中的【辩题】（与知识问答同一套）；系统不按步数或工具名编造辩论。
+          </p>
           <ol className="chat-debate-topics">
-            {entry.topics.map((topic, index) => <li key={index}>{topic}</li>)}
+            {entry.topics.map((topic, index) => (
+              <li key={index}>
+                <div>{topic}</div>
+                {entry.topicGoals?.[index] && (
+                  <p className="muted chat-debate-topic-goal">目标：{entry.topicGoals[index]}</p>
+                )}
+              </li>
+            ))}
           </ol>
         </>
       ) : (
@@ -365,6 +491,15 @@ function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 
 /** 第 N 次独立评审：同样按事件时间落进时间线，不放到页面底部。 */
 function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'review' }> }) {
   const { entry } = props;
+  const details = entry.issueDetails && entry.issueDetails.length > 0
+    ? entry.issueDetails
+    : entry.issues.map((text, index) => ({
+        issueId: `legacy:${String(index)}`,
+        title: text.slice(0, 80),
+        description: text,
+        severity: 'unknown' as const,
+        disposition: 'pending' as const
+      }));
   return (
     <section className={`card review-card chat-review${entry.needsFix ? ' needs-fix' : ''}`}>
       <div className="review-head">
@@ -374,12 +509,27 @@ function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'revie
         </span>
       </div>
       <p>{entry.verdict}</p>
-      {entry.issues.length > 0 && (
+      {details.length > 0 && (
         <ul>
-          {entry.issues.map((issue, index) => <li key={index}>{issue}</li>)}
+          {details.map(issue => (
+            <li key={issue.issueId}>
+              <b>{issue.title}</b>
+              {issue.description !== issue.title && <div>{issue.description}</div>}
+              <div className="muted">
+                风险：{issue.severity === 'high' ? '高' : issue.severity === 'medium' ? '中' : issue.severity === 'low' ? '低' : '未分级'}
+                {' · '}处理：{issue.disposition === 'pending' ? '待决定' : issue.disposition}
+              </div>
+            </li>
+          ))}
         </ul>
       )}
-      <p className="muted">评审只给结论，不会改文件。</p>
+      {entry.rawVerdict && entry.rawVerdict !== entry.verdict && (
+        <details>
+          <summary>完整评审原文</summary>
+          <pre>{entry.rawVerdict}</pre>
+        </details>
+      )}
+      <p className="muted">评审只给结论，不会改文件。未处理的问题保持待决定，不会自动关闭。</p>
     </section>
   );
 }
@@ -482,6 +632,9 @@ export function TaskConversation(props: {
         if (entry.kind === 'debate') {
           return <DebateMessage key={entry.key} entry={entry} />;
         }
+        if (entry.kind === 'bridge') {
+          return <BridgeMessage key={entry.key} entry={entry} />;
+        }
         if (entry.kind === 'verification') {
           return <VerificationMessage key={entry.key} entry={entry} />;
         }
@@ -489,6 +642,9 @@ export function TaskConversation(props: {
           return <ReviewMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'conclusion') {
+          const metaFacts = entry.executionResults && entry.executionResults.length > 0
+            ? entry.facts.filter(fact => !entry.executionResults!.includes(fact))
+            : entry.facts;
           return (
             <section key={entry.key} className={`chat-conclusion ${ToneClass(entry.tone)}`}>
               <div className="chat-conclusion-head">
@@ -496,9 +652,37 @@ export function TaskConversation(props: {
                 <span className="muted">{timeText(entry.at)}</span>
               </div>
               <p>{entry.text}</p>
-              {entry.facts.length > 0 && (
+              {entry.executionGoal && (
+                <div className="chat-conclusion-block">
+                  <p className="chat-debate-label">执行目标</p>
+                  <p>{entry.executionGoal}</p>
+                </div>
+              )}
+              {entry.executionResults && entry.executionResults.length > 0 && (
+                <div className="chat-conclusion-block">
+                  <p className="chat-debate-label">执行结果</p>
+                  <ul className="chat-conclusion-results">
+                    {entry.executionResults.map(item => (
+                      <li key={item}>
+                        <pre>{item}</pre>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {entry.deliverables && entry.deliverables.length > 0 && (
+                <div className="chat-conclusion-block">
+                  <p className="chat-debate-label">目标物（{String(entry.deliverables.length)}）</p>
+                  <ul className="chat-conclusion-results">
+                    {entry.deliverables.map(path => (
+                      <li key={path}><code>{path}</code></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {metaFacts.length > 0 && (
                 <ul>
-                  {entry.facts.map(fact => <li key={fact}>{fact}</li>)}
+                  {metaFacts.map(fact => <li key={fact}>{fact}</li>)}
                 </ul>
               )}
             </section>

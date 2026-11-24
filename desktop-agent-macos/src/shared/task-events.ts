@@ -27,14 +27,17 @@ export function phaseOfEvent(type: AgentEvent['type']): TaskEventPhase {
     case 'plan.ready':
     case 'plan.invalid':
     case 'plan.review.progress':
+    case 'plan.review.bridge':
     case 'plan.debated':
     case 'step.approval':
     case 'step.approval-resolved': return 'approval';
+    case 'execution.bridge':
     case 'step.started':
     case 'step.completed':
     case 'step.failed': return 'execution';
     case 'report.ready': return 'verification';
-    case 'review.ready': return 'review';
+    case 'review.ready':
+    case 'review.disposition': return 'review';
     case 'task.completed': return 'delivery';
     case 'task.failed':
     case 'task.cancelled': return 'terminal';

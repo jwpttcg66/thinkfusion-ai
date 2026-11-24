@@ -331,7 +331,8 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
     ...(value.kind ? { kind: value.kind } : {}),
     ...(value.design ? { design: value.design } : {}),
     steps: value.steps,
-    ...(value.completion ? { completion: value.completion } : {})
+    ...(value.completion ? { completion: value.completion } : {}),
+    ...(Array.isArray(value.concerns) ? { concerns: value.concerns } : {})
   };
   // 模型常见别名：stepId / summary；计划字段缺失时用摘要兜底。
   delete next.summary;
@@ -544,7 +545,10 @@ const PLAN_SHAPE = `{
   "steps": [
     { "id": "step-1", "tool": "fs.list", "description": "说明", "args": { "path": "." } }
   ],
-  "completion": { "condition": "可验证的完成条件" }
+  "completion": { "condition": "可验证的完成条件" },
+  "concerns": [
+    { "topic": "可选：你认为需要评审的议题", "reason": "可选：原因", "goal": "可选：辩清后要落到的裁定" }
+  ]
 }`;
 
 const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配）：

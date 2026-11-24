@@ -1046,7 +1046,25 @@ export const PlanSchema = z
       .strict()
       .optional(),
     steps: z.array(StepSchema).min(1).max(30),
-    completion: z.object({ condition: z.string().min(1).max(1000) }).strict()
+    completion: z.object({ condition: z.string().min(1).max(1000) }).strict(),
+    /**
+     * 主导模型自己提出的评审议题（可选）。
+     * 系统不得按步数/工具名套模板编造辩论；没有本字段就不开方案辩论。
+     */
+    concerns: z
+      .array(
+        z
+          .object({
+            topic: z.string().min(1).max(500),
+            /** 为什么要辩这条。 */
+            reason: z.string().max(1000).optional(),
+            /** 辩清后要落到什么裁定。 */
+            goal: z.string().max(1000).optional()
+          })
+          .strict()
+      )
+      .max(5)
+      .optional()
   })
   .strict()
   .refine(plan => new Set(plan.steps.map(step => step.id)).size === plan.steps.length, {
@@ -1228,16 +1246,63 @@ export interface StoredPlan {
  * 点确认。`skippedReason` 是刻意保留的——没辩和辩了没结论是两件不同的事，
  * 界面不能都显示成空白。
  */
+/**
+ * 计划辩论落到事件里的结构化切片（V3 主活动区 U2）。
+ *
+ * 完整 DebateState 仍在辩论存档里；这里只带主活动区需要的主张、争议、
+ * 交锋与裁决，避免刷新后只剩一段 summary。老事件没有这个字段。
+ */
+export interface PlanDebateResultSlice {
+  claims: Array<{ claimId: string; author: string; text: string; kind?: string }>;
+  disputes: Array<{
+    disputeId: string;
+    type: string;
+    reason: string;
+    claimIds: [string, string];
+    agents: [string, string];
+  }>;
+  exchanges: Array<{
+    author: string;
+    kind: string;
+    text: string;
+    roundIndex: number;
+    phase?: string;
+  }>;
+  verdict?: {
+    verdict: string;
+    conclusion: string | null;
+    rationale: string;
+    unresolved: string[];
+    backend: string;
+  };
+}
+
 export interface PlanDebate {
   /** 真的开了辩论才有；没开时空缺。 */
   debateId?: string;
   status: 'completed' | 'stopped' | 'skipped';
   /** 辩题：从计划的步骤、风险、验收条件里取的争议点。 */
   topics: string[];
+  /**
+   * 与 topics 一一对应的决策目标：辩清该题后要落到什么裁定。
+   * 老记录没有；缺失时界面只显示议题原文。
+   */
+  topicGoals?: string[];
+  /** 需要对什么表达立场（计划对象）。老记录没有。 */
+  expressTarget?: string;
+  /** 表态要产出什么可审批判断。老记录没有。 */
+  expressGoal?: string;
   /** 参与者（模型 id）。 */
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
   summary: string;
+  /**
+   * 主导模型五段原文（【结论】【一致】【分歧】【存疑】【辩题】）。
+   * 与知识问答同一套；议题从这里的【辩题】解析。老记录没有。
+   */
+  leadSummary?: string;
+  /** 结构化切片：主张 / 争议 / 交锋 / 裁决。老记录没有。 */
+  result?: PlanDebateResultSlice;
   /** 实际跑了几轮；由分歧收敛决定，不是固定值。老记录没有这个字段。 */
   rounds?: number;
   /** 本次允许的上限轮数；实际轮次可能更少。 */
@@ -1249,6 +1314,22 @@ export interface PlanDebate {
   /** 为什么辩：设计文档强制 / 设置开启 / auto 按计划规模与风险判断。 */
   reason?: string;
   at: number;
+}
+
+/**
+ * 独立评审的单条问题（V3 主活动区 U3）。
+ *
+ * `issues: string[]` 仍保留作兼容；有 `issueDetails` 时主活动区优先读它。
+ * disposition 默认 pending——有评审事件不等于问题已处理。
+ */
+export interface ReviewIssueDetail {
+  issueId: string;
+  title: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low' | 'unknown';
+  recommendation?: string;
+  disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+  dispositionReason?: string;
 }
 
 export interface PlanPreview {
@@ -1533,8 +1614,28 @@ export type AgentEvent = AgentEventBase &
         reviewer: string;
         backend: 'model' | 'rules';
         verdict: string;
+        /** 模型/规则原文；有 issueDetails 时界面优先展示结构化问题。 */
+        rawVerdict?: string;
         issues: string[];
+        issueDetails?: ReviewIssueDetail[];
         needsFix: boolean;
+      }
+    /**
+     * 评审问题的处理决定（V3 U3 闭环）。
+     *
+     * 权威写在事件里：投影从 `review.ready` + 本事件重建 disposition，
+     * 不改写历史上的 `issueDetails`。拒绝/暂缓必须带 reason。
+     */
+    | {
+        type: 'review.disposition';
+        taskId: string;
+        /** 对应那次 `review.ready` 的 roundId；缺失时按 issueId 全局匹配。 */
+        roundId?: string;
+        issueId: string;
+        disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+        reason: string;
+        /** 采纳后进入的修正轮（若已创建）。 */
+        repairRoundId?: string;
       }
     /** V2.1 D-03：计划生成后、审批前的方案评审辩论。 */
     | { type: 'plan.debated'; taskId: string; roundId: string; planId: string; debate: PlanDebate }
@@ -1551,6 +1652,17 @@ export type AgentEvent = AgentEventBase &
         topics: number;
         /** 辩题原文。旧事件只有数量，缺失时界面按数量显示。 */
         topicTexts?: string[];
+        /** 与 topicTexts 一一对应的决策目标；旧事件没有。 */
+        topicGoals?: string[];
+        /** 需要对什么表达立场；旧事件没有。 */
+        expressTarget?: string;
+        /** 表态要产出什么判断；旧事件没有。 */
+        expressGoal?: string;
+        /**
+         * 主导模型五段原文。五段一出就带上，不必等辩完；旧心跳没有。
+         * 后续心跳若不带此字段，投影必须保留已有值，不能被空覆盖。
+         */
+        leadSummary?: string;
         /** 为什么开这场评审；旧事件没有。 */
         reason?: string;
         /** 实际已完成的轮次；等待中通常还没有。 */
@@ -1561,6 +1673,45 @@ export type AgentEvent = AgentEventBase &
         roundsReason?: string;
         elapsedMs: number;
         message: string;
+      }
+    /**
+     * 方案评审轮间桥接：先画出「对什么质疑 / 对什么回应」，再开下一轮。
+     * 只报「还有 N 条争议」不够；targets 带双方主张原文与判定理由。
+     */
+    | {
+        type: 'plan.review.bridge';
+        taskId: string;
+        roundId: string;
+        planId: string;
+        action: 'continue' | 'stop';
+        fromRound: number;
+        fromPhase: 'analysis' | 'challenge' | 'response';
+        fromPhaseLabel: string;
+        nextPhase?: 'challenge' | 'response';
+        nextPhaseLabel?: string;
+        message: string;
+        targets: Array<{
+          left: string;
+          right: string;
+          reason: string;
+          agents: [string, string];
+        }>;
+      }
+    /**
+     * 执行前桥接：审批通过后、工具开动前，先画出将执行的步骤依据。
+     */
+    | {
+        type: 'execution.bridge';
+        taskId: string;
+        roundId: string;
+        planId: string;
+        message: string;
+        steps: Array<{
+          index: number;
+          tool: string;
+          description: string;
+          target?: string;
+        }>;
       }
     | { type: 'report.sent'; taskId: string; roundId: string }
     | { type: 'task.completed'; taskId: string; summary?: string }
@@ -2579,6 +2730,17 @@ export interface AgentApi {
   acceptUnverified(taskId: string): Promise<void>;
   /** 按当前环境重新规划并执行，专门修复未验证的失败；会真的再跑命令。 */
   resumeRepair(taskId: string): Promise<void>;
+  /**
+   * 写回单条评审问题的处理决定（采纳/拒绝/暂缓/待决定）。
+   * 落 `review.disposition` 事件；拒绝与暂缓必须带 reason。
+   */
+  setReviewDisposition(input: {
+    taskId: string;
+    issueId: string;
+    disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+    reason: string;
+    roundId?: string;
+  }): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
   /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;

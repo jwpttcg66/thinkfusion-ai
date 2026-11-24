@@ -19,7 +19,7 @@ import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
-import { checkPlanCapabilities, planDebateTopics, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
+import { checkPlanCapabilities, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
@@ -72,7 +72,9 @@ export interface OrchestratorDeps {
     reviewer: string;
     backend: 'model' | 'rules';
     verdict: string;
+    rawVerdict?: string;
     issues: string[];
+    issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
     needsFix: boolean;
     at: number;
   }>;
@@ -94,17 +96,37 @@ export interface OrchestratorDeps {
     roundId: string;
     planId: string;
     plan: AgentPlan;
-    topics: string[];
+    /** 用户原话：五段汇总的「问题」侧，与知识问答一致。 */
+    userPrompt?: string;
     debateAgentIds?: readonly string[];
+    /**
+     * 五段一出、辩论尚未开始时回调：编排器立刻刷新心跳议题与原文，
+     * 避免界面在辩题已定时仍写「主导模型撰写五段结论中」。
+     */
+    onLeadReady?: (brief: {
+      topics: string[];
+      topicGoals: string[];
+      expressTarget: string;
+      expressGoal: string;
+      leadSummary: string;
+    }) => void;
   }) => Promise<{
     debateId?: string;
-    status: 'completed' | 'stopped';
+    status: 'completed' | 'stopped' | 'skipped';
     participants: string[];
     summary: string;
+    topics: string[];
+    topicGoals?: string[];
+    expressTarget?: string;
+    expressGoal?: string;
+    /** 主导模型五段原文（结论/一致/分歧/存疑/辩题）。 */
+    leadSummary?: string;
     /** 实际跑了几轮、最多允许几轮、为什么结束；老调用方不给也不影响。 */
     rounds?: number;
     maxRounds?: number;
     roundsReason?: string;
+    skippedReason?: string;
+    result?: import('../shared/contracts').PlanDebateResultSlice;
   } | null>;
   /**
    * 审批时给外部 Agent 建独立工作树。默认实现是 main/task-worktree。
@@ -371,6 +393,32 @@ export class AgentOrchestrator {
     this.tasks.transition(task.taskId, 'executing', { workspaceRoot: rootDir });
     this.busy.add(task.taskId);
 
+    // 执行前先画出依据：将跑哪些步骤、针对什么目标；不能一批准就静默开工。
+    this.deps.emit({
+      type: 'execution.bridge',
+      at: Date.now(),
+      taskId: task.taskId,
+      roundId: stored.roundId,
+      planId: stored.planId,
+      message: `计划已批准，将按 ${String(plan.steps.length)} 步执行「${plan.title}」${plan.completion ? `（完成条件：${plan.completion}）` : ''}`,
+      steps: plan.steps.slice(0, 20).map((step, index) => {
+        const args = (step.args ?? {}) as Record<string, unknown>;
+        const target = typeof args.path === 'string'
+          ? args.path
+          : typeof args.command === 'string'
+            ? args.command
+            : typeof args.to === 'string'
+              ? args.to
+              : undefined;
+        return {
+          index: index + 1,
+          tool: step.tool,
+          description: step.description?.trim() || step.tool,
+          ...(target ? { target: String(target) } : {})
+        };
+      })
+    });
+
     let report: ExecutionReport;
     try {
       report = await runPlan(plan, grant, this.deps.dbPath(), this.planTimeout(task.timeoutMs, plan), {
@@ -414,7 +462,14 @@ export class AgentOrchestrator {
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论：下一轮计划要不要人重新批准，由权限预设决定
     // （完全权限下自动执行，其余档位仍需点击）。
-    let review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null;
+    let review: {
+      reviewer: string;
+      verdict: string;
+      issues: string[];
+      needsFix: boolean;
+      rawVerdict?: string;
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    } | null = null;
     if (this.deps.review) {
       try {
         const verdict = await this.deps.review(report, plan, task);
@@ -422,12 +477,16 @@ export class AgentOrchestrator {
           reviewer: verdict.reviewer,
           verdict: verdict.verdict,
           issues: verdict.issues,
-          needsFix: verdict.needsFix
+          needsFix: verdict.needsFix,
+          ...(verdict.rawVerdict ? { rawVerdict: verdict.rawVerdict } : {}),
+          ...(verdict.issueDetails ? { issueDetails: verdict.issueDetails } : {})
         };
         this.deps.emit({
           type: 'review.ready', at: verdict.at, taskId: task.taskId, roundId: stored.roundId,
           reviewer: verdict.reviewer, backend: verdict.backend, verdict: verdict.verdict,
-          issues: verdict.issues, needsFix: verdict.needsFix
+          issues: verdict.issues, needsFix: verdict.needsFix,
+          ...(verdict.rawVerdict ? { rawVerdict: verdict.rawVerdict } : {}),
+          ...(verdict.issueDetails ? { issueDetails: verdict.issueDetails } : {})
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -1285,11 +1344,11 @@ export class AgentOrchestrator {
       if (reports.length > 0 && !hasGenuineDelivery(reports)) {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
-          message: '模型声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成，改为继续修复'
+          message: '模型声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成，改为继续修复'
         });
-        if (this.repairPlan(taskId, '任务尚未真实交付：没有成功写入并验证过的文件，请给出能真正落盘并验证的计划')) return;
-        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        if (this.repairPlan(taskId, '任务尚未确认交付：请按你设计的完成条件给出可核对的检查步骤并执行')) return;
+        this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
         return;
       }
       this.tasks.transition(taskId, 'completed', { summary: result.summary });
@@ -1399,52 +1458,89 @@ export class AgentOrchestrator {
       };
     }
 
-    const topics = planDebateTopics(stored.plan);
-    // 轮次由计划规模决定；在评审开始前就给界面一个明确依据，别让人等完
-    // 三分钟才知道为什么是两轮。
+    // 与知识问答一致：先让主导模型写五段，再按【辩题】决定是否辩论。
+    // 议题在 debatePlan 内从五段解析，这里不预造 topics。
     const plannedRounds = planReviewRounds(stored.plan, task.debateAgentIds?.length ?? 1);
     const startedAt = Date.now();
+    let progressTopics: string[] = [];
+    let progressGoals: string[] = [];
+    let progressTarget = '';
+    let progressGoal = '';
+    let progressLeadSummary = '';
     const emitProgress = (state: 'started' | 'waiting' | 'done', message: string) => {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
-        planId: stored.planId, state, topics: topics.length, topicTexts: topics,
+        planId: stored.planId, state, topics: progressTopics.length,
+        ...(progressTopics.length > 0 ? { topicTexts: progressTopics } : {}),
+        ...(progressGoals.length > 0 ? { topicGoals: progressGoals } : {}),
+        ...(progressTarget ? { expressTarget: progressTarget } : {}),
+        ...(progressGoal ? { expressGoal: progressGoal } : {}),
+        ...(progressLeadSummary ? { leadSummary: progressLeadSummary } : {}),
         ...(decision.reason ? { reason: decision.reason } : {}),
         maxRounds: plannedRounds.rounds,
         roundsReason: plannedRounds.reason,
         elapsedMs: Date.now() - startedAt, message
       });
     };
-    // 最长 300 秒（3 轮评审）的等待不能只有开头一句 log：每 10 秒一次心跳，界面才有
-    // 「还在跑」的证据。心跳不是审批信号，审批仍只在辩论真正结束后发生。
-    emitProgress('started', `方案评审开始：${topics.length} 个议题，成员逐个给出意见`);
+    emitProgress('started', '方案评审开始：主导模型先写【结论/一致/分歧/存疑/辩题】');
     const heartbeat = setInterval(() => {
       const seconds = Math.round((Date.now() - startedAt) / 1000);
-      emitProgress('waiting', `方案评审进行中，已等待 ${String(seconds)} 秒`);
+      emitProgress(
+        'waiting',
+        progressLeadSummary
+          ? (progressTopics.length > 0
+            ? `五段结论已出（${String(progressTopics.length)} 个议题），成员表态中，已等待 ${String(seconds)} 秒`
+            : `五段结论已出，主导未指定辩题，已等待 ${String(seconds)} 秒`)
+          : `主导模型撰写五段结论中，已等待 ${String(seconds)} 秒`
+      );
     }, 10_000);
     try {
-      const task = this.tasks.get(taskId);
+      const live = this.tasks.get(taskId);
       const result = await this.deps.debatePlan({
-        taskId, roundId, planId: stored.planId, plan: stored.plan, topics,
-        ...(task.debateAgentIds && task.debateAgentIds.length > 0 ? { debateAgentIds: task.debateAgentIds } : {})
+        taskId, roundId, planId: stored.planId, plan: stored.plan,
+        userPrompt: live.userPrompt,
+        ...(live.debateAgentIds && live.debateAgentIds.length > 0
+          ? { debateAgentIds: live.debateAgentIds }
+          : {}),
+        onLeadReady: brief => {
+          progressTopics = brief.topics;
+          progressGoals = brief.topicGoals;
+          progressTarget = brief.expressTarget;
+          progressGoal = brief.expressGoal;
+          progressLeadSummary = brief.leadSummary;
+          emitProgress(
+            'waiting',
+            brief.topics.length > 0
+              ? `五段结论已出，主导模型指定 ${String(brief.topics.length)} 个辩题`
+              : '五段结论已出，主导模型未指定辩题，跳过辩论'
+          );
+        }
       });
       if (!result) {
         return {
-          status: 'skipped', topics, participants: [], summary: '',
+          status: 'skipped', topics: [], participants: [], summary: '',
           skippedReason: '辩论没有可用成员，计划未经评审', at: Date.now()
         };
       }
+      progressTopics = result.topics;
+      progressGoals = result.topicGoals ?? [];
+      progressTarget = result.expressTarget ?? '';
+      progressGoal = result.expressGoal ?? '';
       return {
         status: result.status,
         debateId: result.debateId,
-        topics,
+        topics: result.topics,
+        ...(result.topicGoals ? { topicGoals: result.topicGoals } : {}),
+        ...(result.expressTarget ? { expressTarget: result.expressTarget } : {}),
+        ...(result.expressGoal ? { expressGoal: result.expressGoal } : {}),
+        ...(result.leadSummary ? { leadSummary: result.leadSummary } : {}),
         participants: result.participants,
         summary: result.summary,
-        // 轮次与理由要一起进 plan.debated：审批的人看到「3 轮」才知道
-        // 这场评审有回应轮；丢了字段，界面只能显示结论，解释不了为什么这次
-        // 比上次慢。
+        ...(result.result ? { result: result.result } : {}),
         ...(typeof result.rounds === 'number' ? { rounds: result.rounds } : {}),
         ...(typeof result.maxRounds === 'number' ? { maxRounds: result.maxRounds } : {}),
         ...(result.roundsReason ? { roundsReason: result.roundsReason } : {}),
+        ...(result.skippedReason ? { skippedReason: result.skippedReason } : {}),
         at: Date.now()
       };
     } catch (error) {
@@ -1454,7 +1550,7 @@ export class AgentOrchestrator {
         message: `方案评审辩论没有完成：${detail}；计划仍可审批，但要知道它没被辩过`
       });
       return {
-        status: 'skipped', topics, participants: [], summary: '',
+        status: 'skipped', topics: progressTopics, participants: [], summary: '',
         skippedReason: `辩论失败：${detail}`, at: Date.now()
       };
     } finally {
@@ -1496,10 +1592,99 @@ export class AgentOrchestrator {
     return true;
   }
 
+  /**
+   * 用户或系统写回单条评审问题的处理决定。
+   * 拒绝/暂缓必须带非空 reason；事件落盘后由投影重建，不改写历史 review.ready。
+   */
+  async setReviewDisposition(input: {
+    taskId: string;
+    issueId: string;
+    disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+    reason: string;
+    roundId?: string;
+  }): Promise<void> {
+    this.tasks.get(input.taskId);
+    const reason = input.reason.trim();
+    if ((input.disposition === 'rejected' || input.disposition === 'deferred') && !reason) {
+      throw new Error(input.disposition === 'rejected' ? '拒绝评审问题必须写明原因' : '暂缓评审问题必须写明条件或原因');
+    }
+    const events = this.deps.store.listEvents(input.taskId);
+    const known = events.some(event => {
+      if (event.type !== 'review.ready') return false;
+      if (event.issueDetails?.some(detail => detail.issueId === input.issueId)) return true;
+      return event.issues.some((text, index) => {
+        const reviewIndex = events.filter(item => item.type === 'review.ready' && item.at <= event.at).length;
+        const slug = text.trim().slice(0, 48).replace(/\s+/g, ' ');
+        return `review:${String(reviewIndex)}:issue:${String(index)}:${slug}` === input.issueId;
+      });
+    });
+    if (!known) throw new Error(`找不到评审问题 ${input.issueId}`);
+    this.deps.emit({
+      type: 'review.disposition',
+      at: Date.now(),
+      taskId: input.taskId,
+      issueId: input.issueId,
+      disposition: input.disposition,
+      reason: reason || (input.disposition === 'accepted' ? '已采纳' : input.disposition === 'pending' ? '改回待决定' : reason),
+      ...(input.roundId ? { roundId: input.roundId } : {})
+    });
+  }
+
+  private emitAcceptedDispositions(input: {
+    taskId: string;
+    reviewRoundId: string;
+    repairRoundId: string;
+    review: {
+      issues: string[];
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    };
+  }): void {
+    const { taskId, reviewRoundId, repairRoundId, review } = input;
+    const details = review.issueDetails && review.issueDetails.length > 0
+      ? review.issueDetails
+      : null;
+    if (details) {
+      for (const detail of details) {
+        this.deps.emit({
+          type: 'review.disposition',
+          at: Date.now(),
+          taskId,
+          roundId: reviewRoundId,
+          issueId: detail.issueId,
+          disposition: 'accepted',
+          reason: '已并入下一轮修复计划',
+          repairRoundId
+        });
+      }
+      return;
+    }
+    if (review.issues.length === 0) return;
+    const reviewIndex = this.deps.store.listEvents(taskId).filter(event => event.type === 'review.ready').length;
+    for (const [index, text] of review.issues.entries()) {
+      const slug = text.trim().slice(0, 48).replace(/\s+/g, ' ');
+      this.deps.emit({
+        type: 'review.disposition',
+        at: Date.now(),
+        taskId,
+        roundId: reviewRoundId,
+        issueId: `review:${String(reviewIndex)}:issue:${String(index)}:${slug}`,
+        disposition: 'accepted',
+        reason: '已并入下一轮修复计划',
+        repairRoundId
+      });
+    }
+  }
+
   private async continueAfterReport(
     taskId: string,
     report: ExecutionReport,
-    review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null
+    review: {
+      reviewer: string;
+      verdict: string;
+      issues: string[];
+      needsFix: boolean;
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    } | null = null
   ): Promise<void> {
     const task = this.tasks.get(taskId);
     const rounds = this.tasks.listRounds(taskId);
@@ -1517,18 +1702,26 @@ export class AgentOrchestrator {
     // 验证未通过时，即使报告自报 completed / nextAction=complete，也不能
     // 直接收尾。完全权限下会走到这里进入下一轮修复；这是「全部完成后才
     // 算好」的底线，不能因为报告文字写完成就跳过。
-    if (report.status === 'completed' &&
-        (!report.verification || verificationIsComplete(report.verification)) &&
-        (report.nextAction === 'complete' || testsPassed)) {
-      // 空轮假完成闸门：报告自报 completed 不等于真交付。整条链从没成功写过
-      // 文件并通过验证（例如只跑了 fs.list/fs.tree 的空轮），不能标完成。
+    //
+    // 已确认交付时：评审没有可执行问题（needsFix/issues 都空），即使
+    // nextAction 仍写 continue，也直接收尾——否则会再开一轮规划，被非法
+    // 协议块拖成 failed，结果面板出现「像完成又像失败」的残缺状态
+    // （真机 2026-11-24：只读列目录已验证通过，仍因 continue 进入修复轮失败）。
+    const verifiedDone =
+      report.status === 'completed' &&
+      (!report.verification || verificationIsComplete(report.verification));
+    const actionableReview =
+      Boolean(review?.needsFix) || (review?.issues?.length ?? 0) > 0;
+    if (verifiedDone && (report.nextAction === 'complete' || testsPassed || !actionableReview)) {
+      // 空轮假完成闸门：报告自报 completed 不等于已确认交付。必须能核对到
+      // 验证结论已成立；写失败后的空验证轮不能过关。
       if (!hasGenuineDelivery([...this.deps.store.allReportsFor(taskId), report])) {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
-          message: '报告声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成'
+          message: '报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
         });
-        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
         return;
       }
       this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });
@@ -1560,6 +1753,16 @@ export class AgentOrchestrator {
     const round = this.tasks.createRound({ taskId, inputType: 'execution_report', requestText: '' });
     const prompt = buildReportPrompt({ taskId, roundId: round.roundId, report, review });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
+
+    // 进入修复轮即视为采纳这些问题：写 disposition 事件，投影才能从 pending 变成 accepted。
+    if (review && (review.issueDetails?.length || review.issues.length > 0)) {
+      this.emitAcceptedDispositions({
+        taskId,
+        reviewRoundId: report.roundId,
+        repairRoundId: round.roundId,
+        review
+      });
+    }
 
     void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
   }

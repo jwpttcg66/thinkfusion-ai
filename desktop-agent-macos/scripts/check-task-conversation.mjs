@@ -10,6 +10,7 @@ import {
   buildConclusion,
   buildTaskConversation,
   memberBodyView,
+  protocolDerivation,
   protocolKind,
   protocolSummary
 } from '../out-test/shared/task-conversation.js';
@@ -146,6 +147,191 @@ test('结论带真实事实：步数、验证、评审', () => {
   assert.match(conclusion.facts.join(' / '), /独立评审：通过/);
 });
 
+test('结论必须完整输出执行目标与执行结果', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'plan.ready',
+        at: 1500,
+        taskId: task,
+        roundId: 'r1',
+        plan: {
+          planId: 'p1',
+          title: 'Go hello world',
+          description: '本机写 demo',
+          completion: '终端输出 hello world',
+          steps: [
+            { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go' }, description: '写文件' },
+            { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' }, description: '运行' }
+          ],
+          warnings: []
+        }
+      },
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.writeFile',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { path: 'main.go' },
+              result: { path: 'main.go', bytes: 42 }
+            },
+            {
+              stepId: 's2',
+              tool: 'shell.run',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { command: 'go run main.go' },
+              result: { command: 'go run main.go', exitCode: 0, stdout: 'hello world\n' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: [],
+            changedFiles: 1,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 3000, taskId: task, summary: '完成' }
+    ],
+    { status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.match(conclusion.executionGoal, /终端输出 hello world/);
+  assert.match(conclusion.executionGoal, /Go hello world/);
+  assert.ok(conclusion.executionResults.some(item => /main\.go/.test(item)));
+  assert.ok(conclusion.executionResults.some(item => /hello world/.test(item)));
+  assert.match(conclusion.facts.join(' / '), /执行 2 步/);
+  assert.ok(conclusion.deliverables.some(item => /main\.go/.test(item)), '目标物必须列出写出的文件');
+});
+
+test('方案评审 done 心跳不得把已辩完冲回进行中', () => {
+  const topics = ['offset 格式'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 1000,
+      message: '评审中'
+    },
+    {
+      type: 'plan.debated',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      debate: {
+        status: 'completed',
+        topics,
+        participants: ['m1'],
+        summary: '可批',
+        at: 3000
+      }
+    },
+    {
+      type: 'plan.review.progress',
+      at: 3100,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'done',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 2000,
+      message: '方案评审等待结束'
+    }
+  ], { status: 'awaiting_approval' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.equal(debate.status, 'completed');
+});
+
+test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.list',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              result: [
+                { name: 'readme.txt', type: 'file' },
+                { name: 'src', type: 'directory' }
+              ]
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: ['本轮没有写操作，无需验证'],
+            changedFiles: 0,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 3000, taskId: task, summary: '执行完成，验证通过' }
+    ],
+    { summary: '执行完成，验证通过', status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.match(conclusion.text, /目录内容：readme\.txt、src/);
+  assert.match(conclusion.facts.join(' / '), /目录内容：readme\.txt、src/);
+  assert.doesNotMatch(conclusion.text, /^执行完成/);
+});
+
+test('协议计划抽出可读推导：步骤与完成条件', () => {
+  const plan = JSON.stringify({
+    protocol: 'desktop-agent/v1',
+    type: 'plan',
+    summary: '列出根目录',
+    plan: {
+      title: '列出根目录',
+      completion: { condition: '列出文件名' },
+      steps: [
+        { tool: 'fs.list', description: '列根目录', args: { path: '.' } }
+      ]
+    }
+  });
+  const text = protocolDerivation(plan);
+  assert.match(text, /【计划】列出根目录/);
+  assert.match(text, /完成条件：列出文件名/);
+  assert.match(text, /1\. fs\.list — 列根目录/);
+});
+
 test('协议 JSON 不是结论：没有 summary 就如实说没有结论文本', () => {
   const plan = JSON.stringify({
     protocol: 'desktop-agent/v1',
@@ -271,6 +457,14 @@ test('流式且思考也没来：只给占位，不显示空折叠', () => {
   assert.equal(view.displayLength, 0);
 });
 
+test('流式空等超过 3 秒：占位写明已等多久，不再只剩「等待模型输出」', () => {
+  const view = memberBodyView({
+    status: 'streaming', text: '', reasoning: '', reasoningSupported: false, protocol: null, waitMs: 11_000
+  });
+  assert.match(view.placeholder, /已等 11 秒/);
+  assert.match(view.placeholder, /内部思考/);
+});
+
 function reportEvent(at, verification) {
   return {
     type: 'report.ready',
@@ -322,11 +516,10 @@ test('每次验证各占一条并编号：后一次不覆盖前一次', () => {
   assert.equal(verifications[0].reasons.join(''), '测试未执行');
   assert.equal(verifications[1].index, 2);
   assert.equal(verifications[1].verified, true);
-  // 有验证卡就不该再留一条「执行报告：…」的里程碑，重复说同一件事。
-  assert.equal(
-    entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('执行报告：')).length,
-    0
-  );
+  // 验证卡讲 checks；执行报告节点讲逐步结果——两者并存，结果不得被验证卡顶掉。
+  const reportNotes = entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('执行报告：'));
+  assert.equal(reportNotes.length, 2);
+  assert.ok(reportNotes.every(entry => typeof entry.detail === 'string' && entry.detail.includes('[shell.run]')));
 });
 
 test('独立评审按时间落进时间线，位置在两次验证之间', () => {
@@ -347,16 +540,17 @@ test('独立评审按时间落进时间线，位置在两次验证之间', () =>
     reportEvent(4000, verificationOf(true, []))
   ], { status: 'executing' });
 
-  const indexOf = kind => entries.findIndex(entry => entry.kind === kind);
   const reviews = entries.filter(entry => entry.kind === 'review');
+  const verifications = entries.filter(entry => entry.kind === 'verification');
   assert.equal(reviews.length, 1);
   assert.equal(reviews[0].index, 1);
   assert.equal(reviews[0].needsFix, true);
   assert.equal(reviews[0].verdict, '还差一次测试');
   assert.deepEqual(reviews[0].issues, ['测试未执行']);
-  assert.ok(indexOf('review') > indexOf('verification'));
-  assert.equal(entries.filter(entry => entry.kind === 'verification').length, 2);
-  assert.equal(entries.at(-1).kind, 'verification');
+  assert.equal(verifications.length, 2);
+  assert.ok(reviews[0].at > verifications[0].at);
+  assert.ok(reviews[0].at < verifications[1].at);
+  assert.equal(verifications.at(-1).at, 4000);
 });
 
 test('多次验证按时间排序：旧卡留在原位，新的追加在后面', () => {
@@ -404,6 +598,84 @@ test('计划就绪生成计划卡：8 步原文都在，不只剩一句计数', 
   assert.equal(plans[0].steps[3].tool, 'fs.writeFile');
   assert.equal(plans[0].title, '新建 Go 程序输出 hello jwp 并本机运行验证');
   assert.equal(entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('计划就绪')).length, 0);
+});
+
+test('方案评审心跳要把表态对象/目标与议题目标写进对话流', () => {
+  const topics = ['步骤拆分是否合理', '系统动作影响面'];
+  const topicGoals = ['标出可合并项与失败断点', '决定保留或砍掉并写失败收尾'];
+  const expressTarget = '工程计划「Go demo」的步骤、系统动作与完成条件';
+  const expressGoal = '给出可审批判断：哪些步骤保留/合并/砍掉，系统动作是否必要；结论必须指向具体步骤编号。';
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'started',
+      topics: 2,
+      topicTexts: topics,
+      topicGoals,
+      expressTarget,
+      expressGoal,
+      elapsedMs: 0,
+      message: '开始'
+    }
+  ], { status: 'plan_ready' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.ok(debate);
+  assert.equal(debate.expressTarget, expressTarget);
+  assert.equal(debate.expressGoal, expressGoal);
+  assert.deepEqual(debate.topicGoals, topicGoals);
+  assert.deepEqual(debate.topics, topics);
+});
+
+test('五段结论一出就要进方案评审卡，后续心跳不能冲掉原文', () => {
+  const leadSummary = [
+    '【结论】应先写最小可运行 demo。',
+    '【一致】用标准库 time。',
+    '【分歧】没有。',
+    '【存疑】时区偏移格式。',
+    '【辩题】offset 负值格式是否覆盖。'
+  ].join('\n');
+  const topics = ['offset 负值格式是否覆盖'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      topicGoals: ['确认负偏移显示'],
+      expressTarget: '工程计划',
+      expressGoal: '可审批判断',
+      leadSummary,
+      elapsedMs: 12_000,
+      message: '五段结论已出，主导模型指定 1 个辩题'
+    },
+    {
+      type: 'plan.review.progress',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 22_000,
+      message: '五段结论已出（1 个议题），成员表态中，已等待 22 秒'
+    }
+  ], { status: 'plan_ready' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.ok(debate);
+  assert.equal(debate.leadSummary, leadSummary);
+  assert.deepEqual(debate.topics, topics);
+  assert.equal(debate.elapsedMs, 22_000);
 });
 
 test('方案评审只有一个条目：心跳原地更新，辩完后带议题与结论', () => {
@@ -482,4 +754,68 @@ test('方案评审等待中也能看到议题原文', () => {
   assert.equal(debate.elapsedMs, 30000);
   assert.equal(debate.rounds, 2);
   assert.match(debate.roundsReason, /第 2 轮必须质疑/);
+});
+
+test('轮间桥接：先画出质疑/回应对象再开下一轮', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.bridge',
+      at: 2100,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      action: 'continue',
+      fromRound: 1,
+      fromPhase: 'analysis',
+      fromPhaseLabel: '表态',
+      nextPhase: 'challenge',
+      nextPhaseLabel: '质疑',
+      message: '第 1 轮表态结束，还有 1 条争议，进入第 2 轮质疑。先画出以下 1 条分歧，再发起第 2 轮质疑',
+      targets: [{
+        left: '应该先写测试',
+        right: '可以直接改文件',
+        reason: '两句互相否定',
+        agents: ['本地 A', '云端 B']
+      }]
+    }
+  ], { status: 'plan_ready' });
+
+  const bridges = entries.filter(entry => entry.kind === 'bridge');
+  assert.equal(bridges.length, 1);
+  assert.equal(bridges[0].bridgeKind, 'review');
+  assert.equal(bridges[0].action, 'continue');
+  assert.equal(bridges[0].nextPhase, 'challenge');
+  assert.match(bridges[0].title, /先画出依据，再开质疑/);
+  assert.equal(bridges[0].targets.length, 1);
+  assert.match(bridges[0].targets[0].left, /先写测试/);
+  assert.match(bridges[0].targets[0].right, /直接改文件/);
+  assert.equal(bridges[0].targets[0].reason, '两句互相否定');
+});
+
+test('执行前桥接：先画出将跑的步骤再动手', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'execution.bridge',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      message: '计划已批准，将按 2 步执行「补 Hello」',
+      steps: [
+        { index: 1, tool: 'fs.write', description: '写出 Hello.java', target: 'src/Hello.java' },
+        { index: 2, tool: 'shell.run', description: '编译运行', target: 'javac Hello.java && java Hello' }
+      ]
+    }
+  ], { status: 'executing' });
+
+  const bridges = entries.filter(entry => entry.kind === 'bridge');
+  assert.equal(bridges.length, 1);
+  assert.equal(bridges[0].bridgeKind, 'execution');
+  assert.equal(bridges[0].action, 'execute');
+  assert.equal(bridges[0].title, '执行前依据');
+  assert.equal(bridges[0].steps.length, 2);
+  assert.equal(bridges[0].steps[0].tool, 'fs.write');
+  assert.match(bridges[0].steps[1].target, /javac/);
 });

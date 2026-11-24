@@ -21,6 +21,7 @@ import {
   ClarificationAnswerSchema,
   RejectPlanSchema,
   RejectStepSchema,
+  ReviewDispositionSchema,
   SubmitPromptSchema,
   TaskIdSchema,
   CliAgentToggleSchema,
@@ -88,7 +89,7 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
-import { reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from './debate/review-progress';
+import { reviewContinueBridge, reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from './debate/review-progress';
 import {
   catalogEntryOf,
   CLOUD_PRESETS,
@@ -211,11 +212,16 @@ import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
 import {
   filterDebateCandidates,
+  buildPlanReviewLeadAsk,
+  LEAD_SUMMARY_TIMEOUT_MS,
+  planDebateBriefFromSummary,
   planReviewBudget,
   planReviewQuestion,
   planReviewRounds,
   summarizePlanDebate
 } from './engineering/plan-review';
+import { planningHealthShortlist, uniqueByProvider } from './engineering/planning-health';
+import { compactPlanDebateResult } from './engineering/plan-debate-result';
 import {
   normalizeWorkspaceState,
   routeTask,
@@ -1031,34 +1037,80 @@ async function routeEngineeringWithModel(input: {
   executionMode?: ExecutionMode;
   leadAgentId?: string;
   selectedCloudModels?: string[];
+  onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
 }): Promise<RoutingVerdict | null> {
   const question = buildRoutingQuestion(input);
   const request = { question, system: [ROUTING_SYSTEM] };
   const mode = input.executionMode ?? 'hybrid';
-
-  const tryLocal = async (): Promise<RoutingVerdict | null> => {
-    if (!localProvider) return null;
+  const push = (chunk: { text?: string; reasoning?: string; reset?: boolean }) => {
     try {
-      const answer = await localProvider.generate(request, AbortSignal.timeout(ROUTING_TIMEOUT_MS));
+      input.onDelta?.(chunk);
+    } catch {
+      /* 界面增量失败不能挡住判定 */
+    }
+  };
+
+  const fromProvider = async (
+    provider: NonNullable<typeof localProvider> | (typeof cloudProviders)[number],
+    modelId: string | undefined,
+    timeoutMs: number
+  ): Promise<RoutingVerdict | null> => {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const req = modelId ? { ...request, modelId } : request;
+    try {
+      if (provider.streamChunks) {
+        let text = '';
+        let reasoning = '';
+        let pulse = 0;
+        let sent = false;
+        for await (const chunk of provider.streamChunks(req, signal)) {
+          if (chunk.text) text += chunk.text;
+          if (chunk.reasoning) reasoning += chunk.reasoning;
+          const now = Date.now();
+          // 首包立刻推：否则用户只看见「若返回思考会显示」的空壳。
+          if (!sent || now - pulse >= 80) {
+            sent = true;
+            pulse = now;
+            push({
+              ...(text ? { text } : {}),
+              ...(reasoning ? { reasoning } : {}),
+              reset: true
+            });
+          }
+        }
+        if (text || reasoning) {
+          push({
+            ...(text ? { text } : {}),
+            ...(reasoning ? { reasoning } : {}),
+            reset: true
+          });
+        }
+        return parseRoutingVerdict(text);
+      }
+      const answer = await provider.generate(req, signal);
+      if (answer.reasoning || answer.text) {
+        push({
+          ...(answer.text ? { text: answer.text } : {}),
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
+          reset: true
+        });
+      }
       return parseRoutingVerdict(answer.text);
     } catch {
       return null;
     }
   };
 
+  const tryLocal = async (): Promise<RoutingVerdict | null> => {
+    if (!localProvider) return null;
+    return fromProvider(localProvider, undefined, ROUTING_TIMEOUT_MS);
+  };
+
   const tryCloudPair = async (providerId: string, modelId: string): Promise<RoutingVerdict | null> => {
     if (!apiKeys?.has(providerId)) return null;
     const provider = cloudProviders.find(item => item.id === providerId);
     if (!provider) return null;
-    try {
-      const answer = await provider.generate(
-        { ...request, modelId },
-        AbortSignal.timeout(CLOUD_ROUTING_TIMEOUT_MS)
-      );
-      return parseRoutingVerdict(answer.text);
-    } catch {
-      return null;
-    }
+    return fromProvider(provider, modelId, CLOUD_ROUTING_TIMEOUT_MS);
   };
 
   /** 用户点名 / 勾选的云端成员，按顺序试；都没有就退到「每家第一个模型」。 */
@@ -1098,10 +1150,28 @@ async function routeEngineeringWithModel(input: {
  * openai:gpt-4o-mini 也被算成可用成员，界面能发起、实际每轮都失败，
  * 一场双边辩论静默变成单边。这里把真实原因（detail）一并交给界面。
  */
-async function debateCandidates(): Promise<DebateCandidate[]> {
-  const entries: Array<{ id: string; label: string; type: DebateCandidate['type']; cli?: boolean; health: () => Promise<{ available: boolean; detail?: string }> }> = [
+async function debateCandidates(filter?: {
+  ids?: readonly string[];
+  /** 方案评审不用网页；探活网页会再空等一轮。 */
+  excludeWeb?: boolean;
+}): Promise<DebateCandidate[]> {
+  type Entry = {
+    id: string;
+    label: string;
+    type: DebateCandidate['type'];
+    cli?: boolean;
+    providerId?: string;
+    health: () => Promise<{ available: boolean; detail?: string }>;
+  };
+  let entries: Entry[] = [
     ...registry.list().map(agent => ({ id: agent.id, label: agent.label, type: 'web' as const, health: () => agent.health() })),
-    ...extraAgents.map(agent => ({ id: agent.id, label: agent.label, type: agent.sourceType, health: () => agent.health() })),
+    ...extraAgents.map(agent => ({
+      id: agent.id,
+      label: agent.label,
+      type: agent.sourceType as DebateCandidate['type'],
+      providerId: agent.provider.id,
+      health: () => agent.health()
+    })),
     // CLI 属云端一类（2026-11-15 裁决：可以主导 / 回答 / 辩论 / 执行）：
     // 辩论候选里按 cloud 列出来，但标上 `cli` 让名单仍写 `selectedCliAgents`。
     ...cliAnswerAgents.map(agent => ({
@@ -1112,18 +1182,43 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
       health: () => agent.health()
     }))
   ];
-  return Promise.all(entries.map(async entry => {
+  if (filter?.excludeWeb) entries = entries.filter(entry => entry.type !== 'web');
+  if (filter?.ids && filter.ids.length > 0) {
+    const wanted = new Set(filter.ids);
+    entries = entries.filter(entry => wanted.has(entry.id));
+  }
+  // 同一 Provider 只探一次：结果复用到同 Provider 下其它模型。
+  const probeOf = uniqueByProvider(entries.map(entry => ({
+    id: entry.id,
+    sourceType: entry.type,
+    ...(entry.providerId ? { providerId: entry.providerId } : {}),
+    entry
+  })));
+  const healthByKey = new Map<string, { available: boolean; detail?: string }>();
+  await Promise.all(probeOf.map(async item => {
+    const key = item.providerId ? `provider:${item.providerId}` : `agent:${item.id}`;
     try {
-      const status = await entry.health();
-      return { id: entry.id, label: entry.label, type: entry.type, available: status.available, detail: status.detail, ...(entry.cli ? { cli: true } : {}) };
+      const status = await item.entry.health();
+      healthByKey.set(key, { available: status.available, ...(status.detail ? { detail: status.detail } : {}) });
     } catch (error) {
-      return {
-        id: entry.id, label: entry.label, type: entry.type, available: false,
-        detail: error instanceof Error ? error.message : String(error),
-        ...(entry.cli ? { cli: true } : {})
-      };
+      healthByKey.set(key, {
+        available: false,
+        detail: error instanceof Error ? error.message : String(error)
+      });
     }
   }));
+  return entries.map(entry => {
+    const key = entry.providerId ? `provider:${entry.providerId}` : `agent:${entry.id}`;
+    const status = healthByKey.get(key) ?? { available: false, detail: '未探活' };
+    return {
+      id: entry.id,
+      label: entry.label,
+      type: entry.type,
+      available: status.available,
+      detail: status.detail,
+      ...(entry.cli ? { cli: true } : {})
+    };
+  });
 }
 
 /** 步骤身份索引：step.preparing 记下来，供同一 stepId 的 started/completed 补齐。 */
@@ -3303,6 +3398,11 @@ function registerIpc() {
     await orchestrator.resumeRepair(TaskIdSchema.parse(taskId));
   });
 
+  ipcMain.handle('task:set-review-disposition', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.setReviewDisposition(ReviewDispositionSchema.parse(raw));
+  });
+
   // CLI 有两个身份：回答源（第一轮被问，见 execution/cli-answer-agent.ts）
   // 与执行者（新任务能不能把工程活派给它）。这里的开关同时管这两件事。
   /** 本次亲手在文件对话框里挑过的绝对路径；渲染层不能凭空塞路径。 */
@@ -5462,18 +5562,47 @@ app.whenReady().then(async () => {
       for (const event of batch.events) emit(event);
       for (const key of batch.keys) scope.seen.add(key);
 
-      // 每完成一轮就补一条「为什么继续/为什么停」：用户不必等最后一句
-      // 才知道第二轮、第三轮在做什么。轮次由引擎按分歧收敛决定，不是写死。
+      // 每完成一轮：先画出「对什么质疑/回应」再开下一轮。只报条数不够。
       const completed = state.rounds.length;
       if (completed > scope.roundsSeen) {
-        const message = reviewRoundNote({
-          round: state.rounds[completed - 1],
+        const finished = state.rounds[completed - 1];
+        const claims = state.rounds.flatMap(round => round.claims ?? []);
+        const bridge = reviewContinueBridge({
+          round: finished,
           status: state.status,
           ...(state.stopReason ? { stopReason: state.stopReason } : {}),
-          disputes: state.disputes?.length ?? 0,
+          disputes: state.disputes ?? [],
+          claims,
           maxRounds: scope.maxRounds
         });
-        emit({ type: 'log', at: Date.now(), taskId: scope.taskId, level: 'info', message });
+        emit({
+          type: 'plan.review.bridge',
+          at: Date.now(),
+          taskId: scope.taskId,
+          roundId: scope.roundId,
+          planId: scope.planId,
+          action: bridge.action,
+          fromRound: bridge.fromRound,
+          fromPhase: bridge.fromPhase,
+          fromPhaseLabel: bridge.fromPhaseLabel,
+          ...(bridge.nextPhase ? { nextPhase: bridge.nextPhase } : {}),
+          ...(bridge.nextPhaseLabel ? { nextPhaseLabel: bridge.nextPhaseLabel } : {}),
+          message: bridge.message,
+          targets: bridge.targets
+        });
+        emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: scope.taskId,
+          level: 'info',
+          message: reviewRoundNote({
+            round: finished,
+            status: state.status,
+            ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+            disputes: state.disputes?.length ?? 0,
+            maxRounds: scope.maxRounds
+          })
+        });
         scope.roundsSeen = completed;
       }
     },
@@ -5536,17 +5665,38 @@ app.whenReady().then(async () => {
     selectedCliAgents?: string[];
   }): Promise<PlannerMember | null> {
     if (!input.executionMode || input.executionMode === 'web') return null;
-    const available: typeof extraAgents = [];
-    for (const agent of extraAgents) {
-      try {
-        if ((await agent.health()).available) available.push(agent);
-      } catch { /* 不可用就跳过 */ }
-    }
     const asMember = (agent: (typeof extraAgents)[number]): PlannerMember => ({
       id: agent.id,
       label: agent.label,
       adapter: new ProviderPlanningAdapter(agent)
     });
+    // 只探可能当主导的那几个，并按 Provider 去重：OpenCode 挂 30 个模型时，
+    // 旧逻辑串行打 30 次 /models，转交后空等十几秒。
+    const shortlist = planningHealthShortlist(
+      extraAgents.map(agent => ({
+        id: agent.id,
+        sourceType: agent.sourceType,
+        providerId: agent.provider.id,
+        agent
+      })),
+      {
+        executionMode: input.executionMode,
+        ...(input.plannerAgentId ? { plannerAgentId: input.plannerAgentId } : {}),
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {})
+      }
+    );
+    const probes = uniqueByProvider(shortlist);
+    const healthByProvider = new Map<string, boolean>();
+    await Promise.all(probes.map(async item => {
+      const available = await Promise.race([
+        item.agent.health().then(status => status.available).catch(() => false),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000))
+      ]);
+      healthByProvider.set(item.providerId ?? item.id, available);
+    }));
+    const available = shortlist
+      .filter(item => healthByProvider.get(item.providerId ?? item.id) === true)
+      .map(item => item.agent);
     const lead = input.plannerAgentId
       ? available.find(agent => agent.id === input.plannerAgentId)
       : undefined;
@@ -5702,9 +5852,14 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ taskId, roundId, planId, plan, topics, debateAgentIds }) => {
+    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds, onLeadReady }) => {
       if (!debates) return null;
-      const candidates = await debateCandidates();
+      // 只探本任务要用的模型，且跳过网页：全量探活（含 30 个 OpenCode 模型 + 网页）
+      // 会在五段结论前再空等一轮。
+      const candidates = await debateCandidates({
+        excludeWeb: true,
+        ...(debateAgentIds && debateAgentIds.length > 0 ? { ids: debateAgentIds } : {})
+      });
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
       // 会拖住任务审批链路；它在这一类里不做评审，不代表别人不能用它辩论。
       const available = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
@@ -5722,24 +5877,156 @@ app.whenReady().then(async () => {
       });
       const labels = new Map<string, string>();
       for (const candidate of candidates) labels.set(candidate.id, candidate.label ?? candidate.id);
-      // 轮次按计划规模定，不全局写死：单成员自辩 2 轮，设计文档/多步/多评审
-      // 给 3 轮（多一轮「回应」收口）。预算必须跟着轮次走，否则第三轮会被
-      // 总时长直接砍掉，改了等于没改。
+
+      // —— 与知识问答同一顺序：先五段汇总，再按【辩题】决定是否辩论 ————
+      const leadId = leadPlan.participants[0];
+      if (!leadId) return null;
+      const leadExtra = extraAgents.find(agent => agent.id === leadId);
+      const leadAsk = buildPlanReviewLeadAsk(plan, userPrompt);
+      const leadLabel = labels.get(leadId) ?? leadId;
+      const leadMemberId = `lead-summary:${leadId}`;
+      const leadStartedAt = Date.now();
+      emit({
+        type: 'log', at: leadStartedAt, taskId, level: 'info',
+        message: `方案评审：${leadLabel} 撰写【结论/一致/分歧/存疑/辩题】`
+      });
+      // 撰写五段时也要看得见思考：否则界面只剩「已等 N 秒」，像卡住。
+      emit({
+        type: 'round.peer',
+        at: leadStartedAt,
+        taskId,
+        roundId,
+        memberId: leadMemberId,
+        label: `${leadLabel}（撰写五段结论）`,
+        status: 'started'
+      });
+      let leadSummary = '';
+      let leadReasoning = '';
+      try {
+        const task = {
+          question: leadAsk.question,
+          stage: 'challenge' as const,
+          timeoutMs: LEAD_SUMMARY_TIMEOUT_MS,
+          system: leadAsk.system,
+          signal: AbortSignal.timeout(LEAD_SUMMARY_TIMEOUT_MS)
+        };
+        let pulse = 0;
+        const onDelta = (chunk: { text?: string; reasoning?: string; reset?: boolean }) => {
+          if (chunk.reset) {
+            leadSummary = chunk.text ?? '';
+            leadReasoning = chunk.reasoning ?? '';
+          } else {
+            if (chunk.text) leadSummary += chunk.text;
+            if (chunk.reasoning) leadReasoning += chunk.reasoning;
+          }
+          const now = Date.now();
+          if (now - pulse < 150) return;
+          pulse = now;
+          emit({
+            type: 'round.delta',
+            at: now,
+            taskId,
+            roundId,
+            streamId: `review-lead:${planId}`,
+            participantId: leadMemberId,
+            mode: 'snapshot',
+            ...(leadSummary ? { text: leadSummary } : {}),
+            ...(leadReasoning ? { reasoning: leadReasoning } : {})
+          });
+        };
+        const answer = leadExtra?.askStream
+          ? await leadExtra.askStream(task, onDelta)
+          : leadExtra
+            ? await leadExtra.ask(task)
+            : await registry.ask(leadId, task);
+        leadSummary = (answer.text ?? leadSummary).trim();
+        if (answer.reasoning) leadReasoning = answer.reasoning;
+        emit({
+          type: 'round.peer',
+          at: Date.now(),
+          taskId,
+          roundId,
+          memberId: leadMemberId,
+          label: `${leadLabel}（撰写五段结论）`,
+          status: 'answered',
+          text: leadSummary,
+          ...(leadReasoning ? { reasoning: leadReasoning } : {}),
+          durationMs: Math.max(0, Date.now() - leadStartedAt)
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        emit({
+          type: 'round.peer',
+          at: Date.now(),
+          taskId,
+          roundId,
+          memberId: leadMemberId,
+          label: `${leadLabel}（撰写五段结论）`,
+          status: 'failed',
+          error: detail,
+          durationMs: Math.max(0, Date.now() - leadStartedAt)
+        });
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: '',
+          leadSummary: '',
+          skippedReason: `主导模型五段汇总失败：${detail}`
+        };
+      }
+      if (!leadSummary) {
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: '',
+          leadSummary: '',
+          skippedReason: '主导模型没有写出五段结论，不编造辩论'
+        };
+      }
+      const brief = planDebateBriefFromSummary(plan, leadSummary);
+      const topics = brief.topics.map(item => item.text);
+      const topicGoals = brief.topics.map(item => item.goal);
       const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
       const reviewBudget = planReviewBudget(reviewRounds.rounds);
-      // 先备好 scope，start() 内部在首次 persist 之前同步消费并登记。
+      // 五段一出就通知编排器：议题 + 原文立刻进方案评审卡，不必等辩完才画。
+      onLeadReady?.({
+        topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
+        leadSummary
+      });
+      emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: topics.length > 0
+          ? `五段结论已出，主导模型指定 ${String(topics.length)} 个辩题`
+          : '五段结论已出，主导模型未指定辩题，跳过辩论'
+      });
+      if (brief.topics.length === 0) {
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: leadSummary,
+          leadSummary,
+          expressTarget: brief.expressTarget,
+          expressGoal: brief.expressGoal,
+          skippedReason: '主导模型五段结论未提出辩题，不编造辩论'
+        };
+      }
       pendingReview = { taskId, planId, roundId, topics, labels, maxRounds: reviewRounds.rounds };
       let state;
       try {
         state = debates.start(
-          planReviewQuestion(plan),
+          `${planReviewQuestion(plan)}\n\n【主导模型五段结论】\n${leadSummary}`,
           {
             strategy: 'solution',
             maxRounds: reviewRounds.rounds,
             participants: leadPlan.participants,
             convergenceStop: true,
             leadMode: mode,
-            // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
             seed: { positions: [], topics },
             budget: {
               stageTimeoutMs: reviewBudget.stageTimeoutMs,
@@ -5752,44 +6039,44 @@ app.whenReady().then(async () => {
           'plan-review'
         );
       } finally {
-        // start 抛错时别把备用的 scope 留给下一场辩论。
         pendingReview = null;
       }
-      // 辩论结果原来只在 `waitFor` 之后一次性拿到，中间两三分钟对话流里只有
-      // 一个「已等 N 秒」。scope 已由 onStart 登记：每次落盘把快照翻成
-      // round.peer，每个成员的流式增量再翻成 round.delta，用户看到的就是
-      // 卡片一张张出现、正文一边写一边长。
       const done = await debates.waitFor(state.debateId, reviewBudget.waitMs).finally(() => {
         planReviewScopes.delete(state.debateId);
       });
       if (!done) return null;
-      // 「跑完了」不等于「辩过了」：模型全部超时/忙碌时，引擎仍会把状态记成
-      // completed，但一句话都没说。真机第一轮就遇到两个本地模型一个在忙、
-      // 一个 90 秒没出话——那种记录不能显示成「已辩完」，否则审批的人会以为
-      // 这份计划被评审过。
       const spoke = done.rounds.some(round => round.messages.length > 0);
+      const result = compactPlanDebateResult(done);
       return {
         debateId: done.debateId,
         status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
         participants: leadPlan.participants,
-        // 实际轮次由收敛决定；上限只是成本边界，不能拿上限冒充实际。
+        topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
+        leadSummary,
         rounds: done.rounds.length,
         maxRounds: reviewRounds.rounds,
         roundsReason: done.stopReason ?? reviewRounds.reason,
-        summary: summarizePlanDebate({
-          topics,
-          rounds: done.rounds.map(round => ({
-            index: round.index,
-            // 带上真实阶段：结论要认「回应」轮，不能靠 index 猜老记录的阶段。
-            ...(round.phase ? { phase: round.phase } : {}),
-            messages: round.messages.map(message => ({
-              author: message.agentId,
-              kind: message.kind,
-              text: message.text
-            })),
-            failures: round.failures
-          }))
-        })
+        summary: [
+          leadSummary,
+          '',
+          summarizePlanDebate({
+            topics,
+            rounds: done.rounds.map(round => ({
+              index: round.index,
+              ...(round.phase ? { phase: round.phase } : {}),
+              messages: round.messages.map(message => ({
+                author: message.agentId,
+                kind: message.kind,
+                text: message.text
+              })),
+              failures: round.failures
+            }))
+          })
+        ].join('\n'),
+        result
       };
     },
     /**
@@ -6179,7 +6466,10 @@ app.whenReady().then(async () => {
       else collaborationRecords.push(record);
     },
     submitWorkspace: async input => {
-      await ensureChannelSnapshot();
+      // 云端/本地主导不需要网页探活；旧逻辑每次转交都 statuses() 一遍页面，
+      // 「已判定为工程任务」之后再空等数秒。
+      const mode = input.executionMode ?? 'web';
+      if (mode === 'web' || mode === 'hybrid') await ensureChannelSnapshot();
       // 按这一轮的真实配置挑人：模型优先，云端档没有可用模型时用 CLI 主导。
       const executionConfig =
         input.executionConfig ??

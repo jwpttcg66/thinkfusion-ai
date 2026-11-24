@@ -207,6 +207,8 @@ export interface ConversationDeps {
     executionMode: ConversationExecutionConfig['executionMode'];
     leadAgentId?: string;
     selectedCloudModels?: string[];
+    /** 判定过程的推理/正文增量；有就推到会话，界面不再空等。 */
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
   }) => Promise<RoutingVerdict | null>;
   /** 当前工程 READY generation；搜索开始时固定，避免一轮内跨代。 */
   generationFor?: (root: string) => Promise<number | null>;
@@ -711,20 +713,7 @@ export class ConversationRunner {
     const intent = plannerFirst
       ? { kind: 'workspace' as const, reason: '工程请求交给 Planner 判定' }
       : classifyIntent(text);
-    const routing: TaskRouting | undefined =
-      workspaceMode === 'engineering' && !plannerFirst
-        ? await this.engineeringRouting({
-            text,
-            attachments,
-            override: input.taskKindOverride,
-            hasProject: !!input.workspaceRoot,
-            executionMode: executionConfig.executionMode,
-            ...(executionConfig.leadAgentId ? { leadAgentId: executionConfig.leadAgentId } : {}),
-            ...(executionConfig.selectedCloudModels
-              ? { selectedCloudModels: executionConfig.selectedCloudModels }
-              : {})
-          })
-        : undefined;
+    // 先建会话再问模型判定：云端判定可到 15 秒，建晚了界面只能空等，还误写成「没有推理」。
     const now = Date.now();
     const conversation: Conversation = {
       conversationId: randomUUID(),
@@ -742,14 +731,12 @@ export class ConversationRunner {
       // 工作区归属对两个空间都成立：知识会话也挂在工作区下，只是不读目录。
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(workspaceMode === 'engineering'
-        ? { workspaceMode, workspaceRoot: input.workspaceRoot, routing }
+        ? { workspaceMode, workspaceRoot: input.workspaceRoot }
         : {})
     };
 
-    // V2.1 Model Router：在提问之前就把「这一轮用哪些模型、为什么」定下来并
-    // 写进会话。事后统计做不到这件事——事后只能说「问了谁」，说不出「本来
-    // 打算问谁、为什么是他」。
-    this.applyModelRoute(conversation, toRouteTaskKind(routing?.taskKind ?? intent.kind));
+    // V2.1 Model Router：先按意图占位；工程判定回来后再按 taskKind 重算。
+    this.applyModelRoute(conversation, toRouteTaskKind(intent.kind));
 
     const trace = this.traceFor(conversation.conversationId);
     trace?.beginTurn({
@@ -757,7 +744,82 @@ export class ConversationRunner {
       reason: intent.reason,
       meta: this.traceMetaFor(conversation)
     });
-    if (routing) {
+
+    this.rememberAttachments(conversation, attachments);
+    this.save(conversation);
+    this.deps.emit({ type: 'conversation.created', at: now, conversation });
+    this.addMessage(conversation, { role: 'user', text });
+    // 附件正文不写进提问气泡（那是一屏文件），但「这一问带了哪些文件」必须
+    // 看得见——否则用户以为附件没送到，或者以为模型读过一份它其实没读到的文件。
+    if (attachments.length > 0) {
+      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
+    }
+
+    const routingChannelId = '__routing__';
+    let routing: TaskRouting | undefined;
+    if (workspaceMode === 'engineering' && !plannerFirst) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: executionConfig.executionMode === 'web'
+          ? '正在按规则判定是否转入工程工作空间…'
+          : '正在请模型判定是否转入工程工作空间；思考过程会显示在下方。'
+      });
+      let routingText = '';
+      let routingReasoning = '';
+      routing = await this.engineeringRouting({
+        text,
+        attachments,
+        override: input.taskKindOverride,
+        hasProject: !!input.workspaceRoot,
+        executionMode: executionConfig.executionMode,
+        ...(executionConfig.leadAgentId ? { leadAgentId: executionConfig.leadAgentId } : {}),
+        ...(executionConfig.selectedCloudModels
+          ? { selectedCloudModels: executionConfig.selectedCloudModels }
+          : {}),
+        onDelta: chunk => {
+          if (chunk.reset) {
+            routingText = chunk.text ?? '';
+            routingReasoning = chunk.reasoning ?? '';
+          } else {
+            if (chunk.text) routingText += chunk.text;
+            if (chunk.reasoning) routingReasoning += chunk.reasoning;
+          }
+          this.deps.emit({
+            type: 'answer.delta',
+            at: Date.now(),
+            conversationId: conversation.conversationId,
+            channelId: routingChannelId,
+            text: routingText,
+            reasoning: routingReasoning,
+            reset: true
+          });
+        }
+      });
+      conversation.routing = routing;
+      conversation.updatedAt = Date.now();
+      this.applyModelRoute(conversation, toRouteTaskKind(routing.taskKind));
+      // 判定思考必须落盘：仅靠 answer.delta 会在 IPC 返回时被清空，界面又变回空等。
+      this.addMessage(conversation, {
+        role: 'channel',
+        channelId: routingChannelId,
+        text: [
+          `判定：${routingLabel(routing)}（${routing.reason}）`,
+          routingText.trim() ? `模型输出：\n${routingText.trim()}` : ''
+        ].filter(Boolean).join('\n\n'),
+        ...(routingReasoning.trim() ? { reasoning: routingReasoning.trim() } : {})
+      });
+      this.save(conversation);
+      this.deps.emit({ type: 'conversation.updated', at: Date.now(), conversation });
+      this.deps.emit({
+        type: 'answer.delta',
+        at: Date.now(),
+        conversationId: conversation.conversationId,
+        channelId: routingChannelId,
+        text: routingText,
+        reasoning: routingReasoning,
+        reset: true,
+        done: true
+      });
       trace?.event({
         stage: 'route',
         group: 'prepare',
@@ -783,19 +845,19 @@ export class ConversationRunner {
       });
     }
 
-    this.rememberAttachments(conversation, attachments);
-    this.save(conversation);
-    this.deps.emit({ type: 'conversation.created', at: now, conversation });
-    this.addMessage(conversation, { role: 'user', text });
-    // 附件正文不写进提问气泡（那是一屏文件），但「这一问带了哪些文件」必须
-    // 看得见——否则用户以为附件没送到，或者以为模型读过一份它其实没读到的文件。
-    if (attachments.length > 0) {
-      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
-    }
-
     const handoff = async (label: string): Promise<Conversation> => {
       try {
         const expertise = this.deps.expertiseFor?.({ workspaceMode, question: text })?.system ?? [];
+        // 先落「已转交」再做 shadow plan / 建任务：否则 buildShadowPlan 那几十秒
+        // 界面只剩一句空的「思考中」，用户以为卡住且看不到任何内容。
+        conversation.status = 'answered';
+        conversation.updatedAt = Date.now();
+        this.addMessage(conversation, {
+          role: 'system',
+          text: '已判定为工程任务，正在生成计划并转入工程工作空间；计划、评审与执行都会在那里按时间线显示。'
+        });
+        this.save(conversation);
+
         let collaborationPlan: string | undefined;
         if (workspaceMode === 'engineering') {
           try {
@@ -814,15 +876,6 @@ export class ConversationRunner {
             }
           } catch { /* 协作规划是建议，失败不阻塞工程入口 */ }
         }
-        // 先落一句「已转交」，别让用户在计划生成前只看到「思考中」。
-        // 这几个字不是进度伪装：任务号随后就写回，视图会切到工程工作空间。
-        conversation.status = 'answered';
-        conversation.updatedAt = Date.now();
-        this.addMessage(conversation, {
-          role: 'system',
-          text: '已判定为工程任务，正在生成计划并转入工程工作空间；计划、评审与执行都会在那里按时间线显示。'
-        });
-        this.save(conversation);
         const task = await this.deps.submitWorkspace({
           prompt: outgoing,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
@@ -1009,6 +1062,7 @@ export class ConversationRunner {
     executionMode: ExecutionMode;
     leadAgentId?: string;
     selectedCloudModels?: string[];
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
   }): Promise<TaskRouting> {
     const rule = routeTask({
       text: input.text,
@@ -1029,7 +1083,8 @@ export class ConversationRunner {
         hasProject: input.hasProject,
         executionMode: input.executionMode,
         ...(input.leadAgentId ? { leadAgentId: input.leadAgentId } : {}),
-        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {})
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {}),
+        ...(input.onDelta ? { onDelta: input.onDelta } : {})
       });
       return verdict ? applyRoutingVerdict(rule, verdict) : rule;
     } catch {
@@ -2810,17 +2865,16 @@ export class ConversationRunner {
     }
 
     // —— 第二步：指定辩论 ————————————————————————————————
-    // V2.1：辩论开关。auto 与老行为完全一致；off 连辩题都不生成；
-    // on 在主导人没找到分歧时拿原问题兜一个辩题，保证「开启」真的开了。
+    // 议题只能来自主导模型正文（parseTopics / 存疑）；不得用原问题或模板硬造辩论。
     const debateMode = normalizeDebateMode(config.debateMode);
-    // 默认必须辩；旧 off 已归一为 on。
     let topics = parseTopics(summaryText);
-    // 没有辩题但有存疑：把存疑变成核查题，不能停在综合分析卡。
+    // 没有辩题但有存疑：存疑也是主导模型写的，转成核查题。
     if (topics.length === 0) {
       const doubts = parseDoubts(summaryText);
       if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
     }
-    if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
+    // debateMode=on 也绝不拿用户原问凑辩题——没有模型议题就只汇总。
+    if (debateMode === 'off') topics = [];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
     const sourceOf = (id: string) => this.ownershipSourceOf(id);

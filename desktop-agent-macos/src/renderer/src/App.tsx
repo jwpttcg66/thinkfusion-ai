@@ -13,7 +13,12 @@ import type {
 } from '../../shared/contracts';
 import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsComplete, type TaskView } from '../../shared/task-view';
 import { buildConclusion } from '../../shared/task-conversation';
+import {
+  projectConversationCollaborationResult,
+  projectEngineeringCollaborationResult
+} from '../../shared/collaboration-result';
 import { mergeTaskEvent } from '../../shared/task-events';
+import { mergeTaskLists } from '../../shared/task-list';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { auditActivity } from '../../shared/diagnostics';
 import { TaskSidebar } from './components/TaskSidebar';
@@ -40,6 +45,7 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
+import { CollaborationResultPanel } from './components/CollaborationResultPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
@@ -529,10 +535,33 @@ export default function App() {
     () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
     [events, activeTask?.summary, activeTask?.status]
   );
+  /** 工程主活动区统一结果投影：结论 / 意见 / 争议 / 评审 / 验证。 */
+  const engineeringResult = useMemo(() => {
+    if (!activeTask) return null;
+    return projectEngineeringCollaborationResult({
+      taskId: activeTask.taskId,
+      events,
+      summary: activeTask.summary,
+      status: activeTask.status
+    });
+  }, [activeTask, events]);
   const activeConversation = useMemo(
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
   );
+  /** General / Knowledge：会话结束后才投影，避免进行中硬造结论。 */
+  const conversationResult = useMemo(() => {
+    if (!activeConversation) return null;
+    if (!['answered', 'failed', 'cancelled'].includes(activeConversation.status)) return null;
+    return projectConversationCollaborationResult({
+      conversation: activeConversation,
+      messages,
+      scene: activeConversation.workspaceMode === 'engineering' ? 'general' : (
+        activeConversation.intent === 'research' ? 'knowledge' : 'general'
+      ),
+      debate: debateLive
+    });
+  }, [activeConversation, messages, debateLive]);
   const activity = useMemo<ObservabilityEvent[]>(
     () => projectActivity(events.map(fromAgentEvent).filter((item): item is ObservabilityEvent => item !== null)),
     [events]
@@ -565,6 +594,8 @@ export default function App() {
    * pane with one system line next to a plan would be two half-answers.
    */
   const showingConversation = activeConversation !== null && !activeConversation.taskId;
+  /** 会话已挂上 taskId，但任务本体还没进列表 / 还没选中 → 不能闪回空白首页。 */
+  const handoffPending = Boolean(activeConversation?.taskId && !activeTask);
   /**
    * 路由预览：纯函数算出来，不产生任何副作用（不发问、不建会话）。
    * 输入框里显示「这句话会怎么走」，用户就能在发送前改判。
@@ -614,7 +645,9 @@ export default function App() {
         setWorkspace(active?.root ?? state.workspaceRoot);
       })
       .catch(() => undefined);
-    window.agentAPI.getTaskHistory().then(setTasks).catch(() => undefined);
+    window.agentAPI.getTaskHistory()
+      .then(history => setTasks(prev => mergeTaskLists(history, prev)))
+      .catch(() => undefined);
     window.agentAPI.getDeepSeekStatus().then(setStatus).catch(() => undefined);
 
     // The embedded page is a native view laid over the window, not an iframe:
@@ -698,20 +731,20 @@ export default function App() {
           event.conversation,
           ...prev.filter(item => item.conversationId !== event.conversation.conversationId && item.conversationId !== pendingId)
         ]);
-        // 任务号是 Planner 转交后才写回会话的，IPC 返回时往往还是 null。
-        // 不等用户手点侧栏：会话一挂上任务就选中并补读历史事件，否则
-        // activeRef 还是 null，后续报告/评审/完成事件全被过滤掉，交付卡永远不出现。
+        // 任务号是 Planner 转交后才写回会话的。会话一挂上任务就必须：
+        // 1) 把任务本体写入 tasks（否则 showingConversation 关掉后主区变空白首页）
+        // 2) 选中并补读事件（否则后续报告/评审被 activeRef 过滤掉）
+        // 用 conversationId 对齐：pending 刚换成真 id 时 ref 可能还是旧值。
         const attachedTaskId = event.conversation.taskId;
-        if (
-          attachedTaskId &&
-          activeConversationRef.current === event.conversation.conversationId &&
-          activeRef.current !== attachedTaskId
-        ) {
+        const watchingThisConversation =
+          activeConversationRef.current === event.conversation.conversationId ||
+          pending?.id === pendingId ||
+          activeConversationRef.current === pendingId;
+        if (attachedTaskId && watchingThisConversation) {
+          // 同步占住 activeId，避免 React 先渲染「无会话无任务」空白首页；
+          // selectTask 再补任务本体与事件（列表可能尚未有这条）。
           setActiveId(attachedTaskId);
-          void window.agentAPI.getTaskEvents(attachedTaskId).then(history => {
-            setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
-            setDerived(projectTaskView(history));
-          }).catch(() => undefined);
+          void selectTask(attachedTaskId);
         }
         return;
       }
@@ -730,7 +763,13 @@ export default function App() {
       if (event.type === 'message.added') {
         // Only the conversation on screen. A message for any other one belongs
         // to its own pane, and appending it here mixed two threads together.
-        if (event.message.conversationId !== activeConversationRef.current) return;
+        // 提交瞬间 active 仍是 pending-*：工程判定落盘的思考卡也要用上。
+        const pending = pendingSubmit.current;
+        const active = activeConversationRef.current;
+        const watching =
+          event.message.conversationId === active ||
+          Boolean(pending && active === pending.id);
+        if (!watching) return;
         // Messages are appended live, so the pane fills in as channels answer
         // instead of appearing all at once when the slowest page finishes.
         setMessages(prev => mergeConversationMessage(prev, event.message));
@@ -760,7 +799,14 @@ export default function App() {
         return;
       }
       if (event.type === 'answer.delta') {
-        if (event.conversationId !== activeConversationRef.current) return;
+        // 提交瞬间 active 还是 pending-*，主进程增量已经是真 conversationId；
+        // 若只认 active，工程判定的思考流会被整段丢掉。
+        const pending = pendingSubmit.current;
+        const active = activeConversationRef.current;
+        const watching =
+          event.conversationId === active ||
+          Boolean(pending && active === pending.id);
+        if (!watching) return;
         setAnswerDeltas(prev => {
           const current = prev[event.channelId] ?? { text: '', reasoning: '', done: false };
           return {
@@ -987,6 +1033,10 @@ export default function App() {
     setError('');
     setClarifyText('');
     try {
+      // 会话转交工程任务时，tasks 列表可能还没有这条（或被晚到的 history 冲掉）。
+      // 先把任务本体挂进列表，主区才不会从会话页直接掉进空白首页。
+      const task = await window.agentAPI.getTask(taskId).catch(() => null);
+      if (task) setTasks(prev => upsert(prev, task));
       const history = await window.agentAPI.getTaskEvents(taskId);
       setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
       setDerived(projectTaskView(history));
@@ -1334,7 +1384,12 @@ export default function App() {
           : item
       ));
       setPhases({});
-      setAnswerDeltas({});
+      // 保留工程判定增量：后面 getConversationMessages 会带回落盘的思考卡，
+      // 这里清空会让转交前最后几秒又变回「没有思考」。
+      setAnswerDeltas(prev => {
+        const routing = prev['__routing__'];
+        return routing ? { __routing__: routing } : ({} as typeof prev);
+      });
       setDebateLive(null);
       setPrompt('');
       setAttachments([]);
@@ -2269,7 +2324,7 @@ export default function App() {
           />
         )}
 
-        <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
+        <div className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}>
           <div className="inner">
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
               <CollaborationPlanPanel conversationId={activeConversation.conversationId} />
@@ -2288,7 +2343,15 @@ export default function App() {
               </>
             )}
 
-            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
+            {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
+              <CollaborationResultPanel
+                result={conversationResult}
+                onOpenEvidence={() => setConversationTab('trajectory')}
+              />
+            )}
+
+            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly
+              && !conversationResult && (
               <ProgressPanel
                 conversationStatus={activeConversation.status}
                 taskStatus={activeTask?.status ?? null}
@@ -2332,7 +2395,28 @@ export default function App() {
               />
             )}
 
-            {!activeTask && !showingConversation && (
+            {handoffPending && (
+              <section className="card running">
+                <span className="spinner" />
+                <div>
+                  <b>正在转入工程工作空间</b>
+                  <p className="muted">
+                    已判定为工程任务，正在挂载计划与时间线；不会回到空白首页。
+                  </p>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => {
+                      if (activeConversation?.taskId) void selectTask(activeConversation.taskId);
+                    }}
+                  >
+                    立即打开任务
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {!activeTask && !showingConversation && !handoffPending && (
               <section className="hero">
                 <div className="hero-logo">◈</div>
                 <div className="hero-title">
@@ -2347,6 +2431,23 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
+                  || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0
+                  || engineeringResult.deliverables.length > 0) && (
+                  <CollaborationResultPanel
+                    result={engineeringResult}
+                    onOpenEvidence={() => setWorkbenchTab('trajectory')}
+                    onSetDisposition={async input => {
+                      if (!activeTask) return;
+                      await window.agentAPI.setReviewDisposition({
+                        taskId: activeTask.taskId,
+                        issueId: input.issueId,
+                        disposition: input.disposition,
+                        reason: input.reason
+                      });
+                    }}
+                  />
+                )}
                 <TaskProgressCard
                   task={activeTask}
                   plan={derived.plan}
@@ -2362,6 +2463,26 @@ export default function App() {
                 {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
                     每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
                 <TaskConversation task={activeTask} events={events} live={derived.live} />
+                {/* 思考过程在主对话页也要可见：不能只藏在「输出」页。 */}
+                {derived.modelTrace.some(item => item.reasoning.trim()) && (
+                  <details className="card reasoning-history" open>
+                    <summary>
+                      思考过程（{derived.modelTrace.filter(item => item.reasoning.trim()).length} 轮）
+                    </summary>
+                    {derived.modelTrace.filter(item => item.reasoning.trim()).map(item => (
+                      <section key={item.roundId}>
+                        <h5>{item.roundId.slice(0, 8)}</h5>
+                        <pre>{item.reasoning}</pre>
+                      </section>
+                    ))}
+                  </details>
+                )}
+                {planThinking(derived.answer) && (
+                  <details className="card thinking" open>
+                    <summary>规划思考</summary>
+                    <p>{planThinking(derived.answer)}</p>
+                  </details>
+                )}
                 {/* 多列并排只保留在输出页：对话里一轮一列会把下一条消息挤到屏幕外，
                     而主界面读的是顺序。 */}
               </>
@@ -2679,7 +2800,9 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
+            {/* 对话页已有 CollaborationResultPanel 承载结论/评审/验证；
+                「最终交付」只在输出页保留文件与检查明细，避免同一结论堆两遍。 */}
+            {activeTask && workbenchTab === 'output' && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
                   <h2>最终交付</h2>
