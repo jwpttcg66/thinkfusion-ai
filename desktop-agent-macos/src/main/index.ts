@@ -220,6 +220,7 @@ import {
   planReviewRounds,
   summarizePlanDebate
 } from './engineering/plan-review';
+import { planningHealthShortlist, uniqueByProvider } from './engineering/planning-health';
 import { compactPlanDebateResult } from './engineering/plan-debate-result';
 import {
   normalizeWorkspaceState,
@@ -1149,10 +1150,28 @@ async function routeEngineeringWithModel(input: {
  * openai:gpt-4o-mini 也被算成可用成员，界面能发起、实际每轮都失败，
  * 一场双边辩论静默变成单边。这里把真实原因（detail）一并交给界面。
  */
-async function debateCandidates(): Promise<DebateCandidate[]> {
-  const entries: Array<{ id: string; label: string; type: DebateCandidate['type']; cli?: boolean; health: () => Promise<{ available: boolean; detail?: string }> }> = [
+async function debateCandidates(filter?: {
+  ids?: readonly string[];
+  /** 方案评审不用网页；探活网页会再空等一轮。 */
+  excludeWeb?: boolean;
+}): Promise<DebateCandidate[]> {
+  type Entry = {
+    id: string;
+    label: string;
+    type: DebateCandidate['type'];
+    cli?: boolean;
+    providerId?: string;
+    health: () => Promise<{ available: boolean; detail?: string }>;
+  };
+  let entries: Entry[] = [
     ...registry.list().map(agent => ({ id: agent.id, label: agent.label, type: 'web' as const, health: () => agent.health() })),
-    ...extraAgents.map(agent => ({ id: agent.id, label: agent.label, type: agent.sourceType, health: () => agent.health() })),
+    ...extraAgents.map(agent => ({
+      id: agent.id,
+      label: agent.label,
+      type: agent.sourceType as DebateCandidate['type'],
+      providerId: agent.provider.id,
+      health: () => agent.health()
+    })),
     // CLI 属云端一类（2026-11-15 裁决：可以主导 / 回答 / 辩论 / 执行）：
     // 辩论候选里按 cloud 列出来，但标上 `cli` 让名单仍写 `selectedCliAgents`。
     ...cliAnswerAgents.map(agent => ({
@@ -1163,18 +1182,43 @@ async function debateCandidates(): Promise<DebateCandidate[]> {
       health: () => agent.health()
     }))
   ];
-  return Promise.all(entries.map(async entry => {
+  if (filter?.excludeWeb) entries = entries.filter(entry => entry.type !== 'web');
+  if (filter?.ids && filter.ids.length > 0) {
+    const wanted = new Set(filter.ids);
+    entries = entries.filter(entry => wanted.has(entry.id));
+  }
+  // 同一 Provider 只探一次：结果复用到同 Provider 下其它模型。
+  const probeOf = uniqueByProvider(entries.map(entry => ({
+    id: entry.id,
+    sourceType: entry.type,
+    ...(entry.providerId ? { providerId: entry.providerId } : {}),
+    entry
+  })));
+  const healthByKey = new Map<string, { available: boolean; detail?: string }>();
+  await Promise.all(probeOf.map(async item => {
+    const key = item.providerId ? `provider:${item.providerId}` : `agent:${item.id}`;
     try {
-      const status = await entry.health();
-      return { id: entry.id, label: entry.label, type: entry.type, available: status.available, detail: status.detail, ...(entry.cli ? { cli: true } : {}) };
+      const status = await item.entry.health();
+      healthByKey.set(key, { available: status.available, ...(status.detail ? { detail: status.detail } : {}) });
     } catch (error) {
-      return {
-        id: entry.id, label: entry.label, type: entry.type, available: false,
-        detail: error instanceof Error ? error.message : String(error),
-        ...(entry.cli ? { cli: true } : {})
-      };
+      healthByKey.set(key, {
+        available: false,
+        detail: error instanceof Error ? error.message : String(error)
+      });
     }
   }));
+  return entries.map(entry => {
+    const key = entry.providerId ? `provider:${entry.providerId}` : `agent:${entry.id}`;
+    const status = healthByKey.get(key) ?? { available: false, detail: '未探活' };
+    return {
+      id: entry.id,
+      label: entry.label,
+      type: entry.type,
+      available: status.available,
+      detail: status.detail,
+      ...(entry.cli ? { cli: true } : {})
+    };
+  });
 }
 
 /** 步骤身份索引：step.preparing 记下来，供同一 stepId 的 started/completed 补齐。 */
@@ -5621,17 +5665,38 @@ app.whenReady().then(async () => {
     selectedCliAgents?: string[];
   }): Promise<PlannerMember | null> {
     if (!input.executionMode || input.executionMode === 'web') return null;
-    const available: typeof extraAgents = [];
-    for (const agent of extraAgents) {
-      try {
-        if ((await agent.health()).available) available.push(agent);
-      } catch { /* 不可用就跳过 */ }
-    }
     const asMember = (agent: (typeof extraAgents)[number]): PlannerMember => ({
       id: agent.id,
       label: agent.label,
       adapter: new ProviderPlanningAdapter(agent)
     });
+    // 只探可能当主导的那几个，并按 Provider 去重：OpenCode 挂 30 个模型时，
+    // 旧逻辑串行打 30 次 /models，转交后空等十几秒。
+    const shortlist = planningHealthShortlist(
+      extraAgents.map(agent => ({
+        id: agent.id,
+        sourceType: agent.sourceType,
+        providerId: agent.provider.id,
+        agent
+      })),
+      {
+        executionMode: input.executionMode,
+        ...(input.plannerAgentId ? { plannerAgentId: input.plannerAgentId } : {}),
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {})
+      }
+    );
+    const probes = uniqueByProvider(shortlist);
+    const healthByProvider = new Map<string, boolean>();
+    await Promise.all(probes.map(async item => {
+      const available = await Promise.race([
+        item.agent.health().then(status => status.available).catch(() => false),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000))
+      ]);
+      healthByProvider.set(item.providerId ?? item.id, available);
+    }));
+    const available = shortlist
+      .filter(item => healthByProvider.get(item.providerId ?? item.id) === true)
+      .map(item => item.agent);
     const lead = input.plannerAgentId
       ? available.find(agent => agent.id === input.plannerAgentId)
       : undefined;
@@ -5789,7 +5854,12 @@ app.whenReady().then(async () => {
      */
     debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds, onLeadReady }) => {
       if (!debates) return null;
-      const candidates = await debateCandidates();
+      // 只探本任务要用的模型，且跳过网页：全量探活（含 30 个 OpenCode 模型 + 网页）
+      // 会在五段结论前再空等一轮。
+      const candidates = await debateCandidates({
+        excludeWeb: true,
+        ...(debateAgentIds && debateAgentIds.length > 0 ? { ids: debateAgentIds } : {})
+      });
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
       // 会拖住任务审批链路；它在这一类里不做评审，不代表别人不能用它辩论。
       const available = candidates.filter(item => item.type !== 'web' && !item.cli && item.available);
@@ -6396,7 +6466,10 @@ app.whenReady().then(async () => {
       else collaborationRecords.push(record);
     },
     submitWorkspace: async input => {
-      await ensureChannelSnapshot();
+      // 云端/本地主导不需要网页探活；旧逻辑每次转交都 statuses() 一遍页面，
+      // 「已判定为工程任务」之后再空等数秒。
+      const mode = input.executionMode ?? 'web';
+      if (mode === 'web' || mode === 'hybrid') await ensureChannelSnapshot();
       // 按这一轮的真实配置挑人：模型优先，云端档没有可用模型时用 CLI 主导。
       const executionConfig =
         input.executionConfig ??

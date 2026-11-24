@@ -106,7 +106,8 @@ function MemberMessage(props: {
   const [overflowing, setOverflowing] = useState(false);
   // 正文框与思考折叠的分工统一由 shared 层决定：流式期间只有一处展示内容，
   // 不让同一份 thinking 在正文框和折叠里各铺一遍。
-  const view = memberBodyView(entry);
+  // waitMs：deepseek 一类会先内部想很久才吐首字，空「等待模型输出」像卡死。
+  const view = memberBodyView({ ...entry, waitMs: elapsed });
   // 流式期间自动跟到底部（露最新几行）；结束后回到顶部，别停在流式的最后一屏。
   useEffect(() => {
     const el = bodyRef.current;

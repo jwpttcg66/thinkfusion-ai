@@ -457,6 +457,14 @@ test('流式且思考也没来：只给占位，不显示空折叠', () => {
   assert.equal(view.displayLength, 0);
 });
 
+test('流式空等超过 3 秒：占位写明已等多久，不再只剩「等待模型输出」', () => {
+  const view = memberBodyView({
+    status: 'streaming', text: '', reasoning: '', reasoningSupported: false, protocol: null, waitMs: 11_000
+  });
+  assert.match(view.placeholder, /已等 11 秒/);
+  assert.match(view.placeholder, /内部思考/);
+});
+
 function reportEvent(at, verification) {
   return {
     type: 'report.ready',

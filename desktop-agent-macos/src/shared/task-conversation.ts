@@ -411,6 +411,8 @@ export interface MemberBodyInput {
   reasoning: string;
   reasoningSupported: boolean;
   protocol: ConversationProtocol;
+  /** 流式且尚无正文/思考时，用于把「空等」说成已等多少秒。 */
+  waitMs?: number | null;
 }
 
 export interface MemberBodyView {
@@ -435,6 +437,9 @@ export function memberBodyView(input: MemberBodyInput): MemberBodyView {
   const bodyIsReasoning = live && input.protocol === null
     && input.text.length === 0 && input.reasoning.length > 0;
   const bodyText = bodyIsReasoning ? input.reasoning : input.text;
+  const waitSec = live && bodyText.length === 0 && input.waitMs != null && input.waitMs >= 3000
+    ? Math.max(3, Math.round(input.waitMs / 1000))
+    : null;
   return {
     bodyText,
     bodyIsReasoning,
@@ -443,7 +448,11 @@ export function memberBodyView(input: MemberBodyInput): MemberBodyView {
     // 是两份内容，折叠保留（reasoningSupported 但没内容时仍给出「没返回」）。
     showReasoningDetails: input.reasoningSupported && !bodyIsReasoning,
     placeholder: bodyText.length === 0
-      ? (live ? '等待模型输出…' : '这次没有输出正文。')
+      ? (live
+        ? (waitSec != null
+          ? `模型尚未返回首字，已等 ${String(waitSec)} 秒（可能在内部思考）…`
+          : '等待模型输出…')
+        : '这次没有输出正文。')
       : null,
     displayLength: bodyText.length
   };
