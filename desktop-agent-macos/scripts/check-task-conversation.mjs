@@ -217,6 +217,54 @@ test('结论必须完整输出执行目标与执行结果', () => {
   assert.ok(conclusion.executionResults.some(item => /main\.go/.test(item)));
   assert.ok(conclusion.executionResults.some(item => /hello world/.test(item)));
   assert.match(conclusion.facts.join(' / '), /执行 2 步/);
+  assert.ok(conclusion.deliverables.some(item => /main\.go/.test(item)), '目标物必须列出写出的文件');
+});
+
+test('方案评审 done 心跳不得把已辩完冲回进行中', () => {
+  const topics = ['offset 格式'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 1000,
+      message: '评审中'
+    },
+    {
+      type: 'plan.debated',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      debate: {
+        status: 'completed',
+        topics,
+        participants: ['m1'],
+        summary: '可批',
+        at: 3000
+      }
+    },
+    {
+      type: 'plan.review.progress',
+      at: 3100,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'done',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 2000,
+      message: '方案评审等待结束'
+    }
+  ], { status: 'awaiting_approval' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.equal(debate.status, 'completed');
 });
 
 test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {

@@ -60,6 +60,8 @@ export interface ConclusionView {
   executionGoal?: string;
   /** 逐步执行结果；老投影没有。 */
   executionResults?: string[];
+  /** 目标物路径（改动文件 / 工程产物）；老投影没有。 */
+  deliverables?: string[];
   uncertainties: string[];
   openItems: string[];
   tone: 'info' | 'ok' | 'warn' | 'error' | 'muted';
@@ -555,6 +557,11 @@ export function projectEngineeringCollaborationResult(input: {
         ...(conclusionRaw.executionResults.length > 0
           ? { executionResults: conclusionRaw.executionResults }
           : {}),
+        ...(conclusionRaw.deliverables.length > 0
+          ? { deliverables: conclusionRaw.deliverables }
+          : deliverables.length > 0
+            ? { deliverables: deliverables.map(item => item.path ?? item.label).filter(Boolean) as string[] }
+            : {}),
         uncertainties: verifications.some(item => !item.fullyVerified)
           ? ['存在未完成或未通过的验证项']
           : [],

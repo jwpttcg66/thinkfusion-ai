@@ -2414,7 +2414,8 @@ export default function App() {
             {activeTask && workbenchTab === 'conversation' && (
               <>
                 {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
-                  || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0) && (
+                  || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0
+                  || engineeringResult.deliverables.length > 0) && (
                   <CollaborationResultPanel
                     result={engineeringResult}
                     onOpenEvidence={() => setWorkbenchTab('trajectory')}

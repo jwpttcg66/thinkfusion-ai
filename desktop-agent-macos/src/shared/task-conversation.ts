@@ -126,6 +126,8 @@ export type ConversationEntry =
       executionGoal?: string;
       /** 逐步执行结果原文摘要；老投影没有。 */
       executionResults?: string[];
+      /** 目标物：改动文件与工程产物路径；老投影没有。 */
+      deliverables?: string[];
       tone: ConversationTone;
     });
 
@@ -703,8 +705,15 @@ export function buildTaskConversation(
     if (event.type === 'plan.review.progress') {
       const key = `debate-${event.planId}`;
       const existing = debates.get(key);
+      // done 心跳只表示等待结束；若 plan.debated 已把状态写成 completed/skipped，
+      // 不能再被冲回 running，否则界面永远停在「方案评审 · 进行中」。
+      const terminal = existing?.entry.status === 'completed'
+        || existing?.entry.status === 'stopped'
+        || existing?.entry.status === 'skipped';
       upsertDebate(key, {
-        status: 'running',
+        status: terminal ? existing!.entry.status : (event.state === 'done' && existing?.entry.status
+          ? existing.entry.status
+          : 'running'),
         topics: event.topicTexts && event.topicTexts.length > 0
           ? event.topicTexts
           : (existing?.entry.topics ?? []),
@@ -963,6 +972,9 @@ export function buildTaskConversation(
       ...(conclusion.executionResults.length > 0
         ? { executionResults: conclusion.executionResults }
         : {}),
+      ...(conclusion.deliverables.length > 0
+        ? { deliverables: conclusion.deliverables }
+        : {}),
       tone: conclusion.tone
     });
   }
@@ -992,6 +1004,8 @@ export function buildConclusion(
   facts: string[];
   executionGoal: string;
   executionResults: string[];
+  /** 目标物路径：写出的文件 + 编译/运行产物。 */
+  deliverables: string[];
   tone: ConversationTone;
 } | null {
   const ordered = [...events].sort((a, b) => a.at - b.at);
@@ -1016,6 +1030,18 @@ export function buildConclusion(
 
   const executionGoal = executionGoalFromEvents(ordered);
   const executionResults = report?.type === 'report.ready' ? reportDeliveryFacts(report.report) : [];
+  const deliverables: string[] = [];
+  const seenDeliverable = new Set<string>();
+  const addDeliverable = (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed || seenDeliverable.has(trimmed)) return;
+    const duplicate = [...seenDeliverable].some(existing =>
+      existing === trimmed || existing.endsWith(`/${trimmed}`) || trimmed.endsWith(`/${existing}`)
+    );
+    if (duplicate) return;
+    seenDeliverable.add(trimmed);
+    deliverables.push(trimmed);
+  };
   const facts: string[] = [];
   // facts 仍带上执行结果，兼容旧面板；同时单独字段保证界面能分栏完整展示。
   facts.push(...executionResults);
@@ -1035,13 +1061,21 @@ export function buildConclusion(
       if (typeof report.report.verification.changedFiles === 'number') {
         facts.push(`改动 ${String(report.report.verification.changedFiles)} 个文件`);
       }
+      for (const path of report.report.verification.changedPaths ?? []) addDeliverable(path);
     }
-    const artifacts = new Set<string>();
     for (const item of report.report.results ?? []) {
-      const result = item.result as { stdout?: string; stderr?: string; cwd?: string } | undefined;
+      const path = argPath(item);
+      if (path && (
+        item.tool === 'fs.writeFile' || item.tool === 'fs.edit' || item.tool === 'fs.mkdir' ||
+        item.tool === 'fs.copy' || item.tool === 'fs.move' || item.tool === 'screen.capture'
+      )) {
+        addDeliverable(path);
+      }
+      const result = item.result as { path?: string; stdout?: string; stderr?: string; cwd?: string } | undefined;
+      if (typeof result?.path === 'string') addDeliverable(result.path);
       if (!result) continue;
       for (const match of artifactPaths(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) {
-        artifacts.add(/^(\/|[A-Za-z]:[\\/])/.test(match)
+        addDeliverable(/^(\/|[A-Za-z]:[\\/])/.test(match)
           ? match
           : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match);
       }
@@ -1049,10 +1083,10 @@ export function buildConclusion(
     for (const rawCheck of Object.values(report.report.verification?.checks ?? {})) {
       const check = rawCheck as { output?: string };
       if (typeof check.output === 'string') {
-        for (const match of artifactPaths(check.output)) artifacts.add(match);
+        for (const match of artifactPaths(check.output)) addDeliverable(match);
       }
     }
-    if (artifacts.size > 0) facts.push(`工程产物 ${String(artifacts.size)} 个`);
+    if (deliverables.length > 0) facts.push(`目标物 ${String(deliverables.length)} 个`);
   }
   if (review?.type === 'review.ready') {
     facts.push(`独立评审：${review.needsFix ? `需修复（${String(review.issues.length)} 项）` : '通过'}`);
@@ -1072,6 +1106,7 @@ export function buildConclusion(
     facts,
     executionGoal,
     executionResults,
+    deliverables,
     tone
   };
 }

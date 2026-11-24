@@ -87,6 +87,22 @@ export function CollaborationResultPanel(props: {
                 </ul>
               </div>
             )}
+            {(() => {
+              const paths = (result.conclusion?.deliverables && result.conclusion.deliverables.length > 0)
+                ? result.conclusion.deliverables
+                : result.deliverables.map(item => item.path ?? item.label).filter(Boolean);
+              if (paths.length === 0) return null;
+              return (
+                <div className="collab-result-exec">
+                  <p className="muted">目标物（{String(paths.length)}）</p>
+                  <ul className="collab-result-facts">
+                    {paths.slice(0, 40).map(path => (
+                      <li key={path}><code>{path}</code></li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
             {result.conclusion.facts.length > 0 && (
               <ul className="collab-result-facts">
                 {result.conclusion.facts
@@ -105,6 +121,23 @@ export function CollaborationResultPanel(props: {
           <p className="muted">还没有可展示的结论文本。</p>
         )}
       </details>
+
+      {/* 目标物单独一节：任务收尾后必须和结论一样显眼，不能只塞进协作过程。 */}
+      {result.deliverables.length > 0 && !(result.conclusion?.deliverables && result.conclusion.deliverables.length > 0) && (
+        <details className="collab-result-section" open>
+          <summary>目标物（{String(result.deliverables.length)}）</summary>
+          <div className="collab-result-body">
+            <ul className="collab-result-facts">
+              {result.deliverables.slice(0, 40).map(item => (
+                <li key={item.deliverableId}>
+                  <code>{item.path ?? item.label}</code>
+                  <span className="muted"> · {item.kind === 'file' ? '改动文件' : '工程产物'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+      )}
 
       {/* 02 核心意见与争议 */}
       {hasOpinions && (
@@ -260,14 +293,10 @@ export function CollaborationResultPanel(props: {
               ? ` · 对话条目 ${String(result.meta.conversationEntryCount)}`
               : ''}
             。主推导见上方「核心意见与争议」与对话流中的计划摘要 / 思考过程。
+            {result.deliverables.length > 0
+              ? ` 目标物见上方「核心结论 / 目标物」（${String(result.deliverables.length)}）。`
+              : ''}
           </p>
-          {result.deliverables.length > 0 && (
-            <ul>
-              {result.deliverables.slice(0, 12).map(item => (
-                <li key={item.deliverableId}>{item.path ?? item.label}</li>
-              ))}
-            </ul>
-          )}
         </div>
       </details>
 

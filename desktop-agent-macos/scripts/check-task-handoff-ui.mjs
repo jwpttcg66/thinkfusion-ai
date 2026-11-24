@@ -105,3 +105,14 @@ test('方案评审五段一出就要投影并分段画出，不能只留一句�
   const proj = readFileSync(join(ROOT, 'src/shared/task-conversation.ts'), 'utf8');
   assert.match(proj, /event\.leadSummary/);
 });
+
+test('收尾必须同时展示最终结论与目标物，不能只埋在输出页', () => {
+  const panel = readFileSync(join(ROOT, 'src/renderer/src/components/CollaborationResultPanel.tsx'), 'utf8');
+  assert.match(panel, /目标物/);
+  assert.match(panel, /result\.conclusion\.deliverables|conclusion\?\.deliverables/);
+  const chat = readFileSync(join(ROOT, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  assert.match(chat, /entry\.deliverables/);
+  assert.match(chat, /目标物/);
+  const conclusion = readFileSync(join(ROOT, 'src/shared/task-conversation.ts'), 'utf8');
+  assert.match(conclusion, /deliverables:/);
+});
