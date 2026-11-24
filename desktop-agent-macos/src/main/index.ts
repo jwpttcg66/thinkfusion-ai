@@ -4889,9 +4889,11 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (!win) return;
+    // HMR / 手动关窗后，`win` 可能还指向一个已经销毁的窗口；直接调
+    // isMinimized/show 会抛 "Object has been destroyed"，弹主进程崩溃框。
+    if (!win || win.isDestroyed()) return;
     if (win.isMinimized()) win.restore();
-    win.show();
+    if (!win.isVisible()) win.show();
     win.focus();
   });
 }
