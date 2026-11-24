@@ -245,6 +245,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       {entry.participants.length > 0 && (
         <p className="muted">参与者：{entry.participants.join('、')}</p>
       )}
+      {entry.reason && <p className="muted">为什么评审：{entry.reason}</p>}
       {entry.summary && <p className="chat-debate-summary">{entry.summary}</p>}
       {entry.roundsReason && <p className="muted">轮次依据：{entry.roundsReason}</p>}
       {entry.skippedReason && <p className="muted">未评审原因：{entry.skippedReason}</p>}
@@ -268,9 +269,21 @@ function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 
   const ran = checks
     ? [checks.compile, checks.run, checks.tests, checks.diagnostics].some(item => item && item.status !== 'skipped')
     : true;
-  const label = entry.verified ? '已通过' : ran ? '未通过' : '未执行';
+  const label = entry.fullyVerified
+    ? '已通过'
+    : entry.verified
+      ? '部分通过'
+      : ran ? '未通过' : '未执行';
+  const missing = checks
+    ? [
+        ['编译', checks.compile.status],
+        ['运行', checks.run?.status ?? 'skipped'],
+        ['测试', checks.tests.status],
+        ['诊断', checks.diagnostics.status]
+      ].filter(([, status]) => status !== 'passed').map(([text]) => text)
+    : [];
   return (
-    <section className={`card review-card chat-verification${entry.verified ? '' : ' needs-fix'}`}>
+    <section className={`card review-card chat-verification${entry.fullyVerified ? '' : ' needs-fix'}`}>
       <div className="review-head">
         <b>第 {String(entry.index)} 次验证 · {label}</b>
         <span className="muted">
@@ -333,6 +346,9 @@ function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 
             </div>
           ))}
         </details>
+      )}
+      {entry.verified && !entry.fullyVerified && missing.length > 0 && (
+        <p className="muted">部分通过：{missing.join('、')}未通过/未执行；四项检查齐全才算完成。</p>
       )}
       {!entry.verified && (
         <p className="muted">「未通过」是事实，不是失败提示：补一次测试或诊断，或明确接受未验证。</p>

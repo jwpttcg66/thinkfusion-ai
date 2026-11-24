@@ -12,7 +12,7 @@
  * 还是 npm test，由模型按任务自己设计。
  */
 
-export type EvidenceKind = 'compile' | 'tests' | 'run';
+export type EvidenceKind = 'compile' | 'tests' | 'run' | 'diagnostics';
 
 /** 与 `test.run` 的老口径保持一致：命令里带 typecheck / build 就算编译。 */
 export const COMPILE_COMMAND = /typecheck|build/i;
@@ -20,7 +20,7 @@ export const COMPILE_COMMAND = /typecheck|build/i;
 const SHELL_TEST =
   /(?:\bnpm\s+(?:run\s+)?test\b|\byarn\s+test\b|\bpnpm\s+test\b|\bnode\s+--test\b|\bmvn\b[^&|;]*?\b(?:test|verify)\b|\bgradlew?\b[^&|;]*?\btest\b|\bpytest\b|\bgo\s+test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bvitest\b|\brspec\b|\bphpunit\b|\bctest\b)/;
 const SHELL_BUILD =
-  /(?:\bjavac\b|\bmvn\b|\bgradlew?\b|\btsc\b|\bcmake\b|\bdotnet\s+build\b|\bgo\s+build\b|\bcargo\s+(?:build|check)\b|\bnpm\s+run\s+(?:build|compile)\b|\byarn\s+build\b|\bvite\s+build\b|\bwebpack\b)/;
+  /(?:\bjavac\b|\bmvn\b|\bgradlew?\b|\btsc\b|\bcmake\b|\bdotnet\s+build\b|\bgo\s+build\b|\bgo\s+run\b|\bcargo\s+(?:build|check)\b|\bnpm\s+run\s+(?:build|compile)\b|\byarn\s+build\b|\bvite\s+build\b|\bwebpack\b)/;
 /**
  * 真的把程序跑起来。
  *
@@ -34,7 +34,9 @@ const SHELL_RUN =
 /** `make` 只认命令开头，避免把 `echo 'make sure'` 当成构建过。 */
 const SHELL_MAKE = /(?:^|[;&|(]\s*)make\b/;
 /** `[ "$out" = "hello" ]` / `test "$x" = y` / `grep -q` 才算断言；只 echo 不算。 */
-const SHELL_ASSERT = /\[\s*"?\$[A-Za-z_]\w*"?\s*=\s*"|\btest\s+"?\$[A-Za-z_]\w*"?\s*=|\bgrep\s+-q\b/;
+const SHELL_ASSERT = /\[\s*"?\$[A-Za-z_]\w*"?\s*=\s*"|\[\s*"?\$\(|\btest\s+"?\$[A-Za-z_]\w*"?\s*=|\btest\s+"?\$\(|\bgrep\s+-q\b/;
+/** 静态检查/诊断：和编译不同，它不产出可执行文件，但要单独记一项。 */
+const SHELL_DIAGNOSTICS = /(?:\bgo\s+vet\b|\bcargo\s+clippy\b|\btsc\s+--noEmit\b|\beslint\b|\bruff\b|\blint\b)/;
 
 /** 去掉 `javac -version` / `java --version` 这类探测，免得「查了版本」被读成「编译过」。 */
 export function stripVersionProbes(command: string): string {
@@ -79,6 +81,7 @@ export function shellEvidenceKinds(command: string): EvidenceKind[] {
   if (SHELL_TEST.test(executed) || SHELL_ASSERT.test(raw)) kinds.push('tests');
   if (SHELL_RUN.test(executedForRun)) kinds.push('run');
   if (SHELL_BUILD.test(executed) || SHELL_MAKE.test(executed)) kinds.push('compile');
+  if (SHELL_DIAGNOSTICS.test(executed)) kinds.push('diagnostics');
   return kinds;
 }
 

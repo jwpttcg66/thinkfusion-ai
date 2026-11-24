@@ -32,6 +32,8 @@ export interface DiagnosticsCheck {
   warnings: number;
   source?: string;
   path?: string;
+  command?: string;
+  exitCode?: number;
   detail?: string;
 }
 
@@ -46,6 +48,8 @@ export interface VerificationChecks {
 
 export interface ExecutionVerification {
   verified: boolean;
+  /** 改了代码时，四项检查（编译/运行/测试/诊断）都通过才为 true。 */
+  fullyVerified: boolean;
   /** 为什么没算过（或为什么算过）；给界面与报告直接用。 */
   reasons: string[];
   changedFiles: number;
@@ -134,7 +138,21 @@ function runCheck(results: readonly StepResult[]): CommandCheck {
 function diagnosticsCheck(results: readonly StepResult[]): DiagnosticsCheck {
   const steps = results.filter(step => step.tool === 'code.diagnostics');
   const step = steps[steps.length - 1];
-  if (!step) return { status: 'skipped', errors: 0, warnings: 0 };
+  if (!step) {
+    // 没有 code.diagnostics 时，`go vet` / `eslint` / `ruff` 这类静态检查
+    // 同样是诊断证据；否则 Go/Java 任务永远凑不齐四项。
+    const shell = lastCommand(results, 'diagnostics');
+    if (shell.status === 'skipped') return { status: 'skipped', errors: 0, warnings: 0 };
+    return {
+      status: shell.status,
+      errors: shell.status === 'passed' ? 0 : 1,
+      warnings: 0,
+      source: 'shell',
+      ...(shell.command ? { command: shell.command } : {}),
+      ...(shell.exitCode !== undefined ? { exitCode: shell.exitCode } : {}),
+      detail: shell.detail ?? shell.command
+    };
+  }
   const result = step.result as {
     counts?: { errors?: unknown; warnings?: unknown };
     source?: unknown;
@@ -200,6 +218,13 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     checks.tests.status === 'passed' ||
     checks.diagnostics.status === 'passed';
 
+  const wroteAnything = completedWrites.length > 0 || externalChanged.length > 0;
+  const changesCode = changedPaths.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path));
+  const allChecksPassed =
+    checks.compile.status === 'passed' &&
+    checks.run.status === 'passed' &&
+    checks.tests.status === 'passed' &&
+    checks.diagnostics.status === 'passed';
   const reasons: string[] = [];
   if (failedWrites.length > 0) {
     reasons.push(`${String(failedWrites.length)} 个写操作失败：本轮不能算已验证`);
@@ -229,6 +254,16 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   if (checks.tests.status === 'failed') {
     reasons.push(`测试失败（${checks.tests.command ?? 'test.run'}，退出码 ${String(checks.tests.exitCode ?? '未知')}）`);
   }
+  if (changesCode && !allChecksPassed) {
+    const labels: Array<[string, CheckStatus]> = [
+      ['编译', checks.compile.status],
+      ['运行', checks.run.status],
+      ['测试', checks.tests.status],
+      ['诊断', checks.diagnostics.status]
+    ];
+    const missing = labels.filter(([, status]) => status !== 'passed').map(([label]) => label);
+    if (missing.length > 0) reasons.push(`完成检查未齐全：${missing.join('、')}未通过/未执行`);
+  }
   if (checks.diagnostics.status === 'failed') {
     reasons.push(
       checks.diagnostics.errors > 0
@@ -237,9 +272,11 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
     );
   }
 
-  const wroteAnything = completedWrites.length > 0 || externalChanged.length > 0;
+  // 代码改动必须四项都通过；非代码改动仍按「至少一项检查」的旧口径。
+  const fullyVerified = failedWrites.length === 0 && (!wroteAnything || (changesCode ? allChecksPassed : anyCheckPassed));
   return {
     verified: failedWrites.length === 0 && (!wroteAnything || anyCheckPassed),
+    fullyVerified,
     reasons,
     // 兼容旧报告：这是「成功写了几次」；外部 Agent 按改动文件数计。
     changedFiles: completedWrites.length + externalChanged.length,

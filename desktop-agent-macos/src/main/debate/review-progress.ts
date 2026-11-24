@@ -40,7 +40,10 @@ export function reviewRoundIdOf(debateId: string): string {
 }
 
 function roundLabel(index: number): string {
-  return `第 ${String(index + 1)} 轮评审`;
+  // 轮次不是「又开了一场评审」，而是同一场评审里的表态 → 质疑 → 回应。
+  // 标签写清楚，用户才知道第二轮在评什么。
+  const phase = index === 0 ? '表态' : index === 1 ? '质疑' : '回应';
+  return `第 ${String(index + 1)} 轮评审 · ${phase}`;
 }
 
 /**

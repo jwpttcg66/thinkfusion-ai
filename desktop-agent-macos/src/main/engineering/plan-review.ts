@@ -157,7 +157,7 @@ export function shouldDebatePlan(
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
-  if (effective === 'on') return { debate: true };
+  if (effective === 'on') return { debate: true, reason: '设置要求开启方案评审' };
   const risky = steps.some(step =>
     step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
     // shell / 截屏 / 启动应用的影响面在工作区之外，auto 下同样值得先辩一轮。
@@ -168,7 +168,21 @@ export function shouldDebatePlan(
     // 跑一段代码等于跑一段任意逻辑（能读能写能联网），风险不低于 shell。
     step.tool === 'code.run'
   );
-  if (steps.length >= 3 || risky) return { debate: true };
+  if (steps.length >= 3 || risky) {
+    const riskyTools = [...new Set(steps
+      .filter(step =>
+        step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'test.run' ||
+        step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
+        step.tool === 'fs.remove' || step.tool === 'fs.move' || step.tool === 'fs.copy' ||
+        step.tool === 'process.kill' || step.tool === 'job.kill' || step.tool === 'web.fetch' ||
+        step.tool === 'code.run'
+      )
+      .map(step => step.tool))];
+    return {
+      debate: true,
+      reason: `计划 ${String(steps.length)} 步${riskyTools.length > 0 ? `，含 ${riskyTools.join('、')}` : ''}，按 auto 规则先评审`
+    };
+  }
   return { debate: false, reason: `计划只有 ${steps.length} 步且都是只读操作，按 auto 不单独开辩` };
 }
 

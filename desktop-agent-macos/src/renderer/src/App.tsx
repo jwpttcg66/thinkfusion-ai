@@ -11,7 +11,8 @@ import type {
   PlanPreview as PlanPreviewType,
   SourcesState
 } from '../../shared/contracts';
-import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, type TaskView } from '../../shared/task-view';
+import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsComplete, type TaskView } from '../../shared/task-view';
+import { buildConclusion } from '../../shared/task-conversation';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { auditActivity } from '../../shared/diagnostics';
@@ -523,6 +524,11 @@ export default function App() {
   const [focusRequest, setFocusRequest] = useState(0);
 
   const activeTask = useMemo(() => tasks.find(task => task.taskId === activeId) ?? null, [tasks, activeId]);
+  /** 交付卡的最终结论与时间线最后一条同源；进行中的任务没有结论。 */
+  const finalConclusion = useMemo(
+    () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
+    [events, activeTask?.summary, activeTask?.status]
+  );
   const activeConversation = useMemo(
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
@@ -2656,6 +2662,10 @@ export default function App() {
                   <span className={`pill s-${activeTask.status}`}>{statusLabel(activeTask.status)}</span>
                 </div>
                 <p className="muted">只汇总真实执行报告与评审，不把模型回答直接当完成。</p>
+                <p>
+                  <b>最终结论：</b>
+                  {finalConclusion?.text ?? activeTask.summary ?? '任务尚未给出最终结论。'}
+                </p>
                 {derived.changes.length > 0 && (
                   <>
                     <h5>改动文件（{derived.changes.length}）</h5>
@@ -2670,6 +2680,20 @@ export default function App() {
                     </ul>
                   </>
                 )}
+                {derived.changes.length > 0 && (() => {
+                  const dirs = [...new Set(derived.changes.map(change => {
+                    const slash = change.path.lastIndexOf('/');
+                    return slash > 0 ? change.path.slice(0, slash) : '.';
+                  }))].sort();
+                  return (
+                    <>
+                      <h5>改动目录（{dirs.length}）</h5>
+                      <ul>
+                        {dirs.slice(0, 40).map(dir => <li key={dir}><code>{dir}</code></li>)}
+                      </ul>
+                    </>
+                  );
+                })()}
                 {derived.artifacts.length > 0 && (
                   <>
                     <h5>工程产物（{derived.artifacts.length}）</h5>
@@ -2684,31 +2708,54 @@ export default function App() {
                   </>
                 )}
                 {derived.verification && (() => {
-                  /**
-                   * 「一项都没跑」不能写成「未通过」。
-                   *
-                   * 只新建了一个文件、计划里没有任何检查时，各项全是 skipped，而
-                   * `verified` 按规则是 false；交付卡直接写「验证：未通过」，读起来
-                   * 像产物不合格。用户看到的第一句必须是事实：没验证，还是验证没过。
-                   *
-                   * 运行单独列一行：`javac X && java X` 跑通了、屏幕上是 hello
-                   * everybody，这是这个任务最直接的验收，不能只写「测试 未执行」。
-                   */
                   const checks = derived.verification!.checks;
                   const label = (value: 'passed' | 'failed' | 'skipped') =>
                     value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
-                  const rows = [
-                    { key: '编译', status: checks?.compile.status ?? 'skipped', output: undefined },
-                    { key: '运行', status: checks?.run?.status ?? 'skipped', output: checks?.run?.output },
-                    { key: '测试', status: checks?.tests.status ?? 'skipped', output: undefined },
-                    { key: '诊断', status: checks?.diagnostics.status ?? 'skipped', output: undefined }
+                  const rows: Array<{ key: string; status: 'passed' | 'failed' | 'skipped'; detail?: string; output?: string }> = [
+                    {
+                      key: '编译',
+                      status: checks?.compile.status ?? 'skipped',
+                      ...(checks?.compile.command ? { detail: checks.compile.command } : {})
+                    },
+                    {
+                      key: '运行',
+                      status: checks?.run?.status ?? 'skipped',
+                      ...(checks?.run?.command ? { detail: checks.run.command } : {}),
+                      ...(checks?.run?.output ? { output: checks.run.output } : {})
+                    },
+                    {
+                      key: '测试',
+                      status: checks?.tests.status ?? 'skipped',
+                      ...(checks?.tests.command ? { detail: checks.tests.command } : {})
+                    },
+                    {
+                      key: '诊断',
+                      status: checks?.diagnostics.status ?? 'skipped',
+                      ...(checks?.diagnostics.source
+                        ? { detail: `${checks.diagnostics.source} · ${String(checks.diagnostics.errors)} error / ${String(checks.diagnostics.warnings)} warn` }
+                        : {})
+                    }
                   ];
-                  const ran = rows.some(row => row.status !== 'skipped');
+                  const complete = verificationIsComplete(derived.verification);
+                  const missing = rows.filter(row => row.status !== 'passed').map(row => row.key);
                   return (
-                    <p>
-                      <b>最近一次验证：</b>{derived.verification!.verified ? '通过' : ran ? '未通过' : '未执行'}
-                      {rows.map(row => ` · ${row.key} ${label(row.status)}${row.output ? `（${row.output}）` : ''}`).join('')}
-                    </p>
+                    <>
+                      <div className="verify-checks delivery-checks">
+                        {rows.map(row => (
+                          <div key={row.key} className={`verify-check is-${row.status}`}>
+                            <b>{row.key}</b>
+                            <span>{label(row.status)}</span>
+                            {row.detail && <em>{row.detail}{row.output ? ` · 输出 ${row.output}` : ''}</em>}
+                          </div>
+                        ))}
+                      </div>
+                      <p>
+                        <b>完成判定：</b>
+                        {complete
+                          ? '四项检查齐全并通过，满足完成条件'
+                          : `未完成${missing.length > 0 ? `：${missing.join('、')}未通过或未执行` : ''}；全部检查完成才算交付`}
+                      </p>
+                    </>
                   );
                 })()}
                 {derived.review && (

@@ -814,6 +814,15 @@ export class ConversationRunner {
             }
           } catch { /* 协作规划是建议，失败不阻塞工程入口 */ }
         }
+        // 先落一句「已转交」，别让用户在计划生成前只看到「思考中」。
+        // 这几个字不是进度伪装：任务号随后就写回，视图会切到工程工作空间。
+        conversation.status = 'answered';
+        conversation.updatedAt = Date.now();
+        this.addMessage(conversation, {
+          role: 'system',
+          text: '已判定为工程任务，正在生成计划并转入工程工作空间；计划、评审与执行都会在那里按时间线显示。'
+        });
+        this.save(conversation);
         const task = await this.deps.submitWorkspace({
           prompt: outgoing,
           permissionPreset: input.permissionPreset ?? 'workspace-write',
@@ -1454,6 +1463,13 @@ export class ConversationRunner {
       });
       if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
         try {
+          conversation.status = 'answered';
+          conversation.updatedAt = Date.now();
+          this.addMessage(conversation, {
+            role: 'system',
+            text: '已转交执行计划，正在生成计划并进入工程工作空间。'
+          });
+          this.save(conversation);
           const task = await this.deps.submitWorkspace({
             prompt: outgoing,
             permissionPreset: 'workspace-write',

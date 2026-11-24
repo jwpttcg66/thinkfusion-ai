@@ -19,6 +19,7 @@ import { approvalPolicyFor } from '../shared/approval';
 import { checkPlanCapabilities, planDebateTopics, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
+import { verificationIsComplete } from '../shared/task-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -429,7 +430,7 @@ export class AgentOrchestrator {
       }
     }
 
-    if (report.verification && !report.verification.verified) {
+    if (report.verification && !verificationIsComplete(report.verification)) {
       const reason = report.verification.reasons.join('；') || '本轮未通过验证';
       const codeFiles = (report.verification as { changedPaths?: string[] }).changedPaths ?? [];
       const touchesCode = codeFiles.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path));
@@ -520,8 +521,8 @@ export class AgentOrchestrator {
     }
     const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
     if (!report) throw new Error('没有找到这一轮的执行报告，无法继续修复');
-    if (report.verification?.verified === true) {
-      throw new Error('这一轮已经验证通过，不需要继续修复');
+    if (report.verification && verificationIsComplete(report.verification)) {
+      throw new Error('这一轮已经完成全部检查，不需要继续修复');
     }
     this.deps.emit({
       type: 'log',
@@ -1122,6 +1123,7 @@ export class AgentOrchestrator {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
         planId: stored.planId, state, topics: topics.length, topicTexts: topics,
+        ...(decision.reason ? { reason: decision.reason } : {}),
         elapsedMs: Date.now() - startedAt, message
       });
     };
@@ -1227,7 +1229,8 @@ export class AgentOrchestrator {
     // 验证未通过时，即使报告自报 completed / nextAction=complete，也不能
     // 直接收尾。完全权限下会走到这里进入下一轮修复；这是「全部完成后才
     // 算好」的底线，不能因为报告文字写完成就跳过。
-    if (report.status === 'completed' && report.verification?.verified !== false &&
+    if (report.status === 'completed' &&
+        (!report.verification || verificationIsComplete(report.verification)) &&
         (report.nextAction === 'complete' || testsPassed)) {
       // 空轮假完成闸门：报告自报 completed 不等于真交付。整条链从没成功写过
       // 文件并通过验证（例如只跑了 fs.list/fs.tree 的空轮），不能标完成。

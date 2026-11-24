@@ -16,7 +16,7 @@
 
 import type { AgentEvent, ExecutionReport, PlanDebate, PlanPreview } from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
-import { artifactPaths, diagnosticsOfReport, type TaskView } from './task-view';
+import { artifactPaths, diagnosticsOfReport, verificationIsComplete, type TaskView } from './task-view';
 
 export type ConversationTone = 'info' | 'ok' | 'warn' | 'error' | 'muted';
 
@@ -69,6 +69,8 @@ export type ConversationEntry =
       rounds?: number;
       roundsReason?: string;
       skippedReason?: string;
+      /** 为什么开这场评审。 */
+      reason?: string;
       elapsedMs: number;
     })
   | (ConversationEntryBase & {
@@ -76,6 +78,8 @@ export type ConversationEntry =
       /** 第几次验证：同一任务的每次报告各占一条，不覆盖。 */
       index: number;
       verified: boolean;
+      /** 代码改动是否四项检查全部通过；界面的「已通过」用它，不用单项 verified。 */
+      fullyVerified: boolean;
       reasons: string[];
       changedFiles: number;
       checks: NonNullable<ExecutionReport['verification']>['checks'];
@@ -496,7 +500,10 @@ export function buildTaskConversation(
         elapsedMs: event.elapsedMs,
         ...(existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
         ...(existing?.entry.roundsReason ? { roundsReason: existing.entry.roundsReason } : {}),
-        ...(existing?.entry.skippedReason ? { skippedReason: existing.entry.skippedReason } : {})
+        ...(existing?.entry.skippedReason ? { skippedReason: existing.entry.skippedReason } : {}),
+        ...(event.reason
+          ? { reason: event.reason }
+          : existing?.entry.reason ? { reason: existing.entry.reason } : {})
       }, {
         at: event.at,
         roundId: event.roundId ?? currentRoundId,
@@ -517,7 +524,8 @@ export function buildTaskConversation(
         elapsedMs: existing?.entry.elapsedMs ?? 0,
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
         ...(debate.roundsReason ? { roundsReason: debate.roundsReason } : {}),
-        ...(debate.skippedReason ? { skippedReason: debate.skippedReason } : {})
+        ...(debate.skippedReason ? { skippedReason: debate.skippedReason } : {}),
+        ...(debate.reason ? { reason: debate.reason } : {})
       }, {
         at: event.at,
         roundId: event.roundId ?? currentRoundId,
@@ -554,6 +562,7 @@ export function buildTaskConversation(
           roundNumber: roundNumber(event.roundId ?? currentRoundId),
           index: verificationCount,
           verified: verification.verified,
+          fullyVerified: verificationIsComplete(verification),
           reasons: verification.reasons,
           changedFiles: verification.changedFiles,
           checks: verification.checks,

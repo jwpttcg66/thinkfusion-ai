@@ -37,8 +37,11 @@ export interface TaskView {
   } | null;
   verification: {
     verified: boolean;
+    /** 代码改动时，编译/运行/测试/诊断四项都通过；旧报告缺失时回退现算。 */
+    fullyVerified?: boolean;
     reasons: string[];
     changedFiles: number;
+    changedPaths?: string[];
     checks?: {
       compile: { status: 'passed' | 'failed' | 'skipped'; exitCode?: number; command?: string; detail?: string; output?: string };
       /** 程序真的跑起来了吗（V1.3）。老报告没有这一项。 */
@@ -166,6 +169,7 @@ function reportView(report: unknown): Pick<TaskView, 'verification' | 'changes' 
   const typed = report as {
     verification?: {
       verified: boolean;
+      fullyVerified?: boolean;
       reasons: string[];
       changedFiles: number;
       changedPaths?: string[];
@@ -275,6 +279,28 @@ export function diagnosticsOfReport(report: unknown): TaskView['diagnostics'] {
         message: String(issue.message ?? '')
       }))
     }));
+}
+
+/**
+ * 最终交付的「完成」口径：代码改动必须四项检查都通过。
+ *
+ * 旧报告没有 fullyVerified 字段，按 checks 现算；没有 checks 的旧记录退回
+ * verified，避免翻旧账。非代码改动不要求编译器/运行器/测试/诊断同时存在。
+ */
+export function verificationIsComplete(verification: TaskView['verification']): boolean {
+  if (!verification) return false;
+  if (typeof verification.fullyVerified === 'boolean') return verification.fullyVerified;
+  if (!verification.verified) return false;
+  const codeChanged = verification.changedPaths && verification.changedPaths.length > 0
+    ? verification.changedPaths.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path))
+    : verification.changedFiles > 0;
+  if (!codeChanged) return true;
+  const checks = verification.checks;
+  if (!checks) return false;
+  return checks.compile.status === 'passed' &&
+    checks.run?.status === 'passed' &&
+    checks.tests.status === 'passed' &&
+    checks.diagnostics.status === 'passed';
 }
 
 export function projectTaskView(events: readonly AgentEvent[]): TaskView {

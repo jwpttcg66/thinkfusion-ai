@@ -47,7 +47,7 @@ test('还在等的成员先出「评审中」卡，说话后同一张卡补上�
   });
   assert.equal(waiting.events.length, 2);
   assert.ok(waiting.events.every(event => event.status === 'started'));
-  assert.equal(waiting.events[0].label, '本地 A（第 1 轮评审）');
+  assert.equal(waiting.events[0].label, '本地 A（第 1 轮评审 · 表态）');
   assert.equal(waiting.events[0].roundId, reviewRoundIdOf('d1'));
 
   for (const key of waiting.keys) seen.add(key);
@@ -93,7 +93,7 @@ test('轮询多次不重复出卡，第二轮的同名成员是新卡', () => {
     at: 4000
   });
   assert.equal(second.events.length, 1);
-  assert.equal(second.events[0].label, '本地 A（第 2 轮评审）');
+  assert.equal(second.events[0].label, '本地 A（第 2 轮评审 · 质疑）');
   assert.notEqual(second.events[0].memberId, '0:local-a');
 });
 

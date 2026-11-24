@@ -1226,6 +1226,8 @@ export interface PlanDebate {
   roundsReason?: string;
   /** 为什么没辩：模式是 off / 计划太小 / 没有可用成员。 */
   skippedReason?: string;
+  /** 为什么辩：设计文档强制 / 设置开启 / auto 按计划规模与风险判断。 */
+  reason?: string;
   at: number;
 }
 
@@ -1312,6 +1314,11 @@ export interface ExecutionReport {
    */
   verification?: {
     verified: boolean;
+    /**
+     * 更严格的完成口径：改了代码时，编译 / 运行 / 测试 / 诊断四项都通过。
+     * 旧报告没有这个字段，读取方回退到 checks 现算。
+     */
+    fullyVerified?: boolean;
     reasons: string[];
     changedFiles: number;
     changedPaths?: string[];
@@ -1524,6 +1531,8 @@ export type AgentEvent = AgentEventBase &
         topics: number;
         /** 辩题原文。旧事件只有数量，缺失时界面按数量显示。 */
         topicTexts?: string[];
+        /** 为什么开这场评审；旧事件没有。 */
+        reason?: string;
         elapsedMs: number;
         message: string;
       }

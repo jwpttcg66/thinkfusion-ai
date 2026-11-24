@@ -185,8 +185,13 @@ function milestone(
             ? `方案评审等待结束（已等 ${String(Math.round(event.elapsedMs / 1000))} 秒）`
             : `方案评审进行中 · 已等 ${String(Math.round(event.elapsedMs / 1000))} 秒（${String(event.topics)} 个议题）`,
         tone: 'muted',
-        ...(event.topicTexts && event.topicTexts.length > 0
-          ? { detail: event.topicTexts.map((topic, index) => `${String(index + 1)}. ${topic}`).join('\n') }
+        ...((event.reason || (event.topicTexts && event.topicTexts.length > 0))
+          ? {
+              detail: [
+                ...(event.reason ? [`为什么评审：${event.reason}`, ''] : []),
+                ...(event.topicTexts ?? []).map((topic, index) => `${String(index + 1)}. ${topic}`)
+              ].join('\n')
+            }
           : {})
       };
     case 'plan.debated':
@@ -201,6 +206,7 @@ function milestone(
         ...(event.debate.topics.length > 0 || event.debate.summary
           ? {
               detail: [
+                ...(event.debate.reason ? [`为什么评审：${event.debate.reason}`, ''] : []),
                 ...event.debate.topics.map((topic, index) => `${String(index + 1)}. ${topic}`),
                 ...(event.debate.summary ? ['', event.debate.summary] : [])
               ].join('\n')

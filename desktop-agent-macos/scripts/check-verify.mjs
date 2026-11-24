@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { verifyExecution, hasGenuineDelivery } from '../out-test/agent/verification.js';
+import { verificationIsComplete } from '../out-test/shared/task-view.js';
 
 const report = (verification) => ({ verification });
 const checks = (over = {}) => ({
@@ -269,4 +270,55 @@ test('hasGenuineDelivery：写了文件但没有任何通过的检查不算交�
     checks: checks({ changedFiles: ['a.java'] })
   });
   assert.equal(hasGenuineDelivery([noCheck]), false);
+});
+
+
+test('代码改动四项齐全才算完成：只有运行通过时 fullyVerified=false', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'hello-jwp/main.go' }, { path: 'hello-jwp/main.go' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: 'hello jwp\n' }, { command: './hello' })
+  ]);
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.fullyVerified, false);
+  assert.equal(outcome.checks.compile.status, 'skipped');
+  assert.match(outcome.reasons.join('；'), /完成检查未齐全/);
+  assert.equal(verificationIsComplete(outcome), false);
+});
+
+test('代码改动：编译/运行/测试/诊断四项都通过才算完成', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: 'hello-jwp/main.go' }, { path: 'hello-jwp/main.go' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: 'go build -o hello main.go' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: 'hello jwp\n' }, { command: './hello' }),
+    step('shell.run', 'completed', { exitCode: 0, stdout: 'ok\n' }, { command: 'go test ./...' }),
+    step('shell.run', 'completed', { exitCode: 0 }, { command: 'go vet ./...' })
+  ]);
+  assert.equal(outcome.checks.compile.status, 'passed');
+  assert.equal(outcome.checks.run.status, 'passed');
+  assert.equal(outcome.checks.tests.status, 'passed');
+  assert.equal(outcome.checks.diagnostics.status, 'passed');
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.fullyVerified, true);
+  assert.equal(verificationIsComplete(outcome), true);
+});
+
+test('旧报告没有 fullyVerified 时按 checks 现算，不把部分检查当完成', () => {
+  const oldPartial = {
+    verified: true,
+    reasons: [],
+    changedFiles: 1,
+    changedPaths: ['hello-jwp/main.go'],
+    checks: checks({ run: { status: 'passed' } })
+  };
+  assert.equal(verificationIsComplete(oldPartial), false);
+  const oldFull = {
+    ...oldPartial,
+    checks: checks({
+      compile: { status: 'passed' },
+      run: { status: 'passed' },
+      tests: { status: 'passed' },
+      diagnostics: { status: 'passed', errors: 0, warnings: 0 }
+    })
+  };
+  assert.equal(verificationIsComplete(oldFull), true);
 });
