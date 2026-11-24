@@ -21,6 +21,10 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
   verifying: '验证中',
   report_pending: '待确认',
   awaiting_next_round: '可追问',
+  paused: '已暂停',
+  interrupted: '已中断',
+  budget_exhausted: '预算用尽',
+  blocked: '受阻',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消'

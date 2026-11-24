@@ -1128,6 +1128,10 @@ export type TaskStatus =
   | 'verifying'
   | 'report_pending'
   | 'awaiting_next_round'
+  | 'paused'
+  | 'interrupted'
+  | 'budget_exhausted'
+  | 'blocked'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -1157,6 +1161,8 @@ export interface AgentTask {
   checkpointId?: string;
   /** 与 checkpointId 一起构成 Journal 活动指针；LT-P0 只定义。 */
   activeRunId?: string;
+  /** 暂停/中断/预算/阻塞前状态；恢复时回到这里。 */
+  resumeStatus?: TaskStatus;
   /** 编码工作流的业务状态；老任务没有这个字段，按 task.status 推导。 */
   codingState?: import('./coding-workflow').CodingState;
   title: string;
@@ -2560,6 +2566,10 @@ export interface AgentApi {
   /** 逐次审批：拒绝某一步，该步失败并停止整份计划。 */
   rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
+  /** 暂停任务；恢复回到暂停前状态。 */
+  pauseTask(taskId: string): Promise<void>;
+  /** 继续任务；中断/预算/阻塞会开新一轮。 */
+  resumeTask(taskId: string): Promise<void>;
   /**
    * 用当前口径重新判定这一轮的验证结论（只读已落库的报告，不重跑步骤）。
    * 通过则任务按完成收尾；没通过原样返回原因。

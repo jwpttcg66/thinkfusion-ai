@@ -191,6 +191,7 @@ export interface ContextOwnerFile {
 }
 
 export type ContextEventType =
+  | 'context.prepared'
   | 'context.budget.warning'
   | 'context.compaction.started'
   | 'context.compaction.summary.ready'
@@ -206,7 +207,10 @@ export interface ContextEventPayload {
   checkpointId?: string;
   modelId?: string;
   providerId?: string;
-  level?: 'normal' | 'warning' | 'compaction' | 'overflow';
+  level?: 'normal' | 'warning' | 'compaction' | 'overflow' | 'unknown';
+  estimatedTokens?: number;
+  contextWindow?: number | null;
+  usageRatio?: number | null;
   inputTokensBefore?: number | null;
   inputTokensAfter?: number | null;
   /** 事件 payload 只放展示用预览；完整来源在检查点文件。 */

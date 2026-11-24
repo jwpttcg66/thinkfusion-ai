@@ -29,6 +29,10 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
   verifying: '验证中',
   report_pending: '待确认',
   awaiting_next_round: '可追问',
+  paused: '已暂停',
+  interrupted: '已中断',
+  budget_exhausted: '预算用尽',
+  blocked: '受阻',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消'
@@ -47,6 +51,8 @@ export function EngineeringWorkbenchBar(props: {
   onSelectTask: (taskId: string) => void;
   onExport: () => void;
   onCancel: () => void;
+  onPause: () => void;
+  onResume: () => void;
 }) {
   const now = Date.now();
   const parallel = props.activeTasks.filter(item =>
@@ -61,6 +67,12 @@ export function EngineeringWorkbenchBar(props: {
         <button className="btn ghost" type="button" onClick={props.onExport}>导出诊断</button>
         {/* 取消是整任务的动作，放任务头；审批按钮只在各自卡片上出现一次，
             不再另起一条悬浮栏，避免同一个「确认并执行」出现两遍。 */}
+        {['paused', 'interrupted', 'budget_exhausted', 'blocked'].includes(props.task.status) && (
+          <button className="btn" type="button" onClick={props.onResume}>继续任务</button>
+        )}
+        {!TERMINAL.has(props.task.status) && props.task.status !== 'paused' && (
+          <button className="btn ghost" type="button" onClick={props.onPause}>暂停</button>
+        )}
         {!TERMINAL.has(props.task.status) && (
           <button className="btn ghost" type="button" onClick={props.onCancel}>取消任务</button>
         )}

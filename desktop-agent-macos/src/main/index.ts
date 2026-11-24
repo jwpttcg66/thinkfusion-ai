@@ -32,6 +32,9 @@ import {
   WorktreeRemoveSchema
 } from '../shared/schemas';
 import { AgentStore } from './store';
+import { DefaultContextManager } from './context/manager';
+import type { ContextHistoryItem, ContextOwner } from '../shared/context';
+import type { SubAgentTask } from './agents/types';
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
 import { setMemoryService } from './memory/runtime';
@@ -1150,6 +1153,64 @@ function extractTaskMemoryAsync(taskId: string, summary: string): void {
       })
     )
     .catch(() => undefined);
+}
+
+/** LT-P4：默认关闭；用 THINKFUSION_CONTEXT_MANAGER=active 开启上下文准备。 */
+const CONTEXT_MANAGER_ACTIVE = process.env.THINKFUSION_CONTEXT_MANAGER === 'active';
+let defaultContextManager: DefaultContextManager | null = null;
+
+function contextManagerFor(): DefaultContextManager | null {
+  if (!CONTEXT_MANAGER_ACTIVE) return null;
+  if (defaultContextManager) return defaultContextManager;
+  defaultContextManager = new DefaultContextManager({
+    onEvent: ({ type, owner, payload }) => {
+      const base = {
+        type: 'context.event' as const,
+        at: Date.now(),
+        event: type,
+        context: payload
+      };
+      emit(owner.ownerType === 'agent-task'
+        ? { ...base, taskId: owner.taskId }
+        : { ...base, conversationId: owner.conversationId });
+    }
+  });
+  return defaultContextManager;
+}
+
+/**
+ * 只在开关开启且任务带 memory scope 时给 SubAgentTask 挂 contextState。
+ * 历史取最近 20 条会话消息；任务事件暂不重复拼，避免与工程报告重复。
+ */
+function contextStateFor(task: SubAgentTask): SubAgentTask['contextState'] | undefined {
+  const manager = contextManagerFor();
+  if (!manager) return undefined;
+  const memory = task.memory;
+  if (!memory) return undefined;
+  const owner: ContextOwner | null = memory.taskId
+    ? { ownerType: 'agent-task', ownerId: memory.taskId, taskId: memory.taskId, runId: memory.taskId }
+    : memory.conversationId
+      ? { ownerType: 'conversation', ownerId: memory.conversationId, conversationId: memory.conversationId, runId: memory.requestId ?? memory.conversationId }
+      : null;
+  if (!owner) return undefined;
+  const history: ContextHistoryItem[] = memory.conversationId && store
+    ? store.listMessages(memory.conversationId).slice(-20).map(message => ({
+        eventId: message.messageId,
+        kind: 'message' as const,
+        role: message.role === 'channel' || message.role === 'synthesis'
+          ? 'assistant' as const
+          : message.role === 'system' ? 'system' as const : 'user' as const,
+        text: message.text,
+        at: message.at
+      }))
+    : [];
+  return {
+    manager,
+    owner,
+    runId: owner.runId,
+    history,
+    evidenceRefs: []
+  };
 }
 
 function emit(raw: AgentEvent) {
@@ -3063,6 +3124,16 @@ function registerIpc() {
   ipcMain.handle('task:reject-step', async (event, raw: unknown) => {
     trustedUiSender(event);
     await orchestrator.rejectStep(RejectStepSchema.parse(raw));
+  });
+
+  ipcMain.handle('task:pause', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.pause(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('task:resume', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.resume(TaskIdSchema.parse(taskId));
   });
 
   ipcMain.handle('task:cancel', async (event, taskId: unknown) => {
@@ -5653,7 +5724,8 @@ app.whenReady().then(async () => {
         extraAgents,
         selection.answerIds,
         selection.executorIds,
-        cliAnswerAgents
+        cliAnswerAgents,
+        contextStateFor
       );
     },
     executorIdsFor: config =>

@@ -31,7 +31,9 @@ export class ExecutionPool implements SubAgentPool {
     extra: readonly ProviderBackedSubAgent[],
     private readonly answerIds: ReadonlySet<string>,
     private readonly executorIds: ReadonlySet<string>,
-    cliAgents: readonly SubAgent[] = []
+    cliAgents: readonly SubAgent[] = [],
+    /** LT-P4：调用方按 task.memory 生成上下文状态；未配置时零变化。 */
+    private readonly contextProvider?: (task: SubAgentTask) => SubAgentTask['contextState'] | undefined
   ) {
     for (const agent of extra) this.extraById.set(agent.id, agent);
     for (const agent of cliAgents) this.cliById.set(agent.id, agent);
@@ -91,7 +93,10 @@ export class ExecutionPool implements SubAgentPool {
     // 放两个记忆块，哈希也对不上。所以只有「直接问本地/云端成员」这条分支
     // 自己 attach——真机验收发现工程链路正是走这条，之前一次 usage 都没记。
     if (!agent) return this.base.ask(agentId, task);
-    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
+    const candidate = task.contextState
+      ? task
+      : { ...task, ...(this.contextProvider?.(task) ? { contextState: this.contextProvider!(task) } : {}) };
+    const hook = attachFromTask(candidate, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
       const meta = {
         providerId: agent.sourceType ?? 'unknown',
@@ -126,7 +131,10 @@ export class ExecutionPool implements SubAgentPool {
       if (this.base.askStream) return this.base.askStream(agentId, task, onDelta);
       return this.ask(agentId, task);
     }
-    const hook = attachFromTask(task, { sourceType: agent.sourceType ?? 'web', agentId });
+    const candidate = task.contextState
+      ? task
+      : { ...task, ...(this.contextProvider?.(task) ? { contextState: this.contextProvider!(task) } : {}) };
+    const hook = attachFromTask(candidate, { sourceType: agent.sourceType ?? 'web', agentId });
     try {
       const meta = {
         providerId: agent.sourceType ?? 'unknown',

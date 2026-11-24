@@ -574,6 +574,63 @@ export class AgentOrchestrator {
     return { verified: true, reasons: verification.reasons };
   }
 
+  /** 用户暂停：保留当前状态，恢复时回到暂停前状态。 */
+  async pause(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (['completed', 'failed', 'cancelled', 'paused'].includes(task.status)) return;
+    this.tasks.transition(taskId, 'paused', { resumeStatus: task.status });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: '任务已暂停；恢复会回到暂停前的状态，不会重复已完成的写入。'
+    });
+  }
+
+  /**
+   * 用户继续：
+   * - paused：回到暂停前状态；
+   * - interrupted/budget/blocked：开新一轮，先检查现有工作区，不自动重跑旧步骤。
+   */
+  async resume(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (!['paused', 'interrupted', 'budget_exhausted', 'blocked'].includes(task.status)) {
+      throw new Error(`任务当前状态为 ${task.status}，不能继续`);
+    }
+    if (task.status === 'paused' && task.resumeStatus) {
+      this.tasks.transition(taskId, task.resumeStatus, { resumeStatus: undefined });
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: `任务已继续，回到 ${task.resumeStatus} 状态。`
+      });
+      return;
+    }
+
+    const rounds = this.tasks.listRounds(taskId);
+    if (rounds.length >= task.maxRounds) {
+      this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，无法继续`, resumeStatus: undefined });
+      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
+      return;
+    }
+    this.tasks.transition(taskId, 'planning', { resumeStatus: undefined });
+    const round = this.tasks.createRound({ taskId, inputType: 'user_prompt', requestText: '' });
+    const prompt = buildInitialPrompt({
+      prompt: `${task.userPrompt}
+
+继续上次任务：先检查现有工作区、执行报告与证据，确认哪些步骤已经完成；不要重复已完成的写操作。`,
+      taskId,
+      roundId: round.roundId,
+      permissionPreset: task.permissionPreset,
+      workspaceRoot: task.workspaceRoot ?? '(未指定工作区)',
+      allowedTools: allowedToolsForPreset(task.permissionPreset),
+      maxSteps: task.maxSteps
+    });
+    this.tasks.updateRound(round.roundId, { requestText: prompt });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: '任务已继续：开始新一轮，先检查现有结果，不自动重跑旧步骤。'
+    });
+    void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
+  }
+
   async cancel(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
     if (TERMINAL.includes(task.status)) return;

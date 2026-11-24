@@ -28,6 +28,11 @@ export function lifecycleOfTask(status: AgentTask['status']): LifecyclePhase {
     case 'awaiting_next_round': return 'planning';
     case 'completed': return 'completed';
     case 'failed': return 'failed';
+    case 'paused':
+    case 'interrupted':
+    case 'budget_exhausted':
+    case 'blocked':
+      return 'executing';
     case 'cancelled': return 'cancelled';
     default: return 'understanding';
   }

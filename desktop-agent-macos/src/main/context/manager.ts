@@ -7,6 +7,8 @@
 
 import type {
   BudgetDecision,
+  ContextEventPayload,
+  ContextEventType,
   ContextManager,
   FinalizeContextInput,
   PrepareContextInput,
@@ -32,6 +34,13 @@ export interface ContextManagerOptions {
     memory?: string[];
     retainedEventIds?: string[];
   };
+  /** 上下文事件回调；由主进程转成持久化 AgentEvent。 */
+  onEvent?: (input: {
+    type: ContextEventType;
+    owner: PrepareContextInput['owner'];
+    runId: string;
+    payload: ContextEventPayload;
+  }) => void;
 }
 
 interface LastContext {
@@ -89,6 +98,33 @@ export class DefaultContextManager implements ContextManager {
     });
     const decision = decideBudget(budget);
     this.last.set(built.contextId, { built, budget, decision });
+
+    if (this.options.onEvent) {
+      const owner = input.owner;
+      const common: ContextEventPayload = {
+        contextId: built.contextId,
+        ownerType: owner.ownerType,
+        ownerId: owner.ownerId,
+        estimatedTokens: estimated,
+        contextWindow: normalized.contextWindow,
+        usageRatio: decision.usageRatio,
+        level: decision.level
+      };
+      this.options.onEvent({
+        type: 'context.prepared',
+        owner,
+        runId: input.runId,
+        payload: common
+      });
+      if (decision.level !== 'normal') {
+        this.options.onEvent({
+          type: 'context.budget.warning',
+          owner,
+          runId: input.runId,
+          payload: common
+        });
+      }
+    }
 
     const context: PreparedContext = {
       contextId: built.contextId,

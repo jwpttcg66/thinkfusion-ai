@@ -77,6 +77,11 @@ export function codingStateFor(status: TaskStatus): CodingState {
       return 'COMPLETED';
     case 'failed':
       return 'FAILED';
+    case 'paused':
+    case 'interrupted':
+    case 'budget_exhausted':
+    case 'blocked':
+      return 'BLOCKED';
     case 'cancelled':
       return 'CANCELLED';
   }
