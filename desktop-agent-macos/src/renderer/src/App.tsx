@@ -18,6 +18,7 @@ import {
   projectEngineeringCollaborationResult
 } from '../../shared/collaboration-result';
 import { mergeTaskEvent } from '../../shared/task-events';
+import { mergeTaskLists } from '../../shared/task-list';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { auditActivity } from '../../shared/diagnostics';
 import { TaskSidebar } from './components/TaskSidebar';
@@ -593,6 +594,8 @@ export default function App() {
    * pane with one system line next to a plan would be two half-answers.
    */
   const showingConversation = activeConversation !== null && !activeConversation.taskId;
+  /** 会话已挂上 taskId，但任务本体还没进列表 / 还没选中 → 不能闪回空白首页。 */
+  const handoffPending = Boolean(activeConversation?.taskId && !activeTask);
   /**
    * 路由预览：纯函数算出来，不产生任何副作用（不发问、不建会话）。
    * 输入框里显示「这句话会怎么走」，用户就能在发送前改判。
@@ -642,7 +645,9 @@ export default function App() {
         setWorkspace(active?.root ?? state.workspaceRoot);
       })
       .catch(() => undefined);
-    window.agentAPI.getTaskHistory().then(setTasks).catch(() => undefined);
+    window.agentAPI.getTaskHistory()
+      .then(history => setTasks(prev => mergeTaskLists(history, prev)))
+      .catch(() => undefined);
     window.agentAPI.getDeepSeekStatus().then(setStatus).catch(() => undefined);
 
     // The embedded page is a native view laid over the window, not an iframe:
@@ -726,20 +731,20 @@ export default function App() {
           event.conversation,
           ...prev.filter(item => item.conversationId !== event.conversation.conversationId && item.conversationId !== pendingId)
         ]);
-        // 任务号是 Planner 转交后才写回会话的，IPC 返回时往往还是 null。
-        // 不等用户手点侧栏：会话一挂上任务就选中并补读历史事件，否则
-        // activeRef 还是 null，后续报告/评审/完成事件全被过滤掉，交付卡永远不出现。
+        // 任务号是 Planner 转交后才写回会话的。会话一挂上任务就必须：
+        // 1) 把任务本体写入 tasks（否则 showingConversation 关掉后主区变空白首页）
+        // 2) 选中并补读事件（否则后续报告/评审被 activeRef 过滤掉）
+        // 用 conversationId 对齐：pending 刚换成真 id 时 ref 可能还是旧值。
         const attachedTaskId = event.conversation.taskId;
-        if (
-          attachedTaskId &&
-          activeConversationRef.current === event.conversation.conversationId &&
-          activeRef.current !== attachedTaskId
-        ) {
+        const watchingThisConversation =
+          activeConversationRef.current === event.conversation.conversationId ||
+          pending?.id === pendingId ||
+          activeConversationRef.current === pendingId;
+        if (attachedTaskId && watchingThisConversation) {
+          // 同步占住 activeId，避免 React 先渲染「无会话无任务」空白首页；
+          // selectTask 再补任务本体与事件（列表可能尚未有这条）。
           setActiveId(attachedTaskId);
-          void window.agentAPI.getTaskEvents(attachedTaskId).then(history => {
-            setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
-            setDerived(projectTaskView(history));
-          }).catch(() => undefined);
+          void selectTask(attachedTaskId);
         }
         return;
       }
@@ -1015,6 +1020,10 @@ export default function App() {
     setError('');
     setClarifyText('');
     try {
+      // 会话转交工程任务时，tasks 列表可能还没有这条（或被晚到的 history 冲掉）。
+      // 先把任务本体挂进列表，主区才不会从会话页直接掉进空白首页。
+      const task = await window.agentAPI.getTask(taskId).catch(() => null);
+      if (task) setTasks(prev => upsert(prev, task));
       const history = await window.agentAPI.getTaskEvents(taskId);
       setEvents(history.reduce((list, item) => mergeTaskEvent(list, item), [] as AgentEvent[]));
       setDerived(projectTaskView(history));
@@ -2297,7 +2306,7 @@ export default function App() {
           />
         )}
 
-        <div className={`scroll${activeTask || showingConversation ? '' : ' is-empty'}`}>
+        <div className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}>
           <div className="inner">
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
               <CollaborationPlanPanel conversationId={activeConversation.conversationId} />
@@ -2368,7 +2377,28 @@ export default function App() {
               />
             )}
 
-            {!activeTask && !showingConversation && (
+            {handoffPending && (
+              <section className="card running">
+                <span className="spinner" />
+                <div>
+                  <b>正在转入工程工作空间</b>
+                  <p className="muted">
+                    已判定为工程任务，正在挂载计划与时间线；不会回到空白首页。
+                  </p>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => {
+                      if (activeConversation?.taskId) void selectTask(activeConversation.taskId);
+                    }}
+                  >
+                    立即打开任务
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {!activeTask && !showingConversation && !handoffPending && (
               <section className="hero">
                 <div className="hero-logo">◈</div>
                 <div className="hero-title">
