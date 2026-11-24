@@ -40,7 +40,7 @@ npm run test:collaboration-result
 
 ## 未完成（留给后续阶段）
 
-- U2：把 Debate 引擎 Claim/Dispute 完整挂进投影；争议触发策略。
-- U3：生产端补齐 severity / recommendation / disposition 真值与修正关联。
-- U4/U5：主活动区改读 `CollaborationResultView`。
+- U2：计划辩论边界今日经 `summarizePlanDebate` 压成 `PlanDebate.summary`；需事件结构化切片或按 `debateId` 水合，投影才能有真 Claim/Dispute；并校正争议触发策略。
+- U3：生产端拆开 `rawVerdict` 与结构化 issue（severity / recommendation / disposition），并打通修正关联。
+- U4/U5：主活动区改读 `CollaborationResultView`；General 压缩进度面板，Engineering 收敛重复「最终交付」。
 - 生产端 `review.ready` 事件形状尚未扩展（投影已预留字段）。

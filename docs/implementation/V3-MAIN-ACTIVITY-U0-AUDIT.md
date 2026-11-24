@@ -147,30 +147,76 @@ renderer/.../ConversationView.tsx
 
 - 无「无实质争议不启动辩论」的端到端主活动区断言。
 - 无 Review disposition / 修正 / 验证关联的一致性测试。
-- 无统一 `CollaborationResultView` 投影的可重建 / 去重 / 乱序测试。
+- ~~无统一 `CollaborationResultView` 投影测试~~ → U1 已补 `test:collaboration-result`（仍缺乱序/去重与跨场景金样）。
 - General 与 Engineering 结果语义一致性无共享测试夹具。
 - 真机验收报告尚未开始（属 U6）。
 
 ---
 
-## 6. U1 建议（不改权威状态）
+## 6. U1 建议与落地对照
 
-1. **新建共享投影模块**（建议路径 `src/shared/collaboration-result.ts`）：定义 `CollaborationResultView` 及子视图，**优先 typedef / adapter 映射现有类型**，不新建第二套持久化。
-2. **双适配器**：`projectEngineeringResult(events, taskMeta)` 基于 `projectTaskView` + `buildTaskConversation`；`projectConversationResult(conversation)` 基于 `Synthesis` + `DebateSnapshot`。
-3. **SourceReference 最小集**：`{ taskOrConversationId, runId?, eventType?, eventAt?, messageId?, participantId?, kind }`，先能跳回现有事件/消息。
-4. **Review 先扩投影形状**：即使生产端暂时只能填 `issues[]` → 临时 `description`，也要把 disposition 等字段留空并在 UI 标明「未决定」，避免再用状态卡假装有内容。
-5. **禁止**在 renderer 本地拼装第二份业务真相；U4/U5 只消费投影。
+| 建议 | U1 状态 |
+| --- | --- |
+| 新建 `shared/collaboration-result.ts` | ✅ 已落地 |
+| Engineering / Conversation 双适配器 | ✅ `projectEngineeringCollaborationResult` / `projectConversationCollaborationResult` |
+| SourceReference 最小集 | ✅ 已定义 |
+| Review issues 投影为完整形状，disposition 默认 pending | ✅ |
+| Renderer 不另建权威状态 | ✅ UI 尚未接线（留给 U4/U5） |
 
 ---
 
-## 7. U0 验收对照
+## 7. 补充审计：主活动区信息层级与结构坍塌点
+
+以下补记并行审计中、初版 U0 未写细的代码事实（仍以 `cdc8308` 为准）。
+
+### 7.1 General / Knowledge 阅读顺序（易淹没结论）
+
+`App.tsx` 对话页自上而下大致为：协作计划 → 参与者 / 证据 / 工作区 / 诊断 → **ProgressPanel** → **ConversationView**。  
+ConversationView 内综合卡（SynthesisCard）被显式排在轮次末尾；其前还有生命周期卡、通道条、执行轮次、辩论面板等。
+
+### 7.2 Engineering 阅读顺序与重复交付
+
+1. `TaskProgressCard`（现在到哪）  
+2. `TaskConversation`（事件时间线：… → verification → review → conclusion）  
+3. 同页后续还有计划预览 / 等待卡 / **「最终交付」**（再次展示验证与评审状态）
+
+「最终交付」与时间线里的 verification/review/conclusion **信息重复**，U5 应收敛到单一结论层。
+
+### 7.3 结构在边界上被压成摘要
+
+| 边界 | 事实 |
+| --- | --- |
+| 计划辩论 | `DebateOrchestrator` 有 Claim/Dispute/Verdict；`summarizePlanDebate` / `PlanDebate` 只保留 `summary` 等摘要字段进入 `plan.debated` |
+| 独立评审 | `ReviewVerdict.verdict` 常为**模型全文**；`issues[]` 为启发式抽行，无 severity / disposition |
+| General 裁决 | `DebateVerdictStrip` 可按 `debateId` 再取完整 `DebateView`；Engineering 辩论卡**未**做同等水合 |
+
+### 7.4 命名易混（实施时勿接错）
+
+| 名字 | 实际含义 |
+| --- | --- |
+| `shared/task-view.ts` · `TaskView` | 工程任务派生视图（主活动区在用） |
+| `collaboration/view.ts` · `TaskView` | 协作引擎计划任务状态（主活动区未接） |
+| `collaboration/reviewer.ts` | 计划门禁 notes，不是 `review.ready` |
+| `CollaborationDetailsView` | V3 详情 DTO，主活动区只部分经面板露出 |
+| `ModelOutputGrid` | 组件存在，App **未引用** |
+
+### 7.5 U2 / U3 / U4–U5 优先序（由本补充导出）
+
+1. **U2**：计划辩论边界停止只落 `summary`——事件携带结构化切片，或 Engineering 按 `debateId` 水合（与 VerdictStrip 同路），投影才能有真争议。  
+2. **U3**：拆开 `rawVerdict` 与结构化 `ReviewIssue`；交付卡禁止只显示「通过/需修复 · N 处」。  
+3. **U4**：General 主活动区把 Progress/面板降为紧凑层，结论与关键意见上移。  
+4. **U5**：Engineering 去掉与时间线重复的「最终交付」堆叠，统一读 `CollaborationResultView`。
+
+---
+
+## 8. U0 验收对照
 
 | 验收项 | 结果 |
 | --- | --- |
-| 最新 SHA / 文件 / 调用链真实 | ✅ `cdc8308`；链路见 §2 |
-| 核心意见 / 争议 / 评审 / 验证有生产端与消费端 | ✅ 已定位；评审内容与争议结构化展示不完整（见 §3–4） |
+| 最新 SHA / 文件 / 调用链真实 | ✅ `cdc8308`；链路见 §2、§7 |
+| 核心意见 / 争议 / 评审 / 验证有生产端与消费端 | ✅ 已定位；评审内容与争议结构化展示不完整（见 §3–4、§7.3） |
 | 字段映射表 | ✅ §3 |
 | 缺失清单 | ✅ §4 |
 | 测试缺口 | ✅ §5 |
 
-**U0 结论：** 可以进入 U1。最大风险是 Review 内容过瘦与双场景数据源分裂；统一投影必须做适配，而不是强行共用一个事件流。
+**U0 结论：** 可以进入（且已进入）U1。最大风险仍是 Review 内容过瘦、计划辩论结构在 `PlanDebate` 边界坍塌，以及双场景数据源分裂；U4/U5 前必须先补 U2/U3 生产端结构，不能只靠 UI 重排。
