@@ -157,6 +157,7 @@ const api: AgentApi = {
   recheckVerification: (taskId: string): Promise<{ verified: boolean; reasons: string[] }> =>
     ipcRenderer.invoke('task:recheck-verification', taskId),
   acceptUnverified: (taskId: string) => ipcRenderer.invoke('task:accept-unverified', taskId),
+  resumeRepair: (taskId: string) => ipcRenderer.invoke('task:resume-repair', taskId),
   answerClarification: (input: { taskId: string; answer: string }) => ipcRenderer.invoke('task:answer', input),
   deleteTask: (taskId: string) => ipcRenderer.invoke('task:delete', taskId),
 

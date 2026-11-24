@@ -507,6 +507,33 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 按当前环境继续修复一个停在 report_pending 的任务。
+   *
+   * 与 recheckVerification 不同：这里不猜结论，而是把报告交回模型，重新
+   * 规划并执行。用于验证失败的原因是本机环境（例如 Go 缓存目录）而代码
+   * 本身没问题的情况——用户点一下就能让任务自己跑完，而不是接受未验证。
+   */
+  async resumeRepair(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (task.status !== 'report_pending') {
+      throw new Error(`任务当前状态为 ${task.status}，没有待修复的交付`);
+    }
+    const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
+    if (!report) throw new Error('没有找到这一轮的执行报告，无法继续修复');
+    if (report.verification?.verified === true) {
+      throw new Error('这一轮已经验证通过，不需要继续修复');
+    }
+    this.deps.emit({
+      type: 'log',
+      at: Date.now(),
+      taskId,
+      level: 'warn',
+      message: '按当前环境继续修复：重新规划并执行未通过的验证。'
+    });
+    await this.continueAfterReport(taskId, report, null);
+  }
+
+  /**
    * 用当前口径重新判定这一轮的验证结论。
    *
    * 存在的理由：验证口径本身会变（例如把 `shell.run` 里的 javac / mvn / 输出

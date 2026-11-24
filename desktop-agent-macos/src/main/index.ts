@@ -3073,6 +3073,13 @@ function registerIpc() {
     await orchestrator.acceptUnverified(TaskIdSchema.parse(taskId));
   });
 
+  // 环境修复后，旧任务需要一个继续跑的入口：重新判定只重算结论，不会
+  // 再执行命令；这个入口会真的进入下一轮规划与执行。
+  ipcMain.handle('task:resume-repair', async (event, taskId: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.resumeRepair(TaskIdSchema.parse(taskId));
+  });
+
   // CLI 有两个身份：回答源（第一轮被问，见 execution/cli-answer-agent.ts）
   // 与执行者（新任务能不能把工程活派给它）。这里的开关同时管这两件事。
   /** 本次亲手在文件对话框里挑过的绝对路径；渲染层不能凭空塞路径。 */

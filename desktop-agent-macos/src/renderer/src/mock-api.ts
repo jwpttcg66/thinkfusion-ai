@@ -304,6 +304,7 @@ export function createMockApi(): AgentApi {
     cancelTask: async () => undefined,
     recheckVerification: async () => ({ verified: true, reasons: [] }),
     acceptUnverified: async () => undefined,
+    resumeRepair: async () => undefined,
     answerClarification: async () => undefined,
     deleteTask: async () => undefined,
     getCliAgents: async () => [

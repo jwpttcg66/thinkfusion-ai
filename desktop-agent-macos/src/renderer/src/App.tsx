@@ -1642,6 +1642,18 @@ export default function App() {
     }
   }
 
+  /** 环境修好后继续跑：会重新规划并执行，不只是重算结论。 */
+  async function resumeRepair() {
+    if (!activeTask) return;
+    setError('');
+    try {
+      await window.agentAPI.resumeRepair(activeTask.taskId);
+      setNotice('已按当前环境重新开始修复：会重新规划并执行未通过的验证');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function answerClarification() {
     if (!activeTask || !clarifyText.trim()) return;
     setError('');
@@ -2582,7 +2594,10 @@ export default function App() {
                       「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。
                     </p>
                     <div className="row">
-                      <button className="btn" type="button" onClick={() => void recheckVerification()}>
+                      <button className="btn" type="button" onClick={() => void resumeRepair()}>
+                        继续修复（重新执行验证）
+                      </button>
+                      <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
                         按当前口径重新判定
                       </button>
                       <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
@@ -2591,7 +2606,8 @@ export default function App() {
                     </div>
                     <p className="muted">
                       任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
-                      上面两个按钮二选一；想让它真的补跑检查，就在输入框重新提一句（会作为新任务）。
+                      「继续修复」会重新规划并真的再跑命令；「重新判定」只重算已落库的报告；
+                      「接受未验证」直接收尾并保留缺口。完全权限下的新任务会自动走修复，不会停在这里。
                     </p>
                   </>
                 )}

@@ -2527,6 +2527,8 @@ export interface AgentApi {
   recheckVerification(taskId: string): Promise<{ verified: boolean; reasons: string[] }>;
   /** 明确接受「未验证」并收尾；缺口保留在报告里，不会被当成已验证。 */
   acceptUnverified(taskId: string): Promise<void>;
+  /** 按当前环境重新规划并执行，专门修复未验证的失败；会真的再跑命令。 */
+  resumeRepair(taskId: string): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
   /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;
