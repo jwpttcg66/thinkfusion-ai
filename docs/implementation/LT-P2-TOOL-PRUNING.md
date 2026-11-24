@@ -1,6 +1,6 @@
 # LT-P2 · 工具结果裁剪
 
-状态：未开始  
+状态：基础层完成（P2-01/02；P2-03 未接线）  
 阶段目标：在不调用模型的情况下，先裁剪可丢弃的工具输出。  
 依赖：LT-P1 完成  
 上游：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
@@ -123,7 +123,7 @@ npm run test:execution-timeline
 
 ## 6. 状态清单
 
-- [ ] P2-01 工具历史
-- [ ] P2-02 Pruner
+- [x] P2-01 工具历史
+- [x] P2-02 Pruner
 - [ ] P2-03 接线与统计
 - [ ] 阶段回归通过

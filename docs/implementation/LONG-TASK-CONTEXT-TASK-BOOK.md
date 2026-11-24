@@ -137,13 +137,13 @@ P6 UI 与全链路验收
 | LT-P0-06 | 未开始 | P0-03 / P0-05 | 归档策略 |
 | LT-P0-07 | 未开始 | P0-01 | 状态/基线统一 |
 | LT-P0-08 | 未开始 | P0-03 / P0-07 | 回滚演练设计 |
-| LT-P1-01 | 未开始 | P0-02 | 模块骨架 |
-| LT-P1-02 | 未开始 | P1-01 | Builder |
-| LT-P1-03 | 未开始 | P1-01 | Estimator |
-| LT-P1-04 | 未开始 | P1-03 | Budget |
-| LT-P1-05 | 未开始 | P0-02 | Provider 适配 |
-| LT-P2-01 | 未开始 | P1-02 | 工具历史 |
-| LT-P2-02 | 未开始 | P2-01 | Pruner |
+| LT-P1-01 | 基础层完成 / TESTED | P0-02 | 模块骨架 |
+| LT-P1-02 | 基础层完成 / TESTED | P1-01 | Builder |
+| LT-P1-03 | 基础层完成 / TESTED | P1-01 | Estimator |
+| LT-P1-04 | 基础层完成 / TESTED | P1-03 | Budget |
+| LT-P1-05 | 基础层完成 / TESTED | P0-02 | Provider 适配 |
+| LT-P2-01 | 基础层完成 / TESTED | P1-02 | 工具历史 |
+| LT-P2-02 | 基础层完成 / TESTED | P2-01 | Pruner |
 | LT-P2-03 | 未开始 | P2-02 / P1-04 | 接线 |
 | LT-P3-01 | 未开始 | P0-02 | 摘要契约 |
 | LT-P3-02 | 未开始 | P3-01 / P1-04 | Summarizer |
