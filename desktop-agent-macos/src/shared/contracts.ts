@@ -7,6 +7,7 @@ import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
 import type { CodeIndexLink, CodeIndexLinkInput, CodeIndexMemory, CodeIndexMemoryInput, CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus, CodeIndexVectorResult } from './code-index';
 import type { MemoryApi } from './memory-api';
+import type { ContextEventPayload, ContextEventType } from './context';
 import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceManagedResult, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
@@ -1127,6 +1128,10 @@ export type TaskStatus =
   | 'verifying'
   | 'report_pending'
   | 'awaiting_next_round'
+  | 'paused'
+  | 'interrupted'
+  | 'budget_exhausted'
+  | 'blocked'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -1145,6 +1150,19 @@ export type RoundStatus =
 
 export interface AgentTask {
   taskId: string;
+  /**
+   * 一次连续执行过程的身份；暂停/恢复复用，明确重跑才变化。
+   * 老任务没有这个字段，读取方按 taskId 兼容处理。
+   */
+  runId?: string;
+  /** 当前使用的上下文版本；LT-P0 只定义，未接线。 */
+  contextId?: string;
+  /** 最近一次已提交的上下文检查点；LT-P0 只定义，未接线。 */
+  checkpointId?: string;
+  /** 与 checkpointId 一起构成 Journal 活动指针；LT-P0 只定义。 */
+  activeRunId?: string;
+  /** 暂停/中断/预算/阻塞前状态；恢复时回到这里。 */
+  resumeStatus?: TaskStatus;
   /** 编码工作流的业务状态；老任务没有这个字段，按 task.status 推导。 */
   codingState?: import('./coding-workflow').CodingState;
   title: string;
@@ -1551,6 +1569,17 @@ export type AgentEvent = AgentEventBase &
     /** Emitted on delete, so a list built from events drops the row too. */
     | { type: 'task.deleted'; taskId: string }
     | { type: 'log'; taskId?: string; level: 'info' | 'warn' | 'error'; message: string }
+    /**
+     * 上下文压缩/恢复事件。owner 可以是 AgentTask，也可以是 Conversation；
+     * 事件只带 checkpointId 与预览，完整来源在检查点文件。
+     */
+    | {
+        type: 'context.event';
+        taskId?: string;
+        conversationId?: string;
+        event: ContextEventType;
+        context: ContextEventPayload;
+      }
   );
 
 export type DeepSeekEvent =
@@ -2537,6 +2566,10 @@ export interface AgentApi {
   /** 逐次审批：拒绝某一步，该步失败并停止整份计划。 */
   rejectStep(input: { taskId: string; stepId: string; reason?: string }): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
+  /** 暂停任务；恢复回到暂停前状态。 */
+  pauseTask(taskId: string): Promise<void>;
+  /** 继续任务；中断/预算/阻塞会开新一轮。 */
+  resumeTask(taskId: string): Promise<void>;
   /**
    * 用当前口径重新判定这一轮的验证结论（只读已落库的报告，不重跑步骤）。
    * 通过则任务按完成收尾；没通过原样返回原因。

@@ -11,22 +11,26 @@ import { codingStateFor } from '../shared/coding-workflow';
 
 /** Transitions the spec allows. Anything else is a bug, not a warning. */
 const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
-  created: ['planning', 'failed', 'cancelled'],
+  created: ['planning', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   // planning -> completed covers "planner says the task is already done" before
   // any local step ran; the orchestrator still checks for pending rounds first.
   // planning -> awaiting_clarification covers "the planner needs an answer";
   // nothing moves again until the user supplies one.
-  planning: ['plan_ready', 'awaiting_clarification', 'completed', 'failed', 'cancelled'],
+  planning: ['plan_ready', 'awaiting_clarification', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'completed', 'failed', 'cancelled'],
   // Answering starts a new round, so it re-enters planning. There is no path
   // from here to anything else: a question that is not answered cannot be
   // executed, approved or skipped.
-  awaiting_clarification: ['planning', 'failed', 'cancelled'],
-  plan_ready: ['awaiting_approval', 'failed', 'cancelled'],
-  awaiting_approval: ['executing', 'failed', 'cancelled'],
-  executing: ['verifying', 'failed', 'cancelled'],
-  verifying: ['report_pending', 'failed', 'cancelled'],
-  report_pending: ['awaiting_next_round', 'completed', 'failed', 'cancelled'],
-  awaiting_next_round: ['planning', 'failed', 'cancelled'],
+  awaiting_clarification: ['planning', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  plan_ready: ['awaiting_approval', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  awaiting_approval: ['executing', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  executing: ['verifying', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
+  verifying: ['report_pending', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  report_pending: ['awaiting_next_round', 'paused', 'interrupted', 'blocked', 'completed', 'failed', 'cancelled'],
+  awaiting_next_round: ['planning', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
+  interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
+  budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
+  blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: []
@@ -92,7 +96,7 @@ export class TaskManager {
     let count = 0;
     for (const task of this.store.listTasks()) {
       if (!interrupted.has(task.status)) continue;
-      this.transition(task.taskId, 'failed', { error: '应用退出前任务未结束，已标记为中断；请重新提交。' });
+      this.transition(task.taskId, 'interrupted', { error: '应用退出前任务未结束，已标记为中断；可从最近状态继续。' });
       count += 1;
     }
     return count;

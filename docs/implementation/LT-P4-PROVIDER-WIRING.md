@@ -1,6 +1,6 @@
 # LT-P4 · Provider 请求接线
 
-状态：未开始  
+状态：P4-01–P4-04 完成；入口策略见 `context/entry-policy.ts`  
 阶段目标：让所有可压缩请求统一经过 Context Manager，同时不破坏入口边界。  
 依赖：LT-P1、LT-P2、LT-P3  
 上游：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
@@ -132,8 +132,8 @@ npm run test:context-manager
 
 ## 6. 状态清单
 
-- [ ] P4-01 Pool Hook
-- [ ] P4-02 入口策略
-- [ ] P4-03 Usage
-- [ ] P4-04 边界回归
-- [ ] 阶段回归通过
+- [x] P4-01 Pool Hook
+- [x] P4-02 入口策略
+- [x] P4-03 Usage
+- [x] P4-04 边界回归
+- [x] 阶段回归通过（Web/CLI 不注入；Engineering 规划仍按原话直发）

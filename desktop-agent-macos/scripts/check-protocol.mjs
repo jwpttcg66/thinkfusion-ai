@@ -8,6 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { parseAnswer, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt } from '../out/shared/protocol.js';
+import { ExecutionReportSchema } from '../out/shared/schemas.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -419,3 +420,25 @@ if (process.exitCode) {
 } else {
   console.log(`All ${passed} protocol tests passed.`);
 }
+
+test('执行报告的 verification.fullyVerified 不再被拒绝', () => {
+  const report = {
+    protocol: 'desktop-agent/v1',
+    type: 'execution_report',
+    taskId: 't1',
+    roundId: '',
+    planId: '',
+    status: 'failed',
+    results: [],
+    errors: [],
+    nextAction: 'stop',
+    createdAt: 1,
+    verification: {
+      verified: true,
+      fullyVerified: true,
+      reasons: [],
+      changedFiles: 0
+    }
+  };
+  assert.equal(ExecutionReportSchema.safeParse(report).success, true);
+});

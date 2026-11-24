@@ -130,40 +130,40 @@ P6 UI 与全链路验收
 | 任务 | 状态 | 依赖 | 出口 |
 | --- | --- | --- | --- |
 | LT-P0-01 | 未开始 | — | 审计记录 |
-| LT-P0-02 | 未开始 | P0-01 | 契约类型 |
+| LT-P0-02 | 类型层完成 / TESTED | P0-01 | 契约类型 |
 | LT-P0-03 | 未开始 | P0-01 | 存储 ADR |
 | LT-P0-04 | 未开始 | P0-01 | 状态决策 |
-| LT-P0-05 | 未开始 | P0-02 / P0-04 | 所有权契约 |
+| LT-P0-05 | 类型层完成 / TESTED | P0-02 / P0-04 | 所有权契约 |
 | LT-P0-06 | 未开始 | P0-03 / P0-05 | 归档策略 |
 | LT-P0-07 | 未开始 | P0-01 | 状态/基线统一 |
 | LT-P0-08 | 未开始 | P0-03 / P0-07 | 回滚演练设计 |
-| LT-P1-01 | 未开始 | P0-02 | 模块骨架 |
-| LT-P1-02 | 未开始 | P1-01 | Builder |
-| LT-P1-03 | 未开始 | P1-01 | Estimator |
-| LT-P1-04 | 未开始 | P1-03 | Budget |
-| LT-P1-05 | 未开始 | P0-02 | Provider 适配 |
-| LT-P2-01 | 未开始 | P1-02 | 工具历史 |
-| LT-P2-02 | 未开始 | P2-01 | Pruner |
+| LT-P1-01 | 基础层完成 / TESTED | P0-02 | 模块骨架 |
+| LT-P1-02 | 基础层完成 / TESTED | P1-01 | Builder |
+| LT-P1-03 | 基础层完成 / TESTED | P1-01 | Estimator |
+| LT-P1-04 | 基础层完成 / TESTED | P1-03 | Budget |
+| LT-P1-05 | 基础层完成 / TESTED | P0-02 | Provider 适配 |
+| LT-P2-01 | 基础层完成 / TESTED | P1-02 | 工具历史 |
+| LT-P2-02 | 基础层完成 / TESTED | P2-01 | Pruner |
 | LT-P2-03 | 未开始 | P2-02 / P1-04 | 接线 |
-| LT-P3-01 | 未开始 | P0-02 | 摘要契约 |
-| LT-P3-02 | 未开始 | P3-01 / P1-04 | Summarizer |
-| LT-P3-03 | 未开始 | P0-03 / P3-01 | Checkpoint |
-| LT-P3-04 | 未开始 | P3-03 | Recovery |
-| LT-P3-05 | 未开始 | P3-03 | 事件/Trace |
-| LT-P4-01 | 未开始 | P1-02 / P2-03 / P3-04 | Pool Hook |
-| LT-P4-02 | 未开始 | P4-01 | 入口策略 |
-| LT-P4-03 | 未开始 | P1-03 / P4-01 | Usage 校准 |
-| LT-P4-04 | 未开始 | P4-02 / P4-03 | 边界回归 |
-| LT-P5-01 | 未开始 | P0-04 | 状态扩展 |
-| LT-P5-02 | 未开始 | P5-01 | 暂停/恢复 |
-| LT-P5-03 | 未开始 | P3-04 / P5-02 | 恢复计划 |
-| LT-P5-04 | 未开始 | P5-03 | 副作用核对 |
-| LT-P5-05 | 未开始 | P5-02 / P5-04 | 并发保护 |
-| LT-P6-01 | 未开始 | P4-04 / P5-02 | 主页面 |
-| LT-P6-02 | 未开始 | P3-05 / P4-04 | 轨迹页 |
-| LT-P6-03 | 未开始 | P4-03 | 统计页 |
-| LT-P6-04 | 未开始 | P4-04 / P5-05 | E2E |
-| LT-P6-05 | 未开始 | P6-01..04 | 验收报告 |
+| LT-P3-01 | 基础层完成 / TESTED | P0-02 | 摘要契约 |
+| LT-P3-02 | 基础层完成 / TESTED | P3-01 / P1-04 | Summarizer |
+| LT-P3-03 | 基础层完成 / TESTED | P0-03 / P3-01 | Checkpoint |
+| LT-P3-04 | 基础层完成 / TESTED | P3-03 | Recovery |
+| LT-P3-05 | 部分完成 | P3-03 | 事件/Trace |
+| LT-P4-01 | 基础层完成 / TESTED | P1-02 / P2-03 / P3-04 | Pool Hook |
+| LT-P4-02 | IMPLEMENTED / TESTED | P4-01 | 入口策略 |
+| LT-P4-03 | IMPLEMENTED / TESTED | P1-03 / P4-01 | Usage 校准 |
+| LT-P4-04 | TESTED | P4-02 / P4-03 | 边界回归 |
+| LT-P5-01 | 基础层完成 / TESTED | P0-04 | 状态扩展 |
+| LT-P5-02 | IMPLEMENTED / VERIFIED | P5-01 | 暂停/恢复 |
+| LT-P5-03 | IMPLEMENTED / TESTED | P3-04 / P5-02 | 恢复计划 |
+| LT-P5-04 | IMPLEMENTED / TESTED | P5-03 | 副作用核对 |
+| LT-P5-05 | IMPLEMENTED / TESTED | P5-02 / P5-04 | 并发保护 |
+| LT-P6-01 | IMPLEMENTED / TESTED | P4-04 / P5-02 | 主页面 |
+| LT-P6-02 | IMPLEMENTED / TESTED | P3-05 / P4-04 | 轨迹页 |
+| LT-P6-03 | IMPLEMENTED / TESTED | P4-03 | 统计页 |
+| LT-P6-04 | TESTED / VERIFIED | P4-04 / P5-05 | E2E |
+| LT-P6-05 | VERIFIED | P6-01..04 | 验收报告 |
 
 ## 3. 跨阶段契约
 

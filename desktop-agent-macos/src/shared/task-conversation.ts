@@ -543,6 +543,30 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'context.event') {
+      const labels: Record<string, string> = {
+        'context.prepared': '上下文已准备',
+        'context.budget.warning': '上下文接近上限',
+        'context.compaction.started': '开始压缩上下文',
+        'context.compaction.summary.ready': '摘要已生成',
+        'context.compaction.committed': '上下文检查点已提交',
+        'context.compaction.failed': '上下文压缩失败',
+        'context.compaction.stale': '上下文摘要已过期',
+        'context.recovered': '已从检查点恢复上下文'
+      };
+      push({
+        kind: 'note',
+        key: `context-${String(event.at)}-${String(seq)}`,
+        at: event.at,
+        roundId: event.taskId ? currentRoundId : null,
+        roundNumber: event.taskId ? roundNumber(currentRoundId) : null,
+        tone: event.event === 'context.budget.warning' ? 'warn' : 'muted',
+        text: labels[event.event] ?? '上下文事件',
+        detail: JSON.stringify(event.context, null, 2)
+      });
+      continue;
+    }
+
     if (event.type === 'clarification.required') {
       push({
         kind: 'note',

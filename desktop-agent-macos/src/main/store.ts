@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { AgentEvent, AgentRound, AgentTask, ExecutionReport, StoredPlan } from '../shared/contracts';
 import type { Conversation, ConversationMessage } from '../shared/conversation';
 import type { TaskEventEnvelope } from '../shared/task-events';
+import type { ContextOwner } from '../shared/context';
 
 interface StoreState {
   version: number;
@@ -145,6 +146,13 @@ export class AgentStore {
       fs.closeSync(handle);
     }
     fs.renameSync(tmp, this.file);
+    // 目录项也要落盘；只 fsync 文件在断电时可能丢掉 rename。
+    try {
+      const dir = fs.openSync(path.dirname(this.file), 'r');
+      try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+    } catch {
+      // 某些平台不允许 fsync 目录；尽力而为，不影响正常写。
+    }
   }
 
   // --- tasks ---------------------------------------------------------------
@@ -393,6 +401,47 @@ export class AgentStore {
 
   getConversation(conversationId: string): Conversation | null {
     return this.state.conversations.find(item => item.conversationId === conversationId) ?? null;
+  }
+
+  /**
+   * 一次 Journal 持久化完成 owner 活动指针 + committed 事件。
+   *
+   * 不能由调用方用 upsertTask/upsertConversation + appendEvent 拼事务：
+   * 那会产生中间状态（指针已变、事件未落或反过来）。
+   */
+  commitContextCheckpoint(input: {
+    owner: ContextOwner;
+    contextId: string;
+    checkpointId: string;
+    activeRunId: string;
+    event?: AgentEvent;
+  }): void {
+    const now = Date.now();
+    const owner = input.owner;
+    if (owner.ownerType === 'agent-task') {
+      const task = this.state.tasks.find(item => item.taskId === owner.taskId);
+      if (!task) throw new Error(`提交上下文检查点失败：任务不存在 ${owner.taskId}`);
+      task.contextId = input.contextId;
+      task.checkpointId = input.checkpointId;
+      task.activeRunId = input.activeRunId;
+      task.updatedAt = now;
+    } else {
+      const conversation = this.state.conversations.find(
+        item => item.conversationId === owner.conversationId
+      );
+      if (!conversation) {
+        throw new Error(`提交上下文检查点失败：会话不存在 ${owner.conversationId}`);
+      }
+      conversation.contextId = input.contextId;
+      conversation.checkpointId = input.checkpointId;
+      conversation.activeRunId = input.activeRunId;
+      conversation.updatedAt = now;
+    }
+    if (input.event) {
+      this.state.events.push(input.event);
+      this.trimEvents();
+    }
+    this.persist();
   }
 
   listConversations(): Conversation[] {

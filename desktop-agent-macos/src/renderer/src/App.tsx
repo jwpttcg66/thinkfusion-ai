@@ -1616,6 +1616,28 @@ export default function App() {
     }
   }
 
+  async function pauseTask() {
+    if (!activeTask) return;
+    setError('');
+    try {
+      await window.agentAPI.pauseTask(activeTask.taskId);
+      setNotice('任务已暂停；继续会回到暂停前的状态');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function resumeTask() {
+    if (!activeTask) return;
+    setError('');
+    try {
+      await window.agentAPI.resumeTask(activeTask.taskId);
+      setNotice('任务已继续');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   /**
    * 验证闸门停在 report_pending 时的两个出口。
    *
@@ -2242,6 +2264,8 @@ export default function App() {
               }
             }}
             onCancel={() => void cancel()}
+            onPause={() => void pauseTask()}
+            onResume={() => void resumeTask()}
           />
         )}
 
@@ -2853,6 +2877,7 @@ export default function App() {
                 members={derived.members}
                 activity={activity}
                 verification={derived.verification}
+                events={events}
               />
             )}
           </div>
@@ -3264,6 +3289,10 @@ function statusLabel(status: AgentTask['status']): string {
     verifying: '正在校验结果',
     report_pending: '已完成待确认',
     awaiting_next_round: '等待下一轮',
+    paused: '已暂停',
+    interrupted: '已中断',
+    budget_exhausted: '预算已用尽',
+    blocked: '受阻',
     completed: '已完成',
     failed: '已失败',
     cancelled: '已取消'

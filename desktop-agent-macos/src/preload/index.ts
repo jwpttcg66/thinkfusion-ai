@@ -154,6 +154,8 @@ const api: AgentApi = {
   answerStepQuestion: (input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }) =>
     ipcRenderer.invoke('task:answer-question', input),
   cancelTask: (taskId: string) => ipcRenderer.invoke('task:cancel', taskId),
+  pauseTask: (taskId: string) => ipcRenderer.invoke('task:pause', taskId),
+  resumeTask: (taskId: string) => ipcRenderer.invoke('task:resume', taskId),
   recheckVerification: (taskId: string): Promise<{ verified: boolean; reasons: string[] }> =>
     ipcRenderer.invoke('task:recheck-verification', taskId),
   acceptUnverified: (taskId: string) => ipcRenderer.invoke('task:accept-unverified', taskId),

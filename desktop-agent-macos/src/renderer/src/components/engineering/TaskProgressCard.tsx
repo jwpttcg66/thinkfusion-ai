@@ -20,6 +20,10 @@ const STAGE_LABEL: Record<AgentTask['status'], string> = {
   verifying: '验证结果',
   report_pending: '等待确认交付',
   awaiting_next_round: '等待下一轮',
+  paused: '已暂停',
+  interrupted: '已中断',
+  budget_exhausted: '预算用尽',
+  blocked: '受阻',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消'
@@ -35,6 +39,10 @@ const NEXT_STEP: Record<AgentTask['status'], string> = {
   verifying: '等待验证结果',
   report_pending: '补测试/诊断，或明确接受未验证',
   awaiting_next_round: '可以继续追问',
+  paused: '等待继续',
+  interrupted: '检查后继续',
+  budget_exhausted: '追加预算或结束',
+  blocked: '处理阻塞后继续',
   completed: '查看最终交付',
   failed: '查看失败原因后重新提问',
   cancelled: '重新提问'
@@ -68,6 +76,7 @@ const EVENT_LABEL: Record<string, string> = {
   'task.completed': '任务完成',
   'task.failed': '任务失败',
   'task.cancelled': '任务已取消',
+  'context.event': '上下文状态更新',
   'send.failed': '发送失败'
 };
 
@@ -127,6 +136,16 @@ export function TaskProgressCard(props: {
   const lastEvent = [...ordered]
     .reverse()
     .find(event => event.type !== 'log' && event.type !== 'task.updated') ?? ordered.at(-1) ?? null;
+  const contextEvent = [...ordered].reverse().find(
+    (event): event is Extract<AgentEvent, { type: 'context.event' }> => event.type === 'context.event'
+  ) ?? null;
+  const contextLabel = contextEvent
+    ? contextEvent.event === 'context.budget.warning' ? '接近上限'
+      : contextEvent.event === 'context.compaction.committed' ? '已提交检查点'
+        : contextEvent.event === 'context.compaction.failed' ? '压缩失败'
+          : contextEvent.event === 'context.compaction.stale' ? '摘要过期'
+            : '已准备'
+    : null;
   /**
    * 方案评审是最长的一段静默等待（主进程最多等 3 分钟）。任务状态在辩论
    * 结束前仍是 plan_ready，光看状态会被误读成「等用户审批、界面卡住了」。
@@ -205,6 +224,12 @@ export function TaskProgressCard(props: {
           ? `${new Date(lastEvent.at).toLocaleTimeString()} · ${EVENT_LABEL[lastEvent.type] ?? lastEvent.type}`
           : '任务刚创建，还没有事件'}
       </p>
+      {contextEvent && (
+        <p className="task-progress-line">
+          <span className="task-progress-key">上下文</span>
+          {`${contextLabel ?? '已准备'}${typeof contextEvent.context.estimatedTokens === 'number' ? ` · 估算 ${String(contextEvent.context.estimatedTokens)} tokens` : ''}${typeof contextEvent.context.usageRatio === 'number' ? ` · ${String(Math.round(contextEvent.context.usageRatio * 100))}%` : ''}`}
+        </p>
+      )}
       {waitingOn && (
         <p className="task-progress-line is-waiting">
           <span className="task-progress-key">正在等待</span>

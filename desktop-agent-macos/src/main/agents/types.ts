@@ -1,3 +1,4 @@
+import type { ContextHistoryItem, ContextManager, ContextOwner } from '../../shared/context';
 import type { ChannelStatus } from '../../shared/conversation';
 import type { AdapterAnswer, AskStage, DeleteThreadResult, NewSessionResult } from '../adapters/browser/types';
 import type { ModelUsage } from '../providers/types';
@@ -79,6 +80,17 @@ export interface SubAgentTask {
   timeoutMs?: number;
   /** 取消流式请求；超时/删除任务时必须真正停掉 Provider 流。 */
   signal?: AbortSignal;
+  /**
+   * LT-P4：可选的上下文准备状态。没有它时完全走现有路径。
+   * manager 只处理模型输入，不调度任务。
+   */
+  contextState?: {
+    manager: ContextManager;
+    owner: ContextOwner;
+    runId: string;
+    history?: ContextHistoryItem[];
+    evidenceRefs?: string[];
+  };
   /**
    * 前序成员的回答（Sequential 策略用）。这是**结构化的上下文**，不是包装
    * 话术：网页通道会原样忽略它，用户的问题一个字不变地发到页面；

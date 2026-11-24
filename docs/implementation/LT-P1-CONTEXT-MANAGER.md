@@ -1,6 +1,6 @@
 # LT-P1 · Context Manager 基础
 
-状态：未开始  
+状态：基础层完成（未接线、未压缩）  
 阶段目标：建立上下文准备层，不改模型请求行为。  
 依赖：LT-P0 完成  
 上游：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
@@ -153,9 +153,9 @@ npm run test:prompt-policy
 
 ## 6. 状态清单
 
-- [ ] P1-01 模块骨架
-- [ ] P1-02 Builder
-- [ ] P1-03 Estimator
-- [ ] P1-04 Budget
-- [ ] P1-05 Provider 适配
-- [ ] 阶段回归通过
+- [x] P1-01 模块骨架
+- [x] P1-02 Builder
+- [x] P1-03 Estimator
+- [x] P1-04 Budget
+- [x] P1-05 Provider 适配
+- [x] 阶段回归通过（context-contracts/context-manager/typecheck）

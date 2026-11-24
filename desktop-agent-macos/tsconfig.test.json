@@ -5,6 +5,9 @@
     "rootDir": "src"
   },
   "include": [
+    "src/main/orchestrator.ts",
+    "src/main/agent-manager.ts",
+    "src/main/adapters/browser/page-driver.ts",
     "src/shared/diagnostics.ts",
     "src/shared/execution-timeline.ts",
     "src/shared/observability.ts",
@@ -58,6 +61,7 @@
     "src/main/release-ops/**/*.ts",
     "src/main/judge/**/*.ts",
     "src/main/synthesis/**/*.ts",
-    "src/main/adapters/**/*.ts"
+    "src/main/adapters/**/*.ts",
+    "src/main/context/**/*.ts"
   ]
 }
