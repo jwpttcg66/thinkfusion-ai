@@ -575,6 +575,53 @@ test('方案评审心跳要把表态对象/目标与议题目标写进对话流'
   assert.deepEqual(debate.topics, topics);
 });
 
+test('五段结论一出就要进方案评审卡，后续心跳不能冲掉原文', () => {
+  const leadSummary = [
+    '【结论】应先写最小可运行 demo。',
+    '【一致】用标准库 time。',
+    '【分歧】没有。',
+    '【存疑】时区偏移格式。',
+    '【辩题】offset 负值格式是否覆盖。'
+  ].join('\n');
+  const topics = ['offset 负值格式是否覆盖'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      topicGoals: ['确认负偏移显示'],
+      expressTarget: '工程计划',
+      expressGoal: '可审批判断',
+      leadSummary,
+      elapsedMs: 12_000,
+      message: '五段结论已出，主导模型指定 1 个辩题'
+    },
+    {
+      type: 'plan.review.progress',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 1,
+      topicTexts: topics,
+      elapsedMs: 22_000,
+      message: '五段结论已出（1 个议题），成员表态中，已等待 22 秒'
+    }
+  ], { status: 'plan_ready' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.ok(debate);
+  assert.equal(debate.leadSummary, leadSummary);
+  assert.deepEqual(debate.topics, topics);
+  assert.equal(debate.elapsedMs, 22_000);
+});
+
 test('方案评审只有一个条目：心跳原地更新，辩完后带议题与结论', () => {
   const progress = (at, state, elapsedMs, topicTexts) => ({
     type: 'plan.review.progress',

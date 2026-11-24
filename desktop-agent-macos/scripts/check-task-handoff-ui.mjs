@@ -77,3 +77,31 @@ test('转交工程前必须先落系统提示，不能先跑 shadow plan 再让�
   assert.ok(shadowAt >= 0, '仍会跑 shadow plan');
   assert.ok(msgAt < shadowAt, '系统提示必须早于 await buildShadowPlan');
 });
+
+test('工程判定前先建会话，并把模型思考推到 __routing__ 增量', () => {
+  const src = readFileSync(join(ROOT, 'src/main/conversation-runner.ts'), 'utf8');
+  const createdAt = src.indexOf("type: 'conversation.created'");
+  const routingAt = src.indexOf('await this.engineeringRouting');
+  assert.ok(createdAt >= 0 && routingAt >= 0);
+  assert.ok(createdAt < routingAt, '必须先 conversation.created 再 engineeringRouting');
+  assert.match(src, /__routing__/);
+  assert.match(src, /正在请模型判定是否转入工程工作空间/);
+  const view = readFileSync(join(ROOT, 'src/renderer/src/components/ConversationView.tsx'), 'utf8');
+  assert.match(view, /__routing__/);
+  assert.doesNotMatch(view, /尚未开始向模型要思考内容/);
+});
+
+test('方案评审五段一出就要投影并分段画出，不能只留一句状态', () => {
+  const debate = readFileSync(join(ROOT, 'src/main/index.ts'), 'utf8');
+  assert.match(debate, /onLeadReady/);
+  assert.match(debate, /撰写五段结论/);
+  assert.match(debate, /askStream/);
+  const orch = readFileSync(join(ROOT, 'src/main/orchestrator.ts'), 'utf8');
+  assert.match(orch, /progressLeadSummary/);
+  assert.match(orch, /onLeadReady/);
+  const ui = readFileSync(join(ROOT, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  assert.match(ui, /splitSummarySections/);
+  assert.match(ui, /主导五段结论/);
+  const proj = readFileSync(join(ROOT, 'src/shared/task-conversation.ts'), 'utf8');
+  assert.match(proj, /event\.leadSummary/);
+});

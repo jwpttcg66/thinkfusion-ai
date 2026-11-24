@@ -99,6 +99,17 @@ export interface OrchestratorDeps {
     /** 用户原话：五段汇总的「问题」侧，与知识问答一致。 */
     userPrompt?: string;
     debateAgentIds?: readonly string[];
+    /**
+     * 五段一出、辩论尚未开始时回调：编排器立刻刷新心跳议题与原文，
+     * 避免界面在辩题已定时仍写「主导模型撰写五段结论中」。
+     */
+    onLeadReady?: (brief: {
+      topics: string[];
+      topicGoals: string[];
+      expressTarget: string;
+      expressGoal: string;
+      leadSummary: string;
+    }) => void;
   }) => Promise<{
     debateId?: string;
     status: 'completed' | 'stopped' | 'skipped';
@@ -1429,6 +1440,7 @@ export class AgentOrchestrator {
     let progressGoals: string[] = [];
     let progressTarget = '';
     let progressGoal = '';
+    let progressLeadSummary = '';
     const emitProgress = (state: 'started' | 'waiting' | 'done', message: string) => {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
@@ -1437,6 +1449,7 @@ export class AgentOrchestrator {
         ...(progressGoals.length > 0 ? { topicGoals: progressGoals } : {}),
         ...(progressTarget ? { expressTarget: progressTarget } : {}),
         ...(progressGoal ? { expressGoal: progressGoal } : {}),
+        ...(progressLeadSummary ? { leadSummary: progressLeadSummary } : {}),
         ...(decision.reason ? { reason: decision.reason } : {}),
         maxRounds: plannedRounds.rounds,
         roundsReason: plannedRounds.reason,
@@ -1448,8 +1461,10 @@ export class AgentOrchestrator {
       const seconds = Math.round((Date.now() - startedAt) / 1000);
       emitProgress(
         'waiting',
-        progressTopics.length > 0
-          ? `方案评审进行中（${String(progressTopics.length)} 个议题），已等待 ${String(seconds)} 秒`
+        progressLeadSummary
+          ? (progressTopics.length > 0
+            ? `五段结论已出（${String(progressTopics.length)} 个议题），成员表态中，已等待 ${String(seconds)} 秒`
+            : `五段结论已出，主导未指定辩题，已等待 ${String(seconds)} 秒`)
           : `主导模型撰写五段结论中，已等待 ${String(seconds)} 秒`
       );
     }, 10_000);
@@ -1460,7 +1475,20 @@ export class AgentOrchestrator {
         userPrompt: live.userPrompt,
         ...(live.debateAgentIds && live.debateAgentIds.length > 0
           ? { debateAgentIds: live.debateAgentIds }
-          : {})
+          : {}),
+        onLeadReady: brief => {
+          progressTopics = brief.topics;
+          progressGoals = brief.topicGoals;
+          progressTarget = brief.expressTarget;
+          progressGoal = brief.expressGoal;
+          progressLeadSummary = brief.leadSummary;
+          emitProgress(
+            'waiting',
+            brief.topics.length > 0
+              ? `五段结论已出，主导模型指定 ${String(brief.topics.length)} 个辩题`
+              : '五段结论已出，主导模型未指定辩题，跳过辩论'
+          );
+        }
       });
       if (!result) {
         return {

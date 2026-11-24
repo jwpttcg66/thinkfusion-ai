@@ -1036,34 +1036,76 @@ async function routeEngineeringWithModel(input: {
   executionMode?: ExecutionMode;
   leadAgentId?: string;
   selectedCloudModels?: string[];
+  onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
 }): Promise<RoutingVerdict | null> {
   const question = buildRoutingQuestion(input);
   const request = { question, system: [ROUTING_SYSTEM] };
   const mode = input.executionMode ?? 'hybrid';
-
-  const tryLocal = async (): Promise<RoutingVerdict | null> => {
-    if (!localProvider) return null;
+  const push = (chunk: { text?: string; reasoning?: string; reset?: boolean }) => {
     try {
-      const answer = await localProvider.generate(request, AbortSignal.timeout(ROUTING_TIMEOUT_MS));
+      input.onDelta?.(chunk);
+    } catch {
+      /* 界面增量失败不能挡住判定 */
+    }
+  };
+
+  const fromProvider = async (
+    provider: NonNullable<typeof localProvider> | (typeof cloudProviders)[number],
+    modelId: string | undefined,
+    timeoutMs: number
+  ): Promise<RoutingVerdict | null> => {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const req = modelId ? { ...request, modelId } : request;
+    try {
+      if (provider.streamChunks) {
+        let text = '';
+        let reasoning = '';
+        let pulse = 0;
+        for await (const chunk of provider.streamChunks(req, signal)) {
+          if (chunk.text) text += chunk.text;
+          if (chunk.reasoning) reasoning += chunk.reasoning;
+          const now = Date.now();
+          if (now - pulse < 120) continue;
+          pulse = now;
+          push({
+            ...(text ? { text } : {}),
+            ...(reasoning ? { reasoning } : {}),
+            reset: true
+          });
+        }
+        if (text || reasoning) {
+          push({
+            ...(text ? { text } : {}),
+            ...(reasoning ? { reasoning } : {}),
+            reset: true
+          });
+        }
+        return parseRoutingVerdict(text);
+      }
+      const answer = await provider.generate(req, signal);
+      if (answer.reasoning || answer.text) {
+        push({
+          ...(answer.text ? { text: answer.text } : {}),
+          ...(answer.reasoning ? { reasoning: answer.reasoning } : {}),
+          reset: true
+        });
+      }
       return parseRoutingVerdict(answer.text);
     } catch {
       return null;
     }
   };
 
+  const tryLocal = async (): Promise<RoutingVerdict | null> => {
+    if (!localProvider) return null;
+    return fromProvider(localProvider, undefined, ROUTING_TIMEOUT_MS);
+  };
+
   const tryCloudPair = async (providerId: string, modelId: string): Promise<RoutingVerdict | null> => {
     if (!apiKeys?.has(providerId)) return null;
     const provider = cloudProviders.find(item => item.id === providerId);
     if (!provider) return null;
-    try {
-      const answer = await provider.generate(
-        { ...request, modelId },
-        AbortSignal.timeout(CLOUD_ROUTING_TIMEOUT_MS)
-      );
-      return parseRoutingVerdict(answer.text);
-    } catch {
-      return null;
-    }
+    return fromProvider(provider, modelId, CLOUD_ROUTING_TIMEOUT_MS);
   };
 
   /** 用户点名 / 勾选的云端成员，按顺序试；都没有就退到「每家第一个模型」。 */
@@ -5712,7 +5754,7 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds }) => {
+    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds, onLeadReady }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
@@ -5736,26 +5778,91 @@ app.whenReady().then(async () => {
       // —— 与知识问答同一顺序：先五段汇总，再按【辩题】决定是否辩论 ————
       const leadId = leadPlan.participants[0];
       if (!leadId) return null;
-      const askLead = (agentId: string, task: Parameters<ProviderBackedSubAgent['ask']>[0]) => {
-        const extra = extraAgents.find(agent => agent.id === agentId);
-        return extra ? extra.ask(task) : registry.ask(agentId, task);
-      };
+      const leadExtra = extraAgents.find(agent => agent.id === leadId);
       const leadAsk = buildPlanReviewLeadAsk(plan, userPrompt);
+      const leadLabel = labels.get(leadId) ?? leadId;
+      const leadMemberId = `lead-summary:${leadId}`;
+      const leadStartedAt = Date.now();
       emit({
-        type: 'log', at: Date.now(), taskId, level: 'info',
-        message: `方案评审：${labels.get(leadId) ?? leadId} 撰写【结论/一致/分歧/存疑/辩题】`
+        type: 'log', at: leadStartedAt, taskId, level: 'info',
+        message: `方案评审：${leadLabel} 撰写【结论/一致/分歧/存疑/辩题】`
+      });
+      // 撰写五段时也要看得见思考：否则界面只剩「已等 N 秒」，像卡住。
+      emit({
+        type: 'round.peer',
+        at: leadStartedAt,
+        taskId,
+        roundId,
+        memberId: leadMemberId,
+        label: `${leadLabel}（撰写五段结论）`,
+        status: 'started'
       });
       let leadSummary = '';
+      let leadReasoning = '';
       try {
-        const answer = await askLead(leadId, {
+        const task = {
           question: leadAsk.question,
-          stage: 'challenge',
+          stage: 'challenge' as const,
           timeoutMs: LEAD_SUMMARY_TIMEOUT_MS,
-          system: leadAsk.system
+          system: leadAsk.system,
+          signal: AbortSignal.timeout(LEAD_SUMMARY_TIMEOUT_MS)
+        };
+        let pulse = 0;
+        const onDelta = (chunk: { text?: string; reasoning?: string; reset?: boolean }) => {
+          if (chunk.reset) {
+            leadSummary = chunk.text ?? '';
+            leadReasoning = chunk.reasoning ?? '';
+          } else {
+            if (chunk.text) leadSummary += chunk.text;
+            if (chunk.reasoning) leadReasoning += chunk.reasoning;
+          }
+          const now = Date.now();
+          if (now - pulse < 150) return;
+          pulse = now;
+          emit({
+            type: 'round.delta',
+            at: now,
+            taskId,
+            roundId,
+            streamId: `review-lead:${planId}`,
+            participantId: leadMemberId,
+            mode: 'snapshot',
+            ...(leadSummary ? { text: leadSummary } : {}),
+            ...(leadReasoning ? { reasoning: leadReasoning } : {})
+          });
+        };
+        const answer = leadExtra?.askStream
+          ? await leadExtra.askStream(task, onDelta)
+          : leadExtra
+            ? await leadExtra.ask(task)
+            : await registry.ask(leadId, task);
+        leadSummary = (answer.text ?? leadSummary).trim();
+        if (answer.reasoning) leadReasoning = answer.reasoning;
+        emit({
+          type: 'round.peer',
+          at: Date.now(),
+          taskId,
+          roundId,
+          memberId: leadMemberId,
+          label: `${leadLabel}（撰写五段结论）`,
+          status: 'answered',
+          text: leadSummary,
+          ...(leadReasoning ? { reasoning: leadReasoning } : {}),
+          durationMs: Math.max(0, Date.now() - leadStartedAt)
         });
-        leadSummary = answer.text.trim();
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        emit({
+          type: 'round.peer',
+          at: Date.now(),
+          taskId,
+          roundId,
+          memberId: leadMemberId,
+          label: `${leadLabel}（撰写五段结论）`,
+          status: 'failed',
+          error: detail,
+          durationMs: Math.max(0, Date.now() - leadStartedAt)
+        });
         return {
           status: 'skipped' as const,
           participants: leadPlan.participants,
@@ -5776,10 +5883,22 @@ app.whenReady().then(async () => {
         };
       }
       const brief = planDebateBriefFromSummary(plan, leadSummary);
+      const topics = brief.topics.map(item => item.text);
+      const topicGoals = brief.topics.map(item => item.goal);
+      const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
+      const reviewBudget = planReviewBudget(reviewRounds.rounds);
+      // 五段一出就通知编排器：议题 + 原文立刻进方案评审卡，不必等辩完才画。
+      onLeadReady?.({
+        topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
+        leadSummary
+      });
       emit({
         type: 'log', at: Date.now(), taskId, level: 'info',
-        message: brief.topics.length > 0
-          ? `五段结论已出，主导模型指定 ${String(brief.topics.length)} 个辩题`
+        message: topics.length > 0
+          ? `五段结论已出，主导模型指定 ${String(topics.length)} 个辩题`
           : '五段结论已出，主导模型未指定辩题，跳过辩论'
       });
       if (brief.topics.length === 0) {
@@ -5794,11 +5913,6 @@ app.whenReady().then(async () => {
           skippedReason: '主导模型五段结论未提出辩题，不编造辩论'
         };
       }
-      const topics = brief.topics.map(item => item.text);
-      const topicGoals = brief.topics.map(item => item.goal);
-
-      const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
-      const reviewBudget = planReviewBudget(reviewRounds.rounds);
       pendingReview = { taskId, planId, roundId, topics, labels, maxRounds: reviewRounds.rounds };
       let state;
       try {

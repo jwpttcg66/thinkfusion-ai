@@ -1658,6 +1658,11 @@ export type AgentEvent = AgentEventBase &
         expressTarget?: string;
         /** 表态要产出什么判断；旧事件没有。 */
         expressGoal?: string;
+        /**
+         * 主导模型五段原文。五段一出就带上，不必等辩完；旧心跳没有。
+         * 后续心跳若不带此字段，投影必须保留已有值，不能被空覆盖。
+         */
+        leadSummary?: string;
         /** 为什么开这场评审；旧事件没有。 */
         reason?: string;
         /** 实际已完成的轮次；等待中通常还没有。 */

@@ -519,13 +519,34 @@ export function ConversationView(props: {
             <span className="dot-pulse" />
             <div>
               <b>{STATUS_LABEL[conversation.status]}</b>
-              {conversation.status === 'thinking' && (
-                <p className="muted">
-                  {conversation.workspaceMode === 'engineering'
-                    ? '正在判定是否转入工程工作空间；尚未开始向模型要思考内容，所以这里不会出现推理正文。'
-                    : '若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。'}
-                </p>
-              )}
+              {conversation.status === 'thinking' && (() => {
+                const routingDelta = props.deltas?.['__routing__'];
+                const routingReasoning = routingDelta?.reasoning?.trim() ?? '';
+                const routingText = routingDelta?.text?.trim() ?? '';
+                if (conversation.workspaceMode === 'engineering') {
+                  return (
+                    <>
+                      <p className="muted">
+                        {routingReasoning || routingText
+                          ? '正在请模型判定是否转入工程工作空间；思考内容如下。'
+                          : '正在请模型判定是否转入工程工作空间；若模型返回思考内容，会显示在下方。'}
+                      </p>
+                      {routingReasoning && <ChannelReasoning text={routingReasoning} live={!routingDelta?.done} />}
+                      {routingText && !routingReasoning && (
+                        <details className="channel-reasoning is-live" open>
+                          <summary>判定输出（{routingText.length} 字）</summary>
+                          <pre>{routingText}</pre>
+                        </details>
+                      )}
+                    </>
+                  );
+                }
+                return (
+                  <p className="muted">
+                    若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。
+                  </p>
+                );
+              })()}
             </div>
           </div>
         )}

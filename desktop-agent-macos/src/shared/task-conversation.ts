@@ -720,6 +720,10 @@ export function buildTaskConversation(
         ...(event.expressGoal
           ? { expressGoal: event.expressGoal }
           : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
+        // 五段结论一出就要留在卡上；后续「已等 N 秒」心跳若不带此字段，沿用已有原文。
+        ...(event.leadSummary
+          ? { leadSummary: event.leadSummary }
+          : existing?.entry.leadSummary ? { leadSummary: existing.entry.leadSummary } : {}),
         ...(event.rounds !== undefined
           ? { rounds: event.rounds }
           : existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),

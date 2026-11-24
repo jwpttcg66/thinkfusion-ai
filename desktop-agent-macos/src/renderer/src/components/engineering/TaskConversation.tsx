@@ -11,6 +11,7 @@ import {
   type ConversationProtocol,
   type ConversationTone
 } from '../../../../shared/task-conversation';
+import { splitSummarySections } from '../../../../shared/text';
 
 /**
  * 对话流（工程空间主界面）。
@@ -217,7 +218,19 @@ function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }
   );
 }
 
-/** 方案评审：辩题原文直接列出，等待时也能知道在辩什么。 */
+/** 与知识问答综合卡同一套底色：结论 / 一致 / 分歧 / 存疑 / 辩题一眼可分。 */
+function leadSectionClass(title: string): string {
+  switch (title) {
+    case '结论': return ' is-conclusion';
+    case '一致': return ' is-agreement';
+    case '分歧': return ' is-dispute';
+    case '存疑': return ' is-doubt';
+    case '辩题': return ' is-topic';
+    default: return '';
+  }
+}
+
+/** 方案评审：五段结论一出就分段画出；辩题原文直接列出，等待时也能知道在辩什么。 */
 function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debate' }> }) {
   const { entry } = props;
   const label = entry.status === 'running'
@@ -227,6 +240,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       : entry.status === 'skipped'
         ? '未进行'
         : '已停止';
+  const leadSections = entry.leadSummary ? splitSummarySections(entry.leadSummary) : [];
   return (
     <section className={`card chat-debate is-${entry.status}`}>
       <div className="review-head">
@@ -242,7 +256,21 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       {entry.leadSummary && (
         <div className="chat-debate-brief">
           <p className="chat-debate-label">主导五段结论</p>
-          <pre className="chat-debate-lead-summary">{entry.leadSummary}</pre>
+          {leadSections.length > 0 ? (
+            <div className="summary-sections">
+              {leadSections.map((section, index) => (
+                <section
+                  key={index}
+                  className={`summary-section${leadSectionClass(section.title)}${section.title ? '' : ' no-title'}`}
+                >
+                  {section.title && <h4 className="summary-section-title">{section.title}</h4>}
+                  <p className="summary-section-body">{section.body || '没有'}</p>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <pre className="chat-debate-lead-summary">{entry.leadSummary}</pre>
+          )}
         </div>
       )}
       {(entry.expressTarget || entry.expressGoal) && (

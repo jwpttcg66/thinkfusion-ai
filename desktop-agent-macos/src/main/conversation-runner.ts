@@ -207,6 +207,8 @@ export interface ConversationDeps {
     executionMode: ConversationExecutionConfig['executionMode'];
     leadAgentId?: string;
     selectedCloudModels?: string[];
+    /** 判定过程的推理/正文增量；有就推到会话，界面不再空等。 */
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
   }) => Promise<RoutingVerdict | null>;
   /** 当前工程 READY generation；搜索开始时固定，避免一轮内跨代。 */
   generationFor?: (root: string) => Promise<number | null>;
@@ -711,20 +713,7 @@ export class ConversationRunner {
     const intent = plannerFirst
       ? { kind: 'workspace' as const, reason: '工程请求交给 Planner 判定' }
       : classifyIntent(text);
-    const routing: TaskRouting | undefined =
-      workspaceMode === 'engineering' && !plannerFirst
-        ? await this.engineeringRouting({
-            text,
-            attachments,
-            override: input.taskKindOverride,
-            hasProject: !!input.workspaceRoot,
-            executionMode: executionConfig.executionMode,
-            ...(executionConfig.leadAgentId ? { leadAgentId: executionConfig.leadAgentId } : {}),
-            ...(executionConfig.selectedCloudModels
-              ? { selectedCloudModels: executionConfig.selectedCloudModels }
-              : {})
-          })
-        : undefined;
+    // 先建会话再问模型判定：云端判定可到 15 秒，建晚了界面只能空等，还误写成「没有推理」。
     const now = Date.now();
     const conversation: Conversation = {
       conversationId: randomUUID(),
@@ -742,14 +731,12 @@ export class ConversationRunner {
       // 工作区归属对两个空间都成立：知识会话也挂在工作区下，只是不读目录。
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(workspaceMode === 'engineering'
-        ? { workspaceMode, workspaceRoot: input.workspaceRoot, routing }
+        ? { workspaceMode, workspaceRoot: input.workspaceRoot }
         : {})
     };
 
-    // V2.1 Model Router：在提问之前就把「这一轮用哪些模型、为什么」定下来并
-    // 写进会话。事后统计做不到这件事——事后只能说「问了谁」，说不出「本来
-    // 打算问谁、为什么是他」。
-    this.applyModelRoute(conversation, toRouteTaskKind(routing?.taskKind ?? intent.kind));
+    // V2.1 Model Router：先按意图占位；工程判定回来后再按 taskKind 重算。
+    this.applyModelRoute(conversation, toRouteTaskKind(intent.kind));
 
     const trace = this.traceFor(conversation.conversationId);
     trace?.beginTurn({
@@ -757,7 +744,60 @@ export class ConversationRunner {
       reason: intent.reason,
       meta: this.traceMetaFor(conversation)
     });
-    if (routing) {
+
+    this.rememberAttachments(conversation, attachments);
+    this.save(conversation);
+    this.deps.emit({ type: 'conversation.created', at: now, conversation });
+    this.addMessage(conversation, { role: 'user', text });
+    // 附件正文不写进提问气泡（那是一屏文件），但「这一问带了哪些文件」必须
+    // 看得见——否则用户以为附件没送到，或者以为模型读过一份它其实没读到的文件。
+    if (attachments.length > 0) {
+      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
+    }
+
+    const routingChannelId = '__routing__';
+    let routing: TaskRouting | undefined;
+    if (workspaceMode === 'engineering' && !plannerFirst) {
+      this.addMessage(conversation, {
+        role: 'system',
+        text: executionConfig.executionMode === 'web'
+          ? '正在按规则判定是否转入工程工作空间…'
+          : '正在请模型判定是否转入工程工作空间；若模型返回思考内容，会显示在下方。'
+      });
+      routing = await this.engineeringRouting({
+        text,
+        attachments,
+        override: input.taskKindOverride,
+        hasProject: !!input.workspaceRoot,
+        executionMode: executionConfig.executionMode,
+        ...(executionConfig.leadAgentId ? { leadAgentId: executionConfig.leadAgentId } : {}),
+        ...(executionConfig.selectedCloudModels
+          ? { selectedCloudModels: executionConfig.selectedCloudModels }
+          : {}),
+        onDelta: chunk => {
+          this.deps.emit({
+            type: 'answer.delta',
+            at: Date.now(),
+            conversationId: conversation.conversationId,
+            channelId: routingChannelId,
+            ...(chunk.text !== undefined ? { text: chunk.text } : {}),
+            ...(chunk.reasoning !== undefined ? { reasoning: chunk.reasoning } : {}),
+            ...(chunk.reset ? { reset: true } : {})
+          });
+        }
+      });
+      conversation.routing = routing;
+      conversation.updatedAt = Date.now();
+      this.applyModelRoute(conversation, toRouteTaskKind(routing.taskKind));
+      this.save(conversation);
+      this.deps.emit({ type: 'conversation.updated', at: Date.now(), conversation });
+      this.deps.emit({
+        type: 'answer.delta',
+        at: Date.now(),
+        conversationId: conversation.conversationId,
+        channelId: routingChannelId,
+        done: true
+      });
       trace?.event({
         stage: 'route',
         group: 'prepare',
@@ -781,16 +821,6 @@ export class ConversationRunner {
             : {})
         }
       });
-    }
-
-    this.rememberAttachments(conversation, attachments);
-    this.save(conversation);
-    this.deps.emit({ type: 'conversation.created', at: now, conversation });
-    this.addMessage(conversation, { role: 'user', text });
-    // 附件正文不写进提问气泡（那是一屏文件），但「这一问带了哪些文件」必须
-    // 看得见——否则用户以为附件没送到，或者以为模型读过一份它其实没读到的文件。
-    if (attachments.length > 0) {
-      this.addMessage(conversation, { role: 'system', text: describeAttachments(attachments) });
     }
 
     const handoff = async (label: string): Promise<Conversation> => {
@@ -1010,6 +1040,7 @@ export class ConversationRunner {
     executionMode: ExecutionMode;
     leadAgentId?: string;
     selectedCloudModels?: string[];
+    onDelta?: (chunk: { text?: string; reasoning?: string; reset?: boolean }) => void;
   }): Promise<TaskRouting> {
     const rule = routeTask({
       text: input.text,
@@ -1030,7 +1061,8 @@ export class ConversationRunner {
         hasProject: input.hasProject,
         executionMode: input.executionMode,
         ...(input.leadAgentId ? { leadAgentId: input.leadAgentId } : {}),
-        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {})
+        ...(input.selectedCloudModels ? { selectedCloudModels: input.selectedCloudModels } : {}),
+        ...(input.onDelta ? { onDelta: input.onDelta } : {})
       });
       return verdict ? applyRoutingVerdict(rule, verdict) : rule;
     } catch {
