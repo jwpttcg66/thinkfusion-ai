@@ -393,6 +393,32 @@ export class AgentOrchestrator {
     this.tasks.transition(task.taskId, 'executing', { workspaceRoot: rootDir });
     this.busy.add(task.taskId);
 
+    // 执行前先画出依据：将跑哪些步骤、针对什么目标；不能一批准就静默开工。
+    this.deps.emit({
+      type: 'execution.bridge',
+      at: Date.now(),
+      taskId: task.taskId,
+      roundId: stored.roundId,
+      planId: stored.planId,
+      message: `计划已批准，将按 ${String(plan.steps.length)} 步执行「${plan.title}」${plan.completion ? `（完成条件：${plan.completion}）` : ''}`,
+      steps: plan.steps.slice(0, 20).map((step, index) => {
+        const args = (step.args ?? {}) as Record<string, unknown>;
+        const target = typeof args.path === 'string'
+          ? args.path
+          : typeof args.command === 'string'
+            ? args.command
+            : typeof args.to === 'string'
+              ? args.to
+              : undefined;
+        return {
+          index: index + 1,
+          tool: step.tool,
+          description: step.description?.trim() || step.tool,
+          ...(target ? { target: String(target) } : {})
+        };
+      })
+    });
+
     let report: ExecutionReport;
     try {
       report = await runPlan(plan, grant, this.deps.dbPath(), this.planTimeout(task.timeoutMs, plan), {

@@ -747,3 +747,67 @@ test('方案评审等待中也能看到议题原文', () => {
   assert.equal(debate.rounds, 2);
   assert.match(debate.roundsReason, /第 2 轮必须质疑/);
 });
+
+test('轮间桥接：先画出质疑/回应对象再开下一轮', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.bridge',
+      at: 2100,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      action: 'continue',
+      fromRound: 1,
+      fromPhase: 'analysis',
+      fromPhaseLabel: '表态',
+      nextPhase: 'challenge',
+      nextPhaseLabel: '质疑',
+      message: '第 1 轮表态结束，还有 1 条争议，进入第 2 轮质疑。先画出以下 1 条分歧，再发起第 2 轮质疑',
+      targets: [{
+        left: '应该先写测试',
+        right: '可以直接改文件',
+        reason: '两句互相否定',
+        agents: ['本地 A', '云端 B']
+      }]
+    }
+  ], { status: 'plan_ready' });
+
+  const bridges = entries.filter(entry => entry.kind === 'bridge');
+  assert.equal(bridges.length, 1);
+  assert.equal(bridges[0].bridgeKind, 'review');
+  assert.equal(bridges[0].action, 'continue');
+  assert.equal(bridges[0].nextPhase, 'challenge');
+  assert.match(bridges[0].title, /先画出依据，再开质疑/);
+  assert.equal(bridges[0].targets.length, 1);
+  assert.match(bridges[0].targets[0].left, /先写测试/);
+  assert.match(bridges[0].targets[0].right, /直接改文件/);
+  assert.equal(bridges[0].targets[0].reason, '两句互相否定');
+});
+
+test('执行前桥接：先画出将跑的步骤再动手', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'execution.bridge',
+      at: 3000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      message: '计划已批准，将按 2 步执行「补 Hello」',
+      steps: [
+        { index: 1, tool: 'fs.write', description: '写出 Hello.java', target: 'src/Hello.java' },
+        { index: 2, tool: 'shell.run', description: '编译运行', target: 'javac Hello.java && java Hello' }
+      ]
+    }
+  ], { status: 'executing' });
+
+  const bridges = entries.filter(entry => entry.kind === 'bridge');
+  assert.equal(bridges.length, 1);
+  assert.equal(bridges[0].bridgeKind, 'execution');
+  assert.equal(bridges[0].action, 'execute');
+  assert.equal(bridges[0].title, '执行前依据');
+  assert.equal(bridges[0].steps.length, 2);
+  assert.equal(bridges[0].steps[0].tool, 'fs.write');
+  assert.match(bridges[0].steps[1].target, /javac/);
+});

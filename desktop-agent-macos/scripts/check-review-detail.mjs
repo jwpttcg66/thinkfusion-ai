@@ -9,7 +9,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from '../out-test/main/debate/review-progress.js';
+import {
+  reviewContinueBridge,
+  reviewDisputeTargets,
+  reviewPeerEvents,
+  reviewRoundIdOf,
+  reviewRoundNote
+} from '../out-test/main/debate/review-progress.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
 import { DebateStore } from '../out-test/main/debate/store.js';
 
@@ -304,4 +310,83 @@ test('收敛或达到上限：说明为什么停，而不是继续', () => {
     maxRounds: 3
   });
   assert.match(capped, /最多 3 轮/);
+});
+
+const openDispute = (claimIds, agents, reason) => ({
+  disputeId: `d-${claimIds[0]}`,
+  roundIndex: 0,
+  claimIds,
+  agents,
+  type: 'contradiction',
+  priority: 0.8,
+  reason,
+  status: 'open'
+});
+
+const claim = (claimId, agentId, text) => ({
+  claimId,
+  messageId: `m-${claimId}`,
+  agentId,
+  roundIndex: 0,
+  text,
+  kind: 'assertion',
+  kindCue: '是',
+  span: { start: 0, end: text.length },
+  assumptions: [],
+  status: 'active'
+});
+
+test('争议目标带双方主张原文，不是只报条数', () => {
+  const targets = reviewDisputeTargets(
+    [openDispute(['c1', 'c2'], ['a', 'b'], '两句互相否定')],
+    [
+      claim('c1', 'a', '应该先写测试再改文件'),
+      claim('c2', 'b', '可以直接改文件，测试事后补')
+    ]
+  );
+  assert.equal(targets.length, 1);
+  assert.match(targets[0].left, /先写测试/);
+  assert.match(targets[0].right, /直接改文件/);
+  assert.equal(targets[0].reason, '两句互相否定');
+  assert.deepEqual(targets[0].agents, ['a', 'b']);
+});
+
+test('表态结束后的桥接：先画出分歧，再开质疑', () => {
+  const bridge = reviewContinueBridge({
+    round: debateRound(0, 'analysis'),
+    status: 'running',
+    disputes: [openDispute(['c1', 'c2'], ['a', 'b'], '完成条件互相打架')],
+    claims: [
+      claim('c1', 'a', '完成条件要含回归测试'),
+      claim('c2', 'b', '完成条件只看文件是否写出')
+    ],
+    maxRounds: 3
+  });
+  assert.equal(bridge.action, 'continue');
+  assert.equal(bridge.nextPhase, 'challenge');
+  assert.equal(bridge.nextPhaseLabel, '质疑');
+  assert.match(bridge.message, /先画出以下 1 条分歧/);
+  assert.match(bridge.message, /再发起第 2 轮质疑/);
+  assert.equal(bridge.targets.length, 1);
+  assert.match(bridge.targets[0].left, /回归测试/);
+  assert.match(bridge.targets[0].right, /文件是否写出/);
+});
+
+test('质疑结束后的桥接：先画出待答复对象，再开回应', () => {
+  const bridge = reviewContinueBridge({
+    round: debateRound(1, 'challenge'),
+    status: 'running',
+    disputes: [openDispute(['c3', 'c4'], ['a', 'b'], '质疑未被答复')],
+    claims: [
+      claim('c3', 'a', '第二步依赖缺失'),
+      claim('c4', 'b', '第二步可以独立执行')
+    ],
+    maxRounds: 3
+  });
+  assert.equal(bridge.action, 'continue');
+  assert.equal(bridge.nextPhase, 'response');
+  assert.equal(bridge.nextPhaseLabel, '回应');
+  assert.match(bridge.message, /先画出以下 1 条待答复质疑/);
+  assert.match(bridge.message, /再发起第 3 轮回应/);
+  assert.match(bridge.targets[0].left, /依赖缺失/);
 });

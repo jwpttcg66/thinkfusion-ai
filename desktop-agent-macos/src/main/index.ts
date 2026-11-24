@@ -89,7 +89,7 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
-import { reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from './debate/review-progress';
+import { reviewContinueBridge, reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from './debate/review-progress';
 import {
   catalogEntryOf,
   CLOUD_PRESETS,
@@ -5518,18 +5518,47 @@ app.whenReady().then(async () => {
       for (const event of batch.events) emit(event);
       for (const key of batch.keys) scope.seen.add(key);
 
-      // 每完成一轮就补一条「为什么继续/为什么停」：用户不必等最后一句
-      // 才知道第二轮、第三轮在做什么。轮次由引擎按分歧收敛决定，不是写死。
+      // 每完成一轮：先画出「对什么质疑/回应」再开下一轮。只报条数不够。
       const completed = state.rounds.length;
       if (completed > scope.roundsSeen) {
-        const message = reviewRoundNote({
-          round: state.rounds[completed - 1],
+        const finished = state.rounds[completed - 1];
+        const claims = state.rounds.flatMap(round => round.claims ?? []);
+        const bridge = reviewContinueBridge({
+          round: finished,
           status: state.status,
           ...(state.stopReason ? { stopReason: state.stopReason } : {}),
-          disputes: state.disputes?.length ?? 0,
+          disputes: state.disputes ?? [],
+          claims,
           maxRounds: scope.maxRounds
         });
-        emit({ type: 'log', at: Date.now(), taskId: scope.taskId, level: 'info', message });
+        emit({
+          type: 'plan.review.bridge',
+          at: Date.now(),
+          taskId: scope.taskId,
+          roundId: scope.roundId,
+          planId: scope.planId,
+          action: bridge.action,
+          fromRound: bridge.fromRound,
+          fromPhase: bridge.fromPhase,
+          fromPhaseLabel: bridge.fromPhaseLabel,
+          ...(bridge.nextPhase ? { nextPhase: bridge.nextPhase } : {}),
+          ...(bridge.nextPhaseLabel ? { nextPhaseLabel: bridge.nextPhaseLabel } : {}),
+          message: bridge.message,
+          targets: bridge.targets
+        });
+        emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: scope.taskId,
+          level: 'info',
+          message: reviewRoundNote({
+            round: finished,
+            status: state.status,
+            ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+            disputes: state.disputes?.length ?? 0,
+            maxRounds: scope.maxRounds
+          })
+        });
         scope.roundsSeen = completed;
       }
     },

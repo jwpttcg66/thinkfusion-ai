@@ -118,6 +118,22 @@ export type ConversationEntry =
       issueDetails?: ReviewIssueDetail[];
       needsFix: boolean;
     })
+  /**
+   * 轮间 / 执行前桥接：先画出「对什么质疑、对什么回应、将执行哪些步骤」，
+   * 再开下一轮或动手。没有这条卡就看不出下一轮从哪来。
+   */
+  | (ConversationEntryBase & {
+      kind: 'bridge';
+      bridgeKind: 'review' | 'execution';
+      action: 'continue' | 'stop' | 'execute';
+      /** 下一轮阶段：质疑 / 回应；执行桥接没有。 */
+      nextPhase?: 'challenge' | 'response';
+      title: string;
+      message: string;
+      targets: Array<{ left: string; right: string; reason: string; agents?: [string, string] }>;
+      steps?: Array<{ index: number; tool: string; description: string; target?: string }>;
+      tone: ConversationTone;
+    })
   | (ConversationEntryBase & {
       kind: 'conclusion';
       text: string;
@@ -750,6 +766,50 @@ export function buildTaskConversation(
         at: event.at,
         roundId: event.roundId ?? currentRoundId,
         roundNumber: roundNumber(event.roundId ?? currentRoundId)
+      });
+      continue;
+    }
+
+    if (event.type === 'plan.review.bridge') {
+      const nextLabel = event.nextPhaseLabel ?? (event.action === 'continue' ? '下一轮' : '收尾');
+      push({
+        kind: 'bridge',
+        key: `review-bridge-${event.planId}-${String(event.fromRound)}-${event.action}`,
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        bridgeKind: 'review',
+        action: event.action,
+        ...(event.nextPhase ? { nextPhase: event.nextPhase } : {}),
+        title: event.action === 'continue'
+          ? `第 ${String(event.fromRound)} 轮${event.fromPhaseLabel}结束 → 先画出依据，再开${nextLabel}`
+          : `第 ${String(event.fromRound)} 轮${event.fromPhaseLabel}结束`,
+        message: event.message,
+        targets: event.targets.map(item => ({
+          left: item.left,
+          right: item.right,
+          reason: item.reason,
+          agents: item.agents
+        })),
+        tone: event.action === 'continue' ? 'warn' : 'muted'
+      });
+      continue;
+    }
+
+    if (event.type === 'execution.bridge') {
+      push({
+        kind: 'bridge',
+        key: `exec-bridge-${event.planId}-${String(event.at)}`,
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        bridgeKind: 'execution',
+        action: 'execute',
+        title: '执行前依据',
+        message: event.message,
+        targets: [],
+        steps: event.steps,
+        tone: 'info'
       });
       continue;
     }

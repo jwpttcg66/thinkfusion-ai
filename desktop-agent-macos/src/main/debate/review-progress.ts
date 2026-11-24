@@ -1,5 +1,5 @@
 import type { AgentEvent } from '../../shared/contracts';
-import type { DebateRound, DebateState, DebateStatus } from './types';
+import type { DebateClaim, DebateDispute, DebateRound, DebateState, DebateStatus } from './types';
 
 /**
  * 方案评审辩论的过程 → 对话流的成员事件。
@@ -163,4 +163,118 @@ export function reviewRoundNote(input: {
     return `第 ${String(number)} 轮质疑结束：仍有 ${String(input.disputes)} 条争议需要答复 → 进入第 ${String(number + 1)} 轮回应`;
   }
   return `第 ${String(number)} 轮表态结束：仍有 ${String(input.disputes)} 条争议未解决 → 进入第 ${String(number + 1)} 轮质疑`;
+}
+
+/** 下一轮要质疑/回应的具体对象：必须带双方原话，不能只报「还有 N 条」。 */
+export interface ReviewContinueTarget {
+  left: string;
+  right: string;
+  reason: string;
+  agents: [string, string];
+}
+
+export interface ReviewContinueBridge {
+  action: 'continue' | 'stop';
+  fromRound: number;
+  fromPhase: 'analysis' | 'challenge' | 'response';
+  fromPhaseLabel: string;
+  nextPhase?: 'challenge' | 'response';
+  nextPhaseLabel?: string;
+  message: string;
+  targets: ReviewContinueTarget[];
+}
+
+function phaseLabelOf(phase: DebateRound['phase'] | undefined): string {
+  if (phase === 'analysis') return '表态';
+  if (phase === 'challenge') return '质疑';
+  return '回应';
+}
+
+function claimById(claims: readonly DebateClaim[], claimId: string): DebateClaim | undefined {
+  return claims.find(item => item.claimId === claimId);
+}
+
+function clipClaim(text: string, max = 220): string {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}…`;
+}
+
+/** 从争议 + 主张原文抽出「对什么质疑 / 对什么回应」。 */
+export function reviewDisputeTargets(
+  disputes: readonly DebateDispute[],
+  claims: readonly DebateClaim[],
+  limit = 8
+): ReviewContinueTarget[] {
+  const open = disputes.filter(item => item.status === 'open');
+  const out: ReviewContinueTarget[] = [];
+  for (const dispute of open) {
+    if (out.length >= limit) break;
+    const left = claimById(claims, dispute.claimIds[0]);
+    const right = claimById(claims, dispute.claimIds[1]);
+    out.push({
+      left: left ? clipClaim(left.text) : `（主张 ${dispute.claimIds[0].slice(0, 8)}）`,
+      right: right ? clipClaim(right.text) : `（主张 ${dispute.claimIds[1].slice(0, 8)}）`,
+      reason: dispute.reason,
+      agents: dispute.agents
+    });
+  }
+  return out;
+}
+
+/**
+ * 一轮结束后、下一轮开始前的桥接说明。
+ *
+ * 用户要先看见「对什么质疑 / 对什么回应」，才能理解为何开下一轮；
+ * 只写「还有 N 条争议」不够——必须带双方原话与判定理由。
+ */
+export function reviewContinueBridge(input: {
+  round: DebateRound;
+  status: DebateStatus;
+  stopReason?: string;
+  disputes: readonly DebateDispute[];
+  claims: readonly DebateClaim[];
+  maxRounds: number;
+}): ReviewContinueBridge {
+  const fromRound = input.round.index + 1;
+  const fromPhase = (input.round.phase ?? 'analysis') as ReviewContinueBridge['fromPhase'];
+  const fromPhaseLabel = phaseLabelOf(fromPhase);
+  const note = reviewRoundNote({
+    round: input.round,
+    status: input.status,
+    ...(input.stopReason ? { stopReason: input.stopReason } : {}),
+    disputes: input.disputes.length,
+    maxRounds: input.maxRounds
+  });
+  const willContinue =
+    input.status === 'running' &&
+    !input.round.converged &&
+    fromRound < input.maxRounds &&
+    fromPhase !== 'response';
+  if (!willContinue) {
+    return {
+      action: 'stop',
+      fromRound,
+      fromPhase,
+      fromPhaseLabel,
+      message: note,
+      targets: reviewDisputeTargets(input.disputes, input.claims)
+    };
+  }
+  const nextPhase = fromPhase === 'analysis' ? 'challenge' as const : 'response' as const;
+  const nextPhaseLabel = phaseLabelOf(nextPhase);
+  const targets = reviewDisputeTargets(input.disputes, input.claims);
+  const lead = nextPhase === 'challenge'
+    ? `先画出以下 ${String(targets.length)} 条分歧，再发起第 ${String(fromRound + 1)} 轮质疑`
+    : `先画出以下 ${String(targets.length)} 条待答复质疑，再发起第 ${String(fromRound + 1)} 轮回应`;
+  return {
+    action: 'continue',
+    fromRound,
+    fromPhase,
+    fromPhaseLabel,
+    nextPhase,
+    nextPhaseLabel,
+    message: `${note}。${lead}`,
+    targets
+  };
 }

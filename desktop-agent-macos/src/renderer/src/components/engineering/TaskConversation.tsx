@@ -218,6 +218,71 @@ function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }
   );
 }
 
+/** 轮间 / 执行前桥接：先画出对象，再开质疑、回应或执行。 */
+function BridgeMessage(props: { entry: Extract<ConversationEntry, { kind: 'bridge' }> }) {
+  const { entry } = props;
+  const actionLabel = entry.action === 'execute'
+    ? '将执行'
+    : entry.action === 'stop'
+      ? '已收尾'
+      : entry.nextPhase === 'response'
+        ? '将回应'
+        : entry.nextPhase === 'challenge'
+          ? '将质疑'
+          : '将继续';
+  const targetLabel = entry.action === 'continue' && entry.nextPhase === 'response'
+    ? '待答复的质疑对象'
+    : entry.action === 'continue' && entry.nextPhase === 'challenge'
+      ? '将质疑的分歧'
+      : '相关分歧';
+  return (
+    <section className={`card chat-bridge is-${entry.action} ${ToneClass(entry.tone)}`}>
+      <div className="review-head">
+        <b>{entry.title}</b>
+        <span className="muted">{timeText(entry.at)} · {actionLabel}</span>
+      </div>
+      <p className="chat-bridge-message">{entry.message}</p>
+      {entry.targets.length > 0 && (
+        <div className="chat-bridge-targets">
+          <p className="chat-debate-label">{targetLabel}（{String(entry.targets.length)}）</p>
+          <ol className="chat-bridge-list">
+            {entry.targets.map((target, index) => (
+              <li key={index}>
+                <p><span className="muted">一方：</span>{target.left}</p>
+                <p><span className="muted">另一方：</span>{target.right}</p>
+                <p className="muted">依据：{target.reason}</p>
+                {target.agents && (
+                  <p className="muted">成员：{target.agents.join(' · ')}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {entry.steps && entry.steps.length > 0 && (
+        <div className="chat-bridge-targets">
+          <p className="chat-debate-label">将执行的步骤（{String(entry.steps.length)}）</p>
+          <ol className="chat-bridge-list">
+            {entry.steps.map(step => (
+              <li key={step.index}>
+                <p>
+                  <b>{String(step.index)}. {toolLabel(step.tool)}</b>
+                  {' · '}
+                  {step.description}
+                </p>
+                {step.target && <p className="muted"><code>{step.target}</code></p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {entry.action === 'continue' && entry.targets.length === 0 && (
+        <p className="muted">本轮判定要继续，但没有抽出可展示的主张原文；下一轮仍会按引擎规则进行。</p>
+      )}
+    </section>
+  );
+}
+
 /** 与知识问答综合卡同一套底色：结论 / 一致 / 分歧 / 存疑 / 辩题一眼可分。 */
 function leadSectionClass(title: string): string {
   switch (title) {
@@ -565,6 +630,9 @@ export function TaskConversation(props: {
         }
         if (entry.kind === 'debate') {
           return <DebateMessage key={entry.key} entry={entry} />;
+        }
+        if (entry.kind === 'bridge') {
+          return <BridgeMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'verification') {
           return <VerificationMessage key={entry.key} entry={entry} />;

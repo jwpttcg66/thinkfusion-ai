@@ -1674,6 +1674,45 @@ export type AgentEvent = AgentEventBase &
         elapsedMs: number;
         message: string;
       }
+    /**
+     * 方案评审轮间桥接：先画出「对什么质疑 / 对什么回应」，再开下一轮。
+     * 只报「还有 N 条争议」不够；targets 带双方主张原文与判定理由。
+     */
+    | {
+        type: 'plan.review.bridge';
+        taskId: string;
+        roundId: string;
+        planId: string;
+        action: 'continue' | 'stop';
+        fromRound: number;
+        fromPhase: 'analysis' | 'challenge' | 'response';
+        fromPhaseLabel: string;
+        nextPhase?: 'challenge' | 'response';
+        nextPhaseLabel?: string;
+        message: string;
+        targets: Array<{
+          left: string;
+          right: string;
+          reason: string;
+          agents: [string, string];
+        }>;
+      }
+    /**
+     * 执行前桥接：审批通过后、工具开动前，先画出将执行的步骤依据。
+     */
+    | {
+        type: 'execution.bridge';
+        taskId: string;
+        roundId: string;
+        planId: string;
+        message: string;
+        steps: Array<{
+          index: number;
+          tool: string;
+          description: string;
+          target?: string;
+        }>;
+      }
     | { type: 'report.sent'; taskId: string; roundId: string }
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }

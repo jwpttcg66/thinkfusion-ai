@@ -6495,6 +6495,14 @@ button:disabled {
 .chat-plan-step-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 12px; }
 .chat-plan-step-body b { color: var(--text); font-weight: 600; }
 .chat-plan-step-body code { font-size: 11px; color: var(--text-2); overflow-wrap: anywhere; }
+.chat-bridge { border-left: 3px solid var(--warn); margin-bottom: 10px; }
+.chat-bridge.is-stop { border-left-color: var(--line-strong); }
+.chat-bridge.is-execute { border-left-color: var(--accent); }
+.chat-bridge-message { margin: 6px 0 0; font-size: 13px; line-height: 1.65; color: var(--text); }
+.chat-bridge-targets { margin-top: 10px; }
+.chat-bridge-list { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.55; color: var(--text); }
+.chat-bridge-list li { margin-bottom: 10px; }
+.chat-bridge-list p { margin: 0 0 2px; }
 .chat-debate { border-left: 3px solid var(--line-strong); }
 .chat-debate.is-running { border-left-color: var(--accent); }
 .chat-debate.is-completed { border-left-color: #0f7b4f; }
