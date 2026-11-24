@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import {
   checkPlanCapabilities,
+  planDebateBrief,
   planDebateTopics,
   planReviewBudget,
   planReviewQuestion,
@@ -117,6 +118,32 @@ test('辩题指向具体风险：覆盖写、缺验证、步骤过多', () => {
   const topics = planDebateTopics(writePlan);
   assert.ok(topics.some(topic => topic.includes('overwrite')), '覆盖写必须被点名');
   assert.ok(topics.some(topic => topic.includes('验收条件')) === false, '已经有测试时不该拿验收条件凑数');
+});
+
+test('评审 brief 必须写出表态对象、表态目标，以及每条议题的决策目标', () => {
+  const brief = planDebateBrief(plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go', content: 'package main' } },
+    { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' } },
+    { id: 's3', tool: 'fs.readFile', args: { path: 'main.go' } },
+    { id: 's4', tool: 'code.run', args: { language: 'go', code: 'package main' } }
+  ]));
+  assert.match(brief.expressTarget, /工程计划|步骤|系统动作|完成条件/);
+  assert.match(brief.expressGoal, /可审批|步骤编号|保留|合并|砍掉/);
+  assert.ok(brief.topics.length >= 1);
+  for (const topic of brief.topics) {
+    assert.ok(topic.text.trim().length > 0, '议题原文不能空');
+    assert.ok(topic.goal.trim().length > 0, '每条议题必须有决策目标');
+  }
+  assert.deepEqual(
+    planDebateTopics(plan([
+      { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go', content: 'x' } },
+      { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' } },
+      { id: 's3', tool: 'fs.readFile', args: { path: 'main.go' } },
+      { id: 's4', tool: 'code.run', args: { language: 'go', code: 'x' } }
+    ])),
+    brief.topics.map(item => item.text),
+    'planDebateTopics 必须与 brief 议题原文同源'
+  );
 });
 
 test('有写入、没有任何观察手段时，辩题要求「按任务设计验证方式」，不点名工具', () => {

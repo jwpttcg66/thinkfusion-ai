@@ -1265,6 +1265,15 @@ export interface PlanDebate {
   status: 'completed' | 'stopped' | 'skipped';
   /** 辩题：从计划的步骤、风险、验收条件里取的争议点。 */
   topics: string[];
+  /**
+   * 与 topics 一一对应的决策目标：辩清该题后要落到什么裁定。
+   * 老记录没有；缺失时界面只显示议题原文。
+   */
+  topicGoals?: string[];
+  /** 需要对什么表达立场（计划对象）。老记录没有。 */
+  expressTarget?: string;
+  /** 表态要产出什么可审批判断。老记录没有。 */
+  expressGoal?: string;
   /** 参与者（模型 id）。 */
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
@@ -1620,6 +1629,12 @@ export type AgentEvent = AgentEventBase &
         topics: number;
         /** 辩题原文。旧事件只有数量，缺失时界面按数量显示。 */
         topicTexts?: string[];
+        /** 与 topicTexts 一一对应的决策目标；旧事件没有。 */
+        topicGoals?: string[];
+        /** 需要对什么表达立场；旧事件没有。 */
+        expressTarget?: string;
+        /** 表态要产出什么判断；旧事件没有。 */
+        expressGoal?: string;
         /** 为什么开这场评审；旧事件没有。 */
         reason?: string;
         /** 实际已完成的轮次；等待中通常还没有。 */

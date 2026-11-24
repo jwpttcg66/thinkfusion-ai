@@ -472,6 +472,37 @@ test('计划就绪生成计划卡：8 步原文都在，不只剩一句计数', 
   assert.equal(entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('计划就绪')).length, 0);
 });
 
+test('方案评审心跳要把表态对象/目标与议题目标写进对话流', () => {
+  const topics = ['步骤拆分是否合理', '系统动作影响面'];
+  const topicGoals = ['标出可合并项与失败断点', '决定保留或砍掉并写失败收尾'];
+  const expressTarget = '工程计划「Go demo」的步骤、系统动作与完成条件';
+  const expressGoal = '给出可审批判断：哪些步骤保留/合并/砍掉，系统动作是否必要；结论必须指向具体步骤编号。';
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'started',
+      topics: 2,
+      topicTexts: topics,
+      topicGoals,
+      expressTarget,
+      expressGoal,
+      elapsedMs: 0,
+      message: '开始'
+    }
+  ], { status: 'plan_ready' });
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.ok(debate);
+  assert.equal(debate.expressTarget, expressTarget);
+  assert.equal(debate.expressGoal, expressGoal);
+  assert.deepEqual(debate.topicGoals, topicGoals);
+  assert.deepEqual(debate.topics, topics);
+});
+
 test('方案评审只有一个条目：心跳原地更新，辩完后带议题与结论', () => {
   const progress = (at, state, elapsedMs, topicTexts) => ({
     type: 'plan.review.progress',

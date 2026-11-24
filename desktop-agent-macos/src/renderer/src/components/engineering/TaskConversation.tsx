@@ -237,11 +237,29 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
             : typeof entry.maxRounds === 'number' ? ` · 最多 ${String(entry.maxRounds)} 轮` : ''}
         </span>
       </div>
+      {(entry.expressTarget || entry.expressGoal) && (
+        <div className="chat-debate-brief">
+          <p className="chat-debate-label">表态</p>
+          {entry.expressTarget && (
+            <p><span className="muted">对象：</span>{entry.expressTarget}</p>
+          )}
+          {entry.expressGoal && (
+            <p><span className="muted">目标：</span>{entry.expressGoal}</p>
+          )}
+        </div>
+      )}
       {entry.topics.length > 0 ? (
         <>
           <p className="chat-debate-label">议题（{String(entry.topics.length)}）</p>
           <ol className="chat-debate-topics">
-            {entry.topics.map((topic, index) => <li key={index}>{topic}</li>)}
+            {entry.topics.map((topic, index) => (
+              <li key={index}>
+                <div>{topic}</div>
+                {entry.topicGoals?.[index] && (
+                  <p className="muted chat-debate-topic-goal">目标：{entry.topicGoals[index]}</p>
+                )}
+              </li>
+            ))}
           </ol>
         </>
       ) : (

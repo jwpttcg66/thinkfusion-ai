@@ -80,9 +80,41 @@ export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
  * 「应该改 3 个文件」而扩大到能改 3 个文件。
  */
 
-/** 计划里值得辩的风险点，最多三条，按严重程度排序。 */
-export function planDebateTopics(plan: AgentPlan): string[] {
-  if (plan.kind === 'design' && plan.design) return [...plan.design.viewpoints];
+/** 单条议题：问什么 + 辩清后要达成什么决策。 */
+export interface PlanDebateTopicItem {
+  text: string;
+  goal: string;
+}
+
+/**
+ * 方案评审 brief：议题之外，还必须写清表态对象与目标。
+ *
+ * 界面曾经只列议题原文和「第 1 轮表态」流程，用户看不到：
+ * - 需要对什么表达立场；
+ * - 表态要产出什么可审批判断；
+ * - 每条议题辩完要落到什么决策。
+ * 这些是产品可观测字段，不是提示词包装。
+ */
+export interface PlanDebateBrief {
+  topics: PlanDebateTopicItem[];
+  /** 需要对什么表达立场。 */
+  expressTarget: string;
+  /** 表态要产出什么判断。 */
+  expressGoal: string;
+}
+
+/** 计划里值得辩的风险点，最多三条，按严重程度排序；附带每条决策目标。 */
+export function planDebateBrief(plan: AgentPlan): PlanDebateBrief {
+  if (plan.kind === 'design' && plan.design) {
+    return {
+      expressTarget: `设计文档「${plan.title}」及其观点编号`,
+      expressGoal: '对每个观点给出成立/不成立判断，指出互相矛盾或缺依据处，并给出更稳妥替代（若有）。',
+      topics: plan.design.viewpoints.slice(0, 3).map((viewpoint, index) => ({
+        text: viewpoint,
+        goal: `就观点 ${String(index + 1)} 给出可否采纳的结论，并写明依据是否充分。`
+      }))
+    };
+  }
   const steps = plan.steps ?? [];
   const writes = steps.filter(step =>
     step.tool === 'fs.writeFile' || step.tool === 'fs.mkdir' || step.tool === 'fs.edit' ||
@@ -100,44 +132,67 @@ export function planDebateTopics(plan: AgentPlan): string[] {
     step.tool === 'shell.run' || step.tool === 'screen.capture' || step.tool === 'app.open' ||
     step.tool === 'code.run'
   );
-  const topics: string[] = [];
+  const topics: PlanDebateTopicItem[] = [];
 
   if (overwrites.length > 0) {
-    topics.push(
-      `覆盖已有文件是否必要：计划里有 ${overwrites.length} 处 overwrite，` +
-        '逐条说明为什么不能只追加或新建，以及回退办法。'
-    );
+    topics.push({
+      text:
+        `覆盖已有文件是否必要：计划里有 ${overwrites.length} 处 overwrite，` +
+        '逐条说明为什么不能只追加或新建，以及回退办法。',
+      goal: '决定每处覆盖是保留、改为追加/新建，还是先备份；必须写出回退办法。'
+    });
   }
   if (writes.length > 0 && !hasEvidence) {
     // 不写死「必须有 test.run」：验证方式是模型按任务设计的（Java 用 javac +
     // 运行断言，前端用构建加截屏，脚本用一次真跑）。这里只把「什么时候算
     // 验证过」抛给它，由它给出这个任务该用的办法。
-    topics.push(
-      `改完之后怎么证明没改坏：这份计划有 ${writes.length} 处写入，但没有任何能观察结果的动作。` +
-        '请按这个任务本身设计验证方式（跑哪条命令、看什么输出、什么算通过），并说明缺了它能不能算完成。'
-    );
+    topics.push({
+      text:
+        `改完之后怎么证明没改坏：这份计划有 ${writes.length} 处写入，但没有任何能观察结果的动作。` +
+        '请按这个任务本身设计验证方式（跑哪条命令、看什么输出、什么算通过），并说明缺了它能不能算完成。',
+      goal: '确定本任务的验证动作与通过标准；缺验证时明确能否标完成。'
+    });
   }
   if (steps.length >= 4) {
-    topics.push(
-      `步骤拆分是否合理：${steps.length} 步里哪些可以合并、哪些顺序可调整，` +
-        '哪一步失败会让后面全部作废。'
-    );
+    topics.push({
+      text:
+        `步骤拆分是否合理：${steps.length} 步里哪些可以合并、哪些顺序可调整，` +
+        '哪一步失败会让后面全部作废。',
+      goal: '产出可执行的步骤集合：标出可合并项、可调顺序，以及失败断点（哪一步失败则后续作废）。'
+    });
   }
   if (runsShell.length > 0 && !hasEvidence) {
-    topics.push(
-      `这 ${runsShell.length} 条 shell 命令凭什么安全：逐条说明它会读还是写、` +
-        '作用范围是否只在工作区内、失败时会不会留下半成品。'
-    );
+    topics.push({
+      text:
+        `这 ${runsShell.length} 条 shell 命令凭什么安全：逐条说明它会读还是写、` +
+        '作用范围是否只在工作区内、失败时会不会留下半成品。',
+      goal: '逐条裁定命令是否保留；不保留则给替代，保留则写明失败收尾（半成品如何处理）。'
+    });
   } else if (systemSteps.length > 0) {
-    topics.push(
-      `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用/跑代码）有没有更小的影响面：` +
-        '是否真的需要，以及失败了怎么收尾。'
-    );
+    topics.push({
+      text:
+        `这 ${systemSteps.length} 个系统动作（命令/截屏/启动应用/跑代码）有没有更小的影响面：` +
+        '是否真的需要，以及失败了怎么收尾。',
+      goal: '决定每个系统动作保留或砍掉；保留的必须写清更小影响面（若有）与失败收尾。'
+    });
   }
   if (topics.length === 0) {
-    topics.push(`这份计划的验收条件「${plan.completion?.condition ?? '未写明'}」是否足够，有没有更容易出错的地方。`);
+    topics.push({
+      text: `这份计划的验收条件「${plan.completion?.condition ?? '未写明'}」是否足够，有没有更容易出错的地方。`,
+      goal: '确认验收条件是否可操作；不足则补具体判据，并点名最易出错处。'
+    });
   }
-  return topics.slice(0, 3);
+  return {
+    expressTarget: `工程计划「${plan.title}」的步骤、系统动作与完成条件`,
+    expressGoal:
+      '给出可审批判断：哪些步骤保留/合并/砍掉，系统动作是否必要；结论必须指向具体步骤编号。',
+    topics: topics.slice(0, 3)
+  };
+}
+
+/** 兼容旧调用：只要议题原文。 */
+export function planDebateTopics(plan: AgentPlan): string[] {
+  return planDebateBrief(plan).topics.map(item => item.text);
 }
 
 /**

@@ -6474,6 +6474,9 @@ button:disabled {
 .chat-debate.is-completed { border-left-color: #0f7b4f; }
 .chat-debate.is-skipped { border-left-color: var(--warn); }
 .chat-debate-label { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.chat-debate-brief { margin: 0 0 10px; font-size: 12px; line-height: 1.55; color: var(--text); }
+.chat-debate-brief p { margin: 0 0 4px; }
 .chat-debate-topics { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text); }
-.chat-debate-topics li { margin-bottom: 4px; }
+.chat-debate-topics li { margin-bottom: 8px; }
+.chat-debate-topic-goal { margin: 2px 0 0; }
 .chat-debate-summary { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-side); font-size: 12px; line-height: 1.6; }

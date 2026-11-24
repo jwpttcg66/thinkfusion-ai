@@ -71,6 +71,12 @@ export type ConversationEntry =
       /** running 只来自心跳；plan.debated 之后变成 completed / stopped / skipped。 */
       status: 'running' | PlanDebate['status'];
       topics: string[];
+      /** 与 topics 一一对应；老事件没有。 */
+      topicGoals?: string[];
+      /** 需要对什么表达立场；老事件没有。 */
+      expressTarget?: string;
+      /** 表态要产出什么判断；老事件没有。 */
+      expressGoal?: string;
       participants: string[];
       summary: string;
       /** 结构化切片；老事件没有。 */
@@ -627,6 +633,15 @@ export function buildTaskConversation(
         participants: existing?.entry.participants ?? [],
         summary: existing?.entry.summary ?? '',
         elapsedMs: event.elapsedMs,
+        ...(event.topicGoals && event.topicGoals.length > 0
+          ? { topicGoals: event.topicGoals }
+          : existing?.entry.topicGoals ? { topicGoals: existing.entry.topicGoals } : {}),
+        ...(event.expressTarget
+          ? { expressTarget: event.expressTarget }
+          : existing?.entry.expressTarget ? { expressTarget: existing.entry.expressTarget } : {}),
+        ...(event.expressGoal
+          ? { expressGoal: event.expressGoal }
+          : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
         ...(event.rounds !== undefined
           ? { rounds: event.rounds }
           : existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
@@ -658,6 +673,15 @@ export function buildTaskConversation(
         participants: debate.participants,
         summary: debate.summary,
         elapsedMs: existing?.entry.elapsedMs ?? 0,
+        ...(debate.topicGoals && debate.topicGoals.length > 0
+          ? { topicGoals: debate.topicGoals }
+          : existing?.entry.topicGoals ? { topicGoals: existing.entry.topicGoals } : {}),
+        ...(debate.expressTarget
+          ? { expressTarget: debate.expressTarget }
+          : existing?.entry.expressTarget ? { expressTarget: existing.entry.expressTarget } : {}),
+        ...(debate.expressGoal
+          ? { expressGoal: debate.expressGoal }
+          : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
         ...(debate.result ? { result: debate.result } : existing?.entry.result ? { result: existing.entry.result } : {}),
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
         ...(typeof debate.maxRounds === 'number' ? { maxRounds: debate.maxRounds } : {}),

@@ -19,7 +19,7 @@ import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
-import { checkPlanCapabilities, planDebateTopics, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
+import { checkPlanCapabilities, planDebateBrief, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
@@ -1412,7 +1412,9 @@ export class AgentOrchestrator {
       };
     }
 
-    const topics = planDebateTopics(stored.plan);
+    const brief = planDebateBrief(stored.plan);
+    const topics = brief.topics.map(item => item.text);
+    const topicGoals = brief.topics.map(item => item.goal);
     // 轮次由计划规模决定；在评审开始前就给界面一个明确依据，别让人等完
     // 三分钟才知道为什么是两轮。
     const plannedRounds = planReviewRounds(stored.plan, task.debateAgentIds?.length ?? 1);
@@ -1421,6 +1423,9 @@ export class AgentOrchestrator {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
         planId: stored.planId, state, topics: topics.length, topicTexts: topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
         ...(decision.reason ? { reason: decision.reason } : {}),
         maxRounds: plannedRounds.rounds,
         roundsReason: plannedRounds.reason,
@@ -1442,7 +1447,9 @@ export class AgentOrchestrator {
       });
       if (!result) {
         return {
-          status: 'skipped', topics, participants: [], summary: '',
+          status: 'skipped', topics, topicGoals,
+          expressTarget: brief.expressTarget, expressGoal: brief.expressGoal,
+          participants: [], summary: '',
           skippedReason: '辩论没有可用成员，计划未经评审', at: Date.now()
         };
       }
@@ -1450,6 +1457,9 @@ export class AgentOrchestrator {
         status: result.status,
         debateId: result.debateId,
         topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
         participants: result.participants,
         summary: result.summary,
         // 轮次与理由要一起进 plan.debated：审批的人看到「3 轮」才知道
@@ -1467,7 +1477,9 @@ export class AgentOrchestrator {
         message: `方案评审辩论没有完成：${detail}；计划仍可审批，但要知道它没被辩过`
       });
       return {
-        status: 'skipped', topics, participants: [], summary: '',
+        status: 'skipped', topics, topicGoals,
+        expressTarget: brief.expressTarget, expressGoal: brief.expressGoal,
+        participants: [], summary: '',
         skippedReason: `辩论失败：${detail}`, at: Date.now()
       };
     } finally {
