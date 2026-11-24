@@ -1145,6 +1145,17 @@ export type RoundStatus =
 
 export interface AgentTask {
   taskId: string;
+  /**
+   * 一次连续执行过程的身份；暂停/恢复复用，明确重跑才变化。
+   * 老任务没有这个字段，读取方按 taskId 兼容处理。
+   */
+  runId?: string;
+  /** 当前使用的上下文版本；LT-P0 只定义，未接线。 */
+  contextId?: string;
+  /** 最近一次已提交的上下文检查点；LT-P0 只定义，未接线。 */
+  checkpointId?: string;
+  /** 与 checkpointId 一起构成 Journal 活动指针；LT-P0 只定义。 */
+  activeRunId?: string;
   /** 编码工作流的业务状态；老任务没有这个字段，按 task.status 推导。 */
   codingState?: import('./coding-workflow').CodingState;
   title: string;
