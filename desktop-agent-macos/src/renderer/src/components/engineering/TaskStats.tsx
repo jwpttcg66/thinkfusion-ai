@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { AgentTask } from '../../../../shared/contracts';
+import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { ObservabilityEvent } from '../../../../shared/observability';
 import { TASK_MEMBER_STATUS_LABEL, type TaskMemberStream } from '../../../../shared/task-stream';
 
@@ -44,8 +44,16 @@ export function TaskStats(props: {
   members: readonly TaskMemberStream[];
   activity: readonly ObservabilityEvent[];
   verification: { checks?: { compile: { status: string }; tests: { status: string }; diagnostics: { status: string; errors: number; warnings: number } } } | null;
+  events?: readonly AgentEvent[];
 }) {
   const { task, members, activity } = props;
+  const contextEvents = (props.events ?? []).filter(
+    (event): event is Extract<AgentEvent, { type: 'context.event' }> => event.type === 'context.event'
+  );
+  const latestContext = contextEvents.at(-1) ?? null;
+  const committed = contextEvents.filter(event => event.event === 'context.compaction.committed').length;
+  const warnings = contextEvents.filter(event => event.event === 'context.budget.warning').length;
+  const recoveries = contextEvents.filter(event => event.event === 'context.recovered').length;
 
   const rounds = activity.filter(item => item.payload.type === 'round.started').length;
   const endedAt = activity
@@ -102,6 +110,20 @@ export function TaskStats(props: {
           <div><span className="task-progress-key">轮次</span><b>{rounds} 轮</b></div>
           <div><span className="task-progress-key">事件</span><b>{activity.length} 条</b></div>
           <div><span className="task-progress-key">总耗时</span><b>{formatDuration((endedAt ?? Date.now()) - task.createdAt)}</b></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <h2>上下文</h2>
+          <span className="muted">{latestContext ? latestContext.event : '未记录'}</span>
+        </div>
+        <div className="stats-grid">
+          <div><span className="task-progress-key">估算输入</span><b>{typeof latestContext?.context.estimatedTokens === 'number' ? `${String(latestContext.context.estimatedTokens)} tokens` : '未提供'}</b></div>
+          <div><span className="task-progress-key">窗口</span><b>{typeof latestContext?.context.contextWindow === 'number' ? String(latestContext.context.contextWindow) : '未提供'}</b></div>
+          <div><span className="task-progress-key">使用率</span><b>{typeof latestContext?.context.usageRatio === 'number' ? `${String(Math.round(latestContext.context.usageRatio * 100))}%` : '未提供'}</b></div>
+          <div><span className="task-progress-key">检查点</span><b>{committed > 0 ? `${String(committed)} 次提交` : '未提交'}</b></div>
+          <div><span className="task-progress-key">预警 / 恢复</span><b>{warnings} / {recoveries}</b></div>
         </div>
       </section>
 

@@ -2877,6 +2877,7 @@ export default function App() {
                 members={derived.members}
                 activity={activity}
                 verification={derived.verification}
+                events={events}
               />
             )}
           </div>

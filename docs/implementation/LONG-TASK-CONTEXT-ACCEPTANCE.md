@@ -1,162 +1,123 @@
-# 长任务与上下文压缩 · 验收报告（LT-P6-05 输出）
+# 长任务与上下文压缩 · 验收报告
 
-状态：未开始  
-基线：`main` · `<commit>` · `<date>`  
-上游：[任务书](LONG-TASK-CONTEXT-TASK-BOOK.md) · [测试计划](LONG-TASK-CONTEXT-TEST-PLAN.md)
+状态：部分验收完成，未达到“全部完成”  
+日期：2026-11-24  
+基线：`main@40c7fed` + 分支 `lt-p0-context-contracts`  
+实现分支：`/Users/yalla/data/localLab/thinkfusion-ai-lt-p0`
 
-> 本文是 `LT-P6-05` 的产出模板。每个任务必须给出真实证据，
-> 不能用“代码看起来对”代替。
+> 本报告只写已经跑过的验证。未执行的 30 步真实工程任务、P5 检查点恢复接线、
+> 副作用核对与并发保护，明确列为未完成。
 
-## 1. 总览
+## 1. 已实现
 
-| 项 | 值 |
-| --- | --- |
-| 实施分支 | 待填 |
-| 合并提交 | 待填 |
-| 测试日期 | 待填 |
-| 验证设备 | 待填 |
-| 应用版本 | 待填 |
-
-## 2. 任务状态
-
-| 任务 | 状态 | 证据 |
+| 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| LT-P0-01 | 待填 | 待填 |
-| LT-P0-02 | 待填 | 待填 |
-| LT-P0-03 | 待填 | 待填 |
-| LT-P0-04 | 待填 | 待填 |
-| LT-P0-05 | 待填 | 待填 |
-| LT-P0-06 | 待填 | 待填 |
-| LT-P0-07 | 待填 | 待填 |
-| LT-P0-08 | 待填 | 待填 |
-| LT-P1-01 | 待填 | 待填 |
-| LT-P1-02 | 待填 | 待填 |
-| LT-P1-03 | 待填 | 待填 |
-| LT-P1-04 | 待填 | 待填 |
-| LT-P1-05 | 待填 | 待填 |
-| LT-P2-01 | 待填 | 待填 |
-| LT-P2-02 | 待填 | 待填 |
-| LT-P2-03 | 待填 | 待填 |
-| LT-P3-01 | 待填 | 待填 |
-| LT-P3-02 | 待填 | 待填 |
-| LT-P3-03 | 待填 | 待填 |
-| LT-P3-04 | 待填 | 待填 |
-| LT-P3-05 | 待填 | 待填 |
-| LT-P4-01 | 待填 | 待填 |
-| LT-P4-02 | 待填 | 待填 |
-| LT-P4-03 | 待填 | 待填 |
-| LT-P4-04 | 待填 | 待填 |
-| LT-P5-01 | 待填 | 待填 |
-| LT-P5-02 | 待填 | 待填 |
-| LT-P5-03 | 待填 | 待填 |
-| LT-P5-04 | 待填 | 待填 |
-| LT-P5-05 | 待填 | 待填 |
-| LT-P6-01 | 待填 | 待填 |
-| LT-P6-02 | 待填 | 待填 |
-| LT-P6-03 | 待填 | 待填 |
-| LT-P6-04 | 待填 | 待填 |
-| LT-P6-05 | 待填 | 待填 |
+| LT-P0 | Owner/预算/检查点/事件类型、运行字段 | TESTED |
+| LT-P1 | Builder/Estimator/Budget/Provider/Manager | TESTED |
+| LT-P2 | 工具历史配对/Pruner | TESTED |
+| LT-P3 | 摘要校验/生成/检查点/归档/Journal 指针/恢复 | TESTED |
+| LT-P4 | ExecutionPool contextState + prepare/finalize | TESTED；真实会话走通 |
+| LT-P5 | 新状态、interrupted、暂停/继续 API/IPC/UI | 部分 |
+| LT-P6 | 上下文行、轨迹事件、统计、组件级 30 条 E2E | 部分 |
 
-状态只允许：IMPLEMENTED / TESTED / VERIFIED / FAILED / BLOCKED。
+## 2. 自动化验证
 
-## 3. 验收场景
-
-### 3.1 长任务
-
-| 项 | 结果 |
+| 测试 | 结果 |
 | --- | --- |
-| 30 步任务完成 | 待填 |
-| 文件内容正确 | 待填 |
-| Git 状态正确 | 待填 |
-| 测试/诊断结果 | 待填 |
-| 证据引用完整 | 待填 |
-| 无重复副作用 | 待填 |
+| `npm run typecheck` | 三套通过 |
+| `test:context-contracts` | 6/6 |
+| `test:context-manager` | 9/9 |
+| `test:context-pruner` | 5/5 |
+| `test:context-summary` | 8/8 |
+| `test:context-checkpoint` | 3/3 |
+| `test:long-task-context-e2e` | 1/1 |
+| `test:state` | 8/8 |
+| `test:task-conversation` | 20/20 |
+| `test:ui-progress` | 3/3 |
+| `test:execution-timeline` | 5/5 |
 
-### 3.2 压缩
+组件级 E2E 覆盖：
 
-| 项 | 结果 |
-| --- | --- |
-| 65% 预警 | 待填 |
-| 75% 后台摘要 | 待填 |
-| 85% 强制提交 | 待填 |
-| 摘要失败回退 | 待填 |
-| stale 检测 | 待填 |
-| 检查点崩溃恢复 | 待填 |
+- 30 条历史；
+- 大工具输出裁剪；
+- 摘要校验；
+- 检查点提交（归档 + 文件 + Journal 指针）；
+- 恢复；
+- 归档篡改 → stale。
 
-### 3.3 恢复
+## 3. 真机验证
 
-| 项 | 结果 |
-| --- | --- |
-| 执行中暂停 | 待填 |
-| 应用退出/重启 | 待填 |
-| interrupted 显示 | 待填 |
-| 已完成步骤不重做 | 待填 |
-| 未知副作用标记 | 待填 |
-| 继续执行 | 待填 |
+启动：
 
-### 3.4 UI
-
-| 项 | 结果 |
-| --- | --- |
-| 上下文卡 | 待填 |
-| 轨迹压缩详情 | 待填 |
-| 统计未知值 | 待填 |
-| 暂停/中断文案 | 待填 |
-
-## 4. 测试命令
-
-```bash
-cd desktop-agent-macos
-npm run typecheck
-npm run test:context-contracts
-npm run test:context-builder
-npm run test:context-budget
-npm run test:context-pruner
-npm run test:context-summary
-npm run test:context-checkpoint
-npm run test:context-recovery
-npm run test:execution
-npm run test:providers
-npm run test:state-machine
-npm run test:task-events
-npm run test:long-task-context-e2e
+```text
+THINKFUSION_CONTEXT_MANAGER=active npm run dev -- --remoteDebuggingPort 9223
 ```
 
-实际结果：待填。
+真实云端会话：
 
-## 5. 真机证据
+```text
+请用一句话说明上下文压缩的作用
+```
 
-| 证据 | 路径 |
-| --- | --- |
-| 长任务截图 | 待填 |
-| 压缩轨迹 | 待填 |
-| 恢复截图 | 待填 |
-| 检查点文件 | 待填 |
-| 事件序列 | 待填 |
+结果：
 
-## 6. 已知限制
+- 回答正常返回；
+- 综合分析、裁判、结论正常；
+- `agent-store.json` 写入：
+  - `context.prepared`
+  - `context.budget.warning`
+- owner 为 `conversation`，`contextId` 已生成；
+- 未知窗口保持 `contextWindow: null`、`usageRatio: null`。
 
-- 待填
+证据：
 
-## 7. 回滚演练
+```text
+events:
+  context.prepared
+  context.budget.warning
+ownerType: conversation
+estimatedTokens: 34
+contextWindow: null
+usageRatio: null
+level: unknown
+```
 
-| 项 | 结果 |
-| --- | --- |
-| 关闭 contextManagerMode | 待填 |
-| 旧路径继续任务 | 待填 |
-| 历史/证据未丢 | 待填 |
-| 检查点可清理 | 待填 |
+## 4. 未完成
 
-## 8. 文档修正
+### P5
 
-| 文档 | 修正 |
-| --- | --- |
-| `UNIFIED-TASK-RUNTIME.md` | 待填 |
-| 任务书状态板 | 待填 |
-| 架构/契约 | 待填 |
+- 检查点恢复真正接回任务执行（当前 interrupted 继续是新开一轮，先检查工作区）；
+- 工具副作用核对；
+- 并发恢复/取消保护；
+- 真实暂停/恢复真机场景。
 
-## 9. 结论
+### P6
 
-- 是否达到 P6 出口：待填
-- 未解决阻塞：待填
-- 后续任务：待填
+- 统计页上下文指标已加，但未做历史数据回填；
+- 30 步**真实工程任务**故障注入未执行（当前是组件级 30 条历史）；
+- 长任务真实中断/恢复验收未执行；
+- 全入口边界矩阵（Master/Collaboration/Engineering/Debate）未完成。
+
+## 5. 结论
+
+可以确认：
+
+- ContextManager 基础层可用；
+- 检查点/归档/恢复组件可用；
+- 真实应用在开启开关时能正常回答并写入上下文事件。
+
+不能确认：
+
+- 全部 LT-P5/LT-P6 完成；
+- 30 步真实工程任务可恢复；
+- 所有入口都使用统一上下文策略。
+
+因此状态保持 **PARTIAL**，不标记“全部完成”。
+
+## 6. 下一步
+
+1. 把检查点恢复接进 `AgentOrchestrator.resume`；
+2. 做工具副作用核对与并发保护；
+3. 跑 30 步真实工程任务故障注入；
+4. 完成全入口策略与边界矩阵；
+5. 再更新本报告为最终验收。
