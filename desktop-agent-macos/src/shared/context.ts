@@ -181,6 +181,15 @@ export interface ContextCheckpoint {
   failureReason?: string;
 }
 
+/** 检查点文件（按 owner 聚合）。activeCache 只能由 Journal 指针重建。 */
+export interface ContextOwnerFile {
+  contractVersion: ContextContractVersion;
+  owner: ContextOwner;
+  checkpoints: ContextCheckpoint[];
+  activeCache?: { runId: string; checkpointId: string } | null;
+  updatedAt: number;
+}
+
 export type ContextEventType =
   | 'context.budget.warning'
   | 'context.compaction.started'

@@ -7,6 +7,7 @@ import type { ExpertiseView } from './expertise';
 import type { EmbeddingRequest, EmbeddingResult, EmbeddingStatus } from './embeddings';
 import type { CodeIndexLink, CodeIndexLinkInput, CodeIndexMemory, CodeIndexMemoryInput, CodeIndexSearchInput, CodeIndexSearchResult, CodeIndexStatus, CodeIndexVectorResult } from './code-index';
 import type { MemoryApi } from './memory-api';
+import type { ContextEventPayload, ContextEventType } from './context';
 import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceManagedResult, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
@@ -1562,6 +1563,17 @@ export type AgentEvent = AgentEventBase &
     /** Emitted on delete, so a list built from events drops the row too. */
     | { type: 'task.deleted'; taskId: string }
     | { type: 'log'; taskId?: string; level: 'info' | 'warn' | 'error'; message: string }
+    /**
+     * 上下文压缩/恢复事件。owner 可以是 AgentTask，也可以是 Conversation；
+     * 事件只带 checkpointId 与预览，完整来源在检查点文件。
+     */
+    | {
+        type: 'context.event';
+        taskId?: string;
+        conversationId?: string;
+        event: ContextEventType;
+        context: ContextEventPayload;
+      }
   );
 
 export type DeepSeekEvent =

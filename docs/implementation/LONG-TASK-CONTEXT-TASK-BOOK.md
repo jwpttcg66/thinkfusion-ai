@@ -147,9 +147,9 @@ P6 UI 与全链路验收
 | LT-P2-03 | 未开始 | P2-02 / P1-04 | 接线 |
 | LT-P3-01 | 基础层完成 / TESTED | P0-02 | 摘要契约 |
 | LT-P3-02 | 基础层完成 / TESTED | P3-01 / P1-04 | Summarizer |
-| LT-P3-03 | 未开始 | P0-03 / P3-01 | Checkpoint |
-| LT-P3-04 | 未开始 | P3-03 | Recovery |
-| LT-P3-05 | 未开始 | P3-03 | 事件/Trace |
+| LT-P3-03 | 基础层完成 / TESTED | P0-03 / P3-01 | Checkpoint |
+| LT-P3-04 | 基础层完成 / TESTED | P3-03 | Recovery |
+| LT-P3-05 | 部分完成 | P3-03 | 事件/Trace |
 | LT-P4-01 | 未开始 | P1-02 / P2-03 / P3-04 | Pool Hook |
 | LT-P4-02 | 未开始 | P4-01 | 入口策略 |
 | LT-P4-03 | 未开始 | P1-03 / P4-01 | Usage 校准 |

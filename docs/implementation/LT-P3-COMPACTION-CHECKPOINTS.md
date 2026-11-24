@@ -1,6 +1,6 @@
 # LT-P3 · 摘要与检查点
 
-状态：部分完成（P3-01/02 基础层；P3-03/04/05 未实现）  
+状态：大部分完成（P3-01..04 基础层；P3-05 事件/Trace 部分）  
 阶段目标：在裁剪不足时生成结构化摘要，并以检查点安全提交。  
 依赖：LT-P1、LT-P2（P0 存储 ADR）  
 上游：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
@@ -157,7 +157,7 @@ npm run test:task-events
 
 - [x] P3-01 Schema/Validator
 - [x] P3-02 Summarizer
-- [ ] P3-03 Checkpoint
-- [ ] P3-04 Recovery
+- [x] P3-03 Checkpoint（文件/归档/Journal 指针；GC 待补）
+- [x] P3-04 Recovery（stale/归档校验）
 - [ ] P3-05 Events
 - [ ] 阶段回归通过
