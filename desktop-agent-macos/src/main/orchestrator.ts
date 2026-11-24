@@ -1413,6 +1413,13 @@ export class AgentOrchestrator {
     }
 
     const brief = planDebateBrief(stored.plan);
+    // 双保险：shouldDebate 已要求有模型议题；若 brief 仍空则跳过，绝不套模板。
+    if (brief.source === 'none' || brief.topics.length === 0) {
+      return {
+        status: 'skipped', topics: [], participants: [], summary: '',
+        skippedReason: '主导模型未提出议题，不编造辩论', at: Date.now()
+      };
+    }
     const topics = brief.topics.map(item => item.text);
     const topicGoals = brief.topics.map(item => item.goal);
     // 轮次由计划规模决定；在评审开始前就给界面一个明确依据，别让人等完

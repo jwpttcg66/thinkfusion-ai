@@ -99,100 +99,64 @@ test('关闭辩论时不辩，并说得出是设置关的', () => {
   assert.match(decision.reason, /关闭/);
 });
 
-test('开启辩论时哪怕两步只读也辩——用户明确要求优先', () => {
-  assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, true);
+test('没有主导模型议题时：on/auto 都不辩，不按步数或写入编造', () => {
+  assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, false);
+  assert.match(shouldDebatePlan('on', readOnlyPlan).reason, /未提出议题|不编造/);
+  assert.equal(shouldDebatePlan('auto', writePlan).debate, false);
+  assert.equal(shouldDebatePlan(undefined, writePlan).debate, false);
+  assert.deepEqual(planDebateTopics(writePlan), []);
 });
 
-test('auto 不辩小的只读计划，但带写入或测试的多步计划要辩', () => {
-  assert.equal(shouldDebatePlan('auto', readOnlyPlan).debate, false);
-  assert.match(shouldDebatePlan('auto', readOnlyPlan).reason, /只读/);
-  assert.equal(shouldDebatePlan(undefined, writePlan).debate, true);
-  assert.equal(shouldDebatePlan('auto', plan([
-    { id: 's1', tool: 'fs.list', args: { path: '.' } },
-    { id: 's2', tool: 'fs.readFile', args: { path: 'a.ts' } },
-    { id: 's3', tool: 'fs.readFile', args: { path: 'b.ts' } }
-  ])).debate, true);
+test('有主导模型 concerns 才开辩，议题原文与目标都来自模型字段', () => {
+  const withConcerns = {
+    ...writePlan,
+    concerns: [
+      { topic: '覆盖 utils 是否必要', reason: '已有实现可能被冲掉', goal: '决定保留覆盖还是改追加' },
+      { topic: '测试命令是否够验', goal: '确认 npm test 能否证明没改坏' }
+    ]
+  };
+  const decision = shouldDebatePlan('auto', withConcerns);
+  assert.equal(decision.debate, true);
+  assert.match(decision.reason, /主导模型提出了 2 个议题/);
+  const brief = planDebateBrief(withConcerns);
+  assert.equal(brief.source, 'model');
+  assert.deepEqual(brief.topics.map(item => item.text), [
+    '覆盖 utils 是否必要',
+    '测试命令是否够验'
+  ]);
+  assert.equal(brief.topics[0].goal, '决定保留覆盖还是改追加');
+  assert.equal(brief.topics[1].goal, '确认 npm test 能否证明没改坏');
+  assert.match(brief.expressTarget, /主导模型提出的议题/);
 });
 
-test('辩题指向具体风险：覆盖写、缺验证、步骤过多', () => {
-  const topics = planDebateTopics(writePlan);
-  assert.ok(topics.some(topic => topic.includes('overwrite')), '覆盖写必须被点名');
-  assert.ok(topics.some(topic => topic.includes('验收条件')) === false, '已经有测试时不该拿验收条件凑数');
-});
-
-test('议题来自计划结构模板，不是空口写死无关数字', () => {
-  const brief = planDebateBrief(plan([
+test('多步含 shell 但无 concerns：绝不套「步骤拆分/系统动作」模板', () => {
+  const big = plan([
     { id: 's1', tool: 'fs.writeFile', args: { path: 'A.java', content: 'x' } },
     { id: 's2', tool: 'shell.run', args: { command: 'javac A.java' } },
     { id: 's3', tool: 'shell.run', args: { command: 'java A' } },
     { id: 's4', tool: 'fs.readFile', args: { path: 'A.java' } },
     { id: 's5', tool: 'code.run', args: { language: 'java', code: 'class A {}' } }
-  ]));
-  assert.ok(brief.topics.some(item => item.text.includes('5 步') || item.text.includes('步骤拆分')));
-  assert.ok(brief.topics.some(item => /系统动作|shell/.test(item.text)));
-  // 问「哪些可以合并」是检查项，不是强制合并指令。
-  assert.ok(brief.topics.some(item => item.text.includes('哪些可以合并')));
+  ]);
+  assert.equal(shouldDebatePlan('auto', big).debate, false);
+  assert.deepEqual(planDebateTopics(big), []);
+  const brief = planDebateBrief(big);
+  assert.equal(brief.source, 'none');
+  assert.equal(brief.topics.length, 0);
 });
 
-test('评审 brief 必须写出表态对象、表态目标，以及每条议题的决策目标', () => {
-  const brief = planDebateBrief(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go', content: 'package main' } },
-    { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' } },
-    { id: 's3', tool: 'fs.readFile', args: { path: 'main.go' } },
-    { id: 's4', tool: 'code.run', args: { language: 'go', code: 'package main' } }
-  ]));
-  assert.match(brief.expressTarget, /工程计划|步骤|系统动作|完成条件/);
-  assert.match(brief.expressGoal, /可审批|步骤编号|保留|合并|砍掉/);
-  assert.ok(brief.topics.length >= 1);
-  for (const topic of brief.topics) {
-    assert.ok(topic.text.trim().length > 0, '议题原文不能空');
-    assert.ok(topic.goal.trim().length > 0, '每条议题必须有决策目标');
-  }
-  assert.deepEqual(
-    planDebateTopics(plan([
-      { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go', content: 'x' } },
-      { id: 's2', tool: 'shell.run', args: { command: 'go run main.go' } },
-      { id: 's3', tool: 'fs.readFile', args: { path: 'main.go' } },
-      { id: 's4', tool: 'code.run', args: { language: 'go', code: 'x' } }
-    ])),
-    brief.topics.map(item => item.text),
-    'planDebateTopics 必须与 brief 议题原文同源'
-  );
-});
-
-test('有写入、没有任何观察手段时，辩题要求「按任务设计验证方式」，不点名工具', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'src/a.ts', content: 'x' } }
-  ]));
-  assert.ok(topics.some(topic => topic.includes('设计验证方式')), topics.join(' / '));
-  assert.ok(topics.every(topic => !topic.includes('test.run')), '不该把 test.run 当成唯一答案');
-});
-
-test('已经写了 javac + 断言，就不再追着问验证方式', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'App.java', content: 'x' } },
-    { id: 's2', tool: 'shell.run', args: { command: 'javac -d out App.java && [ "$(java -cp out App)" = "hello" ]' } }
-  ]));
-  assert.ok(topics.every(topic => !topic.includes('怎么证明没改坏')), topics.join(' / '));
-});
-
-test('辩题最多三条，避免把审批拖成一场长会', () => {
-  const topics = planDebateTopics(plan([
-    { id: 's1', tool: 'fs.writeFile', args: { path: 'a', content: 'x', overwrite: true, expectedHash: 'b'.repeat(64) } },
-    { id: 's2', tool: 'fs.mkdir', args: { path: 'a' } },
-    { id: 's3', tool: 'fs.writeFile', args: { path: 'b', content: 'x' } },
-    { id: 's4', tool: 'fs.writeFile', args: { path: 'c', content: 'x' } },
-    { id: 's5', tool: 'fs.list', args: { path: '.' } }
-  ]));
-  assert.ok(topics.length <= 3);
-});
-
-test('交给辩手的问题里必须能看到每一步和完成条件', () => {
-  const question = planReviewQuestion(writePlan);
+test('交给辩手的材料只有计划数据与模型议题，没有评审话术', () => {
+  const withConcerns = {
+    ...writePlan,
+    concerns: [{ topic: '覆盖是否必要', goal: '裁定覆盖或追加' }]
+  };
+  const question = planReviewQuestion(withConcerns);
   assert.match(question, /给 utils 增加一个函数/);
   assert.match(question, /fs\.writeFile/);
   assert.match(question, /测试通过/);
-  assert.match(question, /步骤编号/);
+  assert.match(question, /主导模型提出的议题/);
+  assert.match(question, /覆盖是否必要/);
+  assert.doesNotMatch(question, /请判断/);
+  assert.doesNotMatch(question, /步骤编号/);
 });
 
 test('辩论结论取最后一轮立场，失败的成员必须点名', () => {

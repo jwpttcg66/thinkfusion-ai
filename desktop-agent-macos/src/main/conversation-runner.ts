@@ -2811,17 +2811,16 @@ export class ConversationRunner {
     }
 
     // —— 第二步：指定辩论 ————————————————————————————————
-    // V2.1：辩论开关。auto 与老行为完全一致；off 连辩题都不生成；
-    // on 在主导人没找到分歧时拿原问题兜一个辩题，保证「开启」真的开了。
+    // 议题只能来自主导模型正文（parseTopics / 存疑）；不得用原问题或模板硬造辩论。
     const debateMode = normalizeDebateMode(config.debateMode);
-    // 默认必须辩；旧 off 已归一为 on。
     let topics = parseTopics(summaryText);
-    // 没有辩题但有存疑：把存疑变成核查题，不能停在综合分析卡。
+    // 没有辩题但有存疑：存疑也是主导模型写的，转成核查题。
     if (topics.length === 0) {
       const doubts = parseDoubts(summaryText);
       if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
     }
-    if (debateMode === 'on' && topics.length === 0) topics = [question.trim().slice(0, 120)];
+    // debateMode=on 也绝不拿用户原问凑辩题——没有模型议题就只汇总。
+    if (debateMode === 'off') topics = [];
     // 归属规则：辩手与主导人同属一类，网页主导绝不把本地/云端模型拉进来。
     // 只有一个成员也照样开（自辩），不再用「不足两位」跳过整场。
     const sourceOf = (id: string) => this.ownershipSourceOf(id);

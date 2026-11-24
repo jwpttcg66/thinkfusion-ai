@@ -1046,7 +1046,25 @@ export const PlanSchema = z
       .strict()
       .optional(),
     steps: z.array(StepSchema).min(1).max(30),
-    completion: z.object({ condition: z.string().min(1).max(1000) }).strict()
+    completion: z.object({ condition: z.string().min(1).max(1000) }).strict(),
+    /**
+     * 主导模型自己提出的评审议题（可选）。
+     * 系统不得按步数/工具名套模板编造辩论；没有本字段就不开方案辩论。
+     */
+    concerns: z
+      .array(
+        z
+          .object({
+            topic: z.string().min(1).max(500),
+            /** 为什么要辩这条。 */
+            reason: z.string().max(1000).optional(),
+            /** 辩清后要落到什么裁定。 */
+            goal: z.string().max(1000).optional()
+          })
+          .strict()
+      )
+      .max(5)
+      .optional()
   })
   .strict()
   .refine(plan => new Set(plan.steps.map(step => step.id)).size === plan.steps.length, {

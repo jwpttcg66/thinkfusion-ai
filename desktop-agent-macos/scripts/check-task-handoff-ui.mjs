@@ -57,6 +57,14 @@ test('App 在会话挂上 taskId 时选中任务并展示转入桥，而不是�
   assert.match(src, /!activeTask && !showingConversation && !handoffPending/);
 });
 
+test('工程方案议题只认计划 concerns，不再按步数套模板', () => {
+  const src = readFileSync(join(ROOT, 'src/main/engineering/plan-review.ts'), 'utf8');
+  assert.match(src, /主导模型未提出议题，不编造辩论/);
+  assert.match(src, /plan\.concerns/);
+  assert.doesNotMatch(src, /步骤拆分是否合理/);
+  assert.doesNotMatch(src, /系统动作（命令\/截屏\/启动应用\/跑代码）/);
+});
+
 test('转交工程前必须先落系统提示，不能先跑 shadow plan 再让界面空等思考中', () => {
   const src = readFileSync(join(ROOT, 'src/main/conversation-runner.ts'), 'utf8');
   const handoffStart = src.indexOf('const handoff = async');

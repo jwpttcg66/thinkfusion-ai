@@ -17,7 +17,7 @@ test('纯只读短计划仍按 off 关闭', () => {
 });
 
 
-test('design 计划：off 也强制辩，辩论对象是文档/观点', () => {
+test('design 计划：议题来自模型观点；无观点不辩', () => {
   const design = {
     title: '缓存方案设计',
     description: '设计文档',
@@ -27,10 +27,17 @@ test('design 计划：off 也强制辩，辩论对象是文档/观点', () => {
     completion: { condition: '评审通过' }
   };
   assert.equal(shouldDebatePlan('off', design).debate, true);
-  assert.match(shouldDebatePlan('auto', design).reason, /设计文档/);
+  assert.match(shouldDebatePlan('auto', design).reason, /主导模型提出了/);
   assert.deepEqual(planDebateTopics(design), ['一致性问题', '成本问题']);
   const question = planReviewQuestion(design);
   assert.match(question, /采用两级缓存/);
+  assert.match(question, /主导模型提出的观点/);
   assert.match(question, /一致性问题/);
+  assert.doesNotMatch(question, /请判断/);
   assert.doesNotMatch(question, /fs.read/);
+});
+
+test('写文件多步但无 concerns：不按结构开辩', () => {
+  assert.equal(shouldDebatePlan('auto', plan([write, write, write])).debate, false);
+  assert.match(shouldDebatePlan('on', plan([write])).reason, /未提出议题|不编造/);
 });
