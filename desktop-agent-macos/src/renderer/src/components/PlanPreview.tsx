@@ -120,7 +120,7 @@ export function PlanPreview(props: {
 
       <div className="plan-facts">
         <div>
-          <span className="muted">完成条件</span>
+          <span className="muted">执行目标</span>
           <p>{props.plan.completion}</p>
         </div>
         <div>
