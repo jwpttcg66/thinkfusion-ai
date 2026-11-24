@@ -2388,6 +2388,15 @@ export default function App() {
                   <CollaborationResultPanel
                     result={engineeringResult}
                     onOpenEvidence={() => setWorkbenchTab('trajectory')}
+                    onSetDisposition={async input => {
+                      if (!activeTask) return;
+                      await window.agentAPI.setReviewDisposition({
+                        taskId: activeTask.taskId,
+                        issueId: input.issueId,
+                        disposition: input.disposition,
+                        reason: input.reason
+                      });
+                    }}
                   />
                 )}
                 <TaskProgressCard

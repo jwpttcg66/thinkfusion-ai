@@ -21,6 +21,7 @@ import {
   ClarificationAnswerSchema,
   RejectPlanSchema,
   RejectStepSchema,
+  ReviewDispositionSchema,
   SubmitPromptSchema,
   TaskIdSchema,
   CliAgentToggleSchema,
@@ -3302,6 +3303,11 @@ function registerIpc() {
   ipcMain.handle('task:resume-repair', async (event, taskId: unknown) => {
     trustedUiSender(event);
     await orchestrator.resumeRepair(TaskIdSchema.parse(taskId));
+  });
+
+  ipcMain.handle('task:set-review-disposition', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    await orchestrator.setReviewDisposition(ReviewDispositionSchema.parse(raw));
   });
 
   // CLI 有两个身份：回答源（第一轮被问，见 execution/cli-answer-agent.ts）

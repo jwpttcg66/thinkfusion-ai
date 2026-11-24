@@ -577,5 +577,5 @@ Engineering 可以增加工程专属展示组件，但必须复用统一的 Opin
 | U0 现状审计 | 已完成 | 同上 | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md` |
 | U1 统一投影 | 已完成 | 分支 commit 见 git log | `docs/implementation/V3-MAIN-ACTIVITY-U1-RESULT-PROJECTION.md` |
 | U2–U5 | 代码已落地 / 自动化已测 | 同上 | `docs/implementation/V3-MAIN-ACTIVITY-U2-U6-IMPLEMENTATION.md` |
-| U3 disposition 真值回写 | PARTIAL | — | 形状已预留，审批流未写回 |
-| U6 真机验收 | PARTIAL | — | 清单已写，待用户真机跑 |
+| U3 disposition 真值回写 | DONE | — | `review.disposition` + 修复轮采纳 + IPC/UI；见 STATUS |
+| U6 真机验收 | PARTIAL | — | 自动化见 U6 验收记录；Electron 待用户勾选 |

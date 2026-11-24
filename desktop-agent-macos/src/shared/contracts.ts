@@ -1588,6 +1588,23 @@ export type AgentEvent = AgentEventBase &
         issueDetails?: ReviewIssueDetail[];
         needsFix: boolean;
       }
+    /**
+     * 评审问题的处理决定（V3 U3 闭环）。
+     *
+     * 权威写在事件里：投影从 `review.ready` + 本事件重建 disposition，
+     * 不改写历史上的 `issueDetails`。拒绝/暂缓必须带 reason。
+     */
+    | {
+        type: 'review.disposition';
+        taskId: string;
+        /** 对应那次 `review.ready` 的 roundId；缺失时按 issueId 全局匹配。 */
+        roundId?: string;
+        issueId: string;
+        disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+        reason: string;
+        /** 采纳后进入的修正轮（若已创建）。 */
+        repairRoundId?: string;
+      }
     /** V2.1 D-03：计划生成后、审批前的方案评审辩论。 */
     | { type: 'plan.debated'; taskId: string; roundId: string; planId: string; debate: PlanDebate }
     /**
@@ -2631,6 +2648,17 @@ export interface AgentApi {
   acceptUnverified(taskId: string): Promise<void>;
   /** 按当前环境重新规划并执行，专门修复未验证的失败；会真的再跑命令。 */
   resumeRepair(taskId: string): Promise<void>;
+  /**
+   * 写回单条评审问题的处理决定（采纳/拒绝/暂缓/待决定）。
+   * 落 `review.disposition` 事件；拒绝与暂缓必须带 reason。
+   */
+  setReviewDisposition(input: {
+    taskId: string;
+    issueId: string;
+    disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+    reason: string;
+    roundId?: string;
+  }): Promise<void>;
   answerClarification(input: { taskId: string; answer: string }): Promise<void>;
   /** 执行中提问的回答；`cancelled` 表示用户放弃回答，模型必须按未回答处理。 */
   answerStepQuestion(input: { taskId: string; stepId: string; answer?: string; cancelled?: boolean }): Promise<void>;

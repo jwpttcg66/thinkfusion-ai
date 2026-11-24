@@ -160,6 +160,13 @@ const api: AgentApi = {
     ipcRenderer.invoke('task:recheck-verification', taskId),
   acceptUnverified: (taskId: string) => ipcRenderer.invoke('task:accept-unverified', taskId),
   resumeRepair: (taskId: string) => ipcRenderer.invoke('task:resume-repair', taskId),
+  setReviewDisposition: (input: {
+    taskId: string;
+    issueId: string;
+    disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+    reason: string;
+    roundId?: string;
+  }) => ipcRenderer.invoke('task:set-review-disposition', input),
   answerClarification: (input: { taskId: string; answer: string }) => ipcRenderer.invoke('task:answer', input),
   deleteTask: (taskId: string) => ipcRenderer.invoke('task:delete', taskId),
 

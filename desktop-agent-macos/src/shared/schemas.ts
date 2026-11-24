@@ -34,6 +34,17 @@ export const RejectPlanSchema = z
   })
   .strict();
 
+/** V3 U3：写回单条评审问题的处理决定。 */
+export const ReviewDispositionSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    issueId: z.string().min(1).max(240),
+    disposition: z.enum(['accepted', 'rejected', 'deferred', 'pending']),
+    reason: z.string().max(1000),
+    roundId: z.string().min(1).max(80).optional()
+  })
+  .strict();
+
 export const AnswerStepQuestionSchema = z
   .object({
     taskId: z.string().min(1).max(80),

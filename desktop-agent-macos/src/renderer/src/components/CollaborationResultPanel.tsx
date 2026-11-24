@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import type { CollaborationResultView } from '../../../shared/collaboration-result';
+import type { CollaborationResultView, ReviewDisposition } from '../../../shared/collaboration-result';
 import { MarkdownBody } from './MarkdownBody';
 
 export function CollaborationResultPanel(props: {
@@ -15,11 +15,40 @@ export function CollaborationResultPanel(props: {
   onOpenEvidence?: () => void;
   /** 默认展开结论；过程层默认收起。 */
   compactProcess?: boolean;
+  /**
+   * 写回评审问题处理决定。不传则只读展示（例如会话结果没有工程评审闭环）。
+   */
+  onSetDisposition?: (input: {
+    issueId: string;
+    disposition: ReviewDisposition;
+    reason: string;
+  }) => void | Promise<void>;
 }) {
   const { result } = props;
   const [processOpen, setProcessOpen] = useState(false);
+  const [busyIssueId, setBusyIssueId] = useState<string | null>(null);
   const hasOpinions = result.keyOpinions.length > 0 || result.disputes.length > 0;
   const hasReview = result.reviews.length > 0 || result.verifications.length > 0;
+
+  async function decide(
+    issueId: string,
+    disposition: ReviewDisposition,
+    promptLabel: string
+  ): Promise<void> {
+    if (!props.onSetDisposition) return;
+    const reason = window.prompt(promptLabel, '')?.trim() ?? '';
+    if ((disposition === 'rejected' || disposition === 'deferred') && !reason) return;
+    setBusyIssueId(issueId);
+    try {
+      await props.onSetDisposition({
+        issueId,
+        disposition,
+        reason: reason || (disposition === 'accepted' ? '已采纳' : '改回待决定')
+      });
+    } finally {
+      setBusyIssueId(null);
+    }
+  }
 
   return (
     <section className="collab-result" aria-label="协作结果">
@@ -135,6 +164,44 @@ export function CollaborationResultPanel(props: {
                           {issue.dispositionReason ? ` · ${issue.dispositionReason}` : ''}
                           {issue.recommendation ? ` · 建议：${issue.recommendation}` : ''}
                         </div>
+                        {issue.resolutionRefs.length > 0 && (
+                          <div className="muted">
+                            修正：{issue.resolutionRefs.map(item => item.label ?? item.kind).join('；')}
+                          </div>
+                        )}
+                        {issue.verificationRefs.length > 0 && (
+                          <div className="muted">
+                            验证：{issue.verificationRefs.map(item => item.label ?? item.kind).join('；')}
+                          </div>
+                        )}
+                        {props.onSetDisposition && issue.disposition === 'pending' && (
+                          <div className="collab-result-disposition-actions">
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              disabled={busyIssueId === issue.issueId}
+                              onClick={() => void decide(issue.issueId, 'accepted', '采纳原因（可留空）')}
+                            >
+                              采纳
+                            </button>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              disabled={busyIssueId === issue.issueId}
+                              onClick={() => void decide(issue.issueId, 'rejected', '拒绝原因（必填）')}
+                            >
+                              拒绝
+                            </button>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              disabled={busyIssueId === issue.issueId}
+                              onClick={() => void decide(issue.issueId, 'deferred', '暂缓条件或原因（必填）')}
+                            >
+                              暂缓
+                            </button>
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>

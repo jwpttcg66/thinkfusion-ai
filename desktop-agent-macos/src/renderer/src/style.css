@@ -998,6 +998,12 @@ button:disabled {
   margin-bottom: 4px;
 }
 .collab-result-review.needs-fix { border-left: 3px solid #d9822b; }
+.collab-result-disposition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
 .collab-result-evidence { margin-top: 8px; }
 .collab-result-section.is-process { opacity: 0.92; }
 .verify-checks {

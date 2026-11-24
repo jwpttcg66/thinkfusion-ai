@@ -180,7 +180,8 @@ function ref(partial: SourceReference): SourceReference {
   return partial;
 }
 
-function issueIdOf(reviewIndex: number, issueIndex: number, text: string): string {
+/** 无 issueDetails 时的稳定 id；与 `review.disposition` 回写必须共用。 */
+export function stableReviewIssueId(reviewIndex: number, issueIndex: number, text: string): string {
   // 稳定：同一次评审、同一序号、同一原文 → 同一 id；不依赖随机数。
   const slug = text.trim().slice(0, 48).replace(/\s+/g, ' ');
   return `review:${String(reviewIndex)}:issue:${String(issueIndex)}:${slug}`;
@@ -202,7 +203,7 @@ function mapReviewIssues(
       label: `评审 #${String(reviewIndex)} 问题 ${String(issueIndex + 1)}`
     });
     return {
-      issueId: issueIdOf(reviewIndex, issueIndex, description),
+      issueId: stableReviewIssueId(reviewIndex, issueIndex, description),
       title: description.slice(0, 80) || `问题 ${String(issueIndex + 1)}`,
       description,
       severity: 'unknown',
@@ -215,12 +216,100 @@ function mapReviewIssues(
   });
 }
 
+type DispositionEvent = Extract<AgentEvent, { type: 'review.disposition' }>;
+
+/**
+ * 把后续 `review.disposition` 叠到评审问题上，并挂上修正轮 / 验证证据。
+ * 同一 issueId 后写覆盖先写；不改写 `review.ready` 原文。
+ */
+export function applyReviewDispositionEvents(input: {
+  taskId: string;
+  reviews: ReviewView[];
+  dispositions: readonly DispositionEvent[];
+  /** 采纳之后出现的 plan.ready，用作 resolutionRefs。 */
+  plansAfter: ReadonlyArray<{ at: number; roundId: string; label?: string }>;
+  verifications: readonly VerificationView[];
+}): ReviewView[] {
+  const { taskId, dispositions, plansAfter, verifications } = input;
+  if (dispositions.length === 0 && plansAfter.length === 0) {
+    return input.reviews.map(review => ({
+      ...review,
+      issues: review.issues.map(issue => ({ ...issue }))
+    }));
+  }
+
+  const byIssue = new Map<string, DispositionEvent>();
+  for (const event of [...dispositions].sort((a, b) => a.at - b.at)) {
+    byIssue.set(event.issueId, event);
+  }
+
+  return input.reviews.map(review => ({
+    ...review,
+    issues: review.issues.map(issue => {
+      const decision = byIssue.get(issue.issueId);
+      if (!decision) return { ...issue };
+
+      const acceptedAt = decision.at;
+      const disposition = decision.disposition;
+      const dispositionReason = decision.reason;
+
+      const resolutionRefs: SourceReference[] = [];
+      if (decision.repairRoundId) {
+        resolutionRefs.push(ref({
+          subjectId: taskId,
+          kind: 'event',
+          eventType: 'review.disposition',
+          eventAt: decision.at,
+          label: `修正轮 ${decision.repairRoundId}`
+        }));
+      }
+      const nextPlan = plansAfter.find(plan => plan.at >= acceptedAt);
+      if (nextPlan) {
+        resolutionRefs.push(ref({
+          subjectId: taskId,
+          kind: 'event',
+          eventType: 'plan.ready',
+          eventAt: nextPlan.at,
+          label: nextPlan.label ?? `计划轮 ${nextPlan.roundId}`
+        }));
+      }
+
+      const verificationRefs: SourceReference[] = [];
+      if (disposition === 'accepted') {
+        for (const item of verifications) {
+          const at = item.sourceRefs[0]?.eventAt ?? 0;
+          if (at < acceptedAt) continue;
+          verificationRefs.push(...item.sourceRefs.map(source => ({
+            ...source,
+            label: `${item.statusLabel}${source.label ? ` · ${source.label}` : ''}`
+          })));
+        }
+      }
+
+      return {
+        ...issue,
+        disposition,
+        dispositionReason,
+        resolutionRefs,
+        verificationRefs
+      };
+    })
+  }));
+}
+
+function issueIsOpen(issue: ReviewIssueView): boolean {
+  if (issue.disposition === 'pending') return true;
+  if (issue.disposition === 'deferred') return true;
+  if (issue.disposition !== 'accepted') return false;
+  // 已采纳但还没有一次「已验证」证据：不能当关闭。
+  return !issue.verificationRefs.some(item => (item.label ?? '').includes('已验证'));
+}
+
 /**
  * Engineering：从权威事件重建结果视图。
  *
  * 复用 `projectTaskView` 与 `buildTaskConversation`，不另存状态。
- * 今日生产端 Review 只有 issues 字符串 —— 投影成完整 ReviewIssueView 形状，
- * disposition 一律 `pending`，避免 UI 把「有评审事件」当成「问题已处理」。
+ * `review.ready` 上的 disposition 只是初值；真值以后续 `review.disposition` 为准。
  */
 export function projectEngineeringCollaborationResult(input: {
   taskId: string;
@@ -234,7 +323,7 @@ export function projectEngineeringCollaborationResult(input: {
   const entries = buildTaskConversation(ordered, { summary, status });
   const conclusionRaw = buildConclusion(ordered, { summary, status });
 
-  const reviews: ReviewView[] = [];
+  const reviewsRaw: ReviewView[] = [];
   let reviewIndex = 0;
   for (const event of ordered) {
     if (event.type !== 'review.ready') continue;
@@ -254,6 +343,7 @@ export function projectEngineeringCollaborationResult(input: {
           description: detail.description,
           severity: detail.severity,
           recommendation: detail.recommendation,
+          // 事件上的 disposition 只是初值；闭环真值看后续 disposition 事件。
           disposition: detail.disposition,
           dispositionReason: detail.dispositionReason,
           evidenceRefs: [] as SourceReference[],
@@ -262,7 +352,7 @@ export function projectEngineeringCollaborationResult(input: {
           sourceRefs: [source]
         }))
       : mapReviewIssues(taskId, reviewIndex, event.issues, event.at);
-    reviews.push({
+    reviewsRaw.push({
       reviewId: `review:${taskId}:${String(reviewIndex)}:${String(event.at)}`,
       index: reviewIndex,
       reviewer: event.reviewer,
@@ -300,6 +390,24 @@ export function projectEngineeringCollaborationResult(input: {
         sourceRefs: [source]
       };
     });
+
+  const dispositionEvents = ordered.filter(
+    (event): event is DispositionEvent => event.type === 'review.disposition'
+  );
+  const plansAfter = ordered
+    .filter((event): event is Extract<AgentEvent, { type: 'plan.ready' }> => event.type === 'plan.ready')
+    .map(event => ({
+      at: event.at,
+      roundId: event.roundId,
+      label: event.plan.title
+    }));
+  const reviews = applyReviewDispositionEvents({
+    taskId,
+    reviews: reviewsRaw,
+    dispositions: dispositionEvents,
+    plansAfter,
+    verifications
+  });
 
   const disputes: DisputeView[] = [];
   const debateOpinions: OpinionView[] = [];
@@ -426,6 +534,10 @@ export function projectEngineeringCollaborationResult(input: {
     }))
   ];
 
+  const openItems = reviews.flatMap(review =>
+    review.needsFix
+      ? review.issues.filter(issueIsOpen).map(issue => issue.title)
+      : []);
   const conclusion: ConclusionView | undefined = conclusionRaw
     ? {
         text: conclusionRaw.text,
@@ -433,14 +545,23 @@ export function projectEngineeringCollaborationResult(input: {
         uncertainties: verifications.some(item => !item.fullyVerified)
           ? ['存在未完成或未通过的验证项']
           : [],
-        openItems: reviews.flatMap(review =>
-          review.needsFix
-            ? review.issues.filter(issue => issue.disposition === 'pending').map(issue => issue.title)
-            : []),
+        openItems,
         tone: conclusionRaw.tone,
         sourceRefs: [ref({ subjectId: taskId, kind: 'event', eventType: 'task.completed', label: '任务结论' })]
       }
-    : undefined;
+    : openItems.length > 0
+      // 任务还没收尾时也不能把未关闭评审藏起来——否则中间态主活动区只剩进度。
+      ? {
+          text: status ? `任务进行中（${status}）` : '任务进行中',
+          facts: [],
+          uncertainties: verifications.some(item => !item.fullyVerified)
+            ? ['存在未完成或未通过的验证项']
+            : [],
+          openItems,
+          tone: 'warn',
+          sourceRefs: [ref({ subjectId: taskId, kind: 'review', label: '未关闭评审问题' })]
+        }
+      : undefined;
 
   const sourceRefs = [
     ...(conclusion?.sourceRefs ?? []),

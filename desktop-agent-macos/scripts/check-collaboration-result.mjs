@@ -273,3 +273,190 @@ test('General：综合分歧与一致观点进入统一投影', () => {
   assert.equal(view.disputes[0].status, 'identified');
   assert.ok(view.conclusion?.uncertainties.some(item => item.includes('出处')));
 });
+
+test('Engineering：采纳后挂修正轮与验证；验证失败仍算未关闭', () => {
+  const issueId = 'iss-timeout';
+  const failed = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'awaiting_next_round',
+    summary: '修复中',
+    events: [
+      {
+        type: 'review.ready',
+        at: 10,
+        taskId,
+        roundId: 'r1',
+        reviewer: '独立模型',
+        backend: 'model',
+        verdict: '需修复',
+        issues: ['缺少超时'],
+        issueDetails: [{
+          issueId,
+          title: '缺少超时',
+          description: '网络调用没有超时',
+          severity: 'high',
+          disposition: 'pending'
+        }],
+        needsFix: true
+      },
+      {
+        type: 'review.disposition',
+        at: 15,
+        taskId,
+        roundId: 'r1',
+        issueId,
+        disposition: 'accepted',
+        reason: '已并入下一轮修复计划',
+        repairRoundId: 'r2'
+      },
+      {
+        type: 'plan.ready',
+        at: 20,
+        taskId,
+        roundId: 'r2',
+        plan: {
+          planId: 'p2',
+          taskId,
+          roundId: 'r2',
+          title: '补超时',
+          description: '加超时',
+          completion: '有超时',
+          steps: []
+        }
+      },
+      {
+        type: 'report.ready',
+        at: 30,
+        taskId,
+        roundId: 'r2',
+        report: {
+          protocol: 'desktop-agent/v1',
+          type: 'execution_report',
+          taskId,
+          roundId: 'r2',
+          planId: 'p2',
+          status: 'failed',
+          results: [],
+          errors: [],
+          nextAction: 'continue',
+          createdAt: 30,
+          verification: {
+            verified: false,
+            reasons: ['测试未通过'],
+            changedFiles: 1,
+            changedPaths: ['src/a.ts']
+          }
+        }
+      }
+    ]
+  });
+
+  const issue = failed.reviews[0].issues[0];
+  assert.equal(issue.disposition, 'accepted');
+  assert.match(issue.dispositionReason ?? '', /修复计划/);
+  assert.ok(issue.resolutionRefs.length >= 1);
+  assert.ok(issue.verificationRefs.some(ref => (ref.label ?? '').includes('未验证')));
+  assert.deepEqual(failed.conclusion?.openItems, ['缺少超时']);
+
+  const passed = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'completed',
+    summary: '修好了',
+    events: [
+      {
+        type: 'review.ready',
+        at: 10,
+        taskId,
+        roundId: 'r1',
+        reviewer: '独立模型',
+        backend: 'model',
+        verdict: '需修复',
+        issues: ['缺少超时'],
+        issueDetails: [{
+          issueId,
+          title: '缺少超时',
+          description: '网络调用没有超时',
+          severity: 'high',
+          disposition: 'pending'
+        }],
+        needsFix: true
+      },
+      {
+        type: 'review.disposition',
+        at: 15,
+        taskId,
+        issueId,
+        disposition: 'accepted',
+        reason: '已并入下一轮修复计划',
+        repairRoundId: 'r2'
+      },
+      {
+        type: 'report.ready',
+        at: 40,
+        taskId,
+        roundId: 'r2',
+        report: {
+          protocol: 'desktop-agent/v1',
+          type: 'execution_report',
+          taskId,
+          roundId: 'r2',
+          planId: 'p2',
+          status: 'completed',
+          results: [],
+          errors: [],
+          nextAction: 'complete',
+          createdAt: 40,
+          verification: { verified: true, reasons: [], changedFiles: 0 }
+        }
+      },
+      { type: 'task.completed', at: 50, taskId, summary: '修好了' }
+    ]
+  });
+  assert.equal(passed.reviews[0].issues[0].disposition, 'accepted');
+  assert.ok(passed.reviews[0].issues[0].verificationRefs.some(ref => (ref.label ?? '').includes('已验证')));
+  assert.deepEqual(passed.conclusion?.openItems, []);
+});
+
+test('Engineering：拒绝/暂缓必须保留原因；未处理不得消失', () => {
+  const view = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'completed',
+    summary: '部分处理',
+    events: [
+      {
+        type: 'review.ready',
+        at: 10,
+        taskId,
+        roundId: 'r1',
+        reviewer: 'rules',
+        backend: 'rules',
+        verdict: '需修复',
+        issues: ['A', 'B', 'C'],
+        issueDetails: [
+          { issueId: 'a', title: 'A', description: 'A', severity: 'medium', disposition: 'pending' },
+          { issueId: 'b', title: 'B', description: 'B', severity: 'low', disposition: 'pending' },
+          { issueId: 'c', title: 'C', description: 'C', severity: 'high', disposition: 'pending' }
+        ],
+        needsFix: true
+      },
+      {
+        type: 'review.disposition', at: 11, taskId, issueId: 'a',
+        disposition: 'rejected', reason: '误报：测试已覆盖'
+      },
+      {
+        type: 'review.disposition', at: 12, taskId, issueId: 'b',
+        disposition: 'deferred', reason: '等下一版本再改'
+      },
+      { type: 'task.completed', at: 20, taskId, summary: '部分处理' }
+    ]
+  });
+
+  const byId = Object.fromEntries(view.reviews[0].issues.map(issue => [issue.issueId, issue]));
+  assert.equal(byId.a.disposition, 'rejected');
+  assert.equal(byId.a.dispositionReason, '误报：测试已覆盖');
+  assert.equal(byId.b.disposition, 'deferred');
+  assert.equal(byId.b.dispositionReason, '等下一版本再改');
+  assert.equal(byId.c.disposition, 'pending');
+  // 暂缓与待决定仍算未关闭；拒绝不算未关闭。
+  assert.deepEqual(view.conclusion?.openItems, ['B', 'C']);
+});

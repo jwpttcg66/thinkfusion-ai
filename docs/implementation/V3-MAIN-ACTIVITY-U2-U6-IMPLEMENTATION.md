@@ -19,8 +19,12 @@
 | --- | --- |
 | `ReviewIssueDetail` | title / description / severity / disposition / recommendation |
 | `review.ready` | 增加 `rawVerdict`、`issueDetails` |
+| `review.disposition` | 权威处理决定事件；拒绝/暂缓强制 reason |
 | `reviewExecution` | 规则/模型路径都产出 issueDetails；disposition 默认 `pending` |
-| UI | `ReviewMessage` 展示结构化问题 + 可展开原文；未处理不自动关闭 |
+| 系统写回 | `continueAfterReport` 进入修复轮时对问题发 `accepted`（带 `repairRoundId`） |
+| 用户写回 | IPC `task:set-review-disposition` + 结果面板采纳/拒绝/暂缓 |
+| 投影 | `applyReviewDispositionEvents` 叠写 disposition，挂 resolutionRefs / verificationRefs；验证失败仍算未关闭 |
+| UI | `ReviewMessage` / `CollaborationResultPanel` 展示结构化问题与处理状态；未处理不自动关闭 |
 
 ## U4 / U5 · 主活动区
 
@@ -32,29 +36,25 @@
 
 ## U6 · 测试与验收
 
+详见 [`V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md`](./V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md)。
+
 ### 自动化（本机已跑）
 
 ```bash
 cd desktop-agent-macos
 npm run typecheck
-npm run test:collaboration-result   # 5/5
-npm run test:plan-review            # 24/24
-npm run test:task-conversation      # 20/20
-npm run test:review-detail          # 11/11
+npm run test:collaboration-result   # 含 disposition 闭环
+npm run test:plan-review
+npm run test:task-conversation
+npm run test:review-detail
+npm run test:review-closure
 ```
 
 ### Electron 真机
 
-未在本阶段代跑完整真机任务（需真实 Key / 工程目录 / 用户授权）。验收清单：
+未代跑完整真机（需真实 Key / 工程目录 / 用户授权）。勾选清单见 U6 验收记录；自动化通过 ≠ 真机 VERIFIED。
 
-1. 普通问答结束后，主活动区顶部出现「任务结果」且先见结论。  
-2. 工程任务有评审问题时，结果面板与时间线均显示问题正文与「待决定」。  
-3. 计划辩论无争议时，不出现空辩论/伪造正反双方。  
-4. 对话页不再与结果面板重复堆「最终交付」结论。  
-5. 「打开完整轨迹」跳到轨迹页后仍能回到同一任务。
+### 已知边界
 
-### 未完成 / 已知边界
-
-- 评审 disposition 的「采纳→修正→验证」真值闭环仍需后续把审批/修复事件写回 issueDetails（形状已预留）。  
 - Debate 引擎 Claim 全量图仍在存档；事件只带切片。  
 - 未执行 `git push`；未做签名/打包。

@@ -1509,10 +1509,99 @@ export class AgentOrchestrator {
     return true;
   }
 
+  /**
+   * 用户或系统写回单条评审问题的处理决定。
+   * 拒绝/暂缓必须带非空 reason；事件落盘后由投影重建，不改写历史 review.ready。
+   */
+  async setReviewDisposition(input: {
+    taskId: string;
+    issueId: string;
+    disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+    reason: string;
+    roundId?: string;
+  }): Promise<void> {
+    this.tasks.get(input.taskId);
+    const reason = input.reason.trim();
+    if ((input.disposition === 'rejected' || input.disposition === 'deferred') && !reason) {
+      throw new Error(input.disposition === 'rejected' ? '拒绝评审问题必须写明原因' : '暂缓评审问题必须写明条件或原因');
+    }
+    const events = this.deps.store.listEvents(input.taskId);
+    const known = events.some(event => {
+      if (event.type !== 'review.ready') return false;
+      if (event.issueDetails?.some(detail => detail.issueId === input.issueId)) return true;
+      return event.issues.some((text, index) => {
+        const reviewIndex = events.filter(item => item.type === 'review.ready' && item.at <= event.at).length;
+        const slug = text.trim().slice(0, 48).replace(/\s+/g, ' ');
+        return `review:${String(reviewIndex)}:issue:${String(index)}:${slug}` === input.issueId;
+      });
+    });
+    if (!known) throw new Error(`找不到评审问题 ${input.issueId}`);
+    this.deps.emit({
+      type: 'review.disposition',
+      at: Date.now(),
+      taskId: input.taskId,
+      issueId: input.issueId,
+      disposition: input.disposition,
+      reason: reason || (input.disposition === 'accepted' ? '已采纳' : input.disposition === 'pending' ? '改回待决定' : reason),
+      ...(input.roundId ? { roundId: input.roundId } : {})
+    });
+  }
+
+  private emitAcceptedDispositions(input: {
+    taskId: string;
+    reviewRoundId: string;
+    repairRoundId: string;
+    review: {
+      issues: string[];
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    };
+  }): void {
+    const { taskId, reviewRoundId, repairRoundId, review } = input;
+    const details = review.issueDetails && review.issueDetails.length > 0
+      ? review.issueDetails
+      : null;
+    if (details) {
+      for (const detail of details) {
+        this.deps.emit({
+          type: 'review.disposition',
+          at: Date.now(),
+          taskId,
+          roundId: reviewRoundId,
+          issueId: detail.issueId,
+          disposition: 'accepted',
+          reason: '已并入下一轮修复计划',
+          repairRoundId
+        });
+      }
+      return;
+    }
+    if (review.issues.length === 0) return;
+    const reviewIndex = this.deps.store.listEvents(taskId).filter(event => event.type === 'review.ready').length;
+    for (const [index, text] of review.issues.entries()) {
+      const slug = text.trim().slice(0, 48).replace(/\s+/g, ' ');
+      this.deps.emit({
+        type: 'review.disposition',
+        at: Date.now(),
+        taskId,
+        roundId: reviewRoundId,
+        issueId: `review:${String(reviewIndex)}:issue:${String(index)}:${slug}`,
+        disposition: 'accepted',
+        reason: '已并入下一轮修复计划',
+        repairRoundId
+      });
+    }
+  }
+
   private async continueAfterReport(
     taskId: string,
     report: ExecutionReport,
-    review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null
+    review: {
+      reviewer: string;
+      verdict: string;
+      issues: string[];
+      needsFix: boolean;
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    } | null = null
   ): Promise<void> {
     const task = this.tasks.get(taskId);
     const rounds = this.tasks.listRounds(taskId);
@@ -1573,6 +1662,16 @@ export class AgentOrchestrator {
     const round = this.tasks.createRound({ taskId, inputType: 'execution_report', requestText: '' });
     const prompt = buildReportPrompt({ taskId, roundId: round.roundId, report, review });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
+
+    // 进入修复轮即视为采纳这些问题：写 disposition 事件，投影才能从 pending 变成 accepted。
+    if (review && (review.issueDetails?.length || review.issues.length > 0)) {
+      this.emitAcceptedDispositions({
+        taskId,
+        reviewRoundId: report.roundId,
+        repairRoundId: round.roundId,
+        review
+      });
+    }
 
     void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
   }
