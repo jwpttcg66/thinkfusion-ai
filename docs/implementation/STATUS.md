@@ -39,9 +39,9 @@
 | 协作引擎（Planner/Scheduler/Runner） | PARTIAL | `collaboration/`、`UNIFIED-TASK-RUNTIME` | 设置页/全量分组回归仍有缺口 |
 | 辩论引擎（按需行为） | IMPLEMENTED / TESTED | `debate/`、runbook | 手动入口为历史/程序化用途，不是产品主流程 |
 | 证据包与执行断言 | VERIFIED | Evidence Pack、Item Hash | 跨空间统一引用仍在 P4 范围 |
-| 工程工作空间 | VERIFIED | 真实工程任务、评审、交付、暂停/继续、30 步 Runtime 故障注入 | 真机工程检查点中断恢复未做 |
+| 工程工作空间 | VERIFIED | 真实工程任务、评审、交付、暂停/继续、30 步 Runtime、检查点中断恢复 | 无 |
 | 知识学习空间 | PARTIAL | KnowledgeStore、召回、研究 | 索引复用/产品化仍有缺口 |
-| 证据与质量 P4 | VERIFIED | EvidenceRef、Verifier、场景测试、上下文检查点、30 步 Runtime | 真机工程检查点中断恢复未做 |
+| 证据与质量 P4 | VERIFIED | EvidenceRef、Verifier、场景测试、上下文检查点、30 步 Runtime、中断恢复 | 无 |
 | 模型与通道 P5 | IMPLEMENTED / TESTED | 能力、路由、观测、矩阵 | 新增通道仍需适配 |
 | 发布与运维 P6 | PARTIAL | 清单、迁移、备份、dmg/zip | 签名/公证未执行 |
 | V3 正式发布 | NOT STARTED | 发布判据未满足 | 见 P6 |
@@ -69,7 +69,7 @@
 | `src/main/context/` 运行时 | NOT STARTED | 当前仓库不存在该目录 |
 | 上下文压缩 | NOT STARTED | 设计完成，未实施 |
 | 暂停/恢复/中断 | NOT STARTED | 当前 `reconcileInterrupted()` 仍把在途任务标 failed |
-| LT-P0–P6 | VERIFIED | 真实云端会话触发压缩并提交检查点；真实工程任务暂停/继续并完成；30 步真实 Runtime 故障注入通过；Engineering Provider 规划已接上下文 | 真机工程检查点中断恢复未做；Web/CLI 按契约保持原话 |
+| LT-P0–P6 | VERIFIED | 真实云端会话压缩/检查点；工程暂停继续；30 步 Runtime；工程检查点中断恢复；Engineering Provider 规划上下文 | Web/CLI 按契约保持原话 |
 | 文档一致性修订（2026-11-24） | ✅ 已应用 | 基线、ContextOwner、归档/裁剪、检查点提交协议、单一状态板 |
 
 > 长任务文档中的“已完成”只代表设计文档/任务书完成，不代表功能已落地。

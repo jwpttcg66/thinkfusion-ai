@@ -37,6 +37,7 @@
 | `test:long-task-context-e2e` | 1/1 |
 | `test:long-task-e2e` | 2/2（30 步组件级故障注入） |
 | `test:runtime-30` | 2 个真实 Runtime 计划（30 步失败注入 + 30 步成功） |
+| `test:engineering-recovery` | 真实 Runtime 30 步 → 检查点 → 中断 → 恢复 |
 | `test:engineering-context` | 2/2 |
 | `test:state` | 8/8 |
 | `test:task-resume` | 5/5 |
@@ -162,14 +163,38 @@ context.budget.warning estimatedTokens=8204 level=unknown
 说明 Engineering 的 Provider 规划器已经过 Context Manager；Web/CLI
 适配器没有 `withContext`，仍按原话直发。
 
+### 3.5 工程任务检查点中断恢复
+
+`test:engineering-recovery` 使用真实 Electron UtilityProcess：
+
+```text
+Runtime 执行 30 步写文件
+→ AgentStore 落库任务与真实报告
+→ ContextManager 提交真实检查点/归档
+→ TaskManager.reconcileInterrupted 模拟应用退出
+→ 新 Orchestrator.resume 按 Journal 指针恢复
+```
+
+真实结果：
+
+```text
+checkpointId=cp-eng-recovery
+interruptedStatus=interrupted
+resumedStatus=planning
+recoveredStatus=recovered
+sideEffects: applied=31, missing=0, needsReconciliation=0
+context.recovered=true
+继续请求包含检查点摘要=true
+30 个真实文件仍在=true
+```
+
+这覆盖了「工程任务提交检查点后中断再恢复」的真实模块链路；UI 的暂停/
+继续按钮已在 3.2 单独真机验证。
+
 ## 4. 剩余边界
 
 1. **Web/CLI 规划通道**：契约禁止注入 system/历史，保持原话直发；
    这不是缺口，是入口边界。
-2. **真机工程检查点恢复**：恢复模块有单元/集成测试（有效指针、stale、
-   副作用缺失）；真机验证了对话压缩、工程暂停/继续与 30 步真实 Runtime
-   执行，但没有在真机上制造「工程任务已提交检查点后中断再恢复」。
-   原因：要让工程任务产生检查点，需要先积累足够多轮工具历史。
 
 ## 5. 结论
 
@@ -182,8 +207,7 @@ context.budget.warning estimatedTokens=8204 level=unknown
 - Engineering Provider 规划已接入 Context Manager；
 - 恢复模块能区分有效、stale、缺失副作用。
 
-仍不能确认：
+- 工程任务提交真实检查点后中断，Orchestrator 能按 Journal 指针恢复，
+  并把摘要与副作用核对带入继续请求。
 
-- 真机工程任务在提交检查点后中断再恢复（组件/集成测试已覆盖）。
-
-因此状态为 **VERIFIED**；唯一剩余的真机场景已在本节写明。
+因此状态为 **VERIFIED**；除 Web/CLI 的契约边界外没有未完成项。
