@@ -177,6 +177,81 @@ function MemberMessage(props: {
   );
 }
 
+/** 计划树：8 步就写 8 步，不让人对着一句「计划就绪」猜。 */
+function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }> }) {
+  const { entry } = props;
+  return (
+    <section className="card chat-plan">
+      <div className="review-head">
+        <b>计划 · {entry.title}</b>
+        <span className="muted">{timeText(entry.at)} · {String(entry.steps.length)} 步</span>
+      </div>
+      {entry.description && <p className="chat-plan-desc">{entry.description}</p>}
+      <ol className="chat-plan-steps">
+        {entry.steps.map((step, index) => {
+          const targetText = target(step.tool, step.args);
+          return (
+            <li key={step.id}>
+              <span className="chat-plan-index">{String(index + 1)}</span>
+              <div className="chat-plan-step-body">
+                <b>{toolLabel(step.tool)}</b>
+                {step.description && <span className="chat-plan-desc">{step.description}</span>}
+                {targetText && <code>{targetText}</code>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="muted">完成条件：{entry.completion}</p>
+      {entry.warnings.length > 0 && (
+        <ul>
+          {entry.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** 方案评审：辩题原文直接列出，等待时也能知道在辩什么。 */
+function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debate' }> }) {
+  const { entry } = props;
+  const label = entry.status === 'running'
+    ? '进行中'
+    : entry.status === 'completed'
+      ? '已辩完'
+      : entry.status === 'skipped'
+        ? '未进行'
+        : '已停止';
+  return (
+    <section className={`card chat-debate is-${entry.status}`}>
+      <div className="review-head">
+        <b>方案评审 · {label}</b>
+        <span className="muted">
+          {timeText(entry.at)}
+          {entry.elapsedMs > 0 ? ` · 已等 ${String(Math.round(entry.elapsedMs / 1000))} 秒` : ''}
+          {typeof entry.rounds === 'number' ? ` · ${String(entry.rounds)} 轮` : ''}
+        </span>
+      </div>
+      {entry.topics.length > 0 ? (
+        <>
+          <p className="chat-debate-label">议题（{String(entry.topics.length)}）</p>
+          <ol className="chat-debate-topics">
+            {entry.topics.map((topic, index) => <li key={index}>{topic}</li>)}
+          </ol>
+        </>
+      ) : (
+        <p className="muted">还没有拿到议题文本；这里只记录评审已开始。</p>
+      )}
+      {entry.participants.length > 0 && (
+        <p className="muted">参与者：{entry.participants.join('、')}</p>
+      )}
+      {entry.summary && <p className="chat-debate-summary">{entry.summary}</p>}
+      {entry.roundsReason && <p className="muted">轮次依据：{entry.roundsReason}</p>}
+      {entry.skippedReason && <p className="muted">未评审原因：{entry.skippedReason}</p>}
+    </section>
+  );
+}
+
 function checkStatus(value: 'passed' | 'failed' | 'skipped'): string {
   return value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
 }
@@ -379,6 +454,12 @@ export function TaskConversation(props: {
         }
         if (entry.kind === 'step') {
           return <StepMessage key={`${entry.key}-${String(index)}`} entry={entry} />;
+        }
+        if (entry.kind === 'plan') {
+          return <PlanMessage key={entry.key} entry={entry} />;
+        }
+        if (entry.kind === 'debate') {
+          return <DebateMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'verification') {
           return <VerificationMessage key={entry.key} entry={entry} />;

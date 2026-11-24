@@ -184,7 +184,10 @@ function milestone(
           : event.state === 'done'
             ? `方案评审等待结束（已等 ${String(Math.round(event.elapsedMs / 1000))} 秒）`
             : `方案评审进行中 · 已等 ${String(Math.round(event.elapsedMs / 1000))} 秒（${String(event.topics)} 个议题）`,
-        tone: 'muted'
+        tone: 'muted',
+        ...(event.topicTexts && event.topicTexts.length > 0
+          ? { detail: event.topicTexts.map((topic, index) => `${String(index + 1)}. ${topic}`).join('\n') }
+          : {})
       };
     case 'plan.debated':
       return {
@@ -194,7 +197,15 @@ function milestone(
         text: event.debate.status === 'skipped'
           ? `方案评审未进行：${event.debate.skippedReason ?? '没有可用成员'}`
           : `方案评审已辩完（${event.debate.participants.join('、')}）：${String(event.debate.topics.length)} 个辩题`,
-        tone: 'muted'
+        tone: 'muted',
+        ...(event.debate.topics.length > 0 || event.debate.summary
+          ? {
+              detail: [
+                ...event.debate.topics.map((topic, index) => `${String(index + 1)}. ${topic}`),
+                ...(event.debate.summary ? ['', event.debate.summary] : [])
+              ].join('\n')
+            }
+          : {})
       };
     case 'task.completed':
       return { kind: 'milestone', key, at: event.at, text: `任务完成${event.summary ? `：${event.summary}` : ''}`, tone: 'ok' };

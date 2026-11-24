@@ -48,6 +48,11 @@ export interface ProgressEventLike {
   report?: { status?: string; results?: Array<{ status?: string }> };
   review?: { needsFix?: boolean };
   plan?: { steps?: Array<{ id: string; tool: string }> };
+  /** 方案评审心跳：state=started/waiting/done。 */
+  state?: string;
+  topics?: number;
+  topicTexts?: string[];
+  elapsedMs?: number;
 }
 
 export interface ProgressInput {
@@ -119,6 +124,10 @@ export function deriveProgress(input: ProgressInput): ProgressView {
   const firstStep = firstAt(events, 'step.started');
   const report = lastOf(events, 'report.ready');
   const review = firstAt(events, 'review.ready');
+  const planReview = lastOf(events, 'plan.review.progress');
+  const planDebated = lastOf(events, 'plan.debated');
+  // 计划已生成、方案评审还没结束：这时还没开始执行，不能把执行段点亮。
+  const planReviewRunning = Boolean(planReview && planReview.state !== 'done' && !planDebated);
   const taskFailed = taskStatus ? TERMINAL_FAILED.has(taskStatus) : false;
   const convFailed = TERMINAL_FAILED.has(conversationStatus ?? '');
   const failed = taskFailed || convFailed;
@@ -132,7 +141,7 @@ export function deriveProgress(input: ProgressInput): ProgressView {
       ? lastEventAt(events) ?? startedAt
       : null);
 
-  const executionAt = firstStep ?? planReady ?? (taskStatus === 'executing' ? startedAt : null);
+  const executionAt = firstStep ?? (planReviewRunning ? null : planReady) ?? (taskStatus === 'executing' ? startedAt : null);
   const reviewAt = review ?? (report ? report.at : null);
 
   const stages: ProgressStageView[] = PROGRESS_STAGES.map(stage => ({
@@ -166,7 +175,10 @@ export function deriveProgress(input: ProgressInput): ProgressView {
 
   if (synthesisAt !== null) {
     const executionReached = executionAt !== null;
-    mark('synthesis', synthesisAt, executionReached ? 'done' : failed ? 'failed' : 'active', '汇总各家回答，指定辩题或给出结论');
+    const detail = planReviewRunning
+      ? planReviewDetail(planReview!)
+      : '汇总各家回答，指定辩题或给出结论';
+    mark('synthesis', synthesisAt, executionReached ? 'done' : failed ? 'failed' : 'active', detail);
   }
 
   if (executionAt !== null) {
@@ -203,6 +215,14 @@ function roundPayload(events: readonly ProgressEventLike[]): string | undefined 
   const started = lastOf(events, 'round.started');
   if (!started) return undefined;
   return '问题已发出，等待各家回答';
+}
+
+function planReviewDetail(event: ProgressEventLike): string {
+  const topicTexts = event.topicTexts ?? [];
+  const count = typeof event.topics === 'number' ? event.topics : topicTexts.length;
+  const seconds = typeof event.elapsedMs === 'number' ? Math.round(event.elapsedMs / 1000) : null;
+  const topics = topicTexts.length > 0 ? `：${topicTexts.join('；')}` : '';
+  return `方案评审中${seconds !== null ? ` · 已等 ${String(seconds)} 秒` : ''} · ${String(count)} 个议题${topics}`;
 }
 
 function executionDetail(events: readonly ProgressEventLike[]): string | undefined {

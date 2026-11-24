@@ -6392,3 +6392,30 @@ button:disabled {
 .memory-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn, #b1731a); flex: none; }
 .memory-dot.ok { background: var(--ok, #1f8f4e); }
 .memory-dot.skip { background: var(--line-strong); }
+/* 计划树与方案评审：主时间线里直接给足信息，不让人对着计数猜。 */
+.chat-plan .chat-plan-desc { margin: 4px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.55; }
+.chat-plan-steps { margin: 8px 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.chat-plan-steps > li { display: flex; gap: 8px; align-items: flex-start; }
+.chat-plan-index {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-side);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 17px;
+  text-align: center;
+  color: var(--text-2);
+}
+.chat-plan-step-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 12px; }
+.chat-plan-step-body b { color: var(--text); font-weight: 600; }
+.chat-plan-step-body code { font-size: 11px; color: var(--text-2); overflow-wrap: anywhere; }
+.chat-debate { border-left: 3px solid var(--line-strong); }
+.chat-debate.is-running { border-left-color: var(--accent); }
+.chat-debate.is-completed { border-left-color: #0f7b4f; }
+.chat-debate.is-skipped { border-left-color: var(--warn); }
+.chat-debate-label { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.chat-debate-topics { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text); }
+.chat-debate-topics li { margin-bottom: 4px; }
+.chat-debate-summary { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-side); font-size: 12px; line-height: 1.6; }

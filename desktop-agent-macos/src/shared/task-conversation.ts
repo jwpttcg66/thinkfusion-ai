@@ -14,7 +14,7 @@
  * - 结论只写真实发生过的事：`task.completed.summary`、执行报告、验证、评审。
  */
 
-import type { AgentEvent, ExecutionReport } from './contracts';
+import type { AgentEvent, ExecutionReport, PlanDebate, PlanPreview } from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
 import { artifactPaths, diagnosticsOfReport, type TaskView } from './task-view';
 
@@ -50,6 +50,27 @@ export type ConversationEntry =
       protocol: ConversationProtocol;
     })
   | (ConversationEntryBase & { kind: 'step'; card: StepCard })
+  | (ConversationEntryBase & {
+      kind: 'plan';
+      planId: string;
+      title: string;
+      description: string;
+      completion: string;
+      steps: PlanPreview['steps'];
+      warnings: string[];
+    })
+  | (ConversationEntryBase & {
+      kind: 'debate';
+      /** running 只来自心跳；plan.debated 之后变成 completed / stopped / skipped。 */
+      status: 'running' | PlanDebate['status'];
+      topics: string[];
+      participants: string[];
+      summary: string;
+      rounds?: number;
+      roundsReason?: string;
+      skippedReason?: string;
+      elapsedMs: number;
+    })
   | (ConversationEntryBase & {
       kind: 'verification';
       /** 第几次验证：同一任务的每次报告各占一条，不覆盖。 */
@@ -269,6 +290,32 @@ export function buildTaskConversation(
   let reviewCount = 0;
   /** 已经有验证卡的执行报告，不再让时间线里程碑重复写一句。 */
   const verificationTimes = new Set<number>();
+  /** 方案评审按 planId 原地更新：心跳、等待、辩完是同一条，不能越刷越多。 */
+  const debates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'debate' }> }>();
+
+  const upsertDebate = (
+    key: string,
+    patch: Omit<Extract<ConversationEntry, { kind: 'debate' }>, 'key' | 'kind' | 'at' | 'roundId' | 'roundNumber'>,
+    base: { at: number; roundId: string | null; roundNumber: number | null }
+  ) => {
+    const existing = debates.get(key);
+    if (existing) {
+      const next = { ...existing.entry, ...patch };
+      entries[existing.index] = next;
+      debates.set(key, { index: existing.index, entry: next });
+      return;
+    }
+    const entry: Extract<ConversationEntry, { kind: 'debate' }> = {
+      kind: 'debate',
+      key,
+      at: base.at,
+      roundId: base.roundId,
+      roundNumber: base.roundNumber,
+      ...patch
+    };
+    debates.set(key, { index: entries.length, entry });
+    entries.push(entry);
+  };
 
   const push = (entry: ConversationEntry) => {
     entries.push(entry);
@@ -419,6 +466,66 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'plan.ready') {
+      push({
+        kind: 'plan',
+        key: `plan-${event.plan.planId}`,
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        planId: event.plan.planId,
+        title: event.plan.title,
+        description: event.plan.description,
+        completion: event.plan.completion,
+        steps: event.plan.steps,
+        warnings: event.plan.warnings ?? []
+      });
+      continue;
+    }
+
+    if (event.type === 'plan.review.progress') {
+      const key = `debate-${event.planId}`;
+      const existing = debates.get(key);
+      upsertDebate(key, {
+        status: 'running',
+        topics: event.topicTexts && event.topicTexts.length > 0
+          ? event.topicTexts
+          : (existing?.entry.topics ?? []),
+        participants: existing?.entry.participants ?? [],
+        summary: existing?.entry.summary ?? '',
+        elapsedMs: event.elapsedMs,
+        ...(existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
+        ...(existing?.entry.roundsReason ? { roundsReason: existing.entry.roundsReason } : {}),
+        ...(existing?.entry.skippedReason ? { skippedReason: existing.entry.skippedReason } : {})
+      }, {
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId)
+      });
+      continue;
+    }
+
+    if (event.type === 'plan.debated') {
+      const key = `debate-${event.planId}`;
+      const existing = debates.get(key);
+      const { debate } = event;
+      upsertDebate(key, {
+        status: debate.status,
+        topics: debate.topics.length > 0 ? debate.topics : (existing?.entry.topics ?? []),
+        participants: debate.participants,
+        summary: debate.summary,
+        elapsedMs: existing?.entry.elapsedMs ?? 0,
+        ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
+        ...(debate.roundsReason ? { roundsReason: debate.roundsReason } : {}),
+        ...(debate.skippedReason ? { skippedReason: debate.skippedReason } : {})
+      }, {
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId)
+      });
+      continue;
+    }
+
     if (event.type === 'clarification.required') {
       push({
         kind: 'note',
@@ -502,6 +609,8 @@ export function buildTaskConversation(
     } else {
       // 轮次头、评审、验证已经有自己的条目，避免一句话说两遍。
       if (/^第 \d+ 轮/.test(item.text) || item.text.startsWith('独立评审')) continue;
+      // 计划树、方案评审已经有自己的卡片，不再留一句只有计数的里程碑。
+      if (item.text.startsWith('计划就绪') || item.text.startsWith('方案评审')) continue;
       if (item.text.startsWith('执行报告：') && verificationTimes.has(item.at)) continue;
       // 成员卡的正文就是这条回答：再写一行「模型回答（310 字符）」只是噪音。
       if (/^模型回答（/.test(item.text) || item.text === '模型返回执行计划') continue;

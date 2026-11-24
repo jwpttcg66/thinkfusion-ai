@@ -234,6 +234,25 @@ test('workspace-write 下不能靠 cwd 逃出工作区', async () => {
   await assert.rejects(() => runShell(g, { command: 'ls', cwd: '..' }), /越过|非法|必须在工作区内/);
 });
 
+test('Go 命令在沙箱内用可写缓存：go run 退出 0', async t => {
+  const probe = spawnSync('go', ['version'], { encoding: 'utf8' });
+  if (probe.status !== 0) {
+    t.skip('本机没有 Go，跳过');
+    return;
+  }
+  mkdirSync(join(root, 'go-hello'), { recursive: true });
+  writeFileSync(
+    join(root, 'go-hello', 'main.go'),
+    'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("go-sandbox-ok")\n}\n'
+  );
+  // 完全权限 + 沙箱：默认 GOCACHE 在 ~/Library/Caches，沙箱不让写，go run
+  // 会在输出正确后仍以 1 退出。这里断言的最是真机上的那个失败。
+  const g = grant('danger-full-access', ['shell.run']);
+  const result = await runShell(g, { command: 'go run main.go', cwd: 'go-hello', timeoutMs: 60_000 });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /go-sandbox-ok/);
+});
+
 // ---------------------------------------------------------------------------
 // 5. 找文件
 // ---------------------------------------------------------------------------

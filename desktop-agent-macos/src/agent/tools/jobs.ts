@@ -82,6 +82,9 @@ export async function startJob(
       HOME: process.env.HOME ?? '',
       LANG: 'en_US.UTF-8',
       TERM: 'dumb',
+      // 与前台 shell 一致：Go 的默认缓存目录在沙箱外，写到临时目录才不会
+      // 让 compile/run 在收尾 trim cache 时失败。
+      GOCACHE: path.join(os.tmpdir(), 'thinkfusion-go-cache'),
       CI: '1',
       NO_COLOR: '1'
     },

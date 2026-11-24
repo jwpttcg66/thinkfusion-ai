@@ -151,8 +151,10 @@ export function TaskProgressCard(props: {
         ? '你对执行中提问的答复'
         : inReview
           ? `成员评审方案（${String(reviewProgress?.topics ?? 0)} 个议题）${
-              working.length > 0 ? ` · 正在写：${working.map(item => item.label).join('、')}` : ''
-            }`
+              reviewProgress?.topicTexts && reviewProgress.topicTexts.length > 0
+                ? `：${reviewProgress.topicTexts.join('；')}`
+                : ''
+            }${working.length > 0 ? ` · 正在写：${working.map(item => item.label).join('、')}` : ''}`
           : task.status === 'awaiting_approval'
             ? '你审批计划'
             : working.length > 0

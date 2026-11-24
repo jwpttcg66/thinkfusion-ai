@@ -85,3 +85,27 @@ test('失败只标当前段，不把后面假装完成', () => {
   assert.equal(view.stages.find(s => s.stage === 'asking')?.state, 'failed');
   assert.equal(view.stages.find(s => s.stage === 'synthesis')?.state, 'pending');
 });
+
+test('方案评审中：汇总段保持当前，detail 带议题原文', () => {
+  const view = deriveProgress({
+    conversationStatus: 'thinking',
+    taskStatus: 'plan_ready',
+    events: [
+      { type: 'round.started', at: at(1000) },
+      { type: 'plan.ready', at: at(2000) },
+      {
+        type: 'plan.review.progress',
+        at: at(3000),
+        state: 'waiting',
+        topics: 2,
+        topicTexts: ['步骤拆分是否合理', '系统动作有没有更小的影响面'],
+        elapsedMs: 30000
+      }
+    ],
+    startedAt: at(0)
+  });
+  assert.equal(view.current?.stage, 'synthesis');
+  assert.match(view.current?.detail ?? '', /30 秒/);
+  assert.match(view.current?.detail ?? '', /步骤拆分是否合理/);
+  assert.equal(view.stages.find(s => s.stage === 'execution')?.state, 'pending');
+});

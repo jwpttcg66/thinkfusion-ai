@@ -1522,6 +1522,8 @@ export type AgentEvent = AgentEventBase &
         planId: string;
         state: 'started' | 'waiting' | 'done';
         topics: number;
+        /** 辩题原文。旧事件只有数量，缺失时界面按数量显示。 */
+        topicTexts?: string[];
         elapsedMs: number;
         message: string;
       }

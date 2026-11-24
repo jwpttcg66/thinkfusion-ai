@@ -19,6 +19,8 @@
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
 import { startJob, type JobMeta } from './jobs';
@@ -167,6 +169,10 @@ export async function runShell(
       HOME: process.env.HOME ?? '',
       LANG: 'en_US.UTF-8',
       TERM: 'dumb',
+      // Go 默认把构建缓存写到 ~/Library/Caches/go-build；沙箱只允许写授权目录
+      // 与系统临时目录，`go run` 会在收尾 trim cache 时退出 1（真机 2026-11-24
+      // 的 hello jwp 任务）。把 GOCACHE 指到临时目录，程序本身没失败也才算通过。
+      GOCACHE: path.join(os.tmpdir(), 'thinkfusion-go-cache'),
       // 明确不传 API Key / token：命令输出会进入执行报告，进而回传给网页模型。
       CI: '1',
       NO_COLOR: '1'

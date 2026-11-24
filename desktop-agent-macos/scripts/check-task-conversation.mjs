@@ -371,3 +371,109 @@ test('多次验证按时间排序：旧卡留在原位，新的追加在后面',
   assert.deepEqual(verifications.map(entry => entry.at), [2000, 2500, 3000]);
   assert.deepEqual(verifications.map(entry => entry.index), [1, 2, 3]);
 });
+
+test('计划就绪生成计划卡：8 步原文都在，不只剩一句计数', () => {
+  const steps = Array.from({ length: 8 }, (_, index) => ({
+    id: `s${index + 1}`,
+    tool: index === 3 ? 'fs.writeFile' : 'shell.run',
+    description: `第 ${index + 1} 步`,
+    args: { command: `echo ${index + 1}`, path: `hello/file-${index + 1}.go` }
+  }));
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.ready',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      plan: {
+        planId: 'p1',
+        taskId: task,
+        roundId: 'r1',
+        title: '新建 Go 程序输出 hello jwp 并本机运行验证',
+        description: '写文件并真机跑一遍',
+        completion: '退出码 0 且 stdout 为 hello jwp',
+        steps
+      }
+    }
+  ], { status: 'planning' });
+
+  const plans = entries.filter(entry => entry.kind === 'plan');
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].steps.length, 8);
+  assert.equal(plans[0].steps[3].tool, 'fs.writeFile');
+  assert.equal(plans[0].title, '新建 Go 程序输出 hello jwp 并本机运行验证');
+  assert.equal(entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('计划就绪')).length, 0);
+});
+
+test('方案评审只有一个条目：心跳原地更新，辩完后带议题与结论', () => {
+  const progress = (at, state, elapsedMs, topicTexts) => ({
+    type: 'plan.review.progress',
+    at,
+    taskId: task,
+    roundId: 'r1',
+    planId: 'p1',
+    state,
+    topics: topicTexts.length,
+    topicTexts,
+    elapsedMs,
+    message: '方案评审'
+  });
+  const topics = ['步骤拆分是否合理：8 步里哪些可以合并', '这 4 个系统动作有没有更小的影响面'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    progress(2000, 'started', 0, topics),
+    progress(3000, 'waiting', 1000, topics),
+    progress(4000, 'done', 2000, topics),
+    {
+      type: 'plan.debated',
+      at: 4000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      debate: {
+        status: 'completed',
+        topics,
+        participants: ['opencode-go:deepseek-v4.1-flash'],
+        summary: '两步可以合并，系统动作保留。',
+        rounds: 2,
+        roundsReason: '计划有 8 步，按规模跑 2 轮',
+        at: 4000
+      }
+    }
+  ], { status: 'plan_ready' });
+
+  const debates = entries.filter(entry => entry.kind === 'debate');
+  assert.equal(debates.length, 1);
+  assert.equal(debates[0].topics.length, 2);
+  assert.equal(debates[0].topics[1], topics[1]);
+  assert.equal(debates[0].status, 'completed');
+  assert.equal(debates[0].rounds, 2);
+  assert.match(debates[0].summary, /系统动作保留/);
+  assert.deepEqual(debates[0].participants, ['opencode-go:deepseek-v4.1-flash']);
+  assert.equal(entries.filter(entry => entry.kind === 'note' && entry.text.startsWith('方案评审')).length, 0);
+});
+
+test('方案评审等待中也能看到议题原文', () => {
+  const topics = ['覆盖已有文件是否必要', '步骤拆分是否合理'];
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'plan.review.progress',
+      at: 2000,
+      taskId: task,
+      roundId: 'r1',
+      planId: 'p1',
+      state: 'waiting',
+      topics: 2,
+      topicTexts: topics,
+      elapsedMs: 30000,
+      message: '方案评审进行中'
+    }
+  ], { status: 'plan_ready' });
+
+  const debate = entries.find(entry => entry.kind === 'debate');
+  assert.equal(debate.status, 'running');
+  assert.deepEqual(debate.topics, topics);
+  assert.equal(debate.elapsedMs, 30000);
+});
