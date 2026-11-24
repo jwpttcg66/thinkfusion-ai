@@ -83,13 +83,13 @@
 | U1 统一协作结果投影 | IMPLEMENTED / TESTED | `shared/collaboration-result.ts` + `test:collaboration-result` |
 | U2 Debate 争议驱动与展示 | IMPLEMENTED / TESTED | `PlanDebate.result` + 投影不伪造无争议 |
 | U3 Review 内容与闭环 | IMPLEMENTED / TESTED | `review.disposition` + 修复轮自动采纳 + IPC/UI；投影挂修正/验证；验证失败不关闭 |
-| U4 General / Knowledge 主活动区 | IMPLEMENTED / TESTED | `CollaborationResultPanel` 置顶（自动化）；真机未跑 |
-| U5 Engineering 主活动区 | IMPLEMENTED / TESTED | 结果面板 + 对话页去掉重复最终交付 |
-| U6 集成 / 恢复 / 真机验收 | PARTIAL | 自动化/重放已测；Electron 真机见 `V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md` |
+| U4 General / Knowledge 主活动区 | IMPLEMENTED / TESTED | `CollaborationResultPanel` 置顶（自动化）；真机见 U6 报告中的结果面板 |
+| U5 Engineering 主活动区 | IMPLEMENTED / TESTED | 结果面板 + 对话页去掉重复最终交付；真机见 U6 |
+| U6 集成 / 恢复 / 真机验收 | PARTIAL | 自动化全绿；云端 OpenCode Go 真机已出结果面板（不开网页）；disposition 带 issue 闭环仍待下一轮 |
 | 功能分支 | 进行中 | `feat/v3-main-activity-collab-result`（未推送） |
 | 实施记录 | — | `V3-MAIN-ACTIVITY-U2-U6-IMPLEMENTATION.md`、`V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md` |
 
-> U6 Electron 真机仍属 PARTIAL；不以自动化通过冒充真机 VERIFIED。
+> U6：结果面板 / 云端模型 / 无网页源已有 `/tmp/tf-v3-u6-report.json` 证据；带 issue 的 disposition 闭环不以本轮 failed 任务冒充 VERIFIED。
 
 ## 5. 文档分类
 
