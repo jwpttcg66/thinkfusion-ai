@@ -1,0 +1,73 @@
+# ADR 0010：上下文检查点存储
+
+- 状态：Proposed（待 LT-P0-03 评审）
+- 日期：2026-11-24
+- 决策者：待定
+- 相关：[长任务与上下文压缩](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)
+  · [存储设计](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)
+  · [契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)
+  · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
+
+## 背景
+
+上下文压缩会生成摘要检查点。摘要可能几十 KB，且只在模型请求前使用。
+当前 `agent-store.json` 是任务、轮次、计划、报告、事件的单一 JSON Journal，
+已经承担事件裁剪与原子写；把大摘要也放进去会让每次任务写入重写大文件。
+
+需要决定：
+
+1. 检查点与 Journal 放一起还是分开；
+2. 崩溃时如何保证“任务指针”和“摘要文件”一致；
+3. 旧任务如何兼容；
+4. 检查点如何清理与备份。
+
+## 决策
+
+采用**独立检查点文件 + Journal 指针**：
+
+- `agent-store.json` 继续保存任务与事件；
+- 新增 `<userData>/context/tasks/<taskId>.json` 保存检查点；
+- `AgentTask` 只增加 `contextId` / `checkpointId` 指针；
+- 提交顺序：
+  1. 写检查点文件（临时文件 + fsync + rename，status=committed）；
+  2. 更新 Journal 的任务指针；
+  3. 追加 `context.compaction.committed` 事件；
+  4. 清理旧检查点。
+
+这样最坏情况是产生未被引用的孤儿检查点，可以安全清理；不会出现
+“任务指向一个不存在的摘要”。
+
+## 后果
+
+正面：
+
+- Journal 保持轻量；
+- 摘要独立读写与清理；
+- 崩溃恢复只需核对指针与文件；
+- 旧任务无需迁移。
+
+负面与风险：
+
+- 两份文件需要一致性协议；
+- 备份/恢复要同时处理；
+- 需要 GC；
+- 删除任务时要处理检查点文件。
+
+## 约束
+
+- 摘要不写事件正文，事件只带 `checkpointId`；
+- 活动 `checkpointId` 永不自动删除；
+- 检查点写入失败不阻塞任务，回退未压缩；
+- 旧 `agent-store.json` 无字段时按未压缩读取；
+- 检查点不写工作区，权限与 userData 一致；
+- 备份包含 `context/tasks/`，恢复时 Journal 优先、文件缺失不阻塞。
+
+## 未决
+
+- 每任务保留 20 个检查点是否合适；
+- 按任务聚合还是按 checkpoint 分文件；
+- Journal 指针更新与事件追加是否合并写；
+- 备份是否包含未提交检查点；
+- 删除任务是立即删文件还是延迟 GC。
+
+这些由 `LT-P0-03` 定稿；未定稿前不进入 P3 实现。

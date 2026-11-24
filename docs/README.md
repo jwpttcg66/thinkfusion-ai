@@ -23,13 +23,29 @@
 | [architecture/RELEASE_OPERATIONS.md](architecture/RELEASE_OPERATIONS.md) | 版本、打包签名、迁移、备份、诊断、回滚 |
 | [operations/SUPPORT_MATRIX.md](operations/SUPPORT_MATRIX.md) | 运行环境、通道、数据迁移与发布范围 |
 
+## 新增设计轨道：长任务与上下文压缩
+
+| 文档 | 内容 |
+| --- | --- |
+| [implementation/LONG-TASK-CONTEXT-README.md](implementation/LONG-TASK-CONTEXT-README.md) | 文档集入口、阅读顺序、阶段门禁 |
+| [architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md](architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) | 长任务执行、上下文预算、裁剪、摘要、检查点与恢复 |
+| [spec/LONG_TASK_CONTEXT_CONTRACTS.md](spec/LONG_TASK_CONTEXT_CONTRACTS.md) | 类型、状态机、事件、API 契约 |
+| [architecture/CONTEXT_CHECKPOINT_STORAGE.md](architecture/CONTEXT_CHECKPOINT_STORAGE.md) | 检查点存储、原子提交、崩溃恢复、GC |
+| [spec/LONG_TASK_CONTEXT_UI.md](spec/LONG_TASK_CONTEXT_UI.md) | 主页面/轨迹/统计 UI 规格 |
+| [implementation/LONG-TASK-CONTEXT-TASK-BOOK.md](implementation/LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–LT-P6 总任务书（31 个任务） |
+| [implementation/LONG-TASK-CONTEXT-TEST-PLAN.md](implementation/LONG-TASK-CONTEXT-TEST-PLAN.md) | 测试矩阵、30 步长任务、故障注入 |
+| [operations/LONG-TASK-CONTEXT-ROLLOUT.md](operations/LONG-TASK-CONTEXT-ROLLOUT.md) | 灰度、迁移、回滚、监控 |
+
+阶段任务书：
+
+- [LT-P0](implementation/LT-P0-CONTRACTS.md) · [LT-P1](implementation/LT-P1-CONTEXT-MANAGER.md) · [LT-P2](implementation/LT-P2-TOOL-PRUNING.md) · [LT-P3](implementation/LT-P3-COMPACTION-CHECKPOINTS.md) · [LT-P4](implementation/LT-P4-PROVIDER-WIRING.md) · [LT-P5](implementation/LT-P5-PAUSE-RESUME.md) · [LT-P6](implementation/LT-P6-UI-E2E.md)
+
 ## 实施计划（P0–P6）
 
 | 文档 | 内容 |
 | --- | --- |
 | [implementation/README.md](implementation/README.md) | 计划索引、阶段状态、使用方式 |
 | [implementation/TASK-BOOK.md](implementation/TASK-BOOK.md) | 全任务设计：P0–P6、UI、跨阶段 |
-| [implementation/LONG-TASK-CONTEXT-TASK-BOOK.md](implementation/LONG-TASK-CONTEXT-TASK-BOOK.md) | 长任务与上下文压缩 LT-P0–P6 正式实施任务书 |
 | [implementation/P0-06-ROLLBACK-DRILL.md](implementation/P0-06-ROLLBACK-DRILL.md) | 模式 Flag 回滚钻取记录 |
 | [implementation/P1-00A-CODE-MAPPING.md](implementation/P1-00A-CODE-MAPPING.md) | 代码职责映射与迁移矩阵 |
 | [implementation/P0-J-REVIEW-RECORD.md](implementation/P0-J-REVIEW-RECORD.md) | P0 独立评审记录与残余门禁 |

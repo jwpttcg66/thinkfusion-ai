@@ -3,7 +3,13 @@
 状态：设计冻结，未实施  
 设计基线：`jwpttcg66/thinkfusion-ai` · `main` · `e31b6a380eea1d5df0a31f82f1f065775794a550`  
 日期：2026-11-24  
-实施任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
+实施任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)  
+文档集：[LONG-TASK-CONTEXT-README.md](../implementation/LONG-TASK-CONTEXT-README.md)  
+契约：[LONG_TASK_CONTEXT_CONTRACTS.md](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)  
+存储：[CONTEXT_CHECKPOINT_STORAGE.md](CONTEXT_CHECKPOINT_STORAGE.md)  
+UI：[LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)  
+测试：[LONG-TASK-CONTEXT-TEST-PLAN.md](../implementation/LONG-TASK-CONTEXT-TEST-PLAN.md)  
+灰度：[LONG-TASK-CONTEXT-ROLLOUT.md](../operations/LONG-TASK-CONTEXT-ROLLOUT.md)
 
 > 本文是架构决议，不是实施记录。实施前必须重新核对届时最新的远程 `main`；
 > 代码、类型、状态机与存储接口发生变化时，先更新本文，再更新任务书。

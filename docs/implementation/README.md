@@ -54,8 +54,16 @@
 
 这组设计不属于现有 P0–P6 的阶段编号，使用独立的 `LT-P0–LT-P6` 编号：
 
+- 文档集入口：[LONG-TASK-CONTEXT-README.md](LONG-TASK-CONTEXT-README.md)
 - 架构决议：[../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)
+- 契约：[../spec/LONG_TASK_CONTEXT_CONTRACTS.md](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)
+- 存储：[../architecture/CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [ADR 0010](../adr/0010-context-checkpoint-storage.md)
+- UI：[../spec/LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)
 - 正式任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md)
+- 阶段任务书：[LT-P0](LT-P0-CONTRACTS.md) · [LT-P1](LT-P1-CONTEXT-MANAGER.md) · [LT-P2](LT-P2-TOOL-PRUNING.md) · [LT-P3](LT-P3-COMPACTION-CHECKPOINTS.md) · [LT-P4](LT-P4-PROVIDER-WIRING.md) · [LT-P5](LT-P5-PAUSE-RESUME.md) · [LT-P6](LT-P6-UI-E2E.md)
+- 测试计划：[LONG-TASK-CONTEXT-TEST-PLAN.md](LONG-TASK-CONTEXT-TEST-PLAN.md)
+- 灰度/回滚：[../operations/LONG-TASK-CONTEXT-ROLLOUT.md](../operations/LONG-TASK-CONTEXT-ROLLOUT.md)
+- 产出模板：[审计](LONG-TASK-CONTEXT-AUDIT.md) · [验收](LONG-TASK-CONTEXT-ACCEPTANCE.md)
 
 当前状态：**设计完成，未实施**。P0 契约冻结通过前不进入实现。
 
