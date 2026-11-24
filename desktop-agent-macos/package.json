@@ -238,6 +238,7 @@
     "test:long-task-context-e2e": "npm run build:test && node --test scripts/check-long-task-context-e2e.mjs",
     "test:long-task-e2e": "npm run build:test && node --test scripts/check-long-task-e2e.mjs",
     "test:runtime-30": "npm run build:test && ./node_modules/.bin/electron scripts/runtime-30-e2e.cjs",
+    "test:engineering-recovery": "npm run build:test && ./node_modules/.bin/electron scripts/engineering-recovery-e2e.cjs",
     "test:ui-progress": "npm run build:test && node --test scripts/check-ui-progress.mjs",
     "test:delivery-artifacts": "npm run build:test && node --test scripts/check-delivery-artifacts.mjs",
     "test:approval-policy": "npm run build:test && node --test scripts/check-approval-policy.mjs",

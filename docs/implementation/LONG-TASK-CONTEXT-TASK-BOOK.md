@@ -156,7 +156,7 @@ P6 UI 与全链路验收
 | LT-P4-04 | TESTED | P4-02 / P4-03 | 边界回归 |
 | LT-P5-01 | 基础层完成 / TESTED | P0-04 | 状态扩展 |
 | LT-P5-02 | IMPLEMENTED / VERIFIED | P5-01 | 暂停/恢复 |
-| LT-P5-03 | IMPLEMENTED / TESTED | P3-04 / P5-02 | 恢复计划 |
+| LT-P5-03 | IMPLEMENTED / VERIFIED | P3-04 / P5-02 | 恢复计划 |
 | LT-P5-04 | IMPLEMENTED / TESTED | P5-03 | 副作用核对 |
 | LT-P5-05 | IMPLEMENTED / TESTED | P5-02 / P5-04 | 并发保护 |
 | LT-P6-01 | IMPLEMENTED / TESTED | P4-04 / P5-02 | 主页面 |
