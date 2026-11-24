@@ -1298,11 +1298,11 @@ export class AgentOrchestrator {
       if (reports.length > 0 && !hasGenuineDelivery(reports)) {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
-          message: '模型声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成，改为继续修复'
+          message: '模型声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成，改为继续修复'
         });
-        if (this.repairPlan(taskId, '任务尚未真实交付：没有成功写入并验证过的文件，请给出能真正落盘并验证的计划')) return;
-        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        if (this.repairPlan(taskId, '任务尚未确认交付：请按你设计的完成条件给出可核对的检查步骤并执行')) return;
+        this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
         return;
       }
       this.tasks.transition(taskId, 'completed', { summary: result.summary });
@@ -1619,18 +1619,26 @@ export class AgentOrchestrator {
     // 验证未通过时，即使报告自报 completed / nextAction=complete，也不能
     // 直接收尾。完全权限下会走到这里进入下一轮修复；这是「全部完成后才
     // 算好」的底线，不能因为报告文字写完成就跳过。
-    if (report.status === 'completed' &&
-        (!report.verification || verificationIsComplete(report.verification)) &&
-        (report.nextAction === 'complete' || testsPassed)) {
-      // 空轮假完成闸门：报告自报 completed 不等于真交付。整条链从没成功写过
-      // 文件并通过验证（例如只跑了 fs.list/fs.tree 的空轮），不能标完成。
+    //
+    // 已确认交付时：评审没有可执行问题（needsFix/issues 都空），即使
+    // nextAction 仍写 continue，也直接收尾——否则会再开一轮规划，被非法
+    // 协议块拖成 failed，结果面板出现「像完成又像失败」的残缺状态
+    // （真机 2026-11-24：只读列目录已验证通过，仍因 continue 进入修复轮失败）。
+    const verifiedDone =
+      report.status === 'completed' &&
+      (!report.verification || verificationIsComplete(report.verification));
+    const actionableReview =
+      Boolean(review?.needsFix) || (review?.issues?.length ?? 0) > 0;
+    if (verifiedDone && (report.nextAction === 'complete' || testsPassed || !actionableReview)) {
+      // 空轮假完成闸门：报告自报 completed 不等于已确认交付。必须能核对到
+      // 验证结论已成立；写失败后的空验证轮不能过关。
       if (!hasGenuineDelivery([...this.deps.store.allReportsFor(taskId), report])) {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
-          message: '报告声明完成，但整条执行链没有一次成功写入并通过验证；拒绝标记完成'
+          message: '报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
         });
-        this.tasks.transition(taskId, 'failed', { error: '任务没有真实交付：没有成功写入并验证过的文件' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务没有真实交付' });
+        this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
         return;
       }
       this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });

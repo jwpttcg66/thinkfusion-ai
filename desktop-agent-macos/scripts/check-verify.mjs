@@ -230,11 +230,14 @@ test('hasGenuineDelivery：无报告历史按兼容放行（纯问答/旧数据�
   assert.equal(hasGenuineDelivery([]), true);
 });
 
-test('hasGenuineDelivery：写失败轮 + 空轮 trivially verified 不算真交付', () => {
-  const failedRound = report({
-    verified: false, reasons: ['1 个写操作失败'], changedFiles: 0, changedPaths: [],
-    checks: checks()
-  });
+test('hasGenuineDelivery：写失败轮 + 空轮 trivially verified 不算已确认交付', () => {
+  const failedRound = {
+    results: [step('fs.writeFile', 'failed', null, { path: 'a.ts' })],
+    verification: {
+      verified: false, reasons: ['1 个写操作失败'], changedFiles: 0, changedPaths: [],
+      checks: checks()
+    }
+  };
   const emptyRound = report({
     verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
     checks: checks()
@@ -242,10 +245,13 @@ test('hasGenuineDelivery：写失败轮 + 空轮 trivially verified 不算真交
   assert.equal(hasGenuineDelivery([failedRound, emptyRound]), false);
 });
 
-test('hasGenuineDelivery：至少一轮真的跑过编译/运行/测试才算交付', () => {
-  const failedRound = report({
-    verified: false, reasons: ['写失败'], changedFiles: 0, changedPaths: [], checks: checks()
-  });
+test('hasGenuineDelivery：写失败后后续检查通过 → 已确认交付', () => {
+  const failedRound = {
+    results: [step('fs.writeFile', 'failed', null, { path: 'HelloJwp.java' })],
+    verification: {
+      verified: false, reasons: ['写失败'], changedFiles: 0, changedPaths: [], checks: checks()
+    }
+  };
   const realRound = report({
     verified: true, reasons: ['编译通过'], changedFiles: 1,
     changedPaths: ['HelloJwp.java'],
@@ -254,9 +260,7 @@ test('hasGenuineDelivery：至少一轮真的跑过编译/运行/测试才算交
   assert.equal(hasGenuineDelivery([failedRound, realRound]), true);
 });
 
-test('hasGenuineDelivery：目标本就正确、没写文件但 javac+java 跑通也算真交付', () => {
-  // 真机踩过的坑：源码本来就对，两轮只做 fs.stat/编译运行、changedFiles=0，
-  // 曾被误判成假完成并重规划死循环。跑通就是交付，不要求一定写文件。
+test('hasGenuineDelivery：模型设计的检查（编译/运行）通过 → 已确认交付', () => {
   const ranOnly = report({
     verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
     checks: checks({ compile: { status: 'passed', exitCode: 0 }, run: { status: 'passed', exitCode: 0, output: 'hello jwp' } })
@@ -264,7 +268,35 @@ test('hasGenuineDelivery：目标本就正确、没写文件但 javac+java 跑�
   assert.equal(hasGenuineDelivery([ranOnly]), true);
 });
 
-test('hasGenuineDelivery：写了文件但没有任何通过的检查不算交付', () => {
+test('hasGenuineDelivery：模型跑完步骤且验证成立 → 已确认交付', () => {
+  const observed = {
+    results: [step('fs.list', 'completed', { entries: ['readme.txt'] }, { path: '.' })],
+    verification: {
+      verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
+      checks: checks()
+    }
+  };
+  assert.equal(hasGenuineDelivery([observed]), true);
+});
+
+test('hasGenuineDelivery：写失败后只有列目录步骤、检查未通过 → 未确认交付', () => {
+  const failedRound = {
+    results: [step('fs.writeFile', 'failed', null, { path: 'a.ts' })],
+    verification: {
+      verified: false, reasons: ['写失败'], changedFiles: 0, changedPaths: [], checks: checks()
+    }
+  };
+  const listOnly = {
+    results: [step('fs.list', 'completed', { entries: ['.'] }, { path: '.' })],
+    verification: {
+      verified: true, reasons: ['本轮没有写操作，无需验证'], changedFiles: 0, changedPaths: [],
+      checks: checks()
+    }
+  };
+  assert.equal(hasGenuineDelivery([failedRound, listOnly]), false);
+});
+
+test('hasGenuineDelivery：声称改了文件但没有任何通过的检查、也无成功步骤 → 未确认交付', () => {
   const noCheck = report({
     verified: true, reasons: [], changedFiles: 1, changedPaths: ['a.java'],
     checks: checks({ changedFiles: ['a.java'] })

@@ -8,6 +8,8 @@
  * 约束：
  *   - 走云端主导（submitConversation + 已有 execution defaults），不改用户配置
  *   - 不打开网页源、不调用 submitPrompt（那条会走网页规划器）
+ *   - 任务必须 status=completed；结果面板状态完整；failed 不算过
+ *   - 用户问题原样发出，不拼完成条件/核对步骤等话术；交付核对由模型侧自行完成
  *
  * 用法：
  *   CDP_ENDPOINT=http://127.0.0.1:9333/json node scripts/u6-main-activity-live.mjs [workspace]
@@ -20,10 +22,13 @@ import { connect, sleep } from './lib/cdp.mjs';
 
 const ENDPOINT = process.env.CDP_ENDPOINT ?? 'http://127.0.0.1:9333/json';
 const WORKSPACE = process.argv[2] ?? path.join(os.tmpdir(), 'tf-v3-u6-workspace');
-const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 240000);
+const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 360000);
 const REPORT = process.env.U6_REPORT ?? path.join(os.tmpdir(), 'tf-v3-u6-report.json');
 
 fs.mkdirSync(WORKSPACE, { recursive: true });
+if (!fs.existsSync(path.join(WORKSPACE, 'readme.txt'))) {
+  fs.writeFileSync(path.join(WORKSPACE, 'readme.txt'), 'readme.txt\n');
+}
 
 async function listOn(endpoint) {
   const response = await fetch(endpoint);
@@ -80,11 +85,10 @@ assert.equal(defaults?.executionMode, 'cloud', '本机 execution defaults 必须
 assert.ok(openGoReady.length > 0, 'OpenCode Go 模型不可用（hasKey=0）；请用真实 userdata 启动，不要用空临时目录');
 
 // ---------------------------------------------------------------------------
-// A. Engineering：云端会话提交只读任务，观察结果面板 DOM + 事件
+// A. Engineering：云端会话；问题原样发出，脚本只验收终态完整
 // ---------------------------------------------------------------------------
-// 只读分析会走 engineering_analysis、没有 taskId；要验结果面板/disposition
-// 需要执行任务。override=execution 才转交 submitWorkspace（仍用本机 cloud 默认，不开网页）。
-const promptA = '只回答一句话：工作区根目录下有哪些文件名？不要修改任何文件。';
+const promptA = '工作区根目录下有哪些文件名？';
+
 const conversation = await cdp.evaluate(
   `window.agentAPI.submitConversation(${JSON.stringify({
     text: promptA,
@@ -105,30 +109,50 @@ console.log(`taskA ${taskId} conversation=${conversation.conversationId} answere
 const deadlineA = Date.now() + TIMEOUT_MS;
 let printed = 0;
 let terminal = null;
+const approvedPlanIds = new Set();
 while (Date.now() < deadlineA) {
   await sleep(2000);
   const events = await cdp.evaluate(`window.agentAPI.getTaskEvents(${JSON.stringify(taskId)})`);
   for (const event of events.slice(printed)) {
-    evidence.events.push({ taskId, type: event.type, at: event.at });
-    console.log(`  A ${event.type}`);
+    evidence.events.push({
+      taskId,
+      type: event.type,
+      at: event.at,
+      ...(event.error ? { error: event.error } : {}),
+      ...(event.message ? { message: event.message } : {})
+    });
+    console.log(`  A ${event.type}${event.error ? ` (${event.error})` : ''}`);
   }
   printed = events.length;
   const task = await cdp.evaluate(`window.agentAPI.getTask(${JSON.stringify(taskId)})`);
   if (!task) continue;
+
   if (task.status === 'awaiting_approval') {
-    const plan = [...events].reverse().find(event => event.type === 'plan.ready');
-    if (plan?.plan?.planId) {
+    const plan = [...events].reverse().find(event => event.type === 'plan.ready' && event.plan?.planId);
+    const planId = plan?.plan?.planId;
+    if (planId && !approvedPlanIds.has(planId)) {
       await cdp.evaluate(
         `window.agentAPI.approvePlan(${JSON.stringify({
           taskId,
           roundId: plan.roundId,
-          planId: plan.plan.planId,
+          planId,
           approved: true
         })})`
       );
-      console.log('  A approved plan');
+      approvedPlanIds.add(planId);
+      console.log(`  A approved plan ${planId}`);
     }
   }
+
+  if (task.status === 'report_pending') {
+    try {
+      await cdp.evaluate(`window.agentAPI.recheckVerification(${JSON.stringify(taskId)})`);
+      console.log('  A recheckVerification');
+    } catch (error) {
+      console.log(`  A recheckVerification failed: ${error}`);
+    }
+  }
+
   if (['completed', 'failed', 'cancelled'].includes(task.status)) {
     terminal = task;
     break;
@@ -137,25 +161,35 @@ while (Date.now() < deadlineA) {
 
 const domA = await cdp.evaluate(`(() => {
   const panel = document.querySelector('.collab-result');
+  const text = panel?.innerText ?? '';
   const deliveryDup = Array.from(document.querySelectorAll('h2,h3,b,.section-title'))
     .map(el => el.textContent?.trim() ?? '')
-    .filter(text => text.includes('最终交付'));
+    .filter(item => item.includes('最终交付'));
   return {
     hasPanel: Boolean(panel),
-    panelText: panel?.innerText?.slice(0, 800) ?? '',
+    panelText: text.slice(0, 800),
     deliveryDupCount: deliveryDup.length,
+    showsCompleted: text.includes('completed'),
+    showsFailedStatus: /工程\s*[·•]\s*failed/.test(text) || /尚未确认交付|没有真实交付/.test(text),
     bodySnippet: document.body?.innerText?.slice(0, 400) ?? ''
   };
 })()`);
 
-note('engineering-task-terminal', Boolean(terminal), terminal?.status ?? 'timeout');
+note('engineering-task-completed', terminal?.status === 'completed', terminal ? `${terminal.status}${terminal.error ? `: ${terminal.error}` : ''}` : 'timeout');
 note('result-panel-visible', Boolean(domA.hasPanel), domA.hasPanel ? 'found .collab-result' : 'missing');
+note(
+  'result-status-complete',
+  terminal?.status === 'completed' && Boolean(domA.hasPanel) && domA.showsCompleted && !domA.showsFailedStatus,
+  terminal?.status === 'completed'
+    ? `panelCompleted=${domA.showsCompleted} panelFailed=${domA.showsFailedStatus}`
+    : `terminal=${terminal?.status ?? 'none'}`
+);
 note('no-duplicate-final-delivery-stack', domA.deliveryDupCount <= 1, `delivery headings=${domA.deliveryDupCount}`);
 evidence.domA = domA;
+evidence.terminal = terminal ? { status: terminal.status, error: terminal.error ?? null } : null;
 
 // ---------------------------------------------------------------------------
-// B. Disposition 写回：若有 pending 问题则拒绝一条；否则注入假事件不可行——
-//    用 setReviewDisposition 对真实 issue，或跳过并记录。
+// B. Disposition 写回：若有 pending 问题则暂缓一条；否则校验未知 issue 守卫
 // ---------------------------------------------------------------------------
 const eventsA = await cdp.evaluate(`window.agentAPI.getTaskEvents(${JSON.stringify(taskId)})`);
 const review = [...eventsA].reverse().find(event => event.type === 'review.ready');
@@ -177,7 +211,6 @@ if (review?.issueDetails?.length) {
     `disposition events=${disp.length}`);
   evidence.disposition = disp.at(-1) ?? null;
 } else {
-  // 无评审问题时，仍验证 API 对未知 issue 会报错（契约活着）。
   let rejected = false;
   try {
     await cdp.evaluate(
