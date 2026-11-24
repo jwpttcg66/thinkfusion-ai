@@ -62,7 +62,9 @@ export function collectSideEffects(reports: readonly ExecutionReport[]): SideEff
       const writes = PATH_WRITE_TOOLS.has(tool);
       const opaque = OPAQUE_WRITE_TOOLS.has(tool);
       for (const file of paths) reportPaths.add(file);
-      if (!writes && !opaque && paths.length === 0) continue;
+      // 只读工具即使带 path 也不是副作用；把 fs.readFile 当写操作会让
+      // 恢复报告凭空多出 missing。
+      if (!writes && !opaque) continue;
 
       const key = `${report.roundId}:${result.stepId}`;
       const status: SideEffectStatus = paths.length > 0

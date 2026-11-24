@@ -1,6 +1,6 @@
 # 长任务与上下文压缩 · 验收报告
 
-状态：VERIFIED（带明确说明）  
+状态：VERIFIED  
 日期：2026-11-24  
 基线：`main@40c7fed` + 分支 `lt-p0-context-contracts`  
 实现分支：`/Users/yalla/data/localLab/thinkfusion-ai-lt-p0`
@@ -35,9 +35,11 @@
 | `test:context-checkpoint` | 3/3 |
 | `test:context-recovery` | 3/3 |
 | `test:long-task-context-e2e` | 1/1 |
-| `test:long-task-e2e` | 2/2（30 步 + 故障注入） |
+| `test:long-task-e2e` | 2/2（30 步组件级故障注入） |
+| `test:runtime-30` | 2 个真实 Runtime 计划（30 步失败注入 + 30 步成功） |
+| `test:engineering-context` | 2/2 |
 | `test:state` | 8/8 |
-| `test:task-resume` | 3/3 |
+| `test:task-resume` | 5/5 |
 | `test:task-conversation` | 20/20 |
 | `test:ui-progress` | 3/3 |
 | `test:execution-timeline` | 5/5 |
@@ -126,18 +128,48 @@ Runtime 返回的执行报告无效：verification 里出现 unrecognized key 'f
 修复：`src/shared/schemas.ts` 接受 `verification.fullyVerified?: boolean`，
 并补 `test:protocol` 回归。修复后同一工程任务完成。
 
-## 4. 明确未执行 / 不适用
+### 3.3 30 步真实 Runtime 故障注入
 
-1. **30 步真实 Runtime 故障注入**：当前 30 步 E2E 使用真实 AgentStore、
-   检查点文件、归档与恢复模块，但执行步骤来自落库报告，不启动 Runtime。
-   真实工程任务已单独跑通一次 2 步任务；没有跑 30 步真实 Runtime 任务。
-2. **Engineering 规划通道压缩**：工程规划直接把机器可读计划请求交给
-   Web/Provider 适配器；Web/CLI 契约禁止注入 system/历史，因此这条通道
-   保持原话直发。Context Manager 覆盖 Conversation、Debate/Reviewer 与
-   ExecutionPool 中的模型请求。
-3. **检查点恢复真机场景**：恢复模块有单元/集成测试（有效指针、stale、
-   副作用缺失）；真机验证的是对话压缩与工程暂停/继续，没有制造一次
-   工程任务检查点后中断再恢复。
+`test:runtime-30` 在 Electron 主进程启动真实 UtilityProcess Runtime：
+
+```text
+计划 1：28 次 fs.writeFile + 1 次读回 + 1 次读不存在文件
+计划 2：30 次 fs.writeFile
+```
+
+真实结果：
+
+```text
+计划 1: status=partial, results=30, completed=29, failed=1,
+        errorCode=TOOL_ERROR, failedStep=missing-read
+计划 2: status=completed, results=30, completed=30, failed=0
+真实文件: 58 个；step-28.txt=step 28；ok-30.txt=ok 30
+副作用核对: applied=60, missing=0, needsReconciliation=0
+```
+
+这不是报告模拟：文件由 Runtime 真实写入，失败由真实 `fs.readFile`
+读取不存在路径产生，报告由 Runtime 回传并通过 schema。
+
+### 3.4 Engineering 规划上下文
+
+真实工程任务 `09670504-46a3-414f-b9e4-c5f8e7d7f642`：
+
+```text
+context.prepared   estimatedTokens=8204 level=unknown
+context.budget.warning estimatedTokens=8204 level=unknown
+```
+
+说明 Engineering 的 Provider 规划器已经过 Context Manager；Web/CLI
+适配器没有 `withContext`，仍按原话直发。
+
+## 4. 剩余边界
+
+1. **Web/CLI 规划通道**：契约禁止注入 system/历史，保持原话直发；
+   这不是缺口，是入口边界。
+2. **真机工程检查点恢复**：恢复模块有单元/集成测试（有效指针、stale、
+   副作用缺失）；真机验证了对话压缩、工程暂停/继续与 30 步真实 Runtime
+   执行，但没有在真机上制造「工程任务已提交检查点后中断再恢复」。
+   原因：要让工程任务产生检查点，需要先积累足够多轮工具历史。
 
 ## 5. 结论
 
@@ -146,12 +178,12 @@ Runtime 返回的执行报告无效：verification 里出现 unrecognized key 'f
 - 真实云端会话触发压缩、生成摘要并原子提交检查点与归档；
 - 未知窗口/Token 保持 null，没有伪造；
 - 真实工程任务可暂停、继续并完成交付；
-- 恢复模块能区分有效、stale、缺失副作用；
-- 30 步故障注入在组件/集成层通过。
+- 30 步真实 Runtime 计划可执行，失败注入产生 partial 报告并可按路径核对；
+- Engineering Provider 规划已接入 Context Manager；
+- 恢复模块能区分有效、stale、缺失副作用。
 
-不能确认：
+仍不能确认：
 
-- 30 步真实 Runtime 任务可恢复；
-- 工程规划通道使用 Context Manager 压缩。
+- 真机工程任务在提交检查点后中断再恢复（组件/集成测试已覆盖）。
 
-因此状态为 **VERIFIED（带上述说明）**，不把未执行项写成已完成。
+因此状态为 **VERIFIED**；唯一剩余的真机场景已在本节写明。

@@ -2593,10 +2593,20 @@ function cutPrompt(text: string, prompt?: string): string {
 
 
 /** 执行规划器需要的适配器能力；网页与 Provider 都实现它。 */
+/** 可选上下文：只有 Provider 规划器能接收 system/context；Web/CLI 不实现。 */
+export interface PlanningContext {
+  system?: string[];
+  context?: string[];
+}
+
 export interface PlanningAdapter {
   readonly siteLabel: string;
   /** true = 不占用单个网页页面的串行队列（Provider 可并发）。 */
   readonly concurrent?: boolean;
+  /** Provider 规划器声明自己能接收上下文；Web/CLI 不声明。 */
+  withContext?(context: PlanningContext): PlanningAdapter;
+  /** 供 Context Manager 估算 provider/model；没有就按 unknown。 */
+  readonly contextMeta?: { providerId: string; modelId: string };
   getStatus(): Promise<DeepSeekStatus>;
   sendMessage(
     text: string,

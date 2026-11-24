@@ -13,6 +13,8 @@ import type {
   StoredPlan,
   TaskGrant
 } from '../shared/contracts';
+import type { ContextHistoryItem, ContextManager } from '../shared/context';
+import { scopeHistory } from './context/entry-policy';
 import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
@@ -116,6 +118,11 @@ export interface OrchestratorDeps {
    * 不会假装恢复过。返回 stale 时任务停在 interrupted，要求人工处理。
    */
   contextRecovery?: (task: AgentTask, reports: readonly ExecutionReport[]) => Promise<TaskRecoveryResult>;
+  /**
+   * LT-P4-02：Engineering 的 Provider 规划通道。Web/CLI 适配器没有
+   * `withContext`，仍按原话直发；这里不做任何注入。
+   */
+  contextManager?: ContextManager | null;
   /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
   onRecovery?: (task: AgentTask, result: TaskRecoveryResult) => void;
 }
@@ -1068,13 +1075,93 @@ export class AgentOrchestrator {
     }
   }
 
+  /**
+   * Engineering 历史：前序计划回答 + 已执行步骤。只给 Provider 规划器，
+   * Web/CLI 不经过这里（它们的适配器没有 withContext）。
+   */
+  private taskContextHistory(taskId: string): ContextHistoryItem[] {
+    const task = this.tasks.get(taskId);
+    const history: ContextHistoryItem[] = [{
+      eventId: `task:${taskId}`,
+      kind: 'message',
+      role: 'user',
+      text: task.userPrompt,
+      at: task.createdAt
+    }];
+    for (const round of this.tasks.listRounds(taskId)) {
+      if (!round.answerText || round.status !== 'answer_ready') continue;
+      history.push({
+        eventId: `round:${round.roundId}`,
+        kind: 'message',
+        role: 'assistant',
+        text: round.answerText,
+        at: round.completedAt ?? round.createdAt,
+        roundId: round.roundId
+      });
+    }
+    for (const report of this.deps.store.allReportsFor(taskId)) {
+      for (const [index, result] of report.results.entries()) {
+        const args = result.args as { path?: unknown } | undefined;
+        const file = typeof args?.path === 'string' ? ` ${args.path}` : '';
+        history.push({
+          eventId: `step:${report.roundId}:${result.stepId}`,
+          kind: 'tool',
+          text: `${result.tool} ${result.status}${file}${result.error ? ` error=${result.error}` : ''}`,
+          at: report.createdAt + index,
+          roundId: report.roundId,
+          stepId: result.stepId,
+          toolCallId: result.stepId
+        });
+      }
+    }
+    return scopeHistory('engineering', history);
+  }
+
+  /** 只在适配器支持时准备上下文；失败降级为原适配器，不阻塞规划。 */
+  private async adapterWithContext(taskId: string, prompt: string): Promise<PlanningAdapter> {
+    const adapter = this.adapterFor(taskId);
+    const manager = this.deps.contextManager;
+    if (!manager || !adapter.withContext) return adapter;
+    const task = this.tasks.get(taskId);
+    const runId = task.runId ?? taskId;
+    const meta = adapter.contextMeta ?? { providerId: 'unknown', modelId: 'unknown' };
+    try {
+      const prepared = await manager.prepare({
+        owner: { ownerType: 'agent-task', ownerId: taskId, taskId, runId },
+        taskId,
+        runId,
+        question: prompt,
+        context: [],
+        system: [],
+        history: this.taskContextHistory(taskId),
+        evidenceRefs: [],
+        providerId: meta.providerId,
+        modelId: meta.modelId
+      });
+      return adapter.withContext({
+        system: prepared.systemLines,
+        context: prepared.contextLines
+      });
+    } catch (error) {
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: `规划上下文准备失败，按原请求继续：${error instanceof Error ? error.message : String(error)}`
+      });
+      return adapter;
+    }
+  }
+
   private async askPage(taskId: string, roundId: string, prompt: string, participantId?: string): Promise<string> {
     const attempt = async (requestId: string) => {
-      const { snapshotBefore } = await this.adapterFor(taskId).sendMessage(prompt, requestId, chunk => {
+      const adapter = await this.adapterWithContext(taskId, prompt);
+      const { snapshotBefore } = await adapter.sendMessage(prompt, requestId, chunk => {
         this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, modelCallId: requestId, ...(participantId ? { participantId } : {}), ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
       });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
-      return this.adapterFor(taskId).waitForAnswer(
+      return adapter.waitForAnswer(
         requestId,
         snapshotBefore,
         this.tasks.get(taskId).timeoutMs,
