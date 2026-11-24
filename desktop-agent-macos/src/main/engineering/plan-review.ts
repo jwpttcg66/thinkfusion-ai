@@ -223,42 +223,34 @@ export function planReviewQuestion(plan: AgentPlan): string {
 }
 
 /**
- * 方案评审跑几轮。
+ * 方案评审的上限轮数。
  *
- * 轮次与阶段是死映射（`phaseFor`）：0 = 独立表态，1 = 互相质疑，≥2 = 回应并
- * 收敛。所以 2 轮意味着「质疑之后就结束」——被质疑方没有机会回一句。
+ * 不再按计划规模写死「2 轮」或「3 轮」：轮次由辩论引擎按分歧收敛自主决定。
+ * 这里只给一个上限，并说明继续下一轮的条件：
+ * - 第 1 轮表态；有未解决争议才进入第 2 轮质疑；
+ * - 质疑需要被答复才进入第 3 轮回应；
+ * - 任何一轮收敛、或没有新的修订/争议，就提前结束。
  *
- * 这里按计划本身的规模给轮次，而不是全局写死一个数：
- * - 单成员自辩给 2 轮（自评 + 自质疑）；再加一轮只是同一模型自问自答；
- * - 设计文档、3 步以上、或 3 位以上评审，分歧是真的，要给回应轮收口；
- * - 其余（1-2 步的简单计划）2 轮足够，不值得为一次收口多等一分钟。
- *
- * 判的是「这份计划有没有需要收口的结构」，不按某个工具名判定。
+ * 上限设为 3 是成本边界，不是固定轮次；实际跑几轮看 plan.debated.rounds。
  */
 export interface PlanReviewRounds {
-  /** 2 = 表态 + 质疑；3 = 再加回应并收敛。 */
-  rounds: 2 | 3;
-  /** 给审批的人看的一句话理由，界面会显示，不只是日志。 */
+  /** 最多跑几轮；实际轮次由收敛结果决定。 */
+  rounds: 3;
+  /** 给审批的人看的一句话规则，界面会显示，不只是日志。 */
   reason: string;
 }
 
 export function planReviewRounds(plan: AgentPlan, participantCount: number): PlanReviewRounds {
-  if (participantCount <= 1) {
-    // 单模型也要两轮：第一轮是立场，第二轮专门反驳第一轮。没有第二轮就
-    // 只是模型自说自话；再加第三轮又变成同一个模型自问自答。
-    return { rounds: 2, reason: '单成员自辩固定 2 轮：第 1 轮表态，第 2 轮必须质疑第 1 轮；第 3 轮只是同一模型自问自答' };
-  }
-  if (plan.kind === 'design') {
-    return { rounds: 3, reason: '设计文档用 3 轮：表态 → 质疑 → 回应，观点编号必须在质疑后被答复' };
-  }
-  const steps = plan.steps ?? [];
-  if (steps.length >= 3) {
-    return { rounds: 3, reason: `${String(steps.length)} 步的计划用 3 轮：表态 → 质疑 → 回应，质疑不能没人答复` };
-  }
-  if (participantCount >= 3) {
-    return { rounds: 3, reason: `${String(participantCount)} 位评审用 3 轮：多方分歧需要一轮回应收口` };
-  }
-  return { rounds: 2, reason: `${String(steps.length)} 步、${String(participantCount)} 位评审用 2 轮：表态后质疑一次足够，没有多方分歧需要回应` };
+  const steps = plan.steps?.length ?? 0;
+  const scope = [
+    `${String(steps)} 步`,
+    plan.kind === 'design' ? '设计文档' : null,
+    `${String(participantCount)} 位评审`
+  ].filter(Boolean).join('、');
+  return {
+    rounds: 3,
+    reason: `最多 3 轮，实际按分歧收敛（${scope}）：第 1 轮表态；有未解决争议才进入第 2 轮质疑；质疑需要答复才进入第 3 轮回应`
+  };
 }
 
 /**

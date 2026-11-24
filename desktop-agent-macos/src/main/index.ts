@@ -79,7 +79,7 @@ import { DebateOrchestrator } from './debate/orchestrator';
 import { relatedDebates } from './debate/history';
 import { debateOriginOf, normalizeDebateConfig, type DebateState } from './debate/types';
 import { normalizeLeadMode, planLead, type DebateCandidate, type LeadPlan } from './debate/lead';
-import { reviewPeerEvents, reviewRoundIdOf } from './debate/review-progress';
+import { reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from './debate/review-progress';
 import {
   catalogEntryOf,
   CLOUD_PRESETS,
@@ -666,15 +666,25 @@ let debates: DebateOrchestrator | null = null;
  */
 const planReviewScopes = new Map<string, {
   taskId: string;
+  planId: string;
+  roundId: string;
+  topics: string[];
   labels: Map<string, string>;
   seen: Set<string>;
+  /** 已完成并解释过的轮次数；只在新一轮落盘时补一条继续/结束原因。 */
+  roundsSeen: number;
+  /** 本次上限轮数，用于解释为什么停。 */
+  maxRounds: number;
   /** 每个成员这一轮的累积全文；通道给的是增量，store 只留快照。 */
   streams: Map<string, { text: string; reasoning: string }>;
   /** 每个成员上一次转发的时间：按 150ms 节流，正文仍然一行行长。 */
   pulse: Map<string, number>;
 }>();
 /** onStart 只能拿到 state；taskId/名字在 debatePlan 里备好，start 内同步消费。 */
-let pendingReview: { taskId: string; labels: Map<string, string> } | null = null;
+let pendingReview: {
+  taskId: string; planId: string; roundId: string; topics: string[];
+  labels: Map<string, string>; maxRounds: number;
+} | null = null;
 /** 语义导航：按工作区根复用 tsserver；只读，不联网。Provider 目前只有 TypeScript。 */
 let lspRegistry: LspProviderRegistry | null = null;
 /** 本轮改动快照："还原本轮" 用；按 taskId 分目录。 */
@@ -5216,8 +5226,13 @@ app.whenReady().then(async () => {
       // 在评审一开始就出现，而不是等第一条发言落盘（50-60 秒）才冒出来。
       planReviewScopes.set(state.debateId, {
         taskId: pendingReview.taskId,
+        planId: pendingReview.planId,
+        roundId: pendingReview.roundId,
+        topics: pendingReview.topics,
         labels: pendingReview.labels,
         seen: new Set<string>(),
+        roundsSeen: 0,
+        maxRounds: pendingReview.maxRounds,
         streams: new Map(),
         pulse: new Map()
       });
@@ -5233,6 +5248,21 @@ app.whenReady().then(async () => {
       });
       for (const event of batch.events) emit(event);
       for (const key of batch.keys) scope.seen.add(key);
+
+      // 每完成一轮就补一条「为什么继续/为什么停」：用户不必等最后一句
+      // 才知道第二轮、第三轮在做什么。轮次由引擎按分歧收敛决定，不是写死。
+      const completed = state.rounds.length;
+      if (completed > scope.roundsSeen) {
+        const message = reviewRoundNote({
+          round: state.rounds[completed - 1],
+          status: state.status,
+          ...(state.stopReason ? { stopReason: state.stopReason } : {}),
+          disputes: state.disputes?.length ?? 0,
+          maxRounds: scope.maxRounds
+        });
+        emit({ type: 'log', at: Date.now(), taskId: scope.taskId, level: 'info', message });
+        scope.roundsSeen = completed;
+      }
     },
     // 成员发言的增量：只有方案评审（登记过 scope 的辩论）转发给界面，
     // 手动与知识空间辩论没有 scope，一行都不发。
@@ -5459,7 +5489,7 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ taskId, plan, topics, debateAgentIds }) => {
+    debatePlan: async ({ taskId, roundId, planId, plan, topics, debateAgentIds }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
@@ -5485,7 +5515,7 @@ app.whenReady().then(async () => {
       const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
       const reviewBudget = planReviewBudget(reviewRounds.rounds);
       // 先备好 scope，start() 内部在首次 persist 之前同步消费并登记。
-      pendingReview = { taskId, labels };
+      pendingReview = { taskId, planId, roundId, topics, labels, maxRounds: reviewRounds.rounds };
       let state;
       try {
         state = debates.start(
@@ -5529,8 +5559,10 @@ app.whenReady().then(async () => {
         debateId: done.debateId,
         status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
         participants: leadPlan.participants,
-        rounds: reviewRounds.rounds,
-        roundsReason: reviewRounds.reason,
+        // 实际轮次由收敛决定；上限只是成本边界，不能拿上限冒充实际。
+        rounds: done.rounds.length,
+        maxRounds: reviewRounds.rounds,
+        roundsReason: done.stopReason ?? reviewRounds.reason,
         summary: summarizePlanDebate({
           topics,
           rounds: done.rounds.map(round => ({

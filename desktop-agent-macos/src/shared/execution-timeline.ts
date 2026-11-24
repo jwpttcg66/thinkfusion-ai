@@ -189,10 +189,12 @@ function milestone(
           ? {
               detail: [
                 ...(event.reason ? [`为什么评审：${event.reason}`] : []),
-                ...(event.rounds !== undefined
-                  ? [`轮次：${String(event.rounds)} 轮${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
-                  : []),
-                ...(event.reason || event.rounds !== undefined ? [''] : []),
+                ...(event.maxRounds !== undefined
+                  ? [`轮次：最多 ${String(event.maxRounds)} 轮，实际按分歧收敛${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
+                  : event.rounds !== undefined
+                    ? [`轮次：实际 ${String(event.rounds)} 轮${event.roundsReason ? `（${event.roundsReason}）` : ''}`]
+                    : []),
+                ...(event.reason || event.maxRounds !== undefined || event.rounds !== undefined ? [''] : []),
                 ...(event.topicTexts ?? []).map((topic, index) => `${String(index + 1)}. ${topic}`)
               ].join('\n')
             }

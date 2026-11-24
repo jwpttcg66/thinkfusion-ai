@@ -1220,8 +1220,10 @@ export interface PlanDebate {
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
   summary: string;
-  /** 这场评审跑了几轮：2 = 表态 + 质疑，3 = 再加回应收口。老记录没有这个字段。 */
+  /** 实际跑了几轮；由分歧收敛决定，不是固定值。老记录没有这个字段。 */
   rounds?: number;
+  /** 本次允许的上限轮数；实际轮次可能更少。 */
+  maxRounds?: number;
   /** 为什么取这个轮数（按计划规模决定），界面直接显示。 */
   roundsReason?: string;
   /** 为什么没辩：模式是 off / 计划太小 / 没有可用成员。 */
@@ -1533,8 +1535,11 @@ export type AgentEvent = AgentEventBase &
         topicTexts?: string[];
         /** 为什么开这场评审；旧事件没有。 */
         reason?: string;
-        /** 计划跑几轮（表态 / 质疑 / 回应）与依据；旧事件没有。 */
+        /** 实际已完成的轮次；等待中通常还没有。 */
         rounds?: number;
+        /** 本次最多允许几轮；实际按分歧收敛决定。 */
+        maxRounds?: number;
+        /** 轮次规则或结束原因；旧事件没有。 */
         roundsReason?: string;
         elapsedMs: number;
         message: string;

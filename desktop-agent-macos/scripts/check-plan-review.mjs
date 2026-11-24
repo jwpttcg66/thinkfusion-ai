@@ -182,10 +182,11 @@ test('一场没说话的空辩论不许被当成「评审通过」', () => {
 
 // 轮次不再是全局写死 2：2 轮只有「表态 + 质疑」，被质疑方没机会回应。
 // 这里锁住「按计划规模定轮次」，以及预算必须跟着轮次走。
-test('单成员自辩只跑 2 轮：加回应轮只是同一模型自问自答', () => {
+test('轮次由分歧收敛决定：只给最多 3 轮的上限', () => {
   const verdict = planReviewRounds(writePlan, 1);
-  assert.equal(verdict.rounds, 2);
-  assert.match(verdict.reason, /单成员自辩/);
+  assert.equal(verdict.rounds, 3);
+  assert.match(verdict.reason, /最多 3 轮/);
+  assert.match(verdict.reason, /按分歧收敛/);
 });
 
 test('设计文档给 3 轮：观点编号评审，质疑需要回应才算收口', () => {
@@ -199,15 +200,15 @@ test('设计文档给 3 轮：观点编号评审，质疑需要回应才算收�
   assert.match(verdict.reason, /设计文档/);
 });
 
-test('3 步以上的计划给 3 轮，2 步的简单计划仍是 2 轮', () => {
+test('简单计划和复杂计划都只给上限，不写死实际轮次', () => {
   assert.equal(planReviewRounds(writePlan, 2).rounds, 3);
   const twoSteps = plan([
     { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
     { id: 's2', tool: 'fs.edit', args: { path: 'a.ts', oldString: 'a', newString: 'b' } }
   ]);
   const verdict = planReviewRounds(twoSteps, 2);
-  assert.equal(verdict.rounds, 2);
-  assert.match(verdict.reason, /2 轮|表态后质疑/);
+  assert.equal(verdict.rounds, 3);
+  assert.match(verdict.reason, /最多 3 轮|按分歧收敛/);
 });
 
 test('3 位以上评审给 3 轮：多方分歧要有人接着回应', () => {

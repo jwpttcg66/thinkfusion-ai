@@ -98,8 +98,9 @@ export interface OrchestratorDeps {
     status: 'completed' | 'stopped';
     participants: string[];
     summary: string;
-    /** 这场评审跑了几轮、为什么（按计划规模定）；老调用方不给也不影响。 */
+    /** 实际跑了几轮、最多允许几轮、为什么结束；老调用方不给也不影响。 */
     rounds?: number;
+    maxRounds?: number;
     roundsReason?: string;
   } | null>;
   /**
@@ -1127,7 +1128,7 @@ export class AgentOrchestrator {
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
         planId: stored.planId, state, topics: topics.length, topicTexts: topics,
         ...(decision.reason ? { reason: decision.reason } : {}),
-        rounds: plannedRounds.rounds,
+        maxRounds: plannedRounds.rounds,
         roundsReason: plannedRounds.reason,
         elapsedMs: Date.now() - startedAt, message
       });
@@ -1161,6 +1162,7 @@ export class AgentOrchestrator {
         // 这场评审有回应轮；丢了字段，界面只能显示结论，解释不了为什么这次
         // 比上次慢。
         ...(typeof result.rounds === 'number' ? { rounds: result.rounds } : {}),
+        ...(typeof result.maxRounds === 'number' ? { maxRounds: result.maxRounds } : {}),
         ...(result.roundsReason ? { roundsReason: result.roundsReason } : {}),
         at: Date.now()
       };

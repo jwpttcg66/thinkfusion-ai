@@ -1,5 +1,5 @@
 import type { AgentEvent } from '../../shared/contracts';
-import type { DebateRound, DebateState } from './types';
+import type { DebateRound, DebateState, DebateStatus } from './types';
 
 /**
  * 方案评审辩论的过程 → 对话流的成员事件。
@@ -124,4 +124,43 @@ export function reviewPeerEvents(input: ReviewPeerInput): ReviewPeerBatch {
   }
 
   return { events, keys };
+}
+
+
+/**
+ * 一轮结束后给用户看的那句话：为什么继续、还是为什么停。
+ *
+ * 轮次不是写死的：引擎每轮结束都判断一次收敛。界面必须把「进入下一轮」
+ * 的依据说出来（还有争议 / 质疑没人答复 / 达到上限），否则用户只会看到
+ * 又一张评审卡，不知道为什么要多等一轮。
+ */
+export function reviewRoundNote(input: {
+  round: DebateRound;
+  status: DebateStatus;
+  stopReason?: string;
+  disputes: number;
+  maxRounds: number;
+}): string {
+  const number = input.round.index + 1;
+  const phase = input.round.phase === 'analysis'
+    ? '表态'
+    : input.round.phase === 'challenge'
+      ? '质疑'
+      : '回应';
+  if (input.round.converged) {
+    return `第 ${String(number)} 轮评审（${phase}）已收敛，不再继续`;
+  }
+  if (input.status !== 'running') {
+    return `第 ${String(number)} 轮评审（${phase}）结束：${input.stopReason ?? '评审结束'}`;
+  }
+  if (number >= input.maxRounds) {
+    return `第 ${String(number)} 轮评审（${phase}）结束：达到最多 ${String(input.maxRounds)} 轮，评审收尾`;
+  }
+  if (input.round.phase === 'response') {
+    return `第 ${String(number)} 轮回应结束：按收敛结果收尾`;
+  }
+  if (input.round.phase === 'challenge') {
+    return `第 ${String(number)} 轮质疑结束：仍有 ${String(input.disputes)} 条争议需要答复 → 进入第 ${String(number + 1)} 轮回应`;
+  }
+  return `第 ${String(number)} 轮表态结束：仍有 ${String(input.disputes)} 条争议未解决 → 进入第 ${String(number + 1)} 轮质疑`;
 }

@@ -229,7 +229,9 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
         <span className="muted">
           {timeText(entry.at)}
           {entry.elapsedMs > 0 ? ` · 已等 ${String(Math.round(entry.elapsedMs / 1000))} 秒` : ''}
-          {typeof entry.rounds === 'number' ? ` · ${String(entry.rounds)} 轮` : ''}
+          {typeof entry.rounds === 'number'
+            ? ` · 实际 ${String(entry.rounds)} 轮${typeof entry.maxRounds === 'number' && entry.rounds !== entry.maxRounds ? `（最多 ${String(entry.maxRounds)}）` : ''}`
+            : typeof entry.maxRounds === 'number' ? ` · 最多 ${String(entry.maxRounds)} 轮` : ''}
         </span>
       </div>
       {entry.topics.length > 0 ? (
@@ -247,7 +249,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       )}
       {entry.reason && <p className="muted">为什么评审：{entry.reason}</p>}
       <p className="muted">
-        轮次规则：第 1 轮表态，第 2 轮必须质疑第 1 轮；多成员、设计文档或 3 步以上计划才加第 3 轮回应。
+        轮次规则：第 1 轮表态；有未解决争议才进入第 2 轮质疑；质疑需要被答复才进入第 3 轮回应；任何一轮收敛就结束。
       </p>
       {entry.roundsReason && <p className="muted">本场依据：{entry.roundsReason}</p>}
       {entry.summary && <p className="chat-debate-summary">{entry.summary}</p>}

@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { reviewPeerEvents, reviewRoundIdOf } from '../out-test/main/debate/review-progress.js';
+import { reviewPeerEvents, reviewRoundIdOf, reviewRoundNote } from '../out-test/main/debate/review-progress.js';
 import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
 import { DebateStore } from '../out-test/main/debate/store.js';
 
@@ -253,4 +253,55 @@ test('没有 onStream 时不用流式，手动/知识空间辩论行为不变', 
     if (started) orchestrator.stop(started.debateId);
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+const debateRound = (index, phase, converged = false) => ({
+  index,
+  phase,
+  messages: [],
+  startedAt: 0,
+  converged,
+  failures: []
+});
+
+test('第一轮不收敛：明确说还有争议，进入第二轮质疑', () => {
+  const note = reviewRoundNote({
+    round: debateRound(0, 'analysis'),
+    status: 'running',
+    disputes: 2,
+    maxRounds: 3
+  });
+  assert.match(note, /第 1 轮/);
+  assert.match(note, /2 条争议/);
+  assert.match(note, /进入第 2 轮质疑/);
+});
+
+test('第二轮质疑后：明确说进入第三轮回应', () => {
+  const note = reviewRoundNote({
+    round: debateRound(1, 'challenge'),
+    status: 'running',
+    disputes: 3,
+    maxRounds: 3
+  });
+  assert.match(note, /第 2 轮/);
+  assert.match(note, /3 条争议/);
+  assert.match(note, /进入第 3 轮回应/);
+});
+
+test('收敛或达到上限：说明为什么停，而不是继续', () => {
+  const converged = reviewRoundNote({
+    round: debateRound(0, 'analysis', true),
+    status: 'completed',
+    disputes: 0,
+    maxRounds: 3
+  });
+  assert.match(converged, /已收敛/);
+  const capped = reviewRoundNote({
+    round: debateRound(2, 'response'),
+    status: 'running',
+    disputes: 1,
+    maxRounds: 3
+  });
+  assert.match(capped, /最多 3 轮/);
 });

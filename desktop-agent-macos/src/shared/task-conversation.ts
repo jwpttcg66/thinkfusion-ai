@@ -67,6 +67,7 @@ export type ConversationEntry =
       participants: string[];
       summary: string;
       rounds?: number;
+      maxRounds?: number;
       roundsReason?: string;
       skippedReason?: string;
       /** 为什么开这场评审。 */
@@ -501,6 +502,9 @@ export function buildTaskConversation(
         ...(event.rounds !== undefined
           ? { rounds: event.rounds }
           : existing?.entry.rounds !== undefined ? { rounds: existing.entry.rounds } : {}),
+        ...(event.maxRounds !== undefined
+          ? { maxRounds: event.maxRounds }
+          : existing?.entry.maxRounds !== undefined ? { maxRounds: existing.entry.maxRounds } : {}),
         ...(event.roundsReason
           ? { roundsReason: event.roundsReason }
           : existing?.entry.roundsReason ? { roundsReason: existing.entry.roundsReason } : {}),
@@ -527,6 +531,7 @@ export function buildTaskConversation(
         summary: debate.summary,
         elapsedMs: existing?.entry.elapsedMs ?? 0,
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
+        ...(typeof debate.maxRounds === 'number' ? { maxRounds: debate.maxRounds } : {}),
         ...(debate.roundsReason ? { roundsReason: debate.roundsReason } : {}),
         ...(debate.skippedReason ? { skippedReason: debate.skippedReason } : {}),
         ...(debate.reason ? { reason: debate.reason } : {})
