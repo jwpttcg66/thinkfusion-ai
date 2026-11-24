@@ -216,6 +216,7 @@ import {
   planReviewRounds,
   summarizePlanDebate
 } from './engineering/plan-review';
+import { compactPlanDebateResult } from './engineering/plan-debate-result';
 import {
   normalizeWorkspaceState,
   routeTask,
@@ -5768,6 +5769,7 @@ app.whenReady().then(async () => {
       // 一个 90 秒没出话——那种记录不能显示成「已辩完」，否则审批的人会以为
       // 这份计划被评审过。
       const spoke = done.rounds.some(round => round.messages.length > 0);
+      const result = compactPlanDebateResult(done);
       return {
         debateId: done.debateId,
         status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
@@ -5789,7 +5791,9 @@ app.whenReady().then(async () => {
             })),
             failures: round.failures
           }))
-        })
+        }),
+        // 主活动区用结构化切片展示争议与裁决；summary 仍留给审批短读。
+        result
       };
     },
     /**

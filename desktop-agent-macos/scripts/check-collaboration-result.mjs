@@ -104,6 +104,129 @@ test('Engineering：skipped 计划辩论不进入 disputes', () => {
   }, 5), null);
 });
 
+test('Engineering：PlanDebate.result 有争议才进 disputes，无争议不伪造双方', () => {
+  const withDispute = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'completed',
+    summary: '计划已评审',
+    events: [
+      {
+        type: 'plan.debated',
+        at: 5,
+        taskId,
+        roundId: 'r1',
+        planId: 'p1',
+        debate: {
+          debateId: 'd1',
+          status: 'completed',
+          topics: ['步骤顺序'],
+          participants: ['a', 'b'],
+          summary: '摘要',
+          at: 5,
+          result: {
+            claims: [
+              { claimId: 'c1', author: 'a', text: '先编译' },
+              { claimId: 'c2', author: 'b', text: '先测试' }
+            ],
+            disputes: [{
+              disputeId: 'dp1',
+              type: 'scope',
+              reason: '顺序冲突',
+              claimIds: ['c1', 'c2'],
+              agents: ['a', 'b']
+            }],
+            exchanges: [
+              { author: 'a', kind: 'position', text: '先编译', roundIndex: 0, phase: 'analysis' },
+              { author: 'b', kind: 'rebuttal', text: '应先测', roundIndex: 1, phase: 'challenge' }
+            ],
+            verdict: {
+              verdict: 'partially_supported',
+              conclusion: '先编译再测',
+              rationale: '依赖关系要求编译优先',
+              unresolved: [],
+              backend: 'rules'
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 9, taskId, summary: '计划已评审' }
+    ]
+  });
+  assert.equal(withDispute.disputes.length, 1);
+  assert.equal(withDispute.disputes[0].claims.length, 2);
+  assert.ok(withDispute.disputes[0].verdict?.includes('编译'));
+  assert.ok(withDispute.keyOpinions.length >= 2);
+
+  const noDispute = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'completed',
+    summary: '一致通过',
+    events: [
+      {
+        type: 'plan.debated',
+        at: 5,
+        taskId,
+        roundId: 'r1',
+        planId: 'p1',
+        debate: {
+          debateId: 'd2',
+          status: 'completed',
+          topics: ['风险'],
+          participants: ['a', 'b'],
+          summary: '双方同意',
+          at: 5,
+          result: {
+            claims: [
+              { claimId: 'c1', author: 'a', text: '可以执行' },
+              { claimId: 'c2', author: 'b', text: '同意' }
+            ],
+            disputes: [],
+            exchanges: []
+          }
+        }
+      },
+      { type: 'task.completed', at: 9, taskId, summary: '一致通过' }
+    ]
+  });
+  assert.equal(noDispute.disputes.length, 0, '无实质争议时不得伪造争议条目');
+  assert.ok(noDispute.keyOpinions.length >= 2);
+});
+
+test('Engineering：review.ready 的 issueDetails 优先于字符串 issues', () => {
+  const view = projectEngineeringCollaborationResult({
+    taskId,
+    status: 'completed',
+    summary: '完成',
+    events: [
+      {
+        type: 'review.ready',
+        at: 10,
+        taskId,
+        roundId: 'r1',
+        reviewer: '独立模型',
+        backend: 'model',
+        verdict: '需修复：缺少超时处理',
+        rawVerdict: '【结论】需修复\n1. 缺少超时处理',
+        issues: ['缺少超时处理'],
+        issueDetails: [{
+          issueId: 'iss-1',
+          title: '缺少超时处理',
+          description: '网络调用没有超时上限',
+          severity: 'high',
+          disposition: 'pending',
+          recommendation: '为 fetch 增加超时'
+        }],
+        needsFix: true
+      },
+      { type: 'task.completed', at: 20, taskId, summary: '完成' }
+    ]
+  });
+  assert.equal(view.reviews[0].issues[0].issueId, 'iss-1');
+  assert.equal(view.reviews[0].issues[0].severity, 'high');
+  assert.equal(view.reviews[0].issues[0].disposition, 'pending');
+  assert.equal(view.reviews[0].issues[0].recommendation, '为 fetch 增加超时');
+});
+
 test('General：综合分歧与一致观点进入统一投影', () => {
   const view = projectConversationCollaborationResult({
     conversation: {

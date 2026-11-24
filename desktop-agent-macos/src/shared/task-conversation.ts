@@ -14,7 +14,14 @@
  * - 结论只写真实发生过的事：`task.completed.summary`、执行报告、验证、评审。
  */
 
-import type { AgentEvent, ExecutionReport, PlanDebate, PlanPreview } from './contracts';
+import type {
+  AgentEvent,
+  ExecutionReport,
+  PlanDebate,
+  PlanDebateResultSlice,
+  PlanPreview,
+  ReviewIssueDetail
+} from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
 import { artifactPaths, diagnosticsOfReport, verificationIsComplete, type TaskView } from './task-view';
 
@@ -66,6 +73,8 @@ export type ConversationEntry =
       topics: string[];
       participants: string[];
       summary: string;
+      /** 结构化切片；老事件没有。 */
+      result?: PlanDebateResultSlice;
       rounds?: number;
       maxRounds?: number;
       roundsReason?: string;
@@ -96,7 +105,9 @@ export type ConversationEntry =
       reviewer: string;
       backend: 'model' | 'rules';
       verdict: string;
+      rawVerdict?: string;
       issues: string[];
+      issueDetails?: ReviewIssueDetail[];
       needsFix: boolean;
     })
   | (ConversationEntryBase & {
@@ -530,6 +541,7 @@ export function buildTaskConversation(
         participants: debate.participants,
         summary: debate.summary,
         elapsedMs: existing?.entry.elapsedMs ?? 0,
+        ...(debate.result ? { result: debate.result } : existing?.entry.result ? { result: existing.entry.result } : {}),
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
         ...(typeof debate.maxRounds === 'number' ? { maxRounds: debate.maxRounds } : {}),
         ...(debate.roundsReason ? { roundsReason: debate.roundsReason } : {}),
@@ -620,7 +632,9 @@ export function buildTaskConversation(
         reviewer: event.reviewer,
         backend: event.backend,
         verdict: event.verdict,
+        ...(event.rawVerdict ? { rawVerdict: event.rawVerdict } : {}),
         issues: event.issues,
+        ...(event.issueDetails ? { issueDetails: event.issueDetails } : {}),
         needsFix: event.needsFix
       });
       continue;

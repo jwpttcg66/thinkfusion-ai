@@ -1228,6 +1228,37 @@ export interface StoredPlan {
  * 点确认。`skippedReason` 是刻意保留的——没辩和辩了没结论是两件不同的事，
  * 界面不能都显示成空白。
  */
+/**
+ * 计划辩论落到事件里的结构化切片（V3 主活动区 U2）。
+ *
+ * 完整 DebateState 仍在辩论存档里；这里只带主活动区需要的主张、争议、
+ * 交锋与裁决，避免刷新后只剩一段 summary。老事件没有这个字段。
+ */
+export interface PlanDebateResultSlice {
+  claims: Array<{ claimId: string; author: string; text: string; kind?: string }>;
+  disputes: Array<{
+    disputeId: string;
+    type: string;
+    reason: string;
+    claimIds: [string, string];
+    agents: [string, string];
+  }>;
+  exchanges: Array<{
+    author: string;
+    kind: string;
+    text: string;
+    roundIndex: number;
+    phase?: string;
+  }>;
+  verdict?: {
+    verdict: string;
+    conclusion: string | null;
+    rationale: string;
+    unresolved: string[];
+    backend: string;
+  };
+}
+
 export interface PlanDebate {
   /** 真的开了辩论才有；没开时空缺。 */
   debateId?: string;
@@ -1238,6 +1269,8 @@ export interface PlanDebate {
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
   summary: string;
+  /** 结构化切片：主张 / 争议 / 交锋 / 裁决。老记录没有。 */
+  result?: PlanDebateResultSlice;
   /** 实际跑了几轮；由分歧收敛决定，不是固定值。老记录没有这个字段。 */
   rounds?: number;
   /** 本次允许的上限轮数；实际轮次可能更少。 */
@@ -1249,6 +1282,22 @@ export interface PlanDebate {
   /** 为什么辩：设计文档强制 / 设置开启 / auto 按计划规模与风险判断。 */
   reason?: string;
   at: number;
+}
+
+/**
+ * 独立评审的单条问题（V3 主活动区 U3）。
+ *
+ * `issues: string[]` 仍保留作兼容；有 `issueDetails` 时主活动区优先读它。
+ * disposition 默认 pending——有评审事件不等于问题已处理。
+ */
+export interface ReviewIssueDetail {
+  issueId: string;
+  title: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low' | 'unknown';
+  recommendation?: string;
+  disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
+  dispositionReason?: string;
 }
 
 export interface PlanPreview {
@@ -1533,7 +1582,10 @@ export type AgentEvent = AgentEventBase &
         reviewer: string;
         backend: 'model' | 'rules';
         verdict: string;
+        /** 模型/规则原文；有 issueDetails 时界面优先展示结构化问题。 */
+        rawVerdict?: string;
         issues: string[];
+        issueDetails?: ReviewIssueDetail[];
         needsFix: boolean;
       }
     /** V2.1 D-03：计划生成后、审批前的方案评审辩论。 */

@@ -32,7 +32,9 @@ export interface TaskView {
     reviewer: string;
     backend: 'model' | 'rules';
     verdict: string;
+    rawVerdict?: string;
     issues: string[];
+    issueDetails?: import('./contracts').ReviewIssueDetail[];
     needsFix: boolean;
   } | null;
   verification: {
@@ -181,7 +183,9 @@ export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView 
         reviewer: event.reviewer,
         backend: event.backend,
         verdict: event.verdict,
+        ...(event.rawVerdict ? { rawVerdict: event.rawVerdict } : {}),
         issues: event.issues,
+        ...(event.issueDetails ? { issueDetails: event.issueDetails } : {}),
         needsFix: event.needsFix
       }
     };

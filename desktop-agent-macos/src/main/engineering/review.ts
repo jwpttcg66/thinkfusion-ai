@@ -17,7 +17,7 @@
  * 要么由用户确认后重新生成计划，要么明确结束，权限始终在用户手里。
  */
 
-import type { AgentPlan, ExecutionReport, StepResult } from '../../shared/contracts';
+import type { AgentPlan, ExecutionReport, ReviewIssueDetail, StepResult } from '../../shared/contracts';
 import type { EvidenceRef } from '../../shared/engineering-evidence';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 
@@ -26,10 +26,36 @@ type CommandRef = Extract<EvidenceRef, { kind: 'command' }>;
 export interface ReviewVerdict {
   reviewer: string;
   backend: 'model' | 'rules';
+  /** 给人读的短结论；完整原文在 rawVerdict。 */
   verdict: string;
+  /** 模型/规则给出的完整原文，结构化问题不足时仍可展开。 */
+  rawVerdict?: string;
   issues: string[];
+  issueDetails?: ReviewIssueDetail[];
   needsFix: boolean;
   at: number;
+}
+
+function severityOf(text: string): ReviewIssueDetail['severity'] {
+  if (/高风险|严重|致命|崩溃|数据丢失|安全/.test(text)) return 'high';
+  if (/中风险|应补|缺少|未覆盖|失败|不一致/.test(text)) return 'medium';
+  if (/低风险|建议|可选|轻微/.test(text)) return 'low';
+  return 'unknown';
+}
+
+/** 把字符串问题列表变成可跟踪的 issueDetails；disposition 一律 pending。 */
+export function structureReviewIssues(issues: readonly string[], reviewKey: string): ReviewIssueDetail[] {
+  return issues.map((text, index) => {
+    const description = text.trim();
+    const title = description.slice(0, 80) || `问题 ${String(index + 1)}`;
+    return {
+      issueId: `${reviewKey}:issue:${String(index)}:${title}`,
+      title,
+      description,
+      severity: severityOf(description),
+      disposition: 'pending' as const
+    };
+  });
 }
 
 export interface ReviewOptions {
@@ -234,15 +260,19 @@ export async function reviewExecution(
   const base = ruleReview(report, plan);
   const ask = options.ask;
   if (!ask) {
+    const verdict = base.issues.length > 0
+      ? `执行结果有 ${String(base.issues.length)} 处待处理，建议修复后再验一次。${base.summary}`
+      : `执行结果与计划一致，没有发现可核查的问题。${base.summary}`;
+    const at = now();
     return {
       reviewer: '本机规则',
       backend: 'rules',
-      verdict: base.issues.length > 0
-        ? `执行结果有 ${String(base.issues.length)} 处待处理，建议修复后再验一次。${base.summary}`
-        : `执行结果与计划一致，没有发现可核查的问题。${base.summary}`,
+      verdict,
+      rawVerdict: verdict,
       issues: base.issues,
+      issueDetails: structureReviewIssues(base.issues, `rules:${String(at)}`),
       needsFix: base.issues.length > 0,
-      at: now()
+      at
     };
   }
 
@@ -272,24 +302,34 @@ export async function reviewExecution(
       .filter(line => !/(不影响|无需|不必|不构成|可以接受|足以)/.test(line))
       .filter(line => !/^【?(结论|总评)】?/.test(line))
       .slice(0, 8);
-    const actionable = [...base.issues, ...modelIssues];
+    const actionable = [...new Set([...base.issues, ...modelIssues])];
+    const at = now();
+    const shortVerdict = needsFix || actionable.length > 0
+      ? (actionable[0] ? `需修复：${actionable[0].slice(0, 120)}` : '需修复')
+      : (/【结论】\s*通过|通过/.test(verdict) ? '通过' : verdict.slice(0, 160));
     return {
       reviewer: options.reviewer ?? '独立模型',
       backend: 'model',
-      verdict,
-      issues: [...new Set(actionable)],
+      verdict: shortVerdict,
+      rawVerdict: verdict,
+      issues: actionable,
+      issueDetails: structureReviewIssues(actionable, `model:${String(at)}`),
       needsFix: actionable.length > 0,
-      at: now()
+      at
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    const at = now();
+    const verdict = `独立评审没有完成（${detail}），已退回规则版：${base.summary}`;
     return {
       reviewer: '本机规则',
       backend: 'rules',
-      verdict: `独立评审没有完成（${detail}），已退回规则版：${base.summary}`,
+      verdict,
+      rawVerdict: verdict,
       issues: base.issues,
+      issueDetails: structureReviewIssues(base.issues, `rules-fallback:${String(at)}`),
       needsFix: base.issues.length > 0,
-      at: now()
+      at
     };
   }
 }

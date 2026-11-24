@@ -13,6 +13,10 @@ import type {
 } from '../../shared/contracts';
 import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsComplete, type TaskView } from '../../shared/task-view';
 import { buildConclusion } from '../../shared/task-conversation';
+import {
+  projectConversationCollaborationResult,
+  projectEngineeringCollaborationResult
+} from '../../shared/collaboration-result';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
 import { auditActivity } from '../../shared/diagnostics';
@@ -40,6 +44,7 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
+import { CollaborationResultPanel } from './components/CollaborationResultPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
@@ -529,10 +534,33 @@ export default function App() {
     () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
     [events, activeTask?.summary, activeTask?.status]
   );
+  /** 工程主活动区统一结果投影：结论 / 意见 / 争议 / 评审 / 验证。 */
+  const engineeringResult = useMemo(() => {
+    if (!activeTask) return null;
+    return projectEngineeringCollaborationResult({
+      taskId: activeTask.taskId,
+      events,
+      summary: activeTask.summary,
+      status: activeTask.status
+    });
+  }, [activeTask, events]);
   const activeConversation = useMemo(
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
   );
+  /** General / Knowledge：会话结束后才投影，避免进行中硬造结论。 */
+  const conversationResult = useMemo(() => {
+    if (!activeConversation) return null;
+    if (!['answered', 'failed', 'cancelled'].includes(activeConversation.status)) return null;
+    return projectConversationCollaborationResult({
+      conversation: activeConversation,
+      messages,
+      scene: activeConversation.workspaceMode === 'engineering' ? 'general' : (
+        activeConversation.intent === 'research' ? 'knowledge' : 'general'
+      ),
+      debate: debateLive
+    });
+  }, [activeConversation, messages, debateLive]);
   const activity = useMemo<ObservabilityEvent[]>(
     () => projectActivity(events.map(fromAgentEvent).filter((item): item is ObservabilityEvent => item !== null)),
     [events]
@@ -2288,7 +2316,15 @@ export default function App() {
               </>
             )}
 
-            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
+            {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
+              <CollaborationResultPanel
+                result={conversationResult}
+                onOpenEvidence={() => setConversationTab('trajectory')}
+              />
+            )}
+
+            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly
+              && !conversationResult && (
               <ProgressPanel
                 conversationStatus={activeConversation.status}
                 taskStatus={activeTask?.status ?? null}
@@ -2347,6 +2383,13 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
+                  || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0) && (
+                  <CollaborationResultPanel
+                    result={engineeringResult}
+                    onOpenEvidence={() => setWorkbenchTab('trajectory')}
+                  />
+                )}
                 <TaskProgressCard
                   task={activeTask}
                   plan={derived.plan}
@@ -2679,7 +2722,9 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output') && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
+            {/* 对话页已有 CollaborationResultPanel 承载结论/评审/验证；
+                「最终交付」只在输出页保留文件与检查明细，避免同一结论堆两遍。 */}
+            {activeTask && workbenchTab === 'output' && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
                   <h2>最终交付</h2>

@@ -247,6 +247,21 @@ export function projectEngineeringCollaborationResult(input: {
       participantId: event.reviewer,
       label: `第 ${String(reviewIndex)} 次独立评审`
     });
+    const issues = event.issueDetails && event.issueDetails.length > 0
+      ? event.issueDetails.map(detail => ({
+          issueId: detail.issueId,
+          title: detail.title,
+          description: detail.description,
+          severity: detail.severity,
+          recommendation: detail.recommendation,
+          disposition: detail.disposition,
+          dispositionReason: detail.dispositionReason,
+          evidenceRefs: [] as SourceReference[],
+          resolutionRefs: [] as SourceReference[],
+          verificationRefs: [] as SourceReference[],
+          sourceRefs: [source]
+        }))
+      : mapReviewIssues(taskId, reviewIndex, event.issues, event.at);
     reviews.push({
       reviewId: `review:${taskId}:${String(reviewIndex)}:${String(event.at)}`,
       index: reviewIndex,
@@ -254,7 +269,7 @@ export function projectEngineeringCollaborationResult(input: {
       backend: event.backend,
       verdict: event.verdict,
       needsFix: event.needsFix,
-      issues: mapReviewIssues(taskId, reviewIndex, event.issues, event.at),
+      issues,
       sourceRefs: [source]
     });
   }
@@ -287,6 +302,7 @@ export function projectEngineeringCollaborationResult(input: {
     });
 
   const disputes: DisputeView[] = [];
+  const debateOpinions: OpinionView[] = [];
   for (const entry of entries) {
     if (entry.kind !== 'debate') continue;
     if (entry.status === 'skipped') {
@@ -300,17 +316,66 @@ export function projectEngineeringCollaborationResult(input: {
       eventAt: entry.at,
       label: entry.topics[0] ?? '计划评审辩论'
     });
+    const slice = entry.result;
+    if (slice) {
+      for (const claim of slice.claims) {
+        debateOpinions.push({
+          opinionId: `debate-claim:${claim.claimId}`,
+          author: claim.author,
+          position: 'neutral',
+          statement: claim.text,
+          sourceRefs: [source],
+          evidenceRefs: [],
+          targetRefs: []
+        });
+      }
+      if (slice.disputes.length === 0) {
+        // 有结构但无争议：不伪造正反双方；裁决（若有）进结论层。
+        continue;
+      }
+      for (const dispute of slice.disputes) {
+        const relatedClaims = slice.claims.filter(claim => dispute.claimIds.includes(claim.claimId));
+        disputes.push({
+          disputeId: dispute.disputeId,
+          topic: entry.topics.join('；') || dispute.reason.slice(0, 80) || '计划评审争议',
+          disputeClass: dispute.type,
+          status: slice.verdict ? 'verdict' : entry.status === 'running' ? 'exchanging' : 'identified',
+          claims: (relatedClaims.length > 0 ? relatedClaims : [
+            { claimId: dispute.claimIds[0], author: dispute.agents[0], text: dispute.reason },
+            { claimId: dispute.claimIds[1], author: dispute.agents[1], text: dispute.reason }
+          ]).map(claim => ({
+            claimId: claim.claimId,
+            author: claim.author,
+            statement: 'text' in claim ? claim.text : dispute.reason,
+            sourceRefs: [source]
+          })),
+          exchanges: slice.exchanges.map((exchange, index) => ({
+            exchangeId: `exchange:${dispute.disputeId}:${String(index)}`,
+            kind: exchange.kind === 'rebuttal' || exchange.kind === 'question'
+              ? 'challenge' as const
+              : exchange.kind === 'revision'
+                ? 'revision' as const
+                : 'response' as const,
+            author: exchange.author,
+            text: exchange.text,
+            sourceRefs: [source]
+          })),
+          evidenceRefs: [],
+          verdict: slice.verdict?.conclusion ?? slice.verdict?.rationale ?? entry.summary,
+          unresolvedReason: slice.verdict?.unresolved?.join('；') || undefined,
+          sourceRefs: [source]
+        });
+      }
+      continue;
+    }
+    // 老事件没有切片：只有摘要时，不拿参与者名单冒充争议双方。
+    if (!entry.summary.trim()) continue;
     disputes.push({
       disputeId: `plan-debate:${taskId}:${String(entry.at)}`,
       topic: entry.topics.join('；') || '计划评审',
       disputeClass: 'plan_review',
       status: entry.status === 'completed' ? 'verdict' : entry.status === 'running' ? 'exchanging' : 'undetermined',
-      claims: entry.participants.map((participant, index) => ({
-        claimId: `plan-debate-claim:${String(entry.at)}:${String(index)}`,
-        author: participant,
-        statement: entry.summary || '（本场辩论未留下可展示的主张摘要）',
-        sourceRefs: [source]
-      })),
+      claims: [],
       exchanges: [],
       evidenceRefs: [],
       verdict: entry.status === 'completed' || entry.status === 'stopped' ? entry.summary : undefined,
@@ -319,27 +384,30 @@ export function projectEngineeringCollaborationResult(input: {
     });
   }
 
-  const keyOpinions: OpinionView[] = entries
-    .filter((entry): entry is Extract<typeof entry, { kind: 'member' }> =>
-      entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0 && entry.protocol === null)
-    .map(entry => {
-      const source = ref({
-        subjectId: taskId,
-        kind: 'message',
-        eventAt: entry.at,
-        participantId: entry.memberId,
-        label: entry.label
-      });
-      return {
-        opinionId: `member:${entry.roundId ?? 'none'}:${entry.memberId}:${String(entry.at)}`,
-        author: entry.label,
-        position: 'neutral' as const,
-        statement: entry.text.trim().slice(0, 500),
-        sourceRefs: [source],
-        evidenceRefs: [],
-        targetRefs: []
-      };
-    });
+  const keyOpinions: OpinionView[] = [
+    ...debateOpinions,
+    ...entries
+      .filter((entry): entry is Extract<typeof entry, { kind: 'member' }> =>
+        entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0 && entry.protocol === null)
+      .map(entry => {
+        const source = ref({
+          subjectId: taskId,
+          kind: 'message',
+          eventAt: entry.at,
+          participantId: entry.memberId,
+          label: entry.label
+        });
+        return {
+          opinionId: `member:${entry.roundId ?? 'none'}:${entry.memberId}:${String(entry.at)}`,
+          author: entry.label,
+          position: 'neutral' as const,
+          statement: entry.text.trim().slice(0, 500),
+          sourceRefs: [source],
+          evidenceRefs: [],
+          targetRefs: []
+        };
+      })
+  ];
 
   const deliverables: DeliverableView[] = [
     ...taskView.changes.map((change, index) => ({

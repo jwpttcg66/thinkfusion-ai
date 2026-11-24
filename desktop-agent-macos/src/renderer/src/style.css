@@ -948,6 +948,58 @@ button:disabled {
 .review-card p { margin: 6px 0; font-size: 12.5px; line-height: 1.6; color: var(--text); }
 .review-card ul { margin: 6px 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
 .review-card li { margin-bottom: 4px; }
+
+/* V3 主活动区 · 协作结果五层 */
+.collab-result {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel, #fff);
+}
+.collab-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.collab-result-section {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.collab-result-section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  list-style: none;
+}
+.collab-result-section > summary::-webkit-details-marker { display: none; }
+.collab-result-body { margin-top: 8px; font-size: 13px; line-height: 1.55; }
+.collab-result-conclusion { margin-bottom: 6px; }
+.collab-result-facts { margin: 6px 0; padding-left: 18px; color: var(--text-2); }
+.collab-result-open { color: #b45f06; }
+.collab-result-opinion,
+.collab-result-dispute,
+.collab-result-review,
+.collab-result-verification {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-soft, #f7f7f8);
+}
+.collab-result-opinion header,
+.collab-result-dispute header,
+.collab-result-review header,
+.collab-result-verification header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.collab-result-review.needs-fix { border-left: 3px solid #d9822b; }
+.collab-result-evidence { margin-top: 8px; }
+.collab-result-section.is-process { opacity: 0.92; }
 .verify-checks {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

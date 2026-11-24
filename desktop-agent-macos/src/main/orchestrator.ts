@@ -72,7 +72,9 @@ export interface OrchestratorDeps {
     reviewer: string;
     backend: 'model' | 'rules';
     verdict: string;
+    rawVerdict?: string;
     issues: string[];
+    issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
     needsFix: boolean;
     at: number;
   }>;
@@ -414,7 +416,14 @@ export class AgentOrchestrator {
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论：下一轮计划要不要人重新批准，由权限预设决定
     // （完全权限下自动执行，其余档位仍需点击）。
-    let review: { reviewer: string; verdict: string; issues: string[]; needsFix: boolean } | null = null;
+    let review: {
+      reviewer: string;
+      verdict: string;
+      issues: string[];
+      needsFix: boolean;
+      rawVerdict?: string;
+      issueDetails?: import('../shared/contracts').ReviewIssueDetail[];
+    } | null = null;
     if (this.deps.review) {
       try {
         const verdict = await this.deps.review(report, plan, task);
@@ -422,12 +431,16 @@ export class AgentOrchestrator {
           reviewer: verdict.reviewer,
           verdict: verdict.verdict,
           issues: verdict.issues,
-          needsFix: verdict.needsFix
+          needsFix: verdict.needsFix,
+          ...(verdict.rawVerdict ? { rawVerdict: verdict.rawVerdict } : {}),
+          ...(verdict.issueDetails ? { issueDetails: verdict.issueDetails } : {})
         };
         this.deps.emit({
           type: 'review.ready', at: verdict.at, taskId: task.taskId, roundId: stored.roundId,
           reviewer: verdict.reviewer, backend: verdict.backend, verdict: verdict.verdict,
-          issues: verdict.issues, needsFix: verdict.needsFix
+          issues: verdict.issues, needsFix: verdict.needsFix,
+          ...(verdict.rawVerdict ? { rawVerdict: verdict.rawVerdict } : {}),
+          ...(verdict.issueDetails ? { issueDetails: verdict.issueDetails } : {})
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

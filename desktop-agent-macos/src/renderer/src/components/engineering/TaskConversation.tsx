@@ -365,6 +365,15 @@ function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 
 /** 第 N 次独立评审：同样按事件时间落进时间线，不放到页面底部。 */
 function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'review' }> }) {
   const { entry } = props;
+  const details = entry.issueDetails && entry.issueDetails.length > 0
+    ? entry.issueDetails
+    : entry.issues.map((text, index) => ({
+        issueId: `legacy:${String(index)}`,
+        title: text.slice(0, 80),
+        description: text,
+        severity: 'unknown' as const,
+        disposition: 'pending' as const
+      }));
   return (
     <section className={`card review-card chat-review${entry.needsFix ? ' needs-fix' : ''}`}>
       <div className="review-head">
@@ -374,12 +383,27 @@ function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'revie
         </span>
       </div>
       <p>{entry.verdict}</p>
-      {entry.issues.length > 0 && (
+      {details.length > 0 && (
         <ul>
-          {entry.issues.map((issue, index) => <li key={index}>{issue}</li>)}
+          {details.map(issue => (
+            <li key={issue.issueId}>
+              <b>{issue.title}</b>
+              {issue.description !== issue.title && <div>{issue.description}</div>}
+              <div className="muted">
+                风险：{issue.severity === 'high' ? '高' : issue.severity === 'medium' ? '中' : issue.severity === 'low' ? '低' : '未分级'}
+                {' · '}处理：{issue.disposition === 'pending' ? '待决定' : issue.disposition}
+              </div>
+            </li>
+          ))}
         </ul>
       )}
-      <p className="muted">评审只给结论，不会改文件。</p>
+      {entry.rawVerdict && entry.rawVerdict !== entry.verdict && (
+        <details>
+          <summary>完整评审原文</summary>
+          <pre>{entry.rawVerdict}</pre>
+        </details>
+      )}
+      <p className="muted">评审只给结论，不会改文件。未处理的问题保持待决定，不会自动关闭。</p>
     </section>
   );
 }

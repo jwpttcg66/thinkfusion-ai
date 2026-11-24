@@ -79,16 +79,17 @@
 | 项 | 状态 | 依据 |
 | --- | --- | --- |
 | 实施任务书 | DESIGN | `docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md` |
-| U0 现状与数据链路审计 | DESIGN | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md`（代码事实审计完成；功能未改） |
-| U1 统一协作结果投影 | IMPLEMENTED / TESTED | `shared/collaboration-result.ts` + `test:collaboration-result`；UI 未消费 |
-| U2 Debate 争议驱动与展示 | NOT STARTED | — |
-| U3 Review 内容与闭环 | NOT STARTED | — |
-| U4 General / Knowledge 主活动区 | NOT STARTED | — |
-| U5 Engineering 主活动区 | NOT STARTED | — |
-| U6 集成 / 恢复 / 真机验收 | NOT STARTED | — |
+| U0 现状与数据链路审计 | DESIGN | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md` |
+| U1 统一协作结果投影 | IMPLEMENTED / TESTED | `shared/collaboration-result.ts` + `test:collaboration-result` |
+| U2 Debate 争议驱动与展示 | IMPLEMENTED / TESTED | `PlanDebate.result` + 投影不伪造无争议 |
+| U3 Review 内容与闭环 | PARTIAL | issueDetails/rawVerdict 已通；disposition 真值回写待接审批流 |
+| U4 General / Knowledge 主活动区 | IMPLEMENTED / TESTED | `CollaborationResultPanel` 置顶（自动化）；真机未跑 |
+| U5 Engineering 主活动区 | IMPLEMENTED / TESTED | 结果面板 + 对话页去掉重复最终交付 |
+| U6 集成 / 恢复 / 真机验收 | PARTIAL | 自动化通过；Electron 真机清单见 U2–U6 实施记录 |
 | 功能分支 | 进行中 | `feat/v3-main-activity-collab-result`（未推送） |
+| 实施记录 | — | `docs/implementation/V3-MAIN-ACTIVITY-U2-U6-IMPLEMENTATION.md` |
 
-> U0 只交付审计与任务书落盘，**不等于**主活动区已重构。
+> U3 disposition 闭环与 U6 真机仍属 PARTIAL，不以「页面改了」冒充全部 VERIFIED。
 
 ## 5. 文档分类
 
