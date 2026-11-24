@@ -123,6 +123,8 @@ export interface OrchestratorDeps {
    * `withContext`，仍按原话直发；这里不做任何注入。
    */
   contextManager?: ContextManager | null;
+  /** 规划看门狗的静默阈值；测试可调小，生产默认 120 秒。 */
+  planningIdleMs?: number;
   /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
   onRecovery?: (task: AgentTask, result: TaskRecoveryResult) => void;
 }
@@ -145,6 +147,8 @@ export class AgentOrchestrator {
   private busy = new Set<string>();
   /** 正在恢复的任务；同一任务只允许一个恢复流程（LT-P5-05）。 */
   private resuming = new Set<string>();
+  /** 每个任务最后一次收到规划增量的时间；用于「无输出」看门狗。 */
+  private readonly planningActivity = new Map<string, number>();
 
   /**
    * Serialises use of the one page there is.
@@ -809,6 +813,10 @@ export class AgentOrchestrator {
   // Round driving
   // -------------------------------------------------------------------------
 
+  private touchPlanning(taskId: string) {
+    this.planningActivity.set(taskId, Date.now());
+  }
+
   private async driveRound(taskId: string, roundId: string, prompt: string): Promise<void> {
     const task = this.tasks.get(taskId);
     if (task.status === 'cancelled' || task.status === 'failed') return;
@@ -821,11 +829,10 @@ export class AgentOrchestrator {
       // 超时从排队前开始计时：队列被旧请求占住时也必须能失败收敛。
       let timer: ReturnType<typeof setTimeout> | undefined;
       let answer: string;
-      // 有旁听时，主导可能几秒就回来，但旁听还要继续输出。等旁听收尾
-      // 不能挤掉主导的 120 秒预算，否则会出现「主计划已好，却因旁听慢而
-      // 整轮超时」。给旁听额外同样长的时间；单旁听自身也在 120 秒截断。
-      const hasPeers = (this.plannerMembers.get(taskId)?.length ?? 0) > 1;
-      const planningBudget = hasPeers ? PLANNING_TIMEOUT_MS + PLANNING_TIMEOUT_MS : PLANNING_TIMEOUT_MS;
+      // 规划看门狗只看「多久没有新输出」：模型一直在流正文/推理时，
+      // 每一块都重置计时；只有连续静默才中止。总时长不再作为硬上限。
+      const idleMs = this.deps.planningIdleMs ?? PLANNING_TIMEOUT_MS;
+      this.touchPlanning(taskId);
       try {
         answer = await Promise.race([
           this.withPlanningSlot(taskId, async () => {
@@ -834,15 +841,23 @@ export class AgentOrchestrator {
             return this.askRound(taskId, roundId, prompt);
           }),
           new Promise<string>((_, reject) => {
-            timer = setTimeout(() => {
-              this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
-              this.cancelPeers(taskId);
-              reject(new Error(`模型规划超时（${String(Math.round(planningBudget / 1000))} 秒）：没有返回可解析的计划。请换模型或重试。`));
-            }, planningBudget);
+            const check = () => {
+              const last = this.planningActivity.get(taskId) ?? Date.now();
+              const idle = Date.now() - last;
+              if (idle >= idleMs) {
+                this.adapterFor(taskId).cancelWait(this.tasks.getRound(roundId)?.requestId ?? '');
+                this.cancelPeers(taskId);
+                reject(new Error(`模型连续 ${String(Math.round(idleMs / 1000))} 秒没有输出，已停止。请重试或换模型。`));
+                return;
+              }
+              timer = setTimeout(check, Math.max(20, idleMs - idle));
+            };
+            timer = setTimeout(check, idleMs);
           })
         ]);
       } finally {
         if (timer) clearTimeout(timer);
+        this.planningActivity.delete(taskId);
       }
       const afterAnswer = this.tasks.get(taskId);
       if (['paused', 'interrupted', 'cancelled', 'failed'].includes(afterAnswer.status)) {
@@ -1018,6 +1033,7 @@ export class AgentOrchestrator {
     });
     try {
       const { snapshotBefore } = await peer.adapter.sendMessage(prompt, requestId, chunk => {
+        this.touchPlanning(taskId);
         this.deps.emit({
           type: 'round.delta',
           at: Date.now(),
@@ -1037,7 +1053,7 @@ export class AgentOrchestrator {
       const text = await peer.adapter.waitForAnswer(
         requestId,
         snapshotBefore,
-        Math.min(this.tasks.get(taskId).timeoutMs, PLANNING_TIMEOUT_MS),
+        peer.adapter.streamIdleTimeout ? 0 : Math.min(this.tasks.get(taskId).timeoutMs, PLANNING_TIMEOUT_MS),
         prompt
       );
       this.deps.emit({
@@ -1168,13 +1184,14 @@ export class AgentOrchestrator {
     const attempt = async (requestId: string) => {
       const adapter = await this.adapterWithContext(taskId, prompt);
       const { snapshotBefore } = await adapter.sendMessage(prompt, requestId, chunk => {
+        this.touchPlanning(taskId);
         this.deps.emit({ type: 'round.delta', at: Date.now(), taskId, roundId, streamId: requestId, modelCallId: requestId, ...(participantId ? { participantId } : {}), ...(chunk.text ? { text: chunk.text } : {}), ...(chunk.reasoning ? { reasoning: chunk.reasoning } : {}), ...(chunk.reset ? { reset: true } : {}), ...(chunk.mode ? { mode: chunk.mode } : {}), ...(chunk.providerId ? { providerId: chunk.providerId } : {}), ...(chunk.modelId ? { modelId: chunk.modelId } : {}) });
       });
       this.tasks.updateRound(roundId, { status: 'awaiting_answer' });
       return adapter.waitForAnswer(
         requestId,
         snapshotBefore,
-        this.tasks.get(taskId).timeoutMs,
+        adapter.streamIdleTimeout ? 0 : this.tasks.get(taskId).timeoutMs,
         prompt
       );
     };

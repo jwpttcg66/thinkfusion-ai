@@ -85,6 +85,47 @@ export const EMPTY_TASK_VIEW: TaskView = {
 };
 
 /**
+ * 多轮报告累加改动与产物。
+ *
+ * 最后一轮常常是「再读一次 / 再跑一次验证」，本身没有写文件；如果直接
+ * 用 reportView 覆盖，前面轮次真实产出的文件会在最终交付里消失。
+ * 同一路径以新报告为准，但新报告没带 created/bytes 时保留旧值。
+ */
+function mergeChanges(
+  previous: TaskView['changes'],
+  next: TaskView['changes']
+): TaskView['changes'] {
+  const byPath = new Map(previous.map(item => [item.path, item]));
+  for (const item of next) {
+    const old = byPath.get(item.path);
+    if (!old) {
+      byPath.set(item.path, item);
+      continue;
+    }
+    byPath.set(item.path, {
+      ...old,
+      ...item,
+      ...(item.before === undefined && old.before !== undefined
+        ? { before: old.before, after: old.after }
+        : {}),
+      ...(item.created === undefined && old.created !== undefined ? { created: old.created } : {}),
+      ...(item.replaced === undefined && old.replaced !== undefined ? { replaced: old.replaced } : {}),
+      ...(item.bytes === undefined && old.bytes !== undefined ? { bytes: old.bytes } : {})
+    });
+  }
+  return [...byPath.values()];
+}
+
+function mergeArtifacts(
+  previous: TaskView['artifacts'],
+  next: TaskView['artifacts']
+): TaskView['artifacts'] {
+  const byPath = new Map(previous.map(item => [item.path, item]));
+  for (const item of next) byPath.set(item.path, item);
+  return [...byPath.values()];
+}
+
+/**
  * 单个事件落到视图上（增量路径）。
  *
  * 全量 `projectTaskView` 也走这一支：两处各写一遍「round.started 要清空什么」，
@@ -117,7 +158,20 @@ export function applyTaskViewEvent(view: TaskView, event: AgentEvent): TaskView 
    * 重新点开这条任务（走全量重算）才出现——2026-11-22 真机就是这样：任务已经
    * 完成、验证也通过了，交付卡整块不渲染，用户只看到评审在说「无法验证」。
    */
-  if (event.type === 'report.ready') return { ...view, live, members, ...reportView(event.report) };
+  if (event.type === 'report.ready') {
+    const report = reportView(event.report);
+    // 报告轮是新增，不是替换：最终交付要能列出这个任务所有轮次真实产出的
+    // 文件与产物，而不是只剩最后一轮验证读到的几个路径。
+    return {
+      ...view,
+      live,
+      members,
+      verification: report.verification ?? view.verification,
+      changes: mergeChanges(view.changes, report.changes),
+      artifacts: mergeArtifacts(view.artifacts, report.artifacts),
+      diagnostics: report.diagnostics.length > 0 ? report.diagnostics : view.diagnostics
+    };
+  }
   if (event.type === 'review.ready') {
     return {
       ...view,

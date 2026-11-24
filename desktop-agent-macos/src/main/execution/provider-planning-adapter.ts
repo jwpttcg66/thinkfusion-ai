@@ -7,6 +7,7 @@ import type { ProviderBackedSubAgent } from './provider-sub-agent';
 export class ProviderPlanningAdapter implements PlanningAdapter {
   readonly siteLabel: string;
   readonly concurrent = true;
+  readonly streamIdleTimeout = true;
   private readonly pending = new Map<string, Promise<string>>();
   private readonly progress = new Map<string, { text: number; reasoning: number }>();
   private readonly controllers = new Map<string, AbortController>();
@@ -130,6 +131,17 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   ): Promise<string> {
     const promise = this.pending.get(requestId);
     if (!promise) throw new Error('没有找到这次规划请求');
+    // 流式规划的超时由 Provider 按「多久没有新输出」处理；这里再加总时长
+    // 会再次出现「模型一直在输出却被判超时」。非流式调用仍保留固定上限。
+    if (timeoutMs <= 0) {
+      try {
+        return await promise;
+      } finally {
+        this.pending.delete(requestId);
+        this.progress.delete(requestId);
+        this.controllers.delete(requestId);
+      }
+    }
     const effective = Math.min(timeoutMs, this.planTimeoutMs);
     try {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -140,7 +152,7 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
           const detail = progress
             ? `模型只输出了 ${progress.reasoning} 字符推理，没有计划文本。请换一个非推理模型，或取消后重试。`
             : '模型没有返回计划文本。请重试或换模型。';
-          reject(new Error(`规划超时（${Math.round(effective / 1000)} 秒）：${detail}`));
+          reject(new Error(`等待模型响应超时（${Math.round(effective / 1000)} 秒）：${detail}`));
         }, effective);
       });
       try {

@@ -2605,6 +2605,8 @@ export interface PlanningAdapter {
   readonly concurrent?: boolean;
   /** Provider 规划器声明自己能接收上下文；Web/CLI 不声明。 */
   withContext?(context: PlanningContext): PlanningAdapter;
+  /** true：流式输出按「无输出」计时，调用方不再给总时长上限。 */
+  readonly streamIdleTimeout?: boolean;
   /** 供 Context Manager 估算 provider/model；没有就按 unknown。 */
   readonly contextMeta?: { providerId: string; modelId: string };
   getStatus(): Promise<DeepSeekStatus>;
