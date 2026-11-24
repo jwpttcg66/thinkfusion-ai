@@ -28,6 +28,10 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [architecture/V3-GLOBAL-ARCHITECTURE.md](architecture/V3-GLOBAL-ARCHITECTURE.md) | 全局架构、四态、V3/LT 轨道与文件所有权 |
+| [implementation/V3-GLOBAL-CONSISTENCY-TASK-BOOK.md](implementation/V3-GLOBAL-CONSISTENCY-TASK-BOOK.md) | G0–G6 全局一致性门禁任务书 |
+| [implementation/V3-GLOBAL-CONSISTENCY-AUDIT.md](implementation/V3-GLOBAL-CONSISTENCY-AUDIT.md) | G0 当前代码/文档事实审计 |
+| [implementation/V3-GLOBAL-CONSISTENCY-REVIEW.md](implementation/V3-GLOBAL-CONSISTENCY-REVIEW.md) | G6 文档级评审记录 |
 | [implementation/LONG-TASK-CONTEXT-README.md](implementation/LONG-TASK-CONTEXT-README.md) | 文档集入口、阅读顺序、阶段门禁 |
 | [architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md](architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) | 长任务执行、上下文预算、裁剪、摘要、检查点与恢复 |
 | [spec/LONG_TASK_CONTEXT_CONTRACTS.md](spec/LONG_TASK_CONTEXT_CONTRACTS.md) | 类型、状态机、事件、API 契约 |

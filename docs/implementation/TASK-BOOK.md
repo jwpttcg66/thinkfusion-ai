@@ -1,7 +1,44 @@
 # ThinkFusion V3 全任务设计书
 
-状态：**设计稿（2026-11-18）**，设计分支 `product-v3`。
-代码基线：`cd30be3`。评审快照：`2d05b12`（当前 HEAD 见 git log）。
+状态：**历史/现行混合任务设计**（2026-11-18 起草；2026-11-24 全局修订）。
+设计基线：历史 `product-v3@2d05b12`；当前文档基线 `main@6f871e2`。
+代码基线：`cd30be3`（历史审计），当前事实见 `STATUS.md`。
+
+> **2026-11-24 全局一致性修订**：V3 P0–P6 与 LT-P0–LT-P6 是两条独立轨道；
+> G0–G6 是进入 LT-P0 前的全局治理门禁。共享文件只能有一个主要责任任务。
+> 当前状态：[STATUS.md](STATUS.md)；全局架构：[V3-GLOBAL-ARCHITECTURE.md](../architecture/V3-GLOBAL-ARCHITECTURE.md)。
+
+## 0.0 V3 与 LT 轨道关系
+
+| 轨道 | 编号 | 职责 |
+| --- | --- | --- |
+| V3 总体 | P0–P6 | 协作、知识、工程、证据、通道、UI、运维 |
+| 长任务 | LT-P0–LT-P6 | Context Manager、压缩、检查点、恢复、UI |
+
+- 编号不混用；
+- G0–G6 通过后才进入 LT-P0；
+- 现有 35 项 LT 任务继续是功能清单；
+- V3 既有模块由 V3 拥有，LT 只扩展，不并行重写。
+
+共享文件所有权：
+
+| 文件 | V3 主要所有权 | LT 边界 |
+| --- | --- | --- |
+| `task-manager.ts` | 任务生命周期 | 暂停/中断/预算状态 |
+| `orchestrator.ts` | 执行治理 | 上下文/恢复钩子 |
+| `store.ts` | Journal | 归档保护/检查点事务 |
+| `task-events.ts` | 统一事件 | ContextEvent |
+| `task-view.ts` | 视图投影 | 上下文展示 |
+| `conversation.ts` | 会话模型 | 上下文指针/运行身份 |
+| `conversation-runner.ts` | General/Knowledge | ContextManager |
+| `execution-pool.ts` | 模型执行入口 | prepare/finalize |
+| `provider-sub-agent.ts` | Provider 适配 | 上下文透传 |
+
+全局治理任务书：
+[V3-GLOBAL-CONSISTENCY-TASK-BOOK.md](V3-GLOBAL-CONSISTENCY-TASK-BOOK.md)。
+
+---
+
 用途：把 P0–P6、UI 与跨阶段工作拆成可执行任务；每个任务都有目标、依赖、
 文件、验收、回滚与风险。**本文不写实现代码。**
 

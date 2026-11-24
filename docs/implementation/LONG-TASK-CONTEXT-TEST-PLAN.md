@@ -158,6 +158,28 @@
 - 真机截图；
 - 失败注入记录。
 
+## 5.5 test:all 接入规则
+
+`npm test` 走 `scripts/run-test-suite.mjs`，它从 `package.json` 的
+`test:all` 链解析测试文件：
+
+1. 测试脚本必须命名为 `test:*`；
+2. `test:all` 里只能出现 `npm run test:*`；
+3. 每个脚本实现只能是 `node --test <files>` 或 `node <file>`；
+4. 不能把 `tsc`/build 步骤放进被解析的脚本；
+5. 新增文件要能被解析器识别，不能只在文档里写命令；
+6. 单独运行仍要可用：`npm run test:context-contracts`。
+
+因此 LT 测试落地顺序：
+
+- LT-P0-07 先注册 `test:context-contracts`；
+- LT-P1 注册 builder/estimator/budget；
+- LT-P2 注册 pruner；
+- LT-P3 注册 summary/checkpoint/recovery；
+- LT-P6 注册 long-task E2E。
+
+未登记的脚本只能标“未来脚本”，不能写“已通过”。
+
 ## 6. 命令（建议）
 
 ```bash

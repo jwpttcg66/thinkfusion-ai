@@ -12,6 +12,7 @@
 
 | 顺序 | 文档 | 回答什么 |
 | ---: | --- | --- |
+| 0 | [全局一致性 G0–G6](V3-GLOBAL-CONSISTENCY-TASK-BOOK.md) | 进入 LT-P0 前的架构/契约/存储/测试门禁 |
 | 1 | [架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) | 为什么这样设计、四态分离、总体流程、正式决议 |
 | 1.5 | [STATUS.md](STATUS.md) | 唯一阶段状态板；文档/代码事实以此为准 |
 | 2 | [契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) | 类型、不变量、状态机、事件、API |

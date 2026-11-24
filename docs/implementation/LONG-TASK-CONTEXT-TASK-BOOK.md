@@ -11,6 +11,8 @@ UI：[LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)
 测试：[LONG-TASK-CONTEXT-TEST-PLAN.md](LONG-TASK-CONTEXT-TEST-PLAN.md)  
 灰度：[LONG-TASK-CONTEXT-ROLLOUT.md](../operations/LONG-TASK-CONTEXT-ROLLOUT.md)
 
+> 进入条件：G0–G6 全局一致性门禁通过（见
+> [V3-GLOBAL-CONSISTENCY-TASK-BOOK.md](V3-GLOBAL-CONSISTENCY-TASK-BOOK.md)）。
 > 本任务书只设计施工顺序、接口、验收与回滚，不代表任何任务已实施。
 > 每个任务开工前必须重新核对远程 `main`；代码变化时先改本文，再改代码。
 

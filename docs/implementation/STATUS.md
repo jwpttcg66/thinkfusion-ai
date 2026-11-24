@@ -46,6 +46,21 @@
 | 发布与运维 P6 | PARTIAL | 清单、迁移、备份、dmg/zip | 签名/公证未执行 |
 | V3 正式发布 | NOT STARTED | 发布判据未满足 | 见 P6 |
 
+## 3.5 全局一致性治理（G0–G6）
+
+| 阶段 | 状态 | 依据 |
+| --- | --- | --- |
+| G0 审计 | ✅ 文档级完成 | `V3-GLOBAL-CONSISTENCY-AUDIT.md` |
+| G1 全局架构 | ✅ 文档级完成 | `architecture/V3-GLOBAL-ARCHITECTURE.md` |
+| G2 跨空间契约 | ✅ 文档级完成 | `LONG_TASK_CONTEXT_CONTRACTS.md` |
+| G3 存储/归档 | ✅ 文档级完成 | `CONTEXT_CHECKPOINT_STORAGE.md` + ADR 0010（Proposed） |
+| G4 V3/LT 协调 | ✅ 文档级完成 | `TASK-BOOK.md` 所有权表 |
+| G5 测试/状态 | ✅ 文档级完成 | 本文件 + 测试计划登记说明 |
+| G6 评审 | ✅ 文档级通过；ADR 0010 设计接受 | `V3-GLOBAL-CONSISTENCY-REVIEW.md` |
+
+> G0–G5 只代表文档/契约修订完成，不代表运行时代码已实现。
+> **LT-P0 可以开始契约/设计工作；LT-P3 检查点实现仍需 P0-03 按 ADR 复核。**
+
 ## 4. 长任务与上下文压缩（LT）
 
 | 项 | 状态 | 依据 |

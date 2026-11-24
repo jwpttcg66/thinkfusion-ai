@@ -87,8 +87,11 @@ interface ContextOwnerFile {
   contractVersion: 1;
   owner: ContextOwner;              // 不再是单一 taskId/runId
   checkpoints: ContextCheckpoint[];
-  /** 活动指针必须同时写明 runId 与 checkpointId。 */
-  active: { runId: string; checkpointId: string } | null;
+  /**
+   * 仅可重建缓存，不是提交/恢复权威。G3 可删除；Journal 指针才是权威。
+   * 如保留，必须每次从 Journal 重建，不能反向覆盖 Journal。
+   */
+  activeCache?: { runId: string; checkpointId: string } | null;
   updatedAt: number;
 }
 ```
@@ -97,8 +100,9 @@ interface ContextOwnerFile {
 
 - 一个任务/会话可以有多个 `runId` 的检查点；
 - 文件根不再保存单一 `runId`；
-- 恢复只加载 `active.runId` 对应的检查点；
-- `owner` 是权威，`taskId/conversationId` 是兼容镜像。
+- 恢复只加载 **Journal 活动指针** 的 `runId/checkpointId`；
+- `owner` 是权威，`taskId/conversationId` 是兼容镜像；
+- `activeCache` 只能由 Journal 指针重建，不能参与提交/恢复决策。
 
 约束：
 
@@ -117,10 +121,10 @@ interface ContextOwnerFile {
 2. 写入 <ownerType>/<ownerId>.json：
    - 新检查点 status=prepared
    - 临时文件 → fsync 文件 → rename → fsync 父目录
-3. 在同一次 Journal persist 中原子更新：
-   - owner 的 contextId
-   - checkpointId
-   - active = { runId, checkpointId }
+3. 调用 `commitContextCheckpoint()`，在同一次 Journal persist 中原子更新：
+   - owner.contextId
+   - owner.checkpointId
+   - owner.activeRunId
    - context.compaction.committed 事件
 4. 确认 Journal 指向的检查点存在且 hash 匹配
 5. 异步清理未提交/过期检查点
@@ -133,12 +137,64 @@ interface ContextOwnerFile {
 - 检查点文件写入需要父目录 `fsync`，不能只 `fsync` 文件；
 - 同一 `ownerType/ownerId` 的检查点写入必须串行化；
 - 同一任务多个 `runId` 不能覆盖对方的活动指针；
+- 不得用多个独立 `upsertTask()` / `appendEvent()` 模拟事务；
 - 删除任务/会话时，先清指针，再延迟清理检查点与归档。
 
 为什么不是“先写 Journal”：
 
 - 如果 Journal 先指向一个不存在的摘要，恢复时任务会处于不可用状态；
 - 先写文件，最坏情况是产生一个未被引用的孤儿检查点，可安全清理。
+
+### 4.1 Journal 原子提交接口
+
+```ts
+interface CommitContextCheckpointInput {
+  owner: ContextOwner;
+  runId: string;
+  contextId: string;
+  checkpointId: string;
+  checkpointHash: string;
+  sourceEventIdsPreview: string[];
+  archiveRef: string;
+  inputTokensBefore: number | null;
+  inputTokensAfter: number | null;
+}
+
+/**
+ * 一次持久化完成：
+ * - owner.contextId/checkpointId/activeRunId
+ * - context.compaction.committed 事件
+ * - 写入前校验 checkpointHash 与 archiveRef
+ */
+commitContextCheckpoint(input: CommitContextCheckpointInput): Promise<void>;
+```
+
+实现要求：
+
+- `AgentStore` 新增专用方法，不能用多个公开 setter 拼接；
+- 更新 owner（AgentTask 或 Conversation）与追加事件在同一次 `persist()`；
+- `persist()` 增加父目录 `fsync`；
+- 提交前确认归档段存在且 hash 匹配；
+- 失败不改变 Journal 指针。
+
+### 4.2 两套事件流
+
+必须同时保护：
+
+| 流 | 来源 | 当前行为 |
+| --- | --- | --- |
+| `events` | `AgentEvent`（工程任务） | 每任务 800 条 + `KEEP_FOREVER` |
+| `runEvents` | `TaskEventEnvelope`（General/Knowledge） | 全局 5000 条，直接 splice |
+
+归档协议必须：
+
+1. 对两套流分别记录 eventId/runId/sequence；
+2. 归档段格式 `jsonl`，每行一个事件 + `archiveHash`；
+3. 归档前先查重（同一事件已归档则复用）；
+4. `trimEvents()` 与 `appendRunEvent()` 裁剪前检查引用；
+5. 不能只保护工程事件而忽略 runEvents；
+6. 若 ConversationMessage 已保存同一正文，先确定上下文权威来源，避免重复归档正文；
+7. 启动时校验归档段存在与 hash；不一致标记 stale。
 
 ### 崩溃场景
 
@@ -249,13 +305,16 @@ type ContextEvent =
 1. Context Manager 不主动删除原始事件；
 2. 压缩前把来源范围写入
    `context/archive/<ownerType>/<ownerId>/<archiveId>.jsonl`；
-3. 检查点 `archiveRef` 指向归档段，`sourceEventIds` 保存完整引用；
-4. Journal 裁剪前检查：被任何 committed 检查点引用的 `eventId`
+3. 归档段带 `archiveHash`、`sourceStream`（events/runEvents）、范围；
+4. 检查点 `archiveRef` 指向归档段，`sourceEventIds` 保存完整引用；
+5. Journal 裁剪前检查：被任何 committed 检查点引用的 `eventId`
    必须已有归档段；
-5. 归档失败 → 不提交检查点 / 不允许裁剪该段；
-6. 事件 payload 只带 `sourceEventIdsPreview`（前 20 个），
+6. `trimEvents()` 与 `appendRunEvent()` 都必须遵守同一保护；
+7. 归档失败 → 不提交检查点 / 不允许裁剪该段；
+8. 事件 payload 只带 `sourceEventIdsPreview`（前 20 个），
    完整列表在检查点文件；
-7. 归档段只追加，不重写；清理按检查点引用计数。
+9. 归档段只追加，不重写；清理按检查点引用计数；
+10. 启动恢复、重复归档识别、hash 校验、故障注入都必须可测。
 
 这解决：
 

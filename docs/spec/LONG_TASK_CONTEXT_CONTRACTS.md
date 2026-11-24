@@ -264,7 +264,10 @@ export interface ContextEventPayload {
 
 ```ts
 export interface PrepareContextInput {
-  taskId: string;
+  owner: ContextOwner;
+  /** 兼容镜像：agent-task 时由 owner 带出；conversation 时不存在。 */
+  taskId?: string;
+  conversationId?: string;
   runId: string;
   roundId?: string;
   stepId?: string;
@@ -280,7 +283,7 @@ export interface PrepareContextInput {
 
 export interface FinalizeContextInput {
   contextId: string;
-  taskId: string;
+  owner: ContextOwner;
   runId: string;
   usage: { inputTokens: number | null; outputTokens: number | null } | null;
   providerId: string;
@@ -295,7 +298,7 @@ export interface ContextManager {
     systemLines: string[];
   }>;
   finalize(input: FinalizeContextInput): Promise<void>;
-  recover(taskId: string, runId: string): Promise<PreparedContext | null>;
+  recover(input: { owner: ContextOwner; runId: string }): Promise<PreparedContext | null>;
 }
 ```
 
@@ -381,6 +384,36 @@ checkpointId?: string;
 5. 检查点文件按 `ownerType/ownerId` 隔离，不能互相覆盖。
 6. Conversation 当前代码没有独立 `runId`；P0-05 必须冻结它如何生成/复用，
    在此之前不得假设它已存在。
+
+### 4.5 Conversation 运行身份
+
+| 字段 | 语义 |
+| --- | --- |
+| `conversationId` | 整个会话的稳定身份 |
+| `runId` | 一次连续执行过程；不永久等于 conversationId |
+| `contextId` | 当前使用的上下文版本 |
+| `checkpointId` | 最近提交的上下文检查点 |
+| `activeRunId` | 与 checkpointId 组成 Journal 活动指针 |
+
+规则：
+
+1. 新用户请求启动新 runId；
+2. 同一次请求的模型/工具/评审共享 runId；
+3. 暂停恢复原 runId；
+4. 明确重新开始时才生成新 runId；
+5. 新 run 可继承已提交检查点，但记录来源 checkpointId；
+6. 删除会话时指针/归档一致清理。
+
+### 4.6 活动指针权威
+
+**Journal 中 owner 的活动指针是唯一提交/恢复权威。**
+
+- `contextId`
+- `checkpointId`
+- `activeRunId`
+
+检查点文件中的 `active` 只能作为可重建缓存；不得参与提交或恢复决策。
+G3 必须删除或明确标注该缓存。
 
 ## 5. 不变量
 

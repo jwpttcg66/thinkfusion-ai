@@ -1,6 +1,7 @@
 # LT-P0 · 契约与存储冻结
 
 状态：未开始  
+进入条件：G0–G6 全局一致性门禁通过（`V3-GLOBAL-CONSISTENCY-REVIEW.md`）
 阶段目标：在写运行时之前，冻结类型、状态、存储与文档冲突。  
 上游：[架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) · [契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)  
 总任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md)

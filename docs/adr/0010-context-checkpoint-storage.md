@@ -1,6 +1,6 @@
 # ADR 0010：上下文检查点存储
 
-- 状态：Proposed（待 LT-P0-03 评审）
+- 状态：Accepted（设计冻结，未实施；G6 文档级评审通过，实现前由 LT-P0-03 复核）
 - 日期：2026-11-24
 - 决策者：待定
 - 相关：[长任务与上下文压缩](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)
@@ -29,11 +29,14 @@
 - 新增 `<userData>/context/owners/<ownerType>/<ownerId>.json` 保存检查点；
   覆盖 `agent-task` 与 `conversation` 两类 owner；
 - `AgentTask` / `Conversation` 只增加 `contextId` / `checkpointId` / `activeRunId` 指针；
+- 检查点文件 `activeCache` 只能由 Journal 指针重建，不是权威；
 - 提交顺序：
-  1. 写检查点文件（临时文件 + fsync + rename + 父目录 fsync，status=prepared）；
-  2. 在同一次 Journal persist 中更新指针 + 追加 committed 事件；
-  3. 确认 Journal 指针指向的文件存在且 hash 匹配；
-  4. 异步清理旧检查点。
+  1. 归档来源事件（`events` 与 `runEvents` 两套流）；
+  2. 写检查点文件（临时文件 + fsync + rename + 父目录 fsync，status=prepared）；
+  3. 调用 `commitContextCheckpoint()`，在同一次 Journal persist 中更新
+     `contextId/checkpointId/activeRunId` + committed 事件；
+  4. 确认 Journal 指针指向的文件存在且 hash 匹配；
+  5. 异步清理旧检查点。
 
 这样最坏情况是产生未被引用的孤儿检查点，可以安全清理；不会出现
 “任务指向一个不存在的摘要”。
@@ -61,6 +64,9 @@
 - 同一 owner 的检查点写入串行化；多 runId 活动指针互不覆盖；
 - 活动 `checkpointId` 永不自动删除；
 - 被压缩引用的原始事件先归档到 `context/archive/...`，再允许 Journal 裁剪；
+- `events` 与 `runEvents` 都必须有归档保护；`trimEvents()` / `appendRunEvent()`
+  不能在未归档时删除引用事件；
+- `persist()` 增加父目录 fsync；`commitContextCheckpoint()` 是唯一事务入口；
 - 检查点写入失败不阻塞任务，回退未压缩；
 - 旧 `agent-store.json` 无字段时按未压缩读取；
 - 检查点不写工作区，权限与 userData 一致；
