@@ -5802,6 +5802,9 @@ app.whenReady().then(async () => {
       const { store: cps, archive } = checkpointStores();
       return recoverTaskContext(task, reports, { store: cps, archive });
     },
+    // LT-P4-02：Engineering 的 Provider 规划器接收上下文；Web/CLI 没有
+    // withContext，仍按原话直发。
+    contextManager: contextManagerFor(),
     onRecovery: (task, result) => {
       if (result.ledger && result.ledger.needsReconciliation > 0) {
         emit({

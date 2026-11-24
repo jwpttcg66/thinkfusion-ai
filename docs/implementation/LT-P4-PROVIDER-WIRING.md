@@ -136,4 +136,4 @@ npm run test:context-manager
 - [x] P4-02 入口策略
 - [x] P4-03 Usage
 - [x] P4-04 边界回归
-- [x] 阶段回归通过（Web/CLI 不注入；Engineering 规划仍按原话直发）
+- [x] 阶段回归通过（Web/CLI 不注入；Engineering Provider 规划接 system/context，question 原话不变）

@@ -51,6 +51,14 @@ function report(overrides = {}) {
         args: { path: 'src/a.ts' }
       },
       {
+        stepId: 's-read',
+        tool: 'fs.readFile',
+        status: 'completed',
+        verified: true,
+        durationMs: 1,
+        args: { path: 'src/a.ts' }
+      },
+      {
         stepId: 's2',
         tool: 'shell.run',
         status: 'completed',
@@ -71,6 +79,7 @@ function report(overrides = {}) {
 
 test('副作用核对：存在=applied，缺失=missing，无路径=needs_reconciliation', async () => {
   const entries = collectSideEffects([report()]);
+  assert.ok(!entries.some(item => item.tool === 'fs.readFile'), '只读工具不进入副作用账本');
   assert.ok(entries.some(item => item.tool === 'fs.writeFile' && item.paths.includes('src/a.ts')));
   assert.ok(entries.some(item => item.tool === 'shell.run' && item.paths.length === 0));
 

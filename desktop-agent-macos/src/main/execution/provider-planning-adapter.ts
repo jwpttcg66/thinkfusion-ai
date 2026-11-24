@@ -1,6 +1,6 @@
 /** 用云端/本地 Provider 承担执行规划，不再依赖网页登录。 */
 import type { DeepSeekStatus } from '../../shared/contracts';
-import type { PlanningAdapter } from '../adapters/browser/page-driver';
+import type { PlanningAdapter, PlanningContext } from '../adapters/browser/page-driver';
 import type { MessageSnapshot, SendOutcome } from '../adapters/browser/page-driver';
 import type { ProviderBackedSubAgent } from './provider-sub-agent';
 
@@ -14,9 +14,22 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
   constructor(
     private readonly agent: ProviderBackedSubAgent,
     /** 规划阶段的硬上限：推理模型只输出 reasoning 时不能无限等待。 */
-    private readonly planTimeoutMs = 120_000
+    private readonly planTimeoutMs = 120_000,
+    /** LT-P4-02：Engineering 规划上下文；Web/CLI 没有这条路径。 */
+    private readonly planningContext: PlanningContext = {}
   ) {
     this.siteLabel = agent.label;
+  }
+
+  get contextMeta(): { providerId: string; modelId: string } {
+    return {
+      providerId: this.agent.provider.id,
+      modelId: this.agent.modelId ?? this.agent.provider.id
+    };
+  }
+
+  withContext(context: PlanningContext): PlanningAdapter {
+    return new ProviderPlanningAdapter(this.agent, this.planTimeoutMs, context);
   }
 
   async getStatus(): Promise<DeepSeekStatus> {
@@ -43,13 +56,34 @@ export class ProviderPlanningAdapter implements PlanningAdapter {
     this.controllers.set(requestId, controller);
     const promise = (async () => {
       if (!onDelta) {
-        const answer = await this.agent.ask({ question: text, stage: 'initial', timeoutMs: 180_000 });
+        const answer = await this.agent.ask({
+          question: text,
+          stage: 'initial',
+          timeoutMs: 180_000,
+          ...(this.planningContext.system && this.planningContext.system.length > 0
+            ? { system: this.planningContext.system }
+            : {}),
+          ...(this.planningContext.context && this.planningContext.context.length > 0
+            ? { context: this.planningContext.context }
+            : {})
+        });
         return answer.text;
       }
       let accumulated = '';
       let reasoning = '';
       const answer = await this.agent.askStream(
-        { question: text, stage: 'initial', timeoutMs: 180_000, signal: controller.signal },
+        {
+          question: text,
+          stage: 'initial',
+          timeoutMs: 180_000,
+          signal: controller.signal,
+          ...(this.planningContext.system && this.planningContext.system.length > 0
+            ? { system: this.planningContext.system }
+            : {}),
+          ...(this.planningContext.context && this.planningContext.context.length > 0
+            ? { context: this.planningContext.context }
+            : {})
+        },
         chunk => {
           if (chunk.reset) {
             accumulated = '';

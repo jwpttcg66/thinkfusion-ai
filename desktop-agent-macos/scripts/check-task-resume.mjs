@@ -88,3 +88,70 @@ test('并发恢复保护：同一任务第二次继续被拒绝', async () => {
 });
 
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+test('Engineering Provider 规划：ContextManager 的 system/context 传给适配器', async () => {
+  const task = tasks.create({ prompt: '工程规划上下文', permissionPreset: 'workspace-write' });
+  const captured = [];
+  const adapter = {
+    siteLabel: 'cloud',
+    concurrent: true,
+    contextMeta: { providerId: 'cloud', modelId: 'm' },
+    getStatus: async () => ({ pageReady: true }),
+    sendMessage: async () => ({ submitted: true, snapshotBefore: {}, method: 'provider', signals: [], waitedMs: 0 }),
+    waitForAnswer: async () => 'ok',
+    newConversation: async () => ({ ok: true, method: 'provider' }),
+    cancelWait: () => {},
+    withContext: context => {
+      captured.push(context);
+      return adapter;
+    }
+  };
+  const orch = orchestrator({
+    adapter: () => adapter,
+    contextManager: {
+      prepare: async input => ({
+        context: {
+          contextId: 'ctx-test', owner: input.owner, runId: input.runId,
+          includedEventIds: [], retainedEventIds: [], evidenceRefs: [],
+          estimatedTokens: 1, contextWindow: null, compactionStatus: 'not-needed'
+        },
+        question: input.question,
+        contextLines: ['[摘要] 前序执行'],
+        systemLines: ['[Memory] 约束 A']
+      }),
+      finalize: async () => {},
+      recover: async () => null
+    }
+  });
+  const prompt = '用户原话 + 计划契约';
+  const wrapped = await orch.adapterWithContext(task.taskId, prompt);
+  assert.equal(wrapped, adapter);
+  assert.deepEqual(captured[0], {
+    system: ['[Memory] 约束 A'],
+    context: ['[摘要] 前序执行']
+  });
+});
+
+test('Web 适配器没有 withContext：不注入任何上下文', async () => {
+  const task = tasks.create({ prompt: '网页规划', permissionPreset: 'workspace-write' });
+  const adapter = {
+    siteLabel: 'web',
+    getStatus: async () => ({ pageReady: true }),
+    sendMessage: async () => ({ submitted: true, snapshotBefore: {}, method: 'page', signals: [], waitedMs: 0 }),
+    waitForAnswer: async () => 'ok',
+    newConversation: async () => ({ ok: true, method: 'page' }),
+    cancelWait: () => {}
+  };
+  let prepared = 0;
+  const orch = orchestrator({
+    adapter: () => adapter,
+    contextManager: {
+      prepare: async () => { prepared += 1; throw new Error('不应调用'); },
+      finalize: async () => {},
+      recover: async () => null
+    }
+  });
+  const wrapped = await orch.adapterWithContext(task.taskId, '原话');
+  assert.equal(wrapped, adapter);
+  assert.equal(prepared, 0);
+});
