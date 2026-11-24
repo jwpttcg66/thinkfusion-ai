@@ -25,7 +25,7 @@ export function CollaborationResultPanel(props: {
   }) => void | Promise<void>;
 }) {
   const { result } = props;
-  const [processOpen, setProcessOpen] = useState(false);
+  const [processOpen, setProcessOpen] = useState(true);
   const [busyIssueId, setBusyIssueId] = useState<string | null>(null);
   const hasOpinions = result.keyOpinions.length > 0 || result.disputes.length > 0;
   const hasReview = result.reviews.length > 0 || result.verifications.length > 0;
@@ -239,7 +239,7 @@ export function CollaborationResultPanel(props: {
             {result.meta.conversationEntryCount !== undefined
               ? ` · 对话条目 ${String(result.meta.conversationEntryCount)}`
               : ''}
-            。详细步骤与工具调用在时间线里。
+            。主推导见上方「核心意见与争议」与对话流中的计划摘要 / 思考过程。
           </p>
           {result.deliverables.length > 0 && (
             <ul>

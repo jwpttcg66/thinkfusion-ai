@@ -10,6 +10,7 @@ import {
   buildConclusion,
   buildTaskConversation,
   memberBodyView,
+  protocolDerivation,
   protocolKind,
   protocolSummary
 } from '../out-test/shared/task-conversation.js';
@@ -144,6 +145,71 @@ test('结论带真实事实：步数、验证、评审', () => {
   assert.match(conclusion.facts.join(' / '), /验证通过/);
   assert.match(conclusion.facts.join(' / '), /改动 1 个文件/);
   assert.match(conclusion.facts.join(' / '), /独立评审：通过/);
+});
+
+test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.list',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              result: [
+                { name: 'readme.txt', type: 'file' },
+                { name: 'src', type: 'directory' }
+              ]
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: ['本轮没有写操作，无需验证'],
+            changedFiles: 0,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 3000, taskId: task, summary: '执行完成，验证通过' }
+    ],
+    { summary: '执行完成，验证通过', status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.match(conclusion.text, /目录内容：readme\.txt、src/);
+  assert.match(conclusion.facts.join(' / '), /目录内容：readme\.txt、src/);
+  assert.doesNotMatch(conclusion.text, /^执行完成/);
+});
+
+test('协议计划抽出可读推导：步骤与完成条件', () => {
+  const plan = JSON.stringify({
+    protocol: 'desktop-agent/v1',
+    type: 'plan',
+    summary: '列出根目录',
+    plan: {
+      title: '列出根目录',
+      completion: { condition: '列出文件名' },
+      steps: [
+        { tool: 'fs.list', description: '列根目录', args: { path: '.' } }
+      ]
+    }
+  });
+  const text = protocolDerivation(plan);
+  assert.match(text, /【计划】列出根目录/);
+  assert.match(text, /完成条件：列出文件名/);
+  assert.match(text, /1\. fs\.list — 列根目录/);
 });
 
 test('协议 JSON 不是结论：没有 summary 就如实说没有结论文本', () => {

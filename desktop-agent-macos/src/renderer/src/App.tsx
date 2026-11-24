@@ -2414,6 +2414,26 @@ export default function App() {
                 {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
                     每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
                 <TaskConversation task={activeTask} events={events} live={derived.live} />
+                {/* 思考过程在主对话页也要可见：不能只藏在「输出」页。 */}
+                {derived.modelTrace.some(item => item.reasoning.trim()) && (
+                  <details className="card reasoning-history" open>
+                    <summary>
+                      思考过程（{derived.modelTrace.filter(item => item.reasoning.trim()).length} 轮）
+                    </summary>
+                    {derived.modelTrace.filter(item => item.reasoning.trim()).map(item => (
+                      <section key={item.roundId}>
+                        <h5>{item.roundId.slice(0, 8)}</h5>
+                        <pre>{item.reasoning}</pre>
+                      </section>
+                    ))}
+                  </details>
+                )}
+                {planThinking(derived.answer) && (
+                  <details className="card thinking" open>
+                    <summary>规划思考</summary>
+                    <p>{planThinking(derived.answer)}</p>
+                  </details>
+                )}
                 {/* 多列并排只保留在输出页：对话里一轮一列会把下一条消息挤到屏幕外，
                     而主界面读的是顺序。 */}
               </>

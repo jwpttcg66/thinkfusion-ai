@@ -5,6 +5,7 @@ import { duration, statusText, target, toolLabel } from '../../../../shared/exec
 import {
   buildTaskConversation,
   memberBodyView,
+  protocolDerivation,
   protocolSummary,
   type ConversationEntry,
   type ConversationProtocol,
@@ -19,8 +20,8 @@ import {
  * 「现在到哪一步」，它回答「这件事到底发生过什么」——两件事都要有，但主界面
  * 只能是后者，否则一轮新回答就会把上一轮挤掉。
  *
- * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 是给机器读的，
- * 主界面只留一句人话和摘要，完整原文去「输出」页看——这里每行都该是人能读的。
+ * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页，
+ * 但主界面必须留下可读推导与思考过程——不能整段推走。
  */
 
 function timeText(at: number): string {
@@ -98,6 +99,7 @@ function MemberMessage(props: {
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
+  const derivation = entry.protocol ? protocolDerivation(entry.text) : null;
   // 正文默认只露 5 行，和思考折叠一样点开才看全文。短正文不出现按钮。
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -139,13 +141,14 @@ function MemberMessage(props: {
       <div className="chat-member-body">
         {entry.protocol ? (
           <>
-            {/* 协议对象不是给我的答复：只给一句人话和摘要。JSON 原文是机器读的，
-                主界面一个字都不展开；要看原文去「输出」页。 */}
+            {/* 协议 JSON 原文去输出页；主页面必须留下可读推导与思考，不能整段推走。 */}
             <p className="chat-protocol-note">
-              这一路返回的是{protocolLabel(entry.protocol)}（机器读的 JSON）；
-              执行结果与结论见本页下方，完整原文在「输出」页。
+              这一路返回的是{protocolLabel(entry.protocol)}（机器协议）；下方是可读摘要与思考，完整 JSON 在「输出」页。
             </p>
             {summary && <p className="chat-protocol-summary">{summary}</p>}
+            {derivation && (
+              <pre className="chat-member-text chat-protocol-derivation">{derivation}</pre>
+            )}
           </>
         ) : (
           <>
@@ -167,8 +170,8 @@ function MemberMessage(props: {
           </>
         )}
         {view.showReasoningDetails && (
-          <details className="chat-reasoning">
-            <summary>思考（{entry.reasoning.length} 字符）</summary>
+          <details className="chat-reasoning" open={Boolean(entry.protocol && entry.reasoning)}>
+            <summary>思考过程{entry.reasoning ? `（${entry.reasoning.length} 字符）` : ''}</summary>
             {entry.reasoning ? <pre>{entry.reasoning}</pre> : <p className="muted">这个来源本次没有返回思考内容。</p>}
           </details>
         )}

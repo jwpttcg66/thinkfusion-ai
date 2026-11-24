@@ -18,7 +18,7 @@ import type {
   Dispute,
   Synthesis
 } from './conversation';
-import { buildConclusion, buildTaskConversation } from './task-conversation';
+import { buildConclusion, buildTaskConversation, protocolDerivation, protocolSummary } from './task-conversation';
 import { projectTaskView } from './task-view';
 
 export type CollaborationScene = 'general' | 'knowledge' | 'engineering';
@@ -496,7 +496,7 @@ export function projectEngineeringCollaborationResult(input: {
     ...debateOpinions,
     ...entries
       .filter((entry): entry is Extract<typeof entry, { kind: 'member' }> =>
-        entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0 && entry.protocol === null)
+        entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0)
       .map(entry => {
         const source = ref({
           subjectId: taskId,
@@ -505,11 +505,16 @@ export function projectEngineeringCollaborationResult(input: {
           participantId: entry.memberId,
           label: entry.label
         });
+        // 协议 JSON 不当作意见正文；用可读推导/摘要进主页面，原文仍在输出页。
+        const statement = entry.protocol
+          ? (protocolDerivation(entry.text) ?? protocolSummary(entry.text) ?? `${entry.protocol}（见输出页原文）`)
+          : entry.text.trim();
         return {
           opinionId: `member:${entry.roundId ?? 'none'}:${entry.memberId}:${String(entry.at)}`,
           author: entry.label,
           position: 'neutral' as const,
-          statement: entry.text.trim().slice(0, 500),
+          statement: statement.slice(0, 800),
+          ...(entry.reasoning.trim() ? { rationale: entry.reasoning.trim().slice(0, 500) } : {}),
           sourceRefs: [source],
           evidenceRefs: [],
           targetRefs: []

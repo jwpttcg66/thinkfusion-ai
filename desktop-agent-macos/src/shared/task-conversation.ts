@@ -174,6 +174,123 @@ export function protocolSummary(text: string): string | null {
 }
 
 /**
+ * 协议对象的可读推导（主页面用）：不铺 JSON，只抽出计划步骤 / 完成声明。
+ *
+ * 工程空间里模型经常整段返回 plan JSON；若主页面只留「见下方 / 见输出页」，
+ * 思考与主推导会一起丢掉。这里给人看的推导骨架，原文仍去输出页。
+ */
+export function protocolDerivation(text: string): string | null {
+  try {
+    const parsed = JSON.parse(unfence(text)) as {
+      type?: unknown;
+      summary?: unknown;
+      title?: unknown;
+      plan?: {
+        title?: unknown;
+        completion?: { condition?: unknown };
+        steps?: Array<{ tool?: unknown; description?: unknown; args?: Record<string, unknown> }>;
+      };
+      steps?: Array<{ tool?: unknown; description?: unknown }>;
+    };
+    if (parsed.type === 'plan') {
+      const steps = Array.isArray(parsed.plan?.steps)
+        ? parsed.plan!.steps!
+        : Array.isArray(parsed.steps) ? parsed.steps : [];
+      const title = (typeof parsed.plan?.title === 'string' && parsed.plan.title.trim())
+        || (typeof parsed.title === 'string' && parsed.title.trim())
+        || (typeof parsed.summary === 'string' && parsed.summary.trim())
+        || '计划';
+      const lines = [`【计划】${title}`];
+      const condition = parsed.plan?.completion?.condition;
+      if (typeof condition === 'string' && condition.trim()) {
+        lines.push(`完成条件：${condition.trim()}`);
+      }
+      for (const [index, step] of steps.entries()) {
+        const tool = typeof step.tool === 'string' ? step.tool : '步骤';
+        const desc = typeof step.description === 'string' && step.description.trim()
+          ? step.description.trim()
+          : '';
+        lines.push(`${String(index + 1)}. ${tool}${desc ? ` — ${desc}` : ''}`);
+      }
+      return lines.join('\n');
+    }
+    if (parsed.type === 'task_complete') {
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+      return summary ? `【完成声明】${summary}` : '【完成声明】';
+    }
+    if (parsed.type === 'execution_report') {
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+      return summary ? `【执行报告】${summary}` : '【执行报告】已返回';
+    }
+    if (parsed.type === 'clarification_required' || parsed.type === 'clarification_request') {
+      return '【澄清请求】模型需要补充信息后才能继续';
+    }
+    return protocolSummary(text);
+  } catch {
+    return null;
+  }
+}
+
+/** 系统套话，不能单独当「任务完成结论」。 */
+function isGenericConclusion(text: string): boolean {
+  const trimmed = text.trim();
+  return /^(任务完成|执行完成|执行完成[，,]验证通过|完成|完成。|任务完成。)$/.test(trimmed);
+}
+
+/**
+ * 从执行报告步骤结果抽出可展示的交付事实（只陈述工具返回值）。
+ */
+export function reportDeliveryFacts(report: ExecutionReport): string[] {
+  const facts: string[] = [];
+  for (const step of report.results ?? []) {
+    if (step.status !== 'completed') continue;
+    const result = step.result as unknown;
+    if (step.tool === 'fs.list' && Array.isArray(result)) {
+      const names = result
+        .map(item => {
+          if (item && typeof item === 'object' && 'name' in item && typeof (item as { name: unknown }).name === 'string') {
+            return (item as { name: string }).name;
+          }
+          return null;
+        })
+        .filter((name): name is string => Boolean(name));
+      if (names.length > 0) facts.push(`目录内容：${names.slice(0, 40).join('、')}${names.length > 40 ? '…' : ''}`);
+      continue;
+    }
+    if (step.tool === 'fs.tree' && result && typeof result === 'object') {
+      const tree = result as { entries?: unknown; root?: unknown };
+      if (Array.isArray(tree.entries)) {
+        const names = tree.entries
+          .map(item => (item && typeof item === 'object' && 'name' in item
+            ? String((item as { name: unknown }).name)
+            : null))
+          .filter((name): name is string => Boolean(name));
+        if (names.length > 0) facts.push(`目录树条目：${names.slice(0, 40).join('、')}`);
+      }
+      continue;
+    }
+    if (step.tool === 'fs.readFile' && result && typeof result === 'object') {
+      const read = result as { path?: unknown; content?: unknown; totalLines?: unknown };
+      const path = typeof read.path === 'string' ? read.path : (typeof step.args?.path === 'string' ? step.args.path : '');
+      const preview = typeof read.content === 'string'
+        ? read.content.split('\n').map(line => line.trim()).find(line => line.length > 0)?.slice(0, 120)
+        : undefined;
+      if (path && preview) facts.push(`已读 ${path}：${preview}`);
+      else if (path) facts.push(`已读 ${path}`);
+      continue;
+    }
+    if ((step.tool === 'shell.run' || step.tool === 'test.run') && result && typeof result === 'object') {
+      const run = result as { stdout?: unknown; exitCode?: unknown; command?: unknown };
+      const first = typeof run.stdout === 'string'
+        ? run.stdout.split('\n').map(line => line.trim()).find(line => line.length > 0)
+        : undefined;
+      if (first) facts.push(`命令输出：${first.slice(0, 160)}`);
+    }
+  }
+  return facts;
+}
+
+/**
  * 成员卡「正文框」与「思考折叠」的展示分工（去重规则）。
  *
  * 真机上出现过同一份 3054 字符思考被画三遍：流式期间正文框铺了 reasoning、
@@ -776,10 +893,12 @@ export function buildConclusion(
     completed?.type === 'task.completed' ? completed.summary : undefined,
     lastAnswer?.type === 'round.answer' ? protocolConclusionText(lastAnswer.text) : undefined
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  // 协议 JSON 不是结论，哪怕它带着 summary 字段也已经被上面提取过了。
-  const text = candidates.find(item => !protocolKind(item)) ?? '';
+  // 协议 JSON 不是结论；系统套话（「任务完成」）也不能单独冒充结论。
+  const text = candidates.find(item => !protocolKind(item) && !isGenericConclusion(item)) ?? '';
 
   const facts: string[] = [];
+  const deliveryFacts = report?.type === 'report.ready' ? reportDeliveryFacts(report.report) : [];
+  facts.push(...deliveryFacts);
   if (report?.type === 'report.ready') {
     const done = report.report.results.filter(item => item.status === 'completed').length;
     facts.push(`执行 ${String(report.report.results.length)} 步，完成 ${String(done)} 步`);
@@ -820,12 +939,16 @@ export function buildConclusion(
   }
 
   const tone: ConversationTone = status === 'failed' ? 'error' : status === 'cancelled' ? 'warn' : 'ok';
+  // 有真实工具结果时，用第一条交付事实当结论文本，避免主页面只剩「任务完成」。
+  const deliveryText = deliveryFacts[0] ?? '';
   return {
-    text: text || (status === 'failed'
-      ? (failed?.type === 'task.failed' ? failed.error : '任务失败，没有留下结论文本。')
-      : status === 'cancelled'
-        ? '任务已取消，没有留下结论文本。'
-        : `${statusText(status)}，模型没有给出结论文本；以下是真实执行结果。`),
+    text: text
+      || deliveryText
+      || (status === 'failed'
+        ? (failed?.type === 'task.failed' ? failed.error : '任务失败，没有留下结论文本。')
+        : status === 'cancelled'
+          ? '任务已取消，没有留下结论文本。'
+          : `${statusText(status)}，模型没有给出结论文本；以下是真实执行结果。`),
     facts,
     tone
   };
