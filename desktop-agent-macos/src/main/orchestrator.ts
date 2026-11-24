@@ -13,6 +13,7 @@ import type {
   StoredPlan,
   TaskGrant
 } from '../shared/contracts';
+import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
@@ -108,6 +109,15 @@ export interface OrchestratorDeps {
    * 测试可以注入一个只返回路径的假实现，不必真起 git。
    */
   worktree?: (input: { rootDir: string; taskId: string }) => Promise<{ dir: string; branch: string }>;
+  /**
+   * LT-P5-03/04：恢复任务上下文与核对工具副作用。
+   *
+   * 不传表示没有接入检查点存储——`resume` 保持原来的「先检查工作区」路径，
+   * 不会假装恢复过。返回 stale 时任务停在 interrupted，要求人工处理。
+   */
+  contextRecovery?: (task: AgentTask, reports: readonly ExecutionReport[]) => Promise<TaskRecoveryResult>;
+  /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
+  onRecovery?: (task: AgentTask, result: TaskRecoveryResult) => void;
 }
 
 /**
@@ -126,6 +136,8 @@ const PLANNING_TIMEOUT_MS = 120_000;
 export class AgentOrchestrator {
   /** taskIds with an active wait or execution, to prevent double-driving. */
   private busy = new Set<string>();
+  /** 正在恢复的任务；同一任务只允许一个恢复流程（LT-P5-05）。 */
+  private resuming = new Set<string>();
 
   /**
    * Serialises use of the one page there is.
@@ -574,29 +586,51 @@ export class AgentOrchestrator {
     return { verified: true, reasons: verification.reasons };
   }
 
-  /** 用户暂停：保留当前状态，恢复时回到暂停前状态。 */
+  /** 用户暂停：停掉在途请求，保留暂停前状态；恢复时重新开一轮，不重跑旧步骤。 */
   async pause(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
     if (['completed', 'failed', 'cancelled', 'paused'].includes(task.status)) return;
-    this.tasks.transition(taskId, 'paused', { resumeStatus: task.status });
+    const inFlight = ['planning', 'executing', 'verifying'].includes(task.status);
+    if (inFlight) {
+      const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
+      if (round) this.adapterFor(taskId).cancelWait(round.requestId);
+      this.cancelPeers(taskId);
+      cancelPlan(taskId);
+    }
+    this.tasks.transition(taskId, 'paused', {
+      resumeStatus: task.status,
+      ...(inFlight
+        ? { error: '用户暂停：在途请求已停止；继续时先核对现有结果，不自动重跑旧步骤。' }
+        : {})
+    });
     this.deps.emit({
       type: 'log', at: Date.now(), taskId, level: 'info',
-      message: '任务已暂停；恢复会回到暂停前的状态，不会重复已完成的写入。'
+      message: inFlight
+        ? '任务已暂停：在途请求已停止；继续会重新规划，先核对现有结果。'
+        : '任务已暂停；继续会回到暂停前的等待状态。'
     });
   }
 
   /**
    * 用户继续：
-   * - paused：回到暂停前状态；
-   * - interrupted/budget/blocked：开新一轮，先检查现有工作区，不自动重跑旧步骤。
+   * - 暂停在等待态：回到暂停前的等待状态；
+   * - 暂停在规划/执行/校验：重新开一轮，先核对现有结果；
+   * - interrupted/budget/blocked：检查点有效时恢复摘要与副作用清单，再开新一轮。
+   *
+   * 恢复失败（stale）不猜：任务留在 interrupted，要求人工处理。
    */
   async resume(taskId: string): Promise<void> {
+    if (this.busy.has(taskId) || this.resuming.has(taskId)) {
+      throw new Error('任务正在执行或恢复中，不能重复继续');
+    }
     const task = this.tasks.get(taskId);
     if (!['paused', 'interrupted', 'budget_exhausted', 'blocked'].includes(task.status)) {
       throw new Error(`任务当前状态为 ${task.status}，不能继续`);
     }
-    if (task.status === 'paused' && task.resumeStatus) {
-      this.tasks.transition(taskId, task.resumeStatus, { resumeStatus: undefined });
+
+    const waitingStates = ['awaiting_clarification', 'awaiting_approval', 'plan_ready', 'report_pending', 'awaiting_next_round'];
+    if (task.status === 'paused' && task.resumeStatus && waitingStates.includes(task.resumeStatus)) {
+      this.tasks.transition(taskId, task.resumeStatus, { resumeStatus: undefined, error: undefined });
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'info',
         message: `任务已继续，回到 ${task.resumeStatus} 状态。`
@@ -604,31 +638,98 @@ export class AgentOrchestrator {
       return;
     }
 
-    const rounds = this.tasks.listRounds(taskId);
-    if (rounds.length >= task.maxRounds) {
-      this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，无法继续`, resumeStatus: undefined });
-      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
-      return;
-    }
-    this.tasks.transition(taskId, 'planning', { resumeStatus: undefined });
-    const round = this.tasks.createRound({ taskId, inputType: 'user_prompt', requestText: '' });
-    const prompt = buildInitialPrompt({
-      prompt: `${task.userPrompt}
+    this.resuming.add(taskId);
+    try {
+      const reports = this.deps.store.allReportsFor(taskId);
+      const recovery = this.deps.contextRecovery
+        ? await this.deps.contextRecovery(task, reports)
+        : null;
+
+      if (recovery?.status === 'stale') {
+        this.deps.emit({
+          type: 'context.event', at: Date.now(), taskId,
+          event: 'context.compaction.stale',
+          context: {
+            contextId: task.contextId ?? '',
+            ...(task.checkpointId ? { checkpointId: task.checkpointId } : {}),
+            reason: recovery.reason ?? '检查点不可用'
+          }
+        });
+        throw new Error(`检查点不可用，任务保持原状态：${recovery.reason ?? '未知原因'}`);
+      }
+      if (recovery?.status === 'recovered') {
+        const ledger = recovery.ledger;
+        this.deps.emit({
+          type: 'context.event', at: Date.now(), taskId,
+          event: 'context.recovered',
+          context: {
+            contextId: recovery.contextId ?? task.contextId ?? '',
+            ...(recovery.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
+            reason: '从 Journal 活动指针恢复',
+            ...(ledger
+              ? {
+                  sideEffects: {
+                    applied: ledger.applied,
+                    missing: ledger.missing,
+                    needsReconciliation: ledger.needsReconciliation
+                  }
+                }
+              : {})
+          }
+        });
+      }
+      if (recovery?.ledger && recovery.ledger.missing > 0) {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `恢复核对发现 ${String(recovery.ledger.missing)} 个改动文件已不存在；继续时会重新规划并补做，不把缺失当已完成。`
+        });
+      }
+      this.deps.onRecovery?.(task, recovery ?? { status: 'none' });
+
+      // 用户在恢复/核对期间取消或暂停：不能继续开新一轮。
+      const current = this.tasks.get(taskId);
+      if (!['paused', 'interrupted', 'budget_exhausted', 'blocked'].includes(current.status)) {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'info',
+          message: `恢复完成前任务已变为 ${current.status}，不再继续。`
+        });
+        return;
+      }
+
+      const rounds = this.tasks.listRounds(taskId);
+      if (rounds.length >= task.maxRounds) {
+        this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，无法继续`, resumeStatus: undefined });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
+        return;
+      }
+      this.tasks.transition(taskId, 'planning', { resumeStatus: undefined, error: undefined });
+      const round = this.tasks.createRound({ taskId, inputType: 'user_prompt', requestText: '' });
+      const recovered = recovery ? recoveryPromptData(recovery) : '';
+      const prompt = buildInitialPrompt({
+        prompt: [
+          `${task.userPrompt}
 
 继续上次任务：先检查现有工作区、执行报告与证据，确认哪些步骤已经完成；不要重复已完成的写操作。`,
-      taskId,
-      roundId: round.roundId,
-      permissionPreset: task.permissionPreset,
-      workspaceRoot: task.workspaceRoot ?? '(未指定工作区)',
-      allowedTools: allowedToolsForPreset(task.permissionPreset),
-      maxSteps: task.maxSteps
-    });
-    this.tasks.updateRound(round.roundId, { requestText: prompt });
-    this.deps.emit({
-      type: 'log', at: Date.now(), taskId, level: 'info',
-      message: '任务已继续：开始新一轮，先检查现有结果，不自动重跑旧步骤。'
-    });
-    void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
+          ...(recovered ? ['', recovered] : [])
+        ].join('\n'),
+        taskId,
+        roundId: round.roundId,
+        permissionPreset: task.permissionPreset,
+        workspaceRoot: task.workspaceRoot ?? '(未指定工作区)',
+        allowedTools: allowedToolsForPreset(task.permissionPreset),
+        maxSteps: task.maxSteps
+      });
+      this.tasks.updateRound(round.roundId, { requestText: prompt });
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: recovery?.status === 'recovered'
+          ? '任务已继续：使用最近检查点摘要与副作用核对结果，先检查现状，不自动重跑旧步骤。'
+          : '任务已继续：开始新一轮，先检查现有结果，不自动重跑旧步骤。'
+      });
+      void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
+    } finally {
+      this.resuming.delete(taskId);
+    }
   }
 
   async cancel(taskId: string): Promise<void> {
@@ -729,6 +830,15 @@ export class AgentOrchestrator {
         ]);
       } finally {
         if (timer) clearTimeout(timer);
+      }
+      const afterAnswer = this.tasks.get(taskId);
+      if (['paused', 'interrupted', 'cancelled', 'failed'].includes(afterAnswer.status)) {
+        // 暂停/中断后到达的回答不再进入计划流程：新一轮会重新规划。
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'info',
+          message: `任务已${afterAnswer.status === 'paused' ? '暂停' : afterAnswer.status === 'interrupted' ? '中断' : '结束'}，本次回答不再生成计划。`
+        });
+        return;
       }
       this.tasks.updateRound(roundId, { status: 'answer_ready', answerText: answer, completedAt: Date.now() });
       // 同一轮的答案要能对回是哪一次模型调用：streamId/modelCallId 都是这个 requestId。
@@ -1357,6 +1467,13 @@ export class AgentOrchestrator {
     try {
       const task = this.tasks.get(taskId);
       if (TERMINAL.includes(task.status)) return;
+      if (task.status === 'paused' || task.status === 'interrupted') {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `任务已${task.status === 'paused' ? '暂停' : '中断'}，忽略在途失败：${message}`
+        });
+        return;
+      }
       this.tasks.transition(taskId, 'failed', { error: message });
       this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: message });
     } catch {

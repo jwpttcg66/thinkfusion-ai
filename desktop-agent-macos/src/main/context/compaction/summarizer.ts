@@ -78,7 +78,20 @@ export function buildSummaryPrompt(input: SummarizeInput): string {
     '4. 未解决问题放 openIssues，下一步放 nextActions；',
     '5. 不要声称测试通过，除非对应事件存在。',
     '',
-    'JSON 字段：goal, constraints, completed, decisions, evidence, openIssues, currentStep, nextActions, risks, stopConditions。',
+    '严格按这个形状输出（所有 text 都是字符串；没有内容就给空数组）：',
+    JSON.stringify({
+      goal: '用户目标',
+      constraints: ['约束'],
+      completed: [{ text: '已完成的事', certainty: 'claim', eventIds: ['事件 id'] }],
+      decisions: [{ text: '决定', status: 'active', eventIds: ['事件 id'] }],
+      evidence: [{ ref: '已有 evidenceRef', kind: 'test', eventIds: ['事件 id'] }],
+      openIssues: ['未解决问题'],
+      currentStep: null,
+      nextActions: ['下一步'],
+      risks: ['风险'],
+      stopConditions: ['停止条件']
+    }, null, 2),
+    '',
     `owner：${input.owner.ownerType}:${input.owner.ownerId}`,
     `runId：${input.runId}`,
     `evidenceRefs：${JSON.stringify(input.evidenceRefs)}`,
@@ -142,6 +155,9 @@ export async function summarizeHistory(
       controller.signal,
       abort
     );
+    if (typeof answer !== 'string' || !answer.trim()) {
+      throw new Error('摘要模型返回空文本');
+    }
     const summary = parseContextSummary(answer);
     const validationContext: SummaryValidationContext = {
       eventIds: new Set(input.history.map(item => item.eventId)),

@@ -5,6 +5,9 @@
     "rootDir": "src"
   },
   "include": [
+    "src/main/orchestrator.ts",
+    "src/main/agent-manager.ts",
+    "src/main/adapters/browser/page-driver.ts",
     "src/shared/diagnostics.ts",
     "src/shared/execution-timeline.ts",
     "src/shared/observability.ts",

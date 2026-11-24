@@ -112,3 +112,20 @@ test('Summarizer：超时抛明确错误，不提交半成品', async () => {
 test('parseContextSummary 去掉 Markdown 围栏', () => {
   assert.equal(parseContextSummary('```json\n' + JSON.stringify(summary) + '\n```').goal, summary.goal);
 });
+
+test('校验器：模型返回字段缺失/类型错误时给 reasons，不抛 TypeError', () => {
+  const malformed = [
+    {},
+    { goal: 'x', completed: [{ text: null, eventIds: [] }], decisions: [{}], evidence: [{ ref: null, eventIds: 'e1' }] },
+    { goal: 'x', completed: 'not-array', decisions: null, evidence: 1, constraints: [1] }
+  ];
+  for (const value of malformed) {
+    const result = validateContextSummary(value, { eventIds: new Set(['e1']), evidenceRefs: new Set() });
+    assert.equal(result.ok, false);
+    assert.ok(result.reasons.length > 0);
+  }
+  // 空对象必须明确说 goal/completed/decisions 缺什么，而不是崩在 trim。
+  const missing = validateContextSummary({}, { eventIds: new Set(), evidenceRefs: new Set() });
+  assert.ok(missing.reasons.some(reason => reason.includes('goal')));
+  assert.ok(missing.reasons.some(reason => reason.includes('completed')));
+});

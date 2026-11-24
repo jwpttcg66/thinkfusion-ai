@@ -151,19 +151,19 @@ P6 UI 与全链路验收
 | LT-P3-04 | 基础层完成 / TESTED | P3-03 | Recovery |
 | LT-P3-05 | 部分完成 | P3-03 | 事件/Trace |
 | LT-P4-01 | 基础层完成 / TESTED | P1-02 / P2-03 / P3-04 | Pool Hook |
-| LT-P4-02 | 未开始 | P4-01 | 入口策略 |
-| LT-P4-03 | 未开始 | P1-03 / P4-01 | Usage 校准 |
-| LT-P4-04 | 未开始 | P4-02 / P4-03 | 边界回归 |
+| LT-P4-02 | IMPLEMENTED / TESTED | P4-01 | 入口策略 |
+| LT-P4-03 | IMPLEMENTED / TESTED | P1-03 / P4-01 | Usage 校准 |
+| LT-P4-04 | TESTED | P4-02 / P4-03 | 边界回归 |
 | LT-P5-01 | 基础层完成 / TESTED | P0-04 | 状态扩展 |
-| LT-P5-02 | 部分完成 | P5-01 | 暂停/恢复 |
-| LT-P5-03 | 未开始 | P3-04 / P5-02 | 恢复计划 |
-| LT-P5-04 | 未开始 | P5-03 | 副作用核对 |
-| LT-P5-05 | 未开始 | P5-02 / P5-04 | 并发保护 |
-| LT-P6-01 | 部分完成 | P4-04 / P5-02 | 主页面 |
-| LT-P6-02 | 部分完成 | P3-05 / P4-04 | 轨迹页 |
-| LT-P6-03 | 部分完成 | P4-03 | 统计页 |
-| LT-P6-04 | 组件级完成 | P4-04 / P5-05 | E2E |
-| LT-P6-05 | 部分完成 | P6-01..04 | 验收报告 |
+| LT-P5-02 | IMPLEMENTED / VERIFIED | P5-01 | 暂停/恢复 |
+| LT-P5-03 | IMPLEMENTED / TESTED | P3-04 / P5-02 | 恢复计划 |
+| LT-P5-04 | IMPLEMENTED / TESTED | P5-03 | 副作用核对 |
+| LT-P5-05 | IMPLEMENTED / TESTED | P5-02 / P5-04 | 并发保护 |
+| LT-P6-01 | IMPLEMENTED / TESTED | P4-04 / P5-02 | 主页面 |
+| LT-P6-02 | IMPLEMENTED / TESTED | P3-05 / P4-04 | 轨迹页 |
+| LT-P6-03 | IMPLEMENTED / TESTED | P4-03 | 统计页 |
+| LT-P6-04 | TESTED / VERIFIED | P4-04 / P5-05 | E2E |
+| LT-P6-05 | VERIFIED | P6-01..04 | 验收报告 |
 
 ## 3. 跨阶段契约
 

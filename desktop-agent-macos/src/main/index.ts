@@ -33,8 +33,14 @@ import {
 } from '../shared/schemas';
 import { AgentStore } from './store';
 import { DefaultContextManager } from './context/manager';
-import type { ContextHistoryItem, ContextOwner } from '../shared/context';
+import type { ContextCheckpoint, ContextHistoryItem, ContextOwner } from '../shared/context';
 import type { SubAgentTask } from './agents/types';
+import { ContextCheckpointStore } from './context/checkpoint/store';
+import { ContextArchiveStore } from './context/checkpoint/archive';
+import { commitContextCheckpoint } from './context/checkpoint/commit';
+import { summarizeHistory } from './context/compaction/summarizer';
+import { recoverTaskContext } from './context/recovery/task-recovery';
+import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entry-policy';
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
 import { setMemoryService } from './memory/runtime';
@@ -1158,6 +1164,48 @@ function extractTaskMemoryAsync(taskId: string, summary: string): void {
 /** LT-P4：默认关闭；用 THINKFUSION_CONTEXT_MANAGER=active 开启上下文准备。 */
 const CONTEXT_MANAGER_ACTIVE = process.env.THINKFUSION_CONTEXT_MANAGER === 'active';
 let defaultContextManager: DefaultContextManager | null = null;
+let checkpointStore: ContextCheckpointStore | null = null;
+let checkpointArchive: ContextArchiveStore | null = null;
+
+function checkpointStores(): { store: ContextCheckpointStore; archive: ContextArchiveStore } {
+  if (!checkpointStore || !checkpointArchive) {
+    const baseDir = path.join(app.getPath('userData'), 'context-checkpoints');
+    checkpointStore = new ContextCheckpointStore({ baseDir });
+    checkpointArchive = new ContextArchiveStore(baseDir);
+  }
+  return { store: checkpointStore, archive: checkpointArchive };
+}
+
+/**
+ * 摘要模型：只用本地/云端 Provider，不占用网页会话。
+ * 没有可用 Provider 时抛错，由 ContextManager 记录 compaction.failed 并保留旧上下文。
+ */
+async function summarizeContextHistory(input: {
+  owner: ContextOwner;
+  runId: string;
+  history: ContextHistoryItem[];
+  evidenceRefs: string[];
+  modelId: string;
+}): Promise<Awaited<ReturnType<typeof summarizeHistory>>> {
+  // 优先用这一问实际使用的模型；找不到就退到任一本地/云端成员。
+  // 网页通道不参与：它没有 system/JSON 契约，摘要必须可校验。
+  const agent = extraAgents.find(item =>
+    item.sourceType !== 'web' && (item.modelId === input.modelId || item.id === input.modelId)
+  ) ?? extraAgents.find(item => item.sourceType === 'cloud')
+    ?? extraAgents.find(item => item.sourceType === 'local');
+  if (!agent) throw new Error('没有可用的摘要模型（本地/云端 Provider 均未就绪）');
+  return summarizeHistory(input, {
+    ask: async ({ prompt, timeoutMs, signal }) => {
+      const answer = await agent.ask({
+        question: prompt,
+        stage: 'challenge',
+        timeoutMs,
+        signal
+      });
+      return answer.text;
+    }
+  });
+}
 
 function contextManagerFor(): DefaultContextManager | null {
   if (!CONTEXT_MANAGER_ACTIVE) return null;
@@ -1173,6 +1221,95 @@ function contextManagerFor(): DefaultContextManager | null {
       emit(owner.ownerType === 'agent-task'
         ? { ...base, taskId: owner.taskId }
         : { ...base, conversationId: owner.conversationId });
+    },
+    compaction: {
+      summarize: summarizeContextHistory,
+      commit: async input => {
+        const { store: cps, archive } = checkpointStores();
+        const checkpointId = `cp_${randomUUID()}`;
+        const now = Date.now();
+        const checkpoint: ContextCheckpoint = {
+          contractVersion: 1,
+          checkpointId,
+          owner: input.owner,
+          ...(input.owner.ownerType === 'agent-task'
+            ? { taskId: input.owner.taskId }
+            : { conversationId: input.owner.conversationId }),
+          runId: input.runId,
+          contextId: input.contextId,
+          sourceStartSeq: 0,
+          sourceEndSeq: input.history.length,
+          sourceEventIds: input.history.map(item => item.eventId),
+          sourceEventIdsPreview: input.history.slice(0, 20).map(item => item.eventId),
+          summary: input.summary,
+          summaryHash: input.summaryHash,
+          retainedEventIds: input.retainedEventIds,
+          evidenceRefs: input.history.flatMap(item => item.evidenceRefs ?? []),
+          modelId: input.modelId,
+          inputTokensBefore: input.inputTokensBefore,
+          inputTokensAfter: null,
+          status: 'prepared',
+          createdAt: now
+        };
+        const event: AgentEvent = {
+          type: 'context.event',
+          at: now,
+          event: 'context.compaction.committed',
+          context: {
+            contextId: input.contextId,
+            checkpointId,
+            ownerType: input.owner.ownerType,
+            ownerId: input.owner.ownerId,
+            modelId: input.modelId,
+            inputTokensBefore: input.inputTokensBefore,
+            sourceEventIdsPreview: checkpoint.sourceEventIdsPreview
+          },
+          ...(input.owner.ownerType === 'agent-task'
+            ? { taskId: input.owner.taskId }
+            : { conversationId: input.owner.conversationId })
+        };
+        const enriched: AgentEvent = {
+          ...event,
+          eventId: randomUUID(),
+          ...(event.type === 'context.event' && 'taskId' in event && typeof event.taskId === 'string'
+            ? { runId: event.taskId, sequence: store.nextSequence(event.taskId) }
+            : {}),
+          phase: phaseOfEvent('context.event')
+        };
+        await commitContextCheckpoint({
+          owner: input.owner,
+          runId: input.runId,
+          contextId: input.contextId,
+          checkpoint,
+          sourceEvents: input.history,
+          event: enriched
+        }, { store: cps, archive, journal: store });
+        // Journal 已原子写入指针+事件；这里只补一次渲染进程广播，不重复落库。
+        win?.webContents.send('agent:event', enriched);
+        return { checkpointId, retainedEventIds: input.retainedEventIds, eventPersisted: true };
+      }
+    },
+    recover: async ({ owner, runId }) => {
+      const { store: cps, archive } = checkpointStores();
+      const file = await cps.read(owner);
+      const active = file?.activeCache;
+      if (!active || active.runId !== runId) return null;
+      const checkpoint = await cps.find(owner, active.checkpointId);
+      if (!checkpoint) return null;
+      try {
+        const { recoverContext } = await import('./context/checkpoint/commit');
+        return await recoverContext({
+          owner,
+          runId,
+          pointer: {
+            contextId: checkpoint.contextId,
+            checkpointId: active.checkpointId,
+            activeRunId: runId
+          }
+        }, { store: cps, archive });
+      } catch {
+        return null;
+      }
     }
   });
   return defaultContextManager;
@@ -1190,11 +1327,15 @@ function contextStateFor(task: SubAgentTask): SubAgentTask['contextState'] | und
   const owner: ContextOwner | null = memory.taskId
     ? { ownerType: 'agent-task', ownerId: memory.taskId, taskId: memory.taskId, runId: memory.taskId }
     : memory.conversationId
-      ? { ownerType: 'conversation', ownerId: memory.conversationId, conversationId: memory.conversationId, runId: memory.requestId ?? memory.conversationId }
+      ? { ownerType: 'conversation', ownerId: memory.conversationId, conversationId: memory.conversationId, runId: memory.conversationId }
       : null;
   if (!owner) return undefined;
-  const history: ContextHistoryItem[] = memory.conversationId && store
-    ? store.listMessages(memory.conversationId).slice(-20).map(message => ({
+  const entry: ContextEntry = memory.taskId
+    ? 'engineering'
+    : task.stage === 'challenge' ? 'debate' : 'master';
+  const scope = contextScopeFor(entry);
+  const allHistory: ContextHistoryItem[] = memory.conversationId && store
+    ? store.listMessages(memory.conversationId).map(message => ({
         eventId: message.messageId,
         kind: 'message' as const,
         role: message.role === 'channel' || message.role === 'synthesis'
@@ -1208,7 +1349,8 @@ function contextStateFor(task: SubAgentTask): SubAgentTask['contextState'] | und
     manager,
     owner,
     runId: owner.runId,
-    history,
+    // 每个入口按自己的范围取历史；Web/CLI 不在这里，scope=0。
+    history: scope.systemAllowed ? scopeHistory(entry, allHistory) : [],
     evidenceRefs: []
   };
 }
@@ -5649,6 +5791,27 @@ app.whenReady().then(async () => {
           }))
         })
       };
+    },
+    /**
+     * LT-P5-03/04：恢复检查点并核对工具副作用。
+     *
+     * 始终启用：没有检查点的老任务返回 none，只做副作用核对；
+     * 检查点损坏时返回 stale，任务留在中断状态等人处理。
+     */
+    contextRecovery: async (task, reports) => {
+      const { store: cps, archive } = checkpointStores();
+      return recoverTaskContext(task, reports, { store: cps, archive });
+    },
+    onRecovery: (task, result) => {
+      if (result.ledger && result.ledger.needsReconciliation > 0) {
+        emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: task.taskId,
+          level: 'warn',
+          message: `恢复核对：${String(result.ledger.needsReconciliation)} 个写操作没有可核对路径，继续时按未确认处理。`
+        });
+      }
     }
   });
 

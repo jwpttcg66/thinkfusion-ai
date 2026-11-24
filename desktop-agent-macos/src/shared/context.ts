@@ -190,6 +190,31 @@ export interface ContextOwnerFile {
   updatedAt: number;
 }
 
+/**
+ * 恢复时的副作用核对（LT-P5-04）。
+ *
+ * `applied` 只表示「执行报告记录过这个路径，恢复时它仍然存在」，
+ * 不是「内容与当时完全一致」——没有记录 hash 就不能这么声称。
+ * 无法从报告确认的写操作一律 `needs_reconciliation`，不猜。
+ */
+export type SideEffectStatus = 'applied' | 'missing' | 'needs_reconciliation';
+
+export interface SideEffectEntry {
+  stepId: string;
+  tool: string;
+  paths: string[];
+  status: SideEffectStatus;
+  detail: string;
+}
+
+export interface SideEffectLedger {
+  entries: SideEffectEntry[];
+  applied: number;
+  missing: number;
+  needsReconciliation: number;
+  checkedAt: number;
+}
+
 export type ContextEventType =
   | 'context.prepared'
   | 'context.budget.warning'
@@ -216,6 +241,12 @@ export interface ContextEventPayload {
   /** 事件 payload 只放展示用预览；完整来源在检查点文件。 */
   sourceEventIdsPreview?: string[];
   reason?: string;
+  /** 恢复时附带的副作用核对计数；只有 context.recovered 会带。 */
+  sideEffects?: {
+    applied: number;
+    missing: number;
+    needsReconciliation: number;
+  };
 }
 
 export interface PrepareContextInput {

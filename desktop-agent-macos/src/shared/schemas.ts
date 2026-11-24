@@ -151,6 +151,8 @@ export const ExecutionReportSchema = z
     verification: z
       .object({
         verified: z.boolean(),
+        /** 更严格的完成口径；老报告没有这个字段。 */
+        fullyVerified: z.boolean().optional(),
         reasons: z.array(z.string().max(2000)).max(50),
         changedFiles: z.number().int().min(0),
         changedPaths: z.array(z.string().max(4000)).max(200).optional(),
