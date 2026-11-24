@@ -2993,11 +2993,14 @@ button:disabled {
 
 .conv-working {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-2);
 }
+.conv-working > div { min-width: 0; }
+.conv-working b { display: block; font-size: 13px; color: var(--text); }
+.conv-working .muted { margin: 4px 0 0; font-size: 12px; line-height: 1.5; }
 
 /* 执行阶段（第二轮）：挂在第一轮回答后面，自带通道条，不回头改第一轮。 */
 .execution-round {
@@ -6501,5 +6504,6 @@ button:disabled {
 .chat-debate-brief p { margin: 0 0 4px; }
 .chat-debate-topics { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text); }
 .chat-debate-topics li { margin-bottom: 8px; }
+.chat-debate-topic-source { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
 .chat-debate-topic-goal { margin: 2px 0 0; }
 .chat-debate-summary { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-side); font-size: 12px; line-height: 1.6; }

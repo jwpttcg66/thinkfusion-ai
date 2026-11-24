@@ -120,6 +120,20 @@ test('辩题指向具体风险：覆盖写、缺验证、步骤过多', () => {
   assert.ok(topics.some(topic => topic.includes('验收条件')) === false, '已经有测试时不该拿验收条件凑数');
 });
 
+test('议题来自计划结构模板，不是空口写死无关数字', () => {
+  const brief = planDebateBrief(plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'A.java', content: 'x' } },
+    { id: 's2', tool: 'shell.run', args: { command: 'javac A.java' } },
+    { id: 's3', tool: 'shell.run', args: { command: 'java A' } },
+    { id: 's4', tool: 'fs.readFile', args: { path: 'A.java' } },
+    { id: 's5', tool: 'code.run', args: { language: 'java', code: 'class A {}' } }
+  ]));
+  assert.ok(brief.topics.some(item => item.text.includes('5 步') || item.text.includes('步骤拆分')));
+  assert.ok(brief.topics.some(item => /系统动作|shell/.test(item.text)));
+  // 问「哪些可以合并」是检查项，不是强制合并指令。
+  assert.ok(brief.topics.some(item => item.text.includes('哪些可以合并')));
+});
+
 test('评审 brief 必须写出表态对象、表态目标，以及每条议题的决策目标', () => {
   const brief = planDebateBrief(plan([
     { id: 's1', tool: 'fs.writeFile', args: { path: 'main.go', content: 'package main' } },

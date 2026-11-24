@@ -517,7 +517,16 @@ export function ConversationView(props: {
         {props.busy && conversation.status !== 'synthesizing' && (
           <div className="conv-working">
             <span className="dot-pulse" />
-            {STATUS_LABEL[conversation.status]}
+            <div>
+              <b>{STATUS_LABEL[conversation.status]}</b>
+              {conversation.status === 'thinking' && (
+                <p className="muted">
+                  {conversation.workspaceMode === 'engineering'
+                    ? '正在判定是否转入工程工作空间；尚未开始向模型要思考内容，所以这里不会出现推理正文。'
+                    : '若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。'}
+                </p>
+              )}
+            </div>
           </div>
         )}
 

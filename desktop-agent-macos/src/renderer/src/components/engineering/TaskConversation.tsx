@@ -253,6 +253,9 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       {entry.topics.length > 0 ? (
         <>
           <p className="chat-debate-label">议题（{String(entry.topics.length)}）</p>
+          <p className="muted chat-debate-topic-source">
+            来源：系统按计划结构套模板生成（步数、写入、系统动作等），不是主导模型当场拟定；数字来自本份计划，问法固定。
+          </p>
           <ol className="chat-debate-topics">
             {entry.topics.map((topic, index) => (
               <li key={index}>

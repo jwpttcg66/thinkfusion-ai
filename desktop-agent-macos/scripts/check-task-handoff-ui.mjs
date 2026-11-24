@@ -56,3 +56,15 @@ test('App 在会话挂上 taskId 时选中任务并展示转入桥，而不是�
   assert.match(src, /setActiveId\(attachedTaskId\)/);
   assert.match(src, /!activeTask && !showingConversation && !handoffPending/);
 });
+
+test('转交工程前必须先落系统提示，不能先跑 shadow plan 再让界面空等思考中', () => {
+  const src = readFileSync(join(ROOT, 'src/main/conversation-runner.ts'), 'utf8');
+  const handoffStart = src.indexOf('const handoff = async');
+  assert.ok(handoffStart >= 0);
+  const slice = src.slice(handoffStart, handoffStart + 2500);
+  const msgAt = slice.indexOf('已判定为工程任务，正在生成计划并转入工程工作空间');
+  const shadowAt = slice.indexOf('await buildShadowPlan');
+  assert.ok(msgAt >= 0, '必须有转交提示');
+  assert.ok(shadowAt >= 0, '仍会跑 shadow plan');
+  assert.ok(msgAt < shadowAt, '系统提示必须早于 await buildShadowPlan');
+});
