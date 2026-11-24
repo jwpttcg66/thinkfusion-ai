@@ -39,6 +39,7 @@ openIssues / currentStep / nextActions / risks / stopConditions
 - `completed` 必须区分 `verified` 与 `claim`；
 - `decisions` 必须标 `active/superseded`；
 - `evidence` 必须引用真实 EvidenceRef/事件；
+- `sourceEventIds` 保存完整来源；事件 payload/UI 只带 `sourceEventIdsPreview`；
 - 不把缺失解释成成功。
 
 ### LT-P3-02 Summarizer
@@ -75,11 +76,20 @@ openIssues / currentStep / nextActions / risks / stopConditions
 
 ```text
 摘要校验通过
-→ 写 <taskId>.json（committed）
-→ 更新任务 checkpointId/contextId
-→ 发 committed 事件
-→ 清理旧检查点
+→ 写 <ownerType>/<ownerId>.json（status=prepared）
+→ fsync 文件 + 父目录
+→ 同一次 Journal persist：更新 contextId/checkpointId/activeRunId + committed 事件
+→ 确认指针文件存在且 hash 匹配
+→ 异步清理旧检查点
 ```
+
+补充：
+
+- Journal 指针是提交权威，文件 prepared 不等于活动检查点；
+- 同一 owner 串行写；
+- 多 runId 活动指针不互相覆盖；
+- 被压缩引用的事件先归档，再允许 Journal 裁剪；
+- 删除任务/会话先清指针再清理文件。
 
 ### LT-P3-04 Recovery 与 Stale
 
@@ -94,7 +104,7 @@ openIssues / currentStep / nextActions / risks / stopConditions
 
 检查：
 
-1. `sourceEventIds` 是否仍存在；
+1. 完整 `sourceEventIds` 是否仍可从 Journal 或归档段追溯；
 2. `evidenceRefs` 是否仍有效；
 3. 生成后是否有新事件；
 4. `summaryHash` 是否匹配；

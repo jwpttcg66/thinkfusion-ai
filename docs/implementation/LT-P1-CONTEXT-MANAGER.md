@@ -85,7 +85,7 @@
 | 目标 | 每模型独立预算与 65/75/85 阈值 |
 | 依赖 | P1-03 |
 | 接触 | `context/budget.ts` |
-| 验收 | 不同模型不同预算；未知窗口不崩溃 |
+| 验收 | 不同模型不同预算；未知窗口不崩溃；没有分母时不计算 65/75/85%，只显示未提供/保守上限 |
 | 测试 | 预算单测；未知窗口 |
 | 回滚 | 只记录预算，不触发压缩 |
 
@@ -99,7 +99,8 @@ level = normal / warning / compaction / overflow
 - 65% warning；
 - 75% 后台摘要候选；
 - 85% 强制压缩；
-- 窗口未知用保守值，`confidence=unknown`。
+- 窗口未知用 `configuredInputLimit` 或保守输入上限，`confidence=unknown`；
+- 保守上限不能标成 Provider 窗口；没有可靠分母时 `usageRatio=null`，不显示百分比。
 
 ### LT-P1-05 Provider 上下文能力适配
 

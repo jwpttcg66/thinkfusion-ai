@@ -3,15 +3,19 @@
 这组文档把 V3 的产品与架构设计拆成**可以交给 Codex 分阶段执行**的计划。
 历史实现日志仍然只在 `git log` 里；这里只放**还没做完或正在做**的计划。
 
-**设计基线：`product-v3`（评审快照 `2d05b12`；当前 HEAD 见 git log）；代码基线：`cd30be3`。**
-基线变了就先改这里的提交号，再改各计划里的文件行号。
+**文档基线：`main@e336ae4`（2026-11-24）。** 旧设计快照 `product-v3@2d05b12`
+与代码审计基线 `cd30be3` 只作为历史记录，不再作为实施依据。
+
+**唯一阶段状态：[STATUS.md](STATUS.md)。** 本页的阶段表只表示计划划分，
+不再作为验收依据；与 `STATUS.md` 冲突时以状态板 + 代码/测试为准。
 
 ## 计划集
 
 | 文档 | 阶段 | 回答什么 |
 | --- | --- | --- |
-| [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书 |
-| [LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–P6 | 长任务执行与上下文压缩的正式实施任务书；设计基线 `e31b6a3` |
+| [STATUS.md](STATUS.md) | 全阶段 | **唯一状态板**：代码/测试事实、文档分类、已知冲突 |
+| [TASK-BOOK.md](TASK-BOOK.md) | 全阶段 | P0–P6、UI 与跨阶段全部任务的任务书（历史计划） |
+| [LONG-TASK-CONTEXT-TASK-BOOK.md](LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–P6 | 长任务执行与上下文压缩的正式实施任务书；设计基线 `e336ae4` |
 | [P0-06-ROLLBACK-DRILL.md](P0-06-ROLLBACK-DRILL.md) | P0 | 模式 Flag 的升级/降级/损坏钻取 |
 | [P1-00A-CODE-MAPPING.md](P1-00A-CODE-MAPPING.md) | P1 | 逐文件职责映射与第一刀顺序 |
 | [V3-FORMAL-FEATURES-PLAN.md](V3-FORMAL-FEATURES-PLAN.md) | 全阶段 | 正式功能实施计划（不含发布） |
@@ -19,7 +23,7 @@
 | [D-LEGACY-EXIT-AUDIT.md](D-LEGACY-EXIT-AUDIT.md) | D | 旧模块调用链与删除证据 |
 | [RCA-2026-11-20-ROUTING.md](RCA-2026-11-20-ROUTING.md) | 排查 | 工程“制作示例工程”被当成问答的 RCA |
 | [E-ACCEPTANCE-REPORT.md](E-ACCEPTANCE-REPORT.md) | E | 正式功能验收报告与已知限制 |
-| [COMPLETION-AUDIT.md](COMPLETION-AUDIT.md) | 全阶段 | 49/69 完成、9 部分、11 未开始 |
+| [COMPLETION-AUDIT.md](COMPLETION-AUDIT.md) | 全阶段 | V3 完成度审计（历史快照；当前状态见 STATUS.md） |
 | [../operations/RELEASE_CHECKLIST.md](../operations/RELEASE_CHECKLIST.md) | P6 | 发布前检查清单 |
 | [P0-J-REVIEW-RECORD.md](P0-J-REVIEW-RECORD.md) | P0 评审 | 独立文档/代码评审结论、修复项与残余门禁 |
 | [P0-F-TO-J-DESIGN-REVISION.md](P0-F-TO-J-DESIGN-REVISION.md) | P0 修订 | 状态所有权、输入契约/27 个输入构造点、证据归属、任务书一致性、评审门禁 |
@@ -36,19 +40,11 @@
 | [06-p5-channels.md](06-p5-channels.md) | P5 | 能力模型、路由降级、新增通道、发布判据 |
 | [07-ui.md](07-ui.md) | 跨阶段 | 界面结构、事件映射、移除辩论入口、分阶段落地 |
 
-## 状态板
+## 状态板（历史计划）
 
-| 阶段 | 状态 | 出口条件 | 负责人 |
-| --- | --- | --- | --- |
-| P0 契约与开关 | ✅ 完成（P0-J 通过，2026-11-19） | 进入 P1 | — |
-| P1.0/1.1 | 🟡 持久化/并发/行为完成；Gate 设置页待补 | 旧路径零变化 + active 可切 | — |
-| P1.1 重规划/辩论 | 未开始 | Replanner 有护栏，debate 按需 | — |
-| P2 知识学习 | 未开始 | 第二次研究可复用并标时效 | — |
-| P3 工程空间 | 未开始 | 一次真实改动全链路通过 | — |
-| P4 证据与质量 | 未开始 | 跨空间引用 + 门槛可回归 | — |
-| P5 模型与通道 | ✅ 核心完成（能力/路由/观测/模板/矩阵） | 新增通道不改主流程 | — |
-| P6 发布与运维 | 🟡 清单/迁移/备份/门禁/dmg+zip 配置完成；签名/公证未执行 | 干净机器安装/迁移/回滚/签名 | — |
-| V3 发布 | 未开始 | 06 文档的发布判据 | — |
+V3 的 P0–P6 阶段表保留为历史计划；当前真实状态只维护在
+[STATUS.md](STATUS.md)。旧表曾出现“P0 完成”与“P3/P4 未开始”互相矛盾，
+不再作为验收依据。
 
 ## 新增设计轨道：长任务与上下文压缩
 
@@ -66,6 +62,9 @@
 - 产出模板：[审计](LONG-TASK-CONTEXT-AUDIT.md) · [验收](LONG-TASK-CONTEXT-ACCEPTANCE.md)
 
 当前状态：**设计完成，未实施**。P0 契约冻结通过前不进入实现。
+
+所有权：V3 既有模块（`task-manager.ts`、`orchestrator.ts`、`store.ts`、
+`task-events.ts`、`task-view.ts`）由 V3 计划拥有；LT 只做扩展，不重写同一职责。
 
 ## 使用方式
 

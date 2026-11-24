@@ -1,7 +1,7 @@
 # 长任务与上下文压缩 · 文档集
 
 状态：设计冻结，未实施  
-基线：`main` · `e31b6a380eea1d5df0a31f82f1f065775794a550` · 2026-11-24
+基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24
 
 这套文档回答两件事：
 
@@ -13,10 +13,11 @@
 | 顺序 | 文档 | 回答什么 |
 | ---: | --- | --- |
 | 1 | [架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) | 为什么这样设计、四态分离、总体流程、正式决议 |
+| 1.5 | [STATUS.md](STATUS.md) | 唯一阶段状态板；文档/代码事实以此为准 |
 | 2 | [契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) | 类型、不变量、状态机、事件、API |
 | 3 | [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [ADR 0010](../adr/0010-context-checkpoint-storage.md) | 检查点放哪、如何原子提交、崩溃恢复、GC |
 | 4 | [UI 规格](../spec/LONG_TASK_CONTEXT_UI.md) | 主页面/轨迹/统计怎样展示，未知值怎么处理 |
-| 5 | [总任务书](LONG-TASK-CONTEXT-TASK-BOOK.md) | 31 个任务、依赖、验收、回滚 |
+| 5 | [总任务书](LONG-TASK-CONTEXT-TASK-BOOK.md) | 35 个任务、依赖、验收、回滚 |
 | 6 | 阶段任务书 | 每阶段的详细施工清单 |
 | 7 | [测试计划](LONG-TASK-CONTEXT-TEST-PLAN.md) | 测试矩阵、长任务 E2E、故障注入 |
 | 8 | [灰度/回滚](../operations/LONG-TASK-CONTEXT-ROLLOUT.md) | 开关、迁移、监控、发布门禁 |
@@ -67,9 +68,9 @@
 | 架构 | 设计冻结 |
 | 契约 | 设计冻结 |
 | 存储 | 推荐方案 B，待 P0-03 ADR 确认 |
-| 任务书 | 31 个任务，未开始 |
+| 任务书 | 35 个任务，未开始 |
 | 实现 | 未开始 |
-| 远程推送 | 未推送（除非用户明确授权） |
+| 远程推送 | 文档集已推送 `e336ae4`；本次一致性修订待推送 |
 
 ## 实施前必须确认
 

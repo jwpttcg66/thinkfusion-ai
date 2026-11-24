@@ -4,6 +4,18 @@
 后四项。验收逐条对照见 `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`；
 分阶段交付记录见 git 提交历史。
 
+> **2026-11-24 定位更新（HISTORICAL 入口说明）**
+>
+> 辩论已经降级为按需协作行为，不是产品主流程，也不再提供常驻「辩论模式」入口。
+> 本文的 `startDebate` / 固定默认轮数示例主要用于**程序化调用与历史记录**；
+> 产品计划评审以协作引擎与 `plan.debated` 为准：
+>
+> - 计划评审轮次由分歧收敛决定，`maxRounds` 只是成本上限；
+> - 实际轮次看 `PlanDebate.rounds`，停止原因看 `roundsReason/stopReason`；
+> - 不再把「打满 N 轮」当产品默认，也不把手动辩论页面当主流程。
+>
+> 下文的配置字段仍真实存在；把本文当历史 Runbook 读。
+
 本文只写**仓库里真实存在**的字段和命令。没有的功能（Token / 费用预算、置信度、
 裁判抓取网页正文）在最后一节列出，不给配置示例——写不生效的示例比不写更糟。
 
@@ -31,7 +43,7 @@ await window.agentAPI.startDebate({
   question: 'SQLite 适合作为高并发写入的主数据库吗？',
   config: {
     strategy: 'truth',        // 六种之一，见 1.2
-    maxRounds: 3,             // 1~10，超出退回策略默认轮数
+    maxRounds: 3,             // 1~10，仅程序化/手动辩论的预算上限；计划评审实际轮次按收敛决定
     leadMode: 'hybrid',       // local | web | hybrid
     convergenceStop: true,    // 观点不再变化时提前收尾
     participants: []          // 空 = 由 planLead 按当前可用成员挑

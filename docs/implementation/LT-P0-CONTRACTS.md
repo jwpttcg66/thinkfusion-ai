@@ -11,6 +11,9 @@
 - `ContextCheckpoint` / `ContextBudget` / `ContextEvent` / `PreparedContext` 可编译；
 - 检查点存储方案 ADR 通过；
 - `TaskStatus` 新增状态与转换表定稿；
+- `ContextOwner` 跨空间身份与多 run 指针冻结；
+- Journal 事件裁剪/归档/检查点完整来源策略冻结；
+- 文档只有一个状态板，基线统一；
 - `UNIFIED-TASK-RUNTIME.md` 中“重启恢复已完成”的错误被修正；
 - 旧数据兼容规则写清；
 - 未写任何压缩运行时。
@@ -98,6 +101,50 @@
 - `reconcileInterrupted` 改 `interrupted`；
 - UI 文案与动作。
 
+### LT-P0-05 上下文所有权与跨空间身份
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | 冻结 `ContextOwner`，AgentTask 与 Conversation 都可有上下文 |
+| 依赖 | P0-02、P0-04 |
+| 接触 | `context.ts`、`contracts.ts`、`conversation.ts`、`task-events.ts`、存储设计 |
+| 验收 | 不伪造 AgentTask；多 runId 不覆盖；跨空间恢复测试 |
+| 测试 | 契约 + 跨空间恢复 |
+| 回滚 | 回到 taskId-only（不推荐） |
+
+### LT-P0-06 Journal 事件保留、归档与检查点引用
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | 解决“永久保留”与 800/5000 配额冲突 |
+| 依赖 | P0-03、P0-05 |
+| 接触 | `store.ts`（只读）、`context/archive/*`、契约 |
+| 验收 | 来源可追溯；未归档不得裁剪；归档失败不提交 |
+| 测试 | 归档/裁剪/stale |
+| 回滚 | 停止归档，保留旧配额 |
+
+### LT-P0-07 跨文档状态、基线与测试门禁
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | 单一状态板、统一基线、历史规格标记、测试脚本登记 |
+| 依赖 | P0-01 |
+| 接触 | `STATUS.md`、README、ROADMAP、PRODUCT、UNIFIED、`package.json` |
+| 验收 | 状态不再互相矛盾；基线一致；`test:context-*` 落地关系明确 |
+| 测试 | 文档评审；`npm run verify` |
+| 回滚 | 恢复旧文档（不推荐） |
+
+### LT-P0-08 LT 灰度/回滚演练设计
+
+| 项 | 内容 |
+| --- | --- |
+| 目标 | LT 独立开关、灰度、备份恢复、回滚演练 |
+| 依赖 | P0-03、P0-07 |
+| 接触 | `operations/LONG-TASK-CONTEXT-ROLLOUT.md`、ADR |
+| 验收 | 开关可回退；备份恢复不破坏任务；演练可执行 |
+| 测试 | 桌面演练；P6 真机复验 |
+| 回滚 | 关闭开关 |
+
 ## 3. PR 切片
 
 | PR | 内容 | 合并条件 |
@@ -130,4 +177,8 @@ P0 不要求真实模型调用。
 - [ ] LT-P0-02 类型冻结
 - [ ] LT-P0-03 ADR 通过
 - [ ] LT-P0-04 状态决策
+- [ ] LT-P0-05 所有权/身份
+- [ ] LT-P0-06 归档/事件保留
+- [ ] LT-P0-07 状态/基线统一
+- [ ] LT-P0-08 回滚演练设计
 - [ ] P0 评审通过

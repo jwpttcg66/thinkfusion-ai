@@ -69,11 +69,14 @@
 
 流程：
 
-1. 加载 Task/Run/Checkpoint；
-2. 已完成步骤可复用；
-3. 不确定步骤 `needs_reconciliation`；
-4. 不自动重跑副作用；
-5. 发恢复事件。
+1. 加载 owner（AgentTask 或 Conversation）+ active `{runId, checkpointId}`；
+2. 只加载当前 runId 的检查点；
+3. 已完成步骤可复用；
+4. 不确定步骤 `needs_reconciliation`；
+5. 不自动重跑副作用；
+6. 发恢复事件。
+
+同一 task 多个 runId 时，不能把旧 run 的检查点当成本次活动上下文。
 
 ### LT-P5-04 副作用核对
 

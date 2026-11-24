@@ -1,7 +1,7 @@
 # 上下文检查点存储设计
 
 状态：设计冻结，待 `LT-P0-03` 正式评审  
-基线：`main` · `e31b6a3` · 2026-11-24  
+基线：`main` · `e336ae4` · 2026-11-24  
 相关：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [架构](LONG_TASK_AND_CONTEXT_COMPACTION.md) · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
 
 > 本文回答一个具体问题：压缩摘要与检查点放在哪里，如何原子提交，
@@ -46,8 +46,8 @@
 做法：
 
 - `agent-store.json` 继续保存任务、轮次、计划、报告、事件；
-- 新增 `userData/context/tasks/<taskId>.json` 保存该任务的检查点；
-- `AgentTask` 增加 `contextId` / `checkpointId` 作为**活动指针**；
+- 新增 `userData/context/owners/<ownerType>/<ownerId>.json` 保存该 owner 的检查点；
+- `AgentTask` / `Conversation` 增加 `contextId` / `checkpointId` / `activeRunId` 作为**活动指针**；
 - Journal 只保存指针与审计事件，不保存摘要正文。
 
 优点：
@@ -71,22 +71,34 @@
 <userData>/
   agent-store.json                  # 任务、轮次、计划、报告、事件、指针
   context/
-    tasks/
-      <taskId>.json                 # 该任务的检查点数组
+    owners/
+      agent-task/<taskId>.json      # Engineering 上下文检查点
+      conversation/<conversationId>.json
+    archive/
+      agent-task/<taskId>/<archiveId>.jsonl
+      conversation/<conversationId>/<archiveId>.jsonl
     .tmp/                           # 原子写临时文件
 ```
 
-`<taskId>.json`：
+`<ownerType>/<ownerId>.json`：
 
 ```ts
-interface ContextTaskFile {
+interface ContextOwnerFile {
   contractVersion: 1;
-  taskId: string;
-  runId: string;
+  owner: ContextOwner;              // 不再是单一 taskId/runId
   checkpoints: ContextCheckpoint[];
+  /** 活动指针必须同时写明 runId 与 checkpointId。 */
+  active: { runId: string; checkpointId: string } | null;
   updatedAt: number;
 }
 ```
+
+约束：
+
+- 一个任务/会话可以有多个 `runId` 的检查点；
+- 文件根不再保存单一 `runId`；
+- 恢复只加载 `active.runId` 对应的检查点；
+- `owner` 是权威，`taskId/conversationId` 是兼容镜像。
 
 约束：
 
@@ -98,18 +110,30 @@ interface ContextTaskFile {
 
 ## 4. 提交协议
 
-采用“先写文件、后写 Journal 指针、最后发事件”的顺序：
+采用“先写 prepared 文件、再原子写 Journal、最后确认活动指针”的顺序：
 
 ```text
 1. 生成摘要并通过校验
-2. 写入 <taskId>.json（新检查点 status=committed）
-   - 临时文件 + fsync + rename
-3. 更新 agent-store.json 中任务：
-   - contextId
+2. 写入 <ownerType>/<ownerId>.json：
+   - 新检查点 status=prepared
+   - 临时文件 → fsync 文件 → rename → fsync 父目录
+3. 在同一次 Journal persist 中原子更新：
+   - owner 的 contextId
    - checkpointId
-4. 追加 context.compaction.committed 事件
-5. 旧检查点按保留策略清理（不删活动指针与证据引用）
+   - active = { runId, checkpointId }
+   - context.compaction.committed 事件
+4. 确认 Journal 指向的检查点存在且 hash 匹配
+5. 异步清理未提交/过期检查点
 ```
+
+关键点：
+
+- 文件 `status=prepared` 不等于活动检查点；**Journal 指针才是提交权威**；
+- Journal 指针与 `committed` 事件必须在同一次持久化中写入；
+- 检查点文件写入需要父目录 `fsync`，不能只 `fsync` 文件；
+- 同一 `ownerType/ownerId` 的检查点写入必须串行化；
+- 同一任务多个 `runId` 不能覆盖对方的活动指针；
+- 删除任务/会话时，先清指针，再延迟清理检查点与归档。
 
 为什么不是“先写 Journal”：
 
@@ -121,27 +145,32 @@ interface ContextTaskFile {
 | 崩溃点 | 结果 | 恢复 |
 | --- | --- | --- |
 | 摘要生成中 | 旧检查点仍有效 | 使用旧上下文 |
-| 文件已写、Journal 未更新 | 孤儿 committed 文件 | 任务仍用旧检查点；GC 清理孤儿 |
-| Journal 已更新、事件未写 | 任务用新检查点 | 恢复时可补审计事件或只读推导 |
+| 文件已写（prepared）、Journal 未更新 | 孤儿 prepared 文件 | 任务仍用旧检查点；GC 清理孤儿 |
+| Journal 已更新、文件未写完 | Journal 指针无对应文件 | 不应发生：文件先于 Journal；若发生，回退旧检查点并记录 stale |
+| Journal 指针已写、committed 事件未写 | 同一次 persist 不应拆分 | 若发生，按指针推导事件 |
 | 文件写一半 | 临时文件残留 | 忽略 `.tmp`，旧文件有效 |
-| Journal 写一半 | 原子 rename 保证旧/新二选一 | 按旧/新状态恢复 |
+| 父目录未 fsync 就断电 | rename 可能丢失 | 恢复旧文件/旧指针；记录 |
 | 清理时崩溃 | 最多残留文件 | 下次 GC 继续 |
 
 ### 原子写
 
-- 写 `<taskId>.json.tmp-<pid>-<random>`；
+- 写 `<ownerType>/<ownerId>.json.tmp-<pid>-<random>`；
 - `fsync` 文件；
 - `rename` 覆盖目标；
+- `fsync` 父目录；
 - 失败删除临时文件；
-- 不使用“先删除再写”。
+- 不使用“先删除再写”；
+- 同一 owner 的写入串行化（进程内锁 + 文件锁）。
 
 ## 5. Journal 变更
 
-`AgentTask` 增加可选字段：
+`AgentTask` / `Conversation` 增加可选字段：
 
 ```ts
 contextId?: string;
 checkpointId?: string;
+/** 恢复时必须同时匹配 runId；P0-05 冻结字段名 */
+activeRunId?: string;
 ```
 
 事件：
@@ -171,15 +200,15 @@ type ContextEvent =
 ## 6. 恢复流程
 
 ```text
-加载 Task
+加载 owner（AgentTask 或 Conversation）
   ↓
-读取 context/checkpoints？没有 → 无上下文
+读取 context/owners/<ownerType>/<ownerId>.json？没有 → 无上下文
   ↓
-读取 <taskId>.json
+找到 active { runId, checkpointId }
   ↓
-找到 task.checkpointId
+只加载 active.runId 对应的检查点
   ↓
-校验 status=committed、summaryHash、sourceEventIds 存在
+校验 summaryHash、完整 sourceEventIds 存在、archiveRef 可用
   ↓
 校验 retainedEventIds / evidenceRefs
   ↓
@@ -200,6 +229,8 @@ type ContextEvent =
 | `.tmp` 文件 | 启动时清理超过 1 小时 |
 | 失败/stale 检查点 | 保留最近 5 个用于排查，之后清理 |
 | Evidence | 由 Evidence Store 管理，不随检查点删除 |
+| 归档段 | 被任何 committed 检查点引用时不得删除 |
+| 展示预览 | 可随事件裁剪，不影响完整性 |
 
 清理前检查：
 
@@ -208,12 +239,37 @@ type ContextEvent =
 3. 没有证据引用；
 4. 不是当前 run 的唯一检查点。
 
+## 7.5 事件归档与 Journal 裁剪
+
+当前 `AgentStore` 仍有 `MAX_EVENTS_PER_TASK=800` / `MAX_RUN_EVENTS=5000`，
+会裁剪非关键事件。长任务不能承诺“所有原始事件永久留在 Journal”。
+
+协议：
+
+1. Context Manager 不主动删除原始事件；
+2. 压缩前把来源范围写入
+   `context/archive/<ownerType>/<ownerId>/<archiveId>.jsonl`；
+3. 检查点 `archiveRef` 指向归档段，`sourceEventIds` 保存完整引用；
+4. Journal 裁剪前检查：被任何 committed 检查点引用的 `eventId`
+   必须已有归档段；
+5. 归档失败 → 不提交检查点 / 不允许裁剪该段；
+6. 事件 payload 只带 `sourceEventIdsPreview`（前 20 个），
+   完整列表在检查点文件；
+7. 归档段只追加，不重写；清理按检查点引用计数。
+
+这解决：
+
+- “检查点引用已裁剪事件”；
+- “摘要完整性依赖截断预览”；
+- “原始历史永久保留”与现有配额冲突。
+
 ## 8. 备份与恢复
 
 现有备份流程需要加入：
 
-- `context/tasks/` 目录；
+- `context/owners/` 与 `context/archive/` 目录；
 - 备份清单记录设备上的检查点数量与大小；
+- 恢复时先在临时目录恢复 Journal 与 context，校验指针/文件/hash 后再切换正式目录；
 - 恢复时先恢复 Journal，再恢复 context 文件；
 - 若 context 文件缺失，任务按未压缩恢复，不阻塞；
 - 若 Journal 指向的检查点缺失，记录 `context.compaction.stale`，回退到上一个。
@@ -233,10 +289,14 @@ type ContextEvent =
 ## 10. 旧数据兼容
 
 - 旧 `agent-store.json` 无 `contextId/checkpointId`：按未压缩；
-- 旧任务没有 `context/tasks/<taskId>.json`：不创建空文件；
+- 旧任务/会话没有 `context/owners/<ownerType>/<ownerId>.json`：不创建空文件；
 - 旧报告无 `ContextCheckpoint`：不迁移、不补造；
 - 新任务首次压缩时才创建文件；
-- 删除任务时删除对应 context 文件（或标记待清理）。
+- 删除任务/会话时：
+  1. 先清 Journal 指针；
+  2. 再标记检查点/归档待清理；
+  3. 异步删除文件；
+  4. 不能先删文件再清指针。
 
 ## 11. 安全
 

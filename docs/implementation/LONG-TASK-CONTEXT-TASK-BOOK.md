@@ -1,9 +1,10 @@
 # ThinkFusion 长任务与上下文压缩 · 正式实施任务书
 
 状态：设计完成，未实施  
-设计基线：`main` · `e31b6a380eea1d5df0a31f82f1f065775794a550` · 2026-11-24  
+设计基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24  
 架构决议：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)  
 文档集：[LONG-TASK-CONTEXT-README.md](LONG-TASK-CONTEXT-README.md)  
+唯一状态板：[STATUS.md](STATUS.md)  
 契约：[LONG_TASK_CONTEXT_CONTRACTS.md](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)  
 存储：[CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)  
 UI：[LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)  
@@ -34,12 +35,38 @@ UI：[LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)
 ### 0.3 必须遵守的约束
 
 - Task State、Execution State、Session History、Context State 四种状态独立。
-- 压缩只替换模型输入中的历史表示，原始事件永久保留。
+- 压缩只替换模型输入中的历史表示；原始事件由 Journal 或归档段保留可追溯，
+  被引用事件未归档前不得裁剪。
 - 先裁剪工具结果，再做模型摘要。
 - 摘要必须引用 `sourceEventIds` 与 `EvidenceRef`。
 - 未知 Token、未知窗口、未知费用显示“未提供”，不写 0。
 - 每个任务独立 PR；依赖未合并前不领后续任务。
 - 未通过真实测试与 typecheck 的任务不得标记完成。
+
+## 0.4 文档治理与 V3/LT 边界
+
+- **唯一状态板**：`docs/implementation/STATUS.md`；
+- V3 既有模块（`task-manager.ts`、`orchestrator.ts`、`store.ts`、
+  `task-events.ts`、`task-view.ts`）由 V3 计划拥有；LT 只做扩展，
+  不重写同一职责；
+- 同一文件被两条轨道同时修改时，先在该文件对应任务书中写清接口与顺序；
+- LT 的 P0–P6 使用 `LT-P0`–`LT-P6`，不与 V3 的 P0–P6 混用；
+- 所有 LT 文档基线统一为 `main@e336ae4`；旧基线只作历史；
+- 测试计划中的 `test:context-*` 是未来脚本，P0 必须登记到
+  `verify`/`test:all` 后才能作为门禁。
+
+共享文件所有权：
+
+| 文件 | V3 所有权 | LT 只做 |
+| --- | --- | --- |
+| `task-manager.ts` | 任务生命周期/状态机 | P5 增加暂停/中断/预算/阻塞状态 |
+| `orchestrator.ts` | 工程执行治理 | P4 上下文接线；P5 暂停/恢复钩子 |
+| `store.ts` | Journal/事件/配额 | P0-03/P3 检查点指针与归档协议 |
+| `task-events.ts` | 统一事件信封 | P3-05 追加 `context.*` 事件 |
+| `task-view.ts` | 任务展示投影 | P6 增加上下文/压缩字段 |
+| `execution-pool.ts` | 多模型执行名单 | P4-01 prepare/finalize 钩子 |
+
+两条轨道不得各自重写同一职责；冲突时以 V3 现有模块所有权为准。
 
 ## 1. 任务编号与依赖
 
@@ -50,7 +77,11 @@ P0 契约冻结
  ├─ LT-P0-01 现状审计
  ├─ LT-P0-02 类型契约
  ├─ LT-P0-03 存储 ADR
- └─ LT-P0-04 状态机/文档冲突决策
+ ├─ LT-P0-04 状态机/文档冲突决策
+ ├─ LT-P0-05 上下文所有权与跨空间身份
+ ├─ LT-P0-06 Journal 事件保留/归档
+ ├─ LT-P0-07 跨文档状态与测试门禁
+ └─ LT-P0-08 LT 灰度/回滚演练设计
         ↓
 P1 Context Manager 基础
  ├─ LT-P1-01 模块骨架
@@ -100,6 +131,10 @@ P6 UI 与全链路验收
 | LT-P0-02 | 未开始 | P0-01 | 契约类型 |
 | LT-P0-03 | 未开始 | P0-01 | 存储 ADR |
 | LT-P0-04 | 未开始 | P0-01 | 状态决策 |
+| LT-P0-05 | 未开始 | P0-02 / P0-04 | 所有权契约 |
+| LT-P0-06 | 未开始 | P0-03 / P0-05 | 归档策略 |
+| LT-P0-07 | 未开始 | P0-01 | 状态/基线统一 |
+| LT-P0-08 | 未开始 | P0-03 / P0-07 | 回滚演练设计 |
 | LT-P1-01 | 未开始 | P0-02 | 模块骨架 |
 | LT-P1-02 | 未开始 | P1-01 | Builder |
 | LT-P1-03 | 未开始 | P1-01 | Estimator |
@@ -154,12 +189,20 @@ export interface ContextBudget {
   actualInputTokens: number | null;
   warningThreshold: number;
   compactionThreshold: number;
+  budgetSource: 'provider' | 'config' | 'estimated' | 'conservative';
+  configuredInputLimit?: number;
   confidence: 'verified' | 'configured' | 'estimated' | 'unknown';
 }
 
+export type ContextOwner =
+  | { ownerType: 'agent-task'; ownerId: string; taskId: string; runId: string }
+  | { ownerType: 'conversation'; ownerId: string; conversationId: string; runId: string };
+
 export interface PreparedContext {
   contextId: string;
-  taskId: string;
+  owner: ContextOwner;
+  taskId?: string;
+  conversationId?: string;
   runId: string;
   checkpointId?: string;
   includedEventIds: string[];
@@ -172,12 +215,16 @@ export interface PreparedContext {
 
 export interface ContextCheckpoint {
   checkpointId: string;
-  taskId: string;
+  owner: ContextOwner;
+  taskId?: string;
+  conversationId?: string;
   runId: string;
   contextId: string;
   sourceStartSeq: number;
   sourceEndSeq: number;
   sourceEventIds: string[];
+  sourceEventIdsPreview?: string[];
+  archiveRef?: string;
   summary: string;
   summaryHash: string;
   retainedEventIds: string[];
@@ -221,6 +268,7 @@ export interface ContextManager {
 runId: string;          // 一次连续运行；恢复复用，明确重跑才换
 contextId?: string;     // 当前使用的上下文版本
 checkpointId?: string;  // 最近一次已提交检查点
+activeRunId?: string;   // 与 checkpointId 一起构成活动指针
 ```
 
 `TaskEventEnvelope` 已有 `runId/roundId/stepId/attemptId`；不新建第二套事件。
@@ -248,15 +296,19 @@ checkpointId?: string;  // 最近一次已提交检查点
 | 方案 | 做法 | 优点 | 风险 |
 | --- | --- | --- | --- |
 | A | `agent-store.json` 增加 `contextCheckpoints` 数组 | 与任务同一原子写 | 摘要大，频繁写会拖慢 Journal |
-| B | 独立 `context-checkpoints.json`，Journal 只存索引 | Journal 轻；摘要可独立清理 | 两份文件需要恢复顺序与一致性协议 |
+| B | `context/owners/<ownerType>/<ownerId>.json`，Journal 只存指针 | Journal 轻；摘要可独立清理；支持 AgentTask/Conversation | 两份文件需要恢复顺序与一致性协议 |
 
 推荐 **B**，但必须在 ADR 中写清：
 
-1. 检查点文件先写 `prepared`，再写 Journal 索引，最后标记 `committed`；
-2. 崩溃恢复时以 Journal 索引与 checkpoint 文件双向核对；
-3. 过期/未提交检查点清理策略；
-4. 旧 `agent-store.json` 无字段时按“无检查点”兼容；
-5. 大摘要不进入事件日志，事件只带 `checkpointId`。
+1. 检查点文件先写 `prepared`（临时文件 → fsync → rename → 父目录 fsync）；
+2. **同一次 Journal persist** 更新 `contextId/checkpointId/activeRunId` + committed 事件；
+3. Journal 指针是提交权威；prepared 文件不等于活动检查点；
+4. 同一 owner 串行写，多 runId 活动指针互不覆盖；
+5. 被压缩引用的原始事件先归档，再允许 Journal 裁剪；
+6. 崩溃恢复以 Journal 指针 + checkpoint 文件 + 归档双向核对；
+7. 过期/未提交检查点清理策略；
+8. 旧 `agent-store.json` 无字段时按“无检查点”兼容；
+9. 大摘要不进入事件日志，事件只带 `checkpointId` 与来源预览。
 
 ## 4. P0 · 审计与契约冻结
 
@@ -306,8 +358,8 @@ checkpointId?: string;  // 最近一次已提交检查点
 - 接触文件：`docs/adr/`（下一个编号）、`src/main/store.ts`（只读设计）。
 - 实现要点：
   1. 评估 Journal 大小、写频率、原子写；
-  2. 定义 `context-checkpoints.json` 或 Journal 字段；
-  3. 定义 prepared → committed 的崩溃恢复协议；
+  2. 定义 `context/owners/<ownerType>/<ownerId>.json` 与 Journal 指针；
+  3. 定义 prepared 文件 → Journal 指针的提交与崩溃恢复协议；
   4. 定义清理与配额；
   5. 定义旧数据兼容。
 - 验收：
@@ -339,6 +391,90 @@ checkpointId?: string;  // 最近一次已提交检查点
 - 不做：代码改动。
 
 **P0 出口**：契约、存储 ADR、状态决策、审计记录全部冻结；未写运行时。
+
+### LT-P0-05 上下文所有权与跨空间身份
+
+- 目标：冻结 `ContextOwner`，让 AgentTask 与 Conversation 都能拥有上下文，
+  不伪造 AgentTask。
+- 依赖：P0-02、P0-04。
+- 接触文件：`src/shared/context.ts`、`contracts.ts`、`conversation.ts`、
+  `task-events.ts`、存储设计。
+- 实现要点：
+  1. `ownerType: 'agent-task' | 'conversation'`；
+  2. `ownerId` 权威，`taskId/conversationId` 只是镜像；
+  3. 检查点按 `ownerType/ownerId` 隔离；
+  4. 活动指针 `{runId, checkpointId}`；
+  5. 恢复只加载 `owner + runId`；
+  6. `Conversation` 增加 contextId/checkpointId/activeRunId（P0 只定义）。
+- 验收：
+  - General/Knowledge 不伪造 AgentTask；
+  - 同一 owner 多 runId 不互相覆盖；
+  - 跨空间恢复测试通过。
+- 测试：`test:context-contracts`；跨空间恢复单测。
+- 回滚：删除 owner 字段，回到 taskId-only（不推荐）。
+- 不做：实现 ContextManager。
+
+### LT-P0-06 Journal 事件保留、归档与检查点引用
+
+- 目标：解决“原始事件永久保留”与现有 800/5000 事件配额的冲突。
+- 依赖：P0-03、P0-05。
+- 接触文件：`src/main/store.ts`（只读设计）、`context/archive/*`、契约。
+- 实现要点：
+  1. Context Manager 不主动删事件；
+  2. 被压缩引用的来源先写归档段 `context/archive/...`；
+  3. 检查点保存完整 `sourceEventIds`，事件 payload 只带预览；
+  4. Journal 裁剪前检查引用；未归档不得裁剪；
+  5. 归档段按检查点引用清理。
+- 验收：
+  - 检查点引用的来源可追溯；
+  - 裁剪不会让摘要失去原始范围；
+  - 归档失败不提交检查点。
+- 测试：归档/裁剪/stale 单测。
+- 回滚：停止归档，保留旧事件配额。
+- 不做：改变现有事件配额数值。
+
+### LT-P0-07 跨文档状态、基线、旧规格与测试门禁
+
+- 目标：让所有文档只有一个状态来源，旧规格有明确标记。
+- 依赖：P0-01。
+- 接触文件：`docs/implementation/STATUS.md`、`docs/README.md`、
+  `docs/ROADMAP.md`、`docs/PRODUCT.md`、`implementation/README.md`、
+  `00-master-plan.md`、`UNIFIED-TASK-RUNTIME.md`、测试脚本注册。
+- 实现要点：
+  1. `STATUS.md` 为唯一状态板；
+  2. 所有 LT 文档基线统一到 `e336ae4`；
+  3. V3 P0-J/P0-04/P0-06/P1-001 口径分开；
+  4. 历史规格标 `HISTORICAL`；
+  5. 明确 `test:context-*` 是未来脚本；
+  6. P0 至少注册 `test:context-contracts` 到 `package.json` 与 `verify`/`test:all`；
+     其它 `test:context-*` 在对应阶段登记，未登记前不能当门禁。
+- 验收：
+  - 不再出现互相矛盾的状态表；
+  - 文档基线一致；
+  - 测试计划命令与 `package.json` 的落地关系写清。
+- 测试：文档评审；`npm run verify` 不被文档改动影响。
+- 回滚：恢复旧文档（不推荐）。
+- 不做：实现运行时。
+
+### LT-P0-08 LT 灰度/回滚演练设计
+
+- 目标：为 LT 轨道单独设计开关、灰度、备份恢复与回滚演练，
+  不与 V3 P0-06 混用编号。
+- 依赖：P0-03、P0-07。
+- 接触文件：`docs/operations/LONG-TASK-CONTEXT-ROLLOUT.md`、ADR 0010。
+- 实现要点：
+  1. `contextManagerMode: off/shadow/active`；
+  2. `resumeMode: off/shadow/active`；
+  3. 检查点文件备份/恢复与临时目录校验；
+  4. 关闭开关后的旧路径；
+  5. 演练步骤与证据。
+- 验收：
+  - 每个开关可回退；
+  - 备份恢复不破坏任务；
+  - 回滚演练步骤可执行。
+- 测试：桌面演练；P6 真机复验。
+- 回滚：关闭开关。
+- 不做：实际发布。
 
 ## 5. P1 · Context Manager 基础
 
@@ -541,9 +677,9 @@ checkpointId?: string;  // 最近一次已提交检查点
 - 依赖：P0-03、P3-01。
 - 接触文件：`src/main/context/checkpoint/store.ts`、`commit.ts`、`src/main/store.ts`（按 ADR）。
 - 实现要点：
-  1. prepared → committed；
-  2. 先写检查点，再写索引，再标记；
-  3. 崩溃恢复双向核对；
+  1. prepared 文件 → Journal 指针 + committed 事件；
+  2. Journal 指针是提交权威；
+  3. 崩溃恢复双向核对（指针/文件/hash/归档）；
   4. 清理过期/未提交检查点；
   5. 事件只引用 checkpointId。
 - 验收：

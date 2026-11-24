@@ -26,13 +26,14 @@
 采用**独立检查点文件 + Journal 指针**：
 
 - `agent-store.json` 继续保存任务与事件；
-- 新增 `<userData>/context/tasks/<taskId>.json` 保存检查点；
-- `AgentTask` 只增加 `contextId` / `checkpointId` 指针；
+- 新增 `<userData>/context/owners/<ownerType>/<ownerId>.json` 保存检查点；
+  覆盖 `agent-task` 与 `conversation` 两类 owner；
+- `AgentTask` / `Conversation` 只增加 `contextId` / `checkpointId` / `activeRunId` 指针；
 - 提交顺序：
-  1. 写检查点文件（临时文件 + fsync + rename，status=committed）；
-  2. 更新 Journal 的任务指针；
-  3. 追加 `context.compaction.committed` 事件；
-  4. 清理旧检查点。
+  1. 写检查点文件（临时文件 + fsync + rename + 父目录 fsync，status=prepared）；
+  2. 在同一次 Journal persist 中更新指针 + 追加 committed 事件；
+  3. 确认 Journal 指针指向的文件存在且 hash 匹配；
+  4. 异步清理旧检查点。
 
 这样最坏情况是产生未被引用的孤儿检查点，可以安全清理；不会出现
 “任务指向一个不存在的摘要”。
@@ -56,15 +57,18 @@
 ## 约束
 
 - 摘要不写事件正文，事件只带 `checkpointId`；
+- Journal 指针是提交权威，文件 `status=prepared` 不等于活动检查点；
+- 同一 owner 的检查点写入串行化；多 runId 活动指针互不覆盖；
 - 活动 `checkpointId` 永不自动删除；
+- 被压缩引用的原始事件先归档到 `context/archive/...`，再允许 Journal 裁剪；
 - 检查点写入失败不阻塞任务，回退未压缩；
 - 旧 `agent-store.json` 无字段时按未压缩读取；
 - 检查点不写工作区，权限与 userData 一致；
-- 备份包含 `context/tasks/`，恢复时 Journal 优先、文件缺失不阻塞。
+- 备份包含 `context/owners/` 与 `context/archive/`；恢复时 Journal 优先、文件缺失不阻塞。
 
 ## 未决
 
-- 每任务保留 20 个检查点是否合适；
+- 每 owner 保留 20 个检查点是否合适；
 - 按任务聚合还是按 checkpoint 分文件；
 - Journal 指针更新与事件追加是否合并写；
 - 备份是否包含未提交检查点；

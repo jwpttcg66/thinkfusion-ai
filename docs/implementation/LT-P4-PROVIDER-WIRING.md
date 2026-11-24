@@ -23,7 +23,7 @@
 | 目标 | 所有可压缩请求统一接线 |
 | 依赖 | P1-02、P2-03、P3-04 |
 | 接触 | `execution/execution-pool.ts`、`provider-sub-agent.ts`、`context/manager.ts` |
-| 验收 | 关闭开关零变化；开启后含摘要/裁剪；requestId 贯通 |
+| 验收 | 关闭开关零变化；开启后含摘要/裁剪；requestId 贯通；AgentTask/Conversation 两类 owner 都可用 |
 | 测试 | Pool 集成；`test:execution`、`test:providers` |
 | 回滚 | 关闭开关 |
 
@@ -31,10 +31,12 @@
 
 ```text
 SubAgentTask
-→ ContextManager.prepare
+→ ContextManager.prepare(owner: agent-task | conversation)
 → ProviderBackedSubAgent.ask/askStream
 → ContextManager.finalize
 ```
+
+不能用 `taskId` 作为唯一键；General/Knowledge 的 owner 是 conversation。
 
 不改变 `question` / `system` 的现有语义。
 

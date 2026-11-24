@@ -3,7 +3,8 @@
 定位见 [PRODUCT.md](PRODUCT.md)，协作机制见
 [architecture/COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md)，
 迁移步骤见 [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)，
-逐任务执行计划见 [implementation/README.md](implementation/README.md)。
+逐任务执行计划见 [implementation/README.md](implementation/README.md)，
+真实阶段状态见 [implementation/STATUS.md](implementation/STATUS.md)。
 
 **排序原则：先冻结产品与协作架构（P0），再让协作引擎跑起来（P1），然后依次补齐知识学习（P2）、
 工程能力（P3）、证据与质量（P4）、模型与通道（P5）。**
@@ -16,24 +17,26 @@
 
 ## 现在的位置
 
-一句话：**辩论与证据链已经能跑，但产品仍以辩论为主线；统一协作引擎只有雏形。**
+一句话：**协作引擎、工程空间与证据链已有实现；辩论已降为按需行为；长任务与上下文压缩仍是设计。**
 
 | 能力 | 状态 | 边界 |
 | --- | --- | --- |
 | 多通道独立作答 | ✅ 可用 | 网页版 AI，原话直发，通道独立会话 |
-| 辩论引擎（主张 / 争议 / 修订 / 裁判） | ✅ 引擎可用 | 待降级为按需行为 |
+| 辩论引擎（主张 / 争议 / 修订 / 裁判） | ✅ 按需可用 | 无固定产品入口；计划评审轮次按分歧收敛 |
 | 证据包（Pack）与内容哈希 | ✅ 可用 | 执行断言进入 Item Hash |
-| 协作调度 | 🟡 雏形 | `collaboration/` 已有并行 / 递进 / smart 计划，尚无任务图与重规划 |
+| 协作调度 | ✅ 核心可用 | Planner/Scheduler/Runner 已有实现；任务图与重规划仍有缺口 |
 | 多 Agent 编码 | 🟡 部分 | `coding/team.ts` 可用，未接入统一调度 |
 | CLI Agent | ✅ 可用 | Qoder / Claude，待补能力描述 |
-| 知识学习空间 | 🟡 部分可用 | 多轮研究、网页正文抽取可用；索引与复用未做（P2） |
-| 工程空间 | ✅ 部分可用 | 读盘证据、评审、审批执行；代码智能 V3.2 |
-| 知识索引 / 跨会话证据 | ⏳ 未做 | P2 |
-| 统一证据引用（跨空间） | ⏳ 未做 | P4 |
+| 知识学习空间 | 🟡 部分可用 | 多轮研究、召回与注入可用；索引复用/产品化仍有缺口 |
+| 工程空间 | ✅ 可用 | 真实任务、评审、审批执行、交付；长任务恢复未实现 |
+| 知识索引 / 跨会话证据 | 🟡 部分 | 本地索引/召回已有，跨会话证据未统一 |
+| 统一证据引用（跨空间） | 🟡 部分 | P4 已有 EvidenceRef/Verifier，长任务证据未接 |
 
 版本号见 `VERSION`。历史实现记录按 `git log` 与根目录 `CHANGELOG.md` 回看。
 
-> **当前状态：方向已确认；P0 技术门禁未全部通过，未实施。** 以下几节是目标路线，不代表代码已具备。
+> **当前状态：V3 主体能力已落地，发布与长任务仍有缺口。** 唯一状态见
+> [implementation/STATUS.md](implementation/STATUS.md)；以下几节是目标路线与历史判据，
+> 不代表所有项目都已具备。
 
 ---
 

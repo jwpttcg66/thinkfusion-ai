@@ -1,7 +1,7 @@
 # 长任务与上下文压缩 · UI 规格
 
 状态：设计冻结，未实施  
-基线：`main` · `e31b6a3` · 2026-11-24  
+基线：`main` · `e336ae4` · 2026-11-24  
 相关：[契约](LONG_TASK_CONTEXT_CONTRACTS.md) · [架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
 
 ## 1. 原则
@@ -43,11 +43,13 @@
 | committed | 已压缩（CP-003） |
 | failed | 摘要失败，保留旧上下文 |
 | stale | 摘要已过期，等待重新生成 |
-| unknown | 窗口未提供，按保守预算运行 |
+| unknown | 窗口未提供；如配置了保守输入上限，显示“未提供（保守上限 X）”，不显示百分比 |
 
 规则：
 
 - 没有预算数据时显示“未提供”，不显示 0%；
+- 窗口未知时不计算 65/75/85% 的使用率；只显示“未提供”或“保守上限”；
+- 保守上限不能标成 Provider 窗口；
 - 正在压缩时不得显示“已完成”；
 - 摘要失败不隐藏任务其他进度。
 
@@ -145,7 +147,7 @@ CP-003 · 摘要 2026-11-24 10:22 · 保留最近 12 条事件
 
 | UI | 事件/字段 |
 | --- | --- |
-| 上下文百分比 | `ContextBudget.usageRatio` |
+| 上下文百分比 | `BudgetDecision.usageRatio`；为 null 时显示“未提供” |
 | 预警 | `context.budget.warning` |
 | 正在压缩 | `context.compaction.started` |
 | 摘要完成 | `context.compaction.summary.ready` |
@@ -169,6 +171,26 @@ CP-003 · 摘要 2026-11-24 10:22 · 保留最近 12 条事件
 - “测试通过”没有执行证据；
 - “已压缩”但检查点未提交；
 - “0 Token”代替未知。
+
+## 8.5 数据来源与展示边界
+
+必须区分五类数据，不能用一种冒充另一种：
+
+| 来源 | 展示 |
+| --- | --- |
+| Provider 实际返回的 reasoning | 按现有策略展示或折叠；没有就“未提供” |
+| 模型正文回答 | 正常展示 |
+| 工具执行事件/参数/stdout/stderr | 执行记录/详情，不伪装成模型推理 |
+| 系统生成的进度说明 | 标明是系统状态，不是模型原文 |
+| 压缩摘要 | 标明“摘要”，不是 reasoning、不是执行事实 |
+
+规则：
+
+- Provider 没返回 reasoning 时，显示“未提供”，不生成一份假推理；
+- 不得把系统摘要写进 reasoning 字段；
+- 不得把模型回答伪装成工具结果；
+- 摘要中的“已完成/已验证”必须能点回原始事件；
+- 压缩事件只带 `sourceEventIdsPreview` 时，UI 标明“预览”，完整范围在检查点详情。
 
 ## 9. 可访问性
 

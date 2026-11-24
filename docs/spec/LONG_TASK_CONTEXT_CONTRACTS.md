@@ -1,7 +1,7 @@
 # 长任务与上下文压缩 · 契约冻结
 
 状态：设计冻结，未实施  
-基线：`main` · `e31b6a380eea1d5df0a31f82f1f065775794a550` · 2026-11-24  
+基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24  
 上游设计：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)  
 任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)  
 存储设计：[CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)
@@ -57,6 +57,14 @@ export interface ContextBudget {
   /** 0–1，默认 0.85。 */
   compactionThreshold: number;
 
+  /**
+   * 预算来源：provider 实际 / 用户配置 / 本地估算 / 无依据保守值。
+   * 保守值不能伪装成 Provider 窗口。
+   */
+  budgetSource: 'provider' | 'config' | 'estimated' | 'conservative';
+  /** 用户或系统配置的保守输入上限；没有为 undefined。 */
+  configuredInputLimit?: number;
+
   confidence: BudgetConfidence;
 }
 
@@ -64,8 +72,9 @@ export interface BudgetDecision {
   budget: ContextBudget;
   /** 可用输入上限：window - outputReserve - safetyMargin；未知为 null。 */
   inputLimit: number | null;
+  /** 有可用分母时才计算；未知窗口为 null，不显示 65/75/85%。 */
   usageRatio: number | null;
-  level: 'normal' | 'warning' | 'compaction' | 'overflow';
+  level: 'normal' | 'warning' | 'compaction' | 'overflow' | 'unknown';
   reason: string;
 }
 ```
@@ -98,9 +107,31 @@ export interface ContextHistoryItem {
   sourceRef?: string;
 }
 
+/**
+ * 上下文所有权：Engineering 属于 AgentTask，General/Knowledge 属于
+ * Conversation。不能为了复用接口伪造一个 AgentTask。
+ */
+export type ContextOwner =
+  | {
+      ownerType: 'agent-task';
+      ownerId: string;
+      taskId: string;
+      runId: string;
+    }
+  | {
+      ownerType: 'conversation';
+      ownerId: string;
+      conversationId: string;
+      runId: string;
+    };
+
 export interface PreparedContext {
   contextId: string;
-  taskId: string;
+  owner: ContextOwner;
+  /** 兼容镜像：agent-task 时有 taskId；conversation 时没有。 */
+  taskId?: string;
+  /** 兼容镜像：conversation 时有 conversationId；agent-task 时没有。 */
+  conversationId?: string;
   runId: string;
 
   checkpointId?: string;
@@ -123,13 +154,20 @@ export type CheckpointStatus = 'prepared' | 'committed' | 'failed';
 export interface ContextCheckpoint {
   contractVersion: 1;
   checkpointId: string;
-  taskId: string;
+  owner: ContextOwner;
+  taskId?: string;
+  conversationId?: string;
   runId: string;
   contextId: string;
 
   sourceStartSeq: number;
   sourceEndSeq: number;
+  /** 完整来源引用：用于校验、恢复、审计；不得截断。 */
   sourceEventIds: string[];
+  /** 仅用于 UI/事件 payload 的预览；不能用于完整性校验。 */
+  sourceEventIdsPreview?: string[];
+  /** 原始事件归档段；Journal 裁剪前必须已存在。 */
+  archiveRef?: string;
 
   summary: ContextSummary;
   summaryHash: string;
@@ -141,6 +179,10 @@ export interface ContextCheckpoint {
   inputTokensBefore: number | null;
   inputTokensAfter: number | null;
 
+  /**
+   * 文件状态。注意：status=prepared 不等于未提交；Journal 活动指针
+   * （owner + runId + checkpointId）才是提交权威。
+   */
   status: CheckpointStatus;
   createdAt: number;
   committedAt?: number;
@@ -202,13 +244,16 @@ export type ContextEventType =
 
 export interface ContextEventPayload {
   contextId: string;
+  ownerType?: 'agent-task' | 'conversation';
+  ownerId?: string;
   checkpointId?: string;
   modelId?: string;
   providerId?: string;
   level?: 'normal' | 'warning' | 'compaction' | 'overflow';
   inputTokensBefore?: number | null;
   inputTokensAfter?: number | null;
-  sourceEventIds?: string[];
+  /** 事件 payload 只放展示用预览；完整来源在检查点文件。 */
+  sourceEventIdsPreview?: string[];
   reason?: string;
 }
 ```
@@ -320,6 +365,23 @@ checkpointId?: string;
 - `contextId` 每次上下文版本变化；
 - `checkpointId` 最近一次已提交检查点。
 
+## 4.4 上下文所有权
+
+| ownerType | ownerId | 谁拥有 | 指针存在 |
+| --- | --- | --- | --- |
+| `agent-task` | taskId | TaskManager / AgentOrchestrator | `AgentTask.contextId/checkpointId` |
+| `conversation` | conversationId | ConversationRunner | `Conversation.contextId/checkpointId`（P0-05 冻结） |
+
+规则：
+
+1. `owner` 是权威；`taskId/conversationId` 只是兼容镜像。
+2. General/Knowledge 不伪造 `AgentTask`。
+3. 恢复只加载 `owner + runId` 对应的检查点。
+4. 同一 owner 多个 runId 时，活动指针必须写明 `runId + checkpointId`。
+5. 检查点文件按 `ownerType/ownerId` 隔离，不能互相覆盖。
+6. Conversation 当前代码没有独立 `runId`；P0-05 必须冻结它如何生成/复用，
+   在此之前不得假设它已存在。
+
 ## 5. 不变量
 
 ### 5.1 请求
@@ -338,6 +400,9 @@ checkpointId?: string;
 2. 未配对工具调用不压缩。
 3. 摘要只覆盖 `sourceStartSeq..sourceEndSeq`。
 4. 摘要生成后新增事件不进入本次摘要。
+5. `sourceEventIds` 是完整引用；UI/事件 payload 可以只带前 20 个预览。
+6. 被压缩引用的事件若会被 Journal 裁剪，必须先写入归档段并记录 `archiveRef`。
+7. 检查点校验使用完整 `sourceEventIds`，不得使用预览截断。
 5. 摘要提交成功前不使用。
 6. 摘要失败/过期保留旧上下文。
 7. 摘要 `evidence` 必须能在 Evidence Store 或执行报告里找到。

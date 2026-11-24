@@ -1,8 +1,8 @@
 # ThinkFusion Unified Task Runtime
 
-状态：实施中（P0）
-基线：远程 `main` `3c949fca78f759fa27078f26e60d8e57ddae0d98`
-日期：2026-11-21
+状态：历史实施记录；当前状态见 [STATUS.md](STATUS.md)
+基线：远程 `main` `3c949fca78f759fa27078f26e60d8e57ddae0d98`（历史）
+日期：2026-11-21；2026-11-24 修订重启恢复口径
 
 ## 结论
 
@@ -119,6 +119,13 @@ interface TaskEvent {
 
 General、Knowledge 接入同一生命周期与事件；完成并发、取消、超时、重启恢复、事件顺序与去重验收。
 
+## 2026-11-24 修订
+
+- 本文原把“重启恢复”列为完成，与 `reconcileInterrupted()` 实际行为不一致；
+  现修正为：当前只能识别在途任务，尚不能从检查点恢复；
+- 长任务与上下文压缩由独立的 LT-P0–P6 轨道负责，不改变本文件的既有治理边界；
+- 当前唯一状态以 [STATUS.md](STATUS.md) 为准。
+
 ## 实施纪律
 
 1. 不重建项目基线。
@@ -144,4 +151,4 @@ General、Knowledge 接入同一生命周期与事件；完成并发、取消、
 | P3-02 实时进展/执行记录 | IMPLEMENTED | 流式进展 + ExecutionLog |
 | P3-03 最终交付 | IMPLEMENTED | 报告/评审汇总卡片 |
 | P4-01 General/Knowledge | IMPLEMENTED / VERIFIED | lifecycle 词汇、TaskEvent 适配、runEvents 落盘/IPC、ConversationView 生命周期卡；General/Knowledge 保留自己的 Runner，不伪造 AgentTask |
-| P5-01 全链路回归/架构退出 | DONE | `npm run verify` 全绿；真机工程任务 completed（mvn test 6/6）；取消/重启/并发/入口守卫均有回归；工程执行唯一走 AgentOrchestrator |
+| P5-01 全链路回归/架构退出 | PARTIAL | `npm run verify` 全绿；真机工程任务 completed（mvn test 6/6）；取消/并发/入口守卫有回归；**重启仍只把在途任务标记中断/失败，未实现检查点恢复**；长任务恢复见 LT-P5 |

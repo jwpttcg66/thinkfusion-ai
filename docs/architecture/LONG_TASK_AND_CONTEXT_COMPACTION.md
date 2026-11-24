@@ -1,10 +1,11 @@
 # ThinkFusion 长任务执行与上下文压缩架构
 
 状态：设计冻结，未实施  
-设计基线：`jwpttcg66/thinkfusion-ai` · `main` · `e31b6a380eea1d5df0a31f82f1f065775794a550`  
+设计基线：`jwpttcg66/thinkfusion-ai` · `main` · `e336ae434978211138879688031a9d40c1a27cd7`  
 日期：2026-11-24  
 实施任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)  
 文档集：[LONG-TASK-CONTEXT-README.md](../implementation/LONG-TASK-CONTEXT-README.md)  
+唯一状态板：[STATUS.md](../implementation/STATUS.md)  
 契约：[LONG_TASK_CONTEXT_CONTRACTS.md](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)  
 存储：[CONTEXT_CHECKPOINT_STORAGE.md](CONTEXT_CHECKPOINT_STORAGE.md)  
 UI：[LONG_TASK_CONTEXT_UI.md](../spec/LONG_TASK_CONTEXT_UI.md)  
@@ -35,10 +36,10 @@ Evidence、Memory 之上新增 **Context Manager**，负责模型请求前的上
 | --- | --- |
 | 仓库 | `jwpttcg66/thinkfusion-ai` |
 | 分支 | `main` |
-| 提交 | `e31b6a3` |
+| 提交 | `e336ae4` |
 | 提交时间 | 2026-11-24 02:43 UTC |
-| 提交内容 | 辩论轮次由分歧收敛决定，补充继续/停止原因 |
-| 本次操作 | 读取代码与文档；未改动代码 |
+| 提交内容 | 长任务与上下文压缩文档集补齐 |
+| 本次操作 | 审计代码与文档；文档基线已更新到该提交 |
 
 重点核对：
 
@@ -214,6 +215,24 @@ Provider Adapter
 | Session History | `AgentStore` / Conversation | 用户消息、模型回答、事件、执行历史 |
 | Context State | Context Manager | 当前请求上下文、预算、摘要版本、压缩检查点 |
 
+#### 上下文所有权
+
+上下文不只有 `taskId`。Engineering 属于 `AgentTask`，General/Knowledge 属于
+`Conversation`；不能为了复用接口伪造 AgentTask。
+
+```ts
+type ContextOwner =
+  | { ownerType: 'agent-task'; ownerId: string; taskId: string; runId: string }
+  | { ownerType: 'conversation'; ownerId: string; conversationId: string; runId: string };
+```
+
+规则：
+
+- `owner` 是权威，`taskId/conversationId` 只是兼容镜像；
+- 检查点按 `ownerType/ownerId` 隔离；
+- 恢复只加载 `owner + runId` 的检查点；
+- 同一任务多个 runId 时，活动指针必须写明 `runId + checkpointId`。
+
 不能混成一个状态：
 
 - 对话历史压缩了，不代表任务完成；
@@ -354,14 +373,14 @@ created → planning → plan_ready → awaiting_approval
 | 类别 | 内容 | 处理 |
 | --- | --- | --- |
 | A. 不可压缩权威状态 | 用户目标、约束、任务状态、审批、权限、未完成步骤、文件变更、证据引用、哈希、测试报告 | 原始保留 |
-| B. 可压缩历史过程 | 已完成的模型分析、已结束讨论、已解决争议、已完成工具调用过程 | 摘要替换模型输入，原始历史保留 |
+| B. 可压缩历史过程 | 已完成的模型分析、已结束讨论、已解决争议、已完成工具调用过程 | 摘要替换模型输入，原始历史保留在 Journal/归档 |
 | C. 当前工作上下文 | 当前问题、最近几轮模型输出、当前待执行步骤、未解决争议、最近工具结果 | 持续更新，不过早压缩 |
 | D. 外部可检索信息 | 全局/项目/Workspace 记忆、Evidence Pack、代码索引、文件内容 | 按需召回 |
 
 原则：
 
 - A 类不能靠摘要代替；
-- B 类可以压缩，但必须保留原始历史；
+- B 类可以压缩，但必须保留原始历史（Journal 或归档），并保证检查点来源可追溯；
 - C 类不能过早压缩；
 - D 类不应全部塞入上下文。
 
@@ -500,7 +519,10 @@ T_trigger = W - O - R
 
 ### 6. 压缩是生成检查点，不是删除历史
 
-原始事件永久保留；摘要作为新检查点进入模型上下文。
+Context Manager 不删除原始事件；摘要作为新检查点进入模型上下文。
+Journal 现有的 800/5000 配额仍可裁剪，但**被压缩引用的原始事件必须先归档**
+到 `context/archive/...`，否则不允许裁剪；检查点保存完整 `sourceEventIds`，
+事件 payload 只带展示用预览。
 
 ```mermaid
 flowchart TD
@@ -575,7 +597,7 @@ idle → preparing → summarizing → validating → committing → committed
 
 提交必须保证：
 
-1. 原始历史仍存在；
+1. 原始历史仍可追溯（Journal 或归档段）；
 2. 摘要引用范围准确；
 3. 关键证据未丢失；
 4. 最近未压缩历史保留；
@@ -614,6 +636,14 @@ interface ContextBudget {
 OpenAI 兼容 Provider 的 `contextTokens: null` 不能变成虚构默认值。Token 估算
 可用于预警，但不能伪装成 Provider 实际报告值。每次请求后用真实
 `usage.inputTokens` 校准；没有 usage 的 Web 通道显示未知，不写 0。
+
+窗口未知时：
+
+- `contextWindow` 仍是 `null`，不伪造；
+- 如有用户/系统配置的保守输入上限，单独记录为 `configuredInputLimit`；
+- `budgetSource='conservative'`，`confidence='unknown'`；
+- 没有可靠分母时不计算 65/75/85% 的 `usageRatio`，UI 显示“未提供”；
+- 只按保守输入上限决定是否做工具裁剪，不生成假百分比。
 
 ### 4. 最近上下文保留
 
@@ -866,7 +896,7 @@ Diff 与待审查问题。
 | TF-LT-01 | 不新建第三套 Runtime，继续使用 TaskManager、AgentOrchestrator、Collaboration Engine |
 | TF-LT-02 | Task State、Execution State、Session History、Context State 四种状态独立 |
 | TF-LT-03 | 新增统一 Context Manager，作为模型请求前的上下文管理层 |
-| TF-LT-04 | 压缩只替换模型输入中的历史表示，不删除原始历史 |
+| TF-LT-04 | 压缩只替换模型输入中的历史表示；原始事件由 Journal/归档保留可追溯 |
 | TF-LT-05 | 工具结果裁剪优先，模型摘要其次 |
 | TF-LT-06 | 65% 预警、75% 后台摘要、85% 安全提交为初始策略 |
 | TF-LT-07 | 不同模型独立计算上下文预算 |
@@ -885,14 +915,15 @@ Diff 与待审查问题。
 
 ## 十三、实施前必须确认的问题
 
-1. `AgentStore` JSON Journal 如何容纳检查点：同文件新增 `contextCheckpoints`
-   数组，还是独立 `context-checkpoints.json`？需要明确原子写、裁剪与恢复顺序。
-2. `TaskStatus` 增加 `paused / interrupted / budget_exhausted / blocked` 后，
-   现有状态机、UI 标签、reconcile 逻辑与测试如何迁移。
-3. `runId` 当前由谁生成、何时变化；恢复后是否复用原 `runId`。
-4. Provider 窗口未知时的保守默认值与 UI 显示；不能伪造具体窗口。
-5. Web/CLI 通道是否参与压缩摘要；如果不参与，摘要生成模型如何选择。
-6. 摘要生成是否允许使用与当前任务不同的模型；费用如何归属。
-7. Reviewer 的上下文策略与 Implementer 的隔离边界。
-8. 现有 `UNIFIED-TASK-RUNTIME.md` 声称 P4/P5 已完成，与
-   `reconcileInterrupted()` 实际行为冲突，任务书需修正状态板。
+这些问题已分配到 LT-P0 任务，不再留作口头约定：
+
+1. **LT-P0-03**：检查点存储与 Journal 的原子提交协议（独立 owner 文件 + 指针）。
+2. **LT-P0-04**：`paused / interrupted / budget_exhausted / blocked` 状态迁移。
+3. **LT-P0-05**：`ContextOwner`、`runId`、多 run 活动指针与跨空间恢复。
+4. **LT-P0-06**：Journal 事件裁剪、归档、检查点完整来源引用。
+5. **LT-P0-07**：文档基线、阶段状态、旧规格与测试门禁统一。
+6. **LT-P0-08**：LT 灰度/回滚演练；与 V3 P0-06 分开编号。
+7. Web/CLI 是否参与摘要、摘要模型与费用归属：在 P0-05/P3-02 定稿。
+8. Reviewer 上下文隔离：在 P4-02 定稿。
+9. `UNIFIED-TASK-RUNTIME.md` 的重启恢复口径已在 2026-11-24 修正；
+   是否完全恢复仍由 LT-P5 实现。

@@ -1,7 +1,7 @@
 # 长任务与上下文压缩 · 灰度、回滚与运维
 
 状态：设计冻结，未实施  
-基线：`main` · `e31b6a3` · 2026-11-24  
+基线：`main` · `e336ae4` · 2026-11-24  
 相关：[架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [测试计划](../implementation/LONG-TASK-CONTEXT-TEST-PLAN.md) · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
 
 ## 1. 目标
@@ -70,10 +70,11 @@ interface LongTaskContextSettings {
 
 ### 4.1 旧任务
 
-- 无 `contextId/checkpointId`：按未压缩；
-- 无 `context/tasks/<taskId>.json`：不创建空文件；
+- 无 `contextId/checkpointId/activeRunId`：按未压缩；
+- 无 `context/owners/<ownerType>/<ownerId>.json`：不创建空文件；
 - 旧报告无检查点：不补造；
-- 旧事件不迁移。
+- 旧事件不迁移；
+- 旧 AgentTask 与 Conversation 都可继续；Conversation 不伪造 AgentTask。
 
 ### 4.2 新任务
 
@@ -93,7 +94,7 @@ interface LongTaskContextSettings {
 
 现有备份需要加入：
 
-- `context/tasks/`；
+- `context/owners/` 与 `context/archive/`；
 - 备份清单记录检查点数量/大小；
 - 恢复顺序：Journal → context 文件；
 - 缺失 context 文件：按未压缩恢复；
@@ -138,6 +139,8 @@ interface LongTaskContextSettings {
 | 摘要失败 | 关闭摘要，保留裁剪；任务继续 |
 | 检查点损坏 | 回退未压缩；记录 stale |
 | Journal 指针丢失 | 忽略孤儿检查点；任务用旧上下文 |
+| 归档段缺失 | 不裁剪该段；记录 stale |
+| 检查点 prepared 未提交 | 不当作活动上下文 |
 | 恢复重复副作用 | 立即停恢复；人工核对；关闭 resume |
 | 上下文仍溢出 | 降低请求信息量；停止并说明 |
 | 任务卡在 interrupted | 提供“检查并继续 / 放弃” |

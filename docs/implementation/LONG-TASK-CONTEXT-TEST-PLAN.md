@@ -1,8 +1,12 @@
 # 长任务与上下文压缩 · 测试计划
 
 状态：设计冻结，未实施  
-基线：`main` · `e31b6a3` · 2026-11-24  
+基线：`main` · `e336ae4` · 2026-11-24  
 相关：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [UI](../spec/LONG_TASK_CONTEXT_UI.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
+
+> **当前状态：所有 `test:context-*` / `test:long-task-context-e2e` 都是未来脚本，
+> 尚未存在于 `package.json`。LT-P0-07 必须把它们登记到 `verify`/`test:all`，
+> 在此之前不能把本文命令当作可执行门禁。**
 
 ## 1. 目标
 
@@ -35,6 +39,9 @@
 | `context-summary-valid` | 有 EvidenceRef 的摘要 |
 | `context-summary-forged` | 声称测试通过但无证据 |
 | `context-checkpoint-crash` | 半写文件/半更新 Journal |
+| `context-owner-cross-space` | AgentTask 与 Conversation 各一份上下文 |
+| `context-archive-trim` | 被压缩引用的事件在 Journal 裁剪后仍可追溯 |
+| `context-multi-run` | 同一 owner 两个 runId，活动指针不互相覆盖 |
 | `long-task-30` | 30 步真实工程任务脚本 |
 | `resume-side-effects` | 文件/Git/测试/命令副作用夹具 |
 
@@ -78,6 +85,10 @@
 | 摘要失败 | 不提交，旧上下文可用 |
 | 半提交 | 恢复旧/新完整状态 |
 | stale | 不使用过期摘要 |
+| 归档/裁剪 | 引用事件可追溯；未归档不裁剪 |
+| 来源/预览 | `sourceEventIds` 完整用于校验，预览截断不影响完整性 |
+| 跨空间 owner | Conversation 不伪造 AgentTask |
+| 多 run | 活动指针按 runId 隔离 |
 | 事件 | 顺序/去重/刷新恢复 |
 
 ### 4.5 P4
@@ -226,7 +237,7 @@ npm run test:long-task-context-e2e
 
 | 阶段 | 门禁 |
 | --- | --- |
-| P0 | typecheck + 契约测试 + ADR 评审 |
+| P0 | typecheck + 契约测试 + ADR 评审 + 测试脚本登记 |
 | P1 | Builder/Estimator/Budget/Provider 测试 |
 | P2 | Pruner + 原始结果可查 |
 | P3 | 摘要/检查点/崩溃/stale |

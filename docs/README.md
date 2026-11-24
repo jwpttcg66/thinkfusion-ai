@@ -3,13 +3,14 @@
 本仓库只保留**仍然约束当前实现**的文档。历史实现日志、审计报告、一次性评审已移除，
 需要时用 `git log` 查看当时的提交与说明。
 
-## 先读这三份
+## 先读这些
 
 | 文档 | 回答什么问题 |
 | --- | --- |
 | [PRODUCT.md](PRODUCT.md) | 产品要成为什么、三个空间、按什么原则取舍、什么算成功 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 五层基础架构、三套协议、两条主链路、目录职责 |
-| [ROADMAP.md](ROADMAP.md) | P0–P6：现在在哪、下一阶段是什么、每阶段的完成判据 |
+| [ROADMAP.md](ROADMAP.md) | P0–P6：目标路线与阶段判据 |
+| [implementation/STATUS.md](implementation/STATUS.md) | **唯一阶段状态板**：代码/测试事实、文档分类、已知冲突 |
 
 ## 领域设计（P2–P5）
 
@@ -32,7 +33,7 @@
 | [spec/LONG_TASK_CONTEXT_CONTRACTS.md](spec/LONG_TASK_CONTEXT_CONTRACTS.md) | 类型、状态机、事件、API 契约 |
 | [architecture/CONTEXT_CHECKPOINT_STORAGE.md](architecture/CONTEXT_CHECKPOINT_STORAGE.md) | 检查点存储、原子提交、崩溃恢复、GC |
 | [spec/LONG_TASK_CONTEXT_UI.md](spec/LONG_TASK_CONTEXT_UI.md) | 主页面/轨迹/统计 UI 规格 |
-| [implementation/LONG-TASK-CONTEXT-TASK-BOOK.md](implementation/LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–LT-P6 总任务书（31 个任务） |
+| [implementation/LONG-TASK-CONTEXT-TASK-BOOK.md](implementation/LONG-TASK-CONTEXT-TASK-BOOK.md) | LT-P0–LT-P6 总任务书（35 个任务） |
 | [implementation/LONG-TASK-CONTEXT-TEST-PLAN.md](implementation/LONG-TASK-CONTEXT-TEST-PLAN.md) | 测试矩阵、30 步长任务、故障注入 |
 | [operations/LONG-TASK-CONTEXT-ROLLOUT.md](operations/LONG-TASK-CONTEXT-ROLLOUT.md) | 灰度、迁移、回滚、监控 |
 
