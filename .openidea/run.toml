@@ -1,0 +1,20 @@
+# OpenIDEA 运行配置（项目级，随仓库提交）。
+#
+# 真机验证统一从这里启动：不要从对话 shell 里直接 `npm run dev` / 起第二个
+# Electron 实例。OpenIDEA 的 Run 窗口会接管进程、日志和停止动作。
+
+[[configurations]]
+id = "user:thinkfusion-dev"
+name = "ThinkFusion Dev"
+kind = "shell"
+command = "npm"
+args = ["run", "dev"]
+cwd = "desktop-agent-macos"
+
+[[configurations]]
+id = "user:thinkfusion-build"
+name = "ThinkFusion Build"
+kind = "shell"
+command = "npm"
+args = ["run", "build"]
+cwd = "desktop-agent-macos"
