@@ -6506,4 +6506,13 @@ button:disabled {
 .chat-debate-topics li { margin-bottom: 8px; }
 .chat-debate-topic-source { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
 .chat-debate-topic-goal { margin: 2px 0 0; }
+.chat-debate-lead-summary {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
 .chat-debate-summary { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-side); font-size: 12px; line-height: 1.6; }

@@ -1296,6 +1296,11 @@ export interface PlanDebate {
   participants: string[];
   /** 辩论结论摘要，供审批前阅读。 */
   summary: string;
+  /**
+   * 主导模型五段原文（【结论】【一致】【分歧】【存疑】【辩题】）。
+   * 与知识问答同一套；议题从这里的【辩题】解析。老记录没有。
+   */
+  leadSummary?: string;
   /** 结构化切片：主张 / 争议 / 交锋 / 裁决。老记录没有。 */
   result?: PlanDebateResultSlice;
   /** 实际跑了几轮；由分歧收敛决定，不是固定值。老记录没有这个字段。 */

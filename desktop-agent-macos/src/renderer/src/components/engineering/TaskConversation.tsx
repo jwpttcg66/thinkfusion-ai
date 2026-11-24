@@ -239,6 +239,12 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
             : typeof entry.maxRounds === 'number' ? ` · 最多 ${String(entry.maxRounds)} 轮` : ''}
         </span>
       </div>
+      {entry.leadSummary && (
+        <div className="chat-debate-brief">
+          <p className="chat-debate-label">主导五段结论</p>
+          <pre className="chat-debate-lead-summary">{entry.leadSummary}</pre>
+        </div>
+      )}
       {(entry.expressTarget || entry.expressGoal) && (
         <div className="chat-debate-brief">
           <p className="chat-debate-label">表态</p>
@@ -254,7 +260,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
         <>
           <p className="chat-debate-label">议题（{String(entry.topics.length)}）</p>
           <p className="muted chat-debate-topic-source">
-            来源：主导模型写进计划的议题（concerns / 设计观点）；系统不按步数或工具名编造辩论。
+            来源：主导模型五段结论中的【辩题】（与知识问答同一套）；系统不按步数或工具名编造辩论。
           </p>
           <ol className="chat-debate-topics">
             {entry.topics.map((topic, index) => (

@@ -12,13 +12,14 @@ import test from 'node:test';
 
 import {
   checkPlanCapabilities,
-  planDebateBrief,
+  planDebateBriefFromSummary,
   planDebateTopics,
   planReviewBudget,
   planReviewQuestion,
   planReviewRounds,
   shouldDebatePlan,
-  summarizePlanDebate
+  summarizePlanDebate,
+  topicsFromLeadSummary
 } from '../out-test/main/engineering/plan-review.js';
 
 function plan(steps, condition = '测试通过') {
@@ -99,37 +100,51 @@ test('关闭辩论时不辩，并说得出是设置关的', () => {
   assert.match(decision.reason, /关闭/);
 });
 
-test('没有主导模型议题时：on/auto 都不辩，不按步数或写入编造', () => {
-  assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, false);
-  assert.match(shouldDebatePlan('on', readOnlyPlan).reason, /未提出议题|不编造/);
-  assert.equal(shouldDebatePlan('auto', writePlan).debate, false);
-  assert.equal(shouldDebatePlan(undefined, writePlan).debate, false);
+test('off 关闭整段评审；on/auto 都先走五段流水线', () => {
+  assert.equal(shouldDebatePlan('off', writePlan).debate, false);
+  assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, true);
+  assert.equal(shouldDebatePlan('auto', writePlan).debate, true);
+  assert.match(shouldDebatePlan('auto', writePlan).reason, /五段|结论\/一致/);
+  // 无五段原文时，绝不从计划结构编造议题。
   assert.deepEqual(planDebateTopics(writePlan), []);
 });
 
-test('有主导模型 concerns 才开辩，议题原文与目标都来自模型字段', () => {
-  const withConcerns = {
-    ...writePlan,
-    concerns: [
-      { topic: '覆盖 utils 是否必要', reason: '已有实现可能被冲掉', goal: '决定保留覆盖还是改追加' },
-      { topic: '测试命令是否够验', goal: '确认 npm test 能否证明没改坏' }
-    ]
-  };
-  const decision = shouldDebatePlan('auto', withConcerns);
-  assert.equal(decision.debate, true);
-  assert.match(decision.reason, /主导模型提出了 2 个议题/);
-  const brief = planDebateBrief(withConcerns);
-  assert.equal(brief.source, 'model');
-  assert.deepEqual(brief.topics.map(item => item.text), [
-    '覆盖 utils 是否必要',
-    '测试命令是否够验'
+test('议题只从主导五段【辩题】解析，与知识问答一致', () => {
+  const summary = [
+    '【结论】计划可以完成 hello 输出。',
+    '【一致】需要写文件并运行。',
+    '【分歧】是否先跑测试。',
+    '【存疑】没有。',
+    '【辩题】',
+    '1. 覆盖 utils 是否必要？',
+    '2. 测试命令是否够验？'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), [
+    '覆盖 utils 是否必要？',
+    '测试命令是否够验？'
   ]);
-  assert.equal(brief.topics[0].goal, '决定保留覆盖还是改追加');
-  assert.equal(brief.topics[1].goal, '确认 npm test 能否证明没改坏');
-  assert.match(brief.expressTarget, /主导模型提出的议题/);
+  const brief = planDebateBriefFromSummary(writePlan, summary);
+  assert.equal(brief.source, 'model');
+  assert.equal(brief.leadSummary, summary);
+  assert.equal(brief.topics.length, 2);
+  assert.match(brief.expressTarget, /五段结论中的议题/);
 });
 
-test('多步含 shell 但无 concerns：绝不套「步骤拆分/系统动作」模板', () => {
+test('五段写「无」辩题：不编造辩论', () => {
+  const summary = [
+    '【结论】计划足够。',
+    '【一致】步骤清楚。',
+    '【分歧】没有。',
+    '【存疑】没有。',
+    '【辩题】无'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), []);
+  const brief = planDebateBriefFromSummary(writePlan, summary);
+  assert.equal(brief.source, 'none');
+  assert.equal(brief.topics.length, 0);
+});
+
+test('多步含 shell：不按结构套「步骤拆分/系统动作」模板', () => {
   const big = plan([
     { id: 's1', tool: 'fs.writeFile', args: { path: 'A.java', content: 'x' } },
     { id: 's2', tool: 'shell.run', args: { command: 'javac A.java' } },
@@ -137,24 +152,14 @@ test('多步含 shell 但无 concerns：绝不套「步骤拆分/系统动作」
     { id: 's4', tool: 'fs.readFile', args: { path: 'A.java' } },
     { id: 's5', tool: 'code.run', args: { language: 'java', code: 'class A {}' } }
   ]);
-  assert.equal(shouldDebatePlan('auto', big).debate, false);
   assert.deepEqual(planDebateTopics(big), []);
-  const brief = planDebateBrief(big);
-  assert.equal(brief.source, 'none');
-  assert.equal(brief.topics.length, 0);
 });
 
-test('交给辩手的材料只有计划数据与模型议题，没有评审话术', () => {
-  const withConcerns = {
-    ...writePlan,
-    concerns: [{ topic: '覆盖是否必要', goal: '裁定覆盖或追加' }]
-  };
-  const question = planReviewQuestion(withConcerns);
+test('交给辩手的材料只有计划数据，没有评审话术', () => {
+  const question = planReviewQuestion(writePlan);
   assert.match(question, /给 utils 增加一个函数/);
   assert.match(question, /fs\.writeFile/);
   assert.match(question, /测试通过/);
-  assert.match(question, /主导模型提出的议题/);
-  assert.match(question, /覆盖是否必要/);
   assert.doesNotMatch(question, /请判断/);
   assert.doesNotMatch(question, /步骤编号/);
 });

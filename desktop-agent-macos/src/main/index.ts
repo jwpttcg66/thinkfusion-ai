@@ -212,6 +212,9 @@ import { SEARCH_PROVIDERS, type SearchProvider } from '../shared/search';
 import { reviewExecution } from './engineering/review';
 import {
   filterDebateCandidates,
+  buildPlanReviewLeadAsk,
+  LEAD_SUMMARY_TIMEOUT_MS,
+  planDebateBriefFromSummary,
   planReviewBudget,
   planReviewQuestion,
   planReviewRounds,
@@ -5709,7 +5712,7 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ taskId, roundId, planId, plan, topics, debateAgentIds }) => {
+    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds }) => {
       if (!debates) return null;
       const candidates = await debateCandidates();
       // 方案评审只请模型：CLI 是命令行进程，评审一场要串行等它退出，
@@ -5729,24 +5732,84 @@ app.whenReady().then(async () => {
       });
       const labels = new Map<string, string>();
       for (const candidate of candidates) labels.set(candidate.id, candidate.label ?? candidate.id);
-      // 轮次按计划规模定，不全局写死：单成员自辩 2 轮，设计文档/多步/多评审
-      // 给 3 轮（多一轮「回应」收口）。预算必须跟着轮次走，否则第三轮会被
-      // 总时长直接砍掉，改了等于没改。
+
+      // —— 与知识问答同一顺序：先五段汇总，再按【辩题】决定是否辩论 ————
+      const leadId = leadPlan.participants[0];
+      if (!leadId) return null;
+      const askLead = (agentId: string, task: Parameters<ProviderBackedSubAgent['ask']>[0]) => {
+        const extra = extraAgents.find(agent => agent.id === agentId);
+        return extra ? extra.ask(task) : registry.ask(agentId, task);
+      };
+      const leadAsk = buildPlanReviewLeadAsk(plan, userPrompt);
+      emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: `方案评审：${labels.get(leadId) ?? leadId} 撰写【结论/一致/分歧/存疑/辩题】`
+      });
+      let leadSummary = '';
+      try {
+        const answer = await askLead(leadId, {
+          question: leadAsk.question,
+          stage: 'challenge',
+          timeoutMs: LEAD_SUMMARY_TIMEOUT_MS,
+          system: leadAsk.system
+        });
+        leadSummary = answer.text.trim();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: '',
+          leadSummary: '',
+          skippedReason: `主导模型五段汇总失败：${detail}`
+        };
+      }
+      if (!leadSummary) {
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: '',
+          leadSummary: '',
+          skippedReason: '主导模型没有写出五段结论，不编造辩论'
+        };
+      }
+      const brief = planDebateBriefFromSummary(plan, leadSummary);
+      emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: brief.topics.length > 0
+          ? `五段结论已出，主导模型指定 ${String(brief.topics.length)} 个辩题`
+          : '五段结论已出，主导模型未指定辩题，跳过辩论'
+      });
+      if (brief.topics.length === 0) {
+        return {
+          status: 'skipped' as const,
+          participants: leadPlan.participants,
+          topics: [],
+          summary: leadSummary,
+          leadSummary,
+          expressTarget: brief.expressTarget,
+          expressGoal: brief.expressGoal,
+          skippedReason: '主导模型五段结论未提出辩题，不编造辩论'
+        };
+      }
+      const topics = brief.topics.map(item => item.text);
+      const topicGoals = brief.topics.map(item => item.goal);
+
       const reviewRounds = planReviewRounds(plan, leadPlan.participants.length);
       const reviewBudget = planReviewBudget(reviewRounds.rounds);
-      // 先备好 scope，start() 内部在首次 persist 之前同步消费并登记。
       pendingReview = { taskId, planId, roundId, topics, labels, maxRounds: reviewRounds.rounds };
       let state;
       try {
         state = debates.start(
-          planReviewQuestion(plan),
+          `${planReviewQuestion(plan)}\n\n【主导模型五段结论】\n${leadSummary}`,
           {
             strategy: 'solution',
             maxRounds: reviewRounds.rounds,
             participants: leadPlan.participants,
             convergenceStop: true,
             leadMode: mode,
-            // 方案评审没有「网页先答过」这一层，基准观点为空；辩题直接给。
             seed: { positions: [], topics },
             budget: {
               stageTimeoutMs: reviewBudget.stageTimeoutMs,
@@ -5759,46 +5822,43 @@ app.whenReady().then(async () => {
           'plan-review'
         );
       } finally {
-        // start 抛错时别把备用的 scope 留给下一场辩论。
         pendingReview = null;
       }
-      // 辩论结果原来只在 `waitFor` 之后一次性拿到，中间两三分钟对话流里只有
-      // 一个「已等 N 秒」。scope 已由 onStart 登记：每次落盘把快照翻成
-      // round.peer，每个成员的流式增量再翻成 round.delta，用户看到的就是
-      // 卡片一张张出现、正文一边写一边长。
       const done = await debates.waitFor(state.debateId, reviewBudget.waitMs).finally(() => {
         planReviewScopes.delete(state.debateId);
       });
       if (!done) return null;
-      // 「跑完了」不等于「辩过了」：模型全部超时/忙碌时，引擎仍会把状态记成
-      // completed，但一句话都没说。真机第一轮就遇到两个本地模型一个在忙、
-      // 一个 90 秒没出话——那种记录不能显示成「已辩完」，否则审批的人会以为
-      // 这份计划被评审过。
       const spoke = done.rounds.some(round => round.messages.length > 0);
       const result = compactPlanDebateResult(done);
       return {
         debateId: done.debateId,
         status: done.status === 'completed' && spoke ? 'completed' as const : 'stopped' as const,
         participants: leadPlan.participants,
-        // 实际轮次由收敛决定；上限只是成本边界，不能拿上限冒充实际。
+        topics,
+        topicGoals,
+        expressTarget: brief.expressTarget,
+        expressGoal: brief.expressGoal,
+        leadSummary,
         rounds: done.rounds.length,
         maxRounds: reviewRounds.rounds,
         roundsReason: done.stopReason ?? reviewRounds.reason,
-        summary: summarizePlanDebate({
-          topics,
-          rounds: done.rounds.map(round => ({
-            index: round.index,
-            // 带上真实阶段：结论要认「回应」轮，不能靠 index 猜老记录的阶段。
-            ...(round.phase ? { phase: round.phase } : {}),
-            messages: round.messages.map(message => ({
-              author: message.agentId,
-              kind: message.kind,
-              text: message.text
-            })),
-            failures: round.failures
-          }))
-        }),
-        // 主活动区用结构化切片展示争议与裁决；summary 仍留给审批短读。
+        summary: [
+          leadSummary,
+          '',
+          summarizePlanDebate({
+            topics,
+            rounds: done.rounds.map(round => ({
+              index: round.index,
+              ...(round.phase ? { phase: round.phase } : {}),
+              messages: round.messages.map(message => ({
+                author: message.agentId,
+                kind: message.kind,
+                text: message.text
+              })),
+              failures: round.failures
+            }))
+          })
+        ].join('\n'),
         result
       };
     },

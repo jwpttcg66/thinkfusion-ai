@@ -1,5 +1,15 @@
 import type { AgentPlan } from '../../shared/contracts';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
+import {
+  buildLeadSummaryQuestion,
+  leadSummarySystem,
+  parseDoubts,
+  parseTopics,
+  LEAD_SUMMARY_TIMEOUT_MS,
+  type LeadAnswer
+} from '../synthesis/lead-stage';
+
+export { LEAD_SUMMARY_TIMEOUT_MS };
 
 /** 会改动工作区的工具；与 PlanPreview 的 isWrite 保持同一口径。 */
 const WRITE_TOOLS = new Set([
@@ -87,100 +97,117 @@ export interface PlanDebateTopicItem {
 }
 
 /**
- * 方案评审 brief：议题只能来自主导模型，系统不得按步数/工具名套模板编造。
- *
- * - design：议题 = 模型写的 viewpoints
- * - implementation：议题 = 模型写的 concerns；没有 concerns 就空议题（不开辩）
- *
- * 表态对象/目标只陈述「就模型提出的议题作裁定」，不另写导演话术。
+ * 方案评审与知识问答同一套顺序：
+ * 1) 主导模型先写【结论/一致/分歧/存疑/辩题】五段；
+ * 2) 只从【辩题】（及【存疑】转核查）取议题；
+ * 3) 有议题才辩论。系统不得按步数/工具名套模板编造辩论。
  */
 export interface PlanDebateBrief {
   topics: PlanDebateTopicItem[];
-  /** 需要对什么表达立场。 */
   expressTarget: string;
-  /** 表态要产出什么判断；无议题时为空。 */
   expressGoal: string;
-  /** model = 来自计划字段；none = 主导模型未提出议题。 */
+  /** model = 五段里提出了辩题；none = 五段写无或还没汇总。 */
   source: 'model' | 'none';
+  /** 主导模型五段原文；老记录没有。 */
+  leadSummary?: string;
 }
 
-/** 只抽取主导模型写进计划的议题；绝不按计划结构发明辩题。 */
-export function planDebateBrief(plan: AgentPlan): PlanDebateBrief {
-  if (plan.kind === 'design' && plan.design) {
-    const viewpoints = plan.design.viewpoints ?? [];
-    if (viewpoints.length === 0) {
-      return {
-        expressTarget: `设计文档「${plan.title}」`,
-        expressGoal: '',
-        topics: [],
-        source: 'none'
-      };
-    }
-    return {
-      expressTarget: `设计文档「${plan.title}」· 主导模型提出的观点`,
-      expressGoal: '就主导模型提出的设计观点给出可审批判断。',
-      topics: viewpoints.slice(0, 5).map((viewpoint, index) => ({
-        text: viewpoint,
-        goal: `裁定观点 ${String(index + 1)} 是否成立，并写明依据。`
-      })),
-      source: 'model'
-    };
-  }
-  const concerns = plan.concerns ?? [];
-  if (concerns.length === 0) {
-    return {
-      expressTarget: `工程计划「${plan.title}」`,
-      expressGoal: '',
-      topics: [],
-      source: 'none'
-    };
-  }
+/** 计划正文作为「一份材料」交给主导模型做五段汇总（与知识问答同一口径）。 */
+export function planAsLeadAnswer(plan: AgentPlan): LeadAnswer {
+  return { channelId: 'plan', label: '计划', text: planReviewQuestion(plan) };
+}
+
+/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据。 */
+export function buildPlanReviewLeadAsk(
+  plan: AgentPlan,
+  userPrompt?: string
+): { question: string; system: string[] } {
+  const answers = [planAsLeadAnswer(plan)];
+  const question = (userPrompt?.trim() || plan.title || '评审这份计划').trim();
   return {
-    expressTarget: `工程计划「${plan.title}」· 主导模型提出的议题`,
-    expressGoal: '就主导模型提出的议题与原因给出可审批判断；结论指向具体步骤编号。',
-    topics: concerns.slice(0, 5).map(item => ({
-      text: item.topic,
-      goal: (item.goal ?? item.reason ?? '').trim() || '就该议题给出可审批裁定'
-    })),
-    source: 'model'
+    question: buildLeadSummaryQuestion(question, answers, { taskKind: 'compare' }),
+    system: leadSummarySystem('compare')
   };
 }
 
-/** 兼容旧调用：只要议题原文。 */
+/**
+ * 从五段汇总取议题：先【辩题】，没有再用【存疑】转核查题。
+ * 与会话侧主导人逻辑一致，不拿用户原问凑辩题。
+ */
+export function topicsFromLeadSummary(summary: string): string[] {
+  let topics = parseTopics(summary);
+  if (topics.length === 0) {
+    const doubts = parseDoubts(summary);
+    if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
+  }
+  return topics.slice(0, 5);
+}
+
+/** 五段汇总之后的 brief：议题只来自汇总，不来自计划结构模板。 */
+export function planDebateBriefFromSummary(
+  plan: AgentPlan,
+  leadSummary: string
+): PlanDebateBrief {
+  const topics = topicsFromLeadSummary(leadSummary);
+  if (topics.length === 0) {
+    return {
+      expressTarget: plan.kind === 'design'
+        ? `设计文档「${plan.title}」`
+        : `工程计划「${plan.title}」`,
+      expressGoal: '',
+      topics: [],
+      source: 'none',
+      leadSummary
+    };
+  }
+  return {
+    expressTarget: plan.kind === 'design'
+      ? `设计文档「${plan.title}」· 主导模型五段结论中的议题`
+      : `工程计划「${plan.title}」· 主导模型五段结论中的议题`,
+    expressGoal: '就主导模型五段结论里提出的议题给出可审批判断。',
+    topics: topics.map(text => ({ text, goal: '就该议题给出可审批裁定' })),
+    source: 'model',
+    leadSummary
+  };
+}
+
+/** @deprecated 兼容旧测试：无五段时不再从计划结构编造议题。 */
+export function planDebateBrief(plan: AgentPlan): PlanDebateBrief {
+  return {
+    expressTarget: `工程计划「${plan.title}」`,
+    expressGoal: '',
+    topics: [],
+    source: 'none'
+  };
+}
+
 export function planDebateTopics(plan: AgentPlan): string[] {
   return planDebateBrief(plan).topics.map(item => item.text);
 }
 
 /**
- * 要不要辩。
- *
- * 只看主导模型有没有提出议题（design.viewpoints / concerns）。
- * 不再按步数、写入、shell 等结构特征自动开辩——那会编造「莫名其妙的辩论」。
- * `off` 仍可关掉；`on`/`auto` 在没有模型议题时同样不辩。
+ * 要不要走方案评审流水线（先五段，再按辩题决定是否辩论）。
+ * `off` 整段跳过；`on`/`auto` 都先让主导模型写五段——没有辩题就不会开辩。
  */
 export function shouldDebatePlan(
   mode: 'auto' | 'on' | 'off' | undefined,
-  plan: AgentPlan
+  _plan: AgentPlan
 ): { debate: boolean; reason?: string } {
   const effective = mode ?? 'auto';
-  const brief = planDebateBrief(plan);
-  if (plan.kind === 'design' && brief.source === 'model' && brief.topics.length > 0) {
-    return { debate: true, reason: `主导模型提出了 ${String(brief.topics.length)} 个设计观点，按观点评审` };
-  }
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
-  if (brief.source === 'none' || brief.topics.length === 0) {
-    return { debate: false, reason: '主导模型未提出议题，不编造辩论' };
-  }
   return {
     debate: true,
-    reason: `主导模型提出了 ${String(brief.topics.length)} 个议题${effective === 'on' ? '（设置开启评审）' : ''}`
+    reason: effective === 'on'
+      ? '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
+      : '方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
   };
 }
 
 /**
- * 交给辩论引擎的材料：只附计划数据与主导模型提出的议题，不追加评审话术。
+ * 计划数据正文（给主导模型当材料 / 给辩手当上下文）。
+ * 不追加「请判断…」类评审话术。
  */
 export function planReviewQuestion(plan: AgentPlan): string {
   if (plan.kind === 'design' && plan.design) {
@@ -188,15 +215,14 @@ export function planReviewQuestion(plan: AgentPlan): string {
       `【设计文档】${plan.title}`,
       plan.design.document,
       '',
-      '【主导模型提出的观点】',
+      '【设计观点】',
       ...plan.design.viewpoints.map((item, index) => `${String(index + 1)}. ${item}`)
     ].join('\n');
   }
-  const brief = planDebateBrief(plan);
   const steps = (plan.steps ?? [])
     .map((step, index) => `${index + 1}. [${step.tool}] ${step.description ?? ''} ${JSON.stringify(step.args)}`)
     .join('\n');
-  const lines = [
+  return [
     `【工程计划】${plan.title}`,
     plan.description,
     '',
@@ -204,16 +230,7 @@ export function planReviewQuestion(plan: AgentPlan): string {
     steps,
     '',
     `【完成条件】${plan.completion?.condition ?? '未写明'}`
-  ];
-  if (brief.topics.length > 0) {
-    lines.push('', '【主导模型提出的议题】');
-    for (const [index, topic] of brief.topics.entries()) {
-      lines.push(
-        `${String(index + 1)}. ${topic.text}${topic.goal ? `（目标：${topic.goal}）` : ''}`
-      );
-    }
-  }
-  return lines.join('\n');
+  ].join('\n');
 }
 
 /**

@@ -19,7 +19,7 @@ import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
-import { checkPlanCapabilities, planDebateBrief, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
+import { checkPlanCapabilities, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
@@ -96,17 +96,26 @@ export interface OrchestratorDeps {
     roundId: string;
     planId: string;
     plan: AgentPlan;
-    topics: string[];
+    /** 用户原话：五段汇总的「问题」侧，与知识问答一致。 */
+    userPrompt?: string;
     debateAgentIds?: readonly string[];
   }) => Promise<{
     debateId?: string;
-    status: 'completed' | 'stopped';
+    status: 'completed' | 'stopped' | 'skipped';
     participants: string[];
     summary: string;
+    topics: string[];
+    topicGoals?: string[];
+    expressTarget?: string;
+    expressGoal?: string;
+    /** 主导模型五段原文（结论/一致/分歧/存疑/辩题）。 */
+    leadSummary?: string;
     /** 实际跑了几轮、最多允许几轮、为什么结束；老调用方不给也不影响。 */
     rounds?: number;
     maxRounds?: number;
     roundsReason?: string;
+    skippedReason?: string;
+    result?: import('../shared/contracts').PlanDebateResultSlice;
   } | null>;
   /**
    * 审批时给外部 Agent 建独立工作树。默认实现是 main/task-worktree。
@@ -1412,69 +1421,72 @@ export class AgentOrchestrator {
       };
     }
 
-    const brief = planDebateBrief(stored.plan);
-    // 双保险：shouldDebate 已要求有模型议题；若 brief 仍空则跳过，绝不套模板。
-    if (brief.source === 'none' || brief.topics.length === 0) {
-      return {
-        status: 'skipped', topics: [], participants: [], summary: '',
-        skippedReason: '主导模型未提出议题，不编造辩论', at: Date.now()
-      };
-    }
-    const topics = brief.topics.map(item => item.text);
-    const topicGoals = brief.topics.map(item => item.goal);
-    // 轮次由计划规模决定；在评审开始前就给界面一个明确依据，别让人等完
-    // 三分钟才知道为什么是两轮。
+    // 与知识问答一致：先让主导模型写五段，再按【辩题】决定是否辩论。
+    // 议题在 debatePlan 内从五段解析，这里不预造 topics。
     const plannedRounds = planReviewRounds(stored.plan, task.debateAgentIds?.length ?? 1);
     const startedAt = Date.now();
+    let progressTopics: string[] = [];
+    let progressGoals: string[] = [];
+    let progressTarget = '';
+    let progressGoal = '';
     const emitProgress = (state: 'started' | 'waiting' | 'done', message: string) => {
       this.deps.emit({
         type: 'plan.review.progress', at: Date.now(), taskId, roundId,
-        planId: stored.planId, state, topics: topics.length, topicTexts: topics,
-        topicGoals,
-        expressTarget: brief.expressTarget,
-        expressGoal: brief.expressGoal,
+        planId: stored.planId, state, topics: progressTopics.length,
+        ...(progressTopics.length > 0 ? { topicTexts: progressTopics } : {}),
+        ...(progressGoals.length > 0 ? { topicGoals: progressGoals } : {}),
+        ...(progressTarget ? { expressTarget: progressTarget } : {}),
+        ...(progressGoal ? { expressGoal: progressGoal } : {}),
         ...(decision.reason ? { reason: decision.reason } : {}),
         maxRounds: plannedRounds.rounds,
         roundsReason: plannedRounds.reason,
         elapsedMs: Date.now() - startedAt, message
       });
     };
-    // 最长 300 秒（3 轮评审）的等待不能只有开头一句 log：每 10 秒一次心跳，界面才有
-    // 「还在跑」的证据。心跳不是审批信号，审批仍只在辩论真正结束后发生。
-    emitProgress('started', `方案评审开始：${topics.length} 个议题，成员逐个给出意见`);
+    emitProgress('started', '方案评审开始：主导模型先写【结论/一致/分歧/存疑/辩题】');
     const heartbeat = setInterval(() => {
       const seconds = Math.round((Date.now() - startedAt) / 1000);
-      emitProgress('waiting', `方案评审进行中，已等待 ${String(seconds)} 秒`);
+      emitProgress(
+        'waiting',
+        progressTopics.length > 0
+          ? `方案评审进行中（${String(progressTopics.length)} 个议题），已等待 ${String(seconds)} 秒`
+          : `主导模型撰写五段结论中，已等待 ${String(seconds)} 秒`
+      );
     }, 10_000);
     try {
-      const task = this.tasks.get(taskId);
+      const live = this.tasks.get(taskId);
       const result = await this.deps.debatePlan({
-        taskId, roundId, planId: stored.planId, plan: stored.plan, topics,
-        ...(task.debateAgentIds && task.debateAgentIds.length > 0 ? { debateAgentIds: task.debateAgentIds } : {})
+        taskId, roundId, planId: stored.planId, plan: stored.plan,
+        userPrompt: live.userPrompt,
+        ...(live.debateAgentIds && live.debateAgentIds.length > 0
+          ? { debateAgentIds: live.debateAgentIds }
+          : {})
       });
       if (!result) {
         return {
-          status: 'skipped', topics, topicGoals,
-          expressTarget: brief.expressTarget, expressGoal: brief.expressGoal,
-          participants: [], summary: '',
+          status: 'skipped', topics: [], participants: [], summary: '',
           skippedReason: '辩论没有可用成员，计划未经评审', at: Date.now()
         };
       }
+      progressTopics = result.topics;
+      progressGoals = result.topicGoals ?? [];
+      progressTarget = result.expressTarget ?? '';
+      progressGoal = result.expressGoal ?? '';
       return {
         status: result.status,
         debateId: result.debateId,
-        topics,
-        topicGoals,
-        expressTarget: brief.expressTarget,
-        expressGoal: brief.expressGoal,
+        topics: result.topics,
+        ...(result.topicGoals ? { topicGoals: result.topicGoals } : {}),
+        ...(result.expressTarget ? { expressTarget: result.expressTarget } : {}),
+        ...(result.expressGoal ? { expressGoal: result.expressGoal } : {}),
+        ...(result.leadSummary ? { leadSummary: result.leadSummary } : {}),
         participants: result.participants,
         summary: result.summary,
-        // 轮次与理由要一起进 plan.debated：审批的人看到「3 轮」才知道
-        // 这场评审有回应轮；丢了字段，界面只能显示结论，解释不了为什么这次
-        // 比上次慢。
+        ...(result.result ? { result: result.result } : {}),
         ...(typeof result.rounds === 'number' ? { rounds: result.rounds } : {}),
         ...(typeof result.maxRounds === 'number' ? { maxRounds: result.maxRounds } : {}),
         ...(result.roundsReason ? { roundsReason: result.roundsReason } : {}),
+        ...(result.skippedReason ? { skippedReason: result.skippedReason } : {}),
         at: Date.now()
       };
     } catch (error) {
@@ -1484,9 +1496,7 @@ export class AgentOrchestrator {
         message: `方案评审辩论没有完成：${detail}；计划仍可审批，但要知道它没被辩过`
       });
       return {
-        status: 'skipped', topics, topicGoals,
-        expressTarget: brief.expressTarget, expressGoal: brief.expressGoal,
-        participants: [], summary: '',
+        status: 'skipped', topics: progressTopics, participants: [], summary: '',
         skippedReason: `辩论失败：${detail}`, at: Date.now()
       };
     } finally {

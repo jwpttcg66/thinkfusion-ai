@@ -57,10 +57,11 @@ test('App 在会话挂上 taskId 时选中任务并展示转入桥，而不是�
   assert.match(src, /!activeTask && !showingConversation && !handoffPending/);
 });
 
-test('工程方案议题只认计划 concerns，不再按步数套模板', () => {
+test('工程方案评审与知识问答同一套：先五段再【辩题】，不按步数套模板', () => {
   const src = readFileSync(join(ROOT, 'src/main/engineering/plan-review.ts'), 'utf8');
-  assert.match(src, /主导模型未提出议题，不编造辩论/);
-  assert.match(src, /plan\.concerns/);
+  assert.match(src, /topicsFromLeadSummary/);
+  assert.match(src, /buildPlanReviewLeadAsk/);
+  assert.match(src, /结论\/一致\/分歧\/存疑\/辩题/);
   assert.doesNotMatch(src, /步骤拆分是否合理/);
   assert.doesNotMatch(src, /系统动作（命令\/截屏\/启动应用\/跑代码）/);
 });

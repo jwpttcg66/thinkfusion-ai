@@ -77,6 +77,8 @@ export type ConversationEntry =
       expressTarget?: string;
       /** 表态要产出什么判断；老事件没有。 */
       expressGoal?: string;
+      /** 主导模型五段原文；老事件没有。 */
+      leadSummary?: string;
       participants: string[];
       summary: string;
       /** 结构化切片；老事件没有。 */
@@ -758,6 +760,9 @@ export function buildTaskConversation(
         ...(debate.expressGoal
           ? { expressGoal: debate.expressGoal }
           : existing?.entry.expressGoal ? { expressGoal: existing.entry.expressGoal } : {}),
+        ...(debate.leadSummary
+          ? { leadSummary: debate.leadSummary }
+          : existing?.entry.leadSummary ? { leadSummary: existing.entry.leadSummary } : {}),
         ...(debate.result ? { result: debate.result } : existing?.entry.result ? { result: existing.entry.result } : {}),
         ...(typeof debate.rounds === 'number' ? { rounds: debate.rounds } : {}),
         ...(typeof debate.maxRounds === 'number' ? { maxRounds: debate.maxRounds } : {}),
