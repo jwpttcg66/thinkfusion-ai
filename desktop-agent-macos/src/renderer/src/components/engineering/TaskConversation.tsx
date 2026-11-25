@@ -296,7 +296,56 @@ function leadSectionClass(title: string): string {
   }
 }
 
-/** 方案评审：五段结论一出就分段画出；辩题原文直接列出，等待时也能知道在辩什么。 */
+/** 参与者 ≥ 2 才算多模型辩论/审核；单模型走流式短笔记，不铺大卡。 */
+function isMultiModelDebate(entry: Extract<ConversationEntry, { kind: 'debate' }>): boolean {
+  const names = [...new Set(entry.participants.map(item => item.trim()).filter(Boolean))];
+  return names.length >= 2;
+}
+
+/** 单模型方案评审：时序流短记，五段/议题收进可展开 detail。 */
+function DebateStreamNote(props: { entry: Extract<ConversationEntry, { kind: 'debate' }> }) {
+  const { entry } = props;
+  const label = entry.status === 'running'
+    ? '进行中'
+    : entry.status === 'completed'
+      ? '已辩完'
+      : entry.status === 'skipped'
+        ? '未进行'
+        : '已停止';
+  const head = [
+    `方案评审 · ${label}`,
+    timeText(entry.at),
+    entry.elapsedMs > 0 ? `已等 ${String(Math.round(entry.elapsedMs / 1000))} 秒` : '',
+    typeof entry.rounds === 'number' ? `实际 ${String(entry.rounds)} 轮` : '',
+    entry.participants.length === 1 ? entry.participants[0] : '',
+    entry.skippedReason ? `跳过：${entry.skippedReason}` : ''
+  ].filter(Boolean).join(' · ');
+  const detail = [
+    entry.leadSummary ? `主导五段：\n${entry.leadSummary}` : '',
+    entry.topics.length > 0 ? `议题：\n${entry.topics.map((t, i) => `${String(i + 1)}. ${t}`).join('\n')}` : '',
+    entry.summary || '',
+    entry.roundsReason || '',
+    entry.reason ? `为什么评审：${entry.reason}` : ''
+  ].filter(Boolean).join('\n\n');
+  const tone: ConversationTone = entry.status === 'completed'
+    ? 'ok'
+    : entry.status === 'running'
+      ? 'info'
+      : 'muted';
+  return (
+    <div className={`chat-note ${ToneClass(tone)}`}>
+      <span className="chat-note-text">{head}</span>
+      {detail ? (
+        <details className="chat-note-detail">
+          <summary>展开评审原文</summary>
+          <pre>{detail}</pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+/** 多模型方案评审大卡：每模型输出另由 MemberMessage 卡片承载。 */
 function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debate' }> }) {
   const { entry } = props;
   const label = entry.status === 'running'
@@ -310,7 +359,7 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
   return (
     <section className={`card chat-debate is-${entry.status}`}>
       <div className="review-head">
-        <b>方案评审 · {label}</b>
+        <b>方案评审 · {label} · 多模型</b>
         <span className="muted">
           {timeText(entry.at)}
           {entry.elapsedMs > 0 ? ` · 已等 ${String(Math.round(entry.elapsedMs / 1000))} 秒` : ''}
@@ -381,6 +430,50 @@ function DebateMessage(props: { entry: Extract<ConversationEntry, { kind: 'debat
       {entry.summary && <p className="chat-debate-summary">{entry.summary}</p>}
       {entry.skippedReason && <p className="muted">未评审原因：{entry.skippedReason}</p>}
     </section>
+  );
+}
+
+/** 单模型输出：流式短气泡，不套多模型卡片壳。 */
+function MemberStreamNote(props: {
+  entry: Extract<ConversationEntry, { kind: 'member' }>;
+  now: number;
+}) {
+  const { entry } = props;
+  const live = entry.status === 'streaming';
+  const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
+  const view = memberBodyView({ ...entry, waitMs: elapsed });
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={`chat-stream-member is-${entry.status}`}>
+      <div className="chat-stream-head">
+        <span className="chat-note-text">
+          {entry.label}
+          {entry.roundNumber ? ` · 第 ${String(entry.roundNumber)} 轮` : ''}
+          {' · '}{timeText(entry.at)}
+          {elapsed !== null ? ` · ${elapsedText(elapsed)}` : ''}
+          {live ? ' · 输出中' : entry.status === 'completed' ? ' · 已完成' : ''}
+        </span>
+        {live && <span className="spinner" />}
+      </div>
+      {entry.error && <p className="chat-member-error">{entry.error}</p>}
+      {view.showLiveThinking && (
+        <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
+      )}
+      <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`}>
+        {view.bodyText || view.placeholder}
+      </pre>
+      {(view.displayLength > 480 || expanded) && (
+        <button className="chat-member-more" type="button" onClick={() => setExpanded(value => !value)}>
+          {expanded ? '收起全文' : '展开全文'}
+        </button>
+      )}
+      {view.showReasoningDetails && entry.reasoning && (
+        <details className="chat-reasoning">
+          <summary>思考过程（{entry.reasoning.length} 字符）</summary>
+          <pre>{entry.reasoning}</pre>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -596,6 +689,16 @@ export function TaskConversation(props: {
   );
   const hasLive = entries.some(entry => entry.kind === 'member' && entry.status === 'streaming');
   const [now, setNow] = useState(Date.now());
+  // 辩论/审核：仅多模型参与时给每模型出卡片；单模型与其它输出走流式。
+  const multiModelRoundIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of entries) {
+      if (entry.kind === 'debate' && isMultiModelDebate(entry) && entry.roundId) {
+        ids.add(entry.roundId);
+      }
+    }
+    return ids;
+  }, [entries]);
 
   useEffect(() => {
     if (!hasLive) return;
@@ -626,7 +729,10 @@ export function TaskConversation(props: {
           );
         }
         if (entry.kind === 'member') {
-          return <MemberMessage key={entry.key} entry={entry} now={now} />;
+          const useCard = Boolean(entry.roundId && multiModelRoundIds.has(entry.roundId));
+          return useCard
+            ? <MemberMessage key={entry.key} entry={entry} now={now} />
+            : <MemberStreamNote key={entry.key} entry={entry} now={now} />;
         }
         if (entry.kind === 'step') {
           return <StepMessage key={`${entry.key}-${String(index)}`} entry={entry} />;
@@ -635,7 +741,9 @@ export function TaskConversation(props: {
           return <PlanMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'debate') {
-          return <DebateMessage key={entry.key} entry={entry} />;
+          return isMultiModelDebate(entry)
+            ? <DebateMessage key={entry.key} entry={entry} />
+            : <DebateStreamNote key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'bridge') {
           return <BridgeMessage key={entry.key} entry={entry} />;

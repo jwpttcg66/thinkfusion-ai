@@ -1244,11 +1244,19 @@ export function buildConclusion(
     completed?.type === 'task.completed' ? completed.summary : undefined,
     lastAnswer?.type === 'round.answer' ? protocolConclusionText(lastAnswer.text) : undefined
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  // 协议 JSON 不是结论；系统套话（「任务完成」）也不能单独冒充结论。
-  const text = candidates.find(item => !protocolKind(item) && !isGenericConclusion(item)) ?? '';
+  // 协议 JSON 不是结论。套话 summary（「执行完成，验证通过」）可以作收口标题，
+  // 但不得再退回「最近一轮命令 stdout」当核心结论文本——修复轮常是长 shell，会盖住交付语义。
+  const richText = candidates.find(item => !protocolKind(item) && !isGenericConclusion(item)) ?? '';
+  const completedSummary = completed?.type === 'task.completed' && completed.summary?.trim()
+    ? completed.summary.trim()
+    : '';
+  const optionSummary = typeof options.summary === 'string' && options.summary.trim() && !protocolKind(options.summary)
+    ? options.summary.trim()
+    : '';
+  const text = richText || completedSummary || optionSummary;
 
   const executionGoal = executionGoalFromEvents(ordered);
-  // 执行结果仍取最近一份报告（最近一轮在干什么）；目标物取全轮并集。
+  // 执行结果仍取最近一份报告（最近一轮在干什么）；目标物取全轮并集（AGENTS §8.2）。
   const executionResults = report ? reportDeliveryFacts(report.report) : [];
   const deliverables: string[] = [];
   const seenDeliverable = new Set<string>();
@@ -1320,16 +1328,16 @@ export function buildConclusion(
   }
 
   const tone: ConversationTone = status === 'failed' ? 'error' : status === 'cancelled' ? 'warn' : 'ok';
-  // 有真实工具结果时，用第一条交付事实当结论文本，避免主页面只剩「任务完成」。
-  const deliveryText = executionResults[0] ?? '';
+  // 结论文本不拿修轮/最近命令 stdout 顶替；执行明细进 executionResults，目标物进 deliverables。
   return {
     text: text
-      || deliveryText
       || (status === 'failed'
         ? (failed?.type === 'task.failed' ? failed.error : '任务失败，没有留下结论文本。')
         : status === 'cancelled'
           ? '任务已取消，没有留下结论文本。'
-          : `${statusText(status)}，模型没有给出结论文本；以下是真实执行结果。`),
+          : deliverables.length > 0
+            ? `${statusText(status)}。目标物 ${String(deliverables.length)} 项见下方。`
+            : `${statusText(status)}，模型没有给出结论文本；执行结果与目标物见下方。`),
     facts,
     executionGoal,
     executionResults,

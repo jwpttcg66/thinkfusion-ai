@@ -267,7 +267,7 @@ test('方案评审 done 心跳不得把已辩完冲回进行中', () => {
   assert.equal(debate.status, 'completed');
 });
 
-test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {
+test('套话 summary 可作收口标题：执行明细进 facts，不把工具 stdout 顶成核心结论', () => {
   const conclusion = buildConclusion(
     [
       roundStart(1000, 'r1', 1, 'user_prompt'),
@@ -308,9 +308,85 @@ test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本',
     { summary: '执行完成，验证通过', status: 'completed' }
   );
   assert.ok(conclusion);
-  assert.match(conclusion.text, /目录内容：readme\.txt、src/);
+  assert.equal(conclusion.text, '执行完成，验证通过');
   assert.match(conclusion.facts.join(' / '), /目录内容：readme\.txt、src/);
-  assert.doesNotMatch(conclusion.text, /^执行完成/);
+  assert.match(conclusion.executionResults.join(' / '), /目录内容：readme\.txt、src/);
+});
+
+test('修复轮长命令不得顶成核心结论；目标物取全轮并集', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.writeFile',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { path: 'go-http-demo/main.go' },
+              result: { path: 'go-http-demo/main.go' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: [],
+            changedFiles: 1,
+            changedPaths: ['go-http-demo/main.go'],
+            checks: {
+              compile: { status: 'passed' },
+              tests: { status: 'passed' },
+              diagnostics: { status: 'passed', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      roundStart(3000, 'r2', 2, 'execution_report'),
+      {
+        type: 'report.ready',
+        at: 4000,
+        taskId: task,
+        roundId: 'r2',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's2',
+              tool: 'shell.run',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { command: 'cd /tmp && ./bin/httpdemo >/tmp/x.log 2>&1 & pid=$!; kill $pid; exit 0' },
+              result: { exitCode: 0, stdout: 'RUN_OK\nHEALTHZ\n{"status":"ok"}' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: ['本轮没有写操作，无需验证'],
+            changedFiles: 0,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 5000, taskId: task, summary: '执行完成，验证通过' }
+    ],
+    { summary: '执行完成，验证通过', status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.equal(conclusion.text, '执行完成，验证通过');
+  assert.doesNotMatch(conclusion.text, /httpdemo|RUN_OK|pid=/);
+  assert.ok(conclusion.deliverables.some(path => path.includes('go-http-demo/main.go')));
 });
 
 test('协议计划抽出可读推导：步骤与完成条件', () => {
