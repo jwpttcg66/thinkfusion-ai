@@ -12,4 +12,4 @@
 | P4 接入 | TESTED | `continueAfterReport` → `decideNextEngineeringAction`；发 `cycle.snapshot` / `goal.fit` |
 | P5 恢复/预算 | TESTED | 同事件重放一致；CODING_BUDGET 摘要；快照可覆盖派生 |
 | P6 UI | IMPLEMENTED | 结果面板目标/循环/下一步；时间线循环决策笔记 |
-| P7 | PARTIAL | 自动化全绿；窗口三节真机 ✅（`V3-GDC-LIVE-UI.json`）；编排落点事件待完整执行轮 |
+| P7 | DONE | 自动化 + 窗口三节 + `continueAfterReport` 真机（repair→complete）见 `V3-GDC-CONTINUE-AFTER-REPORT-LIVE.json` |

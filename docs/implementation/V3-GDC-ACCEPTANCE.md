@@ -26,7 +26,16 @@
 | 结论与下一步 | ✅ 「进行中 / 等待计划审批或进入实现」 |
 | 证据 | [`evidence/V3-GDC-LIVE-UI.json`](./evidence/V3-GDC-LIVE-UI.json) |
 
-说明：`cycle.snapshot` / `goal.fit` 在 `continueAfterReport` 落点发出；本任务尚未跑完执行报告，时间线「循环决策」笔记需在修复/收尾轮再核对。投影三节已在窗口内证实。
+## 编排落点真机（执行报告后）
+
+| 项 | 结果 |
+| --- | --- |
+| 脚本 | `scripts/gdc-continue-after-report-live.mjs` |
+| 任务 | `000e4221-…` 只读列目录 → `completed`（约 160s） |
+| 首轮 | `cycle.snapshot decision=repair` → 进入修复轮 |
+| 次轮 | `cycle.snapshot decision=complete` → `task.completed`；`goal.fit met` |
+| 时间线 | 「循环决策 / 目标符合度」笔记可见（6 条） |
+| 证据 | [`evidence/V3-GDC-CONTINUE-AFTER-REPORT-LIVE.json`](./evidence/V3-GDC-CONTINUE-AFTER-REPORT-LIVE.json) |
 
 ## 结论
 
@@ -35,4 +44,4 @@
 | P0–P6 代码与自动化 | ✅ |
 | P7 事件重放 | ✅ |
 | P7 窗口真机（目标/循环/下一步） | ✅ |
-| P7 编排落点事件（执行报告后） | ⏳ 待完整执行轮再核对 |
+| P7 编排落点事件（执行报告后） | ✅ |
