@@ -1041,9 +1041,8 @@ export function buildTaskConversation(
       ...(conclusion.executionResults.length > 0
         ? { executionResults: conclusion.executionResults }
         : {}),
-      ...(conclusion.deliverables.length > 0
-        ? { deliverables: conclusion.deliverables }
-        : {}),
+      // 始终带上目标物字段（可为空）：结论卡必须画出「目标物」栏，空也如实写。
+      deliverables: conclusion.deliverables,
       tone: conclusion.tone
     });
   }
@@ -1059,11 +1058,60 @@ function orderWeight(entry: ConversationEntry): number {
 }
 
 /**
+ * 从一份执行报告抽出交付路径（写出的文件 + 编译/运行产物）。
+ *
+ * 供结论汇总复用：多轮报告必须逐份合并，不能只认最后一轮——
+ * 修复/再验证轮常常不再写文件，只看最后一轮会把前面的交付冲没。
+ */
+export function deliverablesOfReport(report: ExecutionReport): string[] {
+  const deliverables: string[] = [];
+  const seen = new Set<string>();
+  const add = (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    const duplicate = [...seen].some(existing =>
+      existing === trimmed || existing.endsWith(`/${trimmed}`) || trimmed.endsWith(`/${existing}`)
+    );
+    if (duplicate) return;
+    seen.add(trimmed);
+    deliverables.push(trimmed);
+  };
+  for (const path of report.verification?.changedPaths ?? []) add(path);
+  for (const item of report.results ?? []) {
+    const path = argPath(item);
+    if (path && (
+      item.tool === 'fs.writeFile' || item.tool === 'fs.edit' || item.tool === 'fs.mkdir' ||
+      item.tool === 'fs.copy' || item.tool === 'fs.move' || item.tool === 'screen.capture'
+    )) {
+      add(path);
+    }
+    const result = item.result as { path?: string; stdout?: string; stderr?: string; cwd?: string } | undefined;
+    if (typeof result?.path === 'string') add(result.path);
+    if (!result) continue;
+    for (const match of artifactPaths(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) {
+      add(/^(\/|[A-Za-z]:[\\/])/.test(match)
+        ? match
+        : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match);
+    }
+  }
+  for (const rawCheck of Object.values(report.verification?.checks ?? {})) {
+    const check = rawCheck as { output?: string };
+    if (typeof check.output === 'string') {
+      for (const match of artifactPaths(check.output)) add(match);
+    }
+  }
+  return deliverables;
+}
+
+/**
  * 最后那句话。
  *
  * 只认三种来源：任务自己的 `summary`、最后一次 `round.answer` 里协议对象的
  * `summary`、执行报告与评审的事实。一个都没有就写清「没有结论文本」，绝不
  * 拿一段 JSON 或一句「任务完成」冒充结论。
+ *
+ * 目标物必须合并**全部** `report.ready`：最后一轮常常只是再验证，没有写文件；
+ * 只认最后一轮会让最终结论丢掉前面已经交付的路径。
  */
 export function buildConclusion(
   events: readonly AgentEvent[],
@@ -1073,7 +1121,7 @@ export function buildConclusion(
   facts: string[];
   executionGoal: string;
   executionResults: string[];
-  /** 目标物路径：写出的文件 + 编译/运行产物。 */
+  /** 目标物路径：写出的文件 + 编译/运行产物（全轮次并集）。 */
   deliverables: string[];
   tone: ConversationTone;
 } | null {
@@ -1081,7 +1129,10 @@ export function buildConclusion(
   const completed = [...ordered].reverse().find(event => event.type === 'task.completed');
   const failed = [...ordered].reverse().find(event => event.type === 'task.failed');
   const cancelled = [...ordered].reverse().find(event => event.type === 'task.cancelled');
-  const report = [...ordered].reverse().find(event => event.type === 'report.ready');
+  const reports = ordered.filter((event): event is Extract<AgentEvent, { type: 'report.ready' }> =>
+    event.type === 'report.ready'
+  );
+  const report = [...reports].reverse()[0];
   const review = [...ordered].reverse().find(event => event.type === 'review.ready');
   const lastAnswer = [...ordered].reverse().find(event => event.type === 'round.answer');
 
@@ -1098,7 +1149,8 @@ export function buildConclusion(
   const text = candidates.find(item => !protocolKind(item) && !isGenericConclusion(item)) ?? '';
 
   const executionGoal = executionGoalFromEvents(ordered);
-  const executionResults = report?.type === 'report.ready' ? reportDeliveryFacts(report.report) : [];
+  // 执行结果仍取最近一份报告（最近一轮在干什么）；目标物取全轮并集。
+  const executionResults = report ? reportDeliveryFacts(report.report) : [];
   const deliverables: string[] = [];
   const seenDeliverable = new Set<string>();
   const addDeliverable = (path: string) => {
@@ -1111,10 +1163,28 @@ export function buildConclusion(
     seenDeliverable.add(trimmed);
     deliverables.push(trimmed);
   };
+  const changedPaths = new Set<string>();
+  for (const item of reports) {
+    for (const path of deliverablesOfReport(item.report)) addDeliverable(path);
+    for (const path of item.report.verification?.changedPaths ?? []) {
+      if (path.trim()) changedPaths.add(path.trim());
+    }
+    for (const step of item.report.results ?? []) {
+      if (!(
+        step.tool === 'fs.writeFile' || step.tool === 'fs.edit' || step.tool === 'fs.mkdir' ||
+        step.tool === 'fs.copy' || step.tool === 'fs.move'
+      )) continue;
+      const path = argPath(step) || (typeof (step.result as { path?: unknown } | undefined)?.path === 'string'
+        ? (step.result as { path: string }).path
+        : '');
+      if (path.trim()) changedPaths.add(path.trim());
+    }
+  }
+
   const facts: string[] = [];
   // facts 仍带上执行结果，兼容旧面板；同时单独字段保证界面能分栏完整展示。
   facts.push(...executionResults);
-  if (report?.type === 'report.ready') {
+  if (report) {
     const done = report.report.results.filter(item => item.status === 'completed').length;
     facts.push(`执行 ${String(report.report.results.length)} 步，完成 ${String(done)} 步`);
     if (report.report.verification) {
@@ -1127,35 +1197,24 @@ export function buildConclusion(
             ? '验证未通过'
             : '没有跑验证'
       );
-      if (typeof report.report.verification.changedFiles === 'number') {
-        facts.push(`改动 ${String(report.report.verification.changedFiles)} 个文件`);
-      }
-      for (const path of report.report.verification.changedPaths ?? []) addDeliverable(path);
     }
-    for (const item of report.report.results ?? []) {
-      const path = argPath(item);
-      if (path && (
-        item.tool === 'fs.writeFile' || item.tool === 'fs.edit' || item.tool === 'fs.mkdir' ||
-        item.tool === 'fs.copy' || item.tool === 'fs.move' || item.tool === 'screen.capture'
-      )) {
-        addDeliverable(path);
-      }
-      const result = item.result as { path?: string; stdout?: string; stderr?: string; cwd?: string } | undefined;
-      if (typeof result?.path === 'string') addDeliverable(result.path);
-      if (!result) continue;
-      for (const match of artifactPaths(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)) {
-        addDeliverable(/^(\/|[A-Za-z]:[\\/])/.test(match)
-          ? match
-          : result.cwd ? `${result.cwd.replace(/\/$/, '')}/${match}` : match);
-      }
+    // 「改动文件」优先全轮路径并集；旧报告只有 changedFiles 计数时退回最大计数。
+    if (changedPaths.size > 0) {
+      facts.push(`改动 ${String(changedPaths.size)} 个文件`);
+    } else {
+      const counted = reports.reduce(
+        (max, item) => Math.max(max, typeof item.report.verification?.changedFiles === 'number'
+          ? item.report.verification.changedFiles
+          : 0),
+        0
+      );
+      if (counted > 0) facts.push(`改动 ${String(counted)} 个文件`);
     }
-    for (const rawCheck of Object.values(report.report.verification?.checks ?? {})) {
-      const check = rawCheck as { output?: string };
-      if (typeof check.output === 'string') {
-        for (const match of artifactPaths(check.output)) addDeliverable(match);
-      }
+    if (deliverables.length > 0) {
+      facts.push(`目标物 ${String(deliverables.length)} 个`);
+    } else if (reports.length > 0) {
+      facts.push('没有记录到交付文件');
     }
-    if (deliverables.length > 0) facts.push(`目标物 ${String(deliverables.length)} 个`);
   }
   if (review?.type === 'review.ready') {
     facts.push(`独立评审：${review.needsFix ? `需修复（${String(review.issues.length)} 项）` : '通过'}`);
