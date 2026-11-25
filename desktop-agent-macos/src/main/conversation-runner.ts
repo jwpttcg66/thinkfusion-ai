@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { buildAttachmentMaterial, describeAttachments, composeQuestionWithAttachments, dedupeAttachments, type AttachmentText, type ConversationAttachment } from '../shared/attachments';
 import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, ExecutionMode, Synthesis } from '../shared/conversation';
-import { normalizeExecutionConfig } from '../shared/conversation';
+import { describeConversationParticipation, normalizeExecutionConfig } from '../shared/conversation';
+import { conversationRiskFromDebate, decideParticipation, dispatchedParticipantIds } from '../shared/dmoca';
 import { classifyIntent } from '../shared/intent';
 import { toRouteTaskKind, type ModelRoute, type RouteTaskKind } from '../shared/model-route';
 import {
@@ -2900,9 +2901,47 @@ export class ConversationRunner {
     const ownership = orchestration
       ? { mode: lead.kind, reason: orchestration.reason }
       : ownershipOf(config, answers, executorIds, sourceOf);
-    const debaters = orchestration
+    let debaters = orchestration
       ? orchestration.debaters
       : debatersFor(ownership.mode, answers, executorIds, sourceOf);
+
+    // 会话侧参与记录：只写「实际问了谁、谁没参与、为什么」，不按预算裁剪。
+    // 会话没有工程计划，判不出 L0–L3；硬套等级会变成拍脑袋减员，所以这里先描述、不改派发。
+    {
+      // 会话侧 DMOCA：风险由本轮证据反推（回答数/辩题/存疑），再决定派发谁。
+      // 减员一律带原因写进事件与轨迹，不静默砍人。
+      const doubts = parseDoubts(summaryText).length;
+      const risk = conversationRiskFromDebate({ answers: answers.length, topics: topics.length, doubts });
+      const decision = decideParticipation({
+        workId: conversation.conversationId,
+        stage: topics.length > 0 ? 'debate' : 'summary',
+        risk,
+        candidates: debaters.map(id => ({ id, available: true }))
+      });
+      const before = debaters;
+      debaters = dispatchedParticipantIds(decision, before);
+      const observed = describeConversationParticipation({ answers, debaters, kindOf: sourceOf });
+      this.deps.emit({
+        type: 'model.participation.observed',
+        at: Date.now(),
+        conversationId: conversation.conversationId,
+        stage: decision.stage,
+        risk,
+        decisionId: decision.decisionId,
+        maxExtraModels: decision.maxExtraModels,
+        participants: observed.participants,
+        excluded: [...observed.excluded, ...decision.excluded],
+        reasons: decision.reasons,
+        note: observed.note
+      });
+      trace?.note(
+        `参与记录（${risk}）：${observed.participants.map(item => item.participantId).join('、') || '无'}`
+        + (observed.excluded.length + decision.excluded.length > 0
+          ? `；未参与：${[...observed.excluded, ...decision.excluded].map(item => item.participantId).join('、')}`
+          : '')
+      );
+    }
+
     let debate: Awaited<ReturnType<NonNullable<typeof this.deps.runDebate>>> = null;
     if (topics.length === 0) {
       trace?.note(`${label} 判断回答之间没有需要辩的实质分歧，这一轮只汇总。`);

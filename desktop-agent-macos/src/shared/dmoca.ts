@@ -202,6 +202,25 @@ export function defaultPolicyForRisk(risk: CollaborationRiskLevel): {
 }
 
 /**
+ * 会话侧风险等级：从这一轮的辩论证据反推，而不是拍一个固定等级。
+ *
+ * - 只有一路回答：没有交叉验证的必要，L0（单人或自辩）；
+ * - 有存疑：说明证据不足以支撑结论，按 L3 处理；
+ * - 至少两个辩题：分歧会影响结论，L3；
+ * - 一个辩题：L2；没有辩题但多路一致：L1。
+ */
+export function conversationRiskFromDebate(input: {
+  answers: number;
+  topics: number;
+  doubts: number;
+}): CollaborationRiskLevel {
+  if (input.answers <= 1) return 'L0';
+  if (input.doubts > 0 || input.topics >= 2) return 'L3';
+  if (input.topics === 1) return 'L2';
+  return 'L1';
+}
+
+/**
  * 决策 → 实际派发：辩论/评审只请决策里留下的人。
  *
  * 派发名单必须等于 `decision.participants`——否则界面写着「未参与」、
