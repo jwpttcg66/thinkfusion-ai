@@ -185,23 +185,94 @@ export function planDebateTopics(plan: AgentPlan): string[] {
   return planDebateBrief(plan).topics.map(item => item.text);
 }
 
+/** 协作克制：计划风险等级（纯启发式，禁止为定级再调模型）。 */
+export type CollaborationRiskLevel = 'L0' | 'L1' | 'L2' | 'L3';
+
+export interface CollaborationRiskAssessment {
+  level: CollaborationRiskLevel;
+  reasons: string[];
+}
+
+const HIGH_RISK_TOOLS = new Set([
+  'fs.remove', 'process.kill', 'job.kill', 'clipboard.write', 'notify'
+]);
+
+/**
+ * 不调用模型：按工具族、步数、设计文档与能力门禁估协作等级。
+ * L0 小任务在 auto 下应整段跳过方案评审（含五段），避免「先花一次模型只为判断要不要辩」。
+ */
+export function assessCollaborationRisk(plan: AgentPlan): CollaborationRiskAssessment {
+  const steps = plan.steps ?? [];
+  const reasons: string[] = [];
+  const writes = steps.filter(step => WRITE_TOOLS.has(step.tool));
+  const computers = steps.filter(step => step.tool.startsWith('computer.'));
+  const highRisk = steps.filter(step => HIGH_RISK_TOOLS.has(step.tool));
+  const gate = checkPlanCapabilities(plan);
+
+  if (plan.kind === 'design') {
+    reasons.push('设计文档需要观点对照');
+    return { level: 'L3', reasons };
+  }
+  if (highRisk.length > 0) {
+    reasons.push(`含高风险工具 ${highRisk.map(step => step.tool).join('、')}`);
+    return { level: 'L3', reasons };
+  }
+  if (computers.length > 0) {
+    reasons.push(`含桌面控制 ${String(computers.length)} 步`);
+    return { level: 'L3', reasons };
+  }
+  if (gate.missing.length > 0) {
+    reasons.push(`计划缺判据：${gate.missing[0] ?? '未知'}`);
+    return { level: 'L2', reasons };
+  }
+  if (writes.length >= 3 || steps.length >= 9) {
+    reasons.push(`写入 ${String(writes.length)} / 共 ${String(steps.length)} 步`);
+    return { level: 'L2', reasons };
+  }
+  if (writes.length > 0) {
+    reasons.push(`小范围写入 ${String(writes.length)} 步`);
+    return { level: 'L1', reasons };
+  }
+  if (gate.family === 'code.read' || steps.length <= 5) {
+    reasons.push(gate.family === 'code.read' ? '只读/观察类计划' : `仅 ${String(steps.length)} 步且无写盘`);
+    return { level: 'L0', reasons };
+  }
+  reasons.push(`主族 ${gate.family} · ${String(steps.length)} 步`);
+  return { level: 'L1', reasons };
+}
+
 /**
  * 要不要走方案评审流水线（先五段，再按辩题决定是否辩论）。
- * `off` 整段跳过；`on`/`auto` 都先让主导模型写五段——没有辩题就不会开辩。
+ * - `off`：整段跳过
+ * - `on`：强制走五段（有辩题才开辩）
+ * - `auto`：仅 L1+ 走五段；L0 直接跳过，**不为定级再调模型**
  */
 export function shouldDebatePlan(
   mode: 'auto' | 'on' | 'off' | undefined,
-  _plan: AgentPlan
-): { debate: boolean; reason?: string } {
+  plan: AgentPlan
+): { debate: boolean; reason?: string; risk?: CollaborationRiskAssessment } {
   const effective = mode ?? 'auto';
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
+  if (effective === 'on') {
+    return {
+      debate: true,
+      reason: '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
+    };
+  }
+  const risk = assessCollaborationRisk(plan);
+  if (risk.level === 'L0') {
+    return {
+      debate: false,
+      reason: `auto：${risk.level} 小任务跳过方案评审（${risk.reasons.join('；')}），避免无争议也先花一次五段调用`,
+      risk
+    };
+  }
   return {
     debate: true,
-    reason: effective === 'on'
-      ? '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
-      : '方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
+    reason: `auto：${risk.level} 需要方案评审（${risk.reasons.join('；')}）；主导先写五段，有辩题才辩论`,
+    risk
   };
 }
 
@@ -234,33 +305,41 @@ export function planReviewQuestion(plan: AgentPlan): string {
 }
 
 /**
- * 方案评审的上限轮数。
+ * 方案评审的上限轮数（成本边界，不是固定跑满）。
  *
- * 不再按计划规模写死「2 轮」或「3 轮」：轮次由辩论引擎按分歧收敛自主决定。
- * 这里只给一个上限，并说明继续下一轮的条件：
- * - 第 1 轮表态；有未解决争议才进入第 2 轮质疑；
- * - 质疑需要被答复才进入第 3 轮回应；
- * - 任何一轮收敛、或没有新的修订/争议，就提前结束。
- *
- * 上限设为 3 是成本边界，不是固定轮次；实际跑几轮看 plan.debated.rounds。
+ * 实际轮次仍由分歧收敛决定；这里按协作等级收紧默认预算：
+ * - L0/L1：最多 1 轮（表态即可；无实质争议不开下一轮）
+ * - L2：最多 2 轮
+ * - L3：最多 3 轮
  */
 export interface PlanReviewRounds {
   /** 最多跑几轮；实际轮次由收敛结果决定。 */
-  rounds: 3;
+  rounds: 1 | 2 | 3;
   /** 给审批的人看的一句话规则，界面会显示，不只是日志。 */
   reason: string;
+  risk: CollaborationRiskLevel;
 }
 
 export function planReviewRounds(plan: AgentPlan, participantCount: number): PlanReviewRounds {
+  const risk = assessCollaborationRisk(plan);
   const steps = plan.steps?.length ?? 0;
+  let rounds: 1 | 2 | 3 =
+    risk.level === 'L3' ? 3 : risk.level === 'L2' ? 2 : 1;
+  // 多方评审且至少 L1：允许多一轮质疑，但仍不超过等级上限+1（封顶 3）。
+  if (participantCount >= 3 && rounds < 3 && risk.level !== 'L0') {
+    rounds = (rounds + 1) as 2 | 3;
+  }
   const scope = [
+    risk.level,
     `${String(steps)} 步`,
     plan.kind === 'design' ? '设计文档' : null,
-    `${String(participantCount)} 位评审`
+    `${String(participantCount)} 位评审`,
+    ...risk.reasons.slice(0, 2)
   ].filter(Boolean).join('、');
   return {
-    rounds: 3,
-    reason: `最多 3 轮，实际按分歧收敛（${scope}）：第 1 轮表态；有未解决争议才进入第 2 轮质疑；质疑需要答复才进入第 3 轮回应`
+    rounds,
+    risk: risk.level,
+    reason: `最多 ${String(rounds)} 轮（${scope}），实际按分歧收敛：无新争议/无新证据提前结束`
   };
 }
 

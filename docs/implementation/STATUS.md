@@ -101,23 +101,34 @@
 | 架构说明书 | DESIGN | `architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md` |
 | P0 架构审计 | 完成 | `V3-GDC-P0-ARCHITECTURE-AUDIT.md` |
 | 实施任务书 | 实施中 | `spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md` |
-| GDC-P1 目标层 | IMPLEMENTED / TESTED | `shared/goal-driven-cycle.ts` + `test:gdc-goal` |
-| GDC-P2 循环协调 | IMPLEMENTED / TESTED | 事件派生 Cycle + `test:gdc-cycle` |
-| GDC-P3 产物历史 | IMPLEMENTED / TESTED | Artifact supersedes / Decision 投影 |
-| GDC-P4 协作接入 | IMPLEMENTED / TESTED | `continueAfterReport` 经 `decideNextEngineeringAction`；发 `cycle.snapshot` / `goal.fit` |
-| GDC-P5 长任务对齐 | IMPLEMENTED / TESTED | 事件重放一致 + CODING_BUDGET 摘要；快照可覆盖派生 |
-| GDC-P6 主活动区 UI | IMPLEMENTED | 结果面板目标/循环/下一步；时间线循环决策笔记 |
-| GDC-P7 验收 | DONE | 自动化 + 窗口三节 + 执行报告后 `cycle.snapshot`/`goal.fit` 真机全绿。见 `V3-GDC-ACCEPTANCE.md` |
-| 功能分支 | 进行中 | `feat/v3-goal-driven-cycle` |
+| GDC-P1～P7 | DONE / 已合 main | 见 `V3-GDC-ACCEPTANCE.md`；基线以最新 `main` 为准 |
+| 功能分支 | 已合入 | 曾用 `feat/v3-goal-driven-cycle` |
 
-> GDC **不**另建 Runtime；窗口真机未标 VERIFIED。
+> GDC **不**另建 Runtime。
+
+## 4.7 辩论与审核按需触发 / 去重 / 预算（CB）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 专项任务书 | DONE | `spec/V3-COLLAB-BUDGET-CONTROL-TASK-BOOK.md` |
+| CB-P0a `auto` 跳过 L0 五段 | DONE | `plan-review.ts` `shouldDebatePlan` + `assessCollaborationRisk` |
+| CB-P0b 轮次按等级收紧 | DONE | `planReviewRounds` → 1/2/3 |
+| CB-P0c 执行后模型审核门禁 | DONE | `shouldModelReviewExecution` |
+| CB-P1 核心意见去重上限 | DONE | `selectKeyOpinions` / `dedupeOpinions` |
+| CB-P2 UI 区分原始/展示/争议 | DONE | CollaborationResultPanel 文案 |
+| 功能分支 | 合入中 | `feat/v3-collab-budget-control` |
+| 自动化 | ✅ | `test:plan-review` / `test:plan-debate` / `test:collab-budget` |
+| 真机 L0 | ✅ | `collab-budget-live.mjs`：跳过五段、rules 审核、意见展示 1；见 `V3-COLLAB-BUDGET-LIVE.json` |
+| 专项结论 | DONE | 见 `V3-COLLAB-BUDGET-ACCEPTANCE.md` |
+
+> 硬规则：不为「要不要辩论」先调一次模型；意见数 ≠ 争议数；展示去重不能替代执行克制。
 
 ## 5. 文档分类
 
 | 类别 | 文档 |
 | --- | --- |
 | 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`** |
-| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
+| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、**CB 协作预算任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
 | 已完成能力与证据 | `implementation/COMPLETION-AUDIT.md`、`implementation/E-ACCEPTANCE-REPORT.md`、`docs/spec/evidence/*`、`git log` |
 | 历史规格 | `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`、旧辩论入口/固定轮次说明、已被替代的 V3 阶段表 |
 | 运维/发布 | `operations/RELEASE_CHECKLIST.md`、`operations/LONG-TASK-CONTEXT-ROLLOUT.md` |

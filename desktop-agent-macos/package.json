@@ -164,6 +164,7 @@
     "test:extract": "npm run build:test && node --test scripts/check-extract.mjs",
     "test:analysis": "npm run build:test && node --test scripts/check-analysis.mjs",
     "test:plan-review": "npm run build:test && node --test scripts/check-plan-review.mjs",
+    "test:collab-budget": "npm run build:test && node --test scripts/check-collab-budget.mjs",
     "test:model-route": "npm run build:agent && node --test scripts/check-model-route.mjs",
     "test:local-tools": "npm run build:agent && node --test scripts/check-local-tools.mjs",
     "test:computer-use": "npm run build:agent && npm run build:ax:mac && node --test scripts/check-computer-use.mjs",

@@ -16,9 +16,10 @@ test('写文件不再单独触发强制辩题模板', () => {
   assert.equal(shouldDebatePlan('off', plan([write])).debate, false);
 });
 
-test('纯只读短计划仍可走五段流水线（auto），off 才整段关掉', () => {
+test('纯只读短计划 auto 跳过五段；off 整段关掉；on 才强制走', () => {
   assert.equal(shouldDebatePlan('off', plan([read])).debate, false);
-  assert.equal(shouldDebatePlan('auto', plan([read])).debate, true);
+  assert.equal(shouldDebatePlan('auto', plan([read])).debate, false);
+  assert.equal(shouldDebatePlan('on', plan([read])).debate, true);
 });
 
 test('design 计划：五段里的辩题才开辩；材料含观点不含请判断', () => {

@@ -179,6 +179,58 @@ export interface CollaborationResultView {
     eventCount?: number;
     conversationEntryCount?: number;
     hasDebateSnapshot?: boolean;
+    /** 投影前原始意见条数（含补充摘要）；用于核对「88 条」是否来自重复汇总。 */
+    rawOpinionCount?: number;
+    /** 去重/截断后进入 keyOpinions 的条数。 */
+    keyOpinionCount?: number;
+    coreOpinionCount?: number;
+    supplementOpinionCount?: number;
+  };
+}
+
+/** 核心意见展示上限：辩论主张优先；补充摘要单独限额，避免 88 条全铺。 */
+const KEY_OPINION_CORE_LIMIT = 12;
+const KEY_OPINION_SUPPLEMENT_LIMIT = 6;
+
+function normalizeOpinionKey(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 160);
+}
+
+/** 同作者同文案 / 同文案不同包装 → 只留一条。 */
+export function dedupeOpinions(items: readonly OpinionView[]): OpinionView[] {
+  const seen = new Set<string>();
+  const out: OpinionView[] = [];
+  for (const item of items) {
+    const body = normalizeOpinionKey(item.statement);
+    if (!body) continue;
+    const keys = [
+      `${item.position}:${body}`,
+      `${item.author}:${body.slice(0, 96)}`
+    ];
+    if (keys.some(key => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+export function selectKeyOpinions(input: {
+  core: readonly OpinionView[];
+  supplements: readonly OpinionView[];
+}): {
+  opinions: OpinionView[];
+  rawCount: number;
+  coreCount: number;
+  supplementCount: number;
+} {
+  const rawCount = input.core.length + input.supplements.length;
+  const core = dedupeOpinions(input.core).slice(0, KEY_OPINION_CORE_LIMIT);
+  const supplements = dedupeOpinions(input.supplements).slice(0, KEY_OPINION_SUPPLEMENT_LIMIT);
+  return {
+    opinions: [...core, ...supplements],
+    rawCount,
+    coreCount: core.length,
+    supplementCount: supplements.length
   };
 }
 
@@ -533,7 +585,11 @@ export function projectEngineeringCollaborationResult(input: {
         targetRefs: []
       };
     });
-  const keyOpinions: OpinionView[] = [...debateOpinions, ...memberSummaries];
+  const selectedOpinions = selectKeyOpinions({
+    core: debateOpinions,
+    supplements: memberSummaries
+  });
+  const keyOpinions: OpinionView[] = selectedOpinions.opinions;
 
   const deliverables: DeliverableView[] = [
     ...taskView.changes.map((change, index) => ({
@@ -614,7 +670,11 @@ export function projectEngineeringCollaborationResult(input: {
     meta: {
       projectedAt: Date.now(),
       eventCount: ordered.length,
-      conversationEntryCount: entries.length
+      conversationEntryCount: entries.length,
+      rawOpinionCount: selectedOpinions.rawCount,
+      keyOpinionCount: keyOpinions.length,
+      coreOpinionCount: selectedOpinions.coreCount,
+      supplementOpinionCount: selectedOpinions.supplementCount
     }
   };
 }
@@ -711,11 +771,11 @@ export function projectConversationCollaborationResult(input: {
     .find((item): item is Synthesis => Boolean(item));
   const debateFromMessages = [...messages].reverse().find(message => message.debate)?.debate ?? null;
 
-  const keyOpinions: OpinionView[] = synthesis
-    ? [
-        ...mapClaimsAsOpinions(subjectId, synthesis.consensus, 'support', 'consensus'),
-        ...mapClaimsAsOpinions(subjectId, synthesis.unique, 'supplement', 'unique')
-      ]
+  const coreOpinions: OpinionView[] = synthesis
+    ? mapClaimsAsOpinions(subjectId, synthesis.consensus, 'support', 'consensus')
+    : [];
+  const supplementOpinions: OpinionView[] = synthesis
+    ? mapClaimsAsOpinions(subjectId, synthesis.unique, 'supplement', 'unique')
     : [];
 
   const disputes = synthesis ? mapSynthesisDisputes(subjectId, synthesis.disputed) : [];
@@ -723,7 +783,7 @@ export function projectConversationCollaborationResult(input: {
   if (synthesis) {
     for (const [disputeIndex, item] of synthesis.disputed.entries()) {
       for (const [posIndex, position] of item.positions.entries()) {
-        keyOpinions.push({
+        coreOpinions.push({
           opinionId: `dispute-stance:${subjectId}:${String(disputeIndex)}:${String(posIndex)}`,
           author: position.channelId,
           position: 'oppose',
@@ -741,6 +801,11 @@ export function projectConversationCollaborationResult(input: {
       }
     }
   }
+  const selectedConversationOpinions = selectKeyOpinions({
+    core: coreOpinions,
+    supplements: supplementOpinions
+  });
+  const keyOpinions = selectedConversationOpinions.opinions;
   const debate = input.debate ?? debateFromMessages;
   if (debate && debate.rounds.length > 0) {
     const debateSource = ref({ subjectId, kind: 'debate', label: 'DebateSnapshot' });
@@ -830,7 +895,11 @@ export function projectConversationCollaborationResult(input: {
     ],
     meta: {
       projectedAt: Date.now(),
-      hasDebateSnapshot: Boolean(debate && debate.rounds.length > 0)
+      hasDebateSnapshot: Boolean(debate && debate.rounds.length > 0),
+      rawOpinionCount: selectedConversationOpinions.rawCount,
+      keyOpinionCount: keyOpinions.length,
+      coreOpinionCount: selectedConversationOpinions.coreCount,
+      supplementOpinionCount: selectedConversationOpinions.supplementCount
     }
   };
 }

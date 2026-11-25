@@ -1,0 +1,111 @@
+{
+  "startedAt": "2026-11-25T06:16:47.495Z",
+  "endpoint": "http://127.0.0.1:9333/json",
+  "workspace": "/tmp/tf-v3-cb-live",
+  "checks": {
+    "opencode-go-present": {
+      "ok": true,
+      "detail": "withKey=30/30",
+      "at": 1795587407965
+    },
+    "execution-defaults-cloud": {
+      "ok": true,
+      "detail": "mode=cloud",
+      "at": 1795587407965
+    },
+    "task-reached-terminal": {
+      "ok": true,
+      "detail": "completed",
+      "at": 1795587420339
+    },
+    "no-plan-review-progress": {
+      "ok": true,
+      "detail": "plan.review.progress=0",
+      "at": 1795587420339
+    },
+    "no-lead-summary-stream": {
+      "ok": true,
+      "detail": "lead-summary deltas=0",
+      "at": 1795587420339
+    },
+    "plan-debate-skipped-or-absent": {
+      "ok": true,
+      "detail": "debated=1",
+      "at": 1795587420339
+    },
+    "review-prefer-rules": {
+      "ok": true,
+      "detail": "reviews=1; model=0; backends=rules",
+      "at": 1795587420339
+    },
+    "result-panel-visible": {
+      "ok": true,
+      "detail": "found",
+      "at": 1795587420339
+    },
+    "opinions-not-runaway": {
+      "ok": true,
+      "detail": "shown=1; raw=null; disputes=0",
+      "at": 1795587420339
+    }
+  },
+  "eventTypes": [
+    "task.updated",
+    "task.updated",
+    "task.updated",
+    "round.started",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "task.updated",
+    "task.updated",
+    "plan.ready",
+    "step.preparing",
+    "task.updated",
+    "plan.debated",
+    "task.updated",
+    "execution.bridge",
+    "task.started",
+    "step.started",
+    "step.completed",
+    "report.ready",
+    "review.ready",
+    "task.updated",
+    "task.updated",
+    "cycle.snapshot",
+    "goal.fit",
+    "task.updated",
+    "task.completed",
+    "goal.fit"
+  ],
+  "taskId": "eb977413-55dc-4ef7-a685-2cc16dd69c08",
+  "terminal": {
+    "status": "completed",
+    "error": null,
+    "summary": "执行完成，验证通过"
+  },
+  "reviewProgressCount": 0,
+  "debated": [
+    {
+      "status": "skipped",
+      "skippedReason": "auto：L0 小任务跳过方案评审（只读/观察类计划），避免无争议也先花一次五段调用"
+    }
+  ],
+  "reviews": [
+    {
+      "backend": "rules",
+      "needsFix": false
+    }
+  ],
+  "dom": {
+    "hasPanel": true,
+    "opinionSummary": "核心意见与争议 （展示 1 · 主张 0 · 补充 1 · 争议 0）",
+    "shownOpinions": 1,
+    "rawOpinions": null,
+    "disputes": 0,
+    "hasFinale": true,
+    "sample": "任务结果\n工程 · completed\n工程目标\n\n只读列出工作区根目录下的文件名，把文件名写进结论即可，不要改任何文件，不要辩论。\n\n状态：active · 符合度：已满足 · 版本 v1\n\n任务摘要可核对：执行完成，验证通过\n\n符合度说明：验证已通过且无待修评审\n\n循环进度 · 第 1 轮 · 结论\n目标理解 · 完成\n分析 · 完成\n设计 · 完成\n方案辩论 · 跳过（无实质方案争议）\n计划 · 完成\n实现 · 完成\n审核 · 完成\n审核辩论 · 跳过（无审核争议处理事件）\n结论 · 完成\n完成 · 待定\n\n迭代 1/8\n\n当前下一步：汇总证据并给出本轮结论\n\n核心意见与争议 （展示 1 · 主张 0 · 补充 1 · 争议 0）\nOpenCode Go · deepseek-v4.1-flash\n补充摘要\n\n【计划】只读列出工作区根目录文件名\n\nfs.list — 列出工作区根目录下的文件与目录名\n\n来源：OpenCode Go · deepseek-v4.1-flash\n\n评审与验证 （评审 1 · 验证 1）\n第 1 次独立评审 · 通过\n本机规则版\n\n规则审核通过，未调用模型（验证已通过且 L0 无规则问题，跳过模型审核（no_goal_impact））。报告 completed；完成 1 步，失败 0 步；能观察结果的检查 0 次；计划写入 0 处；证据 0 条。\n"
+  },
+  "finishedAt": "2026-11-25T06:17:00.339Z",
+  "ok": true
+}
