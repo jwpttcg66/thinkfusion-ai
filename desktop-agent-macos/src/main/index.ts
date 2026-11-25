@@ -6155,7 +6155,18 @@ app.whenReady().then(async () => {
      */
     contextRecovery: async (task, reports) => {
       const { store: cps, archive } = checkpointStores();
-      return recoverTaskContext(task, reports, { store: cps, archive });
+      const recovered = await recoverTaskContext(task, reports, {
+        store: cps,
+        archive,
+        eventsForTask: id => store?.listEvents(id) ?? []
+      });
+      if (recovered.eco && !recovered.eco.ok) {
+        emit({
+          type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn',
+          message: `恢复时发现工程上下文不再兼容：${recovered.eco.reason}；继续前应重新读取工程。`
+        });
+      }
+      return recovered;
     },
     // LT-P4-02：Engineering 的 Provider 规划器接收上下文；Web/CLI 没有
     // withContext，仍按原话直发。
