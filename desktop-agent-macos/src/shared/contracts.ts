@@ -1975,14 +1975,25 @@ export type AgentEvent = AgentEventBase &
     | {
         type: 'model.participation.selected';
         taskId: string;
+        /** 决策自身的 id：事件与决策一一对应，回放时不再靠时间戳拼。 */
+        decisionId: string;
+        workTaskId?: string;
+        cycleId?: string;
         stage: string;
         risk: 'L0' | 'L1' | 'L2' | 'L3';
         participants: Array<{ participantId: string; roles: string[]; reason: string }>;
         excluded: Array<{ participantId: string; reason: string }>;
         debate: 'skip' | 'on_demand' | 'required';
         modelReview: 'skip' | 'on_demand' | 'required';
+        /** 允许追加的模型数：预算边界，UI 需要它解释「为什么不再问」。 */
+        maxExtraModels: number;
         reasons: string[];
         userPinned: boolean;
+        ecoGate?: {
+          sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale';
+          formalRolesBlocked: boolean;
+          reason: string;
+        };
       }
     /** ECO：工程上下文包已准备（充分度与版本可审计）。 */
     | {
