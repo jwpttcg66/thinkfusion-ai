@@ -43,7 +43,7 @@ import {
   type EcoEvidenceSummary
 } from '../shared/eco';
 import { planEvidencePaths, readEngineeringEvidence } from './engineering/eco-evidence';
-import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
+import { rebuildWorkTasksFromEvents, seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
@@ -1417,6 +1417,17 @@ export class AgentOrchestrator {
       plan: planPreview
     });
     // TDL：把计划步骤落成显式分解事件，进度面板只投影这些事件（也可从 plan/step 派生兜底）。
+    // 这份计划替换了上一份分解：先作废旧任务，再种新树，否则两棵树会并存、
+    // 进度分母被旧步骤拖住。只有已经存在的分解才需要这一步。
+    {
+      const existing = rebuildWorkTasksFromEvents(taskId, this.deps.store.listEvents(taskId));
+      const impacted = [...existing.values()]
+        .filter(item => item.status !== 'completed' && item.status !== 'cancelled' && item.status !== 'skipped')
+        .map(item => item.workTaskId);
+      if (impacted.length > 0) {
+        this.deps.emit({ type: 'work.breakdown.replanned', at: Date.now(), taskId, workId: taskId, impactedIds: impacted });
+      }
+    }
     for (const event of seedWorkEventsFromPlan({
       workId: taskId,
       title: stored.plan.title || task.title || taskId,

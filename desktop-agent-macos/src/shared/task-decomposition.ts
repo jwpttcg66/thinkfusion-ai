@@ -413,6 +413,16 @@ export function rebuildWorkTasksFromEvents(
   const tasks = new Map<string, WorkTask>();
   for (const event of events) {
     if (!('taskId' in event) || event.taskId !== workId) continue;
+    if (event.type === 'work.breakdown.replanned') {
+      // 计划重出：旧分解里没完成的任务作废，不能继续占着进度分母。
+      for (const id of event.impactedIds) {
+        const task = tasks.get(id);
+        if (!task) continue;
+        if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'skipped') continue;
+        tasks.set(id, { ...task, status: 'cancelled', updatedAt: event.at, revision: task.revision + 1 });
+      }
+      continue;
+    }
     if (event.type === 'work.task.upserted') {
       const prev = tasks.get(event.task.workTaskId);
       tasks.set(event.task.workTaskId, {
