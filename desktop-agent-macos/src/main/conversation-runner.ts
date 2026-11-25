@@ -2358,10 +2358,10 @@ export class ConversationRunner {
       cancelled: () => this.cancelled.has(conversationId)
     };
 
-    // 网页主导 / 混合档（以及非工程空间的默认网页链路）在提问前把视图建齐：
-    // 「启动时打开」关掉后冷启动没有 WebContentsView，不建就问等于静默零通道。
+    // 只有网页主导 / 混合才建网页视图。
+    // 云端 / 本地主导即使在知识空间也不碰页面——真机曾在云端问答里跑
+    // prepare-web-views 卡 75 秒，轨迹却标成「网页视图」（2026-11-25）。
     const needsWebViews =
-      conversation.workspaceMode !== 'engineering' ||
       config.executionMode === 'web' ||
       config.executionMode === 'hybrid';
     if (needsWebViews) {
