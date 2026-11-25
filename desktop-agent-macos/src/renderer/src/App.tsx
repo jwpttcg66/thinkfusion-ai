@@ -2458,26 +2458,26 @@ export default function App() {
                 deltas={answerDeltas}
                 debate={debateLive}
                 busy={conversationBusy}
-                suppressStructuredResult={Boolean(conversationResult)}
+                suppressStructuredResult={false}
               />
             )}
-            {/* 进度改挂 dock 任务规划胶囊，正文里不再插 ProgressPanel。 */}
-            {/* 结构化收口贴在对话流之后；进行中的流式阅读不被结果大卡压顶。 */}
-            {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
-              <CollaborationResultPanel
-                result={conversationResult}
-                workbench={conversationWorkbench}
-                onOpenEvidence={() => setConversationTab('trajectory')}
-              />
-            )}
-            {showingConversation && activeConversation && conversationTab === 'chat' && (
-              <MemoryTraceCard
-                conversationId={activeConversation.conversationId}
-                refreshKey={messages.length}
-              />
-            )}
+            {/* 对话页只留一条按时序滚动的正文流：结论由 ConversationView 写在流尾，
+                结构化大卡与记忆明细都归到「轨迹」页，不在正文中间堆面板。 */}
             {showingConversation && activeConversation && conversationTab === 'trajectory' && (
-              <TrajectoryPanel conversationId={activeConversation.conversationId} />
+              <>
+                <TrajectoryPanel conversationId={activeConversation.conversationId} />
+                {conversationResult && (
+                  <CollaborationResultPanel
+                    result={conversationResult}
+                    workbench={conversationWorkbench}
+                    onOpenEvidence={() => setConversationTab('trajectory')}
+                  />
+                )}
+                <MemoryTraceCard
+                  conversationId={activeConversation.conversationId}
+                  refreshKey={messages.length}
+                />
+              </>
             )}
             {showingConversation && activeConversation && conversationTab === 'stats' && (
               <StatsPanel
