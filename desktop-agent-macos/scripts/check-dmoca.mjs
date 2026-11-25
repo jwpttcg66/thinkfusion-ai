@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import {
   applyEcoGateToDecision,
+  conversationRiskFromDebate,
   decideParticipation,
   defaultPolicyForRisk,
   dispatchedParticipantIds,
@@ -195,4 +196,21 @@ test('参与事件：回放出的决策沿用当时的 decisionId 与 ECO 门禁
   assert.equal(view.decision?.maxExtraModels, 1);
   assert.equal(view.decision?.ecoGate?.formalRolesBlocked, true);
   assert.equal(view.decision?.excluded[0].participantId, 'b');
+});
+
+test('会话风险由证据反推，并且按等级裁剪派发', () => {
+  assert.equal(conversationRiskFromDebate({ answers: 1, topics: 0, doubts: 0 }), 'L0');
+  assert.equal(conversationRiskFromDebate({ answers: 3, topics: 0, doubts: 0 }), 'L1');
+  assert.equal(conversationRiskFromDebate({ answers: 3, topics: 1, doubts: 0 }), 'L2');
+  assert.equal(conversationRiskFromDebate({ answers: 3, topics: 2, doubts: 0 }), 'L3');
+  assert.equal(conversationRiskFromDebate({ answers: 3, topics: 0, doubts: 1 }), 'L3');
+
+  const decision = decideParticipation({
+    workId: 'c1',
+    stage: 'debate',
+    risk: 'L1',
+    candidates: [{ id: 'a', available: true }, { id: 'b', available: true }, { id: 'c', available: true }]
+  });
+  assert.deepEqual(dispatchedParticipantIds(decision, ['a', 'b', 'c']), decision.participants.map(p => p.participantId));
+  assert.ok(decision.excluded.length > 0 && /最多/.test(decision.excluded[0].reason));
 });

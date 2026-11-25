@@ -1542,6 +1542,18 @@ function emitDeepSeek(event: DeepSeekEvent) {
 
 function emitConversation(event: ConversationEvent) {
   win?.webContents.send('conversation:event', event);
+  // 参与记录额外落一份 JSONL：会话事件原本只走 IPC，真机验收时没有任何
+  // 可读面能证明「这一轮到底发了什么参与记录」。只记这一种事件，量很小。
+  if (event.type === 'model.participation.observed') {
+    try {
+      fs.appendFileSync(
+        path.join(app.getPath('userData'), 'conversation-participation.jsonl'),
+        `${JSON.stringify(event)}\n`
+      );
+    } catch {
+      /* 验收日志写失败不影响会话 */
+    }
+  }
   // General/Knowledge 也进入统一 TaskEvent；高频 answer.delta 不落盘，
   // message.added 已经保留最终文本。
   if (!store || event.type === 'answer.delta') return;

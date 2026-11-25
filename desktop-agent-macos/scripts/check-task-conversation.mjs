@@ -1074,3 +1074,16 @@ test('快速定位轴：只收提问/计划/结论等重点；旁注里程碑不
   assert.ok(conclusion);
   assert.match(conclusion.label, /结论 · 目标物/);
 });
+
+test('会话参与记录：参与/未参与都写清，不裁剪', async () => {
+  const { describeConversationParticipation } = await import('../out-test/shared/conversation.js');
+  const observed = describeConversationParticipation({
+    answers: [{ channelId: 'local-a' }, { channelId: 'cloud-b' }, { channelId: 'web-c' }],
+    debaters: ['local-a', 'cloud-b'],
+    kindOf: id => (id.startsWith('local') ? 'local' : id.startsWith('cloud') ? 'cloud' : 'web')
+  });
+  assert.deepEqual(observed.participants.map(item => item.participantId), ['local-a', 'cloud-b']);
+  assert.deepEqual(observed.excluded.map(item => item.participantId), ['web-c']);
+  assert.match(observed.excluded[0].reason, /归属规则/);
+  assert.match(observed.note, /2 人参与辩论，1 人未参与/);
+});

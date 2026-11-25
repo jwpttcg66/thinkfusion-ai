@@ -509,6 +509,26 @@ export type ConversationEvent = { at: number } & (
       reset?: boolean;
       done?: boolean;
     }
+  /**
+   * 会话侧的真实参与记录（DMOCA 的 descriptive 版）。
+   *
+   * 会话没有工程计划，无法像 L0–L3 那样分风险等级；这里只记录「这一轮实际
+   * 问了谁、谁没参与、为什么」，不按预算裁剪，也不改变派发。等会话侧有了
+   * 可解释的风险判据（分歧强度等）再升级成决策。
+   */
+  | {
+      type: 'model.participation.observed';
+      conversationId: string;
+      stage: string;
+      /** 本轮由证据反推的协作等级（L0–L3），与工程侧同一套口径。 */
+      risk: 'L0' | 'L1' | 'L2' | 'L3';
+      decisionId: string;
+      maxExtraModels: number;
+      participants: Array<{ participantId: string; kind: string }>;
+      excluded: Array<{ participantId: string; reason: string }>;
+      reasons: string[];
+      note: string;
+    }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }
   | { type: 'conversation.failed'; conversationId: string; error: string }
   /**
@@ -518,6 +538,38 @@ export type ConversationEvent = { at: number } & (
    */
   | { type: 'trace.appended'; conversationId: string; entries: TraceEntry[] }
 );
+
+/**
+ * 会话侧参与记录（描述性）：实际参与的人 + 未参与的人与原因。
+ *
+ * 不裁剪、不改派发；只是让「这一轮谁被问了」可核对。
+ */
+export function describeConversationParticipation(input: {
+  answers: readonly { channelId: string }[];
+  debaters: readonly string[];
+  kindOf: (participantId: string) => string | undefined;
+}): {
+  participants: Array<{ participantId: string; kind: string }>;
+  excluded: Array<{ participantId: string; reason: string }>;
+  note: string;
+} {
+  const debaters = new Set(input.debaters);
+  const participants = input.debaters.map(id => ({
+    participantId: id,
+    kind: input.kindOf(id) ?? 'web'
+  }));
+  const excluded = input.answers
+    .filter(answer => !debaters.has(answer.channelId))
+    .map(answer => ({
+      participantId: answer.channelId,
+      reason: '归属规则：辩手需与主导人同类，本轮未参与'
+    }));
+  return {
+    participants,
+    excluded,
+    note: `本轮 ${String(participants.length)} 人参与辩论，${String(excluded.length)} 人未参与`
+  };
+}
 
 export interface SubmitConversationInput {
   text: string;
