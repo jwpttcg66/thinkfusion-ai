@@ -168,3 +168,41 @@ test('P1：decomposition 生成 L2，L3 挂到 L2，进度只算叶子', async (
   assert.notEqual(view.currentTaskId, 'wt-task-t1');
   assert.equal(progressRatioFromRows(view.tasks), 0);
 });
+
+test('P1：计划重出时旧分解作废，分母只算新树', () => {
+  const first = seedWorkEventsFromPlan({
+    workId: 'w3',
+    title: '旧计划',
+    plan: {
+      planId: 'p-old',
+      title: '旧计划',
+      steps: [
+        { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
+        { id: 's2', tool: 'fs.writeFile', args: { path: 'a.ts' } }
+      ]
+    },
+    at: 1
+  });
+  const impacted = first
+    .filter(event => event.type === 'work.task.upserted')
+    .map(event => event.task.workTaskId);
+  const second = seedWorkEventsFromPlan({
+    workId: 'w3',
+    title: '新计划',
+    plan: { planId: 'p-new', title: '新计划', steps: [{ id: 's9', tool: 'code.run', args: {} }] },
+    at: 20
+  });
+  const view = projectWorkBreakdownFromEvents({
+    workId: 'w3',
+    events: [
+      ...first,
+      { type: 'work.breakdown.replanned', at: 10, taskId: 'w3', workId: 'w3', impactedIds: impacted },
+      ...second
+    ],
+    title: 'w3'
+  });
+  const oldTask = view.tasks.find(item => item.workTaskId === 'wt-s1');
+  assert.equal(oldTask?.status, 'cancelled');
+  // 被作废的旧步骤不占分母，只剩新计划的那一步
+  assert.equal(view.summary.total, 1);
+});
