@@ -100,11 +100,13 @@ test('关闭辩论时不辩，并说得出是设置关的', () => {
   assert.match(decision.reason, /关闭/);
 });
 
-test('off 关闭整段评审；on/auto 都先走五段流水线', () => {
+test('off 关闭；on 强制五段；auto 对 L0 只读跳过、对写入才走五段', () => {
   assert.equal(shouldDebatePlan('off', writePlan).debate, false);
   assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, true);
+  assert.equal(shouldDebatePlan('auto', readOnlyPlan).debate, false);
+  assert.match(shouldDebatePlan('auto', readOnlyPlan).reason ?? '', /L0|跳过/);
   assert.equal(shouldDebatePlan('auto', writePlan).debate, true);
-  assert.match(shouldDebatePlan('auto', writePlan).reason, /五段|结论\/一致/);
+  assert.match(shouldDebatePlan('auto', writePlan).reason ?? '', /L1|方案评审/);
   // 无五段原文时，绝不从计划结构编造议题。
   assert.deepEqual(planDebateTopics(writePlan), []);
 });
@@ -192,10 +194,11 @@ test('一场没说话的空辩论不许被当成「评审通过」', () => {
 
 // 轮次不再是全局写死 2：2 轮只有「表态 + 质疑」，被质疑方没机会回应。
 // 这里锁住「按计划规模定轮次」，以及预算必须跟着轮次走。
-test('轮次由分歧收敛决定：只给最多 3 轮的上限', () => {
+test('轮次按等级收紧：L1 写入默认最多 1 轮', () => {
   const verdict = planReviewRounds(writePlan, 1);
-  assert.equal(verdict.rounds, 3);
-  assert.match(verdict.reason, /最多 3 轮/);
+  assert.equal(verdict.rounds, 1);
+  assert.equal(verdict.risk, 'L1');
+  assert.match(verdict.reason, /最多 1 轮/);
   assert.match(verdict.reason, /按分歧收敛/);
 });
 
@@ -207,28 +210,35 @@ test('设计文档给 3 轮：观点编号评审，质疑需要回应才算收�
   };
   const verdict = planReviewRounds(design, 2);
   assert.equal(verdict.rounds, 3);
-  assert.match(verdict.reason, /设计文档/);
+  assert.equal(verdict.risk, 'L3');
+  assert.match(verdict.reason, /设计文档|L3/);
 });
 
-test('简单计划和复杂计划都只给上限，不写死实际轮次', () => {
-  assert.equal(planReviewRounds(writePlan, 2).rounds, 3);
-  const twoSteps = plan([
-    { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
-    { id: 's2', tool: 'fs.edit', args: { path: 'a.ts', oldString: 'a', newString: 'b' } }
+test('简单只读 L0 上限 1；缺判据写入升到 L2 上限 2', () => {
+  assert.equal(planReviewRounds(readOnlyPlan, 1).rounds, 1);
+  assert.equal(planReviewRounds(readOnlyPlan, 1).risk, 'L0');
+  // 写入但无观察动作 → 缺判据 → L2
+  const bareWrite = plan([
+    { id: 's1', tool: 'fs.writeFile', args: { path: 'a.ts', content: 'x' } }
   ]);
-  const verdict = planReviewRounds(twoSteps, 2);
-  assert.equal(verdict.rounds, 3);
-  assert.match(verdict.reason, /最多 3 轮|按分歧收敛/);
+  const verdict = planReviewRounds(bareWrite, 1);
+  assert.equal(verdict.risk, 'L2');
+  assert.equal(verdict.rounds, 2);
 });
 
-test('3 位以上评审给 3 轮：多方分歧要有人接着回应', () => {
+test('多方评审可在等级内多一轮，但封顶 3', () => {
   const twoSteps = plan([
     { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
     { id: 's2', tool: 'fs.readFile', args: { path: 'b.ts' } }
   ]);
-  const verdict = planReviewRounds(twoSteps, 3);
-  assert.equal(verdict.rounds, 3);
-  assert.match(verdict.reason, /3 位评审/);
+  // L0 只读：即使 3 人也不抬轮次（auto 本就会跳过）
+  assert.equal(planReviewRounds(twoSteps, 3).rounds, 1);
+  const design = {
+    ...plan([{ id: 's1', tool: 'fs.readFile', args: { path: 'a.md' } }]),
+    kind: 'design',
+    design: { document: '设计正文', viewpoints: ['观点一'] }
+  };
+  assert.equal(planReviewRounds(design, 3).rounds, 3);
 });
 
 test('预算跟着轮次走：3 轮不能还停在 180 秒，否则第三轮被直接砍掉', () => {

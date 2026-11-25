@@ -152,7 +152,17 @@ export function CollaborationResultPanel(props: {
           <summary>
             核心意见与争议
             <span className="muted">
-              {' '}（意见 {String(result.keyOpinions.length)} · 争议 {String(result.disputes.length)}）
+              {' '}（展示 {String(result.keyOpinions.length)}
+              {result.meta.rawOpinionCount !== undefined && result.meta.rawOpinionCount > result.keyOpinions.length
+                ? ` / 原始 ${String(result.meta.rawOpinionCount)}`
+                : ''}
+              {result.meta.coreOpinionCount !== undefined
+                ? ` · 主张 ${String(result.meta.coreOpinionCount)}`
+                : ''}
+              {result.meta.supplementOpinionCount !== undefined
+                ? ` · 补充 ${String(result.meta.supplementOpinionCount)}`
+                : ''}
+              {' · '}争议 {String(result.disputes.length)}）
             </span>
           </summary>
           <div className="collab-result-body">
