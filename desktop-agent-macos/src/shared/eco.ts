@@ -471,3 +471,32 @@ export function projectEcoFromEvents(input: {
     gateReason: gate.reason
   };
 }
+
+/**
+ * 恢复时判断「检查点钉住的 ECO 版本还作不作数」。
+ *
+ * 恢复链路手上没有当前上下文包，但事件流里有：重放该 work 最后一条
+ * eco.context.prepared 即可，不需要新增存储。没有包或版本不兼容时
+ * 一律要求重新读取工程，不返回半可用结论。
+ */
+export function ecoCompatibilityFromEvents(input: {
+  saved: EcoCheckpointRef;
+  workId: string;
+  events: readonly AgentEvent[];
+}): { ok: boolean; reason: string; current?: EngineeringContextPackage } {
+  let current: EngineeringContextPackage | null = null;
+  for (const event of input.events) {
+    if (!('taskId' in event) || event.taskId !== input.workId) continue;
+    if (event.type === 'eco.context.prepared') current = event.package;
+  }
+  if (!current) {
+    return { ok: false, reason: '没有可用的工程上下文包，须重新读取工程' };
+  }
+  if (!isEcoRefCompatible(input.saved, current)) {
+    return {
+      ok: false,
+      reason: `检查点 ECO v${String(input.saved.contextVersion)} 与当前 v${String(current.contextVersion)} 不兼容`
+    };
+  }
+  return { ok: true, reason: 'ECO 版本兼容', current };
+}
