@@ -234,7 +234,7 @@
 | P0-2 TDL 支持 `decomposition` → L2，分母只算叶子，DFS 排序 | IMPLEMENTED（模型侧未产出） | `test:gtec-p1` 6/6；`evidence/V3-P0-TDL-L2-LIVE.json` |
 | P0-2 未分解时可见警告，不触发重规划 | VERIFIED | `evidence/V3-P0-TDL-L2-GUARD-LIVE.json` |
 | P0-3 DMOCA 决策驱动派发（Engineering 评审） | VERIFIED | `evidence/V3-P0-DMOCA-DISPATCH-LIVE.json`；`test:dmoca` 10/10 |
-| P0-3 General / Knowledge 接入 DMOCA | NOT STARTED | 会话侧无风险输入，需先定义风险来源 |
+| P0-3 General / Knowledge 接入 DMOCA | IMPLEMENTED（真机部分验证） | 风险由本轮证据反推（回答数/辩题/存疑）并驱动派发；`evidence/V3-P0-CONVERSATION-PARTICIPATION-LIVE.json` 只覆盖到「回答收齐即记录」，多路裁剪仍只有单测 |
 | P0-4 长任务/上下文文档状态一致 | VERIFIED | 本文件 §4、`PRODUCT.md`、三份 LONG-TASK 文档 |
 | P1 决策钉住贡献版本 | IMPLEMENTED | `DecisionSnapshotView.contributions`；`test:dmoca` |
 | P1 Workflow Definition/Plugin | NOT STARTED | 需复用 TDL/GDC，不新建 Runtime |
