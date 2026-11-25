@@ -1345,3 +1345,131 @@ export function buildConclusion(
     tone
   };
 }
+
+/** 对话流快速定位锚点：只收重点节点，供侧栏时间轴跳转。 */
+export type StreamLandmarkKind =
+  | 'prompt'
+  | 'plan'
+  | 'debate'
+  | 'debate_peer'
+  | 'step'
+  | 'bridge'
+  | 'review'
+  | 'verification'
+  | 'conclusion';
+
+export interface StreamLandmark {
+  id: string;
+  kind: StreamLandmarkKind;
+  label: string;
+  entryKey: string;
+  at: number;
+}
+
+const DEBATE_PEER_LABEL = /轮评审\s*·\s*(表态|质疑|回应)/u;
+
+/** 从对话投影抽出可跳转地标；旁注里程碑不进轴，避免噪音。 */
+export function buildStreamLandmarks(entries: readonly ConversationEntry[]): StreamLandmark[] {
+  const out: StreamLandmark[] = [];
+  let stepCount = 0;
+  for (const entry of entries) {
+    if (entry.kind === 'user') {
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'prompt',
+        label: '提问',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'plan') {
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'plan',
+        label: entry.title.trim() ? `计划 · ${entry.title.trim().slice(0, 24)}` : '计划',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'debate') {
+      const multi = [...new Set(entry.participants.map(item => item.trim()).filter(Boolean))].length >= 2;
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'debate',
+        label: multi ? `评审 · 多模型 ${String(entry.participants.length)}` : '方案评审',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'member' && DEBATE_PEER_LABEL.test(entry.label)) {
+      const phase = entry.label.match(DEBATE_PEER_LABEL)?.[1] ?? '辩论';
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'debate_peer',
+        label: phase,
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'bridge') {
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'bridge',
+        label: entry.bridgeKind === 'execution' ? '执行前依据' : '轮间依据',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'step') {
+      stepCount += 1;
+      // 步骤很多时只标首尾与失败，避免轴被刷满。
+      const failed = entry.card.status === 'failed';
+      if (stepCount === 1 || failed) {
+        out.push({
+          id: `lm-${entry.key}`,
+          kind: 'step',
+          label: failed ? `步骤失败 · ${entry.card.tool}` : '开始执行',
+          entryKey: entry.key,
+          at: entry.at
+        });
+      }
+      continue;
+    }
+    if (entry.kind === 'verification') {
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'verification',
+        label: entry.fullyVerified ? '验证通过' : entry.verified ? '验证部分通过' : '验证未通过',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'review') {
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'review',
+        label: entry.needsFix ? '独立评审 · 需修复' : '独立评审 · 通过',
+        entryKey: entry.key,
+        at: entry.at
+      });
+      continue;
+    }
+    if (entry.kind === 'conclusion') {
+      const n = entry.deliverables?.length ?? 0;
+      out.push({
+        id: `lm-${entry.key}`,
+        kind: 'conclusion',
+        label: n > 0 ? `结论 · 目标物 ${String(n)}` : '结论',
+        entryKey: entry.key,
+        at: entry.at
+      });
+    }
+  }
+  return out;
+}

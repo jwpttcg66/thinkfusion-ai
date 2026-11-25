@@ -3,13 +3,15 @@ import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
 import {
+  buildStreamLandmarks,
   buildTaskConversation,
   memberBodyView,
   protocolDerivation,
   protocolSummary,
   type ConversationEntry,
   type ConversationProtocol,
-  type ConversationTone
+  type ConversationTone,
+  type StreamLandmark
 } from '../../../../shared/task-conversation';
 /**
  * 对话流（工程空间主界面）。
@@ -18,6 +20,8 @@ import {
  * 中间真跑了哪些命令、每一轮的评审说了什么、最后的结论是什么。状态面板回答
  * 「现在到哪一步」，它回答「这件事到底发生过什么」——两件事都要有，但主界面
  * 只能是后者，否则一轮新回答就会把上一轮挤掉。
+ *
+ * 左侧定位轴只收重点地标（提问/计划/辩论/执行/结论），点击即可滚到对应块。
  *
  * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页，
  * 但主界面必须留下可读推导与思考过程——不能整段推走。
@@ -304,6 +308,64 @@ function noteEmphasis(text: string): StreamEmphasis {
     return 'aside';
   }
   return 'focus';
+}
+
+function landmarkKindClass(kind: StreamLandmark['kind']): string {
+  switch (kind) {
+    case 'prompt': return 'is-prompt';
+    case 'plan': return 'is-plan';
+    case 'debate':
+    case 'debate_peer': return 'is-debate';
+    case 'step':
+    case 'bridge': return 'is-exec';
+    case 'verification':
+    case 'review': return 'is-check';
+    case 'conclusion': return 'is-done';
+    default: return '';
+  }
+}
+
+/** 侧栏时间轴：只列重点地标，点击滚到对话流锚点。 */
+function StreamLocateRail(props: {
+  landmarks: readonly StreamLandmark[];
+  activeKey: string | null;
+  onJump: (entryKey: string) => void;
+}) {
+  if (props.landmarks.length === 0) return null;
+  return (
+    <nav className="chat-locate-rail" aria-label="对话重点定位">
+      <div className="chat-locate-track" aria-hidden />
+      <ol className="chat-locate-list">
+        {props.landmarks.map(item => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className={`chat-locate-tick ${landmarkKindClass(item.kind)}${props.activeKey === item.entryKey ? ' is-active' : ''}`}
+              title={`${item.label} · ${timeText(item.at)}`}
+              onClick={() => props.onJump(item.entryKey)}
+            >
+              <span className="chat-locate-dot" />
+              <span className="chat-locate-label">{item.label}</span>
+              <span className="chat-locate-time">{timeText(item.at)}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+function wrapAnchor(entryKey: string, node: React.ReactNode): React.ReactNode {
+  return (
+    <div
+      key={entryKey}
+      className="chat-stream-anchor"
+      data-stream-anchor={entryKey}
+      id={`stream-${entryKey}`}
+    >
+      {node}
+    </div>
+  );
 }
 
 /** 方案评审总览：始终流式旁注；多模型时各辩论方另出 Member 卡。 */
@@ -626,17 +688,35 @@ export function TaskConversation(props: {
   );
   const hasLive = entries.some(entry => entry.kind === 'member' && entry.status === 'streaming');
   const [now, setNow] = useState(Date.now());
+  const [activeLandmark, setActiveLandmark] = useState<string | null>(null);
+  const feedRef = useRef<HTMLElement | null>(null);
   // 场上是否存在多模型辩论：只给「表态/质疑/回应」发言方出卡，不按整轮 roundId 开卡。
   const hasMultiModelDebate = useMemo(
     () => entries.some(entry => entry.kind === 'debate' && isMultiModelDebate(entry)),
     [entries]
   );
+  const landmarks = useMemo(() => buildStreamLandmarks(entries), [entries]);
 
   useEffect(() => {
     if (!hasLive) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [hasLive]);
+
+  function jumpToLandmark(entryKey: string): void {
+    setActiveLandmark(entryKey);
+    const root = feedRef.current;
+    const byId = typeof document !== 'undefined'
+      ? document.getElementById(`stream-${entryKey}`)
+      : null;
+    const target = byId
+      ?? root?.querySelector(`[data-stream-anchor="${entryKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
+    if (target instanceof HTMLElement) {
+      target.classList.add('is-flash');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.setTimeout(() => target.classList.remove('is-flash'), 900);
+    }
+  }
 
   if (entries.length === 0) {
     return (
@@ -648,44 +728,53 @@ export function TaskConversation(props: {
   }
 
   return (
-    <section className="chat-feed" aria-label="任务对话">
+    <section className="chat-feed-layout" aria-label="任务对话与定位">
+      <StreamLocateRail
+        landmarks={landmarks}
+        activeKey={activeLandmark}
+        onJump={jumpToLandmark}
+      />
+      <section className="chat-feed" aria-label="任务对话" ref={feedRef}>
       {entries.map((entry, index) => {
         if (entry.kind === 'user') {
-          return (
+          return wrapAnchor(entry.key, (
             <div key={entry.key} className="chat-row is-user is-focus">
               <div className="chat-user-bubble">
                 <span className="chat-who">你 · {timeText(entry.at)}</span>
                 <p>{entry.text}</p>
               </div>
             </div>
-          );
+          ));
         }
         if (entry.kind === 'member') {
           const useCard = hasMultiModelDebate && isDebatePeerLabel(entry.label);
-          return useCard
-            ? <MemberMessage key={entry.key} entry={entry} now={now} />
-            : <MemberStreamNote key={entry.key} entry={entry} now={now} emphasis="focus" />;
+          return wrapAnchor(
+            entry.key,
+            useCard
+              ? <MemberMessage key={entry.key} entry={entry} now={now} />
+              : <MemberStreamNote key={entry.key} entry={entry} now={now} emphasis="focus" />
+          );
         }
         if (entry.kind === 'step') {
-          return (
+          return wrapAnchor(entry.key, (
             <div key={`${entry.key}-${String(index)}`} className="chat-stream-block is-focus">
               <StepMessage entry={entry} />
             </div>
-          );
+          ));
         }
         if (entry.kind === 'plan') {
-          return <PlanMessage key={entry.key} entry={entry} />;
+          return wrapAnchor(entry.key, <PlanMessage key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'debate') {
           // 方案评审总览始终流式短记；多模型时各辩论方另出 Member 卡。
-          return <DebateStreamNote key={entry.key} entry={entry} />;
+          return wrapAnchor(entry.key, <DebateStreamNote key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'bridge') {
-          return (
+          return wrapAnchor(entry.key, (
             <div key={entry.key} className="chat-stream-block is-focus">
               <BridgeMessage entry={entry} />
             </div>
-          );
+          ));
         }
         if (entry.kind === 'verification') {
           if (props.omitResultSummaries) {
@@ -694,43 +783,43 @@ export function TaskConversation(props: {
               : entry.verified
                 ? '部分通过'
                 : '未通过';
-            return (
-              <div key={entry.key} className={`chat-note is-aside ${ToneClass(entry.verified ? 'ok' : 'warn')}`}>
+            return wrapAnchor(entry.key, (
+              <div className={`chat-note is-aside ${ToneClass(entry.verified ? 'ok' : 'warn')}`}>
                 <span className="chat-note-text">
                   第 {String(entry.index)} 次验证 · {label} · {timeText(entry.at)}
                   {' · '}详见上方「任务结果」
                 </span>
               </div>
-            );
+            ));
           }
-          return (
-            <div key={entry.key} className="chat-stream-block is-focus">
+          return wrapAnchor(entry.key, (
+            <div className="chat-stream-block is-focus">
               <VerificationMessage entry={entry} />
             </div>
-          );
+          ));
         }
         if (entry.kind === 'review') {
           if (props.omitResultSummaries) {
-            return (
-              <div key={entry.key} className={`chat-note is-aside ${ToneClass(entry.needsFix ? 'warn' : 'ok')}`}>
+            return wrapAnchor(entry.key, (
+              <div className={`chat-note is-aside ${ToneClass(entry.needsFix ? 'warn' : 'ok')}`}>
                 <span className="chat-note-text">
                   第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}
                   {' · '}{timeText(entry.at)} · 详见上方「任务结果」
                 </span>
               </div>
-            );
+            ));
           }
-          return (
-            <div key={entry.key} className="chat-stream-block is-focus">
+          return wrapAnchor(entry.key, (
+            <div className="chat-stream-block is-focus">
               <ReviewMessage entry={entry} />
             </div>
-          );
+          ));
         }
         if (entry.kind === 'conclusion') {
           // 终态在对话流里也按流式协议阅读；完整结构化收口在「任务结果」。
           if (props.omitResultSummaries) {
-            return (
-              <div key={entry.key} className={`chat-note is-focus ${ToneClass(entry.tone)}`}>
+            return wrapAnchor(entry.key, (
+              <div className={`chat-note is-focus ${ToneClass(entry.tone)}`}>
                 <span className="chat-stream-badge">重点</span>
                 <span className="chat-note-text">
                   结论已写入上方「任务结果」 · {timeText(entry.at)}
@@ -739,13 +828,13 @@ export function TaskConversation(props: {
                     : ''}
                 </span>
               </div>
-            );
+            ));
           }
           const metaFacts = entry.executionResults && entry.executionResults.length > 0
             ? entry.facts.filter(fact => !entry.executionResults!.includes(fact))
             : entry.facts;
-          return (
-            <div key={entry.key} className={`chat-stream-conclusion is-focus ${ToneClass(entry.tone)}`}>
+          return wrapAnchor(entry.key, (
+            <div className={`chat-stream-conclusion is-focus ${ToneClass(entry.tone)}`}>
               <div className="chat-stream-head">
                 <span className="chat-stream-badge">重点</span>
                 <span className="chat-note-text">结论 · {timeText(entry.at)}</span>
@@ -791,14 +880,11 @@ export function TaskConversation(props: {
                 </ul>
               )}
             </div>
-          );
+          ));
         }
         const emphasis = noteEmphasis(entry.text);
-        return (
-          <div
-            key={`${entry.key}-${String(index)}`}
-            className={`chat-note is-${emphasis} ${ToneClass(entry.tone)}`}
-          >
+        return wrapAnchor(entry.key, (
+          <div className={`chat-note is-${emphasis} ${ToneClass(entry.tone)}`}>
             {emphasis === 'focus' && <span className="chat-stream-badge">重点</span>}
             <span className="chat-note-text">{entry.text}</span>
             {entry.detail && (
@@ -808,8 +894,9 @@ export function TaskConversation(props: {
               </details>
             )}
           </div>
-        );
+        ));
       })}
+      </section>
     </section>
   );
 }

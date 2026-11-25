@@ -6237,6 +6237,119 @@ button:disabled {
    执行步骤缩进淡色、结论压在最底下加重——读的时候从上往下就是这件事发生的
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
+.chat-feed-layout {
+  display: grid;
+  grid-template-columns: minmax(112px, 148px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.chat-locate-rail {
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  padding: 4px 0 4px 2px;
+  /* 给绝对定位的竖轨当包含块 */
+  isolation: isolate;
+}
+.chat-locate-track {
+  position: absolute;
+  left: 11px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.chat-locate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+.chat-locate-tick {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 5px 4px 5px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chat-locate-tick:hover { background: color-mix(in srgb, var(--member-bg) 80%, transparent); color: var(--text); }
+.chat-locate-tick.is-active { color: var(--text); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chat-locate-dot {
+  grid-row: 1 / span 2;
+  align-self: start;
+  margin-top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  background: var(--bg);
+}
+.chat-locate-tick.is-prompt .chat-locate-dot { border-color: var(--accent); }
+.chat-locate-tick.is-plan .chat-locate-dot { border-color: #3b6ea5; }
+.chat-locate-tick.is-debate .chat-locate-dot { border-color: #8a5a2b; }
+.chat-locate-tick.is-exec .chat-locate-dot { border-color: #0f7b4f; }
+.chat-locate-tick.is-check .chat-locate-dot { border-color: var(--warn); }
+.chat-locate-tick.is-done .chat-locate-dot { border-color: #0f7b4f; background: color-mix(in srgb, #0f7b4f 35%, var(--bg)); }
+.chat-locate-tick.is-active .chat-locate-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.chat-locate-label {
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-locate-time {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+.chat-stream-anchor {
+  scroll-margin-top: 12px;
+}
+.chat-stream-anchor:target,
+.chat-stream-anchor.is-flash {
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+}
+@media (max-width: 900px) {
+  .chat-feed-layout { grid-template-columns: 1fr; }
+  .chat-locate-rail {
+    position: relative;
+    top: 0;
+    max-height: none;
+    overflow: visible;
+  }
+  .chat-locate-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chat-locate-track { display: none; }
+  .chat-locate-tick {
+    grid-template-columns: 10px auto;
+    grid-template-rows: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+  }
+  .chat-locate-time { display: none; }
+  .chat-locate-dot { margin-top: 2px; width: 8px; height: 8px; }
+}
+
 .chat-feed { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 /* 验证与评审也是时间线事件：卡片间距交给 feed 的 gap，不再额外加底边距。 */
 .chat-feed > .review-card { margin-bottom: 0; }
