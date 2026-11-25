@@ -299,6 +299,61 @@ function isInactiveStatus(status: WorkTaskStatus): boolean {
   return status === 'cancelled' || status === 'skipped';
 }
 
+function leafWeight(task: Pick<WorkTask, 'complexity' | 'acceptanceCriteria'>): number {
+  const byComplexity = task.complexity === 'high' || task.complexity === 'high_risk' ? 2 : 1;
+  const byAcceptance = Math.max(1, task.acceptanceCriteria?.length ?? 1);
+  return byComplexity * (byAcceptance > 1 ? 1 + (byAcceptance - 1) * 0.1 : 1);
+}
+
+export interface WorkProgressView {
+  ratio: number;
+  completed: number;
+  total: number;
+  blocked: number;
+  failed: number;
+  skipped: number;
+  byParent: Record<string, { ratio: number; completed: number; total: number }>;
+}
+
+/** 权威进度：加权叶子；无时间因子；跳过/取消不占分母。 */
+export function computeWorkProgress(tasks: readonly WorkTask[]): WorkProgressView {
+  const leaves = tasks.filter(item => (item.level ?? inferLevel(item)) >= 2);
+  const active = leaves.filter(item => !isInactiveStatus(item.status));
+  let weightSum = 0;
+  let doneWeight = 0;
+  let completed = 0;
+  for (const item of active) {
+    const w = leafWeight(item);
+    weightSum += w;
+    const done = item.status === 'completed' && (item.evidence?.length ?? 0) > 0;
+    if (done) {
+      doneWeight += w;
+      completed += 1;
+    }
+  }
+  const byParent: WorkProgressView['byParent'] = {};
+  for (const item of active) {
+    const parent = item.parentTaskId ?? '_root';
+    const bucket = byParent[parent] ?? { ratio: 0, completed: 0, total: 0 };
+    bucket.total += 1;
+    if (item.status === 'completed' && (item.evidence?.length ?? 0) > 0) bucket.completed += 1;
+    byParent[parent] = bucket;
+  }
+  for (const key of Object.keys(byParent)) {
+    const bucket = byParent[key]!;
+    bucket.ratio = bucket.total === 0 ? 0 : bucket.completed / bucket.total;
+  }
+  return {
+    ratio: weightSum === 0 ? 0 : doneWeight / weightSum,
+    completed,
+    total: active.length,
+    blocked: leaves.filter(item => item.status === 'blocked').length,
+    failed: leaves.filter(item => item.status === 'failed').length,
+    skipped: leaves.filter(item => item.status === 'skipped').length,
+    byParent
+  };
+}
+
 /** 真实进度：叶子任务完成数 / 活动叶子总数；group/跳过/取消不占分母。 */
 export function progressRatioFromRows(rows: readonly WorkTaskRow[]): number {
   const leaves = rows.filter(item => item.level >= 2 && !isInactiveStatus(item.status));
