@@ -17,11 +17,12 @@ import {
   transitionParticipationLife
 } from '../out-test/shared/dmoca.js';
 
-test('L0 策略：跳过辩论与模型审核，最多 1 人', () => {
+test('L0 策略：on_demand（模型定是否辩/审），最多 1 人', () => {
   const policy = defaultPolicyForRisk('L0');
-  assert.equal(policy.debate, 'skip');
-  assert.equal(policy.modelReview, 'skip');
+  assert.equal(policy.debate, 'on_demand');
+  assert.equal(policy.modelReview, 'on_demand');
   assert.equal(policy.maxParticipants, 1);
+  assert.equal(policy.maxExtraModels, 0);
 });
 
 test('decideParticipation：用户指定不得擅自换人；超额排除有理由', () => {
@@ -43,7 +44,7 @@ test('decideParticipation：用户指定不得擅自换人；超额排除有理�
   assert.ok(decision.excluded.some(item => item.participantId === 'b' && /最多|预算/.test(item.reason)));
   assert.ok(decision.excluded.some(item => item.participantId === 'c' && /选定列表|不可用|掉线/.test(item.reason)));
   assert.equal(decision.userPinned, true);
-  assert.equal(decision.debate, 'skip');
+  assert.equal(decision.debate, 'on_demand');
 });
 
 test('riskFromPlanTools：只读 L0；写入 L1；设计 L3', () => {

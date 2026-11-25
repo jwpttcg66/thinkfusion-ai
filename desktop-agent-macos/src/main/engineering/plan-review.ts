@@ -239,7 +239,7 @@ const HIGH_RISK_TOOLS = new Set([
 
 /**
  * 不调用模型：按工具族、步数、设计文档与能力门禁估协作等级。
- * L0 小任务在 auto 下应整段跳过方案评审（含五段），避免「先花一次模型只为判断要不要辩」。
+ * 等级只喂 DMOCA/ECO（人数、角色、充分度），**不**替代主导模型写五段定辩题。
  */
 export function assessCollaborationRisk(plan: AgentPlan): CollaborationRiskAssessment {
   const steps = plan.steps ?? [];
@@ -283,9 +283,9 @@ export function assessCollaborationRisk(plan: AgentPlan): CollaborationRiskAsses
 
 /**
  * 要不要走方案评审流水线（先五段，再按辩题决定是否辩论）。
- * - `off`：整段跳过
- * - `on`：强制走五段（有辩题才开辩）
- * - `auto`：仅 L1+ 走五段；L0 直接跳过，**不为定级再调模型**
+ * - `off`：用户设置整段关掉（唯一允许的非模型跳过）
+ * - `on` / `auto`：一定先让主导模型写五段。
+ *   **辩题 / 是否辩论 / 是否继续审——一定由模型五段决定**，系统不得用 L0/步数启发式代替。
  */
 export function shouldDebatePlan(
   mode: 'auto' | 'on' | 'off' | undefined,
@@ -295,23 +295,13 @@ export function shouldDebatePlan(
   if (effective === 'off') {
     return { debate: false, reason: '这一轮按设置关闭了辩论' };
   }
-  if (effective === 'on') {
-    return {
-      debate: true,
-      reason: '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】，有辩题才辩论'
-    };
-  }
   const risk = assessCollaborationRisk(plan);
-  if (risk.level === 'L0') {
-    return {
-      debate: false,
-      reason: `auto：${risk.level} 小任务跳过方案评审（${risk.reasons.join('；')}），避免无争议也先花一次五段调用`,
-      risk
-    };
-  }
   return {
     debate: true,
-    reason: `auto：${risk.level} 需要方案评审（${risk.reasons.join('；')}）；主导先写五段，有辩题才辩论`,
+    reason:
+      effective === 'on'
+        ? '设置开启方案评审：主导模型先写【结论/一致/分歧/存疑/辩题】；辩题/是否辩论一定由模型决定'
+        : `auto：${risk.level}（${risk.reasons.join('；')}）只作协作预算参考；五段、辩题、是否辩论一定由模型决定`,
     risk
   };
 }

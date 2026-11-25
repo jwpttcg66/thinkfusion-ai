@@ -3,8 +3,8 @@
  *
  * 断言：
  *   - 任务终态 completed（或失败也记证据）
- *   - 无 plan.review.progress / 无主导五段等待（L0 auto 应跳过方案评审）
- *   - plan.debated 若有则 status=skipped
+ *   - 会走方案评审五段（plan.review.progress）；辩题由模型定，无辩题时可 skipped
+ *   - 多模辩论不强制（maxExtra=0）；plan.debated 可为 skipped（无辩题）或 completed
  *   - review.ready 的 backend 优先 rules（验证通过时不调模型）
  *   - 面板「核心意见」展示数明显小于「88」量级；争议可为 0
  *
@@ -168,20 +168,15 @@ const dom = await cdp.evaluate(`(() => {
 
 note('task-reached-terminal', Boolean(terminal), terminal ? terminal.status : 'timeout');
 note(
-  'no-plan-review-progress',
-  reviewProgress.length === 0,
-  `plan.review.progress=${reviewProgress.length}`
-);
-note(
-  'no-lead-summary-stream',
-  leadDeltas.length === 0,
-  `lead-summary deltas=${leadDeltas.length}`
+  'plan-review-five-paragraph',
+  reviewProgress.length > 0 || leadDeltas.length > 0 || debated.length > 0,
+  `plan.review.progress=${reviewProgress.length}; lead-deltas=${leadDeltas.length}; debated=${debated.length}`
 );
 const debateOk = debated.every(event => {
   const status = event.debate?.status ?? event.status;
-  return status === 'skipped' || status === undefined;
+  return status === 'skipped' || status === 'completed' || status === undefined;
 }) || debated.length === 0;
-note('plan-debate-skipped-or-absent', debateOk, `debated=${debated.length}`);
+note('plan-debate-model-decided', debateOk, `debated=${debated.length}`);
 const modelReviews = reviews.filter(event => event.backend === 'model');
 note(
   'review-prefer-rules',

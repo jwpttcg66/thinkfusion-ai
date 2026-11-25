@@ -652,18 +652,6 @@ export default function App() {
     activeConversation !== null &&
     ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(activeConversation.status);
 
-  // 进行中 / 收口卡挂上：正文自动下拉。用户明显上翻（gap>160）时不抢。
-  useEffect(() => {
-    if (!scrollEl) return;
-    if (!conversationBusy && !conversationResult) return;
-    const gap = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-    if (gap > 160 && !conversationBusy) return;
-    // 进行中强制贴底；结束后仅在本来就靠近底部时贴一次。
-    if (conversationBusy || gap <= 160) {
-      scrollEl.scrollTop = scrollEl.scrollHeight;
-    }
-  }, [scrollEl, conversationBusy, conversationResult, messages, answerDeltas, phases]);
-
   const busy = activeTask ? ACTIVE_STATUSES.includes(activeTask.status) : false;
   /**
    * The task is blocked on a person, not on the page.
@@ -674,6 +662,44 @@ export default function App() {
    */
   const awaitingAnswer = activeTask?.status === 'awaiting_clarification';
   const roundCount = events.filter(event => event.type === 'round.started').length;
+  /**
+   * 工程对话流进行中：规划/方案评审(plan_ready)/执行/澄清都会往 `.scroll` 追加时序条。
+   * 注意：方案评审五段与辩论多发生在 plan_ready，不能只认 ACTIVE_STATUSES（缺 plan_ready）。
+   */
+  const engineeringStreamBusy = Boolean(
+    activeTask &&
+      workbenchTab === 'conversation' &&
+      (busy ||
+        awaitingAnswer ||
+        activeTask.status === 'plan_ready' ||
+        // 刚转入等待审批时最后几条评审笔记仍可能入流，短窗内继续贴底。
+        activeTask.status === 'awaiting_approval')
+  );
+
+  // 知识问答 + 工程时序流：正文自动下拉。用户明显上翻（gap>160）时不抢。
+  useEffect(() => {
+    if (!scrollEl) return;
+    const engPanel = Boolean(activeTask && workbenchTab === 'conversation');
+    const streamLive = conversationBusy || engineeringStreamBusy;
+    if (!streamLive && !conversationResult && !engPanel) return;
+    const gap = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    if (gap > 160 && !streamLive) return;
+    // 进行中强制贴底；结束后 / 工程面板仅在本来就靠近底部时贴一次。
+    if (streamLive || gap <= 160) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
+  }, [
+    scrollEl,
+    conversationBusy,
+    conversationResult,
+    messages,
+    answerDeltas,
+    phases,
+    engineeringStreamBusy,
+    events,
+    activeTask,
+    workbenchTab
+  ]);
 
   useEffect(() => {
     if (focusRequest === 0) return;

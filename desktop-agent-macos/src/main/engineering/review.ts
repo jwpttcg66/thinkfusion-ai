@@ -263,38 +263,21 @@ export function buildReviewMaterial(report: ExecutionReport, plan: AgentPlan, su
 /**
  * 执行后要不要再调模型审核（规则已跑过之后）。
  *
- * - 规则已给出待修项 → 不必再花一次模型；规则结论即可驱动修复
- * - 验证通过 + 规则无问题 + L0/L1 → 跳过模型
- * - L2/L3 或验证未通过且规则说不清 → 允许一次模型
+ * **是否审核一定由模型做**：规则只产材料/待修项，不替代模型下结论。
+ * L0/验证通过等启发式不得再硬跳模型审。
  */
 export function shouldModelReviewExecution(
   report: ExecutionReport,
   plan: AgentPlan,
-  ruleIssues: readonly string[]
+  _ruleIssues: readonly string[]
 ): { model: boolean; reason: string } {
-  if (ruleIssues.length > 0) {
-    return {
-      model: false,
-      reason: `规则审核已标出 ${String(ruleIssues.length)} 项问题，跳过模型审核（no_new_information）`
-    };
-  }
   const risk = assessCollaborationRisk(plan);
   const verified = Boolean(report.verification?.verified);
-  if (verified && (risk.level === 'L0' || risk.level === 'L1')) {
-    return {
-      model: false,
-      reason: `验证已通过且 ${risk.level} 无规则问题，跳过模型审核（no_goal_impact）`
-    };
-  }
-  if (!verified && risk.level === 'L0') {
-    return {
-      model: false,
-      reason: 'L0 任务以规则与验证结论为准，不启动模型审核'
-    };
-  }
   return {
     model: true,
-    reason: `${risk.level} 或验证未完全收口：允许一次独立模型审核`
+    reason: verified
+      ? `${risk.level} 验证已通过：仍由模型独立审核一次（模型决定是否通过）`
+      : `${risk.level} 验证未完全收口：由模型独立审核`
   };
 }
 

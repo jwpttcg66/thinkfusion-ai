@@ -157,7 +157,12 @@ export interface DmocaWorkbenchView {
   decisionSnapshot: DecisionSnapshotView | null;
 }
 
-/** 风险 → 默认参与策略（与 CB L0–L3 对齐，不另建分级）。 */
+/**
+ * 风险 → 默认参与策略（与 CB L0–L3 对齐，不另建分级）。
+ *
+ * 人数/角色可按风险克制；**debate / modelReview 不得标 skip**——
+ * 辩题、是否辩论、是否审核一定走模型（五段 + 执行后模型审），风险只影响编制规模。
+ */
 export function defaultPolicyForRisk(risk: CollaborationRiskLevel): {
   debate: ParticipationDecision['debate'];
   modelReview: ParticipationDecision['modelReview'];
@@ -168,8 +173,8 @@ export function defaultPolicyForRisk(risk: CollaborationRiskLevel): {
   switch (risk) {
     case 'L0':
       return {
-        debate: 'skip',
-        modelReview: 'skip',
+        debate: 'on_demand',
+        modelReview: 'on_demand',
         maxParticipants: 1,
         maxExtraModels: 0,
         preferredRoles: ['lead', 'implementer']

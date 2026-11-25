@@ -101,13 +101,13 @@ test('关闭辩论时不辩，并说得出是设置关的', () => {
   assert.match(decision.reason, /关闭/);
 });
 
-test('off 关闭；on 强制五段；auto 对 L0 只读跳过、对写入才走五段', () => {
+test('off 关闭；on/auto 都走五段，由模型定辩题；L0 只影响风险标注不硬跳', () => {
   assert.equal(shouldDebatePlan('off', writePlan).debate, false);
   assert.equal(shouldDebatePlan('on', readOnlyPlan).debate, true);
-  assert.equal(shouldDebatePlan('auto', readOnlyPlan).debate, false);
-  assert.match(shouldDebatePlan('auto', readOnlyPlan).reason ?? '', /L0|跳过/);
+  assert.equal(shouldDebatePlan('auto', readOnlyPlan).debate, true);
+  assert.match(shouldDebatePlan('auto', readOnlyPlan).reason ?? '', /L0|五段|辩题/);
   assert.equal(shouldDebatePlan('auto', writePlan).debate, true);
-  assert.match(shouldDebatePlan('auto', writePlan).reason ?? '', /L1|方案评审/);
+  assert.match(shouldDebatePlan('auto', writePlan).reason ?? '', /L1|五段|辩题/);
   // 无五段原文时，绝不从计划结构编造议题。
   assert.deepEqual(planDebateTopics(writePlan), []);
 });
@@ -232,7 +232,7 @@ test('多方评审可在等级内多一轮，但封顶 3', () => {
     { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' } },
     { id: 's2', tool: 'fs.readFile', args: { path: 'b.ts' } }
   ]);
-  // L0 只读：即使 3 人也不抬轮次（auto 本就会跳过）
+  // L0 只读：即使 3 人也不抬轮次（人数克制；是否开辩仍看五段辩题）
   assert.equal(planReviewRounds(twoSteps, 3).rounds, 1);
   const design = {
     ...plan([{ id: 's1', tool: 'fs.readFile', args: { path: 'a.md' } }]),

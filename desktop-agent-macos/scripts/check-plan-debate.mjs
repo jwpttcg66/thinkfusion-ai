@@ -16,9 +16,9 @@ test('写文件不再单独触发强制辩题模板', () => {
   assert.equal(shouldDebatePlan('off', plan([write])).debate, false);
 });
 
-test('纯只读短计划 auto 跳过五段；off 整段关掉；on 才强制走', () => {
+test('纯只读短计划：off 关掉；auto/on 都走五段（模型定辩题）', () => {
   assert.equal(shouldDebatePlan('off', plan([read])).debate, false);
-  assert.equal(shouldDebatePlan('auto', plan([read])).debate, false);
+  assert.equal(shouldDebatePlan('auto', plan([read])).debate, true);
   assert.equal(shouldDebatePlan('on', plan([read])).debate, true);
 });
 

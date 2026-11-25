@@ -56,13 +56,14 @@ test('风险定级：只读 L0；带测试的单文件写入 L1；裸写入缺�
   );
 });
 
-test('auto：L0 不进五段；on 仍进', () => {
+test('auto/on：L0 也进五段，由模型定辩题；off 才整段关', () => {
   const read = plan([{ id: '1', tool: 'fs.readFile', args: { path: 'a' } }]);
-  assert.equal(shouldDebatePlan('auto', read).debate, false);
+  assert.equal(shouldDebatePlan('auto', read).debate, true);
   assert.equal(shouldDebatePlan('on', read).debate, true);
+  assert.equal(shouldDebatePlan('off', read).debate, false);
 });
 
-test('模型审核门禁：规则已有问题或 L0 验证通过 → 不调模型', async () => {
+test('模型审核：验证通过也一定问模型；规则待修项不替代模型结论', async () => {
   const readPlan = plan([{ id: '1', tool: 'fs.list', args: { path: '.' } }]);
   const reportOk = {
     status: 'completed',
@@ -82,7 +83,7 @@ test('模型审核门禁：规则已有问题或 L0 验证通过 → 不调模�
     }
   };
   const gate = shouldModelReviewExecution(reportOk, readPlan, []);
-  assert.equal(gate.model, false);
+  assert.equal(gate.model, true);
 
   let asked = 0;
   const verdict = await reviewExecution(reportOk, readPlan, {
@@ -91,9 +92,9 @@ test('模型审核门禁：规则已有问题或 L0 验证通过 → 不调模�
       return '【结论】通过';
     }
   });
-  assert.equal(asked, 0);
-  assert.equal(verdict.backend, 'rules');
-  assert.match(verdict.verdict, /未调用模型|没有发现可核查/);
+  assert.equal(asked, 1);
+  assert.equal(verdict.backend, 'model');
+  assert.match(verdict.verdict, /通过/);
 });
 
 test('意见去重：同文案只留一条；补充摘要有上限', () => {
