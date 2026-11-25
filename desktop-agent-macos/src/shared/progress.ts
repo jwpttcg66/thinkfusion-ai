@@ -128,6 +128,9 @@ export function deriveProgress(input: ProgressInput): ProgressView {
   const planDebated = lastOf(events, 'plan.debated');
   // 计划已生成、方案评审还没结束：这时还没开始执行，不能把执行段点亮。
   const planReviewRunning = Boolean(planReview && planReview.state !== 'done' && !planDebated);
+  // 等待审批 / 计划就绪：仍停在汇总段，不能因 plan.ready 就点亮「执行」。
+  const awaitingApproval = taskStatus === 'awaiting_approval';
+  const planReadyHold = taskStatus === 'plan_ready' || awaitingApproval;
   const taskFailed = taskStatus ? TERMINAL_FAILED.has(taskStatus) : false;
   const convFailed = TERMINAL_FAILED.has(conversationStatus ?? '');
   const failed = taskFailed || convFailed;
@@ -141,7 +144,10 @@ export function deriveProgress(input: ProgressInput): ProgressView {
       ? lastEventAt(events) ?? startedAt
       : null);
 
-  const executionAt = firstStep ?? (planReviewRunning ? null : planReady) ?? (taskStatus === 'executing' ? startedAt : null);
+  const executionAt =
+    firstStep ??
+    (planReviewRunning || planReadyHold ? null : planReady) ??
+    (taskStatus === 'executing' ? startedAt : null);
   const reviewAt = review ?? (report ? report.at : null);
 
   const stages: ProgressStageView[] = PROGRESS_STAGES.map(stage => ({
@@ -177,7 +183,11 @@ export function deriveProgress(input: ProgressInput): ProgressView {
     const executionReached = executionAt !== null;
     const detail = planReviewRunning
       ? planReviewDetail(planReview!)
-      : '汇总各家回答，指定辩题或给出结论';
+      : awaitingApproval
+        ? '计划已生成，等待你审批'
+        : taskStatus === 'plan_ready'
+          ? '计划已生成'
+          : '汇总各家回答，指定辩题或给出结论';
     mark('synthesis', synthesisAt, executionReached ? 'done' : failed ? 'failed' : 'active', detail);
   }
 
@@ -189,6 +199,14 @@ export function deriveProgress(input: ProgressInput): ProgressView {
 
   if (reviewAt !== null) {
     mark('review', reviewAt, failed ? 'failed' : review !== null ? 'done' : 'active', reviewDetail(events));
+  }
+
+  // 任务已在等待审批，但事件列表可能还没带齐 plan.ready：仍要给出明确当前段，
+  // 不能退回「处理中 / 正在收尾」这种空话。
+  if (awaitingApproval && !stages.some(entry => entry.state === 'active') && startedAt !== null) {
+    mark('routing', startedAt, 'done');
+    if (roundStart !== null) mark('asking', roundStart, 'done');
+    mark('synthesis', planReady ?? startedAt, 'active', '计划已生成，等待你审批');
   }
 
   const current = stages.find(entry => entry.state === 'active') ?? null;

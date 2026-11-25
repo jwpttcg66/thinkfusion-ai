@@ -63,7 +63,11 @@ export function EngineeringWorkbenchBar(props: {
       <div className="wb-bar-task">
         <span className="wb-bar-title" title={props.task.title}>{props.task.title}</span>
         <span className={`pill s-${props.task.status}`}>{STATUS_LABEL[props.task.status]}</span>
-        {props.task.workspaceRoot && <span className="muted wb-bar-root">{props.task.workspaceRoot}</span>}
+        {props.task.workspaceRoot && (
+          <span className="muted wb-bar-root" title={props.task.workspaceRoot}>
+            {props.task.workspaceRoot}
+          </span>
+        )}
         <button className="btn ghost" type="button" onClick={props.onExport}>导出诊断</button>
         {/* 取消是整任务的动作，放任务头；审批按钮只在各自卡片上出现一次，
             不再另起一条悬浮栏，避免同一个「确认并执行」出现两遍。 */}

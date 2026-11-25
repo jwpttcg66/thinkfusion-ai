@@ -13,17 +13,11 @@ import type {
 } from '../../shared/contracts';
 import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsComplete, type TaskView } from '../../shared/task-view';
 import { buildConclusion } from '../../shared/task-conversation';
-import {
-  projectConversationCollaborationResult,
-  projectEngineeringCollaborationResult
-} from '../../shared/collaboration-result';
+import { projectConversationCollaborationResult } from '../../shared/collaboration-result';
 import {
   projectConversationGoalWorkbench,
   projectGoalDrivenWorkbench
 } from '../../shared/goal-driven-cycle';
-import { projectDmocaFromEvents } from '../../shared/dmoca';
-import { projectEcoFromEvents } from '../../shared/eco';
-import { projectWorkBreakdownFromEvents } from '../../shared/task-decomposition';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
@@ -59,7 +53,6 @@ import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
 import { CollaborationResultPanel } from './components/CollaborationResultPanel';
-import { WorkBreakdownPanel } from './components/WorkBreakdownPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
@@ -550,17 +543,7 @@ export default function App() {
     () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
     [events, activeTask?.summary, activeTask?.status]
   );
-  /** 工程主活动区统一结果投影：结论 / 意见 / 争议 / 评审 / 验证。 */
-  const engineeringResult = useMemo(() => {
-    if (!activeTask) return null;
-    return projectEngineeringCollaborationResult({
-      taskId: activeTask.taskId,
-      events,
-      summary: activeTask.summary,
-      status: activeTask.status
-    });
-  }, [activeTask, events]);
-  /** GDC：目标 / 循环 / 产物 — 仅从权威事件派生，可重放恢复。 */
+  /** GDC：目标 / 循环 / 产物 — 仅从权威事件派生；对话胶囊用 intent。 */
   const engineeringWorkbench = useMemo(() => {
     if (!activeTask) return null;
     return projectGoalDrivenWorkbench({
@@ -569,31 +552,6 @@ export default function App() {
       events,
       summary: activeTask.summary,
       status: activeTask.status
-    });
-  }, [activeTask, events]);
-  /** DMOCA：参与决策与贡献对齐投影。 */
-  const engineeringDmoca = useMemo(() => {
-    if (!activeTask) return null;
-    return projectDmocaFromEvents({
-      workId: activeTask.taskId,
-      events,
-      summary: activeTask.summary,
-      status: activeTask.status
-    });
-  }, [activeTask, events]);
-  /** ECO：工程上下文充分度投影。 */
-  const engineeringEco = useMemo(() => {
-    if (!activeTask) return null;
-    return projectEcoFromEvents({ workId: activeTask.taskId, events });
-  }, [activeTask, events]);
-  /** TDL：Work 分解进度 — 优先 work.*，否则 plan+step 派生。 */
-  const engineeringWorkBreakdown = useMemo(() => {
-    if (!activeTask) return null;
-    const title = (activeTask.userPrompt ?? '').trim().slice(0, 48) || activeTask.taskId;
-    return projectWorkBreakdownFromEvents({
-      workId: activeTask.taskId,
-      events,
-      title
     });
   }, [activeTask, events]);
   const activeConversation = useMemo(
@@ -2287,8 +2245,7 @@ export default function App() {
             <b>{activeTask ? baseName(activeTask.workspaceRoot) : activeWorkspace?.name ?? baseName(workspace)}</b>
             {activeTask && (
               <>
-                <span className="sep">/</span>
-                <b style={{ fontWeight: 400, color: 'var(--text-2)' }}>{activeTask.title}</b>
+                {/* 完整标题在下方 wb-bar，这里只留轮次，避免与任务头叠两行长标题。 */}
                 <span className="sep">·</span>
                 <span>第 {Math.max(1, roundCount)} 轮</span>
               </>
@@ -2518,62 +2475,14 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && workbenchTab === 'conversation' && (() => {
-              const engineeringStreaming = Boolean(
-                derived.live && (derived.live.text.trim() || derived.live.reasoning.trim())
-              );
-              const engineeringSettled = ['completed', 'failed', 'cancelled', 'report_pending'].includes(activeTask.status)
-                || Boolean(engineeringResult?.conclusion);
-              const hasEngineeringResultContent = Boolean(engineeringResult && (
-                engineeringResult.conclusion
-                || engineeringResult.reviews.length > 0
-                || engineeringResult.verifications.length > 0
-                || engineeringResult.disputes.length > 0
-                || engineeringResult.deliverables.length > 0
-                || Boolean(engineeringWorkbench)
-              ));
-              // 流式进行中不展开终态收口；收口贴在对话流之后。
-              const showEngineeringResult = hasEngineeringResultContent
-                && engineeringSettled
-                && !engineeringStreaming;
-              return (
+            {activeTask && workbenchTab === 'conversation' && (
               <>
-                {/* 进度改挂 dock 工作计划胶囊；正文只保留时序阅读面，避免中上部被进度大卡顶开。 */}
+                {/* 主会话只保留时序流；结果大卡 / 任务分解不贴在流尾。完整证据去「轨迹」。 */}
                 <TaskConversation
                   task={activeTask}
                   events={events}
                   live={derived.live}
-                  omitResultSummaries={showEngineeringResult}
                 />
-                {showEngineeringResult && engineeringResult && (
-                  <CollaborationResultPanel
-                    result={engineeringResult}
-                    workbench={engineeringWorkbench}
-                    dmoca={engineeringDmoca}
-                    eco={engineeringEco}
-                    onOpenEvidence={() => setWorkbenchTab('trajectory')}
-                    onSetDisposition={async input => {
-                      if (!activeTask) return;
-                      await window.agentAPI.setReviewDisposition({
-                        taskId: activeTask.taskId,
-                        issueId: input.issueId,
-                        disposition: input.disposition,
-                        reason: input.reason
-                      });
-                    }}
-                  />
-                )}
-                {engineeringWorkBreakdown && engineeringWorkBreakdown.summary.total > 0 && (
-                  <WorkBreakdownPanel
-                    breakdown={engineeringWorkBreakdown}
-                    onSelectTask={workTaskId => {
-                      const row = engineeringWorkBreakdown.tasks.find(item => item.workTaskId === workTaskId);
-                      setWorkbenchTab('trajectory');
-                      setActivityCategory('all');
-                      setActivityQuery(row?.planStepId ?? workTaskId.replace(/^wt-/, ''));
-                    }}
-                  />
-                )}
                 {/* 思考过程默认收起，不压在流式正文前。 */}
                 {derived.modelTrace.some(item => item.reasoning.trim()) && (
                   <details className="card reasoning-history">
@@ -2595,8 +2504,7 @@ export default function App() {
                   </details>
                 )}
               </>
-              );
-            })()}
+            )}
 
             {activeTask && workbenchTab === 'output' && (
               <>
@@ -2894,8 +2802,7 @@ export default function App() {
               </section>
             )}
 
-            {/* 对话页已有 CollaborationResultPanel 承载结论/评审/验证；
-                「最终交付」只在输出页保留文件与检查明细，避免同一结论堆两遍。 */}
+            {/* 对话页是时序流；「最终交付」只在输出页保留文件与检查明细。 */}
             {activeTask && workbenchTab === 'output' && (derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0) && (
               <section className="card delivery">
                 <div className="card-head">
@@ -3128,11 +3035,7 @@ export default function App() {
                 userTicks={planUserTicks}
               />
             )}
-            {activeTask &&
-              workbenchTab === 'conversation' &&
-              !showingConversation &&
-              (busy ||
-                ['completed', 'failed', 'cancelled', 'report_pending'].includes(activeTask.status)) && (
+            {activeTask && workbenchTab === 'conversation' && !showingConversation && (
               <TaskPlanCapsule
                 goalText={resolvePlanGoalText({
                   goalText:

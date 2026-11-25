@@ -5769,10 +5769,13 @@ app.whenReady().then(async () => {
     );
     const probes = uniqueByProvider(shortlist);
     const healthByProvider = new Map<string, boolean>();
+    // 与 OpenAICompatibleProvider.health 的 AbortSignal.timeout(5s) 对齐：
+    // 以前这里 3s 先判负，冷启动时云端明明有 Key 也会报「Planner 不可用」并让人
+    // 误以为要去登 ChatGPT。
     await Promise.all(probes.map(async item => {
       const available = await Promise.race([
         item.agent.health().then(status => status.available).catch(() => false),
-        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000))
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5500))
       ]);
       healthByProvider.set(item.providerId ?? item.id, available);
     }));
@@ -5789,14 +5792,23 @@ app.whenReady().then(async () => {
         (!input.selectedCloudModels || input.selectedCloudModels.includes(agent.id))
       );
       if (cloud) return asMember(cloud);
+      // 用户勾了具体云端模型却探活失败：死等失败，不跳 CLI / 未勾选的其他家。
+      if (input.selectedCloudModels && input.selectedCloudModels.length > 0) return null;
       return pickCliLead(input.selectedCliAgents);
     }
     if (input.executionMode === 'local') {
       const local = available.find(agent => agent.sourceType === 'local');
       return local ? asMember(local) : null;
     }
-    const hybrid = available.find(agent => agent.sourceType === 'cloud') ?? available.find(agent => agent.sourceType === 'local');
-    return hybrid ? asMember(hybrid) : pickCliLead(input.selectedCliAgents);
+    const hybridSelected = available.find(agent =>
+      agent.sourceType === 'cloud' &&
+      (!input.selectedCloudModels || input.selectedCloudModels.includes(agent.id))
+    );
+    const hybrid = hybridSelected
+      ?? available.find(agent => agent.sourceType === 'local');
+    if (hybrid) return asMember(hybrid);
+    if (input.selectedCloudModels && input.selectedCloudModels.length > 0) return null;
+    return pickCliLead(input.selectedCliAgents);
   }
 
   /** 云端档的兜底：开着的、可用的 CLI 里挑第一个。 */
@@ -6361,7 +6373,14 @@ app.whenReady().then(async () => {
         available: {
           web: registry.list().map(agent => agent.id),
           local: extraAgents.filter(agent => agent.sourceType === 'local').map(agent => agent.id),
-          cloud: extraAgents.filter(agent => agent.sourceType === 'cloud').map(agent => agent.id),
+          // 只列已配置 Key 的云端模型：没 Key 的 OpenAI 等不算「可用」，
+          // 否则路由 executors 会把它们写进本轮名单。
+          cloud: extraAgents
+            .filter(agent =>
+              agent.sourceType === 'cloud' &&
+              Boolean(apiKeys?.has(agent.provider.id))
+            )
+            .map(agent => agent.id),
           // 第三类回答源：开着的 CLI 会跟网页一起被问，路由说明里要如实写。
           cli: enabledCliAgentIds().map(id => `cli:${id}`)
         },
@@ -6579,7 +6598,14 @@ app.whenReady().then(async () => {
       });
       if (lead) planningOverride = lead.adapter;
       else if (input.executionMode === 'cloud' || input.executionMode === 'local') {
-        throw new Error(`${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用：请先配置并启用一个可用模型；不再退回网页规划。`);
+        const named = (input.selectedCloudModels && input.selectedCloudModels.length > 0)
+          ? input.selectedCloudModels.join('、')
+          : (input.plannerAgentId ?? '');
+        throw new Error(
+          `${input.executionMode === 'cloud' ? '云端' : '本地'} Planner 不可用` +
+            (named ? `（${named}）` : '') +
+            '：请检查已勾选模型的 API Key / 连通性后重试；不会改用网页或其他未勾选模型。'
+        );
       }
       // 主导之后，再按这一轮的配置挑并行旁听成员。旁听失败不影响主导，
       // 但它们的回答必须真的被问过——所以名单在这里定，不在界面拼。

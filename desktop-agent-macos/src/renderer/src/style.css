@@ -6228,15 +6228,17 @@ button:disabled {
   z-index: 20;
 }
 
-.wb-bar-task { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-bar-task { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .wb-bar-title {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 52ch;
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: none;
 }
-.wb-bar-root { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+.wb-bar-root { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; flex: 0 1 auto; }
 
 .wb-bar-parallel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .wb-bar-parallel .btn { padding: 2px 8px; }
@@ -6419,14 +6421,15 @@ button:disabled {
    执行步骤缩进淡色、结论压在最底下加重——读的时候从上往下就是这件事发生的
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
-/* 预留定位轴槽位：有无地标都不改正文宽度，避免开局突然「闪没/挤位」。 */
+/* 主会话默认全宽时序流；定位轨已去掉，不再预留左侧槽位。 */
 .chat-feed-layout {
-  --chat-locate-w: 148px;
   position: relative;
   display: block;
   margin-bottom: 16px;
-  padding-left: var(--chat-locate-w);
   min-height: 160px;
+}
+.chat-feed-layout.is-stream-only {
+  padding-left: 0;
 }
 .chat-locate-rail {
   position: absolute;

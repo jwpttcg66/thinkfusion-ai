@@ -3,28 +3,22 @@ import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
 import {
-  buildStreamLandmarks,
   buildTaskConversation,
   memberBodyView,
   protocolDerivation,
   protocolSummary,
   type ConversationEntry,
   type ConversationProtocol,
-  type ConversationTone,
-  type StreamLandmark
+  type ConversationTone
 } from '../../../../shared/task-conversation';
 /**
  * 对话流（工程空间主界面）。
  *
- * 这里是「一次协作的完整记录」，不是状态面板：我问了什么、每个成员怎么答的、
- * 中间真跑了哪些命令、每一轮的评审说了什么、最后的结论是什么。状态面板回答
- * 「现在到哪一步」，它回答「这件事到底发生过什么」——两件事都要有，但主界面
- * 只能是后者，否则一轮新回答就会把上一轮挤掉。
+ * 默认整条时序流：提问 / 计划 / 执行 / 评审 / 结论都是流式短记，按事件时间排列。
+ * **只有多模型辩论里实际发言的一方**才出 Member 卡片；单模型、主导五段、终态协议
+ * 一律不出卡。左侧定位轨与贴底结果大卡都不进主会话。
  *
- * 左侧定位轴只收重点地标（提问/计划/辩论/执行/结论），点击即可滚到对应块。
- *
- * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页，
- * 但主界面必须留下可读推导与思考过程——不能整段推走。
+ * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页。
  */
 
 function timeText(at: number): string {
@@ -184,45 +178,37 @@ function MemberMessage(props: {
   );
 }
 
-/** 计划树：8 步就写 8 步，不让人对着一句「计划就绪」猜。 */
-function PlanMessage(props: { entry: Extract<ConversationEntry, { kind: 'plan' }> }) {
+/** 计划：流式短记；步骤列表进详情，不占整张卡。 */
+function PlanStreamNote(props: { entry: Extract<ConversationEntry, { kind: 'plan' }> }) {
   const { entry } = props;
-  return (
-    <section className="card chat-plan">
-      <div className="review-head">
-        <b>计划 · {entry.title}</b>
-        <span className="muted">{timeText(entry.at)} · {String(entry.steps.length)} 步</span>
-      </div>
-      {entry.description && <p className="chat-plan-desc">{entry.description}</p>}
-      <ol className="chat-plan-steps">
-        {entry.steps.map((step, index) => {
+  const head = `计划 · ${entry.title} · ${timeText(entry.at)} · ${String(entry.steps.length)} 步`;
+  const detail = [
+    entry.description?.trim() || '',
+    entry.completion ? `执行目标：${entry.completion}` : '',
+    entry.steps.length > 0
+      ? entry.steps.map((step, index) => {
           const targetText = target(step.tool, step.args);
-          return (
-            <li key={step.id}>
-              <span className="chat-plan-index">{String(index + 1)}</span>
-              <div className="chat-plan-step-body">
-                <b>{toolLabel(step.tool)}</b>
-                {step.description && <span className="chat-plan-desc">{step.description}</span>}
-                {targetText && <code>{targetText}</code>}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="chat-plan-goal">
-        <span className="muted">执行目标：</span>{entry.completion || '未写明'}
-      </p>
-      {entry.warnings.length > 0 && (
-        <ul>
-          {entry.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
-        </ul>
-      )}
-    </section>
+          return `${String(index + 1)}. ${toolLabel(step.tool)}${step.description ? ` — ${step.description}` : ''}${targetText ? ` · ${targetText}` : ''}`;
+        }).join('\n')
+      : '',
+    entry.warnings.length > 0 ? `注意：\n${entry.warnings.join('\n')}` : ''
+  ].filter(Boolean).join('\n\n');
+  return (
+    <div className="chat-note is-focus">
+      <span className="chat-stream-badge">重点</span>
+      <span className="chat-note-text">{head}</span>
+      {detail ? (
+        <details className="chat-note-detail">
+          <summary>展开计划步骤</summary>
+          <pre>{detail}</pre>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
-/** 轮间 / 执行前桥接：先画出对象，再开质疑、回应或执行。 */
-function BridgeMessage(props: { entry: Extract<ConversationEntry, { kind: 'bridge' }> }) {
+/** 轮间 / 执行前桥接：流式短记。 */
+function BridgeStreamNote(props: { entry: Extract<ConversationEntry, { kind: 'bridge' }> }) {
   const { entry } = props;
   const actionLabel = entry.action === 'execute'
     ? '将执行'
@@ -233,56 +219,29 @@ function BridgeMessage(props: { entry: Extract<ConversationEntry, { kind: 'bridg
         : entry.nextPhase === 'challenge'
           ? '将质疑'
           : '将继续';
-  const targetLabel = entry.action === 'continue' && entry.nextPhase === 'response'
-    ? '待答复的质疑对象'
-    : entry.action === 'continue' && entry.nextPhase === 'challenge'
-      ? '将质疑的分歧'
-      : '相关分歧';
+  const head = `${entry.title} · ${timeText(entry.at)} · ${actionLabel}`;
+  const detailParts = [entry.message?.trim() || ''];
+  if (entry.targets.length > 0) {
+    detailParts.push(entry.targets.map((item, index) => (
+      `${String(index + 1)}. ${item.left} ↔ ${item.right}\n依据：${item.reason}${item.agents ? `\n成员：${item.agents.join(' · ')}` : ''}`
+    )).join('\n\n'));
+  }
+  if (entry.steps && entry.steps.length > 0) {
+    detailParts.push(entry.steps.map(step => (
+      `${String(step.index)}. ${toolLabel(step.tool)} — ${step.description}${step.target ? ` · ${step.target}` : ''}`
+    )).join('\n'));
+  }
+  const detail = detailParts.filter(Boolean).join('\n\n');
   return (
-    <section className={`card chat-bridge is-${entry.action} ${ToneClass(entry.tone)}`}>
-      <div className="review-head">
-        <b>{entry.title}</b>
-        <span className="muted">{timeText(entry.at)} · {actionLabel}</span>
-      </div>
-      <p className="chat-bridge-message">{entry.message}</p>
-      {entry.targets.length > 0 && (
-        <div className="chat-bridge-targets">
-          <p className="chat-debate-label">{targetLabel}（{String(entry.targets.length)}）</p>
-          <ol className="chat-bridge-list">
-            {entry.targets.map((target, index) => (
-              <li key={index}>
-                <p><span className="muted">一方：</span>{target.left}</p>
-                <p><span className="muted">另一方：</span>{target.right}</p>
-                <p className="muted">依据：{target.reason}</p>
-                {target.agents && (
-                  <p className="muted">成员：{target.agents.join(' · ')}</p>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {entry.steps && entry.steps.length > 0 && (
-        <div className="chat-bridge-targets">
-          <p className="chat-debate-label">将执行的步骤（{String(entry.steps.length)}）</p>
-          <ol className="chat-bridge-list">
-            {entry.steps.map(step => (
-              <li key={step.index}>
-                <p>
-                  <b>{String(step.index)}. {toolLabel(step.tool)}</b>
-                  {' · '}
-                  {step.description}
-                </p>
-                {step.target && <p className="muted"><code>{step.target}</code></p>}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {entry.action === 'continue' && entry.targets.length === 0 && (
-        <p className="muted">本轮判定要继续，但没有抽出可展示的主张原文；下一轮仍会按引擎规则进行。</p>
-      )}
-    </section>
+    <div className={`chat-note is-aside ${ToneClass(entry.tone)}`}>
+      <span className="chat-note-text">{head}</span>
+      {detail ? (
+        <details className="chat-note-detail">
+          <summary>展开桥接详情</summary>
+          <pre>{detail}</pre>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
@@ -308,51 +267,6 @@ function noteEmphasis(text: string): StreamEmphasis {
     return 'aside';
   }
   return 'focus';
-}
-
-function landmarkKindClass(kind: StreamLandmark['kind']): string {
-  switch (kind) {
-    case 'prompt': return 'is-prompt';
-    case 'plan': return 'is-plan';
-    case 'debate':
-    case 'debate_peer': return 'is-debate';
-    case 'step':
-    case 'bridge': return 'is-exec';
-    case 'verification':
-    case 'review': return 'is-check';
-    case 'conclusion': return 'is-done';
-    default: return '';
-  }
-}
-
-/** 侧栏时间轴：只列重点地标，点击滚到对话流锚点。 */
-function StreamLocateRail(props: {
-  landmarks: readonly StreamLandmark[];
-  activeKey: string | null;
-  onJump: (entryKey: string) => void;
-}) {
-  if (props.landmarks.length === 0) return null;
-  return (
-    <nav className="chat-locate-rail" aria-label="对话重点定位">
-      {/* 无连续竖轨：与主对话侧边短杠一致，只保留节点，不画粗黑/连续 spine。 */}
-      <ol className="chat-locate-list">
-        {props.landmarks.map(item => (
-          <li key={item.id}>
-            <button
-              type="button"
-              className={`chat-locate-tick ${landmarkKindClass(item.kind)}${props.activeKey === item.entryKey ? ' is-active' : ''}`}
-              title={`${item.label} · ${timeText(item.at)}`}
-              onClick={() => props.onJump(item.entryKey)}
-            >
-              <span className="chat-locate-dot" />
-              <span className="chat-locate-label">{item.label}</span>
-              <span className="chat-locate-time">{timeText(item.at)}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
 }
 
 function wrapAnchor(entryKey: string, node: React.ReactNode): React.ReactNode {
@@ -476,156 +390,6 @@ function MemberStreamNote(props: {
   );
 }
 
-function checkStatus(value: 'passed' | 'failed' | 'skipped'): string {
-  return value === 'passed' ? '通过' : value === 'failed' ? '未通过' : '未执行';
-}
-
-/**
- * 第 N 次验证。
- *
- * 每次 `report.ready` 的验证结论各占一条：后来一次验证不该把前一次覆盖掉，
- * 也不该只在页面底部留一张「最新状态」的卡——时间线里发生过几次就是几条。
- */
-function VerificationMessage(props: { entry: Extract<ConversationEntry, { kind: 'verification' }> }) {
-  const { entry } = props;
-  const checks = entry.checks;
-  const ran = checks
-    ? [checks.compile, checks.run, checks.tests, checks.diagnostics].some(item => item && item.status !== 'skipped')
-    : true;
-  const label = entry.fullyVerified
-    ? '已通过'
-    : entry.verified
-      ? '部分通过'
-      : ran ? '未通过' : '未执行';
-  const missing = checks
-    ? [
-        ['编译', checks.compile.status],
-        ['运行', checks.run?.status ?? 'skipped'],
-        ['测试', checks.tests.status],
-        ['诊断', checks.diagnostics.status]
-      ].filter(([, status]) => status !== 'passed').map(([text]) => text)
-    : [];
-  return (
-    <section className={`card review-card chat-verification${entry.fullyVerified ? '' : ' needs-fix'}`}>
-      <div className="review-head">
-        <b>第 {String(entry.index)} 次验证 · {label}</b>
-        <span className="muted">
-          {timeText(entry.at)} · {String(entry.changedFiles)} 个文件改动
-          {` · 执行报告 ${entry.reportStatus}（${String(entry.completedSteps)}/${String(entry.totalSteps)} 步完成）`}
-        </span>
-      </div>
-      {entry.reasons.length > 0 && (
-        <ul>
-          {entry.reasons.map((reason, index) => <li key={index}>{reason}</li>)}
-        </ul>
-      )}
-      {checks && (
-        <div className="verify-checks">
-          {([
-            ['compile', '编译'],
-            ['run', '运行'],
-            ['tests', '测试'],
-            ['diagnostics', '诊断']
-          ] as const).map(([key, text]) => {
-            if (key === 'diagnostics') {
-              const check = checks.diagnostics;
-              return (
-                <div key={key} className={`verify-check is-${check.status}`}>
-                  <b>{text}</b>
-                  <span>{checkStatus(check.status)}</span>
-                  <em>
-                    {String(check.errors)} error / {String(check.warnings)} warn
-                    {check.source ? ` · ${check.source}` : ''}
-                  </em>
-                </div>
-              );
-            }
-            const check = key === 'run' ? checks.run : checks[key];
-            if (!check) return null;
-            const detail = check.command
-              ? `${check.command}${typeof check.exitCode === 'number' ? ` · 退出码 ${String(check.exitCode)}` : ''}${key === 'run' && check.output ? ` · 输出 ${check.output}` : ''}`
-              : (check.detail ?? '');
-            return (
-              <div key={key} className={`verify-check is-${check.status}`}>
-                <b>{text}</b>
-                <span>{checkStatus(check.status)}</span>
-                {detail && <em>{detail}</em>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {entry.diagnostics.length > 0 && (
-        <details className="chat-note-detail">
-          <summary>诊断问题（{String(entry.diagnostics.length)} 个文件）</summary>
-          {entry.diagnostics.map(item => (
-            <div key={item.path} className="research-message">
-              <span className="research-tag">
-                {item.source} · {item.path} · {String(item.errors)} error / {String(item.warnings)} warn
-              </span>
-              {item.issues.map((issue, index) => (
-                <p key={index} className="muted">{issue.line}:{issue.column} {issue.message}</p>
-              ))}
-            </div>
-          ))}
-        </details>
-      )}
-      {entry.verified && !entry.fullyVerified && missing.length > 0 && (
-        <p className="muted">部分通过：{missing.join('、')}未通过/未执行；四项检查齐全才算完成。</p>
-      )}
-      {!entry.verified && (
-        <p className="muted">「未通过」是事实，不是失败提示：补一次测试或诊断，或明确接受未验证。</p>
-      )}
-    </section>
-  );
-}
-
-/** 第 N 次独立评审：同样按事件时间落进时间线，不放到页面底部。 */
-function ReviewMessage(props: { entry: Extract<ConversationEntry, { kind: 'review' }> }) {
-  const { entry } = props;
-  const details = entry.issueDetails && entry.issueDetails.length > 0
-    ? entry.issueDetails
-    : entry.issues.map((text, index) => ({
-        issueId: `legacy:${String(index)}`,
-        title: text.slice(0, 80),
-        description: text,
-        severity: 'unknown' as const,
-        disposition: 'pending' as const
-      }));
-  return (
-    <section className={`card review-card chat-review${entry.needsFix ? ' needs-fix' : ''}`}>
-      <div className="review-head">
-        <b>第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}</b>
-        <span className="muted">
-          {timeText(entry.at)} · {entry.backend === 'rules' ? '本机规则版' : entry.reviewer}
-        </span>
-      </div>
-      <p>{entry.verdict}</p>
-      {details.length > 0 && (
-        <ul>
-          {details.map(issue => (
-            <li key={issue.issueId}>
-              <b>{issue.title}</b>
-              {issue.description !== issue.title && <div>{issue.description}</div>}
-              <div className="muted">
-                风险：{issue.severity === 'high' ? '高' : issue.severity === 'medium' ? '中' : issue.severity === 'low' ? '低' : '未分级'}
-                {' · '}处理：{issue.disposition === 'pending' ? '待决定' : issue.disposition}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {entry.rawVerdict && entry.rawVerdict !== entry.verdict && (
-        <details>
-          <summary>完整评审原文</summary>
-          <pre>{entry.rawVerdict}</pre>
-        </details>
-      )}
-      <p className="muted">评审只给结论，不会改文件。未处理的问题保持待决定，不会自动关闭。</p>
-    </section>
-  );
-}
-
 function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }> }) {
   const { card } = props.entry;
   const output = useMemo(() => stepOutput(card), [card]);
@@ -671,11 +435,6 @@ export function TaskConversation(props: {
     providerId: string | null;
     modelId: string | null;
   } | null;
-  /**
-   * U7：上方已有 CollaborationResultPanel 时，结论 / 评审 / 验证只留时间序标记，
-   * 完整结构化内容见结果面板；不删事件，只去重视觉重复。
-   */
-  omitResultSummaries?: boolean;
 }) {
   const entries = useMemo(
     () => buildTaskConversation(props.events, {
@@ -688,14 +447,12 @@ export function TaskConversation(props: {
   );
   const hasLive = entries.some(entry => entry.kind === 'member' && entry.status === 'streaming');
   const [now, setNow] = useState(Date.now());
-  const [activeLandmark, setActiveLandmark] = useState<string | null>(null);
   const feedRef = useRef<HTMLElement | null>(null);
   // 场上是否存在多模型辩论：只给「表态/质疑/回应」发言方出卡，不按整轮 roundId 开卡。
   const hasMultiModelDebate = useMemo(
     () => entries.some(entry => entry.kind === 'debate' && isMultiModelDebate(entry)),
     [entries]
   );
-  const landmarks = useMemo(() => buildStreamLandmarks(entries), [entries]);
 
   useEffect(() => {
     if (!hasLive) return;
@@ -703,30 +460,8 @@ export function TaskConversation(props: {
     return () => clearInterval(timer);
   }, [hasLive]);
 
-  function jumpToLandmark(entryKey: string): void {
-    setActiveLandmark(entryKey);
-    const root = feedRef.current;
-    const byId = typeof document !== 'undefined'
-      ? document.getElementById(`stream-${entryKey}`)
-      : null;
-    const target = byId
-      ?? root?.querySelector(`[data-stream-anchor="${entryKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
-    if (target instanceof HTMLElement) {
-      target.classList.add('is-flash');
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      window.setTimeout(() => target.classList.remove('is-flash'), 900);
-    }
-  }
-
-  // 布局外壳始终同一套：预留定位轴宽度，空态也挂在 feed 里。
-  // 开局从「空卡」切到「双栏」会整页乱跳；轴用绝对定位叠在预留槽，不挤正文宽度。
   return (
-    <section className="chat-feed-layout" aria-label="任务对话与定位">
-      <StreamLocateRail
-        landmarks={landmarks}
-        activeKey={activeLandmark}
-        onJump={jumpToLandmark}
-      />
+    <section className="chat-feed-layout is-stream-only" aria-label="任务对话">
       <section className="chat-feed" aria-label="任务对话" ref={feedRef}>
       {entries.length === 0 ? (
         <div className="chat-stream-placeholder" aria-live="polite">
@@ -762,122 +497,70 @@ export function TaskConversation(props: {
           ));
         }
         if (entry.kind === 'plan') {
-          return wrapAnchor(entry.key, <PlanMessage key={entry.key} entry={entry} />);
+          return wrapAnchor(entry.key, <PlanStreamNote key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'debate') {
-          // 方案评审总览始终流式短记；多模型时各辩论方另出 Member 卡。
           return wrapAnchor(entry.key, <DebateStreamNote key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'bridge') {
-          return wrapAnchor(entry.key, (
-            <div key={entry.key} className="chat-stream-block is-focus">
-              <BridgeMessage entry={entry} />
-            </div>
-          ));
+          return wrapAnchor(entry.key, <BridgeStreamNote key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'verification') {
-          if (props.omitResultSummaries) {
-            const label = entry.fullyVerified
-              ? '已通过'
-              : entry.verified
-                ? '部分通过'
-                : '未通过';
-            return wrapAnchor(entry.key, (
-              <div className={`chat-note is-aside ${ToneClass(entry.verified ? 'ok' : 'warn')}`}>
-                <span className="chat-note-text">
-                  第 {String(entry.index)} 次验证 · {label} · {timeText(entry.at)}
-                  {' · '}详见下方「任务结果」
-                </span>
-              </div>
-            ));
-          }
+          const label = entry.fullyVerified
+            ? '已通过'
+            : entry.verified
+              ? '部分通过'
+              : '未通过';
           return wrapAnchor(entry.key, (
-            <div className="chat-stream-block is-focus">
-              <VerificationMessage entry={entry} />
+            <div className={`chat-note is-aside ${ToneClass(entry.verified ? 'ok' : 'warn')}`}>
+              <span className="chat-note-text">
+                第 {String(entry.index)} 次验证 · {label} · {timeText(entry.at)}
+              </span>
             </div>
           ));
         }
         if (entry.kind === 'review') {
-          if (props.omitResultSummaries) {
-            return wrapAnchor(entry.key, (
-              <div className={`chat-note is-aside ${ToneClass(entry.needsFix ? 'warn' : 'ok')}`}>
-                <span className="chat-note-text">
-                  第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}
-                  {' · '}{timeText(entry.at)} · 详见下方「任务结果」
-                </span>
-              </div>
-            ));
-          }
           return wrapAnchor(entry.key, (
-            <div className="chat-stream-block is-focus">
-              <ReviewMessage entry={entry} />
+            <div className={`chat-note is-aside ${ToneClass(entry.needsFix ? 'warn' : 'ok')}`}>
+              <span className="chat-note-text">
+                第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}
+                {' · '}{timeText(entry.at)}
+              </span>
+              {entry.verdict ? (
+                <details className="chat-note-detail">
+                  <summary>展开评审</summary>
+                  <pre>{entry.verdict}</pre>
+                </details>
+              ) : null}
             </div>
           ));
         }
         if (entry.kind === 'conclusion') {
-          // 终态在对话流里也按流式协议阅读；完整结构化收口在「任务结果」。
-          if (props.omitResultSummaries) {
-            return wrapAnchor(entry.key, (
-              <div className={`chat-note is-focus ${ToneClass(entry.tone)}`}>
-                <span className="chat-stream-badge">重点</span>
-                <span className="chat-note-text">
-                  结论已写入下方「任务结果」 · {timeText(entry.at)}
-                  {entry.deliverables && entry.deliverables.length > 0
-                    ? ` · 目标物 ${String(entry.deliverables.length)} 项`
-                    : ''}
-                </span>
-              </div>
-            ));
-          }
-          const metaFacts = entry.executionResults && entry.executionResults.length > 0
-            ? entry.facts.filter(fact => !entry.executionResults!.includes(fact))
-            : entry.facts;
+          const deliverables = entry.deliverables ?? [];
+          const detail = [
+            entry.text?.trim() || '',
+            entry.executionGoal ? `执行目标：${entry.executionGoal}` : '',
+            entry.executionResults && entry.executionResults.length > 0
+              ? `执行结果：\n${entry.executionResults.join('\n')}`
+              : '',
+            deliverables.length > 0
+              ? `目标物：\n${deliverables.join('\n')}`
+              : '',
+            entry.facts.length > 0 ? entry.facts.join('\n') : ''
+          ].filter(Boolean).join('\n\n');
           return wrapAnchor(entry.key, (
-            <div className={`chat-stream-conclusion is-focus ${ToneClass(entry.tone)}`}>
-              <div className="chat-stream-head">
-                <span className="chat-stream-badge">重点</span>
-                <span className="chat-note-text">结论 · {timeText(entry.at)}</span>
-              </div>
-              <p className="chat-stream-conclusion-text">{entry.text}</p>
-              {entry.executionGoal && (
-                <div className="chat-conclusion-block">
-                  <p className="chat-debate-label">执行目标</p>
-                  <p>{entry.executionGoal}</p>
-                </div>
-              )}
-              {entry.executionResults && entry.executionResults.length > 0 && (
-                <div className="chat-conclusion-block">
-                  <p className="chat-debate-label">执行结果</p>
-                  <ul className="chat-conclusion-results">
-                    {entry.executionResults.map(item => (
-                      <li key={item}>
-                        <pre>{item}</pre>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="chat-conclusion-block">
-                <p className="chat-debate-label">
-                  目标物{entry.deliverables && entry.deliverables.length > 0
-                    ? `（${String(entry.deliverables.length)}）`
-                    : ''}
-                </p>
-                {entry.deliverables && entry.deliverables.length > 0 ? (
-                  <ul className="chat-conclusion-results">
-                    {entry.deliverables.map(path => (
-                      <li key={path}><code>{path}</code></li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="muted">没有记录到交付文件。</p>
-                )}
-              </div>
-              {metaFacts.length > 0 && (
-                <ul>
-                  {metaFacts.map(fact => <li key={fact}>{fact}</li>)}
-                </ul>
-              )}
+            <div className={`chat-note is-focus ${ToneClass(entry.tone)}`}>
+              <span className="chat-stream-badge">重点</span>
+              <span className="chat-note-text">
+                结论 · {timeText(entry.at)}
+                {deliverables.length > 0 ? ` · 目标物 ${String(deliverables.length)} 项` : ''}
+              </span>
+              {detail ? (
+                <details className="chat-note-detail" open>
+                  <summary>展开结论</summary>
+                  <pre>{detail}</pre>
+                </details>
+              ) : null}
             </div>
           ));
         }

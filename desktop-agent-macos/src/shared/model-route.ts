@@ -100,19 +100,23 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
   const cliAnswerers = (input.available.cli ?? []).filter(
     id => input.selectedCliAgents === undefined || input.selectedCliAgents.includes(id)
   );
-  const executors = [...new Set([...input.available.local, ...input.available.cloud, ...cliAnswerers])];
+  // 云端勾选名单：空数组 = 一个都不问；undefined = 可用清单全开。
+  const cloudSelected = pickCloud(input.available.cloud, input.selectedCloudModels, input.leadAgentId);
 
   const notes: string[] = [];
   let mode: ExecutionMode = input.executionMode;
   let synthesizers: string[] = [];
   let answerers: string[] = [];
+  /** 辩论/评审/规划池：必须跟本轮勾选一致，不能把未勾选的 OpenAI/本地悄悄塞进来。 */
+  let executors: string[] = [];
 
   if (input.executionMode === 'cloud') {
-    const models = pickCloud(input.available.cloud, input.selectedCloudModels, input.leadAgentId);
+    const models = cloudSelected;
     answerers = [...new Set([...models, ...cliAnswerers])];
     synthesizers = input.leadAgentId && answerers.includes(input.leadAgentId)
       ? [input.leadAgentId]
       : [...answerers];
+    executors = [...answerers];
     if (answerers.length === 0) {
       notes.push('云端主导但没有可用/勾选的云端模型或 CLI：这一轮无法回答，不退回网页');
     } else {
@@ -123,6 +127,7 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
     synthesizers = input.leadAgentId && answerers.includes(input.leadAgentId)
       ? [input.leadAgentId]
       : [...answerers];
+    executors = [...answerers];
     if (answerers.length === 0) {
       notes.push('本地主导但没有可用本地模型：这一轮无法回答，不退回网页');
     } else {
@@ -131,6 +136,8 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
   } else {
     // web / hybrid：第一手是网页 + CLI 软件源。
     answerers = [...new Set([...webAnswerers, ...cliAnswerers])];
+    // 网页主导时辩手池仍可含本机 + 勾选云端；未勾选的云端模型不进池。
+    executors = [...new Set([...input.available.local, ...cloudSelected, ...cliAnswerers])];
     if (cliAnswerers.length > 0) {
       notes.push(`另有 CLI 来源 ${cliAnswerers.length} 个一起被问（属云端一类，可主导与辩论）`);
     }
@@ -143,9 +150,9 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
       notes.push('网页主导：由回答过的网页通道汇总');
     } else {
       // hybrid：这一层才是真正在「综合决定」。
-      if (input.taskKind === 'engineering_execution' && input.available.cloud.length > 0) {
+      if (input.taskKind === 'engineering_execution' && cloudSelected.length > 0) {
         mode = 'cloud';
-        synthesizers = input.available.cloud;
+        synthesizers = cloudSelected;
         notes.push('混合：工程实施交给云端模型规划与评审');
       } else if (
         input.available.local.length > 0 &&
@@ -154,9 +161,9 @@ export function routeModels(input: ModelRouteInput): ModelRoute {
         mode = 'local';
         synthesizers = input.available.local;
         notes.push('混合：短结论类任务交给本地模型，不上网');
-      } else if (input.available.cloud.length > 0 || cliAnswerers.length > 0) {
+      } else if (cloudSelected.length > 0 || cliAnswerers.length > 0) {
         mode = 'cloud';
-        synthesizers = [...new Set([...input.available.cloud, ...cliAnswerers])];
+        synthesizers = [...new Set([...cloudSelected, ...cliAnswerers])];
         notes.push('混合：长链条任务交给云端模型与 CLI');
       } else if (input.available.local.length > 0) {
         mode = 'local';

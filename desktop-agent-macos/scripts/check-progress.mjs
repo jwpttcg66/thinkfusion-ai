@@ -109,3 +109,30 @@ test('方案评审中：汇总段保持当前，detail 带议题原文', () => {
   assert.match(view.current?.detail ?? '', /步骤拆分是否合理/);
   assert.equal(view.stages.find(s => s.stage === 'execution')?.state, 'pending');
 });
+
+test('等待审批：停在汇总，文案是等待审批，不点亮执行', () => {
+  const view = deriveProgress({
+    conversationStatus: 'answered',
+    taskStatus: 'awaiting_approval',
+    events: [
+      { type: 'round.started', at: at(1000) },
+      { type: 'plan.ready', at: at(2000) },
+      { type: 'plan.debated', at: at(4000) }
+    ],
+    startedAt: at(0)
+  });
+  assert.equal(view.current?.stage, 'synthesis');
+  assert.match(view.current?.detail ?? '', /等待你审批/);
+  assert.equal(view.stages.find(s => s.stage === 'execution')?.state, 'pending');
+});
+
+test('等待审批但事件缺 plan.ready：仍给汇总当前段，不退回空 current', () => {
+  const view = deriveProgress({
+    conversationStatus: 'answered',
+    taskStatus: 'awaiting_approval',
+    events: [{ type: 'round.started', at: at(1000) }],
+    startedAt: at(0)
+  });
+  assert.equal(view.current?.stage, 'synthesis');
+  assert.match(view.current?.detail ?? '', /等待你审批/);
+});

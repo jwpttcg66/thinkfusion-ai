@@ -34,9 +34,13 @@ export function TaskPlanCapsule(props: {
     startedAt: props.startedAt
   });
 
-  const terminal =
-    ['answered', 'failed', 'cancelled'].includes(props.conversationStatus) ||
-    ['completed', 'failed', 'cancelled'].includes(props.taskStatus ?? '');
+  // 工程任务进行中（含等待审批）时，会话可能已是 answered（已转交计划），
+  // 不能据此把胶囊标成「已完成」——真机等待审批却显示已完成会误导。
+  const taskTerminal = ['completed', 'failed', 'cancelled'].includes(props.taskStatus ?? '');
+  const conversationTerminal =
+    ['failed', 'cancelled'].includes(props.conversationStatus) ||
+    (props.conversationStatus === 'answered' && !props.taskStatus);
+  const terminal = taskTerminal || conversationTerminal;
 
   useEffect(() => {
     if (terminal) return;
@@ -58,12 +62,20 @@ export function TaskPlanCapsule(props: {
     at: props.startedAt,
     detail: '正在收尾，稍后给出结论'
   };
+  // 终态不要沿用「正在收尾」占位：失败/完成时应指向正文结论。
+  const terminalDetail = (() => {
+    const detail = (view.current?.detail ?? '').trim();
+    if (detail && !/^正在收尾/.test(detail)) return detail;
+    if (terminalLabel === '已失败') return '原因见正文';
+    if (terminalLabel === '已取消') return '已停止';
+    return '结论见正文';
+  })();
   const current = terminal
     ? {
         ...liveCurrent,
         label: terminalLabel,
         state: 'done' as const,
-        detail: liveCurrent.detail || '结论见正文'
+        detail: terminalDetail
       }
     : liveCurrent;
 

@@ -77,6 +77,26 @@ test('云端主导按勾选裁名单；点名主导人可补进', () => {
   assert.deepEqual(leadOnly.synthesizers, ['openai:gpt-4o-mini']);
 });
 
+test('云端主导 executors 只含勾选模型，不塞未勾选的 OpenAI/本地', () => {
+  const route = routeModels({
+    taskKind: 'engineering_execution',
+    executionMode: 'cloud',
+    available: {
+      web: ['chatgpt'],
+      local: ['ollama:local-test:7b'],
+      cloud: ['openai:gpt-4o-mini', 'opencode-go:deepseek-v4.1-flash']
+    },
+    selectedCloudModels: ['opencode-go:deepseek-v4.1-flash'],
+    selectedCliAgents: []
+  });
+  assert.deepEqual(route.answerers, ['opencode-go:deepseek-v4.1-flash']);
+  assert.deepEqual(route.synthesizers, ['opencode-go:deepseek-v4.1-flash']);
+  assert.deepEqual(route.executors, ['opencode-go:deepseek-v4.1-flash']);
+  assert.equal(route.executors.includes('openai:gpt-4o-mini'), false);
+  assert.equal(route.executors.includes('ollama:local-test:7b'), false);
+  assert.equal(route.executors.includes('chatgpt'), false);
+});
+
 test('选了本地主导但没有本地模型时不退回网页', () => {
   const route = routeModels({
     taskKind: 'answer',
