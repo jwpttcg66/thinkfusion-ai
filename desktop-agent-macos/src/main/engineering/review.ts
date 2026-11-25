@@ -20,6 +20,7 @@
 import type { AgentPlan, ExecutionReport, ReviewIssueDetail, StepResult } from '../../shared/contracts';
 import type { EvidenceRef } from '../../shared/engineering-evidence';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
+import { assessCollaborationRisk } from './plan-review';
 
 type CommandRef = Extract<EvidenceRef, { kind: 'command' }>;
 
@@ -259,6 +260,44 @@ export function buildReviewMaterial(report: ExecutionReport, plan: AgentPlan, su
   return lines.join('\n');
 }
 
+/**
+ * 执行后要不要再调模型审核（规则已跑过之后）。
+ *
+ * - 规则已给出待修项 → 不必再花一次模型；规则结论即可驱动修复
+ * - 验证通过 + 规则无问题 + L0/L1 → 跳过模型
+ * - L2/L3 或验证未通过且规则说不清 → 允许一次模型
+ */
+export function shouldModelReviewExecution(
+  report: ExecutionReport,
+  plan: AgentPlan,
+  ruleIssues: readonly string[]
+): { model: boolean; reason: string } {
+  if (ruleIssues.length > 0) {
+    return {
+      model: false,
+      reason: `规则审核已标出 ${String(ruleIssues.length)} 项问题，跳过模型审核（no_new_information）`
+    };
+  }
+  const risk = assessCollaborationRisk(plan);
+  const verified = Boolean(report.verification?.verified);
+  if (verified && (risk.level === 'L0' || risk.level === 'L1')) {
+    return {
+      model: false,
+      reason: `验证已通过且 ${risk.level} 无规则问题，跳过模型审核（no_goal_impact）`
+    };
+  }
+  if (!verified && risk.level === 'L0') {
+    return {
+      model: false,
+      reason: 'L0 任务以规则与验证结论为准，不启动模型审核'
+    };
+  }
+  return {
+    model: true,
+    reason: `${risk.level} 或验证未完全收口：允许一次独立模型审核`
+  };
+}
+
 export async function reviewExecution(
   report: ExecutionReport,
   plan: AgentPlan,
@@ -267,10 +306,14 @@ export async function reviewExecution(
   const now = options.now ?? Date.now;
   const base = ruleReview(report, plan);
   const ask = options.ask;
-  if (!ask) {
+  const gate = shouldModelReviewExecution(report, plan, base.issues);
+  if (!ask || !gate.model) {
+    const skippedModel = Boolean(ask) && !gate.model;
     const verdict = base.issues.length > 0
       ? `执行结果有 ${String(base.issues.length)} 处待处理，建议修复后再验一次。${base.summary}`
-      : `执行结果与计划一致，没有发现可核查的问题。${base.summary}`;
+      : skippedModel
+        ? `规则审核通过，未调用模型（${gate.reason}）。${base.summary}`
+        : `执行结果与计划一致，没有发现可核查的问题。${base.summary}`;
     const at = now();
     return {
       reviewer: '本机规则',
