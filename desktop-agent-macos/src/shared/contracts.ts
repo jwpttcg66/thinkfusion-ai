@@ -1224,6 +1224,24 @@ export const PlanSchema = z
       .strict()
       .optional(),
     steps: z.array(StepSchema).min(1).max(30),
+    /**
+     * 可选的任务分解（TDL L2）：把步骤按「可独立验收的子任务」分组。
+     * 只有分组，不替代步骤本身；没给就保持 L1→L3 的平面结构，由界面标注未分解。
+     */
+    decomposition: z
+      .array(
+        z
+          .object({
+            id: Id,
+            title: z.string().min(1).max(120),
+            description: z.string().max(2000).optional(),
+            acceptanceCriteria: z.array(z.string().min(1).max(300)).min(1).max(8).optional(),
+            stepIds: z.array(Id).min(1).max(30)
+          })
+          .strict()
+      )
+      .max(12)
+      .optional(),
     completion: z.object({ condition: z.string().min(1).max(1000) }).strict(),
     /**
      * 主导模型自己提出的评审议题（可选）。
@@ -1248,6 +1266,22 @@ export const PlanSchema = z
   .refine(plan => new Set(plan.steps.map(step => step.id)).size === plan.steps.length, {
     message: 'step id 必须唯一'
   })
+  .refine(
+    plan => {
+      const decomposition = plan.decomposition ?? [];
+      const stepIds = new Set(plan.steps.map(step => step.id));
+      const seen = new Set<string>();
+      for (const item of decomposition) {
+        for (const stepId of item.stepIds) {
+          if (!stepIds.has(stepId)) return false;
+          if (seen.has(stepId)) return false;
+          seen.add(stepId);
+        }
+      }
+      return new Set(decomposition.map(item => item.id)).size === decomposition.length;
+    },
+    { message: 'decomposition.stepIds 必须引用已存在的步骤且不得重复；子任务 id 不得重复' }
+  )
   .refine(plan => plan.kind !== 'design' || !!plan.design, {
     message: 'kind=design 必须提供 design.document 与 viewpoints'
   })
@@ -1527,6 +1561,14 @@ export interface PlanPreview {
   description: string;
   completion: string;
   steps: Array<{ id: string; tool: ToolName; description?: string; args: Record<string, unknown> }>;
+  /** TDL L2：模型给出的子任务分组；缺省表示这份计划没有分解。 */
+  decomposition?: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    acceptanceCriteria?: string[];
+    stepIds: string[];
+  }>;
   /** V2.1：方案评审辩论结果。没开启辩论时为空。 */
   debate?: PlanDebate;
   /** 计划门禁：缺哪些判据。空/缺失表示没发现问题。 */

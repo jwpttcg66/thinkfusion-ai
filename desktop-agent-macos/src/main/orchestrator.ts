@@ -2051,6 +2051,19 @@ export function toPreview(stored: StoredPlan, warnings: string[] = []): PlanPrev
       description: step.description,
       args: step.args as Record<string, unknown>
     })),
+    ...(stored.plan.decomposition && stored.plan.decomposition.length > 0
+      ? {
+          decomposition: stored.plan.decomposition.map(item => ({
+            id: item.id,
+            title: item.title,
+            ...(item.description ? { description: item.description } : {}),
+            ...(item.acceptanceCriteria && item.acceptanceCriteria.length > 0
+              ? { acceptanceCriteria: item.acceptanceCriteria }
+              : {}),
+            stepIds: [...item.stepIds]
+          }))
+        }
+      : {}),
     ...(warnings.length > 0 ? { warnings } : {})
   };
 }
