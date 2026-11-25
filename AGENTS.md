@@ -159,6 +159,9 @@ ThinkFusion 的工程工作台以**可观测性**为第一原则，工程执行�
   那会让「编写 hello world」等真实工程题再次落成只回答。
 - 落地：`conversation-runner.ts` 的 `plannerFirst`；防回归：`npm run test:runner`
   中的云端直达 Planner 用例与源码守卫。
+- **连带硬约束**：云端 / 本地主导（含知识空间）**禁止** `prepare-web-views`；
+  轨迹不得出现「网页视图」准备步。只有网页主导 / 混合才建网页视图。
+  真机教训（2026-11-25）：云端写 Go demo 却卡在网页视图准备约 75 秒。
 
 ## 10. 每个任务完成都必须真机验证
 

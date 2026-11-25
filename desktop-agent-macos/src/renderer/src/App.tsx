@@ -3160,7 +3160,7 @@ export default function App() {
                 reason: routingPreview.reason,
                 source: routingPreview.source
               } : null}
-              // 模型主导时，这一份只是规则预估：真正判定在发送时由模型给出。
+              // 云端/本地工程：直达 Planner；预览文案见 TaskInput，勿再写「由模型判定」。
               routingByModel={workspaceMode === 'engineering' && executionConfig.executionMode !== 'web'}
               taskKindOverride={taskKindOverride}
               onTaskKindChange={setTaskKindOverride}

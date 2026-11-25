@@ -1539,6 +1539,48 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
   assert.ok(messages.some(m => m.role === 'system' && m.text.includes('停止原因')));
 });
 
+test('云端问答：知识空间也不准备网页视图', async () => {
+  // 真机：云端执行模式却跑 prepare-web-views，轨迹出现「网页视图」并卡住约 75s。
+  let prepared = 0;
+  const { runner } = makeRunner(
+    [fakeChannel('cloud', () => answer('cloud-ok'))],
+    {
+      deps: {
+        prepareWebViews: async () => {
+          prepared += 1;
+        }
+      }
+    }
+  );
+  const started = await runner.start({
+    text: '编写一个go 的demo程序， 输出hello thinkfusion',
+    executionConfig: { executionMode: 'cloud', selectedCloudModels: ['cloud'] }
+  });
+  await settle(runner, started.conversationId);
+  assert.equal(prepared, 0, '云端主导不得 prepare-web-views');
+  assert.equal(started.intent, 'answer');
+});
+
+test('网页主导问答：才会准备网页视图', async () => {
+  let prepared = 0;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('web-ok'))],
+    {
+      deps: {
+        prepareWebViews: async () => {
+          prepared += 1;
+        }
+      }
+    }
+  );
+  const started = await runner.start({
+    text: '什么是连接池',
+    executionConfig: { executionMode: 'web' }
+  });
+  await settle(runner, started.conversationId);
+  assert.equal(prepared, 1, '网页主导才应 prepare-web-views');
+});
+
 test('云端工程：不做词表预判，直接交 Planner', async () => {
   let submitted = null;
   let routed = 0;
