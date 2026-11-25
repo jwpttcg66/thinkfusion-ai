@@ -24,7 +24,18 @@
 | L0 验证通过 | `reviewExecution` 不调模型 |
 | 意见投影 | 去重 + 补充摘要 ≤ 6；UI 区分原始/展示/争议 |
 
+## 真机（L0 只读列目录）
+
+| 项 | 结果 |
+| --- | --- |
+| 脚本 | `scripts/collab-budget-live.mjs` |
+| 任务 | `eb977413-…` → `completed`（约 13s） |
+| 方案评审 | `plan.debated status=skipped`；原因含 `L0 … 跳过方案评审`；`plan.review.progress=0` |
+| 模型审核 | `review.ready backend=rules`；文案含「未调用模型」 |
+| 意见面板 | 展示 1 · 主张 0 · 补充 1 · 争议 0（非 88 量级） |
+| 证据 | [`evidence/V3-COLLAB-BUDGET-LIVE.json`](./evidence/V3-COLLAB-BUDGET-LIVE.json) |
+
 ## 未覆盖
 
-- 真机复跑「88 意见」原任务（需 taskId 事件流核对调用次数）
-- DebateBehavior 会话侧争议筛选深化（P1 后续）
+- 原「88 意见」历史任务的事件流回溯（本轮用新 L0 任务证明克制路径）
+- DebateBehavior 会话侧争议筛选深化（后续）

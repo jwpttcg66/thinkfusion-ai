@@ -117,7 +117,8 @@
 | CB-P1 核心意见去重上限 | IMPLEMENTED | `selectKeyOpinions` / `dedupeOpinions` |
 | CB-P2 UI 区分原始/展示/争议 | IMPLEMENTED | CollaborationResultPanel 文案 |
 | 功能分支 | 进行中 | `feat/v3-collab-budget-control` |
-| 自动化 | 见验收 | `test:plan-review` / `test:plan-debate` / `test:collab-budget` |
+| 自动化 | ✅ | `test:plan-review` / `test:plan-debate` / `test:collab-budget` |
+| 真机 L0 | ✅ | `collab-budget-live.mjs`：跳过五段、rules 审核、意见展示 1；见 `V3-COLLAB-BUDGET-LIVE.json` |
 
 > 硬规则：不为「要不要辩论」先调一次模型；意见数 ≠ 争议数；展示去重不能替代执行克制。
 
