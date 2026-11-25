@@ -2822,44 +2822,25 @@ export default function App() {
               </section>
             )}
 
-            {/* 验证过程已在对话时间线里逐条展示；这里只保留当前状态需要的动作，
-                不再把「最近一次验证」复用成一张随时变的卡。 */}
+            {/* 「验证后续动作 / 还原本轮」整卡已去掉：验证结论只在对话时间线与任务收口。
+                仅 report_pending（需用户决定出口）保留一行动作，不套后续动作卡壳。 */}
             {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output')
-              && (activeTask.status === 'report_pending' || Boolean(derived.verification && derived.verification.changedFiles > 0)) && (
-              <section className="card verify-actions">
-                <div className="review-head">
-                  <b>{activeTask.status === 'report_pending' ? '验证待你决定' : '验证后续动作'}</b>
-                  <span className="muted">每次验证的结论见对话时间线</span>
-                </div>
-                {activeTask.status === 'report_pending' && (
-                  <>
-                    <p className="muted">
-                      「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。
-                    </p>
-                    <div className="row">
-                      <button className="btn" type="button" onClick={() => void resumeRepair()}>
-                        继续修复（重新执行验证）
-                      </button>
-                      <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
-                        按当前口径重新判定
-                      </button>
-                      <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
-                        接受未验证并结束
-                      </button>
-                    </div>
-                    <p className="muted">
-                      任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
-                      「继续修复」会重新规划并真的再跑命令；「重新判定」只重算已落库的报告；
-                      「接受未验证」直接收尾并保留缺口。完全权限下的新任务会自动走修复，不会停在这里。
-                    </p>
-                  </>
-                )}
-                {derived.verification && derived.verification.changedFiles > 0 && (
-                  <button className="btn ghost" type="button" onClick={() => void revertSnapshot(activeTask.taskId)}>
-                    还原本轮
+              && activeTask.status === 'report_pending' && (
+              <div className="chat-note is-focus verify-pending-actions" role="group" aria-label="验证待你决定">
+                <span className="chat-stream-badge">重点</span>
+                <span className="chat-note-text">验证待你决定 · 未通过闸门，需选出口</span>
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button className="btn" type="button" onClick={() => void resumeRepair()}>
+                    继续修复（重新执行验证）
                   </button>
-                )}
-              </section>
+                  <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
+                    按当前口径重新判定
+                  </button>
+                  <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
+                    接受未验证并结束
+                  </button>
+                </div>
+              </div>
             )}
 
             {derived.changes.length > 0 && workbenchTab === 'output' && (
