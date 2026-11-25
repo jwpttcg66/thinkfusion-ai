@@ -959,6 +959,9 @@ export function buildTaskConversation(
         text: `模型参与 · ${event.risk} · 辩论 ${event.debate} · 审核 ${event.modelReview}`,
         detail: [
           names.length > 0 ? `参与：${names.join('；')}` : '无参与者',
+          event.excluded.length > 0
+            ? `未参与：${event.excluded.slice(0, 4).map(item => `${item.participantId}（${item.reason}）`).join('；')}`
+            : '',
           event.reasons.slice(0, 4).join(' · ')
         ].filter(Boolean).join('\n')
       });

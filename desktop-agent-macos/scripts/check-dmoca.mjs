@@ -6,8 +6,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyEcoGateToDecision,
   decideParticipation,
   defaultPolicyForRisk,
+  dispatchedParticipantIds,
   projectDmocaFromEvents,
   riskFromPlanTools,
   shouldStopCollaboration,
@@ -106,4 +108,40 @@ test('L3 预算耗尽不得静默跳过门禁', () => {
   });
   assert.equal(stop.stop, false);
   assert.match(stop.reason, /不得静默|暂停/);
+});
+
+test('决策驱动派发：派发名单等于决策名单', () => {
+  const base = decideParticipation({
+    workId: 'w1',
+    stage: 'planning',
+    risk: 'L1',
+    candidates: [
+      { id: 'a', available: true },
+      { id: 'b', available: true },
+      { id: 'c', available: true }
+    ]
+  });
+  // 非 pinned：L1 上限 2，派发就是这两名，第三人带原因进 excluded
+  const dispatched = dispatchedParticipantIds(base, ['a', 'b', 'c']);
+  assert.deepEqual(dispatched, base.participants.map(p => p.participantId));
+  assert.equal(dispatched.length, 2);
+  assert.ok(base.excluded.some(item => item.participantId === 'c' && /最多/.test(item.reason)));
+
+  // ECO insufficient：决策截断为单 lead，派发也只剩一个
+  const gated = applyEcoGateToDecision(base, 'insufficient');
+  assert.equal(dispatchedParticipantIds(gated, ['a', 'b', 'c']).length, 1);
+
+  // 用户钉住两个人：决策里仍是这两人，派发不改名单
+  const pinned = decideParticipation({
+    workId: 'w1',
+    stage: 'planning',
+    risk: 'L2',
+    candidates: [{ id: 'a', available: true }, { id: 'b', available: true }, { id: 'x', available: true }],
+    selectedIds: ['a', 'b']
+  });
+  assert.deepEqual(dispatchedParticipantIds(pinned, ['a', 'b']), ['a', 'b']);
+  assert.ok(pinned.excluded.some(item => item.participantId === 'x'));
+
+  // 决策无人可用时退回原名单，不把「没人」当成「请全部」
+  assert.deepEqual(dispatchedParticipantIds({ ...base, participants: [] }, ['a']), ['a']);
 });

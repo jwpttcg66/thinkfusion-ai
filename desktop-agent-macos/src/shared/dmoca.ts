@@ -193,6 +193,22 @@ export function defaultPolicyForRisk(risk: CollaborationRiskLevel): {
   }
 }
 
+/**
+ * 决策 → 实际派发：辩论/评审只请决策里留下的人。
+ *
+ * 派发名单必须等于 `decision.participants`——否则界面写着「未参与」、
+ * 实际却仍在问那个人，等于用记录骗人。人数上限（含用户钉住的情形）
+ * 已经在决策里生效，被挡下的人都在 `excluded` 带原因，不是静默减员。
+ * 决策里一个都没有时才退回调用方的名单，避免把「无人可用」误读成「请全部模型」。
+ */
+export function dispatchedParticipantIds(
+  decision: ParticipationDecision,
+  fallback: readonly string[] | undefined
+): string[] {
+  const ids = decision.participants.map(item => item.participantId);
+  return ids.length > 0 ? ids : [...(fallback ?? [])];
+}
+
 /** ECO 充分度硬门禁：不足/过期时阻断正式架构职责；非 pinned 截断为单 lead。 */
 export function applyEcoGateToDecision(
   decision: ParticipationDecision,
