@@ -1327,7 +1327,13 @@ export interface ReviewIssueDetail {
   title: string;
   description: string;
   severity: 'high' | 'medium' | 'low' | 'unknown';
+  /** 判断理由；规则降级时可说明「仅由原文推断」。 */
+  rationale?: string;
   recommendation?: string;
+  /** 影响对象（文件/步骤/能力）；没有就不填，禁止伪造。 */
+  targetRef?: string;
+  /** 可读证据标签（命令、报告摘要等），不是伪造 messageId。 */
+  evidenceLabels?: string[];
   disposition: 'accepted' | 'rejected' | 'deferred' | 'pending';
   dispositionReason?: string;
 }

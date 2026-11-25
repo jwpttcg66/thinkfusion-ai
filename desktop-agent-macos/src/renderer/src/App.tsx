@@ -2377,6 +2377,7 @@ export default function App() {
                 deltas={answerDeltas}
                 debate={debateLive}
                 busy={conversationBusy}
+                suppressStructuredResult={Boolean(conversationResult)}
               />
             )}
             {showingConversation && activeConversation && conversationTab === 'chat' && (
@@ -2462,7 +2463,16 @@ export default function App() {
                 />
                 {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
                     每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
-                <TaskConversation task={activeTask} events={events} live={derived.live} />
+                <TaskConversation
+                  task={activeTask}
+                  events={events}
+                  live={derived.live}
+                  omitResultSummaries={Boolean(engineeringResult && (engineeringResult.conclusion
+                    || engineeringResult.reviews.length > 0
+                    || engineeringResult.verifications.length > 0
+                    || engineeringResult.disputes.length > 0
+                    || engineeringResult.deliverables.length > 0))}
+                />
                 {/* 思考过程在主对话页也要可见：不能只藏在「输出」页。 */}
                 {derived.modelTrace.some(item => item.reasoning.trim()) && (
                   <details className="card reasoning-history" open>

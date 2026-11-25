@@ -1,10 +1,10 @@
 # V3 主活动区重构 · U0 现状与数据链路审计
 
-状态：U0 完成（文档 + 代码事实）  
+状态：完成（审计文档已交付；后续质量缺口见 U7）  
 审计日期：2026-11-24  
-代码基线：`origin/main@cdc8308`（`cdc8308689e65b92017701a7646410c94fa1beb2`）  
-功能分支：`feat/v3-main-activity-collab-result`  
-任务书：[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)
+代码基线（审计当时）：`origin/main@cdc8308`  
+功能分支（历史）：`feat/v3-main-activity-collab-result`（已合入 main）  
+任务书：HISTORICAL · 收尾见 [`V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md)
 
 > 本文件只记录**代码与调用链事实**，不把计划写成已实现。
 

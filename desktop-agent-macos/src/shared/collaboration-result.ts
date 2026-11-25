@@ -348,14 +348,22 @@ export function projectEngineeringCollaborationResult(input: {
           title: detail.title,
           description: detail.description,
           severity: detail.severity,
+          ...(detail.rationale ? { rationale: detail.rationale } : {}),
           recommendation: detail.recommendation,
           // 事件上的 disposition 只是初值；闭环真值看后续 disposition 事件。
           disposition: detail.disposition,
           dispositionReason: detail.dispositionReason,
-          evidenceRefs: [] as SourceReference[],
+          // 只挂真实评审事件引用；没有 messageId 时不伪造。
+          evidenceRefs: (detail.evidenceLabels ?? []).map(label =>
+            ref({ subjectId: taskId, kind: 'review', eventType: 'review.ready', eventAt: event.at, label })),
           resolutionRefs: [] as SourceReference[],
           verificationRefs: [] as SourceReference[],
-          sourceRefs: [source]
+          sourceRefs: [
+            source,
+            ...(detail.targetRef
+              ? [ref({ subjectId: taskId, kind: 'other', label: detail.targetRef })]
+              : [])
+          ]
         }))
       : mapReviewIssues(taskId, reviewIndex, event.issues, event.at);
     reviewsRaw.push({
@@ -498,35 +506,34 @@ export function projectEngineeringCollaborationResult(input: {
     });
   }
 
-  const keyOpinions: OpinionView[] = [
-    ...debateOpinions,
-    ...entries
-      .filter((entry): entry is Extract<typeof entry, { kind: 'member' }> =>
-        entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0)
-      .map(entry => {
-        const source = ref({
-          subjectId: taskId,
-          kind: 'message',
-          eventAt: entry.at,
-          participantId: entry.memberId,
-          label: entry.label
-        });
-        // 协议 JSON 不当作意见正文；用可读推导/摘要进主页面，原文仍在输出页。
-        const statement = entry.protocol
-          ? (protocolDerivation(entry.text) ?? protocolSummary(entry.text) ?? `${entry.protocol}（见输出页原文）`)
-          : entry.text.trim();
-        return {
-          opinionId: `member:${entry.roundId ?? 'none'}:${entry.memberId}:${String(entry.at)}`,
-          author: entry.label,
-          position: 'neutral' as const,
-          statement: statement.slice(0, 800),
-          ...(entry.reasoning.trim() ? { rationale: entry.reasoning.trim().slice(0, 500) } : {}),
-          sourceRefs: [source],
-          evidenceRefs: [],
-          targetRefs: []
-        };
-      })
-  ];
+  // 核心意见 ≠ 全部模型回答：辩论主张进核心；成员完成回答只作「补充摘要」。
+  // 完整原文仍在时间线 / 轨迹，避免把所有回答都标成核心观点。
+  const memberSummaries: OpinionView[] = entries
+    .filter((entry): entry is Extract<typeof entry, { kind: 'member' }> =>
+      entry.kind === 'member' && entry.status === 'completed' && entry.text.trim().length > 0)
+    .map(entry => {
+      const source = ref({
+        subjectId: taskId,
+        kind: 'message',
+        eventAt: entry.at,
+        participantId: entry.memberId,
+        label: entry.label
+      });
+      const statement = entry.protocol
+        ? (protocolDerivation(entry.text) ?? protocolSummary(entry.text) ?? `${entry.protocol}（见输出页原文）`)
+        : entry.text.trim();
+      return {
+        opinionId: `member:${entry.roundId ?? 'none'}:${entry.memberId}:${String(entry.at)}`,
+        author: entry.label,
+        position: 'supplement' as const,
+        statement: statement.slice(0, 800),
+        ...(entry.reasoning.trim() ? { rationale: entry.reasoning.trim().slice(0, 500) } : {}),
+        sourceRefs: [source],
+        evidenceRefs: [],
+        targetRefs: []
+      };
+    });
+  const keyOpinions: OpinionView[] = [...debateOpinions, ...memberSummaries];
 
   const deliverables: DeliverableView[] = [
     ...taskView.changes.map((change, index) => ({
@@ -660,13 +667,23 @@ function mapClaimsAsOpinions(
         participantId: source.channelId,
         label: source.channelId
       }));
+    const primary = claim.sources[0];
+    // evidence 是可读摘录，不是 messageId；禁止伪造 evidence:${n}。
+    // 有真实消息来源时挂到该消息；否则只保留 label。
+    const evidenceRefs: SourceReference[] = claim.evidence.map(item =>
+      ref({
+        subjectId,
+        kind: primary ? 'message' : 'other',
+        ...(primary?.messageId ? { messageId: primary.messageId } : {}),
+        ...(primary?.channelId ? { participantId: primary.channelId } : {}),
+        label: item
+      }));
     return {
       opinionId: `${prefix}:${subjectId}:${String(index)}:${claim.text.slice(0, 40)}`,
       author: claim.sources[0]?.channelId ?? 'unknown',
       position,
       statement: claim.text,
-      evidenceRefs: claim.evidence.map((item, evidenceIndex) =>
-        ref({ subjectId, kind: 'other', label: item, messageId: `evidence:${String(evidenceIndex)}` })),
+      evidenceRefs,
       targetRefs: [],
       sourceRefs
     };
@@ -702,15 +719,61 @@ export function projectConversationCollaborationResult(input: {
     : [];
 
   const disputes = synthesis ? mapSynthesisDisputes(subjectId, synthesis.disputed) : [];
+  // 综合分歧立场也进核心意见（反对/对照），与 Engineering 面板同一套 OpinionView。
+  if (synthesis) {
+    for (const [disputeIndex, item] of synthesis.disputed.entries()) {
+      for (const [posIndex, position] of item.positions.entries()) {
+        keyOpinions.push({
+          opinionId: `dispute-stance:${subjectId}:${String(disputeIndex)}:${String(posIndex)}`,
+          author: position.channelId,
+          position: 'oppose',
+          statement: `${item.topic}：${position.stance}`,
+          rationale: item.pivot || undefined,
+          evidenceRefs: [],
+          targetRefs: [`synthesis-dispute:${subjectId}:${String(disputeIndex)}`],
+          sourceRefs: [ref({
+            subjectId,
+            kind: 'other',
+            participantId: position.channelId,
+            label: `分歧 · ${item.topic}`
+          })]
+        });
+      }
+    }
+  }
   const debate = input.debate ?? debateFromMessages;
   if (debate && debate.rounds.length > 0) {
-    // 辩论快照有轮次就记一条过程争议容器，裁决文案留给 VerdictStrip / fusion。
+    const debateSource = ref({ subjectId, kind: 'debate', label: 'DebateSnapshot' });
+    // 各作者首条发言作为主张，避免「有交锋无 claims」的空容器。
+    const firstByAuthor = new Map<string, { text: string; round: number }>();
+    for (const round of debate.rounds) {
+      for (const message of round.messages) {
+        if (!firstByAuthor.has(message.author) && message.text.trim()) {
+          firstByAuthor.set(message.author, { text: message.text.trim(), round: round.index });
+        }
+      }
+    }
+    const claims = [...firstByAuthor.entries()].map(([author, item], index) => ({
+      claimId: `debate-claim:${subjectId}:${String(index)}`,
+      author,
+      statement: item.text.slice(0, 400),
+      sourceRefs: [ref({
+        subjectId,
+        kind: 'debate',
+        participantId: author,
+        label: `第 ${String(item.round)} 轮首发`
+      })]
+    }));
+    const verdictText = synthesis?.finalOpinion?.trim()
+      || (debate.status === 'completed' || debate.status === 'stopped'
+        ? (debate.stopReason?.trim() || undefined)
+        : undefined);
     disputes.push({
       disputeId: `debate-snapshot:${subjectId}`,
       topic: '会话辩论',
       disputeClass: 'debate',
       status: debate.status === 'completed' || debate.status === 'stopped' ? 'verdict' : 'exchanging',
-      claims: [],
+      claims,
       exchanges: debate.rounds.flatMap(round =>
         round.messages.map((message, index) => ({
           exchangeId: `debate:${String(round.index)}:${String(index)}`,
@@ -723,9 +786,10 @@ export function projectConversationCollaborationResult(input: {
           text: message.text,
           sourceRefs: [ref({ subjectId, kind: 'debate', participantId: message.author, label: `第 ${String(round.index)} 轮` })]
         }))),
-      evidenceRefs: [],
-      unresolvedReason: debate.stopReason,
-      sourceRefs: [ref({ subjectId, kind: 'debate', label: 'DebateSnapshot' })]
+      evidenceRefs: claims.flatMap(claim => claim.sourceRefs),
+      verdict: verdictText,
+      unresolvedReason: debate.status === 'stopped' ? debate.stopReason : undefined,
+      sourceRefs: [debateSource]
     });
   }
 

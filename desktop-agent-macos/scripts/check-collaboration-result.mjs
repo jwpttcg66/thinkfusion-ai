@@ -266,12 +266,105 @@ test('General：综合分歧与一致观点进入统一投影', () => {
 
   assert.equal(view.scene, 'general');
   assert.ok(view.conclusion?.text.includes('分歧'));
-  assert.equal(view.keyOpinions.length, 1);
-  assert.equal(view.keyOpinions[0].position, 'support');
+  // 一致 1 + 分歧立场 2
+  assert.equal(view.keyOpinions.length, 3);
+  assert.equal(view.keyOpinions.filter(item => item.position === 'support').length, 1);
+  assert.equal(view.keyOpinions.filter(item => item.position === 'oppose').length, 2);
   assert.equal(view.disputes.length, 1);
   assert.equal(view.disputes[0].claims.length, 2);
   assert.equal(view.disputes[0].status, 'identified');
   assert.ok(view.conclusion?.uncertainties.some(item => item.includes('出处')));
+});
+
+test('U7：证据引用不得伪造 evidence: 前缀 messageId', () => {
+  const view = projectConversationCollaborationResult({
+    conversation: {
+      conversationId: 'c-ev',
+      title: '证据',
+      intent: 'research',
+      intentReason: 't',
+      status: 'answered',
+      channels: ['gemini'],
+      createdAt: 1,
+      updatedAt: 2
+    },
+    messages: [
+      {
+        messageId: 'm-syn',
+        conversationId: 'c-ev',
+        role: 'synthesis',
+        at: 3,
+        text: '综合',
+        synthesis: {
+          consensus: [{
+            text: '答案是 42',
+            sources: [{ channelId: 'gemini', messageId: 'm-real' }],
+            evidence: ['gemini: 42']
+          }],
+          disputed: [],
+          unique: [],
+          gaps: [],
+          recommendation: '答案是 42'
+        }
+      }
+    ]
+  });
+  const evidence = view.keyOpinions.flatMap(item => item.evidenceRefs);
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0].messageId, 'm-real');
+  assert.ok(!(evidence[0].messageId ?? '').startsWith('evidence:'));
+  assert.equal(evidence[0].label, 'gemini: 42');
+});
+
+test('U7：DebateSnapshot 投影含主张与裁决', () => {
+  const view = projectConversationCollaborationResult({
+    conversation: {
+      conversationId: 'c-debate',
+      title: '辩论',
+      intent: 'research',
+      intentReason: 't',
+      status: 'answered',
+      channels: ['a', 'b'],
+      createdAt: 1,
+      updatedAt: 2
+    },
+    messages: [
+      {
+        messageId: 'm-syn',
+        conversationId: 'c-debate',
+        role: 'synthesis',
+        at: 3,
+        text: '综合',
+        synthesis: {
+          consensus: [],
+          disputed: [],
+          unique: [],
+          gaps: [],
+          recommendation: '仍有分歧',
+          finalOpinion: '采纳 a 的说法'
+        },
+        debate: {
+          status: 'completed',
+          rounds: [
+            {
+              index: 1,
+              phase: 'challenge',
+              messages: [
+                { author: 'a', kind: 'claim', text: '我认为是 2024' },
+                { author: 'b', kind: 'rebuttal', text: '不对，是 2025' }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  });
+  const debateDispute = view.disputes.find(item => item.disputeClass === 'debate');
+  assert.ok(debateDispute);
+  assert.equal(debateDispute.claims.length, 2);
+  assert.equal(debateDispute.status, 'verdict');
+  assert.equal(debateDispute.verdict, '采纳 a 的说法');
+  assert.ok(debateDispute.exchanges.length >= 2);
 });
 
 test('Engineering：采纳后挂修正轮与验证；验证失败仍算未关闭', () => {

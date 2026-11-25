@@ -91,6 +91,11 @@ export function ConversationView(props: {
   /** 辩论进行中的轮次快照；没有就是这一轮没辩论。 */
   debate?: import('../../../shared/conversation').DebateSnapshot | null;
   busy: boolean;
+  /**
+   * U7：上方已有 CollaborationResultPanel 时，综合卡只保留交锋原文与过程，
+   * 不再重复结论 / 结构化分歧 / 辩后裁决条。
+   */
+  suppressStructuredResult?: boolean;
 }) {
   const { conversation, messages } = props;
   const [runView, setRunView] = useState<RunView | null>(null);
@@ -508,6 +513,7 @@ export function ConversationView(props: {
                     debate={block.message.debate}
                     labels={labels}
                     opinionTags={opinionTags}
+                    suppressStructuredResult={props.suppressStructuredResult}
                   />
                 ))}
             </section>
@@ -1145,7 +1151,8 @@ function SynthesisCard({
   reasoning,
   debate,
   labels,
-  opinionTags
+  opinionTags,
+  suppressStructuredResult
 }: {
   synthesis: Synthesis;
   /** 主导人写这段汇总时的推理；有就折叠显示，不能只活在流式预览里。 */
@@ -1154,6 +1161,8 @@ function SynthesisCard({
   debate?: import('../../../shared/conversation').DebateSnapshot;
   labels: ReadonlyMap<string, string>;
   opinionTags: OpinionTag[];
+  /** 结果面板已展示结论/意见/争议时，本卡只留交锋原文。 */
+  suppressStructuredResult?: boolean;
 }) {
   /**
    * 这张卡里只有一套结论。
@@ -1178,6 +1187,24 @@ function SynthesisCard({
   const showConclusionLast = Boolean(debate);
   const leadingSections = showConclusionLast ? sections.filter(section => section.title !== '结论') : sections;
   const conclusionSections = showConclusionLast ? sections.filter(section => section.title === '结论') : [];
+
+  // U7：结果面板负责「得出了什么」；时间线只保留交锋原文与过程入口。
+  if (suppressStructuredResult) {
+    return (
+      <article className="synthesis is-process-only">
+        <div className="synthesis-head">
+          <span className="synthesis-mark">◈</span>
+          <b>综合过程与原文</b>
+          <span className="muted">结构化结论与争议见上方「任务结果」</span>
+        </div>
+        {reasoning && <ChannelReasoning text={reasoning} />}
+        {debate && <DebatePanel debate={debate} labels={labels} />}
+        {!debate && (
+          <p className="muted">本轮没有辩论交锋原文；通道回答仍按时间显示在上方。</p>
+        )}
+      </article>
+    );
+  }
 
   return (
     <article className={`synthesis ${structured && synthesis.degraded ? 'degraded' : ''}`}>

@@ -1,7 +1,7 @@
 # ThinkFusion 单一状态板
 
 状态：当前有效  
-基线：`main` · `cdc8308689e65b92017701a7646410c94fa1beb2` · 2026-11-24
+基线：`main` · `8601fc2c4b4e3e4be3f7c2c3a717fb65c1f456bc` · 2026-11-24
 
 > 本文件是**唯一阶段状态来源**。其他文档里的阶段表、完成度表只作为历史计划或
 > 设计依据；与本文件冲突时，以本文件 + 代码/测试事实为准。
@@ -78,25 +78,27 @@
 
 | 项 | 状态 | 依据 |
 | --- | --- | --- |
-| 实施任务书 | DESIGN | `docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md` |
-| U0 现状与数据链路审计 | DESIGN | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md` |
-| U1 统一协作结果投影 | IMPLEMENTED / TESTED | `shared/collaboration-result.ts` + `test:collaboration-result` |
-| U2 Debate 争议驱动与展示 | IMPLEMENTED / TESTED | `PlanDebate.result` + 投影不伪造无争议 |
-| U3 Review 内容与闭环 | IMPLEMENTED / TESTED | `review.disposition` + 修复轮自动采纳 + IPC/UI；投影挂修正/验证；验证失败不关闭 |
-| U4 General / Knowledge 主活动区 | IMPLEMENTED / TESTED | `CollaborationResultPanel` 置顶（自动化）；真机见 U6 报告中的结果面板 |
-| U5 Engineering 主活动区 | IMPLEMENTED / TESTED | 结果面板 + 对话页去掉重复最终交付；真机见 U6 |
-| U6 集成 / 恢复 / 真机验收 | VERIFIED | 自动化全绿；云端 OpenCode Go 真机 `completed`（问题原样、不开网页）；见 `V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md` |
-| 功能分支 | 进行中 | `feat/v3-main-activity-collab-result`（未推送） |
+| 实施任务书（U0–U6） | HISTORICAL / 主体已合入 | `docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`；基线已过时，见 U7 |
+| U0 现状与数据链路审计 | 完成 | `docs/implementation/V3-MAIN-ACTIVITY-U0-AUDIT.md` |
+| U1 统一协作结果投影 | PARTIAL | 投影层 + UI 已接线；来源引用在 U7 收敛 |
+| U2 Debate 争议驱动与展示 | PARTIAL | PlanDebate 结构化；跨场景裁决统一在 U7 |
+| U3 Review 内容与闭环 | PARTIAL | disposition 闭环已有；评审语义补齐在 U7 |
+| U4 General / Knowledge 主活动区 | PARTIAL | 结果面板已接入；去重与场景验收在 U7 |
+| U5 Engineering 主活动区 | PARTIAL | 结果面板已接入；去重与闭环验收在 U7 |
+| U6 集成 / 恢复 / 真机验收 | PARTIAL | Engineering 单路径冒烟有证据；三场景完整验收改由 U7 |
+| **U7 质量收敛与最终验收** | PARTIAL | 代码已落地；Engineering 真机去重通过；General/Knowledge 真机待补。见 `V3-MAIN-ACTIVITY-U7-ACCEPTANCE.md` |
+| 功能分支 | 进行中 | `feat/v3-main-activity-u7-quality`（相对 `main@8601fc2`） |
 | 实施记录 | — | `V3-MAIN-ACTIVITY-U2-U6-IMPLEMENTATION.md`、`V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md` |
 
-> U6 真机证据：`taskId=0753851d-6dab-4e11-b4f2-83ead4bd8e69`，终态 completed；报告 `/tmp/tf-v3-u6-report.json`。
+> U6 真机证据（Engineering 冒烟）：`taskId=0753851d-6dab-4e11-b4f2-83ead4bd8e69`，终态 completed。  
+> **不得把 U0–U6 整体标为 VERIFIED**；以 U7 三场景验收为准。
 
 ## 5. 文档分类
 
 | 类别 | 文档 |
 | --- | --- |
 | 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md` |
-| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书 |
+| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书** |
 | 已完成能力与证据 | `implementation/COMPLETION-AUDIT.md`、`implementation/E-ACCEPTANCE-REPORT.md`、`docs/spec/evidence/*`、`git log` |
 | 历史规格 | `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`、旧辩论入口/固定轮次说明、已被替代的 V3 阶段表 |
 | 运维/发布 | `operations/RELEASE_CHECKLIST.md`、`operations/LONG-TASK-CONTEXT-ROLLOUT.md` |
@@ -117,5 +119,5 @@
 | `PRODUCT` 旧句“代码尚未迁移” | 已改为“主体已迁移，见状态板” |
 | `implementation/README` 旧状态板与 COMPLETION-AUDIT 不一致 | 旧表标记为历史，本文件为唯一状态 |
 | `UNIFIED-TASK-RUNTIME` 声称重启恢复已完成 | 修正为：当前仅标记中断，长任务恢复在 LT-P5 |
-| 长任务文档基线 `e31b6a3` | 已统一为当时审计基线；当前仓库基线以本文件顶部 `cdc8308` 为准（2026-11-24） |
-| STATUS 曾写 `e336ae4` | 已与 `origin/main@cdc8308` 对齐 |
+| 长任务文档基线 `e31b6a3` / 旧主活动区基线 `cdc8308` | 本文件顶部已更新为 `8601fc2`（2026-11-24） |
+| 主活动区 U0–U6 曾标 VERIFIED / 功能分支未推送 | 已改为 PARTIAL + U7 收尾；改动已在 `main` |
