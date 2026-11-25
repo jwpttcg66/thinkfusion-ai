@@ -172,6 +172,7 @@
     "test:gtec-p3": "npm run build:test && node --test scripts/check-gtec-p3.mjs",
     "test:gtec-p4": "npm run build:test && node --test scripts/check-gtec-p4.mjs",
     "test:gtec-p5": "npm run build:test && node --test scripts/check-gtec-p5.mjs",
+    "test:gtec-p6": "npm run build:test && node --test scripts/check-gtec-p6.mjs",
     "test:model-route": "npm run build:agent && node --test scripts/check-model-route.mjs",
     "test:local-tools": "npm run build:agent && node --test scripts/check-local-tools.mjs",
     "test:computer-use": "npm run build:agent && npm run build:ax:mac && node --test scripts/check-computer-use.mjs",

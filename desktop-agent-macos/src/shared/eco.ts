@@ -291,6 +291,55 @@ export function invalidateContextPackage(
   };
 }
 
+/** 挂到检查点 evidenceRefs 的 ECO 版本引用（不改 LT Checkpoint schema）。 */
+export interface EcoCheckpointRef {
+  contextPackageId: string;
+  contextVersion: number;
+  sufficiency: ContextSufficiency;
+  goalVersion?: number;
+}
+
+export function buildEcoCheckpointRef(pkg: EngineeringContextPackage): EcoCheckpointRef {
+  return {
+    contextPackageId: pkg.contextPackageId,
+    contextVersion: pkg.contextVersion,
+    sufficiency: pkg.sufficiency,
+    goalVersion: pkg.goalVersion
+  };
+}
+
+export function toEcoEvidenceRef(ref: EcoCheckpointRef): string {
+  const goal = ref.goalVersion !== undefined ? `:g${String(ref.goalVersion)}` : '';
+  return `eco-context:${ref.contextPackageId}:v${String(ref.contextVersion)}:${ref.sufficiency}${goal}`;
+}
+
+export function parseEcoEvidenceRef(value: string): EcoCheckpointRef | null {
+  const match = /^eco-context:(.+):v(\d+):(sufficient|partial|insufficient|stale)(?::g(\d+))?$/.exec(value.trim());
+  if (!match) return null;
+  return {
+    contextPackageId: match[1]!,
+    contextVersion: Number(match[2]),
+    sufficiency: match[3] as ContextSufficiency,
+    ...(match[4] ? { goalVersion: Number(match[4]) } : {})
+  };
+}
+
+/** 恢复时：当前包是否仍兼容检查点所钉版本。 */
+export function isEcoRefCompatible(saved: EcoCheckpointRef, current: EngineeringContextPackage): boolean {
+  if (current.sufficiency === 'stale') return false;
+  if (current.workId && saved.contextPackageId.includes(current.workId) === false
+    && current.contextPackageId !== saved.contextPackageId) {
+    // 不同 work 的包不兼容
+    const savedWork = saved.contextPackageId.split(':')[1];
+    if (savedWork && savedWork !== current.workId) return false;
+  }
+  if (current.contextVersion < saved.contextVersion) return false;
+  if (saved.goalVersion !== undefined && current.goalVersion !== undefined && current.goalVersion < saved.goalVersion) {
+    return false;
+  }
+  return true;
+}
+
 export function classifyClaim(text: string, hasVerifiedRef: boolean): EcoFactClass {
   const t = text.trim();
   if (!t) return 'unknown';
