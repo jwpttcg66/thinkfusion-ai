@@ -279,7 +279,8 @@
     "test:memory-debate": "npm run build:test && node --test scripts/check-memory-debate-scope.mjs",
     "dev:local": "npm run build:agent && electron-vite dev --noSandbox --remoteDebuggingPort 9333",
     "test:message-dedupe": "npm run build:test && node --test scripts/check-message-dedupe.mjs",
-    "test:review-detail": "npm run build:test && node --test scripts/check-review-detail.mjs"
+    "test:review-detail": "npm run build:test && node --test scripts/check-review-detail.mjs",
+    "test:workflow": "npm run build:test && node --test scripts/check-workflow.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
