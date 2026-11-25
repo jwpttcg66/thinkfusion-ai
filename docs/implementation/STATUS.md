@@ -222,3 +222,21 @@
 | `UNIFIED-TASK-RUNTIME` 声称重启恢复已完成 | 修正为：当前仅标记中断，长任务恢复在 LT-P5 |
 | 长任务文档基线 `e31b6a3` / 旧主活动区基线 `cdc8308` | 本文件顶部已更新为 `8601fc2`（2026-11-24） |
 | 主活动区 U0–U6 曾标 VERIFIED / 功能分支未推送 | 已改为 PARTIAL + U7 收尾；改动已在 `main` |
+
+## 8. 2026-11-25 远程审计整改状态
+
+审计基线：`main@49b7819`（远程）。整改按 P0 → P1 → P2 推进，每项独立分支、测试与真机证据后合入 `main`。
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| P0-1 ECO 不再把计划/工作区当工程事实 | VERIFIED | `evidence/V3-P0-ECO-EVIDENCE-LIVE.json`；`test:eco` 9/9 |
+| P0-1 证据进方案评审（材料身份，带 sha256） | IMPLEMENTED | `plan-review.ts` `formatEcoEvidence`；`test:plan-review` 23/23 |
+| P0-2 TDL 支持 `decomposition` → L2，分母只算叶子，DFS 排序 | IMPLEMENTED（模型侧未产出） | `test:gtec-p1` 6/6；`evidence/V3-P0-TDL-L2-LIVE.json` |
+| P0-2 未分解时可见警告，不触发重规划 | VERIFIED | `evidence/V3-P0-TDL-L2-GUARD-LIVE.json` |
+| P0-3 DMOCA 决策驱动派发（Engineering 评审） | VERIFIED | `evidence/V3-P0-DMOCA-DISPATCH-LIVE.json`；`test:dmoca` 10/10 |
+| P0-3 General / Knowledge 接入 DMOCA | NOT STARTED | 会话侧无风险输入，需先定义风险来源 |
+| P0-4 长任务/上下文文档状态一致 | VERIFIED | 本文件 §4、`PRODUCT.md`、三份 LONG-TASK 文档 |
+| P1 决策钉住贡献版本 | IMPLEMENTED | `DecisionSnapshotView.contributions`；`test:dmoca` |
+| P1 Workflow Definition/Plugin | NOT STARTED | 需复用 TDL/GDC，不新建 Runtime |
+| P1 长任务默认启用与恢复联动 | NOT STARTED | `THINKFUSION_CONTEXT_MANAGER` 仍默认关闭 |
+| P2 Java AST/类型绑定/调用图 | NOT STARTED | `java.ts` 仍是文本/正则 |
