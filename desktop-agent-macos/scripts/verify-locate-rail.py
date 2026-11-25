@@ -68,9 +68,10 @@ async def main():
         snap = await evaluate(
             """(() => {
               const rail = document.querySelector('.user-msg-locate-rail');
-              const ticks = [...document.querySelectorAll('.user-msg-locate-tick')];
+              const spine = document.querySelector('.user-msg-locate-spine');
+              const ticks = [...document.querySelectorAll('.user-msg-locate-hit')];
               const capsuleTicks = document.querySelectorAll(
-                '.task-plan-capsule .user-msg-locate-tick, .task-plan-capsule .task-plan-tick, .dock .user-msg-locate-tick'
+                '.task-plan-capsule .user-msg-locate-hit, .task-plan-capsule .task-plan-tick, .dock .user-msg-locate-hit'
               );
               const capsule = document.querySelector('.task-plan-capsule');
               const dock = document.querySelector('.dock');
@@ -82,6 +83,13 @@ async def main():
               const capsuleRect = capsule?.getBoundingClientRect();
               return {
                 hasRail: !!rail,
+                hasSpine: !!spine,
+                hasBars: document.querySelectorAll('.user-msg-locate-hit-bar').length > 0,
+                transparentRail: (() => {
+                  if (!rail) return false;
+                  const bg = getComputedStyle(rail).backgroundColor.replace(/\\s+/g, '');
+                  return !bg || bg === 'rgba(0,0,0,0)' || bg === 'transparent';
+                })(),
                 tickCount: ticks.length,
                 capsuleTickCount: capsuleTicks.length,
                 inWrap: !!(wrap && rail && wrap.contains(rail)),
@@ -94,8 +102,14 @@ async def main():
                 dockTop: dockRect && Math.round(dockRect.top),
                 capsuleTop: capsuleRect && Math.round(capsuleRect.top),
                 spansBody: !!(railRect && scrollRect &&
-                  Math.abs(railRect.top - scrollRect.top) < 30 &&
-                  railRect.height >= scrollRect.height * 0.65),
+                  Math.abs(railRect.top - scrollRect.top) < 40 &&
+                  railRect.height >= scrollRect.height * 0.6),
+                offsetLeft: (() => {
+                  const rail = document.querySelector('.user-msg-locate-rail');
+                  const wrap = document.querySelector('.scroll-with-rail');
+                  if (!rail || !wrap) return null;
+                  return Math.round(rail.getBoundingClientRect().left - wrap.getBoundingClientRect().left);
+                })(),
                 aboveDock: !!(railRect && dockRect && railRect.bottom <= dockRect.top + 8),
                 active: ticks.some(t => t.classList.contains('is-active')),
                 goal: document.querySelector('.task-plan-goal')?.textContent?.trim() || null
@@ -118,7 +132,7 @@ async def main():
             """(() => {
               const scroll = document.querySelector('.scroll');
               const before = scroll?.scrollTop ?? -1;
-              const tick = document.querySelector('.user-msg-locate-tick');
+              const tick = document.querySelector('.user-msg-locate-hit');
               tick?.click();
               return new Promise(resolve => {
                 setTimeout(() => {
@@ -143,6 +157,9 @@ async def main():
         ok = (
             snap
             and snap.get("hasRail")
+            and not snap.get("hasSpine")
+            and snap.get("hasBars")
+            and snap.get("transparentRail")
             and snap.get("tickCount", 0) > 0
             and snap.get("capsuleTickCount", 0) == 0
             and snap.get("inWrap")
@@ -150,6 +167,8 @@ async def main():
             and not snap.get("inDock")
             and snap.get("spansBody")
             and snap.get("aboveDock")
+            and snap.get("offsetLeft") is not None
+            and abs(snap.get("offsetLeft")) <= 2
             and jump
             and (jump.get("moved") or jump.get("visible"))
         )
