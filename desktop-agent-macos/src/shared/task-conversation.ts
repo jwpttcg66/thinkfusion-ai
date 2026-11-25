@@ -894,6 +894,58 @@ export function buildTaskConversation(
       continue;
     }
 
+    // 时序里程碑：短文案插入对话流，完整结构化收口仍在流末结果面板。
+    if (event.type === 'work.breakdown.created') {
+      push({
+        kind: 'note',
+        key: `work-breakdown-${String(event.at)}-${String(seq)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'info',
+        text: `任务分解 · ${event.title || event.workId}`,
+        detail: `workId ${event.workId}`
+      });
+      continue;
+    }
+
+    if (event.type === 'eco.context.prepared') {
+      const pkg = event.package;
+      push({
+        kind: 'note',
+        key: `eco-${pkg.contextPackageId}-${String(event.at)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: pkg.sufficiency === 'insufficient' || pkg.sufficiency === 'stale' ? 'warn' : 'muted',
+        text: `工程上下文 · ${pkg.sufficiency} · v${String(pkg.contextVersion)}`,
+        detail: [
+          pkg.architectureSummary,
+          pkg.role ? `角色 ${pkg.role}` : '',
+          pkg.missingCritical.length > 0 ? `缺失：${pkg.missingCritical.join('；')}` : ''
+        ].filter(Boolean).join('\n') || undefined
+      });
+      continue;
+    }
+
+    if (event.type === 'model.participation.selected') {
+      const names = event.participants.map(item => `${item.participantId}（${item.roles.join('+')}）`);
+      push({
+        kind: 'note',
+        key: `participation-${String(event.at)}-${String(seq)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'muted',
+        text: `模型参与 · ${event.risk} · 辩论 ${event.debate} · 审核 ${event.modelReview}`,
+        detail: [
+          names.length > 0 ? `参与：${names.join('；')}` : '无参与者',
+          event.reasons.slice(0, 4).join(' · ')
+        ].filter(Boolean).join('\n')
+      });
+      continue;
+    }
+
     if (event.type === 'cycle.snapshot') {
       push({
         kind: 'note',

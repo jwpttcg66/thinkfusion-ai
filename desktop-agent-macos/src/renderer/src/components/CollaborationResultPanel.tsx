@@ -1,9 +1,9 @@
 /**
  * 主活动区五层结果面板（V3 U4/U5 · U7 质量收敛）。
  *
- * 只读 CollaborationResultView：目标/循环 → 意见/争议 → 评审/验证 → 过程 →
- * **结论压在最后**（仿计划卡的完成状态框）→ 证据入口。
- * 不在这里重新推导业务状态。
+ * 流结束后的结构化收口（贴在时序对话流下方）：目标/循环 → 意见/争议 →
+ * 评审/验证 → 过程 → **结论压在最后**（仿计划卡完成框）→ 证据入口。
+ * 不在这里重新推导业务状态；进行中的主阅读面是对话流。
  */
 
 import React, { useState } from 'react';
@@ -84,11 +84,13 @@ export function CollaborationResultPanel(props: {
   return (
     <section className="collab-result" aria-label="协作结果">
       <header className="collab-result-head">
-        <b>任务结果</b>
+        <b>任务收口</b>
         <span className="muted">
           {result.scene === 'engineering' ? '工程' : result.scene === 'knowledge' ? '知识' : '问答'}
           {' · '}
           {result.progress.summary}
+          {' · '}
+          结论在下方
         </span>
       </header>
 

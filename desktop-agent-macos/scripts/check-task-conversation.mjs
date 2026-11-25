@@ -819,3 +819,67 @@ test('执行前桥接：先画出将跑的步骤再动手', () => {
   assert.equal(bridges[0].steps[0].tool, 'fs.write');
   assert.match(bridges[0].steps[1].target, /javac/);
 });
+
+test('时序里程碑：分解 / ECO / 参与决策按事件顺序进对话流', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'work.breakdown.created',
+      at: 1100,
+      taskId: task,
+      workId: 'work-1',
+      title: '补 Hello World'
+    },
+    {
+      type: 'eco.context.prepared',
+      at: 1200,
+      taskId: task,
+      package: {
+        contextPackageId: 'eco-1',
+        contextVersion: 1,
+        workId: 'work-1',
+        stage: 'plan',
+        role: 'planner',
+        architectureSummary: '单文件 Java 示例',
+        resources: [],
+        constraints: [],
+        decisions: [],
+        verifiedFacts: [],
+        inferences: [],
+        unknowns: [],
+        missingCritical: [],
+        sufficiency: 'sufficient',
+        createdAt: 1200
+      }
+    },
+    {
+      type: 'model.participation.selected',
+      at: 1300,
+      taskId: task,
+      stage: 'plan',
+      risk: 'L1',
+      participants: [{ participantId: 'p1', roles: ['planner'], reason: '默认规划' }],
+      excluded: [],
+      debate: 'skip',
+      modelReview: 'on_demand',
+      reasons: ['低风险跳过辩论'],
+      userPinned: false
+    },
+    peer(1400, 'r1', 'm1', 'OpenCode Go', 'answered', { text: '开始规划' })
+  ]);
+
+  const notes = entries.filter(entry => entry.kind === 'note');
+  assert.equal(notes.length, 4); // 轮次 note + 三个里程碑
+  assert.match(notes[0].text, /第 1 轮 · 提问/);
+  assert.match(notes[1].text, /任务分解 · 补 Hello World/);
+  assert.match(notes[2].text, /工程上下文 · sufficient · v1/);
+  assert.match(notes[3].text, /模型参与 · L1 · 辩论 skip · 审核 on_demand/);
+  assert.match(notes[3].detail, /p1（planner）/);
+  assert.match(notes[3].detail, /低风险跳过辩论/);
+
+  // 里程碑插在成员回答之前：提问 → 分解 → ECO → 参与 → 回答。
+  const kinds = entries.map(entry => entry.kind);
+  const firstMember = kinds.indexOf('member');
+  assert.equal(firstMember, 4);
+  assert.deepEqual(kinds.slice(0, firstMember), ['note', 'note', 'note', 'note']);
+});
