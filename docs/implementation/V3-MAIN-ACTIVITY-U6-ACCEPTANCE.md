@@ -61,5 +61,10 @@
 | 项 | 状态 |
 | --- | --- |
 | 自动化回归 / 事件重放 | ✅ |
-| Electron 真机（云端 OpenCode Go / 不开网页 / `completed`） | ✅ |
+| Electron 真机（云端 OpenCode Go / 不开网页 / `completed`） | ✅ Engineering 单路径冒烟 |
 | 验证失败分支的未关闭项勾选 | ⏳ 自动化已覆盖；真机可另跑 |
+| General / Knowledge 真机 | ❌ 未覆盖 → 移交 U7 |
+| 结果面板与时间线去重 / 来源定位 | ❌ 移交 U7 |
+
+> **口径修订（2026-11-25）：** 本报告证明 Engineering 冒烟通过，**不等于**整体 U6 VERIFIED。  
+> 完整三场景验收见 [`V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md)。

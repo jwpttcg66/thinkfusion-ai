@@ -1,10 +1,10 @@
 # ThinkFusion V3 主活动区与协作结果表达重构实施任务书
 
-版本：V1.0 · 类型：正式功能实施任务书 · 基准：最近一次已审计远程 main `cdc8308`
+版本：V1.0 · 类型：正式功能实施任务书 · 原基准：`cdc8308`（已过时）
 
-> **任务书状态：** V1.0，实施中（U0）。  
-> **功能分支：** `feat/v3-main-activity-collab-result`  
-> **说明：** 真正开始实施前已重新核对远程 `origin/main`；当前仍为 `cdc8308`，与本文基线一致。
+> **任务书状态：** HISTORICAL（U0–U6 主体已合入 `main`）。  
+> **后续收尾：** 见 [`V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md`](./V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md)，基线 `main@8601fc2`。  
+> **说明：** 不得再把本文 U0–U6 当作尚未实施清单；质量缺口（去重、来源真实性、三场景验收）由 U7 收敛。
 
 ---
 

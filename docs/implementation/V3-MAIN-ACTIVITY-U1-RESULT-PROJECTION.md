@@ -1,9 +1,10 @@
 # V3 主活动区重构 · U1 统一协作结果投影
 
-状态：投影层已落地（TESTED）· UI 尚未消费  
-基线：`origin/main@cdc8308`  
-分支：`feat/v3-main-activity-collab-result`  
-任务书：[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)  
+状态：投影层已落地（TESTED）· UI 已在 U4/U5 接线 · 来源真实性由 U7 收敛  
+基线（历史）：`cdc8308` → 当前 `main@8601fc2`  
+分支（历史）：`feat/v3-main-activity-collab-result`（已合入 main）  
+任务书：[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)（HISTORICAL）  
+U7：[`docs/spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md)  
 U0 审计：[`V3-MAIN-ACTIVITY-U0-AUDIT.md`](./V3-MAIN-ACTIVITY-U0-AUDIT.md)
 
 ## 本阶段做了什么
@@ -19,7 +20,7 @@ U0 审计：[`V3-MAIN-ACTIVITY-U0-AUDIT.md`](./V3-MAIN-ACTIVITY-U0-AUDIT.md)
 
 - **权威来源不变**：AgentEvent / ConversationMessage / Synthesis / DebateSnapshot。
 - **新增派生层**：`CollaborationResultView`（结论 / 意见 / 争议 / 评审 / 验证 / 交付 / SourceReference）。
-- **Renderer 尚未接线**：U4/U5 才改主活动区消费此投影；当前无第二套权威状态。
+- **Renderer 已接线**（U4/U5）：`CollaborationResultPanel`；U7 处理与时间线去重及来源真实性。
 
 ## 关键语义决定
 

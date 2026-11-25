@@ -1,19 +1,21 @@
 /**
- * 主活动区五层结果面板（V3 U4/U5）。
+ * 主活动区五层结果面板（V3 U4/U5 · U7 质量收敛）。
  *
  * 只读 CollaborationResultView：结论 → 意见/争议 → 评审/验证 → 过程摘要 → 证据入口。
  * 不在这里重新推导业务状态。
  */
 
 import React, { useState } from 'react';
-import type { CollaborationResultView, ReviewDisposition } from '../../../shared/collaboration-result';
+import type { CollaborationResultView, ReviewDisposition, SourceReference } from '../../../shared/collaboration-result';
 import { MarkdownBody } from './MarkdownBody';
+
+const OPINION_PREVIEW = 8;
 
 export function CollaborationResultPanel(props: {
   result: CollaborationResultView;
   /** 轨迹/详情入口：可选，不传就不显示跳转。 */
   onOpenEvidence?: () => void;
-  /** 默认展开结论；过程层默认收起。 */
+  /** 默认展开结论；过程层默认收起（true = 收起）。 */
   compactProcess?: boolean;
   /**
    * 写回评审问题处理决定。不传则只读展示（例如会话结果没有工程评审闭环）。
@@ -25,10 +27,21 @@ export function CollaborationResultPanel(props: {
   }) => void | Promise<void>;
 }) {
   const { result } = props;
-  const [processOpen, setProcessOpen] = useState(true);
+  // 任务书：过程层默认收起；compactProcess 缺省按 true 处理。
+  const [processOpen, setProcessOpen] = useState(!(props.compactProcess ?? true));
+  const [opinionsExpanded, setOpinionsExpanded] = useState(false);
   const [busyIssueId, setBusyIssueId] = useState<string | null>(null);
   const hasOpinions = result.keyOpinions.length > 0 || result.disputes.length > 0;
   const hasReview = result.reviews.length > 0 || result.verifications.length > 0;
+  const coreOpinions = result.keyOpinions.filter(item =>
+    item.position === 'support' || item.position === 'oppose' || item.position === 'revise');
+  const supplementOpinions = result.keyOpinions.filter(item =>
+    item.position === 'supplement' || item.position === 'neutral');
+  const orderedOpinions = [...coreOpinions, ...supplementOpinions];
+  const visibleOpinions = opinionsExpanded
+    ? orderedOpinions
+    : orderedOpinions.slice(0, OPINION_PREVIEW);
+  const hiddenOpinionCount = Math.max(0, orderedOpinions.length - OPINION_PREVIEW);
 
   async function decide(
     issueId: string,
@@ -121,6 +134,7 @@ export function CollaborationResultPanel(props: {
             {result.conclusion.openItems.length > 0 && (
               <p className="collab-result-open">待处理：{result.conclusion.openItems.join('；')}</p>
             )}
+            <SourceRefList refs={result.conclusion.sourceRefs} />
           </div>
         ) : (
           <p className="muted">还没有可展示的结论文本。</p>
@@ -154,7 +168,7 @@ export function CollaborationResultPanel(props: {
             </span>
           </summary>
           <div className="collab-result-body">
-            {result.keyOpinions.slice(0, 8).map(opinion => (
+            {visibleOpinions.map(opinion => (
               <article key={opinion.opinionId} className="collab-result-opinion">
                 <header>
                   <b>{opinion.author}</b>
@@ -162,8 +176,20 @@ export function CollaborationResultPanel(props: {
                 </header>
                 <MarkdownBody text={opinion.statement} />
                 {opinion.rationale && <p className="muted">理由：{opinion.rationale}</p>}
+                <SourceRefList refs={[...opinion.sourceRefs, ...opinion.evidenceRefs]} />
               </article>
             ))}
+            {hiddenOpinionCount > 0 && (
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setOpinionsExpanded(open => !open)}
+              >
+                {opinionsExpanded
+                  ? '收起意见'
+                  : `展开全部意见（另有 ${String(hiddenOpinionCount)} 条）`}
+              </button>
+            )}
             {result.disputes.map(dispute => (
               <article key={dispute.disputeId} className="collab-result-dispute">
                 <header>
@@ -180,10 +206,14 @@ export function CollaborationResultPanel(props: {
                     [{exchange.kind}] {exchange.author}：{exchange.text.slice(0, 280)}
                   </p>
                 ))}
+                {dispute.exchanges.length > 6 && (
+                  <p className="muted">另有 {String(dispute.exchanges.length - 6)} 条交锋，见完整轨迹。</p>
+                )}
                 {dispute.verdict && <p><b>裁决：</b>{dispute.verdict}</p>}
                 {dispute.unresolvedReason && (
                   <p className="collab-result-open">未解决：{dispute.unresolvedReason}</p>
                 )}
+                <SourceRefList refs={dispute.sourceRefs} />
               </article>
             ))}
           </div>
@@ -217,6 +247,7 @@ export function CollaborationResultPanel(props: {
                       <li key={issue.issueId}>
                         <b>[{severityLabel(issue.severity ?? 'unknown')}] {issue.title}</b>
                         {issue.description !== issue.title && <div>{issue.description}</div>}
+                        {issue.rationale && <div className="muted">依据：{issue.rationale}</div>}
                         <div className="muted">
                           处理：{dispositionLabel(issue.disposition)}
                           {issue.dispositionReason ? ` · ${issue.dispositionReason}` : ''}
@@ -232,6 +263,7 @@ export function CollaborationResultPanel(props: {
                             验证：{issue.verificationRefs.map(item => item.label ?? item.kind).join('；')}
                           </div>
                         )}
+                        <SourceRefList refs={[...issue.sourceRefs, ...issue.evidenceRefs]} />
                         {props.onSetDisposition && issue.disposition === 'pending' && (
                           <div className="collab-result-disposition-actions">
                             <button
@@ -277,13 +309,14 @@ export function CollaborationResultPanel(props: {
                 {!item.fullyVerified && (
                   <p className="muted">未完全验证：不能把「模型说已解决」当成测试已通过。</p>
                 )}
+                <SourceRefList refs={item.sourceRefs} />
               </article>
             ))}
           </div>
         </details>
       )}
 
-      {/* 04 协作过程（紧凑） */}
+      {/* 04 协作过程（默认收起） */}
       <details
         className="collab-result-section is-process"
         open={processOpen}
@@ -317,11 +350,25 @@ export function CollaborationResultPanel(props: {
   );
 }
 
+function SourceRefList(props: { refs: readonly SourceReference[] }) {
+  const labels = [...new Set(
+    props.refs
+      .map(item => item.label ?? item.messageId ?? item.participantId ?? item.eventType ?? item.kind)
+      .filter((item): item is string => Boolean(item && item.trim()))
+  )].slice(0, 8);
+  if (labels.length === 0) return null;
+  return (
+    <p className="muted collab-result-sources">
+      来源：{labels.join(' · ')}
+    </p>
+  );
+}
+
 function positionLabel(position: string): string {
   switch (position) {
     case 'support': return '支持';
-    case 'oppose': return '反对';
-    case 'supplement': return '补充';
+    case 'oppose': return '反对 / 对照';
+    case 'supplement': return '补充摘要';
     case 'revise': return '修正';
     default: return '中立';
   }

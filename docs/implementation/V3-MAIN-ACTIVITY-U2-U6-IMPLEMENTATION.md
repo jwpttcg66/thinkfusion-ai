@@ -1,8 +1,10 @@
 # V3 主活动区重构 · U2–U6 实施记录
 
-基线：`origin/main@cdc8308`  
-分支：`feat/v3-main-activity-collab-result`  
-任务书：[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)
+基线（历史）：`cdc8308` → 已合入 `main@8601fc2`  
+分支（历史）：`feat/v3-main-activity-collab-result`  
+任务书：HISTORICAL · 收尾见 [`V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md`](../spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md)
+
+> 本文记录 U2–U6 当时做了什么；未代跑完整三场景真机。质量收敛不在此重做主体功能。
 
 ## U2 · Debate 争议驱动与结果展示
 
