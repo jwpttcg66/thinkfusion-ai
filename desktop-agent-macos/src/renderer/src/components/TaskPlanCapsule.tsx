@@ -14,7 +14,7 @@ export interface UserMsgTick {
  *
  * - 上半：工作计划摘要（绝不用用户原话；完成态绝不用「正在理解…」）
  * - 下半：圆环 + 当前步骤 + n/m
- * - 左侧细短杠：只定位「用户以前发给这个任务的消息」
+ * - 历史提问短杠不在这里：贴在整段正文左侧（见 UserMsgLocateRail）
  */
 export function TaskPlanCapsule(props: {
   goalText: string | null;
@@ -23,9 +23,8 @@ export function TaskPlanCapsule(props: {
   events: readonly AgentEvent[];
   startedAt: number | null;
   messages?: readonly ConversationMessage[];
+  /** 仅用于屏蔽「用户原话」当工作计划；短杠定位在正文侧轨。 */
   userTicks: readonly UserMsgTick[];
-  activeUserMsgId: string | null;
-  onJumpUserMsg: (messageId: string) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const view = deriveProgress({
@@ -91,21 +90,6 @@ export function TaskPlanCapsule(props: {
 
   return (
     <div className={`task-plan-capsule${terminal ? ' is-terminal' : ''}`} aria-label="工作计划">
-      {props.userTicks.length > 0 && (
-        <nav className="task-plan-ticks" aria-label="历史提问定位">
-          {props.userTicks.map(tick => (
-            <button
-              key={tick.messageId}
-              type="button"
-              className={`task-plan-tick${props.activeUserMsgId === tick.messageId ? ' is-active' : ''}`}
-              title={tick.preview}
-              aria-label={`定位到：${tick.preview}`}
-              onClick={() => props.onJumpUserMsg(tick.messageId)}
-            />
-          ))}
-        </nav>
-      )}
-
       <div className="task-plan-card">
         <div className="task-plan-goal">{planText}</div>
         <div className="task-plan-step" aria-live="polite">

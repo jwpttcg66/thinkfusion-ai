@@ -483,6 +483,7 @@ button:disabled {
 
 .scroll {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 8px 18px 8px;
@@ -509,40 +510,53 @@ button:disabled {
   margin-bottom: 0;
 }
 
-/* 任务规划胶囊：输入框正上方居中，和正文滚动区脱钩。 */
-.task-plan-capsule {
+/* 正文侧边定位：贴整段滚动区左侧，按用户消息在正文中的位置排布。 */
+.scroll-with-rail {
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: stretch;
-  gap: 10px;
-  margin: 0 auto 10px;
-  max-width: 100%;
+  gap: 0;
+  position: relative;
 }
-.task-plan-ticks {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 0;
-  flex: 0 0 auto;
+.user-msg-locate-rail {
+  position: relative;
+  flex: 0 0 16px;
+  align-self: stretch;
+  margin: 8px 0 8px 4px;
+  pointer-events: none;
 }
-.task-plan-tick {
-  width: 14px;
+.user-msg-locate-tick {
+  position: absolute;
+  left: 1px;
+  width: 12px;
   height: 3px;
   border: 0;
   border-radius: 2px;
   padding: 0;
+  margin: 0;
+  transform: translateY(-50%);
   background: color-mix(in srgb, var(--text-3) 55%, transparent);
   cursor: pointer;
+  pointer-events: auto;
 }
-.task-plan-tick:hover {
-  background: color-mix(in srgb, var(--text-2) 80%, transparent);
+.user-msg-locate-tick:hover {
+  background: color-mix(in srgb, var(--text-2) 85%, transparent);
 }
-.task-plan-tick.is-active {
+.user-msg-locate-tick.is-active {
   background: var(--text);
   height: 4px;
+  width: 14px;
+}
+
+/* 任务规划胶囊：输入框正上方居中，和正文滚动区脱钩。 */
+.task-plan-capsule {
+  display: block;
+  margin: 0 auto 10px;
+  max-width: 100%;
 }
 .task-plan-card {
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   border: 1px solid var(--line-strong);
   border-radius: 18px;

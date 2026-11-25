@@ -43,6 +43,7 @@ import {
   useUserMsgActiveId,
   userTicksFromMessages
 } from './components/TaskPlanCapsule';
+import { UserMsgLocateRail } from './components/UserMsgLocateRail';
 import { EventInspector } from './components/EventInspector';
 import { ComputerUsePanel } from './components/ComputerUsePanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
@@ -2406,10 +2407,22 @@ export default function App() {
           />
         )}
 
-        <div
-          ref={setScrollEl}
-          className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}
-        >
+        <div className="scroll-with-rail">
+          {showingConversation &&
+            activeConversation &&
+            conversationTab === 'chat' &&
+            planUserTicks.length > 0 && (
+              <UserMsgLocateRail
+                ticks={planUserTicks}
+                activeUserMsgId={activeUserMsgId}
+                scrollEl={scrollEl}
+                onJump={jumpToUserMsg}
+              />
+            )}
+          <div
+            ref={setScrollEl}
+            className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}
+          >
           <div className="inner">
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
               <CollaborationPlanPanel conversationId={activeConversation.conversationId} />
@@ -3096,6 +3109,7 @@ export default function App() {
               />
             )}
           </div>
+          </div>
         </div>
 
         {/* Docked, not scrolled: the prompt box is the one control always worth
@@ -3124,8 +3138,6 @@ export default function App() {
                 startedAt={activeConversation.createdAt}
                 messages={messages}
                 userTicks={planUserTicks}
-                activeUserMsgId={activeUserMsgId}
-                onJumpUserMsg={jumpToUserMsg}
               />
             )}
             <TaskInput
