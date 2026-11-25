@@ -1,7 +1,8 @@
 /**
  * 主活动区五层结果面板（V3 U4/U5 · U7 质量收敛）。
  *
- * 只读 CollaborationResultView：结论 → 意见/争议 → 评审/验证 → 过程摘要 → 证据入口。
+ * 只读 CollaborationResultView：目标/循环 → 意见/争议 → 评审/验证 → 过程 →
+ * **结论压在最后**（仿计划卡的完成状态框）→ 证据入口。
  * 不在这里重新推导业务状态。
  */
 
@@ -45,6 +46,14 @@ export function CollaborationResultPanel(props: {
     ? orderedOpinions
     : orderedOpinions.slice(0, OPINION_PREVIEW);
   const hiddenOpinionCount = Math.max(0, orderedOpinions.length - OPINION_PREVIEW);
+  const deliverablePaths = (result.conclusion?.deliverables && result.conclusion.deliverables.length > 0)
+    ? result.conclusion.deliverables
+    : result.deliverables.map(item => item.path ?? item.label).filter(Boolean);
+  const completionTone = completionToneClass(
+    workbench?.cycle.conclusionType,
+    Boolean(result.conclusion),
+    result.progress.summary
+  );
 
   async function decide(
     issueId: string,
@@ -129,121 +138,15 @@ export function CollaborationResultPanel(props: {
                   （{workbench.cycle.rollback.reason}）
                 </p>
               )}
-            </div>
-          </details>
-          <details className="collab-result-section" open>
-            <summary>结论与下一步</summary>
-            <div className="collab-result-body">
-              <p>
-                <b>{conclusionLabel(workbench.cycle.conclusionType)}</b>
-                {workbench.cycle.conclusionSummary ? ` · ${workbench.cycle.conclusionSummary}` : ''}
-              </p>
-              <p>{workbench.cycle.nextAction}</p>
-              {workbench.cycle.rollback && (
-                <p className="muted">
-                  本轮决策由编排器按 GDC 结论执行（complete / repair / fail_*），见时间线「循环决策」标记。
-                </p>
-              )}
-              {workbench.artifacts.filter(item => item.status === 'superseded').length > 0 && (
-                <p className="muted">
-                  已替代产物 {String(workbench.artifacts.filter(item => item.status === 'superseded').length)} 项（历史仍可追溯）
-                </p>
-              )}
-              {workbench.decisions.length > 0 && (
-                <p className="muted">
-                  处理决定 {String(workbench.decisions.length)} 条
-                </p>
+              {workbench.cycle.nextAction && (
+                <p className="muted">当前下一步：{workbench.cycle.nextAction}</p>
               )}
             </div>
           </details>
         </>
       )}
 
-      {/* 01 核心结论 */}
-      <details className="collab-result-section" open>
-        <summary>核心结论</summary>
-        {result.conclusion ? (
-          <div className="collab-result-body">
-            <div className="collab-result-conclusion">
-              <MarkdownBody text={result.conclusion.text} />
-            </div>
-            {result.conclusion.executionGoal && (
-              <div className="collab-result-exec">
-                <p className="muted">执行目标</p>
-                <p>{result.conclusion.executionGoal}</p>
-              </div>
-            )}
-            {result.conclusion.executionResults && result.conclusion.executionResults.length > 0 && (
-              <div className="collab-result-exec">
-                <p className="muted">执行结果</p>
-                <ul className="collab-result-facts">
-                  {result.conclusion.executionResults.map(item => (
-                    <li key={item}>
-                      <pre className="collab-result-pre">{item}</pre>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {(() => {
-              const paths = (result.conclusion?.deliverables && result.conclusion.deliverables.length > 0)
-                ? result.conclusion.deliverables
-                : result.deliverables.map(item => item.path ?? item.label).filter(Boolean);
-              return (
-                <div className="collab-result-exec">
-                  <p className="muted">
-                    目标物{paths.length > 0 ? `（${String(paths.length)}）` : ''}
-                  </p>
-                  {paths.length > 0 ? (
-                    <ul className="collab-result-facts">
-                      {paths.slice(0, 40).map(path => (
-                        <li key={path}><code>{path}</code></li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="muted">没有记录到交付文件。</p>
-                  )}
-                </div>
-              );
-            })()}
-            {result.conclusion.facts.length > 0 && (
-              <ul className="collab-result-facts">
-                {result.conclusion.facts
-                  .filter(fact => !(result.conclusion?.executionResults ?? []).includes(fact))
-                  .map(fact => <li key={fact}>{fact}</li>)}
-              </ul>
-            )}
-            {result.conclusion.uncertainties.length > 0 && (
-              <p className="muted">不确定性：{result.conclusion.uncertainties.join('；')}</p>
-            )}
-            {result.conclusion.openItems.length > 0 && (
-              <p className="collab-result-open">待处理：{result.conclusion.openItems.join('；')}</p>
-            )}
-            <SourceRefList refs={result.conclusion.sourceRefs} />
-          </div>
-        ) : (
-          <p className="muted">还没有可展示的结论文本。</p>
-        )}
-      </details>
-
-      {/* 目标物单独一节：任务收尾后必须和结论一样显眼，不能只塞进协作过程。 */}
-      {result.deliverables.length > 0 && !(result.conclusion?.deliverables && result.conclusion.deliverables.length > 0) && (
-        <details className="collab-result-section" open>
-          <summary>目标物（{String(result.deliverables.length)}）</summary>
-          <div className="collab-result-body">
-            <ul className="collab-result-facts">
-              {result.deliverables.slice(0, 40).map(item => (
-                <li key={item.deliverableId}>
-                  <code>{item.path ?? item.label}</code>
-                  <span className="muted"> · {item.kind === 'file' ? '改动文件' : '工程产物'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </details>
-      )}
-
-      {/* 02 核心意见与争议 */}
+      {/* 01 核心意见与争议 */}
       {hasOpinions && (
         <details className="collab-result-section" open>
           <summary>
@@ -305,7 +208,7 @@ export function CollaborationResultPanel(props: {
         </details>
       )}
 
-      {/* 03 评审与验证 */}
+      {/* 02 评审与验证 */}
       {hasReview && (
         <details className="collab-result-section" open>
           <summary>
@@ -401,7 +304,7 @@ export function CollaborationResultPanel(props: {
         </details>
       )}
 
-      {/* 04 协作过程（默认收起） */}
+      {/* 03 协作过程（默认收起） */}
       <details
         className="collab-result-section is-process"
         open={processOpen}
@@ -416,12 +319,123 @@ export function CollaborationResultPanel(props: {
               ? ` · 对话条目 ${String(result.meta.conversationEntryCount)}`
               : ''}
             。主推导见上方「核心意见与争议」与对话流中的计划摘要 / 思考过程。
-            {result.deliverables.length > 0
-              ? ` 目标物见上方「核心结论 / 目标物」（${String(result.deliverables.length)}）。`
+            {result.deliverables.length > 0 || result.conclusion
+              ? ' 完成状态与目标物见下方「核心结论」。'
               : ''}
           </p>
         </div>
       </details>
+
+      {/* 04 核心结论：压在过程之后，仿计划卡单独画完成状态框 */}
+      <section className={`collab-result-finale${completionTone}`} aria-label="核心结论">
+        <div className="collab-result-finale-head">
+          <h3>核心结论</h3>
+          <span className="chip">
+            {workbench
+              ? conclusionLabel(workbench.cycle.conclusionType)
+              : (result.conclusion ? '已生成' : '进行中')}
+          </span>
+        </div>
+
+        {result.conclusion ? (
+          <div className="collab-result-conclusion">
+            <MarkdownBody text={result.conclusion.text} />
+          </div>
+        ) : (
+          <p className="muted">还没有可展示的结论文本。</p>
+        )}
+
+        <div className="plan-facts collab-result-completion">
+          <div>
+            <span className="muted">完成状态</span>
+            <p>
+              {workbench
+                ? [
+                    conclusionLabel(workbench.cycle.conclusionType),
+                    workbench.cycle.conclusionSummary,
+                    workbench.goal.fit !== 'unknown'
+                      ? `符合度 ${fitLabel(workbench.goal.fit)}`
+                      : null
+                  ].filter(Boolean).join(' · ')
+                : (result.conclusion
+                  ? (result.progress.summary || '已有结论文本')
+                  : (result.progress.summary || '等待收尾'))}
+            </p>
+          </div>
+          <div>
+            <span className="muted">
+              {result.conclusion?.executionGoal || workbench?.cycle.nextAction ? '执行目标 / 下一步' : '下一步'}
+            </span>
+            <p>
+              {result.conclusion?.executionGoal
+                ?? workbench?.cycle.nextAction
+                ?? '尚无明确下一步'}
+            </p>
+          </div>
+        </div>
+
+        {workbench && (workbench.artifacts.some(item => item.status === 'superseded') || workbench.decisions.length > 0) && (
+          <p className="muted">
+            {workbench.artifacts.filter(item => item.status === 'superseded').length > 0
+              ? `已替代产物 ${String(workbench.artifacts.filter(item => item.status === 'superseded').length)} 项`
+              : ''}
+            {workbench.artifacts.some(item => item.status === 'superseded') && workbench.decisions.length > 0 ? ' · ' : ''}
+            {workbench.decisions.length > 0 ? `处理决定 ${String(workbench.decisions.length)} 条` : ''}
+          </p>
+        )}
+
+        {result.conclusion?.executionResults && result.conclusion.executionResults.length > 0 && (
+          <div className="collab-result-exec">
+            <p className="muted">执行结果</p>
+            <ul className="collab-result-facts">
+              {result.conclusion.executionResults.map(item => (
+                <li key={item}>
+                  <pre className="collab-result-pre">{item}</pre>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="collab-result-exec">
+          <p className="muted">
+            目标物{deliverablePaths.length > 0 ? `（${String(deliverablePaths.length)}）` : ''}
+          </p>
+          {deliverablePaths.length > 0 ? (
+            <ul className="collab-result-facts">
+              {deliverablePaths.slice(0, 40).map(path => (
+                <li key={path}><code>{path}</code></li>
+              ))}
+            </ul>
+          ) : result.deliverables.length > 0 ? (
+            <ul className="collab-result-facts">
+              {result.deliverables.slice(0, 40).map(item => (
+                <li key={item.deliverableId}>
+                  <code>{item.path ?? item.label}</code>
+                  <span className="muted"> · {item.kind === 'file' ? '改动文件' : '工程产物'}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">没有记录到交付文件。</p>
+          )}
+        </div>
+
+        {result.conclusion && result.conclusion.facts.length > 0 && (
+          <ul className="collab-result-facts">
+            {result.conclusion.facts
+              .filter(fact => !(result.conclusion?.executionResults ?? []).includes(fact))
+              .map(fact => <li key={fact}>{fact}</li>)}
+          </ul>
+        )}
+        {result.conclusion && result.conclusion.uncertainties.length > 0 && (
+          <p className="muted">不确定性：{result.conclusion.uncertainties.join('；')}</p>
+        )}
+        {result.conclusion && result.conclusion.openItems.length > 0 && (
+          <p className="collab-result-open">待处理：{result.conclusion.openItems.join('；')}</p>
+        )}
+        {result.conclusion && <SourceRefList refs={result.conclusion.sourceRefs} />}
+      </section>
 
       {/* 05 证据入口 */}
       {props.onOpenEvidence && (
@@ -527,4 +541,21 @@ function conclusionLabel(type: string): string {
     case 'aborted': return '已终止';
     default: return '进行中';
   }
+}
+
+/** 与计划卡同级的完成态色调：一眼分出通过 / 待修 / 阻塞。 */
+function completionToneClass(
+  conclusionType: string | undefined,
+  hasConclusion: boolean,
+  progressSummary: string
+): string {
+  const type = conclusionType ?? (hasConclusion ? 'accepted' : 'in_progress');
+  if (type === 'accepted' || type === 'accepted_with_risks') return ' is-ok';
+  if (type === 'needs_fix' || type === 'needs_review' || type === 'needs_redesign' || type === 'needs_analysis') {
+    return ' is-warn';
+  }
+  if (type === 'blocked' || type === 'aborted' || type === 'unresolved') return ' is-bad';
+  if (/完成|通过|已验证/.test(progressSummary)) return ' is-ok';
+  if (/失败|取消/.test(progressSummary)) return ' is-bad';
+  return ' is-pending';
 }
