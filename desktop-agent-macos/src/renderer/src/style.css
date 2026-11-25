@@ -6265,17 +6265,48 @@ button:disabled {
 .chat-member.is-completed { border-left-color: #0f7b4f; }
 .chat-member.is-failed { border-left-color: var(--danger); }
 
-/* 单模型 / 非辩论审核：流式短气泡，不用多模型卡片壳 */
+/* 流式阅读：重点正文 vs 旁注里程碑；辩论方卡片另见 .chat-member */
 .chat-stream-member {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px 0 6px 10px;
-  border-left: 2px solid var(--line-strong);
+  padding: 8px 0 8px 10px;
+  border-left: 3px solid var(--line-strong);
 }
 .chat-stream-member.is-streaming { border-left-color: var(--accent); }
 .chat-stream-member.is-completed { border-left-color: #0f7b4f; }
 .chat-stream-member.is-failed { border-left-color: var(--danger); }
+.chat-stream-member.is-focus {
+  background: color-mix(in srgb, var(--member-bg) 70%, transparent);
+  border-radius: 0 8px 8px 0;
+  padding-right: 8px;
+}
+.chat-stream-member.is-aside,
+.chat-note.is-aside {
+  opacity: 0.72;
+  font-size: 11px;
+  border-left-width: 2px;
+  border-left-style: dashed;
+}
+.chat-note.is-focus {
+  border-left: 3px solid var(--accent);
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--member-bg) 55%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.chat-stream-block.is-focus { margin: 2px 0; }
+.chat-stream-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  flex-shrink: 0;
+}
 .chat-stream-head {
   display: flex;
   align-items: center;
@@ -6299,6 +6330,21 @@ button:disabled {
   -webkit-line-clamp: 8;
   overflow: hidden;
   max-height: none;
+}
+.chat-stream-conclusion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid #0f7b4f;
+  background: color-mix(in srgb, var(--member-bg) 70%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.chat-stream-conclusion-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 .chat-member-head {
   display: flex;
