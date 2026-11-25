@@ -1581,7 +1581,7 @@ test('网页主导问答：才会准备网页视图', async () => {
   assert.equal(prepared, 1, '网页主导才应 prepare-web-views');
 });
 
-test('云端工程：不做词表预判，直接交 Planner', async () => {
+test('云端工程：必须先问模型分流，判实施才交 Planner', async () => {
   let submitted = null;
   let routed = 0;
   const { runner } = makeRunner(
@@ -1589,9 +1589,10 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
     {
       deps: {
         expertiseFor: () => ({ system: ['技能A：先给最小可运行示例'], note: '' }),
-        routeWithModel: async () => {
+        routeWithModel: async input => {
           routed += 1;
-          return { kind: 'analysis', reason: '不该问到' };
+          assert.equal(input.executionMode, 'cloud');
+          return { kind: 'execution', reason: '要落盘写文件' };
         },
         submitWorkspace: async input => {
           submitted = input;
@@ -1601,26 +1602,62 @@ test('云端工程：不做词表预判，直接交 Planner', async () => {
     }
   );
   const started = await runner.start({
-    text: '分析这个仓库的目录结构',
+    text: '分析这个仓库的目录结构并改 README',
     workspaceMode: 'engineering',
     workspaceRoot: '/tmp/project',
     executionConfig: { executionMode: 'cloud' }
   });
   const done = await settle(runner, started.conversationId);
   assert.equal(done.status, 'answered');
-  assert.equal(done.intent, 'workspace');
-  assert.equal(routed, 0, '云端工程不得先跑 ROUTING_SYSTEM / 本机词表');
-  assert.ok(submitted, '应交给 Planner，而不是问网页');
-  assert.match(submitted.prompt, /分析这个仓库/);
+  assert.equal(routed, 1, '云端工程必须先跑模型分流');
+  assert.equal(done.routing?.source, 'model');
+  assert.equal(done.routing?.taskKind, 'engineering_execution');
+  assert.ok(submitted, '模型判实施后才交 Planner');
   assert.deepEqual(submitted.expertise, ['技能A：先给最小可运行示例']);
 });
 
-test('云端工程：编写 hello world 也直达 Planner，不落成问答', async () => {
+test('云端工程：模型判分析则不交 Planner', async () => {
+  let submitted = 0;
+  let routed = 0;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('只读说明'))],
+    {
+      deps: {
+        routeWithModel: async () => {
+          routed += 1;
+          return { kind: 'analysis', reason: '只要解释', readsProject: false };
+        },
+        submitWorkspace: async () => {
+          submitted += 1;
+          return { taskId: 'nope' };
+        }
+      }
+    }
+  );
+  const started = await runner.start({
+    text: 'java和go谁更适合做游戏',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/project',
+    executionConfig: { executionMode: 'cloud' }
+  });
+  await settle(runner, started.conversationId);
+  assert.equal(routed, 1);
+  assert.equal(submitted, 0, '分析分流不得交 Planner');
+  assert.equal(started.routing?.taskKind, 'engineering_analysis');
+  assert.equal(started.routing?.source, 'model');
+});
+
+test('云端工程：编写 hello world 由模型判实施后交 Planner', async () => {
   let submitted = null;
+  let routed = 0;
   const { runner } = makeRunner(
     [fakeChannel('a', () => answer('不应该被问到'))],
     {
       deps: {
+        routeWithModel: async () => {
+          routed += 1;
+          return { kind: 'execution', reason: '要新建 go 程序' };
+        },
         submitWorkspace: async input => {
           submitted = input;
           return { taskId: 'task-hello' };
@@ -1636,17 +1673,19 @@ test('云端工程：编写 hello world 也直达 Planner，不落成问答', as
   });
   const done = await settle(runner, started.conversationId);
   assert.equal(done.status, 'answered');
-  assert.equal(done.intent, 'workspace');
-  assert.ok(submitted, '写程序必须交 Planner，不能只回答');
+  assert.equal(routed, 1);
+  assert.ok(submitted, '写程序经模型分流后交 Planner');
   assert.match(submitted.prompt, /hello world/);
 });
 
-test('云端工程：显式「按分析」仍尊重用户，不吞进 Planner', async () => {
+test('云端工程：显式「按分析」不问模型、不交 Planner', async () => {
   let submitted = 0;
+  let routed = 0;
   const { runner } = makeRunner(
     [fakeChannel('a', () => answer('只读分析'))],
     {
       deps: {
+        routeWithModel: async () => { routed += 1; return { kind: 'execution', reason: 'x' }; },
         submitWorkspace: async () => {
           submitted += 1;
           return { taskId: 'should-not' };
@@ -1661,24 +1700,17 @@ test('云端工程：显式「按分析」仍尊重用户，不吞进 Planner', 
     taskKindOverride: 'analysis',
     executionConfig: { executionMode: 'cloud' }
   });
+  assert.equal(routed, 0);
   assert.equal(submitted, 0);
   assert.equal(conversation.routing?.taskKind, 'engineering_analysis');
   assert.equal(conversation.routing?.source, 'user_selected');
 });
 
-test('源码守卫：云端/本地不得缩回「只有按实施才交 Planner」', () => {
+test('源码守卫：禁止跳过云端分流直达 Planner', () => {
   const src = readFileSync(RUNNER_SRC, 'utf8');
-  const blocks = [...src.matchAll(/const plannerFirst =\n(?:.+\n){1,4}/g)].map(m => m[0]);
-  assert.ok(blocks.length >= 2, `应有首问与追问两处 plannerFirst，实际 ${String(blocks.length)}`);
-  for (const block of blocks) {
-    assert.match(block, /executionMode !== 'web'/, '云端/本地必须跳过本机预判');
-    assert.match(block, /!== 'analysis'/, 'plannerFirst 必须保留「按分析」例外');
-    assert.doesNotMatch(
-      block,
-      /=== 'execution'/,
-      '禁止再把 plannerFirst 收窄成只有按实施才交 Planner（见 AGENTS.md）'
-    );
-  }
+  assert.doesNotMatch(src, /\bplannerFirst\b/, '不得再引入跳过分流的 plannerFirst');
+  assert.match(src, /engineeringRouting/, '工程分流必须走 engineeringRouting');
+  assert.match(src, /routeWithModel/, '云端/本地分流必须能问模型');
 });
 
 

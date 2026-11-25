@@ -7,6 +7,7 @@ Conventional Commits by `scripts/release.sh`.
 
 ## Unreleased
 
+- fix(routing): 工程预判分流必须由云端/本地模型判定，禁止跳过直达 Planner
 - fix(routing): 回滚「只有按实施才交 Planner」；云端/本地工程再次直达 Planner，写入 AGENTS.md §9 防再改
 - fix(planning): 云端/本地执行规划改用 Provider，不再依赖网页登录；无模型时明确失败
 - fix(debate): 单模型自辩改为一轮、60 秒上限，避免长时间只显示“运行中”

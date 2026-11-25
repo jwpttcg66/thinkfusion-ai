@@ -5,8 +5,8 @@
  *
  * 1. 纯函数——问句长什么样（用户原话必须原样在里）、模型回的那一行怎么解析、
  *    模型结论怎么套回 `TaskRouting`。这几条决定「模型说错时会不会出事」。
- * 2. 会话链路——云端/本地/混合工程请求直接交 Planner，不问 ROUTING_SYSTEM；
- *    网页主导才用规则（及可选模型）兜底；显式「按分析」仍尊重用户。
+ * 2. 会话链路——本地 / 云端 / 混合必须先问模型分流；网页主导只用规则；
+ *    显式「按分析」不问模型；模型失败退回规则。
  *
  * Run with: npm run test:routing-model
  */
@@ -225,13 +225,13 @@ function makePlannerRunner(deps = {}) {
   return { runner, submitted };
 }
 
-test('云端/本地/混合工程：不做 ROUTING_SYSTEM 预判，直接交 Planner', async () => {
+test('模型主导（本地/云端/混合）时真的去问模型分流，并用它的结论', async () => {
   for (const executionMode of ['local', 'cloud', 'hybrid']) {
-    let routed = 0;
+    const calls = [];
     const { runner, submitted } = makePlannerRunner({
-      routeWithModel: async () => {
-        routed += 1;
-        return { kind: 'analysis', reason: '不该问到' };
+      routeWithModel: async input => {
+        calls.push(input);
+        return { kind: 'execution', reason: '用户要改文件' };
       }
     });
     const conversation = await runner.start({
@@ -240,18 +240,20 @@ test('云端/本地/混合工程：不做 ROUTING_SYSTEM 预判，直接交 Plan
       workspaceRoot: '/tmp/project',
       executionConfig: { executionMode }
     });
-    assert.equal(routed, 0, `${executionMode} 不得先跑本机/模型路由分类`);
-    assert.equal(submitted.length, 1, `${executionMode} 应直接交 Planner`);
-    assert.equal(conversation.intent, 'workspace');
-    assert.equal(conversation.taskId, 'task-1');
+    assert.equal(calls.length, 1, `${executionMode} 档应该分流一次`);
+    assert.equal(calls[0].text, '这个方案', '送给模型的是用户原话');
+    assert.equal(calls[0].executionMode, executionMode);
+    assert.equal(conversation.routing.taskKind, 'engineering_execution');
+    assert.equal(conversation.routing.source, 'model');
+    assert.equal(submitted.length, 1, '模型判实施后才交 Planner');
   }
 });
 
-test('云端主导：常识题也不经 ROUTING_SYSTEM，直接交 Planner', async () => {
-  let routed = 0;
+test('云端主导会把主导人与参与模型交给分流判定', async () => {
+  const calls = [];
   const { runner, submitted } = makePlannerRunner({
-    routeWithModel: async () => {
-      routed += 1;
+    routeWithModel: async input => {
+      calls.push(input);
       return { kind: 'analysis', reason: '对比选型' };
     }
   });
@@ -265,10 +267,15 @@ test('云端主导：常识题也不经 ROUTING_SYSTEM，直接交 Planner', asy
       selectedCloudModels: ['opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3']
     }
   });
-  assert.equal(routed, 0);
-  assert.equal(submitted.length, 1);
-  assert.equal(conversation.intent, 'workspace');
-  assert.match(submitted[0].prompt, /java和go/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executionMode, 'cloud');
+  assert.equal(calls[0].leadAgentId, 'opencode-go:deepseek-v4.1-flash');
+  assert.deepEqual(calls[0].selectedCloudModels, [
+    'opencode-go:deepseek-v4.1-flash', 'opencode-go:kimi-k3'
+  ]);
+  assert.equal(conversation.routing.taskKind, 'engineering_analysis');
+  assert.equal(conversation.routing.source, 'model');
+  assert.equal(submitted.length, 0, '分析分流不交 Planner');
 });
 
 test('网页主导不问模型：网页读不到别人的回答，还会污染用户账号', async () => {
@@ -288,15 +295,14 @@ test('网页主导不问模型：网页读不到别人的回答，还会污染�
   assert.equal(conversation.routing.taskKind, 'engineering_analysis');
 });
 
-test('网页主导：模型判不了（null / 抛错）就退回规则，不拦提问', async () => {
-  // 云端/本地已不再走 ROUTING_SYSTEM；这条只锁网页兜底路径。
+test('模型判不了（null / 抛错）就退回规则，不拦提问', async () => {
   for (const routeWithModel of [async () => null, async () => { throw new Error('ollama 没起'); }]) {
     const runner = makeRunner({ routeWithModel });
     const conversation = await runner.start({
       text: '分析一下连接池',
       workspaceMode: 'engineering',
       workspaceRoot: '/tmp/project',
-      executionConfig: { executionMode: 'web' }
+      executionConfig: { executionMode: 'local' }
     });
     assert.equal(conversation.routing.taskKind, 'engineering_analysis');
     assert.equal(conversation.routing.source, 'rule');

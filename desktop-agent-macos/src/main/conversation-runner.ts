@@ -702,20 +702,11 @@ export class ConversationRunner {
     const workspaceMode = normalizeWorkspaceMode(input.workspaceMode);
     const executionConfig = normalizeExecutionConfig(input.executionConfig);
     /**
-     * 云端/本地驱动：工程请求不做本地词表 / ROUTING_SYSTEM 预判，直接交 Planner。
-     * 分析与实施由 Planner 产出；本机词表只留给纯网页模式兜底。
-     *
-     * 底层规则见仓库根 AGENTS.md「云端/本地工程路由不得本机预判」。
-     * 唯一例外：用户显式选「本次按分析」——不得被 planner-first 吞掉。
-     * 禁止再缩回「只有按实施才交 Planner」（2026-11-21 曾误改，已回滚）。
+     * 工程空间必须先做预判分流（AGENTS.md §9）：
+     * 云端/本地/混合 → 问云端或本地模型（ROUTING_SYSTEM）；网页 → 本机词表兜底。
+     * 禁止跳过分流直接交 Planner。用户显式「按分析/实施」仍优先于模型。
      */
-    const plannerFirst =
-      workspaceMode === 'engineering' &&
-      executionConfig.executionMode !== 'web' &&
-      input.taskKindOverride !== 'analysis';
-    const intent = plannerFirst
-      ? { kind: 'workspace' as const, reason: '工程请求交给 Planner 判定' }
-      : classifyIntent(text);
+    const intent = classifyIntent(text);
     // 先建会话再问模型判定：云端判定可到 15 秒，建晚了界面只能空等，还误写成「没有推理」。
     const now = Date.now();
     const conversation: Conversation = {
@@ -760,7 +751,7 @@ export class ConversationRunner {
 
     const routingChannelId = '__routing__';
     let routing: TaskRouting | undefined;
-    if (workspaceMode === 'engineering' && !plannerFirst) {
+    if (workspaceMode === 'engineering') {
       const routingTarget =
         executionConfig.leadAgentId
         ?? executionConfig.selectedCloudModels?.[0]
@@ -943,13 +934,6 @@ export class ConversationRunner {
     // just records that it happened.
     if (intent.kind === 'workspace' && workspaceMode === 'knowledge') {
       return handoff('这是一次工作区操作');
-    }
-
-    if (plannerFirst) {
-      if (!input.workspaceRoot) {
-        return this.awaitUser(conversation, '工程工作空间还没有选择项目目录。先点输入框上的「选择项目」，再重新问一次。');
-      }
-      return handoff('已交给工程 Planner 判定');
     }
 
     if (routing) {
@@ -1511,65 +1495,9 @@ export class ConversationRunner {
     });
 
     // V2.1：工程会话的追问沿用创建时的空间与项目，不允许临时换目录。
-    // 云端/本地追问与首问同一条底层规则：不做本机预判，直接交 Planner；
-    // 仅「本次按分析」或纯网页模式仍走 engineeringRouting。
+    // 与首问相同：必须先做预判分流（云端/本地问模型；网页走规则），再决定是否转交。
     if (conversation.workspaceMode === 'engineering') {
       const followConfig = normalizeExecutionConfig(conversation.executionConfig);
-      const plannerFirst =
-        followConfig.executionMode !== 'web' && taskKindOverride !== 'analysis';
-      if (plannerFirst) {
-        if (!conversation.workspaceRoot) {
-          return this.awaitUser(
-            conversation,
-            '工程工作空间还没有选择项目目录。先点输入框上的「选择项目」，再重新问一次。'
-          );
-        }
-        try {
-          conversation.status = 'answered';
-          conversation.updatedAt = Date.now();
-          this.addMessage(conversation, {
-            role: 'system',
-            text: '已转交执行计划，正在生成计划并进入工程工作空间。'
-          });
-          this.save(conversation);
-          const task = await this.deps.submitWorkspace({
-            prompt: outgoing,
-            permissionPreset: 'workspace-write',
-            workspaceRoot: conversation.workspaceRoot,
-            planDebate: followConfig.debateMode ?? 'auto',
-            executionMode: followConfig.executionMode,
-            ...(followConfig.leadAgentId ? { plannerAgentId: followConfig.leadAgentId } : {}),
-            ...(followConfig.selectedCloudModels
-              ? { selectedCloudModels: followConfig.selectedCloudModels }
-              : {})
-          });
-          conversation.taskId = task.taskId;
-          conversation.status = 'answered';
-          this.save(conversation);
-          this.addMessage(conversation, {
-            role: 'system',
-            text: `已转交执行计划（任务 ${task.taskId.slice(0, 8)}）。左侧会显示计划与审批；未审批前不会改动任何文件。`
-          });
-          trace?.event({
-            stage: 'execute',
-            group: 'execute',
-            status: 'ok',
-            reason: '追问转交执行计划',
-            refs: [{ kind: 'message', id: task.taskId, label: '执行计划' }],
-            meta: { code: 'handoff' }
-          });
-        } catch (error) {
-          this.fail(conversation, error);
-        }
-        trace?.endTurn({
-          status: conversation.status === 'answered' ? 'ok' : 'failed',
-          reason: '追问转交执行计划',
-          ...(conversation.error
-            ? { error: { code: 'unknown' as const, detail: conversation.error } }
-            : {})
-        });
-        return this.deps.store.getConversation(conversationId)!;
-      }
       const routing = await this.engineeringRouting({
         text: question,
         attachments,
@@ -1591,8 +1519,11 @@ export class ConversationRunner {
         reason: routing.reason,
         meta: { code: routing.taskKind, ...(routing.readsProject === undefined ? {} : { readsProject: routing.readsProject }) }
       });
-      // 纯网页模式：仍要用户显式「按实施」才转交（与云端/本地 planner-first 不同）。
-      if (taskKindOverride === 'execution' && conversation.workspaceRoot) {
+      // 用户显式「按实施」，或模型/规则分流为实施 → 转交 Planner。
+      if (
+        (taskKindOverride === 'execution' || routing.taskKind === 'engineering_execution') &&
+        conversation.workspaceRoot
+      ) {
         try {
           conversation.status = 'answered';
           conversation.updatedAt = Date.now();

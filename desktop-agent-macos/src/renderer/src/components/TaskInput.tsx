@@ -21,8 +21,8 @@ export function TaskInput(props: {
   /** 路由预览：判成什么、依据是什么、是用户指定还是规则判的。 */
   routing: { label: string; reason: string; source: 'user_selected' | 'rule' | 'model' } | null;
   /**
-   * 云端/本地工程：发送后直达 Planner，不做本机词表或 ROUTING_SYSTEM 预判。
-   * 输入框规则预览只是参考，不能写成「发送后由模型判定」。
+   * 云端/本地工程：发送后先由模型做预判分流（分析/实施），再决定是否交 Planner。
+   * 输入框规则预览只是参考。
    */
   routingByModel?: boolean;
   taskKindOverride: EngineeringTaskKind | null;
@@ -173,7 +173,7 @@ export function TaskInput(props: {
         <div className="routing-preview">
           <span className="routing-label" title={props.routing.reason}>
             {props.routingByModel && props.routing.source !== 'user_selected'
-              ? '发送后直接交 Planner（云端/本地不做网页预判与词表分流）'
+              ? '发送后由云端/本地模型判定分流（分析或实施）'
               : <>
                   本次判为「{props.routing.label}」· {props.routing.reason}
                   {props.routing.source === 'user_selected' ? '（你指定的）' : ''}
