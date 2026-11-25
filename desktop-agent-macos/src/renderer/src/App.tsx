@@ -2398,14 +2398,6 @@ export default function App() {
               </>
             )}
 
-            {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
-              <CollaborationResultPanel
-                result={conversationResult}
-                workbench={conversationWorkbench}
-                onOpenEvidence={() => setConversationTab('trajectory')}
-              />
-            )}
-
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly
               && !conversationResult && (
               <ProgressPanel
@@ -2434,6 +2426,14 @@ export default function App() {
                 debate={debateLive}
                 busy={conversationBusy}
                 suppressStructuredResult={Boolean(conversationResult)}
+              />
+            )}
+            {/* 结构化收口贴在对话流之后；进行中的流式阅读不被结果大卡压顶。 */}
+            {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
+              <CollaborationResultPanel
+                result={conversationResult}
+                workbench={conversationWorkbench}
+                onOpenEvidence={() => setConversationTab('trajectory')}
               />
             )}
             {showingConversation && activeConversation && conversationTab === 'chat' && (
@@ -2486,22 +2486,45 @@ export default function App() {
               </section>
             )}
 
-            {activeTask && workbenchTab === 'conversation' && (
+            {activeTask && workbenchTab === 'conversation' && (() => {
+              const engineeringStreaming = Boolean(
+                derived.live && (derived.live.text.trim() || derived.live.reasoning.trim())
+              );
+              const engineeringSettled = ['completed', 'failed', 'cancelled', 'report_pending'].includes(activeTask.status)
+                || Boolean(engineeringResult?.conclusion);
+              const hasEngineeringResultContent = Boolean(engineeringResult && (
+                engineeringResult.conclusion
+                || engineeringResult.reviews.length > 0
+                || engineeringResult.verifications.length > 0
+                || engineeringResult.disputes.length > 0
+                || engineeringResult.deliverables.length > 0
+                || Boolean(engineeringWorkbench)
+              ));
+              // 流式进行中不展开终态收口；收口贴在对话流之后。
+              const showEngineeringResult = hasEngineeringResultContent
+                && engineeringSettled
+                && !engineeringStreaming;
+              return (
               <>
-                {engineeringWorkBreakdown && engineeringWorkBreakdown.summary.total > 0 && (
-                  <WorkBreakdownPanel
-                    breakdown={engineeringWorkBreakdown}
-                    onSelectTask={workTaskId => {
-                      const row = engineeringWorkBreakdown.tasks.find(item => item.workTaskId === workTaskId);
-                      setWorkbenchTab('trajectory');
-                      setActivityCategory('all');
-                      setActivityQuery(row?.planStepId ?? workTaskId.replace(/^wt-/, ''));
-                    }}
-                  />
-                )}
-                {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
-                  || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0
-                  || engineeringResult.deliverables.length > 0 || Boolean(engineeringWorkbench)) && (
+                {/* 极简状态：现在到哪；正文阅读面是下面的时序对话流。 */}
+                <TaskProgressCard
+                  task={activeTask}
+                  plan={derived.plan}
+                  events={events}
+                  members={derived.members}
+                  pendingStep={pendingStep}
+                  pendingQuestion={pendingQuestion}
+                  awaitingAnswer={awaitingAnswer}
+                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0)}
+                />
+                {/* 主阅读面：提问 → 流式 → 计划/执行 → 里程碑 →（收口在下方） */}
+                <TaskConversation
+                  task={activeTask}
+                  events={events}
+                  live={derived.live}
+                  omitResultSummaries={showEngineeringResult}
+                />
+                {showEngineeringResult && engineeringResult && (
                   <CollaborationResultPanel
                     result={engineeringResult}
                     workbench={engineeringWorkbench}
@@ -2519,33 +2542,20 @@ export default function App() {
                     }}
                   />
                 )}
-                <TaskProgressCard
-                  task={activeTask}
-                  plan={derived.plan}
-                  events={events}
-                  members={derived.members}
-                  pendingStep={pendingStep}
-                  pendingQuestion={pendingQuestion}
-                  awaitingAnswer={awaitingAnswer}
-                  // 和下面「最终交付」卡的渲染条件是同一个表达式：进度卡不能承诺
-                  // 一块没渲染出来的区域。
-                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0)}
-                />
-                {/* 主界面是这条对话流：提问、每一轮成员回答（不覆盖）、中间执行、
-                    每轮评审与最后结论。状态卡说「现在到哪」，它说「发生过什么」。 */}
-                <TaskConversation
-                  task={activeTask}
-                  events={events}
-                  live={derived.live}
-                  omitResultSummaries={Boolean(engineeringResult && (engineeringResult.conclusion
-                    || engineeringResult.reviews.length > 0
-                    || engineeringResult.verifications.length > 0
-                    || engineeringResult.disputes.length > 0
-                    || engineeringResult.deliverables.length > 0))}
-                />
-                {/* 思考过程在主对话页也要可见：不能只藏在「输出」页。 */}
+                {engineeringWorkBreakdown && engineeringWorkBreakdown.summary.total > 0 && (
+                  <WorkBreakdownPanel
+                    breakdown={engineeringWorkBreakdown}
+                    onSelectTask={workTaskId => {
+                      const row = engineeringWorkBreakdown.tasks.find(item => item.workTaskId === workTaskId);
+                      setWorkbenchTab('trajectory');
+                      setActivityCategory('all');
+                      setActivityQuery(row?.planStepId ?? workTaskId.replace(/^wt-/, ''));
+                    }}
+                  />
+                )}
+                {/* 思考过程默认收起，不压在流式正文前。 */}
                 {derived.modelTrace.some(item => item.reasoning.trim()) && (
-                  <details className="card reasoning-history" open>
+                  <details className="card reasoning-history">
                     <summary>
                       思考过程（{derived.modelTrace.filter(item => item.reasoning.trim()).length} 轮）
                     </summary>
@@ -2558,15 +2568,14 @@ export default function App() {
                   </details>
                 )}
                 {planThinking(derived.answer) && (
-                  <details className="card thinking" open>
+                  <details className="card thinking">
                     <summary>规划思考</summary>
                     <p>{planThinking(derived.answer)}</p>
                   </details>
                 )}
-                {/* 多列并排只保留在输出页：对话里一轮一列会把下一条消息挤到屏幕外，
-                    而主界面读的是顺序。 */}
               </>
-            )}
+              );
+            })()}
 
             {activeTask && workbenchTab === 'output' && (
               <>
