@@ -670,16 +670,22 @@ export function TaskConversation(props: {
                   </ul>
                 </div>
               )}
-              {entry.deliverables && entry.deliverables.length > 0 && (
-                <div className="chat-conclusion-block">
-                  <p className="chat-debate-label">目标物（{String(entry.deliverables.length)}）</p>
+              <div className="chat-conclusion-block">
+                <p className="chat-debate-label">
+                  目标物{entry.deliverables && entry.deliverables.length > 0
+                    ? `（${String(entry.deliverables.length)}）`
+                    : ''}
+                </p>
+                {entry.deliverables && entry.deliverables.length > 0 ? (
                   <ul className="chat-conclusion-results">
                     {entry.deliverables.map(path => (
                       <li key={path}><code>{path}</code></li>
                     ))}
                   </ul>
-                </div>
-              )}
+                ) : (
+                  <p className="muted">没有记录到交付文件。</p>
+                )}
+              </div>
               {metaFacts.length > 0 && (
                 <ul>
                   {metaFacts.map(fact => <li key={fact}>{fact}</li>)}

@@ -50,3 +50,47 @@ test('结论里写出真实产物数量，不把模型一句话当交付', () =>
   assert.ok(conclusion.deliverables?.some(path => /HelloJwp\.java/.test(path)));
   assert.ok(conclusion.deliverables?.some(path => /HelloJwp\.class/.test(path)));
 });
+
+test('多轮报告：最后一轮只有验证时，结论仍保留前轮写出的交付文件', () => {
+  const multi = [
+    {
+      type: 'report.ready', at: 1000, taskId: 't1', roundId: 'r1',
+      report: {
+        status: 'completed',
+        verification: {
+          verified: false, reasons: ['诊断未跑'], changedFiles: 1,
+          changedPaths: ['java-hello-demo/HelloWorld.java'],
+          checks: { compile: { status: 'passed' }, tests: { status: 'skipped' }, diagnostics: { status: 'skipped' } }
+        },
+        results: [
+          { tool: 'fs.mkdir', status: 'completed', result: { path: '/tmp/java-hello-demo', created: true } },
+          { tool: 'fs.writeFile', status: 'completed', result: { path: '/tmp/java-hello-demo/HelloWorld.java', created: true, bytes: 120 } },
+          { tool: 'shell.run', status: 'completed', result: { cwd: '/tmp/java-hello-demo', command: 'javac HelloWorld.java', stdout: '' } }
+        ]
+      }
+    },
+    {
+      type: 'report.ready', at: 2000, taskId: 't1', roundId: 'r2',
+      report: {
+        status: 'completed',
+        verification: {
+          verified: true, reasons: [], changedFiles: 0, changedPaths: [],
+          checks: { compile: { status: 'passed' }, run: { status: 'passed', output: 'Hello World' }, tests: { status: 'skipped' }, diagnostics: { status: 'skipped' } }
+        },
+        results: [
+          { tool: 'shell.run', status: 'completed', result: { cwd: '/tmp/java-hello-demo', command: 'javac HelloWorld.java && java HelloWorld', stdout: 'Hello World\n' } }
+        ]
+      }
+    },
+    { type: 'task.completed', at: 2100, taskId: 't1', summary: '任务完成' }
+  ];
+  const entries = buildTaskConversation(multi, { prompt: '写 hello', status: 'completed' });
+  const conclusion = entries.find(entry => entry.kind === 'conclusion');
+  assert.ok(conclusion, '必须有结论卡');
+  assert.ok(conclusion.deliverables?.some(path => /HelloWorld\.java/.test(path)),
+    '前轮写出的源码不得被后轮空报告冲掉');
+  assert.ok(conclusion.deliverables?.some(path => /java-hello-demo/.test(path)),
+    '前轮创建的目录仍须在目标物里');
+  assert.ok(conclusion.facts.some(item => /目标物 \d+ 个/.test(item)));
+  assert.equal(conclusion.facts.includes('没有记录到交付文件'), false);
+});

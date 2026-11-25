@@ -91,15 +91,20 @@ export function CollaborationResultPanel(props: {
               const paths = (result.conclusion?.deliverables && result.conclusion.deliverables.length > 0)
                 ? result.conclusion.deliverables
                 : result.deliverables.map(item => item.path ?? item.label).filter(Boolean);
-              if (paths.length === 0) return null;
               return (
                 <div className="collab-result-exec">
-                  <p className="muted">目标物（{String(paths.length)}）</p>
-                  <ul className="collab-result-facts">
-                    {paths.slice(0, 40).map(path => (
-                      <li key={path}><code>{path}</code></li>
-                    ))}
-                  </ul>
+                  <p className="muted">
+                    目标物{paths.length > 0 ? `（${String(paths.length)}）` : ''}
+                  </p>
+                  {paths.length > 0 ? (
+                    <ul className="collab-result-facts">
+                      {paths.slice(0, 40).map(path => (
+                        <li key={path}><code>{path}</code></li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">没有记录到交付文件。</p>
+                  )}
                 </div>
               );
             })()}
