@@ -204,3 +204,35 @@ test('已核验证据以材料身份进入评审，不写成指令', () => {
   assert.match(ask.question, /src\/a\.ts/);
   assert.match(ask.question, /已由系统从工作区实际读取并核验/);
 });
+
+test('恢复校验：重放最后一份 ECO，缺失或不兼容都要求重读工程', async () => {
+  const { ecoCompatibilityFromEvents, buildEcoCheckpointRef, invalidateContextPackage } =
+    await import('../out-test/shared/eco.js');
+  const pkg = buildEngineeringContextPackage({
+    workId: 'w9',
+    stage: 'planning',
+    role: 'architect',
+    architectureSummary: '摘要',
+    resources: [{
+      resourceId: 'file:a.ts', kind: 'file', pathOrLabel: 'a.ts',
+      verified: true, factClass: 'verified_fact', digest: 'f'.repeat(64)
+    }],
+    now: 1
+  });
+  const saved = buildEcoCheckpointRef(pkg);
+  const events = [{ type: 'eco.context.prepared', taskId: 'w9', at: 1, package: pkg }];
+  const ok = ecoCompatibilityFromEvents({ saved, workId: 'w9', events });
+  assert.equal(ok.ok, true);
+
+  const stale = invalidateContextPackage(pkg, '代码已变化');
+  const bad = ecoCompatibilityFromEvents({
+    saved,
+    workId: 'w9',
+    events: [{ type: 'eco.context.prepared', taskId: 'w9', at: 2, package: stale }]
+  });
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /重新读取工程|不兼容/);
+
+  const none = ecoCompatibilityFromEvents({ saved, workId: 'w9', events: [] });
+  assert.equal(none.ok, false);
+});
