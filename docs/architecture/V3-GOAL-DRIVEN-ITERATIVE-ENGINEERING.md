@@ -90,13 +90,15 @@ ThinkFusion V3 应从一次性执行升级为**用户目标驱动的循环式工
 
 主工程 + 子任务独立循环；子任务通过 ≠ 主工程通过；并行须有边界与冲突规则。
 
+**WorkTask 正式落点：** 见 [`V3-TASK-DECOMPOSITION-LAYER.md`](./V3-TASK-DECOMPOSITION-LAYER.md)（Task Decomposition Layer）与任务书 [`V3-TASK-DECOMPOSITION-TASK-BOOK.md`](../spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md)。本节只保留产品原则；契约、投影与进度面板以 TDL 文档为准。
+
 ---
 
 ## 八、工程产物与数据模型
 
 逻辑产物：Goal / Analysis / Design / Debate / Plan / Implementation / Review / ReviewDebate / Conclusion。  
 逻辑对象：Work / Goal / WorkCycle / WorkTask / WorkArtifact / WorkDecision。  
-正式实现前审计现有类型与 Journal；**版本化**，SUPERSEDED 不得当现行有效。
+`WorkTask` 的字段、状态机与进度投影见 TDL 架构；其余仍按 GDC 投影。**版本化**，SUPERSEDED 不得当现行有效。
 
 ---
 

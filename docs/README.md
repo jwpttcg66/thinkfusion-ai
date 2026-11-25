@@ -68,6 +68,9 @@
 | [implementation/06-p5-channels.md](implementation/06-p5-channels.md) | 能力模型、路由降级、新增通道 |
 | [implementation/07-ui.md](implementation/07-ui.md) | UI 结构、事件映射、移除辩论入口、分阶段落地 |
 | [implementation/V3-COMPUTER-USE-MACOS.md](implementation/V3-COMPUTER-USE-MACOS.md) | macOS 真机控制（Computer Use）；ThinkFusion 可加载 13 个桌面工具 |
+| [architecture/V3-TASK-DECOMPOSITION-LAYER.md](architecture/V3-TASK-DECOMPOSITION-LAYER.md) | 分层任务分解与长任务进度（Work / WorkTask / 依赖 / 验收面板） |
+| [spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md](spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md) | TDL-P0–P7 实施任务书 |
+| [implementation/V3-TDL-PROGRESS.md](implementation/V3-TDL-PROGRESS.md) | TDL 实施进度与 P0 审计 |
 
 ## 产品与架构设计（V3，方向确认；P0 门禁未过；未实施）
 
@@ -99,6 +102,7 @@
 | [spec/LOCAL_HARNESS_TOOLS.md](spec/LOCAL_HARNESS_TOOLS.md) | 本地工具目录与「刻意不做」清单 |
 | [spec/CAPABILITY_PLUGINS.md](spec/CAPABILITY_PLUGINS.md) | 本地、联网、保存能力的插件契约 |
 | [spec/PROGRESS_VISIBILITY.md](spec/PROGRESS_VISIBILITY.md) | 过程可见性：思考、汇总、执行都要看得见 |
+| [spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md](spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md) | 分层任务分解实施；进度只投影真实子任务状态 |
 | [spec/WEB_ANSWER_STREAMING.md](spec/WEB_ANSWER_STREAMING.md) | 网页回答流式呈现的边界 |
 | [spec/OPENCODE_GO.md](spec/OPENCODE_GO.md) | OpenCode Go 云端源的模型目录与限制 |
 
