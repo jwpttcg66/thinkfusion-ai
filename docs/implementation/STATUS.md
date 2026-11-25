@@ -178,9 +178,9 @@
 | P7 UI 投影 | TESTED | `gtec-phases/P7-DESIGN.md` + `test:gtec-p7` |
 | P8 端到端 | DEVICE | `gtec-phases/P8-DESIGN.md` + `evidence/V3-GTEC-PHASED-LIVE.json` |
 | 验收说明 | DONE | `V3-GTEC-PHASED-ACCEPTANCE.md` |
-| 功能分支 | 待合入 | `feat/v3-gtec-phased` |
+| 功能分支 | 已合入 main | `feat/v3-gtec-phased` → `27f435d` |
 
-> 首次薄层合入质量不足：本轨按阶段门禁重做，不以 §4.9 DONE 替代本轨验收。
+> 首次薄层合入质量不足：本轨按阶段门禁重做；§4.9a 为正式质量验收口径。
 
 ## 4.8 分层任务分解（TDL）
 
