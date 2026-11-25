@@ -1,3 +1,4 @@
+resources/ax-bridge
 node_modules/
 out/
 dist/

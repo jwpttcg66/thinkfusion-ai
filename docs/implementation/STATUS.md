@@ -45,6 +45,7 @@
 | 模型与通道 P5 | IMPLEMENTED / TESTED | 能力、路由、观测、矩阵 | 新增通道仍需适配 |
 | 发布与运维 P6 | PARTIAL | 清单、迁移、备份、dmg/zip | 签名/公证未执行 |
 | V3 正式发布 | NOT STARTED | 发布判据未满足 | 见 P6 |
+| macOS 真机控制（Computer Use） | VERIFIED / TESTED | `implementation/V3-COMPUTER-USE-MACOS.md`，分支 `feat/v3-computer-use-macos` | 能力清单 109 真机全跑：`test:capabilities:live`（`tf-cap-mwvp2fb6`）暴露 109/109 且每项执行一次；含 13 个 `computer.*` TextEdit 真机。`test:computer-use` 18 项通过。锁屏时控件操作被挡 |
 
 ## 3.5 全局一致性治理（G0–G6）
 
@@ -116,7 +117,7 @@
 | 类别 | 文档 |
 | --- | --- |
 | 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`** |
-| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、LT 任务书、U7 任务书、**GDC 任务书** |
+| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
 | 已完成能力与证据 | `implementation/COMPLETION-AUDIT.md`、`implementation/E-ACCEPTANCE-REPORT.md`、`docs/spec/evidence/*`、`git log` |
 | 历史规格 | `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`、旧辩论入口/固定轮次说明、已被替代的 V3 阶段表 |
 | 运维/发布 | `operations/RELEASE_CHECKLIST.md`、`operations/LONG-TASK-CONTEXT-ROLLOUT.md` |

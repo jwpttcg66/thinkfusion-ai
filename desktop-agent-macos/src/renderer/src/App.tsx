@@ -36,6 +36,7 @@ import { WorkspacePanel } from './components/WorkspacePanel';
 import { CollaborationDiagnostics } from './components/CollaborationDiagnostics';
 import { ProgressPanel } from './components/ProgressPanel';
 import { EventInspector } from './components/EventInspector';
+import { ComputerUsePanel } from './components/ComputerUsePanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { PlanPreview } from './components/PlanPreview';
@@ -2526,6 +2527,8 @@ export default function App() {
             )}
 
             {activeTask && workbenchTab === 'output' && (
+              <>
+              <ComputerUsePanel events={activity} onStop={() => void cancel()} />
               <div className="wb-grid">
                 <aside className="card wb-plan">
                   <div className="card-head">
@@ -2620,6 +2623,7 @@ export default function App() {
                   ) : <p className="muted">点击活动流中的事件查看完整参数与返回。</p>}
                 </aside>
               </div>
+              </>
             )}
 
             {/* 审批动作只在各自卡片上出现一次（计划卡 / 步骤卡），取消在任务头。

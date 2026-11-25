@@ -696,6 +696,36 @@ const TOOL_SPEC = `可用工具（只能使用这些，args 必须严格匹配�
                  读作业日志尾部（默认 32KB），真实输出，不是转述。
 - job.kill:     { "id": string, "signal"?: "TERM" | "KILL" }
                  结束作业的整个进程组。
+- computer.capabilities: { }
+                 只读。报告当前平台能不能做桌面控制、辅助功能是否已授权、helper 在不在。
+                 不支持的平台返回 supported:false，不假装成功。
+- computer.windows: { "maxEntries"?: number }
+                 只读。窗口标识、应用、bundleId 和位置，并写下快照文件。
+                 已有的 window.list 仍只返回应用名和标题，这里不替代它。
+- computer.screenshot: { "target"?: "screen" | "region", "region"?: { "x": number, "y": number, "width": number, "height": number }, "path"?: string }
+                 截屏并和这次观察绑成一个 snapshotId。只读权限不能指定 path，文件只进应用缓存。
+                 screen.capture 仍是原来的截屏工具。
+- computer.ax.tree: { "maxDepth"?: number }
+                 只读。读取前台应用控件树。后续点击和输入必须带这里返回的 snapshotId。
+- computer.ax.find: { "snapshotId"?: string, "role"?: string, "title"?: string, "value"?: string }
+                 只读。role、title、value 至少给一个。找不到就 found:false，不算操作成功。
+- computer.click: { "snapshotId": string, "bundleId": string, "elementId"?: string, "x"?: number, "y"?: number, "confirmRisk"?: boolean, "expect"?: { "textIncludes"?: string, "role"?: string, "title"?: string, "windowId"?: string } }
+                 优先点击 elementId。坐标必须落在这份快照的窗口内，快照过期或前台应用变了就拒绝。
+                 没有 expect 时结果是未验证，不能当成已经成功。删除、发送、提交类控件必须 confirmRisk=true。
+- computer.type: { "snapshotId": string, "bundleId": string, "elementId": string, "text": string, "confirmRisk"?: boolean, "expect"?: object }
+                 把文本写入指定控件。密码和 token 不会原样写进事件。
+- computer.keypress: { "snapshotId": string, "bundleId": string, "key": string, "modifiers"?: ("command" | "shift" | "option" | "control")[], "elementId"?: string, "confirmRisk"?: boolean }
+                 只接受按键白名单。command+q / command+w 必须 confirmRisk=true。
+- computer.scroll: { "snapshotId": string, "bundleId": string, "deltaX"?: number, "deltaY"?: number, "elementId"?: string, "x"?: number, "y"?: number }
+                 滚动距离不能两个都是 0。坐标必须属于这份快照。
+- computer.drag: { "snapshotId": string, "bundleId": string, "fromX": number, "fromY": number, "toX": number, "toY": number }
+                 起点和终点都必须在这份快照范围内。
+- computer.focus: { "snapshotId": string, "bundleId": string, "windowId"?: string }
+                 聚焦快照里的那个应用或窗口。
+- computer.verify: { "bundleId"?: string, "role"?: string, "title"?: string, "value"?: string, "windowId"?: string, "expect"?: object }
+                 重新观察。对不上就让这一步失败，不能把未核对的结果写成成功。
+- computer.stop: { }
+                 停止这个任务后续的桌面点击、输入、滚动和拖动。
 - screen.capture: { "target"?: "screen" | "region", "region"?: { "x": number, "y": number, "width": number, "height": number }, "path"?: string }
                  真实截屏并落盘，返回文件路径、字节数、尺寸与 sha256。
                  不给 path 时落在应用缓存目录；target=region 时必须给 region。

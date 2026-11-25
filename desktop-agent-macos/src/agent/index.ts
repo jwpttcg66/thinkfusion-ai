@@ -18,6 +18,7 @@ import { localCapabilities, type AskUserInput, type AskUserOutcome, type LocalSt
 import { needsApproval, previewArgs, riskOf } from './step-approval';
 import { buildEffectiveExecution } from './effective-args';
 import { redactSecrets, type EffectiveExecution } from '../shared/redact';
+import { redactComputerArgs } from './computer/types';
 import {
   PlanSchema,
   TaskGrantSchema,
@@ -436,9 +437,10 @@ async function runTask(message: {
       : [];
 
     for (const [index, step] of plan.steps.entries()) {
+      const recordedArgs = (step.tool.startsWith('computer.') ? redactComputerArgs(step.args) : step.args) as typeof step.args;
       if (cancelled.has(taskId)) {
         aborted = true;
-        results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消', args: step.args });
+        results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消', args: recordedArgs });
         continue;
       }
 
@@ -453,11 +455,11 @@ async function runTask(message: {
           index: index + 1,
           total,
           // 参数预览也可能含用户粘进来的 Key，先脱敏再给界面。
-          argsPreview: redactSecrets(previewArgs(step.args)),
+          argsPreview: redactSecrets(previewArgs(recordedArgs)),
           risk,
           effective: buildEffectiveExecution({
             tool: step.tool,
-            args: step.args as unknown as Record<string, unknown>,
+            args: recordedArgs as unknown as Record<string, unknown>,
             grant,
             cliAgents: cliConfigs,
             risk
@@ -471,7 +473,7 @@ async function runTask(message: {
             id: journalId,
             task_id: taskId,
             tool: step.tool,
-            args_json: JSON.stringify(step.args),
+            args_json: JSON.stringify(recordedArgs),
             status: 'FAILED',
             started_at: Date.now(),
             error: reason,
@@ -496,7 +498,7 @@ async function runTask(message: {
             stepId: step.id,
             tool: step.tool,
             error: reason,
-            args: step.args,
+            args: recordedArgs,
             durationMs: 0
           });
           break;
@@ -505,8 +507,8 @@ async function runTask(message: {
 
       const stepStarted = Date.now();
       const journalId = `${taskId}:${step.id}:${randomUUID()}`;
-      db.insertStep({ id: journalId, task_id: taskId, tool: step.tool, args_json: JSON.stringify(step.args), status: 'RUNNING', started_at: stepStarted });
-      port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool, args: step.args });
+      db.insertStep({ id: journalId, task_id: taskId, tool: step.tool, args_json: JSON.stringify(recordedArgs), status: 'RUNNING', started_at: stepStarted });
+      port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool, args: recordedArgs });
 
       try {
         // 能力插件是唯一的分派入口：宿主不认识任何具体工具，未装载与已停用
@@ -516,6 +518,8 @@ async function runTask(message: {
           grant,
           ask: (input: AskUserInput) => askUser(taskId, step.id, input),
           callMain,
+          stepId: step.id,
+          isCancelled: () => cancelled.has(taskId),
           // 配置由主进程下发；Runtime 只按 id 找，不接受模型指定可执行文件。
           cliAgents: cliConfigs
         });
@@ -523,22 +527,22 @@ async function runTask(message: {
 
         const durationMs = Date.now() - stepStarted;
         if (stepFailure) {
-          results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs, args: step.args });
+          results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: true, result, error: stepFailure, durationMs, args: recordedArgs });
           errors.push({ stepId: step.id, code: outcome.errorCode, message: stepFailure });
           db.updateStep(journalId, { status: 'FAILED', error: stepFailure, finished_at: Date.now() });
-          port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure, args: step.args, durationMs });
+          port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: stepFailure, args: recordedArgs, durationMs });
           break;
         }
-        results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs, args: step.args });
+        results.push({ stepId: step.id, tool: step.tool, status: 'completed', verified, result, durationMs, args: recordedArgs });
         db.updateStep(journalId, { status: 'COMPLETED', result_json: JSON.stringify(result), finished_at: Date.now() });
         port.postMessage({ type: 'step.completed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, result, durationMs });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         const durationMs = Date.now() - stepStarted;
-        results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: false, error: messageText, durationMs, args: step.args });
+        results.push({ stepId: step.id, tool: step.tool, status: 'failed', verified: false, error: messageText, durationMs, args: recordedArgs });
         errors.push({ stepId: step.id, code: errorCode(error), message: messageText });
         db.updateStep(journalId, { status: 'FAILED', error: messageText, finished_at: Date.now() });
-        port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText, args: step.args, durationMs });
+        port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText, args: recordedArgs, durationMs });
         break; // Stop the plan; the planner decides whether to retry.
       }
     }
@@ -557,7 +561,10 @@ async function runTask(message: {
     // 证据账本从真实步骤结果里抽，不重新描述一遍执行过程：文件读没读到、
     // 命令退出码是什么，都以这里为准。抽不出可核对事实的步骤不记。
     questionCounts.delete(taskId);
-    const argsById = new Map(plan.steps.map(step => [step.id, step.args]));
+    const argsById = new Map(plan.steps.map(step => [
+      step.id,
+      step.tool.startsWith('computer.') ? redactComputerArgs(step.args) : step.args
+    ]));
     const ledger = buildEvidenceLedger(
       results.map(item => ({
         tool: item.tool,

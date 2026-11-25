@@ -27,6 +27,7 @@ import {
   decideNextEngineeringAction,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
+import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -1716,6 +1717,8 @@ export class AgentOrchestrator {
     const reports = [...this.deps.store.allReportsFor(taskId), report];
     const genuineDelivery = hasGenuineDelivery(reports);
     const atMaxRounds = rounds.length >= task.maxRounds;
+    // Computer Use：桌面动作链未收口时不得 complete（与 main 闸门一致）。
+    const desktopStillOpen = desktopActionStillOpen(task.userPrompt, report.results);
 
     // GDC：用既有事件派生循环结论，再决定 complete / repair / fail_*。
     // 不另建状态机；决策落点发 cycle.snapshot / goal.fit 供 UI 与重放对账。
@@ -1728,18 +1731,24 @@ export class AgentOrchestrator {
       status: task.status
     });
     // 当前报告/评审尚未全部进 listEvents 时，用即时标志修正结论类型。
-    if (actionableReview && workbench.cycle.conclusionType === 'in_progress') {
+    if (
+      (actionableReview || desktopStillOpen) &&
+      workbench.cycle.conclusionType === 'in_progress'
+    ) {
       workbench.cycle.conclusionType = 'needs_fix';
-      workbench.cycle.nextAction = '处理评审问题或进入修复轮';
+      workbench.cycle.nextAction = desktopStillOpen
+        ? '继续完成未收口的桌面操作'
+        : '处理评审问题或进入修复轮';
     }
     const decision = decideNextEngineeringAction({
       cycle: workbench.cycle,
       verifiedDone: Boolean(
+        !desktopStillOpen &&
         report.status === 'completed' &&
         (!report.verification || verificationIsComplete(report.verification)) &&
         (report.nextAction === 'complete' || testsPassed || !actionableReview)
       ),
-      actionableReview,
+      actionableReview: actionableReview || desktopStillOpen,
       atMaxRounds,
       genuineDelivery
     });

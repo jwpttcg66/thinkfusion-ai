@@ -48,7 +48,7 @@ rules are stated here rather than only in code:
 
 ## macOS privacy permissions
 
-Accessibility, Screen Recording, Automation, and Full Disk Access are separate macOS TCC permissions. This application does not silently grant or bypass them. The Accessibility helper only reads the frontmost app and its accessibility tree. `screen.capture` requires Screen Recording; when it is missing, the step fails with the System Settings path instead of returning a blank or wallpaper-only image.
+Accessibility, Screen Recording, Automation, and Full Disk Access are separate macOS TCC permissions. This application does not silently grant or bypass them. The Accessibility helper can read the frontmost app and its accessibility tree, and — only after a task grant and a fresh snapshot — perform an allow-listed press, value write, key, scroll, drag, or focus. It still has no shell. Coordinate actions are refused when the snapshot is missing, expired, or the frontmost app changed. `screen.capture` and `computer.screenshot` require Screen Recording; when it is missing, the step fails with the System Settings path instead of returning a blank or wallpaper-only image.
 
 ## Embedded page isolation
 

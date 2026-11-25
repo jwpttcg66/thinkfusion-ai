@@ -22,6 +22,19 @@ const TOOL_LABEL: Record<string, string> = {
   'job.kill': '停作业',
   'screen.capture': '截屏',
   'app.open': '打开应用',
+  'computer.capabilities': '桌面能力',
+  'computer.windows': '桌面窗口',
+  'computer.screenshot': '桌面截图',
+  'computer.ax.tree': '控件树',
+  'computer.ax.find': '查找控件',
+  'computer.click': '点击',
+  'computer.type': '输入',
+  'computer.keypress': '按键',
+  'computer.scroll': '滚动',
+  'computer.drag': '拖动',
+  'computer.focus': '聚焦窗口',
+  'computer.verify': '核对桌面',
+  'computer.stop': '停止桌面操作',
   'clipboard.read': '读剪贴板',
   'clipboard.write': '写剪贴板',
   notify: '发通知',
@@ -43,7 +56,7 @@ function isSystem(tool: string) {
   return tool === 'shell.run' || tool === 'test.run' || tool === 'screen.capture' ||
     tool === 'app.open' || tool === 'job.kill' || tool === 'process.kill' ||
     tool === 'clipboard.write' || tool === 'notify' || tool === 'web.fetch' ||
-    tool === 'web.search' || tool === 'code.run';
+    tool === 'web.search' || tool === 'code.run' || tool.startsWith('computer.');
 }
 
 function argSummary(args: Record<string, unknown>): string {

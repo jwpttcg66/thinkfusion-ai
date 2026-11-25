@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import type { TaskGrant } from '../../shared/contracts';
 import { resolveGrantedPath } from '../policy';
 
-const CAPTURE_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'ThinkFusion', 'captures');
+export const CAPTURE_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'ThinkFusion', 'captures');
 const CAPTURE_TIMEOUT_MS = 20_000;
 
 export interface ScreenCaptureResult {
@@ -71,16 +71,18 @@ export async function captureScreen(
     target?: 'screen' | 'region';
     region?: { x: number; y: number; width: number; height: number };
     path?: string;
-  }
+  },
+  options?: { cacheOnly?: boolean }
 ): Promise<ScreenCaptureResult> {
-  if (grant.permissionPreset === 'read-only') {
+  if (!options?.cacheOnly && grant.permissionPreset === 'read-only') {
     throw new Error('当前权限为“仅可查看”，禁止截屏');
   }
+  if (options?.cacheOnly && args.path) throw new Error('只读截屏不能指定路径');
   const target = args.target ?? 'screen';
   if (target === 'region' && !args.region) throw new Error('target=region 时必须给出 region');
   if (args.region && (args.region.width <= 0 || args.region.height <= 0)) throw new Error('region 的宽高必须大于 0');
 
-  const outPath = args.path
+  const outPath = !options?.cacheOnly && args.path
     ? await resolveGrantedPath(grant, args.path, true)
     : path.join(CAPTURE_DIR, `capture-${Date.now()}.png`);
   await fs.mkdir(path.dirname(outPath), { recursive: true, mode: 0o700 });
