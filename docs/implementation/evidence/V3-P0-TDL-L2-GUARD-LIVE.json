@@ -1,0 +1,24 @@
+{
+  "startedAt": "2026-11-25T19:15:00+08:00",
+  "finishedAt": "2026-11-25T19:20:10+08:00",
+  "model": "opencode-go:deepseek-v4-pro",
+  "taskId": "446884b6-af91-433b-a046-4290014a674b",
+  "taskStatus": "plan_ready",
+  "planRepairRounds": 0,
+  "workTaskLevels": [
+    0,
+    1,
+    3
+  ],
+  "warnings": [
+    "计划改了文件，但没有任何能看见改动效果的动作（构建、测试、运行断言或诊断）：执行后不会标已验证",
+    "计划涉及 2 个独立写入目标，但没有 decomposition：任务树只有 L1→L3，没有可独立验收的 L2 子任务"
+  ],
+  "checks": {
+    "task-not-failed": true,
+    "no-repair-loop": true,
+    "decomposition-warning-visible": true,
+    "model-emitted-decomposition": false
+  },
+  "note": "deepseek-v4-pro 与 flash 一样没有产出 decomposition；更关键的是：上一版会为此触发 repair 轮，repair 轮里模型回裸 JSON，解析不到协议块，任务直接 failed。本分支已移除该硬校验，只保留警告。"
+}

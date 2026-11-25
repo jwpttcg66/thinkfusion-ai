@@ -1384,11 +1384,10 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const plan = result.plan;
 
-    // TDL L2：多写入目标却没有 decomposition，说明这份计划没有可独立验收的子任务层。
-    // 先让模型带着这条原因重出一次（最多两次，与其它计划修复共用上限）；
-    // 修不出来就照常接受，但在计划警告里保留「未分解」，不假装已经有 L2。
-    const decompositionGap = planDecompositionWarning(plan);
-    if (decompositionGap && this.repairPlan(taskId, decompositionGap)) return;
+    // TDL L2：多写入目标却没有 decomposition 时只保留可见警告，不触发重规划。
+    // 真机试过「让模型带着原因重出」：repair 轮里模型经常只回一段裸 JSON，
+    // 解析不到协议块，任务直接从「计划未分解」变成「任务失败」——代价比缺 L2 大。
+    // 这里不做硬校验；缺 L2 的事实由 plan.ready 的 warnings 暴露给审批的人。
 
     if (task.status === 'planning') this.tasks.transition(taskId, 'plan_ready');
     const stored: StoredPlan = {
