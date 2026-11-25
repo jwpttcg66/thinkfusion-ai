@@ -5,7 +5,8 @@
  * 来源归档缺失/hash 不匹配 → stale，任务留在 interrupted 等人处理。
  */
 
-import type { AgentTask, ExecutionReport } from '../../../shared/contracts';
+import type { AgentEvent, AgentTask, ExecutionReport } from '../../../shared/contracts';
+import { ecoCompatibilityFromEvents, parseEcoEvidenceRef, type EcoCheckpointRef } from '../../../shared/eco';
 import type {
   ContextCheckpoint,
   ContextCompactionStatus,
@@ -28,6 +29,8 @@ export type TaskRecoveryStatus = 'none' | 'recovered' | 'stale';
 
 export interface TaskRecoveryResult {
   status: TaskRecoveryStatus;
+  /** 检查点钉住的 ECO 是否仍兼容；缺省表示没有 ECO 引用可核对。 */
+  eco?: { ok: boolean; reason: string };
   checkpointId?: string;
   contextId?: string;
   compactionStatus?: ContextCompactionStatus;
@@ -39,6 +42,8 @@ export interface TaskRecoveryResult {
 export interface RecoverTaskDeps {
   store: ContextCheckpointStore;
   archive: ContextArchiveStore;
+  /** 读任务事件流：ECO 兼容性靠重放最后的 eco.context.prepared 得到。 */
+  eventsForTask?: (taskId: string) => readonly AgentEvent[];
 }
 
 export function taskContextOwner(task: AgentTask): ContextOwner {
@@ -86,12 +91,24 @@ export async function recoverTaskContext(
       };
     }
     const checkpoint = await deps.store.find(owner, pointer.checkpointId);
+    const ecoRefs = (checkpoint?.evidenceRefs ?? [])
+      .map(parseEcoEvidenceRef)
+      .filter((item): item is EcoCheckpointRef => item !== null);
+    const lastEco = ecoRefs.at(-1);
+    const eco = lastEco && deps.eventsForTask
+      ? ecoCompatibilityFromEvents({
+          saved: lastEco,
+          workId: task.taskId,
+          events: deps.eventsForTask(task.taskId)
+        })
+      : null;
     return {
       status: 'recovered',
       checkpointId: pointer.checkpointId,
       contextId: pointer.contextId,
       compactionStatus: prepared.compactionStatus,
       ...(checkpoint ? { summary: checkpoint.summary } : {}),
+      ...(eco ? { eco: { ok: eco.ok, reason: eco.reason } } : {}),
       ledger
     };
   } catch (error) {
