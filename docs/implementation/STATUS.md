@@ -110,15 +110,16 @@
 
 | 项 | 状态 | 依据 |
 | --- | --- | --- |
-| 专项任务书 | 实施中 | `spec/V3-COLLAB-BUDGET-CONTROL-TASK-BOOK.md` |
-| CB-P0a `auto` 跳过 L0 五段 | IMPLEMENTED | `plan-review.ts` `shouldDebatePlan` + `assessCollaborationRisk` |
-| CB-P0b 轮次按等级收紧 | IMPLEMENTED | `planReviewRounds` → 1/2/3 |
-| CB-P0c 执行后模型审核门禁 | IMPLEMENTED | `shouldModelReviewExecution` |
-| CB-P1 核心意见去重上限 | IMPLEMENTED | `selectKeyOpinions` / `dedupeOpinions` |
-| CB-P2 UI 区分原始/展示/争议 | IMPLEMENTED | CollaborationResultPanel 文案 |
-| 功能分支 | 进行中 | `feat/v3-collab-budget-control` |
+| 专项任务书 | DONE | `spec/V3-COLLAB-BUDGET-CONTROL-TASK-BOOK.md` |
+| CB-P0a `auto` 跳过 L0 五段 | DONE | `plan-review.ts` `shouldDebatePlan` + `assessCollaborationRisk` |
+| CB-P0b 轮次按等级收紧 | DONE | `planReviewRounds` → 1/2/3 |
+| CB-P0c 执行后模型审核门禁 | DONE | `shouldModelReviewExecution` |
+| CB-P1 核心意见去重上限 | DONE | `selectKeyOpinions` / `dedupeOpinions` |
+| CB-P2 UI 区分原始/展示/争议 | DONE | CollaborationResultPanel 文案 |
+| 功能分支 | 合入中 | `feat/v3-collab-budget-control` |
 | 自动化 | ✅ | `test:plan-review` / `test:plan-debate` / `test:collab-budget` |
 | 真机 L0 | ✅ | `collab-budget-live.mjs`：跳过五段、rules 审核、意见展示 1；见 `V3-COLLAB-BUDGET-LIVE.json` |
+| 专项结论 | DONE | 见 `V3-COLLAB-BUDGET-ACCEPTANCE.md` |
 
 > 硬规则：不为「要不要辩论」先调一次模型；意见数 ≠ 争议数；展示去重不能替代执行克制。
 

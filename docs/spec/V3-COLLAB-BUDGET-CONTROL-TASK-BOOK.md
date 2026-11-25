@@ -28,11 +28,12 @@
 
 | ID | 内容 | 验收 |
 | --- | --- | --- |
-| CB-P0a | `shouldDebatePlan(auto)` 按等级跳过，不进五段 | `test:plan-review` |
-| CB-P0b | `planReviewRounds` 按等级收紧上限 | `test:plan-review` |
-| CB-P0c | `shouldModelReviewExecution` + `reviewExecution` 门禁 | `test:review` 或新增断言 |
-| CB-P1 | 工程结果 `keyOpinions` 去重/重要性上限 | 投影测试或脚本 |
-| CB-P2 | UI 区分核心/补充意见数（可选） | 面板文案 |
+| CB-P0a | `shouldDebatePlan(auto)` 按等级跳过，不进五段 | ✅ `test:plan-review` |
+| CB-P0b | `planReviewRounds` 按等级收紧上限 | ✅ `test:plan-review` |
+| CB-P0c | `shouldModelReviewExecution` + `reviewExecution` 门禁 | ✅ `test:collab-budget` |
+| CB-P1 | 工程结果 `keyOpinions` 去重/重要性上限 | ✅ `test:collab-budget` |
+| CB-P2 | UI 区分核心/补充意见数 | ✅ 真机面板文案 |
+| CB-真机 | L0 只读列目录 | ✅ `V3-COLLAB-BUDGET-LIVE.json` |
 
 ## 不做
 

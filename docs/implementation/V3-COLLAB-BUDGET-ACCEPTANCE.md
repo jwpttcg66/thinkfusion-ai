@@ -35,7 +35,6 @@
 | 意见面板 | 展示 1 · 主张 0 · 补充 1 · 争议 0（非 88 量级） |
 | 证据 | [`evidence/V3-COLLAB-BUDGET-LIVE.json`](./evidence/V3-COLLAB-BUDGET-LIVE.json) |
 
-## 未覆盖
+## 结论
 
-- 原「88 意见」历史任务的事件流回溯（本轮用新 L0 任务证明克制路径）
-- DebateBehavior 会话侧争议筛选深化（后续）
+专项 CB-P0～P2 + L0 真机全部完成。会话侧 DebateBehavior 更深筛选不在本专项范围（未另建第二套辩论引擎）。
