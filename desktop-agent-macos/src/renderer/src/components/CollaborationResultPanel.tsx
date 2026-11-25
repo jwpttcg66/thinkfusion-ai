@@ -7,12 +7,15 @@
 
 import React, { useState } from 'react';
 import type { CollaborationResultView, ReviewDisposition, SourceReference } from '../../../shared/collaboration-result';
+import type { GoalDrivenWorkbenchView } from '../../../shared/goal-driven-cycle';
 import { MarkdownBody } from './MarkdownBody';
 
 const OPINION_PREVIEW = 8;
 
 export function CollaborationResultPanel(props: {
   result: CollaborationResultView;
+  /** GDC：目标 / 循环进度 / 下一步（派生视图，可缺省）。 */
+  workbench?: GoalDrivenWorkbenchView | null;
   /** 轨迹/详情入口：可选，不传就不显示跳转。 */
   onOpenEvidence?: () => void;
   /** 默认展开结论；过程层默认收起（true = 收起）。 */
@@ -26,7 +29,7 @@ export function CollaborationResultPanel(props: {
     reason: string;
   }) => void | Promise<void>;
 }) {
-  const { result } = props;
+  const { result, workbench } = props;
   // 任务书：过程层默认收起；compactProcess 缺省按 true 处理。
   const [processOpen, setProcessOpen] = useState(!(props.compactProcess ?? true));
   const [opinionsExpanded, setOpinionsExpanded] = useState(false);
@@ -73,6 +76,83 @@ export function CollaborationResultPanel(props: {
           {result.progress.summary}
         </span>
       </header>
+
+      {workbench && (
+        <>
+          <details className="collab-result-section" open>
+            <summary>工程目标</summary>
+            <div className="collab-result-body">
+              <p>{workbench.goal.intent || workbench.goal.originalRequest}</p>
+              <p className="muted">
+                状态：{workbench.goal.status}
+                {' · '}符合度：{fitLabel(workbench.goal.fit)}
+                {' · '}版本 v{String(workbench.goal.goalVersion)}
+              </p>
+              {workbench.goal.successCriteria.length > 0 && (
+                <ul className="collab-result-facts">
+                  {workbench.goal.successCriteria.map(item => <li key={item}>{item}</li>)}
+                </ul>
+              )}
+              {workbench.goal.fitNotes.length > 0 && (
+                <p className="muted">符合度说明：{workbench.goal.fitNotes.join('；')}</p>
+              )}
+              {workbench.goal.openQuestions.length > 0 && (
+                <p className="collab-result-open">待澄清：{workbench.goal.openQuestions.join('；')}</p>
+              )}
+            </div>
+          </details>
+          <details className="collab-result-section" open>
+            <summary>
+              循环进度
+              <span className="muted">
+                {' '}· 第 {String(workbench.cycle.cycleNumber)} 轮 · {stageLabel(workbench.cycle.currentStage)}
+              </span>
+            </summary>
+            <div className="collab-result-body">
+              <ul className="collab-result-facts">
+                {workbench.cycle.stages.map(item => (
+                  <li key={item.stage}>
+                    {stageLabel(item.stage)}
+                    {' · '}
+                    {item.status === 'active' ? '进行中' : item.status === 'done' ? '完成' : item.status === 'skipped' ? '跳过' : '待定'}
+                    {item.reason ? `（${item.reason}）` : ''}
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">
+                迭代 {String(workbench.cycle.budget.roundCount)}/{String(workbench.cycle.budget.maxIterations)}
+                {workbench.cycle.budget.nearLimit ? ' · 接近预算上限' : ''}
+              </p>
+              {workbench.cycle.rollback && (
+                <p className="collab-result-open">
+                  回退：{stageLabel(workbench.cycle.rollback.from)} → {stageLabel(workbench.cycle.rollback.to)}
+                  （{workbench.cycle.rollback.reason}）
+                </p>
+              )}
+            </div>
+          </details>
+          <details className="collab-result-section" open>
+            <summary>结论与下一步</summary>
+            <div className="collab-result-body">
+              <p>
+                <b>{conclusionLabel(workbench.cycle.conclusionType)}</b>
+                {workbench.cycle.conclusionSummary ? ` · ${workbench.cycle.conclusionSummary}` : ''}
+              </p>
+              <p>{workbench.cycle.nextAction}</p>
+              {workbench.artifacts.filter(item => item.status === 'superseded').length > 0 && (
+                <p className="muted">
+                  已替代产物 {String(workbench.artifacts.filter(item => item.status === 'superseded').length)} 项（历史仍可追溯）
+                </p>
+              )}
+              {workbench.decisions.length > 0 && (
+                <p className="muted">
+                  处理决定 {String(workbench.decisions.length)} 条
+                </p>
+              )}
+            </div>
+          </details>
+        </>
+      )}
 
       {/* 01 核心结论 */}
       <details className="collab-result-section" open>
@@ -401,5 +481,45 @@ function dispositionLabel(disposition: string): string {
     case 'rejected': return '已拒绝';
     case 'deferred': return '暂缓';
     default: return '待决定';
+  }
+}
+
+function fitLabel(fit: string): string {
+  switch (fit) {
+    case 'met': return '已满足';
+    case 'gap': return '有缺口';
+    case 'pending': return '待验证';
+    default: return '未知';
+  }
+}
+
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case 'goal_reasoning': return '目标理解';
+    case 'analysis': return '分析';
+    case 'design': return '设计';
+    case 'design_debate': return '方案辩论';
+    case 'planning': return '计划';
+    case 'implementation': return '实现';
+    case 'review': return '审核';
+    case 'review_debate': return '审核辩论';
+    case 'conclusion': return '结论';
+    case 'done': return '完成';
+    default: return stage;
+  }
+}
+
+function conclusionLabel(type: string): string {
+  switch (type) {
+    case 'accepted': return '已通过';
+    case 'accepted_with_risks': return '带风险接受';
+    case 'needs_fix': return '需修复';
+    case 'needs_review': return '需补充审核';
+    case 'needs_redesign': return '需重新设计';
+    case 'needs_analysis': return '需再分析';
+    case 'unresolved': return '争议未决';
+    case 'blocked': return '阻塞';
+    case 'aborted': return '已终止';
+    default: return '进行中';
   }
 }

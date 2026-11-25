@@ -1,0 +1,615 @@
+/**
+ * Goal-Driven Cycle（GDC）投影层。
+ *
+ * 展示派生视图，不是第二套权威状态：从 ConversationGoal / 任务摘要 / AgentEvent
+ * 重建目标、循环阶段、产物与下一步。执行仍走 Orchestrator + Journal。
+ */
+
+import type { AgentEvent } from './contracts';
+import type { ConversationGoal } from './conversation';
+import { CODING_BUDGET } from './coding-workflow';
+
+export type GoalStatusGdc =
+  | 'draft'
+  | 'clarifying'
+  | 'confirmed'
+  | 'active'
+  | 'at_risk'
+  | 'change_proposed'
+  | 'blocked'
+  | 'achieved'
+  | 'abandoned';
+
+export type GoalChangeKind = 'clarify' | 'optimize' | 'change';
+
+export type CycleStage =
+  | 'goal_reasoning'
+  | 'analysis'
+  | 'design'
+  | 'design_debate'
+  | 'planning'
+  | 'implementation'
+  | 'review'
+  | 'review_debate'
+  | 'conclusion'
+  | 'done';
+
+export type CycleConclusionType =
+  | 'accepted'
+  | 'accepted_with_risks'
+  | 'needs_fix'
+  | 'needs_review'
+  | 'needs_redesign'
+  | 'needs_analysis'
+  | 'unresolved'
+  | 'blocked'
+  | 'aborted'
+  | 'in_progress';
+
+export type GoalFitStatus = 'pending' | 'met' | 'gap' | 'unknown';
+
+export type ArtifactKindGdc =
+  | 'goal'
+  | 'analysis'
+  | 'design'
+  | 'debate'
+  | 'plan'
+  | 'implementation'
+  | 'review'
+  | 'review_debate'
+  | 'conclusion'
+  | 'other';
+
+export type ArtifactStatusGdc = 'draft' | 'accepted' | 'rejected' | 'superseded' | 'archived';
+
+export interface EngineeringGoalView {
+  goalId: string;
+  workId: string;
+  originalRequest: string;
+  intent: string;
+  desiredOutcome: string;
+  successCriteria: string[];
+  constraints: string[];
+  assumptions: string[];
+  openQuestions: string[];
+  goalVersion: number;
+  status: GoalStatusGdc;
+  fit: GoalFitStatus;
+  fitNotes: string[];
+  source: 'conversation' | 'task' | 'derived';
+}
+
+export interface WorkCycleView {
+  cycleId: string;
+  workId: string;
+  cycleNumber: number;
+  status: 'running' | 'completed' | 'blocked' | 'aborted';
+  currentStage: CycleStage;
+  stages: Array<{ stage: CycleStage; status: 'pending' | 'active' | 'done' | 'skipped'; reason?: string }>;
+  entryReason: string;
+  conclusionType: CycleConclusionType;
+  conclusionSummary: string;
+  nextAction: string;
+  debateSkipped: boolean;
+  reviewDebateSkipped: boolean;
+  rollback?: { from: CycleStage; to: CycleStage; reason: string };
+  budget: {
+    maxIterations: number;
+    roundCount: number;
+    nearLimit: boolean;
+  };
+}
+
+export interface WorkArtifactRef {
+  artifactId: string;
+  workId: string;
+  cycleId: string;
+  artifactType: ArtifactKindGdc;
+  version: number;
+  status: ArtifactStatusGdc;
+  label: string;
+  eventType?: string;
+  eventAt?: number;
+  supersedesArtifactId?: string;
+}
+
+export interface WorkDecisionRef {
+  decisionId: string;
+  workId: string;
+  cycleId: string;
+  decisionType: string;
+  decision: string;
+  rationale: string;
+  eventAt?: number;
+}
+
+export interface GoalDrivenWorkbenchView {
+  workId: string;
+  goal: EngineeringGoalView;
+  cycle: WorkCycleView;
+  artifacts: WorkArtifactRef[];
+  decisions: WorkDecisionRef[];
+  projectedAt: number;
+}
+
+/** 目标变更分类：缩小成功标准 → change（禁止静默降级当 clarify）。 */
+export function classifyGoalChange(input: {
+  previousCriteria: readonly string[];
+  nextCriteria: readonly string[];
+  userConfirmedChange?: boolean;
+}): GoalChangeKind {
+  const prev = new Set(input.previousCriteria.map(item => item.trim()).filter(Boolean));
+  const next = new Set(input.nextCriteria.map(item => item.trim()).filter(Boolean));
+  let removed = 0;
+  for (const item of prev) {
+    if (!next.has(item)) removed += 1;
+  }
+  let added = 0;
+  for (const item of next) {
+    if (!prev.has(item)) added += 1;
+  }
+  if (removed > 0 && !input.userConfirmedChange) return 'change';
+  if (added > 0 && removed === 0) return 'clarify';
+  if (added === 0 && removed === 0) return 'optimize';
+  return input.userConfirmedChange ? 'change' : 'change';
+}
+
+export function assessGoalFit(input: {
+  successCriteria: readonly string[];
+  verified: boolean;
+  fullyVerified: boolean;
+  needsFix: boolean;
+  openReviewIssues: number;
+}): { fit: GoalFitStatus; notes: string[] } {
+  const notes: string[] = [];
+  if (input.successCriteria.length === 0) {
+    notes.push('尚未写明成功标准');
+    return { fit: 'unknown', notes };
+  }
+  if (input.needsFix || input.openReviewIssues > 0) {
+    notes.push(`仍有 ${String(input.openReviewIssues || 1)} 项评审待处理`);
+    return { fit: 'gap', notes };
+  }
+  if (input.fullyVerified) {
+    notes.push('验证已通过且无待修评审');
+    return { fit: 'met', notes };
+  }
+  if (input.verified) {
+    notes.push('部分验证通过，目标符合度仍待完整证据');
+    return { fit: 'pending', notes };
+  }
+  notes.push('尚无通过的验证证据');
+  return { fit: 'pending', notes };
+}
+
+function mapConversationStatus(status: ConversationGoal['status'] | undefined): GoalStatusGdc {
+  switch (status) {
+    case 'done': return 'achieved';
+    case 'blocked': return 'blocked';
+    case 'paused': return 'at_risk';
+    case 'active': return 'active';
+    default: return 'draft';
+  }
+}
+
+export function projectEngineeringGoal(input: {
+  workId: string;
+  originalRequest: string;
+  summary?: string;
+  conversationGoal?: ConversationGoal | null;
+  successCriteria?: readonly string[];
+  constraints?: readonly string[];
+  fit?: GoalFitStatus;
+  fitNotes?: readonly string[];
+  goalVersion?: number;
+}): EngineeringGoalView {
+  const text = input.conversationGoal?.text?.trim() || input.originalRequest.trim();
+  const criteria = input.successCriteria?.length
+    ? [...input.successCriteria]
+    : (input.summary?.trim() ? [`任务摘要可核对：${input.summary.trim().slice(0, 120)}`] : []);
+  return {
+    goalId: `goal:${input.workId}`,
+    workId: input.workId,
+    originalRequest: input.originalRequest,
+    intent: text.slice(0, 400),
+    desiredOutcome: text.slice(0, 400),
+    successCriteria: criteria,
+    constraints: [...(input.constraints ?? [])],
+    assumptions: [],
+    openQuestions: criteria.length === 0 ? ['成功标准尚未明确'] : [],
+    goalVersion: input.goalVersion ?? 1,
+    status: mapConversationStatus(input.conversationGoal?.status) === 'draft' && text
+      ? 'active'
+      : mapConversationStatus(input.conversationGoal?.status),
+    fit: input.fit ?? 'unknown',
+    fitNotes: [...(input.fitNotes ?? [])],
+    source: input.conversationGoal ? 'conversation' : input.summary ? 'task' : 'derived'
+  };
+}
+
+const STAGE_ORDER: CycleStage[] = [
+  'goal_reasoning',
+  'analysis',
+  'design',
+  'design_debate',
+  'planning',
+  'implementation',
+  'review',
+  'review_debate',
+  'conclusion',
+  'done'
+];
+
+function stageIndex(stage: CycleStage): number {
+  return STAGE_ORDER.indexOf(stage);
+}
+
+/**
+ * 从权威事件派生当前循环视图（可重放）。
+ */
+export function projectWorkCycleFromEvents(input: {
+  workId: string;
+  events: readonly AgentEvent[];
+  summary?: string;
+  status?: string;
+}): WorkCycleView {
+  const ordered = [...input.events].sort((a, b) => a.at - b.at);
+  let current: CycleStage = 'goal_reasoning';
+  let debateSkipped = true;
+  let reviewDebateSkipped = true;
+  let conclusionType: CycleConclusionType = 'in_progress';
+  let conclusionSummary = '';
+  let nextAction = '继续目标理解与分析';
+  let rollback: WorkCycleView['rollback'];
+  let roundCount = 0;
+  let hadPlan = false;
+  let hadDebate = false;
+  let hadExec = false;
+  let hadReview = false;
+  let needsFix = false;
+  let completed = false;
+  let failed = false;
+
+  for (const event of ordered) {
+    switch (event.type) {
+      case 'round.started':
+        roundCount = Math.max(roundCount, event.roundNumber ?? roundCount + 1);
+        if (!hadPlan) current = 'analysis';
+        break;
+      case 'plan.ready':
+        hadPlan = true;
+        current = 'planning';
+        nextAction = '等待计划审批或进入实现';
+        break;
+      case 'plan.debated': {
+        hadDebate = true;
+        debateSkipped = event.debate?.status === 'skipped';
+        current = debateSkipped ? 'planning' : 'design_debate';
+        if (!debateSkipped) nextAction = '根据方案辩论结果确认计划';
+        break;
+      }
+      case 'step.started':
+      case 'step.completed':
+        hadExec = true;
+        current = 'implementation';
+        nextAction = '继续实现与收集执行证据';
+        break;
+      case 'report.ready':
+        hadExec = true;
+        current = 'implementation';
+        break;
+      case 'review.ready':
+        hadReview = true;
+        needsFix = Boolean(event.needsFix);
+        current = 'review';
+        nextAction = needsFix ? '处理评审问题或进入修复轮' : '形成结论';
+        break;
+      case 'review.disposition':
+        reviewDebateSkipped = false;
+        current = 'review_debate';
+        nextAction = '根据处理决定继续修正或关闭问题';
+        break;
+      case 'task.completed':
+        completed = true;
+        current = 'done';
+        conclusionType = needsFix ? 'accepted_with_risks' : 'accepted';
+        conclusionSummary = event.summary?.trim() || input.summary?.trim() || '任务完成';
+        nextAction = '无需下一轮；可做整体验收';
+        break;
+      case 'task.failed':
+        failed = true;
+        current = 'conclusion';
+        conclusionType = 'aborted';
+        conclusionSummary = event.error ?? '任务失败';
+        nextAction = '检查失败原因后决定是否重启循环';
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (needsFix && hadReview && !completed && !failed) {
+    conclusionType = 'needs_fix';
+    conclusionSummary = '评审指出需修复项';
+    nextAction = '返回实现阶段修复';
+    rollback = { from: 'review', to: 'implementation', reason: '评审 needsFix' };
+    current = 'implementation';
+  } else if (hadReview && !needsFix && !completed && !failed) {
+    current = 'conclusion';
+    conclusionType = 'in_progress';
+    nextAction = '汇总证据并给出本轮结论';
+  } else if (hadPlan && !hadExec && !completed) {
+    current = stageIndex(current) < stageIndex('planning') ? 'planning' : current;
+  }
+
+  if (!hadDebate) debateSkipped = true;
+  if (ordered.every(event => event.type !== 'review.disposition')) reviewDebateSkipped = true;
+
+  const activeIdx = stageIndex(current);
+  const stages = STAGE_ORDER.filter(stage => stage !== 'done' || completed).map(stage => {
+    const idx = stageIndex(stage);
+    if (stage === 'design_debate' && debateSkipped && hadPlan) {
+      return { stage, status: 'skipped' as const, reason: '无实质方案争议' };
+    }
+    if (stage === 'review_debate' && reviewDebateSkipped && hadReview && !ordered.some(e => e.type === 'review.disposition')) {
+      return { stage, status: 'skipped' as const, reason: '无审核争议处理事件' };
+    }
+    if (completed && idx <= stageIndex('conclusion')) {
+      return { stage, status: 'done' as const };
+    }
+    if (idx < activeIdx) return { stage, status: 'done' as const };
+    if (idx === activeIdx) return { stage, status: 'active' as const };
+    return { stage, status: 'pending' as const };
+  });
+
+  const nearLimit = roundCount >= CODING_BUDGET.maxIterations - 1;
+
+  return {
+    cycleId: `cycle:${input.workId}:1`,
+    workId: input.workId,
+    cycleNumber: 1,
+    status: completed ? 'completed' : failed ? 'aborted' : 'running',
+    currentStage: current,
+    stages,
+    entryReason: '由任务事件派生的第 1 轮工程循环',
+    conclusionType,
+    conclusionSummary,
+    nextAction: nearLimit && !completed
+      ? `${nextAction}（接近迭代预算 ${String(CODING_BUDGET.maxIterations)}）`
+      : nextAction,
+    debateSkipped,
+    reviewDebateSkipped,
+    ...(rollback ? { rollback } : {}),
+    budget: {
+      maxIterations: CODING_BUDGET.maxIterations,
+      roundCount,
+      nearLimit
+    }
+  };
+}
+
+export function projectArtifactsFromEvents(input: {
+  workId: string;
+  cycleId: string;
+  events: readonly AgentEvent[];
+}): WorkArtifactRef[] {
+  const ordered = [...input.events].sort((a, b) => a.at - b.at);
+  const artifacts: WorkArtifactRef[] = [];
+  let planVersion = 0;
+  let reviewVersion = 0;
+  let lastPlanId: string | undefined;
+
+  for (const event of ordered) {
+    if (event.type === 'plan.ready') {
+      planVersion += 1;
+      const artifactId = `artifact:plan:${input.workId}:${String(planVersion)}`;
+      artifacts.push({
+        artifactId,
+        workId: input.workId,
+        cycleId: input.cycleId,
+        artifactType: 'plan',
+        version: planVersion,
+        status: 'accepted',
+        label: event.plan?.title ?? `计划 v${String(planVersion)}`,
+        eventType: event.type,
+        eventAt: event.at,
+        ...(lastPlanId ? { supersedesArtifactId: lastPlanId } : {})
+      });
+      if (lastPlanId) {
+        const prev = artifacts.find(item => item.artifactId === lastPlanId);
+        if (prev) prev.status = 'superseded';
+      }
+      lastPlanId = artifactId;
+    }
+    if (event.type === 'plan.debated' && event.debate?.status !== 'skipped') {
+      artifacts.push({
+        artifactId: `artifact:debate:${input.workId}:${String(event.at)}`,
+        workId: input.workId,
+        cycleId: input.cycleId,
+        artifactType: 'debate',
+        version: 1,
+        status: 'accepted',
+        label: '方案辩论记录',
+        eventType: event.type,
+        eventAt: event.at
+      });
+    }
+    if (event.type === 'report.ready') {
+      artifacts.push({
+        artifactId: `artifact:impl:${input.workId}:${String(event.at)}`,
+        workId: input.workId,
+        cycleId: input.cycleId,
+        artifactType: 'implementation',
+        version: 1,
+        status: 'accepted',
+        label: `执行报告 ${event.report.status}`,
+        eventType: event.type,
+        eventAt: event.at
+      });
+    }
+    if (event.type === 'review.ready') {
+      reviewVersion += 1;
+      artifacts.push({
+        artifactId: `artifact:review:${input.workId}:${String(reviewVersion)}`,
+        workId: input.workId,
+        cycleId: input.cycleId,
+        artifactType: 'review',
+        version: reviewVersion,
+        status: event.needsFix ? 'draft' : 'accepted',
+        label: `第 ${String(reviewVersion)} 次独立评审`,
+        eventType: event.type,
+        eventAt: event.at
+      });
+    }
+    if (event.type === 'task.completed') {
+      artifacts.push({
+        artifactId: `artifact:conclusion:${input.workId}:${String(event.at)}`,
+        workId: input.workId,
+        cycleId: input.cycleId,
+        artifactType: 'conclusion',
+        version: 1,
+        status: 'accepted',
+        label: event.summary?.trim() || '本轮结论',
+        eventType: event.type,
+        eventAt: event.at
+      });
+    }
+  }
+  return artifacts;
+}
+
+export function projectDecisionsFromEvents(input: {
+  workId: string;
+  cycleId: string;
+  events: readonly AgentEvent[];
+}): WorkDecisionRef[] {
+  return input.events
+    .filter((event): event is Extract<AgentEvent, { type: 'review.disposition' }> =>
+      event.type === 'review.disposition')
+    .map(event => ({
+      decisionId: `decision:${event.issueId}:${String(event.at)}`,
+      workId: input.workId,
+      cycleId: input.cycleId,
+      decisionType: 'review.disposition',
+      decision: event.disposition,
+      rationale: event.reason,
+      eventAt: event.at
+    }));
+}
+
+/** Engineering 工作台：目标 + 循环 + 产物 + 决策一次投影。 */
+export function projectGoalDrivenWorkbench(input: {
+  workId: string;
+  originalRequest: string;
+  events: readonly AgentEvent[];
+  summary?: string;
+  status?: string;
+  conversationGoal?: ConversationGoal | null;
+}): GoalDrivenWorkbenchView {
+  const ordered = [...input.events].sort((a, b) => a.at - b.at);
+  const cycle = projectWorkCycleFromEvents({
+    workId: input.workId,
+    events: ordered,
+    summary: input.summary,
+    status: input.status
+  });
+  const lastReview = [...ordered].reverse().find(event => event.type === 'review.ready');
+  const lastReport = [...ordered].reverse().find(event => event.type === 'report.ready');
+  const openIssues = lastReview && 'issueDetails' in lastReview
+    ? (lastReview.issueDetails ?? []).filter(issue => issue.disposition === 'pending').length
+    : (lastReview && 'needsFix' in lastReview && lastReview.needsFix ? 1 : 0);
+  const verified = Boolean(
+    lastReport && lastReport.type === 'report.ready'
+      ? lastReport.report.verification?.verified
+      : false
+  );
+  const fullyVerified = Boolean(
+    lastReport && lastReport.type === 'report.ready'
+      ? lastReport.report.verification?.fullyVerified
+      : false
+  );
+  const fit = assessGoalFit({
+    successCriteria: input.summary ? [input.summary] : [],
+    verified,
+    fullyVerified,
+    needsFix: Boolean(lastReview && 'needsFix' in lastReview && lastReview.needsFix),
+    openReviewIssues: openIssues
+  });
+  const goal = projectEngineeringGoal({
+    workId: input.workId,
+    originalRequest: input.originalRequest,
+    summary: input.summary,
+    conversationGoal: input.conversationGoal,
+    fit: fit.fit,
+    fitNotes: fit.notes
+  });
+  return {
+    workId: input.workId,
+    goal,
+    cycle,
+    artifacts: projectArtifactsFromEvents({
+      workId: input.workId,
+      cycleId: cycle.cycleId,
+      events: ordered
+    }),
+    decisions: projectDecisionsFromEvents({
+      workId: input.workId,
+      cycleId: cycle.cycleId,
+      events: ordered
+    }),
+    projectedAt: Date.now()
+  };
+}
+
+/** General / Knowledge：只投影目标，不强制八阶段。 */
+export function projectConversationGoalWorkbench(input: {
+  conversationId: string;
+  originalRequest: string;
+  conversationGoal?: ConversationGoal | null;
+  status?: string;
+}): GoalDrivenWorkbenchView {
+  const goal = projectEngineeringGoal({
+    workId: input.conversationId,
+    originalRequest: input.originalRequest,
+    conversationGoal: input.conversationGoal,
+    fit: input.status === 'answered' ? 'pending' : 'unknown',
+    fitNotes: input.status === 'answered'
+      ? ['问答场景：目标符合度由用户对照结论判断']
+      : ['会话进行中']
+  });
+  const cycle: WorkCycleView = {
+    cycleId: `cycle:${input.conversationId}:qa`,
+    workId: input.conversationId,
+    cycleNumber: 1,
+    status: input.status === 'answered' ? 'completed' : 'running',
+    currentStage: input.status === 'answered' ? 'conclusion' : 'analysis',
+    stages: [
+      { stage: 'goal_reasoning', status: 'done' },
+      { stage: 'analysis', status: input.status === 'answered' ? 'done' : 'active' },
+      { stage: 'design_debate', status: 'skipped', reason: '问答场景不强制方案辩论' },
+      { stage: 'planning', status: 'skipped', reason: '非工程执行' },
+      { stage: 'implementation', status: 'skipped', reason: '非工程执行' },
+      { stage: 'review', status: 'skipped', reason: '非工程执行' },
+      { stage: 'conclusion', status: input.status === 'answered' ? 'active' : 'pending' }
+    ],
+    entryReason: 'General/Knowledge 轻量循环',
+    conclusionType: input.status === 'answered' ? 'accepted' : 'in_progress',
+    conclusionSummary: input.status === 'answered' ? '已形成会话结论' : '',
+    nextAction: input.status === 'answered' ? '可继续追问或转入工程' : '继续分析与综合',
+    debateSkipped: true,
+    reviewDebateSkipped: true,
+    budget: {
+      maxIterations: CODING_BUDGET.maxIterations,
+      roundCount: 0,
+      nearLimit: false
+    }
+  };
+  return {
+    workId: input.conversationId,
+    goal,
+    cycle,
+    artifacts: [],
+    decisions: [],
+    projectedAt: Date.now()
+  };
+}

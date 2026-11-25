@@ -11,6 +11,10 @@
 
 辩论不再单独占据产品主线，它只是 P1 里的一种按需协作行为。
 
+**2026-11-25 增补：Goal-Driven Cycle（GDC）** — 在工程空间上叠加目标层与循环协调（薄层，不另建 Runtime）。
+架构：[architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)；
+任务书：[spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md](spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md)；状态板 GDC 节。
+
 每个阶段给的是**完成判据**，不是功能清单。判据不满足，不进入下一阶段。
 
 ---

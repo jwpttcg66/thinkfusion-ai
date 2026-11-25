@@ -229,6 +229,8 @@
     "test:task-members": "npm run build:test && node --test scripts/check-task-members.mjs",
     "test:task-conversation": "npm run build:test && node --test scripts/check-task-conversation.mjs",
     "test:collaboration-result": "npm run build:test && node --test scripts/check-collaboration-result.mjs",
+    "test:gdc-goal": "npm run build:test && node --test scripts/check-gdc-goal.mjs",
+    "test:gdc-cycle": "npm run build:test && node --test scripts/check-gdc-cycle.mjs",
     "test:context-contracts": "npm run build:test && node --test scripts/check-context-contracts.mjs",
     "test:context-entry-policy": "npm run build:test && node --test scripts/check-context-entry-policy.mjs",
     "test:engineering-context": "npm run build:test && node --test scripts/check-engineering-context.mjs",

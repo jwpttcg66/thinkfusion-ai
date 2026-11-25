@@ -6,6 +6,12 @@
 
 定位见 [PRODUCT.md](../PRODUCT.md)，迁移步骤见 [MIGRATION_PLAN.md](MIGRATION_PLAN.md)。
 
+### 与 GDC（目标驱动循环）的关系
+
+[V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)
+定义 Goal / Cycle 逻辑层。Collaboration Engine 仍是执行与调度基础；GDC **不**另建协作引擎，
+只增加目标投影与循环阶段协调（见实施任务书）。
+
 ---
 
 ## 1. 目标与约束

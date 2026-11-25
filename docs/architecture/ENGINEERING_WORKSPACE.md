@@ -7,6 +7,12 @@
 [COLLABORATION_ARCHITECTURE.md](COLLABORATION_ARCHITECTURE.md)，迁移步骤见
 [MIGRATION_PLAN.md](MIGRATION_PLAN.md)。
 
+### 与 GDC（目标驱动循环）的关系
+
+工程空间是完整循环（分析→设计→计划→实现→审核→结论）的主场景。
+GDC 说明书见 [V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)；
+实现为薄协调层，执行仍走 Orchestrator / TaskGrant / Journal。
+
 ---
 
 ## 1. 定位：真正的工程环境，不是工程辩论
