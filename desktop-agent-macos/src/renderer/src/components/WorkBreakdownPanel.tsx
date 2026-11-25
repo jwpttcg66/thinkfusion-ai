@@ -8,7 +8,8 @@ const STATUS_LABEL: Record<WorkBreakdownView['tasks'][number]['status'], string>
   reviewing: '审核中',
   completed: '完成',
   failed: '失败',
-  cancelled: '取消'
+  cancelled: '取消',
+  skipped: '已跳过'
 };
 
 function headLabel(status: WorkBreakdownView['status']): string {

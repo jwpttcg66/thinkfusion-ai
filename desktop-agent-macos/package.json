@@ -167,6 +167,7 @@
     "test:collab-budget": "npm run build:test && node --test scripts/check-collab-budget.mjs",
     "test:dmoca": "npm run build:test && node --test scripts/check-dmoca.mjs",
     "test:eco": "npm run build:test && node --test scripts/check-eco.mjs",
+    "test:gtec-p1": "npm run build:test && node --test scripts/check-gtec-p1.mjs",
     "test:model-route": "npm run build:agent && node --test scripts/check-model-route.mjs",
     "test:local-tools": "npm run build:agent && node --test scripts/check-local-tools.mjs",
     "test:computer-use": "npm run build:agent && npm run build:ax:mac && node --test scripts/check-computer-use.mjs",

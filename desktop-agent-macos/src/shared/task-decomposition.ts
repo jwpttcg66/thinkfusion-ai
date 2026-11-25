@@ -15,7 +15,8 @@ export const WORK_TASK_STATUSES = [
   'reviewing',
   'completed',
   'failed',
-  'cancelled'
+  'cancelled',
+  'skipped'
 ] as const;
 export type WorkTaskStatus = (typeof WORK_TASK_STATUSES)[number];
 
@@ -50,6 +51,9 @@ export interface WorkTask {
     review: 'auto' | 'targeted' | 'independent';
   };
   cycleId?: string;
+  /** 绑定 Goal；与 goalVersion 一起在目标变更后触发重评。 */
+  goalId?: string;
+  goalVersion?: number;
   agentTaskId?: string;
   planStepId?: string;
   artifacts: string[];
@@ -94,17 +98,18 @@ export interface WorkBreakdownView {
   projectedAt: number;
 }
 
-const TERMINAL: ReadonlySet<WorkTaskStatus> = new Set(['completed', 'cancelled']);
+const TERMINAL: ReadonlySet<WorkTaskStatus> = new Set(['completed', 'cancelled', 'skipped']);
 
 const ALLOWED: Record<WorkTaskStatus, readonly WorkTaskStatus[]> = {
-  pending: ['ready', 'blocked', 'cancelled'],
-  ready: ['running', 'blocked', 'cancelled'],
-  running: ['reviewing', 'completed', 'failed', 'blocked', 'cancelled'],
-  blocked: ['ready', 'cancelled', 'failed'],
-  reviewing: ['completed', 'failed', 'ready', 'cancelled'],
+  pending: ['ready', 'blocked', 'cancelled', 'skipped'],
+  ready: ['running', 'blocked', 'cancelled', 'skipped'],
+  running: ['reviewing', 'completed', 'failed', 'blocked', 'cancelled', 'skipped'],
+  blocked: ['ready', 'cancelled', 'failed', 'skipped'],
+  reviewing: ['completed', 'failed', 'ready', 'cancelled', 'skipped'],
   completed: [],
-  failed: ['ready', 'cancelled'],
-  cancelled: []
+  failed: ['ready', 'cancelled', 'skipped'],
+  cancelled: [],
+  skipped: []
 };
 
 export function collaborationPolicyFor(complexity: WorkTaskComplexity): WorkTask['collaborationPolicy'] {
@@ -171,13 +176,69 @@ export function applyWorkTaskStatus(
     if (!evidence.length) throw new Error('完成必须带验收证据');
     current.evidence = evidence;
   }
+  if (input.status === 'skipped') {
+    const reason = input.blockedReason?.trim();
+    if (!reason) throw new Error('跳过必须记录原因');
+    current.blockedReason = reason;
+  }
   current.status = input.status;
   current.revision = (current.revision ?? 1) + 1;
   current.updatedAt = input.at ?? Date.now();
   if (input.status === 'blocked') current.blockedReason = input.blockedReason ?? current.blockedReason;
-  if (input.status !== 'blocked') current.blockedReason = undefined;
+  if (input.status !== 'blocked' && input.status !== 'skipped') current.blockedReason = undefined;
   list[index] = current;
   return refreshReady(list);
+}
+
+/** 依赖图是否有环。 */
+export function hasDependencyCycle(tasks: readonly Pick<WorkTask, 'workTaskId' | 'dependencies'>[]): boolean {
+  const byId = new Map(tasks.map(item => [item.workTaskId, item.dependencies ?? []]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const dfs = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const dep of byId.get(id) ?? []) {
+      if (!byId.has(dep)) continue;
+      if (dfs(dep)) return true;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  for (const id of byId.keys()) {
+    if (dfs(id)) return true;
+  }
+  return false;
+}
+
+/** 任务树结构校验（parent / 环 / L0 唯一 / level 父子）。 */
+export function validateWorkTaskTree(tasks: readonly WorkTask[]): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const byId = new Map(tasks.map(item => [item.workTaskId, item]));
+  let l0 = 0;
+  for (const task of tasks) {
+    if (task.level === 0) l0 += 1;
+    if (task.parentTaskId) {
+      const parent = byId.get(task.parentTaskId);
+      if (!parent) {
+        errors.push(`悬空 parent：${task.workTaskId} → ${task.parentTaskId} 不存在`);
+      } else {
+        const childLevel = task.level ?? inferLevel(task);
+        const parentLevel = parent.level ?? inferLevel(parent);
+        if (parentLevel >= childLevel) {
+          errors.push(`层级非法：${task.workTaskId}(L${String(childLevel)}) 的 parent 为 L${String(parentLevel)}`);
+        }
+      }
+    }
+    for (const dep of task.dependencies ?? []) {
+      if (!byId.has(dep)) errors.push(`依赖不存在：${task.workTaskId} → ${dep}`);
+    }
+  }
+  if (l0 > 1) errors.push(`同一 work 至多一个 L0，当前 ${String(l0)}`);
+  if (hasDependencyCycle(tasks)) errors.push('依赖环：tasks 形成 cycle');
+  return { ok: errors.length === 0, errors };
 }
 
 export function upsertWorkTask(tasks: readonly WorkTask[], task: WorkTask): WorkTask[] {
@@ -234,18 +295,22 @@ function rowDepth(level: WorkTaskLevel): number {
   return Math.max(0, level - 1);
 }
 
-/** 真实进度：叶子任务完成数 / 活动叶子总数；group 不单独占分母。 */
+function isInactiveStatus(status: WorkTaskStatus): boolean {
+  return status === 'cancelled' || status === 'skipped';
+}
+
+/** 真实进度：叶子任务完成数 / 活动叶子总数；group/跳过/取消不占分母。 */
 export function progressRatioFromRows(rows: readonly WorkTaskRow[]): number {
-  const leaves = rows.filter(item => item.level >= 2 && item.status !== 'cancelled');
-  const pool = leaves.length > 0 ? leaves : rows.filter(item => item.status !== 'cancelled');
+  const leaves = rows.filter(item => item.level >= 2 && !isInactiveStatus(item.status));
+  const pool = leaves.length > 0 ? leaves : rows.filter(item => !isInactiveStatus(item.status));
   if (pool.length === 0) return 0;
   const done = pool.filter(item => item.status === 'completed' && item.acceptanceMet).length;
   return done / pool.length;
 }
 
 function summarize(rows: WorkTaskRow[]): WorkBreakdownView['summary'] {
-  const active = rows.filter(item => item.status !== 'cancelled' && item.level >= 2);
-  const pool = active.length > 0 ? active : rows.filter(item => item.status !== 'cancelled');
+  const active = rows.filter(item => !isInactiveStatus(item.status) && item.level >= 2);
+  const pool = active.length > 0 ? active : rows.filter(item => !isInactiveStatus(item.status));
   return {
     completed: pool.filter(item => item.status === 'completed').length,
     total: pool.length,
@@ -473,23 +538,50 @@ export function projectWorkBreakdownFromEvents(input: {
   return deriveFromPlanAndSteps(input.workId, input.events, title);
 }
 
-/** 从计划步骤生成显式 work.* 种子事件（L1 组 + L3 步骤，挂父子）。 */
+/** 从计划步骤生成显式 work.* 种子事件（L0 Work + L1 组 + L3 步骤）。 */
 export function seedWorkEventsFromPlan(input: {
   workId: string;
   title: string;
   plan: PlanPreview;
   at?: number;
   cycleId?: string;
+  goalId?: string;
+  goalVersion?: number;
 }): AgentEvent[] {
   const at = input.at ?? Date.now();
+  const goalId = input.goalId ?? `goal:${input.workId}`;
+  const goalVersion = input.goalVersion ?? 1;
   const events: AgentEvent[] = [
     { type: 'work.breakdown.created', at, taskId: input.workId, workId: input.workId, title: input.title || input.plan.title }
   ];
+  const rootId = `wt-work-${input.workId.slice(0, 8)}`;
   const groupId = `wt-group-${input.workId.slice(0, 8)}`;
+  const root: WorkTask = {
+    workTaskId: rootId,
+    workId: input.workId,
+    parentTaskId: null,
+    level: 0,
+    title: input.title || input.plan.title || 'Work',
+    description: input.plan.description,
+    dependencies: [],
+    acceptanceCriteria: ['全部必要子任务完成并有验收证据'],
+    status: 'ready',
+    priority: 'W0',
+    complexity: 'low',
+    collaborationPolicy: collaborationPolicyFor('low'),
+    cycleId: input.cycleId,
+    goalId,
+    goalVersion,
+    artifacts: [],
+    evidence: [],
+    revision: 1,
+    createdAt: at,
+    updatedAt: at
+  };
   const group: WorkTask = {
     workTaskId: groupId,
     workId: input.workId,
-    parentTaskId: null,
+    parentTaskId: rootId,
     level: 1,
     title: '执行计划',
     description: input.title || input.plan.title,
@@ -500,12 +592,15 @@ export function seedWorkEventsFromPlan(input: {
     complexity: 'low',
     collaborationPolicy: collaborationPolicyFor('low'),
     cycleId: input.cycleId,
+    goalId,
+    goalVersion,
     artifacts: [],
     evidence: [],
     revision: 1,
     createdAt: at,
     updatedAt: at
   };
+  events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: root });
   events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: group });
   input.plan.steps.forEach((step, index) => {
     const workTaskId = `wt-${step.id}`;
@@ -526,6 +621,8 @@ export function seedWorkEventsFromPlan(input: {
       complexity,
       collaborationPolicy: collaborationPolicyFor(complexity),
       cycleId: input.cycleId,
+      goalId,
+      goalVersion,
       planStepId: step.id,
       artifacts: [],
       evidence: [],

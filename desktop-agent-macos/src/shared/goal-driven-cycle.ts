@@ -152,6 +152,12 @@ export function decideNextEngineeringAction(input: {
   return 'repair';
 }
 
+/** 实质变更才抬升 goalVersion；澄清/优化路径不变。 */
+export function applyGoalVersionBump(previousVersion: number, kind: GoalChangeKind): number {
+  const base = Number.isFinite(previousVersion) && previousVersion > 0 ? Math.floor(previousVersion) : 1;
+  return kind === 'change' ? base + 1 : base;
+}
+
 /** 目标变更分类：缩小成功标准 → change（禁止静默降级当 clarify）。 */
 export function classifyGoalChange(input: {
   previousCriteria: readonly string[];
