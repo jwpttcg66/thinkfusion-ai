@@ -86,7 +86,7 @@
 | U4 General / Knowledge 主活动区 | PARTIAL | 结果面板已接入；去重与场景验收在 U7 |
 | U5 Engineering 主活动区 | PARTIAL | 结果面板已接入；去重与闭环验收在 U7 |
 | U6 集成 / 恢复 / 真机验收 | PARTIAL | Engineering 单路径冒烟有证据；三场景完整验收改由 U7 |
-| **U7 质量收敛与最终验收** | 实施中 | `docs/spec/V3-MAIN-ACTIVITY-U7-QUALITY-CONVERGENCE-TASK-BOOK.md` |
+| **U7 质量收敛与最终验收** | PARTIAL | 代码已落地；Engineering 真机去重通过；General/Knowledge 真机待补。见 `V3-MAIN-ACTIVITY-U7-ACCEPTANCE.md` |
 | 功能分支 | 进行中 | `feat/v3-main-activity-u7-quality`（相对 `main@8601fc2`） |
 | 实施记录 | — | `V3-MAIN-ACTIVITY-U2-U6-IMPLEMENTATION.md`、`V3-MAIN-ACTIVITY-U6-ACCEPTANCE.md` |
 

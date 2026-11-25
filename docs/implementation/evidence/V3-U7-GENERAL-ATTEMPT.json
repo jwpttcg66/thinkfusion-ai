@@ -1,0 +1,18 @@
+{
+  "scene": "general",
+  "dom": {
+    "hasPanel": true,
+    "sceneLine": [
+      "任务结果",
+      "工程 · completed",
+      "核心结论"
+    ],
+    "isEngineering": true,
+    "isGeneral": false,
+    "fullSynthesisCount": 0,
+    "processOnlyCount": 0,
+    "hasProcessOnlyNote": false,
+    "bodyHasAnswer": true
+  },
+  "at": 1795572762795
+}

@@ -16,11 +16,18 @@
 | 过程层默认收起 | `CollaborationResultPanel`：`compactProcess` 缺省 true |
 | 文档对齐 | STATUS / 旧任务书 / U1 / U6 / U2–U6 记录与基线同步 |
 
+## 真机
+
+| 项 | 说明 |
+| --- | --- |
+| Engineering 去重 | ✅ `V3-MAIN-ACTIVITY-U7-ACCEPTANCE.md` · task `84068cfe-…` |
+| General / Knowledge | ⏳ 会话曾 answered，但 CDP 切面板未稳定；待补 |
+
 ## 仍待
 
 | 项 | 说明 |
 | --- | --- |
-| 三场景真机 | General / Knowledge / Engineering 各至少一次完整展示验收 |
+| General / Knowledge 真机 | 独立场景验收，确认结果面板 scene=问答/知识且综合卡去重 |
 | 来源点击跳转 | 当前展示可读来源标签；定位跳转可后续迭代 |
 
 ## 自动化
