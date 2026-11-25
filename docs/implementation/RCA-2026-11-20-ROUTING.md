@@ -32,6 +32,8 @@ classifyEngineeringIntent("制作一个spring boot的示例工程，")
 1. **云端/本地驱动不再预判**：`executionMode !== 'web'` 时，工程请求跳过
    `routeTask` 词表和 `ROUTING_SYSTEM` 分类提示词，直接交给 Planner；
    只有纯网页模式保留规则兜底。
+   （2026-11-21 曾误收窄为「只有显式按实施才交 Planner」，2026-11-25 已按
+   AGENTS.md §9 回滚；禁止再改。）
 2. `EXECUTION_VERBS` 增加：`制作|生成|搭建|初始化|脚手架`（仅网页兜底）。
 3. 辩论默认开启：旧 `off` 归一为 `on`，设置页移除关闭项；存疑强制核查。
 4. 设计辩论：计划新增 `kind=design` 与 `design.document/viewpoints`；

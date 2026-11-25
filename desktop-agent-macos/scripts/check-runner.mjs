@@ -15,12 +15,15 @@
  */
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
 import { buildLeadSummaryQuestion, inlineLeadInstructions, parseDoubts, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
+
+const RUNNER_SRC = join(dirname(fileURLToPath(import.meta.url)), '../src/main/conversation-runner.ts');
 
 function fakeStore() {
   const conversations = new Map();
@@ -1536,13 +1539,18 @@ test('active 模式：走注入的 activeRunner，落 channel + synthesis', asyn
   assert.ok(messages.some(m => m.role === 'system' && m.text.includes('停止原因')));
 });
 
-test('云端工程：显式“按实施”直达 Planner，不再做词表预判', async () => {
+test('云端工程：不做词表预判，直接交 Planner', async () => {
   let submitted = null;
+  let routed = 0;
   const { runner } = makeRunner(
     [fakeChannel('a', () => answer('不应该被问到'))],
     {
       deps: {
         expertiseFor: () => ({ system: ['技能A：先给最小可运行示例'], note: '' }),
+        routeWithModel: async () => {
+          routed += 1;
+          return { kind: 'analysis', reason: '不该问到' };
+        },
         submitWorkspace: async input => {
           submitted = input;
           return { taskId: 'task-cloud' };
@@ -1554,15 +1562,81 @@ test('云端工程：显式“按实施”直达 Planner，不再做词表预判
     text: '分析这个仓库的目录结构',
     workspaceMode: 'engineering',
     workspaceRoot: '/tmp/project',
-    taskKindOverride: 'execution',
     executionConfig: { executionMode: 'cloud' }
   });
   const done = await settle(runner, started.conversationId);
   assert.equal(done.status, 'answered');
   assert.equal(done.intent, 'workspace');
+  assert.equal(routed, 0, '云端工程不得先跑 ROUTING_SYSTEM / 本机词表');
   assert.ok(submitted, '应交给 Planner，而不是问网页');
   assert.match(submitted.prompt, /分析这个仓库/);
   assert.deepEqual(submitted.expertise, ['技能A：先给最小可运行示例']);
+});
+
+test('云端工程：编写 hello world 也直达 Planner，不落成问答', async () => {
+  let submitted = null;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('不应该被问到'))],
+    {
+      deps: {
+        submitWorkspace: async input => {
+          submitted = input;
+          return { taskId: 'task-hello' };
+        }
+      }
+    }
+  );
+  const started = await runner.start({
+    text: '编写一个hello world 的go 程序版本',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/project',
+    executionConfig: { executionMode: 'cloud' }
+  });
+  const done = await settle(runner, started.conversationId);
+  assert.equal(done.status, 'answered');
+  assert.equal(done.intent, 'workspace');
+  assert.ok(submitted, '写程序必须交 Planner，不能只回答');
+  assert.match(submitted.prompt, /hello world/);
+});
+
+test('云端工程：显式「按分析」仍尊重用户，不吞进 Planner', async () => {
+  let submitted = 0;
+  const { runner } = makeRunner(
+    [fakeChannel('a', () => answer('只读分析'))],
+    {
+      deps: {
+        submitWorkspace: async () => {
+          submitted += 1;
+          return { taskId: 'should-not' };
+        }
+      }
+    }
+  );
+  const conversation = await runner.start({
+    text: '实现一个功能',
+    workspaceMode: 'engineering',
+    workspaceRoot: '/tmp/project',
+    taskKindOverride: 'analysis',
+    executionConfig: { executionMode: 'cloud' }
+  });
+  assert.equal(submitted, 0);
+  assert.equal(conversation.routing?.taskKind, 'engineering_analysis');
+  assert.equal(conversation.routing?.source, 'user_selected');
+});
+
+test('源码守卫：云端/本地不得缩回「只有按实施才交 Planner」', () => {
+  const src = readFileSync(RUNNER_SRC, 'utf8');
+  const blocks = [...src.matchAll(/const plannerFirst =\n(?:.+\n){1,4}/g)].map(m => m[0]);
+  assert.ok(blocks.length >= 2, `应有首问与追问两处 plannerFirst，实际 ${String(blocks.length)}`);
+  for (const block of blocks) {
+    assert.match(block, /executionMode !== 'web'/, '云端/本地必须跳过本机预判');
+    assert.match(block, /!== 'analysis'/, 'plannerFirst 必须保留「按分析」例外');
+    assert.doesNotMatch(
+      block,
+      /=== 'execution'/,
+      '禁止再把 plannerFirst 收窄成只有按实施才交 Planner（见 AGENTS.md）'
+    );
+  }
 });
 
 
