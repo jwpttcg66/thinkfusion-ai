@@ -63,7 +63,7 @@ export function TaskPlanCapsule(props: {
         ...liveCurrent,
         label: terminalLabel,
         state: 'done' as const,
-        detail: liveCurrent.detail || '结论见上方正文'
+        detail: liveCurrent.detail || '结论见正文'
       }
     : liveCurrent;
 
@@ -143,6 +143,8 @@ function resolveWorkPlanText(input: {
     if (!text) return null;
     if (isBannedUserText(text, input.bannedUserTexts)) return null;
     if (/^正在理解任务目标/.test(text)) return null;
+    // 占位计划标题，不能当工作计划目标展示。
+    if (/^(执行计划|工作计划|计划)$/.test(text)) return null;
     return text;
   };
 
@@ -302,6 +304,7 @@ export function resolvePlanGoalText(input: {
     if (!text) return null;
     if (isBannedUserText(text, banned)) return null;
     if (/^正在理解任务目标/.test(text)) return null;
+    if (/^(执行计划|工作计划|计划)$/.test(text)) return null;
     return text;
   };
   return accept(input.goalText) ?? accept(input.workbenchIntent) ?? null;

@@ -57,7 +57,6 @@ import { DiagnosticsPanel } from './components/DiagnosticsPanel';
 import { SettingsPanel, type Section as SettingsSection } from './components/SettingsPanel';
 import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
-import { TaskProgressCard } from './components/engineering/TaskProgressCard';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
 import { CollaborationResultPanel } from './components/CollaborationResultPanel';
 import { WorkBreakdownPanel } from './components/WorkBreakdownPanel';
@@ -2539,18 +2538,7 @@ export default function App() {
                 && !engineeringStreaming;
               return (
               <>
-                {/* 极简状态：现在到哪；正文阅读面是下面的时序对话流。 */}
-                <TaskProgressCard
-                  task={activeTask}
-                  plan={derived.plan}
-                  events={events}
-                  members={derived.members}
-                  pendingStep={pendingStep}
-                  pendingQuestion={pendingQuestion}
-                  awaitingAnswer={awaitingAnswer}
-                  hasDelivery={Boolean(derived.verification || derived.review || derived.changes.length > 0 || derived.artifacts.length > 0)}
-                />
-                {/* 主阅读面：提问 → 流式 → 计划/执行 → 里程碑 →（收口在下方） */}
+                {/* 进度改挂 dock 工作计划胶囊；正文只保留时序阅读面，避免中上部被进度大卡顶开。 */}
                 <TaskConversation
                   task={activeTask}
                   events={events}
@@ -3138,6 +3126,29 @@ export default function App() {
                 startedAt={activeConversation.createdAt}
                 messages={messages}
                 userTicks={planUserTicks}
+              />
+            )}
+            {activeTask &&
+              workbenchTab === 'conversation' &&
+              !showingConversation &&
+              (busy ||
+                ['completed', 'failed', 'cancelled', 'report_pending'].includes(activeTask.status)) && (
+              <TaskPlanCapsule
+                goalText={resolvePlanGoalText({
+                  goalText:
+                    (derived.plan?.title && derived.plan.title !== '执行计划'
+                      ? derived.plan.title
+                      : null) ??
+                    engineeringWorkbench?.goal?.intent ??
+                    null,
+                  workbenchIntent: engineeringWorkbench?.goal?.intent ?? null,
+                  userTexts: [activeTask.userPrompt ?? '', activeTask.title ?? ''].filter(Boolean)
+                })}
+                conversationStatus={taskConversation?.status ?? 'thinking'}
+                taskStatus={activeTask.status}
+                events={events}
+                startedAt={activeTask.createdAt}
+                userTicks={[]}
               />
             )}
             <TaskInput
