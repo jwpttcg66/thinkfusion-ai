@@ -509,6 +509,132 @@ button:disabled {
   margin-bottom: 0;
 }
 
+/* 任务规划胶囊：输入框正上方居中，和正文滚动区脱钩。 */
+.task-plan-capsule {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 auto 10px;
+  max-width: 100%;
+}
+.task-plan-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  flex: 0 0 auto;
+}
+.task-plan-tick {
+  width: 14px;
+  height: 3px;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  background: color-mix(in srgb, var(--text-3) 55%, transparent);
+  cursor: pointer;
+}
+.task-plan-tick:hover {
+  background: color-mix(in srgb, var(--text-2) 80%, transparent);
+}
+.task-plan-tick.is-active {
+  background: var(--text);
+  height: 4px;
+}
+.task-plan-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-2, #f6f7fb) 88%, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  padding: 8px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-plan-capsule.is-terminal .task-plan-card {
+  opacity: 0.92;
+}
+.task-plan-goal {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.task-plan-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 2px 2px;
+  min-height: 28px;
+}
+.task-plan-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background:
+    conic-gradient(var(--accent, #4d6bfe) calc(var(--task-plan-frac, 0.2) * 360deg), color-mix(in srgb, var(--line-strong) 70%, transparent) 0);
+  mask: radial-gradient(circle at center, transparent 42%, #000 44%);
+  -webkit-mask: radial-gradient(circle at center, transparent 42%, #000 44%);
+  animation: task-plan-spin 1.2s linear infinite;
+}
+.task-plan-ring.is-done {
+  animation: none;
+  background: var(--accent, #4d6bfe);
+  mask: none;
+  -webkit-mask: none;
+  opacity: 0.85;
+}
+@keyframes task-plan-spin {
+  to { transform: rotate(360deg); }
+}
+.task-plan-step-text {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.task-plan-step-text b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.task-plan-step-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.task-plan-nm {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-3);
+  padding-right: 2px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .inner {
   width: 100%;
   /* Grows with the pane instead of sitting at a fixed 660px.
@@ -3086,6 +3212,18 @@ button:disabled {
   border-radius: 6px;
 }
 
+/* 底部实时区：只许这里变。中上部已落盘内容不插卡、不跳秒。 */
+.conv-live-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-1);
+}
+.conv-live-bottom .channel-card.is-live {
+  margin: 0;
+}
 .conv-working {
   display: flex;
   align-items: flex-start;
@@ -4821,6 +4959,15 @@ button:disabled {
   border: 1px solid var(--line-1);
   border-radius: 10px;
   background: var(--surface-2);
+  /* 预留高度：阶段条 + 当前行，避免出现/收成终态时把下面正文顶跳。 */
+  min-height: 72px;
+  box-sizing: border-box;
+}
+.progress-strip.is-terminal {
+  opacity: 0.92;
+}
+.progress-strip.is-terminal .progress-now {
+  color: var(--text-2);
 }
 .progress-stages {
   display: flex;
@@ -6237,6 +6384,137 @@ button:disabled {
    执行步骤缩进淡色、结论压在最底下加重——读的时候从上往下就是这件事发生的
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
+/* 预留定位轴槽位：有无地标都不改正文宽度，避免开局突然「闪没/挤位」。 */
+.chat-feed-layout {
+  --chat-locate-w: 148px;
+  position: relative;
+  display: block;
+  margin-bottom: 16px;
+  padding-left: var(--chat-locate-w);
+  min-height: 160px;
+}
+.chat-locate-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--chat-locate-w) - 8px);
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  padding: 4px 0 4px 2px;
+}
+.chat-locate-track {
+  position: absolute;
+  left: 11px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.chat-stream-placeholder {
+  padding: 14px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--text-2);
+  min-height: 72px;
+}
+.chat-stream-placeholder b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+.chat-locate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+.chat-locate-tick {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 5px 4px 5px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chat-locate-tick:hover { background: color-mix(in srgb, var(--member-bg) 80%, transparent); color: var(--text); }
+.chat-locate-tick.is-active { color: var(--text); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chat-locate-dot {
+  grid-row: 1 / span 2;
+  align-self: start;
+  margin-top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  background: var(--bg);
+}
+.chat-locate-tick.is-prompt .chat-locate-dot { border-color: var(--accent); }
+.chat-locate-tick.is-plan .chat-locate-dot { border-color: #3b6ea5; }
+.chat-locate-tick.is-debate .chat-locate-dot { border-color: #8a5a2b; }
+.chat-locate-tick.is-exec .chat-locate-dot { border-color: #0f7b4f; }
+.chat-locate-tick.is-check .chat-locate-dot { border-color: var(--warn); }
+.chat-locate-tick.is-done .chat-locate-dot { border-color: #0f7b4f; background: color-mix(in srgb, #0f7b4f 35%, var(--bg)); }
+.chat-locate-tick.is-active .chat-locate-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.chat-locate-label {
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-locate-time {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+.chat-stream-anchor {
+  scroll-margin-top: 12px;
+}
+.chat-stream-anchor:target,
+.chat-stream-anchor.is-flash {
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+}
+@media (max-width: 900px) {
+  .chat-feed-layout {
+    padding-left: 0;
+    padding-top: 0;
+  }
+  .chat-locate-rail {
+    position: relative;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 8px;
+  }
+  .chat-locate-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chat-locate-track { display: none; }
+  .chat-locate-tick {
+    grid-template-columns: 10px auto;
+    grid-template-rows: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+  }
+  .chat-locate-time { display: none; }
+  .chat-locate-dot { margin-top: 2px; width: 8px; height: 8px; }
+}
+
 .chat-feed { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 /* 验证与评审也是时间线事件：卡片间距交给 feed 的 gap，不再额外加底边距。 */
 .chat-feed > .review-card { margin-bottom: 0; }
@@ -6264,6 +6542,88 @@ button:disabled {
 .chat-member.is-streaming { border-left-color: var(--accent); }
 .chat-member.is-completed { border-left-color: #0f7b4f; }
 .chat-member.is-failed { border-left-color: var(--danger); }
+
+/* 流式阅读：重点正文 vs 旁注里程碑；辩论方卡片另见 .chat-member */
+.chat-stream-member {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0 8px 10px;
+  border-left: 3px solid var(--line-strong);
+}
+.chat-stream-member.is-streaming { border-left-color: var(--accent); }
+.chat-stream-member.is-completed { border-left-color: #0f7b4f; }
+.chat-stream-member.is-failed { border-left-color: var(--danger); }
+.chat-stream-member.is-focus {
+  background: color-mix(in srgb, var(--member-bg) 70%, transparent);
+  border-radius: 0 8px 8px 0;
+  padding-right: 8px;
+}
+.chat-stream-member.is-aside,
+.chat-note.is-aside {
+  opacity: 0.72;
+  font-size: 11px;
+  border-left-width: 2px;
+  border-left-style: dashed;
+}
+.chat-note.is-focus {
+  border-left: 3px solid var(--accent);
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--member-bg) 55%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.chat-stream-block.is-focus { margin: 2px 0; }
+.chat-stream-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  flex-shrink: 0;
+}
+.chat-stream-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.chat-stream-body {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.chat-stream-body.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  overflow: hidden;
+  max-height: none;
+}
+.chat-stream-conclusion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid #0f7b4f;
+  background: color-mix(in srgb, var(--member-bg) 70%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.chat-stream-conclusion-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
 .chat-member-head {
   display: flex;
   align-items: center;

@@ -1841,15 +1841,26 @@ export class AgentOrchestrator {
       atMaxRounds,
       genuineDelivery
     });
+    // complete 时 snapshot 必须写终态，不能沿用派生里残留的 needs_fix / implementation，
+    // 否则 UI 在 task.completed 之后仍显示「需修复」。
+    const snapshotStage = decision === 'complete'
+      ? 'done'
+      : workbench.cycle.currentStage;
+    const snapshotConclusion = decision === 'complete'
+      ? (actionableReview ? 'accepted_with_risks' : 'accepted')
+      : workbench.cycle.conclusionType;
+    const snapshotNext = decision === 'complete'
+      ? '无需下一轮；可做整体验收'
+      : workbench.cycle.nextAction;
     this.deps.emit({
       type: 'cycle.snapshot',
       at: Date.now(),
       taskId,
       cycleId: workbench.cycle.cycleId,
       cycleNumber: workbench.cycle.cycleNumber,
-      currentStage: workbench.cycle.currentStage,
-      conclusionType: workbench.cycle.conclusionType,
-      nextAction: workbench.cycle.nextAction,
+      currentStage: snapshotStage,
+      conclusionType: snapshotConclusion,
+      nextAction: snapshotNext,
       debateSkipped: workbench.cycle.debateSkipped,
       decision,
       budget: workbench.cycle.budget

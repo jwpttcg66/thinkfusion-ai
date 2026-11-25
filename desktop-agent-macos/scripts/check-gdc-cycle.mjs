@@ -275,3 +275,57 @@ test('完成：task.completed 后 stage=done 且 accepted', () => {
   assert.equal(cycle.currentStage, 'done');
   assert.equal(cycle.conclusionType, 'accepted');
 });
+
+test('完成优先于旧 repair snapshot：不得残留需修复', () => {
+  const events = [
+    ...baseEvents,
+    {
+      type: 'cycle.snapshot',
+      at: 9,
+      taskId,
+      cycleId: 'cycle:x',
+      cycleNumber: 1,
+      currentStage: 'implementation',
+      conclusionType: 'needs_fix',
+      nextAction: '返回实现阶段修复',
+      debateSkipped: true,
+      decision: 'repair',
+      budget: { roundCount: 1, maxIterations: 8, nearLimit: false }
+    },
+    {
+      type: 'review.ready',
+      at: 10,
+      taskId,
+      roundId: 'r2',
+      reviewer: 'rules',
+      backend: 'rules',
+      verdict: '通过',
+      issues: [],
+      needsFix: false
+    },
+    {
+      type: 'cycle.snapshot',
+      at: 11,
+      taskId,
+      cycleId: 'cycle:x',
+      cycleNumber: 1,
+      currentStage: 'implementation',
+      conclusionType: 'needs_fix',
+      nextAction: '返回实现阶段修复',
+      debateSkipped: true,
+      decision: 'complete',
+      budget: { roundCount: 2, maxIterations: 8, nearLimit: false }
+    },
+    { type: 'task.completed', at: 12, taskId, summary: '执行完成，验证通过' }
+  ];
+  const cycle = projectWorkCycleFromEvents({
+    workId: taskId,
+    events,
+    summary: '执行完成，验证通过'
+  });
+  assert.equal(cycle.status, 'completed');
+  assert.equal(cycle.currentStage, 'done');
+  assert.equal(cycle.conclusionType, 'accepted');
+  assert.match(cycle.nextAction, /无需下一轮/);
+  assert.equal(cycle.rollback, undefined);
+});

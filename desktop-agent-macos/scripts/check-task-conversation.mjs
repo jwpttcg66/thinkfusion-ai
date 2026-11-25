@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import {
   buildConclusion,
+  buildStreamLandmarks,
   buildTaskConversation,
   memberBodyView,
   protocolDerivation,
@@ -267,7 +268,7 @@ test('方案评审 done 心跳不得把已辩完冲回进行中', () => {
   assert.equal(debate.status, 'completed');
 });
 
-test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本', () => {
+test('套话 summary 可作收口标题：执行明细进 facts，不把工具 stdout 顶成核心结论', () => {
   const conclusion = buildConclusion(
     [
       roundStart(1000, 'r1', 1, 'user_prompt'),
@@ -308,9 +309,85 @@ test('套话 summary 不冒充结论：用 fs.list 真实结果当结论文本',
     { summary: '执行完成，验证通过', status: 'completed' }
   );
   assert.ok(conclusion);
-  assert.match(conclusion.text, /目录内容：readme\.txt、src/);
+  assert.equal(conclusion.text, '执行完成，验证通过');
   assert.match(conclusion.facts.join(' / '), /目录内容：readme\.txt、src/);
-  assert.doesNotMatch(conclusion.text, /^执行完成/);
+  assert.match(conclusion.executionResults.join(' / '), /目录内容：readme\.txt、src/);
+});
+
+test('修复轮长命令不得顶成核心结论；目标物取全轮并集', () => {
+  const conclusion = buildConclusion(
+    [
+      roundStart(1000, 'r1', 1, 'user_prompt'),
+      {
+        type: 'report.ready',
+        at: 2000,
+        taskId: task,
+        roundId: 'r1',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's1',
+              tool: 'fs.writeFile',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { path: 'go-http-demo/main.go' },
+              result: { path: 'go-http-demo/main.go' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: [],
+            changedFiles: 1,
+            changedPaths: ['go-http-demo/main.go'],
+            checks: {
+              compile: { status: 'passed' },
+              tests: { status: 'passed' },
+              diagnostics: { status: 'passed', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      roundStart(3000, 'r2', 2, 'execution_report'),
+      {
+        type: 'report.ready',
+        at: 4000,
+        taskId: task,
+        roundId: 'r2',
+        report: {
+          status: 'completed',
+          results: [
+            {
+              stepId: 's2',
+              tool: 'shell.run',
+              status: 'completed',
+              verified: true,
+              durationMs: 1,
+              args: { command: 'cd /tmp && ./bin/httpdemo >/tmp/x.log 2>&1 & pid=$!; kill $pid; exit 0' },
+              result: { exitCode: 0, stdout: 'RUN_OK\nHEALTHZ\n{"status":"ok"}' }
+            }
+          ],
+          verification: {
+            verified: true,
+            reasons: ['本轮没有写操作，无需验证'],
+            changedFiles: 0,
+            checks: {
+              compile: { status: 'skipped' },
+              tests: { status: 'skipped' },
+              diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+            }
+          }
+        }
+      },
+      { type: 'task.completed', at: 5000, taskId: task, summary: '执行完成，验证通过' }
+    ],
+    { summary: '执行完成，验证通过', status: 'completed' }
+  );
+  assert.ok(conclusion);
+  assert.equal(conclusion.text, '执行完成，验证通过');
+  assert.doesNotMatch(conclusion.text, /httpdemo|RUN_OK|pid=/);
+  assert.ok(conclusion.deliverables.some(path => path.includes('go-http-demo/main.go')));
 });
 
 test('协议计划抽出可读推导：步骤与完成条件', () => {
@@ -882,4 +959,118 @@ test('时序里程碑：分解 / ECO / 参与决策按事件顺序进对话流',
   const firstMember = kinds.indexOf('member');
   assert.equal(firstMember, 4);
   assert.deepEqual(kinds.slice(0, firstMember), ['note', 'note', 'note', 'note']);
+});
+
+test('快速定位轴：只收提问/计划/结论等重点；旁注里程碑不进轴', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'eco.context.prepared',
+      at: 1050,
+      taskId: task,
+      package: {
+        contextPackageId: 'eco-1',
+        contextVersion: 1,
+        workId: 'work-1',
+        stage: 'plan',
+        role: 'planner',
+        architectureSummary: 'x',
+        resources: [],
+        constraints: [],
+        decisions: [],
+        verifiedFacts: [],
+        inferences: [],
+        unknowns: [],
+        missingCritical: [],
+        sufficiency: 'sufficient',
+        createdAt: 1050
+      }
+    },
+    {
+      type: 'plan.ready',
+      at: 1100,
+      taskId: task,
+      roundId: 'r1',
+      plan: {
+        planId: 'p1',
+        taskId: task,
+        roundId: 'r1',
+        title: '补 Hello',
+        description: '写文件并运行',
+        completion: '看到 hello',
+        steps: [
+          { id: 's1', tool: 'fs.writeFile', description: '写 Hello.java', args: { path: 'Hello.java' } },
+          { id: 's2', tool: 'shell.run', description: '运行', args: { command: 'javac Hello.java' } }
+        ]
+      }
+    },
+    {
+      type: 'step.completed',
+      at: 1200,
+      taskId: task,
+      stepId: 's1',
+      roundId: 'r1',
+      tool: 'fs.writeFile',
+      durationMs: 10,
+      result: { path: 'Hello.java' }
+    },
+    {
+      type: 'step.completed',
+      at: 1300,
+      taskId: task,
+      stepId: 's2',
+      roundId: 'r1',
+      tool: 'shell.run',
+      durationMs: 20,
+      result: { exitCode: 0, stdout: 'ok' }
+    },
+    {
+      type: 'report.ready',
+      at: 1400,
+      taskId: task,
+      roundId: 'r1',
+      report: {
+        status: 'completed',
+        results: [
+          {
+            stepId: 's1',
+            tool: 'fs.writeFile',
+            status: 'completed',
+            verified: true,
+            durationMs: 10,
+            args: { path: 'Hello.java' },
+            result: { path: 'Hello.java' }
+          }
+        ],
+        verification: {
+          verified: true,
+          reasons: [],
+          changedFiles: 1,
+          changedPaths: ['Hello.java'],
+          checks: {
+            compile: { status: 'passed' },
+            tests: { status: 'skipped' },
+            diagnostics: { status: 'skipped', errors: 0, warnings: 0 }
+          }
+        }
+      }
+    },
+    { type: 'task.completed', at: 1500, taskId: task, summary: '执行完成，验证通过' }
+  ], {
+    prompt: '写一个 Hello',
+    summary: '执行完成，验证通过',
+    status: 'completed'
+  });
+
+  const landmarks = buildStreamLandmarks(entries);
+  const kinds = landmarks.map(item => item.kind);
+  assert.ok(kinds.includes('prompt'));
+  assert.ok(kinds.includes('plan'));
+  assert.ok(kinds.includes('step'));
+  assert.ok(kinds.includes('conclusion'));
+  assert.equal(kinds.filter(kind => kind === 'step').length, 1); // 只标首步
+  assert.ok(!landmarks.some(item => /工程上下文|任务分解|循环决策/.test(item.label)));
+  const conclusion = landmarks.find(item => item.kind === 'conclusion');
+  assert.ok(conclusion);
+  assert.match(conclusion.label, /结论 · 目标物/);
 });

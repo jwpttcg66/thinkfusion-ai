@@ -85,17 +85,31 @@ test('工程判定前先建会话，并把模型思考推到 __routing__ 增量'
   assert.ok(createdAt >= 0 && routingAt >= 0);
   assert.ok(createdAt < routingAt, '必须先 conversation.created 再 engineeringRouting');
   assert.match(src, /__routing__/);
-  assert.match(src, /正在请模型判定是否转入工程工作空间/);
+  assert.match(src, /判定是否转入工程工作空间/);
+  // 判定一开始就推 answer.delta，首包前也有可读进度，不能干等。
+  assert.match(src, /准备询问/);
   // 判定思考必须落盘为 channel 消息，不能只靠会被清空的 answer.delta。
   assert.match(src, /role: 'channel'/);
   assert.match(src, /channelId: routingChannelId/);
   const view = readFileSync(join(ROOT, 'src/renderer/src/components/ConversationView.tsx'), 'utf8');
   assert.match(view, /__routing__/);
   assert.match(view, /工程判定/);
+  // 实时进度改挂 dock 胶囊；正文只保留用户消息锚点，不再插 conv-live-bottom。
+  assert.match(view, /data-user-msg/);
+  assert.doesNotMatch(view, /conv-live-bottom/);
   assert.doesNotMatch(view, /尚未开始向模型要思考内容/);
   const app = readFileSync(join(ROOT, 'src/renderer/src/App.tsx'), 'utf8');
   assert.match(app, /pending && active === pending\.id/);
   assert.match(app, /__routing__/);
+  assert.match(app, /TaskPlanCapsule/);
+  const capsule = readFileSync(join(ROOT, 'src/renderer/src/components/TaskPlanCapsule.tsx'), 'utf8');
+  assert.match(capsule, /task-plan-capsule/);
+  assert.match(capsule, /userTicksFromMessages/);
+  assert.match(capsule, /工作计划/);
+  assert.match(capsule, /resolveWorkPlanText|按问答处理/);
+  assert.doesNotMatch(capsule, /正在理解任务目标…'\s*;/);
+  assert.match(app, /jumpToUserMsg|cssAttrEscape/);
+  assert.match(view, /ResizeObserver/);
   const shadow = readFileSync(join(ROOT, 'src/main/collaboration/engine.ts'), 'utf8');
   assert.match(shadow, /不要对全员做 health 探活/);
   assert.doesNotMatch(shadow, /new ParticipantManager\(input\.pool\)\.list\(\)/);

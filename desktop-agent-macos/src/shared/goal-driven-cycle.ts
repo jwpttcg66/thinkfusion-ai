@@ -373,9 +373,11 @@ export function projectWorkCycleFromEvents(input: {
 
   const nearLimitBase = roundCount >= CODING_BUDGET.maxIterations - 1;
 
-  // 若编排器已写入 cycle.snapshot，以其为准覆盖派生（权威仍是业务事件，快照是决策落点）。
+  // 编排器写入的 cycle.snapshot 覆盖派生；但终态任务事件优先。
+  // 否则 repair 轮留下的 needs_fix snapshot 会把已完成任务钉死在「需修复」
+  // （真机 2026-11-25：Go HTTP demo 已 complete 仍显示需修复 / 返回实现阶段修复）。
   const snapshot = [...ordered].reverse().find(event => event.type === 'cycle.snapshot');
-  if (snapshot && snapshot.type === 'cycle.snapshot') {
+  if (snapshot && snapshot.type === 'cycle.snapshot' && !completed && !failed) {
     current = (STAGE_ORDER.includes(snapshot.currentStage as CycleStage)
       ? snapshot.currentStage
       : current) as CycleStage;
@@ -383,6 +385,27 @@ export function projectWorkCycleFromEvents(input: {
     nextAction = snapshot.nextAction || nextAction;
     debateSkipped = snapshot.debateSkipped;
     roundCount = Math.max(roundCount, snapshot.budget.roundCount);
+  } else if (snapshot && snapshot.type === 'cycle.snapshot') {
+    // 终态仍吸收预算计数与辩论跳过标记，但不改 conclusionType / stage / nextAction。
+    debateSkipped = snapshot.debateSkipped;
+    roundCount = Math.max(roundCount, snapshot.budget.roundCount);
+  }
+  if (completed) {
+    current = 'done';
+    if (
+      conclusionType === 'needs_fix'
+      || conclusionType === 'in_progress'
+      || conclusionType === 'needs_review'
+      || conclusionType === 'needs_redesign'
+      || conclusionType === 'needs_analysis'
+    ) {
+      conclusionType = needsFix ? 'accepted_with_risks' : 'accepted';
+    }
+    conclusionSummary = conclusionSummary
+      || input.summary?.trim()
+      || '任务完成';
+    nextAction = '无需下一轮；可做整体验收';
+    rollback = undefined;
   }
 
   const activeIdx = stageIndex(current);

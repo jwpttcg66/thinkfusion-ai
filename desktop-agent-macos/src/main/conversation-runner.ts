@@ -758,11 +758,25 @@ export class ConversationRunner {
     const routingChannelId = '__routing__';
     let routing: TaskRouting | undefined;
     if (workspaceMode === 'engineering' && !plannerFirst) {
+      const routingTarget =
+        executionConfig.leadAgentId
+        ?? executionConfig.selectedCloudModels?.[0]
+        ?? (executionConfig.executionMode === 'local' ? '本地模型' : '已选云端模型');
       this.addMessage(conversation, {
         role: 'system',
         text: executionConfig.executionMode === 'web'
           ? '正在按规则判定是否转入工程工作空间…'
-          : '正在请模型判定是否转入工程工作空间；思考过程会显示在下方。'
+          : `正在请 ${routingTarget} 判定是否转入工程工作空间；下方「工程判定」卡会先显示连通进度，再流出思考与结论。`
+      });
+      // 先挂卡再 await：即使模型还在握手，界面也立刻有「工程判定」可读。
+      this.deps.emit({
+        type: 'answer.delta',
+        at: Date.now(),
+        conversationId: conversation.conversationId,
+        channelId: routingChannelId,
+        text: '',
+        reasoning: `准备询问 ${routingTarget}…`,
+        reset: true
       });
       let routingText = '';
       let routingReasoning = '';
@@ -1074,6 +1088,9 @@ export class ConversationRunner {
     if (input.override || rule.needsProject) return rule;
     if (input.executionMode === 'web' || !this.deps.routeWithModel) return rule;
     try {
+      // 云端/本地判定一开始就推空壳：界面立刻挂「工程判定」卡，
+      // 首包前也能看见「正在连通…」，不会像卡住。
+      input.onDelta?.({ reset: true, text: '', reasoning: '' });
       const verdict = await this.deps.routeWithModel({
         text: input.text,
         attachmentNames: input.attachments.map(item => item.name),

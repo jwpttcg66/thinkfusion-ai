@@ -37,7 +37,12 @@ import { ParticipantPanel } from './components/ParticipantPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { CollaborationDiagnostics } from './components/CollaborationDiagnostics';
-import { ProgressPanel } from './components/ProgressPanel';
+import {
+  TaskPlanCapsule,
+  resolvePlanGoalText,
+  useUserMsgActiveId,
+  userTicksFromMessages
+} from './components/TaskPlanCapsule';
 import { EventInspector } from './components/EventInspector';
 import { ComputerUsePanel } from './components/ComputerUsePanel';
 import { TrajectoryPanel } from './components/TrajectoryPanel';
@@ -529,6 +534,7 @@ export default function App() {
   const pendingSubmit = useRef<{ id: string; title: string; previousId: string | null } | null>(null);
   const dragRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   /**
    * A counter, not a boolean: "focus the composer" has to fire on every click,
    * and an effect keyed on state only runs when that state changes. The focus
@@ -617,6 +623,24 @@ export default function App() {
       status: activeConversation.status
     });
   }, [activeConversation, conversationResult, messages]);
+  const planUserTicks = useMemo(() => userTicksFromMessages(messages), [messages]);
+  const planUserMsgIds = useMemo(() => planUserTicks.map(item => item.messageId), [planUserTicks]);
+  const activeUserMsgId = useUserMsgActiveId(planUserMsgIds, scrollEl);
+  const jumpToUserMsg = (messageId: string) => {
+    if (!scrollEl) return;
+    const node = scrollEl.querySelector(
+      `[data-user-msg="${cssAttrEscape(messageId)}"]`
+    ) as HTMLElement | null;
+    if (!node) return;
+    // 用 scroll 容器自己算偏移：scrollIntoView 偶发停在错误滚动父级上。
+    const top =
+      node.getBoundingClientRect().top -
+      scrollEl.getBoundingClientRect().top +
+      scrollEl.scrollTop -
+      16;
+    scrollEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  };
+
   const activity = useMemo<ObservabilityEvent[]>(
     () => projectActivity(events.map(fromAgentEvent).filter((item): item is ObservabilityEvent => item !== null)),
     [events]
@@ -669,6 +693,19 @@ export default function App() {
   const conversationBusy =
     activeConversation !== null &&
     ['thinking', 'collecting', 'comparing', 'synthesizing'].includes(activeConversation.status);
+
+  // 进行中 / 收口卡挂上：正文自动下拉。用户明显上翻（gap>160）时不抢。
+  useEffect(() => {
+    if (!scrollEl) return;
+    if (!conversationBusy && !conversationResult) return;
+    const gap = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    if (gap > 160 && !conversationBusy) return;
+    // 进行中强制贴底；结束后仅在本来就靠近底部时贴一次。
+    if (conversationBusy || gap <= 160) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
+  }, [scrollEl, conversationBusy, conversationResult, messages, answerDeltas, phases]);
+
   const busy = activeTask ? ACTIVE_STATUSES.includes(activeTask.status) : false;
   /**
    * The task is blocked on a person, not on the page.
@@ -2101,16 +2138,6 @@ export default function App() {
    *
    * 默认 Markdown；旁边那个 Word 是「单独指定」的分支，不点不会生成。
    */
-  async function revertSnapshot(taskId: string) {
-    try {
-      const outcome = await window.agentAPI.revertTaskSnapshot(taskId);
-      const failed = outcome.failed.length > 0 ? `；失败 ${String(outcome.failed.length)} 个：${outcome.failed.map(item => `${item.path}（${item.detail}）`).join('、')}` : '';
-      setNotice(`已还原本轮：恢复 ${String(outcome.restored.length)} 个文件，删除 ${String(outcome.removed.length)} 个新建文件${failed}`);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-
   async function openPageSave(
     format: 'md' | 'docx',
     sourceId = sources.activeId,
@@ -2379,7 +2406,10 @@ export default function App() {
           />
         )}
 
-        <div className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}>
+        <div
+          ref={setScrollEl}
+          className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}
+        >
           <div className="inner">
             {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly && (
               <CollaborationPlanPanel conversationId={activeConversation.conversationId} />
@@ -2396,16 +2426,6 @@ export default function App() {
                 />
                 <CollaborationDiagnostics conversationId={activeConversation.conversationId} />
               </>
-            )}
-
-            {showingConversation && activeConversation && conversationTab === 'chat' && !activeConversation.debateOnly
-              && !conversationResult && (
-              <ProgressPanel
-                conversationStatus={activeConversation.status}
-                taskStatus={activeTask?.status ?? null}
-                events={events}
-                startedAt={activeConversation.createdAt}
-              />
             )}
 
             {showingConversation && activeConversation && conversationTab === 'chat' && (
@@ -2428,6 +2448,7 @@ export default function App() {
                 suppressStructuredResult={Boolean(conversationResult)}
               />
             )}
+            {/* 进度改挂 dock 任务规划胶囊，正文里不再插 ProgressPanel。 */}
             {/* 结构化收口贴在对话流之后；进行中的流式阅读不被结果大卡压顶。 */}
             {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
               <CollaborationResultPanel
@@ -2453,12 +2474,11 @@ export default function App() {
             )}
 
             {handoffPending && (
-              <section className="card running">
-                <span className="spinner" />
-                <div>
+              <section className="chat-feed-layout" aria-label="转入工程工作空间">
+                <div className="chat-stream-placeholder" aria-live="polite">
                   <b>正在转入工程工作空间</b>
                   <p className="muted">
-                    已判定为工程任务，正在挂载计划与时间线；不会回到空白首页。
+                    已判定为工程任务，正在挂载计划与时间线；布局与对话流同壳，不会闪回空白首页。
                   </p>
                   <button
                     type="button"
@@ -2822,44 +2842,25 @@ export default function App() {
               </section>
             )}
 
-            {/* 验证过程已在对话时间线里逐条展示；这里只保留当前状态需要的动作，
-                不再把「最近一次验证」复用成一张随时变的卡。 */}
+            {/* 「验证后续动作 / 还原本轮」整卡已去掉：验证结论只在对话时间线与任务收口。
+                仅 report_pending（需用户决定出口）保留一行动作，不套后续动作卡壳。 */}
             {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output')
-              && (activeTask.status === 'report_pending' || Boolean(derived.verification && derived.verification.changedFiles > 0)) && (
-              <section className="card verify-actions">
-                <div className="review-head">
-                  <b>{activeTask.status === 'report_pending' ? '验证待你决定' : '验证后续动作'}</b>
-                  <span className="muted">每次验证的结论见对话时间线</span>
-                </div>
-                {activeTask.status === 'report_pending' && (
-                  <>
-                    <p className="muted">
-                      「未通过」是事实，不是失败提示：要么补一次测试或诊断，要么明确接受未验证。
-                    </p>
-                    <div className="row">
-                      <button className="btn" type="button" onClick={() => void resumeRepair()}>
-                        继续修复（重新执行验证）
-                      </button>
-                      <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
-                        按当前口径重新判定
-                      </button>
-                      <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
-                        接受未验证并结束
-                      </button>
-                    </div>
-                    <p className="muted">
-                      任务停在「等待确认交付」：执行结果都在，但没有通过验证闸门，所以没有自动收尾。
-                      「继续修复」会重新规划并真的再跑命令；「重新判定」只重算已落库的报告；
-                      「接受未验证」直接收尾并保留缺口。完全权限下的新任务会自动走修复，不会停在这里。
-                    </p>
-                  </>
-                )}
-                {derived.verification && derived.verification.changedFiles > 0 && (
-                  <button className="btn ghost" type="button" onClick={() => void revertSnapshot(activeTask.taskId)}>
-                    还原本轮
+              && activeTask.status === 'report_pending' && (
+              <div className="chat-note is-focus verify-pending-actions" role="group" aria-label="验证待你决定">
+                <span className="chat-stream-badge">重点</span>
+                <span className="chat-note-text">验证待你决定 · 未通过闸门，需选出口</span>
+                <div className="row" style={{ marginTop: 6 }}>
+                  <button className="btn" type="button" onClick={() => void resumeRepair()}>
+                    继续修复（重新执行验证）
                   </button>
-                )}
-              </section>
+                  <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
+                    按当前口径重新判定
+                  </button>
+                  <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
+                    接受未验证并结束
+                  </button>
+                </div>
+              </div>
             )}
 
             {derived.changes.length > 0 && workbenchTab === 'output' && (
@@ -3033,15 +3034,8 @@ export default function App() {
               </details>
             )}
 
-            {activeTask && workbenchTab === 'conversation' && derived.members.length === 0 && busy && !showPlan && (
-              <section className="card running">
-                <span className="spinner" />
-                <div>
-                  <b>{statusLabel(activeTask?.status ?? 'planning')}</b>
-                  <p className="muted">正在规划/执行；无需手动复制粘贴，等待本轮结束即可。</p>
-                </div>
-              </section>
-            )}
+            {/* 开局 busy 态不再另插 running 大卡：TaskConversation 已常驻，
+                再挂一张 spinner 会在成员一出现时整块消失，造成界面闪没。 */}
 
             {/* The opposite of the spinner: nothing is happening, and nothing
                 will until someone types. Saying so is the whole point. */}
@@ -3110,6 +3104,30 @@ export default function App() {
             does not. */}
         <div className="dock">
           <div className="inner">
+            {showingConversation &&
+              activeConversation &&
+              conversationTab === 'chat' &&
+              (conversationBusy ||
+                planUserTicks.length > 0 ||
+                ['answered', 'failed', 'cancelled'].includes(activeConversation.status)) && (
+              <TaskPlanCapsule
+                goalText={resolvePlanGoalText({
+                  goalText: activeConversation.goal?.text ?? null,
+                  workbenchIntent: conversationWorkbench?.goal?.intent ?? null,
+                  userTexts: planUserTicks.map(item => item.preview).concat(
+                    messages.filter(item => item.role === 'user').map(item => item.text ?? '')
+                  )
+                })}
+                conversationStatus={activeConversation.status}
+                taskStatus={activeTask?.status ?? null}
+                events={events}
+                startedAt={activeConversation.createdAt}
+                messages={messages}
+                userTicks={planUserTicks}
+                activeUserMsgId={activeUserMsgId}
+                onJumpUserMsg={jumpToUserMsg}
+              />
+            )}
             <TaskInput
               value={prompt}
               permission={permission}
@@ -3534,4 +3552,10 @@ function errorText(error: unknown) {
  */
 function ipcErrorText(error: unknown) {
   return errorText(error).replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, '');
+}
+
+/** 属性选择器用：避免 messageId 里的引号弄破选择器。 */
+function cssAttrEscape(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
