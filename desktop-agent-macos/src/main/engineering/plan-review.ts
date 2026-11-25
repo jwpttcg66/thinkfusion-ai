@@ -1,4 +1,5 @@
 import type { AgentPlan } from '../../shared/contracts';
+import type { EcoEvidenceSummary } from '../../shared/eco';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 import {
   buildLeadSummaryQuestion,
@@ -117,15 +118,35 @@ export function planAsLeadAnswer(plan: AgentPlan): LeadAnswer {
   return { channelId: 'plan', label: '计划', text: planReviewQuestion(plan) };
 }
 
-/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据。 */
+/**
+ * 已核验工程证据作为「材料」附给评审。
+ *
+ * 只给路径、摘要前 12 位和字节数：这是可核对的来源清单，不是文件内容，
+ * 也不是指令。给出证据比让模型自己猜「这份计划读过哪些文件」更有依据；
+ * 但摘要不能反推内容，避免把「核对过存在」说成「理解过实现」。
+ */
+export function formatEcoEvidence(items: readonly EcoEvidenceSummary[]): string {
+  if (items.length === 0) return '';
+  return [
+    '以下文件已由系统从工作区实际读取并核验（sha256 前 12 位 · 字节数）：',
+    ...items.map(item => `- ${item.path} · sha256:${item.digest.slice(0, 12)} · ${item.size ?? '?'}B`)
+  ].join('\n');
+}
+
+/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据（+ 已核验证据）。 */
 export function buildPlanReviewLeadAsk(
   plan: AgentPlan,
-  userPrompt?: string
+  userPrompt?: string,
+  evidence?: readonly EcoEvidenceSummary[]
 ): { question: string; system: string[] } {
   const answers = [planAsLeadAnswer(plan)];
   const question = (userPrompt?.trim() || plan.title || '评审这份计划').trim();
+  const material = evidence && evidence.length > 0 ? formatEcoEvidence(evidence) : undefined;
   return {
-    question: buildLeadSummaryQuestion(question, answers, { taskKind: 'compare' }),
+    question: buildLeadSummaryQuestion(question, answers, {
+      taskKind: 'compare',
+      ...(material ? { material } : {})
+    }),
     system: leadSummarySystem('compare')
   };
 }

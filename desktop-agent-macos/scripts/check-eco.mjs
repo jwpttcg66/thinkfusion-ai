@@ -16,6 +16,7 @@ import {
   projectEcoFromEvents
 } from '../out-test/shared/eco.js';
 import { planEvidencePaths, readEngineeringEvidence } from '../out-test/main/engineering/eco-evidence.js';
+import { buildPlanReviewLeadAsk, formatEcoEvidence } from '../out-test/main/engineering/plan-review.js';
 import {
   progressRatioFromRows,
   projectWorkBreakdownFromEvents,
@@ -176,4 +177,30 @@ test('种子事件含 L1 组与 L3 步骤；进度不计 group 分母造假', ()
     { workTaskId: 'b', title: 'b', status: 'blocked', dependsOn: [], acceptanceMet: false, artifactCount: 0, level: 3, depth: 2, source: 'work-events' }
   ]);
   assert.equal(mid, 0.5);
+});
+
+test('已核验证据以材料身份进入评审，不写成指令', () => {
+  const evidence = [{ path: 'src/a.ts', digest: 'abcdef0123456789'.repeat(4), size: 20 }];
+  const block = formatEcoEvidence(evidence);
+  assert.match(block, /src\/a\.ts/);
+  assert.match(block, /sha256:abcdef012345/);
+  assert.match(block, /20B/);
+  assert.doesNotMatch(block, /你的职责|请指出|必须/);
+  const ask = buildPlanReviewLeadAsk(
+    {
+      protocol: 'desktop-agent/v1',
+      type: 'plan',
+      taskId: 't1',
+      roundId: 'r1',
+      title: '演示',
+      description: '说明',
+      kind: 'implementation',
+      steps: [{ id: 's1', tool: 'fs.readFile', args: { path: 'src/a.ts' } }],
+      completion: { condition: '读到文件' }
+    },
+    '评审这份计划',
+    evidence
+  );
+  assert.match(ask.question, /src\/a\.ts/);
+  assert.match(ask.question, /已由系统从工作区实际读取并核验/);
 });

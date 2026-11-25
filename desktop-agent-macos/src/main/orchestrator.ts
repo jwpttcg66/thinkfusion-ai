@@ -36,8 +36,10 @@ import { applyEcoGateToDecision, decideParticipation } from '../shared/dmoca';
 import {
   buildEngineeringContextPackage,
   contextRequestForGaps,
+  engineeringEvidenceOf,
   fulfillContextRequest,
-  type ContextResourceRef
+  type ContextResourceRef,
+  type EcoEvidenceSummary
 } from '../shared/eco';
 import { planEvidencePaths, readEngineeringEvidence } from './engineering/eco-evidence';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
@@ -117,6 +119,8 @@ export interface OrchestratorDeps {
     plan: AgentPlan;
     /** 用户原话：五段汇总的「问题」侧，与知识问答一致。 */
     userPrompt?: string;
+    /** ECO：已核验工程证据（路径+摘要），以材料身份交给评审，不是指令。 */
+    ecoEvidence?: readonly EcoEvidenceSummary[];
     debateAgentIds?: readonly string[];
     /**
      * 五段一出、辩论尚未开始时回调：编排器立刻刷新心跳议题与原文，
@@ -1641,6 +1645,7 @@ export class AgentOrchestrator {
       const result = await this.deps.debatePlan({
         taskId, roundId, planId: stored.planId, plan: stored.plan,
         userPrompt: live.userPrompt,
+        ecoEvidence: engineeringEvidenceOf(ecoPackage),
         ...(live.debateAgentIds && live.debateAgentIds.length > 0
           ? { debateAgentIds: live.debateAgentIds }
           : {}),

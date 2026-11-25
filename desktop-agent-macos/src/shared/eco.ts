@@ -39,6 +39,22 @@ export interface ContextResourceRef {
   verifiedAt?: number;
 }
 
+/** 交给评审/辩论用的证据摘要：只带路径与摘要，不带整份文件内容。 */
+export interface EcoEvidenceSummary {
+  path: string;
+  digest: string;
+  size?: number;
+}
+
+/** 从上下文包里挑出真正的工程证据（已过滤掉计划/工作区路径）。 */
+export function engineeringEvidenceOf(pkg: EngineeringContextPackage): EcoEvidenceSummary[] {
+  return pkg.resources.filter(isEngineeringEvidence).map(item => ({
+    path: item.pathOrLabel,
+    digest: item.digest!,
+    ...(item.size === undefined ? {} : { size: item.size })
+  }));
+}
+
 export interface ContextRequest {
   requestId: string;
   modelRunId?: string;

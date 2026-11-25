@@ -5908,7 +5908,7 @@ app.whenReady().then(async () => {
      * 让辩手钻进同一条会话会把计划请求和辩论请求搅在一起。一个 API 成员都
      * 没有时返回 null，编排器会如实记下「未经评审」，而不是假装辩过。
      */
-    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, debateAgentIds, onLeadReady }) => {
+    debatePlan: async ({ taskId, roundId, planId, plan, userPrompt, ecoEvidence, debateAgentIds, onLeadReady }) => {
       if (!debates) return null;
       // 只探本任务要用的模型，且跳过网页：全量探活（含 30 个 OpenCode 模型 + 网页）
       // 会在五段结论前再空等一轮。
@@ -5938,7 +5938,7 @@ app.whenReady().then(async () => {
       const leadId = leadPlan.participants[0];
       if (!leadId) return null;
       const leadExtra = extraAgents.find(agent => agent.id === leadId);
-      const leadAsk = buildPlanReviewLeadAsk(plan, userPrompt);
+      const leadAsk = buildPlanReviewLeadAsk(plan, userPrompt, ecoEvidence);
       const leadLabel = labels.get(leadId) ?? leadId;
       const leadMemberId = `lead-summary:${leadId}`;
       const leadStartedAt = Date.now();
