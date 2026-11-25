@@ -139,9 +139,29 @@
 | DMOCA-P6 UI | DONE | CollaborationResultPanel「模型协作」区 |
 | DMOCA-P7 验收 | DONE | `test:dmoca`（7）+ `dmoca-live.mjs` → `evidence/V3-DMOCA-LIVE.json` |
 | 验收说明 | DONE | `V3-DMOCA-ACCEPTANCE.md` |
-| 功能分支 | 待合入 | `feat/v3-dmoca` |
+| 功能分支 | 已合入任务树 `feat/v3-goal-tdl-eco` | 见 §4.9 |
 
 > DMOCA **不**另建 Runtime；选人扩展 `planLead`/风险门禁，贡献从 Journal 事件投影。
+
+## 4.9 Goal / TDL / ECO 整合（V2.0）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 架构说明书 | DONE | `architecture/V3-GOAL-TDL-ECO-ARCHITECTURE.md` |
+| 实施任务书 | DONE | `spec/V3-GOAL-TDL-ECO-TASK-BOOK.md` |
+| P0 审计 | DONE | `V3-GOAL-TDL-ECO-P0-AUDIT.md` |
+| P1 Goal+TDL level | DONE | WorkTask.level L0–L3；种子 L1 组 + L3 步骤 |
+| P2 真实进度 | DONE | `progressRatioFromRows`；UI 百分比 |
+| P3 ECO | DONE | `shared/eco.ts` + `eco.context.prepared` |
+| P4 Cycle | REUSE GDC | 复用 cycle.snapshot / continueAfterReport |
+| P5 DMOCA×ECO | DONE | 参与决策理由附带 ECO 充分度 |
+| P6 长任务 | REUSE LT | 复用 `main/context/`；ECO 版本可挂检查点后续 |
+| P7 UI | DONE | 任务树缩进 +「工程上下文」区 |
+| P8 验收 | DONE | `test:eco`（4）+ `eco-live.mjs` → `evidence/V3-GOAL-TDL-ECO-LIVE.json` |
+| 验收说明 | DONE | `V3-GOAL-TDL-ECO-ACCEPTANCE.md` |
+| 功能分支 | 待合入 | `feat/v3-goal-tdl-eco` |
+
+> ECO **不**另建代码理解引擎；充分度门禁约束正式架构/审核职责。
 
 ## 4.8 分层任务分解（TDL）
 

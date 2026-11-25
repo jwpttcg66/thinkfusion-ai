@@ -1942,6 +1942,18 @@ export type AgentEvent = AgentEventBase &
         reasons: string[];
         userPinned: boolean;
       }
+    /** ECO：工程上下文包已准备（充分度与版本可审计）。 */
+    | {
+        type: 'eco.context.prepared';
+        taskId: string;
+        package: import('./eco').EngineeringContextPackage;
+      }
+    /** ECO：模型请求补充工程上下文。 */
+    | {
+        type: 'eco.context.requested';
+        taskId: string;
+        request: import('./eco').ContextRequest;
+      }
     /** TDL：分解图首次建立。 */
     | {
         type: 'work.breakdown.created';

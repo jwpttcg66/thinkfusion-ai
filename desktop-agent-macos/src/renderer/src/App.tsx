@@ -22,6 +22,7 @@ import {
   projectGoalDrivenWorkbench
 } from '../../shared/goal-driven-cycle';
 import { projectDmocaFromEvents } from '../../shared/dmoca';
+import { projectEcoFromEvents } from '../../shared/eco';
 import { projectWorkBreakdownFromEvents } from '../../shared/task-decomposition';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
@@ -573,6 +574,11 @@ export default function App() {
       summary: activeTask.summary,
       status: activeTask.status
     });
+  }, [activeTask, events]);
+  /** ECO：工程上下文充分度投影。 */
+  const engineeringEco = useMemo(() => {
+    if (!activeTask) return null;
+    return projectEcoFromEvents({ workId: activeTask.taskId, events });
   }, [activeTask, events]);
   /** TDL：Work 分解进度 — 优先 work.*，否则 plan+step 派生。 */
   const engineeringWorkBreakdown = useMemo(() => {
@@ -2500,6 +2506,7 @@ export default function App() {
                     result={engineeringResult}
                     workbench={engineeringWorkbench}
                     dmoca={engineeringDmoca}
+                    eco={engineeringEco}
                     onOpenEvidence={() => setWorkbenchTab('trajectory')}
                     onSetDisposition={async input => {
                       if (!activeTask) return;

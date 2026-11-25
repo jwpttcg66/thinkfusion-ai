@@ -35,15 +35,20 @@ export function WorkBreakdownPanel(props: {
         </div>
         <code className="work-breakdown-score">
           {String(breakdown.summary.completed)} / {String(breakdown.summary.total)}
+          {breakdown.summary.total > 0
+            ? ` · ${String(Math.round(breakdown.summary.ratio * 100))}%`
+            : ''}
         </code>
       </header>
       <ol className="work-breakdown-list">
         {breakdown.tasks.map(task => {
           const current = task.workTaskId === breakdown.currentTaskId;
+          const pad = Math.max(0, task.depth ?? 0) * 14;
           return (
             <li
               key={task.workTaskId}
               className={`work-breakdown-item is-${task.status}${current ? ' is-current' : ''}`}
+              style={{ paddingLeft: pad ? `${String(pad)}px` : undefined }}
             >
               <button
                 type="button"
@@ -54,6 +59,7 @@ export function WorkBreakdownPanel(props: {
                   {current ? '→' : task.status === 'completed' ? '●' : '○'}
                 </span>
                 <span className="work-breakdown-title">
+                  <span className="muted">L{String(task.level ?? 3)} </span>
                   {task.priority ? `${task.priority}：` : ''}
                   {task.title}
                 </span>

@@ -33,6 +33,7 @@ import {
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
 import { decideParticipation } from '../shared/dmoca';
+import { buildEngineeringContextPackage } from '../shared/eco';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
@@ -1471,6 +1472,41 @@ export class AgentOrchestrator {
     const decision = shouldDebatePlan(task.planDebate, stored.plan);
     // DMOCA：记录参与决策（人数/角色/辩论策略），不另建调度器。
     const risk = decision.risk?.level ?? assessCollaborationRisk(stored.plan).level;
+    // ECO：先准备工程上下文包，正式架构/审核角色受充分度约束（旁听≠已读工程）。
+    const ecoPackage = buildEngineeringContextPackage({
+      workId: taskId,
+      stage: 'planning',
+      role: risk === 'L0' || risk === 'L1' ? 'planner' : 'architect',
+      architectureSummary: stored.plan?.title
+        ? `计划「${stored.plan.title}」相关工程上下文（编排阶段）`
+        : '计划评审阶段工程上下文',
+      resources: [
+        {
+          resourceId: `plan:${stored.planId}`,
+          kind: 'decision',
+          pathOrLabel: `plan:${stored.planId}`,
+          verified: true,
+          factClass: 'verified_fact'
+        },
+        ...(task.workspaceRoot
+          ? [{
+              resourceId: `ws:${task.workspaceRoot}`,
+              kind: 'other' as const,
+              pathOrLabel: task.workspaceRoot,
+              verified: true,
+              factClass: 'verified_fact' as const
+            }]
+          : [])
+      ],
+      constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
+      repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined
+    });
+    this.deps.emit({
+      type: 'eco.context.prepared',
+      at: Date.now(),
+      taskId,
+      package: ecoPackage
+    });
     const participation = decideParticipation({
       workId: taskId,
       stage: 'planning',
@@ -1479,6 +1515,9 @@ export class AgentOrchestrator {
       selectedIds: task.debateAgentIds,
       userPinned: Boolean(task.debateAgentIds && task.debateAgentIds.length > 0)
     });
+    const ecoGateNote = ecoPackage.sufficiency === 'insufficient' || ecoPackage.sufficiency === 'stale'
+      ? `ECO ${ecoPackage.sufficiency}：限制正式架构裁决`
+      : `ECO ${ecoPackage.sufficiency} · ctx ${ecoPackage.contextVersion}`;
     this.deps.emit({
       type: 'model.participation.selected',
       at: Date.now(),
@@ -1493,7 +1532,7 @@ export class AgentOrchestrator {
         reason: item.reason
       })),
       excluded: participation.excluded,
-      reasons: participation.reasons,
+      reasons: [...participation.reasons, ecoGateNote],
       userPinned: participation.userPinned
     });
     if (!decision.debate) {

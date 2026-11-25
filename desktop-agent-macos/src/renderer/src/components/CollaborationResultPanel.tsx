@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import type { CollaborationResultView, ReviewDisposition, SourceReference } from '../../../shared/collaboration-result';
 import type { GoalDrivenWorkbenchView } from '../../../shared/goal-driven-cycle';
 import type { DmocaWorkbenchView } from '../../../shared/dmoca';
+import type { EcoWorkbenchView } from '../../../shared/eco';
 import { MarkdownBody } from './MarkdownBody';
 
 const OPINION_PREVIEW = 8;
@@ -20,6 +21,8 @@ export function CollaborationResultPanel(props: {
   workbench?: GoalDrivenWorkbenchView | null;
   /** DMOCA：参与决策与贡献对齐（派生视图，可缺省）。 */
   dmoca?: DmocaWorkbenchView | null;
+  /** ECO：工程上下文充分度（派生视图，可缺省）。 */
+  eco?: EcoWorkbenchView | null;
   /** 轨迹/详情入口：可选，不传就不显示跳转。 */
   onOpenEvidence?: () => void;
   /** 默认展开结论；过程层默认收起（true = 收起）。 */
@@ -33,7 +36,7 @@ export function CollaborationResultPanel(props: {
     reason: string;
   }) => void | Promise<void>;
 }) {
-  const { result, workbench, dmoca } = props;
+  const { result, workbench, dmoca, eco } = props;
   // 任务书：过程层默认收起；compactProcess 缺省按 true 处理。
   const [processOpen, setProcessOpen] = useState(!(props.compactProcess ?? true));
   const [opinionsExpanded, setOpinionsExpanded] = useState(false);
@@ -147,6 +150,36 @@ export function CollaborationResultPanel(props: {
             </div>
           </details>
         </>
+      )}
+
+      {eco?.package && (
+        <details className="collab-result-section" open>
+          <summary>
+            工程上下文
+            <span className="muted">
+              {' '}· {eco.package.sufficiency}
+              {' · '}v{String(eco.package.contextVersion)}
+              {' · '}{eco.canAssumeFormalRole ? '可正式职责' : '限制正式裁决'}
+            </span>
+          </summary>
+          <div className="collab-result-body">
+            <p className="muted">{eco.gateReason}</p>
+            <p className="muted">{eco.package.architectureSummary}</p>
+            {eco.package.missingCritical.length > 0 && (
+              <p className="muted">缺失：{eco.package.missingCritical.join('；')}</p>
+            )}
+            <ul className="collab-result-facts">
+              {eco.package.resources.slice(0, 6).map(item => (
+                <li key={item.resourceId}>
+                  {item.pathOrLabel}
+                  {' · '}
+                  {item.factClass}
+                  {item.verified ? ' · 已核验' : ' · 未核验'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
       )}
 
       {dmoca && (dmoca.decision || dmoca.snapshot) && (
