@@ -161,6 +161,35 @@ export function assessContextSufficiency(input: {
   return { sufficiency: 'sufficient', missingCritical: [], reasons };
 }
 
+/** 禁止将弱事实类升格为 verified_fact（默认）。 */
+export function assertFactClassPromotion(
+  from: EcoFactClass,
+  to: EcoFactClass,
+  options?: { allowUpgrade?: boolean }
+): void {
+  if (from === to) return;
+  if (to !== 'verified_fact') return;
+  if (options?.allowUpgrade && from === 'provided_context') return;
+  if (from === 'inference' || from === 'general_knowledge' || from === 'unknown' || from === 'provided_context') {
+    throw new Error(`禁止将 ${from} 升格为 verified_fact`);
+  }
+}
+
+function normalizeResources(resources: readonly ContextResourceRef[]): {
+  resources: ContextResourceRef[];
+  demotedUnknowns: string[];
+} {
+  const demotedUnknowns: string[] = [];
+  const next = resources.map(item => {
+    if (item.verified && (item.factClass === 'inference' || item.factClass === 'unknown' || item.factClass === 'general_knowledge')) {
+      demotedUnknowns.push(`伪核验已降级：${item.pathOrLabel}（${item.factClass}）`);
+      return { ...item, verified: false };
+    }
+    return { ...item };
+  });
+  return { resources: next, demotedUnknowns };
+}
+
 /** 组装上下文包（调用方提供已读资源与摘要；本函数只做结构化与充分度）。 */
 export function buildEngineeringContextPackage(input: {
   workId: string;
@@ -180,11 +209,12 @@ export function buildEngineeringContextPackage(input: {
   now?: number;
   version?: number;
 }): EngineeringContextPackage {
-  const resources = input.resources ?? [];
+  const normalized = normalizeResources(input.resources ?? []);
+  const unknowns = [...(input.unknowns ?? []), ...normalized.demotedUnknowns];
   const assessed = assessContextSufficiency({
     role: input.role,
-    resources,
-    unknowns: input.unknowns,
+    resources: normalized.resources,
+    unknowns,
     codeVersionChanged: input.codeVersionChanged
   });
   const at = input.now ?? Date.now();
@@ -198,15 +228,66 @@ export function buildEngineeringContextPackage(input: {
     role: input.role,
     repository: input.repository,
     architectureSummary: input.architectureSummary,
-    resources,
+    resources: normalized.resources,
     constraints: input.constraints ?? [],
     decisions: input.decisions ?? [],
-    verifiedFacts: input.verifiedFacts ?? resources.filter(r => r.verified).map(r => r.pathOrLabel),
+    verifiedFacts: input.verifiedFacts ?? normalized.resources.filter(r => r.verified).map(r => r.pathOrLabel),
     inferences: input.inferences ?? [],
-    unknowns: input.unknowns ?? [],
+    unknowns,
     missingCritical: assessed.missingCritical,
     sufficiency: assessed.sufficiency,
     createdAt: at
+  };
+}
+
+/** 履行补充请求：合并资源、抬升版本、重评充分度。 */
+export function fulfillContextRequest(
+  pkg: EngineeringContextPackage,
+  request: ContextRequest,
+  newResources: readonly ContextResourceRef[]
+): EngineeringContextPackage {
+  const byId = new Map(pkg.resources.map(item => [item.resourceId, item]));
+  for (const item of newResources) byId.set(item.resourceId, item);
+  const paths = new Set([
+    ...newResources.map(item => item.pathOrLabel),
+    ...(request.requestedPaths ?? [])
+  ]);
+  const unknowns = pkg.unknowns.filter(item => {
+    for (const path of paths) {
+      if (item.includes(path)) return false;
+    }
+    return true;
+  });
+  return buildEngineeringContextPackage({
+    workId: pkg.workId,
+    workTaskId: pkg.workTaskId,
+    goalVersion: pkg.goalVersion,
+    stage: pkg.stage,
+    role: pkg.role,
+    architectureSummary: pkg.architectureSummary,
+    resources: [...byId.values()],
+    constraints: pkg.constraints,
+    decisions: pkg.decisions,
+    verifiedFacts: pkg.verifiedFacts,
+    inferences: pkg.inferences,
+    unknowns,
+    repository: pkg.repository,
+    now: Date.now(),
+    version: pkg.contextVersion + 1
+  });
+}
+
+/** 代码/目标版本变化后标记过期。 */
+export function invalidateContextPackage(
+  pkg: EngineeringContextPackage,
+  reason: string
+): EngineeringContextPackage {
+  return {
+    ...pkg,
+    contextVersion: pkg.contextVersion + 1,
+    sufficiency: 'stale',
+    missingCritical: [...pkg.missingCritical, reason],
+    createdAt: Date.now()
   };
 }
 
