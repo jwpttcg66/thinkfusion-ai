@@ -9,7 +9,7 @@
 | P1 目标层 | TESTED | `shared/goal-driven-cycle.ts` + `test:gdc-goal` |
 | P2 循环协调 | TESTED | `projectWorkCycleFromEvents` + `test:gdc-cycle` |
 | P3 产物/决策 | TESTED | supersedes / decisions 投影 |
-| P4 接入 | IMPLEMENTED | App 从任务事件投影 workbench；General 轻量循环 |
-| P5 恢复/预算 | TESTED | 同事件重放一致；CODING_BUDGET 摘要 |
-| P6 UI | IMPLEMENTED | CollaborationResultPanel 目标/循环/下一步 |
-| P7 | PARTIAL | 自动化全绿；Engineering 真机见验收文档 |
+| P4 接入 | TESTED | `continueAfterReport` → `decideNextEngineeringAction`；发 `cycle.snapshot` / `goal.fit` |
+| P5 恢复/预算 | TESTED | 同事件重放一致；CODING_BUDGET 摘要；快照可覆盖派生 |
+| P6 UI | IMPLEMENTED | 结果面板目标/循环/下一步；时间线循环决策笔记 |
+| P7 | PARTIAL | 自动化全绿；窗口三节真机 ✅（`V3-GDC-LIVE-UI.json`）；编排落点事件待完整执行轮 |

@@ -103,10 +103,10 @@
 | GDC-P1 目标层 | IMPLEMENTED / TESTED | `shared/goal-driven-cycle.ts` + `test:gdc-goal` |
 | GDC-P2 循环协调 | IMPLEMENTED / TESTED | 事件派生 Cycle + `test:gdc-cycle` |
 | GDC-P3 产物历史 | IMPLEMENTED / TESTED | Artifact supersedes / Decision 投影 |
-| GDC-P4 协作接入 | IMPLEMENTED / TESTED | App 工程/会话 workbench 投影 |
-| GDC-P5 长任务对齐 | IMPLEMENTED / TESTED | 事件重放一致 + CODING_BUDGET 摘要 |
-| GDC-P6 主活动区 UI | IMPLEMENTED | CollaborationResultPanel 目标/循环/下一步 |
-| GDC-P7 验收 | PARTIAL | 自动化 + 事件重放通过；窗口真机待补。见 `V3-GDC-ACCEPTANCE.md` |
+| GDC-P4 协作接入 | IMPLEMENTED / TESTED | `continueAfterReport` 经 `decideNextEngineeringAction`；发 `cycle.snapshot` / `goal.fit` |
+| GDC-P5 长任务对齐 | IMPLEMENTED / TESTED | 事件重放一致 + CODING_BUDGET 摘要；快照可覆盖派生 |
+| GDC-P6 主活动区 UI | IMPLEMENTED | 结果面板目标/循环/下一步；时间线循环决策笔记 |
+| GDC-P7 验收 | PARTIAL→近完成 | 自动化 + 窗口三节真机 ✅；执行报告后 `cycle.snapshot` 真机笔记待完整轮再核对 |
 | 功能分支 | 进行中 | `feat/v3-goal-driven-cycle` |
 
 > GDC **不**另建 Runtime；窗口真机未标 VERIFIED。

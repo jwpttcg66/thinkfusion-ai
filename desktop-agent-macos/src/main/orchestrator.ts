@@ -23,6 +23,10 @@ import { checkPlanCapabilities, planReviewRounds, shouldDebatePlan } from './eng
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
+import {
+  decideNextEngineeringAction,
+  projectGoalDrivenWorkbench
+} from '../shared/goal-driven-cycle';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -1707,34 +1711,97 @@ export class AgentOrchestrator {
     // nextAction 仍写 continue，也直接收尾——否则会再开一轮规划，被非法
     // 协议块拖成 failed，结果面板出现「像完成又像失败」的残缺状态
     // （真机 2026-11-24：只读列目录已验证通过，仍因 continue 进入修复轮失败）。
-    const verifiedDone =
-      report.status === 'completed' &&
-      (!report.verification || verificationIsComplete(report.verification));
     const actionableReview =
       Boolean(review?.needsFix) || (review?.issues?.length ?? 0) > 0;
-    if (verifiedDone && (report.nextAction === 'complete' || testsPassed || !actionableReview)) {
-      // 空轮假完成闸门：报告自报 completed 不等于已确认交付。必须能核对到
-      // 验证结论已成立；写失败后的空验证轮不能过关。
-      if (!hasGenuineDelivery([...this.deps.store.allReportsFor(taskId), report])) {
-        this.deps.emit({
-          type: 'log', at: Date.now(), taskId, level: 'warn',
-          message: '报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
-        });
-        this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
-        return;
-      }
-      this.tasks.transition(taskId, 'completed', { summary: report.errors.length === 0 ? '执行完成，验证通过' : '执行完成' });
-      this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary: '执行完成，验证通过' });
+    const reports = [...this.deps.store.allReportsFor(taskId), report];
+    const genuineDelivery = hasGenuineDelivery(reports);
+    const atMaxRounds = rounds.length >= task.maxRounds;
+
+    // GDC：用既有事件派生循环结论，再决定 complete / repair / fail_*。
+    // 不另建状态机；决策落点发 cycle.snapshot / goal.fit 供 UI 与重放对账。
+    const priorEvents = this.deps.store.listEvents(taskId);
+    const workbench = projectGoalDrivenWorkbench({
+      workId: taskId,
+      originalRequest: task.userPrompt,
+      events: priorEvents,
+      summary: task.summary,
+      status: task.status
+    });
+    // 当前报告/评审尚未全部进 listEvents 时，用即时标志修正结论类型。
+    if (actionableReview && workbench.cycle.conclusionType === 'in_progress') {
+      workbench.cycle.conclusionType = 'needs_fix';
+      workbench.cycle.nextAction = '处理评审问题或进入修复轮';
+    }
+    const decision = decideNextEngineeringAction({
+      cycle: workbench.cycle,
+      verifiedDone: Boolean(
+        report.status === 'completed' &&
+        (!report.verification || verificationIsComplete(report.verification)) &&
+        (report.nextAction === 'complete' || testsPassed || !actionableReview)
+      ),
+      actionableReview,
+      atMaxRounds,
+      genuineDelivery
+    });
+    this.deps.emit({
+      type: 'cycle.snapshot',
+      at: Date.now(),
+      taskId,
+      cycleId: workbench.cycle.cycleId,
+      cycleNumber: workbench.cycle.cycleNumber,
+      currentStage: workbench.cycle.currentStage,
+      conclusionType: workbench.cycle.conclusionType,
+      nextAction: workbench.cycle.nextAction,
+      debateSkipped: workbench.cycle.debateSkipped,
+      decision,
+      budget: workbench.cycle.budget
+    });
+    this.deps.emit({
+      type: 'goal.fit',
+      at: Date.now(),
+      taskId,
+      fit: workbench.goal.fit,
+      notes: workbench.goal.fitNotes
+    });
+
+    if (decision === 'complete') {
+      const summary = report.errors.length === 0 ? '执行完成，验证通过' : '执行完成';
+      this.tasks.transition(taskId, 'completed', { summary });
+      this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary });
+      this.deps.emit({
+        type: 'goal.fit',
+        at: Date.now(),
+        taskId,
+        fit: 'met',
+        notes: ['验证通过且无待修评审；目标符合度暂记为已满足（仍以用户最终验收为准）']
+      });
       return;
     }
 
-    if (rounds.length >= task.maxRounds) {
-      this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，任务未完成` });
-      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
+    if (decision === 'fail_delivery') {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: 'GDC：报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
+      });
+      this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
+      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
       return;
     }
 
+    if (decision === 'fail_budget') {
+      this.tasks.transition(taskId, 'failed', {
+        error: `达到最大轮数 ${String(task.maxRounds)}，任务未完成（GDC 收敛）`
+      });
+      this.deps.emit({
+        type: 'task.failed',
+        at: Date.now(),
+        taskId,
+        error: `达到最大轮数 ${String(task.maxRounds)}`
+      });
+      return;
+    }
+
+    // decision === 'repair'
     this.tasks.transition(taskId, 'awaiting_next_round');
     this.tasks.transition(taskId, 'planning');
 
@@ -1746,7 +1813,12 @@ export class AgentOrchestrator {
       const needsClick = !approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: review.needsFix ? 'warn' : 'info',
-        message: `修复任务：${review.reviewer} 指出 ${review.issues.length} 项问题，已并入下一轮计划请求${needsClick ? '（仍需你重新批准）' : '（完全权限：下一轮计划会自动执行）'}`
+        message: `GDC 下一轮=repair：${review.reviewer} 指出 ${String(review.issues.length)} 项问题，已并入下一轮计划请求${needsClick ? '（仍需你重新批准）' : '（完全权限：下一轮计划会自动执行）'}`
+      });
+    } else {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: `GDC 下一轮=repair：${workbench.cycle.nextAction}`
       });
     }
 

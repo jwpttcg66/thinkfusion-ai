@@ -132,6 +132,26 @@ export interface GoalDrivenWorkbenchView {
   projectedAt: number;
 }
 
+/**
+ * 编排器用的下一动作：把循环结论落到执行决策。
+ * 不替代 TaskGrant / 验证闸门，只统一「完成 / 修复 / 预算耗尽」分支命名。
+ */
+export function decideNextEngineeringAction(input: {
+  cycle: WorkCycleView;
+  verifiedDone: boolean;
+  actionableReview: boolean;
+  atMaxRounds: boolean;
+  genuineDelivery: boolean;
+}): 'complete' | 'repair' | 'fail_budget' | 'fail_delivery' {
+  if (input.verifiedDone && !input.actionableReview) {
+    return input.genuineDelivery ? 'complete' : 'fail_delivery';
+  }
+  if (input.atMaxRounds) return 'fail_budget';
+  if (input.cycle.conclusionType === 'needs_fix' || input.actionableReview) return 'repair';
+  if (input.verifiedDone) return input.genuineDelivery ? 'complete' : 'fail_delivery';
+  return 'repair';
+}
+
 /** 目标变更分类：缩小成功标准 → change（禁止静默降级当 clarify）。 */
 export function classifyGoalChange(input: {
   previousCriteria: readonly string[];
@@ -345,6 +365,20 @@ export function projectWorkCycleFromEvents(input: {
   if (!hadDebate) debateSkipped = true;
   if (ordered.every(event => event.type !== 'review.disposition')) reviewDebateSkipped = true;
 
+  const nearLimitBase = roundCount >= CODING_BUDGET.maxIterations - 1;
+
+  // 若编排器已写入 cycle.snapshot，以其为准覆盖派生（权威仍是业务事件，快照是决策落点）。
+  const snapshot = [...ordered].reverse().find(event => event.type === 'cycle.snapshot');
+  if (snapshot && snapshot.type === 'cycle.snapshot') {
+    current = (STAGE_ORDER.includes(snapshot.currentStage as CycleStage)
+      ? snapshot.currentStage
+      : current) as CycleStage;
+    conclusionType = (snapshot.conclusionType as CycleConclusionType) || conclusionType;
+    nextAction = snapshot.nextAction || nextAction;
+    debateSkipped = snapshot.debateSkipped;
+    roundCount = Math.max(roundCount, snapshot.budget.roundCount);
+  }
+
   const activeIdx = stageIndex(current);
   const stages = STAGE_ORDER.filter(stage => stage !== 'done' || completed).map(stage => {
     const idx = stageIndex(stage);
@@ -362,12 +396,16 @@ export function projectWorkCycleFromEvents(input: {
     return { stage, status: 'pending' as const };
   });
 
-  const nearLimit = roundCount >= CODING_BUDGET.maxIterations - 1;
+  const nearLimit = nearLimitBase || Boolean(snapshot && snapshot.type === 'cycle.snapshot' && snapshot.budget.nearLimit);
 
   return {
-    cycleId: `cycle:${input.workId}:1`,
+    cycleId: snapshot && snapshot.type === 'cycle.snapshot'
+      ? snapshot.cycleId
+      : `cycle:${input.workId}:1`,
     workId: input.workId,
-    cycleNumber: 1,
+    cycleNumber: snapshot && snapshot.type === 'cycle.snapshot'
+      ? snapshot.cycleNumber
+      : 1,
     status: completed ? 'completed' : failed ? 'aborted' : 'running',
     currentStage: current,
     stages,

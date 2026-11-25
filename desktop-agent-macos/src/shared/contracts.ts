@@ -1725,6 +1725,29 @@ export type AgentEvent = AgentEventBase &
     | { type: 'task.cancelled'; taskId: string }
     /** Emitted on delete, so a list built from events drops the row too. */
     | { type: 'task.deleted'; taskId: string }
+    /**
+     * GDC：循环阶段快照（派生决策的可观测落点，不是第二套状态库）。
+     * 权威仍是既有 plan/report/review/task 事件；本事件记录协调结论便于 UI/恢复对账。
+     */
+    | {
+        type: 'cycle.snapshot';
+        taskId: string;
+        cycleId: string;
+        cycleNumber: number;
+        currentStage: string;
+        conclusionType: string;
+        nextAction: string;
+        debateSkipped: boolean;
+        decision: 'complete' | 'repair' | 'fail_budget' | 'fail_delivery' | 'observe';
+        budget: { roundCount: number; maxIterations: number; nearLimit: boolean };
+      }
+    /** GDC：目标符合度评估快照。 */
+    | {
+        type: 'goal.fit';
+        taskId: string;
+        fit: 'pending' | 'met' | 'gap' | 'unknown';
+        notes: string[];
+      }
     | { type: 'log'; taskId?: string; level: 'info' | 'warn' | 'error'; message: string }
     /**
      * 上下文压缩/恢复事件。owner 可以是 AgentTask，也可以是 Conversation；

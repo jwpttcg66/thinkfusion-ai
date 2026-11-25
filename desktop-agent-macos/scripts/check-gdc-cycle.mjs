@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  decideNextEngineeringAction,
   projectConversationGoalWorkbench,
   projectGoalDrivenWorkbench,
   projectWorkCycleFromEvents
@@ -179,6 +180,78 @@ test('General：不强制八阶段实现/审核', () => {
     item.stage !== 'implementation' || item.status === 'skipped'));
   assert.ok(view.cycle.stages.some(item => item.stage === 'planning' && item.status === 'skipped'));
   assert.equal(view.cycle.conclusionType, 'accepted');
+});
+
+test('编排决策：verified+无评审 → complete；needsFix → repair；满轮 → fail_budget', () => {
+  const base = projectWorkCycleFromEvents({ workId: taskId, events: baseEvents });
+  assert.equal(
+    decideNextEngineeringAction({
+      cycle: base,
+      verifiedDone: true,
+      actionableReview: false,
+      atMaxRounds: false,
+      genuineDelivery: true
+    }),
+    'complete'
+  );
+  assert.equal(
+    decideNextEngineeringAction({
+      cycle: { ...base, conclusionType: 'needs_fix' },
+      verifiedDone: false,
+      actionableReview: true,
+      atMaxRounds: false,
+      genuineDelivery: false
+    }),
+    'repair'
+  );
+  assert.equal(
+    decideNextEngineeringAction({
+      cycle: base,
+      verifiedDone: false,
+      actionableReview: true,
+      atMaxRounds: true,
+      genuineDelivery: false
+    }),
+    'fail_budget'
+  );
+  assert.equal(
+    decideNextEngineeringAction({
+      cycle: base,
+      verifiedDone: true,
+      actionableReview: false,
+      atMaxRounds: false,
+      genuineDelivery: false
+    }),
+    'fail_delivery'
+  );
+});
+
+test('时间线：cycle.snapshot / goal.fit 进入对话笔记', async () => {
+  const { buildTaskConversation } = await import('../out-test/shared/task-conversation.js');
+  const entries = buildTaskConversation([
+    {
+      type: 'cycle.snapshot',
+      at: 100,
+      taskId,
+      cycleId: 'cycle:x',
+      cycleNumber: 1,
+      currentStage: 'review',
+      conclusionType: 'needs_fix',
+      nextAction: '修复',
+      debateSkipped: true,
+      decision: 'repair',
+      budget: { roundCount: 2, maxIterations: 8, nearLimit: false }
+    },
+    {
+      type: 'goal.fit',
+      at: 101,
+      taskId,
+      fit: 'gap',
+      notes: ['仍有待修项']
+    }
+  ], { prompt: 'q', status: 'planning' });
+  assert.ok(entries.some(item => item.kind === 'note' && String(item.text).includes('循环决策')));
+  assert.ok(entries.some(item => item.kind === 'note' && String(item.text).includes('目标符合度')));
 });
 
 test('完成：task.completed 后 stage=done 且 accepted', () => {

@@ -139,6 +139,11 @@ export function CollaborationResultPanel(props: {
                 {workbench.cycle.conclusionSummary ? ` · ${workbench.cycle.conclusionSummary}` : ''}
               </p>
               <p>{workbench.cycle.nextAction}</p>
+              {workbench.cycle.rollback && (
+                <p className="muted">
+                  本轮决策由编排器按 GDC 结论执行（complete / repair / fail_*），见时间线「循环决策」标记。
+                </p>
+              )}
               {workbench.artifacts.filter(item => item.status === 'superseded').length > 0 && (
                 <p className="muted">
                   已替代产物 {String(workbench.artifacts.filter(item => item.status === 'superseded').length)} 项（历史仍可追溯）
