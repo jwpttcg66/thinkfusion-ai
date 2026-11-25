@@ -34,6 +34,25 @@ export interface PlanCapabilityGate {
  * 它不是权限，也不阻止执行——只在缺判据时告诉用户「执行后不会标已验证」。
  * 缺判据仍照跑，是用户的选择；把没跑测试的改动说成「已验证」才是错。
  */
+/**
+ * 多写入目标却没有 decomposition：不是错误，但任务树会缺 L2。
+ *
+ * 这条只做可见提示：模型可以合理判断「这两处改动属于同一件事」而不拆，
+ * 但审批的人需要知道「这份计划没有可独立验收的子任务层」，
+ * 而不是看到一个只有 L1→L3 的树却以为分解已经发生。
+ */
+export function planDecompositionWarning(plan: AgentPlan): string | null {
+  if (plan.decomposition && plan.decomposition.length > 0) return null;
+  const targets = new Set<string>();
+  for (const step of plan.steps) {
+    if (!WRITE_TOOLS.has(step.tool)) continue;
+    const target = (step.args as { path?: unknown }).path;
+    if (typeof target === 'string' && target.trim()) targets.add(target);
+  }
+  if (targets.size < 2) return null;
+  return `计划涉及 ${String(targets.size)} 个独立写入目标，但没有 decomposition：任务树只有 L1→L3，没有可独立验收的 L2 子任务`;
+}
+
 export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
   const steps = plan.steps ?? [];
   const writes = steps.filter(step => WRITE_TOOLS.has(step.tool));

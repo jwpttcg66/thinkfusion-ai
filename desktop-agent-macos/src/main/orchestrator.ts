@@ -22,6 +22,7 @@ import { approvalPolicyFor } from '../shared/approval';
 import {
   assessCollaborationRisk,
   checkPlanCapabilities,
+  planDecompositionWarning,
   planReviewRounds,
   shouldDebatePlan
 } from './engineering/plan-review';
@@ -1383,6 +1384,12 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const plan = result.plan;
 
+    // TDL L2：多写入目标却没有 decomposition，说明这份计划没有可独立验收的子任务层。
+    // 先让模型带着这条原因重出一次（最多两次，与其它计划修复共用上限）；
+    // 修不出来就照常接受，但在计划警告里保留「未分解」，不假装已经有 L2。
+    const decompositionGap = planDecompositionWarning(plan);
+    if (decompositionGap && this.repairPlan(taskId, decompositionGap)) return;
+
     if (task.status === 'planning') this.tasks.transition(taskId, 'plan_ready');
     const stored: StoredPlan = {
       planId: randomUUID(),
@@ -1401,7 +1408,11 @@ export class AgentOrchestrator {
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     const gate = checkPlanCapabilities(stored.plan);
-    const planPreview = toPreview(stored, gate.missing);
+    const decompositionWarning = planDecompositionWarning(stored.plan);
+    const planPreview = toPreview(stored, [
+      ...gate.missing,
+      ...(decompositionWarning ? [decompositionWarning] : [])
+    ]);
     this.deps.emit({
       type: 'plan.ready', at: Date.now(), taskId, roundId,
       plan: planPreview
