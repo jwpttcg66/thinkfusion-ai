@@ -1,0 +1,17 @@
+{
+  "kind": "gdc-event-replay",
+  "at": 1795582445874,
+  "ok": true,
+  "checks": {
+    "debateSkipped": true,
+    "supersededPlans": 1,
+    "decisions": 1,
+    "conclusionType": "accepted_with_risks",
+    "nextAction": "无需下一轮；可做整体验收"
+  },
+  "viewSummary": {
+    "goalStatus": "active",
+    "currentStage": "done",
+    "artifactCount": 5
+  }
+}

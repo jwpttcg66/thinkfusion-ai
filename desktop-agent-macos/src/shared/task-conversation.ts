@@ -894,6 +894,42 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'cycle.snapshot') {
+      push({
+        kind: 'note',
+        key: `cycle-${event.cycleId}-${String(event.at)}-${String(seq)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: event.decision === 'repair' || event.decision === 'fail_budget' || event.decision === 'fail_delivery'
+          ? 'warn'
+          : event.decision === 'complete'
+            ? 'ok'
+            : 'info',
+        text: `循环决策 · ${event.decision} · 阶段 ${event.currentStage} · ${event.conclusionType}`,
+        detail: [
+          event.nextAction,
+          `预算 ${String(event.budget.roundCount)}/${String(event.budget.maxIterations)}`,
+          event.debateSkipped ? '方案辩论已跳过' : '方案辩论已发生'
+        ].join('\n')
+      });
+      continue;
+    }
+
+    if (event.type === 'goal.fit') {
+      push({
+        kind: 'note',
+        key: `goal-fit-${String(event.at)}-${String(seq)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: event.fit === 'gap' ? 'warn' : event.fit === 'met' ? 'ok' : 'muted',
+        text: `目标符合度 · ${event.fit}`,
+        detail: event.notes.join('\n') || undefined
+      });
+      continue;
+    }
+
     if (event.type === 'clarification.required') {
       push({
         kind: 'note',

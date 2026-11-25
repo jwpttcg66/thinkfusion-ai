@@ -5,6 +5,10 @@
 > [architecture/ENGINEERING_WORKSPACE.md](architecture/ENGINEERING_WORKSPACE.md)、
 > [architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)。本文描述的五层基础架构仍然成立；
 > 凡与新产品方向冲突处，以新设计为准。
+>
+> **2026-11-25**：用户目标驱动的循环式工程协作（GDC）见
+> [architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)。
+> 它是 Goal / Cycle 逻辑层，**不**替代五层基础架构或 Collaboration Engine。
 
 产品定位见 [PRODUCT.md](PRODUCT.md)。这份文档只回答一个问题：**要让那个定位成立，代码该怎么切。**
 

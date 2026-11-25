@@ -1,0 +1,19 @@
+{
+  "at": "2026-11-25T05:02:25.482Z",
+  "url": "http://localhost:5173/",
+  "taskHint": "工程 · plan_ready",
+  "summaries": [
+    "工程目标",
+    "循环进度 · 第 1 轮 · 计划",
+    "结论与下一步",
+    "核心结论"
+  ],
+  "gdc": {
+    "hasGoal": true,
+    "hasCycle": true,
+    "hasNext": true,
+    "goalBlock": "工程目标\n\n打开 TextEdit。用 computer.type 向文档文本框输入 tf-live-done-mwvn8k，然后 computer.verify 核对这段文字出现，最后把文本框清空。\n\n状态：active · 符合度：未知 · 版本 v1\n\n符合度说明：尚未写明成功标准\n\n待澄清：成功标准尚未明确",
+    "cycleBlock": "循环进度 · 第 1 轮 · 计划\n目标理解 · 完成\n分析 · 完成\n设计 · 完成\n方案辩论 · 跳过（无实质方案争议）\n计划 · 进行中\n实现 · 待定\n审核 · 待定\n审核辩论 · 待定\n结论 · 待定\n\n迭代 3/8",
+    "nextBlock": "结论与下一步\n\n进行中\n\n等待计划审批或进入实现"
+  }
+}

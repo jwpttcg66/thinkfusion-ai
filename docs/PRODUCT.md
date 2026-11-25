@@ -137,6 +137,12 @@
 Debate / Review / Verification 是可选协作行为，不是每个任务的必经舞台。细节见
 [`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)。
 
+工程空间进一步升级为**用户目标驱动的循环式协作**（Goal-Driven Iterative Engineering）：
+以用户目标为最高依据，多轮分析→设计→按需辩论→计划→实现→审核→结论，局部可回退。
+架构说明书见
+[`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)；
+实施状态见 [`implementation/STATUS.md`](implementation/STATUS.md)「GDC」。
+
 ### 5.4 不使用任务提示词，不冻结流程基线
 
 - 用户问题原样发出；工具契约、权限规则、输出 schema 是**契约**，不是话术。

@@ -17,6 +17,10 @@ import {
   projectConversationCollaborationResult,
   projectEngineeringCollaborationResult
 } from '../../shared/collaboration-result';
+import {
+  projectConversationGoalWorkbench,
+  projectGoalDrivenWorkbench
+} from '../../shared/goal-driven-cycle';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
@@ -546,6 +550,17 @@ export default function App() {
       status: activeTask.status
     });
   }, [activeTask, events]);
+  /** GDC：目标 / 循环 / 产物 — 仅从权威事件派生，可重放恢复。 */
+  const engineeringWorkbench = useMemo(() => {
+    if (!activeTask) return null;
+    return projectGoalDrivenWorkbench({
+      workId: activeTask.taskId,
+      originalRequest: activeTask.userPrompt,
+      events,
+      summary: activeTask.summary,
+      status: activeTask.status
+    });
+  }, [activeTask, events]);
   const activeConversation = useMemo(
     () => conversations.find(item => item.conversationId === activeConversationId) ?? null,
     [conversations, activeConversationId]
@@ -563,6 +578,16 @@ export default function App() {
       debate: debateLive
     });
   }, [activeConversation, messages, debateLive]);
+  const conversationWorkbench = useMemo(() => {
+    if (!activeConversation || !conversationResult) return null;
+    const firstUser = messages.find(item => item.role === 'user');
+    return projectConversationGoalWorkbench({
+      conversationId: activeConversation.conversationId,
+      originalRequest: firstUser?.text ?? activeConversation.title,
+      conversationGoal: activeConversation.goal ?? null,
+      status: activeConversation.status
+    });
+  }, [activeConversation, conversationResult, messages]);
   const activity = useMemo<ObservabilityEvent[]>(
     () => projectActivity(events.map(fromAgentEvent).filter((item): item is ObservabilityEvent => item !== null)),
     [events]
@@ -2347,6 +2372,7 @@ export default function App() {
             {showingConversation && activeConversation && conversationTab === 'chat' && conversationResult && (
               <CollaborationResultPanel
                 result={conversationResult}
+                workbench={conversationWorkbench}
                 onOpenEvidence={() => setConversationTab('trajectory')}
               />
             )}
@@ -2435,9 +2461,10 @@ export default function App() {
               <>
                 {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
                   || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0
-                  || engineeringResult.deliverables.length > 0) && (
+                  || engineeringResult.deliverables.length > 0 || Boolean(engineeringWorkbench)) && (
                   <CollaborationResultPanel
                     result={engineeringResult}
+                    workbench={engineeringWorkbench}
                     onOpenEvidence={() => setWorkbenchTab('trajectory')}
                     onSetDisposition={async input => {
                       if (!activeTask) return;
