@@ -53,7 +53,13 @@ const KEEP_FOREVER: ReadonlySet<string> = new Set([
   'review.ready',
   'task.completed',
   'task.failed',
-  'task.cancelled'
+  'task.cancelled',
+  'work.breakdown.created',
+  'work.task.upserted',
+  'work.task.status',
+  'work.task.blocked',
+  'work.task.accepted',
+  'work.breakdown.replanned'
 ]);
 
 function taskIdOfEvent(event: AgentEvent): string | null {

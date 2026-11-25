@@ -50,6 +50,10 @@ import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/
 import { applyEventIdentity, forgetTask, rememberStepIdentity, type StepIdentity } from '../shared/event-identity';
 import { buildDiagnosticBundle } from '../shared/diagnostics';
 import { fromAgentEvent } from '../shared/observability';
+import {
+  rebuildWorkTasksFromEvents,
+  workStatusEventFromStep
+} from '../shared/task-decomposition';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
@@ -1478,6 +1482,33 @@ function emit(raw: AgentEvent) {
     /* Persisting events must never break the running task. */
   }
   win?.webContents.send('agent:event', enriched);
+  // TDL：步骤生命周期 → work.task.status（有种子才写；CAS 失败由投影跳过坏事件）。
+  emitTdlFollowupFromStep(enriched);
+}
+
+function emitTdlFollowupFromStep(raw: AgentEvent): void {
+  if (raw.type !== 'step.started' && raw.type !== 'step.completed' && raw.type !== 'step.failed') return;
+  const workId = typeof raw.taskId === 'string' ? raw.taskId : '';
+  const stepId = typeof raw.stepId === 'string' ? raw.stepId : '';
+  if (!workId || !stepId || !store) return;
+  const current = rebuildWorkTasksFromEvents(workId, store.listEvents(workId)).get(`wt-${stepId}`);
+  if (!current) return;
+  const phase = raw.type === 'step.started' ? 'started' : raw.type === 'step.completed' ? 'completed' : 'failed';
+  const detail =
+    raw.type === 'step.failed' && 'error' in raw && raw.error != null
+      ? String(raw.error)
+      : raw.type === 'step.completed'
+        ? `步骤 ${stepId} 已完成`
+        : undefined;
+  emit(
+    workStatusEventFromStep({
+      workId,
+      stepId,
+      phase,
+      expectedRevision: current.revision,
+      detail
+    })
+  );
 }
 
 function emitDeepSeek(event: DeepSeekEvent) {

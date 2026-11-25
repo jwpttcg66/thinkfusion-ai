@@ -40,6 +40,9 @@
 | [06-p5-channels.md](06-p5-channels.md) | P5 | 能力模型、路由降级、新增通道、发布判据 |
 | [07-ui.md](07-ui.md) | 跨阶段 | 界面结构、事件映射、移除辩论入口、分阶段落地 |
 | [V3-COMPUTER-USE-MACOS.md](V3-COMPUTER-USE-MACOS.md) | Computer Use | macOS 真机控制已落地。ThinkFusion 可加载 13 个桌面工具；工程真机脚本 `test:computer-use:live` |
+| [../architecture/V3-TASK-DECOMPOSITION-LAYER.md](../architecture/V3-TASK-DECOMPOSITION-LAYER.md) | TDL | 分层任务分解与长任务进度：Work/WorkTask/依赖/验收；四层架构 |
+| [../spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md](../spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md) | TDL-P0–P7 | 任务分解实施任务书；进度面板与 Journal 投影 |
+| [V3-TDL-PROGRESS.md](V3-TDL-PROGRESS.md) | TDL | 分解层实施进度与 P0 审计表 |
 
 ## 状态板（历史计划）
 

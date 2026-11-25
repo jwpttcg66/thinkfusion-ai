@@ -27,6 +27,7 @@ import {
   decideNextEngineeringAction,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
+import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
@@ -1383,10 +1384,20 @@ export class AgentOrchestrator {
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     const gate = checkPlanCapabilities(stored.plan);
+    const planPreview = toPreview(stored, gate.missing);
     this.deps.emit({
       type: 'plan.ready', at: Date.now(), taskId, roundId,
-      plan: toPreview(stored, gate.missing)
+      plan: planPreview
     });
+    // TDL：把计划步骤落成显式分解事件，进度面板只投影这些事件（也可从 plan/step 派生兜底）。
+    for (const event of seedWorkEventsFromPlan({
+      workId: taskId,
+      title: stored.plan.title || task.title || taskId,
+      plan: planPreview,
+      at: Date.now()
+    })) {
+      this.deps.emit(event);
+    }
     // 计划选中了这些工具，但一个都还没执行；界面必须能区分“准备”与“开始”。
     // 计划由主导成员产出，所以这些步骤的「发起者」就是它。带上 participantId，
     // 工作台才能在轨迹里回答「这个工具是哪个模型发起的」。

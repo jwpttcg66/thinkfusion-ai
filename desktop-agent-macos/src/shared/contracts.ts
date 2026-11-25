@@ -1929,6 +1929,56 @@ export type AgentEvent = AgentEventBase &
         fit: 'pending' | 'met' | 'gap' | 'unknown';
         notes: string[];
       }
+    /** TDL：分解图首次建立。 */
+    | {
+        type: 'work.breakdown.created';
+        taskId: string;
+        workId: string;
+        title: string;
+      }
+    /** TDL：子任务创建或字段更新。 */
+    | {
+        type: 'work.task.upserted';
+        taskId: string;
+        workId: string;
+        task: import('./task-decomposition').WorkTask;
+      }
+    /** TDL：子任务状态迁移。 */
+    | {
+        type: 'work.task.status';
+        taskId: string;
+        workId: string;
+        workTaskId: string;
+        status: import('./task-decomposition').WorkTaskStatus;
+        expectedRevision: number;
+        evidence?: import('./task-decomposition').WorkTaskEvidence[];
+        blockedReason?: string;
+      }
+    /** TDL：子任务阻塞。 */
+    | {
+        type: 'work.task.blocked';
+        taskId: string;
+        workId: string;
+        workTaskId: string;
+        expectedRevision: number;
+        reason: string;
+      }
+    /** TDL：子任务验收通过。 */
+    | {
+        type: 'work.task.accepted';
+        taskId: string;
+        workId: string;
+        workTaskId: string;
+        expectedRevision: number;
+        evidence: import('./task-decomposition').WorkTaskEvidence[];
+      }
+    /** TDL：局部重规划。 */
+    | {
+        type: 'work.breakdown.replanned';
+        taskId: string;
+        workId: string;
+        impactedIds: string[];
+      }
     | { type: 'log'; taskId?: string; level: 'info' | 'warn' | 'error'; message: string }
     /**
      * 上下文压缩/恢复事件。owner 可以是 AgentTask，也可以是 Conversation；

@@ -46,6 +46,7 @@
 | 发布与运维 P6 | PARTIAL | 清单、迁移、备份、dmg/zip | 签名/公证未执行 |
 | V3 正式发布 | NOT STARTED | 发布判据未满足 | 见 P6 |
 | macOS 真机控制（Computer Use） | VERIFIED / TESTED | `implementation/V3-COMPUTER-USE-MACOS.md`，分支 `feat/v3-computer-use-macos` | 能力清单 109 真机全跑：`test:capabilities:live`（`tf-cap-mwvp2fb6`）暴露 109/109 且每项执行一次；含 13 个 `computer.*` TextEdit 真机。`test:computer-use` 18 项通过。锁屏时控件操作被挡 |
+| 分层任务分解与长任务进度（TDL） | VERIFIED / TESTED | `architecture/V3-TASK-DECOMPOSITION-LAYER.md`、`spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md`、`implementation/V3-TDL-PROGRESS.md`；分支 `feat/v3-task-decomposition` | `test:tdl` 全绿；真机 `test:tdl:live` → `evidence/V3-TDL-ENGINEERING-LIVE.json`（面板 0/1→1/1，work.* 种子+step 状态） |
 
 ## 3.5 全局一致性治理（G0–G6）
 
@@ -123,12 +124,24 @@
 
 > 硬规则：不为「要不要辩论」先调一次模型；意见数 ≠ 争议数；展示去重不能替代执行克制。
 
+## 4.8 分层任务分解（TDL）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 架构说明书 | DESIGN | `architecture/V3-TASK-DECOMPOSITION-LAYER.md` |
+| 实施任务书 | DESIGN | `spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md` |
+| TDL-P0 审计 | 文档完成 | `implementation/V3-TDL-PROGRESS.md` |
+| TDL-P1–P7 | VERIFIED / TESTED | 契约/投影/写入/策略/UI/重规划闭包；真机证据见 `evidence/V3-TDL-ENGINEERING-LIVE.json` |
+| 功能分支 | 待合入 | `feat/v3-task-decomposition` |
+
+> TDL **不**另建 Runtime；进度只投影真实子任务状态。Worktree 不自动清理（`AGENTS.md` §5.1）。
+
 ## 5. 文档分类
 
 | 类别 | 文档 |
 | --- | --- |
-| 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`** |
-| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、**CB 协作预算任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
+| 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`**、**`architecture/V3-TASK-DECOMPOSITION-LAYER.md`** |
+| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、**CB 协作预算任务书**、**TDL 任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
 | 已完成能力与证据 | `implementation/COMPLETION-AUDIT.md`、`implementation/E-ACCEPTANCE-REPORT.md`、`docs/spec/evidence/*`、`git log` |
 | 历史规格 | `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`、旧辩论入口/固定轮次说明、已被替代的 V3 阶段表 |
 | 运维/发布 | `operations/RELEASE_CHECKLIST.md`、`operations/LONG-TASK-CONTEXT-ROLLOUT.md` |

@@ -93,36 +93,28 @@ cd ../thinkfusion-sms-login
 3. B 的负责人在自己的 worktree 修复自己引入的问题；所有相关测试与 typecheck 通过后，再提交修复并把 B 合入 `main`。
 4. B 合并后发现问题，仍回 B 的 worktree 修复、验证、提交，再将修复合入 `main`。合并前确认 `main` 工作区干净；未通过验证的任务不得合入。
 
-### 任务收尾：合并验证通过即删除
+### 任务收尾：合并验证后不自动清理；用户手动触发
 
-一条任务的生命周期是**建树 → 开发 → 合并 → 验证 → 删树删分支**。合并进 `main` 并验证通过后当场收尾，不保留已合并的 worktree，也不攒着等下次一起清。
+一条任务的生命周期是**建树 → 开发 → 合并 → 验证**。验证通过**不等于**自动删树删分支（与 `AGENTS.md` §5.1 一致）。
 
-删除前逐项确认，三项都满足才动手：
+- Agent **禁止**在合并/验证后顺手 `git worktree remove` / `git branch -d`。
+- 仅当用户明确要求清理时才执行；删除前仍须确认：分支已是 `main` 祖先、工作区干净、无进程占用该目录。
 
 ```bash
-# 1. 分支已是 main 的祖先（退出码 0）
+# 仅在用户明确要求时执行
 git merge-base --is-ancestor feat/sms-login main
-
-# 2. 工作区干净（无输出）
 git -C ../thinkfusion-sms-login status --porcelain
-
-# 3. 没有进程占用该目录
 lsof +D ../thinkfusion-sms-login | head
-```
 
-然后：
-
-```bash
 git worktree remove ../thinkfusion-sms-login
 git branch -d feat/sms-login
 git worktree prune
-git worktree list        # 应只剩 main 一行
+git worktree list
 ```
 
-- `git branch -d`（不是 `-D`）会拒绝删除未合并分支，这是最后一道保险；被拒绝说明还没到收尾点。
-- 删掉 worktree 不丢提交：已合并的提交都在 `main` 里；需要保留历史就事先 `git bundle create` 或打 tag。
-- 合并后仍需修复时，先在该 worktree 修完、提交、再合并验证；修复合入并验证后，同样立即删。
-- 工作树是并行开发的临时设施，不是分支的「家」——分支本身不需要目录。`git worktree list` 超过一行，说明有任务没收尾或已合并未清理，每次合并验证后顺手看一眼。
+- `git branch -d`（不是 `-D`）会拒绝删除未合并分支。
+- 删掉 worktree 不丢已合入 `main` 的提交。
+- `git worktree list` 可超过一行（并发任务或待用户清理）；Agent 只报告，不擅自收尾。
 
 ## 4. 版本发布
 

@@ -949,6 +949,68 @@ button:disabled {
 .review-card ul { margin: 6px 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
 .review-card li { margin-bottom: 4px; }
 
+/* V3 TDL · 任务分解进度 */
+.work-breakdown {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--text) 6%);
+}
+.work-breakdown-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.work-breakdown-score {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  border: 1px solid var(--line);
+}
+.work-breakdown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.work-breakdown-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.2em 1fr auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.work-breakdown-row:hover {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.work-breakdown-item.is-current .work-breakdown-row {
+  border-color: color-mix(in srgb, var(--accent, #3d7ea6) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent, #3d7ea6) 10%, transparent);
+}
+.work-breakdown-item.is-completed .work-breakdown-marker { color: #0f7b4f; }
+.work-breakdown-item.is-failed .work-breakdown-marker,
+.work-breakdown-item.is-blocked .work-breakdown-marker { color: #c0392b; }
+.work-breakdown-item.is-running .work-breakdown-marker { color: var(--accent, #3d7ea6); }
+.work-breakdown-title { font-size: 13px; line-height: 1.4; }
+.work-breakdown-state { font-size: 12px; color: var(--text-2, #6b7280); }
+.work-breakdown-current,
+.work-breakdown-source { margin: 8px 0 0; font-size: 12px; }
+
 /* V3 主活动区 · 协作结果五层 */
 .collab-result {
   margin: 0 0 14px;
