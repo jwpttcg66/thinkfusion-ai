@@ -80,3 +80,41 @@ export function topologicalOrder(definition: WorkflowDefinition): { order: strin
   }
   return { order: order.length === definition.nodes.length ? order : null };
 }
+
+/** 执行器需要的步骤骨架：顺序、依赖、能力；参数由调用方按能力 schema 补。 */
+export interface WorkflowStepSkeleton {
+  index: number;
+  nodeId: string;
+  capabilityId: string;
+  dependsOn: string[];
+  title?: string;
+}
+
+/**
+ * 定义 → 步骤骨架。
+ *
+ * 只做「顺序 + 依赖」的映射，不碰参数、不执行；执行仍由调用方把骨架变成
+ * PlanStep 并走既有审批。校验失败或成环时返回 error，不返回半套步骤。
+ */
+export function workflowToSteps(
+  definition: WorkflowDefinition,
+  knownCapabilities: readonly string[]
+): { steps: WorkflowStepSkeleton[]; error?: string } {
+  const validation = validateWorkflow(definition, knownCapabilities);
+  if (!validation.ok) return { steps: [], error: validation.errors.join('；') };
+  const { order } = topologicalOrder(definition);
+  if (!order) return { steps: [], error: '工作流存在环，无法确定执行顺序' };
+  const byId = new Map(definition.nodes.map(node => [node.id, node]));
+  return {
+    steps: order.map((nodeId, index) => {
+      const node = byId.get(nodeId)!;
+      return {
+        index,
+        nodeId: node.id,
+        capabilityId: node.capabilityId,
+        dependsOn: [...(node.dependsOn ?? [])],
+        ...(node.title ? { title: node.title } : {})
+      };
+    })
+  };
+}
