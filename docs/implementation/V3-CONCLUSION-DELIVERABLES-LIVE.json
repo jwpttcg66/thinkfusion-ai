@@ -1,0 +1,20 @@
+{
+  "userData": "/Users/yalla/Library/Application Support/thinkfusion-ai",
+  "storePath": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+  "checked": 1,
+  "report": [
+    {
+      "taskId": "5d1dd0b7-62f7-4942-8dfc-f9c1c698d283",
+      "title": "本机编写java demo 输出文字 hello world",
+      "reports": 2,
+      "firstWrites": [
+        "/Users/yalla/Downloads/java-hello-demo",
+        "/Users/yalla/Downloads/java-hello-demo/HelloWorld.java"
+      ],
+      "deliverables": [
+        "java-hello-demo/HelloWorld.java",
+        "java-hello-demo"
+      ]
+    }
+  ]
+}
