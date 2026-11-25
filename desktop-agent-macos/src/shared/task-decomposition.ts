@@ -716,3 +716,28 @@ export function workStatusEventFromStep(input: {
 export function isTerminalWorkStatus(status: WorkTaskStatus): boolean {
   return TERMINAL.has(status);
 }
+
+/** 将未绑定 cycle 的任务钉到指定 cycle（纯函数，不改 revision）。 */
+export function bindWorkTasksToCycle(tasks: readonly WorkTask[], cycleId: string): WorkTask[] {
+  return tasks.map(task => (task.cycleId ? { ...task } : { ...task, cycleId }));
+}
+
+export function tasksForCycle(tasks: readonly WorkTask[], cycleId: string): WorkTask[] {
+  return tasks.filter(task => task.cycleId === cycleId);
+}
+
+/** 从事件投影：最近 cycle.snapshot 与已钉 cycleId 的子任务。 */
+export function projectCycleTaskBinding(input: {
+  workId: string;
+  events: readonly AgentEvent[];
+}): { cycleId?: string; workTaskIds: string[] } {
+  let cycleId: string | undefined;
+  for (const event of input.events) {
+    if (!('taskId' in event) || event.taskId !== input.workId) continue;
+    if (event.type === 'cycle.snapshot') cycleId = event.cycleId;
+  }
+  if (!cycleId) return { workTaskIds: [] };
+  const tasks = rebuildWorkTasksFromEvents(input.workId, input.events);
+  const bound = [...tasks.values()].filter(task => task.cycleId === cycleId).map(task => task.workTaskId);
+  return { cycleId, workTaskIds: bound };
+}

@@ -172,7 +172,8 @@
 | P1 Goal+TDL 加深 | TESTED | `gtec-phases/P1-DESIGN.md` + `test:gtec-p1` |
 | P2 真实进度 | TESTED | `gtec-phases/P2-DESIGN.md` + `test:gtec-p2` |
 | P3 ECO 实质化 | TESTED | `gtec-phases/P3-DESIGN.md` + `test:gtec-p3` |
-| P4–P8 | 未开始 | 每阶段单独设计书 + `test:gtec-pN` |
+| P4 Cycle↔TDL | TESTED | `gtec-phases/P4-DESIGN.md` + `test:gtec-p4` |
+| P5–P8 | 未开始 | 每阶段单独设计书 + `test:gtec-pN` |
 | 功能分支 | 进行中 | `feat/v3-gtec-phased` |
 
 > 首次薄层合入质量不足：本轨按阶段门禁重做，不以 §4.9 DONE 替代本轨验收。
