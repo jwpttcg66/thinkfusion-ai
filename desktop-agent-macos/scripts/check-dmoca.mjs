@@ -166,3 +166,33 @@ test('决策钉住贡献版本：引用最新终稿，不引用 superseded', () 
   // 被 superseded 的第一版不能出现在决策引用里
   assert.ok(!(decision.contributions ?? []).some(item => /r1/.test(item.artifactId)));
 });
+
+test('参与事件：回放出的决策沿用当时的 decisionId 与 ECO 门禁', () => {
+  const view = projectDmocaFromEvents({
+    workId: 't3',
+    status: 'running',
+    events: [
+      { type: 'round.started', at: 1, taskId: 't3', roundId: 'r1', roundNumber: 1, inputType: 'user' },
+      {
+        type: 'model.participation.selected',
+        at: 2,
+        taskId: 't3',
+        decisionId: 'pd:fixed-1',
+        stage: 'planning',
+        risk: 'L1',
+        participants: [{ participantId: 'a', roles: ['lead'], reason: '默认' }],
+        excluded: [{ participantId: 'b', reason: 'L1 默认最多 2 人' }],
+        debate: 'on_demand',
+        modelReview: 'on_demand',
+        maxExtraModels: 1,
+        reasons: ['风险 L1'],
+        userPinned: false,
+        ecoGate: { sufficiency: 'insufficient', formalRolesBlocked: true, reason: 'ECO insufficient' }
+      }
+    ]
+  });
+  assert.equal(view.decision?.decisionId, 'pd:fixed-1');
+  assert.equal(view.decision?.maxExtraModels, 1);
+  assert.equal(view.decision?.ecoGate?.formalRolesBlocked, true);
+  assert.equal(view.decision?.excluded[0].participantId, 'b');
+});

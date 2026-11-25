@@ -370,8 +370,12 @@ export function projectDmocaFromEvents(input: {
   for (const event of ordered) {
     if (event.type !== 'model.participation.selected') continue;
     decisionFromEvents = {
-      decisionId: `pd:${event.taskId}:${event.stage}:${String(event.at)}`,
+      // 事件里带了 decisionId 就用它：回放出来的决策必须和当时那条一一对应，
+      // 不能再用时间戳拼一个「看起来一样」的新 id。
+      decisionId: event.decisionId || `pd:${event.taskId}:${event.stage}:${String(event.at)}`,
       workId: event.taskId,
+      ...(event.workTaskId ? { workTaskId: event.workTaskId } : {}),
+      ...(event.cycleId ? { cycleId: event.cycleId } : {}),
       stage: event.stage,
       risk: event.risk,
       participants: event.participants.map(item => ({
@@ -382,9 +386,10 @@ export function projectDmocaFromEvents(input: {
       excluded: event.excluded,
       debate: event.debate,
       modelReview: event.modelReview,
-      maxExtraModels: defaultPolicyForRisk(event.risk).maxExtraModels,
+      maxExtraModels: event.maxExtraModels ?? defaultPolicyForRisk(event.risk).maxExtraModels,
       reasons: event.reasons,
       userPinned: event.userPinned,
+      ...(event.ecoGate ? { ecoGate: event.ecoGate } : {}),
       at: event.at
     };
   }
