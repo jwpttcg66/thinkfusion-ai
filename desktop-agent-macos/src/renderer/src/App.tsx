@@ -3160,7 +3160,7 @@ export default function App() {
                 reason: routingPreview.reason,
                 source: routingPreview.source
               } : null}
-              // 云端/本地工程：直达 Planner；预览文案见 TaskInput，勿再写「由模型判定」。
+              // 云端/本地工程：发送后由模型做预判分流（见 AGENTS.md §9）。
               routingByModel={workspaceMode === 'engineering' && executionConfig.executionMode !== 'web'}
               taskKindOverride={taskKindOverride}
               onTaskKindChange={setTaskKindOverride}
