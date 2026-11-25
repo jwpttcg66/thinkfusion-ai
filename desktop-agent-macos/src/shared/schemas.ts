@@ -173,7 +173,18 @@ export const ExecutionReportSchema = z
             // V1.3：真机运行这一项；老报告没有它，不能因此解析失败。
             run: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict().optional(),
             tests: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict(),
-            diagnostics: z.object({ status: z.enum(['passed', 'failed', 'skipped']), errors: z.number().int().min(0), warnings: z.number().int().min(0), source: z.string().max(100).optional(), path: z.string().max(4000).optional(), detail: z.string().max(2000).optional() }).strict(),
+            // shell 诊断（go vet / eslint）会带 command/exitCode，与 compile/run/tests 对齐；
+            // 缺这两项时 .strict() 会把整份 Runtime 报告判无效，任务卡死在「执行报告无效」。
+            diagnostics: z.object({
+              status: z.enum(['passed', 'failed', 'skipped']),
+              errors: z.number().int().min(0),
+              warnings: z.number().int().min(0),
+              source: z.string().max(100).optional(),
+              path: z.string().max(4000).optional(),
+              detail: z.string().max(2000).optional(),
+              command: z.string().max(4000).optional(),
+              exitCode: z.number().int().optional()
+            }).strict(),
             changedFiles: z.array(z.string().max(4000)).max(200)
           })
           .strict()

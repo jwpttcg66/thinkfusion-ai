@@ -414,13 +414,6 @@ test('a protocol block that cannot be parsed reports why', () => {
   assert.notEqual(result.kind, 'none');
 });
 
-console.log('');
-if (process.exitCode) {
-  console.error(`Protocol tests failed.`);
-} else {
-  console.log(`All ${passed} protocol tests passed.`);
-}
-
 test('执行报告的 verification.fullyVerified 不再被拒绝', () => {
   const report = {
     protocol: 'desktop-agent/v1',
@@ -442,3 +435,49 @@ test('执行报告的 verification.fullyVerified 不再被拒绝', () => {
   };
   assert.equal(ExecutionReportSchema.safeParse(report).success, true);
 });
+
+test('shell 诊断带 command/exitCode 的执行报告必须通过 schema', () => {
+  const report = {
+    protocol: 'desktop-agent/v1',
+    type: 'execution_report',
+    taskId: 't-diag',
+    roundId: 'r1',
+    planId: 'p1',
+    status: 'completed',
+    results: [],
+    errors: [],
+    nextAction: 'complete',
+    createdAt: 1,
+    verification: {
+      verified: true,
+      fullyVerified: true,
+      reasons: ['编译通过', '运行通过'],
+      changedFiles: 1,
+      changedPaths: ['main.go'],
+      checks: {
+        compile: { status: 'passed', exitCode: 0, command: 'go build .' },
+        run: { status: 'passed', exitCode: 0, command: './server', output: 'Hello World' },
+        tests: { status: 'skipped' },
+        diagnostics: {
+          status: 'passed',
+          errors: 0,
+          warnings: 0,
+          source: 'shell',
+          command: 'go vet ./...',
+          exitCode: 0,
+          detail: 'go vet ./...'
+        },
+        changedFiles: ['main.go']
+      }
+    }
+  };
+  const parsed = ExecutionReportSchema.safeParse(report);
+  assert.equal(parsed.success, true, parsed.success ? '' : parsed.error.message);
+});
+
+console.log('');
+if (process.exitCode) {
+  console.error(`Protocol tests failed.`);
+} else {
+  console.log(`All ${passed} protocol tests passed.`);
+}
