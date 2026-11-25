@@ -39,6 +39,7 @@
 | [05-p4-evidence-quality.md](05-p4-evidence-quality.md) | P4 | 统一证据引用、验证计划、质量指标、测试矩阵 |
 | [06-p5-channels.md](06-p5-channels.md) | P5 | 能力模型、路由降级、新增通道、发布判据 |
 | [07-ui.md](07-ui.md) | 跨阶段 | 界面结构、事件映射、移除辩论入口、分阶段落地 |
+| [V3-COMPUTER-USE-MACOS.md](V3-COMPUTER-USE-MACOS.md) | Computer Use | macOS 真机控制已落地。ThinkFusion 可加载 13 个桌面工具；工程真机脚本 `test:computer-use:live` |
 
 ## 状态板（历史计划）
 

@@ -31,6 +31,31 @@ function CommandDetails(props: { result: Payload }) {
   );
 }
 
+function ComputerDetails(props: { result: Payload }) {
+  const { result } = props;
+  const verification = result.verification as Payload | undefined;
+  const events = Array.isArray(result.events) ? result.events : [];
+  return (
+    <>
+      <p><b>桌面：</b>{String(result.appName ?? '未读到应用')}{typeof result.bundleId === 'string' ? ` · ${result.bundleId}` : ''}</p>
+      {typeof result.windowId === 'string' && <p><b>窗口：</b><code>{result.windowId}</code></p>}
+      {typeof result.summary === 'string' && <p>{result.summary}</p>}
+      <p><b>验证：</b>{result.verified === true ? '已核对' : '未验证'}{typeof verification?.reason === 'string' ? ` · ${verification.reason}` : ''}</p>
+      {typeof result.screenshotRef === 'string' && <p><b>截图：</b><code>{result.screenshotRef}</code></p>}
+      {typeof result.accessibilityTreeRef === 'string' && <p><b>控件快照：</b><code>{result.accessibilityTreeRef}</code></p>}
+      {typeof result.permissionDecision === 'string' && <p className="muted">权限 {result.permissionDecision}</p>}
+      {events.length > 0 && (
+        <ol>
+          {events.map((item, index) => {
+            const record = item as Payload;
+            return <li key={index}>{String(record.type ?? 'event')}</li>;
+          })}
+        </ol>
+      )}
+    </>
+  );
+}
+
 function FileDetails(props: { result: Payload }) {
   const { result } = props;
   return (
@@ -101,7 +126,7 @@ export function EventInspector(props: { event: ObservabilityEvent }) {
       {result && typeof result === 'object' && (
         <>
           <h5>工具返回</h5>
-          {'command' in result ? <CommandDetails result={result} /> : <FileDetails result={result} />}
+          {result.domain === 'computer' ? <ComputerDetails result={result} /> : 'command' in result ? <CommandDetails result={result} /> : <FileDetails result={result} />}
         </>
       )}
       {payload.type === 'report.ready' && <ReportDetails payload={payload} />}

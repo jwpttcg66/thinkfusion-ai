@@ -100,6 +100,9 @@ export const TOOL_NAMES = [
   'team.spawn', 'team.task.create', 'team.task.get', 'team.task.list', 'team.task.update', 'team.wait',
   'job.list', 'job.output', 'job.kill',
   'screen.capture', 'app.open',
+  'computer.capabilities', 'computer.windows', 'computer.screenshot', 'computer.ax.tree', 'computer.ax.find',
+  'computer.click', 'computer.type', 'computer.keypress', 'computer.scroll', 'computer.drag', 'computer.focus',
+  'computer.verify', 'computer.stop',
   'clipboard.read', 'clipboard.write', 'notify', 'system.info', 'process.list', 'process.kill',
   'web.fetch', 'web.search', 'code.run',
   /**
@@ -133,7 +136,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   // 只读主进程查询：会话检索、能力清单、目标/任务板读取，都不改任何状态。
   'session.search', 'plugin.inspect',
   'goal.get', 'schedule.list', 'schedule.view',
-  'team.task.get', 'team.task.list', 'team.wait'
+  'team.task.get', 'team.task.list', 'team.wait',
+  'computer.capabilities', 'computer.windows', 'computer.screenshot', 'computer.ax.tree', 'computer.ax.find',
+  'computer.verify', 'computer.stop'
 ];
 
 /** 有副作用的工具。审批界面据此提示，Runtime 据此在只读授权下拒绝。 */
@@ -148,7 +153,8 @@ export const MUTATING_TOOLS: readonly ToolName[] = [
   'goal.create', 'goal.update', 'schedule.create', 'schedule.edit',
   'team.spawn', 'team.task.create', 'team.task.update',
   // 外部 Agent 会改文件、跑命令、访问网络；副作用远超单个 fs.* 工具。
-  'agent.exec'
+  'agent.exec',
+  'computer.click', 'computer.type', 'computer.keypress', 'computer.scroll', 'computer.drag', 'computer.focus'
 ];
 
 /** `code.run` 支持的解释器。三种都是真实的本地解释器，不是伪执行。 */
@@ -168,6 +174,23 @@ export type PermissionPreset = 'read-only' | 'workspace-write' | 'danger-full-ac
 
 const Id = z.string().min(1).max(80);
 const RelativePath = z.string().min(1).max(500);
+
+/** 桌面按键白名单。Helper 里的 keyCodes 必须与这份名单一致。 */
+export const COMPUTER_KEYS = [
+  'return', 'tab', 'escape', 'space', 'delete', 'forwarddelete',
+  'left', 'right', 'down', 'up',
+  'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+  'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+  '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+] as const;
+
+const ComputerExpect = z.object({
+  textIncludes: z.string().min(1).max(500).optional(),
+  value: z.string().min(1).max(500).optional(),
+  role: z.string().min(1).max(120).optional(),
+  title: z.string().min(1).max(200).optional(),
+  windowId: z.string().min(1).max(160).optional()
+});
 
 // ---------------------------------------------------------------------------
 // Plan (produced by DeepSeek, never trusted until validated)
@@ -367,6 +390,161 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 要打开的文件/目录。与 app 二选一。 */
       path: RelativePath.optional()
     }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.capabilities'),
+    args: z.object({}).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.windows'),
+    args: z.object({ maxEntries: z.number().int().min(1).max(200).optional() }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.screenshot'),
+    args: z.object({
+      target: z.enum(['screen', 'region']).optional(),
+      region: z.object({
+        x: z.number().int().min(0).max(20_000),
+        y: z.number().int().min(0).max(20_000),
+        width: z.number().int().min(1).max(20_000),
+        height: z.number().int().min(1).max(20_000)
+      }).strict().optional(),
+      path: RelativePath.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.ax.tree'),
+    args: z.object({
+      maxDepth: z.number().int().min(1).max(32).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      windowId: z.string().min(1).max(160).optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.ax.find'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      role: z.string().min(1).max(120).optional(),
+      title: z.string().min(1).max(200).optional(),
+      value: z.string().max(500).optional(),
+      windowId: z.string().min(1).max(160).optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.click'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      elementId: z.string().min(1).max(200).optional(),
+      x: z.number().min(0).max(20_000).optional(),
+      y: z.number().min(0).max(20_000).optional(),
+      confirmRisk: z.boolean().optional(),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.type'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      elementId: z.string().min(1).max(200).optional(),
+      text: z.string().min(1).max(2_000),
+      confirmRisk: z.boolean().optional(),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.keypress'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      elementId: z.string().min(1).max(200).optional(),
+      key: z.enum(COMPUTER_KEYS),
+      modifiers: z.array(z.enum(['command', 'shift', 'option', 'control'])).max(4).optional(),
+      confirmRisk: z.boolean().optional(),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.scroll'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      elementId: z.string().min(1).max(200).optional(),
+      x: z.number().min(0).max(20_000).optional(),
+      y: z.number().min(0).max(20_000).optional(),
+      deltaX: z.number().min(-5_000).max(5_000).optional(),
+      deltaY: z.number().min(-5_000).max(5_000).optional(),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.drag'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      fromX: z.number().min(0).max(20_000),
+      fromY: z.number().min(0).max(20_000),
+      toX: z.number().min(0).max(20_000),
+      toY: z.number().min(0).max(20_000),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.focus'),
+    args: z.object({
+      snapshotId: z.string().min(4).max(80).optional(),
+      bundleId: z.string().min(1).max(200).optional(),
+      app: z.string().min(1).max(200).optional(),
+      windowId: z.string().min(1).max(160).optional(),
+      expect: ComputerExpect.optional()
+    }),
+    description: z.string().max(500).optional()
+  }),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.verify'),
+    args: z.object({
+      bundleId: z.string().min(1).max(200).optional(),
+      role: z.string().min(1).max(120).optional(),
+      title: z.string().min(1).max(200).optional(),
+      value: z.string().max(500).optional(),
+      windowId: z.string().min(1).max(160).optional(),
+      expect: ComputerExpect.optional()
+    }).strict(),
+    description: z.string().max(500).optional()
+  }).strict(),
+  z.object({
+    id: Id,
+    tool: z.literal('computer.stop'),
+    args: z.object({}).strict(),
     description: z.string().max(500).optional()
   }).strict(),
   z.object({
@@ -1089,10 +1267,13 @@ export const PlanSchema = z
   .refine(
     plan => plan.steps.every(step => {
       if (step.tool === 'app.open') return Boolean(step.args.app) !== Boolean(step.args.path);
-      if (step.tool === 'screen.capture') return step.args.target !== 'region' || Boolean(step.args.region);
+      if (step.tool === 'screen.capture' || step.tool === 'computer.screenshot') return step.args.target !== 'region' || Boolean(step.args.region);
+      if (step.tool === 'computer.click') return Boolean(step.args.elementId) || (typeof step.args.x === 'number' && typeof step.args.y === 'number');
+      if (step.tool === 'computer.ax.find') return Boolean(step.args.role || step.args.title || step.args.value);
+      if (step.tool === 'computer.scroll') return (step.args.deltaX ?? 0) !== 0 || (step.args.deltaY ?? 0) !== 0;
       return true;
     }),
-    { message: 'app.open 必须且只能给 app 或 path 之一；截图 target=region 时必须给 region' }
+    { message: 'app.open 必须且只能给 app 或 path 之一；截图 target=region 时必须给 region；点击要有控件或坐标；查找要有条件；滚动距离不能为 0' }
   );
 
 export type AgentPlan = z.infer<typeof PlanSchema>;

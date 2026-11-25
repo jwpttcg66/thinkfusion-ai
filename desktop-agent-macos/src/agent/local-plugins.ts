@@ -1,6 +1,5 @@
 /**
- * Runtime 这一半的能力插件：79 个工具（76 个本地 + `web.fetch` / `web.search` /
- * `dns.lookup` 三个联网），逐个注册。
+ * Runtime 这一半的能力插件与 `TOOL_NAMES` 一一对应，逐个注册。
  *
  * 工具的实现函数一个字没动，动的只是「怎么找到它」：以前是 `agent/index.ts`
  * 里一整段 switch，现在是注册表里按 id 查。清单、权限说明、开关都来自
@@ -28,6 +27,7 @@ import { hostTools } from './tools/host-tools';
 import { runTest } from './tools/test-run';
 import { runShell } from './tools/shell';
 import { captureScreen } from './tools/screen';
+import { computerTools } from './tools/computer';
 import { openApp } from './tools/app-open';
 import { systemTools } from './tools/system';
 import { webFetch } from './tools/web-fetch';
@@ -74,6 +74,10 @@ export interface LocalContext {
    * Runtime 不读 userData，也不接受模型在参数里指定可执行文件。
    */
   cliAgents?: readonly CliAgentConfig[];
+  /** 当前步骤。桌面操作用它把事件写回同一步。 */
+  stepId?: string;
+  /** 用户已经取消任务时为 true。桌面操作会据此停掉还在跑的辅助功能请求。 */
+  isCancelled?: () => boolean;
 }
 
 /** 第一次动某个文件之前留一份原文；没有桥就不留（脚本里直接调插件时）。 */
@@ -177,6 +181,19 @@ const PLUGINS = [
   local('fs.copy', async (args, ctx) => ok(await fsExtraTools.copy(ctx.grant, args))),
   local('fs.readImage', async (args, ctx) => ok(await fsExtraTools.readImage(ctx.grant, args))),
   local('screen.capture', async (args, ctx) => ok(await captureScreen(ctx.grant, args))),
+  local('computer.capabilities', (args, ctx) => computerTools.capabilities(ctx.grant, args, ctx)),
+  local('computer.windows', (args, ctx) => computerTools.windows(ctx.grant, args, ctx)),
+  local('computer.screenshot', (args, ctx) => computerTools.screenshot(ctx.grant, args, ctx)),
+  local('computer.ax.tree', (args, ctx) => computerTools.tree(ctx.grant, args, ctx)),
+  local('computer.ax.find', (args, ctx) => computerTools.find(ctx.grant, args, ctx)),
+  local('computer.click', (args, ctx) => computerTools.click(ctx.grant, args, ctx)),
+  local('computer.type', (args, ctx) => computerTools.typeText(ctx.grant, args, ctx)),
+  local('computer.keypress', (args, ctx) => computerTools.keypress(ctx.grant, args, ctx)),
+  local('computer.scroll', (args, ctx) => computerTools.scroll(ctx.grant, args, ctx)),
+  local('computer.drag', (args, ctx) => computerTools.drag(ctx.grant, args, ctx)),
+  local('computer.focus', (args, ctx) => computerTools.focus(ctx.grant, args, ctx)),
+  local('computer.verify', (args, ctx) => computerTools.verify(ctx.grant, args, ctx)),
+  local('computer.stop', (args, ctx) => computerTools.stop(ctx.grant, args, ctx)),
   local('clipboard.read', async (_args, ctx) => ok(await systemTools.clipboardRead(ctx.grant))),
   local('clipboard.write', async (args, ctx) => ok(await systemTools.clipboardWrite(ctx.grant, args))),
   local('notify', async (args, ctx) => ok(await systemTools.notify(ctx.grant, args))),

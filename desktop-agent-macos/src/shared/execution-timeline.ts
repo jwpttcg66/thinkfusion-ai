@@ -76,6 +76,19 @@ export const TOOL_NAME: Record<string, string> = {
   'job.kill': '停作业',
   'screen.capture': '截屏',
   'app.open': '打开应用',
+  'computer.capabilities': '查看桌面能力',
+  'computer.windows': '读取窗口',
+  'computer.screenshot': '桌面截图',
+  'computer.ax.tree': '读取控件树',
+  'computer.ax.find': '查找控件',
+  'computer.click': '点击',
+  'computer.type': '输入',
+  'computer.keypress': '按键',
+  'computer.scroll': '滚动',
+  'computer.drag': '拖动',
+  'computer.focus': '聚焦窗口',
+  'computer.verify': '核对桌面',
+  'computer.stop': '停止桌面操作',
   'clipboard.read': '读剪贴板',
   'clipboard.write': '写剪贴板',
   notify: '发通知',
@@ -103,7 +116,7 @@ export function target(tool: string, args?: Record<string, unknown>): string {
     const line = typeof args.line === 'number' ? `:${String(args.line)}` : '';
     return `${path}${line}`;
   }
-  if (tool === 'fs.search') return pairs(['query', 'path']);
+  if (tool.startsWith('computer.')) return pairs(['bundleId', 'elementId', 'title', 'windowId', 'key']);
   if (tool === 'fs.find') return pairs(['pattern', 'path']);
   if (tool === 'fs.move' || tool === 'fs.copy') return `${one('from')} → ${one('to')}`;
   return pairs(['path', 'from', 'to', 'name', 'url', 'task']);

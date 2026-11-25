@@ -367,9 +367,20 @@ export function reportDeliveryFacts(report: ExecutionReport): string[] {
       facts.push(parts.join('\n'));
       continue;
     }
-    if (step.tool === 'screen.capture') {
+    if (step.tool === 'screen.capture' || step.tool === 'computer.screenshot') {
       const path = argPath(step);
-      facts.push(path ? `截屏：${path}` : '截屏：已完成');
+      const shot = result && typeof result === 'object' && typeof (result as { screenshotRef?: unknown }).screenshotRef === 'string'
+        ? (result as { screenshotRef: string }).screenshotRef
+        : path;
+      facts.push(shot ? `截屏：${shot}` : '截屏：已完成');
+      continue;
+    }
+    if (typeof step.tool === 'string' && step.tool.startsWith('computer.') && result && typeof result === 'object') {
+      const computer = result as { summary?: unknown; verified?: unknown; appName?: unknown; screenshotRef?: unknown };
+      const summary = typeof computer.summary === 'string' ? computer.summary : step.tool;
+      const app = typeof computer.appName === 'string' ? computer.appName : '';
+      const verified = computer.verified === true ? '已核对' : '未验证';
+      facts.push([app && `应用：${app}`, summary, `验证：${verified}`].filter(Boolean).join('\n'));
       continue;
     }
     if (step.tool === 'app.open') {

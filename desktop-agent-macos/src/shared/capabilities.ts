@@ -8,9 +8,8 @@
  *
  * 现在所有本地能力、联网能力与所有保存能力都是插件：一套契约
  * （`CapabilityPlugin`）、一份清单（`CAPABILITY_CATALOG`）、两个装载宿主。
- * Runtime 进程装载 88 个工具（84 个本地 + 3 个联网 + 1 个语义导航代理），主进程装载工程证据
- * 读取（`project.scan` / `project.read`）、附件读取、浏览器联网搜索与两个保存动作。
- * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 94 个能力。
+ * Runtime 进程装载 `TOOL_NAMES` 里的全部工具（当前 103 个），主进程另有 6 个能力。
+ * 清单是共享的，所以两个进程和界面看到的是同一批 id、同一套权限说明。合计 109 个能力。
  *
  * 联网是一个独立类别：`web.fetch` / `web.search` 虽然跑在 Runtime，却不是
  * 「本机能力」；而 `web.search` 的免凭据兜底要借主进程的 Chromium 开窗口，
@@ -80,6 +79,19 @@ const LOCAL_TOOL_INFO: Record<ToolName, readonly [title: string, description: st
   'job.kill': ['结束后台作业', '按进程组终止自己启动的后台命令'],
   'screen.capture': ['截屏', '抓当前屏幕并存成 PNG，带尺寸与 sha256'],
   'app.open': ['打开应用或文件', '启动应用后回读进程确认确实打开了'],
+  'computer.capabilities': ['桌面控制能力', '查看当前平台能否观察和操作桌面，以及辅助功能是否已授权'],
+  'computer.windows': ['桌面窗口', '读取窗口标识、应用和位置，并留下可回溯的快照'],
+  'computer.screenshot': ['桌面快照截图', '截取当前屏幕并和这次观察绑在同一个快照上；只读时只能写到应用缓存'],
+  'computer.ax.tree': ['控件树', '读取前台应用的辅助功能控件树，给后续操作定位'],
+  'computer.ax.find': ['查找控件', '在一份未过期的快照里按 role、标题或值找控件'],
+  'computer.click': ['点击控件', '优先按辅助功能控件点击；坐标必须落在这份快照里'],
+  'computer.type': ['输入文本', '把文本写入快照里的指定控件，并在给出预期时重新观察'],
+  'computer.keypress': ['按键', '对允许列表里的按键发一次键盘事件，危险组合需要确认'],
+  'computer.scroll': ['滚动', '在快照范围内滚动，距离不能为 0'],
+  'computer.drag': ['拖动', '在同一份快照的范围内从起点拖到终点'],
+  'computer.focus': ['聚焦窗口', '把已授权的应用或窗口带到前台'],
+  'computer.verify': ['核对桌面', '重新观察桌面，对不上预期就明确未验证'],
+  'computer.stop': ['停止桌面操作', '停止后续点击、输入和滚动，不再继续发事件'],
   'clipboard.read': ['读剪贴板', '读取系统剪贴板里的文字'],
   'clipboard.write': ['写剪贴板', '把文字放进系统剪贴板'],
   'notify': ['系统通知', '发一条 macOS 通知，内容走 argv 不拼脚本'],
@@ -221,7 +233,7 @@ const MAIN_CAPABILITIES: readonly CapabilityMeta[] = [
   }
 ];
 
-/** 全量清单：88 个 Runtime 工具 + 6 个主进程能力，合计 94。设置页只认这一份。 */
+/** 全量清单：103 个 Runtime 工具 + 6 个主进程能力，合计 109。设置页只认这一份。 */
 export const CAPABILITY_CATALOG: readonly CapabilityMeta[] = [
   ...TOOL_NAMES.map((id): CapabilityMeta => ({
     id,

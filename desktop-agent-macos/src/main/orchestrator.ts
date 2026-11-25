@@ -23,6 +23,7 @@ import { checkPlanCapabilities, planReviewRounds, shouldDebatePlan } from './eng
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
+import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
 import { ContextLimitError, type PlanningAdapter } from './adapters/browser/page-driver';
@@ -1712,7 +1713,8 @@ export class AgentOrchestrator {
       (!report.verification || verificationIsComplete(report.verification));
     const actionableReview =
       Boolean(review?.needsFix) || (review?.issues?.length ?? 0) > 0;
-    if (verifiedDone && (report.nextAction === 'complete' || testsPassed || !actionableReview)) {
+    const desktopStillOpen = desktopActionStillOpen(task.userPrompt, report.results);
+    if (verifiedDone && !desktopStillOpen && (report.nextAction === 'complete' || testsPassed || !actionableReview)) {
       // 空轮假完成闸门：报告自报 completed 不等于已确认交付。必须能核对到
       // 验证结论已成立；写失败后的空验证轮不能过关。
       if (!hasGenuineDelivery([...this.deps.store.allReportsFor(taskId), report])) {

@@ -183,7 +183,10 @@ export const ENGINEERING_CAPABILITIES: readonly EngineeringCapability[] = [
       'term.open', 'term.read', 'term.send', 'term.signal', 'term.close', 'term.list',
       'agent.exec',
       'screen.capture', 'app.open', 'process.kill', 'clipboard.read',
-      'clipboard.write', 'notify', 'system.info'
+      'clipboard.write', 'notify', 'system.info',
+      'computer.capabilities', 'computer.windows', 'computer.screenshot', 'computer.ax.tree', 'computer.ax.find',
+      'computer.click', 'computer.type', 'computer.keypress', 'computer.scroll', 'computer.drag', 'computer.focus',
+      'computer.verify', 'computer.stop'
     ],
     preconditions: ['授权与沙箱状态', '要跑的命令/解释器'],
     outputs: ['退出码', 'stdout/stderr 或后台作业 id', '进程/端口状态'],

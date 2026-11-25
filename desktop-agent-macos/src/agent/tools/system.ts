@@ -283,8 +283,10 @@ export const systemTools = {
       throw new Error('结束任意进程需要完全权限；要停掉本应用起的命令请用 job.kill');
     }
     const signal = args.signal ?? 'TERM';
+    // 契约里写 TERM/KILL；Node process.kill 要 SIGTERM/SIGKILL。
+    const nodeSignal = signal === 'KILL' ? 'SIGKILL' : 'SIGTERM';
     try {
-      process.kill(args.pid, signal);
+      process.kill(args.pid, nodeSignal);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ESRCH') throw new Error(`进程 ${args.pid} 不存在`);
