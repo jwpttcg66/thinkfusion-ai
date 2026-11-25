@@ -57,3 +57,33 @@ test('定义 → 步骤骨架：按拓扑序，依赖保留；非法定义不给
   assert.ok(bad.error);
   assert.equal(bad.steps.length, 0);
 });
+
+test('定义 → 可提交计划：合法参数通过 schema，非法参数整份拒绝', async () => {
+  const { workflowToPlan } = await import('../out-test/shared/workflow.js');
+  const definition = {
+    id: 'w-plan', title: '读文件再跑测试',
+    nodes: [
+      { id: 'read', capabilityId: 'fs.readFile' },
+      { id: 'run', capabilityId: 'code.run', dependsOn: ['read'] }
+    ]
+  };
+  const ok = workflowToPlan({
+    definition,
+    knownCapabilities: [...known, 'code.run'],
+    taskId: 't1',
+    roundId: 'r1',
+    argsByNode: { read: { path: 'src/a.ts' }, run: { code: 'print(1)', language: 'python3' } }
+  });
+  assert.equal(ok.error, undefined);
+  assert.deepEqual(ok.plan.steps.map(step => step.tool), ['fs.readFile', 'code.run']);
+
+  const bad = workflowToPlan({
+    definition,
+    knownCapabilities: [...known, 'code.run'],
+    taskId: 't1',
+    roundId: 'r1',
+    argsByNode: { read: { path: 'src/a.ts' } }
+  });
+  assert.ok(bad.error);
+  assert.equal(bad.plan, undefined);
+});

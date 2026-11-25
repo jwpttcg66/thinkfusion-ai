@@ -6,6 +6,8 @@
  * 这样 TDL 事件、审批、证据链都不用重写。
  */
 
+import { PlanSchema, type AgentPlan } from './contracts';
+
 export interface WorkflowNode {
   id: string;
   /** 现有能力的 id（capabilities 清单里的那一项）。 */
@@ -117,4 +119,45 @@ export function workflowToSteps(
       };
     })
   };
+}
+
+/**
+ * 定义 → 可提交的计划（执行器桥）。
+ *
+ * 节点能力必须就是工具名（fs.readFile / code.run ...），参数由调用方按节点给；
+ * 最后用 PlanSchema 校验，参数不对就整份拒绝，不会带着错参数进审批。
+ */
+export function workflowToPlan(input: {
+  definition: WorkflowDefinition;
+  knownCapabilities: readonly string[];
+  taskId: string;
+  roundId: string;
+  argsByNode?: Record<string, Record<string, unknown>>;
+  completionCondition?: string;
+}): { plan?: AgentPlan; error?: string } {
+  const skeleton = workflowToSteps(input.definition, input.knownCapabilities);
+  if (skeleton.error) return { error: skeleton.error };
+  const candidate = {
+    protocol: 'desktop-agent/v1',
+    type: 'plan',
+    taskId: input.taskId,
+    roundId: input.roundId,
+    title: input.definition.title,
+    description: `工作流 ${input.definition.id}`,
+    kind: 'implementation',
+    steps: skeleton.steps.map(step => ({
+      id: step.nodeId,
+      tool: step.capabilityId,
+      ...(step.title ? { description: step.title } : {}),
+      args: input.argsByNode?.[step.nodeId] ?? {}
+    })),
+    completion: {
+      condition: input.completionCondition ?? '工作流全部节点执行完成并各自验证通过'
+    }
+  };
+  const parsed = PlanSchema.safeParse(candidate);
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；') };
+  }
+  return { plan: parsed.data };
 }
