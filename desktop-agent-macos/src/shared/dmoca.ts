@@ -127,6 +127,14 @@ export interface DecisionSnapshotView {
   decisionId: string;
   workId: string;
   contributionSnapshotId: string;
+  /**
+   * 这次决策实际用到的是哪一版贡献。
+   *
+   * 只记 snapshotId 不够：同一参与者可能有多版终稿，snapshot 里只留了
+   * selectedArtifactId，回看决策时还得再跳两层。这里把「人 + 稿件 + 版本」
+   * 直接钉在决策上，避免「结论引用了已 superseded 的旧稿」却查不出来。
+   */
+  contributions?: Array<{ participantId: string; artifactId: string; version: number }>;
   conclusion: string;
   unresolvedIssues: string[];
   status:
@@ -541,6 +549,16 @@ export function projectDmocaFromEvents(input: {
         decisionId: `ds:${input.workId}:${String(snapshot.createdAt)}`,
         workId: input.workId,
         contributionSnapshotId: snapshot.snapshotId,
+        contributions: snapshot.participants
+          .filter(item => item.selectedArtifactId)
+          .map(item => {
+            const artifact = contributions.find(entry => entry.artifactId === item.selectedArtifactId);
+            return {
+              participantId: item.participantId,
+              artifactId: item.selectedArtifactId!,
+              version: artifact?.version ?? 1
+            };
+          }),
         conclusion: input.summary ?? '见任务结论',
         unresolvedIssues: alignmentStatus === 'blocked' ? ['关键贡献缺失'] : [],
         status: input.status === 'completed'
