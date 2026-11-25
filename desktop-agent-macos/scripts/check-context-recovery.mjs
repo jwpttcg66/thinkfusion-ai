@@ -207,3 +207,12 @@ test('归档被篡改：stale，不返回半可用摘要', async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('长任务开关：环境变量 > 配置文件 > 默认关闭', async () => {
+  const { resolveContextManagerSwitch } = await import('../out-test/shared/context-manager-setting.js');
+  assert.equal(resolveContextManagerSwitch({}).enabled, false);
+  assert.equal(resolveContextManagerSwitch({ env: 'active' }).enabled, true);
+  assert.equal(resolveContextManagerSwitch({ env: 'off', config: { enabled: true } }).enabled, false);
+  assert.equal(resolveContextManagerSwitch({ config: { enabled: true } }).source, 'config');
+  assert.equal(resolveContextManagerSwitch({ config: { enabled: 'yes' } }).enabled, false);
+});

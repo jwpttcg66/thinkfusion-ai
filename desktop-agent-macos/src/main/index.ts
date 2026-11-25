@@ -55,6 +55,7 @@ import {
   workStatusEventFromStep
 } from '../shared/task-decomposition';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
+import { resolveContextManagerSwitch } from '../shared/context-manager-setting';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
 import type { PlanningAdapter } from './adapters/browser/page-driver';
 import { CollaborationModeStore, collaborationModePath } from './collaboration/mode';
@@ -1285,8 +1286,21 @@ function extractTaskMemoryAsync(taskId: string, summary: string): void {
     .catch(() => undefined);
 }
 
-/** LT-P4：默认关闭；用 THINKFUSION_CONTEXT_MANAGER=active 开启上下文准备。 */
-const CONTEXT_MANAGER_ACTIVE = process.env.THINKFUSION_CONTEXT_MANAGER === 'active';
+/** LT-P4：优先级 环境变量 > 配置文件 > 默认关闭（见 shared/context-manager-setting）。 */
+function contextManagerEnabled(): boolean {
+  let config: unknown = null;
+  try {
+    config = JSON.parse(
+      fs.readFileSync(path.join(app.getPath('userData'), 'context-manager.json'), 'utf8')
+    );
+  } catch {
+    /* 没有配置文件就走默认 */
+  }
+  return resolveContextManagerSwitch({
+    env: process.env.THINKFUSION_CONTEXT_MANAGER,
+    config
+  }).enabled;
+}
 let defaultContextManager: DefaultContextManager | null = null;
 let checkpointStore: ContextCheckpointStore | null = null;
 let checkpointArchive: ContextArchiveStore | null = null;
@@ -1332,7 +1346,7 @@ async function summarizeContextHistory(input: {
 }
 
 function contextManagerFor(): DefaultContextManager | null {
-  if (!CONTEXT_MANAGER_ACTIVE) return null;
+  if (!contextManagerEnabled()) return null;
   if (defaultContextManager) return defaultContextManager;
   defaultContextManager = new DefaultContextManager({
     onEvent: ({ type, owner, payload }) => {
