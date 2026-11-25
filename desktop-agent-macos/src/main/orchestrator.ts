@@ -32,7 +32,7 @@ import {
   decideNextEngineeringAction,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
-import { decideParticipation } from '../shared/dmoca';
+import { applyEcoGateToDecision, decideParticipation } from '../shared/dmoca';
 import { buildEngineeringContextPackage } from '../shared/eco';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
@@ -1507,17 +1507,17 @@ export class AgentOrchestrator {
       taskId,
       package: ecoPackage
     });
-    const participation = decideParticipation({
-      workId: taskId,
-      stage: 'planning',
-      risk,
-      candidates: (task.debateAgentIds ?? []).map(id => ({ id, available: true })),
-      selectedIds: task.debateAgentIds,
-      userPinned: Boolean(task.debateAgentIds && task.debateAgentIds.length > 0)
-    });
-    const ecoGateNote = ecoPackage.sufficiency === 'insufficient' || ecoPackage.sufficiency === 'stale'
-      ? `ECO ${ecoPackage.sufficiency}：限制正式架构裁决`
-      : `ECO ${ecoPackage.sufficiency} · ctx ${ecoPackage.contextVersion}`;
+    const participation = applyEcoGateToDecision(
+      decideParticipation({
+        workId: taskId,
+        stage: 'planning',
+        risk,
+        candidates: (task.debateAgentIds ?? []).map(id => ({ id, available: true })),
+        selectedIds: task.debateAgentIds,
+        userPinned: Boolean(task.debateAgentIds && task.debateAgentIds.length > 0)
+      }),
+      ecoPackage.sufficiency
+    );
     this.deps.emit({
       type: 'model.participation.selected',
       at: Date.now(),
@@ -1532,7 +1532,13 @@ export class AgentOrchestrator {
         reason: item.reason
       })),
       excluded: participation.excluded,
-      reasons: [...participation.reasons, ecoGateNote],
+      reasons: [
+        ...participation.reasons,
+        `ECO ctx v${String(ecoPackage.contextVersion)}`,
+        ...(participation.ecoGate?.formalRolesBlocked
+          ? [`formalRolesBlocked=${String(participation.ecoGate.formalRolesBlocked)}`]
+          : [])
+      ],
       userPinned: participation.userPinned
     });
     if (!decision.debate) {

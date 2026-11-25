@@ -77,6 +77,11 @@ export interface ParticipationDecision {
   reasons: string[];
   userPinned: boolean;
   at: number;
+  ecoGate?: {
+    sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale';
+    formalRolesBlocked: boolean;
+    reason: string;
+  };
 }
 
 export interface ModelRunView {
@@ -186,6 +191,57 @@ export function defaultPolicyForRisk(risk: CollaborationRiskLevel): {
         preferredRoles: ['lead', 'architect', 'challenger', 'reviewer']
       };
   }
+}
+
+/** ECO 充分度硬门禁：不足/过期时阻断正式架构职责；非 pinned 截断为单 lead。 */
+export function applyEcoGateToDecision(
+  decision: ParticipationDecision,
+  sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale'
+): ParticipationDecision {
+  if (sufficiency === 'sufficient') {
+    return {
+      ...decision,
+      ecoGate: { sufficiency, formalRolesBlocked: false, reason: 'ECO sufficient' },
+      reasons: [...decision.reasons, `ECO ${sufficiency}`]
+    };
+  }
+  if (sufficiency === 'partial') {
+    return {
+      ...decision,
+      ecoGate: {
+        sufficiency,
+        formalRolesBlocked: false,
+        reason: 'ECO partial：可有限参与，正式架构仍建议补充上下文'
+      },
+      reasons: [...decision.reasons, 'ECO partial：建议补充工程上下文']
+    };
+  }
+  const reason = sufficiency === 'stale'
+    ? 'ECO stale：上下文过期，阻断正式架构/审核裁决'
+    : 'ECO insufficient：上下文不足，阻断正式架构/审核裁决';
+  const participants = decision.userPinned
+    ? decision.participants.map(item => ({
+        ...item,
+        reason: `${item.reason}（${reason}）`
+      }))
+    : decision.participants.slice(0, 1).map(item => ({
+        ...item,
+        roles: ['lead'] as DmocaRole[],
+        reason: `${item.reason}；${reason}，仅保留 lead`
+      }));
+  const dropped = decision.userPinned
+    ? []
+    : decision.participants.slice(1).map(item => ({
+        participantId: item.participantId,
+        reason: `ECO ${sufficiency}：非 pinned 截断`
+      }));
+  return {
+    ...decision,
+    participants,
+    excluded: [...decision.excluded, ...dropped],
+    ecoGate: { sufficiency, formalRolesBlocked: true, reason },
+    reasons: [...decision.reasons, reason]
+  };
 }
 
 export function decideParticipation(input: {
