@@ -14,7 +14,8 @@
 > 本文是产品方向 V3（2026-11-18），取代此前「可验证的多模型审辩平台」的定位。
 > 新定位已经冻结。代码主体已迁移到协作引擎、工程空间与证据链；
 > 实际阶段状态以 [implementation/STATUS.md](implementation/STATUS.md) 为准。
-> 长任务与上下文压缩仍是设计，未实施；迁移背景见
+> 长任务与压缩已实现但默认关闭（`THINKFUSION_CONTEXT_MANAGER=active` 启用），
+> 状态以 [implementation/STATUS.md](implementation/STATUS.md) 为准；迁移背景见
 > [架构/迁移计划](architecture/MIGRATION_PLAN.md)。
 
 ---

@@ -1,6 +1,6 @@
 # ThinkFusion 长任务与上下文压缩 · 正式实施任务书
 
-状态：设计完成，未实施  
+状态：已实施（默认关闭）；验收记录见 `LONG-TASK-CONTEXT-ACCEPTANCE.md` 与 `STATUS.md` §4  
 设计基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24  
 架构决议：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)  
 文档集：[LONG-TASK-CONTEXT-README.md](LONG-TASK-CONTEXT-README.md)  
