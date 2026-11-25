@@ -35,9 +35,18 @@
 - UI：`TaskConversation` 左侧 `StreamLocateRail`，`data-stream-anchor` + `scrollIntoView`
 - 测试：`scripts/check-task-conversation.mjs` 增加地标投影用例
 
+## 布局稳定性（开局不闪没）
+
+- 对话流外壳始终 `chat-feed-layout`，左侧定位轴槽位宽度常驻；地标从 0→N 不改正文宽度。
+- 空态是 feed 内占位，不是另一套根组件；禁止开局另插 `running` spinner 大卡（成员一到就消失会整页跳）。
+- 定位轴绝对定位叠在预留槽；禁止用会改列数的 grid 双栏切换。
+- 会话进度条 `progress-strip` 终态收成「已完成」行，不 `return null`；结论卡出现后仍保留同壳。
+- 会话→任务 handoff 用同一套 `chat-feed-layout` 占位，不用另一张 spinner 大卡。
+
 ## 验收
 
 - [ ] 有计划 + 结论的任务，轴上至少出现「提问 / 计划 / 结论」
 - [ ] 点击轴节点，主对话滚到对应块
 - [ ] 旁注里程碑（工程上下文 / 循环决策）不出现在轴上
 - [ ] 多模型辩论发言方仍出卡；轴上有对应「表态/质疑/回应」
+- [x] 任务刚创建到首条流式输出期间，主活动区不整块消失、不左右猛跳（2026-11-25 截图核验：进度条常驻 + feed 同壳）

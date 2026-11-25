@@ -168,8 +168,32 @@ export function ConversationView(props: {
    * 新问题再贴回去。第二轮进度卡 / 综合卡出现时也要看得见，不能停在第一轮。
    */
   const stickToBottom = useRef(true);
+  /** 程序化滚底会触发 scroll 事件；若此刻布局未完成，gap 会短暂变大，把贴底标志误关掉。 */
+  const ignoreScroll = useRef(false);
   const lastUserId = [...messages].reverse().find(message => message.role === 'user')?.messageId ?? '';
   const liveRun = props.busy || liveStatus.includes(conversation.status);
+
+  function scrollPaneToBottom(behavior: ScrollBehavior = 'auto') {
+    const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
+    if (!container) {
+      bottomRef.current?.scrollIntoView({ block: 'end', behavior });
+      return;
+    }
+    stickToBottom.current = true;
+    ignoreScroll.current = true;
+    const apply = () => {
+      container.scrollTop = container.scrollHeight;
+    };
+    apply();
+    // 双 rAF：等本帧布局与下一帧长高后再贴一次，流式输出才跟得住。
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(() => {
+        apply();
+        ignoreScroll.current = false;
+      });
+    });
+  }
 
   /**
    * 打开一条会话时直接停在最底下，而不是从第一条开始往下拉。
@@ -194,9 +218,9 @@ export function ConversationView(props: {
     const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
     if (!container) return;
     function onScroll() {
-      if (!container) return;
+      if (!container || ignoreScroll.current) return;
       const gap = container.scrollHeight - container.scrollTop - container.clientHeight;
-      stickToBottom.current = gap < 120;
+      stickToBottom.current = gap < 160;
     }
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
@@ -205,10 +229,7 @@ export function ConversationView(props: {
   const scrolledUser = useRef('');
   useLayoutEffect(() => {
     if (!settling) return;
-    const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
-    if (!container) return;
-    container.scrollTop = container.scrollHeight;
-    stickToBottom.current = true;
+    scrollPaneToBottom('auto');
     // 这一句已经在眼前了，settling 结束以后不要再用平滑滚动把它拽一次。
     scrolledUser.current = lastUserId;
   }, [settling, messages, lastUserId]);
@@ -217,17 +238,65 @@ export function ConversationView(props: {
     if (!lastUserId || settling) return;
     if (scrolledUser.current === lastUserId) return;
     scrolledUser.current = lastUserId;
-    stickToBottom.current = true;
-    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    scrollPaneToBottom('auto');
   }, [lastUserId, settling]);
 
-  // 进行中：消息、相位、状态一变就跟着正文落底（贴底时才跟）。
+  // 进行中：消息、相位、增量、状态一变就跟着正文落底（贴底时才跟）。
   useLayoutEffect(() => {
     if (settling || !liveRun || !stickToBottom.current) return;
+    scrollPaneToBottom('auto');
+  }, [settling, liveRun, messages, props.phases, props.deltas, conversation.status, props.busy]);
+
+  // 正文变高（综合卡/结果卡/流式字）时也要贴底，不能停在半截。
+  useEffect(() => {
     const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
-    if (!container) return;
-    container.scrollTop = container.scrollHeight;
-  }, [settling, liveRun, messages, props.phases, conversation.status, props.busy]);
+    const root = rootRef.current;
+    if (!container || !root) return;
+    const sync = () => {
+      if (!stickToBottom.current) return;
+      ignoreScroll.current = true;
+      container.scrollTop = container.scrollHeight;
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+        ignoreScroll.current = false;
+      });
+    };
+    const resizeObserver = new ResizeObserver(sync);
+    resizeObserver.observe(root);
+    const inner = container.querySelector('.inner');
+    if (inner) resizeObserver.observe(inner);
+    // 流式字符增长有时只改 text，不一定立刻触发 conversation 根节点 resize。
+    const mutationObserver = new MutationObserver(sync);
+    mutationObserver.observe(container, {
+      subtree: true,
+      childList: true,
+      characterData: true
+    });
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [conversation.conversationId]);
+
+  // 进行中用短间隔兜底贴底：增量/布局偶发漏事件时仍自动下拉。
+  useEffect(() => {
+    if (!liveRun) return;
+    stickToBottom.current = true;
+    const timer = window.setInterval(() => {
+      if (!stickToBottom.current) return;
+      const container = rootRef.current?.closest('.scroll') as HTMLElement | null;
+      if (!container) return;
+      const gap = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (gap > 8) {
+        ignoreScroll.current = true;
+        container.scrollTop = container.scrollHeight;
+        requestAnimationFrame(() => {
+          ignoreScroll.current = false;
+        });
+      }
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [liveRun, conversation.conversationId]);
 
   const lifecycleLabel: Record<RunView['phase'], string> = {
     understanding: '理解任务', planning: '规划', approval: '等待审批',
@@ -413,7 +482,11 @@ export function ConversationView(props: {
               ref={turnIndex === turns.length - 1 ? lastTurnRef : undefined}
             >
               {turn.user && (
-                <article className="bubble role-user">
+                <article
+                  className="bubble role-user"
+                  data-user-msg={turn.user.messageId}
+                  id={`user-msg-${turn.user.messageId}`}
+                >
                   <div className="bubble-who">你</div>
                   <div className="bubble-text">{turn.user.text}</div>
                 </article>
@@ -520,56 +593,7 @@ export function ConversationView(props: {
           );
         })}
 
-        {(() => {
-          const routingDelta = props.deltas?.['__routing__'];
-          const routingReasoning = routingDelta?.reasoning?.trim() ?? '';
-          const routingText = routingDelta?.text?.trim() ?? '';
-          const showRoutingLive = Boolean(
-            conversation.workspaceMode === 'engineering' &&
-            routingDelta &&
-            !routingDelta.done &&
-            (routingReasoning || routingText)
-          );
-          if (!showRoutingLive) return null;
-          return (
-            <article className="channel-card ch-__routing__ is-live">
-              <header className="channel-card-head">
-                <span className="channel-dot" />
-                <b>工程判定</b>
-                <span className="channel-chars">思考中</span>
-              </header>
-              {routingReasoning
-                ? <ChannelReasoning text={routingReasoning} live />
-                : (
-                  <details className="channel-reasoning is-live" open>
-                    <summary>判定输出（{routingText.length} 字）</summary>
-                    <pre>{routingText}</pre>
-                  </details>
-                )}
-            </article>
-          );
-        })()}
-
-        {props.busy && conversation.status !== 'synthesizing' && (
-          <div className="conv-working">
-            <span className="dot-pulse" />
-            <div>
-              <b>{STATUS_LABEL[conversation.status]}</b>
-              {conversation.status === 'thinking' && conversation.workspaceMode === 'engineering' && (
-                <p className="muted">
-                  {props.deltas?.['__routing__']?.reasoning || props.deltas?.['__routing__']?.text
-                    ? '正在请模型判定是否转入工程工作空间；思考内容见上方工程判定卡。'
-                    : '正在请模型判定是否转入工程工作空间；模型一开始输出，思考会显示在上方。'}
-                </p>
-              )}
-              {conversation.status === 'thinking' && conversation.workspaceMode !== 'engineering' && (
-                <p className="muted">
-                  若通道已开始回答，思考内容会出现在上方成员卡；若仍为空，说明还在路由/准备，还没有模型推理流。
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        {/* 实时进度改挂 dock 任务规划胶囊；正文不再插 routing/思考中 条。 */}
 
         {/* 这句是规则版综合的读法（「句子没对上」）。主导人读过全文，它自己在
             【分歧】里说了有没有矛盾，这里再说一遍就成了第三套说法。 */}

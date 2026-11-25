@@ -509,6 +509,132 @@ button:disabled {
   margin-bottom: 0;
 }
 
+/* 任务规划胶囊：输入框正上方居中，和正文滚动区脱钩。 */
+.task-plan-capsule {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 auto 10px;
+  max-width: 100%;
+}
+.task-plan-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  flex: 0 0 auto;
+}
+.task-plan-tick {
+  width: 14px;
+  height: 3px;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  background: color-mix(in srgb, var(--text-3) 55%, transparent);
+  cursor: pointer;
+}
+.task-plan-tick:hover {
+  background: color-mix(in srgb, var(--text-2) 80%, transparent);
+}
+.task-plan-tick.is-active {
+  background: var(--text);
+  height: 4px;
+}
+.task-plan-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-2, #f6f7fb) 88%, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  padding: 8px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-plan-capsule.is-terminal .task-plan-card {
+  opacity: 0.92;
+}
+.task-plan-goal {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.task-plan-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 2px 2px;
+  min-height: 28px;
+}
+.task-plan-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background:
+    conic-gradient(var(--accent, #4d6bfe) calc(var(--task-plan-frac, 0.2) * 360deg), color-mix(in srgb, var(--line-strong) 70%, transparent) 0);
+  mask: radial-gradient(circle at center, transparent 42%, #000 44%);
+  -webkit-mask: radial-gradient(circle at center, transparent 42%, #000 44%);
+  animation: task-plan-spin 1.2s linear infinite;
+}
+.task-plan-ring.is-done {
+  animation: none;
+  background: var(--accent, #4d6bfe);
+  mask: none;
+  -webkit-mask: none;
+  opacity: 0.85;
+}
+@keyframes task-plan-spin {
+  to { transform: rotate(360deg); }
+}
+.task-plan-step-text {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.task-plan-step-text b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.task-plan-step-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.task-plan-nm {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-3);
+  padding-right: 2px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .inner {
   width: 100%;
   /* Grows with the pane instead of sitting at a fixed 660px.
@@ -3086,6 +3212,18 @@ button:disabled {
   border-radius: 6px;
 }
 
+/* 底部实时区：只许这里变。中上部已落盘内容不插卡、不跳秒。 */
+.conv-live-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-1);
+}
+.conv-live-bottom .channel-card.is-live {
+  margin: 0;
+}
 .conv-working {
   display: flex;
   align-items: flex-start;
@@ -4821,6 +4959,15 @@ button:disabled {
   border: 1px solid var(--line-1);
   border-radius: 10px;
   background: var(--surface-2);
+  /* 预留高度：阶段条 + 当前行，避免出现/收成终态时把下面正文顶跳。 */
+  min-height: 72px;
+  box-sizing: border-box;
+}
+.progress-strip.is-terminal {
+  opacity: 0.92;
+}
+.progress-strip.is-terminal .progress-now {
+  color: var(--text-2);
 }
 .progress-stages {
   display: flex;
@@ -6237,21 +6384,23 @@ button:disabled {
    执行步骤缩进淡色、结论压在最底下加重——读的时候从上往下就是这件事发生的
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
+/* 预留定位轴槽位：有无地标都不改正文宽度，避免开局突然「闪没/挤位」。 */
 .chat-feed-layout {
-  display: grid;
-  grid-template-columns: minmax(112px, 148px) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  --chat-locate-w: 148px;
+  position: relative;
+  display: block;
   margin-bottom: 16px;
+  padding-left: var(--chat-locate-w);
+  min-height: 160px;
 }
 .chat-locate-rail {
-  position: sticky;
-  top: 8px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--chat-locate-w) - 8px);
   max-height: calc(100vh - 120px);
   overflow: auto;
   padding: 4px 0 4px 2px;
-  /* 给绝对定位的竖轨当包含块 */
-  isolation: isolate;
 }
 .chat-locate-track {
   position: absolute;
@@ -6262,6 +6411,18 @@ button:disabled {
   background: color-mix(in srgb, var(--line-strong) 70%, transparent);
   border-radius: 1px;
   pointer-events: none;
+}
+.chat-stream-placeholder {
+  padding: 14px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--text-2);
+  min-height: 72px;
+}
+.chat-stream-placeholder b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
 }
 .chat-locate-list {
   list-style: none;
@@ -6326,12 +6487,16 @@ button:disabled {
   border-radius: 8px;
 }
 @media (max-width: 900px) {
-  .chat-feed-layout { grid-template-columns: 1fr; }
+  .chat-feed-layout {
+    padding-left: 0;
+    padding-top: 0;
+  }
   .chat-locate-rail {
     position: relative;
-    top: 0;
+    width: auto;
     max-height: none;
     overflow: visible;
+    margin-bottom: 8px;
   }
   .chat-locate-list {
     flex-direction: row;

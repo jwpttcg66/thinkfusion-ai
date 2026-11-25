@@ -26,26 +26,37 @@ export function ProgressPanel(props: {
     startedAt: props.startedAt
   });
 
-  // 只有真的在跑才出现：任务结束后进度条留在页面上，会把「已完成」说成「进行中」。
+  // 终态也保留同一条 progress-strip 壳：整段 return null 会让开局进度条
+  // 「突然消失」，主区跟着猛跳。收成紧凑「已完成」行，宽度/占位不断档。
   //
-  // 但「推导不出当前段」不等于「结束了」：辩论/最终意见阶段曾经让阶段条整个
-  // 消失两分多钟，用户看到的就是卡死。非终态时给一个兜底段，宁可写「处理中」。
+  // 「推导不出当前段」≠ 结束：辩论/最终意见阶段曾经让阶段条空两分多钟；
+  // 非终态给兜底段，宁可写「处理中」。
   const terminal = ['answered', 'failed', 'cancelled'].includes(props.conversationStatus)
     || ['completed', 'failed', 'cancelled'].includes(props.taskStatus ?? '');
-  const live = view.current !== null;
   useEffect(() => {
     if (terminal) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [terminal]);
-  if (!live && terminal) return null;
-  const current = view.current ?? {
+  const terminalLabel =
+    props.conversationStatus === 'failed' || props.taskStatus === 'failed' ? '已失败'
+      : props.conversationStatus === 'cancelled' || props.taskStatus === 'cancelled' ? '已取消'
+        : '已完成';
+  const liveCurrent = view.current ?? {
     stage: 'synthesis' as const,
     label: '处理中',
     state: 'active' as const,
     at: props.startedAt,
     detail: '正在收尾，稍后给出结论'
   };
+  const current = terminal
+    ? {
+        ...liveCurrent,
+        label: terminalLabel,
+        state: 'done' as const,
+        detail: liveCurrent.detail || '结论见下方'
+      }
+    : liveCurrent;
   const waited = current.at ? Math.max(0, Math.round((now - current.at) / 1000)) : 0;
   // 执行步骤：同一份 step.* 事件，不再单独存一份。完成的按 stepId 对上，
   // 对不上的保持「执行中」——宁可显示慢，也不能把没跑完的标成完成。
@@ -58,7 +69,11 @@ export function ProgressPanel(props: {
     });
 
   return (
-    <section className="progress-strip" aria-label="执行进度" aria-live="polite">
+    <section
+      className={`progress-strip${terminal ? ' is-terminal' : ''}`}
+      aria-label="执行进度"
+      aria-live="polite"
+    >
       <ol className="progress-stages">
         {view.stages.map(stage => (
           <li key={stage.stage} className={`progress-stage is-${stage.state}`}>
@@ -80,10 +95,10 @@ export function ProgressPanel(props: {
       )}
 
       <div className="progress-now">
-        <span className="progress-spinner" aria-hidden="true" />
+        {!terminal && <span className="progress-spinner" aria-hidden="true" />}
         <b>{current.label}</b>
         <span className="progress-detail">{current.detail}</span>
-        <span className="progress-elapsed">{formatWaited(waited)}</span>
+        {!terminal && <span className="progress-elapsed">{formatWaited(waited)}</span>}
       </div>
     </section>
   );

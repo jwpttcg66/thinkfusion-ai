@@ -1061,6 +1061,22 @@ async function routeEngineeringWithModel(input: {
   ): Promise<RoutingVerdict | null> => {
     const signal = AbortSignal.timeout(timeoutMs);
     const req = modelId ? { ...request, modelId } : request;
+    const target = modelId ? `${provider.id}:${modelId}` : provider.id;
+    const startedAt = Date.now();
+    let gotToken = false;
+    // 首包前每秒心跳：云端冷启动常见 5–15s，没有输出就会被当成卡住。
+    const beat = setInterval(() => {
+      if (gotToken) return;
+      const waited = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      push({
+        reset: true,
+        reasoning: `正在问 ${target} 做工程判定…\n已等待 ${String(waited)}s（连通中，等待思考/判定首包）`
+      });
+    }, 1000);
+    push({
+      reset: true,
+      reasoning: `正在问 ${target} 做工程判定…\n已发出请求，等待思考/判定首包`
+    });
     try {
       if (provider.streamChunks) {
         let text = '';
@@ -1070,9 +1086,10 @@ async function routeEngineeringWithModel(input: {
         for await (const chunk of provider.streamChunks(req, signal)) {
           if (chunk.text) text += chunk.text;
           if (chunk.reasoning) reasoning += chunk.reasoning;
+          if (!gotToken && (text || reasoning)) gotToken = true;
           const now = Date.now();
-          // 首包立刻推：否则用户只看见「若返回思考会显示」的空壳。
-          if (!sent || now - pulse >= 80) {
+          // 首包立刻推（含纯 reasoning）：否则用户只看见等待空壳。
+          if ((!sent && (text || reasoning)) || (sent && now - pulse >= 80)) {
             sent = true;
             pulse = now;
             push({
@@ -1083,6 +1100,7 @@ async function routeEngineeringWithModel(input: {
           }
         }
         if (text || reasoning) {
+          gotToken = true;
           push({
             ...(text ? { text } : {}),
             ...(reasoning ? { reasoning } : {}),
@@ -1092,6 +1110,7 @@ async function routeEngineeringWithModel(input: {
         return parseRoutingVerdict(text);
       }
       const answer = await provider.generate(req, signal);
+      gotToken = true;
       if (answer.reasoning || answer.text) {
         push({
           ...(answer.text ? { text: answer.text } : {}),
@@ -1101,7 +1120,13 @@ async function routeEngineeringWithModel(input: {
       }
       return parseRoutingVerdict(answer.text);
     } catch {
+      push({
+        reset: true,
+        reasoning: `问 ${target} 未拿到判定（超时或连通失败），将退回规则`
+      });
       return null;
+    } finally {
+      clearInterval(beat);
     }
   };
 

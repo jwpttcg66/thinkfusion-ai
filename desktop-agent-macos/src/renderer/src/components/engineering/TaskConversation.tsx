@@ -718,15 +718,8 @@ export function TaskConversation(props: {
     }
   }
 
-  if (entries.length === 0) {
-    return (
-      <section className="card chat-empty">
-        <b>这一轮还没有可展示的内容</b>
-        <p className="muted">模型开始输出后，问题、回答、执行过程和结论都会按顺序出现在这里。</p>
-      </section>
-    );
-  }
-
+  // 布局外壳始终同一套：预留定位轴宽度，空态也挂在 feed 里。
+  // 开局从「空卡」切到「双栏」会整页乱跳；轴用绝对定位叠在预留槽，不挤正文宽度。
   return (
     <section className="chat-feed-layout" aria-label="任务对话与定位">
       <StreamLocateRail
@@ -735,6 +728,12 @@ export function TaskConversation(props: {
         onJump={jumpToLandmark}
       />
       <section className="chat-feed" aria-label="任务对话" ref={feedRef}>
+      {entries.length === 0 ? (
+        <div className="chat-stream-placeholder" aria-live="polite">
+          <b>这一轮还没有可展示的内容</b>
+          <p className="muted">模型开始输出后，问题、回答、执行过程和结论都会按顺序出现在这里。</p>
+        </div>
+      ) : null}
       {entries.map((entry, index) => {
         if (entry.kind === 'user') {
           return wrapAnchor(entry.key, (
