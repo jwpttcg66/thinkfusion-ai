@@ -175,7 +175,8 @@
 | P4 Cycle↔TDL | TESTED | `gtec-phases/P4-DESIGN.md` + `test:gtec-p4` |
 | P5 DMOCA×ECO | TESTED | `gtec-phases/P5-DESIGN.md` + `test:gtec-p5` |
 | P6 LT×ECO 引用 | TESTED | `gtec-phases/P6-DESIGN.md` + `test:gtec-p6` |
-| P7–P8 | 未开始 | 每阶段单独设计书 + `test:gtec-pN` |
+| P7 UI 投影 | TESTED | `gtec-phases/P7-DESIGN.md` + `test:gtec-p7` |
+| P8 端到端 | 进行中 | `gtec-phases/P8-DESIGN.md` |
 | 功能分支 | 进行中 | `feat/v3-gtec-phased` |
 
 > 首次薄层合入质量不足：本轨按阶段门禁重做，不以 §4.9 DONE 替代本轨验收。
