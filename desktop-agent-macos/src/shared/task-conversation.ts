@@ -909,6 +909,25 @@ export function buildTaskConversation(
       continue;
     }
 
+    if (event.type === 'eco.context.requested') {
+      const request = event.request;
+      const paths = request.requestedPaths ?? [];
+      push({
+        kind: 'note',
+        key: `eco-req-${request.requestId}-${String(event.at)}`,
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'warn',
+        text: `工程上下文补充请求 · ${String(paths.length)} 个文件`,
+        detail: [
+          request.reason,
+          paths.length > 0 ? `待核验：${paths.slice(0, 6).join('、')}${paths.length > 6 ? ' 等' : ''}` : ''
+        ].filter(Boolean).join('\n') || undefined
+      });
+      continue;
+    }
+
     if (event.type === 'eco.context.prepared') {
       const pkg = event.package;
       push({

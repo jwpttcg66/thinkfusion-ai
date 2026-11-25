@@ -1,6 +1,6 @@
 # 长任务与上下文压缩 · 测试计划
 
-状态：设计冻结，未实施  
+状态：已实施；对应测试脚本已加入 `scripts/`（`test:context-recovery` 等）  
 基线：`main` · `e336ae4` · 2026-11-24  
 相关：[契约](../spec/LONG_TASK_CONTEXT_CONTRACTS.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [UI](../spec/LONG_TASK_CONTEXT_UI.md) · [任务书](LONG-TASK-CONTEXT-TASK-BOOK.md)
 

@@ -129,3 +129,42 @@ test('P1：目标实质变更才 bump version', () => {
   assert.equal(applyGoalVersionBump(1, 'optimize'), 1);
   assert.equal(applyGoalVersionBump(1, 'change'), 2);
 });
+
+test('P1：decomposition 生成 L2，L3 挂到 L2，进度只算叶子', async () => {
+  const { progressRatioFromRows } = await import('../out-test/shared/task-decomposition.js');
+  const events = seedWorkEventsFromPlan({
+    workId: 'w2',
+    title: '两级子任务',
+    plan: {
+      planId: 'p2',
+      title: '两级子任务',
+      steps: [
+        { id: 's1', tool: 'fs.readFile', args: { path: 'a.ts' }, description: '读 a' },
+        { id: 's2', tool: 'fs.writeFile', args: { path: 'a.ts' }, description: '写 a' },
+        { id: 's3', tool: 'code.run', args: {}, description: '验证' }
+      ],
+      decomposition: [
+        { id: 't1', title: '改 a.ts', acceptanceCriteria: ['a.ts 编译通过'], stepIds: ['s1', 's2'] },
+        { id: 't2', title: '验证', acceptanceCriteria: ['测试通过'], stepIds: ['s3'] }
+      ]
+    },
+    at: 1
+  });
+  const view = projectWorkBreakdownFromEvents({ workId: 'w2', events, title: '两级子任务' });
+  const byId = new Map(view.tasks.map(item => [item.workTaskId, item]));
+  const t1 = byId.get('wt-task-t1');
+  assert.equal(t1?.level, 2);
+  assert.equal(t1?.parentTaskId?.startsWith('wt-group-'), true);
+  assert.equal(byId.get('wt-s1')?.parentTaskId, 'wt-task-t1');
+  assert.equal(byId.get('wt-s2')?.parentTaskId, 'wt-task-t1');
+  assert.equal(byId.get('wt-s3')?.parentTaskId, 'wt-task-t2');
+  // 进度分母只算 3 个叶子，不算 L2/L1/L0
+  assert.equal(view.summary.total, 3);
+  // DFS：父在前、子紧随
+  const order = view.tasks.map(item => item.workTaskId);
+  assert.ok(order.indexOf('wt-task-t1') < order.indexOf('wt-s1'));
+  assert.ok(order.indexOf('wt-s1') < order.indexOf('wt-s2'));
+  // L2 不伪装成「当前执行」
+  assert.notEqual(view.currentTaskId, 'wt-task-t1');
+  assert.equal(progressRatioFromRows(view.tasks), 0);
+});

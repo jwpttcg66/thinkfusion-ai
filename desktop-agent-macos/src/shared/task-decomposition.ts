@@ -315,9 +315,17 @@ export interface WorkProgressView {
   byParent: Record<string, { ratio: number; completed: number; total: number }>;
 }
 
+/** 叶子 = 没有子节点的任务；L2 有 L3 子节点时不再重复计入分母。 */
+function childIdsOf<T extends { parentTaskId?: string | null }>(tasks: readonly T[]): Set<string> {
+  const parents = new Set<string>();
+  for (const item of tasks) if (item.parentTaskId) parents.add(item.parentTaskId);
+  return parents;
+}
+
 /** 权威进度：加权叶子；无时间因子；跳过/取消不占分母。 */
 export function computeWorkProgress(tasks: readonly WorkTask[]): WorkProgressView {
-  const leaves = tasks.filter(item => (item.level ?? inferLevel(item)) >= 2);
+  const parents = childIdsOf(tasks);
+  const leaves = tasks.filter(item => !parents.has(item.workTaskId) && (item.level ?? inferLevel(item)) >= 1);
   const active = leaves.filter(item => !isInactiveStatus(item.status));
   let weightSum = 0;
   let doneWeight = 0;
@@ -354,9 +362,14 @@ export function computeWorkProgress(tasks: readonly WorkTask[]): WorkProgressVie
   };
 }
 
+function leafRows(rows: readonly WorkTaskRow[]): WorkTaskRow[] {
+  const parents = childIdsOf(rows);
+  return rows.filter(item => !parents.has(item.workTaskId) && item.level >= 2);
+}
+
 /** 真实进度：叶子任务完成数 / 活动叶子总数；group/跳过/取消不占分母。 */
 export function progressRatioFromRows(rows: readonly WorkTaskRow[]): number {
-  const leaves = rows.filter(item => item.level >= 2 && !isInactiveStatus(item.status));
+  const leaves = leafRows(rows).filter(item => !isInactiveStatus(item.status));
   const pool = leaves.length > 0 ? leaves : rows.filter(item => !isInactiveStatus(item.status));
   if (pool.length === 0) return 0;
   const done = pool.filter(item => item.status === 'completed' && item.acceptanceMet).length;
@@ -364,7 +377,7 @@ export function progressRatioFromRows(rows: readonly WorkTaskRow[]): number {
 }
 
 function summarize(rows: WorkTaskRow[]): WorkBreakdownView['summary'] {
-  const active = rows.filter(item => !isInactiveStatus(item.status) && item.level >= 2);
+  const active = leafRows(rows).filter(item => !isInactiveStatus(item.status));
   const pool = active.length > 0 ? active : rows.filter(item => !isInactiveStatus(item.status));
   return {
     completed: pool.filter(item => item.status === 'completed').length,
@@ -385,9 +398,11 @@ function viewStatus(summary: WorkBreakdownView['summary'], rows: WorkTaskRow[]):
 }
 
 function currentTaskId(rows: WorkTaskRow[]): string | undefined {
-  return rows.find(item => item.status === 'running')?.workTaskId
-    ?? rows.find(item => item.status === 'ready')?.workTaskId
-    ?? rows.find(item => item.status === 'reviewing')?.workTaskId;
+  // 只在叶子里找：L0 Work / L1 组 / L2 子任务本身不执行步骤，不能冒充「当前执行」。
+  const leaves = leafRows(rows);
+  return leaves.find(item => item.status === 'running')?.workTaskId
+    ?? leaves.find(item => item.status === 'ready')?.workTaskId
+    ?? leaves.find(item => item.status === 'reviewing')?.workTaskId;
 }
 
 /** 从 work.* 事件重建任务表（供写入侧读 revision / CAS）。 */
@@ -462,6 +477,34 @@ export function rebuildWorkTasksFromEvents(
   return tasks;
 }
 
+/** 父在前、子紧随（DFS）；同一父下按 priority 的数字序，再按 id 兜底。 */
+function orderRows(rows: readonly WorkTaskRow[]): WorkTaskRow[] {
+  const ids = new Set(rows.map(item => item.workTaskId));
+  const byParent = new Map<string, WorkTaskRow[]>();
+  for (const row of rows) {
+    const parent = row.parentTaskId && ids.has(row.parentTaskId) ? row.parentTaskId : '';
+    const list = byParent.get(parent) ?? [];
+    list.push(row);
+    byParent.set(parent, list);
+  }
+  const out: WorkTaskRow[] = [];
+  const visit = (parent: string) => {
+    const list = (byParent.get(parent) ?? []).slice().sort((a, b) => {
+      const byPriority = (a.priority ?? '').localeCompare(b.priority ?? '', undefined, { numeric: true });
+      return byPriority !== 0 ? byPriority : a.workTaskId.localeCompare(b.workTaskId);
+    });
+    for (const row of list) {
+      out.push(row);
+      visit(row.workTaskId);
+    }
+  };
+  visit('');
+  // 悬空父级/环不能让行静默消失：剩下的一律追加。
+  const seen = new Set(out.map(item => item.workTaskId));
+  for (const row of rows) if (!seen.has(row.workTaskId)) out.push(row);
+  return out;
+}
+
 function projectFromWorkEvents(workId: string, events: readonly AgentEvent[], title: string): WorkBreakdownView | null {
   let breakdownTitle = title;
   let saw = false;
@@ -482,7 +525,7 @@ function projectFromWorkEvents(workId: string, events: readonly AgentEvent[], ti
   }
   const tasks = rebuildWorkTasksFromEvents(workId, events);
   if (!saw) return null;
-  const rows: WorkTaskRow[] = [...tasks.values()].map(task => {
+  const projected: WorkTaskRow[] = [...tasks.values()].map(task => {
     const level = inferLevel(task);
     return {
       workTaskId: task.workTaskId,
@@ -498,10 +541,8 @@ function projectFromWorkEvents(workId: string, events: readonly AgentEvent[], ti
       depth: rowDepth(level),
       source: 'work-events' as const
     };
-  }).sort((a, b) => {
-    if (a.depth !== b.depth) return a.depth - b.depth;
-    return a.workTaskId.localeCompare(b.workTaskId);
   });
+  const rows = orderRows(projected);
   const summary = summarize(rows);
   return {
     workId,
@@ -657,22 +698,62 @@ export function seedWorkEventsFromPlan(input: {
   };
   events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: root });
   events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: group });
+  // TDL L2：只有计划真的给了 decomposition 才建子任务；没给就保持 L1→L3 平面，
+  // 由界面/文档标注「未分解」，不按步骤数量硬凑一层假层级。
+  const decomposition = input.plan.decomposition ?? [];
+  const subtaskByStep = new Map<string, string>();
+  decomposition.forEach((item, index) => {
+    const subtaskId = `wt-task-${item.id}`;
+    for (const stepId of item.stepIds) subtaskByStep.set(stepId, subtaskId);
+    const subtask: WorkTask = {
+      workTaskId: subtaskId,
+      workId: input.workId,
+      parentTaskId: groupId,
+      level: 2,
+      groupId,
+      title: item.title,
+      description: item.description ?? item.title,
+      dependencies: index === 0 ? [] : [`wt-task-${decomposition[index - 1]!.id}`],
+      acceptanceCriteria:
+        item.acceptanceCriteria && item.acceptanceCriteria.length > 0
+          ? [...item.acceptanceCriteria]
+          : ['子任务完成并有验收证据'],
+      status: index === 0 ? 'ready' : 'pending',
+      priority: `T${String(index + 1)}`,
+      complexity: 'low',
+      collaborationPolicy: collaborationPolicyFor('low'),
+      cycleId: input.cycleId,
+      goalId,
+      goalVersion,
+      artifacts: [],
+      evidence: [],
+      revision: 1,
+      createdAt: at,
+      updatedAt: at
+    };
+    events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: subtask });
+  });
+
+  const lastStepByParent = new Map<string, string>();
   input.plan.steps.forEach((step, index) => {
     const workTaskId = `wt-${step.id}`;
-    const dependencies = index === 0 ? [] : [`wt-${input.plan.steps[index - 1]!.id}`];
+    const parentTaskId = subtaskByStep.get(step.id) ?? groupId;
+    const previous = lastStepByParent.get(parentTaskId);
+    lastStepByParent.set(parentTaskId, workTaskId);
     const complexity: WorkTaskComplexity = 'low';
     const task: WorkTask = {
       workTaskId,
       workId: input.workId,
-      parentTaskId: groupId,
+      parentTaskId,
       level: 3,
       groupId,
       title: step.description?.trim() || step.tool,
       description: step.description,
-      dependencies,
+      dependencies: previous ? [previous] : [],
       acceptanceCriteria: [`步骤 ${step.tool} 执行完成`],
-      status: index === 0 ? 'ready' : 'pending',
-      priority: `S${index + 1}`,
+      // 每个父任务里的第一步可开工；其余等前一步。父任务本身不抢「当前执行」。
+      status: previous ? 'pending' : 'ready',
+      priority: `S${String(index + 1)}`,
       complexity,
       collaborationPolicy: collaborationPolicyFor(complexity),
       cycleId: input.cycleId,

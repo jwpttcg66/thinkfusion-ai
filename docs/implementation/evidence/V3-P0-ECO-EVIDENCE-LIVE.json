@@ -1,0 +1,110 @@
+{
+  "startedAt": "2026-11-25T10:50:31.349Z",
+  "checks": {
+    "completed": {
+      "ok": true,
+      "detail": "completed",
+      "at": 1795603849020
+    },
+    "eco-prepared": {
+      "ok": true,
+      "detail": "count=1 sufficiency=sufficient",
+      "at": 1795603849020
+    },
+    "eco-requested": {
+      "ok": true,
+      "detail": "count=1 paths=1",
+      "at": 1795603849020
+    },
+    "eco-evidence-digest": {
+      "ok": true,
+      "detail": "files=1",
+      "at": 1795603849020
+    },
+    "tdl-levels": {
+      "ok": true,
+      "detail": "levels=0,1,3",
+      "at": 1795603849020
+    },
+    "ui-eco": {
+      "ok": true,
+      "detail": "visible",
+      "at": 1795603849020
+    },
+    "ui-tree": {
+      "ok": true,
+      "detail": "L labels",
+      "at": 1795603849020
+    }
+  },
+  "eventTypes": [
+    "task.updated",
+    "task.updated",
+    "task.updated",
+    "round.started",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "task.updated",
+    "task.updated",
+    "plan.ready",
+    "work.breakdown.created",
+    "work.task.upserted",
+    "work.task.upserted",
+    "work.task.upserted",
+    "step.preparing",
+    "eco.context.requested",
+    "eco.context.prepared",
+    "model.participation.selected",
+    "task.updated",
+    "plan.debated",
+    "task.updated",
+    "execution.bridge",
+    "task.started",
+    "step.started",
+    "work.task.status",
+    "step.completed",
+    "work.task.status",
+    "report.ready",
+    "review.ready",
+    "task.updated",
+    "task.updated",
+    "cycle.snapshot",
+    "goal.fit",
+    "task.updated",
+    "task.completed",
+    "goal.fit"
+  ],
+  "taskId": "9b3f38f6-67ae-4550-b9bc-ad1a06a18a16",
+  "eco": [
+    {
+      "sufficiency": "sufficient",
+      "version": 2
+    }
+  ],
+  "ecoRequested": [
+    {
+      "paths": [
+        "readme.txt"
+      ],
+      "reason": "上下文不足：计划引用的 1 个文件尚未真实读取"
+    }
+  ],
+  "ecoDigests": [
+    {
+      "path": "readme.txt",
+      "digest": "8503ddc4e8b0",
+      "size": 9
+    }
+  ],
+  "dom": {
+    "hasEco": true,
+    "hasTree": true,
+    "sample": "任务收口\n工程 · completed · 结论在下方\n工程目标\n\n读取工作区根目录下的 readme.txt 并复述它的内容，不要修改任何文件。\n\n状态：active · 符合度：已满足 · 版本 v1\n\n任务摘要可核对：执行完成，验证通过\n\n符合度说明：验证已通过且无待修评审\n\n循环进度 · 第 1 轮 · 完成\n目标理解 · 完成\n分析 · 完成\n设计 · 完成\n方案辩论 · 跳过（无实质方案争议）\n计划 · 完成\n实现 · 完成\n审核 · 完成\n审核辩论 · 跳过（无审核争议处理事件）\n结论 · 完成\n完成 · 进行中\n\n迭代 1/8\n\n当前下一步：无需下一轮；可做整体验收\n\n工程上下文 · sufficient · v2 · 可正式职责\n\nsufficient 允许 planner\n\n计划「读取并复述工作区根目录 readme.txt」相关工程上下文（编排阶段）\n\nplan:3218d7cb-a576-4871-be90-428c729bddf9 · provided_context · 未核验\n/tmp/tf-eco-live-ws · provided_context · 未核验\nreadme.txt · verified_fact · 已核验\n模型协作 · L0 · 辩论 skip · 审核 skip · 对齐 finalized\n\n阶段 planning · 风险 L0 · 辩论=skip · 模型审核=skip · 遵守用户选定模型 · ECO sufficient · ECO ctx v2\n\nopencode-go:deepseek-v4.1-flash · lead · 用户指定参与（L0 · lead）\n\n有效终稿贡献 1 · 运行 3 · 决策 accepted\n\nlead v1 · complete_response：```json { \"pr"
+  },
+  "terminal": {
+    "status": "completed"
+  },
+  "finishedAt": "2026-11-25T10:50:49.020Z",
+  "ok": true
+}

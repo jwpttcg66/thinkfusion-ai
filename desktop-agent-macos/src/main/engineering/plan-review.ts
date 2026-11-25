@@ -1,4 +1,5 @@
 import type { AgentPlan } from '../../shared/contracts';
+import type { EcoEvidenceSummary } from '../../shared/eco';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 import {
   buildLeadSummaryQuestion,
@@ -33,6 +34,25 @@ export interface PlanCapabilityGate {
  * 它不是权限，也不阻止执行——只在缺判据时告诉用户「执行后不会标已验证」。
  * 缺判据仍照跑，是用户的选择；把没跑测试的改动说成「已验证」才是错。
  */
+/**
+ * 多写入目标却没有 decomposition：不是错误，但任务树会缺 L2。
+ *
+ * 这条只做可见提示：模型可以合理判断「这两处改动属于同一件事」而不拆，
+ * 但审批的人需要知道「这份计划没有可独立验收的子任务层」，
+ * 而不是看到一个只有 L1→L3 的树却以为分解已经发生。
+ */
+export function planDecompositionWarning(plan: AgentPlan): string | null {
+  if (plan.decomposition && plan.decomposition.length > 0) return null;
+  const targets = new Set<string>();
+  for (const step of plan.steps) {
+    if (!WRITE_TOOLS.has(step.tool)) continue;
+    const target = (step.args as { path?: unknown }).path;
+    if (typeof target === 'string' && target.trim()) targets.add(target);
+  }
+  if (targets.size < 2) return null;
+  return `计划涉及 ${String(targets.size)} 个独立写入目标，但没有 decomposition：任务树只有 L1→L3，没有可独立验收的 L2 子任务`;
+}
+
 export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {
   const steps = plan.steps ?? [];
   const writes = steps.filter(step => WRITE_TOOLS.has(step.tool));
@@ -117,15 +137,35 @@ export function planAsLeadAnswer(plan: AgentPlan): LeadAnswer {
   return { channelId: 'plan', label: '计划', text: planReviewQuestion(plan) };
 }
 
-/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据。 */
+/**
+ * 已核验工程证据作为「材料」附给评审。
+ *
+ * 只给路径、摘要前 12 位和字节数：这是可核对的来源清单，不是文件内容，
+ * 也不是指令。给出证据比让模型自己猜「这份计划读过哪些文件」更有依据；
+ * 但摘要不能反推内容，避免把「核对过存在」说成「理解过实现」。
+ */
+export function formatEcoEvidence(items: readonly EcoEvidenceSummary[]): string {
+  if (items.length === 0) return '';
+  return [
+    '以下文件已由系统从工作区实际读取并核验（sha256 前 12 位 · 字节数）：',
+    ...items.map(item => `- ${item.path} · sha256:${item.digest.slice(0, 12)} · ${item.size ?? '?'}B`)
+  ].join('\n');
+}
+
+/** 构造主导模型五段汇总请求：问题 = 用户原话/计划标题，材料 = 计划数据（+ 已核验证据）。 */
 export function buildPlanReviewLeadAsk(
   plan: AgentPlan,
-  userPrompt?: string
+  userPrompt?: string,
+  evidence?: readonly EcoEvidenceSummary[]
 ): { question: string; system: string[] } {
   const answers = [planAsLeadAnswer(plan)];
   const question = (userPrompt?.trim() || plan.title || '评审这份计划').trim();
+  const material = evidence && evidence.length > 0 ? formatEcoEvidence(evidence) : undefined;
   return {
-    question: buildLeadSummaryQuestion(question, answers, { taskKind: 'compare' }),
+    question: buildLeadSummaryQuestion(question, answers, {
+      taskKind: 'compare',
+      ...(material ? { material } : {})
+    }),
     system: leadSummarySystem('compare')
   };
 }

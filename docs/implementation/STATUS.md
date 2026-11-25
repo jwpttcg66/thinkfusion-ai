@@ -68,9 +68,9 @@
 | 项 | 状态 | 依据 |
 | --- | --- | --- |
 | 架构/契约/存储/UI/任务书 | DESIGN | `docs/architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md` 等 |
-| `src/main/context/` 运行时 | NOT STARTED | 当前仓库不存在该目录 |
-| 上下文压缩 | NOT STARTED | 设计完成，未实施 |
-| 暂停/恢复/中断 | NOT STARTED | 当前 `reconcileInterrupted()` 仍把在途任务标 failed |
+| `src/main/context/` 运行时 | IMPLEMENTED（默认关闭） | 目录已存在：`builder/estimator/budget/manager/checkpoint/compaction/recovery`；`THINKFUSION_CONTEXT_MANAGER=active` 才走这条路径 |
+| 上下文压缩 | IMPLEMENTED（默认关闭） | 工具历史裁剪与模型摘要已实现，受同一开关控制 |
+| 暂停/恢复/中断 | IMPLEMENTED | 检查点提交与恢复已实现，`reconcileInterrupted()` 标 interrupted 可继续；ECO 版本引用的兼容判断目前只有纯函数，恢复链路尚未联动（P1 待做） |
 | LT-P0–P6 | VERIFIED | 真实云端会话压缩/检查点；工程暂停继续；30 步 Runtime；工程检查点中断恢复；Engineering Provider 规划上下文 | Web/CLI 按契约保持原话 |
 | 文档一致性修订（2026-11-24） | ✅ 已应用 | 基线、ContextOwner、归档/裁剪、检查点提交协议、单一状态板 |
 

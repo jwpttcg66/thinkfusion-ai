@@ -22,6 +22,7 @@ import { approvalPolicyFor } from '../shared/approval';
 import {
   assessCollaborationRisk,
   checkPlanCapabilities,
+  planDecompositionWarning,
   planReviewRounds,
   shouldDebatePlan
 } from './engineering/plan-review';
@@ -33,7 +34,15 @@ import {
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
 import { applyEcoGateToDecision, decideParticipation } from '../shared/dmoca';
-import { buildEngineeringContextPackage } from '../shared/eco';
+import {
+  buildEngineeringContextPackage,
+  contextRequestForGaps,
+  engineeringEvidenceOf,
+  fulfillContextRequest,
+  type ContextResourceRef,
+  type EcoEvidenceSummary
+} from '../shared/eco';
+import { planEvidencePaths, readEngineeringEvidence } from './engineering/eco-evidence';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
@@ -111,6 +120,8 @@ export interface OrchestratorDeps {
     plan: AgentPlan;
     /** 用户原话：五段汇总的「问题」侧，与知识问答一致。 */
     userPrompt?: string;
+    /** ECO：已核验工程证据（路径+摘要），以材料身份交给评审，不是指令。 */
+    ecoEvidence?: readonly EcoEvidenceSummary[];
     debateAgentIds?: readonly string[];
     /**
      * 五段一出、辩论尚未开始时回调：编排器立刻刷新心跳议题与原文，
@@ -1373,6 +1384,12 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const plan = result.plan;
 
+    // TDL L2：多写入目标却没有 decomposition，说明这份计划没有可独立验收的子任务层。
+    // 先让模型带着这条原因重出一次（最多两次，与其它计划修复共用上限）；
+    // 修不出来就照常接受，但在计划警告里保留「未分解」，不假装已经有 L2。
+    const decompositionGap = planDecompositionWarning(plan);
+    if (decompositionGap && this.repairPlan(taskId, decompositionGap)) return;
+
     if (task.status === 'planning') this.tasks.transition(taskId, 'plan_ready');
     const stored: StoredPlan = {
       planId: randomUUID(),
@@ -1391,7 +1408,11 @@ export class AgentOrchestrator {
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     const gate = checkPlanCapabilities(stored.plan);
-    const planPreview = toPreview(stored, gate.missing);
+    const decompositionWarning = planDecompositionWarning(stored.plan);
+    const planPreview = toPreview(stored, [
+      ...gate.missing,
+      ...(decompositionWarning ? [decompositionWarning] : [])
+    ]);
     this.deps.emit({
       type: 'plan.ready', at: Date.now(), taskId, roundId,
       plan: planPreview
@@ -1473,34 +1494,76 @@ export class AgentOrchestrator {
     // DMOCA：记录参与决策（人数/角色/辩论策略），不另建调度器。
     const risk = decision.risk?.level ?? assessCollaborationRisk(stored.plan).level;
     // ECO：先准备工程上下文包，正式架构/审核角色受充分度约束（旁听≠已读工程）。
-    const ecoPackage = buildEngineeringContextPackage({
-      workId: taskId,
-      stage: 'planning',
-      role: risk === 'L0' || risk === 'L1' ? 'planner' : 'architect',
-      architectureSummary: stored.plan?.title
-        ? `计划「${stored.plan.title}」相关工程上下文（编排阶段）`
-        : '计划评审阶段工程上下文',
-      resources: [
-        {
-          resourceId: `plan:${stored.planId}`,
-          kind: 'decision',
-          pathOrLabel: `plan:${stored.planId}`,
-          verified: true,
-          factClass: 'verified_fact'
-        },
-        ...(task.workspaceRoot
-          ? [{
-              resourceId: `ws:${task.workspaceRoot}`,
-              kind: 'other' as const,
-              pathOrLabel: task.workspaceRoot,
-              verified: true,
-              factClass: 'verified_fact' as const
-            }]
-          : [])
-      ],
-      constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
-      repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined
-    });
+    //
+    // 计划本身与工作区路径只算「知道在哪」，不算读过工程：它们分别记为
+    // provided_context，充分度只有在真正读到带 sha256 的文件后才可能通过。
+    // 不足时先发一条补充请求，再按计划里的路径真读文件，最后抬版本重建包——
+    // 这样「读了什么、读没读到」都留在事件里，而不是靠计划标题自证。
+    const baseResources: ContextResourceRef[] = [
+      {
+        resourceId: `plan:${stored.planId}`,
+        kind: 'decision',
+        pathOrLabel: `plan:${stored.planId}`,
+        verified: false,
+        factClass: 'provided_context'
+      },
+      ...(task.workspaceRoot
+        ? [{
+            resourceId: `ws:${task.workspaceRoot}`,
+            kind: 'other' as const,
+            pathOrLabel: task.workspaceRoot,
+            verified: false,
+            factClass: 'provided_context' as const
+          }]
+        : [])
+    ];
+    const buildPackage = (resources: ContextResourceRef[], version?: number) =>
+      buildEngineeringContextPackage({
+        workId: taskId,
+        stage: 'planning',
+        role: risk === 'L0' || risk === 'L1' ? 'planner' : 'architect',
+        architectureSummary: stored.plan?.title
+          ? `计划「${stored.plan.title}」相关工程上下文（编排阶段）`
+          : '计划评审阶段工程上下文',
+        resources,
+        constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
+        repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined,
+        ...(version === undefined ? {} : { version })
+      });
+
+    let ecoPackage = buildPackage(baseResources);
+    if (ecoPackage.sufficiency !== 'sufficient') {
+      const requestedPaths = planEvidencePaths(stored.plan.steps);
+      const request = contextRequestForGaps(ecoPackage, {
+        requestedPaths,
+        requiredFor: 'review',
+        reason:
+          requestedPaths.length === 0
+            ? '上下文不足：计划没有引用任何工程文件，无法核验「读过工程」'
+            : `上下文不足：计划引用的 ${String(requestedPaths.length)} 个文件尚未真实读取`
+      });
+      if (request) {
+        this.deps.emit({ type: 'eco.context.requested', at: Date.now(), taskId, request });
+        if (requestedPaths.length > 0 && task.workspaceRoot) {
+          const read = readEngineeringEvidence({ workspaceRoot: task.workspaceRoot, paths: requestedPaths });
+          if (read.resources.length > 0) {
+            ecoPackage = fulfillContextRequest(ecoPackage, request, read.resources);
+          }
+          if (read.skipped.length > 0) {
+            this.deps.emit({
+              type: 'log',
+              at: Date.now(),
+              taskId,
+              level: 'warn',
+              message: `ECO：${String(read.skipped.length)} 个计划文件未能核验（${read.skipped
+                .slice(0, 3)
+                .map(item => `${item.path}: ${item.reason}`)
+                .join('；')}），这些文件不计入工程证据。`
+            });
+          }
+        }
+      }
+    }
     this.deps.emit({
       type: 'eco.context.prepared',
       at: Date.now(),
@@ -1593,6 +1656,7 @@ export class AgentOrchestrator {
       const result = await this.deps.debatePlan({
         taskId, roundId, planId: stored.planId, plan: stored.plan,
         userPrompt: live.userPrompt,
+        ecoEvidence: engineeringEvidenceOf(ecoPackage),
         ...(live.debateAgentIds && live.debateAgentIds.length > 0
           ? { debateAgentIds: live.debateAgentIds }
           : {}),
@@ -1998,6 +2062,19 @@ export function toPreview(stored: StoredPlan, warnings: string[] = []): PlanPrev
       description: step.description,
       args: step.args as Record<string, unknown>
     })),
+    ...(stored.plan.decomposition && stored.plan.decomposition.length > 0
+      ? {
+          decomposition: stored.plan.decomposition.map(item => ({
+            id: item.id,
+            title: item.title,
+            ...(item.description ? { description: item.description } : {}),
+            ...(item.acceptanceCriteria && item.acceptanceCriteria.length > 0
+              ? { acceptanceCriteria: item.acceptanceCriteria }
+              : {}),
+            stepIds: [...item.stepIds]
+          }))
+        }
+      : {}),
     ...(warnings.length > 0 ? { warnings } : {})
   };
 }

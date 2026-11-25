@@ -48,6 +48,11 @@
 
 **G6 文档级评审通过。**
 
+> 2026-11-25 更新：下面 4 条是当时的代码事实，已被后续实现推翻——
+> `src/main/context/` 已落地、`Conversation` 已带 runId/contextId/checkpointId、
+> 检查点提交与归档保护已实现、测试脚本已加入 `scripts/`。保留本节作为历史评审记录，
+> 当前状态请看 [STATUS.md](STATUS.md) §4。
+
 可以进入 LT-P0 的契约与存储设计工作，但必须记住：
 
 1. `src/main/context/` 仍不存在；

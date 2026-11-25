@@ -13,6 +13,8 @@ const WORKSPACE = process.argv[2] ?? path.join(os.tmpdir(), 'tf-v3-eco-live');
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 420000);
 const REPORT = process.env.ECO_REPORT
   ?? path.resolve('../docs/implementation/evidence/V3-GOAL-TDL-ECO-LIVE.json');
+const PROMPT = process.env.ECO_PROMPT
+  ?? '只读列出工作区根目录文件名，结论写出文件名即可，不要改文件。';
 
 fs.mkdirSync(WORKSPACE, { recursive: true });
 fs.writeFileSync(path.join(WORKSPACE, 'readme.txt'), 'eco-live\n');
@@ -31,7 +33,7 @@ function note(name, ok, detail) {
 const defaults = await cdp.evaluate(`window.agentAPI.getExecutionDefaults()`);
 assert.equal(defaults?.executionMode, 'cloud');
 const conversation = await cdp.evaluate(`window.agentAPI.submitConversation(${JSON.stringify({
-  text: '只读列出工作区根目录文件名，结论写出文件名即可，不要改文件。',
+  text: PROMPT,
   permissionPreset: 'read-only',
   workspaceRoot: WORKSPACE,
   workspaceMode: 'engineering',
@@ -94,11 +96,18 @@ const dom = await cdp.evaluate(`(() => {
 
 note('completed', terminal?.status === 'completed', terminal?.status ?? 'timeout');
 note('eco-prepared', eco.length > 0, `count=${eco.length} sufficiency=${eco[0]?.package?.sufficiency}`);
+const requested = events.filter(e => e.type === 'eco.context.requested');
+note('eco-requested', requested.length > 0, `count=${requested.length} paths=${requested[0]?.request?.requestedPaths?.length ?? 0}`);
+const lastEco = eco[eco.length - 1]?.package;
+const digestFacts = (lastEco?.resources ?? []).filter(r => r.kind === 'file' && typeof r.digest === 'string' && r.digest.length > 0);
+note('eco-evidence-digest', digestFacts.length > 0, `files=${digestFacts.length}`);
 note('tdl-levels', levels.includes(1) && levels.includes(3), `levels=${[...new Set(levels)].join(',')}`);
 note('ui-eco', Boolean(dom.hasEco), dom.hasEco ? 'visible' : 'missing');
 note('ui-tree', Boolean(dom.hasTree), dom.hasTree ? 'L labels' : 'no L labels');
 
 evidence.eco = eco.map(e => ({ sufficiency: e.package?.sufficiency, version: e.package?.contextVersion }));
+evidence.ecoRequested = requested.map(e => ({ paths: e.request?.requestedPaths ?? [], reason: e.request?.reason }));
+evidence.ecoDigests = digestFacts.map(r => ({ path: r.pathOrLabel, digest: r.digest.slice(0, 12), size: r.size }));
 evidence.dom = dom;
 evidence.terminal = terminal ? { status: terminal.status } : null;
 evidence.finishedAt = new Date().toISOString();

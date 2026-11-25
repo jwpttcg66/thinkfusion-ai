@@ -545,6 +545,9 @@ const PLAN_SHAPE = `{
   "steps": [
     { "id": "step-1", "tool": "fs.list", "description": "说明", "args": { "path": "." } }
   ],
+  "decomposition": [
+    { "id": "task-1", "title": "可独立验收的子任务", "acceptanceCriteria": ["验收条件"], "stepIds": ["step-1"] }
+  ],
   "completion": { "condition": "可验证的完成条件" },
   "concerns": [
     { "topic": "可选：你认为需要评审的议题", "reason": "可选：原因", "goal": "可选：辩清后要落到的裁定" }
@@ -858,6 +861,11 @@ export function buildInitialPrompt(input: {
 14. 改代码的计划要把四类检查都排进去：编译（javac/go build/tsc 等）、运行（java/go run/./产物）、
     测试（npm test/go test 等）、诊断（go vet/eslint/tsc --noEmit 等）。确实不适用的检查要在
     完成条件里说明原因；只跑其中一项不能写「已完成」。
+15. 计划里有 2 个及以上可独立验收的交付物（不同文件、不同命令、不同检查各算一个）时，
+    decomposition 是必填项：把步骤按子任务分组，每项要有 id、title、acceptanceCriteria
+    （至少一条可核对的验收条件）和 stepIds（必须是上面 steps 里真实存在的 id，一个步骤
+    只能属于一个子任务）。只做分组、不新增步骤。只有单一交付物的小改动才省略这个字段；
+    写了就必须能被步骤真实支撑，不得为了凑分组拆出空子任务。
 
 ${TOOL_SPEC}
 

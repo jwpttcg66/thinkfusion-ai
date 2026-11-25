@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import {
   checkPlanCapabilities,
+  planDecompositionWarning,
   planDebateBriefFromSummary,
   planDebateTopics,
   planReviewBudget,
@@ -290,4 +291,33 @@ test('老记录没有 phase 字段：按 index 兜底仍能认出回应轮', () 
     ]
   });
   assert.match(summary, /老记录的回应/);
+});
+
+test('多写入目标但没有 decomposition：可见提示，不是硬失败', () => {
+  const base = {
+    protocol: 'desktop-agent/v1',
+    type: 'plan',
+    taskId: 't1',
+    roundId: 'r1',
+    title: '两处改动',
+    description: '说明',
+    kind: 'implementation',
+    steps: [
+      { id: 's1', tool: 'fs.writeFile', args: { path: 'a.txt', content: 'a' } },
+      { id: 's2', tool: 'fs.writeFile', args: { path: 'b.txt', content: 'b' } }
+    ],
+    completion: { condition: '两个文件都在' }
+  };
+  assert.match(planDecompositionWarning(base) ?? '', /没有 decomposition/);
+  assert.equal(
+    planDecompositionWarning({
+      ...base,
+      decomposition: [{ id: 't1', title: '创建 a', stepIds: ['s1'] }, { id: 't2', title: '创建 b', stepIds: ['s2'] }]
+    }),
+    null
+  );
+  assert.equal(
+    planDecompositionWarning({ ...base, steps: [{ id: 's1', tool: 'fs.writeFile', args: { path: 'a.txt', content: 'a' } }] }),
+    null
+  );
 });

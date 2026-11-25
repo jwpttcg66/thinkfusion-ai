@@ -1,0 +1,127 @@
+{
+  "startedAt": "2026-11-25T11:07:03.952Z",
+  "checks": {
+    "plan-seeded": {
+      "ok": true,
+      "detail": "plan.ready + work.task.upserted",
+      "at": 1795604879148
+    },
+    "tdl-l2-exists": {
+      "ok": false,
+      "detail": "count=0",
+      "at": 1795604879148
+    },
+    "l2-under-l1": {
+      "ok": false,
+      "detail": "l1=1",
+      "at": 1795604879148
+    },
+    "l3-under-l2": {
+      "ok": false,
+      "detail": "count=0/4",
+      "at": 1795604879148
+    },
+    "ui-tree": {
+      "ok": true,
+      "detail": "rows=6",
+      "at": 1795604879148
+    },
+    "decomposition-visible": {
+      "ok": true,
+      "detail": "warned",
+      "at": 1795604879148
+    }
+  },
+  "eventTypes": [
+    "task.updated",
+    "task.updated",
+    "task.updated",
+    "round.started",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "task.updated",
+    "round.started",
+    "log",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "plan.invalid",
+    "task.updated",
+    "round.started",
+    "log",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "task.updated",
+    "task.updated",
+    "plan.ready",
+    "work.breakdown.created",
+    "work.task.upserted",
+    "work.task.upserted",
+    "work.task.upserted",
+    "work.task.upserted",
+    "work.task.upserted",
+    "work.task.upserted",
+    "step.preparing",
+    "step.preparing",
+    "step.preparing",
+    "step.preparing",
+    "eco.context.requested",
+    "log",
+    "eco.context.prepared",
+    "model.participation.selected",
+    "plan.review.progress",
+    "log",
+    "round.peer"
+  ],
+  "taskId": "83023f85-b0f8-4b62-b9ff-d225edc293a4",
+  "warnings": [
+    "计划改了文件，但没有任何能看见改动效果的动作（构建、测试、运行断言或诊断）：执行后不会标已验证",
+    "计划涉及 2 个独立写入目标，但没有 decomposition：任务树只有 L1→L3，没有可独立验收的 L2 子任务"
+  ],
+  "work": [
+    {
+      "id": "wt-work-83023f85",
+      "level": 0,
+      "parent": null,
+      "title": "执行计划"
+    },
+    {
+      "id": "wt-group-83023f85",
+      "level": 1,
+      "parent": "wt-work-83023f85",
+      "title": "执行计划"
+    },
+    {
+      "id": "wt-1",
+      "level": 3,
+      "parent": "wt-group-83023f85",
+      "title": "在工作区新建 a.txt，内容为 alpha"
+    },
+    {
+      "id": "wt-2",
+      "level": 3,
+      "parent": "wt-group-83023f85",
+      "title": "在工作区新建 b.txt，内容为 beta"
+    },
+    {
+      "id": "wt-3",
+      "level": 3,
+      "parent": "wt-group-83023f85",
+      "title": "读回 a.txt，确认内容为 alpha"
+    },
+    {
+      "id": "wt-4",
+      "level": 3,
+      "parent": "wt-group-83023f85",
+      "title": "读回 b.txt，确认内容为 beta"
+    }
+  ],
+  "dom": {
+    "hasBreakdown": true,
+    "rows": 6
+  },
+  "finishedAt": "2026-11-25T11:07:59.148Z",
+  "ok": false
+}
