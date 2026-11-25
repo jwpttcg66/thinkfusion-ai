@@ -1006,6 +1006,39 @@ button:disabled {
 }
 .collab-result-evidence { margin-top: 8px; }
 .collab-result-section.is-process { opacity: 0.92; }
+
+/* 结论卡压在过程之后：仿计划卡的标题行 + plan-facts 完成状态框。 */
+.collab-result-finale {
+  margin-top: 14px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--text) 8%);
+}
+.collab-result-finale.is-ok { border-color: color-mix(in srgb, #0f7b4f 45%, var(--line)); }
+.collab-result-finale.is-warn { border-color: color-mix(in srgb, #d9822b 50%, var(--line)); }
+.collab-result-finale.is-bad { border-color: color-mix(in srgb, #c0392b 45%, var(--line)); }
+.collab-result-finale.is-pending { border-style: dashed; }
+.collab-result-finale-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.collab-result-finale-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.collab-result-completion {
+  margin-top: 12px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+.collab-result-finale .collab-result-conclusion { margin-bottom: 4px; }
 .verify-checks {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
