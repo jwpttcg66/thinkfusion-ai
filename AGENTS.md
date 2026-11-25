@@ -169,5 +169,5 @@ ThinkFusion 的工程工作台以**可观测性**为第一原则，工程执行�
 - 平时改代码、跑单测仍用 shell / 测试命令，不要每改一行就切 OpenIDEA；**任务收尾**才上真机。
 - 收尾启动后不要在对话 shell 里再另起 `electron . --remote-debugging-port=...`；单实例锁会把额外实例转成 `second-instance`，窗口已销毁时会干扰主进程。
 - OpenIDEA 的 agent 使用 OpenCode：`Settings → Agents → Agent Setup`，命令是 `opencode acp`，可执行文件固定为 `/opt/homebrew/bin/opencode`（用户目录 `agents/opencode.toml`）。
-- 需要隔离数据时，用环境变量 `THINKFUSION_USER_DATA=<绝对路径>`；不要用 `--user-data-dir`，它不会改变应用读取的 `app.getPath('userData')`。
+- 数据目录一律用默认的（见 §9.2）；`THINKFUSION_USER_DATA` 只在用户明确同意并知情时使用，用完立即删除。
 - 真机验证报告写清楚：从哪个 Run 配置启动、验证的是现有任务还是新任务、与本任务相关的验收点是否通过（例如最终结论是否仍带交付文件）。
