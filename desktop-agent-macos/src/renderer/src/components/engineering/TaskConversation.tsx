@@ -579,6 +579,11 @@ export function TaskConversation(props: {
     providerId: string | null;
     modelId: string | null;
   } | null;
+  /**
+   * U7：上方已有 CollaborationResultPanel 时，结论 / 评审 / 验证只留时间序标记，
+   * 完整结构化内容见结果面板；不删事件，只去重视觉重复。
+   */
+  omitResultSummaries?: boolean;
 }) {
   const entries = useMemo(
     () => buildTaskConversation(props.events, {
@@ -636,12 +641,49 @@ export function TaskConversation(props: {
           return <BridgeMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'verification') {
+          if (props.omitResultSummaries) {
+            const label = entry.fullyVerified
+              ? '已通过'
+              : entry.verified
+                ? '部分通过'
+                : '未通过';
+            return (
+              <div key={entry.key} className="chat-note is-muted">
+                <span className="chat-note-text">
+                  第 {String(entry.index)} 次验证 · {label} · {timeText(entry.at)}
+                  {' · '}详见上方「任务结果」
+                </span>
+              </div>
+            );
+          }
           return <VerificationMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'review') {
+          if (props.omitResultSummaries) {
+            return (
+              <div key={entry.key} className="chat-note is-muted">
+                <span className="chat-note-text">
+                  第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}
+                  {' · '}{timeText(entry.at)} · 详见上方「任务结果」
+                </span>
+              </div>
+            );
+          }
           return <ReviewMessage key={entry.key} entry={entry} />;
         }
         if (entry.kind === 'conclusion') {
+          if (props.omitResultSummaries) {
+            return (
+              <div key={entry.key} className={`chat-note ${ToneClass(entry.tone)}`}>
+                <span className="chat-note-text">
+                  结论已写入上方「任务结果」 · {timeText(entry.at)}
+                  {entry.deliverables && entry.deliverables.length > 0
+                    ? ` · 目标物 ${String(entry.deliverables.length)} 项`
+                    : ''}
+                </span>
+              </div>
+            );
+          }
           const metaFacts = entry.executionResults && entry.executionResults.length > 0
             ? entry.facts.filter(fact => !entry.executionResults!.includes(fact))
             : entry.facts;

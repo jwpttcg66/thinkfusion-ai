@@ -48,11 +48,19 @@ export function structureReviewIssues(issues: readonly string[], reviewKey: stri
   return issues.map((text, index) => {
     const description = text.trim();
     const title = description.slice(0, 80) || `问题 ${String(index + 1)}`;
+    const severity = severityOf(description);
+    // 关键词分级只是降级兼容：明确写进 rationale，避免被当成完整评审语义。
+    const rationale = severity === 'unknown'
+      ? '风险等级未从原文识别；完整依据见本条问题描述与评审原文。'
+      : `风险等级由原文关键词降级推断为「${severity}」；完整理由与影响仍以问题描述与评审原文为准。`;
+    const recommendationMatch = description.match(/(?:建议|应|需要)([^。；;]+[。；;]?)/);
     return {
       issueId: `${reviewKey}:issue:${String(index)}:${title}`,
       title,
       description,
-      severity: severityOf(description),
+      severity,
+      rationale,
+      ...(recommendationMatch ? { recommendation: recommendationMatch[0].trim() } : {}),
       disposition: 'pending' as const
     };
   });
