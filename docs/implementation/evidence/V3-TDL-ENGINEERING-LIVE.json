@@ -1,0 +1,92 @@
+{
+  "startedAt": "2026-11-25T06:29:58.646Z",
+  "endpoint": "http://127.0.0.1:9333/json",
+  "workspace": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-v3-tdl-live",
+  "appTitleHint": "http://localhost:5173/",
+  "checks": {
+    "opencode-go-present": {
+      "ok": true,
+      "detail": "withKey=30/30",
+      "at": 1795588199048
+    },
+    "execution-defaults-cloud": {
+      "ok": true,
+      "detail": "mode=cloud",
+      "at": 1795588199049
+    },
+    "plan-ready": {
+      "ok": true,
+      "detail": "seen",
+      "at": 1795588211345
+    },
+    "work-seed-events": {
+      "ok": true,
+      "detail": "work.breakdown.created,work.task.upserted,work.task.status",
+      "at": 1795588211345
+    },
+    "work-breakdown-panel": {
+      "ok": true,
+      "detail": "1 / 1",
+      "at": 1795588211345
+    },
+    "score-progress": {
+      "ok": true,
+      "detail": "1/1",
+      "at": 1795588211345
+    },
+    "completed-advanced": {
+      "ok": true,
+      "detail": "completed=1 terminal=completed",
+      "at": 1795588211345
+    },
+    "task-terminal": {
+      "ok": true,
+      "detail": "completed",
+      "at": 1795588211345
+    }
+  },
+  "scores": [
+    {
+      "at": 1795588202394,
+      "completed": 0,
+      "total": 0,
+      "source": "empty",
+      "status": "idle"
+    },
+    {
+      "at": 1795588208413,
+      "completed": 0,
+      "total": 1,
+      "source": "work-events",
+      "status": "running"
+    },
+    {
+      "at": 1795588211343,
+      "completed": 1,
+      "total": 1,
+      "source": "work-events",
+      "status": "completed"
+    }
+  ],
+  "workEventTypes": [
+    "work.breakdown.created",
+    "work.task.upserted",
+    "work.task.status"
+  ],
+  "taskId": "37c7efb1-7117-4d39-839a-1428216656ba",
+  "conversationId": "4dccdaa7-ed34-41c7-9f32-e9411c841abf",
+  "panel": {
+    "score": "1 / 1",
+    "items": [
+      {
+        "title": "S1：只读列出工作区根目录 \".\" 下的所有条目，取得文件名列表",
+        "state": "完成",
+        "current": false
+      }
+    ],
+    "text": "只读列出工作区根目录文件名 · 已完成\n1 / 1\n●\nS1：只读列出工作区根目录 \".\" 下的所有条目，取得文件名列表\n完成\n\n来源：分解事件（真实事件投影）"
+  },
+  "finalSummary": "执行完成，验证通过",
+  "finishedAt": "2026-11-25T06:30:11.345Z",
+  "ok": true
+}

@@ -21,6 +21,7 @@ import {
   projectConversationGoalWorkbench,
   projectGoalDrivenWorkbench
 } from '../../shared/goal-driven-cycle';
+import { projectWorkBreakdownFromEvents } from '../../shared/task-decomposition';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
 import { fromAgentEvent, maskSecrets, projectActivity, type ObservabilityEvent } from '../../shared/observability';
@@ -51,6 +52,7 @@ import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/enginee
 import { TaskProgressCard } from './components/engineering/TaskProgressCard';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
 import { CollaborationResultPanel } from './components/CollaborationResultPanel';
+import { WorkBreakdownPanel } from './components/WorkBreakdownPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { TaskStats } from './components/engineering/TaskStats';
@@ -559,6 +561,16 @@ export default function App() {
       events,
       summary: activeTask.summary,
       status: activeTask.status
+    });
+  }, [activeTask, events]);
+  /** TDL：Work 分解进度 — 优先 work.*，否则 plan+step 派生。 */
+  const engineeringWorkBreakdown = useMemo(() => {
+    if (!activeTask) return null;
+    const title = (activeTask.userPrompt ?? '').trim().slice(0, 48) || activeTask.taskId;
+    return projectWorkBreakdownFromEvents({
+      workId: activeTask.taskId,
+      events,
+      title
     });
   }, [activeTask, events]);
   const activeConversation = useMemo(
@@ -2459,6 +2471,17 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                {engineeringWorkBreakdown && engineeringWorkBreakdown.summary.total > 0 && (
+                  <WorkBreakdownPanel
+                    breakdown={engineeringWorkBreakdown}
+                    onSelectTask={workTaskId => {
+                      const row = engineeringWorkBreakdown.tasks.find(item => item.workTaskId === workTaskId);
+                      setWorkbenchTab('trajectory');
+                      setActivityCategory('all');
+                      setActivityQuery(row?.planStepId ?? workTaskId.replace(/^wt-/, ''));
+                    }}
+                  />
+                )}
                 {engineeringResult && (engineeringResult.conclusion || engineeringResult.reviews.length > 0
                   || engineeringResult.verifications.length > 0 || engineeringResult.disputes.length > 0
                   || engineeringResult.deliverables.length > 0 || Boolean(engineeringWorkbench)) && (

@@ -46,7 +46,7 @@
 | 发布与运维 P6 | PARTIAL | 清单、迁移、备份、dmg/zip | 签名/公证未执行 |
 | V3 正式发布 | NOT STARTED | 发布判据未满足 | 见 P6 |
 | macOS 真机控制（Computer Use） | VERIFIED / TESTED | `implementation/V3-COMPUTER-USE-MACOS.md`，分支 `feat/v3-computer-use-macos` | 能力清单 109 真机全跑：`test:capabilities:live`（`tf-cap-mwvp2fb6`）暴露 109/109 且每项执行一次；含 13 个 `computer.*` TextEdit 真机。`test:computer-use` 18 项通过。锁屏时控件操作被挡 |
-| 分层任务分解与长任务进度（TDL） | DESIGN | `architecture/V3-TASK-DECOMPOSITION-LAYER.md`、`spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md`、`implementation/V3-TDL-PROGRESS.md`；分支 `feat/v3-task-decomposition` | 运行时未落地：缺 WorkTask 契约/投影/面板；有 PlanStep、GDC Cycle、会话 TeamTask 可复用边界 |
+| 分层任务分解与长任务进度（TDL） | VERIFIED / TESTED | `architecture/V3-TASK-DECOMPOSITION-LAYER.md`、`spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md`、`implementation/V3-TDL-PROGRESS.md`；分支 `feat/v3-task-decomposition` | `test:tdl` 全绿；真机 `test:tdl:live` → `evidence/V3-TDL-ENGINEERING-LIVE.json`（面板 0/1→1/1，work.* 种子+step 状态） |
 
 ## 3.5 全局一致性治理（G0–G6）
 
@@ -131,8 +131,8 @@
 | 架构说明书 | DESIGN | `architecture/V3-TASK-DECOMPOSITION-LAYER.md` |
 | 实施任务书 | DESIGN | `spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md` |
 | TDL-P0 审计 | 文档完成 | `implementation/V3-TDL-PROGRESS.md` |
-| TDL-P1–P7 | 实施中 | 契约 / 投影 / 写入 / UI / 真机 |
-| 功能分支 | 进行中 | `feat/v3-task-decomposition` |
+| TDL-P1–P7 | VERIFIED / TESTED | 契约/投影/写入/策略/UI/重规划闭包；真机证据见 `evidence/V3-TDL-ENGINEERING-LIVE.json` |
+| 功能分支 | 待合入 | `feat/v3-task-decomposition` |
 
 > TDL **不**另建 Runtime；进度只投影真实子任务状态。Worktree 不自动清理（`AGENTS.md` §5.1）。
 
