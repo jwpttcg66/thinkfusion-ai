@@ -1495,3 +1495,26 @@ export function buildStreamLandmarks(entries: readonly ConversationEntry[]): Str
   }
   return out;
 }
+
+/**
+ * 把两条流按时间合并成一条（A 方案的接线点）。
+ *
+ * 对话页要同时看到对话事件（提问/回答/汇总）和任务事件（计划/步骤/评审），
+ * 但现在它们由两个构建器分别产出、分屏渲染。合并按 `at` 排序、按 key 去重，
+ * 同刻事件保持传入顺序，避免"后出现的跑到前面"。
+ */
+export function mergeChronological<T extends { at: number; key?: string }>(
+  ...streams: ReadonlyArray<readonly T[]>
+): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const stream of streams) {
+    for (const entry of stream) {
+      const key = entry.key ?? `${String(entry.at)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+  }
+  return merged.sort((a, b) => a.at - b.at);
+}

@@ -1087,3 +1087,18 @@ test('会话参与记录：参与/未参与都写清，不裁剪', async () => {
   assert.match(observed.excluded[0].reason, /归属规则/);
   assert.match(observed.note, /2 人参与辩论，1 人未参与/);
 });
+
+test('A 方案接线：两条流按时间合并、同刻保序、重复 key 只留一条', async () => {
+  const { mergeChronological } = await import('../out-test/shared/task-conversation.js');
+  const conversation = [
+    { key: 'q', at: 100, text: '提问' },
+    { key: 'a', at: 300, text: '回答' }
+  ];
+  const task = [
+    { key: 'plan', at: 200, text: '计划' },
+    { key: 'a', at: 300, text: '回答（重复）' }
+  ];
+  const merged = mergeChronological(conversation, task);
+  assert.deepEqual(merged.map(item => item.key), ['q', 'plan', 'a']);
+  assert.equal(merged[2].text, '回答');
+});
