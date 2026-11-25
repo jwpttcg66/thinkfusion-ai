@@ -10,27 +10,113 @@ import {
   buildEngineeringContextPackage,
   canAssumeRole,
   classifyClaim,
+  contextRequestForGaps,
+  fulfillContextRequest,
+  isEngineeringEvidence,
   projectEcoFromEvents
 } from '../out-test/shared/eco.js';
+import { planEvidencePaths, readEngineeringEvidence } from '../out-test/main/engineering/eco-evidence.js';
 import {
   progressRatioFromRows,
   projectWorkBreakdownFromEvents,
   seedWorkEventsFromPlan
 } from '../out-test/shared/task-decomposition.js';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-test('无核验资源时架构师不足；有核验资源可充分', () => {
+const DIGEST = 'a'.repeat(64);
+
+test('无核验资源时架构师不足；带摘要的文件证据才可充分', () => {
   const empty = assessContextSufficiency({ role: 'architect', resources: [] });
   assert.equal(empty.sufficiency, 'insufficient');
   const ok = assessContextSufficiency({
     role: 'architect',
     resources: [{
       resourceId: 'f1', kind: 'file', pathOrLabel: 'src/a.ts',
-      verified: true, factClass: 'verified_fact'
+      verified: true, factClass: 'verified_fact', digest: DIGEST
     }]
   });
   assert.equal(ok.sufficiency, 'sufficient');
   assert.equal(canAssumeRole('insufficient', 'architect').ok, false);
   assert.equal(canAssumeRole('sufficient', 'architect').ok, true);
+});
+
+test('没有内容摘要的「已核验」不算读过工程', () => {
+  const noDigest = assessContextSufficiency({
+    role: 'reviewer',
+    resources: [{
+      resourceId: 'f1', kind: 'file', pathOrLabel: 'src/a.ts',
+      verified: true, factClass: 'verified_fact'
+    }]
+  });
+  assert.equal(noDigest.sufficiency, 'insufficient');
+  assert.match(noDigest.missingCritical.join(), /工程代码证据/);
+  assert.equal(isEngineeringEvidence({
+    resourceId: 'f1', kind: 'file', pathOrLabel: 'a.ts',
+    verified: true, factClass: 'verified_fact'
+  }), false);
+});
+
+test('计划与工作区路径不能冒充工程事实', () => {
+  const packageWithPlanOnly = assessContextSufficiency({
+    role: 'architect',
+    resources: [
+      { resourceId: 'plan:p1', kind: 'decision', pathOrLabel: 'plan:p1', verified: true, factClass: 'verified_fact' },
+      { resourceId: 'ws:/repo', kind: 'other', pathOrLabel: '/repo', verified: true, factClass: 'verified_fact' }
+    ]
+  });
+  assert.equal(packageWithPlanOnly.sufficiency, 'insufficient');
+  assert.match(packageWithPlanOnly.reasons.join(), /不等于「读过工程」/);
+  // 非正式职责可以带着不完整上下文继续，但同样拿不到 sufficient
+  const planner = assessContextSufficiency({
+    role: 'planner',
+    resources: [{ resourceId: 'ws:/repo', kind: 'other', pathOrLabel: '/repo', verified: true, factClass: 'verified_fact' }]
+  });
+  assert.equal(planner.sufficiency, 'partial');
+});
+
+test('补充请求 → 真读文件 → 抬版本后充分', () => {
+  const base = buildEngineeringContextPackage({
+    workId: 'w1',
+    stage: 'planning',
+    role: 'architect',
+    architectureSummary: '计划',
+    resources: [{ resourceId: 'plan:p1', kind: 'decision', pathOrLabel: 'plan:p1', verified: false, factClass: 'provided_context' }],
+    now: 100
+  });
+  assert.equal(base.sufficiency, 'insufficient');
+  const request = contextRequestForGaps(base, { requestedPaths: ['src/a.ts'], now: 101 });
+  assert.ok(request);
+  assert.deepEqual(request.requestedPaths, ['src/a.ts']);
+  const filled = fulfillContextRequest(base, request, [{
+    resourceId: 'file:src/a.ts', kind: 'file', pathOrLabel: 'src/a.ts',
+    verified: true, factClass: 'verified_fact', digest: DIGEST, size: 12, verifiedAt: 102
+  }]);
+  assert.equal(filled.sufficiency, 'sufficient');
+  assert.equal(filled.contextVersion, base.contextVersion + 1);
+  assert.deepEqual(filled.verifiedFacts, ['src/a.ts']);
+  assert.equal(contextRequestForGaps(filled), null);
+});
+
+test('证据读取：真实算摘要、拒绝越界路径、读不到的如实跳过', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eco-evidence-'));
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'export const a = 1;\n', 'utf8');
+  const paths = planEvidencePaths([
+    { tool: 'fs.readFile', args: { path: './src/a.ts' } },
+    { tool: 'fs.readFile', args: { path: 'src/a.ts' } },
+    { tool: 'fs.readFile', args: { path: '../outside.txt' } },
+    { tool: 'shell.run', args: { command: 'ls' } }
+  ]);
+  assert.deepEqual(paths, ['src/a.ts']);
+  const read = readEngineeringEvidence({ workspaceRoot: root, paths: ['src/a.ts', 'missing.ts', '../x.ts'], now: 5 });
+  assert.equal(read.resources.length, 1);
+  assert.equal(read.resources[0].digest, createHash('sha256').update('export const a = 1;\n').digest('hex'));
+  assert.equal(read.resources[0].size, 20);
+  assert.equal(read.skipped.length, 2);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('版本变化标记 stale', () => {

@@ -32,6 +32,11 @@ export interface ContextResourceRef {
   pathOrLabel: string;
   verified: boolean;
   factClass: EcoFactClass;
+  /** 读到内容时的 sha256；没有摘要的「已核验」不算读过工程。 */
+  digest?: string;
+  /** 读到的字节数；用于说明这份证据有多大，不参与充分度计算。 */
+  size?: number;
+  verifiedAt?: number;
 }
 
 export interface ContextRequest {
@@ -111,8 +116,33 @@ export function canAssumeRole(
 }
 
 /**
+ * 哪些资源算「真的读过工程」。
+ *
+ * `decision`（计划）与 `other`（工作区路径）只证明「知道计划长什么样 / 工程在哪」，
+ * 不证明读过任何工程内容；只有带内容摘要的文件/模块/符号/文档/测试才算证据。
+ */
+export const ENGINEERING_EVIDENCE_KINDS: readonly ContextResourceRef['kind'][] = [
+  'file',
+  'module',
+  'symbol',
+  'doc',
+  'test'
+];
+
+export function isEngineeringEvidence(item: ContextResourceRef): boolean {
+  return (
+    item.verified === true &&
+    item.factClass === 'verified_fact' &&
+    ENGINEERING_EVIDENCE_KINDS.includes(item.kind) &&
+    typeof item.digest === 'string' &&
+    item.digest.length > 0
+  );
+}
+
+/**
  * 根据已验证资源与阶段粗评充分度。
- * 不做「假装读过仓库」——无 verified 资源时，正式架构/审核角色一律不足。
+ * 不做「假装读过仓库」——没有带摘要的工程证据时，正式架构/审核角色一律不足；
+ * 计划本身与工作区路径不属于工程证据（它们只说明「知道在哪」，不说明「读过」）。
  */
 export function assessContextSufficiency(input: {
   role: EcoRole;
@@ -132,14 +162,16 @@ export function assessContextSufficiency(input: {
     };
   }
 
-  const verified = input.resources.filter(item => item.verified || item.factClass === 'verified_fact');
+  const verified = input.resources.filter(item => item.verified && item.factClass === 'verified_fact');
+  const evidence = verified.filter(isEngineeringEvidence);
   const missingCritical: string[] = [];
   const reasons: string[] = [];
+  const formal = input.role === 'architect' || input.role === 'reviewer' || input.role === 'adjudicator';
 
-  if (verified.length === 0) {
-    missingCritical.push('无已核验工程资源');
-    reasons.push('旁听或通用知识不能替代工程事实');
-    const formal = input.role === 'architect' || input.role === 'reviewer' || input.role === 'adjudicator';
+  if (evidence.length === 0) {
+    missingCritical.push('无已核验的工程代码证据（需实际读取文件并附内容摘要）');
+    reasons.push('计划与工作区路径只说明「知道在哪」，不等于「读过工程」');
+    if ((input.unknowns?.length ?? 0) > 0) missingCritical.push(...input.unknowns!);
     return {
       sufficiency: formal ? 'insufficient' : 'partial',
       missingCritical,
@@ -151,13 +183,13 @@ export function assessContextSufficiency(input: {
     missingCritical.push(...input.unknowns!);
     reasons.push('仍有未确认项');
     return {
-      sufficiency: verified.length >= 2 ? 'partial' : 'insufficient',
+      sufficiency: evidence.length >= 2 ? 'partial' : 'insufficient',
       missingCritical,
       reasons
     };
   }
 
-  reasons.push(`已核验资源 ${String(verified.length)}`);
+  reasons.push(`已核验工程证据 ${String(evidence.length)} 份`);
   return { sufficiency: 'sufficient', missingCritical: [], reasons };
 }
 
@@ -231,7 +263,12 @@ export function buildEngineeringContextPackage(input: {
     resources: normalized.resources,
     constraints: input.constraints ?? [],
     decisions: input.decisions ?? [],
-    verifiedFacts: input.verifiedFacts ?? normalized.resources.filter(r => r.verified).map(r => r.pathOrLabel),
+    verifiedFacts: [
+      ...new Set([
+        ...(input.verifiedFacts ?? []),
+        ...normalized.resources.filter(isEngineeringEvidence).map(r => r.pathOrLabel)
+      ])
+    ],
     inferences: input.inferences ?? [],
     unknowns,
     missingCritical: assessed.missingCritical,
@@ -275,6 +312,43 @@ export function fulfillContextRequest(
     now: Date.now(),
     version: pkg.contextVersion + 1
   });
+}
+
+/**
+ * 由缺失证据生成一条补充请求。
+ *
+ * 这是「上下文不足」到「去读文件」之间的桥：调用方把这个请求写进事件（可审计），
+ * 再按 `requestedPaths` 真正读取文件，最后用 {@link fulfillContextRequest} 抬版本。
+ * 已充分时返回 null——没有缺口就不该造一条请求。
+ */
+export function contextRequestForGaps(
+  pkg: EngineeringContextPackage,
+  input?: {
+    modelRunId?: string;
+    requiredFor?: ContextRequest['requiredFor'];
+    requestedPaths?: string[];
+    reason?: string;
+    priority?: ContextRequest['priority'];
+    now?: number;
+  }
+): ContextRequest | null {
+  if (pkg.sufficiency === 'sufficient') return null;
+  const paths = [...new Set((input?.requestedPaths ?? []).filter(Boolean))];
+  const reason =
+    input?.reason ??
+    (pkg.missingCritical.length > 0
+      ? `上下文不足：${pkg.missingCritical.join('；')}`
+      : '上下文不足，需要读取真实工程文件');
+  return {
+    requestId: `eco-req:${pkg.workId}:${String(input?.now ?? Date.now())}`,
+    ...(input?.modelRunId ? { modelRunId: input.modelRunId } : {}),
+    workId: pkg.workId,
+    ...(pkg.workTaskId ? { workTaskId: pkg.workTaskId } : {}),
+    reason,
+    requiredFor: input?.requiredFor ?? 'review',
+    priority: input?.priority ?? 'high',
+    ...(paths.length > 0 ? { requestedPaths: paths } : {})
+  };
 }
 
 /** 代码/目标版本变化后标记过期。 */

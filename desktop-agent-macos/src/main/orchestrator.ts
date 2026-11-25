@@ -33,7 +33,13 @@ import {
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
 import { applyEcoGateToDecision, decideParticipation } from '../shared/dmoca';
-import { buildEngineeringContextPackage } from '../shared/eco';
+import {
+  buildEngineeringContextPackage,
+  contextRequestForGaps,
+  fulfillContextRequest,
+  type ContextResourceRef
+} from '../shared/eco';
+import { planEvidencePaths, readEngineeringEvidence } from './engineering/eco-evidence';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
@@ -1473,34 +1479,76 @@ export class AgentOrchestrator {
     // DMOCA：记录参与决策（人数/角色/辩论策略），不另建调度器。
     const risk = decision.risk?.level ?? assessCollaborationRisk(stored.plan).level;
     // ECO：先准备工程上下文包，正式架构/审核角色受充分度约束（旁听≠已读工程）。
-    const ecoPackage = buildEngineeringContextPackage({
-      workId: taskId,
-      stage: 'planning',
-      role: risk === 'L0' || risk === 'L1' ? 'planner' : 'architect',
-      architectureSummary: stored.plan?.title
-        ? `计划「${stored.plan.title}」相关工程上下文（编排阶段）`
-        : '计划评审阶段工程上下文',
-      resources: [
-        {
-          resourceId: `plan:${stored.planId}`,
-          kind: 'decision',
-          pathOrLabel: `plan:${stored.planId}`,
-          verified: true,
-          factClass: 'verified_fact'
-        },
-        ...(task.workspaceRoot
-          ? [{
-              resourceId: `ws:${task.workspaceRoot}`,
-              kind: 'other' as const,
-              pathOrLabel: task.workspaceRoot,
-              verified: true,
-              factClass: 'verified_fact' as const
-            }]
-          : [])
-      ],
-      constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
-      repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined
-    });
+    //
+    // 计划本身与工作区路径只算「知道在哪」，不算读过工程：它们分别记为
+    // provided_context，充分度只有在真正读到带 sha256 的文件后才可能通过。
+    // 不足时先发一条补充请求，再按计划里的路径真读文件，最后抬版本重建包——
+    // 这样「读了什么、读没读到」都留在事件里，而不是靠计划标题自证。
+    const baseResources: ContextResourceRef[] = [
+      {
+        resourceId: `plan:${stored.planId}`,
+        kind: 'decision',
+        pathOrLabel: `plan:${stored.planId}`,
+        verified: false,
+        factClass: 'provided_context'
+      },
+      ...(task.workspaceRoot
+        ? [{
+            resourceId: `ws:${task.workspaceRoot}`,
+            kind: 'other' as const,
+            pathOrLabel: task.workspaceRoot,
+            verified: false,
+            factClass: 'provided_context' as const
+          }]
+        : [])
+    ];
+    const buildPackage = (resources: ContextResourceRef[], version?: number) =>
+      buildEngineeringContextPackage({
+        workId: taskId,
+        stage: 'planning',
+        role: risk === 'L0' || risk === 'L1' ? 'planner' : 'architect',
+        architectureSummary: stored.plan?.title
+          ? `计划「${stored.plan.title}」相关工程上下文（编排阶段）`
+          : '计划评审阶段工程上下文',
+        resources,
+        constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
+        repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined,
+        ...(version === undefined ? {} : { version })
+      });
+
+    let ecoPackage = buildPackage(baseResources);
+    if (ecoPackage.sufficiency !== 'sufficient') {
+      const requestedPaths = planEvidencePaths(stored.plan.steps);
+      const request = contextRequestForGaps(ecoPackage, {
+        requestedPaths,
+        requiredFor: 'review',
+        reason:
+          requestedPaths.length === 0
+            ? '上下文不足：计划没有引用任何工程文件，无法核验「读过工程」'
+            : `上下文不足：计划引用的 ${String(requestedPaths.length)} 个文件尚未真实读取`
+      });
+      if (request) {
+        this.deps.emit({ type: 'eco.context.requested', at: Date.now(), taskId, request });
+        if (requestedPaths.length > 0 && task.workspaceRoot) {
+          const read = readEngineeringEvidence({ workspaceRoot: task.workspaceRoot, paths: requestedPaths });
+          if (read.resources.length > 0) {
+            ecoPackage = fulfillContextRequest(ecoPackage, request, read.resources);
+          }
+          if (read.skipped.length > 0) {
+            this.deps.emit({
+              type: 'log',
+              at: Date.now(),
+              taskId,
+              level: 'warn',
+              message: `ECO：${String(read.skipped.length)} 个计划文件未能核验（${read.skipped
+                .slice(0, 3)
+                .map(item => `${item.path}: ${item.reason}`)
+                .join('；')}），这些文件不计入工程证据。`
+            });
+          }
+        }
+      }
+    }
     this.deps.emit({
       type: 'eco.context.prepared',
       at: Date.now(),
