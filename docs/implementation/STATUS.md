@@ -124,6 +124,25 @@
 
 > 硬规则：不为「要不要辩论」先调一次模型；意见数 ≠ 争议数；展示去重不能替代执行克制。
 
+## 4.8a 动态多模型协作与贡献对齐（DMOCA）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 架构说明书 | DONE | `architecture/V3-DYNAMIC-MULTI-MODEL-ORCHESTRATION.md` |
+| 实施任务书 | DONE | `spec/V3-DMOCA-TASK-BOOK.md` |
+| DMOCA-P0 审计 | DONE | `V3-DMOCA-P0-ARCHITECTURE-AUDIT.md` |
+| DMOCA-P1 参与策略 | DONE | `shared/dmoca.ts` `decideParticipation` + 事件 `model.participation.selected` |
+| DMOCA-P2 角色生命周期 | DONE | 角色写入决策；`transitionParticipationLife` |
+| DMOCA-P3 贡献协议 | DONE | 事件投影 ModelRun / ContributionArtifact（流式≠final） |
+| DMOCA-P4 对齐快照 | DONE | ContributionSnapshot / DecisionSnapshot 投影 |
+| DMOCA-P5 辩论审核预算 | DONE | 复用 CB L0–L3 + `shouldStopCollaboration` |
+| DMOCA-P6 UI | DONE | CollaborationResultPanel「模型协作」区 |
+| DMOCA-P7 验收 | DONE | `test:dmoca`（7）+ `dmoca-live.mjs` → `evidence/V3-DMOCA-LIVE.json` |
+| 验收说明 | DONE | `V3-DMOCA-ACCEPTANCE.md` |
+| 功能分支 | 待合入 | `feat/v3-dmoca` |
+
+> DMOCA **不**另建 Runtime；选人扩展 `planLead`/风险门禁，贡献从 Journal 事件投影。
+
 ## 4.8 分层任务分解（TDL）
 
 | 项 | 状态 | 依据 |
@@ -140,8 +159,8 @@
 
 | 类别 | 文档 |
 | --- | --- |
-| 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`**、**`architecture/V3-TASK-DECOMPOSITION-LAYER.md`** |
-| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、**CB 协作预算任务书**、**TDL 任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
+| 当前有效架构 | `PRODUCT.md`、`ARCHITECTURE.md`、`ROADMAP.md`、`architecture/COLLABORATION_ARCHITECTURE.md`、`architecture/ENGINEERING_WORKSPACE.md`、`architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md`、**`architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`**、**`architecture/V3-TASK-DECOMPOSITION-LAYER.md`**、**`architecture/V3-DYNAMIC-MULTI-MODEL-ORCHESTRATION.md`** |
+| 当前实施计划 | `implementation/README.md`、`implementation/TASK-BOOK.md`、`implementation/LONG-TASK-CONTEXT-TASK-BOOK.md`、LT 阶段任务书、**U7 质量收敛任务书**、**GDC 任务书**、**CB 协作预算任务书**、**TDL 任务书**、**DMOCA 任务书**、`implementation/V3-COMPUTER-USE-MACOS.md` |
 | 已完成能力与证据 | `implementation/COMPLETION-AUDIT.md`、`implementation/E-ACCEPTANCE-REPORT.md`、`docs/spec/evidence/*`、`git log` |
 | 历史规格 | `docs/spec/DEBATE_ENGINE_TASK_V1.0.md`、旧辩论入口/固定轮次说明、已被替代的 V3 阶段表 |
 | 运维/发布 | `operations/RELEASE_CHECKLIST.md`、`operations/LONG-TASK-CONTEXT-ROLLOUT.md` |

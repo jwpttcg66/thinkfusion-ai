@@ -19,7 +19,12 @@ import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS } from '../shared/contracts';
 import { approvalPolicyFor } from '../shared/approval';
-import { checkPlanCapabilities, planReviewRounds, shouldDebatePlan } from './engineering/plan-review';
+import {
+  assessCollaborationRisk,
+  checkPlanCapabilities,
+  planReviewRounds,
+  shouldDebatePlan
+} from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
@@ -27,6 +32,7 @@ import {
   decideNextEngineeringAction,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
+import { decideParticipation } from '../shared/dmoca';
 import { seedWorkEventsFromPlan } from '../shared/task-decomposition';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
@@ -1463,6 +1469,33 @@ export class AgentOrchestrator {
   ): Promise<PlanDebate | null> {
     const task = this.tasks.get(taskId);
     const decision = shouldDebatePlan(task.planDebate, stored.plan);
+    // DMOCA：记录参与决策（人数/角色/辩论策略），不另建调度器。
+    const risk = decision.risk?.level ?? assessCollaborationRisk(stored.plan).level;
+    const participation = decideParticipation({
+      workId: taskId,
+      stage: 'planning',
+      risk,
+      candidates: (task.debateAgentIds ?? []).map(id => ({ id, available: true })),
+      selectedIds: task.debateAgentIds,
+      userPinned: Boolean(task.debateAgentIds && task.debateAgentIds.length > 0)
+    });
+    this.deps.emit({
+      type: 'model.participation.selected',
+      at: Date.now(),
+      taskId,
+      stage: participation.stage,
+      risk: participation.risk,
+      debate: participation.debate,
+      modelReview: participation.modelReview,
+      participants: participation.participants.map(item => ({
+        participantId: item.participantId,
+        roles: item.roles,
+        reason: item.reason
+      })),
+      excluded: participation.excluded,
+      reasons: participation.reasons,
+      userPinned: participation.userPinned
+    });
     if (!decision.debate) {
       if (!this.deps.debatePlan) return null;
       return { status: 'skipped', topics: [], participants: [], summary: '', skippedReason: decision.reason, at: Date.now() };

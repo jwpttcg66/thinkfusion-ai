@@ -21,6 +21,7 @@ import {
   projectConversationGoalWorkbench,
   projectGoalDrivenWorkbench
 } from '../../shared/goal-driven-cycle';
+import { projectDmocaFromEvents } from '../../shared/dmoca';
 import { projectWorkBreakdownFromEvents } from '../../shared/task-decomposition';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
@@ -558,6 +559,16 @@ export default function App() {
     return projectGoalDrivenWorkbench({
       workId: activeTask.taskId,
       originalRequest: activeTask.userPrompt,
+      events,
+      summary: activeTask.summary,
+      status: activeTask.status
+    });
+  }, [activeTask, events]);
+  /** DMOCA：参与决策与贡献对齐投影。 */
+  const engineeringDmoca = useMemo(() => {
+    if (!activeTask) return null;
+    return projectDmocaFromEvents({
+      workId: activeTask.taskId,
       events,
       summary: activeTask.summary,
       status: activeTask.status
@@ -2488,6 +2499,7 @@ export default function App() {
                   <CollaborationResultPanel
                     result={engineeringResult}
                     workbench={engineeringWorkbench}
+                    dmoca={engineeringDmoca}
                     onOpenEvidence={() => setWorkbenchTab('trajectory')}
                     onSetDisposition={async input => {
                       if (!activeTask) return;

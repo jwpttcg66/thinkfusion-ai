@@ -1,0 +1,109 @@
+{
+  "startedAt": "2026-11-25T06:55:03.270Z",
+  "checks": {
+    "completed": {
+      "ok": true,
+      "detail": "completed",
+      "at": 1795589717924
+    },
+    "participation-event": {
+      "ok": true,
+      "detail": "count=1",
+      "at": 1795589717924
+    },
+    "l0-skip-debate": {
+      "ok": true,
+      "detail": "participation debate=skip",
+      "at": 1795589717924
+    },
+    "rules-review": {
+      "ok": true,
+      "detail": "backends=rules",
+      "at": 1795589717924
+    },
+    "ui-dmoca": {
+      "ok": true,
+      "detail": "visible",
+      "at": 1795589717924
+    }
+  },
+  "eventTypes": [
+    "task.updated",
+    "task.updated",
+    "task.updated",
+    "round.started",
+    "round.peer",
+    "round.delta",
+    "round.answer",
+    "task.updated",
+    "task.updated",
+    "plan.ready",
+    "work.breakdown.created",
+    "work.task.upserted",
+    "step.preparing",
+    "model.participation.selected",
+    "task.updated",
+    "plan.debated",
+    "task.updated",
+    "execution.bridge",
+    "task.started",
+    "step.started",
+    "work.task.status",
+    "step.completed",
+    "work.task.status",
+    "report.ready",
+    "review.ready",
+    "task.updated",
+    "task.updated",
+    "cycle.snapshot",
+    "goal.fit",
+    "task.updated",
+    "task.completed",
+    "goal.fit"
+  ],
+  "taskId": "8e246dc4-e823-491a-b69d-3c279f57e2d3",
+  "participation": [
+    {
+      "type": "model.participation.selected",
+      "at": 1795589713372,
+      "taskId": "8e246dc4-e823-491a-b69d-3c279f57e2d3",
+      "stage": "planning",
+      "risk": "L0",
+      "debate": "skip",
+      "modelReview": "skip",
+      "participants": [
+        {
+          "participantId": "opencode-go:deepseek-v4.1-flash",
+          "roles": [
+            "lead"
+          ],
+          "reason": "用户指定参与（L0 · lead）"
+        }
+      ],
+      "excluded": [],
+      "reasons": [
+        "阶段 planning",
+        "风险 L0",
+        "辩论=skip",
+        "模型审核=skip",
+        "遵守用户选定模型"
+      ],
+      "userPinned": true,
+      "eventId": "52162447-88bf-4cee-893a-cb0050e96cd6",
+      "runId": "8e246dc4-e823-491a-b69d-3c279f57e2d3",
+      "sequence": 88,
+      "phase": "execution"
+    }
+  ],
+  "dom": {
+    "hasDmoca": true,
+    "hasRisk": true,
+    "sample": "任务结果\n工程 · completed\n工程目标\n\n只读列出工作区根目录文件名，结论写出文件名即可，不要改文件。\n\n状态：active · 符合度：已满足 · 版本 v1\n\n任务摘要可核对：执行完成，验证通过\n\n符合度说明：验证已通过且无待修评审\n\n循环进度 · 第 1 轮 · 结论\n目标理解 · 完成\n分析 · 完成\n设计 · 完成\n方案辩论 · 跳过（无实质方案争议）\n计划 · 完成\n实现 · 完成\n审核 · 完成\n审核辩论 · 跳过（无审核争议处理事件）\n结论 · 完成\n完成 · 待定\n\n迭代 1/8\n\n当前下一步：汇总证据并给出本轮结论\n\n模型协作 · L0 · 辩论 skip · 审核 skip · 对齐 finalized\n\n阶段 planning · 风险 L0 · 辩论=skip · 模型审核=skip · 遵守用户选定模型\n\nopencode-go:deepseek-v4.1-flash · lead · 用户指定参与（L0 · lead）\n\n有效终稿贡献 1 · 运行 3 · 决策 accepted\n\nlead v1 · complete_response：```json { \"protocol\": \"desktop-agent/v1\", \"type\": \"plan\", \"taskId\": \"8e246dc4-e823-491a-b69d-3c279f57e2d3\", \"rou\n\n核心意见与争议 （展示 1 · 主张 0 · 补充 1 · 争议 0）\nOpenCode Go · deepseek-v4.1-flash\n补充摘要\n\n【计划】只读列出工作区根目录"
+  },
+  "terminal": {
+    "status": "completed",
+    "summary": "执行完成，验证通过"
+  },
+  "finishedAt": "2026-11-25T06:55:17.924Z",
+  "ok": true
+}

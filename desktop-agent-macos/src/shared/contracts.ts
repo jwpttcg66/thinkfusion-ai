@@ -1929,6 +1929,19 @@ export type AgentEvent = AgentEventBase &
         fit: 'pending' | 'met' | 'gap' | 'unknown';
         notes: string[];
       }
+    /** DMOCA：本阶段参与决策（选人/角色/跳过辩论与模型审核的理由）。 */
+    | {
+        type: 'model.participation.selected';
+        taskId: string;
+        stage: string;
+        risk: 'L0' | 'L1' | 'L2' | 'L3';
+        participants: Array<{ participantId: string; roles: string[]; reason: string }>;
+        excluded: Array<{ participantId: string; reason: string }>;
+        debate: 'skip' | 'on_demand' | 'required';
+        modelReview: 'skip' | 'on_demand' | 'required';
+        reasons: string[];
+        userPinned: boolean;
+      }
     /** TDL：分解图首次建立。 */
     | {
         type: 'work.breakdown.created';

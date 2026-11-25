@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import type { CollaborationResultView, ReviewDisposition, SourceReference } from '../../../shared/collaboration-result';
 import type { GoalDrivenWorkbenchView } from '../../../shared/goal-driven-cycle';
+import type { DmocaWorkbenchView } from '../../../shared/dmoca';
 import { MarkdownBody } from './MarkdownBody';
 
 const OPINION_PREVIEW = 8;
@@ -17,6 +18,8 @@ export function CollaborationResultPanel(props: {
   result: CollaborationResultView;
   /** GDC：目标 / 循环进度 / 下一步（派生视图，可缺省）。 */
   workbench?: GoalDrivenWorkbenchView | null;
+  /** DMOCA：参与决策与贡献对齐（派生视图，可缺省）。 */
+  dmoca?: DmocaWorkbenchView | null;
   /** 轨迹/详情入口：可选，不传就不显示跳转。 */
   onOpenEvidence?: () => void;
   /** 默认展开结论；过程层默认收起（true = 收起）。 */
@@ -30,7 +33,7 @@ export function CollaborationResultPanel(props: {
     reason: string;
   }) => void | Promise<void>;
 }) {
-  const { result, workbench } = props;
+  const { result, workbench, dmoca } = props;
   // 任务书：过程层默认收起；compactProcess 缺省按 true 处理。
   const [processOpen, setProcessOpen] = useState(!(props.compactProcess ?? true));
   const [opinionsExpanded, setOpinionsExpanded] = useState(false);
@@ -144,6 +147,56 @@ export function CollaborationResultPanel(props: {
             </div>
           </details>
         </>
+      )}
+
+      {dmoca && (dmoca.decision || dmoca.snapshot) && (
+        <details className="collab-result-section" open>
+          <summary>
+            模型协作
+            <span className="muted">
+              {dmoca.decision
+                ? ` · ${dmoca.decision.risk} · 辩论 ${dmoca.decision.debate} · 审核 ${dmoca.decision.modelReview}`
+                : ''}
+              {dmoca.snapshot ? ` · 对齐 ${dmoca.snapshot.alignmentStatus}` : ''}
+            </span>
+          </summary>
+          <div className="collab-result-body">
+            {dmoca.decision && (
+              <>
+                <p className="muted">{dmoca.decision.reasons.join(' · ')}</p>
+                <ul className="collab-result-facts">
+                  {dmoca.decision.participants.map(item => (
+                    <li key={item.participantId}>
+                      {item.participantId}
+                      {' · '}
+                      {item.roles.join('+')}
+                      {' · '}
+                      {item.reason}
+                    </li>
+                  ))}
+                </ul>
+                {dmoca.decision.excluded.length > 0 && (
+                  <p className="muted">
+                    未选入 {String(dmoca.decision.excluded.length)}：
+                    {dmoca.decision.excluded.slice(0, 4).map(item => `${item.participantId}（${item.reason}）`).join('；')}
+                  </p>
+                )}
+              </>
+            )}
+            {dmoca.snapshot && (
+              <p className="muted">
+                有效终稿贡献 {String(dmoca.contributions.filter(item => item.status === 'final').length)}
+                {' · '}运行 {String(dmoca.runs.length)}
+                {dmoca.decisionSnapshot ? ` · 决策 ${dmoca.decisionSnapshot.status}` : ''}
+              </p>
+            )}
+            {dmoca.contributions.filter(item => item.status === 'final').slice(0, 6).map(item => (
+              <p key={item.artifactId} className="muted">
+                {item.participantId} v{String(item.version)} · {item.kind}：{item.contentPreview.slice(0, 120)}
+              </p>
+            ))}
+          </div>
+        </details>
       )}
 
       {/* 01 核心意见与争议 */}
