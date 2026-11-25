@@ -2705,6 +2705,35 @@ export class ConversationRunner {
       label: labels.get(answer.agentId) ?? answer.agentId,
       text: answer.text
     }));
+    // 参与记录在这里落：回答一收齐就成立，不依赖后面有没有汇总/辩论。
+    // 只有一路回答时执行阶段会提前返回，但「这一轮谁参与了」仍然要可核对。
+    {
+      const participants = answers
+        .filter(answer => answer.text.trim())
+        .map(answer => ({
+          participantId: answer.channelId,
+          kind: this.ownershipSourceOf(answer.channelId) ?? 'web'
+        }));
+      if (participants.length > 0) {
+        this.deps.emit({
+          type: 'model.participation.observed',
+          at: Date.now(),
+          conversationId: conversation.conversationId,
+          stage: 'answers',
+          risk: participants.length > 1 ? 'L1' : 'L0',
+          decisionId: `obs:${conversation.conversationId}:${String(Date.now())}`,
+          maxExtraModels: 0,
+          participants,
+          excluded: [],
+          reasons: ['回答收齐即记录；辩论阶段再按证据裁剪'],
+          note: `本轮 ${String(participants.length)} 路回答`
+        });
+      }
+      trace?.note(
+        `参与记录（回答收齐）：${participants.map(item => item.participantId).join('、') || '无'}`
+      );
+    }
+
     // 知识空间：一份回答没有可汇总的分歧，也没有可辩的对象，跳过执行阶段。
     // 工程编排：哪怕只有一个可用成员也照常开（同一模型自辩），不再因
     // 「不足两位」跳过——这是归属规则里明确要求过的。
