@@ -114,6 +114,8 @@ test('工程判定前先建会话，并把模型思考推到 __routing__ 增量'
   assert.match(view, /ResizeObserver/);
   const rail = readFileSync(join(ROOT, 'src/renderer/src/components/UserMsgLocateRail.tsx'), 'utf8');
   assert.match(rail, /user-msg-locate-rail/);
+  assert.match(rail, /一条会话只产生一根线|user-msg-locate-hit/);
+  assert.doesNotMatch(rail, /user-msg-locate-track/);
   assert.match(rail, /正文历史提问定位/);
   const shadow = readFileSync(join(ROOT, 'src/main/collaboration/engine.ts'), 'utf8');
   assert.match(shadow, /不要对全员做 health 探活/);

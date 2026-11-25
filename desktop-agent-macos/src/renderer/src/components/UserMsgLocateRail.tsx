@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import type { UserMsgTick } from './TaskPlanCapsule';
 
+type MsgMark = { id: string; preview: string; topPct: number };
+
 /**
- * 正文侧边定位：贴在整段对话滚动区左侧，按历史用户消息在正文中的相对位置排布短杠。
- * 不挂在输入框上方的工作计划胶囊上。
+ * 正文侧边定位：一条会话只产生一根线。
+ * 默认等长、水平居中；靠近当前视口时才轻微变长。
  */
 export function UserMsgLocateRail(props: {
   ticks: readonly UserMsgTick[];
@@ -11,12 +13,14 @@ export function UserMsgLocateRail(props: {
   scrollEl: HTMLElement | null;
   onJump: (messageId: string) => void;
 }) {
-  const [marks, setMarks] = useState<Array<{ id: string; preview: string; topPct: number }>>([]);
+  const [marks, setMarks] = useState<MsgMark[]>([]);
+  const [viewportPct, setViewportPct] = useState<number | null>(null);
 
   useEffect(() => {
     const scroll = props.scrollEl;
     if (!scroll || props.ticks.length === 0) {
       setMarks([]);
+      setViewportPct(null);
       return;
     }
 
@@ -24,6 +28,9 @@ export function UserMsgLocateRail(props: {
       if (!scroll) return;
       const scrollRect = scroll.getBoundingClientRect();
       const contentHeight = Math.max(scroll.scrollHeight, 1);
+      const mid = scroll.scrollTop + scroll.clientHeight * 0.4;
+      setViewportPct(Math.min(97, Math.max(3, (mid / contentHeight) * 100)));
+
       const next = props.ticks.map((tick, index) => {
         const node = scroll.querySelector(
           `[data-user-msg="${escapeAttr(tick.messageId)}"]`
@@ -32,9 +39,8 @@ export function UserMsgLocateRail(props: {
         if (node) {
           const topInContent =
             node.getBoundingClientRect().top - scrollRect.top + scroll.scrollTop;
-          topPct = Math.min(96, Math.max(2, (topInContent / contentHeight) * 100));
+          topPct = Math.min(97, Math.max(3, (topInContent / contentHeight) * 100));
         } else {
-          // 锚点尚未挂上时按序均分，避免空轨。
           topPct = ((index + 0.5) / props.ticks.length) * 100;
         }
         return { id: tick.messageId, preview: tick.preview, topPct };
@@ -61,17 +67,25 @@ export function UserMsgLocateRail(props: {
 
   return (
     <nav className="user-msg-locate-rail" aria-label="正文历史提问定位">
-      {marks.map(mark => (
-        <button
-          key={mark.id}
-          type="button"
-          className={`user-msg-locate-tick${props.activeUserMsgId === mark.id ? ' is-active' : ''}`}
-          style={{ top: `${mark.topPct}%` }}
-          title={mark.preview}
-          aria-label={`定位到：${mark.preview}`}
-          onClick={() => props.onJump(mark.id)}
-        />
-      ))}
+      {marks.map(mark => {
+        const dist = viewportPct === null ? 99 : Math.abs(viewportPct - mark.topPct);
+        const near =
+          dist <= 0.9 ? ' is-focus' : dist <= 2.2 ? ' is-closer' : dist <= 3.8 ? ' is-near' : '';
+        const active = props.activeUserMsgId === mark.id ? ' is-active' : '';
+        return (
+          <button
+            key={mark.id}
+            type="button"
+            className={`user-msg-locate-hit${near}${active}`}
+            style={{ top: `${mark.topPct}%` }}
+            title={mark.preview}
+            aria-label={`定位到：${mark.preview}`}
+            onClick={() => props.onJump(mark.id)}
+          >
+            <span className="user-msg-locate-hit-bar" aria-hidden="true" />
+          </button>
+        );
+      })}
     </nav>
   );
 }
