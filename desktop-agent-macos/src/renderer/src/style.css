@@ -6437,15 +6437,9 @@ button:disabled {
   overflow: auto;
   padding: 4px 0 4px 2px;
 }
+/* 连续竖轨已移除：定位只靠节点短记，避免「粗黑竖线」回潮。 */
 .chat-locate-track {
-  position: absolute;
-  left: 11px;
-  top: 10px;
-  bottom: 10px;
-  width: 2px;
-  background: color-mix(in srgb, var(--line-strong) 70%, transparent);
-  border-radius: 1px;
-  pointer-events: none;
+  display: none;
 }
 .chat-stream-placeholder {
   padding: 14px 12px;

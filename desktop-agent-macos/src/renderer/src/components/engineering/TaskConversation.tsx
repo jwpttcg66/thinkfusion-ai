@@ -334,7 +334,7 @@ function StreamLocateRail(props: {
   if (props.landmarks.length === 0) return null;
   return (
     <nav className="chat-locate-rail" aria-label="对话重点定位">
-      <div className="chat-locate-track" aria-hidden />
+      {/* 无连续竖轨：与主对话侧边短杠一致，只保留节点，不画粗黑/连续 spine。 */}
       <ol className="chat-locate-list">
         {props.landmarks.map(item => (
           <li key={item.id}>
@@ -786,7 +786,7 @@ export function TaskConversation(props: {
               <div className={`chat-note is-aside ${ToneClass(entry.verified ? 'ok' : 'warn')}`}>
                 <span className="chat-note-text">
                   第 {String(entry.index)} 次验证 · {label} · {timeText(entry.at)}
-                  {' · '}详见上方「任务结果」
+                  {' · '}详见下方「任务结果」
                 </span>
               </div>
             ));
@@ -803,7 +803,7 @@ export function TaskConversation(props: {
               <div className={`chat-note is-aside ${ToneClass(entry.needsFix ? 'warn' : 'ok')}`}>
                 <span className="chat-note-text">
                   第 {String(entry.index)} 次独立评审 · {entry.needsFix ? '需修复' : '通过'}
-                  {' · '}{timeText(entry.at)} · 详见上方「任务结果」
+                  {' · '}{timeText(entry.at)} · 详见下方「任务结果」
                 </span>
               </div>
             ));
@@ -821,7 +821,7 @@ export function TaskConversation(props: {
               <div className={`chat-note is-focus ${ToneClass(entry.tone)}`}>
                 <span className="chat-stream-badge">重点</span>
                 <span className="chat-note-text">
-                  结论已写入上方「任务结果」 · {timeText(entry.at)}
+                  结论已写入下方「任务结果」 · {timeText(entry.at)}
                   {entry.deliverables && entry.deliverables.length > 0
                     ? ` · 目标物 ${String(entry.deliverables.length)} 项`
                     : ''}

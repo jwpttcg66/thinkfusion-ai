@@ -1219,7 +1219,7 @@ function SynthesisCard({
         <div className="synthesis-head">
           <span className="synthesis-mark">◈</span>
           <b>综合过程与原文</b>
-          <span className="muted">结构化结论与争议见上方「任务结果」</span>
+          <span className="muted">结构化结论与争议见下方「任务结果」</span>
         </div>
         {reasoning && <ChannelReasoning text={reasoning} />}
         {debate && <DebatePanel debate={debate} labels={labels} />}
