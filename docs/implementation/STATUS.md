@@ -116,7 +116,7 @@
 | CB-P0c 执行后模型审核门禁 | DONE | `shouldModelReviewExecution` |
 | CB-P1 核心意见去重上限 | DONE | `selectKeyOpinions` / `dedupeOpinions` |
 | CB-P2 UI 区分原始/展示/争议 | DONE | CollaborationResultPanel 文案 |
-| 功能分支 | 合入中 | `feat/v3-collab-budget-control` |
+| 功能分支 | 已合入 main | `feat/v3-collab-budget-control` → `ededc97` |
 | 自动化 | ✅ | `test:plan-review` / `test:plan-debate` / `test:collab-budget` |
 | 真机 L0 | ✅ | `collab-budget-live.mjs`：跳过五段、rules 审核、意见展示 1；见 `V3-COLLAB-BUDGET-LIVE.json` |
 | 专项结论 | DONE | 见 `V3-COLLAB-BUDGET-ACCEPTANCE.md` |
