@@ -33,7 +33,7 @@ import {
   decideNextEngineeringAction,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
-import { applyEcoGateToDecision, decideParticipation } from '../shared/dmoca';
+import { applyEcoGateToDecision, decideParticipation, dispatchedParticipantIds } from '../shared/dmoca';
 import {
   buildEngineeringContextPackage,
   contextRequestForGaps,
@@ -1653,13 +1653,13 @@ export class AgentOrchestrator {
     }, 10_000);
     try {
       const live = this.tasks.get(taskId);
+      // DMOCA 决策驱动派发：只请决策里留下的人；用户钉住的不裁。
+      const dispatchedIds = dispatchedParticipantIds(participation, live.debateAgentIds);
       const result = await this.deps.debatePlan({
         taskId, roundId, planId: stored.planId, plan: stored.plan,
         userPrompt: live.userPrompt,
         ecoEvidence: engineeringEvidenceOf(ecoPackage),
-        ...(live.debateAgentIds && live.debateAgentIds.length > 0
-          ? { debateAgentIds: live.debateAgentIds }
-          : {}),
+        ...(dispatchedIds.length > 0 ? { debateAgentIds: dispatchedIds } : {}),
         onLeadReady: brief => {
           progressTopics = brief.topics;
           progressGoals = brief.topicGoals;

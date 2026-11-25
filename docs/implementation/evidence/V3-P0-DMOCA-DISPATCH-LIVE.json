@@ -1,0 +1,57 @@
+{
+  "startedAt": "2026-11-25T11:13:40.705Z",
+  "taskId": "f96d1d56-3050-4808-b5c4-fe12d36b8d0f",
+  "requestedModels": [
+    "opencode-go:deepseek-v4.1-flash",
+    "opencode-go:glm-5.2",
+    "opencode-go:kimi-k3"
+  ],
+  "participation": {
+    "participants": [
+      "opencode-go:deepseek-v4.1-flash"
+    ],
+    "excluded": [
+      {
+        "participantId": "opencode-go:glm-5.2",
+        "reason": "L0 默认最多 1 人（预算克制）"
+      },
+      {
+        "participantId": "opencode-go:kimi-k3",
+        "reason": "L0 默认最多 1 人（预算克制）"
+      }
+    ],
+    "reasons": [
+      "阶段 planning",
+      "风险 L0",
+      "辩论=skip",
+      "模型审核=skip",
+      "遵守用户选定模型",
+      "ECO sufficient",
+      "ECO ctx v2"
+    ]
+  },
+  "debated": {
+    "status": "skipped",
+    "participants": []
+  },
+  "checks": {
+    "participation-exists": {
+      "ok": true,
+      "detail": "n=1"
+    },
+    "capped-to-policy": {
+      "ok": true,
+      "detail": "requested=3 participants=1（L1 上限 2）"
+    },
+    "excluded-visible": {
+      "ok": true,
+      "detail": "excluded=opencode-go:glm-5.2:L0 默认最多 1 人（预算克制）|opencode-go:kimi-k3:L0 默认最多 1 人（预算克制）"
+    },
+    "dispatch-equals-decision": {
+      "ok": true,
+      "detail": "辩论未开（status=skipped），无可比对名单"
+    }
+  },
+  "ok": true,
+  "finishedAt": "2026-11-25T11:13:50.731Z"
+}
