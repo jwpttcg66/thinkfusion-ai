@@ -2101,16 +2101,6 @@ export default function App() {
    *
    * 默认 Markdown；旁边那个 Word 是「单独指定」的分支，不点不会生成。
    */
-  async function revertSnapshot(taskId: string) {
-    try {
-      const outcome = await window.agentAPI.revertTaskSnapshot(taskId);
-      const failed = outcome.failed.length > 0 ? `；失败 ${String(outcome.failed.length)} 个：${outcome.failed.map(item => `${item.path}（${item.detail}）`).join('、')}` : '';
-      setNotice(`已还原本轮：恢复 ${String(outcome.restored.length)} 个文件，删除 ${String(outcome.removed.length)} 个新建文件${failed}`);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-
   async function openPageSave(
     format: 'md' | 'docx',
     sourceId = sources.activeId,
