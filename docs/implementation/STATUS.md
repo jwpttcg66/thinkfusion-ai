@@ -163,6 +163,18 @@
 
 > ECO **不**另建代码理解引擎；充分度门禁约束正式架构/审核职责。
 
+## 4.9a Goal/TDL/ECO 分阶段质量整改（gtec-phased）
+
+| 项 | 状态 | 依据 |
+| --- | --- | --- |
+| 总计划 | DESIGNED | `docs/superpowers/plans/2026-11-25-gtec-phased-quality.md` |
+| P0 设计/审计 | AUDITED | `gtec-phases/P0-DESIGN.md` |
+| P1 Goal+TDL 加深 | TESTED | `gtec-phases/P1-DESIGN.md` + `test:gtec-p1` |
+| P2–P8 | 未开始 | 每阶段单独设计书 + `test:gtec-pN` |
+| 功能分支 | 进行中 | `feat/v3-gtec-phased` |
+
+> 首次薄层合入质量不足：本轨按阶段门禁重做，不以 §4.9 DONE 替代本轨验收。
+
 ## 4.8 分层任务分解（TDL）
 
 | 项 | 状态 | 依据 |
