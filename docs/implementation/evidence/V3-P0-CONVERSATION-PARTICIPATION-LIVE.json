@@ -1,0 +1,40 @@
+{
+  "capturedAt": "2026-11-25T19:45:00+08:00",
+  "instance": "THINKFUSION_USER_DATA=/tmp/tf-eco-ud, CDP 9353",
+  "mode": "knowledge",
+  "events": [
+    {
+      "type": "model.participation.observed",
+      "at": 1795607128347,
+      "conversationId": "76100a9c-e480-49be-b23c-e066b46947c2",
+      "stage": "answers",
+      "risk": "L0",
+      "decisionId": "obs:76100a9c-e480-49be-b23c-e066b46947c2:1795607128347",
+      "maxExtraModels": 0,
+      "participants": [
+        {
+          "participantId": "opencode-go:deepseek-v4.1-flash",
+          "kind": "cloud"
+        }
+      ],
+      "excluded": [],
+      "reasons": [
+        "回答收齐即记录；辩论阶段再按证据裁剪"
+      ],
+      "note": "本轮 1 路回答"
+    }
+  ],
+  "checks": {
+    "event-emitted": true,
+    "stage": "answers",
+    "participants": [
+      {
+        "participantId": "opencode-go:deepseek-v4.1-flash",
+        "kind": "cloud"
+      }
+    ],
+    "risk": "L0",
+    "debate-stage-capping-live": false
+  },
+  "note": "只有一路云端应答（另一模型未返回），因此只验证到「回答收齐即记录」；辩论阶段裁剪仍只有单测覆盖。"
+}
