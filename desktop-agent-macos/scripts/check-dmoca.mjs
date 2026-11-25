@@ -145,3 +145,24 @@ test('决策驱动派发：派发名单等于决策名单', () => {
   // 决策无人可用时退回原名单，不把「没人」当成「请全部」
   assert.deepEqual(dispatchedParticipantIds({ ...base, participants: [] }, ['a']), ['a']);
 });
+
+test('决策钉住贡献版本：引用最新终稿，不引用 superseded', () => {
+  const view = projectDmocaFromEvents({
+    workId: 't2',
+    status: 'completed',
+    summary: '结论',
+    events: [
+      { type: 'round.started', at: 1, taskId: 't2', roundId: 'r1', roundNumber: 1, inputType: 'user' },
+      { type: 'round.answer', at: 2, taskId: 't2', roundId: 'r1', text: '第一版' },
+      { type: 'round.started', at: 3, taskId: 't2', roundId: 'r2', roundNumber: 2, inputType: 'user' },
+      { type: 'round.answer', at: 4, taskId: 't2', roundId: 'r2', text: '第二版' }
+    ]
+  });
+  const decision = view.decisionSnapshot;
+  assert.ok(decision);
+  assert.equal(decision.contributions?.length, 1);
+  assert.equal(decision.contributions?.[0].version, 2);
+  assert.match(decision.contributions?.[0].artifactId ?? '', /r2/);
+  // 被 superseded 的第一版不能出现在决策引用里
+  assert.ok(!(decision.contributions ?? []).some(item => /r1/.test(item.artifactId)));
+});
