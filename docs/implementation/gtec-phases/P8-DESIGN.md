@@ -2,7 +2,7 @@
 
 **阶段：** P8  
 **依赖：** P7 TESTED  
-**状态：** DESIGNED  
+**状态：** DEVICE_VERIFIED（`test:gtec-all` + live）  
 **自动化：** `npm run test:gtec-all`（P1–P7 串联）  
 **真机：** `node scripts/gtec-live.mjs` → `evidence/V3-GTEC-PHASED-LIVE.json`
 
