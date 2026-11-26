@@ -1,10 +1,8 @@
 # 长任务与上下文压缩 · 契约冻结
 
-状态：设计冻结，未实施  
-基线：`main` · `e336ae434978211138879688031a9d40c1a27cd7` · 2026-11-24  
-上游设计：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md)  
-任务书：[LONG-TASK-CONTEXT-TASK-BOOK.md](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)  
-存储设计：[CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)
+文档角色：共享类型、状态机、事件和错误语义的规范来源。运行实现状态见 [STATUS.md](../implementation/STATUS.md)。<br>
+上游设计：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../archive/architecture/LONG_TASK_AND_CONTEXT_COMPACTION-2026-11-24.md)<br>
+存储设计：[CONTEXT_CHECKPOINT_STORAGE.md](../archive/architecture/CONTEXT_CHECKPOINT_STORAGE-2026-11-24.md)
 
 > 本文定义类型、不变量、状态机、事件与 API。实现必须服从这些契约；
 > 契约变更必须先改本文，再改代码与任务书。

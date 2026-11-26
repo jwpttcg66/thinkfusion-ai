@@ -1,193 +1,34 @@
-# 长任务与上下文压缩 · 灰度、回滚与运维
+# 长任务上下文管理器：启用、诊断与回退
 
-状态：设计冻结，未实施  
-基线：`main` · `e336ae4` · 2026-11-24  
-相关：[架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) · [存储](../architecture/CONTEXT_CHECKPOINT_STORAGE.md) · [测试计划](../implementation/LONG-TASK-CONTEXT-TEST-PLAN.md) · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
+当前实现状态见 [STATUS.md](../implementation/STATUS.md)。这份手册只描述**现行开关**；早期 `off/shadow/active` 多阶段灰度提案已归档，当前代码没有 `shadow` 模式。
 
-## 1. 目标
+## 开关优先级
 
-- 新能力可分阶段开启，关闭后回到当前行为；
-- 压缩/恢复失败不会破坏任务与工作区；
-- 数据迁移、备份、回滚可执行；
-- 运维能看出压缩、恢复、失败与成本；
-- 不在未验证阶段默认影响所有用户。
+1. 环境变量 `THINKFUSION_CONTEXT_MANAGER`；
+2. userData 中的 `context-manager.json`，格式 `{ "enabled": true }`；
+3. 未配置时默认关闭。
 
-## 2. 开关
+环境变量支持 `active` / `1` / `on` 开启，`off` / `0` 关闭。其它值不覆盖配置文件。
+配置文件是运维配置，不是 UI 设置项；修改后建议重启应用并核对实际事件。
 
-建议使用现有设置存储新增：
+## 启用步骤
 
-```ts
-interface LongTaskContextSettings {
-  /** off | shadow | active */
-  contextManagerMode: 'off' | 'shadow' | 'active';
-  /** off | on，默认 on（仅在 contextManagerMode=active 时生效） */
-  compactionEnabled: boolean;
-  /** off | shadow | active */
-  resumeMode: 'off' | 'shadow' | 'active';
-  /** 保留多少检查点 */
-  checkpointRetention: number;
-  /** 摘要模型；空表示使用当前模型 */
-  summaryModelId?: string;
-}
-```
+1. 先备份默认 userData 目录，尤其是 `agent-store.json` 与 `context-checkpoints/`。
+2. 设置 `THINKFUSION_CONTEXT_MANAGER=active`，或在 `context-manager.json` 写入 `{ "enabled": true }`。
+3. 重启 ThinkFusion，确认请求能正常响应。
+4. 观察 `context.prepared`、`context.compaction.*`、`context.recovered` 事件；详情和上下文统计在工程工作台/轨迹中查看。
+5. 窗口、Token、Usage 未知时应保持“未提供”，不得以 `0` 或估算百分比冒充真实值。
 
-语义：
+上下文事件和 payload 唯一规范见 [LONG_TASK_CONTEXT_CONTRACTS.md](../spec/LONG_TASK_CONTEXT_CONTRACTS.md)。
 
-| 模式 | 行为 |
-| --- | --- |
-| off | 完全走现有路径 |
-| shadow | 只构建/记录预算与候选压缩，不发摘要、不改请求 |
-| active | 真正裁剪/摘要/提交/恢复 |
+## 关闭与回退
 
-默认值：
+- 设置 `THINKFUSION_CONTEXT_MANAGER=off`；环境变量优先级最高。
+- 或将配置文件设为 `{ "enabled": false }`，再重启。
+- 关闭只停止新的上下文准备/压缩，不自动删除已提交检查点；不要手动删除 `context-checkpoints/` 来“回滚”。
+- 如果检查点缺失、hash 不匹配或归档不完整，任务应停在 stale/interrupted 并要求人工核对，不得继续使用半成品摘要。
+- 摘要生成或提交失败时应回退到未压缩上下文并记录失败事件。
 
-- P1–P3 期间 `off`；
-- P4 先 `shadow`，验证后 `active`；
-- P5 `resumeMode=shadow`，真机验证后 `active`；
-- 发布版本可按用户组灰度。
+## 备份要求
 
-## 3. 灰度阶段
-
-| 阶段 | 开关 | 观察 |
-| --- | --- | --- |
-| P1 | off | 类型/构建无变化 |
-| P2 | shadow | 裁剪候选、预算、原始结果可查 |
-| P3 | shadow | 摘要生成但不提交；校验失败率 |
-| P4 | shadow → active | 请求上下文、Usage、边界 |
-| P5 | resume shadow → active | 中断识别、恢复不重复副作用 |
-| P6 | active | 长任务 E2E、UI |
-
-任何阶段出现以下情况立即回退：
-
-- 用户原话被改动；
-- Web/CLI 边界被破坏；
-- 摘要被当执行事实；
-- 恢复重复写文件/命令；
-- Journal 或检查点损坏；
-- 任务无法完成/频繁误判。
-
-## 4. 数据迁移
-
-### 4.1 旧任务
-
-- 无 `contextId/checkpointId/activeRunId`：按未压缩；
-- 无 `context/owners/<ownerType>/<ownerId>.json`：不创建空文件；
-- 旧报告无检查点：不补造；
-- 旧事件不迁移；
-- 旧 AgentTask 与 Conversation 都可继续；Conversation 不伪造 AgentTask。
-
-### 4.2 新任务
-
-首次压缩时创建检查点文件；失败不阻塞任务。
-
-### 4.3 回滚
-
-1. `contextManagerMode=off`；
-2. 停止使用新检查点；
-3. 保留 `context/` 目录（不删，便于排查）；
-4. 任务指针可忽略；
-5. 如需恢复旧行为，不修改 `agent-store.json` 事件。
-
-检查点文件不参与任务状态机；关闭后任务仍可继续。
-
-## 5. 备份与恢复
-
-现有备份需要加入：
-
-- `context/owners/` 与 `context/archive/`；
-- 备份清单记录检查点数量/大小；
-- 恢复顺序：Journal → context 文件；
-- 缺失 context 文件：按未压缩恢复；
-- 缺失检查点：记录 stale，回退上一个或未压缩；
-- 不把检查点写入项目工作区。
-
-## 6. 监控与诊断
-
-### 事件
-
-- `context.budget.warning`
-- `context.compaction.started`
-- `context.compaction.summary.ready`
-- `context.compaction.committed`
-- `context.compaction.failed`
-- `context.compaction.stale`
-- `context.recovered`
-
-### 指标
-
-| 指标 | 用途 |
-| --- | --- |
-| 压缩次数/失败率 | 稳定性 |
-| 压缩前/后 Token | 效果 |
-| 摘要费用 | 成本 |
-| 溢出恢复次数 | 预算算法 |
-| 估算误差 | 校准 |
-| 恢复次数/失败 | 长任务可靠性 |
-| 重复副作用拦截 | 安全 |
-
-### 诊断入口
-
-- 轨迹页：压缩/恢复事件；
-- 统计页：成本与效果；
-- 事件详情：checkpointId、范围、模型、失败原因；
-- 日志：不输出摘要全文与敏感信息。
-
-## 7. 故障处置
-
-| 现象 | 处置 |
-| --- | --- |
-| 摘要失败 | 关闭摘要，保留裁剪；任务继续 |
-| 检查点损坏 | 回退未压缩；记录 stale |
-| Journal 指针丢失 | 忽略孤儿检查点；任务用旧上下文 |
-| 归档段缺失 | 不裁剪该段；记录 stale |
-| 检查点 prepared 未提交 | 不当作活动上下文 |
-| 恢复重复副作用 | 立即停恢复；人工核对；关闭 resume |
-| 上下文仍溢出 | 降低请求信息量；停止并说明 |
-| 任务卡在 interrupted | 提供“检查并继续 / 放弃” |
-| 成本异常 | 关闭摘要；检查模型与触发阈值 |
-
-## 8. 发布门禁
-
-进入默认 active 前必须：
-
-1. P0–P4 全部测试通过；
-2. P5 真机恢复通过；
-3. P6 30 步 E2E 通过；
-4. 回滚演练通过；
-5. 旧数据兼容验证；
-6. 备份/恢复验证；
-7. 文档与状态板一致；
-8. 无未处理的高风险问题。
-
-## 9. 回滚演练
-
-每次发布前执行：
-
-1. 开启 active 执行一次带压缩任务；
-2. 关闭开关；
-3. 用旧路径继续任务；
-4. 验证任务历史、文件、证据未丢；
-5. 删除测试检查点；
-6. 记录耗时与问题。
-
-## 10. 支持与已知限制
-
-已知限制（实施时更新）：
-
-- Provider 窗口未知时只能保守预算；
-- Web/CLI 可能没有 usage；
-- 摘要模型可能产生 claim，必须标 certainty；
-- 恢复不能自动判断所有外部副作用；
-- 检查点保留数量有限，旧摘要会被清理；
-- 旧任务不回溯生成检查点。
-
-## 11. 运维检查清单
-
-- [ ] 开关可关闭
-- [ ] 检查点目录可备份
-- [ ] 旧 Journal 可读
-- [ ] 轨迹/统计可见
-- [ ] 恢复失败有出口
-- [ ] 回滚演练通过
-- [ ] 文档更新
-- [ ] 未推送远程（除非用户授权）
+需要迁移或恢复 userData 时，`agent-store.json` 和整个 `context-checkpoints/` 必须来自同一份备份；只恢复其中一侧可能令活动指针变为 stale。备份/恢复工具是否自动包含该目录，以当前发布检查清单为准；未确认前不得宣称自动备份已覆盖。

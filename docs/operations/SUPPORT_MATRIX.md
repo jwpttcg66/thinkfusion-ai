@@ -1,7 +1,7 @@
 # V3 支持矩阵
 
 日期：2026-11-20。
-用途：P6-08 发布门禁的支持范围；与 `RELEASE_OPERATIONS.md` 配套。
+用途：P6-08 发布门禁的支持范围；当前支持范围以本矩阵和 [implementation/STATUS.md](../implementation/STATUS.md) 为准；旧 P6 设计见 archive。
 
 ## 1. 运行环境
 

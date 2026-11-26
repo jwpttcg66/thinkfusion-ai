@@ -1,10 +1,10 @@
 # 通信协议：`desktop-agent/v1`
 
-> **适用范围已收窄。** 这是三套协议中的**本地执行协议**，只在"需要动本地文件"的任务里出现。问答、研究、多 AI 综合走 `thinkfusion/conversation/v1` 与 `thinkfusion/research/v1`，那两套不要求模型输出 JSON。见 [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) 第 3 节。
+> **适用范围已收窄。** 这是按需工程执行协议：当工程任务需要本地工具 Runtime 时使用。Planner 可由 Web、Local 或 Cloud adapter 承担；问答、研究和多 AI 综合不要求输出此 JSON 协议。当前代码没有独立的 `thinkfusion/conversation/v1` / `thinkfusion/research/v1` 外部协议；对话结果走共享 TypeScript 契约和持久化事件。见 [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。
 >
 > 本文档以下内容不变：解析规则、回声剥离、回答归属，全部继续适用于执行链路。
 
-模型通道是一条网页。DeepSeek 不会给我们回调，也不会遵守我们的 schema——它只是在聊天框里写字。所以协议必须能在**渲染后的 markdown** 上工作，而不是在理想的 JSON 输出上工作。
+模型适配器的共同输出是文本。Web adapter 从真实页面渲染结果提取文本，Local/Cloud adapter 从 Provider response 取文本；所有文本都按不可信输入解析，不能假设模型严格返回 JSON。
 
 这份文档记录协议词汇、解析规则，以及每条规则对应的真实故障。
 
@@ -14,9 +14,9 @@
 
 | 方向 | 形式 | 谁产生 |
 | --- | --- | --- |
-| 应用 → DeepSeek | 纯文本提示词，内嵌一个 JSON 结构示例 | `buildInitialPrompt` / `buildReportPrompt` |
-| DeepSeek → 应用 | 三种结构化消息（见下） | 模型 |
-| 执行结果 → DeepSeek | `execution_report`，由本地 Runtime 产生后作为文本发回 | `src/agent/index.ts` |
+| 应用 → Planner adapter | 工程计划契约与本轮数据 | `buildInitialPrompt` / `buildReportPrompt` |
+| Planner adapter → 应用 | 文本，其中可能含以下协议消息 | Web DOM adapter 或 Local/Cloud Provider |
+| Runtime → Planner adapter | `execution_report`，本地 Runtime 产生并编码为文本 | `src/agent/index.ts` |
 
 提示词里给出的 id（`taskId` / `roundId`）必须原样回填。模型改写 id 是最常见的失败形态，因此解析时会比对当前轮次，不匹配即拒绝。
 
@@ -71,7 +71,7 @@
 
 ## 解析：为什么不能只找 ```json
 
-**渲染后的代码块没有围栏。** 这是本会话最重要的发现。DeepSeek 页面上 `innerText` 拿到的只有 JSON 本体，没有 ``` 标记——围栏是 DOM 结构，不是文本。只认围栏的解析器在真实页面上必然失败。
+Web 页面可能只在 DOM 结构上呈现代码围栏，`innerText` 读到的只有 JSON 本体；Local/Cloud 返回文本也可能有无围栏 JSON。因此解析器不能只依赖 ```json 标记。
 
 `extractJsonBlocks` 因此按三级顺序尝试：
 
@@ -88,7 +88,7 @@
 
 ## 回声剥离（echo stripping）
 
-发回执行报告时，页面里同时存在我们的提示词和模型的回答。把整段文本当回答会把自己的话当成对方的。
+Web 执行规划时，页面里可能同时存在发送的请求和模型回答。把整段页面文本当回答会把自己的话当成对方的；API Provider 则用 requestId 关联请求和响应。
 
 `stripEcho` 先用规范化文本定位提示词，再用 offset 映射回原文切掉那一段。**必须按连续区域删除，不能按行删除**：协议块里 `"protocol": "desktop-agent/v1",` 这类行两边都有，按行删会把 JSON 的字段删掉——这个 bug 曾经让所有报告轮的解析全部失败。
 
@@ -111,4 +111,4 @@
 
 所有 `args.path` 都是**相对工作区的相对路径**。提示词里明确写了这一条，并说明工作区路径本身不要写进 path。
 
-不写这条时，DeepSeek 会把绝对工作区路径拼进 path，被 Runtime 拒绝（`GRANT_INVALID`），然后下一轮才改用 `.`——每个任务白白浪费一轮。`check-protocol.mjs` 断言了这条规则的存在。
+不写这条时，Planner 可能把绝对工作区路径拼进 path，被 Runtime 拒绝（`GRANT_INVALID`）。`check-protocol.mjs` 断言路径规则存在。

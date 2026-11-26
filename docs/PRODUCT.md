@@ -14,9 +14,9 @@
 > 本文是产品方向 V3（2026-11-18），取代此前「可验证的多模型审辩平台」的定位。
 > 新定位已经冻结。代码主体已迁移到协作引擎、工程空间与证据链；
 > 实际阶段状态以 [implementation/STATUS.md](implementation/STATUS.md) 为准。
-> 长任务与压缩已实现但默认关闭（`THINKFUSION_CONTEXT_MANAGER=active` 启用），
+> 长任务与压缩已实现但默认关闭（环境变量可覆盖，默认由 `context-manager.json` 配置），
 > 状态以 [implementation/STATUS.md](implementation/STATUS.md) 为准；迁移背景见
-> [架构/迁移计划](architecture/MIGRATION_PLAN.md)。
+> [架构/迁移计划](archive/architecture/MIGRATION_PLAN-2026-11.md)。
 
 ---
 
@@ -104,8 +104,10 @@
 **辩论、质疑、反例、交叉评审、方案竞争都只是可使用的协作行为**，由任务和运行时状态决定，
 不是每个任务的必经阶段。没有矛盾就不辩；有矛盾才组织交叉审查。
 
-协作行为目录与调度规则见
-[COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md)。
+当前协作代码边界见 [ARCHITECTURE.md](ARCHITECTURE.md)；目标设计专题见
+[DMOCA](architecture/V3-DYNAMIC-MULTI-MODEL-ORCHESTRATION.md)、
+[GDC](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md) 与
+[TDL/ECO](architecture/V3-GOAL-TDL-ECO-ARCHITECTURE.md)。
 
 ---
 
@@ -136,7 +138,7 @@
 5. 完整轨迹与原始输出（按需进入）
 
 Debate / Review / Verification 是可选协作行为，不是每个任务的必经舞台。细节见
-[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)。
+[`docs/spec/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md`](archive/spec/task-books/main-activity/V3-MAIN-ACTIVITY-COLLABORATION-RESULT-TASK-BOOK.md)。
 
 工程空间进一步升级为**用户目标驱动的循环式协作**（Goal-Driven Iterative Engineering）：
 以用户目标为最高依据，多轮分析→设计→按需辩论→计划→实现→审核→结论，局部可回退。
@@ -203,9 +205,9 @@ Debate / Review / Verification 是可选协作行为，不是每个任务的必�
 
 ## 9. 文档地图
 
-- 协作引擎、任务生命周期、调度与证据契约：[architecture/COLLABORATION_ARCHITECTURE.md](architecture/COLLABORATION_ARCHITECTURE.md)
-- 工程工作空间：[architecture/ENGINEERING_WORKSPACE.md](architecture/ENGINEERING_WORKSPACE.md)
-- 从现有代码如何迁过来：[architecture/MIGRATION_PLAN.md](architecture/MIGRATION_PLAN.md)
+- 当前代码架构：[ARCHITECTURE.md](ARCHITECTURE.md)
+- 工程目标循环：[architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)
+- 已完成迁移的历史记录：[archive/README.md](archive/README.md)
 - 版本路线与完成判据：[ROADMAP.md](ROADMAP.md)
 - 当前能力与快速开始：[README.zh-CN.md](../README.zh-CN.md)
 - 全部文档索引：[docs/README.md](README.md)

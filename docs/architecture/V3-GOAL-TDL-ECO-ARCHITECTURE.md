@@ -1,7 +1,7 @@
 # ThinkFusion V3 整体架构：Goal → TDL → Cycle → Execution + ECO + DMOCA
 
 **版本：** V2.0  
-**状态：** DESIGN → 实施中  
+**文档角色：** Goal/TDL/ECO 目标架构设计；当前实现状态见 [STATUS](../implementation/STATUS.md)。<br>
 **原则：** 复用现有 Orchestrator / Journal / GDC / TDL / DMOCA / ContextManager；不另建 Runtime。
 
 ## 四个核心业务层

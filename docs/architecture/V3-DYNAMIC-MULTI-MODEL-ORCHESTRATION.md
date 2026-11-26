@@ -2,10 +2,10 @@
 
 **文档版本：** V1.0  
 **任务编号：** DMOCA-V3  
-**参考审计基线：** `e903c56854e1bfb6c5b9afd38b234803ca917f2f`  
+**文档角色：** DMOCA 目标设计；当前实现状态见 [STATUS](../implementation/STATUS.md)。<br>
 **定位：** Collaboration Engine 内部的动态协作决策与贡献管理能力——**不是**第二套 Agent Runtime。
 
-正式实施任务书见：[`../spec/V3-DMOCA-TASK-BOOK.md`](../spec/V3-DMOCA-TASK-BOOK.md)。
+正式实施任务书见：[`../spec/V3-DMOCA-TASK-BOOK.md`](../archive/spec/task-books/dmoca/V3-DMOCA-TASK-BOOK.md)。
 
 ## 为何是核心协作升级
 

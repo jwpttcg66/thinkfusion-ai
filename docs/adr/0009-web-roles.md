@@ -3,8 +3,8 @@
 - 状态：Accepted
 - 日期：2026-11-18
 - 决策者：用户
-- 相关：`AGENTS.md` 第 2/6 节、[P1-002](../implementation/P1-002-DOMAIN-RUNTIME-CONTRACT.md)、
-  [CAPABILITY_MODEL](../architecture/CAPABILITY_MODEL.md)
+- 相关：`AGENTS.md` 第 2/6 节、[P1-002](../archive/implementation/audits/P1-002-DOMAIN-RUNTIME-CONTRACT.md)、
+  [AGENTS.md](../../AGENTS.md) §2
 
 ## 背景
 

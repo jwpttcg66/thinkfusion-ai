@@ -12,7 +12,7 @@
 2. 必须来自主 frame（不是内嵌页，也不是 iframe）
 3. frame 的 URL 必须是 `file://` 或 dev server 的 localhost
 
-不满足就抛 `IPC sender rejected`。这样即使内嵌的 DeepSeek 页面被注入脚本，它也调不到任何能力——它根本不在同一个 webContents 里，而且内嵌视图是 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。
+不满足就抛 `IPC sender rejected`。这样即使内嵌 Web 页面被注入脚本，它也调不到任何能力——它根本不在同一个 webContents 里，而且内嵌视图是 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。
 
 参数一律按 `unknown` 接收，再用 Zod 解析。**没有"相信渲染进程"的分支。**
 
@@ -88,7 +88,7 @@
 
 `app:set-source` 只切换"哪一页在前台"，不负责加载：视图是首次用到时才创建的，创建和首屏加载都在后台进行，所以返回值会带着 `loading: true` 立刻回来，页面真正就绪后再补一条 `sources:changed`。让按钮等一个几秒钟的加载，等于让按钮看起来是坏的。
 
-`sourceId` 只能是 `shared/sources.ts` 里列出的 id；不认识的值直接抛错，不猜。
+`sourceId` 必须存在于当前 SourcesState（内置或用户配置来源）；不认识的值直接抛错，不猜。`deepseek:*` IPC 名是历史兼容命名，部分处理器现已按 `sourceId` 工作，不代表只支持 DeepSeek。
 
 ## 布局
 

@@ -1,8 +1,7 @@
 # 长任务与上下文压缩 · UI 规格
 
-状态：设计冻结，未实施  
-基线：`main` · `e336ae4` · 2026-11-24  
-相关：[契约](LONG_TASK_CONTEXT_CONTRACTS.md) · [架构](../architecture/LONG_TASK_AND_CONTEXT_COMPACTION.md) · [任务书](../implementation/LONG-TASK-CONTEXT-TASK-BOOK.md)
+文档角色：上下文 UI 的展示与可追溯性规范；当前实现状态见 [STATUS.md](../implementation/STATUS.md)。<br>
+相关：[契约](LONG_TASK_CONTEXT_CONTRACTS.md) · [架构](../archive/architecture/LONG_TASK_AND_CONTEXT_COMPACTION-2026-11-24.md)
 
 ## 1. 原则
 

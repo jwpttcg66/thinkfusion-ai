@@ -145,5 +145,5 @@ unregisterPage('deepseek-web')
 
 ## 相关文档
 
-- `desktop-agent-macos/docs/HARNESS_BASELINE.md` — 调研结论、模块映射、借鉴边界
+- `desktop-agent-macos/docs/archive/research/HARNESS_COMPARISON-2026-11-07.md` — 调研结论、模块映射、借鉴边界
 - `desktop-agent-macos/spike/plan-to-chunks.mjs` — 驱动真实适配器跑一遍协议断言

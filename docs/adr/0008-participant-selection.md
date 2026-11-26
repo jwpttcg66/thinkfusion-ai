@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-11-18
 - 决策者：用户
-- 相关：`AGENTS.md` 第 2 条、[协作架构](../architecture/COLLABORATION_ARCHITECTURE.md) §5.1
+- 相关：`AGENTS.md` 第 2 条、[AGENTS.md](../../AGENTS.md) §2 与当前 [As-built 架构](../ARCHITECTURE.md)
 
 ## 背景
 
