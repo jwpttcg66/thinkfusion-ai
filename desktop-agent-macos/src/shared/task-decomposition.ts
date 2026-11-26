@@ -815,12 +815,12 @@ export function ensurePlanDecomposition(
   };
 }
 
-/** 把分解结果变成审批前能看见的判据（不参与「能不能执行」的权限判断）。 */
+/** 把分解结果变成审批前能看见的质量警告（不参与「要不要人批准」的权限判断）。 */
 export function decompositionWarnings(result: PlanDecompositionResult): string[] {
   const warnings: string[] = [];
   if (result.needsAnalysis) {
     warnings.push(
-      `NEEDS_ANALYSIS：${result.reason}。请补充任务分解后再执行；当前任务树只有 L1→L3。`
+      `NEEDS_ANALYSIS：${result.reason}。当前任务树只有 L1→L3，没有可独立验收的 L2（不影响权限判定）。`
     );
   }
   if (result.source === 'derived') {

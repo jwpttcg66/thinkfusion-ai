@@ -24,7 +24,7 @@ import type { WorkflowDefinition } from '../shared/workflow';
 import { validateWorkflow, workflowToPlan } from '../shared/workflow';
 import { findWorkflow, selectWorkflow } from '../shared/workflow-registry';
 import { checkVersionChain, versionConsistencyPrompt } from '../shared/version-consistency';
-import { approvalPolicyFor } from '../shared/approval';
+import { approvalPolicyFor, planApprovalGate } from '../shared/approval';
 import {
   assessCollaborationRisk,
   checkPlanCapabilities,
@@ -1782,9 +1782,10 @@ export class AgentOrchestrator {
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     const gate = checkPlanCapabilities(stored.plan);
     // TDL L2：分解在审批前定稿。模型给了用模型的；没给且任务够复杂就按写入
-    // 目标归纳；归纳不出来标 NEEDS_ANALYSIS，并取消「完全权限自动批准」，
-    // 让缺 L2 这件事必须被人看见——不能因为权限高就静默当成功。
+    // 目标归纳；归纳不出来标 NEEDS_ANALYSIS，作为计划警告与日志记录。
+    // 它是质量问题，不是权限问题：不能拿它推翻完全权限的自动批准。
     const decomposition = ensurePlanDecomposition(stored.plan);
+    const planGate = planApprovalGate(task.permissionPreset, decomposition.needsAnalysis);
     const planPreview = toPreview(stored, [
       ...gate.missing,
       ...decompositionWarnings(decomposition)
@@ -1792,10 +1793,10 @@ export class AgentOrchestrator {
     if (decomposition.items.length > 0) {
       planPreview.decomposition = decomposition.items;
     }
-    if (decomposition.needsAnalysis) {
+    if (planGate.decompositionNote) {
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'warn',
-        message: `TDL：${decomposition.reason}；计划需人工确认，任务树暂无独立验收的 L2。`
+        message: `TDL：${decomposition.reason}；${planGate.decompositionNote}，任务树暂无独立验收的 L2。`
       });
     }
     this.deps.emit({
@@ -1845,15 +1846,10 @@ export class AgentOrchestrator {
     }
 
     // 完全权限就不再要人点两次：计划审批与逐步骤审批问的都是「这台机器允许
-    // 做这些吗」，而这一档已经回答过了。评审仍然跑（那是质量问题，不是权限
-    // 问题）；评审结束就开工，并留一条事件说明这是自动的，不是漏了审批。
-    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan && !decomposition.needsAnalysis) {
+    // 做这些吗」，而这一档已经回答过了。方案评审、NEEDS_ANALYSIS 都是质量
+    // 问题，照常跑、照常记警告，但不能把它们变成第二次权限申请。
+    if (planGate.autoApprovePlan) {
       this.autoApprovePlan(taskId, roundId, stored.planId);
-    } else if (approvalPolicyFor(task.permissionPreset).autoApprovePlan && decomposition.needsAnalysis) {
-      this.deps.emit({
-        type: 'log', at: Date.now(), taskId, level: 'warn',
-        message: '完全权限本可自动批准，但计划缺可独立验收的 L2 子任务（NEEDS_ANALYSIS），改为等待人工确认。'
-      });
     }
   }
 

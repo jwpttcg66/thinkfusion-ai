@@ -110,7 +110,9 @@ function listenersOn(port) {
 }
 
 async function ensurePortFree() {
-  const stale = [...new Set([...listenersOn(PORT), ...listenersOn(5173)])];
+  // 只清本次要用的 CDP 端口。5173 可能是用户正在用的 dev 实例，绝不能 kill；
+  // electron-vite 看到 5173 被占会自动换 5174，findRenderer 两者都认。
+  const stale = [...new Set(listenersOn(PORT))];
   if (stale.length === 0) return [];
   for (const pid of stale) {
     try { process.kill(pid, 'SIGKILL'); } catch { /* 已退出 */ }
@@ -364,6 +366,7 @@ async function main() {
 
   const approvedPlans = new Set();
   const approvedSteps = new Set();
+  let awaitingApprovalSeen = false;
   let printed = 0;
   let terminal = null;
   let shotSecondPlan = false;
@@ -372,6 +375,7 @@ async function main() {
   while (Date.now() < deadline) {
     await sleep(800);
     const task = await tryEval(`window.agentAPI.getTask(${JSON.stringify(taskId)})`);
+    if (task?.status === 'awaiting_approval') awaitingApprovalSeen = true;
     const events = (await tryEval(`window.agentAPI.getTaskEvents(${JSON.stringify(taskId)})`, 45000, [])) ?? [];
     for (const event of events.slice(printed)) {
       const item = compactEvent(event, evidenceFacts);
@@ -410,6 +414,7 @@ async function main() {
     while (Date.now() - pendingAt < 45000 && Date.now() < deadline + 45000) {
       await sleep(2000);
       const task = await tryEval(`window.agentAPI.getTask(${JSON.stringify(taskId)})`);
+      if (task?.status === 'awaiting_approval') awaitingApprovalSeen = true;
       const events = (await tryEval(`window.agentAPI.getTaskEvents(${JSON.stringify(taskId)})`, 45000, [])) ?? [];
       for (const event of events.slice(printed)) evidence.events.push(compactEvent(event, evidenceFacts));
       printed = events.length;
@@ -426,6 +431,19 @@ async function main() {
     ? { status: terminal.status, error: terminal.error ?? null, summary: terminal.summary ?? null }
     : { status: (await tryEval(`window.agentAPI.getTask(${JSON.stringify(taskId)})`))?.status ?? 'timeout', timedOut: true };
   evidence.result = classify();
+  evidence.approvalObserved = {
+    awaitingApprovalSeen,
+    plansClicked: approvedPlans.size,
+    stepsClicked: approvedSteps.size,
+    needsAnalysisWarnings: evidence.events.filter(event =>
+      event.type === 'log' && /NEEDS_ANALYSIS|TDL 缺可独立验收的 L2/.test(event.message ?? '')
+    ).map(event => event.message)
+  };
+  note(
+    'full-access-no-plan-approval',
+    !awaitingApprovalSeen && approvedPlans.size === 0,
+    `awaiting=${String(awaitingApprovalSeen)} plansClicked=${String(approvedPlans.size)} NEEDS_ANALYSIS=${String(evidence.approvalObserved.needsAnalysisWarnings.length)}`
+  );
   note('task-terminal', ['completed', 'failed', 'cancelled'].includes(evidence.terminal.status), JSON.stringify(evidence.terminal));
 
   await shot('02-final.png');
@@ -456,6 +474,7 @@ async function main() {
       `- 报告证据重复：${String(result.repeatedEvidence)}；评审问题重复：${String(result.repeatedReview)}`,
       `- cycle.snapshot：${JSON.stringify(result.snapshots)}`,
       `- 闸门拦截：${JSON.stringify(result.guards)}`,
+      `- 完全权限审批：等待审批=${String(evidence.approvalObserved.awaitingApprovalSeen)}，人工点计划=${String(evidence.approvalObserved.plansClicked)}，NEEDS_ANALYSIS 警告=${String(evidence.approvalObserved.needsAnalysisWarnings.length)} 条`,
       '',
       '## 事件',
       '',

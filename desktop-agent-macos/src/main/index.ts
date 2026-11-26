@@ -5480,6 +5480,33 @@ function isMissingTerminal(error: unknown): boolean {
  */
 app.setName('ThinkFusion');
 
+/**
+ * Pin the data folder, because `userData` is derived from the app name.
+ *
+ * Without this, renaming the app would move the folder to `…/ThinkFusion` and
+ * every saved channel, every edited URL and the chosen display name would look
+ * deleted on the next launch — the exact failure the persistence work was
+ * about. The folder keeps the name it has always had: renaming it is a data
+ * migration, and a migration that can only be tested on other people's machines
+ * is not worth the tidier path.
+ *
+ * 必须早于 requestSingleInstanceLock：锁文件放在 userData 里。放在锁之后，
+ * 设了 THINKFUSION_USER_DATA 的隔离实例仍会用默认目录的锁，看到用户在跑就
+ * 直接退出——真机 CDP 验收因此连不上（devtools 端口一闪就没了）。
+ */
+app.setPath(
+  'userData',
+  // 测试/验收实例必须能隔离数据目录：两个实例共用一个 userData 会互相覆盖
+  // agent-store.json，真机上就出现过用户任务与 121 条事件凭空消失。设了
+  // THINKFUSION_USER_DATA（绝对路径）就只写那个目录，正式运行不受影响。
+  (() => {
+    const override = process.env.THINKFUSION_USER_DATA;
+    return override && path.isAbsolute(override)
+      ? override
+      : path.join(app.getPath('appData'), 'thinkfusion-ai');
+  })()
+);
+
 // 单实例锁：两个实例共用同一 userData 会互相覆盖 agent-store.json，
 // 表现为任务/诊断记录凭空消失。第二个实例只负责把已有窗口唤到前台。
 if (!app.requestSingleInstanceLock()) {
@@ -5494,29 +5521,6 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 }
-
-/**
- * Pin the data folder, because `userData` is derived from the app name.
- *
- * Without this, renaming the app would move the folder to `…/ThinkFusion` and
- * every saved channel, every edited URL and the chosen display name would look
- * deleted on the next launch — the exact failure the persistence work was
- * about. The folder keeps the name it has always had: renaming it is a data
- * migration, and a migration that can only be tested on other people's machines
- * is not worth the tidier path.
- */
-app.setPath(
-  'userData',
-  // 测试/验收实例必须能隔离数据目录：两个实例共用一个 userData 会互相覆盖
-  // agent-store.json，真机上就出现过用户任务与 121 条事件凭空消失。设了
-  // THINKFUSION_USER_DATA（绝对路径）就只写那个目录，正式运行不受影响。
-  (() => {
-    const override = process.env.THINKFUSION_USER_DATA;
-    return override && path.isAbsolute(override)
-      ? override
-      : path.join(app.getPath('appData'), 'thinkfusion-ai');
-  })()
-);
 
 function buildManagedNeo4j(config: CodeIntelligenceConfig): ManagedNeo4j | null {
   if (!config.managed || !config.neo4jHome || !config.neo4jUrl) return null;

@@ -29,6 +29,35 @@ export function approvalPolicyFor(preset: PermissionPreset): ApprovalPolicy {
   return { autoApprovePlan: false, stepApproval: 'mutating' };
 }
 
+/**
+ * 计划审批门禁：权限档决定要不要人点，TDL 的 NEEDS_ANALYSIS 只是质量问题。
+ *
+ * 起因（2026-11-26 用户现场反馈）：完全权限下仍弹出「确认并执行」。真机事件
+ * 显示计划缺可独立验收的 L2，编排器把这一事实当成第二次审批理由，推翻了
+ * `danger-full-access → autoApprovePlan`。两件事不是一个层级：权限回答「这台
+ * 机器能不能做」，分解回答「任务树好不好」，后者要先记警告、照常开工。
+ */
+export interface PlanApprovalGate {
+  autoApprovePlan: boolean;
+  /** 缺 L2 时的日志口径；没有这个警告时为空串。 */
+  decompositionNote: string;
+}
+
+export function planApprovalGate(
+  preset: PermissionPreset,
+  needsAnalysis: boolean
+): PlanApprovalGate {
+  const policy = approvalPolicyFor(preset);
+  return {
+    autoApprovePlan: policy.autoApprovePlan,
+    decompositionNote: !needsAnalysis
+      ? ''
+      : policy.autoApprovePlan
+        ? 'TDL 缺可独立验收的 L2：已记入计划警告，属于质量问题，不阻塞自动批准'
+        : 'TDL 缺可独立验收的 L2：计划需人工确认时请连同警告一起查看'
+  };
+}
+
 /** 界面上这一档要怎么解释，避免「选了完全权限却还在等按钮」的困惑。 */
 export function approvalHintFor(preset: PermissionPreset): string {
   const policy = approvalPolicyFor(preset);
