@@ -3,13 +3,13 @@
 **文档版本：** V1.0  
 **文档性质：** 产品设计与系统架构说明书  
 **适用范围：** ThinkFusion V3  
-**状态：** DESIGN（方向冻结；运行时以 STATUS + 任务书为准）  
-**基线：** `origin/main@d152137`  
+**文档角色：** Goal-Driven Iterative Engineering 目标架构；当前实现状态见 [STATUS](../implementation/STATUS.md)。<br>
+**设计快照：** 2026-11-25；当前代码状态见 [STATUS](../implementation/STATUS.md)<br>
 **核心机制：** Goal-Driven Iterative Engineering Collaboration  
 **设计原则：** 用户目标驱动、循环式协作、证据驱动决策、持续迭代、全过程可追溯
 
 > 本文确立产品和架构方向。正式实施见  
-> [`docs/spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md`](../spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md)。  
+> [`docs/spec/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md`](../archive/spec/task-books/gdc/V3-GOAL-DRIVEN-CYCLE-TASK-BOOK.md)。<br>
 > **不另建** Agent Runtime / Journal / Approval / Verifier / EvidenceStore；复用 Collaboration Engine。
 
 ---
@@ -90,7 +90,7 @@ ThinkFusion V3 应从一次性执行升级为**用户目标驱动的循环式工
 
 主工程 + 子任务独立循环；子任务通过 ≠ 主工程通过；并行须有边界与冲突规则。
 
-**WorkTask 正式落点：** 见 [`V3-TASK-DECOMPOSITION-LAYER.md`](./V3-TASK-DECOMPOSITION-LAYER.md)（Task Decomposition Layer）与任务书 [`V3-TASK-DECOMPOSITION-TASK-BOOK.md`](../spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md)。本节只保留产品原则；契约、投影与进度面板以 TDL 文档为准。
+**WorkTask 正式落点：** 见 [`V3-TASK-DECOMPOSITION-LAYER.md`](V3-TASK-DECOMPOSITION-LAYER.md)（Task Decomposition Layer）与任务书 [`V3-TASK-DECOMPOSITION-TASK-BOOK.md`](../archive/spec/task-books/task-decomposition/V3-TASK-DECOMPOSITION-TASK-BOOK.md)。本节只保留产品原则；契约、投影与进度面板以 TDL 文档为准。
 
 ---
 

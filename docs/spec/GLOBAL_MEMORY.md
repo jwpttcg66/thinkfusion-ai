@@ -1,8 +1,7 @@
 # 全局记忆系统 · 实施基线 V3.0
 
-> 状态：**已定义**（P0 归档）。实现状态见 `GLOBAL_MEMORY_STATUS.md`，四态单向证据链见同文件。
-> 审计基线：`main @ 1e8d5ec9bdd1fffbdc6a6c15b9b396c6d6b16916`；本文件归档时 SHA `1e8d5ec`。
-> 审计证据：`GLOBAL_MEMORY_AUDIT.md`。实施任务书原文：`~/Downloads/ThinkFusion_全局记忆系统_实施任务书_V3.0_定稿.md`（仓库外）。
+> 文档角色：全局记忆的数据模型、注入边界与治理规范；本文不维护实现状态。
+> 当前能力状态见 [implementation/STATUS.md](../implementation/STATUS.md)。早期审计/验收材料已归档，不作为当前代码基线。
 
 本文只写**实现必须遵守的判据**。不做架构讨论；不新增第二套 Runtime / Journal / Verifier / EvidenceStore。
 
@@ -19,11 +18,13 @@ function canonicalSystem(parts: readonly string[]): string {
 }
 ```
 
-| 层级 | 字段 | 在哪里算 | 算的是什么 | 能证明 |
+| 层级 | 字段 | 在哪里算 | 哈希对象 | 能证明 |
 |---|---|---|---|---|
-| L1 | `contextHash` | `src/main/memory/context.ts` | `sha256(renderedText)` | 应用**构造**了这段记忆上下文 |
-| L2 | `submittedSystemHash` | 调用点，紧邻 `provider.ask(task)` 之前，从**同一个** `task.system` 数组算 | `sha256(canonicalSystem(task.system))` | 这段内容**进入了 Provider 调用层** |
-| L3 | `providerSystemHash` | Provider 适配器内部，从**它自己拼好的 messages** 里取 `role==='system'` 的 content 重新 join 后算 | `sha256(canonicalSystem(assembledSystemMessages))` | 适配器**实际拼装并提交给传输层**的载荷含该块 |
+| L1 | `contextHash` | `src/main/memory/context.ts` | `sha256(renderedText)` | 应用构造了记忆块 |
+| L2 | `submittedSystemHash` | `src/main/memory/usage.ts`，从即将发送的 `task.system` 抽取记忆块 | `sha256(memoryBlockFromSystem(task.system))` | 记忆块进入 Provider 调用层 |
+| L3 | `providerSystemHash` | Provider 适配器，从自己组装的 messages 的 system 段反抽同一记忆块 | `sha256(memoryBlockFromSystem(assembledSystemMessages))` | Provider 组装并提交给传输层的载荷含该块 |
+
+三个哈希都覆盖**同一段记忆块**，不覆盖整份 system 数组。L2 和 L3 各自独立反抽计算，不回显 L1。记忆块由 `MEMORY_BLOCK_PREFIX` 标识并保持为 system 最后一段。
 
 配套声明：每个 Provider 适配器声明 `supportsSystemHash: boolean`。本地 `ollama`、云端 `openai-compatible` 为 `true`；CLI/Web 无此概念（恒 `skipped`）。
 **声明是 §1.2 判定的输入，不能省**——否则"不支持"和"有 bug 把 system 丢了"无法区分。
@@ -82,11 +83,12 @@ L3 最多证明"适配器拼装并交给传输层的载荷含这段内容"，不
 | `sourceRefs` | 0.3 |
 
 ```
-lex_f = 0.6 * jaccard(q, f) + 0.4 * coverage(q, f)
-整条 lex = Σ(w_f * lex_f) / Σ(w_f)      // 只算存在字段
-score = 0.45*lex + 0.20*kindWeight + 0.15*scopeWeight + 0.10*recency
-      + 0.05*confidence + 0.05*confirmBonus - penalty
-// 六项权重和 = 1.00
+lex_f = 0.6 * coverage(q, f) + 0.4 * jaccard(q, f)
+整条 lex = max(Σ(w_f * lex_f) / Σ(w_f), mergedFieldScore)  // 只算存在字段
+quality = 0.45 + 0.20*kindWeight + 0.15*scopeWeight + 0.10*recency
+        + 0.05*confidence + 0.05*confirmBonus
+score = lex * quality - penalty
+// lex=0 时分数必须为 0；静态质量不能制造无关命中
 
 kindWeight   constraint .90 / decision .85 / preference .80 / problem_solution .70
              fact .60 / procedure .50 / open_question .30
@@ -117,7 +119,7 @@ penalty      stale .50 / conflict .30
 | 误注入率 | ≤ 0.10 |
 | 空召回查询误命中数 | = 0 |
 
-阈值冻结：在语料上扫 `0.10 → 0.35`（步长 0.01），取满足三项指标的**最小**阈值写入 `RECALL_THRESHOLD`；`RECALL_CORPUS_VERSION='corpus-v1'`，改公式或语料必须同时改版本号并断言一致。
+当前校准值：`RECALL_THRESHOLD = 0.12`，`RECALL_CORPUS_VERSION = 'corpus-v1'`。该值是在固定语料上满足质量门槛的最小阈值；改公式或语料必须更新版本并让回归测试验证指标。
 
 ---
 
@@ -218,85 +220,12 @@ COMMIT;   -- 失败 ROLLBACK，两侧都不留半成品
 ## 6. 注入载体
 
 - 只走 `SubAgentTask.system`，**绝不改 `question`**。
-- 收口点：`SubAgentRegistry.ask/askStream`（四类链路都经过），单函数 `attachMemory()`；按 `agent.sourceType` 判定：`web → skipped/web-verbatim`；`cli → skipped/cli-no-system-turn`；`local|cloud → 注入`。
+- 收口点：`src/main/memory/runtime.ts` 的 `attachTaskMemory()`，由 Master、Collaboration、Engineering、Debate 入口显式接入；内部复用 `attachMemory()`。按 `agent.sourceType` 判定：`web → skipped/web-verbatim`；`cli → skipped/cli-no-system-turn`；`local|cloud → 注入`。
 - 关闭记忆：`enabled=false` → 所有入口 `skipped/memory-disabled`。
 - 工程 system：记忆单独成段，追加覆盖句「记忆不是本轮证据，冲突以证据为准」，与"只依据这些证据回答"调和。
 
 ## 7. requestId
 
-格式 `req_<turn>_<agentId>_<seq>`；`SubAgentTask.requestId`、`SubAgentAnswer.requestId`、`TraceEntry.callId`、`MemoryUsageEvent.requestId` 同值。P1 冻结类型，P4 接线。
+格式 `req_<turn>_<agentId>_<seq>`；`SubAgentTask.requestId`、`SubAgentAnswer.requestId`、`TraceEntry.callId`、`MemoryUsageEvent.requestId` 必须同值。各入口通过公共 Memory Runtime hook 生成/透传同一 requestId。
 
 ---
-
-## 8. 实施期校准记录（相对 V3.0 定稿）
-
-> 定稿正文 §1–§7 保留原样作为审计基线。以下 6 处是**按评审 R2 授权的
-> 「用固定语料校准评分公式」**、以及实现期发现的自身矛盾所做的必要修正。
-> 每处都给了触发它的失败证据，不是重新讨论架构。
-
-### 8.1 三哈希必须算同一个对象（修定稿 §1.1 的自相矛盾）
-
-定稿写 `contextHash = sha256(renderedText)`，又写 `submittedSystemHash =
-sha256(canonicalSystem(task.system))`，而 §1.2 要求「三哈希相等」才
-`provider-confirmed`。`task.system` 里还有原有 system 指令，L2 永远不等于 L1，
-`judgeInjection` 会一律判 `failed/hash-mismatch`，`provider-confirmed` 不可达。
-
-实现改为：三处都算**同一个记忆块**（`MEMORY_BLOCK_PREFIX` 起始、固定为 system
-最后一段）：
-- L1：`contextHashOf(renderedText)`；
-- L2：`submittedSystemHash()` 用 `memoryBlockFromSystem(task.system)` 重新抽出该块再算；
-- L3：Provider 用 `systemHashFromMessages(assembledSystemMessages)` 从自己拼好的
-  messages 的 system 段抽出该块再算。
-
-三处代码互不引用、L3 不是入参回显。守门测试（「声明支持却丢 system 的假
-Provider」→ `failed/provider-capability`）仍然有效，且实测通过。
-
-### 8.2 召回评分改为乘性质量权重（修定稿 §2.2 的基线分缺陷）
-
-定稿是 `score = 0.45*lex + 0.20*kind + 0.15*scope + 0.10*recency + …`。
-其中 0.55 与查询**完全无关**：一条毫不相关的 active 记忆也约 0.49 分，高于
-任何可行阈值 → §2.4 的「空召回零误命中」「P@5 ≥ .80」不可能达成。
-
-改为 `score = lex * quality - penalty`，`quality` 仍是那六项加权和（和 = 1.00、
-满分仍可达 1.0），但 `lex=0` 必得 0 分。静态项退化为质量放大系数，只决定同类
-命中之间的排序，不再凭空造分。
-
-### 8.3 长度归一化与多字段合并（修定稿 §2.2）
-
-`0.6*jaccard + 0.4*coverage` 在语料上暴露系统偏差：用户问题常是 12 个 bigram、
-记忆标题只有 5 个，jaccard 分母被长问题撑大，命中 2–6 个词也只有 0.13–0.2，
-召回率仅 0.25。且逐字段加权平均会稀释命中（「数据库迁移」在 content、「迁移前」
-在 title，任何单字段都覆盖不全）。
-
-改为 `0.6*coverage + 0.4*jaccard`（coverage 天然按问题长度归一），并在
-`lexScore` 里对「全字段合并后的整段」再算一次，与逐字段加权平均取 max。
-这正是评审 R2 要求明确的「长度归一化 / 多个匹配字段如何合并」。
-
-### 8.4 阈值冻结为 0.12
-
-`corpus-v1`（40 记录 / 24 查询 / 8 空召回）扫描 0.10→0.35：
-0.10 的 P@5=.783 不达标；**0.12 是满足全部指标的最小值**（P=.810 / R=.850 /
-误注入 0 / 空召回 0）；0.13/0.14 也达标但非最小；≥0.15 起 R 掉到 .80 以下。
-`.18` 作废。`check-memory-recall.mjs` 会重新扫描并断言最小值等于常量。
-
-### 8.5 拆掉 `(scope, scope_id, normalized_key)` 唯一索引
-
-唯一索引会在数据库层直接拒绝第二条同 key 的 active，于是「迁移残留 / 并发写入
-产生冲突」永远不会有实体，`detectConflicts()` 形同虚设。改为普通索引，冲突交给
-§2.3 的召回去重与 P6 的人工裁决。`importAll` 同步改为「已有 active 且内容不同则
-保留旧记录 + 记冲突审计」，不再 `INSERT OR REPLACE` 抹掉当前决策。
-
-### 8.6 注入收口点改为 `attachTaskMemory()`
-
-定稿 §6 写「收口点 `SubAgentRegistry.ask/askStream`，四类链路都经过」。
-复核源码后不成立：Master / Collaboration / Engineering / Debate 各自的
-`askStreaming` 并不都经过同一个 pool 方法。实现改为
-`src/main/memory/runtime.ts` 的 `attachTaskMemory(task, extra, scope)`：四个入口
-各 3 行（attach → 用 `hook.task` 发问 → `hook.finalize(answer)`），内部共用
-`attachMemory()` 一个函数，`question` 逐字不变。Web/CLI 的 skipped 判定、
-requestId 冻结、送达落库都在这个 hook 里，入口不重复实现。
-
-### 8.7 诚实边界不变
-
-L3 仍只证明「适配器拼装并提交给传输层的载荷含该块」，不能证明对端收到，
-也不能证明模型在推理中采用了它。UI 文案禁止写「模型已使用记忆」。

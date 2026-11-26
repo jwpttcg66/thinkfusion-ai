@@ -3,10 +3,10 @@
 **文档版本：** V1.0  
 **文档性质：** 产品设计与系统架构说明书  
 **适用范围：** ThinkFusion V3 Engineering（General/Knowledge 可选轻量分解）  
-**状态：** DESIGN（方向冻结；运行时以 STATUS + 任务书为准）  
-**基线：** `origin/main@6a15b9a`（2026-11-25）  
-**任务书：** [`docs/spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md`](../spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md)  
-**相关：** [`V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`](./V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)、[`PROGRESS_VISIBILITY.md`](../spec/PROGRESS_VISIBILITY.md)
+**文档角色：** TDL 目标架构设计；当前实现状态见 [STATUS](../implementation/STATUS.md)。<br>
+**设计快照：** 2026-11-25；当前代码状态见 [STATUS](../implementation/STATUS.md)<br>
+**任务书：** [`docs/spec/V3-TASK-DECOMPOSITION-TASK-BOOK.md`](../archive/spec/task-books/task-decomposition/V3-TASK-DECOMPOSITION-TASK-BOOK.md)<br>
+**相关：** [`V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md`](V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)、[工程可观测性约束](../../AGENTS.md#8-工程可观测性第一原则)
 
 > **不另建** Agent Runtime / Journal / Approval / TaskGrant / Verifier / EvidenceStore。  
 > **不套**任务提示词；**不冻结**流程基线。  
@@ -173,7 +173,7 @@ running → failed → ready（局部重试）或 cancelled
 
 ## 5. 进度：只投影，不臆造
 
-对齐 [`PROGRESS_VISIBILITY.md`](../spec/PROGRESS_VISIBILITY.md) 与 AGENTS §8：
+对齐 [AGENTS.md §8](../../AGENTS.md#8-工程可观测性第一原则)：
 
 - **权威输入：** WorkTask 状态变更事件 + Journal（`step.*` / `plan.*` / `report.*` / `review.*`）+ 验收证据。  
 - **禁止：** 模型输出「已完成 60%」写入权威进度；无事件不得显示完成。  

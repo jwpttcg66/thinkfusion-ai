@@ -1,15 +1,21 @@
-# macOS Accessibility helper
+# macOS Accessibility bridge
 
-Build on macOS with Xcode Command Line Tools:
+`ax-bridge.swift` is a helper process used by the Computer Use capability. It reads the frontmost application/accessibility tree and exposes a constrained set of actions: `press`, `setValue`, `keypress`, `scroll`, `drag` and `focus`.
+
+## Build
 
 ```bash
 npm run build:ax:mac
 ```
 
-The helper uses the macOS Accessibility API and currently implements read-only commands:
-- `frontmostApplication`
-- `focusedTree`
+Requires macOS and Xcode Command Line Tools. The helper binary is built into the app resources by the packaging scripts.
 
-The Electron UI invokes these commands through `PlatformAccessibility` when the user presses **读取前台应用 / 控件树**. Grant Accessibility permission to the signed helper/application in System Settings > Privacy & Security > Accessibility. Depending on how the app is launched and signed, macOS may list the helper and the host app separately.
+## Safety model
 
-This release intentionally does not expose AXPress, AX set-value, keyboard injection or arbitrary actions to the Agent. Before adding them, implement target-app allow-lists, per-action policy checks, a fresh snapshot before acting, and post-action verification. For distribution, sign the helper and app with the same Developer ID team, enable hardened runtime as appropriate, and notarize the final app.
+- Accessibility and Screen Recording are separate macOS TCC permissions; the app does not grant or bypass them.
+- Mutating actions require the task grant and the action allow-list in `src/agent/computer/`.
+- Element-targeted actions use the snapshot element identity and reject stale/changed targets. Coordinate actions require explicit authorization and bounded coordinates.
+- Keypresses use an allow-listed key map; this is not an unrestricted keyboard/shell interface.
+- Runtime evidence and status are defined by the tool result/ExecutionReport; do not infer success from a helper process exit code alone.
+
+The helper implements real actions as well as read-only inspection. Its current capabilities and known limitations are reflected in [implementation status](../../../docs/implementation/STATUS.md) and the [security model](../../SECURITY.md).

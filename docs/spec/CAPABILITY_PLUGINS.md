@@ -18,7 +18,7 @@
 
 DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服务上，声明依赖，
 宿主按 id 查表分派，注册可逆、清单可见。我们抄这个形状，不抄它的依赖链
-（[HARNESS_BASELINE](../../desktop-agent-macos/docs/HARNESS_BASELINE.md) 的既有决定仍成立：
+（[HARNESS_COMPARISON](../../desktop-agent-macos/docs/archive/research/HARNESS_COMPARISON-2026-11-07.md) 的既有决定仍成立：
 不装 cordis、不要求 node ≥24.9、不引入 232 MB monorepo）。
 
 ## 2. 一套契约、一份清单、两个宿主
@@ -233,4 +233,3 @@ status/diff/log/show/stash/branch、JSON/CSV/SQLite 真读、压缩包 round-tri
 zip-slip 拒绝、文本 base64 往返、`sips` 真缩放 1×1→8×8、环境变量打码、
 `fs.du` 字节数、`dns.lookup` 输入校验，外加「23 个工具都能写进计划且拒绝未知
 字段」这条接线回归），已接进 `npm test`。
-

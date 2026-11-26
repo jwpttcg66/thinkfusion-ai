@@ -23,7 +23,7 @@ cp -R ~/Library/Application\ Support/<旧名字> ~/Library/Application\ Support/
 公开仓库不该带本机路径，所以首次推送前重写过一次历史：
 
 - `.workbuddy-ai/` 整个目录（本地工作日志）从所有提交中移除
-- `mock-api.ts`、`HARNESS_BASELINE.md` 里的 `/Users/<用户名>/...` 换成 `/Users/example/workspace`
+- `mock-api.ts`、`desktop-agent-macos/docs/archive/research/HARNESS_COMPARISON-2026-11-07.md` 里的 `/Users/<用户名>/...` 换成 `/Users/example/workspace`
   与 `~/data/dsh-src`
 
 复查（应当只剩示例路径）：

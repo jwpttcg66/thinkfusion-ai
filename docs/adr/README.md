@@ -1,6 +1,6 @@
 # 工程智能 ADR
 
-Gate 0 的架构决策记录。状态为 `Proposed` 的条目尚未进入正式实现；`Accepted` 只表示当前阶段采用。
+架构决策记录。`Accepted` 表示方案已被采纳；若代码已落地，条目标记为 `IMPLEMENTED`。实现状态总表见 [STATUS](../implementation/STATUS.md)。
 
 | 编号 | 主题 | 状态 |
 | --- | --- | --- |
@@ -13,6 +13,6 @@ Gate 0 的架构决策记录。状态为 `Proposed` 的条目尚未进入正式�
 | 0007 | 配置驱动的 CLI Adapter | Accepted |
 | 0008 | 参与者数量由任务决定 | Accepted |
 | 0009 | 网页通道角色：知识可提问，工程只回答 | Accepted |
-| 0010 | 上下文检查点存储：独立文件 + Journal 指针 | Accepted（设计冻结，未实施） |
+| 0010 | 上下文检查点存储：独立文件 + Journal 指针 | Accepted / IMPLEMENTED |
 
 更早的 Gate 0 材料见 git 提交历史。
