@@ -1,0 +1,65 @@
+{
+  "log": [
+    {
+      "check": "cdp-ready",
+      "result": "PASS",
+      "note": "http://localhost:5173/"
+    },
+    {
+      "check": "agent-api-ready",
+      "result": "PASS",
+      "note": "getTaskHistory/getConversations"
+    },
+    {
+      "check": "data-baseline",
+      "result": "PASS",
+      "note": "tasks=1 conversations=1"
+    },
+    {
+      "check": "new-css-loaded",
+      "result": "PASS",
+      "note": "{\"chat-agent\":true,\"chat-agent-output\":true,\"parallel-rail\":true,\"parallel-lane\":true,\"parallel-turn-prompt\":true}"
+    },
+    {
+      "check": "parallel-rail-no-empty-shell",
+      "result": "PASS",
+      "note": "{\"present\":false,\"expanded\":false}"
+    },
+    {
+      "check": "dom-coexistence",
+      "result": "PASS",
+      "note": "{\"chatFeed\":false,\"conversationTabs\":false,\"channelCards\":0,\"parallelAnchors\":0,\"rail\":false,\"agentCards\":0}"
+    },
+    {
+      "check": "console-errors",
+      "result": "SKIP",
+      "note": "本次脚本未挂 CDP Log 收集；单测已覆盖接线"
+    },
+    {
+      "check": "screenshot",
+      "result": "PASS",
+      "note": "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/stage-d1d2/stage-d1d2.png"
+    }
+  ],
+  "counts": {
+    "tasks": 1,
+    "conversations": 1,
+    "taskIds": [
+      "26001e26-f488-493a-a3bb-59958e2b2888"
+    ],
+    "convIds": [
+      "10c197ef-239c-4f51-b43b-a49c93f2301c"
+    ]
+  },
+  "css": {
+    "chat-agent": true,
+    "chat-agent-output": true,
+    "parallel-rail": true,
+    "parallel-lane": true,
+    "parallel-turn-prompt": true
+  },
+  "rail": {
+    "present": false,
+    "expanded": false
+  }
+}

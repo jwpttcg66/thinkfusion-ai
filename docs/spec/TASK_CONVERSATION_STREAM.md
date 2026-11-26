@@ -17,9 +17,15 @@
 > - C1（subtype 映射）/ C2（连续 step 聚合）/ C3a 胶囊 / C3b 变更块 / C3c 产物卡片 /
 >   C4（MarkdownBody，流式降级）：`IMPLEMENTED / TESTED`，接线断言守住渲染层真的调用；
 >   真机冒烟见 `docs/spec/evidence/stage-c/`（样本未触发 diff/表格数据，边界如实记录）。
-> - **未做**：D1 子 Agent 卡片（`code.team.run` 数据够，但投影层未抽 `kind:'agent'`）；
->   D2 并行对话浮层（独立立项）。
-> - `npm run typecheck` / `npm run build` 通过，`test:task-conversation` 55 条全绿。
+> - D1 子 Agent 卡片：`IMPLEMENTED / TESTED`——投影层从 `code.team.run` 的真实
+>   `proposals` 抽 `kind:'agent'`（agentId / role / durationMs / text / failure / patches /
+>   context），无 proposals 不出卡；WorkTask 只在 `agentTaskId` / `assignedAgent` 真实命中时关联。
+> - D2 并行对话浮层：`IMPLEMENTED / TESTED`——`shared/parallel-lanes.ts` 纯投影按轮组织
+>   各通道真实回答与流式增量；App 侧独立浮层，不占主流位置，点条目跳主流锚点，
+>   中断复用 `cancel()`；只有真实回答才出线，提问名单不冒充并行对话。
+> - `npm run typecheck` / `npm run build` 通过，`test:task-conversation` 65 条全绿。
+> - 真机冒烟见 `docs/spec/evidence/stage-d1d2/`（默认数据目录，sha 前后一致）；
+>   样本没有 `code.team.run` 与多通道并行回答，D1/D2 的实际渲染由单测覆盖，边界如实记录。
 > 实现状态以 [STATUS](../implementation/STATUS.md) 为准，
 > 本节行号是写作时的工作树快照，实施时按实际文件核对。
 
@@ -340,13 +346,38 @@ interface DiffFileStat {
 
 ### 阶段 D1 · 子 Agent 卡片（C 之后立即做）
 
+> **状态（2026-11-26）：`IMPLEMENTED / TESTED`。** 投影在
+> `shared/task-conversation.ts` 的 `teamProposalsOf` / `agentWorkTasksOf`，
+> 渲染在 `TaskConversation.tsx` 的 `AgentCard`。
+
 **概念不能混**：WorkTask 是用户目标下的工作单元，Agent 是执行主体，AgentRun 是某 Agent 的一次运行，ConversationEntry 是 UI 展示内容。代码现状只有 `WorkTask.agentTaskId`（`task-decomposition.ts:34-65`），**尚无 AgentRun 类型**——不为卡片新造一套身份，引用真实 `agentTaskId` 或现有执行标识即可。
 
 卡片展示：Agent 名称、承担任务、当前状态、开始时间、耗时、真实输出、对应 WorkTask（如果存在）。没有真实数据就不出卡片，不把普通 `code.team.run` step 改个名字冒充。
 
+**已落地口径**：
+- 数据源是 `code.team.run` 完成时 `step.completed.result.proposals`，每个 proposal 的
+  `agentId / role / text / durationMs / failure / patches / context` 原样透传；
+- `kind:'agent'` 条目的 key 用 `stepKey + role + agentId`，稳定、可重复计算；
+- **开始时间**用所属 step 的 `startedAt`，界面标「起」，不伪造每个 agent 的独立开始时刻；
+- WorkTask 关联只认 `assignedAgent` / `agentTaskId` 与 `agentId` 相等，对不上就不写；
+- 结构不对、无 proposals、缺 agentId/role 时一律不出卡，step 卡本身仍保留。
+
 ### 阶段 D2 · 并行对话浮层（独立专项，最后做）
 
-涉及 App 层面板、状态管理、并行消息和中断交互（`App.tsx:2448-2469` 目前是 `chat | trajectory | stats` 单面板切换）。单独立项，不与 A–D1 捆绑。
+> **状态（2026-11-26）：`IMPLEMENTED / TESTED`。** 纯投影在 `shared/parallel-lanes.ts`，
+> 浮层在 `ParallelConversationRail.tsx`，挂在 App 的 `chat` 面板滚动区右侧；
+> 主流锚点在 `ConversationView` 的 `parallel-msg-<messageId>`。
+
+涉及 App 层面板、状态管理、并行消息和中断交互（`App.tsx` 的 `chat | trajectory | stats` 单面板切换）。按 V1.1 作为独立专项实现，不与 A–D1 的完成定义捆绑。
+
+**已落地口径**：
+- `buildParallelLanes` 按 user 消息分轮（与主流 `groupTurns` 同构），每轮各通道的
+  真实落盘回答各成一条 lane；新一轮追加，不清空上一轮；
+- 身份 = `turnKey + channelId + messageId`，不依赖数组下标；正文与思考都是原文；
+- 流式增量只在同轮同通道尚无落盘回答时出「输出中」线，落盘后让位，不产生第二条假线；
+- 没有真实回答（只有提问名单）不出浮层，不画空壳；
+- 浮层展开/收起只改呈现；点 lane 跳主流对应消息；中断按钮复用 App 的 `cancel()`，
+  不另造第二套停止逻辑；`now` 由外部注入，投影可重复计算。
 
 ## 4. 不变量与验收要求
 

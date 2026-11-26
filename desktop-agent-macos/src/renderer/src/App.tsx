@@ -52,6 +52,7 @@ import { SettingsPanel, type Section as SettingsSection } from './components/Set
 import { ResearchPanel } from './components/ResearchPanel';
 import { EngineeringWorkbenchBar, type WorkbenchTab } from './components/engineering/EngineeringWorkbenchBar';
 import { ProtocolArchive, TaskConversation } from './components/engineering/TaskConversation';
+import { ParallelConversationRail } from './components/ParallelConversationRail';
 import { CollaborationResultPanel } from './components/CollaborationResultPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
@@ -2204,6 +2205,13 @@ export default function App() {
   const activeWorkspace = workspaces.find(item => item.workspaceId === activeWorkspaceId) ?? null;
   const activeSource = sources.sources.find(source => source.id === sources.activeId) ?? null;
   const activeChannel = channelStatuses.find(channel => channel.id === sources.activeId) ?? null;
+  /** 通道图标：主流综合卡与 D2 并行浮层共用同一份，不在两处各拼一次。 */
+  const conversationGlyphs = useMemo(() => new Map<string, string>([
+    ...sources.sources.map(source => [source.id, source.glyph] as const),
+    ...cliAgents.map(
+      agent => [`cli:${agent.id}`, agent.glyph ?? agent.label.slice(0, 1)] as const
+    )
+  ]), [sources.sources, cliAgents]);
   /** The page in the pane is the one living in its own window. */
   const isDetached = page.detachedId !== null && page.detachedId === sources.activeId;
   /** The pane is folded shut; the page is still running, just not painted. */
@@ -2401,6 +2409,17 @@ export default function App() {
                 onJump={jumpToUserMsg}
               />
             )}
+          {showingConversation && activeConversation && conversationTab === 'chat' && (
+            <ParallelConversationRail
+              messages={messages}
+              deltas={answerDeltas}
+              channelStatuses={channelStatuses}
+              glyphs={conversationGlyphs}
+              live={conversationBusy}
+              now={Date.now()}
+              onInterrupt={() => void cancel()}
+            />
+          )}
           <div
             ref={setScrollEl}
             className={`scroll${activeTask || showingConversation || handoffPending ? '' : ' is-empty'}`}
@@ -2430,12 +2449,7 @@ export default function App() {
                 channelStatuses={channelStatuses}
                 // 综合里的「观点A/B/C」要配上来源图标，读者才知道是哪一家。
                 // CLI 软件源跟网页源并列，所以它的 id（`cli:<id>`）也要有图标。
-                glyphs={new Map([
-                  ...sources.sources.map(source => [source.id, source.glyph] as const),
-                  ...cliAgents.map(
-                    agent => [`cli:${agent.id}`, agent.glyph ?? agent.label.slice(0, 1)] as const
-                  )
-                ])}
+                glyphs={conversationGlyphs}
                 phases={phases}
                 deltas={answerDeltas}
                 debate={debateLive}

@@ -5,6 +5,7 @@ import { duration, statusText, target, toolLabel } from '../../../../shared/exec
 import { MarkdownBody } from '../MarkdownBody';
 import {
   activeLandmarkId,
+  agentRoleLabel,
   buildStreamLandmarks,
   buildTaskConversation,
   clusterSteps,
@@ -493,6 +494,67 @@ function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }
   );
 }
 
+/**
+ * D1 子 Agent 卡：数据全部来自 `code.team.run` 的真实 proposals。
+ *
+ * 状态/耗时/输出/身份都是那次执行的原文，卡片不新造 AgentRun，也不把普通
+ * step 改名冒充。没有真实输出时不编一句，只画真实可用的字段。
+ */
+function AgentCard(props: { entry: Extract<ConversationEntry, { kind: 'agent' }> }) {
+  const { entry } = props;
+  const failed = entry.status === 'failed';
+  const meta = [
+    agentRoleLabel(entry.role),
+    entry.stepStartedAt !== null ? `${timeText(entry.stepStartedAt)} 起` : '',
+    entry.durationMs !== null ? duration(entry.durationMs) : '',
+    entry.patchCount !== undefined ? `${String(entry.patchCount)} 个补丁` : ''
+  ].filter(Boolean).join(' · ');
+  return (
+    <article className={`chat-agent is-${entry.status} is-role-${entry.role}`}>
+      <header className="chat-agent-head">
+        <span className="chat-agent-dot" aria-hidden />
+        <div className="chat-agent-title">
+          <b>{entry.label}</b>
+          <span className="chat-agent-id">{entry.agentId}</span>
+        </div>
+        <span className={`chat-agent-pill is-${entry.status}`}>
+          {failed ? '失败' : '子 Agent 已完成'}
+        </span>
+      </header>
+      <div className="chat-agent-meta">{meta}</div>
+      {entry.task && (
+        <div className="chat-agent-task">
+          <span className="chat-agent-task-label">承担任务</span>
+          <span>{entry.task}</span>
+        </div>
+      )}
+      {entry.workTask && (
+        <div className="chat-agent-worktask">
+          对应 WorkTask · {entry.workTask.title}
+          <code>{entry.workTask.workTaskId}</code>
+        </div>
+      )}
+      {entry.error && <pre className="chat-agent-error">{entry.error}</pre>}
+      {entry.text ? (
+        <details className="chat-agent-output" open={failed}>
+          <summary>真实输出（{String(entry.text.length)} 字符）</summary>
+          <div className="chat-member-md"><MarkdownBody text={entry.text} /></div>
+        </details>
+      ) : (
+        <p className="muted">{failed ? '这次运行失败，没有返回输出。' : '这次运行没有返回文本输出。'}</p>
+      )}
+      {entry.context.length > 0 && (
+        <details className="chat-agent-context">
+          <summary>上游交接（{String(entry.context.length)} 条）</summary>
+          <ol>
+            {entry.context.map((line, index) => <li key={index}>{line}</li>)}
+          </ol>
+        </details>
+      )}
+    </article>
+  );
+}
+
 /** 路径过长只留尾段，title 里保留完整路径（逐文件明细看得到、点得到）。 */
 function shortPath(path: string): string {
   const parts = path.split(/[\\/]/u).filter(Boolean);
@@ -748,6 +810,9 @@ export function TaskConversation(props: {
               <StepMessage entry={entry} now={now} />
             </div>
           ));
+        }
+        if (entry.kind === 'agent') {
+          return wrapAnchor(entry.key, <AgentCard key={entry.key} entry={entry} />);
         }
         if (entry.kind === 'plan') {
           return wrapAnchor(entry.key, <PlanStreamNote key={entry.key} entry={entry} />);

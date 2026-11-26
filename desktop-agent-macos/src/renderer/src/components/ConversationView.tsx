@@ -789,7 +789,7 @@ function ChannelReasoning({ text, live = false }: { text: string; live?: boolean
 
 function AnswerCard({ message, labels }: { message: ConversationMessage; labels: ReadonlyMap<string, string> }) {
   return (
-    <article className={`channel-card ch-${message.channelId ?? 'unknown'}`}>
+    <article className={`channel-card ch-${message.channelId ?? 'unknown'}`} id={`parallel-msg-${message.messageId}`}>
       <header className="channel-card-head">
         <span className="channel-dot" />
         <b>{labelOf(message.channelId, labels)}</b>

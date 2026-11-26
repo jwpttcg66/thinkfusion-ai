@@ -1610,3 +1610,218 @@ test('C2：连续同类 step 聚合，失败数准确，跨轮/跨工具/审批�
   assert.equal(steps.length, 6, '聚合不改原始条目数量');
   assert.ok(steps.some(e => e.kind === 'step' && e.card.status === 'failed'));
 });
+
+function teamStep(at, result, extra = {}) {
+  return {
+    type: 'step.completed',
+    at,
+    taskId: task,
+    stepId: 'team-1',
+    roundId: 'r1',
+    tool: 'code.team.run',
+    args: { task: '改两处 proto' },
+    durationMs: 120000,
+    result,
+    ...extra
+  };
+}
+
+test('D1：code.team.run 的真实 proposals 抽成子 Agent 卡，字段来自执行本身', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    teamStep(5000, {
+      task: '改两处 proto',
+      proposals: [
+        { agentId: 'gpt-5', role: 'explore', text: '找到 A/B 两处', durationMs: 125000, patches: [], context: [] },
+        { agentId: 'claude-x', role: 'code', text: '```diff\n+ x\n```', durationMs: 130000, patches: [{ path: 'a.proto' }], context: ['探索：找到 A/B 两处'] },
+        { agentId: 'deepseek-v4', role: 'verify', text: '', durationMs: 98000, failure: '超时', patches: [], context: [] }
+      ]
+    })
+  ]);
+  const agents = entries.filter(entry => entry.kind === 'agent');
+  assert.equal(agents.length, 3, '三个 proposal 各一张卡');
+  assert.deepEqual(agents.map(item => item.agentId), ['gpt-5', 'claude-x', 'deepseek-v4']);
+  assert.equal(agents[0].role, 'explore');
+  assert.equal(agents[0].task, '改两处 proto');
+  assert.equal(agents[0].durationMs, 125000, '耗时取 proposal 自己的真实值');
+  assert.equal(agents[0].text, '找到 A/B 两处');
+  assert.equal(agents[1].patchCount, 1, '补丁数取真实 patches 长度');
+  assert.equal(agents[1].context[0], '探索：找到 A/B 两处');
+  assert.equal(agents[2].status, 'failed', '有 failure 的 proposal 是 failed');
+  assert.equal(agents[2].error, '超时');
+  assert.equal(agents[2].text, '', '没有输出就不编一句');
+  assert.equal(agents[0].stepKey, entries.find(entry => entry.kind === 'step').key, '卡片回溯到真实 step');
+  assert.equal(agents[0].conversationStatus, 'completed');
+  assert.equal(agents[2].conversationStatus, 'failed');
+});
+
+test('D1：没有真实 proposals 就不出卡，不伪造 AgentRun', () => {
+  const bad = [
+    {},
+    { task: 'x', proposals: 'not-an-array' },
+    { task: 'x', proposals: [{ role: 'code', text: '缺 agentId' }] }
+  ];
+  for (const result of bad) {
+    const entries = buildTaskConversation([roundStart(1000, 'r1', 1, 'user_prompt'), teamStep(5000, result)]);
+    assert.equal(entries.filter(entry => entry.kind === 'agent').length, 0, `结构不对不出卡：${JSON.stringify(result)}`);
+  }
+  // step 还在：不出卡不等于删掉真实执行步骤。
+  const entries = buildTaskConversation([teamStep(5000, {})]);
+  assert.equal(entries.filter(entry => entry.kind === 'step').length, 1);
+});
+
+test('D1：WorkTask 只在 agentTaskId / assignedAgent 真实命中时关联', () => {
+  const entries = buildTaskConversation([
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    {
+      type: 'work.task.upserted', at: 2000, taskId: task, workId: 'w1',
+      task: {
+        workTaskId: 'wt-7', workId: 'w1', title: '改 proto', assignedAgent: 'gpt-5',
+        dependencies: [], acceptanceCriteria: [], status: 'pending', complexity: 'medium',
+        collaborationPolicy: { debate: 'off', review: 'auto' }, artifacts: [], evidence: [], revision: 1,
+        createdAt: 2000, updatedAt: 2000
+      }
+    },
+    teamStep(5000, {
+      task: '改两处 proto',
+      proposals: [
+        { agentId: 'gpt-5', role: 'explore', text: 'ok', durationMs: 1000, patches: [], context: [] },
+        { agentId: 'unknown-agent', role: 'code', text: 'ok', durationMs: 1000, patches: [], context: [] }
+      ]
+    })
+  ]);
+  const agents = entries.filter(entry => entry.kind === 'agent');
+  assert.deepEqual(agents[0].workTask, { workTaskId: 'wt-7', title: '改 proto' }, '命中才关联');
+  assert.equal(agents[1].workTask, undefined, '对不上就不写，不猜');
+});
+
+test('D1：投影可重复计算，重算两次的 agent 卡身份一致', () => {
+  const events = [
+    roundStart(1000, 'r1', 1, 'user_prompt'),
+    teamStep(5000, {
+      task: '改两处 proto',
+      proposals: [{ agentId: 'gpt-5', role: 'explore', text: 'ok', durationMs: 1000, patches: [], context: [] }]
+    })
+  ];
+  const first = buildTaskConversation(events).filter(entry => entry.kind === 'agent');
+  const second = buildTaskConversation(events).filter(entry => entry.kind === 'agent');
+  assert.deepEqual(first.map(item => item.id), second.map(item => item.id));
+  assert.deepEqual(first.map(item => item.text), second.map(item => item.text));
+});
+
+test('D1：渲染层真的画出 AgentCard 与样式槽位', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
+  assert.match(ui, /function AgentCard\(/);
+  assert.match(ui, /entry\.kind === 'agent'/);
+  assert.match(ui, /<AgentCard key=\{entry\.key\} entry=\{entry\} \/>/);
+  // 真实输出走 MarkdownBody，和 C4 一致；失败时默认展开。
+  assert.match(ui, /<MarkdownBody text=\{entry\.text\} \/>/);
+  assert.match(ui, /open=\{failed\}/);
+  for (const cls of ['chat-agent', 'chat-agent-pill', 'chat-agent-output', 'chat-agent-worktask']) {
+    assert.match(css, new RegExp(`\\.${cls}`), `样式缺失：${cls}`);
+  }
+});
+
+// ---------------- D2：并行对话浮层 ----------------
+
+function channelMsg(at, messageId, channelId, text, extra = {}) {
+  return { role: 'channel', at, messageId, conversationId: 'c1', channelId, text, ...extra };
+}
+
+test('D2：每轮各通道回答成独立 lane，新一轮追加不清空上一轮', async () => {
+  const { buildParallelLanes, shouldShowParallelRail } = await import('../out-test/shared/parallel-lanes.js');
+  const messages = [
+    { role: 'user', at: 1000, messageId: 'u1', conversationId: 'c1', text: '第一个问题' },
+    channelMsg(2000, 'm1', 'claude', '回答 A'),
+    channelMsg(2100, 'm2', 'gemini', '回答 B'),
+    { role: 'user', at: 3000, messageId: 'u2', conversationId: 'c1', text: '第二个问题' },
+    channelMsg(4000, 'm3', 'claude', '回答 C')
+  ];
+  const turns = buildParallelLanes({ messages, labels: new Map([['claude', 'Claude'], ['gemini', 'Gemini']]) });
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].prompt, '第一个问题');
+  assert.equal(turns[0].lanes.length, 2, '第一轮两路并行');
+  assert.deepEqual(turns[0].lanes.map(item => item.label), ['Claude', 'Gemini']);
+  assert.equal(turns[0].lanes[0].messageId, 'm1', '关联到真实主流消息');
+  assert.equal(turns[1].lanes.length, 1, '第二轮单独一组，不清空第一轮');
+  assert.equal(turns[1].lanes[0].text, '回答 C');
+  assert.equal(shouldShowParallelRail(turns), true);
+});
+
+test('D2：没有真实回答不出线；提问名单不冒充并行对话', async () => {
+  const { buildParallelLanes, shouldShowParallelRail } = await import('../out-test/shared/parallel-lanes.js');
+  const turns = buildParallelLanes({
+    messages: [{ role: 'user', at: 1000, messageId: 'u1', conversationId: 'c1', text: '问了' }]
+  });
+  assert.equal(shouldShowParallelRail(turns), false, '只有提问没有回答，浮层不出空壳');
+  const empty = buildParallelLanes({ messages: [] });
+  assert.equal(shouldShowParallelRail(empty), false);
+});
+
+test('D2：流式增量出输出中线；落盘后同一通道不再多一条假线', async () => {
+  const { buildParallelLanes } = await import('../out-test/shared/parallel-lanes.js');
+  const deltas = { claude: { text: '半句', reasoning: '', done: false } };
+  const streaming = buildParallelLanes({
+    messages: [{ role: 'user', at: 1000, messageId: 'u1', conversationId: 'c1', text: '问' }],
+    deltas,
+    live: true,
+    now: 1500
+  });
+  const liveLane = streaming[0].lanes.find(item => item.channelId === 'claude');
+  assert.equal(liveLane.status, 'streaming');
+  assert.equal(liveLane.text, '半句');
+  assert.equal(liveLane.messageId, null, '增量没有落盘消息 id，不伪造');
+
+  const settled = buildParallelLanes({
+    messages: [
+      { role: 'user', at: 1000, messageId: 'u1', conversationId: 'c1', text: '问' },
+      channelMsg(2000, 'm1', 'claude', '完整回答')
+    ],
+    deltas,
+    live: false
+  });
+  const lanes = settled[0].lanes.filter(item => item.channelId === 'claude');
+  assert.equal(lanes.length, 1, '落盘后只一条，增量线让位');
+  assert.equal(lanes[0].status, 'answered');
+});
+
+test('D2：投影可重复计算，注入相同 now 得同样身份与时间', async () => {
+  const { buildParallelLanes } = await import('../out-test/shared/parallel-lanes.js');
+  const input = {
+    messages: [
+      { role: 'user', at: 1000, messageId: 'u1', conversationId: 'c1', text: '问' },
+      channelMsg(2000, 'm1', 'claude', '答')
+    ],
+    deltas: { gemini: { text: '半句', reasoning: '', done: false } },
+    live: true,
+    now: 2500
+  };
+  const a = buildParallelLanes(input);
+  const b = buildParallelLanes(input);
+  assert.deepEqual(a, b);
+  assert.equal(a[0].lanes.find(item => item.channelId === 'gemini').at, 2500);
+});
+
+test('D2：浮层接线与样式槽位真实存在', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const ui = readFileSync(join(root, 'src/renderer/src/App.tsx'), 'utf8');
+  const rail = readFileSync(join(root, 'src/renderer/src/components/ParallelConversationRail.tsx'), 'utf8');
+  const main = readFileSync(join(root, 'src/renderer/src/components/ConversationView.tsx'), 'utf8');
+  const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
+  assert.match(ui, /<ParallelConversationRail/);
+  assert.match(ui, /onInterrupt=\{\(\) => void cancel\(\)\}/, '中断复用 App 的 cancel');
+  assert.match(rail, /buildParallelLanes\(/);
+  assert.match(rail, /onJump\(lane\.messageId\)/, '点条目跳主流');
+  assert.match(main, /id=\{`parallel-msg-\$\{message\.messageId\}`\}/, '主流有可跳的锚点');
+  for (const cls of ['parallel-rail', 'parallel-lane', 'parallel-turn-prompt']) {
+    assert.match(css, new RegExp(`\\.${cls}`), `样式缺失：${cls}`);
+  }
+});

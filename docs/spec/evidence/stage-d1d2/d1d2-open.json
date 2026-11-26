@@ -1,0 +1,43 @@
+{
+  "log": [
+    {
+      "check": "cdp-ready",
+      "result": "PASS",
+      "note": "http://localhost:5173/"
+    },
+    {
+      "check": "open-conversation",
+      "result": "PASS",
+      "note": "{\"clicked\":true,\"title\":\"编写一个go demo， 输出本地时间，本机可以运行\"}"
+    },
+    {
+      "check": "conversation-dom",
+      "result": "PASS",
+      "note": "{\"conversationTabs\":false,\"chatActive\":\"工程工作\",\"channelCards\":0,\"parallelAnchors\":0,\"rail\":false,\"railToggleText\":null,\"agentCards\":0,\"chatFeed\":true}"
+    },
+    {
+      "check": "rail-expanded",
+      "result": "SKIP",
+      "note": "当前会话没有真实并行回答，按设计不出浮层（非缺陷）"
+    },
+    {
+      "check": "screenshot-conversation",
+      "result": "PASS",
+      "note": "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/stage-d1d2/stage-d1d2-conversation.png"
+    }
+  ],
+  "clicked": {
+    "clicked": true,
+    "title": "编写一个go demo， 输出本地时间，本机可以运行"
+  },
+  "dom": {
+    "conversationTabs": false,
+    "chatActive": "工程工作",
+    "channelCards": 0,
+    "parallelAnchors": 0,
+    "rail": false,
+    "railToggleText": null,
+    "agentCards": 0,
+    "chatFeed": true
+  }
+}

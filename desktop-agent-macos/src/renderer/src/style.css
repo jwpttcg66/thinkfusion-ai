@@ -7177,3 +7177,150 @@ button:disabled {
   color: var(--text);
 }
 .chat-member-md .md-body > *:last-child { margin-bottom: 0; }
+
+/* D1 子 Agent 卡：身份/角色/状态/耗时/输出都来自 code.team.run 的真实 proposals。 */
+.chat-agent {
+  margin-left: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg-side);
+}
+.chat-agent.is-failed { border-left-color: var(--danger); }
+.chat-agent.is-role-explore { border-left-color: #2f9e8f; }
+.chat-agent.is-role-code { border-left-color: var(--accent); }
+.chat-agent.is-role-verify { border-left-color: var(--warn); }
+.chat-agent.is-role-review { border-left-color: #8b6cf0; }
+.chat-agent-head { display: flex; align-items: center; gap: 8px; }
+.chat-agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+.chat-agent.is-failed .chat-agent-dot { background: var(--danger); }
+.chat-agent.is-completed .chat-agent-dot { background: #0f7b4f; }
+.chat-agent-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.chat-agent-title b { font-size: 12px; font-weight: 600; color: var(--text); }
+.chat-agent-id { font-size: 10.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-agent-pill {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+.chat-agent-pill.is-failed { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.chat-agent-meta { margin-top: 4px; font-size: 10.5px; color: var(--text-3); }
+.chat-agent-task { margin-top: 5px; font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
+.chat-agent-task-label { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; background: var(--bg-hover); color: var(--text-3); font-size: 10px; }
+.chat-agent-worktask { margin-top: 5px; font-size: 10.5px; color: var(--text-3); }
+.chat-agent-worktask code { margin-left: 6px; color: var(--text-2); }
+.chat-agent-error { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: 11px; white-space: pre-wrap; }
+.chat-agent-output, .chat-agent-context { margin-top: 6px; font-size: 11px; }
+.chat-agent-output > summary, .chat-agent-context > summary { cursor: pointer; color: var(--text-2); }
+.chat-agent-output .chat-member-md { max-height: 260px; }
+.chat-agent-context ol { margin: 6px 0 0; padding-left: 18px; color: var(--text-3); line-height: 1.6; }
+
+/* D2 并行对话浮层：右侧独立轨道，不占主流位置、不插入主流消息。 */
+.parallel-rail {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 5;
+  max-height: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.parallel-rail > * { pointer-events: auto; }
+.parallel-rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg-side);
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.parallel-rail-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.parallel-rail-glyph { color: var(--accent); font-weight: 700; }
+.parallel-rail-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-align: center;
+}
+.parallel-rail-panel {
+  margin-top: 6px;
+  width: 320px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 220px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+.parallel-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.parallel-rail-head .btn { font-size: 10px; padding: 3px 8px; }
+.parallel-rail-scroll { overflow: auto; padding: 6px 10px 10px; }
+.parallel-turn { margin-bottom: 12px; }
+.parallel-turn h4 { margin: 6px 0 3px; font-size: 11px; color: var(--text-2); font-weight: 600; }
+.parallel-turn-prompt {
+  margin: 0 0 5px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: var(--bg-side);
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.5;
+  max-height: 42px;
+  overflow: hidden;
+}
+.parallel-lanes { list-style: none; margin: 0; padding: 0; }
+.parallel-lane { margin: 4px 0; }
+.parallel-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-side);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.parallel-lane-head:hover { border-color: var(--line-strong); background: var(--bg-hover); }
+.parallel-lane-dot { width: 7px; height: 7px; border-radius: 50%; background: #0f7b4f; flex: 0 0 auto; }
+.parallel-lane.is-streaming .parallel-lane-dot { background: var(--accent); }
+.parallel-lane.is-failed .parallel-lane-dot { background: var(--danger); }
+.parallel-lane-status { margin-left: auto; color: var(--text-3); font-size: 10px; }
+.parallel-lane-time { color: var(--text-3); font-size: 10px; }
+.parallel-lane-body { margin: 3px 0 0 6px; font-size: 10.5px; }
+.parallel-lane-body > summary { cursor: pointer; color: var(--text-3); }
+.parallel-lane-body pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  font-size: 10px;
+}
+.parallel-lane-md { max-height: 180px; overflow: auto; margin-top: 4px; font-size: 10.5px; line-height: 1.5; }

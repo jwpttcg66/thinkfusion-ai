@@ -120,6 +120,36 @@ export type ConversationEntry =
       protocol: ConversationProtocol;
     })
   | (ConversationEntryBase & { kind: 'step'; card: StepCard })
+  /**
+   * D1 子 Agent：从 `code.team.run` 真实返回的 proposals 抽出，不是把普通
+   * step 改名冒充。身份 `agentId`、角色、耗时、输出全部来自那次真实执行。
+   */
+  | (ConversationEntryBase & {
+      kind: 'agent';
+      /** 真实执行主体 id（proposal.agentId）；不为展示新造 AgentRun 身份。 */
+      agentId: string;
+      /** explore / code / verify / review，来自真实 team 结果。 */
+      role: string;
+      label: string;
+      /** 承担的子任务：这次 team.run 的 task。 */
+      task: string;
+      status: 'completed' | 'failed';
+      /** 所属 step 的开始时间；不是每个 agent 各自的独立开始时间，不伪造。 */
+      stepStartedAt: number | null;
+      /** 真实耗时 proposal.durationMs；没有就不写。 */
+      durationMs: number | null;
+      /** 真实输出原文。 */
+      text: string;
+      error: string | null;
+      /** 真实补丁数；没有就不写。 */
+      patchCount?: number;
+      /** 上游交接的真实摘要行。 */
+      context: string[];
+      /** 关联的真实执行步骤 key，可回溯到原始 step 卡。 */
+      stepKey: string;
+      /** 对应 WorkTask：只有 agentTaskId / assignedAgent 真实命中才写。 */
+      workTask?: { workTaskId: string; title: string };
+    })
   | (ConversationEntryBase & {
       kind: 'plan';
       planId: string;
@@ -345,6 +375,81 @@ function argPath(step: { args?: Record<string, unknown>; result?: unknown }): st
     return (result as { path: string }).path;
   }
   return '';
+}
+
+/** 子 Agent 角色 → 呈现名。未知角色照实显示 id，不猜一个中文名冒充。 */
+const AGENT_ROLE_LABEL: Record<string, string> = {
+  explore: '探索',
+  code: '编码',
+  verify: '验证',
+  review: '评审'
+};
+
+export function agentRoleLabel(role: string): string {
+  return AGENT_ROLE_LABEL[role] ?? role;
+}
+
+interface TeamProposalView {
+  agentId: string;
+  role: string;
+  text: string;
+  durationMs: number | null;
+  failure: string | null;
+  patchCount: number | undefined;
+  context: string[];
+}
+
+/**
+ * 从 `code.team.run` 的真实 result 抽 proposals。
+ *
+ * 只有字段确实存在才出卡；result 结构不对、proposal 没有 agentId/role
+ * 时返回空——宁可不出卡，也不伪造一个 AgentRun（不变量 14）。
+ */
+function teamProposalsOf(result: unknown): { task: string; proposals: TeamProposalView[] } | null {
+  if (!result || typeof result !== 'object') return null;
+  const data = result as Record<string, unknown>;
+  if (!Array.isArray(data.proposals)) return null;
+  const task = typeof data.task === 'string' ? data.task : '';
+  const proposals: TeamProposalView[] = [];
+  for (const item of data.proposals) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.agentId !== 'string' || !row.agentId.trim()) continue;
+    if (typeof row.role !== 'string' || !row.role.trim()) continue;
+    proposals.push({
+      agentId: row.agentId,
+      role: row.role,
+      text: typeof row.text === 'string' ? row.text : '',
+      durationMs: typeof row.durationMs === 'number' && Number.isFinite(row.durationMs) ? row.durationMs : null,
+      failure: typeof row.failure === 'string' && row.failure.trim() ? row.failure : null,
+      patchCount: Array.isArray(row.patches) ? row.patches.length : undefined,
+      context: Array.isArray(row.context)
+        ? row.context.filter((line): line is string => typeof line === 'string')
+        : []
+    });
+  }
+  return { task, proposals };
+}
+
+/**
+ * WorkTask ↔ Agent 的真实关联表。
+ *
+ * 只有 `assignedAgent` / `agentTaskId` 确实等于 team proposal 的 agentId
+ * 才算关联；对不上就不写 workTask，不靠猜把两者绑在一起。
+ */
+function agentWorkTasksOf(
+  events: readonly AgentEvent[]
+): Map<string, { workTaskId: string; title: string }> {
+  const map = new Map<string, { workTaskId: string; title: string }>();
+  for (const event of events) {
+    if (event.type !== 'work.task.upserted') continue;
+    const task = event.task;
+    for (const id of [task.assignedAgent, task.agentTaskId]) {
+      if (typeof id !== 'string' || !id.trim()) continue;
+      if (!map.has(id)) map.set(id, { workTaskId: task.workTaskId, title: task.title });
+    }
+  }
+  return map;
 }
 
 /**
@@ -612,6 +717,8 @@ export function buildTaskConversation(
   const debates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'debate' }> }>();
   /** 聚合旁注按 aggregateKey 原地改写（改动量），位置留在第一次出现处。 */
   const aggregates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'note' }> }>();
+  /** D1：Agent ↔ WorkTask 的真实关联，只有 id 对得上才写。 */
+  const agentWorkTasks = agentWorkTasksOf(ordered);
 
   const upsertDebate = (
     key: string,
@@ -1181,14 +1288,45 @@ export function buildTaskConversation(
       // 用户以为界面坏了。真正执行时同一个 stepId 会更新成有输出的卡，这里
       // 只跳过尚未开始的占位卡（带参数也不显示：没有输出的一行不叫过程）。
       if (item.card.status === 'preparing' && !item.card.startedAt) continue;
+      const stepKey = `step-${item.key}`;
       push({
         kind: 'step',
-        key: `step-${item.key}`,
+        key: stepKey,
         at: item.at,
         roundId,
         roundNumber: roundNumber(roundId),
         card: item.card
       });
+      // D1：多 Agent 编码的真实 proposals 抽成独立子 Agent 卡，紧跟它的 step。
+      // 没有 proposals（老事件、失败、结构不对）就不出卡，不伪造 AgentRun。
+      if (item.card.tool === 'code.team.run') {
+        const team = teamProposalsOf(item.card.result);
+        if (team) {
+          for (const proposal of team.proposals) {
+            const workTask = agentWorkTasks.get(proposal.agentId);
+            push({
+              kind: 'agent',
+              key: `agent-${stepKey}-${proposal.role}-${proposal.agentId}`,
+              at: item.at + 1,
+              roundId,
+              roundNumber: roundNumber(roundId),
+              agentId: proposal.agentId,
+              role: proposal.role,
+              label: agentRoleLabel(proposal.role),
+              task: team.task || (typeof item.card.args?.task === 'string' ? item.card.args.task : ''),
+              status: proposal.failure ? 'failed' : 'completed',
+              stepStartedAt: item.card.startedAt ?? null,
+              durationMs: proposal.durationMs,
+              text: proposal.text,
+              error: proposal.failure,
+              ...(proposal.patchCount !== undefined ? { patchCount: proposal.patchCount } : {}),
+              context: proposal.context,
+              stepKey,
+              ...(workTask ? { workTask } : {})
+            });
+          }
+        }
+      }
     } else {
       // 轮次头、评审、验证已经有自己的条目，避免一句话说两遍。
       if (/^第 \d+ 轮/.test(item.text) || item.text.startsWith('独立评审')) continue;
@@ -1292,6 +1430,8 @@ export function conversationStatusOf(entry: ConversationEntry): ConversationStat
       if (entry.card.status === 'failed') return 'failed';
       if (entry.card.status === 'completed') return 'completed';
       return 'pending';
+    case 'agent':
+      return entry.status === 'failed' ? 'failed' : 'completed';
     case 'debate':
       if (entry.status === 'running') return 'running';
       if (entry.status === 'completed') return 'completed';
