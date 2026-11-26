@@ -65,26 +65,20 @@
 
 ### 2.2 当前最重要的代码事实
 
-目前 macOS AX Helper 只实现：
+macOS AX Helper 现在读命令之外还有一份**写操作白名单**：
+`press` / `setValue` / `keypress` / `scroll` / `drag` / `focus`
+（`native/macos/ax-bridge.swift:333`）。读命令仍是 `frontmostApplication` / `focusedTree`。
 
-- `frontmostApplication`
-- `focusedTree`
+已向 Agent 开放、并在 2026-11-23 真机跑通的 `computer.*` 共 13 个：
+`ax.tree` / `ax.find` / `windows` / `capabilities` / `screenshot` / `click` /
+`type` / `keypress` / `scroll` / `drag` / `focus` / `verify` / `stop`。
 
-它明确是只读实现。
+仍然不做：任意坐标盲点、后台应用注入、绕过 TaskGrant 的全局输入。
+`capabilities` 会如实报告当前辅助功能授权与可执行动作；没授权时写操作明确报错，
+不静默降级成「看起来点了」。
 
-目前没有向 Agent 开放：
-
-- AXPress
-- AX set-value
-- 鼠标点击
-- 键盘输入
-- 任意 UI 操作
-
-这不是一个已经完成的电脑控制系统，而是一个可以继续扩展的 Accessibility 基础设施。
-
-另外，`screen.capture` 已经能实际截屏，但它不等于鼠标键盘控制。
-
-`window.list`、`app.open`、`clipboard.read` / `clipboard.write` 也已经有现有实现，不应该重新造一套相同工具。
+`window.list`、`app.open`、`clipboard.read` / `clipboard.write` 已有实现，
+不要重新造一套相同工具。
 
 ### 2.3 现有架构边界
 

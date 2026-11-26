@@ -5,7 +5,8 @@
 
 ## 当前计划
 
-- [active/P1-REMEDIATION-PLAN.md](active/P1-REMEDIATION-PLAN.md)：远程审计整改剩余项。
+- [active/P1-REMEDIATION-PLAN.md](active/P1-REMEDIATION-PLAN.md)：远程审计整改项。
+  P0/P1 两批已闭合，文中保留落地结论与仍未闭合的边界（P2 不在本计划内）。
 
 ## 已完成计划
 

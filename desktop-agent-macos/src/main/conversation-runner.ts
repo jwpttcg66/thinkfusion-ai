@@ -3,7 +3,7 @@ import { buildAttachmentMaterial, describeAttachments, composeQuestionWithAttach
 import type { AgentTask } from '../shared/contracts';
 import type { Conversation, ConversationDeleteOutcome, ConversationEvent, ConversationExecutionConfig, ConversationMessage, ExecutionMode, Synthesis } from '../shared/conversation';
 import { describeConversationParticipation, normalizeExecutionConfig } from '../shared/conversation';
-import { conversationRiskFromDebate, decideParticipation, dispatchedParticipantIds } from '../shared/dmoca';
+import { conversationRiskFromDebate, conversationDecisionSnapshot, decideParticipation, dispatchedParticipantIds } from '../shared/dmoca';
 import { classifyIntent } from '../shared/intent';
 import { toRouteTaskKind, type ModelRoute, type RouteTaskKind } from '../shared/model-route';
 import {
@@ -3113,6 +3113,62 @@ export class ConversationRunner {
       // 没有辩论 / 最终意见：执行阶段到此结束，这才离开 leading。
       // 汇总刚写完就标 answered，第二轮条会空掉，辩论还没开。
       sink.phase(lead.agentId, 'answered', '汇总完成');
+    }
+
+    // —— 第四步：决策快照（P1-03）——————————————
+    // 与工程评审同一套规则：决策必须钉住每个人的确定版本。会话里以前只有
+    // 「谁参与过」的描述，同一模型改口后无法回答「最终结论引用的是哪一稿」。
+    {
+      const conclusion = (verdictText ?? summaryText ?? '').trim();
+      if (conclusion) {
+        const exchanges = [
+          { author: lead.agentId, text: summaryText ?? '', roundIndex: 0, kind: 'summary' },
+          ...(debate
+            ? debate.rounds.flatMap(round =>
+                round.messages.map(message => ({
+                  author: message.agentId ?? message.author,
+                  text: message.text,
+                  roundIndex: round.index + 1,
+                  kind: message.kind
+                }))
+              )
+            : []),
+          ...(verdictText
+            ? [{ author: lead.agentId, text: verdictText, roundIndex: 999, kind: 'verdict' }]
+            : [])
+        ].filter(item => item.text.trim().length > 0);
+        const recorded = conversationDecisionSnapshot({
+          workId: conversation.conversationId,
+          stage: topics.length > 0 ? 'debate' : 'summary',
+          lead: { participantId: lead.agentId, text: summaryText ?? '' },
+          peers: answers
+            .filter(answer => answer.channelId !== lead.agentId)
+            .map(answer => ({
+              participantId: answer.channelId,
+              text: answer.text,
+              status: answer.text.trim() ? 'answered' as const : 'failed' as const
+            })),
+          exchanges,
+          conclusion,
+          completed: true
+        });
+        if (recorded.decision) {
+          this.deps.emit({
+            type: 'model.decision.snapshot',
+            at: Date.now(),
+            conversationId: conversation.conversationId,
+            stage: topics.length > 0 ? 'debate' : 'summary',
+            decision: recorded.decision,
+            snapshot: recorded.snapshot,
+            artifacts: recorded.artifacts,
+            integrity: recorded.integrity,
+            singleModel: recorded.singleModel
+          });
+        }
+        if (!recorded.integrity.ok) {
+          trace?.note(`决策快照校验未通过：${recorded.integrity.issues.join('；')}`);
+        }
+      }
     }
 
     return {

@@ -44,7 +44,7 @@ await window.agentAPI.startDebate({
   config: {
     strategy: 'truth',        // 六种之一，见 1.2
     maxRounds: 3,             // 1~10，仅程序化/手动辩论的预算上限；计划评审实际轮次按收敛决定
-    leadMode: 'hybrid',       // local | web | hybrid
+    leadMode: 'hybrid',       // local | web | cloud | hybrid
     convergenceStop: true,    // 观点不再变化时提前收尾
     participants: []          // 空 = 由 planLead 按当前可用成员挑
   }
@@ -74,7 +74,7 @@ await window.agentAPI.startDebate({
 | `executionMode` | `web / local / cloud / hybrid` | 这一轮回答从哪里来 |
 | `strategy` | `smart / parallel / all-selected / sequential` | 这一轮子任务怎么调度 |
 | `debateStrategy` | 六种（同 1.2） | 会话内自动辩论用哪种辩法 |
-| `leadMode` | `local / web / hybrid` | 谁给基准观点（辩论配置里） |
+| `leadMode` | `local / web / cloud / hybrid` | 谁给基准观点（辩论配置里） |
 
 四种执行模式 × 六种辩论策略都能组合，`check-debate-strategies.mjs` 有 4×6
 归一用例守着。
@@ -88,7 +88,7 @@ await window.agentAPI.startDebate({
     strategy: 'assumption',
     maxRounds: 3,
     budget: {
-      stageTimeoutMs: 60_000,   // 单次模型调用，默认 60s
+      stageTimeoutMs: 180_000,  // 单次模型调用，默认 180s
       totalMs: 240_000,         // 整场，不传则不设总时限
       maxConcurrency: 3         // 同时问几位，默认 3
     },
@@ -188,16 +188,16 @@ const out = await window.agentAPI.cleanupDebateWeb(debateId); // 连带删网页
 
 | 命令 | 覆盖 | 条数 |
 | --- | --- | --- |
-| `test:debate` / `check-debate.mjs` | 配置归一、首轮隔离、3 轮结束 | 14 |
-| `test:debate-lead` | 三种主导模式、网页只收原话 | 15 |
+| `test:debate` / `check-debate.mjs` | 配置归一、首轮隔离、3 轮结束 | 16 |
+| `test:debate-lead` | 四种主导模式、网页只收原话 | 18 |
 | `test:debate-claims` | Claim 结构、五类争议、definitional | 13 |
 | `test:debate-revision` | 五个决策、修订状态回写 | 12 |
 | `test:debate-graph` | 4 节点 6 边、边带轮次与来源 | 6 |
-| `test:debate-judge` | 三维独立、五档、TF-D-011/012/013、判据收紧 | 19 |
+| `test:debate-judge` | 三维独立、五档、TF-D-011/012/013、判据收紧 | 30 |
 | `test:debate-events` | 事件链、seq 单调、key 幂等、恢复 | 7 |
-| `test:debate-regression` | TF-D-001~010 固定回放 | 10 |
+| `test:debate-regression` | TF-D-001~010 固定回放 | 12 |
 | `test:page-citations` | 三家 HTML fixture、URL 归一、指纹 | 10 |
-| `test:debate-strategies` | 六种策略、角色、争议排序、4×6 归一 | 8 |
+| `test:debate-strategies` | 六种策略、角色、争议排序、4×6 归一 | 9 |
 | `test:debate-metrics` | 指标、成本、历史复用 | 9 |
 | `test:debate-eval` / `quality:debate` | 十一项硬门槛 + 13 条基准场景，输出达标/不达标报告 | 1 |
 

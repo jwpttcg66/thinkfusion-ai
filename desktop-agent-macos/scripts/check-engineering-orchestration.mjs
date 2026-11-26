@@ -423,7 +423,12 @@ test('非混合档：所有模型都进场读证据，网页零调用、连探�
   }
 
   const messages = runner.messages(started.conversationId);
-  assert.equal(messages.filter(message => message.role === 'channel').length, 3, '三份编排成员的回答都落库');
+  // __routing__ 是工程判定的轨迹通道，不是编排成员；统计成员回答时要排除。
+  assert.equal(
+    messages.filter(message => message.role === 'channel' && message.channelId !== '__routing__').length,
+    3,
+    '三份编排成员的回答都落库'
+  );
   assert.ok(
     !messages.some(message => message.role === 'system' && message.text.includes('工程空间多 agent 编排')),
     '编排理由进轨迹事件行，不再每轮贴系统消息'
@@ -453,7 +458,8 @@ test('本地模型逐个问，不抢同一个推理闸门；云端模型照样�
     );
   }
   assert.equal(
-    runner.messages(started.conversationId).filter(message => message.role === 'channel').length,
+    runner.messages(started.conversationId)
+      .filter(message => message.role === 'channel' && message.channelId !== '__routing__').length,
     3,
     '三位成员的回答都要落库，不能因为排队丢一份'
   );
@@ -629,7 +635,10 @@ test('混合档：所有网页通道作为并列成员进场，回答落库且�
 
   const messages = runner.messages(started.conversationId);
   assert.deepEqual(
-    messages.filter(message => message.role === 'channel').map(message => message.channelId).sort(),
+    messages
+      .filter(message => message.role === 'channel' && message.channelId !== '__routing__')
+      .map(message => message.channelId)
+      .sort(),
     ['chatgpt', 'gemini', 'ollama:a'],
     '网页与模型的回答并列落库'
   );

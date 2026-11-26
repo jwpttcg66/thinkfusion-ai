@@ -10,13 +10,17 @@
 | Bundle ID（`build.appId`） | `com.thinkfusion.app` |
 | License | MIT（版权人暂写 `ThinkFusion contributors`） |
 
-**改名会移动应用数据目录。** Electron 的 `userData` 由 `productName` / `name` 决定，
-现在是 `~/Library/Application Support/ThinkFusion`。再改名时同样要先退出应用再复制，
-否则新目录会被建成空的、登录态和任务历史全丢：
+**改名会移动应用数据目录。** 主进程显式设置了 `app.setPath('userData', …)`，目录名是
+`thinkfusion-ai`（不是 `productName`）：当前真实数据在
+`~/Library/Application Support/thinkfusion-ai`。本机同时存在 `…/ThinkFusion`，
+但那里没有 `agent-store.json`——按旧文档往 `ThinkFusion` 拷会拿到空历史。
+再改名时同样要先退出应用再复制：
 
 ```bash
-cp -R ~/Library/Application\ Support/<旧名字> ~/Library/Application\ Support/ThinkFusion
+cp -R ~/Library/Application\ Support/thinkfusion-ai ~/Library/Application\ Support/<新名字>
 ```
+
+验收/测试实例可用 `THINKFUSION_USER_DATA` 指定独立目录，避免写到真实历史。
 
 ## 2. 历史里清掉过什么
 
@@ -44,7 +48,7 @@ git push -u origin main
 
 ## 4. CI
 
-`.github/workflows/ci.yml` 在 push / PR 时跑 typecheck、59 项离线测试和构建。
+`.github/workflows/ci.yml` 在 push / PR 时跑 `typecheck`、`npm run verify`（32 个 test 脚本）和构建。
 
 两个坑已经绕开了：Electron 二进制对 typecheck / test / bundle 都不必要
 （`ELECTRON_SKIP_BINARY_DOWNLOAD` 提到 job 级），而 `npm run build` 的 `prebuild`
@@ -57,5 +61,6 @@ git push -u origin main
 
 - **版权人**：`LICENSE` 现在是 `Copyright (c) 2026 ThinkFusion contributors`，
   要写个人或组织名就改这一行。
-- **版本标签**：本地只有旧的 `v0.1.0`，`package.json` 是 `0.3.0`。
+- **版本标签**：`package.json` 是 `0.3.0`，仓库里的标签是辩论基线
+  `debate-v4.1-p0-baseline-20261116` / `debate-v4.1-p2-foundation`，没有 `v0.3.0`。
   要对齐就打 `git tag -a v0.3.0 -m "ThinkFusion v0.3.0"`；标签推上去不方便改，不想发 Release 就先别打。

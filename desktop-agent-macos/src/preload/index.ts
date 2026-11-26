@@ -156,6 +156,23 @@ const api: AgentApi = {
   cancelTask: (taskId: string) => ipcRenderer.invoke('task:cancel', taskId),
   pauseTask: (taskId: string) => ipcRenderer.invoke('task:pause', taskId),
   resumeTask: (taskId: string) => ipcRenderer.invoke('task:resume', taskId),
+  reviseTaskGoal: (input: {
+    taskId: string;
+    nextCriteria: string[];
+    userConfirmedChange?: boolean;
+    changedTaskIds?: string[];
+  }) => ipcRenderer.invoke('task:revise-goal', input),
+  listWorkflows: () => ipcRenderer.invoke('workflow:list'),
+  runWorkflow: (input: {
+    workflowId?: string;
+    goal?: string;
+    workflow?: import('../shared/workflow').WorkflowDefinition;
+    permissionPreset?: import('../shared/contracts').PermissionPreset;
+    workspaceRoot?: string;
+    argsByNode?: Record<string, Record<string, unknown>>;
+    inputs?: Record<string, unknown>;
+    completionCondition?: string;
+  }) => ipcRenderer.invoke('workflow:run', input),
   recheckVerification: (taskId: string): Promise<{ verified: boolean; reasons: string[] }> =>
     ipcRenderer.invoke('task:recheck-verification', taskId),
   acceptUnverified: (taskId: string) => ipcRenderer.invoke('task:accept-unverified', taskId),

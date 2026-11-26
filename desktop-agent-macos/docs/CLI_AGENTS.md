@@ -7,11 +7,14 @@
 | 类别 | 做什么 | 是否自动参与普通回答 |
 | --- | --- | --- |
 | Web Source | 提供网页信息 | 是（已开启的都要问） |
-| Local / Cloud Model | 模型分析与回答 | 按执行模式 |
-| CLI Agent（Qoder / Claude） | 工程执行者；可选的分析参与者 | 否 |
+| Local Model | 本地模型分析与回答 | `local` / `hybrid` 档 |
+| Cloud Model | 远程模型分析与回答 | `cloud` / `hybrid` 档 |
+| CLI Agent（Qoder / Claude） | **第三类回答源**，也可当主导/辩手/执行者 | 除 `local` 外都问 |
 
-CLI 不是「回答通道」：打开它只决定新任务能不能把工程活派给它，不会让它在每个问题上发言。
-这条区分写在 `src/main/cli-agents.ts` 的注释里，也写在设置页「外部 CLI Agent（执行者）」的说明里。
+CLI 与网页是同一层级的回答源，不是「只在派活时才出现」：`web` / `hybrid` / `cloud`
+都会把用户原话发给它，回答进第一轮与汇总材料；`local` 档才不问。
+归属上算云端一类（`ownershipSourceOf(CLI) = cloud`），因此可以主导、可以辩论、可以执行；
+但它不进工程编排名单（回答链没有文件工具），改文件仍走 `agent.exec`。
 
 ## 2. 已实现
 
@@ -348,7 +351,7 @@ EXITED / FAILED / CANCELLED`），连接状态由面板 attach/detach 驱动。
 `undefined` = 设置里开着的全部（缺省，老会话不迁移）；`[]` = 这一问一个都不问；
 非空 = 只勾的这些。写回会话 `executionConfig` 并同步执行默认值。注意 id 形态：
 名单按回答成员 id（`cli:qoder`）对齐，注册表 id（`qoder`）不带前缀，混用会全部落空。
-`local` / `cloud` 主导下勾选不生效（本就不问 CLI）。
+`local` 主导下勾选不生效（本就不问 CLI）；`cloud` 主导会问 CLI，勾选照常生效。
 
 ## 15. 交付文档
 

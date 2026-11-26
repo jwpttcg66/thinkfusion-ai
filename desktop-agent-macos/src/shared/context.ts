@@ -223,6 +223,8 @@ export type ContextEventType =
   | 'context.compaction.committed'
   | 'context.compaction.failed'
   | 'context.compaction.stale'
+  /** 检查点可读但工程上下文已过期：恢复前必须重新采集。 */
+  | 'context.refresh.required'
   | 'context.recovered';
 
 export interface ContextEventPayload {

@@ -51,16 +51,26 @@ export class TaskManager {
     /** V2.1 D-03：默认 auto——小计划不辩，带写/测的多步计划才辩。 */
     planDebate?: 'auto' | 'on' | 'off';
     debateAgentIds?: string[];
+    /** 目标与版本；缺省按「一个任务一个目标 v1」建立，后续修订会递增。 */
+    goalId?: string;
+    goalVersion?: number;
+    goalCriteria?: string[];
   }): AgentTask {
     const now = Date.now();
     const firstLine = input.prompt.trim().split('\n')[0] ?? '';
+    const taskId = randomUUID();
     const task: AgentTask = {
-      taskId: randomUUID(),
+      taskId,
       title: firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine || '未命名任务',
       userPrompt: input.prompt,
       status: 'created',
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot,
+      goalId: input.goalId ?? `goal:${taskId}`,
+      goalVersion: input.goalVersion ?? 1,
+      ...(input.goalCriteria && input.goalCriteria.length > 0
+        ? { goalCriteria: [...input.goalCriteria] }
+        : {}),
       planDebate: input.planDebate ?? 'auto',
       ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: input.debateAgentIds } : {}),
       createdAt: now,

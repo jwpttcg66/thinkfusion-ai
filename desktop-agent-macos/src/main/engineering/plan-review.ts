@@ -1,5 +1,6 @@
 import type { AgentPlan } from '../../shared/contracts';
 import type { EcoEvidenceSummary } from '../../shared/eco';
+import { ensurePlanDecomposition } from '../../shared/task-decomposition';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 import {
   buildLeadSummaryQuestion,
@@ -35,22 +36,16 @@ export interface PlanCapabilityGate {
  * 缺判据仍照跑，是用户的选择；把没跑测试的改动说成「已验证」才是错。
  */
 /**
- * 多写入目标却没有 decomposition：不是错误，但任务树会缺 L2。
+ * 多写入目标却没有可用的 L2 分解：不是权限错误，但任务树会缺可独立验收的子任务。
  *
- * 这条只做可见提示：模型可以合理判断「这两处改动属于同一件事」而不拆，
- * 但审批的人需要知道「这份计划没有可独立验收的子任务层」，
- * 而不是看到一个只有 L1→L3 的树却以为分解已经发生。
+ * 判定已收敛到 `ensurePlanDecomposition`：模型给了就算有；没给但能从写入
+ * 目标归纳出来也算有。只有「需要 L2 且归纳不出来」才返回提示，
+ * 避免这里和种树逻辑各说一套。
  */
 export function planDecompositionWarning(plan: AgentPlan): string | null {
-  if (plan.decomposition && plan.decomposition.length > 0) return null;
-  const targets = new Set<string>();
-  for (const step of plan.steps) {
-    if (!WRITE_TOOLS.has(step.tool)) continue;
-    const target = (step.args as { path?: unknown }).path;
-    if (typeof target === 'string' && target.trim()) targets.add(target);
-  }
-  if (targets.size < 2) return null;
-  return `计划涉及 ${String(targets.size)} 个独立写入目标，但没有 decomposition：任务树只有 L1→L3，没有可独立验收的 L2 子任务`;
+  const result = ensurePlanDecomposition(plan);
+  if (!result.needsAnalysis) return null;
+  return `${result.reason}：任务树只有 L1→L3，没有可独立验收的 L2 子任务`;
 }
 
 export function checkPlanCapabilities(plan: AgentPlan): PlanCapabilityGate {

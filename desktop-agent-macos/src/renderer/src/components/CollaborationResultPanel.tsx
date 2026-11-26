@@ -199,12 +199,28 @@ export function CollaborationResultPanel(props: {
             {dmoca.decision && (
               <>
                 <p className="muted">{dmoca.decision.reasons.join(' · ')}</p>
+                {dmoca.decision.ecoGate && (
+                  <p className={dmoca.decision.ecoGate.formalRolesBlocked ? 'muted' : 'muted'}>
+                    工程上下文：{dmoca.decision.ecoGate.sufficiency}
+                    {dmoca.decision.ecoGate.formalRolesBlocked ? ' · 正式角色已受限' : ''}
+                    {' · '}
+                    {dmoca.decision.ecoGate.reason}
+                  </p>
+                )}
                 <ul className="collab-result-facts">
                   {dmoca.decision.participants.map(item => (
                     <li key={item.participantId}>
                       {item.participantId}
                       {' · '}
                       {item.roles.join('+')}
+                      {item.blockedRoles && item.blockedRoles.length > 0 && (
+                        <>
+                          {' · '}
+                          <span className="muted">
+                            仅旁听/辅助分析（正式角色已摘除：{item.blockedRoles.join('、')}）
+                          </span>
+                        </>
+                      )}
                       {' · '}
                       {item.reason}
                     </li>

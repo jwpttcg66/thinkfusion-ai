@@ -530,6 +530,23 @@ export type ConversationEvent = { at: number } & (
       note: string;
     }
   | { type: 'synthesis.ready'; conversationId: string; synthesis: Synthesis }
+  /**
+   * 会话侧决策快照（P1-03）：与工程评审同一套「贡献钉版本」规则。
+   *
+   * 记录这一轮结论引用了谁的哪一版回答；单模型时同样成立，但不做交叉验证的
+   * 声明。失败/超时成员写在 unresolvedIssues 里，结论照常给出。
+   */
+  | {
+      type: 'model.decision.snapshot';
+      conversationId: string;
+      stage?: string;
+      decision: import('./dmoca').DecisionSnapshotView;
+      snapshot: import('./dmoca').ContributionSnapshotView | null;
+      /** 决策钉住的那几稿；与工程侧同一结构，回放时可直接校验版本。 */
+      artifacts?: import('./dmoca').ContributionArtifactView[];
+      integrity?: { ok: boolean; issues: string[] };
+      singleModel?: boolean;
+    }
   | { type: 'conversation.failed'; conversationId: string; error: string }
   /**
    * 轨迹新记录。按步结束批量发；渲染进程按 seq 去重。

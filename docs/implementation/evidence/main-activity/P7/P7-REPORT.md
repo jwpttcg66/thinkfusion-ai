@@ -305,6 +305,11 @@ roundId 匹配，老事件退回按当前 plan 的 stepId 集合）。真机复�
   覆盖 userData，验收实例跑在隔离目录，只复制模型配置，不再碰真实
   `agent-store.json`。
 
+> **2026-11-26 复核（后续变更，不改写当时证据）**：`planReviewRounds` 现已按
+> 风险等级决定轮数——L0/L1 → 1 轮、L2 → 2 轮、L3 → 3 轮；≥3 位评审且非 L0
+> 再加 1 轮，封顶 3。上面「单成员 2 轮 / 设计文档·≥3 步给 3 轮」是 P7 当时的
+> 规则，保留为历史。`test:plan-review` 当前是 **23** 条，不是 24。
+
 真机 CDP（`P7-REVIEW-ROUNDS.json`）：工程空间只读任务「4 步计划」，2 位评审，
 `plan.debated` 为 `rounds=3 / 4 步的计划，分歧要留一轮回应`；辩论文件
 `maxRounds=3`，三轮 `analysis / challenge / response` 各有 1 条发言，停因

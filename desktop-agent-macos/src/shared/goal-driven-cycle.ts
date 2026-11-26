@@ -8,6 +8,7 @@
 import type { AgentEvent } from './contracts';
 import type { ConversationGoal } from './conversation';
 import { CODING_BUDGET } from './coding-workflow';
+import { impactedByReplan, isTerminalWorkStatus, type WorkTask } from './task-decomposition';
 
 export type GoalStatusGdc =
   | 'draft'
@@ -178,6 +179,76 @@ export function classifyGoalChange(input: {
   if (added > 0 && removed === 0) return 'clarify';
   if (added === 0 && removed === 0) return 'optimize';
   return input.userConfirmedChange ? 'change' : 'change';
+}
+
+/**
+ * 目标修订 → 版本与任务影响（P0-03）。
+ *
+ * 目标变更不能只改一句 userPrompt：已完成的成果要能继承，未完成的任务要
+ * 局部重规划，旧版本任务不能冒充新目标交付。这里给出确定性判断，写事件
+ * 仍由 Orchestrator 走正式 work.task.upserted / work.breakdown.replanned。
+ */
+export interface GoalRevisionPlan {
+  kind: GoalChangeKind;
+  nextVersion: number;
+  versionChanged: boolean;
+  /** 缩小成功标准属于重大变更，未经用户确认不得直接生效。 */
+  requiresUserConfirmation: boolean;
+  impactedTaskIds: string[];
+  inheritedTaskIds: string[];
+  reason: string;
+}
+
+export function planGoalRevision(input: {
+  tasks: readonly WorkTask[];
+  previousVersion: number;
+  previousCriteria: readonly string[];
+  nextCriteria: readonly string[];
+  userConfirmedChange?: boolean;
+  /** 已知受影响的子任务；缺省时目标变更视为影响全部未完成任务。 */
+  changedTaskIds?: readonly string[];
+}): GoalRevisionPlan {
+  const kind = classifyGoalChange({
+    previousCriteria: input.previousCriteria,
+    nextCriteria: input.nextCriteria,
+    ...(input.userConfirmedChange === undefined ? {} : { userConfirmedChange: input.userConfirmedChange })
+  });
+  const nextVersion = applyGoalVersionBump(input.previousVersion, kind);
+
+  if (kind !== 'change') {
+    return {
+      kind,
+      nextVersion,
+      versionChanged: nextVersion !== input.previousVersion,
+      requiresUserConfirmation: false,
+      impactedTaskIds: [],
+      inheritedTaskIds: input.tasks.map(task => task.workTaskId),
+      reason: kind === 'clarify'
+        ? '目标澄清：成功标准只是补充，不构成版本变更'
+        : '目标优化：成功标准未增删，保持现有任务版本'
+    };
+  }
+
+  const seeds = input.changedTaskIds && input.changedTaskIds.length > 0
+    ? [...input.changedTaskIds]
+    : input.tasks.filter(task => !isTerminalWorkStatus(task.status)).map(task => task.workTaskId);
+  const impactedTaskIds = impactedByReplan(input.tasks, seeds);
+  const impacted = new Set(impactedTaskIds);
+  const inheritedTaskIds = input.tasks
+    .filter(task => !impacted.has(task.workTaskId))
+    .map(task => task.workTaskId);
+
+  return {
+    kind,
+    nextVersion,
+    versionChanged: nextVersion !== input.previousVersion,
+    requiresUserConfirmation: input.userConfirmedChange !== true,
+    impactedTaskIds,
+    inheritedTaskIds,
+    reason: seeds.length === 0
+      ? '目标变更，但没有未完成任务需要重规划'
+      : `目标变更影响 ${String(impactedTaskIds.length)} 个未完成任务；已完成且不受影响的成果可继承`
+  };
 }
 
 export function assessGoalFit(input: {

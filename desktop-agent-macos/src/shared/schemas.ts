@@ -167,6 +167,10 @@ export const ExecutionReportSchema = z
         reasons: z.array(z.string().max(2000)).max(50),
         changedFiles: z.number().int().min(0),
         changedPaths: z.array(z.string().max(4000)).max(200).optional(),
+        // 阶段 B3：主进程用真实 git diff 统计填写的改动量；老报告没有，缺省即可。
+        insertions: z.number().int().min(0).optional(),
+        deletions: z.number().int().min(0).optional(),
+        diffAvailable: z.boolean().optional(),
         checks: z
           .object({
             compile: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict(),

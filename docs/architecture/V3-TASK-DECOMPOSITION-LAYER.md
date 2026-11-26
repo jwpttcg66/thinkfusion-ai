@@ -14,6 +14,26 @@
 
 ---
 
+## 0. 当前实现对照（2026-11-26，先读这一节）
+
+> 本文 §1 是 2026-11-25 的设计快照，其中「WorkTask 尚未实现」已经过时。
+> 现状以本节与 [STATUS](../implementation/STATUS.md) 为准。
+
+| 项 | 现状 |
+| --- | --- |
+| WorkTask | 已实现：`shared/task-decomposition.ts`，L0–L3、状态机、依赖、验收、CAS、局部重规划闭包 |
+| 种树 | `seedWorkEventsFromPlan` 从计划落 `work.*` 事件；L3 归属 L2 由 `decomposition.stepIds` 决定 |
+| L2 生成 | 模型给了 `decomposition` 就用；没给且任务复杂（≥2 个独立写入目录，或 ≥3 次写入）时按目标目录结构化归纳 |
+| 不该拆的 | 单一交付目标（只读、单文件、单目录）允许 L0→L1→L3，不硬凑层级 |
+| 归纳失败 | 标 `NEEDS_ANALYSIS`，审批可见，并取消「完全权限自动批准」——缺 L2 不当成功 |
+| Goal 绑定 | `AgentTask.goalId/goalVersion` 在种树时传给每个 WorkTask；目标修订按影响闭包重打版本 |
+| 子任务循环 | 每个 L2 有独立 `cycleId`（`cycle:<workId>:<workTaskId>`），L3 步骤跟随所属子任务；`shared/subtask-cycle.ts` 投影阶段与结论 |
+| 失败隔离 | 步骤失败只把**依赖它的** L2 标 `blocked`，其余子任务结论照常成立；不重启整条工程 |
+| 跨子任务冲突 | `detectSubtaskConflicts` 按写入目标找「两个子任务写同一文件」，报告收尾发 `cycle.subtask.conflict` |
+| 集成结论 | `integrateSubtaskCycles` 按子任务计数（通过/失败/受阻/未完成），修复轮提示词只让做未通过的子任务 |
+| 循环的边界 | 子任务循环有独立 `cycleId`、阶段与结论，但**不新建调度器**：仍复用主任务的执行轮次，物理上串行 |
+| 进度 | 只从 `work.*` / `step.*` 投影，模型自报百分比不参与 |
+
 ## 1. 背景与缺口（对照当前 main）
 
 ### 1.1 已有

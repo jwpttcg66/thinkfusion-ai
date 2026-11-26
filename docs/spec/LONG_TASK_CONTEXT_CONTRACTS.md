@@ -2,7 +2,7 @@
 
 文档角色：共享类型、状态机、事件和错误语义的规范来源。运行实现状态见 [STATUS.md](../implementation/STATUS.md)。<br>
 上游设计：[LONG_TASK_AND_CONTEXT_COMPACTION.md](../archive/architecture/LONG_TASK_AND_CONTEXT_COMPACTION-2026-11-24.md)<br>
-存储设计：[CONTEXT_CHECKPOINT_STORAGE.md](../archive/architecture/CONTEXT_CHECKPOINT_STORAGE-2026-11-24.md)
+存储设计：[CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)
 
 > 本文定义类型、不变量、状态机、事件与 API。实现必须服从这些契约；
 > 契约变更必须先改本文，再改代码与任务书。
@@ -232,12 +232,15 @@ export interface SummaryEvidence {
 
 ```ts
 export type ContextEventType =
+  | 'context.prepared'
   | 'context.budget.warning'
   | 'context.compaction.started'
   | 'context.compaction.summary.ready'
   | 'context.compaction.committed'
   | 'context.compaction.failed'
   | 'context.compaction.stale'
+  /** 检查点可读但工程上下文过期：恢复前必须重新采集。 */
+  | 'context.refresh.required'
   | 'context.recovered';
 
 export interface ContextEventPayload {
@@ -247,12 +250,17 @@ export interface ContextEventPayload {
   checkpointId?: string;
   modelId?: string;
   providerId?: string;
-  level?: 'normal' | 'warning' | 'compaction' | 'overflow';
+  level?: 'normal' | 'warning' | 'compaction' | 'overflow' | 'unknown';
+  estimatedTokens?: number;
+  contextWindow?: number | null;
+  usageRatio?: number | null;
   inputTokensBefore?: number | null;
   inputTokensAfter?: number | null;
   /** 事件 payload 只放展示用预览；完整来源在检查点文件。 */
   sourceEventIdsPreview?: string[];
   reason?: string;
+  /** 只有 context.recovered 会带：副作用核对计数。 */
+  sideEffects?: { applied: number; missing: number; needsReconciliation: number };
 }
 ```
 

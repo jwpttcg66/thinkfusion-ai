@@ -14,6 +14,7 @@
 - [GLOBAL_MEMORY.md](GLOBAL_MEMORY.md)：记忆数据模型、注入边界和治理不变量。
 - [LONG_TASK_CONTEXT_CONTRACTS.md](LONG_TASK_CONTEXT_CONTRACTS.md)：长任务共享类型、状态机、事件、错误降级和不变量；类型/事件只在此定义。
 - [LONG_TASK_CONTEXT_UI.md](LONG_TASK_CONTEXT_UI.md)：上下文 UI 展示与可追溯性契约。
+- [TASK_CONVERSATION_STREAM.md](TASK_CONVERSATION_STREAM.md)：工程对话流的事件源/投影分层、四层模型、差距清单、A→B→C→D1→D2 实施方案；区分会话聚合胶囊与独立文件变更块、交付产物卡片。
 - 早期工具对照/能力盘点已移入 [archive/spec/reference](../archive/README.md)；代码架构见 [architecture index](../architecture/README.md)。
 - 工程观测与交付硬约束见仓库 [AGENTS.md](../../AGENTS.md) §8，不复制第二份。
 
@@ -25,7 +26,7 @@
 ## 检查点存储
 
 存储布局、原子提交和恢复实现说明见
-[CONTEXT_CHECKPOINT_STORAGE.md](../archive/architecture/CONTEXT_CHECKPOINT_STORAGE-2026-11-24.md)。
+[CONTEXT_CHECKPOINT_STORAGE.md](../architecture/CONTEXT_CHECKPOINT_STORAGE.md)。
 契约字段仍以 `LONG_TASK_CONTEXT_CONTRACTS.md` 为准，不在两处复制。
 
 ## 规范变更

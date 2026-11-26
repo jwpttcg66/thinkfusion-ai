@@ -50,3 +50,16 @@ AgentOrchestrator、Collaboration Engine、Planner、Provider、TaskGrant、Deba
 | TDL WorkTask | 参与策略绑定子任务 |
 | `planLead` / `debateCandidates` | 候选与健康检查入口，扩展而非替换 |
 | Journal / AgentEvent | 扩展事件，单一权威 |
+
+## 当前实现对照（2026-11-26）
+
+| 能力 | 已实现 | 边界 |
+| --- | --- | --- |
+| 参与 vs 职责 | `applyEcoGateToDecision` 只收窄**正式职责**（architect/reviewer/verifier/adjudicator），用户钉住的人仍参与 | 上下文不足/过期时被摘角色的人只能旁听、辅助分析；`roleEligibility` 供派发前复核 |
+| 角色限制可审计 | `blockedRoles` 与 `ecoGate.restrictions` 随 `model.participation.selected` 落事件 | 界面已区分「仅旁听/辅助分析」与正式角色 |
+| 正式贡献快照 | 方案评审后 `snapshotFromExchanges` 生成 artifact/snapshot/decision，钉住每人最后一版终稿 | 工程评审与 General/Knowledge 共用这一条出口；会话侧由 `conversationDecisionSnapshot` 调用 |
+| 快照完整性 | `assertDecisionSnapshotIntegrity` 检查缺失、版本不符、已被覆盖、未完成 | 发现问题是记警告，不自动改数据 |
+| 三场景统一 | 会话轮次结束发 `model.decision.snapshot`（含 artifacts），`projectDmocaFromConversationEvents` 与工程投影产出同一视图结构 | 单模型时结论成立但标 `singleModel`，不做交叉验证声明；界面尚未展示会话决策快照 |
+| 失败/超时不阻塞 | 失败成员照常记入 `unresolvedIssues`，结论照常给出；没有正文时不造决策 | 超时的成员不会被等待补答，也不假装参与过 |
+
+**明确不做**：为「看起来在协作」固定每任务三模型；把流式片段当正式贡献；用新 Runtime 承载 Workflow。

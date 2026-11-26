@@ -50,7 +50,7 @@ export async function connect(target) {
     clearTimeout(entry.timer);
     const details = message.result?.exceptionDetails;
     if (details) entry.reject(new Error(details.exception?.description ?? details.text ?? 'evaluation failed'));
-    else entry.resolve(message.result?.result?.value);
+    else entry.resolve(message.result);
   });
 
   socket.addEventListener('close', () => {
@@ -64,16 +64,24 @@ export async function connect(target) {
      * call into the preload API resolves to the real reply rather than a handle.
      */
     evaluate(expression, timeoutMs = 20000) {
+      return this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, timeoutMs)
+        .then(result => result?.result?.value);
+    },
+    /**
+     * 原始协议调用：截图（`Page.captureScreenshot`）这类拿不到「值」的域要用它。
+     *
+     * 上层 evaluate 只是 `Runtime.evaluate` 的语法糖；协议本身的返回值形状不一样，
+     * 所以这里返回整个 result 交给调用方自己取，不做统一拍平。
+     */
+    send(method, params = {}, timeoutMs = 20000) {
       return new Promise((resolve, reject) => {
         const id = ++nextId;
         const timer = setTimeout(() => {
           pending.delete(id);
-          reject(new Error(`CDP timeout after ${timeoutMs}ms: ${expression.slice(0, 80)}`));
+          reject(new Error(`CDP timeout after ${timeoutMs}ms: ${method}`));
         }, timeoutMs);
         pending.set(id, { resolve, reject, timer });
-        socket.send(
-          JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } })
-        );
+        socket.send(JSON.stringify({ id, method, params }));
       });
     },
     close() {

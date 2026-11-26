@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import type {
   AgentEvent,
   AgentPlan,
@@ -17,33 +19,61 @@ import type { ContextHistoryItem, ContextManager } from '../shared/context';
 import { scopeHistory } from './context/entry-policy';
 import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
-import { READ_ONLY_TOOLS } from '../shared/contracts';
+import { READ_ONLY_TOOLS, TOOL_NAMES } from '../shared/contracts';
+import type { WorkflowDefinition } from '../shared/workflow';
+import { validateWorkflow, workflowToPlan } from '../shared/workflow';
+import { findWorkflow, selectWorkflow } from '../shared/workflow-registry';
+import { checkVersionChain, versionConsistencyPrompt } from '../shared/version-consistency';
 import { approvalPolicyFor } from '../shared/approval';
 import {
   assessCollaborationRisk,
   checkPlanCapabilities,
-  planDecompositionWarning,
   planReviewRounds,
   shouldDebatePlan
 } from './engineering/plan-review';
 import { checkCodingBudget } from '../shared/coding-workflow';
+import { collectDiffStats, withDiffStats } from './engineering/diff-stats';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
 import {
   decideNextEngineeringAction,
+  planGoalRevision,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
-import { applyEcoGateToDecision, decideParticipation, dispatchedParticipantIds } from '../shared/dmoca';
+import {
+  applyEcoGateToDecision,
+  assertDecisionSnapshotIntegrity,
+  decideParticipation,
+  dispatchedParticipantIds,
+  snapshotFromExchanges
+} from '../shared/dmoca';
 import {
   buildEngineeringContextPackage,
+  contextInvalidation,
+  contextRequestsForGaps,
   contextRequestForGaps,
   engineeringEvidenceOf,
   fulfillContextRequest,
+  invalidateContextPackage,
+  projectEcoFromEvents,
+  type ContextRequest,
   type ContextResourceRef,
-  type EcoEvidenceSummary
+  type EcoEvidenceSummary,
+  type EngineeringContextPackage
 } from '../shared/eco';
-import { planEvidencePaths, readEngineeringEvidence } from './engineering/eco-evidence';
-import { rebuildWorkTasksFromEvents, seedWorkEventsFromPlan } from '../shared/task-decomposition';
+import { planEvidencePaths } from './engineering/eco-evidence';
+import { exploreContextRequest } from './engineering/eco-explore';
+import {
+  decompositionWarnings,
+  ensurePlanDecomposition,
+  rebuildWorkTasksFromEvents,
+  seedWorkEventsFromPlan
+} from '../shared/task-decomposition';
+import {
+  detectSubtaskConflicts,
+  integrateSubtaskCycles,
+  projectSubtaskCyclesFromEvents
+} from '../shared/subtask-cycle';
 import { desktopActionStillOpen } from '../shared/computer-use-view';
 import { AgentStore } from './store';
 import { TaskManager, TERMINAL } from './task-manager';
@@ -187,6 +217,27 @@ export interface OrchestratorDeps {
  * because the previous step may have been a web page we do not control.
  */
 const PLANNING_TIMEOUT_MS = 120_000;
+
+/** 计划引用路径的最长公共目录；用于「看看这个目录里到底有什么」。取不到就不问。 */
+function commonDirectory(paths: readonly string[]): string | undefined {
+  const dirs = paths
+    .map(item => path.posix.dirname(item.replaceAll('\\', '/')))
+    .filter(item => item && item !== '.' && item !== '/');
+  const first = dirs[0];
+  if (!first) return undefined;
+  let common = first.split('/');
+  for (const dir of dirs.slice(1)) {
+    const segments = dir.split('/');
+    const next: string[] = [];
+    for (let index = 0; index < Math.min(common.length, segments.length); index += 1) {
+      if (common[index] !== segments[index]) break;
+      next.push(common[index]!);
+    }
+    common = next;
+    if (common.length === 0) return undefined;
+  }
+  return common.length > 0 ? common.join('/') : undefined;
+}
 
 export class AgentOrchestrator {
   /** taskIds with an active wait or execution, to prevent double-driving. */
@@ -350,6 +401,160 @@ export class AgentOrchestrator {
     return this.tasks.get(task.taskId);
   }
 
+  /**
+   * 生产工作流入口（P1-04）。
+   *
+   * 固定流程不经过模型规划，也不再问一遍「要不要辩」：它就是一条已经写死的
+   * 能力序列。但执行仍然走既有审批、TaskGrant、Journal、执行报告与验证，
+   * 所以事件、证据与交付物和模型计划完全同构。
+   *
+   * 条件/循环/并行在 `workflowToPlan` 里就展开成真实步骤；approval 节点只把
+   * 「必须人工批准」抬上来——完全权限也不能跳过它。
+   */
+  async submitWorkflow(input: {
+    workflow?: WorkflowDefinition;
+    workflowId?: string;
+    goal?: string;
+    permissionPreset: PermissionPreset;
+    workspaceRoot?: string;
+    argsByNode?: Record<string, Record<string, unknown>>;
+    inputs?: Record<string, unknown>;
+    completionCondition?: string;
+  }): Promise<AgentTask> {
+    const known: readonly string[] = TOOL_NAMES;
+    const entry = input.workflow
+      ? null
+      : input.workflowId
+        ? findWorkflow(input.workflowId)
+        : selectWorkflow(input.goal ?? '', known).entry;
+    const definition = input.workflow ?? entry?.definition;
+    if (!definition) {
+      const selected = selectWorkflow(input.goal ?? '', known);
+      throw new Error(
+        input.workflowId
+          ? `没有注册这个工作流：${input.workflowId}`
+          : `没有可执行的固定工作流：${selected.reason}`
+      );
+    }
+    const validation = validateWorkflow(definition, known);
+    if (!validation.ok) throw new Error(`工作流定义不合法：${validation.errors.join('；')}`);
+
+    const task = this.tasks.create({
+      prompt: `工作流：${definition.title}`,
+      permissionPreset: input.permissionPreset,
+      ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
+      // 固定流程不生成模型计划，也就没有「方案评审」；不写 off 会被当成默认 auto 记一笔假辩论。
+      planDebate: 'off'
+    });
+    this.tasks.transition(task.taskId, 'planning');
+    const round = this.tasks.createRound({
+      taskId: task.taskId,
+      inputType: 'user_prompt',
+      requestText: `工作流 ${definition.id}：${definition.title}`
+    });
+    const built = workflowToPlan({
+      definition,
+      knownCapabilities: known,
+      taskId: task.taskId,
+      roundId: round.roundId,
+      ...(input.argsByNode ? { argsByNode: input.argsByNode } : {}),
+      ...(input.inputs ? { inputs: input.inputs } : {}),
+      ...(input.completionCondition ? { completionCondition: input.completionCondition } : {})
+    });
+    if (!built.plan) {
+      const message = built.error ?? '工作流无法生成计划';
+      this.tasks.transition(task.taskId, 'failed', { error: message });
+      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId: task.taskId, error: message });
+      throw new Error(message);
+    }
+    this.deps.emit({
+      type: 'workflow.run',
+      at: Date.now(),
+      taskId: task.taskId,
+      workflowId: definition.id,
+      title: definition.title,
+      stepCount: built.plan.steps.length,
+      skipped: built.skipped ?? [],
+      notes: built.notes ?? [],
+      requiresApproval: Boolean(built.requiresApproval)
+    });
+    for (const note of built.notes ?? []) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId: task.taskId, level: 'info',
+        message: `工作流：${note}`
+      });
+    }
+    for (const item of built.skipped ?? []) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn',
+        message: `工作流节点 ${item.nodeId} 未执行：${item.reason}`
+      });
+    }
+
+    const stored: StoredPlan = {
+      planId: randomUUID(),
+      taskId: task.taskId,
+      roundId: round.roundId,
+      plan: built.plan,
+      contentHash: hashPlan(built.plan),
+      approvalStatus: 'pending',
+      createdAt: Date.now()
+    };
+    this.deps.store.insertPlan(stored);
+    this.tasks.updateRound(round.roundId, { status: 'plan_ready' });
+    this.tasks.patch(task.taskId, { currentPlanId: stored.planId });
+
+    const gate = checkPlanCapabilities(stored.plan);
+    const perStep = approvalPolicyFor(task.permissionPreset).stepApproval;
+    const planPreview = toPreview(stored, [
+      ...gate.missing,
+      ...(built.requiresApproval ? ['工作流包含必须人工批准的节点'] : [])
+    ]);
+    // 工作流也要有任务树与「准备中」步骤：否则进度面板对这条任务一片空白。
+    for (const event of seedWorkEventsFromPlan({
+      workId: task.taskId,
+      title: definition.title,
+      plan: planPreview,
+      at: Date.now(),
+      goalId: task.goalId,
+      goalVersion: task.goalVersion
+    })) {
+      this.deps.emit(event);
+    }
+    for (const step of stored.plan.steps) {
+      this.deps.emit({
+        type: 'step.preparing',
+        at: Date.now(),
+        taskId: task.taskId,
+        roundId: round.roundId,
+        stepId: step.id,
+        callId: step.id,
+        tool: step.tool,
+        args: step.args as Record<string, unknown>
+      });
+    }
+    this.deps.emit({
+      type: 'plan.ready',
+      at: Date.now(),
+      taskId: task.taskId,
+      roundId: round.roundId,
+      plan: planPreview
+    });
+    this.tasks.transition(task.taskId, 'awaiting_approval', { currentPlanId: stored.planId });
+
+    if (built.requiresApproval) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn',
+        message: `工作流包含审批节点：即使权限为「完全权限」也必须人工确认（逐步骤审批档位 ${perStep}）。`
+      });
+      return this.tasks.get(task.taskId);
+    }
+    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan) {
+      this.autoApprovePlan(task.taskId, round.roundId, stored.planId);
+    }
+    return this.tasks.get(task.taskId);
+  }
+
   async approve(input: ApprovePlanInput): Promise<void> {
     const task = this.tasks.get(input.taskId);
     if (task.status !== 'awaiting_approval') throw new Error(`任务当前状态为 ${task.status}，不接受审批`);
@@ -471,9 +676,21 @@ export class AgentOrchestrator {
       this.busy.delete(task.taskId);
     }
 
+    // 改动量必须在报告成形的这一刻取：读完报告再回头跑 git diff，
+    // 工作区可能已经被下一轮改过，数字就不是这份报告的了。
+    if (report.verification && report.verification.changedFiles > 0) {
+      const stats = collectDiffStats({
+        workspaceRoot: task.workspaceRoot,
+        paths: report.verification.changedPaths ?? []
+      });
+      report = {
+        ...report,
+        verification: withDiffStats(report.verification, stats)
+      };
+    }
+
     this.deps.store.insertReport(report);
-    this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });
-    try {
+    this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });    try {
       this.deps.onReport?.(task, report);
     } catch {
       // 轨迹是旁路：记录失败不能让已经完成的执行看起来失败。
@@ -772,6 +989,23 @@ export class AgentOrchestrator {
           }
         });
       }
+      // 检查点能读、上下文过期：可以恢复，但必须先把「重新采集」这件事
+      // 落到事件里，后续规划才知道不能沿用旧结论。
+      if (recovery?.status === 'needs_context_refresh') {
+        this.deps.emit({
+          type: 'context.event', at: Date.now(), taskId,
+          event: 'context.refresh.required',
+          context: {
+            contextId: recovery.contextId ?? task.contextId ?? '',
+            ...(recovery.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
+            reason: recovery.eco?.reason ?? recovery.reason ?? '工程上下文已过期'
+          }
+        });
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `恢复时工程上下文不兼容：${recovery.eco?.reason ?? recovery.reason ?? '未知原因'}；本次继续先重新读取工程，正式角色在补齐上下文前不派发。`
+        });
+      }
       if (recovery?.ledger && recovery.ledger.missing > 0) {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
@@ -779,6 +1013,65 @@ export class AgentOrchestrator {
         });
       }
       this.deps.onRecovery?.(task, recovery ?? { status: 'none' });
+
+      // P1-05：恢复前把「目标 → 任务树 → 上下文 → 贡献 → 决策」逐层比一遍。
+      // 不是算给人看：requiresReplan 会真的改写继续提示词，旧结论不会被静默复用。
+      const resumeEvents = this.deps.store.listEvents(taskId);
+      const resumeTasks = [...rebuildWorkTasksFromEvents(taskId, resumeEvents).values()];
+      const boundGoalVersions = resumeTasks
+        .map(item => item.goalVersion)
+        .filter((item): item is number => typeof item === 'number');
+      const lastDecisionEvent = [...resumeEvents]
+        .reverse()
+        .find(event => event.type === 'model.decision.snapshot');
+      const versionChain = checkVersionChain({
+        goal: {
+          goalId: task.goalId ?? `goal:${taskId}`,
+          version: task.goalVersion ?? 1
+        },
+        workTask: {
+          workId: taskId,
+          ...(boundGoalVersions.length > 0 ? { goalVersion: Math.max(...boundGoalVersions) } : {})
+        },
+        eco: recovery?.ecoRef
+          ? {
+              contextVersion: recovery.ecoRef.contextVersion,
+              ...(recovery.ecoRef.goalVersion !== undefined ? { goalVersion: recovery.ecoRef.goalVersion } : {}),
+              sufficiency: recovery.ecoRef.sufficiency
+            }
+          : null,
+        contribution: lastDecisionEvent && lastDecisionEvent.type === 'model.decision.snapshot'
+          ? { snapshotId: lastDecisionEvent.snapshot.contributionSnapshotId }
+          : null,
+        decision: lastDecisionEvent && lastDecisionEvent.type === 'model.decision.snapshot'
+          ? {
+              decisionId: lastDecisionEvent.snapshot.decisionId,
+              contributionSnapshotId: lastDecisionEvent.snapshot.contributionSnapshotId
+            }
+          : null,
+        current: { goalVersion: task.goalVersion ?? 1 }
+      });
+      this.deps.emit({
+        type: 'version.consistency',
+        at: Date.now(),
+        taskId,
+        consistent: versionChain.consistent,
+        issues: versionChain.issues,
+        inheritable: versionChain.inheritable,
+        expired: versionChain.expired,
+        requiresReplan: versionChain.requiresReplan,
+        requiresContextRefresh: versionChain.requiresContextRefresh,
+        notes: versionChain.notes
+      });
+      if (!versionChain.consistent) {
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId,
+          level: 'warn',
+          message: `版本核对：${versionChain.issues.map(item => `[${item.layer}] ${item.reason}`).join('；')}；可继承 ${versionChain.inheritable.join('、') || '无'}`
+        });
+      }
 
       // 用户在恢复/核对期间取消或暂停：不能继续开新一轮。
       const current = this.tasks.get(taskId);
@@ -799,12 +1092,14 @@ export class AgentOrchestrator {
       this.tasks.transition(taskId, 'planning', { resumeStatus: undefined, error: undefined });
       const round = this.tasks.createRound({ taskId, inputType: 'user_prompt', requestText: '' });
       const recovered = recovery ? recoveryPromptData(recovery) : '';
+      const versionNote = versionConsistencyPrompt(versionChain);
       const prompt = buildInitialPrompt({
         prompt: [
           `${task.userPrompt}
 
 继续上次任务：先检查现有工作区、执行报告与证据，确认哪些步骤已经完成；不要重复已完成的写操作。`,
-          ...(recovered ? ['', recovered] : [])
+          ...(recovered ? ['', recovered] : []),
+          ...(versionNote ? ['', versionNote] : [])
         ].join('\n'),
         taskId,
         roundId: round.roundId,
@@ -818,12 +1113,90 @@ export class AgentOrchestrator {
         type: 'log', at: Date.now(), taskId, level: 'info',
         message: recovery?.status === 'recovered'
           ? '任务已继续：使用最近检查点摘要与副作用核对结果，先检查现状，不自动重跑旧步骤。'
-          : '任务已继续：开始新一轮，先检查现有结果，不自动重跑旧步骤。'
+          : recovery?.status === 'needs_context_refresh'
+            ? '任务已继续：检查点有效但工程上下文已过期，先重新读取工程再规划，不沿用旧结论。'
+            : '任务已继续：开始新一轮，先检查现有结果，不自动重跑旧步骤。'
       });
       void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
     } finally {
       this.resuming.delete(taskId);
     }
+  }
+
+  /**
+   * 目标修订（P0-03）。
+   *
+   * 只做三件事：算版本、算影响、把新的 goalVersion 正式写回 WorkTask。
+   * - 澄清 / 优化不抬版本，也不动任务；
+   * - 重大变更未经用户确认只发警告并返回计划，不落库（不允许静默换目标）；
+   * - 受影响任务按 replan 闭包重打版本，已完成且不受影响的成果保留原版本。
+   */
+  async reviseGoal(
+    taskId: string,
+    input: { nextCriteria: string[]; userConfirmedChange?: boolean; changedTaskIds?: string[] }
+  ): Promise<ReturnType<typeof planGoalRevision>> {
+    const task = this.tasks.get(taskId);
+    const workTasks = [...rebuildWorkTasksFromEvents(taskId, this.deps.store.listEvents(taskId)).values()];
+    const plan = planGoalRevision({
+      tasks: workTasks,
+      previousVersion: task.goalVersion ?? 1,
+      previousCriteria: task.goalCriteria ?? [],
+      nextCriteria: input.nextCriteria,
+      ...(input.userConfirmedChange === undefined ? {} : { userConfirmedChange: input.userConfirmedChange }),
+      ...(input.changedTaskIds ? { changedTaskIds: input.changedTaskIds } : {})
+    });
+
+    if (plan.requiresUserConfirmation) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: `目标变更等待用户确认：${plan.reason}；确认前不抬版本、不改任务。`
+      });
+      return plan;
+    }
+    if (!plan.versionChanged) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: `${plan.reason}；目标版本保持 v${String(task.goalVersion ?? 1)}。`
+      });
+      return plan;
+    }
+
+    const at = Date.now();
+    const goalId = task.goalId ?? `goal:${taskId}`;
+    this.tasks.patch(taskId, {
+      goalId,
+      goalVersion: plan.nextVersion,
+      goalCriteria: [...input.nextCriteria]
+    });
+    const impacted = new Set(plan.impactedTaskIds);
+    for (const item of workTasks) {
+      if (!impacted.has(item.workTaskId)) continue;
+      this.deps.emit({
+        type: 'work.task.upserted',
+        at,
+        taskId,
+        workId: taskId,
+        task: {
+          ...item,
+          goalId,
+          goalVersion: plan.nextVersion,
+          revision: item.revision + 1,
+          updatedAt: at
+        }
+      });
+    }
+    this.deps.emit({
+      type: 'work.breakdown.replanned',
+      at,
+      taskId,
+      workId: taskId,
+      impactedIds: plan.impactedTaskIds
+    });
+    this.deps.emit({
+      type: 'log', at, taskId, level: 'warn',
+      message: `目标版本 → v${String(plan.nextVersion)}（${plan.kind}）：${plan.reason}。`
+    });
+    return plan;
   }
 
   async cancel(taskId: string): Promise<void> {
@@ -1407,11 +1780,23 @@ export class AgentOrchestrator {
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
     const gate = checkPlanCapabilities(stored.plan);
-    const decompositionWarning = planDecompositionWarning(stored.plan);
+    // TDL L2：分解在审批前定稿。模型给了用模型的；没给且任务够复杂就按写入
+    // 目标归纳；归纳不出来标 NEEDS_ANALYSIS，并取消「完全权限自动批准」，
+    // 让缺 L2 这件事必须被人看见——不能因为权限高就静默当成功。
+    const decomposition = ensurePlanDecomposition(stored.plan);
     const planPreview = toPreview(stored, [
       ...gate.missing,
-      ...(decompositionWarning ? [decompositionWarning] : [])
+      ...decompositionWarnings(decomposition)
     ]);
+    if (decomposition.items.length > 0) {
+      planPreview.decomposition = decomposition.items;
+    }
+    if (decomposition.needsAnalysis) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: `TDL：${decomposition.reason}；计划需人工确认，任务树暂无独立验收的 L2。`
+      });
+    }
     this.deps.emit({
       type: 'plan.ready', at: Date.now(), taskId, roundId,
       plan: planPreview
@@ -1432,7 +1817,9 @@ export class AgentOrchestrator {
       workId: taskId,
       title: stored.plan.title || task.title || taskId,
       plan: planPreview,
-      at: Date.now()
+      at: Date.now(),
+      goalId: task.goalId,
+      goalVersion: task.goalVersion
     })) {
       this.deps.emit(event);
     }
@@ -1459,8 +1846,13 @@ export class AgentOrchestrator {
     // 完全权限就不再要人点两次：计划审批与逐步骤审批问的都是「这台机器允许
     // 做这些吗」，而这一档已经回答过了。评审仍然跑（那是质量问题，不是权限
     // 问题）；评审结束就开工，并留一条事件说明这是自动的，不是漏了审批。
-    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan) {
+    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan && !decomposition.needsAnalysis) {
       this.autoApprovePlan(taskId, roundId, stored.planId);
+    } else if (approvalPolicyFor(task.permissionPreset).autoApprovePlan && decomposition.needsAnalysis) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: '完全权限本可自动批准，但计划缺可独立验收的 L2 子任务（NEEDS_ANALYSIS），改为等待人工确认。'
+      });
     }
   }
 
@@ -1472,6 +1864,68 @@ export class AgentOrchestrator {
    * 失败——计划本身是好的，只是自动批准没成（例如过期），此时留着可点的
    * 审批按钮让人接手，比把任务判死有用。
    */
+  /**
+   * 工程上下文探索（P1-01）。
+   *
+   * 每条请求都先落事件（可审计「模型要过什么」），再真实读取，再把带 provenance
+   * 的资源并进包里抬版本。读不到就写 warn，不把「发过请求」当成「读过工程」。
+   */
+  private exploreIntoPackage(input: {
+    taskId: string;
+    workspaceRoot?: string;
+    pkg: EngineeringContextPackage;
+    requests: readonly ContextRequest[];
+  }): EngineeringContextPackage {
+    if (!input.workspaceRoot || input.requests.length === 0) return input.pkg;
+    let pkg = input.pkg;
+    for (const request of input.requests) {
+      this.deps.emit({ type: 'eco.context.requested', at: Date.now(), taskId: input.taskId, request });
+      const kind = request.kind ?? 'FILE_READ';
+      const explored = exploreContextRequest({ workspaceRoot: input.workspaceRoot, request });
+      if (explored.resources.length > 0) {
+        pkg = fulfillContextRequest(pkg, request, explored.resources);
+      }
+      const skipped = explored.skipped.slice(0, 3).map(item => `${item.path}: ${item.reason}`).join('；');
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId: input.taskId,
+        level: explored.resources.length === 0 ? 'warn' : 'info',
+        message:
+          explored.resources.length === 0
+            ? `ECO ${kind} 未取得证据：${skipped || explored.detail}`
+            : `ECO ${kind}：${explored.detail}${explored.skipped.length > 0 ? `；跳过 ${String(explored.skipped.length)} 项（${skipped}）` : ''}`
+      });
+    }
+    return pkg;
+  }
+
+  /**
+   * 代码指纹：不是 git 仓库时只写「绑定过工作区」，不伪造提交号。
+   *
+   * 只取 HEAD 与 dirty 文件数，不算 diff 哈希：这里每次计划评审都会调用，
+   * 拿整个 `git diff --binary` 去换一个哈希会在大仓库上明显拖慢规划。
+   */
+  private repoStateFor(workspaceRoot?: string): EngineeringContextPackage['repository'] {
+    if (!workspaceRoot) return undefined;
+    try {
+      const options = {
+        encoding: 'utf8' as const,
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'ignore'] as Array<'ignore' | 'pipe'>
+      };
+      const commit = execFileSync('git', ['-C', workspaceRoot, 'rev-parse', 'HEAD'], options).trim();
+      const status = execFileSync('git', ['-C', workspaceRoot, 'status', '--porcelain'], options);
+      const dirty = status.split('\n').filter(line => line.trim().length > 0).length;
+      return {
+        ...(commit ? { commit } : {}),
+        workingTreeState: dirty > 0 ? `dirty:${String(dirty)}` : 'clean'
+      };
+    } catch {
+      return { workingTreeState: 'bound' };
+    }
+  }
+
   private autoApprovePlan(taskId: string, roundId: string, planId: string): void {
     setImmediate(() => {
       this.deps.emit({
@@ -1527,6 +1981,30 @@ export class AgentOrchestrator {
           }]
         : [])
     ];
+    // 代码指纹：包上记下当时的提交与工作树状态，恢复/重评时才判得出「包已过期」（P1-05）。
+    const repoState = this.repoStateFor(task.workspaceRoot);
+    // 上一轮的包如果对不上现在的代码/目标，先明确作废再重建：悄悄换一份新包会让
+    // 界面以为还是同一份证据，旧包里的行号与调用关系却可能早已指向别处。
+    {
+      const previous = projectEcoFromEvents({ workId: taskId, events: this.deps.store.listEvents(taskId) }).package;
+      if (previous) {
+        const invalidation = contextInvalidation(previous, {
+          ...repoState,
+          goalVersion: task.goalVersion
+        });
+        if (invalidation.stale) {
+          const voided = invalidateContextPackage(previous, invalidation.reasons.join('；'));
+          this.deps.emit({
+            type: 'eco.context.invalidated',
+            at: Date.now(),
+            taskId,
+            contextPackageId: voided.contextPackageId,
+            contextVersion: voided.contextVersion,
+            reason: voided.invalidatedBy ?? invalidation.reasons.join('；')
+          });
+        }
+      }
+    }
     const buildPackage = (resources: ContextResourceRef[], version?: number) =>
       buildEngineeringContextPackage({
         workId: taskId,
@@ -1537,38 +2015,78 @@ export class AgentOrchestrator {
           : '计划评审阶段工程上下文',
         resources,
         constraints: ['Local/Remote 范围不得静默回退', '不得将推断升级为 VERIFIED_FACT'],
-        repository: task.workspaceRoot ? { workingTreeState: 'bound' } : undefined,
+        repository: repoState,
         ...(version === undefined ? {} : { version })
       });
 
     let ecoPackage = buildPackage(baseResources);
     if (ecoPackage.sufficiency !== 'sufficient') {
       const requestedPaths = planEvidencePaths(stored.plan.steps);
-      const request = contextRequestForGaps(ecoPackage, {
-        requestedPaths,
+      // ① 模型主动请求（符号/调用关系/测试定位/目录/diff）。这是唯一「模型说要看什么」
+      //    的入口：没有它就还是系统按路径猜。每条都真读，读不到写进日志，不假装读过。
+      const planRequests: ContextRequest[] = (stored.plan.contextRequests ?? []).map((item, index) => ({
+        requestId: `eco-req:${taskId}:${String(Date.now())}:plan:${String(index + 1)}`,
+        workId: taskId,
+        reason: item.reason,
         requiredFor: 'review',
-        reason:
-          requestedPaths.length === 0
-            ? '上下文不足：计划没有引用任何工程文件，无法核验「读过工程」'
-            : `上下文不足：计划引用的 ${String(requestedPaths.length)} 个文件尚未真实读取`
-      });
-      if (request) {
-        this.deps.emit({ type: 'eco.context.requested', at: Date.now(), taskId, request });
-        if (requestedPaths.length > 0 && task.workspaceRoot) {
-          const read = readEngineeringEvidence({ workspaceRoot: task.workspaceRoot, paths: requestedPaths });
-          if (read.resources.length > 0) {
-            ecoPackage = fulfillContextRequest(ecoPackage, request, read.resources);
-          }
-          if (read.skipped.length > 0) {
+        priority: index === 0 ? 'high' : 'normal',
+        kind: item.kind,
+        ...(item.paths ? { requestedPaths: item.paths } : {}),
+        ...(item.directory ? { directory: item.directory } : {}),
+        ...(item.symbol ? { symbol: item.symbol } : {}),
+        ...(item.baseRef ? { baseRef: item.baseRef } : {})
+      }));
+      if (planRequests.length > 0) {
+        ecoPackage = this.exploreIntoPackage({
+          taskId,
+          workspaceRoot: task.workspaceRoot,
+          pkg: ecoPackage,
+          requests: planRequests
+        });
+      }
+      // ② 仍有缺口：按计划路径补一次「读文件」，再按工程事实补测试/目录/diff。
+      if (ecoPackage.sufficiency !== 'sufficient') {
+        const request = contextRequestForGaps(ecoPackage, {
+          requestedPaths,
+          requiredFor: 'review',
+          reason:
+            requestedPaths.length === 0
+              ? '上下文不足：计划没有引用任何工程文件，无法核验「读过工程」'
+              : `上下文不足：计划引用的 ${String(requestedPaths.length)} 个文件尚未真实读取`
+        });
+        if (request) {
+          const before = ecoPackage;
+          ecoPackage = task.workspaceRoot
+            ? this.exploreIntoPackage({
+                taskId,
+                workspaceRoot: task.workspaceRoot,
+                pkg: ecoPackage,
+                requests: [{ ...request, kind: 'FILE_READ' }]
+              })
+            : ecoPackage;
+          if (task.workspaceRoot && requestedPaths.length > 0 && ecoPackage.contextVersion === before.contextVersion) {
+            // 一个都没读到：充分度不会变，必须如实说清，不能让「发过请求」看起来像「读过工程」。
             this.deps.emit({
               type: 'log',
               at: Date.now(),
               taskId,
               level: 'warn',
-              message: `ECO：${String(read.skipped.length)} 个计划文件未能核验（${read.skipped
-                .slice(0, 3)
-                .map(item => `${item.path}: ${item.reason}`)
-                .join('；')}），这些文件不计入工程证据。`
+              message: `ECO：计划引用的 ${String(requestedPaths.length)} 个文件一个都没能核验，这些文件不计入工程证据。`
+            });
+          }
+          const typed = contextRequestsForGaps(ecoPackage, {
+            paths: requestedPaths,
+            directory: requestedPaths.length > 0 ? commonDirectory(requestedPaths) : undefined,
+            discoverTests: requestedPaths.length > 0,
+            readDiff: repoState?.workingTreeState?.startsWith('dirty') === true,
+            requiredFor: 'review'
+          }).filter(item => item.kind !== 'FILE_READ' && item.kind !== 'SYMBOL_LOOKUP' && item.kind !== 'CALL_RELATION');
+          if (typed.length > 0 && task.workspaceRoot) {
+            ecoPackage = this.exploreIntoPackage({
+              taskId,
+              workspaceRoot: task.workspaceRoot,
+              pkg: ecoPackage,
+              requests: typed.slice(0, 2)
             });
           }
         }
@@ -1589,7 +2107,8 @@ export class AgentOrchestrator {
         selectedIds: task.debateAgentIds,
         userPinned: Boolean(task.debateAgentIds && task.debateAgentIds.length > 0)
       }),
-      ecoPackage.sufficiency
+      ecoPackage.sufficiency,
+      { contextVersion: ecoPackage.contextVersion }
     );
     this.deps.emit({
       type: 'model.participation.selected',
@@ -1607,6 +2126,7 @@ export class AgentOrchestrator {
       participants: participation.participants.map(item => ({
         participantId: item.participantId,
         roles: item.roles,
+        ...(item.blockedRoles && item.blockedRoles.length > 0 ? { blockedRoles: item.blockedRoles } : {}),
         reason: item.reason
       })),
       excluded: participation.excluded,
@@ -1699,6 +2219,30 @@ export class AgentOrchestrator {
       progressGoals = result.topicGoals ?? [];
       progressTarget = result.expressTarget ?? '';
       progressGoal = result.expressGoal ?? '';
+      // DMOCA：把这次交锋落成不可变贡献快照，正式决策钉住每人最后一版终稿。
+      // 没有结构化交锋（老记录 / 只有摘要）时不造快照，避免假装可追溯。
+      const pinned = snapshotFromExchanges({
+        workId: taskId,
+        participants: result.participants,
+        exchanges: result.result?.exchanges ?? [],
+        conclusion: result.summary,
+        at: Date.now()
+      });
+      if (pinned.decision) {
+        const integrity = assertDecisionSnapshotIntegrity(pinned.decision, pinned.artifacts);
+        if (!integrity.ok) {
+          this.deps.emit({
+            type: 'log', at: Date.now(), taskId, level: 'warn',
+            message: `DMOCA 贡献快照不完整：${integrity.issues.slice(0, 3).join('；')}`
+          });
+        }
+        this.deps.emit({
+          type: 'model.decision.snapshot',
+          at: Date.now(),
+          taskId,
+          snapshot: pinned.decision
+        });
+      }
       return {
         status: result.status,
         debateId: result.debateId,
@@ -1714,6 +2258,8 @@ export class AgentOrchestrator {
         ...(typeof result.maxRounds === 'number' ? { maxRounds: result.maxRounds } : {}),
         ...(result.roundsReason ? { roundsReason: result.roundsReason } : {}),
         ...(result.skippedReason ? { skippedReason: result.skippedReason } : {}),
+        ...(pinned.snapshot ? { contributionSnapshot: pinned.snapshot } : {}),
+        ...(pinned.decision ? { decisionSnapshot: pinned.decision } : {}),
         at: Date.now()
       };
     } catch (error) {
@@ -1891,6 +2437,41 @@ export class AgentOrchestrator {
     // GDC：用既有事件派生循环结论，再决定 complete / repair / fail_*。
     // 不另建状态机；决策落点发 cycle.snapshot / goal.fit 供 UI 与重放对账。
     const priorEvents = this.deps.store.listEvents(taskId);
+    // TDL：每个 L2 的独立循环与跨子任务冲突（P1-02）。失败只影响依赖者，
+    // 这里只负责把「哪些子任务过了、哪些没过、哪里撞车了」变成可核对的事实。
+    const subtaskTasks = [...rebuildWorkTasksFromEvents(taskId, priorEvents).values()];
+    const subtaskCycles = projectSubtaskCyclesFromEvents({
+      workId: taskId,
+      tasks: subtaskTasks,
+      events: priorEvents
+    });
+    const subtaskIntegration = integrateSubtaskCycles(subtaskCycles.cycles);
+    const subtaskConflicts = detectSubtaskConflicts({
+      cycles: subtaskCycles.cycles,
+      results: report.results.map(item => ({
+        stepId: item.stepId,
+        tool: item.tool,
+        ...(item.args ? { args: item.args } : {})
+      }))
+    });
+    if (subtaskConflicts.length > 0) {
+      this.deps.emit({
+        type: 'cycle.subtask.conflict',
+        at: Date.now(),
+        taskId,
+        conflicts: subtaskConflicts
+      });
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: `TDL：发现 ${String(subtaskConflicts.length)} 处跨子任务写冲突——${subtaskConflicts
+          .slice(0, 3)
+          .map(item => item.reason)
+          .join('；')}`
+      });
+    }
     const workbench = projectGoalDrivenWorkbench({
       workId: taskId,
       originalRequest: task.userPrompt,
@@ -2011,7 +2592,29 @@ export class AgentOrchestrator {
     }
 
     const round = this.tasks.createRound({ taskId, inputType: 'execution_report', requestText: '' });
-    const prompt = buildReportPrompt({ taskId, roundId: round.roundId, report, review });
+    // 子任务循环：把「哪些过了、哪些没过」写进下一轮，避免整条工程从头再跑一遍。
+    const subtaskScope = subtaskCycles.cycles.length > 0
+      ? {
+          label: subtaskIntegration.summary,
+          notes: [
+            `只做未通过的子任务：${subtaskCycles.cycles
+              .filter(item => item.verdict === 'failed' || item.verdict === 'blocked')
+              .map(item => item.title)
+              .join('、') || '（没有失败/受阻的子任务，按评审问题修复）'}`,
+            `已通过的 ${String(subtaskIntegration.accepted)} 个子任务不要重跑，也不要重复写入同样的内容`,
+            ...(subtaskConflicts.length > 0
+              ? [`跨子任务写冲突待处理：${subtaskConflicts.map(item => item.path).join('、')}`]
+              : [])
+          ]
+        }
+      : null;
+    const prompt = buildReportPrompt({
+      taskId,
+      roundId: round.roundId,
+      report,
+      review,
+      ...(subtaskScope ? { subtaskScope } : {})
+    });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
 
     // 进入修复轮即视为采纳这些问题：写 disposition 事件，投影才能从 pending 变成 accepted。

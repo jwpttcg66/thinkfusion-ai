@@ -41,9 +41,67 @@ export interface ConversationEntryBase {
   roundNumber: number | null;
 }
 
+/**
+ * 统一呈现状态（阶段 B1）。
+ *
+ * **只用于呈现**，不替代业务状态：`member.status` 仍是
+ * streaming/completed/failed/cancelled，`debate.status` 仍是
+ * running/completed/stopped/skipped——`stopped` 不能因为这里叫 completed 就被吞掉。
+ */
+export type ConversationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+
+/** 旁注的类型（阶段 B2）。新代码不许再用 `text.startsWith` 猜类型。 */
+export type NoteSubtype =
+  | 'round'
+  | 'context'
+  | 'breakdown'
+  | 'context_request'
+  | 'context_package'
+  | 'participation'
+  | 'decision'
+  | 'goal_fit'
+  | 'clarification'
+  | 'milestone'
+  | 'diff'
+  | 'system';
+
+/**
+ * 聚合条目的位置与更新（阶段 B3，见规格 §1.3）。
+ *
+ * `firstAt` 决定时间轴位置且**永不改写**；`updatedAt` 只表示最近一次更新。
+ * 投影原地更新同一 `aggregateKey` 的条目，绝不改底层历史事件。
+ */
+export interface AggregateTrace {
+  aggregateKey: string;
+  firstEventId: string;
+  lastEventId: string;
+  firstAt: number;
+  updatedAt: number;
+}
+
+/** 改动量摘要（阶段 B3）：数字只来自真实 diff，拿不到就 `available:false`。 */
+export interface DiffSummary {
+  files: number;
+  insertions?: number;
+  deletions?: number;
+  /** `false` 专指「取 diff 失败」。老报告没有统计信息时这里是 `undefined`，只显示文件数。 */
+  available?: boolean;
+}
+
 export type ConversationEntry =
   | (ConversationEntryBase & { kind: 'user'; text: string })
-  | (ConversationEntryBase & { kind: 'note'; text: string; tone: ConversationTone; detail?: string })
+  | (ConversationEntryBase & {
+      kind: 'note';
+      text: string;
+      tone: ConversationTone;
+      detail?: string;
+      /** 类型化旁注：生成点直接标注，呈现层不必再猜前缀。 */
+      subtype: NoteSubtype;
+      /** 聚合旁注（如改动量）带的位置与更新痕迹；非聚合条目没有。 */
+      aggregate?: AggregateTrace;
+      /** 改动量摘要；只有 `subtype:'diff'` 且拿到真实统计时才有。 */
+      diff?: DiffSummary;
+    })
   | (ConversationEntryBase & {
       kind: 'member';
       memberId: string;
@@ -534,7 +592,7 @@ export function buildTaskConversation(
     } | null;
     now?: number;
   } = {}
-): ConversationEntry[] {
+): ConversationEntryView[] {
   const ordered = [...events].sort((a, b) => a.at - b.at);
   const entries: ConversationEntry[] = [];
   const rounds = new Map<string, { number: number; inputType: string; at: number }>();
@@ -547,6 +605,8 @@ export function buildTaskConversation(
   let reviewCount = 0;
   /** 方案评审按 planId 原地更新：心跳、等待、辩完是同一条，不能越刷越多。 */
   const debates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'debate' }> }>();
+  /** 聚合旁注按 aggregateKey 原地改写（改动量），位置留在第一次出现处。 */
+  const aggregates = new Map<string, { index: number; entry: Extract<ConversationEntry, { kind: 'note' }> }>();
 
   const upsertDebate = (
     key: string,
@@ -640,6 +700,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `round-${event.roundId}`,
+        subtype: 'round',
         at: event.at,
         roundId: event.roundId,
         roundNumber: event.roundNumber,
@@ -884,6 +945,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `context-${String(event.at)}-${String(seq)}`,
+        subtype: 'context',
         at: event.at,
         roundId: event.taskId ? currentRoundId : null,
         roundNumber: event.taskId ? roundNumber(currentRoundId) : null,
@@ -899,6 +961,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `work-breakdown-${String(event.at)}-${String(seq)}`,
+        subtype: 'breakdown',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -915,6 +978,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `eco-req-${request.requestId}-${String(event.at)}`,
+        subtype: 'context_request',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -933,6 +997,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `eco-${pkg.contextPackageId}-${String(event.at)}`,
+        subtype: 'context_package',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -952,6 +1017,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `participation-${String(event.at)}-${String(seq)}`,
+        subtype: 'participation',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -972,6 +1038,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `cycle-${event.cycleId}-${String(event.at)}-${String(seq)}`,
+        subtype: 'decision',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -994,6 +1061,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `goal-fit-${String(event.at)}-${String(seq)}`,
+        subtype: 'goal_fit',
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
@@ -1008,6 +1076,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `clarify-${String(event.at)}-${String(seq)}`,
+        subtype: 'clarification',
         at: event.at,
         roundId: event.roundId ?? currentRoundId,
         roundNumber: roundNumber(event.roundId ?? currentRoundId),
@@ -1040,6 +1109,35 @@ export function buildTaskConversation(
           completedSteps: results.filter(item => item.status === 'completed').length,
           totalSteps: results.length
         });
+        // 改动量：同一任务只有一条，后续报告原地改写数字，位置固定在第一次出现处。
+        const diff = diffSummaryOf(verification);
+        if (diff) {
+          const aggregateKey = 'diff';
+          const at = event.at;
+          const existing = aggregates.get(aggregateKey);
+          const trace: AggregateTrace = {
+            aggregateKey,
+            firstEventId: existing?.entry.aggregate?.firstEventId ?? `report-${String(at)}`,
+            lastEventId: `report-${String(at)}`,
+            firstAt: existing?.entry.aggregate?.firstAt ?? at,
+            updatedAt: at
+          };
+          const entry: Extract<ConversationEntry, { kind: 'note' }> = {
+            kind: 'note',
+            key: `diff-${aggregateKey}`,
+            at: trace.firstAt,
+            roundId: event.roundId ?? currentRoundId,
+            roundNumber: roundNumber(event.roundId ?? currentRoundId),
+            tone: 'muted',
+            subtype: 'diff',
+            text: diffText(diff),
+            aggregate: trace,
+            diff
+          };
+          if (existing) entries[existing.index] = entry;
+          else entries.push(entry);
+          aggregates.set(aggregateKey, { index: existing?.index ?? entries.length - 1, entry });
+        }
       }
       continue;
     }
@@ -1099,6 +1197,7 @@ export function buildTaskConversation(
       push({
         kind: 'note',
         key: `note-${item.key}`,
+        subtype: 'milestone',
         at: item.at,
         roundId,
         roundNumber: roundNumber(roundId),
@@ -1168,11 +1267,90 @@ export function buildTaskConversation(
     });
   }
 
-  return entries.sort((a, b) => a.at - b.at || orderWeight(a) - orderWeight(b));
+  return normalizeEntries(entries.sort((a, b) => a.at - b.at || orderWeight(a) - orderWeight(b)));
 }
 
-/** 同一毫秒里的稳定次序：提问在最前，结论在最后。 */
-function orderWeight(entry: ConversationEntry): number {
+/** 对外条目：在投影条目上补齐稳定身份与统一状态（阶段 B1）。 */
+export type ConversationEntryView = ConversationEntry & {
+  /** 稳定身份，与 `key` 同源；呈现层不许用数组下标当身份。 */
+  id: string;
+  conversationStatus: ConversationStatus;
+};
+
+/** 业务状态 → 统一呈现状态。业务状态本身一个字都不改。 */
+export function conversationStatusOf(entry: ConversationEntry): ConversationStatus {
+  switch (entry.kind) {
+    case 'member':
+      return entry.status === 'streaming' ? 'running' : entry.status;
+    case 'step':
+      if (entry.card.status === 'running') return 'running';
+      if (entry.card.status === 'failed') return 'failed';
+      if (entry.card.status === 'completed') return 'completed';
+      return 'pending';
+    case 'debate':
+      if (entry.status === 'running') return 'running';
+      if (entry.status === 'completed') return 'completed';
+      if (entry.status === 'skipped') return 'skipped';
+      // stopped 是「辩到一半停了」，不是「完成」。
+      return 'cancelled';
+    case 'plan':
+      return 'completed';
+    default:
+      return 'completed';
+  }
+}
+
+/**
+ * 从报告的验证块取改动量。
+ *
+ * 只读报告里已经有的数字：`insertions/deletions` 是主进程在报告形成阶段跑
+ * `git diff --numstat` 得到的真數；这里**不**读 Git、不现算（不变量 11）。
+ */
+export function diffSummaryOf(verification: {
+  changedFiles?: number;
+  insertions?: number;
+  deletions?: number;
+  diffAvailable?: boolean;
+} | null | undefined): DiffSummary | null {
+  const files = verification?.changedFiles ?? 0;
+  if (files <= 0) return null;
+  const hasNumbers = typeof verification?.insertions === 'number' && typeof verification?.deletions === 'number';
+  return {
+    files,
+    ...(hasNumbers ? { insertions: verification!.insertions, deletions: verification!.deletions } : {}),
+    ...(verification?.diffAvailable === false ? { available: false } : hasNumbers ? { available: true } : {})
+  };
+}
+
+/** 改动量文案：有真数字写数字，取不到就写「统计不可用」，老报告只写文件数。 */
+export function diffText(diff: DiffSummary): string {
+  if (diff.available !== false && typeof diff.insertions === 'number' && typeof diff.deletions === 'number') {
+    return `改动 ${String(diff.files)} 个文件 · +${String(diff.insertions)} / -${String(diff.deletions)}`;
+  }
+  if (diff.available === false) return `改动 ${String(diff.files)} 个文件 · 统计不可用`;
+  return `改动 ${String(diff.files)} 个文件`;
+}
+
+/**
+ * 补齐 `id` 与 `conversationStatus`。
+ *
+ * 纯函数、可重复调用：同一份事件重算两次得到同样的 id（`key` 来自事件内容，
+ * 不是下标）。重复 key 时按出现次序加后缀，保证 id 唯一且仍然确定。
+ */
+export function normalizeEntries(entries: readonly ConversationEntry[]): ConversationEntryView[] {
+  const used = new Map<string, number>();
+  return entries.map(entry => {
+    const seen = used.get(entry.key) ?? 0;
+    used.set(entry.key, seen + 1);
+    return {
+      ...entry,
+      id: seen === 0 ? entry.key : `${entry.key}#${String(seen + 1)}`,
+      conversationStatus: conversationStatusOf(entry)
+    };
+  });
+}
+
+/** 同一毫秒里的稳定次序：提问在最前，结论在最后。 */function orderWeight(entry: ConversationEntry): number {
   if (entry.kind === 'user') return -2;
   if (entry.kind === 'conclusion') return 2;
   return 0;
@@ -1517,4 +1695,117 @@ export function mergeChronological<T extends { at: number; key?: string }>(
     }
   }
   return merged.sort((a, b) => a.at - b.at);
+}
+
+/* ------------------------------------------------------------------------- *
+ * 渲染层接线的接口（阶段 A）
+ *
+ * 定位轨跳哪里、色档怎么取、一步「执行中」显示多少秒、什么时候要每秒重画——
+ * 这些判断原先散在渲染层甚至根本没写，导致 `buildStreamLandmarks` 与
+ * `data-stream-anchor` 各自造好了却没人消费。这里把它们收成纯函数：
+ * 渲染层只负责调用与画，口径变了改一处，测试直接打这些函数。
+ * ------------------------------------------------------------------------- */
+
+/** 定位轨节点的色档；CSS 只认这几档（.chat-locate-tick.is-*）。 */
+export type StreamLandmarkTone = 'prompt' | 'plan' | 'debate' | 'exec' | 'check' | 'done';
+
+const LANDMARK_TONE: Record<StreamLandmarkKind, StreamLandmarkTone> = {
+  prompt: 'prompt',
+  plan: 'plan',
+  debate: 'debate',
+  debate_peer: 'debate',
+  step: 'exec',
+  bridge: 'exec',
+  review: 'check',
+  verification: 'check',
+  conclusion: 'done'
+};
+
+/** 地标类型 → 色档。映射只此一处，渲染层不要再写 if/else 挑颜色。 */
+export function landmarkTone(kind: StreamLandmarkKind): StreamLandmarkTone {
+  return LANDMARK_TONE[kind] ?? 'exec';
+}
+
+/**
+ * 锚点 id 的唯一来源。
+ *
+ * `wrapAnchor` 写 `id`、定位轨跳转时取元素，必须用同一个字符串；
+ * 分开各写一次就会漂成「点了没反应」。身份只用 `entry.key`，不用数组下标。
+ */
+export function streamAnchorId(entryKey: string): string {
+  return `stream-${entryKey}`;
+}
+
+/**
+ * 一步的耗时：运行中现算，结束后用真实耗时。
+ *
+ * 计时只在界面现算，不写回 Journal（不变量 10）。没有 `startedAt` 就如实返回
+ * `null`，不拿「现在」当起点编一个数出来。
+ */
+export function stepElapsedMs(
+  card: Pick<StepCard, 'status' | 'startedAt' | 'endedAt' | 'durationMs'>,
+  now: number
+): number | null {
+  if (card.status === 'running') {
+    if (typeof card.startedAt !== 'number') return null;
+    return Math.max(0, now - card.startedAt);
+  }
+  if (card.status === 'completed' || card.status === 'failed') {
+    if (typeof card.durationMs === 'number') return Math.max(0, card.durationMs);
+    if (typeof card.startedAt === 'number' && typeof card.endedAt === 'number') {
+      return Math.max(0, card.endedAt - card.startedAt);
+    }
+    return null;
+  }
+  return null;
+}
+
+/** 运行中的秒数文案：`不到 1 秒` / `8 秒` / `1 分 05 秒`。 */
+export function liveElapsedText(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return '不到 1 秒';
+  const total = Math.floor(ms / 1000);
+  if (total < 60) return `${String(total)} 秒`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes)} 分 ${String(seconds).padStart(2, '0')} 秒`;
+}
+
+/**
+ * 是否需要每秒重画。
+ *
+ * 原先只看「有成员在流式输出」，于是步骤跑起来时秒数不动——数据在
+ * （`step.startedAt` 已写），界面没算。这里把两种活口都算上。
+ */
+export function needsLiveTimer(entries: readonly ConversationEntry[]): boolean {
+  return entries.some(entry => {
+    if (entry.kind === 'member') return entry.status === 'streaming';
+    if (entry.kind === 'step') return entry.card.status === 'running';
+    return false;
+  });
+}
+
+/**
+ * 当前该高亮的地标：可视锚点里在轨道上最靠后的一个。
+ *
+ * 可视集合由渲染层用 IntersectionObserver 收集（只是「哪些 entryKey 可见」，
+ * 不含任何判断）；排序与取舍在这里做，避免渲染层再写一套滚动逻辑。
+ * 都不在轨道上时返回 `null`，界面保留上一次高亮，不闪回顶部。
+ */
+export function activeLandmarkId(
+  landmarks: readonly StreamLandmark[],
+  visibleAnchors: readonly string[]
+): string | null {
+  if (visibleAnchors.length === 0) return null;
+  const visible = new Set(visibleAnchors);
+  let active: string | null = null;
+  for (const landmark of landmarks) {
+    if (visible.has(landmark.entryKey)) active = landmark.id;
+  }
+  return active;
+}
+
+/** 只有一个节点时不出轨：一个点占一列既占地方也没有跳转价值。 */
+export function shouldShowLandmarkRail(landmarks: readonly StreamLandmark[]): boolean {
+  return landmarks.length >= 2;
 }

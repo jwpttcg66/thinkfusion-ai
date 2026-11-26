@@ -25,12 +25,31 @@ import {
   reconcileSideEffects
 } from './side-effects';
 
-export type TaskRecoveryStatus = 'none' | 'recovered' | 'stale';
+/**
+ * 恢复结论。
+ *
+ * 「检查点有效」不等于「上下文仍然成立」：目标、任务结构、ECO 版本、
+ * 贡献快照任何一个变了，都不能拿旧结论继续做正式决策。所以把恢复拆成
+ * 可判定的几档，而不是一个 recovered 通吃。
+ */
+export type TaskRecoveryStatus =
+  | 'none'
+  | 'recovered'
+  /** 检查点能读，但工程上下文已过期：必须重新采集后才能正式裁决。 */
+  | 'needs_context_refresh'
+  /** 目标或任务结构发生实质变化：要局部重规划，不能接着跑旧步骤。 */
+  | 'needs_replan'
+  | 'stale'
+  | 'blocked';
 
 export interface TaskRecoveryResult {
   status: TaskRecoveryStatus;
   /** 检查点钉住的 ECO 是否仍兼容；缺省表示没有 ECO 引用可核对。 */
   eco?: { ok: boolean; reason: string };
+  /** 检查点里钉住的 ECO 引用原文；调用方可以据此做版本链核对（P1-05）。 */
+  ecoRef?: EcoCheckpointRef;
+  /** 目标/任务版本兼容性；缺省表示检查点里没有对应引用。 */
+  goal?: { ok: boolean; reason: string };
   checkpointId?: string;
   contextId?: string;
   compactionStatus?: ContextCompactionStatus;
@@ -95,6 +114,30 @@ export async function recoverTaskContext(
       .map(parseEcoEvidenceRef)
       .filter((item): item is EcoCheckpointRef => item !== null);
     const lastEco = ecoRefs.at(-1);
+    // 目标版本变了：检查点本身没问题，但它描述的是一份旧目标下的任务，
+    // 继续按旧步骤跑只会做错事。这一档必须大于「上下文刷新」——刷新上下文
+    // 解决不了「要做的东西变了」。
+    const taskGoalVersion = task.goalVersion;
+    if (
+      lastEco?.goalVersion !== undefined &&
+      taskGoalVersion !== undefined &&
+      lastEco.goalVersion !== taskGoalVersion
+    ) {
+      return {
+        status: 'needs_replan',
+        checkpointId: pointer.checkpointId,
+        contextId: pointer.contextId,
+        compactionStatus: prepared.compactionStatus,
+        ...(checkpoint ? { summary: checkpoint.summary } : {}),
+        ...(lastEco ? { ecoRef: lastEco } : {}),
+        goal: {
+          ok: false,
+          reason: `检查点基于目标 v${String(lastEco.goalVersion)}，当前任务目标 v${String(taskGoalVersion)}`
+        },
+        ledger,
+        reason: '目标版本已变化：需要按当前目标重新规划，不能沿用旧分解与旧结论'
+      };
+    }
     const eco = lastEco && deps.eventsForTask
       ? ecoCompatibilityFromEvents({
           saved: lastEco,
@@ -102,12 +145,28 @@ export async function recoverTaskContext(
           events: deps.eventsForTask(task.taskId)
         })
       : null;
+    // 检查点能读，但上下文过期：不假装 recovered。任务可以恢复，前提是
+    // 先重新采集工程上下文；正式角色在这之前一律不派。
+    if (eco && !eco.ok) {
+      return {
+        status: 'needs_context_refresh',
+        checkpointId: pointer.checkpointId,
+        contextId: pointer.contextId,
+        compactionStatus: prepared.compactionStatus,
+        ...(checkpoint ? { summary: checkpoint.summary } : {}),
+        ...(lastEco ? { ecoRef: lastEco } : {}),
+        eco: { ok: false, reason: eco.reason },
+        ledger,
+        reason: `检查点有效，但工程上下文不兼容：${eco.reason}`
+      };
+    }
     return {
       status: 'recovered',
       checkpointId: pointer.checkpointId,
       contextId: pointer.contextId,
       compactionStatus: prepared.compactionStatus,
       ...(checkpoint ? { summary: checkpoint.summary } : {}),
+      ...(lastEco ? { ecoRef: lastEco } : {}),
       ...(eco ? { eco: { ok: eco.ok, reason: eco.reason } } : {}),
       ledger
     };
@@ -121,11 +180,29 @@ export async function recoverTaskContext(
 
 /** 恢复摘要只作为数据附在继续请求里；明确标注来源与 certainty 限制。 */
 export function recoveryPromptData(result: TaskRecoveryResult): string {
-  if (result.status !== 'recovered') return '';
+  if (
+    result.status !== 'recovered' &&
+    result.status !== 'needs_context_refresh' &&
+    result.status !== 'needs_replan'
+  ) {
+    return '';
+  }
   const lines = [
     '上次上下文检查点（模型生成的摘要，不是执行事实；恢复以执行报告与工作区为准）：',
     JSON.stringify(result.summary ?? null, null, 2)
   ];
+  if (result.status === 'needs_replan') {
+    lines.push(
+      '',
+      `目标已变化（${result.goal?.reason ?? '版本不一致'}）：按当前目标重新规划，不得沿用旧分解、旧计划或旧结论；已经确认真实存在的产物可以作为现状，但要重新核验。`
+    );
+  }
+  if (result.status === 'needs_context_refresh') {
+    lines.push(
+      '',
+      `工程上下文已过期（${result.eco?.reason ?? 'ECO 版本不兼容'}）：先重新读取相关文件、依赖与配置，再规划；本次不得沿用旧上下文做正式设计或裁决。`
+    );
+  }
   const ledger = result.ledger;
   if (ledger) {
     lines.push(

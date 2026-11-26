@@ -1,0 +1,573 @@
+{
+  "startedAt": "2026-11-26T03:54:16.908Z",
+  "checks": {
+    "real-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-26T03:54:16.912Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "http://localhost:5173/",
+      "at": "2026-11-26T03:54:25.957Z"
+    },
+    "model-configured": {
+      "ok": true,
+      "detail": "[\"opencode-go:deepseek-v4.1-flash\"]",
+      "at": "2026-11-26T03:54:25.959Z"
+    },
+    "task-terminal": {
+      "ok": true,
+      "detail": "completed",
+      "at": "2026-11-26T03:55:16.948Z"
+    },
+    "locate-rail-visible": {
+      "ok": true,
+      "detail": "rail=true grid=true",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "locate-rail-has-ticks": {
+      "ok": true,
+      "detail": "ticks=10 labels=[\"提问\",\"计划 · 运行 npm test 并汇报输出开头\",\"开始执行\",\"方案评审\",\"表态\",\"轮间依据\",\"执行前依据\",\"验证通过\",\"独立评审 · 通过\",\"结论 · 目标物 1\"]",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "each-tick-targets-a-real-anchor": {
+      "ok": true,
+      "detail": "targets=[\"stream-user-prompt\",\"stream-plan-5467a073-32f5-4cf9-a074-f3fbc1a35296\",\"stream-step-step-1:step-1\",\"stream-debate-5467a073-32f5-4cf9-a074-f3fbc1a35296\",\"stream-review:497454e0-4365-4a36-a845-374c9dadcc8e::0:opencode-go:deepseek-v4.1-flash\",\"stream-review-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1-stop\",\"stream-exec-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1795665297133\",\"stream-verification-1795665305365-8\",\"stream-review-1795665316805-9\",\"stream-conclusion\"]",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "tick-highlight-present": {
+      "ok": true,
+      "detail": "active=1",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "running-step-shot": {
+      "ok": true,
+      "detail": "metas=[\"执行中 · 不到 1 秒\"]",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "live-seconds-shown": {
+      "ok": true,
+      "detail": "第一次 0 秒",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "live-seconds-increase": {
+      "ok": true,
+      "detail": "0 秒 → 2 秒",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "no-stale-running-after-finish": {
+      "ok": true,
+      "detail": "running=0",
+      "at": "2026-11-26T03:55:17.065Z"
+    },
+    "click-tick-scrolls-to-anchor": {
+      "ok": true,
+      "detail": "{\"ok\":true,\"top\":579,\"inViewport\":true}",
+      "at": "2026-11-26T03:55:18.044Z"
+    },
+    "real-store-untouched": {
+      "ok": true,
+      "detail": "d3f40ebd501a → d3f40ebd501a",
+      "at": "2026-11-26T03:55:33.606Z"
+    }
+  },
+  "shots": [
+    "../docs/spec/evidence/stage-a/01-run-in-progress.png",
+    "../docs/spec/evidence/stage-a/02-run-in-progress-later.png",
+    "../docs/spec/evidence/stage-a/03-completed.png",
+    "../docs/spec/evidence/stage-a/04-jump-to-conclusion.png"
+  ],
+  "events": [
+    {
+      "type": "task.updated",
+      "at": 1795665267050,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665267069,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665267094,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.started",
+      "at": 1795665267102,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.peer",
+      "at": 1795665267119,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.delta",
+      "at": 1795665268799,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.answer",
+      "at": 1795665275138,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665275158,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665275192,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.ready",
+      "at": 1795665275201,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "work.breakdown.created",
+      "at": 1795665275210,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795665275210,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795665275210,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795665275210,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795665275210,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "step.preparing",
+      "at": 1795665275253,
+      "stepId": "step-1",
+      "tool": "fs.readFile"
+    },
+    {
+      "type": "step.preparing",
+      "at": 1795665275263,
+      "stepId": "step-2",
+      "tool": "test.run"
+    },
+    {
+      "type": "eco.context.requested",
+      "at": 1795665275295,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "log",
+      "at": 1795665275304,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "eco.context.prepared",
+      "at": 1795665275313,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "model.participation.selected",
+      "at": 1795665275322,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.progress",
+      "at": 1795665275331,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "log",
+      "at": 1795665275725,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.peer",
+      "at": 1795665275725,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.delta",
+      "at": 1795665277727,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.progress",
+      "at": 1795665285340,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.peer",
+      "at": 1795665288821,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.progress",
+      "at": 1795665288839,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "log",
+      "at": 1795665288848,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.peer",
+      "at": 1795665288864,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.delta",
+      "at": 1795665290287,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.progress",
+      "at": 1795665295340,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "round.peer",
+      "at": 1795665296989,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.bridge",
+      "at": 1795665297024,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "log",
+      "at": 1795665297034,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "model.decision.snapshot",
+      "at": 1795665297050,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.review.progress",
+      "at": 1795665297060,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665297079,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "plan.debated",
+      "at": 1795665297060,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "log",
+      "at": 1795665297099,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665297125,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "execution.bridge",
+      "at": 1795665297133,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.started",
+      "at": 1795665297144,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "step.started",
+      "at": 1795665297145,
+      "stepId": "step-1",
+      "tool": "fs.readFile"
+    },
+    {
+      "type": "work.task.status",
+      "at": 1795665297167,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "step.completed",
+      "at": 1795665297149,
+      "stepId": "step-1",
+      "tool": "fs.readFile"
+    },
+    {
+      "type": "work.task.status",
+      "at": 1795665297184,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "step.started",
+      "at": 1795665297158,
+      "stepId": "step-2",
+      "tool": "test.run"
+    },
+    {
+      "type": "work.task.status",
+      "at": 1795665297201,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "step.completed",
+      "at": 1795665305335,
+      "stepId": "step-2",
+      "tool": "test.run"
+    },
+    {
+      "type": "work.task.status",
+      "at": 1795665305345,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "report.ready",
+      "at": 1795665305365,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "review.ready",
+      "at": 1795665316805,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665316839,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665316861,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "cycle.snapshot",
+      "at": 1795665316871,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "goal.fit",
+      "at": 1795665316880,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795665316897,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "task.completed",
+      "at": 1795665316906,
+      "stepId": null,
+      "tool": null
+    },
+    {
+      "type": "goal.fit",
+      "at": 1795665316916,
+      "stepId": null,
+      "tool": null
+    }
+  ],
+  "steps": [],
+  "storeBefore": "d3f40ebd501a968dc1bd808a021bda64bc51ae047405c399c43976b73f3ebb35",
+  "copiedConfig": [
+    "api-keys.json",
+    "cloud-config.json",
+    "execution-defaults.json",
+    "permission-preset.json",
+    "sources.json",
+    "settings.json",
+    "capabilities.json",
+    "cli-agents.json",
+    "cli-capabilities.json",
+    "collaboration-mode.json",
+    "expertise.json",
+    "profile.json",
+    "workspaces.json",
+    "workspace-state.json",
+    "code-intelligence.json"
+  ],
+  "clearedStale": [
+    56353
+  ],
+  "executionDefaults": {
+    "executionMode": "cloud",
+    "fallbackEnabled": false,
+    "privacyMode": "allow-cloud",
+    "selectedCloudModels": [
+      "opencode-go:deepseek-v4.1-flash"
+    ],
+    "selectedCliAgents": []
+  },
+  "taskId": "bb3f98b3-1cb0-481d-9e84-210d544ca133",
+  "conversationId": "2f749f73-10a7-43d4-9327-ec0c9b533c78",
+  "liveMetas": {
+    "first": [
+      "执行中 · 不到 1 秒"
+    ],
+    "second": [
+      "执行中 · 2 秒"
+    ]
+  },
+  "terminal": {
+    "status": "completed",
+    "error": null
+  },
+  "finalProbe": {
+    "rail": true,
+    "railClass": true,
+    "tickCount": 10,
+    "tickLabels": [
+      "提问",
+      "计划 · 运行 npm test 并汇报输出开头",
+      "开始执行",
+      "方案评审",
+      "表态",
+      "轮间依据",
+      "执行前依据",
+      "验证通过",
+      "独立评审 · 通过",
+      "结论 · 目标物 1"
+    ],
+    "tickTargets": [
+      "stream-user-prompt",
+      "stream-plan-5467a073-32f5-4cf9-a074-f3fbc1a35296",
+      "stream-step-step-1:step-1",
+      "stream-debate-5467a073-32f5-4cf9-a074-f3fbc1a35296",
+      "stream-review:497454e0-4365-4a36-a845-374c9dadcc8e::0:opencode-go:deepseek-v4.1-flash",
+      "stream-review-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1-stop",
+      "stream-exec-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1795665297133",
+      "stream-verification-1795665305365-8",
+      "stream-review-1795665316805-9",
+      "stream-conclusion"
+    ],
+    "tickTargetsResolve": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "activeCount": 1,
+    "runningSteps": 0,
+    "runningMetas": [],
+    "stepMetas": [
+      "完成 · 2ms",
+      "完成 · 8.2s"
+    ],
+    "anchorIds": [
+      "stream-user-prompt",
+      "stream-round-b5fc1ae2-e4fc-48d8-904c-2f29ff6aed40",
+      "stream-b5fc1ae2-e4fc-48d8-904c-2f29ff6aed40::lead:OpenCode Go · deepseek-v4.1-flash",
+      "stream-plan-5467a073-32f5-4cf9-a074-f3fbc1a35296",
+      "stream-work-breakdown-1795665275210-2",
+      "stream-step-step-1:step-1",
+      "stream-step-step-1:step-2",
+      "stream-eco-req-eco-req:bb3f98b3-1cb0-481d-9e84-210d544ca133:1795665275295-1795665275295",
+      "stream-note-m-1795665275304-260",
+      "stream-eco-eco:bb3f98b3-1cb0-481d-9e84-210d544ca133:planning:1795665275304-1795665275313",
+      "stream-participation-1795665275322-5",
+      "stream-debate-5467a073-32f5-4cf9-a074-f3fbc1a35296",
+      "stream-b5fc1ae2-e4fc-48d8-904c-2f29ff6aed40::lead-summary:opencode-go:deepseek-v4.1-flash",
+      "stream-note-m-1795665288848-336",
+      "stream-review:497454e0-4365-4a36-a845-374c9dadcc8e::0:opencode-go:deepseek-v4.1-flash",
+      "stream-review-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1-stop",
+      "stream-note-m-1795665297099-385",
+      "stream-exec-bridge-5467a073-32f5-4cf9-a074-f3fbc1a35296-1795665297133",
+      "stream-verification-1795665305365-8",
+      "stream-note-m-1795665305365-396",
+      "stream-review-1795665316805-9",
+      "stream-cycle-cycle:bb3f98b3-1cb0-481d-9e84-210d544ca133:1-1795665316871-10",
+      "stream-goal-fit-1795665316880-11",
+      "stream-note-m-1795665316906-400",
+      "stream-goal-fit-1795665316916-12",
+      "stream-conclusion"
+    ],
+    "liveText": false,
+    "scrollTop": 0
+  },
+  "jump": {
+    "ok": true,
+    "top": 579,
+    "inViewport": true
+  },
+  "storeAfter": "d3f40ebd501a968dc1bd808a021bda64bc51ae047405c399c43976b73f3ebb35",
+  "finishedAt": "2026-11-26T03:55:33.607Z"
+}

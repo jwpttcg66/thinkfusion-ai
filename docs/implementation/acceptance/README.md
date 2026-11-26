@@ -6,6 +6,8 @@
 | 能力 | 报告 |
 | --- | --- |
 | 协作预算与按需评审 | [collaboration-budget/ACCEPTANCE.md](collaboration-budget/ACCEPTANCE.md) |
+| V3 P0 整改（角色门禁/分解/版本/恢复/快照） | [v3-p0-remediation/ACCEPTANCE.md](v3-p0-remediation/ACCEPTANCE.md) |
+| V3 P1 整改（按需探索/子任务循环/三场景快照/工作流/版本链） | [v3-p1-remediation/ACCEPTANCE.md](v3-p1-remediation/ACCEPTANCE.md) |
 | 动态多模型协作（DMOCA） | [dmoca/ACCEPTANCE.md](dmoca/ACCEPTANCE.md) |
 | Goal-Driven Cycle | [gdc/ACCEPTANCE.md](gdc/ACCEPTANCE.md) |
 | Goal/TDL/ECO | [goal-tdl-eco/ACCEPTANCE.md](goal-tdl-eco/ACCEPTANCE.md) |

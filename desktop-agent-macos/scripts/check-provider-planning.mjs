@@ -46,6 +46,6 @@ test('规划阶段只输出 reasoning 时按硬超时失败，不一直转圈', 
   const sent = await adapter.sendMessage('plan', 'r1', () => {});
   await assert.rejects(
     () => adapter.waitForAnswer('r1', sent.snapshotBefore, 5000),
-    /规划超时.*推理/
+    /超时.*推理/
   );
 });

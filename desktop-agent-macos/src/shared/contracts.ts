@@ -1244,6 +1244,35 @@ export const PlanSchema = z
       .optional(),
     completion: z.object({ condition: z.string().min(1).max(1000) }).strict(),
     /**
+     * 模型主动请求的工程上下文（P1-01）。
+     *
+     * 只有这一步是「模型自己说要看什么」：符号定义、调用关系、测试位置、
+     * 目录结构、这次改动的 diff。系统会按类型去真实读取并回填到上下文包，
+     * 读不到就如实标注。没有本字段就沿用「按计划路径补」的旧行为。
+     */
+    contextRequests: z
+      .array(
+        z
+          .object({
+            kind: z.enum([
+              'FILE_READ',
+              'DIRECTORY_DISCOVERY',
+              'SYMBOL_LOOKUP',
+              'CALL_RELATION',
+              'TEST_DISCOVERY',
+              'DIFF_READ'
+            ]),
+            reason: z.string().min(1).max(500),
+            paths: z.array(RelativePath).min(1).max(12).optional(),
+            directory: RelativePath.optional(),
+            symbol: z.string().min(1).max(200).optional(),
+            baseRef: z.string().min(1).max(200).optional()
+          })
+          .strict()
+      )
+      .max(6)
+      .optional(),
+    /**
      * 主导模型自己提出的评审议题（可选）。
      * 系统不得按步数/工具名套模板编造辩论；没有本字段就不开方案辩论。
      */
@@ -1403,6 +1432,17 @@ export interface AgentTask {
   status: TaskStatus;
   permissionPreset: PermissionPreset;
   workspaceRoot?: string;
+  /**
+   * 任务绑定的目标与版本（P0-03）。
+   *
+   * 目标变了但旧任务还在跑，是长任务最常见的错误来源：任务树、贡献和证据
+   * 都会指向一个已经不成立的目标。版本号随任务创建写入，再由种树传给每个
+   * WorkTask；目标修订时只重打受影响任务，不重建无关子树。
+   */
+  goalId?: string;
+  goalVersion?: number;
+  /** 目标成功标准：判断「澄清 / 优化 / 变更」的依据，缺省表示尚未写明。 */
+  goalCriteria?: string[];
   /** 任务选定的模型；方案评审只能使用这些模型。 */
   debateAgentIds?: string[];
   conversationId?: string;
@@ -1528,6 +1568,14 @@ export interface PlanDebate {
   skippedReason?: string;
   /** 为什么辩：设计文档强制 / 设置开启 / auto 按计划规模与风险判断。 */
   reason?: string;
+  /**
+   * DMOCA：正式决策引用的贡献快照（P0-05）。
+   *
+   * 只记「最终计划」是不够的：结论用的是哪一版发言必须能回查。快照与决策
+   * 一起落在 plan.debated 上，旧决策永远指向它自己那一版，不被后续修订覆盖。
+   */
+  contributionSnapshot?: import('./dmoca').ContributionSnapshotView;
+  decisionSnapshot?: import('./dmoca').DecisionSnapshotView;
   at: number;
 }
 
@@ -1652,6 +1700,17 @@ export interface ExecutionReport {
     reasons: string[];
     changedFiles: number;
     changedPaths?: string[];
+    /**
+     * 真实改动量（阶段 B3）：由主进程在读报告形成阶段跑 `git diff --numstat`
+     * 得到，不是从路径数组推算的。老报告没有这两个字段。
+     */
+    insertions?: number;
+    deletions?: number;
+    /**
+     * 统计到底拿没拿到：`false` 表示取 diff 失败。界面必须显示「统计不可用」，
+     * 不能把失败画成 `+0 / -0`。
+     */
+    diffAvailable?: boolean;
     /**
      * V1.3：compile / run / tests / diagnostics 各自的状态与退出码。
      * 老报告没有 `run` 字段，界面按「未记录」处理，不补默认值。
@@ -1971,6 +2030,21 @@ export type AgentEvent = AgentEventBase &
         fit: 'pending' | 'met' | 'gap' | 'unknown';
         notes: string[];
       }
+    /** TDL：单个 L2 子任务的独立循环快照（分析→设计→实现→审核）。 */
+    | {
+        type: 'cycle.subtask.snapshot';
+        taskId: string;
+        workId: string;
+        workTaskId: string;
+        cycleId: string;
+        cycle: import('./subtask-cycle').SubtaskCycleView;
+      }
+    /** TDL：跨子任务写冲突（主任务集成时必须可见）。 */
+    | {
+        type: 'cycle.subtask.conflict';
+        taskId: string;
+        conflicts: import('./subtask-cycle').SubtaskConflict[];
+      }
     /** DMOCA：本阶段参与决策（选人/角色/跳过辩论与模型审核的理由）。 */
     | {
         type: 'model.participation.selected';
@@ -1981,7 +2055,13 @@ export type AgentEvent = AgentEventBase &
         cycleId?: string;
         stage: string;
         risk: 'L0' | 'L1' | 'L2' | 'L3';
-        participants: Array<{ participantId: string; roles: string[]; reason: string }>;
+        participants: Array<{
+          participantId: string;
+          roles: string[];
+          /** ECO 门禁摘掉的正式角色；有值表示此人只能旁听/辅助分析。 */
+          blockedRoles?: string[];
+          reason: string;
+        }>;
         excluded: Array<{ participantId: string; reason: string }>;
         debate: 'skip' | 'on_demand' | 'required';
         modelReview: 'skip' | 'on_demand' | 'required';
@@ -1993,6 +2073,15 @@ export type AgentEvent = AgentEventBase &
           sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale';
           formalRolesBlocked: boolean;
           reason: string;
+          /** 逐人的角色限制；界面据此区分「旁听 / 辅助分析 / 正式审核」。 */
+          restrictions?: Array<{
+            participantId: string;
+            blockedRoles: string[];
+            allowedRoles: string[];
+            reason: string;
+          }>;
+          /** 门禁依据的工程上下文版本。 */
+          contextVersion?: number;
         };
       }
     /** ECO：工程上下文包已准备（充分度与版本可审计）。 */
@@ -2006,6 +2095,44 @@ export type AgentEvent = AgentEventBase &
         type: 'eco.context.requested';
         taskId: string;
         request: import('./eco').ContextRequest;
+      }
+    /** ECO：已有上下文包因代码/目标变化而失效（不是「重新准备」，是「旧的作废」）。 */
+    | {
+        type: 'eco.context.invalidated';
+        taskId: string;
+        contextPackageId: string;
+        contextVersion: number;
+        reason: string;
+      }
+    /** Workflow：固定流程提交执行（无模型规划），跳过与串行化说明都记在这里。 */
+    | {
+        type: 'workflow.run';
+        taskId: string;
+        workflowId: string;
+        title: string;
+        stepCount: number;
+        skipped: Array<{ nodeId: string; reason: string }>;
+        notes: string[];
+        requiresApproval: boolean;
+      }
+    /** 版本链核对（Goal → WorkTask → ECO → 贡献 → 决策）：恢复/继承前的权威判定。 */
+    | {
+        type: 'version.consistency';
+        taskId: string;
+        consistent: boolean;
+        issues: Array<{ layer: string; id: string; reason: string }>;
+        inheritable: string[];
+        expired: string[];
+        requiresReplan: boolean;
+        requiresContextRefresh: boolean;
+        notes: string[];
+      }
+    /** DMOCA：正式决策引用了哪一版贡献（贡献版本被钉住，可追溯）。 */
+    | {
+        type: 'model.decision.snapshot';
+        taskId: string;
+        cycleId?: string;
+        snapshot: import('./dmoca').DecisionSnapshotView;
       }
     /** TDL：分解图首次建立。 */
     | {
@@ -3059,6 +3186,48 @@ export interface AgentApi {
   pauseTask(taskId: string): Promise<void>;
   /** 继续任务；中断/预算/阻塞会开新一轮。 */
   resumeTask(taskId: string): Promise<void>;
+  /**
+   * 目标修订：澄清/优化不抬版本；重大变更需要 userConfirmedChange，
+   * 未确认时返回 requiresUserConfirmation=true 且不落库。
+   */
+  reviseTaskGoal(input: {
+    taskId: string;
+    nextCriteria: string[];
+    userConfirmedChange?: boolean;
+    changedTaskIds?: string[];
+  }): Promise<{
+    kind: 'clarify' | 'optimize' | 'change';
+    nextVersion: number;
+    versionChanged: boolean;
+    requiresUserConfirmation: boolean;
+    impactedTaskIds: string[];
+    inheritedTaskIds: string[];
+    reason: string;
+  }>;
+  /** 生产工作流注册表（只组合已有能力，不带模型/提示词）。 */
+  listWorkflows(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      nodeCount: number;
+      capabilities: string[];
+    }>
+  >;
+  /**
+   * 提交一条固定工作流。可以给已注册 id、可以按目标选择，也可以直接给定义；
+   * 条件/循环在提交前展开成真实步骤，approval 节点强制人工批准。
+   */
+  runWorkflow(input: {
+    workflowId?: string;
+    goal?: string;
+    workflow?: import('./workflow').WorkflowDefinition;
+    permissionPreset?: PermissionPreset;
+    workspaceRoot?: string;
+    argsByNode?: Record<string, Record<string, unknown>>;
+    inputs?: Record<string, unknown>;
+    completionCondition?: string;
+  }): Promise<AgentTask>;
   /**
    * 用当前口径重新判定这一轮的验证结论（只读已落库的报告，不重跑步骤）。
    * 通过则任务按完成收尾；没通过原样返回原因。

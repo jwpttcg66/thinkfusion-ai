@@ -6421,21 +6421,28 @@ button:disabled {
    执行步骤缩进淡色、结论压在最底下加重——读的时候从上往下就是这件事发生的
    顺序，后续轮次不会把前面挤掉。
 --------------------------------------------------------------------------- */
-/* 主会话默认全宽时序流；定位轨已去掉，不再预留左侧槽位。 */
+/* 主会话默认全宽时序流；只有投影出了 ≥2 个重点节点时才让出左侧定位轨槽位。 */
 .chat-feed-layout {
   position: relative;
   display: block;
+  --chat-locate-w: 132px;
   margin-bottom: 16px;
   min-height: 160px;
 }
 .chat-feed-layout.is-stream-only {
   padding-left: 0;
 }
+.chat-feed-layout.has-locate-rail {
+  display: grid;
+  grid-template-columns: var(--chat-locate-w) minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+}
 .chat-locate-rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: calc(var(--chat-locate-w) - 8px);
+  position: sticky;
+  top: 8px;
+  left: auto;
+  width: auto;
   max-height: calc(100vh - 120px);
   overflow: auto;
   padding: 4px 0 4px 2px;
@@ -6443,6 +6450,15 @@ button:disabled {
 /* 连续竖轨已移除：定位只靠节点短记，避免「粗黑竖线」回潮。 */
 .chat-locate-track {
   display: none;
+}
+/* 窄屏不出轨：一列短记会把正文挤成一条缝。 */
+@media (max-width: 900px) {
+  .chat-feed-layout.has-locate-rail {
+    display: block;
+  }
+  .chat-feed-layout.has-locate-rail .chat-locate-rail {
+    display: none;
+  }
 }
 .chat-stream-placeholder {
   padding: 14px 12px;

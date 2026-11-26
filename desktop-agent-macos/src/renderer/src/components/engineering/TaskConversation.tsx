@@ -3,20 +3,30 @@ import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
 import {
+  activeLandmarkId,
+  buildStreamLandmarks,
   buildTaskConversation,
+  landmarkTone,
+  liveElapsedText,
   memberBodyView,
+  needsLiveTimer,
   protocolDerivation,
   protocolSummary,
+  shouldShowLandmarkRail,
+  stepElapsedMs,
+  streamAnchorId,
   type ConversationEntry,
+  type ConversationEntryView,
   type ConversationProtocol,
-  type ConversationTone
+  type ConversationTone,
+  type StreamLandmark
 } from '../../../../shared/task-conversation';
 /**
  * 对话流（工程空间主界面）。
  *
  * 默认整条时序流：提问 / 计划 / 执行 / 评审 / 结论都是流式短记，按事件时间排列。
  * **只有多模型辩论里实际发言的一方**才出 Member 卡片；单模型、主导五段、终态协议
- * 一律不出卡。左侧定位轨与贴底结果大卡都不进主会话。
+ * 一律不出卡。左侧只留一条**定位轨**（重点节点的短记列表），贴底结果大卡不进主会话。
  *
  * 只画真的发生过的东西：没有结论文本就不要编一句。协议 JSON 原文去「输出」页。
  */
@@ -275,10 +285,44 @@ function wrapAnchor(entryKey: string, node: React.ReactNode): React.ReactNode {
       key={entryKey}
       className="chat-stream-anchor"
       data-stream-anchor={entryKey}
-      id={`stream-${entryKey}`}
+      id={streamAnchorId(entryKey)}
     >
       {node}
     </div>
+  );
+}
+
+/**
+ * 左侧定位轨：只列重点节点，点一下跳到对应短记。
+ *
+ * 颜色档与锚点 id 都来自投影层的纯函数（`landmarkTone` / `streamAnchorId`），
+ * 这里不判断「这个类型该是什么颜色」，也不自己拼 id——拼错了就是点了没反应。
+ */
+function LocateRail(props: {
+  landmarks: readonly StreamLandmark[];
+  activeId: string | null;
+  onJump: (entryKey: string) => void;
+}) {
+  return (
+    <nav className="chat-locate-rail" aria-label="对话定位">
+      <ul className="chat-locate-list">
+        {props.landmarks.map(item => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className={`chat-locate-tick is-${landmarkTone(item.kind)}${item.id === props.activeId ? ' is-active' : ''}`}
+              data-landmark-target={streamAnchorId(item.entryKey)}
+              onClick={() => props.onJump(item.entryKey)}
+              title={`${item.label} · ${timeText(item.at)}`}
+            >
+              <span className="chat-locate-dot" aria-hidden />
+              <span className="chat-locate-label">{item.label}</span>
+              <span className="chat-locate-time">{timeText(item.at)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 
@@ -390,11 +434,17 @@ function MemberStreamNote(props: {
   );
 }
 
-function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }> }) {
+function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }>; now: number }) {
   const { card } = props.entry;
   const output = useMemo(() => stepOutput(card), [card]);
   const head = target(card.tool, card.args);
-  const meta = [duration(card.durationMs), statusText(card)].filter(Boolean).join(' · ');
+  // 运行中的那一步要能看见秒数在走：数据早就在 `step.startedAt` 里，只是没人算。
+  const live = card.status === 'running' ? stepElapsedMs(card, props.now) : null;
+  const meta = [
+    // 运行中直接用「执行中 · 8 秒」替掉状态词，免得同一行出现两次「执行中」。
+    live !== null ? `执行中 · ${liveElapsedText(live)}` : statusText(card),
+    duration(card.durationMs)
+  ].filter(Boolean).join(' · ');
   return (
     <details className={`chat-step is-${card.status}`}>
       <summary className="chat-step-head">
@@ -445,9 +495,19 @@ export function TaskConversation(props: {
     }),
     [props.events, props.task, props.live]
   );
-  const hasLive = entries.some(entry => entry.kind === 'member' && entry.status === 'streaming');
+  // 有流式成员、或有步骤在跑，都要每秒重画：只盯成员会让执行中的秒数停住。
+  const hasLive = needsLiveTimer(entries);
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLElement | null>(null);
+  const landmarks = useMemo(() => buildStreamLandmarks(entries), [entries]);
+  const showRail = shouldShowLandmarkRail(landmarks);
+  const [activeLandmark, setActiveLandmark] = useState<string | null>(null);
+  const visibleAnchors = useRef(new Set<string>());
+  // 观察器只关心「锚点集合变没变」：流式吐字时 entries 每次都是新数组，
+  // 但 key 不变就不该重挂 observer，否则每个 token 都 disconnect 一次。
+  const anchorSignature = useMemo(() => entries.map(entry => entry.key).join('|'), [entries]);
+  const landmarksRef = useRef(landmarks);
+  landmarksRef.current = landmarks;
   // 场上是否存在多模型辩论：只给「表态/质疑/回应」发言方出卡，不按整轮 roundId 开卡。
   const hasMultiModelDebate = useMemo(
     () => entries.some(entry => entry.kind === 'debate' && isMultiModelDebate(entry)),
@@ -460,8 +520,45 @@ export function TaskConversation(props: {
     return () => clearInterval(timer);
   }, [hasLive]);
 
+  // 只有「哪些锚点在可视区」由渲染层看；该高亮谁交给投影层的纯函数算。
+  useEffect(() => {
+    if (!showRail) return;
+    const nodes = feedRef.current?.querySelectorAll<HTMLElement>('[data-stream-anchor]');
+    if (!nodes || nodes.length === 0) return;
+    const visible = visibleAnchors.current;
+    visible.clear();
+    const observer = new IntersectionObserver(
+      records => {
+        for (const record of records) {
+          const key = record.target.getAttribute('data-stream-anchor');
+          if (!key) continue;
+          if (record.isIntersecting) visible.add(key);
+          else visible.delete(key);
+        }
+        const next = activeLandmarkId(landmarksRef.current, [...visible]);
+        // 可视区里没有轨道节点时保留上一次高亮，不闪回顶部。
+        if (next) setActiveLandmark(next);
+      },
+      // 只把视口上半部分算「当前读到」；否则一屏内所有节点都算可见，高亮乱跳。
+      { rootMargin: '-8px 0px -55% 0px', threshold: 0 }
+    );
+    nodes.forEach(node => observer.observe(node));
+    return () => observer.disconnect();
+  }, [anchorSignature, showRail]);
+
+  const jumpTo = (entryKey: string) => {
+    const node = document.getElementById(streamAnchorId(entryKey));
+    node?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <section className="chat-feed-layout is-stream-only" aria-label="任务对话">
+    <section
+      className={`chat-feed-layout is-stream-only${showRail ? ' has-locate-rail' : ''}`}
+      aria-label="任务对话"
+    >
+      {showRail && (
+        <LocateRail landmarks={landmarks} activeId={activeLandmark} onJump={jumpTo} />
+      )}
       <section className="chat-feed" aria-label="任务对话" ref={feedRef}>
       {entries.length === 0 ? (
         <div className="chat-stream-placeholder" aria-live="polite">
@@ -492,7 +589,7 @@ export function TaskConversation(props: {
         if (entry.kind === 'step') {
           return wrapAnchor(entry.key, (
             <div key={`${entry.key}-${String(index)}`} className="chat-stream-block is-focus">
-              <StepMessage entry={entry} />
+              <StepMessage entry={entry} now={now} />
             </div>
           ));
         }
@@ -565,6 +662,8 @@ export function TaskConversation(props: {
           ));
         }
         const emphasis = noteEmphasis(entry.text);
+        // 改动量数据（B3）已经在投影里，胶囊样式属于阶段 C3；先不拿一行纯文本占位。
+        if (entry.kind === 'note' && entry.subtype === 'diff') return null;
         return wrapAnchor(entry.key, (
           <div className={`chat-note is-${emphasis} ${ToneClass(entry.tone)}`}>
             {emphasis === 'focus' && <span className="chat-stream-badge">重点</span>}
@@ -602,7 +701,7 @@ export function ProtocolArchive(props: {
     [props.events, props.task]
   );
   const protocols = entries.filter(
-    (entry): entry is Extract<ConversationEntry, { kind: 'member' }> =>
+    (entry): entry is Extract<ConversationEntryView, { kind: 'member' }> =>
       entry.kind === 'member' && entry.protocol !== null
   );
   if (protocols.length === 0) return null;

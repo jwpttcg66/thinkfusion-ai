@@ -68,7 +68,8 @@
 | `app:platform` | — | `string` |
 | `ax:snapshot` | — | `AccessibilitySnapshot` |
 
-`permission:set` 回显 `approvalPolicy: 'ask'` 不是冗余：它让界面无法呈现"已关闭审批"这种状态，因为这个版本不存在这种状态。
+`permission:set` 回显 `approvalPolicy` 不是冗余：它告诉界面这一档实际怎么问。
+取值来自 `shared/approval.ts`：`danger-full-access` 是 `autoApprovePlan: true + stepApproval: 'off'`（计划自动批准、步骤不再逐步问），其余档是人工确认 + `mutating`。所以"已关闭审批"确实存在，只是只对完全权限档开放。
 
 ## 内嵌页面
 

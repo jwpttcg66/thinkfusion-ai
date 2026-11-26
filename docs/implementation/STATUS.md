@@ -1,6 +1,6 @@
 # ThinkFusion 实现状态
 
-**唯一当前状态来源**。快照对应 `main@63ae383`（2026-11-26）。代码、测试和真实验收变化时更新本页；不要在其他文档另建阶段完成度表。
+**唯一当前状态来源**。快照对应 `main@7727abb`（2026-11-26，V3 架构一致性整改 P0 + P1 两批）。代码、测试和真实验收变化时更新本页；不要在其他文档另建阶段完成度表。
 
 > 设计说明不是实现证据；单测不是真机证据；一个真机样本不代表所有环境。
 > 缺证据时标“未确认”，不要从目录、类型或任务书标题推断完成。
@@ -31,6 +31,22 @@
 | macOS Computer Use | `IMPLEMENTED / TESTED / VERIFIED` | 支持范围与锁屏限制见 [实现说明](features/computer-use/IMPLEMENTATION.md) |
 | 发布与运维 | `PARTIAL` | 有打包/备份/回滚流程；签名和公证未执行 |
 
+## 模块级状态（V3 治理层）
+
+每项分「已实现 / 已接线 / 自动化测试 / 真机验证」四列。**TESTED 不等于 VERIFIED**：
+本轮只补了自动化与生产接线，没有为新增分支跑真机样本，因此真机列保持「未验证」。
+
+| 模块 | 已实现 | 已接线（生产调用链） | 自动化测试 | 真机验证 | 当前缺口 | 证据位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Goal | 目标投影、变更分类、版本递增、影响面与继承 | `Orchestrator.reviseGoal` + IPC `task:revise-goal`；任务创建写入 `goalId/goalVersion` | `test:gdc-goal`（6） | 未验证（无 UI 入口） | 界面尚无「目标变更需确认」入口；自动重开规划轮未接 | `shared/goal-driven-cycle.ts`、`shared/contracts.ts` |
+| TDL | L0–L3 WorkTask、状态机、依赖、验收、CAS、局部重规划；每个 L2 独立 cycleId | 种树时 `ensurePlanDecomposition` 定稿 L2；NEEDS_ANALYSIS 取消自动批准；步骤生命周期推进子任务循环并阻塞失败依赖者 | `test:tdl*`（17）、`test:subtask-cycle`（8） | 未验证 | 模型不给分解且目录不可归纳时只阻断、不自动补问模型；子任务循环复用主任务轮次，非物理并行 | `shared/task-decomposition.ts`、`shared/subtask-cycle.ts`、`main/index.ts` |
+| GDC | 八阶段投影、结论与下一步、目标符合度 | `Orchestrator` 每轮投影 | `test:gdc-cycle`、`test:gdc-goal` | 部分（历史 P7 样本） | 阶段投影不等于真实独立子循环；子任务层由 TDL 循环补充 | `shared/goal-driven-cycle.ts` |
+| ECO | 上下文包、充分度、六类类型化补充请求、来源与版本、失效判定 | 计划可带 `contextRequests` 主动请求；`eco-explore.ts` 真读文件/目录/符号/调用/测试/diff；代码或目标变化发 `eco.context.invalidated` | `test:eco`（10）、`test:eco-explore`（7） | 未验证 | 符号/调用是正则级定位，不是 AST/类型绑定；扫不到如实跳过 | `shared/eco.ts`、`main/engineering/eco-explore.ts`、`main/orchestrator.ts` |
+| DMOCA | 参与决策、风险策略、贡献版本、决策快照、完整性校验 | 计划评审前选人；ECO 门禁拆参与/职责；工程评审与会话轮次都走 `snapshotFromExchanges` 出口并发 `model.decision.snapshot` | `test:dmoca`（25） | 未验证 | 会话决策快照已落事件，界面尚未展示每轮钉住的是哪一稿 | `shared/dmoca.ts`、`main/orchestrator.ts`、`main/conversation-runner.ts` |
+| 长任务上下文 | 预算、压缩、检查点、恢复、副作用核对、版本链核对 | 恢复分档 `needs_context_refresh` / `needs_replan`；`resume` 发 `version.consistency` 并改写继续提示词 | `test:context-*` 系列、`test:version-consistency`（7） | 历史证据见 acceptance | 默认仍关闭；刷新后由下一轮真实读取重建 ECO 包，不强制同步重算 | `main/context/`、`shared/version-consistency.ts` |
+| Workflow | 定义、校验、拓扑序、条件/循环/并行/审批节点、生产注册表、按目标选择 | `Orchestrator.submitWorkflow` + IPC `workflow:run` 复用审批/授权/报告 | `test:workflow`（10） | 未验证 | `until` 运行时循环明确拒绝；parallel 如实串行；只有 IPC 无界面入口 | `shared/workflow.ts`、`shared/workflow-registry.ts`、`main/orchestrator.ts` |
+| Java 工程理解 | 文本检索与正则定位 | 代码索引/搜索路径 | `test:code-index*` | 部分 | P2-01：AST、类型绑定、调用图、增量索引 | `main/code-index/` |
+
 ## 已验证的专项证据
 
 - 长任务压缩、暂停/恢复和检查点恢复：[验收记录](acceptance/long-task-context/ACCEPTANCE.md)。默认仍关闭。
@@ -43,9 +59,12 @@
 1. **主活动区 U7**：工程场景有验收记录；General/Knowledge 的完整真实场景验收仍未闭合。
 2. **Knowledge**：跨会话索引复用、时效与知识地图的产品化仍有缺口；不能把 Memory 召回等同于 Knowledge 完成。
 3. **长任务默认策略**：运行时功能可用但默认关闭；扩大真实场景覆盖后再决定是否改变默认值。
-4. **ECO 恢复兼容性**：兼容性结果可随恢复检查点计算；`Orchestrator.resume` 尚未用不兼容结果阻断继续，须明确恢复策略。
-5. **Goal ↔ WorkTask 版本闭环**：计划替换会发 `work.breakdown.replanned`；用户修改目标时的版本递增、影响面计算和进度重算尚未统一接入。
-6. **Workflow Plugin**：`shared/workflow.ts` 已有定义/验证辅助，但没有完整的生产执行插件闭环。
+4. **ECO 恢复兼容性**：`Orchestrator.resume` 已用不兼容结果改判 `needs_context_refresh` / `needs_replan`
+   并发对应事件；仍未强制同步重建包，刷新由下一轮规划的真实读取完成。
+5. **Goal ↔ WorkTask 版本闭环**：任务创建写入 `goalId/goalVersion`，种树全量继承；目标修订有版本
+   递增、影响闭包与继承判定，并经 `task:revise-goal` 落事件；版本链核对覆盖
+   Goal→WorkTask→ECO→贡献→决策。尚缺界面确认入口与自动重开规划轮。
+6. **Workflow**：注册表、条件/循环/审批与 `workflow:run` 已接线；但 `until` 运行时循环不支持（明确报错），parallel 为串行执行，且没有界面入口。
 7. **深层 Java 分析**：AST/类型绑定/调用图不属于当前已交付能力。
 8. **发布门禁**：签名、公证、干净机器安装和发布回滚仍需完成。
 

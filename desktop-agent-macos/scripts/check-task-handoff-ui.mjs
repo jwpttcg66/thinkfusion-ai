@@ -118,7 +118,7 @@ test('工程判定前先建会话，并把模型思考推到 __routing__ 增量'
   assert.match(rail, /user-msg-locate-hit-bar/);
   assert.doesNotMatch(rail, /user-msg-locate-spine/);
   assert.doesNotMatch(rail, /user-msg-locate-track/);
-  assert.match(rail, /没有连续粗黑竖线|等长居中短杠/);
+  assert.match(rail, /无连续粗黑竖线|等长短杠/);
   const shadow = readFileSync(join(ROOT, 'src/main/collaboration/engine.ts'), 'utf8');
   assert.match(shadow, /不要对全员做 health 探活/);
   assert.doesNotMatch(shadow, /new ParticipantManager\(input\.pool\)\.list\(\)/);
@@ -133,8 +133,12 @@ test('方案评审五段一出就要投影并分段画出，不能只留一句�
   assert.match(orch, /progressLeadSummary/);
   assert.match(orch, /onLeadReady/);
   const ui = readFileSync(join(ROOT, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
-  assert.match(ui, /splitSummarySections/);
-  assert.match(ui, /主导五段结论/);
+  // 五段现在作为主导成员正文进对话流（memberBodyView），分段渲染在 ConversationView；
+  // 这里守住「五段必须被投影并显示」，不再要求它出现在这个组件里。
+  assert.match(ui, /entry\.leadSummary/);
+  assert.match(ui, /memberBodyView/);
+  const conversationView = readFileSync(join(ROOT, 'src/renderer/src/components/ConversationView.tsx'), 'utf8');
+  assert.match(conversationView, /splitSummarySections\(synthesis\.recommendation\)/);
   const proj = readFileSync(join(ROOT, 'src/shared/task-conversation.ts'), 'utf8');
   assert.match(proj, /event\.leadSummary/);
 });

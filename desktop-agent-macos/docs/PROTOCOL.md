@@ -45,7 +45,7 @@
 约束（`PlanSchema`，全部 `.strict()`）：
 
 - `steps` 1–30 条，`id` 必须唯一
-- `tool` 是判别式联合：`fs.list` / `fs.readFile` / `fs.mkdir` / `fs.writeFile`
+- `tool` 取值是 `TOOL_NAMES`（103 个，含 `fs.*` / `git.*` / `test.run` / `shell.run` / `web.*` / `computer.*` / `agent.exec`）；上面示例只是四个最常见项
 - `args` 逐工具严格匹配，多一个字段即拒绝
 - `completion.condition` 必填：没有完成条件的计划无法判断何时结束
 

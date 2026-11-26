@@ -304,7 +304,20 @@ export function createMockApi(): AgentApi {
     cancelTask: async () => undefined,
     pauseTask: async () => undefined,
     resumeTask: async () => undefined,
+    reviseTaskGoal: async () => ({
+      kind: 'optimize' as const,
+      nextVersion: 1,
+      versionChanged: false,
+      requiresUserConfirmation: false,
+      impactedTaskIds: [],
+      inheritedTaskIds: [],
+      reason: 'mock'
+    }),
     recheckVerification: async () => ({ verified: true, reasons: [] }),
+    listWorkflows: async () => [],
+    runWorkflow: async () => {
+      throw new Error('预览模式不执行工作流');
+    },
     acceptUnverified: async () => undefined,
     resumeRepair: async () => undefined,
     setReviewDisposition: async () => undefined,

@@ -93,7 +93,7 @@ test('副作用核对：存在=applied，缺失=missing，无路径=needs_reconc
   assert.equal(ledger.applied + ledger.missing + ledger.needsReconciliation, ledger.entries.length);
 });
 
-async function writeCheckpoint(dir, sourceEvents, summary) {
+async function writeCheckpoint(dir, sourceEvents, summary, evidenceRefs = []) {
   const store = new ContextCheckpointStore({ baseDir: dir, now: () => 3 });
   const archive = new ContextArchiveStore(dir);
   const checkpoint = {
@@ -109,7 +109,7 @@ async function writeCheckpoint(dir, sourceEvents, summary) {
     summary,
     summaryHash: hashContextSummary(summary),
     retainedEventIds: ['e3'],
-    evidenceRefs: [],
+    evidenceRefs,
     modelId: 'm',
     inputTokensBefore: 100,
     inputTokensAfter: 20,
@@ -215,4 +215,188 @@ test('长任务开关：环境变量 > 配置文件 > 默认关闭', async () =>
   assert.equal(resolveContextManagerSwitch({ env: 'off', config: { enabled: true } }).enabled, false);
   assert.equal(resolveContextManagerSwitch({ config: { enabled: true } }).source, 'config');
   assert.equal(resolveContextManagerSwitch({ config: { enabled: 'yes' } }).enabled, false);
+});
+
+test('检查点有效但 ECO 过期：标 needs_context_refresh，摘要可读但不许沿用旧上下文', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-recovery-eco-'));
+  try {
+    const events = [{ eventId: 'e1' }, { eventId: 'e2' }, { eventId: 'e3' }];
+    const { store, archive } = await writeCheckpoint(
+      dir,
+      events,
+      summary,
+      ['eco-context:eco:t1:planning:1:v2:sufficient']
+    );
+    const task = {
+      taskId: 't1',
+      runId: 'r1',
+      contextId: 'ctx-1',
+      checkpointId: 'cp-1',
+      activeRunId: 'r1',
+      workspaceRoot: '/workspace',
+      title: 't',
+      userPrompt: 'p',
+      status: 'interrupted',
+      permissionPreset: 'workspace-write',
+      createdAt: 1,
+      updatedAt: 1,
+      maxRounds: 20,
+      maxSteps: 30,
+      timeoutMs: 1000
+    };
+    // 事件流里没有可用的 eco.context.prepared → 上下文无法兼容
+    const result = await recoverTaskContext(task, [], {
+      store,
+      archive,
+      eventsForTask: () => []
+    });
+    assert.equal(result.status, 'needs_context_refresh');
+    assert.equal(result.eco?.ok, false);
+    assert.equal(result.summary.goal, '完成任务');
+    assert.match(recoveryPromptData(result), /工程上下文已过期/);
+    assert.match(recoveryPromptData(result), /不得沿用旧上下文/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ECO 版本兼容：仍是 recovered，并记下核对结论', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-recovery-eco-ok-'));
+  try {
+    const events = [{ eventId: 'e1' }, { eventId: 'e2' }, { eventId: 'e3' }];
+    const { store, archive } = await writeCheckpoint(
+      dir,
+      events,
+      summary,
+      ['eco-context:eco:t1:planning:1:v1:sufficient']
+    );
+    const task = {
+      taskId: 't1',
+      runId: 'r1',
+      contextId: 'ctx-1',
+      checkpointId: 'cp-1',
+      activeRunId: 'r1',
+      workspaceRoot: '/workspace',
+      title: 't',
+      userPrompt: 'p',
+      status: 'interrupted',
+      permissionPreset: 'workspace-write',
+      createdAt: 1,
+      updatedAt: 1,
+      maxRounds: 20,
+      maxSteps: 30,
+      timeoutMs: 1000
+    };
+    const result = await recoverTaskContext(task, [], {
+      store,
+      archive,
+      eventsForTask: () => [{
+        type: 'eco.context.prepared',
+        at: 5,
+        taskId: 't1',
+        package: {
+          contextPackageId: 'eco:t1:planning:1',
+          contextVersion: 2,
+          workId: 't1',
+          stage: 'planning',
+          role: 'architect',
+          architectureSummary: 'x',
+          resources: [],
+          constraints: [],
+          decisions: [],
+          verifiedFacts: [],
+          inferences: [],
+          unknowns: [],
+          missingCritical: [],
+          sufficiency: 'sufficient',
+          createdAt: 5
+        }
+      }]
+    });
+    assert.equal(result.status, 'recovered');
+    assert.equal(result.eco?.ok, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P1-05：检查点基于旧目标 → needs_replan，并返回钉住的 ECO 引用', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-recovery-goal-'));
+  try {
+    const events = [{ eventId: 'e1' }, { eventId: 'e2' }, { eventId: 'e3' }];
+    const { store, archive } = await writeCheckpoint(
+      dir,
+      events,
+      summary,
+      ['eco-context:eco:t1:planning:1:v2:sufficient:g1']
+    );
+    const task = {
+      taskId: 't1',
+      runId: 'r1',
+      contextId: 'ctx-1',
+      checkpointId: 'cp-1',
+      activeRunId: 'r1',
+      workspaceRoot: '/workspace',
+      goalId: 'goal:t1',
+      goalVersion: 2,
+      title: 't',
+      userPrompt: 'p',
+      status: 'interrupted',
+      permissionPreset: 'workspace-write',
+      createdAt: 1,
+      updatedAt: 1,
+      maxRounds: 20,
+      maxSteps: 30,
+      timeoutMs: 1000
+    };
+    const result = await recoverTaskContext(task, [], { store, archive, eventsForTask: () => [] });
+    assert.equal(result.status, 'needs_replan');
+    assert.equal(result.goal?.ok, false);
+    assert.match(result.goal.reason, /v1.*v2/);
+    assert.equal(result.ecoRef.goalVersion, 1);
+    assert.equal(result.ecoRef.contextVersion, 2);
+    const text = recoveryPromptData(result);
+    assert.match(text, /目标已变化/);
+    assert.match(text, /不得沿用旧分解/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P1-05：目标版本一致时仍按 ECO 兼容性判定，不被误判成重规划', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-recovery-same-goal-'));
+  try {
+    const events = [{ eventId: 'e1' }, { eventId: 'e2' }, { eventId: 'e3' }];
+    const { store, archive } = await writeCheckpoint(
+      dir,
+      events,
+      summary,
+      ['eco-context:eco:t1:planning:1:v2:sufficient:g2']
+    );
+    const task = {
+      taskId: 't1',
+      runId: 'r1',
+      contextId: 'ctx-1',
+      checkpointId: 'cp-1',
+      activeRunId: 'r1',
+      workspaceRoot: '/workspace',
+      goalId: 'goal:t1',
+      goalVersion: 2,
+      title: 't',
+      userPrompt: 'p',
+      status: 'interrupted',
+      permissionPreset: 'workspace-write',
+      createdAt: 1,
+      updatedAt: 1,
+      maxRounds: 20,
+      maxSteps: 30,
+      timeoutMs: 1000
+    };
+    const result = await recoverTaskContext(task, [], { store, archive, eventsForTask: () => [] });
+    // 目标没变，但事件流里没有可用上下文包 → 仍是 needs_context_refresh，而不是 replan。
+    assert.equal(result.status, 'needs_context_refresh');
+    assert.equal(result.ecoRef.goalVersion, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -54,6 +54,11 @@ import {
   rebuildWorkTasksFromEvents,
   workStatusEventFromStep
 } from '../shared/task-decomposition';
+import {
+  dependentSubtasksToBlock,
+  projectSubtaskCyclesFromEvents
+} from '../shared/subtask-cycle';
+import { listWorkflows } from '../shared/workflow-registry';
 import { loadPermissionPreset, savePermissionPreset } from './permission-store';
 import { resolveContextManagerSwitch } from '../shared/context-manager-setting';
 import { ProviderPlanningAdapter } from './execution/provider-planning-adapter';
@@ -1548,6 +1553,90 @@ function emitTdlFollowupFromStep(raw: AgentEvent): void {
       detail
     })
   );
+  emitSubtaskCycleFollowup(raw);
+}
+
+/**
+ * P1-02：步骤生命周期同时推进所属 L2 的独立循环。
+ *
+ * 只在任务真有 L2 子任务时写事件；没有分解的任务一条都不会多。
+ * 失败时额外把依赖它的子任务标为 blocked——这是「一个子任务失败不重启整个
+ * 工程」的可核对形态：失败的那条记失败，依赖它的记受阻，其余照旧成立。
+ */
+function emitSubtaskCycleFollowup(raw: AgentEvent): void {
+  if (raw.type !== 'step.started' && raw.type !== 'step.completed' && raw.type !== 'step.failed') return;
+  const workId = typeof raw.taskId === 'string' ? raw.taskId : '';
+  const stepId = typeof raw.stepId === 'string' ? raw.stepId : '';
+  if (!workId || !stepId || !store) return;
+  const events = store.listEvents(workId);
+  const tasks = [...rebuildWorkTasksFromEvents(workId, events).values()];
+  const plan = projectSubtaskCyclesFromEvents({ workId, tasks, events: [...events, raw] });
+  if (plan.cycles.length === 0) return;
+  const owner = plan.cycles.find(cycle => cycle.stepIds.includes(stepId));
+  if (!owner) return;
+  emit({
+    type: 'cycle.subtask.snapshot',
+    at: raw.at ?? Date.now(),
+    taskId: workId,
+    workId,
+    workTaskId: owner.workTaskId,
+    cycleId: owner.cycleId,
+    cycle: owner
+  });
+  const ownerTask = tasks.find(item => item.workTaskId === owner.workTaskId);
+  if (ownerTask) {
+    // L2 的终态由「步骤事实」归纳：Runtime 只给 L3 写生命周期，不补这一条
+    // 进度树上子任务会永远停在 pending。
+    if (
+      raw.type === 'step.completed' &&
+      (owner.stage === 'review' || owner.verdict === 'accepted') &&
+      ownerTask.status !== 'completed'
+    ) {
+      emit({
+        type: 'work.task.status',
+        at: Date.now(),
+        taskId: workId,
+        workId,
+        workTaskId: owner.workTaskId,
+        status: 'completed',
+        expectedRevision: ownerTask.revision,
+        evidence: [{
+          kind: 'step_result',
+          ref: owner.stepIds.join(','),
+          detail: `${owner.title} 的 ${String(owner.stepIds.length)} 个步骤全部完成`
+        }]
+      });
+    }
+    if (raw.type === 'step.failed' && ownerTask.status !== 'failed') {
+      emit({
+        type: 'work.task.status',
+        at: Date.now(),
+        taskId: workId,
+        workId,
+        workTaskId: owner.workTaskId,
+        status: 'failed',
+        expectedRevision: ownerTask.revision
+      });
+    }
+  }
+  if (raw.type !== 'step.failed') return;
+  const blocked = dependentSubtasksToBlock(tasks, owner.workTaskId);
+  for (const workTaskId of blocked) {
+    const task = tasks.find(item => item.workTaskId === workTaskId);
+    if (!task) continue;
+    if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'skipped') continue;
+    if (task.status === 'blocked') continue;
+    emit({
+      type: 'work.task.status',
+      at: Date.now(),
+      taskId: workId,
+      workId,
+      workTaskId,
+      status: 'blocked',
+      expectedRevision: task.revision,
+      blockedReason: `依赖的子任务 ${owner.workTaskId} 执行失败，先不执行`
+    });
+  }
 }
 
 function emitDeepSeek(event: DeepSeekEvent) {
@@ -3455,6 +3544,40 @@ function registerIpc() {
     await orchestrator.resume(TaskIdSchema.parse(taskId));
   });
 
+  // 目标修订（P0-03）：只改目标版本与受影响任务；重大变更需要显式确认，
+  // 未确认时返回需要确认的计划，不落库。
+  ipcMain.handle('task:revise-goal', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const payload = (raw ?? {}) as {
+      taskId?: unknown;
+      nextCriteria?: unknown;
+      userConfirmedChange?: unknown;
+      changedTaskIds?: unknown;
+    };
+    const taskId = TaskIdSchema.parse(payload.taskId);
+    const criteria = payload.nextCriteria;
+    if (
+      !Array.isArray(criteria) ||
+      criteria.length === 0 ||
+      criteria.length > 20 ||
+      criteria.some(item => typeof item !== 'string' || item.trim() === '')
+    ) {
+      throw new Error('nextCriteria 必须是 1–20 条非空字符串');
+    }
+    if (payload.changedTaskIds !== undefined && !Array.isArray(payload.changedTaskIds)) {
+      throw new Error('changedTaskIds 必须是数组');
+    }
+    return orchestrator.reviseGoal(taskId, {
+      nextCriteria: criteria as string[],
+      ...(typeof payload.userConfirmedChange === 'boolean'
+        ? { userConfirmedChange: payload.userConfirmedChange }
+        : {}),
+      ...(Array.isArray(payload.changedTaskIds)
+        ? { changedTaskIds: payload.changedTaskIds.filter((item): item is string => typeof item === 'string') }
+        : {})
+    });
+  });
+
   ipcMain.handle('task:cancel', async (event, taskId: unknown) => {
     trustedUiSender(event);
     await orchestrator.cancel(TaskIdSchema.parse(taskId));
@@ -3463,6 +3586,68 @@ function registerIpc() {
   // 验证闸门卡住时的两个出口：重新判定（执行事实不变，只重算结论）与
   // 明确接受未验证。没有它们，任务会永远停在 report_pending，界面上看似「完了」，
   // 实际既拿不到交付也没有下一步。
+  ipcMain.handle('workflow:list', event => {
+    trustedUiSender(event);
+    return listWorkflows();
+  });
+
+  /**
+   * 生产工作流的真实执行入口（P1-04）。
+   *
+   * 走 orchestrator.submitWorkflow：生成计划、落库、走审批与执行，
+   * 与模型计划共用同一条执行链；这里只做入参边界检查。
+   */
+  ipcMain.handle('workflow:run', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const payload = (raw ?? {}) as {
+      workflowId?: unknown;
+      goal?: unknown;
+      workflow?: unknown;
+      permissionPreset?: unknown;
+      workspaceRoot?: unknown;
+      argsByNode?: unknown;
+      inputs?: unknown;
+      completionCondition?: unknown;
+    };
+    if (payload.workflow !== undefined) {
+      const definition = payload.workflow as { id?: unknown; title?: unknown; nodes?: unknown };
+      if (
+        !definition ||
+        typeof definition !== 'object' ||
+        typeof definition.id !== 'string' ||
+        typeof definition.title !== 'string' ||
+        !Array.isArray(definition.nodes)
+      ) {
+        throw new Error('workflow 必须是 { id, title, nodes }');
+      }
+      if (definition.nodes.length === 0 || definition.nodes.length > 30) {
+        throw new Error('workflow.nodes 必须是 1–30 个节点');
+      }
+    } else if (typeof payload.workflowId !== 'string' && typeof payload.goal !== 'string') {
+      throw new Error('需要 workflowId、goal 或 workflow 定义');
+    }
+    const preset = typeof payload.permissionPreset === 'string' ? payload.permissionPreset : permissionPreset;
+    if (!['read-only', 'workspace-write', 'danger-full-access'].includes(preset)) {
+      throw new Error('未知权限预设');
+    }
+    return orchestrator.submitWorkflow({
+      ...(payload.workflow ? { workflow: payload.workflow as import('../shared/workflow').WorkflowDefinition } : {}),
+      ...(typeof payload.workflowId === 'string' ? { workflowId: payload.workflowId } : {}),
+      ...(typeof payload.goal === 'string' ? { goal: payload.goal } : {}),
+      permissionPreset: preset as PermissionPreset,
+      ...(typeof payload.workspaceRoot === 'string' ? { workspaceRoot: payload.workspaceRoot } : {}),
+      ...(payload.argsByNode && typeof payload.argsByNode === 'object'
+        ? { argsByNode: payload.argsByNode as Record<string, Record<string, unknown>> }
+        : {}),
+      ...(payload.inputs && typeof payload.inputs === 'object'
+        ? { inputs: payload.inputs as Record<string, unknown> }
+        : {}),
+      ...(typeof payload.completionCondition === 'string'
+        ? { completionCondition: payload.completionCondition }
+        : {})
+    });
+  });
+
   ipcMain.handle('task:recheck-verification', async (event, taskId: unknown) => {
     trustedUiSender(event);
     return orchestrator.recheckVerification(TaskIdSchema.parse(taskId));
@@ -6186,12 +6371,8 @@ app.whenReady().then(async () => {
         archive,
         eventsForTask: id => store?.listEvents(id) ?? []
       });
-      if (recovered.eco && !recovered.eco.ok) {
-        emit({
-          type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn',
-          message: `恢复时发现工程上下文不再兼容：${recovered.eco.reason}；继续前应重新读取工程。`
-        });
-      }
+      // 恢复结论由 Orchestrator 落事件与提示：needs_context_refresh 会发
+      // context.refresh.required，这里只负责返回事实，不重复刷日志。
       return recovered;
     },
     // LT-P4-02：Engineering 的 Provider 规划器接收上下文；Web/CLI 没有

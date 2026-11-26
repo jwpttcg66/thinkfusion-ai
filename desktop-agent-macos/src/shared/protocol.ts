@@ -332,6 +332,7 @@ function normalizePlanShape(value: Record<string, unknown>): Record<string, unkn
     ...(value.design ? { design: value.design } : {}),
     steps: value.steps,
     ...(value.completion ? { completion: value.completion } : {}),
+    ...(Array.isArray(value.contextRequests) ? { contextRequests: value.contextRequests } : {}),
     ...(Array.isArray(value.concerns) ? { concerns: value.concerns } : {})
   };
   // 模型常见别名：stepId / summary；计划字段缺失时用摘要兜底。
@@ -549,6 +550,11 @@ const PLAN_SHAPE = `{
     { "id": "task-1", "title": "可独立验收的子任务", "acceptanceCriteria": ["验收条件"], "stepIds": ["step-1"] }
   ],
   "completion": { "condition": "可验证的完成条件" },
+  "contextRequests": [
+    { "kind": "FILE_READ | DIRECTORY_DISCOVERY | SYMBOL_LOOKUP | CALL_RELATION | TEST_DISCOVERY | DIFF_READ",
+      "reason": "可选：为什么需要这份上下文",
+      "paths": ["可选：相对路径"], "directory": "可选：目录", "symbol": "可选：符号名", "baseRef": "可选：diff 基线" }
+  ],
   "concerns": [
     { "topic": "可选：你认为需要评审的议题", "reason": "可选：原因", "goal": "可选：辩清后要落到的裁定" }
   ]
@@ -866,6 +872,9 @@ export function buildInitialPrompt(input: {
     （至少一条可核对的验收条件）和 stepIds（必须是上面 steps 里真实存在的 id，一个步骤
     只能属于一个子任务）。只做分组、不新增步骤。只有单一交付物的小改动才省略这个字段；
     写了就必须能被步骤真实支撑，不得为了凑分组拆出空子任务。
+16. 需要先确认工程事实（某符号在哪定义、谁在调用、这块的测试在哪、这次改动改了什么）时，
+    在 contextRequests 里逐条写清 kind 与 symbol / paths / directory / baseRef。
+    系统会按类型真实读取并把结果作为已核验上下文交给评审；读不到会如实标注，不要凭印象断言。
 
 ${TOOL_SPEC}
 
@@ -904,6 +913,13 @@ export function buildReportPrompt(input: {
    * 而不是「先修评审指出的那一条」——两者产出的计划完全不同。
    */
   review?: { verdict: string; issues: string[]; needsFix: boolean; reviewer: string } | null;
+  /**
+   * TDL：子任务独立循环的结论（P1-02）。
+   *
+   * 不传时提示词与以前逐字一致；传了才写「只做没过的子任务」——否则一个 L2
+   * 失败会把整条工程从头再跑一遍，已经通过的子任务白做。
+   */
+  subtaskScope?: { label: string; notes: string[] } | null;
 }): string {
   const review = input.review;
   const fixSection = review && review.issues.length > 0
@@ -920,7 +936,13 @@ ${review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')}
 - 改动之后必须重新验证（测试或读回文件），验证结果要出现在执行报告里。
 `
     : '';
-  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}
+  const scopeSection = input.subtaskScope && input.subtaskScope.notes.length > 0
+    ? `
+子任务范围（${input.subtaskScope.label}）：
+${input.subtaskScope.notes.map(note => `- ${note}`).join('\n')}
+`
+    : '';
+  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}${scopeSection}
 完成口径：代码改动必须分别有编译、运行、测试、诊断四类检查通过的真实命令；
 缺少哪一项就先补哪一项，不能用「程序跑起来了」代替测试或诊断。
 

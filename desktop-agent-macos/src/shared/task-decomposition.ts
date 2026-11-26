@@ -644,6 +644,198 @@ export function projectWorkBreakdownFromEvents(input: {
   return deriveFromPlanAndSteps(input.workId, input.events, title);
 }
 
+/**
+ * L2 分解保障（P0-02）。
+ *
+ * 现状：模型不给 `decomposition` 时，种树只有 L0→L1→L3，缺可独立验收的子任务层。
+ * 这里不新造任务树，只在种树之前回答两件事：
+ *   1. 这个任务到底需不需要 L2（简单任务不许硬拆）；
+ *   2. 需要但模型没给时，能不能从已有步骤里结构化归纳出可独立验收的 L2。
+ *
+ * 归纳不出来就返回 `needsAnalysis`，由审批的人看到「需要补充分析」，
+ * 绝不用「每步包一层 L2」凑层级。
+ */
+export interface PlanDecompositionItem {
+  id: string;
+  title: string;
+  description?: string;
+  acceptanceCriteria?: string[];
+  stepIds: string[];
+}
+
+export interface PlanDecompositionResult {
+  items: PlanDecompositionItem[];
+  source: 'model' | 'derived' | 'none';
+  /** 复杂任务但归纳不出 L2：必须让审批的人看见，不能当成功。 */
+  needsAnalysis: boolean;
+  reason: string;
+  /** 模型给的 decomposition 没覆盖到的步骤；有值说明树里会挂在 L1 下。 */
+  uncoveredStepIds: string[];
+}
+
+/** 会产生文件/目录结构变化的工具：它们的目标路径是划分 L2 的唯一可靠依据。 */
+const TARGET_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'fs.writeFile',
+  'fs.edit',
+  'fs.mkdir',
+  'fs.move',
+  'fs.copy',
+  'fs.remove'
+]);
+
+function stepPath(step: { args: Record<string, unknown> }): string | null {
+  const raw = (step.args as { path?: unknown }).path;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  return raw.replace(/\\/g, '/');
+}
+
+function dirOf(filePath: string): string {
+  const index = filePath.lastIndexOf('/');
+  return index <= 0 ? '.' : filePath.slice(0, index);
+}
+
+function labelOf(dir: string): string {
+  if (dir === '.' || dir === '') return '工作区根目录';
+  return dir.split('/').filter(Boolean).at(-1) ?? dir;
+}
+
+/** 是否需要 L2：多处独立写入目标，或写入次数已经多到该有验收单元。 */
+export function needsL2Decomposition(plan: Pick<PlanPreview, 'steps'>): boolean {
+  const writes = plan.steps.filter(step => TARGET_WRITE_TOOLS.has(step.tool));
+  const targets = new Set(writes.map(stepPath).filter((item): item is string => item !== null));
+  if (targets.size >= 2) return true;
+  return writes.length >= 3;
+}
+
+/**
+ * 从步骤归纳 L2：按「写入目标所在目录」分组，非写入步骤跟随它前面最近的写入目标。
+ *
+ * 只在目录数 ≥2 时才算成功；同一目录下多份文件改动属于同一交付单元，
+ * 强行按文件拆开就是拿层级凑数。
+ */
+export function deriveDecompositionFromSteps(
+  plan: Pick<PlanPreview, 'steps'>
+): PlanDecompositionItem[] {
+  const anchors = plan.steps
+    .map((step, index) => ({ step, index }))
+    .filter(item => TARGET_WRITE_TOOLS.has(item.step.tool) && stepPath(item.step) !== null);
+  const dirs: string[] = [];
+  for (const anchor of anchors) {
+    const dir = dirOf(stepPath(anchor.step)!);
+    if (!dirs.includes(dir)) dirs.push(dir);
+  }
+  if (dirs.length < 2) return [];
+
+  const groups = new Map<string, string[]>(dirs.map(dir => [dir, []]));
+  let current = dirs[0]!;
+  for (const step of plan.steps) {
+    const path = stepPath(step);
+    if (path && TARGET_WRITE_TOOLS.has(step.tool)) {
+      const dir = dirOf(path);
+      if (groups.has(dir)) current = dir;
+    }
+    groups.get(current)?.push(step.id);
+  }
+
+  return dirs
+    .map((dir, index): PlanDecompositionItem | null => {
+      const stepIds = groups.get(dir) ?? [];
+      if (stepIds.length === 0) return null;
+      return {
+        id: `derived-${String(index + 1)}`,
+        title: `${labelOf(dir)} 的实现与验证`,
+        description: `按写入目标归纳：${dir}`,
+        acceptanceCriteria: [
+          `${dir} 下的改动已写入且结果可核对（运行、测试或构建输出）`
+        ],
+        stepIds
+      };
+    })
+    .filter((item): item is PlanDecompositionItem => item !== null);
+}
+
+/**
+ * 计划 → 可用的 L2 分解（模型优先，其次结构化归纳）。
+ *
+ * 模型给了就以模型为准，只补一条「覆盖了哪些步骤」的事实；
+ * 没给时按复杂度决定：简单任务允许 L1→L3，复杂任务必须归纳或标 needsAnalysis。
+ */
+export function ensurePlanDecomposition(
+  plan: Pick<PlanPreview, 'steps' | 'decomposition'>
+): PlanDecompositionResult {
+  const allStepIds = plan.steps.map(step => step.id);
+  const modelItems = plan.decomposition ?? [];
+  if (modelItems.length > 0) {
+    const covered = new Set(modelItems.flatMap(item => item.stepIds));
+    const uncoveredStepIds = allStepIds.filter(id => !covered.has(id));
+    return {
+      items: modelItems.map(item => ({
+        id: item.id,
+        title: item.title,
+        ...(item.description ? { description: item.description } : {}),
+        ...(item.acceptanceCriteria ? { acceptanceCriteria: [...item.acceptanceCriteria] } : {}),
+        stepIds: [...item.stepIds]
+      })),
+      source: 'model',
+      needsAnalysis: false,
+      reason: `模型给出 ${String(modelItems.length)} 个 L2 子任务${
+        uncoveredStepIds.length > 0 ? `，${String(uncoveredStepIds.length)} 个步骤未归属` : ''
+      }`,
+      uncoveredStepIds
+    };
+  }
+
+  if (!needsL2Decomposition(plan)) {
+    return {
+      items: [],
+      source: 'none',
+      needsAnalysis: false,
+      reason: '单一交付目标：允许 L0→L1→L3，不为了层级完整硬拆',
+      uncoveredStepIds: []
+    };
+  }
+
+  const derived = deriveDecompositionFromSteps(plan);
+  if (derived.length >= 2) {
+    return {
+      items: derived,
+      source: 'derived',
+      needsAnalysis: false,
+      reason: `模型未给 decomposition；按写入目标归纳出 ${String(derived.length)} 个可独立验收的 L2`,
+      uncoveredStepIds: []
+    };
+  }
+
+  return {
+    items: [],
+    source: 'none',
+    needsAnalysis: true,
+    reason: '计划涉及多个独立写入目标，但没有 decomposition，且无法从步骤归纳出可独立验收的 L2 子任务',
+    uncoveredStepIds: allStepIds
+  };
+}
+
+/** 把分解结果变成审批前能看见的判据（不参与「能不能执行」的权限判断）。 */
+export function decompositionWarnings(result: PlanDecompositionResult): string[] {
+  const warnings: string[] = [];
+  if (result.needsAnalysis) {
+    warnings.push(
+      `NEEDS_ANALYSIS：${result.reason}。请补充任务分解后再执行；当前任务树只有 L1→L3。`
+    );
+  }
+  if (result.source === 'derived') {
+    warnings.push(`任务树 L2 由步骤归纳生成（${result.reason}）`);
+  }
+  if (result.uncoveredStepIds.length > 0) {
+    warnings.push(
+      `${String(result.uncoveredStepIds.length)} 个步骤没有归属任何 L2，会直接挂在 L1 下：${result.uncoveredStepIds
+        .slice(0, 6)
+        .join(', ')}`
+    );
+  }
+  return warnings;
+}
+
 /** 从计划步骤生成显式 work.* 种子事件（L0 Work + L1 组 + L3 步骤）。 */
 export function seedWorkEventsFromPlan(input: {
   workId: string;
@@ -708,12 +900,17 @@ export function seedWorkEventsFromPlan(input: {
   };
   events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: root });
   events.push({ type: 'work.task.upserted', at, taskId: input.workId, workId: input.workId, task: group });
-  // TDL L2：只有计划真的给了 decomposition 才建子任务；没给就保持 L1→L3 平面，
-  // 由界面/文档标注「未分解」，不按步骤数量硬凑一层假层级。
-  const decomposition = input.plan.decomposition ?? [];
+  // TDL L2：分解在「落事件」这一刻定稿——模型给了用模型的，没给且任务够复杂
+  // 就按写入目标结构化归纳；归纳不出来时这里仍只有 L1→L3，但审批前会看到
+  // NEEDS_ANALYSIS，不会被当成「分解已完成」。
+  const decomposition = ensurePlanDecomposition(input.plan).items;
   const subtaskByStep = new Map<string, string>();
+  // 每个 L2 有自己的循环 id（P1-02）：子任务失败/结论不再挂到整条工程上。
+  const cycleBySubtask = new Map<string, string>();
   decomposition.forEach((item, index) => {
     const subtaskId = `wt-task-${item.id}`;
+    const subtaskCycleId = `cycle:${input.workId}:${subtaskId}`;
+    cycleBySubtask.set(subtaskId, subtaskCycleId);
     for (const stepId of item.stepIds) subtaskByStep.set(stepId, subtaskId);
     const subtask: WorkTask = {
       workTaskId: subtaskId,
@@ -732,7 +929,7 @@ export function seedWorkEventsFromPlan(input: {
       priority: `T${String(index + 1)}`,
       complexity: 'low',
       collaborationPolicy: collaborationPolicyFor('low'),
-      cycleId: input.cycleId,
+      cycleId: subtaskCycleId,
       goalId,
       goalVersion,
       artifacts: [],
@@ -766,7 +963,8 @@ export function seedWorkEventsFromPlan(input: {
       priority: `S${String(index + 1)}`,
       complexity,
       collaborationPolicy: collaborationPolicyFor(complexity),
-      cycleId: input.cycleId,
+      // 步骤跟随所属子任务的循环；没进任何子任务的步骤才落回任务级 cycle。
+      cycleId: cycleBySubtask.get(parentTaskId) ?? input.cycleId,
       goalId,
       goalVersion,
       planStepId: step.id,

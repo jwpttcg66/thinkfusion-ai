@@ -7,7 +7,7 @@
 | 文档 | 唯一职责 |
 | --- | --- |
 | [LONG_TASK_AND_CONTEXT_COMPACTION.md](../archive/architecture/LONG_TASK_AND_CONTEXT_COMPACTION-2026-11-24.md) | Context Manager 的职责、请求前数据流和降级边界 |
-| [CONTEXT_CHECKPOINT_STORAGE.md](../archive/architecture/CONTEXT_CHECKPOINT_STORAGE-2026-11-24.md) | 已接受的检查点/归档存储决策 |
+| [CONTEXT_CHECKPOINT_STORAGE.md](CONTEXT_CHECKPOINT_STORAGE.md) | 已接受的检查点/归档存储决策 |
 
 ## V3 目标架构专题
 

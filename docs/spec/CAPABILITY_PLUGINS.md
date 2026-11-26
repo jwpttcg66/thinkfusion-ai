@@ -24,9 +24,9 @@ DeepSeek Harness 里这些能力都是插件：挂到 `ctx.tools` 之类的服�
 ## 2. 一套契约、一份清单、两个宿主
 
 ```
-src/shared/capabilities.ts        契约 + 全量清单（85 条）+ CapabilityRegistry
+src/shared/capabilities.ts        契约 + 全量清单（109 条）+ CapabilityRegistry
         │
-        ├── src/agent/local-plugins.ts        Runtime：53 个本地工具 + 3 个联网工具
+        ├── src/agent/local-plugins.ts        Runtime：100 个本地工具 + 3 个联网工具
         │        └── src/agent/index.ts       只剩 localCapabilities.execute(step.tool, …)
         │
         └── src/main/capabilities/index.ts    主进程：project.scan / project.read /
@@ -53,21 +53,21 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 | 宿主 | 类别 | 数量 | 例子 |
 | --- | --- | --- | --- |
-| `runtime` | 本地能力 | 76 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
+| `runtime` | 本地能力 | 100 | `fs.readFile` / `fs.edit` / `git.status` / `json.query` / `archive.extract` … |
 | `runtime` | 联网 | 3 | `web.fetch`（抓网页）、`web.search`（结构化搜索）、`dns.lookup`（域名解析） |
 | `main` | 本地能力 | 3 | `project.scan`（工程证据读取）、`project.read`（模型自己读一次文件）、`file.attach`（输入框「＋」挑的附件） |
 | `main` | 联网 | 1 | `web.search.browser`（免凭据的浏览器搜索后端） |
 | `main` | 保存 | 2 | `document.export`（会话 md/docx）、`page.save-document`（网页文档与计划） |
 
-合计 **85 = 79 Runtime + 6 主进程**（2026-11-10 对账；`project.read` 是 2026-11-09
-「让模型自己读一次文件」补的，旧文里的 61 已过期）。
+合计 **109 = 103 Runtime（100 本地 + 3 联网）+ 6 主进程**（2026-11-26 用
+`out-test/shared/capabilities.js` 对账；旧文里的 85 / 76 / 60 已过期）。
 
 `web.fetch` / `web.search` 跑在 Runtime，干的却是联网的活，所以单独成组；
 工具 id 一个没改，旧计划不会失效。
 
-权限也进了清单：56 个工具里 28 个只读（`READ_ONLY_TOOLS`）、另 28 个为工作区可写，
-`process.kill` 是完全权限；主进程侧 `project.scan` / `project.read` / `file.attach` /
-`web.search.browser` 只读，两个保存是工作区可写。这层是清单展示；
+权限也进了清单：109 条里 **57 只读 / 50 工作区可写 / 2 完全权限**（`process.kill`
+与 `agent.exec`）。只读口径有两层：清单 `permission` 是展示用；Runtime 实际校验用
+`READ_ONLY_TOOLS`（53 个可执行工具，不含主进程那 4 条只读）。这层是清单展示；
 真正的强制仍由 `assertGrant` / `resolveGrantedPath` 在每一步执行时做，没有因为插件化而放宽。
 
 ## 3. 执行链路改了什么
@@ -94,7 +94,7 @@ dsh 自己也有 `cordis-host-runner` / `cordis-client-runner` 这种双半包�
 
 ## 4. 开关
 
-- 设置 → 内置插件：按「本地能力 / 联网 / 保存」分组列出 60 条，每条有名字、id、
+- 设置 → 内置插件：按「本地能力 / 联网 / 保存」分组列出 109 条，每条有名字、id、
   说明、权限与开关，分组标题显示 `已启用 / 总数`。
 - 状态存 `userData/capabilities.json`，只记「被停用的 id」——新增插件默认就是开的。
   文件坏了按全启用处理，不猜半截 JSON。

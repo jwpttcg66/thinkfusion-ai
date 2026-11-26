@@ -26,6 +26,34 @@ export type EcoRole =
   | 'reviewer'
   | 'adjudicator';
 
+/**
+ * 补充上下文的请求类型（P1-01）。
+ *
+ * 以前只有「给我这些路径」，模型没法说「我要这个符号的调用关系 / 我要这个
+ * 模块的测试」。类型化之后，每条补充证据都能回答「为什么要读它」，
+ * 也才能在版本变化时精确失效。
+ */
+export type ContextRequestKind =
+  | 'FILE_READ'
+  | 'DIRECTORY_DISCOVERY'
+  | 'SYMBOL_LOOKUP'
+  | 'CALL_RELATION'
+  | 'TEST_DISCOVERY'
+  | 'DIFF_READ';
+
+export const CONTEXT_REQUEST_KINDS: readonly ContextRequestKind[] = [
+  'FILE_READ',
+  'DIRECTORY_DISCOVERY',
+  'SYMBOL_LOOKUP',
+  'CALL_RELATION',
+  'TEST_DISCOVERY',
+  'DIFF_READ'
+];
+
+export function isContextRequestKind(value: unknown): value is ContextRequestKind {
+  return typeof value === 'string' && CONTEXT_REQUEST_KINDS.includes(value as ContextRequestKind);
+}
+
 export interface ContextResourceRef {
   resourceId: string;
   kind: 'file' | 'module' | 'symbol' | 'doc' | 'test' | 'decision' | 'commit' | 'other';
@@ -37,13 +65,30 @@ export interface ContextResourceRef {
   /** 读到的字节数；用于说明这份证据有多大，不参与充分度计算。 */
   size?: number;
   verifiedAt?: number;
+  /** 这条证据是被哪条请求、以什么方式取得的；分发/审计时要能回答来源。 */
+  provenance?: {
+    requestId: string;
+    kind: ContextRequestKind;
+  };
 }
 
-/** 交给评审/辩论用的证据摘要：只带路径与摘要，不带整份文件内容。 */
+/** 一份上下文包由哪些请求补齐；与 contextVersion 一起构成来源记录。 */
+export interface ContextSourceRecord {
+  requestId: string;
+  kind: ContextRequestKind;
+  resourceIds: string[];
+  at: number;
+}
+
+/** 交给评审/辩论用的证据摘要：只带路径、摘要与来源，不带整份文件内容。 */
 export interface EcoEvidenceSummary {
   path: string;
   digest: string;
   size?: number;
+  /** 证据类型（file/test/symbol…）；评审材料里用于区分「读文件」与「读测试」。 */
+  kind?: ContextResourceRef['kind'];
+  /** 由哪条请求取得；没有请求记录（例如计划路径直达）时为 undefined。 */
+  requestId?: string;
 }
 
 /** 从上下文包里挑出真正的工程证据（已过滤掉计划/工作区路径）。 */
@@ -51,7 +96,9 @@ export function engineeringEvidenceOf(pkg: EngineeringContextPackage): EcoEviden
   return pkg.resources.filter(isEngineeringEvidence).map(item => ({
     path: item.pathOrLabel,
     digest: item.digest!,
-    ...(item.size === undefined ? {} : { size: item.size })
+    ...(item.size === undefined ? {} : { size: item.size }),
+    kind: item.kind,
+    ...(item.provenance ? { requestId: item.provenance.requestId } : {})
   }));
 }
 
@@ -63,7 +110,15 @@ export interface ContextRequest {
   reason: string;
   requiredFor: 'analysis' | 'design' | 'implementation' | 'review' | 'verification';
   priority: 'low' | 'normal' | 'high';
+  /** 证据类型；缺省按 FILE_READ 处理（兼容旧事件）。 */
+  kind?: ContextRequestKind;
   requestedPaths?: string[];
+  /** DIRECTORY_DISCOVERY 的目标目录（工作区相对路径）。 */
+  directory?: string;
+  /** SYMBOL_LOOKUP / CALL_RELATION 的符号名。 */
+  symbol?: string;
+  /** DIFF_READ 的基线；缺省 HEAD。 */
+  baseRef?: string;
 }
 
 export interface EngineeringContextPackage {
@@ -81,6 +136,8 @@ export interface EngineeringContextPackage {
   };
   architectureSummary: string;
   resources: ContextResourceRef[];
+  /** 这份包由哪些补充请求补齐；分发时要能带出「来源 + 版本」。 */
+  sources?: ContextSourceRecord[];
   constraints: string[];
   decisions: string[];
   verifiedFacts: string[];
@@ -88,6 +145,9 @@ export interface EngineeringContextPackage {
   unknowns: string[];
   missingCritical: string[];
   sufficiency: ContextSufficiency;
+  /** 被判定过期时写明原因与时间；仍保留资源供审计，但不再算正式证据。 */
+  invalidatedBy?: string;
+  invalidatedAt?: number;
   createdAt: number;
 }
 
@@ -247,6 +307,7 @@ export function buildEngineeringContextPackage(input: {
   role: EcoRole;
   architectureSummary: string;
   resources?: ContextResourceRef[];
+  sources?: ContextSourceRecord[];
   constraints?: string[];
   decisions?: string[];
   verifiedFacts?: string[];
@@ -277,6 +338,7 @@ export function buildEngineeringContextPackage(input: {
     repository: input.repository,
     architectureSummary: input.architectureSummary,
     resources: normalized.resources,
+    ...(input.sources ? { sources: [...input.sources] } : {}),
     constraints: input.constraints ?? [],
     decisions: input.decisions ?? [],
     verifiedFacts: [
@@ -293,17 +355,33 @@ export function buildEngineeringContextPackage(input: {
   };
 }
 
-/** 履行补充请求：合并资源、抬升版本、重评充分度。 */
+/**
+ * 履行补充请求：合并资源、抬升版本、重评充分度。
+ *
+ * 每条新资源都会盖上 `provenance`（来自哪条请求、什么类型），包上再记一条
+ * `sources`：给其他协作成员分发时，「这行结论读的是哪份文件、怎么读的」
+ * 必须能一路带回去，否则补充上下文就变成了不可追溯的加料。
+ */
 export function fulfillContextRequest(
   pkg: EngineeringContextPackage,
   request: ContextRequest,
   newResources: readonly ContextResourceRef[]
 ): EngineeringContextPackage {
+  const kind = request.kind ?? 'FILE_READ';
   const byId = new Map(pkg.resources.map(item => [item.resourceId, item]));
-  for (const item of newResources) byId.set(item.resourceId, item);
+  const stamped: string[] = [];
+  for (const item of newResources) {
+    const withSource: ContextResourceRef = item.provenance
+      ? { ...item }
+      : { ...item, provenance: { requestId: request.requestId, kind } };
+    byId.set(withSource.resourceId, withSource);
+    stamped.push(withSource.resourceId);
+  }
   const paths = new Set([
     ...newResources.map(item => item.pathOrLabel),
-    ...(request.requestedPaths ?? [])
+    ...(request.requestedPaths ?? []),
+    ...(request.directory ? [request.directory] : []),
+    ...(request.symbol ? [request.symbol] : [])
   ]);
   const unknowns = pkg.unknowns.filter(item => {
     for (const path of paths) {
@@ -311,6 +389,15 @@ export function fulfillContextRequest(
     }
     return true;
   });
+  const sources: ContextSourceRecord[] = [...(pkg.sources ?? [])];
+  if (stamped.length > 0) {
+    sources.push({
+      requestId: request.requestId,
+      kind,
+      resourceIds: stamped,
+      at: Date.now()
+    });
+  }
   return buildEngineeringContextPackage({
     workId: pkg.workId,
     workTaskId: pkg.workTaskId,
@@ -319,6 +406,7 @@ export function fulfillContextRequest(
     role: pkg.role,
     architectureSummary: pkg.architectureSummary,
     resources: [...byId.values()],
+    ...(sources.length > 0 ? { sources } : {}),
     constraints: pkg.constraints,
     decisions: pkg.decisions,
     verifiedFacts: pkg.verifiedFacts,
@@ -370,15 +458,143 @@ export function contextRequestForGaps(
 /** 代码/目标版本变化后标记过期。 */
 export function invalidateContextPackage(
   pkg: EngineeringContextPackage,
-  reason: string
+  reason: string,
+  now?: number
 ): EngineeringContextPackage {
   return {
     ...pkg,
     contextVersion: pkg.contextVersion + 1,
     sufficiency: 'stale',
     missingCritical: [...pkg.missingCritical, reason],
-    createdAt: Date.now()
+    invalidatedBy: reason,
+    invalidatedAt: now ?? Date.now(),
+    createdAt: now ?? Date.now()
   };
+}
+
+/**
+ * 包是否还对应「现在的工程与目标」（P1-01 / P1-05）。
+ *
+ * 只比可观测的事实：commit、工作树状态、目标版本。任何一项变了，包里那些
+ * 「已核验」的行号/调用关系就可能已经指向别的东西，不能继续当正式证据用。
+ * 不带可比字段就不判过期——宁可不判，也不靠猜。
+ */
+export function contextInvalidation(
+  pkg: EngineeringContextPackage,
+  current: {
+    commit?: string;
+    workingTreeState?: string;
+    goalVersion?: number;
+  }
+): { stale: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (pkg.sufficiency === 'stale') {
+    reasons.push(pkg.invalidatedBy ?? '包已被标记过期');
+  }
+  if (
+    current.goalVersion !== undefined &&
+    pkg.goalVersion !== undefined &&
+    current.goalVersion !== pkg.goalVersion
+  ) {
+    reasons.push(`目标版本已从 v${String(pkg.goalVersion)} 变为 v${String(current.goalVersion)}`);
+  }
+  if (current.commit && pkg.repository?.commit && current.commit !== pkg.repository.commit) {
+    reasons.push(`代码提交已从 ${pkg.repository.commit.slice(0, 8)} 变为 ${current.commit.slice(0, 8)}`);
+  }
+  if (
+    current.workingTreeState &&
+    pkg.repository?.workingTreeState &&
+    current.workingTreeState !== pkg.repository.workingTreeState
+  ) {
+    reasons.push(`工作树状态已从 ${pkg.repository.workingTreeState} 变为 ${current.workingTreeState}`);
+  }
+  return { stale: reasons.length > 0, reasons };
+}
+
+/**
+ * 按缺口产出**类型化**补充请求（P1-01）。
+ *
+ * 与 {@link contextRequestForGaps} 的区别：那条只问「给我这些路径」，
+ * 这条能问「这个符号在哪定义/被谁调用」「这个模块的测试在哪」「这次改动
+ * 到底改了什么」。顺序按「最能证明读过工程」排：先读文件，再看符号与
+ * 调用关系，然后找测试，最后看目录结构和 diff。
+ *
+ * 已充分时不产出任何请求——没有缺口就不该造请求。
+ */
+export function contextRequestsForGaps(
+  pkg: EngineeringContextPackage,
+  input?: {
+    paths?: readonly string[];
+    directory?: string;
+    symbols?: readonly string[];
+    discoverTests?: boolean;
+    readDiff?: boolean;
+    baseRef?: string;
+    modelRunId?: string;
+    requiredFor?: ContextRequest['requiredFor'];
+    now?: number;
+    limit?: number;
+  }
+): ContextRequest[] {
+  if (pkg.sufficiency === 'sufficient') return [];
+  const now = input?.now ?? Date.now();
+  const limit = input?.limit ?? 4;
+  const paths = [...new Set((input?.paths ?? []).filter(Boolean))].slice(0, 24);
+  const symbols = [...new Set((input?.symbols ?? []).filter(Boolean))].slice(0, 6);
+  const missing = pkg.missingCritical.length > 0
+    ? pkg.missingCritical.join('；')
+    : '上下文不足，需要读取真实工程内容';
+  const requests: ContextRequest[] = [];
+  let seq = 0;
+  const push = (
+    kind: ContextRequestKind,
+    reason: string,
+    extra: Partial<ContextRequest>
+  ): void => {
+    if (requests.length >= limit) return;
+    seq += 1;
+    requests.push({
+      requestId: `eco-req:${pkg.workId}:${String(now)}:${String(seq)}`,
+      ...(input?.modelRunId ? { modelRunId: input.modelRunId } : {}),
+      workId: pkg.workId,
+      ...(pkg.workTaskId ? { workTaskId: pkg.workTaskId } : {}),
+      reason,
+      requiredFor: input?.requiredFor ?? 'review',
+      priority: requests.length === 0 ? 'high' : 'normal',
+      kind,
+      ...extra
+    });
+  };
+
+  if (paths.length > 0) {
+    push('FILE_READ', `上下文不足：${missing}；先真实读取计划引用的 ${String(paths.length)} 个文件`, {
+      requestedPaths: paths
+    });
+  }
+  if (symbols.length > 0) {
+    push('SYMBOL_LOOKUP', `上下文不足：${missing}；定位符号 ${symbols.join('、')} 的定义位置`, {
+      symbol: symbols[0]
+    });
+    push('CALL_RELATION', `上下文不足：${missing}；核对符号 ${symbols.join('、')} 的调用关系`, {
+      symbol: symbols[0]
+    });
+  }
+  if (input?.discoverTests && paths.length > 0) {
+    push('TEST_DISCOVERY', '上下文不足：没有测试证据，无法判断这次改动会被哪组测试覆盖', {
+      requestedPaths: paths
+    });
+  }
+  if (input?.directory) {
+    push('DIRECTORY_DISCOVERY', '上下文不足：需要确认目标目录的真实结构，而不是从计划标题推断', {
+      directory: input.directory
+    });
+  }
+  if (input?.readDiff) {
+    push('DIFF_READ', '上下文不足：需要看这次改动到底改了什么', {
+      ...(input.baseRef ? { baseRef: input.baseRef } : {})
+    });
+  }
+  return requests;
 }
 
 /** 挂到检查点 evidenceRefs 的 ECO 版本引用（不改 LT Checkpoint schema）。 */

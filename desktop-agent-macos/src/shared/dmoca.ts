@@ -57,6 +57,44 @@ export interface ModelCapabilityView {
   };
 }
 
+/**
+ * 正式职责：会产出「可被当成工程结论」的角色。
+ *
+ * 旁听、提假设、补充信息不属于正式职责——那正是上下文不足时仍然允许的部分。
+ */
+export const FORMAL_DMOCA_ROLES: readonly DmocaRole[] = [
+  'architect',
+  'reviewer',
+  'verifier',
+  'adjudicator'
+];
+
+/** 上下文不足时的保留角色：可以旁听与补充信息，但不产出正式结论。 */
+export const OBSERVER_DMOCA_ROLE: DmocaRole = 'analyst';
+
+export function isFormalRole(role: DmocaRole): boolean {
+  return FORMAL_DMOCA_ROLES.includes(role);
+}
+
+/** 参与决定里某个人的职责限制：被挡下的正式角色与保留角色都写清。 */
+export interface RoleRestriction {
+  participantId: string;
+  blockedRoles: DmocaRole[];
+  allowedRoles: DmocaRole[];
+  reason: string;
+}
+
+export interface EcoGate {
+  sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale';
+  /** 是否有正式职责被门禁挡下（不是「所有人都不许参与」）。 */
+  formalRolesBlocked: boolean;
+  reason: string;
+  /** 逐人的限制明细；界面与 Journal 靠它解释「为什么他只能旁听」。 */
+  restrictions?: RoleRestriction[];
+  /** 门禁依据的上下文版本；恢复时用来判断是否已刷新。 */
+  contextVersion?: number;
+}
+
 export interface ParticipationDecision {
   decisionId: string;
   workId: string;
@@ -68,6 +106,8 @@ export interface ParticipationDecision {
     participantId: string;
     modelId?: string;
     roles: DmocaRole[];
+    /** 因为上下文不足被摘掉的正式角色；有值说明只能旁听/辅助分析。 */
+    blockedRoles?: DmocaRole[];
     reason: string;
   }>;
   excluded: Array<{ participantId: string; reason: string }>;
@@ -77,11 +117,7 @@ export interface ParticipationDecision {
   reasons: string[];
   userPinned: boolean;
   at: number;
-  ecoGate?: {
-    sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale';
-    formalRolesBlocked: boolean;
-    reason: string;
-  };
+  ecoGate?: EcoGate;
 }
 
 export interface ModelRunView {
@@ -241,41 +277,80 @@ export function dispatchedParticipantIds(
   return ids.length > 0 ? ids : [...(fallback ?? [])];
 }
 
-/** ECO 充分度硬门禁：不足/过期时阻断正式架构职责；非 pinned 截断为单 lead。 */
+/**
+ * ECO 充分度硬门禁：把「能否参与」与「能否承担正式职责」拆开。
+ *
+ * 用户钉住的模型仍然参与（不能因为上下文不足就把人选换掉），但**不再保留**
+ * 原有正式角色：architect / reviewer / verifier / adjudicator 一律摘掉，
+ * 换成旁听角色并记进 blockedRoles。以前这里对 pinned 只加一句 reason、
+ * 角色原样保留，等于「门禁写了但没拦住」。
+ *
+ * partial 不算充分：高风险（L3）阶段同样摘正式角色，普通阶段允许辅助分析。
+ */
 export function applyEcoGateToDecision(
   decision: ParticipationDecision,
-  sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale'
+  sufficiency: 'sufficient' | 'partial' | 'insufficient' | 'stale',
+  options?: { contextVersion?: number }
 ): ParticipationDecision {
+  const withVersion = (gate: EcoGate): EcoGate =>
+    options?.contextVersion === undefined ? gate : { ...gate, contextVersion: options.contextVersion };
+
   if (sufficiency === 'sufficient') {
     return {
       ...decision,
-      ecoGate: { sufficiency, formalRolesBlocked: false, reason: 'ECO sufficient' },
+      ecoGate: withVersion({ sufficiency, formalRolesBlocked: false, reason: 'ECO sufficient' }),
       reasons: [...decision.reasons, `ECO ${sufficiency}`]
     };
   }
-  if (sufficiency === 'partial') {
+
+  if (sufficiency === 'partial' && decision.risk !== 'L3') {
     return {
       ...decision,
-      ecoGate: {
+      ecoGate: withVersion({
         sufficiency,
         formalRolesBlocked: false,
         reason: 'ECO partial：可有限参与，正式架构仍建议补充上下文'
-      },
+      }),
       reasons: [...decision.reasons, 'ECO partial：建议补充工程上下文']
     };
   }
+
   const reason = sufficiency === 'stale'
-    ? 'ECO stale：上下文过期，阻断正式架构/审核裁决'
-    : 'ECO insufficient：上下文不足，阻断正式架构/审核裁决';
-  const participants = decision.userPinned
-    ? decision.participants.map(item => ({
+    ? 'ECO stale：上下文过期，阻断正式架构/审核/验证/裁决'
+    : sufficiency === 'partial'
+      ? 'ECO partial + 高风险：正式架构/审核/验证/裁决须先补齐上下文'
+      : 'ECO insufficient：上下文不足，阻断正式架构/审核/验证/裁决';
+
+  const restrictions: RoleRestriction[] = [];
+  const participants = decision.participants.map(item => {
+    const blocked = item.roles.filter(isFormalRole);
+    if (blocked.length === 0) return { ...item };
+    const kept = item.roles.filter(role => !isFormalRole(role));
+    const allowedRoles: DmocaRole[] = kept.length > 0 ? kept : [OBSERVER_DMOCA_ROLE];
+    restrictions.push({
+      participantId: item.participantId,
+      blockedRoles: blocked,
+      allowedRoles,
+      reason
+    });
+    return {
+      ...item,
+      roles: allowedRoles,
+      blockedRoles: [...(item.blockedRoles ?? []), ...blocked],
+      reason: `${item.reason}（${reason}；正式角色 ${blocked.join('/')} 已摘除，仅可旁听/补充信息）`
+    };
+  });
+
+  // 非 pinned 时仍然收敛到一个人：上下文不足还要多人并行，只是烧预算。
+  // lead 属于协作身份，不是工程裁决，保留；没有非正式角色时退到旁听。
+  const trimmed = decision.userPinned
+    ? participants
+    : participants.slice(0, 1).map(item => ({
         ...item,
-        reason: `${item.reason}（${reason}）`
-      }))
-    : decision.participants.slice(0, 1).map(item => ({
-        ...item,
-        roles: ['lead'] as DmocaRole[],
-        reason: `${item.reason}；${reason}，仅保留 lead`
+        roles: (item.roles.filter(role => !isFormalRole(role)).length > 0
+          ? item.roles.filter(role => !isFormalRole(role))
+          : [OBSERVER_DMOCA_ROLE]) as DmocaRole[],
+        reason: `${item.reason}；${reason}，仅保留非正式角色`
       }));
   const dropped = decision.userPinned
     ? []
@@ -283,13 +358,59 @@ export function applyEcoGateToDecision(
         participantId: item.participantId,
         reason: `ECO ${sufficiency}：非 pinned 截断`
       }));
+
   return {
     ...decision,
-    participants,
+    participants: trimmed,
     excluded: [...decision.excluded, ...dropped],
-    ecoGate: { sufficiency, formalRolesBlocked: true, reason },
+    ecoGate: withVersion({
+      sufficiency,
+      formalRolesBlocked: restrictions.length > 0 || trimmed.length !== decision.participants.length,
+      reason,
+      restrictions
+    }),
     reasons: [...decision.reasons, reason]
   };
+}
+
+/**
+ * 派发前的职责复核。
+ *
+ * 门禁不能只在选人那一刻算一次：计划评审、执行、验证是三次独立派发，
+ * 中间上下文可能已经过期。每次派发前都要能回答「这个人现在能不能承担这个角色」。
+ */
+export function roleEligibility(
+  decision: ParticipationDecision,
+  participantId: string,
+  role: DmocaRole
+): { ok: boolean; reason: string } {
+  const member = decision.participants.find(item => item.participantId === participantId);
+  if (!member) {
+    return { ok: false, reason: `${participantId} 不在本次参与决策里` };
+  }
+  if ((member.blockedRoles ?? []).includes(role)) {
+    return {
+      ok: false,
+      reason: `${participantId} 的 ${role} 已被 ECO 门禁摘除（${decision.ecoGate?.reason ?? '上下文不足'}）`
+    };
+  }
+  if (isFormalRole(role) && decision.ecoGate?.formalRolesBlocked === true) {
+    return { ok: false, reason: `ECO ${decision.ecoGate.sufficiency} 期间不得派发正式角色 ${role}` };
+  }
+  if (!member.roles.includes(role)) {
+    return { ok: false, reason: `${participantId} 本次只被分配了 ${member.roles.join('/') || '无角色'}` };
+  }
+  return { ok: true, reason: `${participantId} 可承担 ${role}` };
+}
+
+/** 正式角色名单（派发用）：被门禁摘掉的人不会出现在这里。 */
+export function formalRoleHolders(
+  decision: ParticipationDecision,
+  role: DmocaRole
+): string[] {
+  return decision.participants
+    .filter(item => item.roles.includes(role) && !(item.blockedRoles ?? []).includes(role))
+    .map(item => item.participantId);
 }
 
 export function decideParticipation(input: {
@@ -405,6 +526,9 @@ export function projectDmocaFromEvents(input: {
       participants: event.participants.map(item => ({
         participantId: item.participantId,
         roles: item.roles as DmocaRole[],
+        ...(item.blockedRoles && item.blockedRoles.length > 0
+          ? { blockedRoles: item.blockedRoles as DmocaRole[] }
+          : {}),
         reason: item.reason
       })),
       excluded: event.excluded,
@@ -413,7 +537,7 @@ export function projectDmocaFromEvents(input: {
       maxExtraModels: event.maxExtraModels ?? defaultPolicyForRisk(event.risk).maxExtraModels,
       reasons: event.reasons,
       userPinned: event.userPinned,
-      ...(event.ecoGate ? { ecoGate: event.ecoGate } : {}),
+      ...(event.ecoGate ? { ecoGate: event.ecoGate as EcoGate } : {}),
       at: event.at
     };
   }
@@ -604,6 +728,304 @@ export function projectDmocaFromEvents(input: {
     snapshot,
     decisionSnapshot
   };
+}
+
+/**
+ * 正式决策快照校验（P0-05）。
+ *
+ * 决策必须引用**确定版本**的贡献：快照里选的稿件要存在、版本要一致、
+ * 不能是已经被 superseded 的旧稿。这里只做只读核对，返回问题清单，
+ * 由调用方决定是拒发决策还是记录风险——不静默改数据。
+ */
+export function assertDecisionSnapshotIntegrity(
+  decision: DecisionSnapshotView,
+  artifacts: readonly ContributionArtifactView[]
+): { ok: boolean; issues: string[] } {
+  const issues: string[] = [];
+  const byId = new Map(artifacts.map(item => [item.artifactId, item]));
+  const pinned = decision.contributions ?? [];
+  if (pinned.length === 0) {
+    issues.push('决策没有钉住任何贡献版本');
+  }
+  const seen = new Set<string>();
+  for (const ref of pinned) {
+    if (seen.has(ref.participantId)) {
+      issues.push(`${ref.participantId} 在同一份决策里被固定了多个版本`);
+    }
+    seen.add(ref.participantId);
+    const artifact = byId.get(ref.artifactId);
+    if (!artifact) {
+      issues.push(`决策引用的贡献不存在：${ref.artifactId}`);
+      continue;
+    }
+    if (artifact.participantId !== ref.participantId) {
+      issues.push(`贡献 ${ref.artifactId} 不属于 ${ref.participantId}`);
+    }
+    if (artifact.version !== ref.version) {
+      issues.push(`决策钉的版本 v${String(ref.version)} 与稿件实际 v${String(artifact.version)} 不一致`);
+    }
+    if (artifact.status === 'superseded') {
+      issues.push(`决策引用了已被覆盖的旧稿：${ref.artifactId}`);
+    }
+    if (artifact.status === 'partial') {
+      issues.push(`决策引用了未完成稿件：${ref.artifactId}`);
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * 从辩论交锋生成不可变贡献快照与决策快照。
+ *
+ * 工程任务的正式决策发生在方案评审，而不是会话的 round.answer：这里把
+ * 每次发言落成 artifact（同人后续发言递增版本并覆盖前一版 final），
+ * 决策只钉每人最后一版终稿。这样「结论用了哪一版」可追溯，异步完成
+ * 也不会互相覆盖。
+ */
+export function snapshotFromExchanges(input: {
+  workId: string;
+  workTaskId?: string;
+  participants: readonly string[];
+  exchanges: ReadonlyArray<{ author: string; kind: string; text: string; roundIndex: number }>;
+  conclusion: string;
+  at?: number;
+}): {
+  artifacts: ContributionArtifactView[];
+  snapshot: ContributionSnapshotView | null;
+  decision: DecisionSnapshotView | null;
+} {
+  const at = input.at ?? Date.now();
+  const artifacts: ContributionArtifactView[] = [];
+  const versions = new Map<string, number>();
+
+  for (const exchange of input.exchanges) {
+    const text = exchange.text.trim();
+    if (text.length === 0) continue;
+    const author = exchange.author;
+    versions.set(author, (versions.get(author) ?? 0) + 1);
+    const version = versions.get(author)!;
+    for (const item of artifacts) {
+      if (item.participantId === author && item.status === 'final') item.status = 'superseded';
+    }
+    artifacts.push({
+      artifactId: `ex:${input.workId}:${author}:${String(exchange.roundIndex)}:${String(at)}:${String(version)}`,
+      runId: `run:${author}:r${String(exchange.roundIndex)}`,
+      participantId: author,
+      kind: version > 1 ? 'revision' : 'complete_response',
+      version,
+      status: 'final',
+      contentPreview: text.slice(0, 400),
+      at,
+      ...(version > 1
+        ? { supersedesArtifactId: artifacts.filter(item => item.participantId === author).at(-1)?.artifactId }
+        : {})
+    });
+  }
+
+  const participants = [...new Set([...input.participants, ...artifacts.map(item => item.participantId)])];
+  if (participants.length === 0) {
+    return { artifacts, snapshot: null, decision: null };
+  }
+
+  const selected = participants.map(participantId => {
+    const finals = artifacts.filter(
+      item => item.participantId === participantId && item.status === 'final'
+    );
+    return { participantId, artifact: finals.at(-1) };
+  });
+  const answered = selected.filter(item => item.artifact).length;
+  const alignmentStatus: AlignmentStatus = answered === 0
+    ? 'blocked'
+    : answered === participants.length
+      ? 'ready'
+      : answered > 0
+        ? 'partial'
+        : 'waiting';
+
+  const snapshot: ContributionSnapshotView = {
+    snapshotId: `cs:${input.workId}:${String(at)}`,
+    workId: input.workId,
+    ...(input.workTaskId ? { workTaskId: input.workTaskId } : {}),
+    alignmentStatus,
+    participants: selected.map(item => ({
+      participantId: item.participantId,
+      runId: item.artifact?.runId ?? `run:${item.participantId}:missing`,
+      role: 'analyst',
+      artifactIds: artifacts
+        .filter(entry => entry.participantId === item.participantId)
+        .map(entry => entry.artifactId),
+      ...(item.artifact ? { selectedArtifactId: item.artifact.artifactId } : {}),
+      status: item.artifact ? 'completed' : 'excluded'
+    })),
+    createdAt: at
+  };
+
+  const decision: DecisionSnapshotView = {
+    decisionId: `ds:${input.workId}:${String(at)}`,
+    workId: input.workId,
+    contributionSnapshotId: snapshot.snapshotId,
+    contributions: selected
+      .filter(item => item.artifact)
+      .map(item => ({
+        participantId: item.participantId,
+        artifactId: item.artifact!.artifactId,
+        version: item.artifact!.version
+      })),
+    conclusion: input.conclusion,
+    unresolvedIssues: alignmentStatus === 'ready' ? [] : [`${String(participants.length - answered)} 位参与者没有终稿`],
+    status: alignmentStatus === 'ready'
+      ? 'accepted'
+      : alignmentStatus === 'blocked'
+        ? 'unresolved'
+        : 'accepted_with_risks',
+    createdAt: at
+  };
+
+  return { artifacts, snapshot, decision };
+}
+
+/**
+ * General / Knowledge 的决策快照（P1-03）。
+ *
+ * 三个场景共用同一套贡献结构与「决策钉版本」规则：工程方案评审走
+ * {@link snapshotFromExchanges}，对话轮次也走它，只是把「谁答了什么」换成
+ * 会话回答列表。以前会话侧只有一份描述性的参与记录，决策从来不钉版本，
+ * 同一模型改口后无法判断最终结论引用的是哪一稿。
+ *
+ * 刻意不做的事：
+ * - 不派发、不追加模型：这条路只记录已经发生的回答，小任务不会被强行多问一遍；
+ * - 没有回答就不造决策（`decision:null`），不写「空快照已成立」；
+ * - 失败/超时的成员按缺席记入 unresolvedIssues，不阻塞结论，也不假装参与过。
+ */
+export function conversationDecisionSnapshot(input: {
+  workId: string;
+  stage?: string;
+  lead: { participantId: string; text: string; at?: number };
+  peers?: ReadonlyArray<{
+    participantId: string;
+    text?: string;
+    status?: 'answered' | 'failed' | 'cancelled' | 'pending' | 'timed_out';
+    at?: number;
+  }>;
+  /** 辩论交锋稿；给了就按轮次排版本，主答排在它们之前。 */
+  exchanges?: ReadonlyArray<{ author: string; text: string; roundIndex: number; kind?: string }>;
+  conclusion: string;
+  completed?: boolean;
+  at?: number;
+}): {
+  artifacts: ContributionArtifactView[];
+  snapshot: ContributionSnapshotView | null;
+  decision: DecisionSnapshotView | null;
+  integrity: { ok: boolean; issues: string[] };
+  /** 只有一个回答者：结论成立，但没有交叉验证，界面要如实这么写。 */
+  singleModel: boolean;
+} {
+  const at = input.at ?? Date.now();
+  const peers = input.peers ?? [];
+  const participants = [...new Set([
+    input.lead.participantId,
+    ...peers.map(item => item.participantId)
+  ])];
+  const exchanges = input.exchanges && input.exchanges.length > 0
+    ? input.exchanges.map(item => ({ ...item, kind: item.kind ?? 'answer' }))
+    : [
+        { author: input.lead.participantId, text: input.lead.text, roundIndex: 0, kind: 'answer' },
+        ...peers
+          .filter(item => (item.text ?? '').trim().length > 0)
+          .map(item => ({
+            author: item.participantId,
+            text: item.text ?? '',
+            roundIndex: 0,
+            kind: 'answer'
+          }))
+      ];
+  const built = snapshotFromExchanges({
+    workId: input.workId,
+    participants,
+    exchanges,
+    conclusion: input.conclusion,
+    at
+  });
+  const missing = peers.filter(item => item.status !== undefined && item.status !== 'answered' && item.status !== 'pending');
+  if (built.decision && missing.length > 0) {
+    const note = `${missing.map(item => `${item.participantId}（${item.status ?? 'failed'}）`).join('、')}未给出终稿`;
+    if (!built.decision.unresolvedIssues.includes(note)) built.decision.unresolvedIssues.push(note);
+  }
+  const integrity = built.decision
+    ? assertDecisionSnapshotIntegrity(built.decision, built.artifacts)
+    : { ok: false, issues: ['没有可用回答，未形成决策'] };
+  const hasText = [...exchanges].some(item => item.text.trim().length > 0);
+  return {
+    ...built,
+    // 没有任何正文时快照不能成立：空决策比没有决策更容易被误读成「已定论」。
+    snapshot: hasText ? built.snapshot : null,
+    decision: hasText ? built.decision : null,
+    integrity: hasText ? integrity : { ok: false, issues: ['没有可用回答，未形成决策'] },
+    singleModel: participants.length <= 1
+  };
+}
+
+/**
+ * General / Knowledge 的 DMOCA 投影（P1-03）。
+ *
+ * 与 {@link projectDmocaFromEvents} 产出同一个视图结构、同一套快照字段：
+ * 参与决策读 `model.participation.observed`，决策读 `model.decision.snapshot`。
+ * 这样三个场景的工作台不必各写一套「谁参与了 / 结论引用了哪一版」。
+ */
+export function projectDmocaFromConversationEvents(input: {
+  conversationId: string;
+  events: ReadonlyArray<{ at: number; type: string } & Record<string, unknown>>;
+}): DmocaWorkbenchView {
+  const ordered = [...input.events]
+    .filter(event => event.conversationId === input.conversationId)
+    .sort((a, b) => a.at - b.at);
+  let decision: ParticipationDecision | null = null;
+  let snapshot: ContributionSnapshotView | null = null;
+  let decisionSnapshot: DecisionSnapshotView | null = null;
+  let artifacts: ContributionArtifactView[] = [];
+  for (const event of ordered) {
+    if (event.type === 'model.participation.observed') {
+      const participants = (event.participants ?? []) as Array<{ participantId: string }>;
+      const excluded = (event.excluded ?? []) as Array<{ participantId: string; reason: string }>;
+      decision = {
+        decisionId: typeof event.decisionId === 'string' ? event.decisionId : `obs:${String(event.at)}`,
+        workId: input.conversationId,
+        stage: typeof event.stage === 'string' ? event.stage : 'answers',
+        risk: (event.risk ?? 'L0') as CollaborationRiskLevel,
+        participants: participants.map(item => ({
+          participantId: item.participantId,
+          roles: [OBSERVER_DMOCA_ROLE],
+          reason: typeof event.note === 'string' ? event.note : '会话侧回答'
+        })),
+        excluded: excluded.map(item => ({ participantId: item.participantId, reason: item.reason })),
+        // 会话侧观察记录不做派发决策：辩论与模型审核仍由各自的模型判断。
+        debate: 'on_demand',
+        modelReview: 'on_demand',
+        maxExtraModels: typeof event.maxExtraModels === 'number' ? event.maxExtraModels : 0,
+        reasons: (event.reasons ?? []) as string[],
+        userPinned: false,
+        at: event.at
+      };
+      continue;
+    }
+    if (event.type === 'model.decision.snapshot') {
+      const nextSnapshot = (event.snapshot ?? null) as ContributionSnapshotView | null;
+      const nextDecision = (event.decision ?? null) as DecisionSnapshotView | null;
+      if (nextDecision) decisionSnapshot = nextDecision;
+      if (nextSnapshot) snapshot = nextSnapshot;
+      if (Array.isArray(event.artifacts)) artifacts = event.artifacts as ContributionArtifactView[];
+    }
+  }
+  return { decision, runs: [], contributions: artifacts, snapshot, decisionSnapshot };
+}
+
+/**
+ * 子任务/会话通用的决策完整性复核入口：把「快照 + 稿件」放在一起查。
+ * 三个场景都调这一个，避免某一处自己实现一遍版本比对。
+ */
+export function checkConversationDecision(view: DmocaWorkbenchView): { ok: boolean; issues: string[] } {
+  if (!view.decisionSnapshot) return { ok: false, issues: ['这一轮没有形成决策快照'] };
+  return assertDecisionSnapshotIntegrity(view.decisionSnapshot, view.contributions);
 }
 
 /** 参与者生命周期转移（保留历史贡献；不覆盖旧 ModelRun）。 */

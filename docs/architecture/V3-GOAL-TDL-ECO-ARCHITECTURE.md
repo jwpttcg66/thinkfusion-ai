@@ -37,3 +37,33 @@ User Request → Goal → TDL → Cycle → Execution
 2. 旁听不等于具备正式架构裁决资格——须 ECO 充分度。
 3. 正式决策引用固定贡献快照与上下文版本。
 4. 禁止第二套 Runtime / Journal / Verifier / 权限系统。
+
+## 当前实现对照（2026-11-26）
+
+目标架构与已落地实现必须分开读；本节目的是防止把设计当成现状重复开发。
+
+| 层/机制 | 已实现的权威落点 | 与目标架构的差距 |
+| --- | --- | --- |
+| Goal | `ConversationGoal` + GDC `EngineeringGoalView`；`AgentTask.goalId/goalVersion` 由创建时写入 | 目标尚未有独立的用户修订界面；确认流程只在 IPC 层可用 |
+| TDL | `shared/task-decomposition.ts` 的 WorkTask（L0–L3）、状态机、依赖、验收、CAS；种树走 `seedWorkEventsFromPlan` | 复杂任务缺 `decomposition` 时用「写入目标目录」结构化归纳；归纳不出来标 `NEEDS_ANALYSIS` 并取消自动批准，不会自动再问模型 |
+| Cycle | `cycle.snapshot` + `projectWorkCycleFromEvents` 投影；每个 L2 有独立 `cycleId`，步骤生命周期推进 `cycle.subtask.snapshot` | 子任务循环仍复用主任务的执行轮次，没有独立调度器（这是刻意约束）；跨子任务冲突只在报告收尾时报告 |
+| ECO | `shared/eco.ts` 上下文包、充分度、六类类型化补充请求；`main/engineering/eco-explore.ts` 真读文件/目录/符号/调用/测试/diff；代码或目标变化发 `eco.context.invalidated` | 符号/调用查询是正则级定位，不是 AST/类型绑定；解析不到时如实跳过 |
+| DMOCA | `shared/dmoca.ts` 参与决策、贡献版本、决策快照；工程与 General/Knowledge 都走 `snapshotFromExchanges` 钉版本 | 会话侧决策快照已落事件，但界面尚未展示每一轮钉住的是哪一稿 |
+| 版本一致性 | `shared/version-consistency.ts` 逐层比对 Goal → WorkTask → ECO → 贡献 → 决策；`resume` 发 `version.consistency` 并改写继续提示词 | 目标变化判 `needs_replan`；运行时循环（`until`）等场景不在本层判定范围 |
+
+**版本关系（已落地）**：
+
+```
+AgentTask.goalVersion
+      ↓ 种树继承
+WorkTask.goalId / goalVersion（L0–L3 全量）
+      ↓ 目标修订
+planGoalRevision → 影响闭包 → work.task.upserted（受影响任务 revision+1）
+      ↓
+work.breakdown.replanned
+```
+
+版本链自动对齐：`shared/version-consistency.ts` 逐层比对 `Goal → WorkTask → ECO → 贡献 → 决策`，
+不兼容时向下游传播作废；目标/分解变化判 `needs_replan`（优先），只有上下文过期判
+`needs_context_refresh`。`resume` 发 `version.consistency` 并据此改写继续提示词，
+不兼容的旧结论不得静默复用。
