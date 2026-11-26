@@ -119,6 +119,13 @@ function MemberMessage(props: {
   // 正文默认只露 5 行，和思考折叠一样点开才看全文。短正文不出现按钮。
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
+  // 用户往上翻看前文时不要被流式输出拽回底部；滚回底部附近才继续跟随。
+  const stickRef = useRef(true);
+  const followScroll = () => {
+    const el = activeRef();
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
   // 正文框与思考折叠的分工统一由 shared 层决定：流式期间只有一处展示内容，
   // 不让同一份 thinking 在正文框和折叠里各铺一遍。
   // waitMs：deepseek 一类会先内部想很久才吐首字，空「等待模型输出」像卡死。
@@ -127,7 +134,12 @@ function MemberMessage(props: {
   useEffect(() => {
     const el = activeRef();
     if (!el) return;
-    el.scrollTop = live ? el.scrollHeight : 0;
+    if (!live) {
+      el.scrollTop = 0;
+      stickRef.current = true;
+      return;
+    }
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
   }, [live, entry.text, entry.reasoning]);
   // 5 行以外还有内容才给「展开全文」；展开后按钮保留，用于收起。
   useEffect(() => {
@@ -180,7 +192,7 @@ function MemberMessage(props: {
                 这条回答结束后再用 MarkdownBody 完整排版。两种画法用的是同一份原文，
                 不改模型输出一个字，展开/收起只改呈现。 */}
             {live ? (
-              <pre className={`chat-member-text${expanded ? '' : ' is-clamped'}`} ref={preRef}>
+              <pre className={`chat-member-text${expanded ? '' : ' is-clamped'}`} ref={preRef} onScroll={followScroll}>
                 {view.bodyText || view.placeholder}
               </pre>
             ) : (

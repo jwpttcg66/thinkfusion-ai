@@ -6249,14 +6249,12 @@ app.whenReady().then(async () => {
           error: detail,
           durationMs: Math.max(0, Date.now() - leadStartedAt)
         });
-        return {
-          status: 'skipped' as const,
-          participants: leadPlan.participants,
-          topics: [],
-          summary: '',
-          leadSummary: '',
-          skippedReason: `主导模型五段汇总失败：${detail}`
-        };
+        // 云端/本地主导模型超时或报错时不能「跳过评审继续执行」：那等于
+        // 拿一份没被审过的计划去改工作区。带上 code 让编排器直接停任务，
+        // 而不是降级成 skipped 后照常审批。
+        const failure = new Error(`主导模型五段汇总失败：${detail}`) as Error & { code?: string };
+        failure.code = 'LEAD_SUMMARY_FAILED';
+        throw failure;
       }
       if (!leadSummary) {
         return {

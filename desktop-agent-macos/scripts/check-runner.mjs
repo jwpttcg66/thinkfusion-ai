@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ConversationRunner } from '../out-test/main/conversation-runner.js';
 import { PageBusyError } from '../out-test/main/adapters/browser/types.js';
-import { buildLeadSummaryQuestion, inlineLeadInstructions, parseDoubts, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
+import { buildLeadSummaryQuestion, hasDebateTopicsSection, inlineLeadInstructions, parseDoubts, parseTopics, rewriteSourceRefs, sourceTags } from '../out-test/main/synthesis/lead-stage.js';
 
 const RUNNER_SRC = join(dirname(fileURLToPath(import.meta.url)), '../src/main/conversation-runner.ts');
 
@@ -1713,6 +1713,14 @@ test('源码守卫：禁止跳过云端分流直达 Planner', () => {
   assert.match(src, /routeWithModel/, '云端/本地分流必须能问模型');
 });
 
+
+test('会话侧：辩题段写「无」时不得拿存疑凑辩题', () => {
+  const src = readFileSync(RUNNER_SRC, 'utf8');
+  assert.match(src, /hasDebateTopicsSection\(summaryText\)/, '写「无」必须以模型结论为准');
+  const summary = '【结论】可以。\n【一致】没有。\n【分歧】没有。\n【存疑】缺少运行输出。\n【辩题】无。';
+  assert.deepEqual(parseTopics(summary), []);
+  assert.equal(hasDebateTopicsSection(summary), true);
+});
 
 test('存疑段可解析成下一步核查项', () => {
   const summary = '【结论】能给代码\n【一致】没有\n【分歧】没有\n【存疑】没有构建日志，无法证明能跑起来\n只有一份回答，无法交叉核对\n【辩题】无';

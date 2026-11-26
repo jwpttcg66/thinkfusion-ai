@@ -1825,3 +1825,21 @@ test('D2：浮层接线与样式槽位真实存在', async () => {
     assert.match(css, new RegExp(`\\.${cls}`), `样式缺失：${cls}`);
   }
 });
+
+test('折叠的流式正文必须能在框内滚动，不能只靠「展开全文」', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
+  for (const cls of ['chat-stream-body', 'chat-member-text']) {
+    const block = css.match(new RegExp(`\\.${cls}\\.is-clamped\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+    assert.ok(block, `缺少样式：${cls}.is-clamped`);
+    assert.match(block, /overflow-y:\s*auto/, `${cls}.is-clamped 必须可纵向滚动`);
+    assert.doesNotMatch(block, /-webkit-line-clamp|overflow:\s*hidden/, `${cls}.is-clamped 不能用截断隐藏`);
+  }
+  // 自动跟到底只应在用户本来就贴着底部时发生，否则往上翻会被流式输出拽回去。
+  const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  assert.match(ui, /stickRef/);
+  assert.match(ui, /onScroll=\{followScroll\}/);
+});

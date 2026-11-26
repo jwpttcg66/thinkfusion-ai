@@ -4,6 +4,7 @@ import { ensurePlanDecomposition } from '../../shared/task-decomposition';
 import { planHasObservableEvidence, stepEvidenceKinds } from '../../shared/verification-evidence';
 import {
   buildLeadSummaryQuestion,
+  hasDebateTopicsSection,
   leadSummarySystem,
   parseDoubts,
   parseTopics,
@@ -114,7 +115,7 @@ export interface PlanDebateTopicItem {
 /**
  * 方案评审与知识问答同一套顺序：
  * 1) 主导模型先写【结论/一致/分歧/存疑/辩题】五段；
- * 2) 只从【辩题】（及【存疑】转核查）取议题；
+ * 2) 只从【辩题】取议题；【辩题】整段缺失时才用【存疑】兜底；
  * 3) 有议题才辩论。系统不得按步数/工具名套模板编造辩论。
  */
 export interface PlanDebateBrief {
@@ -166,16 +167,15 @@ export function buildPlanReviewLeadAsk(
 }
 
 /**
- * 从五段汇总取议题：先【辩题】，没有再用【存疑】转核查题。
- * 与会话侧主导人逻辑一致，不拿用户原问凑辩题。
+ * 从五段汇总取议题：只认【辩题】。写了【辩题】段（包括「无」）就以它为准；
+ * 只有整段缺失时，才把【存疑】转成核查题兜底。不拿用户原问凑辩题。
  */
 export function topicsFromLeadSummary(summary: string): string[] {
-  let topics = parseTopics(summary);
-  if (topics.length === 0) {
-    const doubts = parseDoubts(summary);
-    if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
-  }
-  return topics.slice(0, 5);
+  const topics = parseTopics(summary);
+  if (topics.length > 0) return topics.slice(0, 5);
+  if (hasDebateTopicsSection(summary)) return [];
+  const doubts = parseDoubts(summary);
+  return doubts.map(item => `核实：${item}`).slice(0, 5);
 }
 
 /** 五段汇总之后的 brief：议题只来自汇总，不来自计划结构模板。 */

@@ -34,6 +34,7 @@ import {
   buildLeadSummaryQuestion,
   buildVerdictQuestion,
   formatDebateTranscript,
+  hasDebateTopicsSection,
   inlineLeadInstructions,
   LEAD_SUMMARY_SYSTEM,
   LEAD_SUMMARY_TIMEOUT_MS,
@@ -2902,11 +2903,12 @@ export class ConversationRunner {
     }
 
     // —— 第二步：指定辩论 ————————————————————————————————
-    // 议题只能来自主导模型正文（parseTopics / 存疑）；不得用原问题或模板硬造辩论。
+    // 议题只能来自主导模型正文；不得用原问题或模板硬造辩论。
     const debateMode = normalizeDebateMode(config.debateMode);
     let topics = parseTopics(summaryText);
-    // 没有辩题但有存疑：存疑也是主导模型写的，转成核查题。
-    if (topics.length === 0) {
+    // 模型写了【辩题】段（哪怕写「无」）就以它为准；只有整段缺失时，
+    // 才把存疑转成核查题兜底。明确说「无」还说辩，等于系统替模型决定。
+    if (topics.length === 0 && !hasDebateTopicsSection(summaryText)) {
       const doubts = parseDoubts(summaryText);
       if (doubts.length > 0) topics = doubts.map(item => `核实：${item}`);
     }

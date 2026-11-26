@@ -147,6 +147,51 @@ test('五段写「无」辩题：不编造辩论', () => {
   assert.equal(brief.topics.length, 0);
 });
 
+test('辩题段写「无」、存疑有内容：也不辩论', () => {
+  const summary = [
+    '【结论】计划可以执行。',
+    '【一致】步骤清楚。',
+    '【分歧】没有。',
+    '【存疑】观点A未附实际执行输出与退出码，不能作为已验证证据。',
+    '【辩题】无。'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), []);
+  const brief = planDebateBriefFromSummary(writePlan, summary);
+  assert.equal(brief.source, 'none');
+  assert.equal(brief.topics.length, 0);
+});
+
+test('辩题段整段缺失时才用存疑兜底', () => {
+  const summary = [
+    '【结论】计划可以执行。',
+    '【一致】步骤清楚。',
+    '【分歧】没有。',
+    '【存疑】没有实际命令输出，无法证明跑过。'
+  ].join('\n');
+  assert.deepEqual(topicsFromLeadSummary(summary), ['核实：没有实际命令输出，无法证明跑过。']);
+});
+
+test('五段提示词不写死网页源；主导模型失败要停任务而非跳过', async () => {
+  const { LEAD_SUMMARY_SYSTEM } = await import('../out-test/main/synthesis/lead-stage.js');
+  const text = LEAD_SUMMARY_SYSTEM.join('\n');
+  assert.match(text, /多份回答/);
+  assert.match(text, /可能来自网页、模型或命令行/);
+  assert.doesNotMatch(text, /多个网页 AI/);
+
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const index = readFileSync(join(root, 'src/main/index.ts'), 'utf8');
+  const orchestrator = readFileSync(join(root, 'src/main/orchestrator.ts'), 'utf8');
+  // 方案评审只探云/本地模型，不探网页。
+  assert.match(index, /excludeWeb: true/);
+  // 主导五段失败/超时带标记抛出，编排器不把它降级成 skipped 继续审批。
+  assert.match(index, /code = 'LEAD_SUMMARY_FAILED'/);
+  assert.match(orchestrator, /LEAD_SUMMARY_FAILED/);
+  assert.match(orchestrator, /按设置不降级到其它来源，任务不继续执行/);
+});
+
 test('多步含 shell：不按结构套「步骤拆分/系统动作」模板', () => {
   const big = plan([
     { id: 's1', tool: 'fs.writeFile', args: { path: 'A.java', content: 'x' } },

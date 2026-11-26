@@ -6650,12 +6650,14 @@ button:disabled {
   line-height: 1.55;
   color: var(--text);
 }
+/* 默认露 8 行，但内容仍可在框内滚动；不能再 line-clamp 截断，
+   否则滚轮/触控板完全无效（用户 2026-11-26 现场反馈）。 */
 .chat-stream-body.is-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 8;
-  overflow: hidden;
-  max-height: none;
+  display: block;
+  max-height: calc(1.55em * 8);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .chat-stream-conclusion {
   display: flex;
@@ -6707,10 +6709,12 @@ button:disabled {
   line-height: 1.62;
   color: var(--text);
 }
-/* 默认只露 5 行：正文先给人一眼结果，全文点「展开全文」再看。 */
+/* 默认只露 5 行：正文先给人一眼结果，全文点「展开全文」再看。
+   框内保留纵向滚动，先看前 5 行时也能自己往下翻。 */
 .chat-member-text.is-clamped {
   max-height: calc(1.62em * 5);
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .chat-member-more {
   margin-top: 4px;

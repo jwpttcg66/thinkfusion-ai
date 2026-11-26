@@ -2261,6 +2261,15 @@ export class AgentOrchestrator {
       };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      // 主导模型超时/报错不是「辩论没跑起来」，而是根本没拿到五段结论：
+      // 继续审批等于拿未评审的计划开工。直接抛出，让 driveRound 把任务停掉。
+      if ((error as { code?: string }).code === 'LEAD_SUMMARY_FAILED') {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `方案评审停止：${detail}；按设置不降级到其它来源，任务不继续执行`
+        });
+        throw error;
+      }
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'warn',
         message: `方案评审辩论没有完成：${detail}；计划仍可审批，但要知道它没被辩过`

@@ -1,0 +1,70 @@
+{
+  "startedAt": "2026-11-26T10:12:52.854Z",
+  "checks": {
+    "real-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-26T10:12:52.900Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "http://localhost:5174/",
+      "at": "2026-11-26T10:13:01.982Z"
+    },
+    "css-ready": {
+      "ok": true,
+      "detail": ".chat-stream-body.is-clamped overflow-y:auto",
+      "at": "2026-11-26T10:13:02.484Z"
+    },
+    "stream-can-scroll": {
+      "ok": true,
+      "detail": "{\"overflowY\":\"auto\",\"maxHeight\":\"148.8px\",\"scrollHeight\":744,\"clientHeight\":149,\"scrollTop\":32,\"canScroll\":true}",
+      "at": "2026-11-26T10:13:02.486Z"
+    },
+    "stream-overflow-auto": {
+      "ok": true,
+      "detail": "auto",
+      "at": "2026-11-26T10:13:02.486Z"
+    },
+    "member-can-scroll": {
+      "ok": true,
+      "detail": "{\"overflowY\":\"auto\",\"maxHeight\":\"97.2px\",\"scrollHeight\":778,\"clientHeight\":97,\"scrollTop\":32,\"canScroll\":true}",
+      "at": "2026-11-26T10:13:02.486Z"
+    },
+    "member-overflow-auto": {
+      "ok": true,
+      "detail": "auto",
+      "at": "2026-11-26T10:13:02.486Z"
+    },
+    "real-store-untouched": {
+      "ok": true,
+      "detail": "跳过断言：用户 5173 实例在跑，70a83635c2c3 → 70a83635c2c3",
+      "at": "2026-11-26T10:13:03.347Z"
+    }
+  },
+  "samples": {
+    "stream": {
+      "overflowY": "auto",
+      "maxHeight": "148.8px",
+      "scrollHeight": 744,
+      "clientHeight": 149,
+      "scrollTop": 32,
+      "canScroll": true
+    },
+    "member": {
+      "overflowY": "auto",
+      "maxHeight": "97.2px",
+      "scrollHeight": 778,
+      "clientHeight": 97,
+      "scrollTop": 32,
+      "canScroll": true
+    }
+  },
+  "shots": [
+    "../docs/spec/evidence/chat-scroll-20261126/01-scroll-probe.png"
+  ],
+  "userInstanceActive": true,
+  "storeBefore": "70a83635c2c3aeb4e7530ff5f65b099271c71e885debb968e2c7890f7632ee66",
+  "storeAfter": "70a83635c2c3aeb4e7530ff5f65b099271c71e885debb968e2c7890f7632ee66",
+  "finishedAt": "2026-11-26T10:13:03.347Z"
+}
