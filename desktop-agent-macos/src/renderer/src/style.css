@@ -7027,3 +7027,153 @@ button:disabled {
   color: var(--text);
 }
 .chat-debate-summary { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-side); font-size: 12px; line-height: 1.6; }
+
+/* ---------------------------------------------------------------- *
+ * 对话流呈现层改造（C1–C4）
+ * 胶囊 / 变更块 / 产物卡片是三个独立元素，不共享展开态。
+ * ---------------------------------------------------------------- */
+
+/* C3a 会话聚合胶囊：inline 压缩计数，原地改写，不换行成一整块。 */
+.chat-diff-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--member-bg) 60%, transparent);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.chat-diff-capsule-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.chat-diff-capsule .spinner { width: 10px; height: 10px; }
+.chat-diff-capsule .is-plus,
+.chat-diff-total .is-plus,
+.chat-diff-file-num .is-plus { color: #0f7b4f; }
+.chat-diff-capsule .is-minus,
+.chat-diff-total .is-minus,
+.chat-diff-file-num .is-minus { color: var(--danger); }
+
+/* C3b 独立文件变更块：带外框的完整卡片，逐文件增删明细。 */
+.chat-diff-block {
+  margin: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-side);
+  overflow: hidden;
+}
+.chat-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+}
+.chat-diff-icon { color: var(--accent); font-size: 14px; }
+.chat-diff-title { display: flex; flex-direction: column; gap: 1px; }
+.chat-diff-title b { font-size: 12px; color: var(--text); font-weight: 600; }
+.chat-diff-total { display: flex; gap: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.chat-diff-review {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-diff-review:hover { border-color: var(--accent); color: var(--accent); }
+.chat-diff-files {
+  list-style: none;
+  margin: 0;
+  padding: 4px 10px;
+  border-top: 1px solid var(--line);
+}
+.chat-diff-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.chat-diff-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.chat-diff-file-num { display: flex; gap: 7px; flex-shrink: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.chat-diff-file-num.is-binary { color: var(--text-3); }
+.chat-diff-collapse {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-diff-collapse:hover { color: var(--text-2); }
+
+/* C3c 交付产物卡片：文件名 + 类型标签，路径放 title。 */
+.chat-deliverables { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.chat-deliverable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--member-bg);
+  font-size: 11.5px;
+}
+.chat-deliverable-icon { color: var(--accent); }
+.chat-deliverable-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.chat-deliverable-tag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+}
+
+/* C2 步骤聚合：一行计数，展开后仍是逐条原始 step（失败输出可看）。 */
+.chat-step-cluster { margin-left: 14px; border-left: 2px solid var(--line); padding-left: 10px; }
+.chat-step-cluster > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+  cursor: pointer;
+  padding: 3px 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.chat-step-cluster > summary::-webkit-details-marker { display: none; }
+.chat-step-cluster-head b { color: var(--text); font-weight: 500; }
+.chat-step-cluster-head .is-bad { color: var(--danger); }
+.chat-step-cluster-body { padding: 2px 0 4px; }
+
+/* C4 成员正文的 Markdown 容器：沿用 .md-body 排版，限高可滚。 */
+.chat-member-md {
+  max-height: 320px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.chat-member-md .md-body > *:last-child { margin-bottom: 0; }

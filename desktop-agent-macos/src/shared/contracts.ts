@@ -1673,6 +1673,18 @@ export interface StepResult {
   args?: Record<string, unknown>;
 }
 
+/**
+ * 逐文件改动明细（对话流阶段 1）：与总数出自同一次 `git diff --numstat`。
+ * 二进制文件记 `binary:true`、行数 0，不虚构 `+0 / -0`。
+ * 老报告没有这个字段，读取方必须容忍。
+ */
+export interface DiffFileStat {
+  path: string;
+  insertions: number;
+  deletions: number;
+  binary?: boolean;
+}
+
 export interface ExecutionReport {
   protocol: typeof PROTOCOL;
   type: 'execution_report';
@@ -1711,6 +1723,13 @@ export interface ExecutionReport {
      * 不能把失败画成 `+0 / -0`。
      */
     diffAvailable?: boolean;
+    /**
+     * 逐文件明细（阶段 1）：同一次 numstat 解析产出，与 insertions/deletions 同源，
+     * 行数之和必须等于总数。`diffFilesAvailable:false` 表示明细不完整（如未跟踪文件
+     * 无法采集），界面不得伪造列表。
+     */
+    diffFiles?: DiffFileStat[];
+    diffFilesAvailable?: boolean;
     /**
      * V1.3：compile / run / tests / diagnostics 各自的状态与退出码。
      * 老报告没有 `run` 字段，界面按「未记录」处理，不补默认值。

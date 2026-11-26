@@ -1,0 +1,73 @@
+{
+  "cdp-ready": {
+    "ok": true,
+    "detail": "ok",
+    "at": "2026-11-26T05:38:13.250Z"
+  },
+  "renderer-target": {
+    "ok": true,
+    "detail": "http://localhost:5173/",
+    "at": "2026-11-26T05:38:13.256Z"
+  },
+  "agent-api-ready": {
+    "ok": true,
+    "detail": "true",
+    "at": "2026-11-26T05:38:15.300Z"
+  },
+  "model-configured": {
+    "ok": true,
+    "detail": "[\"opencode-go:deepseek-v4.1-flash\"]",
+    "at": "2026-11-26T05:38:15.301Z"
+  },
+  "task-submitted": {
+    "ok": true,
+    "detail": "{\"conversationId\":\"4f04e161-ca78-45f8-9ecd-5e99095d2655\",\"title\":\"不要执行工具。直接回答：用 Markdown 表格列出两个水果的名称和颜色，表头是「\",\"intent\":\"answer\",\"intentReason\":\"默认按问答处理\",\"status\":\"answered\",\"channels\":[],\"createdAt\":1",
+    "at": "2026-11-26T05:38:17.014Z"
+  },
+  "taskId": "44574de8-7744-44e9-bb6d-3aa38fc5d875",
+  "task-terminal": {
+    "ok": true,
+    "detail": "status=completed",
+    "at": "2026-11-26T05:38:21.038Z"
+  },
+  "conversation-dom-ready": {
+    "ok": true,
+    "detail": "{\"feed\":true,\"layout\":true,\"anchors\":5,\"steps\":0,\"capsules\":0,\"blocks\":0,\"deliverables\":0,\"clusters\":0,\"markdown\":0,\"mdTables\":0,\"mdParagraphs\":0,\"notes\":[\"第 1 轮 · 提问\",\"OpenCode Go · deepseek-v4.1-flash · 第 1 轮 · 13:38:16 · 3.5s · 已完成 · 完成报告\",\"任务完成\",\"结论 · 13:38:20\"],\"bodyLen\":952}",
+    "at": "2026-11-26T05:38:22.042Z"
+  },
+  "uiCheck": {
+    "feed": true,
+    "layout": true,
+    "anchors": 5,
+    "steps": 0,
+    "capsules": 0,
+    "blocks": 0,
+    "deliverables": 0,
+    "clusters": 0,
+    "markdown": 0,
+    "mdTables": 0,
+    "mdParagraphs": 0,
+    "notes": [
+      "第 1 轮 · 提问",
+      "OpenCode Go · deepseek-v4.1-flash · 第 1 轮 · 13:38:16 · 3.5s · 已完成 · 完成报告",
+      "任务完成",
+      "结论 · 13:38:20"
+    ],
+    "bodyLen": 952
+  },
+  "screenshot-full": {
+    "ok": true,
+    "detail": "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/stage-c/stage-c-markdown.png",
+    "at": "2026-11-26T05:38:22.130Z"
+  },
+  "no-console-errors": {
+    "ok": true,
+    "detail": "无",
+    "at": "2026-11-26T05:38:22.130Z"
+  },
+  "test-task-cleaned": {
+    "ok": true,
+    "detail": "{\"cleaned\":[],\"reset\":[],\"failed\":[]}",
+    "at": "2026-11-26T05:38:22.433Z"
+  }
+}

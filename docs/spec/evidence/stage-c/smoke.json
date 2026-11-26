@@ -1,0 +1,32 @@
+{
+  "cdp-ready": {
+    "ok": true,
+    "detail": "http://127.0.0.1:9333",
+    "at": "2026-11-26T05:35:44.485Z"
+  },
+  "renderer-target": {
+    "ok": true,
+    "detail": "http://localhost:5173/",
+    "at": "2026-11-26T05:35:44.490Z"
+  },
+  "new-css-loaded": {
+    "ok": true,
+    "detail": "{\"capsule\":true,\"block\":true,\"deliverables\":true,\"cluster\":true,\"md\":true}",
+    "at": "2026-11-26T05:35:47.014Z"
+  },
+  "conversation-dom-ready": {
+    "ok": false,
+    "detail": "{\"feed\":false,\"layout\":false,\"title\":\"ThinkFusion\"}",
+    "at": "2026-11-26T05:35:47.015Z"
+  },
+  "screenshot": {
+    "ok": true,
+    "detail": "/Users/yalla/data/localLab/thinkfusion-ai/docs/spec/evidence/stage-c/stage-c-smoke.png",
+    "at": "2026-11-26T05:35:47.077Z"
+  },
+  "no-console-errors": {
+    "ok": true,
+    "detail": "无",
+    "at": "2026-11-26T05:35:47.077Z"
+  }
+}

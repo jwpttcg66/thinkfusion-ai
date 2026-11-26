@@ -4,10 +4,22 @@
 
 本版已按 2026-11-26 审核意见修订：明确事件源与投影的分层、补齐稳定身份与双状态语义、纠正 diff 数据来源、增加聚合连续性规则与流式 Markdown 约束、把子 Agent 与 TDL 概念分开。
 
-> **落地进度（2026-11-26）**：阶段 A 已接线并有真机截图（`docs/spec/evidence/stage-a/`）；
-> 阶段 B 的数据层（稳定身份、统一状态、旁注类型、真实改动量聚合）已落地并有单测
-> （`test:task-conversation` 48 条）。**未做**：C3 的会话聚合胶囊、文件变更块
-> （含逐文件明细 `diffFiles`）、交付产物卡片、阶段 C 其余改造与子 Agent 卡片。
+**代码基线（V1.1 重新核对，2026-11-26）**：`main@2538104`。阶段 A/B 已落地并有单测
+（A 另有 `docs/spec/evidence/stage-a/` 真机证据），本轮不重复实现；待办见 §3：
+阶段 1 逐文件 Diff 数据 → C1/C2/C3/C4 → D1，D2 独立立项。真机验收以 `AGENTS.md` §10
+为准（见 §5）。
+
+> **落地进度（2026-11-26）**：
+> - 阶段 A / B：`IMPLEMENTED / TESTED`，A 另有真机证据（`docs/spec/evidence/stage-a/`）。
+> - 阶段 1（逐文件 Diff）：`IMPLEMENTED / TESTED`——`parseNumstat` 一次解析同时产出
+>   总数与 `diffFiles`；`contracts`/`schemas` 放行；未跟踪文件导致明细不完整时标
+>   `diffFilesAvailable:false`，不伪造清单。
+> - C1（subtype 映射）/ C2（连续 step 聚合）/ C3a 胶囊 / C3b 变更块 / C3c 产物卡片 /
+>   C4（MarkdownBody，流式降级）：`IMPLEMENTED / TESTED`，接线断言守住渲染层真的调用；
+>   真机冒烟见 `docs/spec/evidence/stage-c/`（样本未触发 diff/表格数据，边界如实记录）。
+> - **未做**：D1 子 Agent 卡片（`code.team.run` 数据够，但投影层未抽 `kind:'agent'`）；
+>   D2 并行对话浮层（独立立项）。
+> - `npm run typecheck` / `npm run build` 通过，`test:task-conversation` 55 条全绿。
 > 实现状态以 [STATUS](../implementation/STATUS.md) 为准，
 > 本节行号是写作时的工作树快照，实施时按实际文件核对。
 
@@ -145,12 +157,13 @@ interface AggregateEntry {
 
 ### 阶段 A · 恢复现有能力（零数据改动，低风险）
 
-> **状态（2026-11-26）：A1 / A2 已接线，`IMPLEMENTED / TESTED`，未做真机截图。**
+> **状态（2026-11-26）：A1 / A2 已接线，`IMPLEMENTED / TESTED / VERIFIED`。**
 > 判断逻辑全部收进 `shared/task-conversation.ts` 的纯函数，渲染层只调用：
 > `buildStreamLandmarks` / `landmarkTone` / `streamAnchorId` / `activeLandmarkId` /
 > `shouldShowLandmarkRail` / `stepElapsedMs` / `liveElapsedText` / `needsLiveTimer`。
-> 测试入口 `npm run test:task-conversation`（42 条，其中 7 条是这批接口、
-> 1 条守住「渲染层真的调了」）。真机验收仍欠：截图里要能看到定位轨与执行中秒数。
+> 测试入口 `npm run test:task-conversation`（当前 48 条，其中 7 条是这批接口、
+> 1 条守住「渲染层真的调了」）。真机证据在 `docs/spec/evidence/stage-a/`：
+> `01/02` 执行中秒数、`04` 定位轨跳转，见该目录 `EVIDENCE.md`。
 
 **A1 定位轨接线**
 - 渲染层调用 `buildStreamLandmarks(entries)`，消费已有的 `data-stream-anchor` 做跳转；
@@ -225,11 +238,26 @@ interface ExecutionReport {
   `schemas.ts` 的 `.strict()` 同步放行（老报告缺字段仍通过）。
 - 投影：`diffSummaryOf` + `diffText` 三种文案（真数字 / 统计不可用 / 只有文件数），
   报告事件按 `aggregateKey:'diff'` 原地改写，`at` 恒等于 `firstAt`。
-- 渲染：**暂不渲染**，等 C3a / C3b 组件；现在不出占位行。
+- 渲染（本轮补）：有完整 `diffFiles` → C3b 独立变更块；只有汇总/统计不可用 → C3a 胶囊；
+  两者是独立组件，变更块不是胶囊的展开态。产物路径进 C3c 交付卡片。
 
-验收：单测覆盖新字段、旧事件兼容、聚合位置不变、投影可重复计算。
+**阶段 1（本轮新增，逐文件明细）**：
+- `NumstatTotal.files: DiffFileStat[]`——`parseNumstat` 一次遍历同时产出总数与逐文件，
+  行数之和恒等于总数；路径按 tab 切分，含空格路径整段保留；二进制 `binary:true`、行数 0。
+- `filesComplete(files, changedPaths)`：报告清单里有路径没出现在 numstat 里
+  （典型：未跟踪文件）就标 `filesAvailable:false`，不伪造清单；老报告无 changedPaths 时
+  以 numstat 本身为准。
+- `ExecutionReport.verification` 增 `diffFiles? / diffFilesAvailable?`，`schemas.ts` 放行；
+  投影 `DiffSummary.fileStats / filesAvailable` 透传，明细不完整不出 `fileStats`。
+
+验收：55 条单测覆盖新字段、逐文件之和=总数、未跟踪文件不伪造、旧事件兼容、
+聚合位置不变、投影可重复计算；真机见 `docs/spec/evidence/stage-c/`。
 
 ### 阶段 C · 呈现层改造（保持原始输出与历史事件不变）
+
+> **状态（2026-11-26）：C1 / C2 / C3a / C3b / C3c / C4 已落地，`IMPLEMENTED / TESTED`。**
+> 真机冒烟见 `docs/spec/evidence/stage-c/`；本轮任务样本未触发 diff 改动与 Markdown 表格，
+> 相关边界在该证据里如实标注，未冒充已验证。
 
 **C1 类型 × 状态驱动**
 呈现层改为按 `(kind × status)` 选样式，替换 `TaskConversation.tsx:472-580` 的一长串 if；`noteEmphasis` 前缀正则退为兼容兜底。统一状态不得丢失原业务状态。
@@ -357,7 +385,13 @@ interface DiffFileStat {
 - 不重启「全量回归」概念；验收用单测 + 针对具体改动的真机 CDP 复验。
 - 不动 `UserMsgLocateRail.tsx`（普通会话定位，与工程流无关）。
 - 不把本任务与《架构一致性整改实施任务书》合并。
-- 真机验收一律用 `THINKFUSION_USER_DATA` 指向复制的配置目录，断言真实 `agent-store.json` 的 sha256 前后一致；启动 dev → 连 CDP → 验收 → 截图 → kill 写进一条自包含脚本。
+- **真机验收服从 `AGENTS.md` §10.2**（权威规则，优先于任何旧验收脚本）：默认只用一套数据目录
+  （`~/Library/Application Support/thinkfusion-ai`），**禁止**设置 `THINKFUSION_USER_DATA`、
+  禁止复制用户数据做隔离、禁止 `--user-data-dir` 另开副本。需要独占窗口时先停现有实例，
+  启动前向用户说明会中断当前窗口。只有用户明确要求隔离且知情同意时才用隔离目录，
+  用完立即删除。旧的隔离式验收脚本（含 sha256 断言）不得默认运行。
+- 真机走 `AGENTS.md` §10.3 的 Run 配置（ThinkFusion Dev / `npm run dev:local`），
+  不在对话 shell 里另起 Electron 实例（单实例锁会干扰主进程）。截图与 CDP 结果留存证据目录。
 
 ## 6. 测试入口
 

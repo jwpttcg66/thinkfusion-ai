@@ -16,6 +16,7 @@
 
 import type {
   AgentEvent,
+  DiffFileStat,
   ExecutionReport,
   PlanDebate,
   PlanDebateResultSlice,
@@ -86,6 +87,10 @@ export interface DiffSummary {
   deletions?: number;
   /** `false` 专指「取 diff 失败」。老报告没有统计信息时这里是 `undefined`，只显示文件数。 */
   available?: boolean;
+  /** 逐文件明细（阶段 1）；只有报告带 `diffFiles` 且明细完整时才有。 */
+  fileStats?: DiffFileStat[];
+  /** `false` 表示明细不完整（如未跟踪文件无法采集），界面不得伪造清单。 */
+  filesAvailable?: boolean;
 }
 
 export type ConversationEntry =
@@ -1311,6 +1316,8 @@ export function diffSummaryOf(verification: {
   insertions?: number;
   deletions?: number;
   diffAvailable?: boolean;
+  diffFiles?: DiffFileStat[];
+  diffFilesAvailable?: boolean;
 } | null | undefined): DiffSummary | null {
   const files = verification?.changedFiles ?? 0;
   if (files <= 0) return null;
@@ -1318,7 +1325,11 @@ export function diffSummaryOf(verification: {
   return {
     files,
     ...(hasNumbers ? { insertions: verification!.insertions, deletions: verification!.deletions } : {}),
-    ...(verification?.diffAvailable === false ? { available: false } : hasNumbers ? { available: true } : {})
+    ...(verification?.diffAvailable === false ? { available: false } : hasNumbers ? { available: true } : {}),
+    // 明细只在「有 diffFiles 且完整」时透传；不完整的老报告读不到，界面也就没有假清单。
+    ...(Array.isArray(verification?.diffFiles) && verification?.diffFilesAvailable !== false
+      ? { fileStats: verification!.diffFiles, filesAvailable: true }
+      : { filesAvailable: false })
   };
 }
 
@@ -1808,4 +1819,103 @@ export function activeLandmarkId(
 /** 只有一个节点时不出轨：一个点占一列既占地方也没有跳转价值。 */
 export function shouldShowLandmarkRail(landmarks: readonly StreamLandmark[]): boolean {
   return landmarks.length >= 2;
+}
+
+/* -------------------------------------------------------------------------- *
+ * 呈现层映射（C1 / C2）：纯函数，渲染层只消费结果，不自己写判断。
+ * -------------------------------------------------------------------------- */
+
+/**
+ * C1：旁注的呈现层级由 `subtype` 决定，不再靠 `text.startsWith` 猜。
+ *
+ * 这些是「过程旁注」——上下文、分解、模型参与、循环决策等，压成淡色 aside；
+ * 其余（澄清、里程碑、改动量等）保持 focus。旧条目 subtype 可能缺失，
+ * 此时回退到 focus，绝不因为读不到类型就把重点内容藏起来。
+ */
+export function noteEmphasisOf(subtype: NoteSubtype | undefined): 'focus' | 'aside' {
+  const aside: readonly NoteSubtype[] = [
+    'round', 'context', 'breakdown', 'context_request', 'context_package',
+    'participation', 'decision', 'goal_fit', 'system'
+  ];
+  return subtype && aside.includes(subtype) ? 'aside' : 'focus';
+}
+
+/**
+ * C2：把时间轴上连续的 step 聚成一组，压成「执行工具 N 次」一行。
+ *
+ * 聚合只产出**呈现分组**，原始 step 条目一个都不删：渲染层展开分组时仍逐条画，
+ * 失败步骤的 stdout / stderr 照旧可展开（不变量 11/12）。
+ *
+ * 连续条件（全部满足才聚，见规格阶段 3）：
+ * - 相邻条目都是 step（中间夹了 user / member / 结论 / 审批就断开）；
+ * - 同一轮 roundId；
+ * - 相同或兼容的工具类型；
+ * - 同一任务——本投影本来就是单任务的条目流，天然满足；
+ * - 步骤自身没有需要人工处理的审批（pending / rejected 单独留一条）。
+ *
+ * 单个 step 不聚合（没意义）。返回的 Map 以组内第一个 step 的 key 为 `key`。
+ */
+export interface StepCluster {
+  key: string;
+  /** 组内成员的稳定 key（不是下标），渲染层据此取原始条目。 */
+  memberKeys: string[];
+  total: number;
+  failed: number;
+  firstAt: number;
+}
+
+/** 工具类型是否兼容：同一 tool 或同属读类 / 写类（读类之间可并，写类不并读类）。 */
+function compatibleTool(a: string, b: string): boolean {
+  if (a === b) return true;
+  const read = (tool: string) => /^(fs\.(list|readFile|tree|search|find|stat|readImage|definition|references)|code\.(definition|references))$/u.test(tool);
+  return read(a) && read(b);
+}
+
+function stepApprovable(entry: Extract<ConversationEntry, { kind: 'step' }>): boolean {
+  return entry.card.approval === 'pending' || entry.card.approval === 'rejected';
+}
+
+export function clusterSteps(entries: readonly ConversationEntry[]): {
+  clusters: StepCluster[];
+  /** 条目 key → 它所属组的 key；非 step 或单条 step 不在表里。 */
+  clusterByEntry: Map<string, string>;
+} {
+  const clusters: StepCluster[] = [];
+  const clusterByEntry = new Map<string, string>();
+  let run: Extract<ConversationEntry, { kind: 'step' }>[] = [];
+
+  const flush = () => {
+    if (run.length >= 2) {
+      const cluster: StepCluster = {
+        key: `cluster-${run[0].key}`,
+        memberKeys: run.map(item => item.key),
+        total: run.length,
+        failed: run.filter(item => item.card.status === 'failed').length,
+        firstAt: run[0].at
+      };
+      clusters.push(cluster);
+      for (const item of run) clusterByEntry.set(item.key, cluster.key);
+    }
+    run = [];
+  };
+
+  for (const entry of entries) {
+    if (entry.kind !== 'step' || stepApprovable(entry)) {
+      flush();
+      continue;
+    }
+    const prev = run[run.length - 1];
+    if (
+      prev &&
+      (prev.roundId ?? null) === (entry.roundId ?? null) &&
+      compatibleTool(prev.card.tool, entry.card.tool)
+    ) {
+      run.push(entry);
+    } else {
+      flush();
+      run = [entry];
+    }
+  }
+  flush();
+  return { clusters, clusterByEntry };
 }

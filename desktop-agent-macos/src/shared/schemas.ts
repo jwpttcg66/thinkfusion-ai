@@ -171,6 +171,14 @@ export const ExecutionReportSchema = z
         insertions: z.number().int().min(0).optional(),
         deletions: z.number().int().min(0).optional(),
         diffAvailable: z.boolean().optional(),
+        // 阶段 1：逐文件明细与总数同源；老报告没有这两个字段，缺省即可。
+        diffFiles: z.array(z.object({
+          path: z.string().max(4000),
+          insertions: z.number().int().min(0),
+          deletions: z.number().int().min(0),
+          binary: z.boolean().optional()
+        }).strict()).max(200).optional(),
+        diffFilesAvailable: z.boolean().optional(),
         checks: z
           .object({
             compile: z.object({ status: z.enum(['passed', 'failed', 'skipped']), exitCode: z.number().int().optional(), command: z.string().max(4000).optional(), detail: z.string().max(2000).optional(), output: z.string().max(400).optional() }).strict(),

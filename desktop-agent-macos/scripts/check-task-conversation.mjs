@@ -1393,7 +1393,14 @@ test('B3 聚合条目：后一份报告只改数字，位置固定在第一次�
 test('B3 取 diff 的解析与失败：二进制跳过、失败不写 0', async () => {
   const { parseNumstat, collectDiffStats, withDiffStats } = await import('../out-test/main/engineering/diff-stats.js');
   const total = parseNumstat('12\t3\tsrc/a.ts\n-\t-\tassets/logo.png\n4\t0\tsrc/b.ts\n');
-  assert.deepEqual(total, { insertions: 16, deletions: 3, binaryFiles: 1 });
+  assert.equal(total.insertions, 16);
+  assert.equal(total.deletions, 3);
+  assert.equal(total.binaryFiles, 1);
+  assert.deepEqual(total.files, [
+    { path: 'src/a.ts', insertions: 12, deletions: 3 },
+    { path: 'assets/logo.png', insertions: 0, deletions: 0, binary: true },
+    { path: 'src/b.ts', insertions: 4, deletions: 0 }
+  ]);
 
   const failing = () => ({ status: 128, stdout: '' });
   const failed = collectDiffStats({ workspaceRoot: '/tmp/whatever', run: failing });
@@ -1413,4 +1420,193 @@ test('B3 取 diff 的解析与失败：二进制跳过、失败不写 0', async 
   assert.equal(withDiffStats({ changedFiles: 1, reasons: [] }, ok).insertions, 7);
   // 没有工作区直接判失败，不猜
   assert.equal(collectDiffStats({ workspaceRoot: null }).available, false);
+});
+
+/* ------------------------------------------------------------------------- *
+ * 阶段 1：逐文件 Diff 明细（C3b 的数据前置）
+ * ------------------------------------------------------------------------- */
+
+test('阶段1：parseNumstat 一次解析同时给出总数与逐文件，行数之和等于总数', async () => {
+  const { parseNumstat } = await import('../out-test/main/engineering/diff-stats.js');
+  const stdout = [
+    '12\t3\tsrc/a.ts',
+    '1\t1\tdocs/设计 交付 验证.md',   // 路径含空格
+    '-\t-\tassets/logo.png',          // 二进制
+    '29\t29\tdocs/方案.md',
+    '4\t0\tnew.ts'                     // 新增文件
+  ].join('\n');
+  const parsed = parseNumstat(stdout);
+  const sum = parsed.files.filter(f => !f.binary).reduce(
+    (acc, f) => ({ i: acc.i + f.insertions, d: acc.d + f.deletions }), { i: 0, d: 0 }
+  );
+  assert.equal(sum.i, parsed.insertions, '逐文件 insertions 之和 = 总数');
+  assert.equal(sum.d, parsed.deletions, '逐文件 deletions 之和 = 总数');
+  // 空格路径整段保留，不被截断
+  assert.ok(parsed.files.some(f => f.path === 'docs/设计 交付 验证.md'));
+  // 二进制不虚构行数
+  const binary = parsed.files.find(f => f.path === 'assets/logo.png');
+  assert.equal(binary?.binary, true);
+  assert.equal(binary?.insertions, 0);
+  assert.equal(binary?.deletions, 0);
+  assert.equal(parsed.binaryFiles, 1);
+});
+
+test('阶段1：未跟踪文件导致明细不完整时标 filesAvailable=false，不伪造清单', async () => {
+  const { collectDiffStats, withDiffStats } = await import('../out-test/main/engineering/diff-stats.js');
+  const run = () => ({ status: 0, stdout: '1\t0\ta.ts\n' });
+  // 报告说改了 a.ts 和 new-untracked.ts，numstat 只采到 a.ts → 明细不完整
+  const incomplete = collectDiffStats({
+    workspaceRoot: '/tmp/whatever',
+    paths: ['a.ts', 'new-untracked.ts'],
+    run
+  });
+  assert.equal(incomplete.available, true);
+  assert.equal(incomplete.filesAvailable, false);
+  const report = withDiffStats({ changedFiles: 2 }, incomplete);
+  assert.equal(report.diffAvailable, true, '总数仍可信');
+  assert.equal(report.diffFilesAvailable, false);
+  assert.equal(report.diffFiles, undefined, '不完整时就不写 diffFiles，界面没有假清单');
+
+  // 全部路径都能在 numstat 里找到 → 明细完整
+  const complete = collectDiffStats({ workspaceRoot: '/tmp/whatever', paths: ['a.ts'], run });
+  assert.equal(complete.filesAvailable, true);
+  const fullReport = withDiffStats({ changedFiles: 1 }, complete);
+  assert.deepEqual(fullReport.diffFiles, [{ path: 'a.ts', insertions: 1, deletions: 0 }]);
+});
+
+test('阶段1：投影层透传 diffFiles，明细不完整时不出 fileStats', async () => {
+  const { diffSummaryOf } = await import('../out-test/shared/task-conversation.js');
+  const files = [
+    { path: 'BilliardShellJson.java', insertions: 1, deletions: 1 },
+    { path: '验证.md', insertions: 29, deletions: 29 }
+  ];
+  const full = diffSummaryOf({
+    changedFiles: 2, insertions: 30, deletions: 30, diffAvailable: true,
+    diffFiles: files, diffFilesAvailable: true
+  });
+  assert.deepEqual(full.fileStats, files);
+  assert.equal(full.filesAvailable, true);
+
+  const noDetail = diffSummaryOf({
+    changedFiles: 2, insertions: 30, deletions: 30, diffAvailable: true,
+    diffFiles: files, diffFilesAvailable: false
+  });
+  assert.equal(noDetail.fileStats, undefined, '明细不完整时不透传，界面画不出假列表');
+  assert.equal(noDetail.filesAvailable, false);
+});
+
+test('阶段1：文件变更块聚合条目位置仍由 firstAt 决定，逐文件数据随报告更新', async () => {
+  const events = [
+    roundStart(1000, 'r1', 1, 'execution_report'),
+    reportWithDiff(2000, 'r1', {
+      changedFiles: 2, insertions: 10, deletions: 2, diffAvailable: true,
+      diffFiles: [{ path: 'a.ts', insertions: 9, deletions: 1 }, { path: 'b.ts', insertions: 1, deletions: 1 }],
+      diffFilesAvailable: true
+    }),
+    reportWithDiff(5000, 'r1', {
+      changedFiles: 3, insertions: 18, deletions: 6, diffAvailable: true,
+      diffFiles: [
+        { path: 'a.ts', insertions: 9, deletions: 1 },
+        { path: 'b.ts', insertions: 1, deletions: 1 },
+        { path: 'c.ts', insertions: 8, deletions: 4 }
+      ],
+      diffFilesAvailable: true
+    })
+  ];
+  const entries = buildTaskConversation(events, { prompt: '改点东西' });
+  const diffs = entries.filter(entry => entry.kind === 'note' && entry.subtype === 'diff');
+  assert.equal(diffs.length, 1, '只有一条聚合条目');
+  assert.equal(diffs[0].at, 2000, '位置固定在第一次出现处');
+  assert.equal(diffs[0].diff.filesAvailable, true);
+  assert.equal(diffs[0].diff.fileStats.length, 3, '逐文件明细跟随最新报告更新');
+  const sum = diffs[0].diff.fileStats.reduce((acc, f) => acc + f.insertions, 0);
+  assert.equal(sum, 18, '逐文件 insertions 之和等于最新总数');
+});
+
+/* ------------------------------------------------------------------------- *
+ * C1 / C2：呈现映射与连续步骤聚合
+ * ------------------------------------------------------------------------- */
+
+test('C1-C4 接线守住：渲染层真的消费了 subtype / 聚合 / 三元素 / MarkdownBody', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
+
+  // C1：前缀正则判类型必须彻底消失，改由 shared 的 subtype 映射。
+  assert.doesNotMatch(ui, /function noteEmphasis\(/);
+  assert.match(ui, /noteEmphasisOf\(entry\.kind === 'note' \? entry\.subtype : undefined\)/);
+
+  // C2：聚类只改呈现，渲染层消费 clusterSteps 结果。
+  assert.match(ui, /clusterSteps\(entries\)/);
+  assert.match(ui, /<StepClusterMessage/);
+  // 失败输出仍逐条画：聚合组内部还调 StepMessage。
+  assert.match(ui, /<StepMessage key=\{entry\.key\} entry=\{entry\} now=\{props\.now\}/);
+
+  // C3：三元素各自独立，变更块不是胶囊的展开态。
+  assert.match(ui, /function DiffCapsule\(/);
+  assert.match(ui, /function DiffChangeBlock\(/);
+  assert.match(ui, /function DeliverableCards\(/);
+  assert.match(ui, /diff\.filesAvailable && diff\.fileStats\.length > 0/);
+
+  // C4：MarkdownBody 接入，流式期间仍降级为 pre（半成品不崩溃、不逐字符重排）。
+  assert.match(ui, /import \{ MarkdownBody \}/);
+  // 两处成员正文（辩论卡 + 普通流式成员）都要接，漏一处就有一半回答还是 <pre>。
+  const mdCalls = ui.match(/<MarkdownBody text=/g) ?? [];
+  assert.ok(mdCalls.length >= 2, `MarkdownBody 接线应 ≥2 处，实际 ${String(mdCalls.length)}`);
+  assert.match(ui, /live \? \(/);
+
+  // 样式槽位真实存在。
+  for (const cls of ['chat-diff-capsule', 'chat-diff-block', 'chat-deliverables', 'chat-step-cluster', 'chat-member-md']) {
+    assert.match(css, new RegExp(`\\.${cls}`), `样式缺失：${cls}`);
+  }
+});
+
+test('C1：noteEmphasis 由 subtype 决定，旧数据缺 subtype 回退 focus', async () => {
+  const { noteEmphasisOf } = await import('../out-test/shared/task-conversation.js');
+  assert.equal(noteEmphasisOf('context'), 'aside');
+  assert.equal(noteEmphasisOf('breakdown'), 'aside');
+  assert.equal(noteEmphasisOf('participation'), 'aside');
+  assert.equal(noteEmphasisOf('goal_fit'), 'aside');
+  assert.equal(noteEmphasisOf('clarification'), 'focus');
+  assert.equal(noteEmphasisOf('milestone'), 'focus');
+  assert.equal(noteEmphasisOf('diff'), 'focus');
+  assert.equal(noteEmphasisOf(undefined), 'focus', '缺类型不藏重点内容');
+});
+
+test('C2：连续同类 step 聚合，失败数准确，跨轮/跨工具/审批处断开', async () => {
+  const { clusterSteps } = await import('../out-test/shared/task-conversation.js');
+  const base = [
+    roundStart(1000, 'r1', 1, 'execution_report'),
+    { type: 'step.completed', at: 1100, taskId: task, roundId: 'r1', stepId: 's1', tool: 'fs.readFile', result: {}, durationMs: 10 },
+    { type: 'step.completed', at: 1200, taskId: task, roundId: 'r1', stepId: 's2', tool: 'fs.readFile', result: {}, durationMs: 10 },
+    { type: 'step.failed', at: 1300, taskId: task, roundId: 'r1', stepId: 's3', tool: 'fs.search', error: 'boom', durationMs: 10 },
+    // 中间夹一条成员输出 → 断开
+    peer(1350, 'r1', 'm1', '某模型', 'answered', { text: '回答' }),
+    { type: 'step.completed', at: 1400, taskId: task, roundId: 'r1', stepId: 's4', tool: 'fs.readFile', result: {}, durationMs: 10 },
+    // 跨轮 → 断开
+    roundStart(2000, 'r2', 2, 'execution_report'),
+    { type: 'step.completed', at: 2100, taskId: task, roundId: 'r2', stepId: 's5', tool: 'fs.readFile', result: {}, durationMs: 10 },
+    { type: 'step.completed', at: 2200, taskId: task, roundId: 'r2', stepId: 's6', tool: 'fs.readFile', result: {}, durationMs: 10 }
+  ];
+  const entries = buildTaskConversation(base);
+  const { clusters, clusterByEntry } = clusterSteps(entries);
+  // s1+s2 是连续同类读文件；s3 是 search 但兼容读类，且紧邻 → 并入？search 属读类，应并入成 3 条 1 失败
+  const first = clusters.find(c => c.memberKeys.some(k => k.includes('s1')));
+  assert.ok(first, '应聚出一组');
+  assert.equal(first.total, 3, 's1/s2/s3 三条连续读类合并');
+  assert.equal(first.failed, 1, '失败数准确');
+  assert.equal(clusterByEntry.get(first.memberKeys[0]), first.key);
+  // 成员输出后的 s4 单条，不聚合
+  assert.equal(clusterByEntry.has(entries.find(e => e.kind === 'step' && e.card.stepId === 's4')?.key ?? 'none'), false);
+  // r2 的 s5+s6 聚成另一组
+  const second = clusters.find(c => c.memberKeys.some(k => k.includes('s5')));
+  assert.equal(second?.total, 2, '新一轮另起一组，不跨轮');
+
+  // 原始条目一个都没少：失败步骤仍在流里，stdout/stderr 可展开
+  const steps = entries.filter(e => e.kind === 'step');
+  assert.equal(steps.length, 6, '聚合不改原始条目数量');
+  assert.ok(steps.some(e => e.kind === 'step' && e.card.status === 'failed'));
 });

@@ -1,15 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
+import type { AgentEvent, AgentTask, DiffFileStat } from '../../../../shared/contracts';
 import type { StepCard } from '../../../../shared/execution-timeline';
 import { duration, statusText, target, toolLabel } from '../../../../shared/execution-timeline';
+import { MarkdownBody } from '../MarkdownBody';
 import {
   activeLandmarkId,
   buildStreamLandmarks,
   buildTaskConversation,
+  clusterSteps,
   landmarkTone,
   liveElapsedText,
   memberBodyView,
   needsLiveTimer,
+  noteEmphasisOf,
   protocolDerivation,
   protocolSummary,
   shouldShowLandmarkRail,
@@ -19,6 +22,8 @@ import {
   type ConversationEntryView,
   type ConversationProtocol,
   type ConversationTone,
+  type DiffSummary,
+  type StepCluster,
   type StreamLandmark
 } from '../../../../shared/task-conversation';
 /**
@@ -102,7 +107,10 @@ function MemberMessage(props: {
   now: number;
 }) {
   const { entry } = props;
-  const bodyRef = useRef<HTMLPreElement | null>(null);
+  // C4：流式画 pre、完成后画 Markdown div，两个元素各用独立 ref，效果里读当前可见的那个。
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const mdRef = useRef<HTMLDivElement | null>(null);
+  const activeRef = (): HTMLElement | null => preRef.current ?? mdRef.current;
   const live = entry.status === 'streaming';
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
@@ -116,13 +124,13 @@ function MemberMessage(props: {
   const view = memberBodyView({ ...entry, waitMs: elapsed });
   // 流式期间自动跟到底部（露最新几行）；结束后回到顶部，别停在流式的最后一屏。
   useEffect(() => {
-    const el = bodyRef.current;
+    const el = activeRef();
     if (!el) return;
     el.scrollTop = live ? el.scrollHeight : 0;
   }, [live, entry.text, entry.reasoning]);
   // 5 行以外还有内容才给「展开全文」；展开后按钮保留，用于收起。
   useEffect(() => {
-    const el = bodyRef.current;
+    const el = activeRef();
     if (!el || entry.protocol) return;
     setOverflowing(el.scrollHeight > el.clientHeight + 1);
   }, [entry.text, entry.protocol, expanded, view.bodyText]);
@@ -167,10 +175,19 @@ function MemberMessage(props: {
             {view.showLiveThinking && (
               <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
             )}
-            <pre className={`chat-member-text${expanded ? '' : ' is-clamped'}`} ref={bodyRef}>
-              {view.bodyText || view.placeholder}
-            </pre>
-            {(overflowing || expanded) && (
+            {/* C4：流式期间按纯文本画（半成品表格/代码块自然降级，不做每字符重排）；
+                这条回答结束后再用 MarkdownBody 完整排版。两种画法用的是同一份原文，
+                不改模型输出一个字，展开/收起只改呈现。 */}
+            {live ? (
+              <pre className={`chat-member-text${expanded ? '' : ' is-clamped'}`} ref={preRef}>
+                {view.bodyText || view.placeholder}
+              </pre>
+            ) : (
+              <div className="chat-member-md" ref={mdRef}>
+                <MarkdownBody text={view.bodyText ?? view.placeholder ?? ''} />
+              </div>
+            )}
+            {live && (overflowing || expanded) && (
               <button className="chat-member-more" type="button" onClick={() => setExpanded(value => !value)}>
                 {expanded ? '收起全文' : '展开全文'}
               </button>
@@ -269,15 +286,8 @@ function isDebatePeerLabel(label: string): boolean {
   return /轮评审\s*·\s*(表态|质疑|回应)/u.test(label);
 }
 
-/** 流式层级：重点正文 vs 旁注里程碑。 */
+/** 流式层级：重点正文 vs 旁注里程碑。判定收在 shared 的 noteEmphasisOf（C1）。 */
 type StreamEmphasis = 'focus' | 'aside';
-
-function noteEmphasis(text: string): StreamEmphasis {
-  if (/^(任务分解|工程上下文|模型参与|循环决策|目标符合度|上下文|第 \d+ 轮 ·)/u.test(text.trim())) {
-    return 'aside';
-  }
-  return 'focus';
-}
 
 function wrapAnchor(entryKey: string, node: React.ReactNode): React.ReactNode {
   return (
@@ -414,9 +424,17 @@ function MemberStreamNote(props: {
           {view.showLiveThinking && (
             <p className="chat-reasoning-live">思考中 · 已写 {entry.reasoning.length} 字符</p>
           )}
-          <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`}>
-            {view.bodyText || view.placeholder}
-          </pre>
+          {/* C4：普通成员回答也走 MarkdownBody。流式期间保留 pre（半成品降级、
+              不逐字符重排），结束后用同一份原文做完整排版。 */}
+          {live ? (
+            <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`}>
+              {view.bodyText || view.placeholder}
+            </pre>
+          ) : (
+            <div className="chat-member-md">
+              <MarkdownBody text={view.bodyText ?? view.placeholder ?? ''} />
+            </div>
+          )}
         </>
       )}
       {(view.displayLength > 480 || expanded || (derivation && derivation.length > 480)) && (
@@ -475,6 +493,131 @@ function StepMessage(props: { entry: Extract<ConversationEntry, { kind: 'step' }
   );
 }
 
+/** 路径过长只留尾段，title 里保留完整路径（逐文件明细看得到、点得到）。 */
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]/u).filter(Boolean);
+  if (parts.length <= 2) return path;
+  return `…/${parts.slice(-2).join('/')}`;
+}
+
+/**
+ * C3a 会话聚合胶囊：inline 压缩计数，原地改写，不追加消息。
+ * 只有汇总数字，没有也不展示逐文件明细——那是 C3b 的事。
+ */
+function DiffCapsule(props: { diff: DiffSummary }) {
+  const { diff } = props;
+  const working = diff.available !== false && typeof diff.insertions === 'number';
+  const body = diff.available === false
+    ? '改动量统计不可用'
+    : working
+      ? `+${String(diff.insertions)} / -${String(diff.deletions)}`
+      : '';
+  return (
+    <div className="chat-diff-capsule" title={diff.available === false ? '取 diff 失败，未填 0' : '改动量汇总'}>
+      {working && <span className="spinner" aria-hidden />}
+      <span>{String(diff.files)} 个文件已修改</span>
+      {body && <span className="chat-diff-capsule-num">{body}</span>}
+    </div>
+  );
+}
+
+/**
+ * C3b 独立文件变更块：不是胶囊的展开态。带外框、标题、逐文件增删、审阅入口、收起。
+ * 逐文件数字只取 `diff.fileStats`，绝不按总数平均分配；明细不完整就不出这个块。
+ */
+function DiffChangeBlock(props: {
+  diff: DiffSummary;
+  files: readonly DiffFileStat[];
+  onReview?: () => void;
+}) {
+  const { diff, files } = props;
+  const [collapsed, setCollapsed] = useState(false);
+  const hasNumbers = diff.available !== false && typeof diff.insertions === 'number';
+  return (
+    <div className="chat-diff-block">
+      <div className="chat-diff-head">
+        <span className="chat-diff-icon" aria-hidden>▤</span>
+        <div className="chat-diff-title">
+          <b>已编辑 {String(diff.files)} 个文件</b>
+          {hasNumbers && (
+            <span className="chat-diff-total">
+              <span className="is-plus">+{String(diff.insertions)}</span>
+              <span className="is-minus">-{String(diff.deletions)}</span>
+            </span>
+          )}
+        </div>
+        {/* 审阅是独立动作入口；没有真实面板就不塞空按钮，等有 IPC 再接。 */}
+        {props.onReview && (
+          <button className="chat-diff-review" type="button" onClick={props.onReview}>审阅</button>
+        )}
+      </div>
+      {!collapsed && (
+        <ul className="chat-diff-files">
+          {files.map(file => (
+            <li key={file.path} title={file.path}>
+              <code className="chat-diff-file-path">{shortPath(file.path)}</code>
+              {file.binary
+                ? <span className="chat-diff-file-num is-binary">二进制</span>
+                : <span className="chat-diff-file-num">
+                    <span className="is-plus">+{String(file.insertions)}</span>
+                    <span className="is-minus">-{String(file.deletions)}</span>
+                  </span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button className="chat-diff-collapse" type="button" onClick={() => setCollapsed(value => !value)}>
+        {collapsed ? `展开文件（${String(files.length)}）⌄` : '收起文件 ⌃'}
+      </button>
+    </div>
+  );
+}
+
+/** C3c 交付产物卡片：只展示真实路径，没有就不出卡片。 */
+function DeliverableCards(props: { paths: readonly string[] }) {
+  if (props.paths.length === 0) return null;
+  return (
+    <ul className="chat-deliverables">
+      {props.paths.map(path => {
+        const name = path.split(/[\\/]/u).filter(Boolean).slice(-1)[0] ?? path;
+        const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toUpperCase() : 'FILE';
+        return (
+          <li key={path} className="chat-deliverable" title={path}>
+            <span className="chat-deliverable-icon" aria-hidden>▤</span>
+            <span className="chat-deliverable-name">{name}</span>
+            <span className="chat-deliverable-tag">{ext.slice(0, 6)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** C2：一组连续工具步骤，压成一行；展开后仍逐条画原 steps，失败输出照旧可看。 */
+function StepClusterMessage(props: {
+  cluster: StepCluster;
+  entries: readonly ConversationEntryView[];
+  now: number;
+}) {
+  const { cluster } = props;
+  const members = cluster.memberKeys
+    .map(key => props.entries.find(entry => entry.key === key))
+    .filter((entry): entry is Extract<ConversationEntryView, { kind: 'step' }> => Boolean(entry && entry.kind === 'step'));
+  return (
+    <details className="chat-step-cluster">
+      <summary className="chat-step-cluster-head">
+        <span className="chat-step-dot" aria-hidden />
+        <b>执行工具 {String(cluster.total)} 次</b>
+        {cluster.failed > 0 && <span className="is-bad">，其中 {String(cluster.failed)} 次失败</span>}
+        <span className="chat-step-meta">{timeText(cluster.firstAt)}</span>
+      </summary>
+      <div className="chat-step-cluster-body">
+        {members.map(entry => <StepMessage key={entry.key} entry={entry} now={props.now} />)}
+      </div>
+    </details>
+  );
+}
+
 export function TaskConversation(props: {
   task: AgentTask;
   events: readonly AgentEvent[];
@@ -500,6 +643,8 @@ export function TaskConversation(props: {
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLElement | null>(null);
   const landmarks = useMemo(() => buildStreamLandmarks(entries), [entries]);
+  // C2：连续工具步骤的聚合分组。分组只影响呈现，原始 entries 一个都不删。
+  const { clusters, clusterByEntry } = useMemo(() => clusterSteps(entries), [entries]);
   const showRail = shouldShowLandmarkRail(landmarks);
   const [activeLandmark, setActiveLandmark] = useState<string | null>(null);
   const visibleAnchors = useRef(new Set<string>());
@@ -587,8 +732,19 @@ export function TaskConversation(props: {
           );
         }
         if (entry.kind === 'step') {
+          const clusterKey = clusterByEntry.get(entry.key);
+          if (clusterKey) {
+            const cluster = clusters.find(item => item.key === clusterKey);
+            // 组的后续成员不单独画：只在第一个成员处出一张聚合卡，展开后逐条显示。
+            if (!cluster || cluster.memberKeys[0] !== entry.key) return null;
+            return wrapAnchor(entry.key, (
+              <div key={entry.key} className="chat-stream-block is-focus">
+                <StepClusterMessage cluster={cluster} entries={entries} now={now} />
+              </div>
+            ));
+          }
           return wrapAnchor(entry.key, (
-            <div key={`${entry.key}-${String(index)}`} className="chat-stream-block is-focus">
+            <div key={entry.key} className="chat-stream-block is-focus">
               <StepMessage entry={entry} now={now} />
             </div>
           ));
@@ -634,14 +790,12 @@ export function TaskConversation(props: {
         }
         if (entry.kind === 'conclusion') {
           const deliverables = entry.deliverables ?? [];
+          // 目标物已从纯文本详情里拆出独立卡片（C3c），详情里不再重复列一遍。
           const detail = [
             entry.text?.trim() || '',
             entry.executionGoal ? `执行目标：${entry.executionGoal}` : '',
             entry.executionResults && entry.executionResults.length > 0
               ? `执行结果：\n${entry.executionResults.join('\n')}`
-              : '',
-            deliverables.length > 0
-              ? `目标物：\n${deliverables.join('\n')}`
               : '',
             entry.facts.length > 0 ? entry.facts.join('\n') : ''
           ].filter(Boolean).join('\n\n');
@@ -658,12 +812,20 @@ export function TaskConversation(props: {
                   <pre>{detail}</pre>
                 </details>
               ) : null}
+              <DeliverableCards paths={deliverables} />
             </div>
           ));
         }
-        const emphasis = noteEmphasis(entry.text);
-        // 改动量数据（B3）已经在投影里，胶囊样式属于阶段 C3；先不拿一行纯文本占位。
-        if (entry.kind === 'note' && entry.subtype === 'diff') return null;
+        if (entry.kind === 'note' && entry.subtype === 'diff' && entry.diff) {
+          const diff = entry.diff;
+          // 有完整逐文件明细 → 独立变更块（C3b）；只有汇总/统计不可用 → 胶囊（C3a）。
+          // 两者是独立组件，变更块不是胶囊的展开态（不变量 18）。
+          const node = Array.isArray(diff.fileStats) && diff.filesAvailable && diff.fileStats.length > 0
+            ? <DiffChangeBlock diff={diff} files={diff.fileStats} />
+            : <DiffCapsule diff={diff} />;
+          return wrapAnchor(entry.key, node);
+        }
+        const emphasis = noteEmphasisOf(entry.kind === 'note' ? entry.subtype : undefined);
         return wrapAnchor(entry.key, (
           <div className={`chat-note is-${emphasis} ${ToneClass(entry.tone)}`}>
             {emphasis === 'focus' && <span className="chat-stream-badge">重点</span>}
