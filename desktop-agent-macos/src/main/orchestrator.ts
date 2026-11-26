@@ -40,6 +40,7 @@ import {
   planGoalRevision,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
+import { evidenceFacts, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
   assertDecisionSnapshotIntegrity,
@@ -2394,6 +2395,34 @@ export class AgentOrchestrator {
     }
   }
 
+  /**
+   * 这一轮修复该不该真的开。
+   *
+   * 只看报告里的事实与评审的问题，不看模型自述。没有上一轮报告（第一次
+   * 修复）或没有评审（用户手动点「继续修复」）时返回 null，照常开轮。
+   */
+  private guardRepairRound(
+    report: ExecutionReport,
+    review: { issues: string[] } | null,
+    events: readonly AgentEvent[]
+  ): RepairGateResult | null {
+    if (!review) return null;
+    const history = this.deps.store.allReportsFor(report.taskId);
+    const index = history.findIndex(item => item.roundId === report.roundId && item.planId === report.planId);
+    const previous = index > 0 ? history[index - 1] : null;
+    if (!previous) return null;
+    const previousReview = [...events]
+      .reverse()
+      .find(event => event.type === 'review.ready' && event.roundId === previous.roundId);
+    return shouldOpenRepairRound({
+      previous: {
+        facts: evidenceFacts(previous),
+        issues: previousReview?.type === 'review.ready' ? previousReview.issues : []
+      },
+      current: { facts: evidenceFacts(report), issues: review.issues }
+    });
+  }
+
   private async continueAfterReport(
     taskId: string,
     report: ExecutionReport,
@@ -2501,6 +2530,11 @@ export class AgentOrchestrator {
       atMaxRounds,
       genuineDelivery
     });
+    // 无新证据不得再开修复轮：两轮之间命令、参数、输出、验证结论都没变，
+    // 评审也重复同样的问题，再开一轮就是把同一件事做第三遍。停下来交回
+    // 用户，比再花一轮预算重复一遍更诚实。
+    const repairGate = decision === 'repair' ? this.guardRepairRound(report, review, priorEvents) : null;
+    const repairBlocked = Boolean(repairGate && !repairGate.open);
     // complete 时 snapshot 必须写终态，不能沿用派生里残留的 needs_fix / implementation，
     // 否则 UI 在 task.completed 之后仍显示「需修复」。
     const snapshotStage = decision === 'complete'
@@ -2508,10 +2542,14 @@ export class AgentOrchestrator {
       : workbench.cycle.currentStage;
     const snapshotConclusion = decision === 'complete'
       ? (actionableReview ? 'accepted_with_risks' : 'accepted')
-      : workbench.cycle.conclusionType;
+      : repairBlocked
+        ? 'blocked'
+        : workbench.cycle.conclusionType;
     const snapshotNext = decision === 'complete'
       ? '无需下一轮；可做整体验收'
-      : workbench.cycle.nextAction;
+      : repairBlocked
+        ? '自动修复已停：等你确认是继续修、接受未验证，还是改需求'
+        : workbench.cycle.nextAction;
     this.deps.emit({
       type: 'cycle.snapshot',
       at: Date.now(),
@@ -2522,7 +2560,7 @@ export class AgentOrchestrator {
       conclusionType: snapshotConclusion,
       nextAction: snapshotNext,
       debateSkipped: workbench.cycle.debateSkipped,
-      decision,
+      decision: repairBlocked ? 'observe' : decision,
       budget: workbench.cycle.budget
     });
     this.deps.emit({
@@ -2532,6 +2570,22 @@ export class AgentOrchestrator {
       fit: workbench.goal.fit,
       notes: workbench.goal.fitNotes
     });
+
+    if (repairBlocked && repairGate) {
+      // 状态留在 report_pending：那里本来就有「接受未验证」「继续修复」两个出口，
+      // 不新造一个只能干等的状态。
+      this.tasks.patch(taskId, {
+        error: `自动修复已停止：${repairGate.reason}。可以「接受未验证」收尾，或改清楚需求后重新开始。`
+      });
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: `GDC 停止自动修复：${repairGate.reason}。已停在待确认，不再自动开下一轮。`
+      });
+      return;
+    }
 
     if (decision === 'complete') {
       const summary = report.errors.length === 0 ? '执行完成，验证通过' : '执行完成';

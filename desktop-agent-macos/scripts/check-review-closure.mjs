@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildReviewMaterial, reviewExecution, ruleReview } from '../out-test/main/engineering/review.js';
+import { buildReviewMaterial, reviewConclusion, reviewExecution, ruleReview } from '../out-test/main/engineering/review.js';
 
 const report = {
   protocol: 'desktop-agent/v1', type: 'execution_report', taskId: 't', roundId: 'r', planId: 'p',
@@ -102,4 +102,84 @@ test('结论是通过、只在解释「缺少某诊断不影响结论」时不�
   });
   assert.equal(verdict.needsFix, false);
   assert.deepEqual(verdict.issues, []);
+});
+
+// ---------------------------------------------------------------------------
+// 2026-11-26 真机：一个 134 秒该结束的任务跑了 421 秒。评审原文写着
+// 「不需要修复」，但判定用的是 /需要修复/ 正则，把否定句也算了进去，
+// 于是又开了一轮修复；后面两轮里评审已经在说「未发现明显问题，说明无功能
+// 缺陷」，仍被逐行抓成待修项。结论优先 + 否定句过滤要一起钉住。
+// ---------------------------------------------------------------------------
+
+test('结论解析：不需要修复 / 无需修复不算需修复', () => {
+  assert.equal(reviewConclusion('改动符合预期，不需要修复。\n【结论】通过'), 'pass');
+  assert.equal(reviewConclusion('【结论】无需修复，可以交付'), 'pass');
+  assert.equal(reviewConclusion('【结论】需修复'), 'fix');
+  assert.equal(reviewConclusion('【结论】不通过'), 'fix');
+  // 正文里没有【结论】时，看最后一句。
+  assert.equal(reviewConclusion('整体看下来\n改动符合完成条件，可以收尾。'), 'pass');
+  assert.equal(reviewConclusion('有些地方还说不清'), 'unclear');
+});
+
+test('评审写「不需要修复」时不阻塞交付', async () => {
+  const verdict = await reviewExecution(javaReport, javaPlan, {
+    reviewer: 'model',
+    ask: async () => '编译与运行都有输出，改动符合完成条件。\n不需要修复。\n【结论】通过'
+  });
+  assert.equal(verdict.needsFix, false);
+  assert.deepEqual(verdict.issues, []);
+});
+
+test('结论通过时，解释性句子（说明无功能缺陷）不进待修列表', async () => {
+  const verdict = await reviewExecution(javaReport, javaPlan, {
+    reviewer: 'model',
+    ask: async () =>
+      '逐条核对：\n- 未发现明显问题，说明无功能缺陷\n- 不是错误：输出里少一行空行\n【结论】通过'
+  });
+  assert.equal(verdict.needsFix, false);
+  assert.deepEqual(verdict.issues, []);
+  assert.match(verdict.verdict, /通过/);
+});
+
+test('结论通过也压不住规则层事实：验证缺口仍阻塞', async () => {
+  const blocked = {
+    ...javaReport,
+    verification: {
+      ...javaReport.verification,
+      verified: false,
+      reasons: ['改了文件，但没有任何成功的构建 / 测试 / 运行断言或诊断：本轮不能算已验证']
+    }
+  };
+  const verdict = await reviewExecution(blocked, javaPlan, {
+    reviewer: 'model',
+    ask: async () => '看起来没问题。\n【结论】通过'
+  });
+  assert.equal(verdict.needsFix, true);
+  assert.match(verdict.issues.join('\n'), /没有任何成功的构建/);
+});
+
+test('结论写需修复但没有可执行问题时，如实说明而不是假装通过', async () => {
+  const verdict = await reviewExecution(javaReport, javaPlan, {
+    reviewer: 'model',
+    ask: async () => '【结论】需修复'
+  });
+  assert.equal(verdict.needsFix, false);
+  assert.match(verdict.verdict, /没有指出可执行的问题/);
+});
+
+test('评审材料带上步骤自己的验收条件', () => {
+  const planWithAcceptance = {
+    ...javaPlan,
+    steps: [
+      {
+        ...javaPlan.steps[0],
+        description: '写入 HelloEverybody.java',
+        acceptance: '文件里只有一个 public class'
+      },
+      { ...javaPlan.steps[1], acceptanceCriteria: ['java 退出码 0', 'stdout 含 hello everybody'] }
+    ]
+  };
+  const material = buildReviewMaterial(javaReport, planWithAcceptance);
+  assert.match(material, /说明：写入 HelloEverybody\.java；文件里只有一个 public class/);
+  assert.match(material, /java 退出码 0；stdout 含 hello everybody/);
 });

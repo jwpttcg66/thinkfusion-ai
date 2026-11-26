@@ -75,6 +75,39 @@ export interface ReviewOptions {
   timeoutMs?: number;
 }
 
+/**
+ * 评审原文里的最终结论。
+ *
+ * 不能只拿正则扫「需要修复」三个字：`不需要修复` / `无需修复` 都会被扫中，
+ * 于是评审写着「通过」，系统判成需修复，再开一轮——真机 2026-11-26 那场
+ * 134 秒该结束的任务跑了 421 秒，就是从这里开始的。所以先把否定说法抹掉，
+ * 再看【结论】那一段到底写了什么；没有明确结论就返回 unclear。
+ */
+export function reviewConclusion(text: string): 'pass' | 'fix' | 'unclear' {
+  // 替换文本本身不能再含「需要修复」，否则等于换了个地方继续误判。
+  const cleaned = text.replace(
+    /(?:不需要修复|不需要再修复|不需再修复|无需再修复|无需修复|不须修复|不必修复|不用修复|不要修复|不需修复)/g,
+    '无须改动'
+  );
+  const markers = [...cleaned.matchAll(/【结论】[^\n]*/g)].map(match => match[0]);
+  const last = markers.at(-1)?.replace('【结论】', '').trim() ?? '';
+  const tail = cleaned.split('\n').map(line => line.trim()).filter(Boolean).at(-1) ?? '';
+  const body = last || tail;
+  // 「不通过 / 未通过」必须先于「通过」判断，否则「不通过」会被读成通过。
+  if (/不通过|未通过|需修复|需要修复|需修改|需重做/.test(body)) return 'fix';
+  if (/通过|可交付|可以交付|可以收尾/.test(body)) return 'pass';
+  return 'unclear';
+}
+
+/**
+ * 「没有问题」的句子长得像问题：带这些说法的行不进待修列表。
+ *
+ * 真机两次都栽在这里：评审写「缺少独立诊断不影响本次结论」「未发现明显问题，
+ * 说明无功能缺陷」，被当成两条待修项，任务因此多跑了两轮。
+ */
+const NOT_AN_ISSUE =
+  /(无明显|没有问题|未发现|不存在|无潜在|没有发现|未引入明显|不构成|不影响|无需|不必|可以接受|足以|不是错误|并非错误|不算错误|不视为|符合预期|说明无|未产生|没有引入)/;
+
 const WRITE_TOOLS = new Set(['fs.writeFile', 'fs.edit', 'fs.applyPatch', 'fs.remove', 'fs.move', 'fs.copy']);
 const OBSERVING_TOOLS = new Set(['code.diagnostics', 'screen.capture']);
 
@@ -158,6 +191,18 @@ function fenced(text: string): string[] {
   return ['   ```', ...text.split('\n').map(line => `   ${line}`), '   ```'];
 }
 
+/** 步骤上的说明 + 验收条件；都不是执行参数，但评审要看到。 */
+function stepNoteOf(step: AgentPlan['steps'][number]): string {
+  const asText = (value: unknown): string =>
+    Array.isArray(value) ? value.map(item => String(item)).join('；') : typeof value === 'string' ? value : '';
+  const parts = [
+    typeof step.description === 'string' ? step.description.trim() : '',
+    asText(step.acceptance).trim(),
+    asText(step.acceptanceCriteria).trim()
+  ].filter(Boolean);
+  return parts.join('；');
+}
+
 /**
  * 评审材料：计划 + 每一步的真实命令、退出码与输出。
  *
@@ -173,6 +218,10 @@ export function buildReviewMaterial(report: ExecutionReport, plan: AgentPlan, su
   lines.push('【计划步骤】');
   plan.steps.forEach((step, index) => {
     lines.push(`${String(index + 1)}. ${step.tool} ${JSON.stringify(step.args)}`);
+    // 模型自己写的「这一步怎么算做到」要递过去：否则评审只能凭 args 猜意图，
+    // 再把「看不出验收标准」写成一条待修项。
+    const note = stepNoteOf(step);
+    if (note) lines.push(`   说明：${note}`);
   });
   if (plan.completion?.condition) lines.push('', `完成条件：${plan.completion.condition}`);
 
@@ -314,15 +363,17 @@ export async function reviewExecution(
   // 走 MasterAgent 的原样发问，这里只把执行事实交给一个独立模型读。
   const material = buildReviewMaterial(report, plan);
 
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const text = await Promise.race([
       ask(material),
-      new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('评审超时')), options.timeoutMs ?? 90_000)
-      )
+      new Promise<string>((_, reject) => {
+        // 评审已经回来就撤掉定时器：否则每次成功评审还会挂着 90 秒的空转。
+        timeout = setTimeout(() => reject(new Error('评审超时')), options.timeoutMs ?? 90_000);
+      })
     ]);
     const verdict = text.trim();
-    const needsFix = /【结论】\s*需修复|需要修复|不通过/.test(verdict);
+    const conclusion = reviewConclusion(verdict);
     // 只有能指向具体条目的“需修复”才阻塞交付；只有结论、没有问题的评审
     // 无法执行，按“无具体问题”记录，避免下一轮空转或生成非法计划。
     const modelIssues = verdict
@@ -330,17 +381,22 @@ export async function reviewExecution(
       .map(line => line.replace(/^\s*(?:[-*]|\d{1,2}[.、)）])\s*/, '').trim())
       .filter(line => line.length >= 4)
       .filter(line => /缺少|未通过|失败|不一致|需要修复|应补|未覆盖|错误|证据不足|无法确认/.test(line))
-      .filter(line => !/(无明显|没有问题|未发现|不存在|无潜在|没有发现|未引入明显)/.test(line))
-      // 「缺少独立诊断不影响本次结论，因为编译成功…」不是待修项。真机第二轮
-      // 就是靠这一句把结论为「通过」的评审判成了需修复。
-      .filter(line => !/(不影响|无需|不必|不构成|可以接受|足以)/.test(line))
+      .filter(line => !NOT_AN_ISSUE.test(line))
       .filter(line => !/^【?(结论|总评)】?/.test(line))
       .slice(0, 8);
-    const actionable = [...new Set([...base.issues, ...modelIssues])];
+    // 结论优先：评审最后写「通过」，前面那些解释性的句子（「缺少独立诊断
+    // 不影响结论」「建议后续补…」）不再算待修项。规则层的事实（失败步骤、
+    // 验证缺口）不受结论影响——那是从报告里读出来的，不是模型说的。
+    const blockingModelIssues = conclusion === 'pass' ? [] : modelIssues;
+    const actionable = [...new Set([...base.issues, ...blockingModelIssues])];
     const at = now();
-    const shortVerdict = needsFix || actionable.length > 0
-      ? (actionable[0] ? `需修复：${actionable[0].slice(0, 120)}` : '需修复')
-      : (/【结论】\s*通过|通过/.test(verdict) ? '通过' : verdict.slice(0, 160));
+    const shortVerdict = actionable.length > 0
+      ? `需修复：${(actionable[0] ?? '').slice(0, 120)}`
+      : conclusion === 'pass'
+        ? '通过'
+        : conclusion === 'fix'
+          ? '结论写需修复，但没有指出可执行的问题（不阻塞交付）'
+          : verdict.slice(0, 160);
     return {
       reviewer: options.reviewer ?? '独立模型',
       backend: 'model',
@@ -365,5 +421,7 @@ export async function reviewExecution(
       needsFix: base.issues.length > 0,
       at
     };
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }

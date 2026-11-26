@@ -196,8 +196,24 @@ const ComputerExpect = z.object({
 // Plan (produced by DeepSeek, never trusted until validated)
 // ---------------------------------------------------------------------------
 
+/**
+ * 步骤上的说明性字段。
+ *
+ * 它们不是执行参数，模型却常写：`acceptance` / `acceptanceCriteria` 说明
+ * 「这一步怎么算做到」。以前每个分支都是 `.strict()`，模型多写一句就让整份
+ * 计划判成 `plan.invalid`，界面上是「计划不合规，准备重出」，用户等到的是
+ * 一轮重来。这里把它们接住：执行器忽略，计划与评审材料能看到。
+ */
+const stepNotes = {
+  description: z.string().max(500).optional(),
+  acceptance: z
+    .union([z.string().max(1000), z.array(z.string().min(1).max(300)).max(8)])
+    .optional(),
+  acceptanceCriteria: z.array(z.string().min(1).max(300)).max(8).optional()
+};
+
 export const StepSchema = z.discriminatedUnion('tool', [
-  z.object({ id: Id, tool: z.literal('fs.list'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
+  z.object({ id: Id, tool: z.literal('fs.list'), args: z.object({ path: RelativePath }).strict(), ...stepNotes }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.readFile'),
@@ -210,9 +226,9 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 读多少行；默认 2000，上限 2000。 */
       limit: z.number().int().min(1).max(2000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
-  z.object({ id: Id, tool: z.literal('fs.mkdir'), args: z.object({ path: RelativePath }).strict(), description: z.string().max(500).optional() }).strict(),
+  z.object({ id: Id, tool: z.literal('fs.mkdir'), args: z.object({ path: RelativePath }).strict(), ...stepNotes }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.writeFile'),
@@ -223,7 +239,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       overwrite: z.boolean().optional(),
       expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -233,7 +249,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxDepth: z.number().int().min(1).max(6).optional(),
       maxEntries: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -243,7 +259,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath.optional(),
       maxResults: z.number().int().min(1).max(100).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -254,13 +270,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath.optional(),
       maxResults: z.number().int().min(1).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.stat'),
     args: z.object({ path: RelativePath }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -274,7 +290,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 读到的 sha256，用于确认改的是当时那一版。 */
       expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -286,31 +302,31 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 直接删除而不是移到废纸篓；只有完全权限才会执行。 */
       permanent: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.move'),
     args: z.object({ from: RelativePath, to: RelativePath }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.copy'),
     args: z.object({ from: RelativePath, to: RelativePath }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.readImage'),
     args: z.object({ path: RelativePath }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('test.run'),
     args: z.object({ command: z.enum(TEST_COMMANDS) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -323,7 +339,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 放到后台跑，立刻返回作业 id；后续用 job.output / job.kill。 */
       background: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -338,13 +354,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 单次执行上限；同时会被授权剩余时间截断。 */
       timeoutMs: z.number().int().min(1000).max(1_800_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('job.list'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -353,7 +369,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       id: z.string().min(1).max(120),
       tailBytes: z.number().int().min(1000).max(262_144).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -362,7 +378,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       id: z.string().min(1).max(120),
       signal: z.enum(['TERM', 'KILL']).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -379,7 +395,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 相对工作区（或完全权限下的绝对路径）；不给就落在应用缓存目录。 */
       path: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -390,19 +406,19 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 要打开的文件/目录。与 app 二选一。 */
       path: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('computer.capabilities'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('computer.windows'),
     args: z.object({ maxEntries: z.number().int().min(1).max(200).optional() }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -417,7 +433,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       }).strict().optional(),
       path: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -427,7 +443,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       bundleId: z.string().min(1).max(200).optional(),
       windowId: z.string().min(1).max(160).optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -439,7 +455,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       value: z.string().max(500).optional(),
       windowId: z.string().min(1).max(160).optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -454,7 +470,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       confirmRisk: z.boolean().optional(),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -468,7 +484,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       confirmRisk: z.boolean().optional(),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -483,7 +499,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       confirmRisk: z.boolean().optional(),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -499,7 +515,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       deltaY: z.number().min(-5_000).max(5_000).optional(),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -514,7 +530,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       toY: z.number().min(0).max(20_000),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -526,7 +542,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       windowId: z.string().min(1).max(160).optional(),
       expect: ComputerExpect.optional()
     }),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }),
   z.object({
     id: Id,
@@ -539,25 +555,25 @@ export const StepSchema = z.discriminatedUnion('tool', [
       windowId: z.string().min(1).max(160).optional(),
       expect: ComputerExpect.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('computer.stop'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('clipboard.read'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('clipboard.write'),
     args: z.object({ text: z.string().max(262_144) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -567,7 +583,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       message: z.string().max(1000).optional(),
       subtitle: z.string().max(120).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -575,7 +591,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
     args: z.object({
       scope: z.enum(['all', 'os', 'cpu', 'memory', 'disk', 'battery']).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -584,7 +600,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       filter: z.string().max(120).optional(),
       limit: z.number().int().min(1).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -593,7 +609,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       pid: z.number().int().min(1).max(999_999),
       signal: z.enum(['TERM', 'KILL']).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -605,7 +621,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       body: z.string().max(100_000).optional(),
       maxBytes: z.number().int().min(1024).max(2_000_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -616,13 +632,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 限定站点，例如 `github.com`。 */
       site: z.string().min(1).max(120).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('fs.revert'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -633,7 +649,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       patch: z.string().min(1).max(512_000),
       expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -649,7 +665,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** remove：工作树有未提交改动时必须显式 force。 */
       force: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -658,7 +674,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath.optional(),
       maxEntries: z.number().int().min(1).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -668,7 +684,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxFiles: z.number().int().min(1).max(500).optional(),
       maxSymbols: z.number().int().min(1).max(1000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -677,7 +693,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath.optional(),
       maxEntries: z.number().int().min(1).max(10_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -690,7 +706,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       commit: z.string().min(1).max(160).optional(),
       maxBytes: z.number().int().min(1024).max(262_144).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -700,7 +716,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       limit: z.number().int().min(1).max(200).optional(),
       maxEntries: z.number().int().min(1).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -711,7 +727,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       stat: z.boolean().optional(),
       maxBytes: z.number().int().min(1024).max(262_144).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -722,7 +738,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** drop / pop 指定第几条；drop 必须给。 */
       index: z.number().int().min(0).max(1000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -731,7 +747,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       action: z.enum(['list', 'create', 'switch']),
       name: z.string().min(1).max(120).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -742,7 +758,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       pointer: z.string().max(400).optional(),
       maxChars: z.number().int().min(200).max(20_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -754,7 +770,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxRows: z.number().int().min(1).max(100_000).optional(),
       samples: z.number().int().min(0).max(10).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -764,7 +780,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       sql: z.string().min(1).max(4000),
       maxRows: z.number().int().min(1).max(2000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -773,7 +789,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath,
       maxEntries: z.number().int().min(1).max(5000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -782,7 +798,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath,
       destination: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -791,13 +807,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       output: RelativePath,
       sources: z.array(RelativePath).min(1).max(100)
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('text.diff'),
     args: z.object({ pathA: RelativePath, pathB: RelativePath }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -808,7 +824,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** decode 时可选：落盘路径，已存在会被拒绝。 */
       output: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -821,7 +837,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       height: z.number().int().min(1).max(8192).optional(),
       format: z.enum(['jpeg', 'png']).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -830,7 +846,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       names: z.array(z.string().min(1).max(200)).max(200).optional(),
       maxEntries: z.number().int().min(1).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -839,31 +855,31 @@ export const StepSchema = z.discriminatedUnion('tool', [
       port: z.number().int().min(1).max(65_535).optional(),
       maxEntries: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('app.list'),
     args: z.object({ maxEntries: z.number().int().min(1).max(1000).optional() }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('window.list'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('dns.lookup'),
     args: z.object({ host: z.string().min(3).max(253) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('time.now'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -873,7 +889,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       filter: z.string().max(200).optional(),
       maxEntries: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -883,7 +899,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxEntries: z.number().int().min(1).max(500).optional(),
       maxNodes: z.number().int().min(100).max(200_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -895,19 +911,19 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 相对工作区的运行目录；不给就在本次运行自己的临时目录里跑。 */
       cwd: RelativePath.optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('goal.create'),
     args: z.object({ text: z.string().min(1).max(500) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('goal.get'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -916,7 +932,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       status: z.enum(['active', 'blocked', 'done']),
       note: z.string().max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -927,7 +943,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       at: z.number().int().positive().optional(),
       repeatMinutes: z.number().int().min(5).max(10_080).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -940,19 +956,19 @@ export const StepSchema = z.discriminatedUnion('tool', [
       repeatMinutes: z.number().int().min(5).max(10_080).optional(),
       enabled: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('schedule.list'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('schedule.view'),
     args: z.object({ id: z.string().min(1).max(80) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -962,7 +978,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 可选：这些成员的上级成员 id；只用于记录成员树，不创建新成员。 */
       parent: z.string().min(1).max(80).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -978,19 +994,19 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 允许动的目录；write 任务用它做隔离。 */
       workspace: z.string().min(1).max(2000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('team.task.get'),
     args: z.object({ id: z.string().min(1).max(80) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('team.task.list'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1009,13 +1025,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       }).strict()).max(20).optional(),
       workspace: z.string().min(1).max(2000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('team.wait'),
     args: z.object({ timeoutMs: z.number().int().min(1000).max(120_000).optional() }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1025,13 +1041,13 @@ export const StepSchema = z.discriminatedUnion('tool', [
       limit: z.number().int().min(1).max(20).optional(),
       conversationId: z.string().min(1).max(80).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('plugin.inspect'),
     args: z.object({ id: z.string().min(1).max(80).optional() }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1041,7 +1057,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       cols: z.number().int().min(20).max(400).optional(),
       rows: z.number().int().min(5).max(200).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1050,7 +1066,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       sessionId: z.string().min(1).max(80),
       maxChars: z.number().int().min(1).max(40_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1060,7 +1076,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       input: z.string().max(8000),
       submit: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1069,19 +1085,19 @@ export const StepSchema = z.discriminatedUnion('tool', [
       sessionId: z.string().min(1).max(80),
       signal: z.enum(['SIGINT', 'SIGTERM', 'SIGKILL', 'SIGHUP', 'SIGQUIT']).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('term.close'),
     args: z.object({ sessionId: z.string().min(1).max(80) }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
     tool: z.literal('term.list'),
     args: z.object({}).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1093,7 +1109,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       maxItems: z.number().int().min(1).max(200).optional(),
       timeoutMs: z.number().int().min(1000).max(1_800_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1105,7 +1121,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 1-based 列号（UTF-16 单元）。 */
       character: z.number().int().min(1).max(100_000)
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1116,7 +1132,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       character: z.number().int().min(1).max(100_000),
       includeDeclaration: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1125,7 +1141,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath,
       max: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1137,7 +1153,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       /** 需要一段可直接放进上下文的文本时置 true。 */
       context: z.boolean().optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1148,7 +1164,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       members: z.array(z.string().min(1).max(120)).min(1).max(4).optional(),
       maxParallel: z.number().int().min(1).max(4).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1158,7 +1174,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       line: z.number().int().min(1).max(1_000_000),
       character: z.number().int().min(1).max(100_000)
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1167,7 +1183,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       path: RelativePath,
       max: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1178,7 +1194,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       character: z.number().int().min(1).max(100_000).optional(),
       max: z.number().int().min(1).max(500).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1188,7 +1204,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       line: z.number().int().min(1).max(1_000_000),
       character: z.number().int().min(1).max(100_000)
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict(),
   z.object({
     id: Id,
@@ -1200,7 +1216,7 @@ export const StepSchema = z.discriminatedUnion('tool', [
       allowFreeText: z.boolean().optional(),
       timeoutMs: z.number().int().min(1000).max(600_000).optional()
     }).strict(),
-    description: z.string().max(500).optional()
+    ...stepNotes
   }).strict()
 ]);
 

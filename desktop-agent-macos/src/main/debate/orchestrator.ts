@@ -495,13 +495,10 @@ export class DebateOrchestrator {
     };
     const previous = state.rounds.at(-1)?.messages ?? [];
     const seed = state.config.seed;
-    // 会话执行阶段发起辩论时，第一轮读的是网页已经给出的回答 + 主导人指定
-    // 的辩题；独立辩论没有 seed，仍然是各自独立给观点。
+    // 会话执行阶段发起辩论时，第一轮读的是已经给出的回答 + 主导人指定的
+    // 辩题；独立辩论没有 seed，仍然是各自独立给观点。
     const context = index === 0 && seed
-      ? [
-          `【网页通道已经给出的回答】\n${seed.positions.join('\n\n')}`,
-          seed.topics.length > 0 ? `【要辩清楚的议题】\n- ${seed.topics.join('\n- ')}` : ''
-        ].filter(Boolean)
+      ? seedContextText(seed)
       : previous.map(message => message.text);
     const kind: DebateMessageKind = kindFor(index);
     // 会话内网页主导：第一轮的观点在提问阶段已经由全部网页通道给出，直接
@@ -914,6 +911,24 @@ function webContextText(context: readonly string[]): string {
   if (items.length === 0) return '';
   const per = Math.max(240, Math.floor(WEB_CONTEXT_CHARS / items.length));
   return items.map(item => (item.length > per ? `${item.slice(0, per)}…` : item)).join('\n\n');
+}
+
+/**
+ * 第一轮基准材料。
+ *
+ * 会话里这些回答可能来自网页、云端模型或 CLI，来源各不相同。旧标题写死
+ * 「网页通道已经给出的回答」——模型和 CLI 的回答被说成网页给出的，用户
+ * 在记录里看到的就是「怎么会出现需要网页回答」。标题保持中性，来源由每段
+ * 开头的【…】标签给出（seeds 就是按 `【${label}】` 拼的）。
+ */
+export function seedContextText(seed: {
+  positions: readonly string[];
+  topics: readonly string[];
+}): string[] {
+  return [
+    `【已有回答】（每段开头的【…】是来源标签）\n${seed.positions.join('\n\n')}`,
+    seed.topics.length > 0 ? `【要辩清楚的议题】\n- ${seed.topics.join('\n- ')}` : ''
+  ].filter(Boolean);
 }
 
 /**

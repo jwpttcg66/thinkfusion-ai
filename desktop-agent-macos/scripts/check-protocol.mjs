@@ -53,6 +53,24 @@ test('valid plan is accepted', () => {
   assert.equal(result.plan.steps.length, 2);
 });
 
+test('步骤带 acceptance / acceptanceCriteria 时计划仍有效（2026-11-26 曾整份判非法）', () => {
+  const candidate = plan({
+    steps: [
+      { id: 'step-1', tool: 'fs.list', args: { path: '.' }, acceptance: '列出根目录' },
+      {
+        id: 'step-2',
+        tool: 'fs.writeFile',
+        args: { path: 'reports/a.md', content: '# report' },
+        acceptanceCriteria: ['文件存在', '首行是标题']
+      }
+    ]
+  });
+  const result = parseAnswer(fenced(candidate), { taskId: TASK, roundId: ROUND });
+  assert.equal(result.kind, 'plan');
+  assert.equal(result.plan.steps[0].acceptance, '列出根目录');
+  assert.deepEqual(result.plan.steps[1].acceptanceCriteria, ['文件存在', '首行是标题']);
+});
+
 test('prose without a protocol block yields none', () => {
   const result = parseAnswer('我先解释一下思路，稍后再给计划。', { taskId: TASK, roundId: ROUND });
   assert.equal(result.kind, 'none');

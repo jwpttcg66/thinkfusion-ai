@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { DebateStore } from '../out-test/main/debate/store.js';
-import { DebateOrchestrator } from '../out-test/main/debate/orchestrator.js';
+import { DebateOrchestrator, seedContextText } from '../out-test/main/debate/orchestrator.js';
 import { normalizeDebateConfig, DEFAULT_ROUNDS } from '../out-test/main/debate/types.js';
 
 const QUESTION = '17 乘 3 应该等于 51 吗？';
@@ -338,4 +338,23 @@ test('流式输出持续时按「无输出」计时，不被总时长截断', as
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// 会话执行阶段的第一轮基准材料：回答可能来自网页、模型或 CLI，标题不能再写死网页。
+test('seed 基准材料用中性标题，来源由每段的【…】标签给出', () => {
+  const context = seedContextText({
+    positions: ['【Kimi】来自网页的回答', '【本地模型】来自模型的回答', '【CLI】来自命令行的回答'],
+    topics: ['结论是否一致']
+  });
+  assert.equal(context.length, 2);
+  assert.match(context[0], /^【已有回答】/);
+  assert.doesNotMatch(context[0], /网页通道已经给出的回答/);
+  assert.match(context[0], /【Kimi】来自网页的回答/);
+  assert.match(context[0], /【本地模型】来自模型的回答/);
+  assert.match(context[0], /【CLI】来自命令行的回答/);
+  assert.match(context[1], /【要辩清楚的议题】\n- 结论是否一致/);
+});
+
+test('seed 没有辩题时不产出空段', () => {
+  assert.equal(seedContextText({ positions: ['【本地模型】回答'], topics: [] }).length, 1);
 });

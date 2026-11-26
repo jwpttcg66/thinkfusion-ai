@@ -6657,7 +6657,7 @@ app.whenReady().then(async () => {
       // 也别让三个页面各写三轮独立文本（每轮都要等最慢的那个）。基准观点
       // 直接注入第一轮，质疑与回应由主导人一个页面完成。
       if (input.effectiveMode === 'web' && input.seeds.length > 0) {
-        plan.warnings.push('会话内网页主导：基准观点取本轮全部网页回答（不再重复提问），质疑与回应由主导人一个页面完成');
+        plan.warnings.push('会话内网页主导：基准观点取本轮全部回答（网页 / 模型 / CLI，各带来源标签；不再重复提问），质疑与回应由主导人一个页面完成');
       }
       const singleModel = plan.participants.length === 1;
       const state = debates.start(

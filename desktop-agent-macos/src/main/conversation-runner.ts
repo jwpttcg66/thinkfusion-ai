@@ -286,7 +286,7 @@ export interface ConversationDeps {
     conversationId: string;
     question: string;
     topics: string[];
-    /** 网页通道的第一轮回答，作为辩论的基准观点（带通道 id 才能原样落到发言者名下）。 */
+    /** 本轮各来源的第一手回答（网页 / 模型 / CLI），作为辩论的基准观点；带来源 id 才能原样落到发言者名下。 */
     seeds: Array<{ agentId: string; label: string; text: string }>;
     debaters: string[];
     lead: { agentId: string; label: string; kind: 'web' | 'local' | 'cloud' };
