@@ -3,30 +3,43 @@ import type { AgentTask, Identity } from '../../../shared/contracts';
 import type { Conversation } from '../../../shared/conversation';
 import type { WorkspaceEntry } from '../../../shared/workspace';
 import { groupByWorkspace } from '../../../shared/workspace';
+import { goalVersionLabel, groupTasksByGoal, type GoalViewTask } from '../../../shared/goal-view';
 import { ICON_GAUGE_PATHS, ICON_GEAR_PATHS } from '../../../shared/icons';
 import { Glyph } from './Glyph';
 
 import type { WorkspaceMode } from '../../../shared/workspace';
 
 /** 一个工作区行下面可能挂两种东西：会话，或没有会话的老任务。 */
-type SidebarRow =
-  | {
-      kind: 'conversation';
-      id: string;
-      title: string;
-      updatedAt: number;
-      status: string;
-      workspaceId?: string;
-      workspaceRoot?: string;
-    }
-  | {
-      kind: 'task';
-      id: string;
-      title: string;
-      updatedAt: number;
-      status: string;
-      workspaceRoot?: string;
-    };
+type SidebarRow = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  status: string;
+  workspaceRoot?: string;
+  /** 任务上记了目标才带上，供「按目标」分组用；没记就是没记，不猜。 */
+  goalId?: string;
+  goalVersion?: number;
+  goalText?: string;
+} & (
+  | { kind: 'conversation'; workspaceId?: string }
+  | { kind: 'task' }
+);
+
+/** 侧栏行 + 目标字段 = 目标投影的输入；taskId 与 id 同值，只为满足投影口径。 */
+type GoalRow = SidebarRow & GoalViewTask;
+
+/** 从任务上取分组字段：goalId 有才有组，版本与目标正文缺就不填。 */
+function goalFields(task: AgentTask | undefined): Partial<SidebarRow> {
+  if (!task) return {};
+  const goalId = task.goalId ?? task.goalContract?.goalId;
+  if (!goalId) return {};
+  return {
+    goalId,
+    ...(typeof task.goalVersion === 'number' ? { goalVersion: task.goalVersion } : {}),
+    ...(task.goalContract?.originalRequest ? { goalText: task.goalContract.originalRequest } : {})
+  };
+}
+
 
 function relTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -68,6 +81,12 @@ export function TaskSidebar(props: {
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
+  /**
+   * M1-2：目标聚合开关。默认开——同一目标下的多条任务挤在一起按时间排，
+   * 看不出哪几条属于同一件事。关掉就回到原来的平铺，出问题时可以立刻退回。
+   */
+  const [groupByGoal, setGroupByGoal] = React.useState(true);
+
   const [rowMenu, setRowMenu] = React.useState<string | null>(null);
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [renameDraft, setRenameDraft] = React.useState('');
@@ -100,12 +119,15 @@ export function TaskSidebar(props: {
     const linkedTaskIds = new Set(
       props.conversations.map(item => item.taskId).filter((id): id is string => Boolean(id))
     );
+    const taskById = new Map(props.tasks.map(task => [task.taskId, task]));
     const conversationRows: SidebarRow[] = visibleConversations.map(item => ({
       kind: 'conversation',
       id: item.conversationId,
       title: item.title,
       updatedAt: item.updatedAt,
       status: item.status,
+      // 会话挂在它绑定的那条任务的目标上；没绑任务，或任务没记目标，就留在「未绑定目标」。
+      ...goalFields(item.taskId ? taskById.get(item.taskId) : undefined),
       ...(item.workspaceId ? { workspaceId: item.workspaceId } : {}),
       ...(item.workspaceRoot ? { workspaceRoot: item.workspaceRoot } : {})
     }));
@@ -118,11 +140,13 @@ export function TaskSidebar(props: {
             title: task.title,
             updatedAt: task.updatedAt,
             status: task.status,
+            ...goalFields(task),
             ...(task.workspaceRoot ? { workspaceRoot: task.workspaceRoot } : {})
           }))
       : [];
     return [...conversationRows, ...taskRows];
   }, [props.conversations, props.tasks, props.workspaceMode]);
+
 
   const filteredRows = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -176,6 +200,63 @@ export function TaskSidebar(props: {
     setRowMenu(null);
     const error = await props.onRemoveWorkspace(workspace.workspaceId);
     if (error) setRenameError(error);
+  }
+
+  function renderRow(row: SidebarRow) {
+    return (
+      <div
+        key={`${row.kind}:${row.id}`}
+        className={`task-item${
+          (row.kind === 'conversation' && props.activeConversationId === row.id) ||
+          (row.kind === 'task' && props.activeId === row.id)
+            ? ' active'
+            : ''
+        }`}
+        onClick={() =>
+          row.kind === 'conversation'
+            ? props.onSelectConversation(row.id)
+            : props.onSelect(row.id)
+        }
+        title={row.title}
+      >
+        <span className={`task-dot s-${row.status}`} />
+        <span className="task-title">{row.title}</span>
+        <span className="task-time">{relTime(row.updatedAt)}</span>
+        <button
+          className="task-delete"
+          title={
+            row.kind === 'conversation'
+              ? '删除这条对话记录'
+              : '删除本地任务记录（不会删除工作区文件）'
+          }
+          onClick={event => {
+            event.stopPropagation();
+            if (row.kind === 'conversation') props.onDeleteConversation(row.id);
+            else props.onDelete(row.id);
+          }}
+        >
+          删除
+        </button>
+      </div>
+    );
+  }
+
+  /** 平铺还是按目标分组，只看这一处；关掉开关就回到原来的时间序列表。 */
+  function renderRows(items: SidebarRow[]) {
+    if (!groupByGoal || props.workspaceMode !== 'engineering') return items.map(renderRow);
+    const goalRows: GoalRow[] = items.map(row => ({ ...row, taskId: row.id }));
+    return groupTasksByGoal(goalRows).map(goal => (
+      <div className="goal-group" key={goal.goalId ?? '__unbound__'}>
+        <div className="goal-head">
+          <span className="goal-name" title={goal.unbound ? '这些任务建时还没写目标' : goal.label}>
+            {goal.label}
+          </span>
+          {goalVersionLabel(goal) && <span className="goal-ver">{goalVersionLabel(goal)}</span>}
+          <span className="goal-count">{goal.items.length}</span>
+        </div>
+        {goal.items.map(renderRow)}
+      </div>
+    ));
   }
 
   return (
@@ -237,6 +318,19 @@ export function TaskSidebar(props: {
           >
             ⇅
           </button>
+          {props.workspaceMode === 'engineering' && (
+            <button
+              className={`side-icon${groupByGoal ? ' on' : ''}`}
+              type="button"
+              aria-pressed={groupByGoal}
+              title={groupByGoal ? '已按目标分组，点击改回按时间平铺' : '点击把同一目标下的任务归到一组'}
+              aria-label="按目标分组"
+              onClick={() => setGroupByGoal(value => !value)}
+            >
+              ◈
+            </button>
+          )}
+
           <button
             className="side-icon"
             type="button"
@@ -357,42 +451,7 @@ export function TaskSidebar(props: {
 
               {!isCollapsed && (
                 <div className="ws-rows">
-                  {group.items.map(row => (
-                    <div
-                      key={`${row.kind}:${row.id}`}
-                      className={`task-item${
-                        (row.kind === 'conversation' && props.activeConversationId === row.id) ||
-                        (row.kind === 'task' && props.activeId === row.id)
-                          ? ' active'
-                          : ''
-                      }`}
-                      onClick={() =>
-                        row.kind === 'conversation'
-                          ? props.onSelectConversation(row.id)
-                          : props.onSelect(row.id)
-                      }
-                      title={row.title}
-                    >
-                      <span className={`task-dot s-${row.status}`} />
-                      <span className="task-title">{row.title}</span>
-                      <span className="task-time">{relTime(row.updatedAt)}</span>
-                      <button
-                        className="task-delete"
-                        title={
-                          row.kind === 'conversation'
-                            ? '删除这条对话记录'
-                            : '删除本地任务记录（不会删除工作区文件）'
-                        }
-                        onClick={event => {
-                          event.stopPropagation();
-                          if (row.kind === 'conversation') props.onDeleteConversation(row.id);
-                          else props.onDelete(row.id);
-                        }}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  ))}
+                  {renderRows(group.items)}
                   {group.items.length === 0 && (
                     <p className="ws-empty">
                       {query.trim() ? '没有匹配的会话' : '还没有会话。下一问会归到这个工作区。'}
@@ -400,6 +459,7 @@ export function TaskSidebar(props: {
                   )}
                 </div>
               )}
+
             </div>
           );
         })}

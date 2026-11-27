@@ -1328,9 +1328,28 @@ export class AgentOrchestrator {
     });
 
     if (plan.requiresUserConfirmation) {
+      const goalId = task.goalId ?? `goal:${taskId}`;
+      const impacted = new Set(plan.impactedTaskIds);
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'warn',
         message: `目标变更等待用户确认：${plan.reason}；确认前不抬版本、不改任务。`
+      });
+      // M1-3：影响面不能只留一行日志。发结构化事件，界面据此弹确认卡；
+      // 受影响任务的标题取事件当时重建出来的那份任务树，事后不回填。
+      this.deps.emit({
+        type: 'goal.revision.pending',
+        taskId,
+        goalId,
+        fromVersion: task.goalVersion ?? plan.nextVersion - 1,
+        nextVersion: plan.nextVersion,
+        reason: plan.reason,
+        nextCriteria: input.nextCriteria,
+        impactedTaskIds: plan.impactedTaskIds,
+        impactedTasks: workTasks
+          .filter(workTask => impacted.has(workTask.workTaskId))
+          .map(workTask => ({ workTaskId: workTask.workTaskId, title: workTask.title, status: String(workTask.status) })),
+        inheritedCount: plan.inheritedTaskIds.length,
+        at: Date.now()
       });
       return plan;
     }

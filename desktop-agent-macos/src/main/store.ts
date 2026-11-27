@@ -59,7 +59,10 @@ const KEEP_FOREVER: ReadonlySet<string> = new Set([
   'work.task.status',
   'work.task.blocked',
   'work.task.accepted',
-  'work.breakdown.replanned'
+  'work.breakdown.replanned',
+  // M1-3：这是一张压在用户这儿没回答的确认卡。裁掉它等于替用户把问题吞了：
+  // 重启之后卡片消失、版本却还是旧的那一版。
+  'goal.revision.pending'
 ]);
 
 function taskIdOfEvent(event: AgentEvent): string | null {

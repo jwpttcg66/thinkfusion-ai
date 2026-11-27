@@ -68,6 +68,9 @@
 | 任务 | 状态 | 事实 |
 | --- | --- | --- |
 | M1-1 Execution 显式化 | `IMPLEMENTED / AUTOMATED_TESTED`（真机未验证） | 新增 `desktop-agent-macos/src/shared/execution-history.ts` 纯函数投影：`rounds + reports + events` → 按轮次分组的执行台账。口径为「一次执行＝一轮」，同轮多份报告合并成一条（结论取最新、证据取并集），缺字段一律 `null` 或空数组，不用 0 顶替。只读 IPC `task:executions` 从 store 取数而非渲染层事件流（`trimEvents` 会裁掉早期 `step.*`，用事件推导会让先前的执行凭空消失），配 preload `getTaskExecutions`、`AgentApi` 声明与 `mock-api` 实现。统计页新增「执行历史」卡 `components/engineering/ExecutionHistory.tsx`，逐条列出结果、成员、步骤、验证、交付、证据与失败原因。零迁移、不建表、不改状态机。`test:execution-history` 9 条（多次执行互不覆盖、无报告轮如实标注、跨任务报告不混入、排序按轮次号）已并入 `verify`，全量回归通过。缺口：真机 ≥2 轮（一轮失败一轮成功）的界面证据未采集 |
+| M1-2 Goal 聚合视图 | `IMPLEMENTED / AUTOMATED_TESTED`（真机未验证） | 新增 `src/shared/goal-view.ts`：`groupTasksByGoal()` 用任务上已有的 `goalId/goalVersion`（其次取契约正文里的 `goalId`）分组，组标题取版本最高的契约原文、没有才退回任务标题，版本列表升序去重；没记目标的老任务落在「未绑定目标」一组并永远排最后，不硬塞关系。侧栏 `TaskSidebar.tsx` 在工程模式下按目标分组渲染（目标名 + 版本 + 逐条任务状态点），并留「◈」开关一键退回时间平铺。会话行只挂到它绑定任务的目标上。无新表、无新写入。`test:goal-view` 9 条（同目标多任务、老任务、版本混排、契约-only、缺时间不顶替当前时间、空输入 + 侧栏接线源码守卫）已并入 `verify`。缺口：真机「修订目标后新旧任务同组、版本号正确」的截图未采 |
+| M1-3 目标变更影响面确认页 | `IMPLEMENTED / AUTOMATED_TESTED`（真机未验证） | `reviseGoal` 在 `requiresUserConfirmation` 分支除原有 warn 日志外，增发结构化事件 `goal.revision.pending`（`goalId`、`fromVersion→nextVersion`、`reason`、变更后标准原文、`impactedTaskIds` 与当时重建任务树里的受影响条目标题/状态、可继承条数），并加入 `store.ts` 的 `KEEP_FOREVER`——待用户回答的确认不能因事件裁剪而凭空消失。新增投影 `projectPendingGoalRevision()`（取时间最新一条；任务版本已追平 `nextVersion` 即认为已生效或过期不再弹卡；「暂不变更」不写库所以卡片仍在）与确认卡组件 `engineering/GoalRevisionConfirm.tsx`，确认走既有 `reviseTaskGoal(criteria, true)`，无新任务状态。`GoalContractCard` 的删标准不再用 `window.confirm` 只问一句，改为提交后由确认卡列出影响面。`test:goal-revision` 8 条（确认/取消两条路径、多 pending 取最新、非 pending 事件过滤、三处源码守卫）已并入 `verify`。缺口：真机「重大修改 → 出确认卡 → 确认后版本抬起、旧任务树作废事件可见」未跑 |
+
 
 ## 目标契约证据闭环（GCE）
 

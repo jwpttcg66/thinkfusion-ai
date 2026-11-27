@@ -82,19 +82,14 @@ export function GoalContractCard(props: {
   async function submit(): Promise<void> {
     if (!props.onReviseGoal) return;
     const next = text.split('\n').map(item => item.trim()).filter(Boolean);
-    const removed = currentLines.filter(item => !next.includes(item));
-    const userConfirmed = removed.length > 0
-      ? window.confirm(
-          `删除成功标准属于目标变更，需要你确认。\n\n将删除：\n${removed.map(item => `· ${item}`).join('\n')}\n\n确认后目标版本会递增。`
-        )
-      : false;
-    if (removed.length > 0 && !userConfirmed) return;
+    // M1-3：删标准属于重大变更，但不再在这里弹原生对话框——那只会问「确不确定」，
+    // 说不出会牵动哪些任务。照常提交，让后端发 goal.revision.pending，由确认卡列影响面。
     setBusy(true);
     setError('');
     try {
-      const result = await props.onReviseGoal(next, userConfirmed);
+      const result = await props.onReviseGoal(next, false);
       if (result && 'requiresUserConfirmation' in result && result.requiresUserConfirmation) {
-        setError('这次变更仍需确认，目标版本没有改变。');
+        setError('这次变更需要确认影响面：目标版本未变，请在上方「目标变更待确认」里核对后确认。');
         return;
       }
       setEditing(false);
@@ -104,6 +99,7 @@ export function GoalContractCard(props: {
       setBusy(false);
     }
   }
+
 
   return (
     <details className="card goal-contract-card" open>

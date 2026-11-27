@@ -2107,6 +2107,30 @@ export type AgentEvent = AgentEventBase &
         goalVersion: number;
         reasons: string[];
       }
+    /**
+     * V4 M1-3：重大目标变更停在「等用户确认影响面」这一步（P0-03 只发了一行日志，
+     * 用户在界面上看不到到底会牵动哪些任务）。确认前不抬版本、不改任务，
+     * 所以这条事件是待办的唯一凭据：重进任务还要能把卡片的原话端出来。
+     */
+    | {
+        type: 'goal.revision.pending';
+        taskId: string;
+        goalId: string;
+        /** 当前版本与确认后要抬到的版本，卡片上要写清楚不是悄悄改。 */
+        fromVersion: number;
+        nextVersion: number;
+        /** 为什么算重大变更（如「删除了 2 条成功标准」）。 */
+        reason: string;
+        /** 确认后会生效的成功标准原文。 */
+        nextCriteria: string[];
+        impactedTaskIds: string[];
+        /** 受影响子任务的快照；只写事件当时真的知道的标题与状态。 */
+        impactedTasks: { workTaskId: string; title: string; status: string }[];
+        /** 不受影响、可继承成果的子任务数。 */
+        inheritedCount: number;
+        at: number;
+      }
+
     /** GCE：真实阶段入口发出的阶段事件；不从旧事件反推。 */
     | {
         type: 'cycle.stage.started' | 'cycle.stage.completed' | 'cycle.stage.skipped';

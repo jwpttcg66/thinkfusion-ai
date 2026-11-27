@@ -279,6 +279,56 @@ export function planGoalRevision(input: {
   };
 }
 
+/**
+ * 待确认的目标变更（V4 M1-3）。
+ *
+ * Orchestrator 在 `requiresUserConfirmation` 时发 `goal.revision.pending`，
+ * 界面上要显示的是事件里那份原话，而不是再算一遍——两边算法一旦漂移，
+ * 用户确认的内容和真正落库的内容就不是同一件事了。
+ */
+export interface GoalRevisionPendingEvent {
+  type: 'goal.revision.pending';
+  taskId: string;
+  goalId: string;
+  fromVersion: number;
+  nextVersion: number;
+  reason: string;
+  nextCriteria: string[];
+  impactedTaskIds: string[];
+  impactedTasks: { workTaskId: string; title: string; status: string }[];
+  inheritedCount: number;
+  at: number;
+}
+
+export function isGoalRevisionPendingEvent(event: { type: string }): event is GoalRevisionPendingEvent {
+  return event.type === 'goal.revision.pending';
+}
+
+/**
+ * 从事件流里投影出「还压在用户这儿没确认」的那一条。
+ *
+ * 只看时间最新的一条 pending：更早的那条要么已被确认，要么已被更新的修订盖掉。
+ * 任务版本已经追平或超过 `nextVersion` 就认为这条已经生效/过期，不再弹卡片——
+ * 否则用户确认完之后每次进来都被问一遍同一件事。
+ * 用户点「取消」时后端什么都没写，所以版本没变，重进任务卡片会再出现：
+ * 这次变更确实还没处理，不把它假装掉。
+ */
+export function projectPendingGoalRevision<T extends GoalRevisionPendingEvent>(input: {
+  events: readonly T[];
+  currentVersion: number;
+}): T | null {
+  // 按事件时间取最新一条，不按数组先后：恢复时事件可能分批回填，位置靠后不代表更新。
+  let latest: T | null = null;
+  for (const event of input.events) {
+    if (event.type !== 'goal.revision.pending') continue;
+    if (latest === null || event.at >= latest.at) latest = event;
+  }
+  if (!latest) return null;
+  return input.currentVersion >= latest.nextVersion ? null : latest;
+}
+
+
+
 export function assessGoalFit(input: {
   successCriteria: readonly string[];
   verified: boolean;

@@ -2,7 +2,7 @@
 
 **上游：** [`../V4-IMPLEMENTATION-PLAN.md`](../V4-IMPLEMENTATION-PLAN.md) P1 +
 4.1.1 里程碑拆分；事实底稿 [`../../audits/V4-P0-CODE-FACT-AUDIT.md`](../../audits/V4-P0-CODE-FACT-AUDIT.md)。
-**状态：** M1-1 `IMPLEMENTED / AUTOMATED_TESTED`（真机验收未做）；其余任务 `DESIGN / NOT STARTED`。
+**状态：** M1-1 / M1-2 / M1-3 `IMPLEMENTED / AUTOMATED_TESTED`（真机验收未做）；M2、M3 `DESIGN / NOT STARTED`。
 实现进度以 [`../../STATUS.md`](../../STATUS.md) 为准，本文件只写任务口径。
 **基线：** `main@bd5a883`
 **通用规则：** 每个任务开工前按计划书 11.1 先核对引用的文件行号是否漂移；

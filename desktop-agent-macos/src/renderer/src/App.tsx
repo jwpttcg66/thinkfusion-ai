@@ -15,8 +15,10 @@ import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsCom
 import { buildConclusion } from '../../shared/task-conversation';
 import { projectConversationCollaborationResult } from '../../shared/collaboration-result';
 import {
+  isGoalRevisionPendingEvent,
   projectConversationGoalWorkbench,
-  projectGoalDrivenWorkbench
+  projectGoalDrivenWorkbench,
+  projectPendingGoalRevision
 } from '../../shared/goal-driven-cycle';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
@@ -57,6 +59,7 @@ import { CollaborationResultPanel } from './components/CollaborationResultPanel'
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { GoalContractCard } from './components/engineering/GoalContractCard';
+import { GoalRevisionConfirm } from './components/engineering/GoalRevisionConfirm';
 import { TaskStats } from './components/engineering/TaskStats';
 import { ExecutionHistory } from './components/engineering/ExecutionHistory';
 import { PageSaveDialog } from './components/PageSaveDialog';
@@ -548,6 +551,14 @@ export default function App() {
   const finalConclusion = useMemo(
     () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
     [events, activeTask?.summary, activeTask?.status]
+  );
+  /** M1-3：压在用户这儿还没确认的目标变更；确认后版本抬起来，卡片自己就消失了。 */
+  const pendingGoalRevision = useMemo(
+    () => projectPendingGoalRevision({
+      events: events.filter(isGoalRevisionPendingEvent),
+      currentVersion: activeTask?.goalVersion ?? 1
+    }),
+    [events, activeTask?.goalVersion]
   );
   /** GDC：目标 / 循环 / 产物 — 仅从权威事件派生；对话胶囊用 intent。 */
   const engineeringWorkbench = useMemo(() => {
@@ -2546,6 +2557,10 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                <GoalRevisionConfirm
+                  pending={pendingGoalRevision}
+                  onConfirm={async criteria => { await reviseTaskGoal(criteria, true); }}
+                />
                 <GoalContractCard
                   workbench={engineeringWorkbench}
                   onReviseGoal={reviseTaskGoal}
