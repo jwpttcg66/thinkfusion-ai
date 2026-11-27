@@ -512,6 +512,11 @@ export class AgentOrchestrator {
     this.deps.store.insertPlan(stored);
     this.tasks.updateRound(round.roundId, { status: 'plan_ready' });
     this.tasks.patch(task.taskId, { currentPlanId: stored.planId });
+    // 固定工作流没有模型规划轮，但状态机仍要走 plan_ready；否则后面
+    // planning → awaiting_approval 会被判成非法转换（真机 2026-11-27）。
+    if (this.tasks.get(task.taskId).status === 'planning') {
+      this.tasks.transition(task.taskId, 'plan_ready');
+    }
     this.ensureGoalContract(task, built.plan);
     this.emitCycleStage(task.taskId, 'GOAL_REASONING', 'completed');
     this.emitCycleStage(task.taskId, 'ANALYSIS', 'completed');
@@ -2722,6 +2727,17 @@ export class AgentOrchestrator {
     const autoApprove = approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
     if (goalNeedsMoreWork && decision === 'complete') {
       decision = atMaxRounds ? 'fail_budget' : autoApprove ? 'repair' : 'complete';
+    }
+    // GCE：目标标准已经逐条满足时，不让旧的「必须同时 compile+run+test」
+    // 一刀切把测试型工作流判成未完成。Goal Fit 是目标层的判定，旧检查仍
+    // 保留在报告里供核对。
+    if (
+      goalAssessment?.fit.fit === 'MET' &&
+      report.status === 'completed' &&
+      !actionableReview &&
+      !desktopStillOpen
+    ) {
+      decision = 'complete';
     }
     const goalBlocksCompletion = goalNeedsMoreWork && decision !== 'repair';
     // 无新证据不得再开修复轮：两轮之间命令、参数、输出、验证结论都没变，
