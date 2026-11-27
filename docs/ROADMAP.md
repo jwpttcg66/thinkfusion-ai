@@ -23,8 +23,9 @@
 目标契约证据闭环（GCE）的设计与批次见 [架构说明](architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) 与 [任务书](implementation/V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md)；当前为 DESIGN/NOT STARTED。
 
 V3 全局生产闭环（P0–P5）的方向、阶段边界与验收口径见
-[总计划](implementation/plans/V3-PRODUCTION-CLOSURE-PLAN.md)；当前从
-[P0 详细任务书](implementation/plans/active/P0-VERSION-RECOVERY-TASK-BOOK.md) 起步。
+[总计划](implementation/plans/V3-PRODUCTION-CLOSURE-PLAN.md)，其 P0（版本一致性与长任务中断恢复）已合入 `main`。
+当前主线是 [V4.0.0 正式功能实施计划](implementation/plans/V4-IMPLEMENTATION-PLAN.md)（P0–P6，基线 `main@173b85a`）；
+两套阶段编号不同，勿按编号对应。
 
 ## 后续候选方向
 

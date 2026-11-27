@@ -50,7 +50,7 @@
 
 ## V3 全局生产闭环（计划书 P0–P5）
 
-以 [总计划](plans/V3-PRODUCTION-CLOSURE-PLAN.md) 与 [P0 任务书](plans/active/P0-VERSION-RECOVERY-TASK-BOOK.md) 为准；阶段编号与下面的 GCE 轨道不同。以下状态来自任务分支 `p0-version-recovery`，尚未合入 `main`。
+以 [总计划](plans/V3-PRODUCTION-CLOSURE-PLAN.md) 与 [P0 任务书](plans/active/P0-VERSION-RECOVERY-TASK-BOOK.md) 为准；阶段编号与下面的 GCE 轨道不同。P0 已合入 `main`（压缩提交 `173b85a`，原六个提交见 `backup/pre-squash-20261127`）；下表证据来自任务分支 `p0-version-recovery` 的真机运行，代码与 `main` 一致。V4 阶段计划见 [V4 实施计划](plans/V4-IMPLEMENTATION-PLAN.md)，其 P0 是架构事实统一，不是重复开发本批功能。
 
 | 项 | 状态 | 事实 |
 | --- | --- | --- |

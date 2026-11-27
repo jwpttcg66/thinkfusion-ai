@@ -5,8 +5,13 @@
 
 ## 当前计划
 
+- [V4-IMPLEMENTATION-PLAN.md](V4-IMPLEMENTATION-PLAN.md)：**V4.0.0 正式功能实施计划（当前主线）**，
+  基线 `main@173b85a`，P0 架构事实统一 → P1 Engineering Runtime 与长任务 → P2 质量治理 →
+  P3 Goal–Evidence 闭环 → P4 三场景 → P5 Native/External → P6 工作台与验收。
+  不含实现状态，状态见 [`../STATUS.md`](../STATUS.md)；阶段编号与 V3 计划**不是同一套**。
 - [V3-PRODUCTION-CLOSURE-PLAN.md](V3-PRODUCTION-CLOSURE-PLAN.md)：V3 全局生产闭环总计划（P0–P5），
-  定义方向、架构、阶段边界与验收口径；不含实现状态，状态见 [`../STATUS.md`](../STATUS.md)。
+  定义方向、架构、阶段边界与验收口径；其 P0（版本一致性与长任务中断恢复）已合入 `main`。
+  已被 V4 计划接续，保留用于追溯 V3 期间的阶段划分。
 - [active/P0-VERSION-RECOVERY-TASK-BOOK.md](active/P0-VERSION-RECOVERY-TASK-BOOK.md)：
   总计划 P0（版本一致性与长任务中断恢复）详细任务书，基于 `main@af7b312` 的只读审计；`DESIGN / NOT STARTED`。
 - [active/P1-REMEDIATION-PLAN.md](active/P1-REMEDIATION-PLAN.md)：远程审计整改项。
