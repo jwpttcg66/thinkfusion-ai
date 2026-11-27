@@ -7402,3 +7402,48 @@ button:disabled {
 .exec-evidence code { word-break: break-all; }
 .exec-evidence-kind { margin-right: 6px; font-size: 11px; opacity: 0.7; }
 .exec-sources { margin: 0; font-size: 11px; }
+
+/* V4 M1-2：侧栏按目标分组 */
+.goal-group { margin: 0 0 6px; }
+.goal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px 3px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.goal-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.goal-ver {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+}
+.goal-count { flex: 0 0 auto; font-size: 11px; opacity: 0.75; }
+.goal-group .task-item { padding-left: 18px; }
+
+/* V4 M1-3：目标变更影响面确认卡 */
+.goal-revision-confirm { border-color: rgba(255, 190, 90, 0.45); }
+.grc-reason { margin: 0 0 8px; font-size: 13px; }
+.grc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grc-cols h3 { margin: 0 0 6px; font-size: 12px; color: var(--text-3); font-weight: 600; }
+.grc-criteria { margin: 0; padding-left: 18px; font-size: 13px; }
+.grc-impacted { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.grc-impacted li { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.grc-impacted-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grc-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
