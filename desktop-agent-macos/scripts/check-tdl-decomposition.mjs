@@ -126,3 +126,46 @@ test('种树：简单计划仍然只有 L1→L3，不凭空多一层', () => {
   assert.equal(tasks.filter(task => task.level === 2).length, 0);
   assert.equal(tasks.filter(task => task.level === 3).length, 1);
 });
+
+test('GCE：单一 MUST Criterion 覆盖所有 L2，L3 继承父任务绑定', () => {
+  const plan = {
+    planId: 'p3', taskId: 'w3', roundId: 'r3', title: '两处改动', description: '',
+    completion: 'done',
+    steps: [write('s1', 'src/main/a.ts'), write('s2', 'src/renderer/b.tsx')]
+  };
+  const events = seedWorkEventsFromPlan({
+    workId: 'w3', title: '两处改动', plan, at: 1,
+    criteria: [{ criterionId: 'c1', description: '两处都改完并测试通过', priority: 'MUST' }]
+  });
+  const tasks = [...rebuildWorkTasksFromEvents('w3', events).values()];
+  const l2 = tasks.filter(task => task.level === 2);
+  const l3 = tasks.filter(task => task.level === 3);
+  assert.ok(l2.length > 0);
+  assert.ok(l2.every(task => task.criterionIds?.includes('c1')));
+  assert.ok(l3.every(task => task.criterionIds?.includes('c1')));
+});
+
+test('GCE：多 Criterion 按关键词保守映射，未匹配保持未覆盖', () => {
+  const plan = {
+    planId: 'p4', taskId: 'w4', roundId: 'r4', title: '两件事', description: '',
+    completion: 'done',
+    steps: [write('s1', 'src/login.ts'), write('s2', 'docs/login.md')],
+    decomposition: [
+      { id: 'auth', title: '实现登录 token 校验', stepIds: ['s1'] },
+      { id: 'docs', title: '更新登录文档', stepIds: ['s2'] }
+    ]
+  };
+  const events = seedWorkEventsFromPlan({
+    workId: 'w4', title: '两件事', plan, at: 1,
+    criteria: [
+      { criterionId: 'token', description: '登录 token 校验通过', priority: 'MUST' },
+      { criterionId: 'docs', description: '登录文档更新并回读', priority: 'MUST' }
+    ]
+  });
+  const tasks = [...rebuildWorkTasksFromEvents('w4', events).values()];
+  const l2 = tasks.filter(task => task.level === 2);
+  const auth = l2.find(task => task.title.includes('token'));
+  const docs = l2.find(task => task.title.includes('文档'));
+  assert.ok(auth?.criterionIds?.includes('token'));
+  assert.ok(docs?.criterionIds?.includes('docs'));
+});

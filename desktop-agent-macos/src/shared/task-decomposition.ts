@@ -838,6 +838,59 @@ export function decompositionWarnings(result: PlanDecompositionResult): string[]
   return warnings;
 }
 
+type WorkCriterionRef = Pick<
+  import('./goal-contract').GoalCriterion,
+  'criterionId' | 'description' | 'priority'
+>;
+
+const CRITERION_STOP_WORDS = new Set([
+  '实现', '完成', '测试', '通过', '文件', '工程', '用户', '目标', '必须', '需要',
+  '以及', '返回', '退出码', '运行', '写入', '修改', '检查', '证据', '验证'
+]);
+
+function criterionKeywords(text: string): Set<string> {
+  const lower = text.toLowerCase();
+  const ascii = lower.match(/[a-z0-9_.-]{3,}/g) ?? [];
+  const chinese = lower.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+  const bigrams: string[] = [];
+  for (const segment of chinese) {
+    for (let index = 0; index < segment.length - 1; index += 1) {
+      bigrams.push(segment.slice(index, index + 2));
+    }
+  }
+  return new Set(
+    [...ascii, ...bigrams].filter(token => !CRITERION_STOP_WORDS.has(token))
+  );
+}
+
+/**
+ * Criterion → WorkTask 的保守映射。
+ *
+ * 只有一条 MUST 时覆盖所有 L2（单一目标由多个子任务共同承接是正常的）；
+ * 多条标准时按关键词重合分配，匹配不上就保持未覆盖，让门禁如实阻断，
+ * 不把根任务当成万能承接者。
+ */
+function criterionIdsForTask(
+  text: string,
+  criteria: readonly WorkCriterionRef[]
+): string[] {
+  if (criteria.length === 0) return [];
+  if (criteria.length === 1) return [criteria[0]!.criterionId];
+  const taskKeywords = criterionKeywords(text);
+  if (taskKeywords.size === 0) return [];
+  return criteria
+    .filter(criterion => {
+      const description = criterion.description.trim();
+      if (description && (text.includes(description) || description.includes(text))) return true;
+      const keywords = criterionKeywords(description);
+      for (const keyword of keywords) {
+        if (taskKeywords.has(keyword)) return true;
+      }
+      return false;
+    })
+    .map(criterion => criterion.criterionId);
+}
+
 /** 从计划步骤生成显式 work.* 种子事件（L0 Work + L1 组 + L3 步骤）。 */
 export function seedWorkEventsFromPlan(input: {
   workId: string;
@@ -847,10 +900,14 @@ export function seedWorkEventsFromPlan(input: {
   cycleId?: string;
   goalId?: string;
   goalVersion?: number;
+  /** GCE：目标契约的 Criterion；只做保守映射，不把根任务算成全部覆盖。 */
+  criteria?: readonly WorkCriterionRef[];
 }): AgentEvent[] {
   const at = input.at ?? Date.now();
   const goalId = input.goalId ?? `goal:${input.workId}`;
   const goalVersion = input.goalVersion ?? 1;
+  const criteria = input.criteria ?? [];
+  const criterionIdsByParent = new Map<string, string[]>();
   const events: AgentEvent[] = [
     { type: 'work.breakdown.created', at, taskId: input.workId, workId: input.workId, title: input.title || input.plan.title }
   ];
@@ -914,6 +971,11 @@ export function seedWorkEventsFromPlan(input: {
     const subtaskCycleId = `cycle:${input.workId}:${subtaskId}`;
     cycleBySubtask.set(subtaskId, subtaskCycleId);
     for (const stepId of item.stepIds) subtaskByStep.set(stepId, subtaskId);
+    const criterionIds = criterionIdsForTask(
+      [item.title, item.description ?? '', ...(item.acceptanceCriteria ?? [])].join('\n'),
+      criteria
+    );
+    criterionIdsByParent.set(subtaskId, criterionIds);
     const subtask: WorkTask = {
       workTaskId: subtaskId,
       workId: input.workId,
@@ -923,6 +985,7 @@ export function seedWorkEventsFromPlan(input: {
       title: item.title,
       description: item.description ?? item.title,
       dependencies: index === 0 ? [] : [`wt-task-${decomposition[index - 1]!.id}`],
+      ...(criterionIds.length > 0 ? { criterionIds } : {}),
       acceptanceCriteria:
         item.acceptanceCriteria && item.acceptanceCriteria.length > 0
           ? [...item.acceptanceCriteria]
@@ -950,6 +1013,7 @@ export function seedWorkEventsFromPlan(input: {
     const previous = lastStepByParent.get(parentTaskId);
     lastStepByParent.set(parentTaskId, workTaskId);
     const complexity: WorkTaskComplexity = 'low';
+    const inheritedCriterionIds = criterionIdsByParent.get(parentTaskId) ?? [];
     const task: WorkTask = {
       workTaskId,
       workId: input.workId,
@@ -958,6 +1022,7 @@ export function seedWorkEventsFromPlan(input: {
       groupId,
       title: step.description?.trim() || step.tool,
       description: step.description,
+      ...(inheritedCriterionIds.length > 0 ? { criterionIds: [...inheritedCriterionIds] } : {}),
       dependencies: previous ? [previous] : [],
       acceptanceCriteria: [`步骤 ${step.tool} 执行完成`],
       // 每个父任务里的第一步可开工；其余等前一步。父任务本身不抢「当前执行」。

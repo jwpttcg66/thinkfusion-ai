@@ -77,6 +77,8 @@ import {
   rebuildWorkTasksFromEvents,
   seedWorkEventsFromPlan
 } from '../shared/task-decomposition';
+import { assessGoalDecomposition } from '../shared/goal-decomposition';
+import { reconcileGoalContractOnResume } from '../shared/goal-recovery';
 import {
   detectSubtaskConflicts,
   integrateSubtaskCycles,
@@ -517,7 +519,7 @@ export class AgentOrchestrator {
     if (this.tasks.get(task.taskId).status === 'planning') {
       this.tasks.transition(task.taskId, 'plan_ready');
     }
-    this.ensureGoalContract(task, built.plan);
+    const goalContract = this.ensureGoalContract(task, built.plan);
     this.emitCycleStage(task.taskId, 'GOAL_REASONING', 'completed');
     this.emitCycleStage(task.taskId, 'ANALYSIS', 'completed');
     this.emitCycleStage(task.taskId, 'PLANNING', 'started');
@@ -530,14 +532,25 @@ export class AgentOrchestrator {
       ...(built.requiresApproval ? ['工作流包含必须人工批准的节点'] : [])
     ]);
     // 工作流也要有任务树与「准备中」步骤：否则进度面板对这条任务一片空白。
-    for (const event of seedWorkEventsFromPlan({
-      workId: task.taskId,
+    const seededWork = this.buildPlanWorkEvents({
+      taskId: task.taskId,
       title: definition.title,
       plan: planPreview,
-      at: Date.now(),
-      goalId: task.goalId,
-      goalVersion: task.goalVersion
-    })) {
+      ...(task.goalId ? { goalId: task.goalId } : {}),
+      ...(task.goalVersion ? { goalVersion: task.goalVersion } : {}),
+      goalContract
+    });
+    if (seededWork.blocked) {
+      planPreview.warnings = [...(planPreview.warnings ?? []), ...seededWork.reasons];
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId: task.taskId,
+        level: 'warn',
+        message: `GCE 分解门禁：${seededWork.reasons.join('；')}；工作流计划保留，但不会自动批准。`
+      });
+    }
+    for (const event of seededWork.events) {
       this.deps.emit(event);
     }
     for (const step of stored.plan.steps) {
@@ -568,7 +581,7 @@ export class AgentOrchestrator {
       });
       return this.tasks.get(task.taskId);
     }
-    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan) {
+    if (approvalPolicyFor(task.permissionPreset).autoApprovePlan && !seededWork.blocked) {
       this.autoApprovePlan(task.taskId, round.roundId, stored.planId);
     }
     return this.tasks.get(task.taskId);
@@ -1104,6 +1117,34 @@ export class AgentOrchestrator {
           taskId,
           level: 'warn',
           message: `版本核对：${versionChain.issues.map(item => `[${item.layer}] ${item.reason}`).join('；')}；可继承 ${versionChain.inheritable.join('、') || '无'}`
+        });
+      }
+
+      // GCE：旧 GoalContract 可能比当前任务目标旧；过期契约不能被继续显示成
+      // 当前目标，也不能拿它的 Criterion 继续判定。丢弃后由下一次计划重建。
+      const goalRecovery = reconcileGoalContractOnResume({
+        goalId: task.goalId ?? `goal:${taskId}`,
+        goalVersion: task.goalVersion ?? 1,
+        ...(task.goalCriteria ? { goalCriteria: task.goalCriteria } : {}),
+        ...(task.goalContract ? { contract: task.goalContract } : {}),
+        tasks: resumeTasks
+      });
+      if (goalRecovery.status === 'needs_replan') {
+        this.deps.emit({
+          type: 'goal.contract.stale',
+          at: Date.now(),
+          taskId,
+          goalId: task.goalId ?? `goal:${taskId}`,
+          goalVersion: task.goalVersion ?? 1,
+          reasons: goalRecovery.reasons
+        });
+        this.tasks.patch(taskId, { goalContract: undefined });
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId,
+          level: 'warn',
+          message: `GCE 目标契约已过期：${goalRecovery.reasons.join('；')}；继续时按当前目标重新建立，不复用旧 Criterion。`
         });
       }
 
@@ -1846,7 +1887,7 @@ export class AgentOrchestrator {
     this.tasks.updateRound(roundId, { status: 'plan_ready' });
     // 这一份计划是哪一份：辩论期间也要能回答，所以现在就记，不等审批。
     this.tasks.patch(taskId, { currentPlanId: stored.planId });
-    this.ensureGoalContract(this.tasks.get(taskId), plan);
+    const goalContract = this.ensureGoalContract(this.tasks.get(taskId), plan);
     this.emitCycleStage(taskId, 'GOAL_REASONING', 'completed');
     this.emitCycleStage(taskId, 'ANALYSIS', 'completed');
     this.emitCycleStage(taskId, 'PLANNING', 'started');
@@ -1866,6 +1907,24 @@ export class AgentOrchestrator {
     ]);
     if (decomposition.items.length > 0) {
       planPreview.decomposition = decomposition.items;
+    }
+    const seededWork = this.buildPlanWorkEvents({
+      taskId,
+      title: stored.plan.title || task.title || taskId,
+      plan: planPreview,
+      ...(task.goalId ? { goalId: task.goalId } : {}),
+      ...(task.goalVersion ? { goalVersion: task.goalVersion } : {}),
+      goalContract
+    });
+    if (seededWork.blocked) {
+      planPreview.warnings = [...(planPreview.warnings ?? []), ...seededWork.reasons];
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: `GCE 分解门禁：${seededWork.reasons.join('；')}；计划保留，但不会自动批准。`
+      });
     }
     if (planGate.decompositionNote) {
       this.deps.emit({
@@ -1889,14 +1948,7 @@ export class AgentOrchestrator {
         this.deps.emit({ type: 'work.breakdown.replanned', at: Date.now(), taskId, workId: taskId, impactedIds: impacted });
       }
     }
-    for (const event of seedWorkEventsFromPlan({
-      workId: taskId,
-      title: stored.plan.title || task.title || taskId,
-      plan: planPreview,
-      at: Date.now(),
-      goalId: task.goalId,
-      goalVersion: task.goalVersion
-    })) {
+    for (const event of seededWork.events) {
       this.deps.emit(event);
     }
     // 计划选中了这些工具，但一个都还没执行；界面必须能区分“准备”与“开始”。
@@ -1922,8 +1974,16 @@ export class AgentOrchestrator {
     // 完全权限就不再要人点两次：计划审批与逐步骤审批问的都是「这台机器允许
     // 做这些吗」，而这一档已经回答过了。方案评审、NEEDS_ANALYSIS 都是质量
     // 问题，照常跑、照常记警告，但不能把它们变成第二次权限申请。
-    if (planGate.autoApprovePlan) {
+    if (planGate.autoApprovePlan && !seededWork.blocked) {
       this.autoApprovePlan(taskId, roundId, stored.planId);
+    } else if (planGate.autoApprovePlan && seededWork.blocked) {
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId,
+        level: 'warn',
+        message: '完全权限也没有自动批准：目标标准没有任务承接，先补齐任务分解或调整目标。'
+      });
     }
   }
 
@@ -2500,6 +2560,35 @@ export class AgentOrchestrator {
       },
       current: { facts: evidenceFacts(report), issues: review.issues }
     });
+  }
+
+  /**
+   * 种任务树并做 GCE 覆盖门禁。
+   *
+   * 单一 MUST 会覆盖所有 L2；多 Criterion 按关键词保守映射，匹配不上就保持
+   * 未覆盖。未覆盖时计划仍可查看，但不自动批准，避免“计划完整”是假的。
+   */
+  private buildPlanWorkEvents(input: {
+    taskId: string;
+    title: string;
+    plan: PlanPreview;
+    goalId?: string;
+    goalVersion?: number;
+    goalContract?: GoalContract;
+  }): { events: AgentEvent[]; blocked: boolean; reasons: string[] } {
+    const events = seedWorkEventsFromPlan({
+      workId: input.taskId,
+      title: input.title,
+      plan: input.plan,
+      at: Date.now(),
+      ...(input.goalId ? { goalId: input.goalId } : {}),
+      ...(input.goalVersion ? { goalVersion: input.goalVersion } : {}),
+      ...(input.goalContract ? { criteria: input.goalContract.criteria } : {})
+    });
+    if (!input.goalContract) return { events, blocked: false, reasons: [] };
+    const tasks = [...rebuildWorkTasksFromEvents(input.taskId, events).values()];
+    const assessment = assessGoalDecomposition(input.goalContract, tasks);
+    return { events, blocked: !assessment.ok, reasons: assessment.reasons };
   }
 
   /** 真实阶段事件：只在流程真正进入/完成某阶段时调用，不从旧事件反推。 */

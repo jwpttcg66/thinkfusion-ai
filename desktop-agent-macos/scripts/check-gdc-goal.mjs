@@ -199,3 +199,37 @@ test('投影读取 goal.contract.updated 与 goal.fit，不把执行完成直接
   assert.equal(workbench.goal.criteria?.[0]?.status, 'UNMET');
   assert.ok(workbench.goal.fitNotes.includes('1 条强制标准未满足'));
 });
+
+test('恢复时目标契约过期：投影不再显示旧 Criterion 和旧 Goal Fit', () => {
+  const contract = createGoalContract({
+    goalId: 'goal:w4',
+    workId: 'w4',
+    originalRequest: '旧目标',
+    goalVersion: 1,
+    status: 'ACTIVE',
+    criteria: [
+      createGoalCriterion({
+        goalId: 'goal:w4', goalVersion: 1, criterionId: 'old',
+        description: '旧标准', source: 'USER_EXPLICIT',
+        verificationMethod: 'test', acceptanceThreshold: '通过', status: 'MET',
+        evidenceRefs: ['e1'], updatedAt: 1
+      })
+    ],
+    createdAt: 1
+  });
+  const workbench = projectGoalDrivenWorkbench({
+    workId: 'w4',
+    originalRequest: '新目标',
+    events: [
+      { type: 'goal.contract.updated', at: 1, taskId: 'w4', contract },
+      { type: 'goal.fit', at: 2, taskId: 'w4', fit: 'met', gceFit: 'MET', notes: [], criteria: [{ criterionId: 'old', status: 'MET' }] },
+      { type: 'goal.contract.stale', at: 3, taskId: 'w4', goalId: 'goal:w4', goalVersion: 2, reasons: ['目标契约 v1 与当前目标 v2 不一致'] }
+    ]
+  });
+  assert.equal(workbench.goal.fit, 'unknown');
+  assert.equal(workbench.goal.gceFit, 'UNKNOWN');
+  assert.deepEqual(workbench.goal.criteria, []);
+  assert.deepEqual(workbench.goal.successCriteria, []);
+  assert.ok(workbench.goal.fitNotes.some(item => item.includes('v1')));
+  assert.ok(workbench.goal.openQuestions.some(item => item.includes('过期')));
+});

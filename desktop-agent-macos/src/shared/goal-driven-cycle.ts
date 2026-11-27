@@ -749,20 +749,42 @@ export function projectGoalDrivenWorkbench(input: {
   });
   const latestGoalFit = [...ordered].reverse().find(event => event.type === 'goal.fit');
   const latestContract = [...ordered].reverse().find(event => event.type === 'goal.contract.updated');
+  const latestStale = [...ordered].reverse().find(event => event.type === 'goal.contract.stale');
+  const staleIsCurrent = Boolean(
+    latestStale && (!latestContract || latestStale.at >= latestContract.at)
+  );
+  const fitIsCurrent = Boolean(
+    latestGoalFit && (!latestStale || latestGoalFit.at > latestStale.at)
+  );
   let goal = projectEngineeringGoal({
     workId: input.workId,
     originalRequest: input.originalRequest,
     summary: input.summary,
     conversationGoal: input.conversationGoal,
-    fit: latestGoalFit
+    fit: fitIsCurrent && latestGoalFit
       ? latestGoalFit.fit
       : fallbackFit.fit,
-    fitNotes: latestGoalFit ? latestGoalFit.notes : fallbackFit.notes
+    fitNotes: fitIsCurrent && latestGoalFit
+      ? latestGoalFit.notes
+      : latestStale
+        ? latestStale.reasons
+        : fallbackFit.notes
   });
-  const contractCriteria = latestContract
+  const contractCriteria = !staleIsCurrent && latestContract
     ? latestContract.contract.criteria
-    : latestGoalFit?.criteria ?? [];
-  if (contractCriteria.length > 0) {
+    : !staleIsCurrent
+      ? latestGoalFit?.criteria ?? []
+      : [];
+  if (staleIsCurrent) {
+    goal = {
+      ...goal,
+      successCriteria: [],
+      criteria: [],
+      fit: 'unknown',
+      gceFit: 'UNKNOWN',
+      openQuestions: ['目标契约已过期；继续前会按当前目标重新建立']
+    };
+  } else if (contractCriteria.length > 0) {
     goal = {
       ...goal,
       successCriteria: contractCriteria.map(item => item.description ?? item.criterionId),
@@ -776,7 +798,7 @@ export function projectGoalDrivenWorkbench(input: {
       }))
     };
   }
-  if (latestGoalFit?.gceFit) {
+  if (fitIsCurrent && latestGoalFit?.gceFit) {
     goal = { ...goal, gceFit: latestGoalFit.gceFit };
   }
   return {

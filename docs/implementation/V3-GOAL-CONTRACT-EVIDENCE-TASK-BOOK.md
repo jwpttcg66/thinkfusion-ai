@@ -36,8 +36,8 @@
 | GCE-P1 | Goal Contract | P0 | 进行中（IMPLEMENTED/TESTED；目标变更 UI 未接） | 六维目标、Criterion、确认/变更入口 |
 | GCE-P2 | Criterion ↔ Evidence 闭环 | P1 | 进行中（IMPLEMENTED/TESTED；生产已按全轮报告取证） | 逐条 Goal Fit、三种完成状态 |
 | GCE-P3 | Cycle 生命周期与决策引擎 | P1,P2 | 进行中（决策纯函数 TESTED；真实阶段/决策事件已接线） | Work/Cycle/Round 分离、完整决策出口 |
-| GCE-P4 | TDL 与动态协作接入 | P2,P3 | 进行中（覆盖/参与纯函数层 TESTED；计划门禁未接） | 覆盖门禁、ECO 资格、DMOCA 版本绑定 |
-| GCE-P5 | UI 与长任务验收 | P3,P4 | 进行中（目标/Criterion/阶段/决策/目标变更已接；真机待补） | 三场景回归、真机长任务证据 |
+| GCE-P4 | TDL 与动态协作接入 | P2,P3 | 进行中（覆盖门禁已接；DMOCA/辩论动态选择沿用现有链路） | 覆盖门禁、ECO 资格、DMOCA 版本绑定 |
+| GCE-P5 | UI 与长任务验收 | P3,P4 | 进行中（目标/Criterion/阶段/决策/目标变更/恢复 stale 已接；三场景与交互真机待补） | 三场景回归、真机长任务证据 |
 
 ## 3. GCE-P0：现状与事件映射核对
 

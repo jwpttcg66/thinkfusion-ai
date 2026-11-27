@@ -2094,6 +2094,14 @@ export type AgentEvent = AgentEventBase &
         taskId: string;
         contract: import('./goal-contract').GoalContract;
       }
+    /** GCE：恢复时发现目标契约过期；旧契约不得继续显示为当前目标。 */
+    | {
+        type: 'goal.contract.stale';
+        taskId: string;
+        goalId: string;
+        goalVersion: number;
+        reasons: string[];
+      }
     /** GCE：真实阶段入口发出的阶段事件；不从旧事件反推。 */
     | {
         type: 'cycle.stage.started' | 'cycle.stage.completed' | 'cycle.stage.skipped';
