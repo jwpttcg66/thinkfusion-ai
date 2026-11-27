@@ -4,6 +4,9 @@
 
 - [global-memory/GLOBAL_MEMORY_AUDIT.md](global-memory/GLOBAL_MEMORY_AUDIT.md)：全局记忆实现范围审计。
 - [GCE-P0-CURRENT-SYSTEM-AUDIT.md](GCE-P0-CURRENT-SYSTEM-AUDIT.md)：目标契约证据闭环 P0 现状、真实事件/投影/缺口审计。
+- [V4-P0-CODE-FACT-AUDIT.md](V4-P0-CODE-FACT-AUDIT.md)：V4 P0 全量代码事实审计
+  （模块调用链、六层符合性矩阵、对象关系、死代码清单；基线 `main@bd5a883`），
+  V4 P1 任务书的事实底稿。
 - 其他已关闭的迁移、设计一致性和根因审计已转入
   [`../../archive/README.md`](../../archive/README.md)。
 
