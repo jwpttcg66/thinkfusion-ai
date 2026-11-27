@@ -82,10 +82,14 @@ export interface ShellRunResult {
   sandboxed: boolean;
   sandboxReason: string;
   exitCode: number | null;
+  /** 真正发给进程组的最后一个信号；超时与用户中断都要如实记。 */
+  signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
   durationMs: number;
   timedOut: boolean;
+  /** 用户取消导致的中断，与 timedOut 区分开。 */
+  interrupted: boolean;
   truncated: boolean;
   /** 后台运行时存在，此时没有退出码。 */
   job?: JobMeta;
@@ -122,7 +126,14 @@ export function checkShellCommand(command: string, preset: TaskGrant['permission
 
 export async function runShell(
   grant: TaskGrant,
-  args: { command: string; cwd?: string; timeoutMs?: number; background?: boolean }
+  args: {
+    command: string;
+    cwd?: string;
+    timeoutMs?: number;
+    background?: boolean;
+    /** 运行时的任务取消集合；命中时向进程组发中断信号，而不是等它自己跑完。 */
+    isCancelled?: () => boolean;
+  }
 ): Promise<ShellRunResult> {
   const policy = checkShellCommand(args.command, grant.permissionPreset);
   const cwd = await resolveGrantedPath(grant, args.cwd ?? '.', false);
@@ -136,6 +147,16 @@ export async function runShell(
     if (!relative && real !== root) throw new Error('workspace-write 下命令必须在工作区内执行');
   }
 
+  // 启动前已经取消：不能先 spawn 再补一刀，直接给可核对的中断结果。
+  if (args.isCancelled?.()) {
+    return {
+      command: args.command, cwd, policy, shell: '/bin/sh',
+      sandboxed: false, sandboxReason: '命令启动前已取消，没有进程可核对沙箱状态',
+      exitCode: null, signal: null, stdout: '', stderr: '', durationMs: 0,
+      timedOut: false, interrupted: true, truncated: false
+    };
+  }
+
   if (args.background) {
     const startedAt = Date.now();
     const job = await startJob(grant, { command: args.command, cwd });
@@ -147,10 +168,12 @@ export async function runShell(
       sandboxed: job.sandboxed ?? false,
       sandboxReason: job.sandboxReason ?? '后台作业没有记录沙箱状态',
       exitCode: null,
+      signal: null,
       stdout: '',
       stderr: '',
       durationMs: Date.now() - startedAt,
       timedOut: false,
+      interrupted: false,
       truncated: false,
       job
     };
@@ -195,16 +218,44 @@ export async function runShell(
   child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
 
   let timedOut = false;
+  let interrupted = false;
+  let closed = false;
+  let lastSignal: NodeJS.Signals | null = null;
+  const killGroup = (signal: NodeJS.Signals) => {
+    try {
+      if (child.pid) process.kill(-child.pid, signal);
+      lastSignal = signal;
+    } catch { /* 进程已经退出 */ }
+  };
   const timer = setTimeout(() => {
     timedOut = true;
-    try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch { /* 已经退了 */ }
+    killGroup('SIGKILL');
   }, timeoutMs);
+
+  // 沿用 Runtime 的取消集合，不新造第二套取消机制。每 100ms 查一次：
+  // 命中就 SIGTERM 整个进程组，2 秒后还活着再 SIGKILL，不能只把下一步 skip。
+  let graceTimer: NodeJS.Timeout | undefined;
+  const cancelTimer = args.isCancelled
+    ? setInterval(() => {
+        if (closed || interrupted || timedOut || !args.isCancelled?.()) return;
+        interrupted = true;
+        clearTimeout(timer);
+        killGroup('SIGTERM');
+        graceTimer = setTimeout(() => { if (!closed) killGroup('SIGKILL'); }, 2000);
+      }, 100)
+    : null;
 
   const exitCode = await new Promise<number | null>(resolve => {
     child.on('error', () => resolve(null));
-    child.on('close', code => resolve(code));
+    child.on('close', (code, childSignal) => {
+      closed = true;
+      if (childSignal) lastSignal = childSignal;
+      resolve(code);
+    });
   });
   clearTimeout(timer);
+  if (cancelTimer) clearInterval(cancelTimer);
+  if (graceTimer) clearTimeout(graceTimer);
 
   return {
     command: args.command,
@@ -214,10 +265,12 @@ export async function runShell(
     sandboxed: sandbox.sandboxed,
     sandboxReason: sandbox.reason,
     exitCode,
+    signal: lastSignal,
     stdout,
     stderr,
     durationMs: Date.now() - started,
     timedOut,
+    interrupted,
     truncated
   };
 }

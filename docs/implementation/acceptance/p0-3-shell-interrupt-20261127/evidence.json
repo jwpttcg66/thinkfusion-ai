@@ -1,0 +1,97 @@
+{
+  "startedAt": "2026-11-27T07:20:13.043Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333",
+  "marker": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-p0-3-marker-1795764013043.txt",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-27T07:20:13.044Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "CDP 已连接",
+      "at": "2026-11-27T07:20:20.668Z"
+    },
+    "probe-task-created": {
+      "ok": true,
+      "detail": "17cb09d7-08ef-4836-8b75-0ea3f3fabd3a",
+      "at": "2026-11-27T07:20:21.428Z"
+    },
+    "shell-step-started": {
+      "ok": true,
+      "detail": "1795764021565",
+      "at": "2026-11-27T07:20:22.168Z"
+    },
+    "pause-waited-for-runtime": {
+      "ok": true,
+      "detail": "paused=paused",
+      "at": "2026-11-27T07:20:22.424Z"
+    },
+    "step-result-interrupted": {
+      "ok": true,
+      "detail": "命令已被用户中断（SIGTERM)，stdout/stderr 与退出码见执行结果",
+      "at": "2026-11-27T07:20:22.430Z"
+    },
+    "report-marks-interrupted": {
+      "ok": true,
+      "detail": "[{\"stepId\":\"long-shell\",\"code\":\"COMMAND_INTERRUPTED\",\"message\":\"命令已被用户中断（SIGTERM)，stdout/stderr 与退出码见执行结果\"}]",
+      "at": "2026-11-27T07:20:22.430Z"
+    },
+    "terminated-promptly": {
+      "ok": true,
+      "detail": "628ms",
+      "at": "2026-11-27T07:20:22.430Z"
+    },
+    "late-write-never-happened": {
+      "ok": true,
+      "detail": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-p0-3-marker-1795764013043.txt",
+      "at": "2026-11-27T07:20:23.032Z"
+    },
+    "probe-task-deleted": {
+      "ok": true,
+      "detail": "before=0 after=0",
+      "at": "2026-11-27T07:20:23.321Z"
+    }
+  },
+  "events": [
+    {
+      "type": "step.started",
+      "at": 1795764021565,
+      "tool": "shell.run",
+      "error": null,
+      "status": null,
+      "errors": null
+    },
+    {
+      "type": "step.failed",
+      "at": 1795764022193,
+      "tool": "shell.run",
+      "error": "命令已被用户中断（SIGTERM)，stdout/stderr 与退出码见执行结果",
+      "status": null,
+      "errors": null
+    },
+    {
+      "type": "report.ready",
+      "at": 1795764022392,
+      "tool": null,
+      "error": null,
+      "status": "failed",
+      "errors": [
+        {
+          "stepId": "long-shell",
+          "code": "COMMAND_INTERRUPTED",
+          "message": "命令已被用户中断（SIGTERM)，stdout/stderr 与退出码见执行结果"
+        }
+      ]
+    }
+  ],
+  "shots": [
+    "../docs/implementation/acceptance/p0-3-shell-interrupt-20261127/01-shell-interrupted.png"
+  ],
+  "taskId": "17cb09d7-08ef-4836-8b75-0ea3f3fabd3a",
+  "taskIdsBefore": [],
+  "pauseAt": 1795764022168,
+  "taskIdsAfter": [],
+  "finishedAt": "2026-11-27T07:20:23.321Z"
+}

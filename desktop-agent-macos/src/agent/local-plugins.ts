@@ -129,7 +129,7 @@ export interface LocalStepOutcome {
   verified: boolean;
   /** 非零退出码是事实，不是异常，但要按失败记进报告。 */
   failure: string | null;
-  errorCode: 'TEST_FAILED' | 'COMMAND_FAILED';
+  errorCode: 'TEST_FAILED' | 'COMMAND_FAILED' | 'COMMAND_INTERRUPTED';
 }
 
 function ok(result: unknown): LocalStepOutcome {
@@ -221,7 +221,16 @@ const PLUGINS = [
     return ok(run);
   }),
   local('shell.run', async (args, ctx) => {
-    const run = await runShell(ctx.grant, args);
+    const run = await runShell(ctx.grant, { ...args, isCancelled: ctx.isCancelled });
+    // 中断不是普通失败：P1 反空转据此不把同一条命令当「失败重试」。
+    if (run.interrupted) {
+      return {
+        result: run,
+        verified: true,
+        failure: `命令已被用户中断（${run.signal ?? '未发出信号'})，stdout/stderr 与退出码见执行结果`,
+        errorCode: 'COMMAND_INTERRUPTED' as const
+      };
+    }
     // 后台作业没有退出码：此刻「跑起来了」才是事实，退出码要等 job.output。
     if (!run.job && run.exitCode !== 0) {
       return { ...commandFailure(run.exitCode, run.timedOut, '命令'), result: run };

@@ -1406,6 +1406,11 @@ export type TaskStatus =
   | 'verifying'
   | 'report_pending'
   | 'awaiting_next_round'
+  /** P0-4：请求态与实际态分开；请求发出不等于工具已经停。 */
+  | 'pause_requested'
+  | 'pausing'
+  | 'cancel_requested'
+  | 'cancelling'
   | 'paused'
   | 'interrupted'
   | 'budget_exhausted'
@@ -2229,6 +2234,10 @@ export type AgentEvent = AgentEventBase &
         requiresReplan: boolean;
         requiresContextRefresh: boolean;
         notes: string[];
+        /** P0-1：每层比对值取自任务记录还是事件流，避免「自己跟自己比」。 */
+        sources?: import('./version-consistency').ResumeVersionSources;
+        /** P0-2：本次核对是否真的触发了重规划门禁，而不是只写进提示词。 */
+        actedOnReplan?: boolean;
       }
     /** DMOCA：正式决策引用了哪一版贡献（贡献版本被钉住，可追溯）。 */
     | {
@@ -2298,6 +2307,18 @@ export type AgentEvent = AgentEventBase &
         conversationId?: string;
         event: ContextEventType;
         context: ContextEventPayload;
+      }
+    /** P0-4：暂停/取消检查点，带足以在恢复前核对的任务状态。 */
+    | {
+        type: 'context.checkpoint.paused';
+        taskId: string;
+        reason: 'pause' | 'cancel';
+        goalVersion: number;
+        taskRevision: number;
+        needsReconciliation: number;
+        checkpointId?: string;
+        /** 没有检查点能力（测试宿主）时如实写明，不假装已落盘。 */
+        unavailableReason?: string;
       }
   );
 

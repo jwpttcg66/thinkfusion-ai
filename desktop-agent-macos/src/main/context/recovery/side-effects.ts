@@ -11,7 +11,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ExecutionReport, StepResult } from '../../../shared/contracts';
+import type { AgentEvent, ExecutionReport, StepResult } from '../../../shared/contracts';
 import type {
   SideEffectEntry,
   SideEffectLedger,
@@ -32,8 +32,7 @@ const OPAQUE_WRITE_TOOLS = new Set([
   'git.stash', 'git.branch', 'git.worktree', 'clipboard.write'
 ]);
 
-function pathsOf(result: StepResult): string[] {
-  const args = result.args ?? {};
+function pathsFromArgs(args: Record<string, unknown> = {}): string[] {
   const found: string[] = [];
   for (const key of PATH_KEYS) {
     const value = args[key];
@@ -48,6 +47,41 @@ function pathsOf(result: StepResult): string[] {
     }
   }
   return [...new Set(found)];
+}
+
+function pathsOf(result: StepResult): string[] {
+  return pathsFromArgs(result.args ?? {});
+}
+
+/**
+ * 暂停点可能还没有执行报告：`step.started` 已经落库，Runtime 还没把报告写回来。
+ * 即便 `step.failed` 先到了，失败也不等于「没写过文件」。这类没有报告可核对的
+ * 写操作必须进 needs_reconciliation，不能因为「报告还没落」就当成没有副作用。
+ */
+export function collectInFlightSideEffects(events: readonly AgentEvent[]): SideEffectEntry[] {
+  const started = new Map<string, { stepId: string; tool: string; paths: string[] }>();
+  const keyOf = (event: { roundId?: string; stepId: string }) => `${event.roundId ?? ''}:${event.stepId}`;
+
+  for (const event of events) {
+    if (event.type !== 'step.started') continue;
+    const tool = String(event.tool);
+    if (!PATH_WRITE_TOOLS.has(tool) && !OPAQUE_WRITE_TOOLS.has(tool)) continue;
+    started.set(keyOf(event), {
+      stepId: event.stepId,
+      tool,
+      paths: pathsFromArgs(event.args)
+    });
+  }
+
+  return [...started.values()].map(item => ({
+    stepId: item.stepId,
+    tool: item.tool,
+    paths: item.paths,
+    status: 'needs_reconciliation' as const,
+    detail: item.paths.length > 0
+      ? '暂停时步骤在途或报告未落；报告记录的路径必须人工核对'
+      : '暂停时步骤在途或报告未落，也没有可核对路径'
+  }));
 }
 
 /** 从全部轮次报告提取待核对项；同一 step 只保留一条。 */

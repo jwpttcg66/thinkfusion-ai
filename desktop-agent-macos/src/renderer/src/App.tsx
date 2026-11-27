@@ -89,7 +89,10 @@ import {
   type WorkspaceMode
 } from '../../shared/workspace';
 
-const ACTIVE_STATUSES: AgentTask['status'][] = ['planning', 'executing', 'verifying', 'report_pending'];
+const ACTIVE_STATUSES: AgentTask['status'][] = [
+  'planning', 'executing', 'verifying', 'report_pending',
+  'pause_requested', 'pausing', 'cancel_requested', 'cancelling'
+];
 type Derived = TaskView;
 const EMPTY_DERIVED = EMPTY_TASK_VIEW;
 
@@ -3524,6 +3527,10 @@ function statusLabel(status: AgentTask['status']): string {
     verifying: '正在校验结果',
     report_pending: '已完成待确认',
     awaiting_next_round: '等待下一轮',
+    pause_requested: '暂停请求已发出',
+    pausing: '正在停止工具',
+    cancel_requested: '取消请求已发出',
+    cancelling: '正在取消',
     paused: '已暂停',
     interrupted: '已中断',
     budget_exhausted: '预算已用尽',

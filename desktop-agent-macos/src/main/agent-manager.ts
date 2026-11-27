@@ -20,6 +20,13 @@ let child: UtilityProcess | null = null;
 let sendToUi: ((event: AgentEvent) => void) | null = null;
 const pendingRuns = new Map<string, PendingRun>();
 
+/** 取消请求的回执等待者：Runtime 确认收到后才允许界面写「已停止」。 */
+interface CancelWaiter {
+  resolve: (confirmed: boolean) => void;
+  timer: NodeJS.Timeout;
+}
+const cancelWaiters = new Map<string, Set<CancelWaiter>>();
+
 /**
  * CLI Agent 配置快照的来源。
  *
@@ -184,6 +191,17 @@ export function startAgentProcess() {
   child.on('message', (message: unknown) => {
     if (!message || typeof message !== 'object' || !('type' in message)) return;
     const typed = message as { type: string } & Record<string, unknown>;
+
+    if (typed.type === 'task.cancel.ack') {
+      const waiters = cancelWaiters.get(String(typed.taskId));
+      if (!waiters) return;
+      cancelWaiters.delete(String(typed.taskId));
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timer);
+        waiter.resolve(true);
+      }
+      return;
+    }
 
     if (typed.type === 'task.report') {
       const parsed = ExecutionReportSchema.safeParse(typed.report);
@@ -401,11 +419,28 @@ export function runPlan(
  * 以前取消只改界面状态：Runtime 的 for 循环继续跑，外部 CLI 也继续跑。
  * 有了 CLI 之后这会留下一个还在改文件的进程，所以必须显式下发。
  */
-export function cancelPlan(taskId: string): boolean {
-  if (!child) return false;
-  if (!pendingRuns.has(taskId)) return false;
-  child.postMessage({ type: 'task.cancel', taskId });
-  return true;
+export async function cancelPlan(
+  taskId: string,
+  waitMs = 5000
+): Promise<{ sent: boolean; confirmed: boolean }> {
+  const runner = child;
+  if (!runner || !pendingRuns.has(taskId)) return { sent: false, confirmed: false };
+  const confirmed = await new Promise<boolean>(resolve => {
+    const waiter: CancelWaiter = {
+      resolve,
+      timer: setTimeout(() => {
+        const set = cancelWaiters.get(taskId);
+        set?.delete(waiter);
+        if (set && set.size === 0) cancelWaiters.delete(taskId);
+        resolve(false);
+      }, waitMs)
+    };
+    const set = cancelWaiters.get(taskId) ?? new Set<CancelWaiter>();
+    set.add(waiter);
+    cancelWaiters.set(taskId, set);
+    runner.postMessage({ type: 'task.cancel', taskId });
+  });
+  return { sent: true, confirmed };
 }
 
 /**

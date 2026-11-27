@@ -119,6 +119,18 @@ test('the happy path still walks end to end', () => {
   assert.equal(tasks.get(task.taskId).status, 'completed');
 });
 
+test('pause and cancel walk through request and stopping states', () => {
+  const paused = createTask('planning');
+  for (const step of ['pause_requested', 'pausing', 'paused']) {
+    assert.equal(paused.tasks.transition(paused.task.taskId, step).status, step);
+  }
+
+  const cancelled = createTask('planning');
+  for (const step of ['cancel_requested', 'cancelling', 'cancelled']) {
+    assert.equal(cancelled.tasks.transition(cancelled.task.taskId, step).status, step);
+  }
+});
+
 test('terminal states are final', () => {
   const setup = {
     // Each terminal state is reached the way the app actually reaches it.

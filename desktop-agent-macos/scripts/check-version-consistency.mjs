@@ -6,10 +6,14 @@
  * Run: npm run test:version-consistency
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
   VERSION_LAYERS,
+  buildResumeVersionChainInput,
   checkVersionChain,
   versionConsistencyPrompt
 } from '../out-test/shared/version-consistency.js';
@@ -97,4 +101,77 @@ test('提示词不会把「未知」写成「没问题」：有过期层就逐�
   const text = versionConsistencyPrompt(result);
   assert.match(text, /\[eco\]/);
   assert.match(text, /仍可继承：goal/);
+});
+
+// P0-1：用恢复时真实存在的事件形态取源，不再人工拼一个「当前版本」进去。
+const resumeTask = { taskId: 't1', goalId: 'goal:t1' };
+const resumeEvent = (at, type, extra = {}) => ({ at, type, taskId: 't1', ...extra });
+const contractEvent = (version, at) => resumeEvent(at, 'goal.contract.updated', { contract: { goalVersion: version } });
+const workEvent = version => resumeEvent(200, 'work.task.upserted', { task: { workTaskId: 'w1', goalVersion: version } });
+const debateEvent = (snapshotId, createdAt) => resumeEvent(createdAt, 'plan.debated', {
+  debate: { contributionSnapshot: { snapshotId, createdAt } }
+});
+const decisionEvent = (snapshotId, at) => resumeEvent(at, 'model.decision.snapshot', {
+  snapshot: { decisionId: 'ds:1', contributionSnapshotId: snapshotId }
+});
+
+test('恢复取源：当前目标版本来自契约更新事件，过期目标是真的能判出', () => {
+  const { chain, sources } = buildResumeVersionChainInput({
+    task: { ...resumeTask, goalVersion: 1 },
+    events: [contractEvent(1, 100), workEvent(1), contractEvent(2, 400)],
+    workTasks: [{ workTaskId: 'w1', goalVersion: 1 }]
+  });
+  assert.equal(sources.currentGoalVersion, 'goal.contract.updated');
+  assert.equal(chain.current.goalVersion, 2);
+  assert.equal(chain.goal.version, 1);
+  const result = checkVersionChain(chain);
+  assert.ok(result.issues.some(issue => issue.layer === 'goal'));
+  assert.equal(result.requiresReplan, true);
+});
+
+test('恢复取源：贡献快照的 goalVersion 取快照生成时生效的契约版本', () => {
+  const { chain, sources } = buildResumeVersionChainInput({
+    task: { ...resumeTask, goalVersion: 2 },
+    events: [contractEvent(1, 100), workEvent(2), debateEvent('cs:1', 300), contractEvent(2, 400)],
+    workTasks: [{ workTaskId: 'w1', goalVersion: 2 }]
+  });
+  assert.equal(sources.contributionGoalVersion, 'goal.contract.updated');
+  assert.equal(chain.contribution.goalVersion, 1);
+  const result = checkVersionChain(chain);
+  assert.ok(result.issues.some(issue => issue.layer === 'contribution'));
+});
+
+test('恢复取源：决策钉版来自决策事件，不是贡献快照自己', () => {
+  const { chain, sources } = buildResumeVersionChainInput({
+    task: { ...resumeTask, goalVersion: 2 },
+    events: [contractEvent(2, 100), workEvent(2), debateEvent('cs:new', 300), decisionEvent('cs:old', 310)],
+    workTasks: [{ workTaskId: 'w1', goalVersion: 2 }]
+  });
+  assert.equal(sources.decisionContributionSnapshotId, 'model.decision.snapshot');
+  assert.equal(chain.contribution.snapshotId, 'cs:new');
+  assert.equal(chain.decision.contributionSnapshotId, 'cs:old');
+  const result = checkVersionChain(chain);
+  assert.ok(result.issues.some(issue => issue.layer === 'decision'));
+});
+
+test('恢复取源：契约已被标 stale 时不冒充当前目标，退回任务记录', () => {
+  const { chain, sources } = buildResumeVersionChainInput({
+    task: { ...resumeTask, goalVersion: 1 },
+    events: [
+      contractEvent(2, 100),
+      resumeEvent(200, 'goal.contract.stale', { goalId: 'goal:t1', goalVersion: 2, reasons: ['旧契约作废'] })
+    ],
+    workTasks: []
+  });
+  assert.equal(sources.currentGoalVersion, 'task.goalVersion');
+  assert.equal(chain.current.goalVersion, 1);
+});
+
+test('源码守卫：生产恢复不得再让两侧取同一个目标字段/同一个快照', () => {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const orchestrator = fs.readFileSync(path.join(root, 'src/main/orchestrator.ts'), 'utf8');
+  assert.match(orchestrator, /buildResumeVersionChainInput\(\{/);
+  assert.doesNotMatch(orchestrator, /current:\s*\{\s*goalVersion:\s*task\.goalVersion/);
+  assert.doesNotMatch(orchestrator, /snapshotId:\s*lastDecisionEvent\.snapshot\.contributionSnapshotId/);
+  assert.doesNotMatch(orchestrator, /version:\s*task\.goalVersion\s*\?\?\s*1/);
 });

@@ -1,0 +1,247 @@
+{
+  "startedAt": "2026-11-27T07:43:57.626Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333",
+  "marker": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-p0-4-marker-1795765437626.txt",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-27T07:43:57.627Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "CDP 已连接",
+      "at": "2026-11-27T07:44:05.101Z"
+    },
+    "probe-task-created": {
+      "ok": true,
+      "detail": "7842257a-9b5c-4218-bbc8-c240f7767708",
+      "at": "2026-11-27T07:44:05.843Z"
+    },
+    "state-machine-sequence": {
+      "ok": true,
+      "detail": "created → planning → plan_ready → awaiting_approval → executing → pause_requested → pausing → paused",
+      "at": "2026-11-27T07:44:06.989Z"
+    },
+    "checkpoint-event": {
+      "ok": true,
+      "detail": "{\"type\":\"context.checkpoint.paused\",\"at\":1795765446886,\"taskId\":\"7842257a-9b5c-4218-bbc8-c240f7767708\",\"reason\":\"pause\",\"goalVersion\":1,\"taskRevision\":3,\"needsReconciliation\":1,\"checkpointId\":\"cp_35a74db7-7296-4be7-9823-3190b6832202\",\"eventId\":\"95c32f00-774e-4835-9f33-cb9b2605128d\",\"runId\":\"7842257a-9b5c-4218-bbc8-c240f7767708\",\"sequence\":37,\"phase\":\"execution\"}",
+      "at": "2026-11-27T07:44:06.989Z"
+    },
+    "checkpoint-file": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/context-checkpoints/owners/agent-task/7842257a-9b5c-4218-bbc8-c240f7767708.json",
+      "at": "2026-11-27T07:44:06.989Z"
+    },
+    "checkpoint-goal-and-revision": {
+      "ok": true,
+      "detail": "目标版本 v1 / 任务树 revision 3 / 暂停原因：pause / 工具执行状态：已完成 0 步；副作用核对 applied 0 / missing 0 / needs_reconciliation 1",
+      "at": "2026-11-27T07:44:06.989Z"
+    },
+    "late-write-never-happened": {
+      "ok": true,
+      "detail": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-p0-4-marker-1795765437626.txt",
+      "at": "2026-11-27T07:44:07.594Z"
+    },
+    "probe-task-selected-in-ui": {
+      "ok": true,
+      "detail": "true",
+      "at": "2026-11-27T07:44:07.630Z"
+    },
+    "probe-task-deleted": {
+      "ok": true,
+      "detail": "before=2 after=2",
+      "at": "2026-11-27T07:44:10.075Z"
+    }
+  },
+  "statusSequence": [
+    "created",
+    "planning",
+    "plan_ready",
+    "awaiting_approval",
+    "executing",
+    "pause_requested",
+    "pausing",
+    "paused"
+  ],
+  "events": [
+    {
+      "type": "task.updated",
+      "at": 1795765445161,
+      "status": "created",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445205,
+      "status": "planning",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445271,
+      "status": "planning",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445402,
+      "status": "planning",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445444,
+      "status": "plan_ready",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445492,
+      "status": "plan_ready",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445794,
+      "status": "awaiting_approval",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765445881,
+      "status": "executing",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "step.started",
+      "at": 1795765445977,
+      "status": null,
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": "shell.run",
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765446481,
+      "status": "pause_requested",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "step.failed",
+      "at": 1795765446608,
+      "status": null,
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": "shell.run",
+      "error": "命令已被用户中断（SIGTERM)，stdout/stderr 与退出码见执行结果"
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765446684,
+      "status": "pausing",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765446860,
+      "status": "pausing",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "context.checkpoint.paused",
+      "at": 1795765446886,
+      "status": null,
+      "reason": "pause",
+      "taskRevision": 3,
+      "needsReconciliation": 1,
+      "checkpointId": "cp_35a74db7-7296-4be7-9823-3190b6832202",
+      "tool": null,
+      "error": null
+    },
+    {
+      "type": "task.updated",
+      "at": 1795765446935,
+      "status": "paused",
+      "reason": null,
+      "taskRevision": null,
+      "needsReconciliation": null,
+      "checkpointId": null,
+      "tool": null,
+      "error": null
+    }
+  ],
+  "shots": [
+    "../docs/implementation/acceptance/p0-4-pause-checkpoint-20261127/01-pause-checkpoint.png"
+  ],
+  "taskId": "7842257a-9b5c-4218-bbc8-c240f7767708",
+  "taskIdsBefore": [
+    "9b4f2d6f-dc25-4fe1-889b-b4c24bc61745",
+    "ef852583-7e5e-40da-b193-48d69bbcfc13"
+  ],
+  "taskIdsAfter": [
+    "9b4f2d6f-dc25-4fe1-889b-b4c24bc61745",
+    "ef852583-7e5e-40da-b193-48d69bbcfc13"
+  ],
+  "finishedAt": "2026-11-27T07:44:10.075Z"
+}

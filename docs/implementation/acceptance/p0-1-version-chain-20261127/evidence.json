@@ -1,0 +1,281 @@
+{
+  "startedAt": "2026-11-27T07:09:46.600Z",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-27T07:09:46.601Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "http://localhost:5173/",
+      "at": "2026-11-27T07:09:54.413Z"
+    },
+    "probe-task-created": {
+      "ok": true,
+      "detail": "11941006-4419-4706-8ecc-7b44daa2bd64",
+      "at": "2026-11-27T07:09:55.279Z"
+    },
+    "probe-executing": {
+      "ok": true,
+      "detail": "executing",
+      "at": "2026-11-27T07:09:55.429Z"
+    },
+    "goal-revised-to-v2": {
+      "ok": true,
+      "detail": "{\"kind\":\"change\",\"nextVersion\":2,\"versionChanged\":true,\"requiresUserConfirmation\":false,\"impactedTaskIds\":[\"p0-1-not-a-real-task\"],\"inheritedTaskIds\":[\"wt-work-11941006\",\"wt-group-11941006\",\"wt-wait\"],\"reason\":\"目标变更影响 1 个未完成任务；已完成且不受影响的成果可继承\"}",
+      "at": "2026-11-27T07:09:55.591Z"
+    },
+    "probe-paused": {
+      "ok": true,
+      "detail": "paused",
+      "at": "2026-11-27T07:09:56.313Z"
+    },
+    "resume-accepted": {
+      "ok": true,
+      "detail": "重试后 Runtime 接手恢复：true",
+      "at": "2026-11-27T07:10:42.167Z"
+    },
+    "acted-on-replan": {
+      "ok": true,
+      "detail": "true",
+      "at": "2026-11-27T07:10:42.173Z"
+    },
+    "gate-blocks-planning": {
+      "ok": true,
+      "detail": "blocked",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "no-new-planning-round": {
+      "ok": true,
+      "detail": "resumeAt=1795763396313",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "wait-user-decision": {
+      "ok": true,
+      "detail": "cycle.decision.created=WAIT_USER",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "old-worktasks-invalidated": {
+      "ok": true,
+      "detail": "work.breakdown.replanned",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "sources-emitted": {
+      "ok": true,
+      "detail": "{\"goalVersion\":\"task.goalVersion\",\"currentGoalVersion\":\"goal.contract.updated\",\"workTaskGoalVersion\":\"work.task.upserted\",\"ecoGoalVersion\":\"checkpoint.ecoRef\",\"contributionSnapshotId\":\"plan.debated.contributionSnapshot\",\"contributionGoalVersion\":\"unavailable\",\"decisionContributionSnapshotId\":\"model.decision.snapshot\"}",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "current-goal-from-contract-event": {
+      "ok": true,
+      "detail": "goal.contract.updated",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "current-goal-version-is-v2": {
+      "ok": true,
+      "detail": "v2",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "stale-worktask-detected": {
+      "ok": true,
+      "detail": "[{\"layer\":\"worktask\",\"id\":\"11941006-4419-4706-8ecc-7b44daa2bd64\",\"reason\":\"任务树绑定的目标版本 v1 与目标 v2 不一致\"}]",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "replan-required": {
+      "ok": true,
+      "detail": "true",
+      "at": "2026-11-27T07:10:42.174Z"
+    },
+    "probe-task-deleted": {
+      "ok": true,
+      "detail": "before=0 after=0",
+      "at": "2026-11-27T07:10:42.385Z"
+    }
+  },
+  "events": [
+    {
+      "type": "round.started",
+      "at": 1795763394669,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": null,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "goal.contract.updated",
+      "at": 1795763394914,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": 1,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795763395047,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": 1,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795763395047,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": 1,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "work.task.upserted",
+      "at": 1795763395047,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": 1,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "goal.contract.updated",
+      "at": 1795763395430,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": 2,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "work.breakdown.replanned",
+      "at": 1795763395430,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": [
+        "p0-1-not-a-real-task"
+      ],
+      "version": null,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "version.consistency",
+      "at": 1795763441647,
+      "sources": {
+        "goalVersion": "task.goalVersion",
+        "currentGoalVersion": "goal.contract.updated",
+        "workTaskGoalVersion": "work.task.upserted",
+        "ecoGoalVersion": "checkpoint.ecoRef",
+        "contributionSnapshotId": "plan.debated.contributionSnapshot",
+        "contributionGoalVersion": "unavailable",
+        "decisionContributionSnapshotId": "model.decision.snapshot"
+      },
+      "actedOnReplan": true,
+      "decisionType": null,
+      "impactedIds": null,
+      "version": null,
+      "issues": [
+        {
+          "layer": "worktask",
+          "id": "11941006-4419-4706-8ecc-7b44daa2bd64",
+          "reason": "任务树绑定的目标版本 v1 与目标 v2 不一致"
+        }
+      ],
+      "requiresReplan": true
+    },
+    {
+      "type": "work.breakdown.replanned",
+      "at": 1795763441929,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": null,
+      "impactedIds": [
+        "wt-work-11941006",
+        "wt-group-11941006"
+      ],
+      "version": null,
+      "issues": null,
+      "requiresReplan": null
+    },
+    {
+      "type": "cycle.decision.created",
+      "at": 1795763442060,
+      "sources": null,
+      "actedOnReplan": null,
+      "decisionType": "WAIT_USER",
+      "impactedIds": null,
+      "version": null,
+      "issues": null,
+      "requiresReplan": null
+    }
+  ],
+  "shots": [
+    "../docs/implementation/acceptance/p0-1-version-chain-20261127/01-version-consistency.png"
+  ],
+  "taskId": "11941006-4419-4706-8ecc-7b44daa2bd64",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333",
+  "targets": [
+    {
+      "type": "page",
+      "url": "http://localhost:5173/"
+    }
+  ],
+  "taskIdsBefore": [],
+  "consistency": {
+    "type": "version.consistency",
+    "at": 1795763441647,
+    "taskId": "11941006-4419-4706-8ecc-7b44daa2bd64",
+    "consistent": false,
+    "issues": [
+      {
+        "layer": "worktask",
+        "id": "11941006-4419-4706-8ecc-7b44daa2bd64",
+        "reason": "任务树绑定的目标版本 v1 与目标 v2 不一致"
+      }
+    ],
+    "inheritable": [
+      "goal"
+    ],
+    "expired": [
+      "worktask",
+      "eco",
+      "contribution",
+      "decision"
+    ],
+    "requiresReplan": true,
+    "requiresContextRefresh": false,
+    "notes": [
+      "目标/任务结构已变化：未完成的子任务要按新目标重规划，旧结论不得直接继承"
+    ],
+    "sources": {
+      "goalVersion": "task.goalVersion",
+      "currentGoalVersion": "goal.contract.updated",
+      "workTaskGoalVersion": "work.task.upserted",
+      "ecoGoalVersion": "checkpoint.ecoRef",
+      "contributionSnapshotId": "plan.debated.contributionSnapshot",
+      "contributionGoalVersion": "unavailable",
+      "decisionContributionSnapshotId": "model.decision.snapshot"
+    },
+    "actedOnReplan": true,
+    "eventId": "2a406a44-31dd-4f34-b371-de8e5aebb1c1",
+    "runId": "11941006-4419-4706-8ecc-7b44daa2bd64",
+    "sequence": 40,
+    "phase": "execution"
+  },
+  "taskIdsAfter": [],
+  "finishedAt": "2026-11-27T07:10:42.385Z"
+}

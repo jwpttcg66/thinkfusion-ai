@@ -29,6 +29,10 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
   verifying: '验证中',
   report_pending: '待确认',
   awaiting_next_round: '可追问',
+  pause_requested: '暂停请求中',
+  pausing: '停止工具中',
+  cancel_requested: '取消请求中',
+  cancelling: '取消中',
   paused: '已暂停',
   interrupted: '已中断',
   budget_exhausted: '预算用尽',
@@ -38,7 +42,7 @@ const STATUS_LABEL: Record<AgentTask['status'], string> = {
   cancelled: '已取消'
 };
 
-const ACTIVE = new Set<AgentTask['status']>(['planning', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending']);
+const ACTIVE = new Set<AgentTask['status']>(['planning', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'pause_requested', 'pausing', 'cancel_requested', 'cancelling']);
 /** 半小时没有更新的「运行中」任务不再算同时在跑：那是上次异常退出留下的。 */
 const FRESH_MS = 30 * 60 * 1000;
 const TERMINAL = new Set<AgentTask['status']>(['completed', 'failed', 'cancelled']);

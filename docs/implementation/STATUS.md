@@ -48,6 +48,18 @@
 | Java 工程理解 | 文本检索与正则定位 | 代码索引/搜索路径 | `test:code-index*` | 部分 | P2-01：AST、类型绑定、调用图、增量索引 | `main/code-index/` |
 | 工程对话流（TaskConversation） | A/B 定位轨·计时·稳定 ID·统一状态·diff 汇总；阶段 1 逐文件 Diff；C1 subtype 映射、C2 step 聚合、C3a/b/c 三元素、C4 MarkdownBody；D1 子 Agent 卡片；D2 并行对话浮层 | `buildTaskConversation` + `TaskConversation.tsx` 生产链路，`clusterSteps`/`noteEmphasisOf`/`diffSummaryOf`/`teamProposalsOf` 纯函数接线；`shared/parallel-lanes.ts` + `ParallelConversationRail.tsx` + App 挂点 | `test:task-conversation`（65） | 冒烟（A 完整证据；C 见 stage-c，D1/D2 见 stage-d1d2，样本未触发 agent/diff/表格/并行 lane） | C4 协议正文仍按既有设计走纯文本；D1/D2 真机缺 `code.team.run` 与多通道样本，由单测覆盖 | `docs/spec/TASK_CONVERSATION_STREAM.md`、`docs/spec/evidence/stage-{a,c,d1d2}/` |
 
+## V3 全局生产闭环（计划书 P0–P5）
+
+以 [总计划](plans/V3-PRODUCTION-CLOSURE-PLAN.md) 与 [P0 任务书](plans/active/P0-VERSION-RECOVERY-TASK-BOOK.md) 为准；阶段编号与下面的 GCE 轨道不同。以下状态来自任务分支 `p0-version-recovery`，尚未合入 `main`。
+
+| 项 | 状态 | 事实 |
+| --- | --- | --- |
+| P0-1 版本链输入去同源化 | `IMPLEMENTED / TESTED / VERIFIED` | `buildResumeVersionChainInput` 分开取「任务记录」与「事件流当前事实」；当前目标取自 `goal.contract.updated`，贡献快照取自 `plan.debated`，决策钉版取自 `model.decision.snapshot`，`version.consistency.sources` 记录取源；`test:version-consistency` 12 条（含源码守卫）；真实任务修订到 v2 后恢复，判出任务树 v1 过期、`requiresReplan=true`，见 [P0-1 验收](acceptance/p0-1-version-chain-20261127/EVIDENCE.md) |
+| P0-2 needs_replan 硬门禁 | `IMPLEMENTED / TESTED / VERIFIED` | 过期时作废旧任务树、发 `WAIT_USER`、转 `blocked`，不再生成 planning 轮；`version.consistency.actedOnReplan` 记录门禁是否真的执行；`test:task-resume` 6 条；真机同一探针任务恢复后 `blocked`、无新规划轮，见 [P0-2 验收](acceptance/p0-2-replan-gate-20261127/EVIDENCE.md) |
+| P0-3 在途 shell.run 中断 | `IMPLEMENTED / TESTED / VERIFIED` | `runShell` 接收运行时取消集合，按进程组 SIGTERM→SIGKILL 并记录 `interrupted/signal/exitCode/stdout/stderr`；插件返回 `COMMAND_INTERRUPTED`；Runtime 在工具收尾后才发取消回执，主进程有界等待、`未能确认终止` 如实记日志；`test:shell-interrupt` 4 条；真机长 shell 在 628ms 内中断，标记文件未出现，见 [P0-3 验收](acceptance/p0-3-shell-interrupt-20261127/EVIDENCE.md) |
+| P0-4 暂停状态机与检查点 | `IMPLEMENTED / TESTED / VERIFIED` | `pause/cancel` 走 `请求态 → 停止中 → 实际态`；暂停/取消复用 `commitContextCheckpoint` 落目标版本、任务树 revision、工具状态与副作用账本；没有执行报告的在途写操作也标 `needs_reconciliation`，不假装已核对；重启时中间态收敛为 `interrupted/cancelled`；`test:pause-checkpoint` 5 条、`test:state-machine` 9 条；真机状态序列 `executing → pause_requested → pausing → paused`，检查点文件与事件一致，标记文件未出现，见 [P0-4 验收](acceptance/p0-4-pause-checkpoint-20261127/EVIDENCE.md) |
+| P0-5 当前基线真机恢复验收 | `IMPLEMENTED / TESTED / VERIFIED` | 三场景真机证据已按「启动配置 / 任务 ID / 证据路径 / 未覆盖项」汇总到 [P0-5 验收汇总](acceptance/p0-5-current-baseline-20261127/SUMMARY.md)；① 目标修订后进入 `blocked + WAIT_USER`、② 在途 shell 中断且暂停检查点带副作用缺口、③ SIGKILL 重启后 `interrupted → version.consistency(sources) → planning`。场景③ 同时修掉固定工作流未记规划成员、重启后退回网页 planner 的缺口，探针任务记下并执行档选中的云端模型，日志无 ChatGPT 回退；typecheck、P0 相关单测与 `verify-p0-5-restart-cdp.mjs` 均通过 |
+
 ## 目标契约证据闭环（GCE）
 
 | 项 | 状态 | 事实 |

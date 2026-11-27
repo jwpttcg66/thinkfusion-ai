@@ -27,14 +27,28 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   verifying: ['report_pending', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
   report_pending: ['awaiting_next_round', 'paused', 'interrupted', 'blocked', 'completed', 'failed', 'cancelled'],
   awaiting_next_round: ['planning', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
-  paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
-  interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
-  budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
+  pause_requested: ['pausing', 'paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
+  pausing: ['paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
+  cancel_requested: ['cancelling', 'cancelled', 'interrupted', 'paused', 'failed'],
+  cancelling: ['cancelled', 'interrupted', 'failed'],
+  paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
+  interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
+  budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
   blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: []
 };
+
+// 任何未结束状态都可以提出暂停/取消；请求态再由 Runtime 回执推进到实际态。
+for (const from of [
+  'planning', 'awaiting_clarification', 'plan_ready', 'awaiting_approval', 'executing',
+  'verifying', 'report_pending', 'awaiting_next_round', 'paused', 'interrupted',
+  'budget_exhausted', 'blocked', 'pause_requested', 'pausing', 'cancel_requested'
+] as const) {
+  ALLOWED[from].push('cancel_requested');
+  if (from !== 'cancel_requested') ALLOWED[from].push('pause_requested');
+}
 
 export const TERMINAL: TaskStatus[] = ['completed', 'failed', 'cancelled'];
 
@@ -102,12 +116,25 @@ export class TaskManager {
    * 假装还在跑，也不能自动重跑有副作用的执行。
    */
   reconcileInterrupted(): number {
-    const interrupted = new Set<TaskStatus>(['planning', 'executing', 'verifying']);
+    const interrupted = new Set<TaskStatus>([
+      'planning', 'executing', 'verifying', 'pause_requested', 'pausing'
+    ]);
+    const cancelled = new Set<TaskStatus>(['cancel_requested', 'cancelling']);
     let count = 0;
     for (const task of this.store.listTasks()) {
-      if (!interrupted.has(task.status)) continue;
-      this.transition(task.taskId, 'interrupted', { error: '应用退出前任务未结束，已标记为中断；可从最近状态继续。' });
-      count += 1;
+      if (interrupted.has(task.status)) {
+        this.transition(task.taskId, 'interrupted', {
+          error: '应用退出前任务未结束，已标记为中断；暂停未完成，恢复时先核对上次检查点与副作用。'
+        });
+        count += 1;
+        continue;
+      }
+      if (cancelled.has(task.status)) {
+        this.transition(task.taskId, 'cancelled', {
+          error: '应用退出前取消未完成，工具已随进程退出；副作用需人工核对。'
+        });
+        count += 1;
+      }
     }
     return count;
   }

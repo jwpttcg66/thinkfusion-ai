@@ -9,6 +9,8 @@
  * 下游各层一起作废——半新的结论比旧结论更危险。
  */
 
+import type { AgentEvent } from './contracts';
+
 export type VersionLayer = 'goal' | 'worktask' | 'eco' | 'contribution' | 'decision';
 
 export const VERSION_LAYERS: readonly VersionLayer[] = ['goal', 'worktask', 'eco', 'contribution', 'decision'];
@@ -172,4 +174,118 @@ export function versionConsistencyPrompt(input: VersionConsistency): string {
     lines.push('要求：先重新读取相关文件与新上下文，再继续；旧贡献可以引用，但必须重新核验。');
   }
   return lines.join('\n');
+}
+
+/**
+ * 恢复时每一层比对值的来源。不是装饰性元数据：历史 bug 就是把「当前事实」
+ * 和「记录事实」都取成 `task.goalVersion`、把贡献快照和决策钉版都取成同一个
+ * 决策事件，导致过期分支在生产中恒假。取源必须能在事件里核对。
+ */
+export interface ResumeVersionSources {
+  goalVersion: 'task.goalVersion';
+  currentGoalVersion: 'goal.contract.updated' | 'task.goalVersion';
+  workTaskGoalVersion: 'work.task.upserted';
+  ecoGoalVersion: 'checkpoint.ecoRef';
+  contributionSnapshotId: 'plan.debated.contributionSnapshot';
+  contributionGoalVersion: 'goal.contract.updated' | 'unavailable';
+  decisionContributionSnapshotId: 'model.decision.snapshot';
+}
+
+/** 恢复中的版本链取源：把「任务记录」和「事件流里的当前事实」分开。 */
+export function buildResumeVersionChainInput(input: {
+  task: { taskId: string; goalId?: string; goalVersion?: number };
+  events: readonly AgentEvent[];
+  workTasks: readonly { workTaskId: string; goalVersion?: number }[];
+  ecoRef?: {
+    contextVersion: number;
+    goalVersion?: number;
+    sufficiency?: 'sufficient' | 'partial' | 'insufficient' | 'stale';
+  } | null;
+}): { chain: VersionChainInput; sources: ResumeVersionSources } {
+  const ordered = [...input.events].sort((a, b) => a.at - b.at);
+  const latest = (predicate: (event: AgentEvent) => boolean): AgentEvent | undefined => {
+    for (let index = ordered.length - 1; index >= 0; index -= 1) {
+      const event = ordered[index];
+      if (predicate(event)) return event;
+    }
+    return undefined;
+  };
+
+  const latestContract = latest(event => event.type === 'goal.contract.updated');
+  const latestStale = latest(event => event.type === 'goal.contract.stale');
+  // 契约已被判定过期时，事件流里的版本不再代表当前目标，退回任务记录。
+  const contractIsCurrent = Boolean(
+    latestContract && (!latestStale || latestStale.at < latestContract.at)
+  );
+  const recordedGoalVersion = input.task.goalVersion ?? 1;
+  const currentGoalVersion = contractIsCurrent && latestContract?.type === 'goal.contract.updated'
+    ? latestContract.contract.goalVersion
+    : recordedGoalVersion;
+
+  const boundGoalVersions = input.workTasks
+    .map(item => item.goalVersion)
+    .filter((item): item is number => typeof item === 'number');
+
+  // 贡献快照落在 plan.debated 上；决策快照另落在 model.decision.snapshot 上。
+  // 快照本身没有 goalVersion，用「快照生成时生效的契约版本」回填；查不到就
+  // 留 undefined（checkVersionChain 的缺字段不误判语义）。
+  const latestDebate = latest(event => event.type === 'plan.debated' && Boolean(event.debate.contributionSnapshot));
+  const contributionSnapshot = latestDebate?.type === 'plan.debated'
+    ? latestDebate.debate.contributionSnapshot ?? null
+    : null;
+  let contributionGoalVersion: number | undefined;
+  if (contributionSnapshot) {
+    for (let index = ordered.length - 1; index >= 0; index -= 1) {
+      const event = ordered[index];
+      if (event.at > contributionSnapshot.createdAt) continue;
+      if (event.type === 'goal.contract.stale') break;
+      if (event.type === 'goal.contract.updated') {
+        contributionGoalVersion = event.contract.goalVersion;
+        break;
+      }
+    }
+  }
+  const lastDecisionEvent = latest(event => event.type === 'model.decision.snapshot');
+
+  return {
+    chain: {
+      goal: {
+        goalId: input.task.goalId ?? `goal:${input.task.taskId}`,
+        version: recordedGoalVersion
+      },
+      workTask: {
+        workId: input.task.taskId,
+        ...(boundGoalVersions.length > 0 ? { goalVersion: Math.max(...boundGoalVersions) } : {})
+      },
+      eco: input.ecoRef
+        ? {
+            contextVersion: input.ecoRef.contextVersion,
+            ...(input.ecoRef.goalVersion !== undefined ? { goalVersion: input.ecoRef.goalVersion } : {}),
+            sufficiency: input.ecoRef.sufficiency
+          }
+        : null,
+      contribution: contributionSnapshot
+        ? {
+            snapshotId: contributionSnapshot.snapshotId,
+            ...(contributionGoalVersion !== undefined ? { goalVersion: contributionGoalVersion } : {})
+          }
+        : null,
+      decision: lastDecisionEvent?.type === 'model.decision.snapshot'
+        ? {
+            decisionId: lastDecisionEvent.snapshot.decisionId,
+            contributionSnapshotId: lastDecisionEvent.snapshot.contributionSnapshotId
+          }
+        : null,
+      current: { goalVersion: currentGoalVersion }
+    },
+    sources: {
+      goalVersion: 'task.goalVersion',
+      currentGoalVersion: contractIsCurrent ? 'goal.contract.updated' : 'task.goalVersion',
+      workTaskGoalVersion: 'work.task.upserted',
+      ecoGoalVersion: 'checkpoint.ecoRef',
+      contributionSnapshotId: 'plan.debated.contributionSnapshot',
+      contributionGoalVersion: contributionGoalVersion !== undefined ? 'goal.contract.updated' : 'unavailable',
+      decisionContributionSnapshotId: 'model.decision.snapshot'
+    }
+  };
 }

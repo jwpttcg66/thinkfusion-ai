@@ -66,6 +66,32 @@ test('检查点 stale：继续失败，任务保持 interrupted', async () => {
   ));
 });
 
+test('恢复时目标版本过期：不进 planning，停在 blocked 且记 actedOnReplan', async () => {
+  const task = tasks.create({ prompt: 'P0-2 重规划门禁', permissionPreset: 'workspace-write' });
+  tasks.transition(task.taskId, 'planning');
+  tasks.transition(task.taskId, 'interrupted');
+  // 契约事件把当前目标抬到 v2，任务记录仍是 v1；P0-1 之前两侧同源判不出来。
+  store.appendEvent({
+    type: 'goal.contract.updated', at: Date.now(), taskId: task.taskId,
+    contract: { goalVersion: 2, goalId: task.goalId, criteria: [] }
+  });
+  const roundsBefore = tasks.listRounds(task.taskId).length;
+  const orch = orchestrator();
+
+  await orch.resume(task.taskId);
+
+  assert.equal(tasks.get(task.taskId).status, 'blocked');
+  assert.equal(tasks.listRounds(task.taskId).length, roundsBefore);
+  const consistency = events.filter(event =>
+    event.type === 'version.consistency' && event.taskId === task.taskId
+  ).at(-1);
+  assert.equal(consistency?.actedOnReplan, true);
+  assert.ok(consistency?.requiresReplan);
+  assert.ok(events.some(event => event.type === 'cycle.decision.created'
+    && event.taskId === task.taskId && event.decisionType === 'WAIT_USER'));
+  assert.match(tasks.get(task.taskId).error ?? '', /旧目标计划未执行/);
+});
+
 test('并发恢复保护：同一任务第二次继续被拒绝', async () => {
   const task = tasks.create({ prompt: '并发恢复', permissionPreset: 'workspace-write' });
   tasks.transition(task.taskId, 'planning');

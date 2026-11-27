@@ -48,6 +48,15 @@ if (!port) throw new Error('Agent must run as Electron UtilityProcess');
 
 /** Tasks the user cancelled while a plan was executing. */
 const cancelled = new Set<string>();
+/** 有工具正在执行的任务：取消回执要等这一步真正收尾后再发。 */
+const activeSteps = new Set<string>();
+const ackedCancels = new Set<string>();
+
+function ackCancel(taskId: string) {
+  if (ackedCancels.has(taskId)) return;
+  ackedCancels.add(taskId);
+  port!.postMessage({ type: 'task.cancel.ack', taskId, at: Date.now() });
+}
 
 /** 界面 attach 过的终端 → 取消订阅。关会话或 Runtime 退出时必须断开。 */
 const terminalSubscriptions = new Map<string, () => void>();
@@ -231,6 +240,9 @@ port.on('message', (event: { data: unknown }) => {
     cancelCliRuns(message.taskId);
     rejectPending(message.taskId, '任务已取消，这一步没有执行');
     rejectPendingQuestions(message.taskId, 'cancelled');
+    // 主进程要等这个回执才改「已暂停/已取消」。有步骤正在跑时，回执要等
+    // 这一步真正收尾（工具已中断并回报）后再发，不能只确认「请求收到了」。
+    if (!activeSteps.has(message.taskId)) ackCancel(message.taskId);
     return;
   }
 
@@ -509,6 +521,7 @@ async function runTask(message: {
       const journalId = `${taskId}:${step.id}:${randomUUID()}`;
       db.insertStep({ id: journalId, task_id: taskId, tool: step.tool, args_json: JSON.stringify(recordedArgs), status: 'RUNNING', started_at: stepStarted });
       port.postMessage({ type: 'step.started', at: Date.now(), taskId, stepId: step.id, tool: step.tool, args: recordedArgs });
+      activeSteps.add(taskId);
 
       try {
         // 能力插件是唯一的分派入口：宿主不认识任何具体工具，未装载与已停用
@@ -544,6 +557,10 @@ async function runTask(message: {
         db.updateStep(journalId, { status: 'FAILED', error: messageText, finished_at: Date.now() });
         port.postMessage({ type: 'step.failed', at: Date.now(), taskId, stepId: step.id, tool: step.tool, error: messageText, args: recordedArgs, durationMs });
         break; // Stop the plan; the planner decides whether to retry.
+      } finally {
+        activeSteps.delete(taskId);
+        // 步骤已经收尾：此刻才可以说「在途工具已终止」，主进程据此落最终状态。
+        if (cancelled.has(taskId)) ackCancel(taskId);
       }
     }
 
@@ -593,6 +610,7 @@ async function runTask(message: {
     db.updateTask(taskId, { status: status.toUpperCase(), updated_at: Date.now() });
     port.postMessage({ type: 'task.report', taskId, report });
     cancelled.delete(taskId);
+    ackedCancels.delete(taskId);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     const report: ExecutionReport = {

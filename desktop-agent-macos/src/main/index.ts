@@ -39,6 +39,7 @@ import type { SubAgentTask } from './agents/types';
 import { ContextCheckpointStore } from './context/checkpoint/store';
 import { ContextArchiveStore } from './context/checkpoint/archive';
 import { commitContextCheckpoint } from './context/checkpoint/commit';
+import { commitPauseCheckpoint } from './context/checkpoint/pause';
 import { summarizeHistory } from './context/compaction/summarizer';
 import { recoverTaskContext } from './context/recovery/task-recovery';
 import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entry-policy';
@@ -306,6 +307,41 @@ let sourceStore: SourceStore | null = null;
 let profileStore: ProfileStore | null = null;
 /** 研究设置的跨会话默认值（主导人、参与的云端模型…）。created in `whenReady`. */
 let executionDefaults: ExecutionDefaultsStore | null = null;
+
+/**
+ * 固定工作流创建时记下当前执行档的规划成员。
+ *
+ * 工作流本身不问模型，但强制退出后恢复会重新规划；进程重启时 orchestrator
+ * 的内存成员表是空的，没有这份 id 就只能退回网页 adapter——云端档因此会用
+ * ChatGPT 规划，并在页面没开时把任务记成失败。这里只记 id，真正 probing
+ * 和 health 仍由规划链路负责；网页档返回空，保留原来的网页行为。
+ */
+function defaultPlannerAgentIds(): string[] {
+  const config = executionDefaults?.get();
+  if (!config || config.executionMode === 'web') return [];
+  const known = new Set([
+    ...extraAgents.map(agent => agent.id),
+    ...cliAnswerAgents.map(agent => agent.id)
+  ]);
+  // 只记真正被勾选/指定的成员：selectedCloudModels=[] 表示「一个都不问」，
+  // 不能因为这里是恢复路径就把几十个云端模型全塞进去。
+  const ordered = [
+    ...(config.leadAgentId ? [config.leadAgentId] : []),
+    ...(config.selectedCloudModels ?? []),
+    ...(config.selectedLocalModels ?? []),
+    ...(config.selectedCliAgents ?? [])
+  ];
+  // 云端/混合档没勾云端模型时，按既有规则退回已开启的 CLI；
+  // 本地档没勾本地模型时，退回已登记的本地模型。
+  if ((config.executionMode === 'cloud' || config.executionMode === 'hybrid')
+      && (config.selectedCloudModels?.length ?? 0) === 0) {
+    ordered.push(...cliAnswerAgents.map(agent => agent.id));
+  } else if (config.executionMode === 'local' && (config.selectedLocalModels?.length ?? 0) === 0) {
+    ordered.push(...extraAgents.filter(agent => agent.sourceType === 'local').map(agent => agent.id));
+  }
+  return [...new Set(ordered.filter(id => known.has(id)))];
+}
+
 /** V2.1：上次使用的空间与项目。created in `whenReady`. */
 let workspaceStore: WorkspaceStore | null = null;
 /** 多项目工作区清单（侧栏分组）。created in `whenReady`. */
@@ -3644,7 +3680,8 @@ function registerIpc() {
         : {}),
       ...(typeof payload.completionCondition === 'string'
         ? { completionCondition: payload.completionCondition }
-        : {})
+        : {}),
+      debateAgentIds: defaultPlannerAgentIds()
     });
   });
 
@@ -6376,6 +6413,11 @@ app.whenReady().then(async () => {
       // 恢复结论由 Orchestrator 落事件与提示：needs_context_refresh 会发
       // context.refresh.required，这里只负责返回事实，不重复刷日志。
       return recovered;
+    },
+    // P0-4：暂停/取消也走同一套检查点事务；摘要只来自已落库任务事实。
+    pauseCheckpoint: async input => {
+      const { store: cps, archive } = checkpointStores();
+      return commitPauseCheckpoint(input, { store: cps, archive, journal: store });
     },
     // LT-P4-02：Engineering 的 Provider 规划器接收上下文；Web/CLI 没有
     // withContext，仍按原话直发。

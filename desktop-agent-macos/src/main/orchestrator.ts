@@ -15,15 +15,16 @@ import type {
   StoredPlan,
   TaskGrant
 } from '../shared/contracts';
-import type { ContextHistoryItem, ContextManager } from '../shared/context';
+import type { ContextHistoryItem, ContextManager, SideEffectLedger } from '../shared/context';
 import { scopeHistory } from './context/entry-policy';
 import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
+import { collectInFlightSideEffects, collectSideEffects, reconcileSideEffects } from './context/recovery/side-effects';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS, TOOL_NAMES } from '../shared/contracts';
 import type { WorkflowDefinition } from '../shared/workflow';
 import { validateWorkflow, workflowToPlan } from '../shared/workflow';
 import { findWorkflow, selectWorkflow } from '../shared/workflow-registry';
-import { checkVersionChain, versionConsistencyPrompt } from '../shared/version-consistency';
+import { buildResumeVersionChainInput, checkVersionChain, versionConsistencyPrompt } from '../shared/version-consistency';
 import { approvalPolicyFor, planApprovalGate } from '../shared/approval';
 import {
   assessCollaborationRisk,
@@ -210,6 +211,15 @@ export interface OrchestratorDeps {
    * `withContext`，仍按原话直发；这里不做任何注入。
    */
   contextManager?: ContextManager | null;
+  /** P0-4：暂停/取消时提交可恢复检查点；生产由主进程的 checkpoint 事务注入。 */
+  pauseCheckpoint?: (input: {
+    task: AgentTask;
+    reason: 'pause' | 'cancel';
+    reports: readonly ExecutionReport[];
+    taskRevision: number;
+    ledger: SideEffectLedger;
+    needsReconciliation: number;
+  }) => Promise<{ checkpointId: string; contextId: string }>;
   /** 规划看门狗的静默阈值；测试可调小，生产默认 120 秒。 */
   planningIdleMs?: number;
   /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
@@ -432,6 +442,11 @@ export class AgentOrchestrator {
     argsByNode?: Record<string, Record<string, unknown>>;
     inputs?: Record<string, unknown>;
     completionCondition?: string;
+    /**
+     * 固定工作流不向模型要计划，但恢复时可能要重新规划。这里记下当前执行档
+     * 的规划成员，进程重启后才能按成员重建 adapter，不悄悄退回网页。
+     */
+    debateAgentIds?: readonly string[];
   }): Promise<AgentTask> {
     const known: readonly string[] = TOOL_NAMES;
     const entry = input.workflow
@@ -456,7 +471,10 @@ export class AgentOrchestrator {
       permissionPreset: input.permissionPreset,
       ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
       // 固定流程不生成模型计划，也就没有「方案评审」；不写 off 会被当成默认 auto 记一笔假辩论。
-      planDebate: 'off'
+      planDebate: 'off',
+      ...(input.debateAgentIds && input.debateAgentIds.length > 0
+        ? { debateAgentIds: [...input.debateAgentIds] }
+        : {})
     });
     this.tasks.transition(task.taskId, 'planning');
     const round = this.tasks.createRound({
@@ -945,19 +963,93 @@ export class AgentOrchestrator {
     return { verified: true, reasons: verification.reasons };
   }
 
-  /** 用户暂停：停掉在途请求，保留暂停前状态；恢复时重新开一轮，不重跑旧步骤。 */
+  /** P0-4：把暂停点的目标版本、任务树 revision 与副作用缺口落进检查点。 */
+  private async commitPauseCheckpoint(taskId: string, reason: 'pause' | 'cancel'): Promise<void> {
+    const task = this.tasks.get(taskId);
+    const reports = this.deps.store.allReportsFor(taskId);
+    const events = this.deps.store.listEvents(taskId);
+    const entries = collectSideEffects(reports);
+    const seen = new Set(entries.map(entry => `${entry.stepId}:${entry.tool}`));
+    for (const entry of collectInFlightSideEffects(events)) {
+      const key = `${entry.stepId}:${entry.tool}`;
+      if (!seen.has(key)) {
+        entries.push(entry);
+        seen.add(key);
+      }
+    }
+    const ledger = await reconcileSideEffects(entries, {
+      workspaceRoot: task.workspaceRoot
+    });
+    const taskRevision = Math.max(0, ...[...rebuildWorkTasksFromEvents(
+      taskId, events
+    ).values()].map(item => item.revision ?? 1));
+    let checkpoint: { checkpointId: string; contextId: string } | null = null;
+    let unavailableReason: string | undefined;
+    if (this.deps.pauseCheckpoint) {
+      try {
+        checkpoint = await this.deps.pauseCheckpoint({
+          task, reason, reports, taskRevision,
+          ledger, needsReconciliation: ledger.needsReconciliation
+        });
+        this.tasks.patch(taskId, { checkpointId: checkpoint.checkpointId, contextId: checkpoint.contextId });
+      } catch (error) {
+        unavailableReason = error instanceof Error ? error.message : String(error);
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `暂停检查点未提交：${unavailableReason}；状态照常落库，恢复时按缺失检查点处理。`
+        });
+      }
+    } else {
+      unavailableReason = '当前宿主未注入检查点能力';
+    }
+    this.deps.emit({
+      type: 'context.checkpoint.paused',
+      at: Date.now(), taskId, reason,
+      goalVersion: task.goalVersion ?? 1,
+      taskRevision,
+      needsReconciliation: ledger.needsReconciliation,
+      ...(checkpoint ? { checkpointId: checkpoint.checkpointId } : {}),
+      ...(unavailableReason ? { unavailableReason } : {})
+    });
+  }
+
+  /** 用户暂停：请求态 → Runtime 确认 → 检查点 → 实际态；恢复时重新开一轮。 */
   async pause(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
-    if (['completed', 'failed', 'cancelled', 'paused'].includes(task.status)) return;
-    const inFlight = ['planning', 'executing', 'verifying'].includes(task.status);
+    const pending = ['pause_requested', 'pausing', 'cancel_requested', 'cancelling'];
+    if (['completed', 'failed', 'cancelled', 'paused', ...pending].includes(task.status)) return;
+    const originalStatus = task.status;
+    const inFlight = ['planning', 'executing', 'verifying'].includes(originalStatus);
+
+    // 请求态先落库：界面不能再把「已点暂停」显示成仍在规划/执行。
+    this.tasks.transition(taskId, 'pause_requested', {
+      resumeStatus: originalStatus, error: undefined
+    });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: inFlight
+        ? '已收到暂停请求：正在等待在途模型与工具停止。'
+        : '已收到暂停请求：正在写入暂停检查点。'
+    });
+
     if (inFlight) {
       const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
       if (round) this.adapterFor(taskId).cancelWait(round.requestId);
       this.cancelPeers(taskId);
-      cancelPlan(taskId);
+      const cancel = await cancelPlan(taskId);
+      if (cancel.sent && !cancel.confirmed) {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: '已下发停止请求，但未能确认在途工具终止；继续前请核对文件与进程副作用。'
+        });
+      }
     }
+
+    // Runtime 回执（或有界等待）之后才进入停止中，再落检查点。
+    this.tasks.transition(taskId, 'pausing', { resumeStatus: originalStatus });
+    await this.commitPauseCheckpoint(taskId, 'pause');
     this.tasks.transition(taskId, 'paused', {
-      resumeStatus: task.status,
+      resumeStatus: originalStatus,
       ...(inFlight
         ? { error: '用户暂停：在途请求已停止；继续时先核对现有结果，不自动重跑旧步骤。' }
         : {})
@@ -965,8 +1057,8 @@ export class AgentOrchestrator {
     this.deps.emit({
       type: 'log', at: Date.now(), taskId, level: 'info',
       message: inFlight
-        ? '任务已暂停：在途请求已停止；继续会重新规划，先核对现有结果。'
-        : '任务已暂停；继续会回到暂停前的等待状态。'
+        ? '任务已暂停：停止请求与检查点均已落库；继续会重新规划，先核对现有结果。'
+        : '任务已暂停：检查点已落库；继续会回到暂停前的等待状态。'
     });
   }
 
@@ -1066,39 +1158,35 @@ export class AgentOrchestrator {
       // 不是算给人看：requiresReplan 会真的改写继续提示词，旧结论不会被静默复用。
       const resumeEvents = this.deps.store.listEvents(taskId);
       const resumeTasks = [...rebuildWorkTasksFromEvents(taskId, resumeEvents).values()];
-      const boundGoalVersions = resumeTasks
-        .map(item => item.goalVersion)
-        .filter((item): item is number => typeof item === 'number');
-      const lastDecisionEvent = [...resumeEvents]
-        .reverse()
-        .find(event => event.type === 'model.decision.snapshot');
-      const versionChain = checkVersionChain({
-        goal: {
-          goalId: task.goalId ?? `goal:${taskId}`,
-          version: task.goalVersion ?? 1
-        },
-        workTask: {
-          workId: taskId,
-          ...(boundGoalVersions.length > 0 ? { goalVersion: Math.max(...boundGoalVersions) } : {})
-        },
-        eco: recovery?.ecoRef
-          ? {
-              contextVersion: recovery.ecoRef.contextVersion,
-              ...(recovery.ecoRef.goalVersion !== undefined ? { goalVersion: recovery.ecoRef.goalVersion } : {}),
-              sufficiency: recovery.ecoRef.sufficiency
-            }
-          : null,
-        contribution: lastDecisionEvent && lastDecisionEvent.type === 'model.decision.snapshot'
-          ? { snapshotId: lastDecisionEvent.snapshot.contributionSnapshotId }
-          : null,
-        decision: lastDecisionEvent && lastDecisionEvent.type === 'model.decision.snapshot'
-          ? {
-              decisionId: lastDecisionEvent.snapshot.decisionId,
-              contributionSnapshotId: lastDecisionEvent.snapshot.contributionSnapshotId
-            }
-          : null,
-        current: { goalVersion: task.goalVersion ?? 1 }
+      // P0-1：取源交给共享纯函数。「任务记录」与「事件流当前事实」必须分开，
+      // 否则两个字段同源，checkVersionChain 判得再准也永远碰不到过期分支。
+      const { chain: versionChainInput, sources: versionSources } = buildResumeVersionChainInput({
+        task,
+        events: resumeEvents,
+        workTasks: resumeTasks,
+        ecoRef: recovery?.ecoRef ?? null
       });
+      const versionChain = checkVersionChain(versionChainInput);
+
+      // GCE：旧 GoalContract 可能比当前任务目标旧；过期契约不能再被当成当前目标。
+      const goalRecovery = reconcileGoalContractOnResume({
+        goalId: task.goalId ?? `goal:${taskId}`,
+        goalVersion: task.goalVersion ?? 1,
+        ...(task.goalCriteria ? { goalCriteria: task.goalCriteria } : {}),
+        ...(task.goalContract ? { contract: task.goalContract } : {}),
+        tasks: resumeTasks
+      });
+
+      // P0-2：needs_replan 不能只写进提示词。第一次判出过期时作废未完成任务树、
+      // 发 WAIT_USER 并停在 blocked；用户再次继续才按新目标重新规划。
+      // 同版本已经执行过门禁的事件表示用户已确认，不重复挡住。
+      const needsReplan = versionChain.requiresReplan || goalRecovery.status === 'needs_replan';
+      const lastGoalEventAt = [...resumeEvents].reverse()
+        .find(event => event.type === 'goal.contract.updated')?.at ?? 0;
+      const gateConsumed = [...resumeEvents].reverse().some(event =>
+        event.type === 'version.consistency' && event.actedOnReplan === true && event.at >= lastGoalEventAt
+      );
+      const gateBlocks = needsReplan && !gateConsumed;
       this.deps.emit({
         type: 'version.consistency',
         at: Date.now(),
@@ -1109,7 +1197,9 @@ export class AgentOrchestrator {
         expired: versionChain.expired,
         requiresReplan: versionChain.requiresReplan,
         requiresContextRefresh: versionChain.requiresContextRefresh,
-        notes: versionChain.notes
+        notes: versionChain.notes,
+        sources: versionSources,
+        actedOnReplan: gateBlocks
       });
       if (!versionChain.consistent) {
         this.deps.emit({
@@ -1121,15 +1211,6 @@ export class AgentOrchestrator {
         });
       }
 
-      // GCE：旧 GoalContract 可能比当前任务目标旧；过期契约不能被继续显示成
-      // 当前目标，也不能拿它的 Criterion 继续判定。丢弃后由下一次计划重建。
-      const goalRecovery = reconcileGoalContractOnResume({
-        goalId: task.goalId ?? `goal:${taskId}`,
-        goalVersion: task.goalVersion ?? 1,
-        ...(task.goalCriteria ? { goalCriteria: task.goalCriteria } : {}),
-        ...(task.goalContract ? { contract: task.goalContract } : {}),
-        tasks: resumeTasks
-      });
       if (goalRecovery.status === 'needs_replan') {
         this.deps.emit({
           type: 'goal.contract.stale',
@@ -1155,6 +1236,25 @@ export class AgentOrchestrator {
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'info',
           message: `恢复完成前任务已变为 ${current.status}，不再继续。`
+        });
+        return;
+      }
+
+      if (gateBlocks) {
+        const impacted = resumeTasks
+          .filter(item => !['completed', 'cancelled', 'skipped'].includes(item.status))
+          .map(item => item.workTaskId);
+        if (impacted.length > 0) {
+          this.deps.emit({
+            type: 'work.breakdown.replanned', at: Date.now(), taskId, workId: taskId, impactedIds: impacted
+          });
+        }
+        const reason = `旧目标计划未执行：${versionChain.issues.map(item => `[${item.layer}] ${item.reason}`).join('；') || goalRecovery.reasons.join('；') || '目标契约已过期'}；等待确认后按新目标重规划`;
+        this.emitCycleDecision(taskId, 'WAIT_USER', reason, ['version.consistency']);
+        this.tasks.transition(taskId, 'blocked', { error: reason, resumeStatus: undefined });
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'warn',
+          message: `${reason}；旧步骤不进入 planning，也不作为当前有效决策复用。`
         });
         return;
       }
@@ -1318,15 +1418,34 @@ export class AgentOrchestrator {
 
   async cancel(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
-    if (TERMINAL.includes(task.status)) return;
+    const pending = ['pause_requested', 'pausing', 'cancel_requested', 'cancelling'];
+    if (TERMINAL.includes(task.status) || pending.includes(task.status)) return;
+    const originalStatus = task.status;
+
+    // 请求态先落库：用户在 Runtime 回执前就能看到「取消已发出」。
+    this.tasks.transition(taskId, 'cancel_requested', {
+      resumeStatus: originalStatus, error: undefined
+    });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: '已收到取消请求：正在等待在途模型与工具停止。'
+    });
 
     const round = task.currentRoundId ? this.tasks.getRound(task.currentRoundId) : null;
     if (round) this.adapterFor(taskId).cancelWait(round.requestId);
     this.cancelPeers(taskId);
 
     // 取消要传到 Runtime：否则它还在跑计划，外部 CLI 也还在改文件。
-    cancelPlan(taskId);
+    const cancel = await cancelPlan(taskId);
+    if (cancel.sent && !cancel.confirmed) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: '已下发取消请求，但未能确认在途工具终止；任务标记为取消，副作用需人工核对。'
+      });
+    }
 
+    this.tasks.transition(taskId, 'cancelling', { resumeStatus: originalStatus });
+    await this.commitPauseCheckpoint(taskId, 'cancel');
     this.tasks.transition(taskId, 'cancelled', { error: '用户取消任务' });
     this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId });
   }
