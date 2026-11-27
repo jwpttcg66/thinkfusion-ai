@@ -1,6 +1,8 @@
 # 产品路线
 
-产品目标与取舍见 [PRODUCT.md](PRODUCT.md)。当前代码能力、验收事实与缺口只维护在
+产品总目标与总体架构约束以
+[PRODUCT_ARCHITECTURE_BASELINE_V4.md](PRODUCT_ARCHITECTURE_BASELINE_V4.md)（V4.0.0）为基准；
+当前实现的取舍说明见 [PRODUCT.md](PRODUCT.md)。当前代码能力、验收事实与缺口只维护在
 [implementation/STATUS.md](implementation/STATUS.md)。本页只定义优先顺序，不复制状态表或完成度数字。
 
 ## 优先级原则

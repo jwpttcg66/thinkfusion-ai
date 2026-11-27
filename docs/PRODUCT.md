@@ -11,6 +11,10 @@
 
 它不是让多个模型轮流发表意见，而是让多个模型真正参与同一个任务。
 
+> **定位已更新：** 产品总目标与总体架构以
+> [PRODUCT_ARCHITECTURE_BASELINE_V4.md](PRODUCT_ARCHITECTURE_BASELINE_V4.md)（V4.0.0）为基准。
+> 本文保留为 V3 期间的定位陈述与工作空间形态说明；与基准冲突处以基准为准。
+>
 > 本文是产品方向 V3（2026-11-18），取代此前「可验证的多模型审辩平台」的定位。
 > 新定位已经冻结。代码主体已迁移到协作引擎、工程空间与证据链；
 > 实际阶段状态以 [implementation/STATUS.md](implementation/STATUS.md) 为准。

@@ -6,7 +6,8 @@
 
 | 问题 | 权威位置 |
 | --- | --- |
-| 产品目标与取舍 | [PRODUCT.md](PRODUCT.md) |
+| 产品总目标与总体架构约束 | [PRODUCT_ARCHITECTURE_BASELINE_V4.md](PRODUCT_ARCHITECTURE_BASELINE_V4.md)（V4.0.0 基准） |
+| 产品目标与取舍（V3 时期说明） | [PRODUCT.md](PRODUCT.md) |
 | 当前代码架构 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 优先级顺序（不维护实现状态） | [ROADMAP.md](ROADMAP.md) |
 | 当前实现、测试、已知缺口 | [implementation/STATUS.md](implementation/STATUS.md) |
@@ -25,6 +26,7 @@
 
 ```text
 docs/
+├── PRODUCT_ARCHITECTURE_BASELINE_V4.md      产品总目标与总体架构基准（V4.0.0）
 ├── PRODUCT.md, ARCHITECTURE.md, ROADMAP.md   产品、代码架构、优先级
 ├── architecture/                            领域设计与目标架构
 ├── spec/                                    契约、行为及技术规范
