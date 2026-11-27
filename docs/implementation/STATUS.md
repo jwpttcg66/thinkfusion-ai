@@ -58,7 +58,7 @@
 | Goal Contract | `PARTIAL（纯函数层）` | 新增 `shared/goal-contract.ts`：六维、来源、Criterion、状态机、逐条 Goal Fit；已移除 summary 冒充成功标准。尚未接入 Orchestrator/UI。 |
 | Criterion / Evidence | `PARTIAL（纯函数层）` | 新增 `shared/goal-evidence.ts`：证据类型过滤、Criterion 状态、逐条 Goal Fit、WorkTask 覆盖检查；未接入 Orchestrator/UI |
 | 兼容层 | `PARTIAL（纯函数层）` | 新增 `shared/goal-compat.ts`：GoalContract→EngineeringGoalView 单向派生、状态/Fit 映射、`goal.fit` 扩展；`test:goal-compat`（4） |
-| Cycle Decision | `NOT STARTED` | 当前仅有 `complete/repair/fail_budget/fail_delivery` 四出口 |
+| Cycle Decision | `PARTIAL（纯函数层）` | 新增 `shared/cycle-decision.ts`：完整决策类型、诊断分层、无进展检测、旧四出口兼容；未接入 Orchestrator |
 | UI / 真机验收 | `NOT STARTED` | 尚无目标确认、逐条 Criterion 或决策原因展示 |
 
 > GCE 是设计冻结后的实施轨道，不改变现有代码事实；“已设计”不等于“已实现”。

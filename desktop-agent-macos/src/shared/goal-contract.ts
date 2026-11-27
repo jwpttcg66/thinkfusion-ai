@@ -119,6 +119,13 @@ export interface GoalContract {
 
 export type GoalContractFit = 'MET' | 'WITH_RISKS' | 'PARTIAL' | 'GAP' | 'UNKNOWN';
 
+/** GCE：执行完成、验证通过、目标达成必须分开。 */
+export interface DeliveryState {
+  execution: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  verification: 'UNVERIFIED' | 'PARTIAL' | 'PASSED' | 'FAILED';
+  goal: GoalContractFit;
+}
+
 export interface GoalFitAssessment {
   goalId: string;
   goalVersion: number;
