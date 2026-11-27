@@ -110,7 +110,42 @@ DELIVERABLES=["src/math.js"]
 
 说明：单 MUST Criterion 会覆盖所有 L2，因此该样本没有被门禁误拦；多 Criterion 未匹配时的阻断目前只有自动化覆盖，没有真机样本。
 
-## 4. 未完成/未验证
+## 4. 三场景与目标修订（真机 API 链路）
+
+### 4.1 General / Knowledge
+
+通过运行中的 App 提交同一条云端配置：
+
+```text
+general   intent=answer status=answered answerChars=45
+knowledge intent=answer status=answered answerChars=343
+```
+
+两条都已删除会话，未留下用户侧长期记录。工程场景见第 2 节固定工作流。
+
+### 4.2 目标修订
+
+在等待审批的工作流任务上调用真实 IPC：
+
+```text
+task status=awaiting_approval
+clarify kind=clarify versionChanged=false nextVersion=1
+change  kind=change  versionChanged=true  nextVersion=2
+goal.contract.updated:
+  v1 写入后回读内容一致
+  v1 写入后回读内容一致|测试退出码为 0
+  v2 写入后回读内容一致
+final version=2 criteria=["写入后回读内容一致"]
+```
+
+结论：
+
+- 补充标准不抬版本；
+- 删除标准经 `userConfirmedChange=true` 才抬到 v2；
+- 每次变化都写 `goal.contract.updated`，契约与任务字段一致。
+- 这是 IPC/主进程链路验证；目标卡上的“删除 → 浏览器确认框”鼠标交互仍未点验。
+
+## 5. 未完成/未验证
 
 - 工程目标卡与目标修订控件已接线并通过 typecheck/单测，但没有在真机里用鼠标完成一次“修改目标 → 删除标准 → 确认版本递增”的交互验收。
 - 恢复后的版本一致性、stale 展示未做真机长任务样本。
