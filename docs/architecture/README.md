@@ -18,6 +18,11 @@
 | [V3-GOAL-TDL-ECO-ARCHITECTURE.md](V3-GOAL-TDL-ECO-ARCHITECTURE.md) | Goal、TDL、ECO 的组合方向 |
 | [V3-TASK-DECOMPOSITION-LAYER.md](V3-TASK-DECOMPOSITION-LAYER.md) | Work/WorkTask 分解和进度投影 |
 | [V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) | V2.0 核心闭环：Goal Contract、Criterion、Evidence、Cycle Decision；设计目标，不声明实现 |
+| [GCE-P1-GOAL-CONTRACT-DESIGN.md](GCE-P1-GOAL-CONTRACT-DESIGN.md) | GoalReasoner、六维、确认、版本与持久化接线 |
+| [GCE-P2-CRITERION-EVIDENCE-DESIGN.md](GCE-P2-CRITERION-EVIDENCE-DESIGN.md) | 证据归一化、Criterion 判定、三态分层、WorkTask 映射 |
+| [GCE-P3-CYCLE-DECISION-DESIGN.md](GCE-P3-CYCLE-DECISION-DESIGN.md) | Work/Cycle/Round、真实阶段、决策算法、无进展检测 |
+| [GCE-P4-COLLABORATION-DESIGN.md](GCE-P4-COLLABORATION-DESIGN.md) | TDL 映射、ECO 资格、DMOCA 阶段角色与贡献版本 |
+| [GCE-P5-UI-RECOVERY-DESIGN.md](GCE-P5-UI-RECOVERY-DESIGN.md) | 连续文档 UI 接线、目标变更、恢复一致性 |
 
 ## 长任务上下文
 
