@@ -113,19 +113,43 @@ test('非代码改动的成功回读可以作为 FILE_READBACK 证据', () => {
       changedPaths: ['docs/a.md']
     }
   });
-  const result = assessReportAgainstGoal({ contract: contract(), report: doc, at: 2 });
+  const docContract = goalContractFromPlan({
+    taskId: 't1',
+    userPrompt: '更新文档',
+    planTitle: '更新文档',
+    completionCondition: '文档改动后回读内容一致',
+    at: 1
+  });
+  const result = assessReportAgainstGoal({ contract: docContract, report: doc, at: 2 });
   assert.ok(result.links.some(item => item.evidenceType === 'FILE_READBACK' && item.verificationStatus === 'PASSED'));
   assert.equal(result.fit.fit, 'MET');
 });
 
 test('报告失败产生 FAILED 证据，Goal Fit 为 GAP', () => {
+  const failedTests = report({
+    status: 'failed',
+    verification: {
+      verified: false,
+      fullyVerified: false,
+      reasons: ['测试失败'],
+      changedFiles: 1,
+      changedPaths: ['src/a.ts'],
+      checks: {
+        compile: { status: 'passed' },
+        tests: { status: 'failed', exitCode: 1 },
+        run: { status: 'skipped' },
+        diagnostics: { status: 'passed', errors: 0, warnings: 0 },
+        changedFiles: ['src/a.ts']
+      }
+    }
+  });
   const result = assessReportAgainstGoal({
     contract: contract(),
-    report: report({ status: 'failed' }),
+    report: failedTests,
     at: 2
   });
   assert.equal(result.fit.fit, 'GAP');
-  assert.ok(result.links.every(item => item.verificationStatus === 'FAILED'));
+  assert.ok(result.links.some(item => item.evidenceType === 'TEST_RESULT' && item.verificationStatus === 'FAILED'));
 });
 
 test('执行完成但没有可核对验证时保持未验证，不写 achieved', () => {
@@ -198,4 +222,28 @@ test('失败的测试/编译证据产生 UNMET，Goal Fit 为 GAP', () => {
   const result = assessReportAgainstGoal({ contract: contract(), report: failed, at: 2 });
   assert.equal(result.fit.fit, 'GAP');
   assert.ok(result.criteria.every(item => item.status === 'UNMET'));
+});
+
+test('写了测试的标准不被一次编译通过冒充', () => {
+  const goal = contract();
+  assert.deepEqual(goal.criteria[1].acceptedEvidenceTypes, ['TEST_RESULT', 'INTEGRATION_RESULT']);
+  const compileOnly = report({
+    verification: {
+      verified: true,
+      fullyVerified: false,
+      reasons: [],
+      changedFiles: 1,
+      changedPaths: ['src/a.ts'],
+      checks: {
+        compile: { status: 'passed' },
+        tests: { status: 'skipped' },
+        run: { status: 'skipped' },
+        diagnostics: { status: 'passed', errors: 0, warnings: 0 },
+        changedFiles: ['src/a.ts']
+      }
+    }
+  });
+  const result = assessReportAgainstGoal({ contract: goal, report: compileOnly, at: 2 });
+  assert.notEqual(result.fit.fit, 'MET');
+  assert.ok(result.criteria.some(item => item.status === 'UNVERIFIED'));
 });

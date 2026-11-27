@@ -33,6 +33,26 @@ export interface PlanContractInput {
   at?: number;
 }
 
+/**
+ * 从标准文本推断它接受哪类证据。
+ *
+ * 写了「npm test / 测试」的标准不能被一次编译通过冒充；写了「编译」的标准
+ * 也不能被文件回读冒充。推断不出来时才退回强证据集合，仍排除 TOOL_RESULT
+ * 和无证据的 MODEL_CLAIM。
+ */
+function acceptedTypesFor(text: string): GoalEvidenceLink['evidenceType'][] {
+  if (/npm\s+test|pytest|go\s+test|node\s+--test|测试|test/i.test(text)) {
+    return ['TEST_RESULT', 'INTEGRATION_RESULT'];
+  }
+  if (/build|compile|tsc|mvn|gradle|编译|构建/i.test(text)) {
+    return ['BUILD_RESULT'];
+  }
+  if (/run|runtime|运行|启动/i.test(text)) {
+    return ['RUNTIME_RESULT'];
+  }
+  return ['TEST_RESULT', 'BUILD_RESULT', 'RUNTIME_RESULT', 'INTEGRATION_RESULT', 'FILE_READBACK'];
+}
+
 function criteriaFor(input: PlanContractInput, goalId: string): GoalCriterion[] {
   const at = input.at ?? Date.now();
   const version = input.goalVersion ?? 1;
@@ -51,6 +71,7 @@ function criteriaFor(input: PlanContractInput, goalId: string): GoalCriterion[] 
       priority: 'MUST',
       verificationMethod: '执行报告中的测试/编译/运行/诊断或非代码回读证据',
       acceptanceThreshold: '存在与该标准匹配的 PASSED 证据，且没有 FAILED 证据',
+      acceptedEvidenceTypes: acceptedTypesFor(text),
       updatedAt: at
     }));
   };
@@ -148,26 +169,30 @@ export function evidenceFromReport(input: ReportEvidenceInput): GoalEvidenceLink
     observed.push({ type, status, suffix });
   };
 
-  if (report.status === 'failed' || report.status === 'cancelled') {
+  // 失败报告也要读取 checks：真正失败的是测试时，证据必须是 TEST_RESULT
+  // FAILED，而不是一条无法匹配任何测试标准的 TOOL_RESULT。
+  if (checks?.tests.status === 'passed') add('TEST_RESULT', 'PASSED', 'tests');
+  else if (checks?.tests.status === 'failed') add('TEST_RESULT', 'FAILED', 'tests-failed');
+  if (checks?.compile.status === 'passed') add('BUILD_RESULT', 'PASSED', 'compile');
+  else if (checks?.compile.status === 'failed') add('BUILD_RESULT', 'FAILED', 'compile-failed');
+  if (checks?.run?.status === 'passed') add('RUNTIME_RESULT', 'PASSED', 'run');
+  else if (checks?.run?.status === 'failed') add('RUNTIME_RESULT', 'FAILED', 'run-failed');
+  if (checks?.diagnostics.status === 'passed' && observed.length === 0) {
+    add('TOOL_RESULT', 'PASSED', 'diagnostics');
+  } else if (checks?.diagnostics.status === 'failed' && observed.length === 0) {
+    add('TOOL_RESULT', 'FAILED', 'diagnostics-failed');
+  }
+  if (observed.length === 0 && report.status === 'failed') {
     add('TOOL_RESULT', 'FAILED', 'report');
-  } else {
-    if (checks?.tests.status === 'passed') add('TEST_RESULT', 'PASSED', 'tests');
-    else if (checks?.tests.status === 'failed') add('TEST_RESULT', 'FAILED', 'tests-failed');
-    if (checks?.compile.status === 'passed') add('BUILD_RESULT', 'PASSED', 'compile');
-    else if (checks?.compile.status === 'failed') add('BUILD_RESULT', 'FAILED', 'compile-failed');
-    if (checks?.run?.status === 'passed') add('RUNTIME_RESULT', 'PASSED', 'run');
-    else if (checks?.run?.status === 'failed') add('RUNTIME_RESULT', 'FAILED', 'run-failed');
-    if (checks?.diagnostics.status === 'passed' && observed.length === 0) {
-      add('TOOL_RESULT', 'PASSED', 'diagnostics');
-    } else if (checks?.diagnostics.status === 'failed' && observed.length === 0) {
-      add('TOOL_RESULT', 'FAILED', 'diagnostics-failed');
-    }
-    if (observed.length === 0 && verification?.verified && nonCode) {
-      add('FILE_READBACK', 'PASSED', 'readback');
-    }
-    if (observed.length === 0) {
-      add('TOOL_RESULT', 'UNKNOWN', 'execution');
-    }
+  }
+  if (observed.length === 0 && report.status === 'cancelled') {
+    add('TOOL_RESULT', 'FAILED', 'report-cancelled');
+  }
+  if (observed.length === 0 && verification?.verified && nonCode) {
+    add('FILE_READBACK', 'PASSED', 'readback');
+  }
+  if (observed.length === 0) {
+    add('TOOL_RESULT', 'UNKNOWN', 'execution');
   }
 
   const links: GoalEvidenceLink[] = [];
