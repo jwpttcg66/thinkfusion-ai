@@ -15,6 +15,7 @@
 | 长任务与上下文 | [long-task-context/ACCEPTANCE.md](long-task-context/ACCEPTANCE.md) |
 | 主活动区 U7 | [main-activity/U7-ACCEPTANCE.md](main-activity/U7-ACCEPTANCE.md) |
 | 全轮交付文件 | [main-activity/DELIVERABLES-LIVE.md](main-activity/DELIVERABLES-LIVE.md) |
+| 目标契约证据闭环（GCE） | [gce/ACCEPTANCE.md](gce/ACCEPTANCE.md) |
 | 全局记忆 M2 真机证据 | [evidence/global-memory/M2/M2-REPORT.md](../evidence/global-memory/M2/M2-REPORT.md) |
 | 主活动区 P7 证据报告 | [evidence/main-activity/P7/P7-REPORT.md](../evidence/main-activity/P7/P7-REPORT.md) |
 
