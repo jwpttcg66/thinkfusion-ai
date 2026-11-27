@@ -1,6 +1,6 @@
 # V3 目标契约证据闭环实施任务书
 
-**状态：** `P1–P5 设计完成；P1–P4 已接线到生产目标/证据/阶段事件，P5 目标与 Criterion 已展示；真机验收待跑`。本文只定义任务、门禁和回滚；实现状态见 [STATUS.md](STATUS.md)。
+**状态：** `P1–P5 设计完成；P1–P4 已接线到生产目标/证据/阶段事件，P5 目标卡与 Criterion 已展示并完成鼠标交互；长任务恢复真机验收待跑`。本文只定义任务、门禁和回滚；实现状态见 [STATUS.md](STATUS.md)。
 **设计基线：** `main@9026e0e`  
 **设计说明：** [V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](../architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md)  
 **契约：** [GOAL_CONTRACT_EVIDENCE_CONTRACTS.md](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md)  
@@ -33,11 +33,11 @@
 | ID | 名称 | 依赖 | 状态 | 主要交付 |
 | --- | --- | --- | --- | --- |
 | GCE-P0 | 现状与事件映射核对 | — | NOT STARTED | 生产链路图、真实事件/投影清单、缺口表 |
-| GCE-P1 | Goal Contract | P0 | 进行中（IMPLEMENTED/TESTED；目标变更 UI 未接） | 六维目标、Criterion、确认/变更入口 |
+| GCE-P1 | Goal Contract | P0 | 进行中（IMPLEMENTED/TESTED；目标卡可修改成功标准，删除需确认） | 六维目标、Criterion、确认/变更入口 |
 | GCE-P2 | Criterion ↔ Evidence 闭环 | P1 | 进行中（IMPLEMENTED/TESTED；生产已按全轮报告取证） | 逐条 Goal Fit、三种完成状态 |
 | GCE-P3 | Cycle 生命周期与决策引擎 | P1,P2 | 进行中（决策纯函数 TESTED；真实阶段/决策事件已接线） | Work/Cycle/Round 分离、完整决策出口 |
 | GCE-P4 | TDL 与动态协作接入 | P2,P3 | 进行中（覆盖门禁已接；DMOCA/辩论动态选择沿用现有链路） | 覆盖门禁、ECO 资格、DMOCA 版本绑定 |
-| GCE-P5 | UI 与长任务验收 | P3,P4 | 进行中（目标/Criterion/阶段/决策/目标变更/恢复 stale 已接；三场景 API 链路已跑；目标卡鼠标交互与长任务恢复待补） | 三场景回归、真机长任务证据 |
+| GCE-P5 | UI 与长任务验收 | P3,P4 | 进行中（目标/Criterion/阶段/决策/目标变更/恢复 stale 已接；三场景 API 链路已跑；目标卡鼠标交互已点验；长任务恢复待补） | 三场景回归、真机长任务证据 |
 
 ## 3. GCE-P0：现状与事件映射核对
 

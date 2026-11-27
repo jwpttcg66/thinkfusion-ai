@@ -2,7 +2,7 @@
 
 - 日期：2026-11-27
 - 分支：`lt-goal-contract-design`
-- 提交：`111a16e`（目标契约/证据/阶段/目标卡接线后）
+- 提交：`b15ee56`（含目标卡版本/兜底说明修复）
 - 环境：macOS，默认数据目录 `~/Library/Application Support/thinkfusion-ai`；未设置 `THINKFUSION_USER_DATA`，未复制用户数据。
 - 启动方式：`desktop-agent-macos` 下 `npx electron-vite dev --noSandbox --remoteDebuggingPort 9222`（等价 `npm run dev:local` 的 CDP 模式）。
 
@@ -143,7 +143,7 @@ final version=2 criteria=["写入后回读内容一致"]
 - 补充标准不抬版本；
 - 删除标准经 `userConfirmedChange=true` 才抬到 v2；
 - 每次变化都写 `goal.contract.updated`，契约与任务字段一致。
-- 这是 IPC/主进程链路验证；目标卡上的“删除 → 浏览器确认框”鼠标交互仍未点验。
+- 这是 IPC/主进程链路验证；目标卡上“删除 → 浏览器确认框”的鼠标交互见 4.3。
 
 ### 4.3 目标卡鼠标交互
 
@@ -169,9 +169,12 @@ final version=2 criteria=["写入后回读内容一致"]
 
 ## 5. 未完成/未验证
 
-- 工程目标卡与目标修订控件已接线并通过 typecheck/单测，但没有在真机里用鼠标完成一次“修改目标 → 删除标准 → 确认版本递增”的交互验收。
-- 恢复后的版本一致性、stale 展示未做真机长任务样本。
-- General / Knowledge / Engineering 三场景回归未全部重跑；本轮只覆盖 Engineering 的固定工作流与一次真实模型会话。
+- 恢复后的版本一致性、stale 展示未做真机长任务样本（见 GCE-TEST-PLAN 故障注入第 6 条）。
+- General / Knowledge / Engineering 三场景在 `b15ee56` 之后未统一重跑：通用/知识场景见 4.1，工程场景见第 1、2 节，但基线早于本次目标卡修复。
 - 真机日志来自 CDP 事件流；没有截图。
 
-因此本记录支持：GCE 目标/证据/阶段/决策/交付在真实主进程链路可用；不支持：P5 全部交互已验收或全场景已回归。
+已关闭（原列在本节）：
+
+- 目标卡鼠标交互已在 4.3 用真实点击完成：“修改目标 → 删除标准 → 确认后 v1→v2”，并修掉版本号与兜底说明两处 UI 缺陷。
+
+因此本记录支持：GCE 目标/证据/阶段/决策/交付在真实主进程链路可用；目标卡目标修订可用；不支持：长任务恢复的 stale 展示已验收，或三场景已在最新基线全量回归。
