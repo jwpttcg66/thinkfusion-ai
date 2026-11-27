@@ -336,6 +336,7 @@ export type DeliveryState = {
 | `cycle.created` | 完整 Cycle |
 | `cycle.stage.started/completed/skipped` | 阶段真实发生 |
 | `cycle.decision.created` | 下一步决策 |
+| `goal.contract.updated` | 目标契约创建/更新；正文用于恢复，旧 UI 不直接读 |
 | `goal.fit`（扩展字段） | 目标符合度评估；不新增 `goal.fit.assessed` |
 | `evidence.linked` | 证据关联 Criterion |
 

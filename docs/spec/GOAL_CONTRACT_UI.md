@@ -47,6 +47,8 @@
 
 ## 3. 目标区
 
+当前落地：工程任务主会话顶部的 `GoalContractCard`（`components/engineering/GoalContractCard.tsx`）。它只读 `projectGoalDrivenWorkbench` 的事件投影；修改成功标准走 `task:revise-goal`，删减标准二次确认。
+
 位置：主活动区顶部，或在工程任务头附近；不新增独立流程轨。
 
 显示：

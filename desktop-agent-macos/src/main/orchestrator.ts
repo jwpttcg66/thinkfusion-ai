@@ -2731,13 +2731,15 @@ export class AgentOrchestrator {
     const repairBlocked = Boolean(repairGate && !repairGate.open);
     const actualDecision = goalBlocksCompletion
       ? 'WAIT_USER'
-      : decision === 'complete'
-        ? 'COMPLETE'
-        : decision === 'repair'
-          ? 'REPAIR'
-          : decision === 'fail_budget'
-            ? 'BLOCKED'
-            : 'ABORT';
+      : repairBlocked
+        ? 'WAIT_USER'
+        : decision === 'complete'
+          ? 'COMPLETE'
+          : decision === 'repair'
+            ? 'REPAIR'
+            : decision === 'fail_budget'
+              ? 'BLOCKED'
+              : 'ABORT';
     this.emitCycleDecision(
       taskId,
       actualDecision,
