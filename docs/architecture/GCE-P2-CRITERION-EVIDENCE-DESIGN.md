@@ -139,7 +139,7 @@ Criterion: 单元测试通过 → 仍需 TEST_RESULT
 
 - `GoalEvidenceLink` 可作为事件 payload/报告派生物，不重复存证据正文；
 - Criterion 更新写 `goal.criterion.updated`（或复用现有语义）；
-- 交付结论写 `goal.fit.assessed`；
+- 交付结论扩展现有 `goal.fit` 事件（不新增 `goal.fit.assessed`）；
 - 事件必须带 `goalVersion/criterionId/evidenceId`（或可解析引用）。
 
 ## 10. 失败与降级
@@ -151,6 +151,10 @@ Criterion: 单元测试通过 → 仍需 TEST_RESULT
 | 证据版本不匹配 | 标 stale，要求重新验证 |
 | 报告与评审冲突 | 保留双方，Goal Fit `GAP/PARTIAL`，不静默选一方 |
 | 证据写入失败 | 不影响执行，但不能据此宣称目标达成 |
+
+### 10.1 与现有 EvidenceRef 的归一化边界
+
+现有 `EvidenceRef`/`ExecutionReport` 到 `GoalEvidenceLink` 的映射表见契约 §8.1。实现时必须同时读取 `StepResult`、退出码、命令和报告上下文；只凭 `EvidenceRef.kind` 不能判定 `BUILD_RESULT`/`TEST_RESULT`，URL 也不能单独支撑 Criterion。
 
 ## 11. 验收
 

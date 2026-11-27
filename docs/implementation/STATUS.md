@@ -57,6 +57,7 @@
 | P0 现状审计 | 完成（只读） | [GCE-P0 审计](audits/GCE-P0-CURRENT-SYSTEM-AUDIT.md)：确认真实事件、投影阶段和 7 项缺口 |
 | Goal Contract | `PARTIAL（纯函数层）` | 新增 `shared/goal-contract.ts`：六维、来源、Criterion、状态机、逐条 Goal Fit；已移除 summary 冒充成功标准。尚未接入 Orchestrator/UI。 |
 | Criterion / Evidence | `PARTIAL（纯函数层）` | 新增 `shared/goal-evidence.ts`：证据类型过滤、Criterion 状态、逐条 Goal Fit、WorkTask 覆盖检查；未接入 Orchestrator/UI |
+| 兼容层 | `PARTIAL（纯函数层）` | 新增 `shared/goal-compat.ts`：GoalContract→EngineeringGoalView 单向派生、状态/Fit 映射、`goal.fit` 扩展；`test:goal-compat`（4） |
 | Cycle Decision | `NOT STARTED` | 当前仅有 `complete/repair/fail_budget/fail_delivery` 四出口 |
 | UI / 真机验收 | `NOT STARTED` | 尚无目标确认、逐条 Criterion 或决策原因展示 |
 

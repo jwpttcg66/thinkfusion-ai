@@ -18,6 +18,7 @@
 | 目标区 | GoalContract + event refs | 原始请求只读；来源标签可见 |
 | Criterion | GoalCriterion + EvidenceLink | MET 必须可展开证据 |
 | Goal Fit | GoalFitAssessment | 不显示 `task.completed` 当目标达成 |
+| 目标物 | 全部轮次 ExecutionReport/artifact 并集 | 有路径列出；无记录明确写“没有记录到交付文件” |
 | 决策 | CycleDecision | 原因/证据/版本可见 |
 | 阶段 | cycle.stage.* 真实事件 | 投影不冒充真实阶段 |
 | 执行/工具 | 现有 AgentEvent | 保留 step/call 标识 |
@@ -118,7 +119,7 @@ Evidence links
 - `cycle.stage.*` 用于阶段；
 - `goal.*` 用于契约/确认/变更；
 - `goal.criterion.updated` 用于标准；
-- `goal.fit.assessed` 用于汇总；
+- `goal.fit`（扩展字段）用于汇总；
 - `cycle.decision.created` 用于下一步；
 - `context.recovered`/版本事件用于恢复。
 

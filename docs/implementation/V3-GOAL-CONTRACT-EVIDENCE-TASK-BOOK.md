@@ -33,7 +33,7 @@
 | ID | 名称 | 依赖 | 状态 | 主要交付 |
 | --- | --- | --- | --- | --- |
 | GCE-P0 | 现状与事件映射核对 | — | NOT STARTED | 生产链路图、真实事件/投影清单、缺口表 |
-| GCE-P1 | Goal Contract | P0 | 进行中（纯函数层 TESTED；未接线） | 六维目标、Criterion、确认/变更入口 |
+| GCE-P1 | Goal Contract | P0 | 进行中（纯函数层 + 兼容映射 TESTED；未接线） | 六维目标、Criterion、确认/变更入口 |
 | GCE-P2 | Criterion ↔ Evidence 闭环 | P1 | 进行中（纯函数层 TESTED；未接线） | 逐条 Goal Fit、三种完成状态 |
 | GCE-P3 | Cycle 生命周期与决策引擎 | P1,P2 | DESIGN 完成 / 待实现 | Work/Cycle/Round 分离、完整决策出口 |
 | GCE-P4 | TDL 与动态协作接入 | P2,P3 | DESIGN 完成 / 待实现 | 覆盖门禁、ECO 资格、DMOCA 版本绑定 |

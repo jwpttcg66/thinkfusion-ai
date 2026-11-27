@@ -101,6 +101,8 @@
 ```text
 npm run typecheck
 npm run test:goal-contract
+npm run test:goal-evidence
+npm run test:goal-compat
 npm run test:gdc-goal
 npm run test:gdc-cycle
 npm run test:task-conversation

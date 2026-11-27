@@ -250,6 +250,7 @@
     "test:gdc-goal": "npm run build:test && node --test scripts/check-gdc-goal.mjs",
     "test:goal-contract": "npm run build:test && node --test scripts/check-goal-contract.mjs",
     "test:goal-evidence": "npm run build:test && node --test scripts/check-goal-evidence.mjs",
+    "test:goal-compat": "npm run build:test && node --test scripts/check-goal-compat.mjs",
     "test:gdc-cycle": "npm run build:test && node --test scripts/check-gdc-cycle.mjs",
     "test:tdl-contract": "npm run build:test && node --test scripts/check-tdl-contract.mjs",
     "test:tdl-project": "npm run build:test && node --test scripts/check-tdl-project.mjs",

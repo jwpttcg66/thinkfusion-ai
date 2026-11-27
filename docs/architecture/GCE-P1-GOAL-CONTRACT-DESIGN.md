@@ -111,11 +111,13 @@ GoalReasoner（模型/规则）
 
 复用现有存储边界：
 
-- `Conversation` / `AgentTask` 增加可选 `goalContractId`、`goalVersion` 指针；
+- `GoalContract.goalId` 复用现有 `goalId`（工程默认 `goal:${taskId}`；Conversation 用 `conversationId`）；`AgentTask` 继续使用已有 `goalId/goalVersion`，不新增平行的 `goalContractId`；
+- `Conversation` 如尚无版本字段，增加可选 `goalVersion`，或在事件中保存契约版本；不复制契约正文；
 - 契约正文/版本通过 `goal.assessment.*`、`goal.confirmed`、`goal.criterion.updated`、`goal.change.*` 事件保存；
 - 不新建 `goal.sqlite` 或第二套 Journal；
 - 旧任务无契约字段时按 `DRAFT/UNKNOWN` 读取，不迁移、不伪造；
-- 事件 payload 只存引用和摘要，正文由事件/快照恢复。
+- 事件 payload 只存引用和摘要，正文由事件/快照恢复；
+- 旧 `EngineeringGoalView`/`GoalStatusGdc` 是派生读模型，映射见契约 §10.5，不得反向成为第二事实源。
 
 具体字段/事件名先按契约文档核对 `contracts.ts`，能复用则复用，不能复用才新增。
 

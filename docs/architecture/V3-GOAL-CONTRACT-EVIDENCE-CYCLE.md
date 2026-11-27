@@ -249,7 +249,7 @@ GOAL_REASONING → ANALYSIS → DESIGN → DESIGN_DEBATE(按需) → PLANNING
 
 继续以 Journal / AgentEvent 为事实来源；GDC 只做投影，不能把投影当事实。
 
-建议补充事件语义（需先核对现有 contracts，优先复用）：`goal.assessment.created/updated`、`goal.confirmation.requested`、`goal.confirmed`、`goal.criterion.updated`、`goal.change.proposed/confirmed`、`cycle.created`、`cycle.stage.started/completed/skipped`、`cycle.decision.created`、`goal.fit.assessed`、`evidence.linked`。
+建议补充事件语义（需先核对现有 contracts，优先复用）：`goal.assessment.created/updated`、`goal.confirmation.requested`、`goal.confirmed`、`goal.criterion.updated`、`goal.change.proposed/confirmed`、`cycle.created`、`cycle.stage.started/completed/skipped`、`cycle.decision.created`、`goal.fit`（扩展）、`evidence.linked`。
 
 Cycle Snapshot：`cycleId`、`workId`、`cycleNumber`、`goalId`、`goalVersion`、`currentStage`、`stageHistory`、`decision`、`decisionReason`、`decisionEvidenceRefs`、`artifactRefs`、`budget`、`status`、`createdAt`、`updatedAt`。Cycle Number 只代表完整 Cycle，不能用 Round Number 替代。
 

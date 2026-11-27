@@ -55,7 +55,7 @@ GOAL_FIT
 NEXT_DECISION
 ```
 
-事件：
+事件（payload 见 [契约 §6.1](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md#61-阶段决策事件-payload)）：
 
 ```text
 cycle.created
@@ -63,7 +63,7 @@ cycle.stage.started   { cycleId, stage, reason? }
 cycle.stage.completed { cycleId, stage, artifactRefs? }
 cycle.stage.skipped   { cycleId, stage, reason }
 cycle.decision.created{ cycleId, decisionType, reason, evidenceRefs, versions }
-goal.fit.assessed     { goalId, goalVersion, cycleId, counts, fit }
+goal.fit             { goalId?, goalVersion?, criteria?, counts?, blockingRisks?, fit, notes }
 ```
 
 约束：
@@ -71,7 +71,9 @@ goal.fit.assessed     { goalId, goalVersion, cycleId, counts, fit }
 - `stage.started` 必须由真实流程入口发出，不从旧事件反推；
 - `SKIPPED` 必须有原因；
 - `stage.completed` 才能将阶段标 done；
-- 旧 `cycle.snapshot` 可继续作为兼容快照，但不能覆盖真实阶段事件；
+- 旧 `cycle.snapshot` 可继续作为兼容快照，但不能覆盖真实阶段事件；新 `cycle.stage.*` 存在时以真实事件为准；
+- 复用现有 `goal.fit` 事件，不新增 `goal.fit.assessed`；旧 `fit/notes` 字段保留，新字段可选；
+- `cycle.decision.created` 是决策事实，`cycle.snapshot.decision` 是兼容镜像；
 - 投影重放只读事件，不写状态。
 
 ## 4. 阶段跳过
@@ -98,7 +100,9 @@ interface CycleDecisionInput {
   goal: GoalContract;
   goalFit: GoalFitAssessment;
   cycle: CycleSnapshot;
-  verification: DeliveryState;
+  delivery: DeliveryState;
+  /** 用户明确接受带风险/未验证交付；只有 fit=WITH_RISKS 时允许 COMPLETE。 */
+  userAcceptedRisks?: boolean;
   review: { needsFix: boolean; blockingIssues: number; unresolved: number };
   budget: { atMaxRounds: boolean; tokenExhausted?: boolean };
   task: { status: string; cancelled?: boolean; blockedReason?: string };
@@ -136,7 +140,7 @@ interface CycleDecisionResult {
 13. 否则 → CONTINUE/REPAIR
 ```
 
-`COMPLETE` 只能在 `fit === MET` 或用户明确接受 `WITH_RISKS` 时产生；`verification.PASSED` 单独不足。
+`COMPLETE` 只能在 `fit === MET`，或 `fit === WITH_RISKS` 且 `userAcceptedRisks === true` 时产生；`delivery.verification === PASSED` 单独不足。
 
 ## 6. 无进展检测
 

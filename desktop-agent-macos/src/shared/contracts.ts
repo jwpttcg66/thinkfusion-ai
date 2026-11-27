@@ -2062,8 +2062,17 @@ export type AgentEvent = AgentEventBase &
     | {
         type: 'goal.fit';
         taskId: string;
+        /** 旧读模型字段；GCE 扩展字段为可选，不新增第二套 goal.fit 事件。 */
         fit: 'pending' | 'met' | 'gap' | 'unknown';
         notes: string[];
+        goalVersion?: number;
+        criteria?: Array<{ criterionId: string; status: string }>;
+        met?: number;
+        partial?: number;
+        unmet?: number;
+        unverified?: number;
+        waived?: number;
+        blockingRisks?: string[];
       }
     /** TDL：单个 L2 子任务的独立循环快照（分析→设计→实现→审核）。 */
     | {

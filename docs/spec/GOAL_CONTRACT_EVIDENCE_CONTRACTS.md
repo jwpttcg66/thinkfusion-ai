@@ -75,6 +75,8 @@ export interface GoalCriterion {
   acceptanceThreshold: string;
   status: CriterionStatus;
   evidenceRefs: string[];
+  /** 该 Criterion 接受的证据类型；缺省不限制，但 MODEL_CLAIM 不能单独使 MET 成立。 */
+  acceptedEvidenceTypes?: GoalEvidenceType[];
   waiver?: { authorizedBy: string; reason: string; at: number };
   updatedAt: number;
 }
@@ -197,6 +199,32 @@ export interface CycleSnapshot {
 - `SKIPPED` 必须有 `reason`。
 - 投影不能替代真实 `STARTED/COMPLETED` 事件。
 
+### 6.1 阶段/决策事件 payload
+
+```ts
+export interface CycleStageEvent {
+  type: 'cycle.stage.started' | 'cycle.stage.completed' | 'cycle.stage.skipped';
+  taskId: string;
+  workId: string;
+  cycleId: string;
+  stage: CycleStage;
+  reason?: string;
+  artifactRefs?: string[];
+  at: number;
+}
+
+export interface CycleDecisionEvent {
+  type: 'cycle.decision.created';
+  taskId: string;
+  workId: string;
+  cycleId: string;
+  decision: CycleDecision;
+  at: number;
+}
+```
+
+旧 `cycle.snapshot` 与新阶段事件并存时：新阶段事件是阶段事实，`cycle.snapshot` 只作旧任务/兼容投影；`cycle.snapshot.decision` 是兼容镜像。
+
 ## 7. CycleDecision
 
 ```ts
@@ -266,6 +294,21 @@ export interface GoalEvidenceLink {
 - `MODEL_CLAIM` 不能单独支撑 `MET`。
 - `USER_ACCEPTANCE` 保留接受时的未验证缺口，不抹除事实。
 
+### 8.1 现有 EvidenceRef/ExecutionReport 映射
+
+| 现有来源 | 新类型 | 规则 |
+| --- | --- | --- |
+| `EvidenceRef.kind=file` + 写后同路径回读 | `FILE_READBACK` | 文本改动可作该类验证；代码回读不替代编译/运行 |
+| `StepResult.tool=test.run` | `TEST_RESULT` | 使用真实 exitCode/stdout，不按模型声明 |
+| `StepResult.tool=shell.run`/构建命令 | `BUILD_RESULT` 或 `RUNTIME_RESULT` | 按命令语义与实际退出码归类；无法归类时 `TOOL_RESULT` |
+| `StepResult.tool=fs.*` 写/改 | `TOOL_RESULT` | 只证明工具结果；目标满足仍看 Criterion |
+| `EvidenceRef.kind=command` | `TEST_RESULT`/`BUILD_RESULT`/`RUNTIME_RESULT` | 需要命令与退出码上下文，不能只凭 URL/文本 |
+| `EvidenceRef.kind=url` | `TOOL_RESULT` | 只能证明抓取/来源，不等于目标证据 |
+| 模型回答中的完成声明 | `MODEL_CLAIM` | 永远不能单独支撑 `MET` |
+| 用户明确接受未验证交付 | `USER_ACCEPTANCE` | 保留缺口，不把未验证改成已验证 |
+
+`EvidenceRef` 本身不足以判定新类型；归一化必须同时读取 `StepResult` 和报告上下文。
+
 ## 9. 三种完成状态
 
 ```ts
@@ -293,10 +336,48 @@ export type DeliveryState = {
 | `cycle.created` | 完整 Cycle |
 | `cycle.stage.started/completed/skipped` | 阶段真实发生 |
 | `cycle.decision.created` | 下一步决策 |
-| `goal.fit.assessed` | 目标符合度评估 |
+| `goal.fit`（扩展字段） | 目标符合度评估；不新增 `goal.fit.assessed` |
 | `evidence.linked` | 证据关联 Criterion |
 
 事件 payload 只存引用和摘要；完整正文存现有 Journal/Evidence 记录。
+
+## 10.5 与现有 GDC 模型/事件的兼容
+
+### 状态映射
+
+现有 `GoalStatusGdc` 是读模型；新 `GoalContractStatus` 是契约状态。旧视图由契约派生，不是第二事实源。
+
+| 现有 | 新 |
+| --- | --- |
+| `draft` | `DRAFT` |
+| `clarifying` | `CLARIFYING` |
+| `confirmed` | `CONFIRMED` |
+| `active` | `ACTIVE` |
+| `at_risk` | `AT_RISK` |
+| `change_proposed` | `CHANGE_PROPOSED` |
+| `blocked` | `BLOCKED` |
+| `achieved` | `ACHIEVED` |
+| `abandoned` | `ABANDONED` |
+| — | `UNDERSTANDING`、`READY_FOR_CONFIRMATION`、`ACHIEVED_WITH_RISKS`、`PARTIAL_ACHIEVEMENT`（新状态，旧视图需升级） |
+
+### Fit 映射
+
+| 现有 `GoalFitStatus` | 新 `GoalContractFit` |
+| --- | --- |
+| `met` | `MET` |
+| `gap` | `GAP` |
+| `unknown` | `UNKNOWN` |
+| `pending` | 有 Criterion 时 `PARTIAL`，否则 `UNKNOWN` |
+| — | `WITH_RISKS`（旧视图不能表达，P5 UI 必须升级显示） |
+
+`EngineeringGoalView` 继续作为 UI 读模型，但必须从 `GoalContract` 派生；禁止反向修改契约。
+
+### 事件兼容
+
+- **不新增 `goal.fit.assessed`**；扩展现有 `goal.fit` 的可选字段：`goalVersion`、`criteria[]`、计数、`blockingRisks`。旧字段 `fit/notes` 保留。
+- 新 `cycle.stage.started/completed/skipped` 是真实阶段事件；旧 `cycle.snapshot` 保留为旧任务/兼容投影，新事件存在时以新事件为准。
+- `cycle.decision.created` 是决策事实；`cycle.snapshot.decision` 是兼容镜像，不覆盖新决策。
+- `goal.*` 事件只存引用/摘要；完整契约正文仍由现有 Journal/Conversation 记录恢复。
 
 ## 11. 不变量
 
