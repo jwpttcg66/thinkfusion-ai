@@ -60,6 +60,15 @@
 | P0-4 暂停状态机与检查点 | `IMPLEMENTED / TESTED / VERIFIED` | `pause/cancel` 走 `请求态 → 停止中 → 实际态`；暂停/取消复用 `commitContextCheckpoint` 落目标版本、任务树 revision、工具状态与副作用账本；没有执行报告的在途写操作也标 `needs_reconciliation`，不假装已核对；重启时中间态收敛为 `interrupted/cancelled`；`test:pause-checkpoint` 5 条、`test:state-machine` 9 条；真机状态序列 `executing → pause_requested → pausing → paused`，检查点文件与事件一致，标记文件未出现，见 [P0-4 验收](acceptance/p0-4-pause-checkpoint-20261127/EVIDENCE.md) |
 | P0-5 当前基线真机恢复验收 | `IMPLEMENTED / TESTED / VERIFIED` | 三场景真机证据已按「启动配置 / 任务 ID / 证据路径 / 未覆盖项」汇总到 [P0-5 验收汇总](acceptance/p0-5-current-baseline-20261127/SUMMARY.md)；① 目标修订后进入 `blocked + WAIT_USER`、② 在途 shell 中断且暂停检查点带副作用缺口、③ SIGKILL 重启后 `interrupted → version.consistency(sources) → planning`。场景③ 同时修掉固定工作流未记规划成员、重启后退回网页 planner 的缺口，探针任务记下并执行档选中的云端模型，日志无 ChatGPT 回退；typecheck、P0 相关单测与 `verify-p0-5-restart-cdp.mjs` 均通过 |
 
+## V4 P1 Engineering Runtime（M1：Goal / Task / Execution 统一）
+
+以 [V4 实施计划](plans/V4-IMPLEMENTATION-PLAN.md) 与 [P1 任务书](plans/active/V4-P1-TASK-BOOK.md) 为准。
+口径为五态 `DESIGNED → IMPLEMENTED → AUTOMATED_TESTED → LIVE_TESTED → PRODUCTION_VERIFIED`；真机未跑不升级。
+
+| 任务 | 状态 | 事实 |
+| --- | --- | --- |
+| M1-1 Execution 显式化 | `IMPLEMENTED / AUTOMATED_TESTED`（真机未验证） | 新增 `desktop-agent-macos/src/shared/execution-history.ts` 纯函数投影：`rounds + reports + events` → 按轮次分组的执行台账。口径为「一次执行＝一轮」，同轮多份报告合并成一条（结论取最新、证据取并集），缺字段一律 `null` 或空数组，不用 0 顶替。只读 IPC `task:executions` 从 store 取数而非渲染层事件流（`trimEvents` 会裁掉早期 `step.*`，用事件推导会让先前的执行凭空消失），配 preload `getTaskExecutions`、`AgentApi` 声明与 `mock-api` 实现。统计页新增「执行历史」卡 `components/engineering/ExecutionHistory.tsx`，逐条列出结果、成员、步骤、验证、交付、证据与失败原因。零迁移、不建表、不改状态机。`test:execution-history` 9 条（多次执行互不覆盖、无报告轮如实标注、跨任务报告不混入、排序按轮次号）已并入 `verify`，全量回归通过。缺口：真机 ≥2 轮（一轮失败一轮成功）的界面证据未采集 |
+
 ## 目标契约证据闭环（GCE）
 
 | 项 | 状态 | 事实 |

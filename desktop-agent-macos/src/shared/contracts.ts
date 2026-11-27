@@ -3299,6 +3299,11 @@ export interface AgentApi {
   getTask(taskId: string): Promise<AgentTask | null>;
   getTaskHistory(): Promise<AgentTask[]>;
   getTaskEvents(taskId: string): Promise<AgentEvent[]>;
+  /**
+   * 一个任务的执行历史（V4 M1-1 只读投影）。
+   * 一次执行 = 一轮，由 store 的 rounds + reports + events 推导，不落新表。
+   */
+  getTaskExecutions(taskId: string): Promise<import('./execution-history').ExecutionRecord[]>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
   /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */

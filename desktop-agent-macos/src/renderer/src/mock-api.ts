@@ -18,6 +18,7 @@ import { describeCapabilities } from '../../shared/capabilities';
 import { EXPERTISE_IDS, expertiseFallback, type ExpertiseView } from '../../shared/expertise';
 import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
 import { aggregateTotals, foldTrace, type TraceEntry } from '../../shared/trace';
+import { buildExecutionHistory } from '../../shared/execution-history';
 import { MEMORY_DEFAULTS } from '../../shared/memory';
 
 /**
@@ -296,6 +297,11 @@ export function createMockApi(): AgentApi {
     getTask: async taskId => tasks.find(task => task.taskId === taskId) ?? null,
     getTaskHistory: async () => tasks,
     getTaskEvents: async taskId => events[taskId] ?? [],
+    getTaskExecutions: async taskId =>
+      buildExecutionHistory({
+        task: tasks.find(task => task.taskId === taskId) ?? null,
+        events: events[taskId] ?? []
+      }),
     approvePlan: async () => undefined,
     rejectPlan: async () => undefined,
     approveStep: async () => undefined,

@@ -58,6 +58,7 @@ import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { GoalContractCard } from './components/engineering/GoalContractCard';
 import { TaskStats } from './components/engineering/TaskStats';
+import { ExecutionHistory } from './components/engineering/ExecutionHistory';
 import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
@@ -3075,6 +3076,12 @@ export default function App() {
                 verification={derived.verification}
                 events={events}
               />
+            )}
+
+            {/* 逐次执行台账：统计页的聚合数字看不出「第 2 次执行失败了什么」，
+                这里按轮次把每次执行的结果、证据与失败原因分开列出来。 */}
+            {activeTask && workbenchTab === 'stats' && (
+              <ExecutionHistory taskId={activeTask.taskId} refreshKey={events.length} />
             )}
           </div>
           </div>

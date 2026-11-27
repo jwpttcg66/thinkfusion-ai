@@ -45,6 +45,7 @@ import { recoverTaskContext } from './context/recovery/task-recovery';
 import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entry-policy';
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
+import { buildExecutionHistory } from '../shared/execution-history';
 import { setMemoryService } from './memory/runtime';
 import type { CandidateStatusFilter, ListRecordsQuery, RecordPatch, RememberInput } from './memory/types';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
@@ -3543,6 +3544,23 @@ function registerIpc() {
   ipcMain.handle('task:events', (event, taskId: unknown) => {
     trustedUiSender(event);
     return store.listEvents(TaskIdSchema.parse(taskId));
+  });
+
+  /**
+   * 执行历史（V4 M1-1）：只读投影，不新增写入路径。
+   *
+   * 数据取 store 而不是界面已拿到的事件流——事件按任务配额裁剪过，
+   * 只靠事件推导会让早先的执行「消失」，那正是这个任务要修的问题。
+   */
+  ipcMain.handle('task:executions', (event, taskId: unknown) => {
+    trustedUiSender(event);
+    const id = TaskIdSchema.parse(taskId);
+    return buildExecutionHistory({
+      task: store.getTask(id),
+      rounds: store.listRounds(id),
+      reports: store.allReportsFor(id),
+      events: store.listEvents(id)
+    });
   });
 
   ipcMain.handle('task:approve', async (event, raw: unknown) => {
