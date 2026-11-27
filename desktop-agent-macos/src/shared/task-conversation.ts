@@ -1170,6 +1170,9 @@ export function buildTaskConversation(
     }
 
     if (event.type === 'goal.fit') {
+      const criteria = (event.criteria ?? [])
+        .filter(item => item.description)
+        .map(item => `${item.priority === 'MUST' ? '必须' : item.priority === 'SHOULD' ? '应当' : '可选'} · ${item.description ?? item.criterionId} · ${item.status}`);
       push({
         kind: 'note',
         key: `goal-fit-${String(event.at)}-${String(seq)}`,
@@ -1177,9 +1180,17 @@ export function buildTaskConversation(
         at: event.at,
         roundId: currentRoundId,
         roundNumber: roundNumber(currentRoundId),
-        tone: event.fit === 'gap' ? 'warn' : event.fit === 'met' ? 'ok' : 'muted',
-        text: `目标符合度 · ${event.fit}`,
-        detail: event.notes.join('\n') || undefined
+        tone: event.gceFit === 'GAP'
+          ? 'warn'
+          : event.gceFit === 'MET'
+            ? 'ok'
+            : event.fit === 'gap'
+              ? 'warn'
+              : event.fit === 'met'
+                ? 'ok'
+                : 'muted',
+        text: `目标符合度 · ${event.gceFit ?? event.fit}`,
+        detail: [...event.notes, ...criteria].join('\n') || undefined
       });
       continue;
     }

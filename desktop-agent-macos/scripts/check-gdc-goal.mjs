@@ -9,8 +9,10 @@ import {
   assessGoalFit,
   classifyGoalChange,
   planGoalRevision,
-  projectEngineeringGoal
+  projectEngineeringGoal,
+  projectGoalDrivenWorkbench
 } from '../out-test/shared/goal-driven-cycle.js';
+import { createGoalContract, createGoalCriterion } from '../out-test/shared/goal-contract.js';
 
 test('目标投影：保留原始要求，不擅自改写意图', () => {
   const goal = projectEngineeringGoal({
@@ -150,4 +152,50 @@ test('任务摘要不能冒充成功标准', () => {
   assert.deepEqual(goal.successCriteria, []);
   assert.ok(goal.openQuestions.includes('成功标准尚未明确'));
   assert.equal(goal.fit, 'unknown');
+});
+
+test('投影读取 goal.contract.updated 与 goal.fit，不把执行完成直接当目标达成', () => {
+  const contract = createGoalContract({
+    goalId: 'goal:w3',
+    workId: 'w3',
+    originalRequest: '补齐登录校验',
+    goalVersion: 2,
+    status: 'AT_RISK',
+    criteria: [
+      createGoalCriterion({
+        goalId: 'goal:w3',
+        goalVersion: 2,
+        criterionId: 'c1',
+        description: '缺少 token 返回 401',
+        source: 'USER_EXPLICIT',
+        verificationMethod: 'test',
+        acceptanceThreshold: '测试通过',
+        status: 'UNMET',
+        updatedAt: 1
+      })
+    ],
+    createdAt: 1
+  });
+  const workbench = projectGoalDrivenWorkbench({
+    workId: 'w3',
+    originalRequest: '补齐登录校验',
+    events: [
+      { type: 'goal.contract.updated', at: 1, taskId: 'w3', contract },
+      {
+        type: 'goal.fit',
+        at: 2,
+        taskId: 'w3',
+        fit: 'gap',
+        gceFit: 'GAP',
+        notes: ['1 条强制标准未满足'],
+        criteria: [{ criterionId: 'c1', status: 'UNMET' }]
+      },
+      { type: 'task.completed', at: 3, taskId: 'w3', summary: '执行完成' }
+    ]
+  });
+  assert.equal(workbench.goal.fit, 'gap');
+  assert.equal(workbench.goal.gceFit, 'GAP');
+  assert.deepEqual(workbench.goal.successCriteria, ['缺少 token 返回 401']);
+  assert.equal(workbench.goal.criteria?.[0]?.status, 'UNMET');
+  assert.ok(workbench.goal.fitNotes.includes('1 条强制标准未满足'));
 });

@@ -40,6 +40,13 @@ import {
   planGoalRevision,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
+import type { GoalContract } from '../shared/goal-contract';
+import { legacyGoalFitEvent } from '../shared/goal-compat';
+import {
+  assessReportsAgainstGoal,
+  goalContractFromPlan
+} from './engineering/goal-contract-runtime';
+import type { GceCycleStage } from '../shared/cycle-decision';
 import { evidenceFacts, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
@@ -373,6 +380,7 @@ export class AgentOrchestrator {
       ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: [...input.debateAgentIds] } : {})
     });
     this.tasks.transition(task.taskId, 'planning');
+    this.emitCycleStage(task.taskId, 'GOAL_REASONING', 'started');
     this.planningAdapters.set(task.taskId, planner);
     // 单成员也记：成员卡片与「按模型统计」需要一个身份，不然主导这一路
     // 在界面上没有名字、统计里也没有它。
@@ -504,6 +512,11 @@ export class AgentOrchestrator {
     this.deps.store.insertPlan(stored);
     this.tasks.updateRound(round.roundId, { status: 'plan_ready' });
     this.tasks.patch(task.taskId, { currentPlanId: stored.planId });
+    this.ensureGoalContract(task, built.plan);
+    this.emitCycleStage(task.taskId, 'GOAL_REASONING', 'completed');
+    this.emitCycleStage(task.taskId, 'ANALYSIS', 'completed');
+    this.emitCycleStage(task.taskId, 'PLANNING', 'started');
+    this.emitCycleStage(task.taskId, 'PLANNING', 'completed');
 
     const gate = checkPlanCapabilities(stored.plan);
     const perStep = approvalPolicyFor(task.permissionPreset).stepApproval;
@@ -621,6 +634,7 @@ export class AgentOrchestrator {
 
     this.deps.store.updatePlan(stored.planId, { approvalStatus: 'approved' });
     this.tasks.transition(task.taskId, 'executing', { workspaceRoot: rootDir });
+    this.emitCycleStage(task.taskId, 'IMPLEMENTATION', 'started');
     this.busy.add(task.taskId);
 
     // 执行前先画出依据：将跑哪些步骤、针对什么目标；不能一批准就静默开工。
@@ -691,6 +705,8 @@ export class AgentOrchestrator {
     }
 
     this.deps.store.insertReport(report);
+    this.emitCycleStage(task.taskId, 'IMPLEMENTATION', 'completed');
+    this.emitCycleStage(task.taskId, 'REVIEW', 'started');
     this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });    try {
       this.deps.onReport?.(task, report);
     } catch {
@@ -735,6 +751,18 @@ export class AgentOrchestrator {
         this.deps.emit({ type: 'log', at: Date.now(), taskId: task.taskId, level: 'warn', message: `独立评审没有完成：${detail}` });
       }
     }
+    this.emitCycleStage(
+      task.taskId,
+      'REVIEW',
+      review ? 'completed' : 'skipped',
+      review ? undefined : '未启用独立评审'
+    );
+    this.emitCycleStage(
+      task.taskId,
+      review?.needsFix ? 'IMPLEMENTATION' : 'CONCLUSION',
+      'started',
+      review?.needsFix ? '评审要求修复' : undefined
+    );
 
     this.tasks.transition(task.taskId, 'verifying');
     this.tasks.transition(task.taskId, 'report_pending');
@@ -1777,6 +1805,11 @@ export class AgentOrchestrator {
     this.tasks.updateRound(roundId, { status: 'plan_ready' });
     // 这一份计划是哪一份：辩论期间也要能回答，所以现在就记，不等审批。
     this.tasks.patch(taskId, { currentPlanId: stored.planId });
+    this.ensureGoalContract(this.tasks.get(taskId), plan);
+    this.emitCycleStage(taskId, 'GOAL_REASONING', 'completed');
+    this.emitCycleStage(taskId, 'ANALYSIS', 'completed');
+    this.emitCycleStage(taskId, 'PLANNING', 'started');
+    this.emitCycleStage(taskId, 'PLANNING', 'completed');
     // 计划卡片先给出去：方案评审辩论可能要跑几分钟，让审批的人对着空白等
     // 不是产品行为。此时状态是 plan_ready 而不是 awaiting_approval，审批会
     // 被明确拒绝——「还在评审」和「可以批准了」不能长得一样。
@@ -2428,6 +2461,88 @@ export class AgentOrchestrator {
     });
   }
 
+  /** 真实阶段事件：只在流程真正进入/完成某阶段时调用，不从旧事件反推。 */
+  private emitCycleStage(
+    taskId: string,
+    stage: GceCycleStage,
+    status: 'started' | 'completed' | 'skipped',
+    reason?: string
+  ): void {
+    this.deps.emit({
+      type: status === 'started'
+        ? 'cycle.stage.started'
+        : status === 'completed'
+          ? 'cycle.stage.completed'
+          : 'cycle.stage.skipped',
+      at: Date.now(),
+      taskId,
+      workId: taskId,
+      cycleId: `cycle:${taskId}:1`,
+      stage,
+      ...(reason ? { reason } : {})
+    });
+  }
+
+  /** 实际决策落事件；这是执行过的决策，不是建议。 */
+  private emitCycleDecision(
+    taskId: string,
+    decisionType: 'CONTINUE' | 'REPAIR' | 'REPLAN' | 'REDESIGN' | 'REANALYZE' | 'CLARIFY_GOAL' | 'CHANGE_PROPOSED' | 'WAIT_USER' | 'BLOCKED' | 'COMPLETE' | 'ABORT',
+    reason: string,
+    evidenceRefs: string[] = []
+  ): void {
+    this.deps.emit({
+      type: 'cycle.decision.created',
+      at: Date.now(),
+      taskId,
+      workId: taskId,
+      cycleId: `cycle:${taskId}:1`,
+      decisionType,
+      reason,
+      evidenceRefs
+    });
+  }
+
+  /**
+   * 计划生成时建立目标契约；后续计划不静默改写已确认的标准。
+   *
+   * 用户显式标准来自任务绑定目标（USER_EXPLICIT），计划 completion.condition
+   * 只能作为模型推断的标准。没有标准就不生成，Goal Fit 保持 UNKNOWN。
+   */
+  private ensureGoalContract(task: AgentTask, plan: AgentPlan): GoalContract {
+    if (task.goalContract) {
+      const known = new Set(task.goalContract.criteria.map(item => item.description.trim()));
+      const condition = plan.completion?.condition?.trim();
+      if (condition && !known.has(condition)) {
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId: task.taskId,
+          level: 'warn',
+          message: `GCE：本轮计划的完成条件与已建立目标不同（「${condition.slice(0, 120)}」）；不静默改写用户目标，只把本轮执行证据记到既有标准下。`
+        });
+      }
+      return task.goalContract;
+    }
+    const contract = goalContractFromPlan({
+      taskId: task.taskId,
+      userPrompt: task.userPrompt,
+      ...(task.goalId ? { goalId: task.goalId } : {}),
+      ...(task.goalVersion ? { goalVersion: task.goalVersion } : {}),
+      ...(task.goalCriteria ? { goalCriteria: task.goalCriteria } : {}),
+      planTitle: plan.title,
+      planDescription: plan.description,
+      ...(plan.completion?.condition ? { completionCondition: plan.completion.condition } : {})
+    });
+    this.tasks.patch(task.taskId, { goalContract: contract });
+    this.deps.emit({
+      type: 'goal.contract.updated',
+      at: Date.now(),
+      taskId: task.taskId,
+      contract
+    });
+    return contract;
+  }
+
   private async continueAfterReport(
     taskId: string,
     report: ExecutionReport,
@@ -2523,6 +2638,38 @@ export class AgentOrchestrator {
         ? '继续完成未收口的桌面操作'
         : '处理评审问题或进入修复轮';
     }
+    // GCE：先按目标契约逐条判定，再决定执行/验证完成是否等于目标达成。
+    // 没有契约时保持旧行为，但不伪造 met。
+    const activePlan = task.currentPlanId
+      ? this.deps.store.getPlan(task.currentPlanId)
+      : this.deps.store.getPlan(report.planId);
+    const goalContract = activePlan
+      ? this.ensureGoalContract(this.tasks.get(taskId), activePlan.plan)
+      : this.tasks.get(taskId).goalContract;
+    const goalReports = this.deps.store.allReportsFor(taskId);
+    const goalAssessment = goalContract
+      ? assessReportsAgainstGoal({
+          contract: goalContract,
+          reports: goalReports.length > 0 ? goalReports : [report],
+          at: Date.now()
+        })
+      : null;
+    if (goalAssessment) {
+      this.tasks.patch(taskId, { goalContract: goalAssessment.contract });
+      this.deps.emit({
+        type: 'goal.contract.updated',
+        at: Date.now(),
+        taskId,
+        contract: goalAssessment.contract
+      });
+    }
+    const goalFitEvent = goalAssessment
+      ? legacyGoalFitEvent(goalAssessment.contract, goalAssessment.fit)
+      : null;
+    const goalBlocksCompletion = Boolean(
+      goalAssessment && goalAssessment.fit.fit === 'GAP'
+    );
+
     const decision = decideNextEngineeringAction({
       cycle: workbench.cycle,
       verifiedDone: Boolean(
@@ -2540,21 +2687,42 @@ export class AgentOrchestrator {
     // 用户，比再花一轮预算重复一遍更诚实。
     const repairGate = decision === 'repair' ? this.guardRepairRound(report, review, priorEvents) : null;
     const repairBlocked = Boolean(repairGate && !repairGate.open);
+    const actualDecision = goalBlocksCompletion
+      ? 'WAIT_USER'
+      : decision === 'complete'
+        ? 'COMPLETE'
+        : decision === 'repair'
+          ? 'REPAIR'
+          : decision === 'fail_budget'
+            ? 'BLOCKED'
+            : 'ABORT';
+    this.emitCycleDecision(
+      taskId,
+      actualDecision,
+      goalBlocksCompletion
+        ? `目标有明确缺口：${goalAssessment?.fit.notes.join('；') || '仍有标准未满足'}`
+        : repairBlocked
+          ? `自动修复已停止：${repairGate?.reason ?? '无新证据'}`
+          : workbench.cycle.nextAction,
+      goalAssessment?.links.map(item => item.evidenceId) ?? []
+    );
     // complete 时 snapshot 必须写终态，不能沿用派生里残留的 needs_fix / implementation，
     // 否则 UI 在 task.completed 之后仍显示「需修复」。
-    const snapshotStage = decision === 'complete'
+    const snapshotStage = decision === 'complete' && !goalBlocksCompletion
       ? 'done'
       : workbench.cycle.currentStage;
-    const snapshotConclusion = decision === 'complete'
+    const snapshotConclusion = decision === 'complete' && !goalBlocksCompletion
       ? (actionableReview ? 'accepted_with_risks' : 'accepted')
-      : repairBlocked
+      : repairBlocked || goalBlocksCompletion
         ? 'blocked'
         : workbench.cycle.conclusionType;
-    const snapshotNext = decision === 'complete'
-      ? '无需下一轮；可做整体验收'
-      : repairBlocked
-        ? '自动修复已停：等你确认是继续修、接受未验证，还是改需求'
-        : workbench.cycle.nextAction;
+    const snapshotNext = goalBlocksCompletion
+      ? '目标还有明确缺口：先补齐失败/未满足的标准，不能按完成收尾'
+      : decision === 'complete'
+        ? '无需下一轮；可做整体验收'
+        : repairBlocked
+          ? '自动修复已停：等你确认是继续修、接受未验证，还是改需求'
+          : workbench.cycle.nextAction;
     this.deps.emit({
       type: 'cycle.snapshot',
       at: Date.now(),
@@ -2572,8 +2740,10 @@ export class AgentOrchestrator {
       type: 'goal.fit',
       at: Date.now(),
       taskId,
-      fit: workbench.goal.fit,
-      notes: workbench.goal.fitNotes
+      ...(goalFitEvent ?? {
+        fit: workbench.goal.fit,
+        notes: workbench.goal.fitNotes
+      })
     });
 
     if (repairBlocked && repairGate) {
@@ -2609,20 +2779,43 @@ export class AgentOrchestrator {
     }
 
     if (decision === 'complete') {
-      const summary = report.errors.length === 0 ? '执行完成，验证通过' : '执行完成';
+      if (goalBlocksCompletion && goalAssessment) {
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId,
+          level: 'warn',
+          message: `GCE：目标仍有 ${String(goalAssessment.fit.unmet)} 条标准未满足，执行完成不算目标达成；停在待确认，不写 achieved。`
+        });
+        this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '目标未达成，停在待确认');
+        this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
+        this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '等待用户决定继续修复或接受缺口');
+        this.tasks.patch(taskId, {
+          error: `目标未达成：${goalAssessment.fit.notes.join('；') || '仍有标准未满足'}。可以继续修复，或明确接受缺口。`
+        });
+        return;
+      }
+      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '已形成交付结论');
+      this.emitCycleStage(taskId, 'GOAL_FIT', 'started');
+      this.emitCycleStage(taskId, 'GOAL_FIT', 'completed');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '任务收尾，无需下一轮');
+      const gceFit = goalAssessment?.fit.fit;
+      const summary = gceFit === 'MET'
+        ? (report.errors.length === 0 ? '执行完成，验证通过，目标标准已满足' : '执行完成，目标标准已满足')
+        : gceFit === 'WITH_RISKS'
+          ? '执行完成（目标带风险达成：存在未验证或豁免项）'
+          : gceFit
+            ? '执行完成（目标尚未完全验证，不以执行完成冒充达成）'
+            : (report.errors.length === 0 ? '执行完成，验证通过' : '执行完成');
       this.tasks.transition(taskId, 'completed', { summary });
       this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary });
-      this.deps.emit({
-        type: 'goal.fit',
-        at: Date.now(),
-        taskId,
-        fit: 'met',
-        notes: ['验证通过且无待修评审；目标符合度暂记为已满足（仍以用户最终验收为准）']
-      });
       return;
     }
 
     if (decision === 'fail_delivery') {
+      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '未确认交付');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '停止：交付条件不成立');
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'warn',
         message: 'GDC：报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
@@ -2633,6 +2826,8 @@ export class AgentOrchestrator {
     }
 
     if (decision === 'fail_budget') {
+      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '预算耗尽');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '停止：达到最大轮数');
       this.tasks.transition(taskId, 'failed', {
         error: `达到最大轮数 ${String(task.maxRounds)}，任务未完成（GDC 收敛）`
       });
@@ -2646,6 +2841,9 @@ export class AgentOrchestrator {
     }
 
     // decision === 'repair'
+    this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
+    this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '进入下一轮修复');
+    this.emitCycleStage(taskId, 'PLANNING', 'started', '修复轮重新规划');
     this.tasks.transition(taskId, 'awaiting_next_round');
     this.tasks.transition(taskId, 'planning');
 

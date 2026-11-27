@@ -329,3 +329,22 @@ test('完成优先于旧 repair snapshot：不得残留需修复', () => {
   assert.match(cycle.nextAction, /无需下一轮/);
   assert.equal(cycle.rollback, undefined);
 });
+
+test('真实 cycle.stage.* 事件优先于旧事件派生，跳过必须有原因', () => {
+  const events = [
+    { type: 'round.started', at: 1, taskId, roundId: 'r1', roundNumber: 1, inputType: 'user' },
+    { type: 'cycle.stage.started', at: 2, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'GOAL_REASONING' },
+    { type: 'cycle.stage.completed', at: 3, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'GOAL_REASONING' },
+    { type: 'cycle.stage.skipped', at: 4, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'DESIGN_DEBATE', reason: '无实质争议' },
+    { type: 'cycle.stage.started', at: 5, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'IMPLEMENTATION' },
+    { type: 'cycle.stage.completed', at: 6, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'IMPLEMENTATION' },
+    { type: 'cycle.stage.started', at: 7, taskId, workId: taskId, cycleId: 'cycle:c', stage: 'REVIEW' }
+  ];
+  const cycle = projectWorkCycleFromEvents({ workId: taskId, events });
+  const byStage = Object.fromEntries(cycle.stages.map(item => [item.stage, item]));
+  assert.equal(byStage.goal_reasoning.status, 'done');
+  assert.equal(byStage.design_debate.status, 'skipped');
+  assert.equal(byStage.design_debate.reason, '无实质争议');
+  assert.equal(byStage.implementation.status, 'done');
+  assert.equal(byStage.review.status, 'active');
+});

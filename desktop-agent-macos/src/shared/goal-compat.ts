@@ -88,20 +88,36 @@ export function engineeringGoalViewFromContract(
         ? ['旧读模型不能完整表达该状态，需 P5 UI 升级']
         : [])
     ],
+    gceFit: fit.fit,
+    criteria: contract.criteria.map(item => ({
+      criterionId: item.criterionId,
+      description: item.description,
+      priority: item.priority,
+      status: item.status,
+      evidenceRefs: [...item.evidenceRefs]
+    })),
     source: input.source ?? 'derived'
   };
 }
 
 export interface LegacyGoalFitEvent {
   fit: GoalFitStatus;
+  gceFit: GoalContractFit;
   notes: string[];
   goalVersion: number;
-  criteria: Array<{ criterionId: string; status: string }>;
+  criteria: Array<{
+    criterionId: string;
+    status: string;
+    description: string;
+    priority: 'MUST' | 'SHOULD' | 'NICE';
+    evidenceRefs: string[];
+  }>;
   met: number;
   partial: number;
   unmet: number;
   unverified: number;
   waived: number;
+  evidenceCompleteness: number;
   blockingRisks: string[];
 }
 
@@ -112,14 +128,22 @@ export function legacyGoalFitEvent(
 ): LegacyGoalFitEvent {
   return {
     fit: legacyGoalFit(fit.fit, contract.criteria.length > 0),
+    gceFit: fit.fit,
     notes: [...fit.notes],
     goalVersion: contract.goalVersion,
-    criteria: contract.criteria.map(item => ({ criterionId: item.criterionId, status: item.status })),
+    criteria: contract.criteria.map(item => ({
+      criterionId: item.criterionId,
+      status: item.status,
+      description: item.description,
+      priority: item.priority,
+      evidenceRefs: [...item.evidenceRefs]
+    })),
     met: fit.met,
     partial: fit.partial,
     unmet: fit.unmet,
     unverified: fit.unverified,
     waived: fit.waived,
+    evidenceCompleteness: fit.evidenceCompleteness,
     blockingRisks: [...fit.blockingRisks]
   };
 }

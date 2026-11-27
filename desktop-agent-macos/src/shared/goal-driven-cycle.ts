@@ -63,6 +63,14 @@ export type ArtifactKindGdc =
 
 export type ArtifactStatusGdc = 'draft' | 'accepted' | 'rejected' | 'superseded' | 'archived';
 
+export interface GoalCriterionView {
+  criterionId: string;
+  description: string;
+  priority: 'MUST' | 'SHOULD' | 'NICE';
+  status: string;
+  evidenceRefs: string[];
+}
+
 export interface EngineeringGoalView {
   goalId: string;
   workId: string;
@@ -78,6 +86,10 @@ export interface EngineeringGoalView {
   fit: GoalFitStatus;
   fitNotes: string[];
   source: 'conversation' | 'task' | 'derived';
+  /** GCE：逐条 Criterion；旧任务没有时为空。 */
+  criteria?: GoalCriterionView[];
+  /** GCE 新口径；旧 fit 无法表达 WITH_RISKS / PARTIAL。 */
+  gceFit?: import('./goal-contract').GoalContractFit;
 }
 
 export interface WorkCycleView {
@@ -341,6 +353,25 @@ function stageIndex(stage: CycleStage): number {
   return STAGE_ORDER.indexOf(stage);
 }
 
+/** GCE 阶段名（大写）映射到现有 UI 阶段（小写）。 */
+export function legacyStageOfGceStage(stage: string): CycleStage {
+  switch (stage) {
+    case 'GOAL_REASONING': return 'goal_reasoning';
+    case 'ANALYSIS': return 'analysis';
+    case 'DESIGN': return 'design';
+    case 'DESIGN_DEBATE': return 'design_debate';
+    case 'PLANNING': return 'planning';
+    case 'IMPLEMENTATION': return 'implementation';
+    case 'REVIEW': return 'review';
+    case 'REVIEW_DEBATE': return 'review_debate';
+    case 'CONCLUSION':
+    case 'GOAL_FIT':
+    case 'NEXT_DECISION':
+    default:
+      return 'conclusion';
+  }
+}
+
 /**
  * 从权威事件派生当前循环视图（可重放）。
  */
@@ -366,9 +397,31 @@ export function projectWorkCycleFromEvents(input: {
   let needsFix = false;
   let completed = false;
   let failed = false;
+  /** GCE 真实阶段事件：只覆盖该阶段的显示状态，不伪造阶段。 */
+  const explicitStages = new Map<CycleStage, 'active' | 'done' | 'skipped'>();
+  const explicitReasons = new Map<CycleStage, string>();
 
   for (const event of ordered) {
     switch (event.type) {
+      case 'cycle.stage.started': {
+        const stage = legacyStageOfGceStage(event.stage);
+        explicitStages.set(stage, 'active');
+        if (event.reason) explicitReasons.set(stage, event.reason);
+        current = stage;
+        break;
+      }
+      case 'cycle.stage.completed': {
+        const stage = legacyStageOfGceStage(event.stage);
+        explicitStages.set(stage, 'done');
+        if (event.reason) explicitReasons.set(stage, event.reason);
+        break;
+      }
+      case 'cycle.stage.skipped': {
+        const stage = legacyStageOfGceStage(event.stage);
+        explicitStages.set(stage, 'skipped');
+        explicitReasons.set(stage, event.reason ?? '未执行');
+        break;
+      }
       case 'round.started':
         roundCount = Math.max(roundCount, event.roundNumber ?? roundCount + 1);
         if (!hadPlan) current = 'analysis';
@@ -482,6 +535,14 @@ export function projectWorkCycleFromEvents(input: {
   const activeIdx = stageIndex(current);
   const stages = STAGE_ORDER.filter(stage => stage !== 'done' || completed).map(stage => {
     const idx = stageIndex(stage);
+    const explicit = explicitStages.get(stage);
+    if (explicit) {
+      return {
+        stage,
+        status: explicit,
+        ...(explicitReasons.get(stage) ? { reason: explicitReasons.get(stage) } : {})
+      };
+    }
     if (stage === 'design_debate' && debateSkipped && hadPlan) {
       return { stage, status: 'skipped' as const, reason: '无实质方案争议' };
     }
@@ -621,7 +682,7 @@ export function projectDecisionsFromEvents(input: {
   cycleId: string;
   events: readonly AgentEvent[];
 }): WorkDecisionRef[] {
-  return input.events
+  const reviewDecisions = input.events
     .filter((event): event is Extract<AgentEvent, { type: 'review.disposition' }> =>
       event.type === 'review.disposition')
     .map(event => ({
@@ -633,6 +694,19 @@ export function projectDecisionsFromEvents(input: {
       rationale: event.reason,
       eventAt: event.at
     }));
+  const cycleDecisions = input.events
+    .filter((event): event is Extract<AgentEvent, { type: 'cycle.decision.created' }> =>
+      event.type === 'cycle.decision.created')
+    .map(event => ({
+      decisionId: `decision:cycle:${String(event.at)}`,
+      workId: input.workId,
+      cycleId: event.cycleId || input.cycleId,
+      decisionType: event.decisionType,
+      decision: event.decisionType,
+      rationale: event.reason,
+      eventAt: event.at
+    }));
+  return [...reviewDecisions, ...cycleDecisions];
 }
 
 /** Engineering 工作台：目标 + 循环 + 产物 + 决策一次投影。 */
@@ -666,21 +740,45 @@ export function projectGoalDrivenWorkbench(input: {
       ? lastReport.report.verification?.fullyVerified
       : false
   );
-  const fit = assessGoalFit({
+  const fallbackFit = assessGoalFit({
     successCriteria: [],
     verified,
     fullyVerified,
     needsFix: Boolean(lastReview && 'needsFix' in lastReview && lastReview.needsFix),
     openReviewIssues: openIssues
   });
-  const goal = projectEngineeringGoal({
+  const latestGoalFit = [...ordered].reverse().find(event => event.type === 'goal.fit');
+  const latestContract = [...ordered].reverse().find(event => event.type === 'goal.contract.updated');
+  let goal = projectEngineeringGoal({
     workId: input.workId,
     originalRequest: input.originalRequest,
     summary: input.summary,
     conversationGoal: input.conversationGoal,
-    fit: fit.fit,
-    fitNotes: fit.notes
+    fit: latestGoalFit
+      ? latestGoalFit.fit
+      : fallbackFit.fit,
+    fitNotes: latestGoalFit ? latestGoalFit.notes : fallbackFit.notes
   });
+  const contractCriteria = latestContract
+    ? latestContract.contract.criteria
+    : latestGoalFit?.criteria ?? [];
+  if (contractCriteria.length > 0) {
+    goal = {
+      ...goal,
+      successCriteria: contractCriteria.map(item => item.description ?? item.criterionId),
+      openQuestions: [],
+      criteria: contractCriteria.map(item => ({
+        criterionId: item.criterionId,
+        description: item.description ?? item.criterionId,
+        priority: item.priority ?? 'MUST',
+        status: item.status,
+        evidenceRefs: [...(item.evidenceRefs ?? [])]
+      }))
+    };
+  }
+  if (latestGoalFit?.gceFit) {
+    goal = { ...goal, gceFit: latestGoalFit.gceFit };
+  }
   return {
     workId: input.workId,
     goal,

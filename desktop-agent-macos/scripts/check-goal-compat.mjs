@@ -73,5 +73,13 @@ test('goal.fit 扩展不新增第二套事件', () => {
   assert.equal(event.fit, 'met');
   assert.equal(event.goalVersion, 1);
   assert.equal(event.met, 1);
-  assert.deepEqual(event.criteria, [{ criterionId: 'c1', status: 'MET' }]);
+  assert.deepEqual(event.criteria, [{
+    criterionId: 'c1',
+    status: 'MET',
+    description: '能定位符号',
+    priority: 'MUST',
+    evidenceRefs: ['ev-1']
+  }]);
+  assert.equal(event.gceFit, 'MET');
+  assert.equal(event.evidenceCompleteness, 1);
 });

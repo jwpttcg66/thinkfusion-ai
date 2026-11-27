@@ -1459,6 +1459,11 @@ export interface AgentTask {
   goalVersion?: number;
   /** 目标成功标准：判断「澄清 / 优化 / 变更」的依据，缺省表示尚未写明。 */
   goalCriteria?: string[];
+  /**
+   * GCE：目标契约正文。只在计划生成时建立，后续只由证据/Criterion 更新；
+   * 不从任务摘要或执行完成反推。老任务没有该字段，读取方按缺失处理。
+   */
+  goalContract?: import('./goal-contract').GoalContract;
   /** 任务选定的模型；方案评审只能使用这些模型。 */
   debateAgentIds?: string[];
   conversationId?: string;
@@ -2066,13 +2071,59 @@ export type AgentEvent = AgentEventBase &
         fit: 'pending' | 'met' | 'gap' | 'unknown';
         notes: string[];
         goalVersion?: number;
-        criteria?: Array<{ criterionId: string; status: string }>;
+        criteria?: Array<{
+          criterionId: string;
+          status: string;
+          description?: string;
+          priority?: 'MUST' | 'SHOULD' | 'NICE';
+          evidenceRefs?: string[];
+        }>;
+        /** GCE 新口径；旧读模型只看 fit。 */
+        gceFit?: import('./goal-contract').GoalContractFit;
         met?: number;
         partial?: number;
         unmet?: number;
         unverified?: number;
         waived?: number;
+        evidenceCompleteness?: number;
         blockingRisks?: string[];
+      }
+    /** GCE：目标契约创建/更新。正文只用于恢复；旧 UI 继续读 goal.fit 派生视图。 */
+    | {
+        type: 'goal.contract.updated';
+        taskId: string;
+        contract: import('./goal-contract').GoalContract;
+      }
+    /** GCE：真实阶段入口发出的阶段事件；不从旧事件反推。 */
+    | {
+        type: 'cycle.stage.started' | 'cycle.stage.completed' | 'cycle.stage.skipped';
+        taskId: string;
+        workId: string;
+        cycleId: string;
+        stage: import('./cycle-decision').GceCycleStage;
+        reason?: string;
+        artifactRefs?: string[];
+      }
+    /** GCE：本轮实际决策（不是建议），供重放与详情核对。 */
+    | {
+        type: 'cycle.decision.created';
+        taskId: string;
+        workId: string;
+        cycleId: string;
+        decisionType:
+          | 'CONTINUE'
+          | 'REPAIR'
+          | 'REPLAN'
+          | 'REDESIGN'
+          | 'REANALYZE'
+          | 'CLARIFY_GOAL'
+          | 'CHANGE_PROPOSED'
+          | 'WAIT_USER'
+          | 'BLOCKED'
+          | 'COMPLETE'
+          | 'ABORT';
+        reason: string;
+        evidenceRefs: string[];
       }
     /** TDL：单个 L2 子任务的独立循环快照（分析→设计→实现→审核）。 */
     | {

@@ -102,10 +102,25 @@ export function CollaborationResultPanel(props: {
               <p>{workbench.goal.intent || workbench.goal.originalRequest}</p>
               <p className="muted">
                 状态：{workbench.goal.status}
-                {' · '}符合度：{fitLabel(workbench.goal.fit)}
+                {' · '}符合度：{workbench.goal.gceFit
+                  ? gceFitLabel(workbench.goal.gceFit)
+                  : fitLabel(workbench.goal.fit)}
                 {' · '}版本 v{String(workbench.goal.goalVersion)}
               </p>
-              {workbench.goal.successCriteria.length > 0 && (
+              {workbench.goal.criteria && workbench.goal.criteria.length > 0 ? (
+                <ul className="collab-result-facts">
+                  {workbench.goal.criteria.map(item => (
+                    <li key={item.criterionId}>
+                      {item.priority === 'MUST' ? '必须' : item.priority === 'SHOULD' ? '应当' : '可选'}
+                      {' · '}
+                      {item.description}
+                      {' · '}
+                      {criterionStatusLabel(item.status)}
+                      {item.evidenceRefs.length > 0 ? `（${String(item.evidenceRefs.length)} 条证据）` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : workbench.goal.successCriteria.length > 0 && (
                 <ul className="collab-result-facts">
                   {workbench.goal.successCriteria.map(item => <li key={item}>{item}</li>)}
                 </ul>
@@ -467,9 +482,11 @@ export function CollaborationResultPanel(props: {
                 ? [
                     conclusionLabel(workbench.cycle.conclusionType),
                     workbench.cycle.conclusionSummary,
-                    workbench.goal.fit !== 'unknown'
-                      ? `符合度 ${fitLabel(workbench.goal.fit)}`
-                      : null
+                    workbench.goal.gceFit
+                      ? `符合度 ${gceFitLabel(workbench.goal.gceFit)}`
+                      : workbench.goal.fit !== 'unknown'
+                        ? `符合度 ${fitLabel(workbench.goal.fit)}`
+                        : null
                   ].filter(Boolean).join(' · ')
                 : (result.conclusion
                   ? (result.progress.summary || '已有结论文本')
@@ -623,6 +640,27 @@ function fitLabel(fit: string): string {
     case 'gap': return '有缺口';
     case 'pending': return '待验证';
     default: return '未知';
+  }
+}
+
+function gceFitLabel(fit: string): string {
+  switch (fit) {
+    case 'MET': return '已满足';
+    case 'WITH_RISKS': return '带风险达成';
+    case 'PARTIAL': return '部分满足';
+    case 'GAP': return '未达成';
+    default: return '未验证';
+  }
+}
+
+function criterionStatusLabel(status: string): string {
+  switch (status) {
+    case 'MET': return '已满足';
+    case 'PARTIAL': return '部分满足';
+    case 'UNMET': return '未满足';
+    case 'UNVERIFIED': return '未验证';
+    case 'WAIVED': return '已豁免';
+    default: return '待验证';
   }
 }
 
