@@ -1014,6 +1014,14 @@ export function seedWorkEventsFromPlan(input: {
     lastStepByParent.set(parentTaskId, workTaskId);
     const complexity: WorkTaskComplexity = 'low';
     const inheritedCriterionIds = criterionIdsByParent.get(parentTaskId) ?? [];
+    // 没有 L2 的简单计划：步骤自己就是承接者；否则简单任务会因为没有 L2
+    // 被覆盖门禁永远判成“无任务承接”。
+    const stepCriterionIds = inheritedCriterionIds.length > 0
+      ? inheritedCriterionIds
+      : criterionIdsForTask(
+          [step.description ?? '', step.tool].join('\n'),
+          criteria
+        );
     const task: WorkTask = {
       workTaskId,
       workId: input.workId,
@@ -1022,7 +1030,7 @@ export function seedWorkEventsFromPlan(input: {
       groupId,
       title: step.description?.trim() || step.tool,
       description: step.description,
-      ...(inheritedCriterionIds.length > 0 ? { criterionIds: [...inheritedCriterionIds] } : {}),
+      ...(stepCriterionIds.length > 0 ? { criterionIds: [...stepCriterionIds] } : {}),
       dependencies: previous ? [previous] : [],
       acceptanceCriteria: [`步骤 ${step.tool} 执行完成`],
       // 每个父任务里的第一步可开工；其余等前一步。父任务本身不抢「当前执行」。

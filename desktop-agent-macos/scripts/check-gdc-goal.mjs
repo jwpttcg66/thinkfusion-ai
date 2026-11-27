@@ -195,6 +195,7 @@ test('投影读取 goal.contract.updated 与 goal.fit，不把执行完成直接
   });
   assert.equal(workbench.goal.fit, 'gap');
   assert.equal(workbench.goal.gceFit, 'GAP');
+  assert.equal(workbench.goal.goalVersion, 2);
   assert.deepEqual(workbench.goal.successCriteria, ['缺少 token 返回 401']);
   assert.equal(workbench.goal.criteria?.[0]?.status, 'UNMET');
   assert.ok(workbench.goal.fitNotes.includes('1 条强制标准未满足'));
@@ -228,6 +229,7 @@ test('恢复时目标契约过期：投影不再显示旧 Criterion 和旧 Goal 
   });
   assert.equal(workbench.goal.fit, 'unknown');
   assert.equal(workbench.goal.gceFit, 'UNKNOWN');
+  assert.equal(workbench.goal.goalVersion, 2);
   assert.deepEqual(workbench.goal.criteria, []);
   assert.deepEqual(workbench.goal.successCriteria, []);
   assert.ok(workbench.goal.fitNotes.some(item => item.includes('v1')));

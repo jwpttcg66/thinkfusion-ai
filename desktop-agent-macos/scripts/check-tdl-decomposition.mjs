@@ -169,3 +169,17 @@ test('GCE：多 Criterion 按关键词保守映射，未匹配保持未覆盖', 
   assert.ok(auth?.criterionIds?.includes('token'));
   assert.ok(docs?.criterionIds?.includes('docs'));
 });
+
+test('GCE：没有 L2 的简单计划由 L3 步骤承接 Criterion', () => {
+  const events = seedWorkEventsFromPlan({
+    workId: 'w5', title: '简单写文件', at: 1,
+    plan: {
+      planId: 'p5', taskId: 'w5', roundId: 'r5', title: '简单写文件', description: '',
+      completion: 'done', steps: [write('s1', 'src/a.ts')]
+    },
+    criteria: [{ criterionId: 'c1', description: '写入 src/a.ts 并回读', priority: 'MUST' }]
+  });
+  const tasks = [...rebuildWorkTasksFromEvents('w5', events).values()];
+  const step = tasks.find(task => task.level === 3);
+  assert.ok(step?.criterionIds?.includes('c1'));
+});

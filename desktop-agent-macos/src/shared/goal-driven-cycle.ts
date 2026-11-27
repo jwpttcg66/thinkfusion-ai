@@ -778,6 +778,7 @@ export function projectGoalDrivenWorkbench(input: {
   if (staleIsCurrent) {
     goal = {
       ...goal,
+      ...(latestStale ? { goalVersion: latestStale.goalVersion } : {}),
       successCriteria: [],
       criteria: [],
       fit: 'unknown',
@@ -787,8 +788,11 @@ export function projectGoalDrivenWorkbench(input: {
   } else if (contractCriteria.length > 0) {
     goal = {
       ...goal,
+      ...(latestContract ? { goalVersion: latestContract.contract.goalVersion } : {}),
       successCriteria: contractCriteria.map(item => item.description ?? item.criterionId),
       openQuestions: [],
+      // 契约已经有标准时，不再沿用“尚未写明成功标准”的兜底说明。
+      fitNotes: fitIsCurrent && latestGoalFit ? latestGoalFit.notes : [],
       criteria: contractCriteria.map(item => ({
         criterionId: item.criterionId,
         description: item.description ?? item.criterionId,
