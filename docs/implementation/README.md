@@ -4,6 +4,7 @@
 
 - [STATUS.md](STATUS.md)：唯一当前实现状态、证据指针和已知缺口。
 - [plans/README.md](plans/README.md)：未完成或正在进行的计划。
+- [V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md](V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md)：目标契约证据闭环 P0–P5 任务书；当前仅为 DESIGN/NOT STARTED。
 - [features/README.md](features/README.md)：已落地能力的专项说明。
 - [acceptance/README.md](acceptance/README.md)：按主题归档的测试/真机验收记录。
 - [audits/README.md](audits/README.md)：针对具体代码范围的审计。

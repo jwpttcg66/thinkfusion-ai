@@ -18,6 +18,7 @@
 - 完成发布签名、公证、迁移与回滚等发布门禁。
 
 具体未完成项、优先级和证据链接统一见 [STATUS.md](implementation/STATUS.md)。
+目标契约证据闭环（GCE）的设计与批次见 [架构说明](architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) 与 [任务书](implementation/V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md)；当前为 DESIGN/NOT STARTED。
 
 ## 后续候选方向
 

@@ -206,6 +206,7 @@ Debate / Review / Verification 是可选协作行为，不是每个任务的必�
 ## 9. 文档地图
 
 - 当前代码架构：[ARCHITECTURE.md](ARCHITECTURE.md)
+- 目标契约证据闭环设计：[architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md)
 - 工程目标循环：[architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](architecture/V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md)
 - 已完成迁移的历史记录：[archive/README.md](archive/README.md)
 - 版本路线与完成判据：[ROADMAP.md](ROADMAP.md)

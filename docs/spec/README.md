@@ -12,6 +12,7 @@
 ## 工程、记忆与上下文
 
 - [GLOBAL_MEMORY.md](GLOBAL_MEMORY.md)：记忆数据模型、注入边界和治理不变量。
+- [GOAL_CONTRACT_EVIDENCE_CONTRACTS.md](GOAL_CONTRACT_EVIDENCE_CONTRACTS.md)：目标契约、Criterion、Cycle、Evidence 关联和三种完成状态规范；仅 DESIGN。
 - [LONG_TASK_CONTEXT_CONTRACTS.md](LONG_TASK_CONTEXT_CONTRACTS.md)：长任务共享类型、状态机、事件、错误降级和不变量；类型/事件只在此定义。
 - [LONG_TASK_CONTEXT_UI.md](LONG_TASK_CONTEXT_UI.md)：上下文 UI 展示与可追溯性契约。
 - [TASK_CONVERSATION_STREAM.md](TASK_CONVERSATION_STREAM.md)：工程对话流的事件源/投影分层、四层模型、差距清单、A→B→C→D1→D2 实施方案；区分会话聚合胶囊与独立文件变更块、交付产物卡片。

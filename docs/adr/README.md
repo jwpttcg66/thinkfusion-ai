@@ -14,5 +14,6 @@
 | 0008 | 参与者数量由任务决定 | Accepted |
 | 0009 | 网页通道角色：知识可提问，工程只回答 | Accepted |
 | 0010 | 上下文检查点存储：独立文件 + Journal 指针 | Accepted / IMPLEMENTED |
+| 0011 | 目标契约驱动的证据闭环 | Accepted（设计冻结，未实现） |
 
 更早的 Gate 0 材料见 git 提交历史。

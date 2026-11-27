@@ -1,6 +1,6 @@
 # ThinkFusion 实现状态
 
-**唯一当前状态来源**。快照对应 `main@2538104`（2026-11-26，`feat(v3): 补 P0/P1 治理缺口，落地对话流阶段 A/B`）。代码、测试和真实验收变化时更新本页；不要在其他文档另建阶段完成度表。
+**唯一当前状态来源**。快照对应 `main@9026e0e`（2026-11-27，流式文档、完全权限收尾与文本回读验证）。代码、测试和真实验收变化时更新本页；不要在其他文档另建阶段完成度表。
 
 > 设计说明不是实现证据；单测不是真机证据；一个真机样本不代表所有环境。
 > 缺证据时标“未确认”，不要从目录、类型或任务书标题推断完成。
@@ -47,6 +47,19 @@
 | Workflow | 定义、校验、拓扑序、条件/循环/并行/审批节点、生产注册表、按目标选择 | `Orchestrator.submitWorkflow` + IPC `workflow:run` 复用审批/授权/报告 | `test:workflow`（10） | 未验证 | `until` 运行时循环明确拒绝；parallel 如实串行；只有 IPC 无界面入口 | `shared/workflow.ts`、`shared/workflow-registry.ts`、`main/orchestrator.ts` |
 | Java 工程理解 | 文本检索与正则定位 | 代码索引/搜索路径 | `test:code-index*` | 部分 | P2-01：AST、类型绑定、调用图、增量索引 | `main/code-index/` |
 | 工程对话流（TaskConversation） | A/B 定位轨·计时·稳定 ID·统一状态·diff 汇总；阶段 1 逐文件 Diff；C1 subtype 映射、C2 step 聚合、C3a/b/c 三元素、C4 MarkdownBody；D1 子 Agent 卡片；D2 并行对话浮层 | `buildTaskConversation` + `TaskConversation.tsx` 生产链路，`clusterSteps`/`noteEmphasisOf`/`diffSummaryOf`/`teamProposalsOf` 纯函数接线；`shared/parallel-lanes.ts` + `ParallelConversationRail.tsx` + App 挂点 | `test:task-conversation`（65） | 冒烟（A 完整证据；C 见 stage-c，D1/D2 见 stage-d1d2，样本未触发 agent/diff/表格/并行 lane） | C4 协议正文仍按既有设计走纯文本；D1/D2 真机缺 `code.team.run` 与多通道样本，由单测覆盖 | `docs/spec/TASK_CONVERSATION_STREAM.md`、`docs/spec/evidence/stage-{a,c,d1d2}/` |
+
+## 目标契约证据闭环（GCE）
+
+| 项 | 状态 | 事实 |
+| --- | --- | --- |
+| 架构/契约/ADR | `DESIGN` | [架构](../architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) · [契约](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md) · [ADR 0011](../adr/0011-goal-contract-evidence-cycle.md) |
+| 实施任务书 | `NOT STARTED` | [P0–P5 任务书](V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md) |
+| Goal Contract | `NOT STARTED` | 当前 `projectEngineeringGoal()` 仍未形成六维目标；缺标准时仍可能用 summary 填充 |
+| Criterion / Evidence | `NOT STARTED` | 当前 Goal Fit 仍是整体布尔判断；无逐条 Criterion 证据关联 |
+| Cycle Decision | `NOT STARTED` | 当前仅有 `complete/repair/fail_budget/fail_delivery` 四出口 |
+| UI / 真机验收 | `NOT STARTED` | 尚无目标确认、逐条 Criterion 或决策原因展示 |
+
+> GCE 是设计冻结后的实施轨道，不改变现有代码事实；“已设计”不等于“已实现”。
 
 ## 已验证的专项证据
 

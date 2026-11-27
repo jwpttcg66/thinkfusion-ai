@@ -6,7 +6,7 @@
 
 | 文档 | 唯一职责 |
 | --- | --- |
-| [LONG_TASK_AND_CONTEXT_COMPACTION.md](../archive/architecture/LONG_TASK_AND_CONTEXT_COMPACTION-2026-11-24.md) | Context Manager 的职责、请求前数据流和降级边界 |
+| [LONG_TASK_AND_CONTEXT_COMPACTION.md](LONG_TASK_AND_CONTEXT_COMPACTION.md) | Context Manager 的职责、请求前数据流和降级边界 |
 | [CONTEXT_CHECKPOINT_STORAGE.md](CONTEXT_CHECKPOINT_STORAGE.md) | 已接受的检查点/归档存储决策 |
 
 ## V3 目标架构专题
@@ -17,6 +17,7 @@
 | [V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md](V3-GOAL-DRIVEN-ITERATIVE-ENGINEERING.md) | Goal/Cycle 工程协作方向 |
 | [V3-GOAL-TDL-ECO-ARCHITECTURE.md](V3-GOAL-TDL-ECO-ARCHITECTURE.md) | Goal、TDL、ECO 的组合方向 |
 | [V3-TASK-DECOMPOSITION-LAYER.md](V3-TASK-DECOMPOSITION-LAYER.md) | Work/WorkTask 分解和进度投影 |
+| [V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) | V2.0 核心闭环：Goal Contract、Criterion、Evidence、Cycle Decision；设计目标，不声明实现 |
 
 ## 长任务上下文
 
