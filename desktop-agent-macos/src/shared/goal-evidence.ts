@@ -52,8 +52,10 @@ export function assessCriterionFromEvidence(
   if (related.length === 0) return 'PENDING';
 
   const usable = related.filter(link => accepted(criterion, link));
-  if (usable.some(link => link.verificationStatus === 'PASSED')) return 'MET';
+  // 失败证据优先于通过证据：同一条标准上既有通过的编译又有失败的测试，
+  // 不能因为编译通过就把目标标成已满足。
   if (usable.some(link => link.verificationStatus === 'FAILED')) return 'UNMET';
+  if (usable.some(link => link.verificationStatus === 'PASSED')) return 'MET';
   return 'UNVERIFIED';
 }
 

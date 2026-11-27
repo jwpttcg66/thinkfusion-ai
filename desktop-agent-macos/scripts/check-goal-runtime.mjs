@@ -177,3 +177,25 @@ test('全轮证据并集：修复轮没有新改动不会把已满足标准冲�
   assert.equal(result.fit.fit, 'MET');
   assert.ok(result.links.some(item => item.source === 'execution_report:r1'));
 });
+
+test('失败的测试/编译证据产生 UNMET，Goal Fit 为 GAP', () => {
+  const failed = report({
+    verification: {
+      verified: false,
+      fullyVerified: false,
+      reasons: ['测试失败'],
+      changedFiles: 1,
+      changedPaths: ['src/a.ts'],
+      checks: {
+        compile: { status: 'passed' },
+        tests: { status: 'failed', exitCode: 1 },
+        run: { status: 'skipped' },
+        diagnostics: { status: 'passed', errors: 0, warnings: 0 },
+        changedFiles: ['src/a.ts']
+      }
+    }
+  });
+  const result = assessReportAgainstGoal({ contract: contract(), report: failed, at: 2 });
+  assert.equal(result.fit.fit, 'GAP');
+  assert.ok(result.criteria.every(item => item.status === 'UNMET'));
+});

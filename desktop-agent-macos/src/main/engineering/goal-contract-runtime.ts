@@ -152,10 +152,15 @@ export function evidenceFromReport(input: ReportEvidenceInput): GoalEvidenceLink
     add('TOOL_RESULT', 'FAILED', 'report');
   } else {
     if (checks?.tests.status === 'passed') add('TEST_RESULT', 'PASSED', 'tests');
+    else if (checks?.tests.status === 'failed') add('TEST_RESULT', 'FAILED', 'tests-failed');
     if (checks?.compile.status === 'passed') add('BUILD_RESULT', 'PASSED', 'compile');
+    else if (checks?.compile.status === 'failed') add('BUILD_RESULT', 'FAILED', 'compile-failed');
     if (checks?.run?.status === 'passed') add('RUNTIME_RESULT', 'PASSED', 'run');
+    else if (checks?.run?.status === 'failed') add('RUNTIME_RESULT', 'FAILED', 'run-failed');
     if (checks?.diagnostics.status === 'passed' && observed.length === 0) {
       add('TOOL_RESULT', 'PASSED', 'diagnostics');
+    } else if (checks?.diagnostics.status === 'failed' && observed.length === 0) {
+      add('TOOL_RESULT', 'FAILED', 'diagnostics-failed');
     }
     if (observed.length === 0 && verification?.verified && nonCode) {
       add('FILE_READBACK', 'PASSED', 'readback');

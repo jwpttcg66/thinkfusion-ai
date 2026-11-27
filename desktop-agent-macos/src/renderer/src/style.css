@@ -7355,3 +7355,21 @@ button:disabled {
   border-radius: 0;
   background: none;
 }
+
+
+/* GCE：工程目标契约卡 */
+.goal-contract-card { margin: 0 0 12px; }
+.goal-contract-body { display: flex; flex-direction: column; gap: 6px; }
+.goal-contract-edit { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.goal-contract-input {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+.goal-contract-actions { display: flex; gap: 8px; }

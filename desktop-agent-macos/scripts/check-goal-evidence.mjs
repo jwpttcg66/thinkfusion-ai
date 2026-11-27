@@ -127,3 +127,17 @@ test('旧 WorkTask 没有 criterionIds 时不假装覆盖', () => {
   assert.ok(coverage.every(item => !item.covered));
   assert.equal(coverageGaps(coverage).blocking.length, 3);
 });
+
+test('同一 Criterion 上失败证据优先于通过证据', async () => {
+  const { createGoalCriterion: make } = await import('../out-test/shared/goal-contract.js');
+  const { assessCriterionFromEvidence: assess } = await import('../out-test/shared/goal-evidence.js');
+  const criterion = make({
+    goalId: 'g', goalVersion: 1, criterionId: 'c', description: '测试通过',
+    source: 'USER_EXPLICIT', verificationMethod: 'test', acceptanceThreshold: '通过', updatedAt: 1
+  });
+  const links = [
+    { evidenceId: 'e1', workId: 'w', cycleId: 'c', criterionId: 'c', goalVersion: 1, evidenceType: 'BUILD_RESULT', source: 's', verificationStatus: 'PASSED', linkedAt: 1 },
+    { evidenceId: 'e2', workId: 'w', cycleId: 'c', criterionId: 'c', goalVersion: 1, evidenceType: 'TEST_RESULT', source: 's', verificationStatus: 'FAILED', linkedAt: 1 }
+  ];
+  assert.equal(assess(criterion, links), 'UNMET');
+});

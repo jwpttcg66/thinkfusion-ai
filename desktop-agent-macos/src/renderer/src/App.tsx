@@ -56,6 +56,7 @@ import { ParallelConversationRail } from './components/ParallelConversationRail'
 import { CollaborationResultPanel } from './components/CollaborationResultPanel';
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
+import { GoalContractCard } from './components/engineering/GoalContractCard';
 import { TaskStats } from './components/engineering/TaskStats';
 import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
@@ -1802,6 +1803,30 @@ export default function App() {
     }
   }
 
+  /** GCE：目标修订。删减标准由卡片二次确认，确认后才抬版本。 */
+  async function reviseTaskGoal(criteria: string[], userConfirmedChange: boolean) {
+    if (!activeTask) return;
+    setError('');
+    try {
+      const plan = await window.agentAPI.reviseTaskGoal({
+        taskId: activeTask.taskId,
+        nextCriteria: criteria,
+        userConfirmedChange
+      });
+      setNotice(
+        plan.requiresUserConfirmation
+          ? '目标变更需要确认：删除成功标准会改变目标版本，当前版本未变。'
+          : plan.versionChanged
+            ? `目标已更新到 v${String(plan.nextVersion)}；受影响任务将按新目标重规划。`
+            : '目标标准已更新；未改变目标版本。'
+      );
+      return plan;
+    } catch (e) {
+      setError(errorText(e));
+      throw e;
+    }
+  }
+
   /** 环境修好后继续跑：会重新规划并执行，不只是重算结论。 */
   async function resumeRepair() {
     if (!activeTask) return;
@@ -2517,6 +2542,10 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                <GoalContractCard
+                  workbench={engineeringWorkbench}
+                  onReviseGoal={reviseTaskGoal}
+                />
                 {/* 主会话只保留时序流；结果大卡 / 任务分解不贴在流尾。完整证据去「轨迹」。 */}
                 <TaskConversation
                   task={activeTask}

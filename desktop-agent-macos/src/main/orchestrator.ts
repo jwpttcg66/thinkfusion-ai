@@ -40,7 +40,7 @@ import {
   planGoalRevision,
   projectGoalDrivenWorkbench
 } from '../shared/goal-driven-cycle';
-import type { GoalContract } from '../shared/goal-contract';
+import { createGoalCriterion, type GoalContract } from '../shared/goal-contract';
 import { legacyGoalFitEvent } from '../shared/goal-compat';
 import {
   assessReportsAgainstGoal,
@@ -1182,6 +1182,50 @@ export class AgentOrchestrator {
       });
       return plan;
     }
+    const at = Date.now();
+    const goalId = task.goalId ?? `goal:${taskId}`;
+    // 即使用户只是补充标准（不抬版本），也要落库；否则界面刚保存的目标
+    // 下一次投影又回到旧值。重大变更已在上面被拦住，走到这里的都是可生效的。
+    const nextCriteria = task.goalContract
+      ? input.nextCriteria
+          .map(item => item.trim())
+          .filter(Boolean)
+          .map((description, index) => createGoalCriterion({
+            goalId,
+            goalVersion: plan.nextVersion,
+            criterionId: `criterion:${taskId}:user:${String(index + 1)}`,
+            description,
+            source: 'USER_EXPLICIT',
+            priority: 'MUST',
+            verificationMethod: '执行报告中的测试/编译/运行/诊断或非代码回读证据',
+            acceptanceThreshold: '存在与该标准匹配的 PASSED 证据，且没有 FAILED 证据',
+            updatedAt: at
+          }))
+      : null;
+    const nextContract: GoalContract | undefined = task.goalContract && nextCriteria
+      ? {
+          ...task.goalContract,
+          goalId,
+          goalVersion: plan.nextVersion,
+          criteria: nextCriteria,
+          status: 'ACTIVE',
+          updatedAt: at
+        }
+      : undefined;
+    this.tasks.patch(taskId, {
+      goalId,
+      goalVersion: plan.nextVersion,
+      goalCriteria: [...input.nextCriteria],
+      ...(nextContract ? { goalContract: nextContract } : {})
+    });
+    if (nextContract) {
+      this.deps.emit({
+        type: 'goal.contract.updated',
+        at,
+        taskId,
+        contract: nextContract
+      });
+    }
     if (!plan.versionChanged) {
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'info',
@@ -1189,14 +1233,6 @@ export class AgentOrchestrator {
       });
       return plan;
     }
-
-    const at = Date.now();
-    const goalId = task.goalId ?? `goal:${taskId}`;
-    this.tasks.patch(taskId, {
-      goalId,
-      goalVersion: plan.nextVersion,
-      goalCriteria: [...input.nextCriteria]
-    });
     const impacted = new Set(plan.impactedTaskIds);
     for (const item of workTasks) {
       if (!impacted.has(item.workTaskId)) continue;
@@ -2666,11 +2702,12 @@ export class AgentOrchestrator {
     const goalFitEvent = goalAssessment
       ? legacyGoalFitEvent(goalAssessment.contract, goalAssessment.fit)
       : null;
-    const goalBlocksCompletion = Boolean(
-      goalAssessment && goalAssessment.fit.fit === 'GAP'
+    // 执行完成只说明这一轮跑完了。GAP / PARTIAL / UNKNOWN 都不等于目标达成：
+    // 完全权限下继续开修复轮；其他权限停在待确认，由用户决定继续还是接受缺口。
+    const goalNeedsMoreWork = Boolean(
+      goalAssessment && goalAssessment.fit.fit !== 'MET' && goalAssessment.fit.fit !== 'WITH_RISKS'
     );
-
-    const decision = decideNextEngineeringAction({
+    let decision = decideNextEngineeringAction({
       cycle: workbench.cycle,
       verifiedDone: Boolean(
         !desktopStillOpen &&
@@ -2682,6 +2719,11 @@ export class AgentOrchestrator {
       atMaxRounds,
       genuineDelivery
     });
+    const autoApprove = approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
+    if (goalNeedsMoreWork && decision === 'complete') {
+      decision = atMaxRounds ? 'fail_budget' : autoApprove ? 'repair' : 'complete';
+    }
+    const goalBlocksCompletion = goalNeedsMoreWork && decision !== 'repair';
     // 无新证据不得再开修复轮：两轮之间命令、参数、输出、验证结论都没变，
     // 评审也重复同样的问题，再开一轮就是把同一件事做第三遍。停下来交回
     // 用户，比再花一轮预算重复一遍更诚实。
