@@ -4,6 +4,7 @@
 
 - [STATUS.md](STATUS.md)：唯一当前实现状态、证据指针和已知缺口。
 - [plans/README.md](plans/README.md)：未完成或正在进行的计划。
+- [plans/V3-PRODUCTION-CLOSURE-PLAN.md](plans/V3-PRODUCTION-CLOSURE-PLAN.md)：V3 全局生产闭环总计划（P0–P5）。
 - [V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md](V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md)：目标契约证据闭环 P0–P5 任务书。
 - [GCE-TEST-PLAN.md](GCE-TEST-PLAN.md)：目标契约证据闭环的分层测试、故障注入和真机验收矩阵；仅 DESIGN。
 - [features/README.md](features/README.md)：已落地能力的专项说明。

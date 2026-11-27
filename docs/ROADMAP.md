@@ -20,6 +20,10 @@
 具体未完成项、优先级和证据链接统一见 [STATUS.md](implementation/STATUS.md)。
 目标契约证据闭环（GCE）的设计与批次见 [架构说明](architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) 与 [任务书](implementation/V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md)；当前为 DESIGN/NOT STARTED。
 
+V3 全局生产闭环（P0–P5）的方向、阶段边界与验收口径见
+[总计划](implementation/plans/V3-PRODUCTION-CLOSURE-PLAN.md)；当前从
+[P0 详细任务书](implementation/plans/active/P0-VERSION-RECOVERY-TASK-BOOK.md) 起步。
+
 ## 后续候选方向
 
 以下是候选，不代表已承诺排期或已实现：
