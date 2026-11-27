@@ -1,5 +1,5 @@
 import React from 'react';
-import type { GoalRevisionPendingEvent } from '../../../../shared/goal-driven-cycle';
+import { partitionImpactedTasks, type GoalRevisionPendingEvent } from '../../../../shared/goal-driven-cycle';
 
 /**
  * 目标变更影响面确认卡（V4 P1 M1-3）。
@@ -37,8 +37,10 @@ export function GoalRevisionConfirm(props: {
   const pending = props.pending;
   if (!pending || dismissedAt === pending.at) return null;
 
-  const shown = pending.impactedTasks.slice(0, MAX_IMPACTED_ROWS);
-  const hidden = pending.impactedTasks.length - shown.length;
+  const { steps, structural } = partitionImpactedTasks(pending.impactedTasks);
+  const shown = steps.slice(0, MAX_IMPACTED_ROWS);
+  const hidden = steps.length - shown.length;
+  const structuralStatuses = [...new Set(structural.map(item => STATUS_LABEL[item.status] ?? item.status))].join('、');
 
   async function confirm(): Promise<void> {
     if (!pending) return;
@@ -76,7 +78,13 @@ export function GoalRevisionConfirm(props: {
         </div>
         <div>
           <h3>受影响的任务</h3>
-          {shown.length === 0 ? (
+          {pending.impactedTasks.length > 0 && (
+            <p className="muted grc-impact-summary">
+              受影响 {String(pending.impactedTaskIds.length || pending.impactedTasks.length)} 条：
+              可执行步骤 {String(steps.length)} 条，任务级节点 {String(structural.length)} 条。
+            </p>
+          )}
+          {shown.length === 0 && structural.length === 0 ? (
             <p className="muted">
               {pending.impactedTaskIds.length === 0
                 ? '事件里没记到受影响任务（可能这一版任务树还没建）。'
@@ -91,9 +99,15 @@ export function GoalRevisionConfirm(props: {
                   <span className="muted">{STATUS_LABEL[item.status] ?? item.status}</span>
                 </li>
               ))}
+              {structural.length > 0 && (
+                <li className="grc-structural">
+                  另有 {String(structural.length)} 条任务级节点（任务本体 / 执行计划组）
+                  {structuralStatuses ? ` · ${structuralStatuses}` : ''}，随下属步骤一起重规划
+                </li>
+              )}
             </ul>
           )}
-          {hidden > 0 && <p className="muted">还有 {String(hidden)} 条没有列出。</p>}
+          {hidden > 0 && <p className="muted">还有 {String(hidden)} 条步骤没有列出。</p>}
           {pending.inheritedCount > 0 && (
             <p className="muted">另有 {String(pending.inheritedCount)} 条不受影响，成果可继承。</p>
           )}

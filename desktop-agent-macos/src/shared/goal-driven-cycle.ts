@@ -327,6 +327,29 @@ export function projectPendingGoalRevision<T extends GoalRevisionPendingEvent>(i
   return input.currentVersion >= latest.nextVersion ? null : latest;
 }
 
+/**
+ * 影响面清单里的「任务级节点」。
+ *
+ * `wt-work-*` 是任务本体、`wt-group-*` 是执行计划组，标题常常就是「执行计划」，
+ * 和真正的步骤并列时会长成两行同名条目，读起来像重复项。事件原文照旧记全，
+ * 折叠只发生在呈现这一层——口径改了就不是同一份事实了。
+ */
+export function isStructuralWorkTaskId(workTaskId: string): boolean {
+  return workTaskId.startsWith('wt-work-') || workTaskId.startsWith('wt-group-');
+}
+
+export function partitionImpactedTasks<T extends { workTaskId: string }>(
+  tasks: readonly T[]
+): { steps: T[]; structural: T[] } {
+  const steps: T[] = [];
+  const structural: T[] = [];
+  for (const task of tasks) {
+    if (isStructuralWorkTaskId(task.workTaskId)) structural.push(task);
+    else steps.push(task);
+  }
+  return { steps, structural };
+}
+
 
 
 export function assessGoalFit(input: {

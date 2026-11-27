@@ -5,9 +5,9 @@
 - 基线：`v4/p1-engineering-runtime` 分支的 M1-1（执行历史投影）、M1-2（目标聚合视图）、M1-3（目标变更影响面确认）三次实现提交。
 - 启动方式：ThinkFusion Dev（`electron-vite dev --noSandbox --remoteDebuggingPort 9333`）+ CDP，先 `npm run build:agent` 再起跑。
 - 数据目录：默认 `~/Library/Application Support/thinkfusion-ai`；未提供 `THINKFUSION_USER_DATA`，未复制用户数据。
-- 数据隔离：脚本只按探针标题 `V4M1执行历史探针` 清理旧探针，验收后取消并删除本轮探针；用户任务数前后一致（2 → 2）。
+- 数据隔离：脚本只按探针标题 `V4M1执行历史探针` 清理旧探针，验收后取消并删除本轮探针；用户任务数前后一致（2 → 2）。收尾另按用户批准清掉了上一里程碑遗留的 2 个 P0-4 探针，见「收尾清理」。
 - 验收脚本：`desktop-agent-macos/scripts/verify-v4-p1-m1-cdp.mjs`
-- 证据：[EVIDENCE.md](EVIDENCE.md) / [evidence.json](evidence.json)
+- 证据：[EVIDENCE.md](EVIDENCE.md) / [evidence.json](evidence.json)（本目录记录的是最后一次复跑，探针 `0a429d96`；首轮真机探针 `6a8b9375` 的结论在正文里单独标注，两次都真实跑过）
 
 ## 场景①　M1-1 执行历史：同一 Task 下多条执行各自可见
 
@@ -21,7 +21,8 @@
   - 界面（统计页）与投影同时刻一致：卡片头「执行历史 4 次执行 · 1 次失败」，`.exec-item` 4 条 = 投影 4 条；无报告轮显示「这一轮没有执行报告，交付未记录」。截图 [01-execution-history.png](01-execution-history.png)。
   - 第 2 条及以后的执行由目标驱动闭环自己续出来，`loopActions` 为空——脚本没有调用 `resumeRepair`、没有放行审批、没有代替用户回答澄清。
 - 顺带观察到的运行时问题（不属 M1 范围，未改）：第 2 轮 `execution_report` 与第 3 轮 `plan_repair` 都以 `plan_invalid` 收口、零步骤，闭环连着烧掉两轮才在第 4 轮拿到报告。台账如实显示为「未收口」，所以不是投影的错，但自动续轮的规划质量值得单独查一次。
-- 未覆盖：跨 `runId` 的两次独立运行（同一 Task 被再次启动）未在本探针里出现；本次只验到一次连续执行内的多轮台账。
+- 复跑（M1-3 影响面分账改动后的回归，探针 `0a429d96`）：同一个 Task 投影出 2 条执行，`roundId` 去重 2 条，第 1 条仍是 `round 1 / outcome=failed`（`COMMAND_FAILED: 命令退出码 3`），第 2 条 `round 2 / completed`（5 步全完成、证据 5 条）；两条都带报告，所以本轮没再出现「未收口」那种轮次。统计页卡片头「执行历史 2 次执行 · 1 次失败」，`.exec-item` 2 条＝同时刻重读投影 2 条；`loopActions` 仍为空，第 2 条依旧是闭环自己续的。第 2 条成员列表里保留了一条「未记录成员」，投影没有把缺字段抹平成 0 或省略。
+- 未覆盖：跨 `runId` 的两次独立运行（同一 Task 被再次启动）未在本探针里出现；两轮真机各自都只有一个 `runId`，所以只验到一次连续执行内的多轮台账。
 
 ## 场景②　M1-2 目标聚合视图：分组渲染与退回开关
 
@@ -35,9 +36,10 @@
 - 实测结论：
   - 基线口径以契约 Criterion 为准：契约里 1 条标准，追加 1 条判为 `clarify`、`requiresUserConfirmation=false`、版本仍为 v1——补充不会被误判成变更。
   - 把标准删到 1 条（即删除既有标准）判为 `change`、`requiresUserConfirmation=true`、`nextVersion=v2`，且确认前任务 `goalVersion` 保持 v1，没有偷抬版本。
-  - `goal.revision.pending` 事件落库并带原文：`reason=目标变更影响 7 个未完成任务；已完成且不受影响的成果可继承`、`impactedTaskIds` 7 条、`inheritedCount=5`、`nextVersion=2`。
-  - 界面确认卡显示「目标变更待确认 v1 → v2 · 确认前不抬版本、不改任务」，新标准 1 条、受影响 7 条；点「确认变更」后 `goalVersion` 抬到 v2，卡片消失。截图 [03-goal-revision-pending.png](03-goal-revision-pending.png)、[04-goal-revision-confirmed.png](04-goal-revision-confirmed.png)。
-- 待修口径：受影响清单里出现两条同名「执行计划 @ready」——`wt-work-*` 与 `wt-group-*` 是任务级汇总节点，混在真实步骤（`shell.run`、`git.log`、`fs.search`、`session.search`、`time.now`）里一起列给用户，读起来像重复项。事件本身没有说谎（这些节点确实未收口），但确认卡的列表应只列可执行步骤、把汇总节点折叠成一条。
+  - 首轮真机（探针 `6a8b9375`）：`goal.revision.pending` 事件落库并带原文——`reason=目标变更影响 7 个未完成任务；已完成且不受影响的成果可继承`、`impactedTaskIds` 7 条、`inheritedCount=5`、`nextVersion=2`；确认卡显示「目标变更待确认 v1 → v2 · 确认前不抬版本、不改任务」＋标准 1 条/受影响 7 条。当时暴露一个呈现缺陷：7 条里 `wt-work-*` 与 `wt-group-*` 两个任务级汇总节点（同名「执行计划」）和真实步骤并列，读起来像重复项。事件没说谎（这些节点确实未收口），但确认卡不该把它们混进步骤清单。
+  - 修法（只动呈现层）：shared 新增纯函数 `partitionImpactedTasks()`，按 id 前缀把 `wt-work-*`/`wt-group-*` 归「任务级节点」，其余（含 L2 子任务 `wt-task-*`，那是有名字的真实工作）归「可执行步骤」；确认卡逐条列步骤，节点折成一行「另有 N 条任务级节点（任务本体 / 执行计划组）· 状态，随下属步骤一起重规划」，顶部加一行分账「受影响 X 条：可执行步骤 Y 条，任务级节点 Z 条」，其中 X 取事件原文 `impactedTaskIds.length`，不是折叠后的步骤数。`goal.revision.pending` 的字段与写入路径完全没改。
+  - 复跑真机（探针 `0a429d96`）：删标准判 `change`，事件 `impactedTaskIds=["wt-work-0a429d96","wt-group-0a429d96"]`、`inheritedCount=6`、`nextVersion=2`；确认卡分账行「受影响 2 条： 可执行步骤 0 条，任务级节点 2 条。」与事件数字一致，节点折叠行为「另有 2 条任务级节点（任务本体 / 执行计划组） · 就绪，随下属步骤一起重规划」，步骤列表为空且不再出现同名「执行计划」行；点「确认变更」后 `goalVersion` 抬到 v2，刷新后卡片不再出现。「暂不变更」不写库，卡片留在原地。截图 [03-goal-revision-pending.png](03-goal-revision-pending.png)、[04-goal-revision-confirmed.png](04-goal-revision-confirmed.png)（截图取的是对话页，确认卡在工作台下方未入镜，卡片文案以 `evidence.json` 的 `confirmCard` 原文为准）。
+- 新暴露的观察（不属 M1-3，未改）：本轮 6 个步骤全部终态、被判为可继承，但 `wt-work-*`/`wt-group-*` 的状态仍是 `ready`——汇总节点没有从下属收敛，所以「计划已全部做完」的任务重规划时仍会把两个节点列进受影响清单（这正是复跑里步骤 0 条、节点 2 条的由来）。属状态收敛问题，应单独排。
 
 ## 过程中修掉的脚本口径错误（不是产品缺陷）
 
@@ -49,9 +51,15 @@
 
 另外，第一次跑抛错时清理逻辑被跳过，探针任务 `19f60921` 留在默认数据目录；现已把清理放进 `finally`，本轮起跑时先按探针标题清掉了它，收尾任务数 2 → 2。
 
+## 收尾清理（按用户批准执行）
+
+- 默认数据目录里原本留着上一里程碑的 2 个 P0-4 暂停检查点探针（`ef852583`、`9b4f2d6f`，均 `paused`），它们就是 M1 起跑时用户的全部任务，也是侧栏分组数被算成 3 的原因。
+- 用应用自己的 `cancelTask` → `deleteTask` 删除，两条都已消失，用户任务数 2 → 0。一次性脚本放在 `/tmp/tf-cleanup-p04-probes.mjs`，不进仓库。
+- 顺带实测到一处残留（只报告，没擅自删）：任务删除后 `context-checkpoints/owners/agent-task/<taskId>.json` 全部仍在，owner 目录 11 个文件对应 0 条任务。代码侧对得上——`store.deleteTask()` 只清 tasks/rounds/plans/reports/events，checkpoint store 没有删除接口。已记入 STATUS「当前已知缺口」第 9 条。
+
 ## 汇总判定
 
-- M1-1、M1-3：真机场景已按任务书跑通，可记 `LIVE_TESTED`。
+- M1-1、M1-3：真机场景已按任务书跑通，可记 `LIVE_TESTED`。M1-3 的受影响清单已按「可执行步骤 / 任务级节点」分账并复跑验证，`test:goal-revision` 从 8 条增至 11 条。
 - M1-2：分组渲染与退回开关已真机验证，但「同一 Goal 下 ≥2 Task」没有写入路径可产生，该子条件未验证。
 - 因此 **M1 里程碑的完成条件（三任务全部 `LIVE_TESTED` + 同一 Goal 下 ≥2 Task + 同一 Task 下 ≥2 Execution）尚未全部满足**，缺口只剩目标绑定写入路径这一项，等用户决定是否补。
 - 单测、`typecheck` 与本文件记录的真机验收均通过；按仓库约定只本地提交，不 push。

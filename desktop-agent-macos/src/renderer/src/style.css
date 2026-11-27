@@ -7447,3 +7447,14 @@ button:disabled {
   white-space: nowrap;
 }
 .grc-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* V4 M1-3 收尾：影响面按「可执行步骤 / 任务级节点」分账，节点折叠成一行 */
+.grc-impact-summary { margin: 0 0 6px; font-size: 12px; }
+.grc-impacted li.grc-structural {
+  display: block;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  font-size: 12px;
+  opacity: 0.78;
+}

@@ -474,19 +474,37 @@ async function phases() {
   const cardView = await ev(`(() => {
     const card = document.querySelector('.goal-revision-confirm');
     if (!card) return { found: false };
+    const list = card.querySelector('.grc-impacted');
+    const stepRows = list ? [...list.querySelectorAll('li:not(.grc-structural)')] : [];
     return {
       found: true,
       head: (card.querySelector('.card-head')?.textContent ?? '').trim(),
       reason: (card.querySelector('.grc-reason')?.textContent ?? '').trim(),
+      summary: (card.querySelector('.grc-impact-summary')?.textContent ?? '').trim(),
       criteria: [...card.querySelectorAll('.grc-criteria li')].map(node => node.textContent ?? ''),
-      impacted: [...card.querySelectorAll('.grc-impacted li')].map(node => (node.querySelector('.grc-impacted-title')?.textContent ?? '').trim()),
+      impacted: stepRows.map(node => (node.querySelector('.grc-impacted-title')?.textContent ?? '').trim()),
+      structural: (card.querySelector('.grc-structural')?.textContent ?? '').trim(),
       buttons: [...card.querySelectorAll('button')].map(node => (node.textContent ?? '').trim())
     };
   })()`);
   evidence.confirmCard = cardView;
   note('ui-confirm-card-visible', cardView.found === true, JSON.stringify(cardView.head ?? null));
   note('ui-card-lists-criteria-and-impact', cardView.found === true && cardView.criteria.length >= 1,
-    `标准 ${String(cardView.criteria?.length ?? 0)} 条 / 受影响 ${String(cardView.impacted?.length ?? 0)} 条`);
+    `标准 ${String(cardView.criteria?.length ?? 0)} 条 / 步骤 ${String(cardView.impacted?.length ?? 0)} 条`);
+  // 折叠后的口径必须还能对上账：汇总数字是事件原文，步骤 + 任务级节点 = 它。
+  const structuralFromEvent = (lastPending.impactedTasks ?? []).filter(item => /^wt-(work|group)-/.test(item.workTaskId));
+  const stepsFromEvent = (lastPending.impactedTasks ?? []).length - structuralFromEvent.length;
+  const summaryNumbers = /受影响 (\d+) 条：\s*可执行步骤 (\d+) 条，任务级节点 (\d+) 条/.exec(cardView.summary ?? '');
+  const reconciles = summaryNumbers !== null
+    && Number(summaryNumbers[1]) === (lastPending.impactedTaskIds ?? []).length
+    && Number(summaryNumbers[2]) === stepsFromEvent
+    && Number(summaryNumbers[3]) === structuralFromEvent.length;
+  note('ui-card-impact-count-reconciles', reconciles, `${cardView.summary ?? '没有分账行'} / 事件 impacted=${String((lastPending.impactedTaskIds ?? []).length)}`);
+  note('ui-card-folds-structural-nodes', (cardView.structural ?? '').includes('任务级节点') && structuralFromEvent.length > 0,
+    `${cardView.structural || '没有折叠行'}｜步骤行 ${JSON.stringify(cardView.impacted ?? [])}`);
+  // 汇总节点不该再顶着一行「执行计划」混在步骤里。
+  note('ui-card-steps-free-of-aggregate-rows', (cardView.impacted ?? []).every(title => title !== '执行计划'),
+    JSON.stringify(cardView.impacted ?? []));
   await shot('03-goal-revision-pending.png');
 
   const confirmed = await ev(`(() => {

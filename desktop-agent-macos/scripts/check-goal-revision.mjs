@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   isGoalRevisionPendingEvent,
+  partitionImpactedTasks,
   planGoalRevision,
   projectPendingGoalRevision
 } from '../out-test/shared/goal-driven-cycle.js';
@@ -111,4 +112,34 @@ test('源码守卫：确认走既有 reviseGoal 带 userConfirmedChange，且不
   const card = readSource('src/renderer/src/components/engineering/GoalContractCard.tsx');
   assert.doesNotMatch(card, /window\.confirm/);
   assert.match(card, /props\.onReviseGoal\(next, false\)/);
+});
+
+test('任务级节点与可执行步骤分开：折叠只发生在呈现层', () => {
+  const { steps, structural } = partitionImpactedTasks([
+    { workTaskId: 'wt-work-6a8b9375', title: '执行计划', status: 'ready' },
+    { workTaskId: 'wt-group-6a8b9375', title: '执行计划', status: 'ready' },
+    { workTaskId: 'wt-must-fail', title: 'shell.run', status: 'failed' },
+    { workTaskId: 'wt-task-decomp-1', title: '子任务：查历史', status: 'pending' }
+  ]);
+  assert.deepEqual(structural.map(item => item.workTaskId), ['wt-work-6a8b9375', 'wt-group-6a8b9375']);
+  // L2 子任务是有名字的真实工作，不能跟着汇总节点一起折掉。
+  assert.deepEqual(steps.map(item => item.workTaskId), ['wt-must-fail', 'wt-task-decomp-1']);
+  assert.equal(steps.length + structural.length, 4);
+});
+
+test('空清单不报错，全汇总节点时步骤侧走「没记下标题」以外的分支', () => {
+  assert.deepEqual(partitionImpactedTasks([]), { steps: [], structural: [] });
+  const onlyStructural = partitionImpactedTasks([{ workTaskId: 'wt-group-a', title: '执行计划', status: 'ready' }]);
+  assert.equal(onlyStructural.steps.length, 0);
+  assert.equal(onlyStructural.structural.length, 1);
+});
+
+test('源码守卫：确认卡按分账后的口径渲染，不直接列事件里的全部条目', () => {
+  const card = readSource('src/renderer/src/components/engineering/GoalRevisionConfirm.tsx');
+  assert.match(card, /partitionImpactedTasks\(pending\.impactedTasks\)/);
+  assert.match(card, /const shown = steps\.slice\(/);
+  assert.match(card, /className="grc-structural"/);
+  assert.match(card, /className="muted grc-impact-summary"/);
+  // 汇总数字必须来自 impactedTaskIds（事件原文），不能是折叠后的步骤数。
+  assert.match(card, /受影响 \{String\(pending\.impactedTaskIds\.length/);
 });
