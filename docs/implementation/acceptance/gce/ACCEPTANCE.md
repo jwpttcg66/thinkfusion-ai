@@ -81,7 +81,36 @@ export function add(a, b) {
 
 修复提交：`111a16e`。
 
-## 3. 未完成/未验证
+## 3. 计划覆盖门禁与恢复契约（自动化）
+
+提交 `b0e7a59` 补齐 P4/P5 两处生产门禁：
+
+- Criterion → L2/L3 保守映射；单一 MUST 覆盖所有 L2，多标准按关键词匹配，匹配不上保持未覆盖；
+- 计划生成时运行 `assessGoalDecomposition`；MUST 无承接/任务无验收时写入 `plan.ready` 警告，并且不自动批准；
+- 恢复时 `reconcileGoalContractOnResume` 核对目标版本、Criterion 版本、当前标准和任务树；不兼容发 `goal.contract.stale`，投影清空旧 Criterion/Goal Fit。
+
+自动化：
+
+```text
+goal-recovery              4/4
+tdl-decomposition           8/8
+gdc-goal                    9/9（含 stale 投影）
+engineering-orchestration  28/28
+workflow                   10/10
+```
+
+同一固定工作流在门禁接入后再次真机运行：
+
+```text
+task 08bbfc03-6763-436c-a398-cb5c31b96fd1
+goal.fit fit=met gceFit=MET criteria=MET
+task.completed 执行完成，验证通过，目标标准已满足
+DELIVERABLES=["src/math.js"]
+```
+
+说明：单 MUST Criterion 会覆盖所有 L2，因此该样本没有被门禁误拦；多 Criterion 未匹配时的阻断目前只有自动化覆盖，没有真机样本。
+
+## 4. 未完成/未验证
 
 - 工程目标卡与目标修订控件已接线并通过 typecheck/单测，但没有在真机里用鼠标完成一次“修改目标 → 删除标准 → 确认版本递增”的交互验收。
 - 恢复后的版本一致性、stale 展示未做真机长任务样本。
