@@ -104,6 +104,7 @@ npm run test:goal-contract
 npm run test:goal-evidence
 npm run test:goal-compat
 npm run test:cycle-decision
+npm run test:goal-decomposition
 npm run test:gdc-goal
 npm run test:gdc-cycle
 npm run test:task-conversation
