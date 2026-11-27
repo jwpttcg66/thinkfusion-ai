@@ -54,6 +54,8 @@ export interface WorkTask {
   /** 绑定 Goal；与 goalVersion 一起在目标变更后触发重评。 */
   goalId?: string;
   goalVersion?: number;
+  /** GCE：本任务承接的 Goal Criterion；旧任务缺省表示未建立映射。 */
+  criterionIds?: string[];
   agentTaskId?: string;
   planStepId?: string;
   artifacts: string[];

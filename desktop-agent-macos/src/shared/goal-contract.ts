@@ -46,6 +46,30 @@ export interface GoalDimension {
 export type CriterionPriority = 'MUST' | 'SHOULD' | 'NICE';
 export type CriterionStatus = 'PENDING' | 'MET' | 'PARTIAL' | 'UNMET' | 'UNVERIFIED' | 'WAIVED';
 
+export type GoalEvidenceType =
+  | 'MODEL_CLAIM'
+  | 'TOOL_RESULT'
+  | 'FILE_READBACK'
+  | 'BUILD_RESULT'
+  | 'TEST_RESULT'
+  | 'RUNTIME_RESULT'
+  | 'INTEGRATION_RESULT'
+  | 'USER_ACCEPTANCE';
+
+export interface GoalEvidenceLink {
+  evidenceId: string;
+  workId: string;
+  cycleId: string;
+  workTaskId?: string;
+  criterionId?: string;
+  goalVersion: number;
+  evidenceType: GoalEvidenceType;
+  source: string;
+  contentHash?: string;
+  verificationStatus: 'PENDING' | 'PASSED' | 'FAILED' | 'UNKNOWN';
+  linkedAt: number;
+}
+
 export interface GoalCriterion {
   criterionId: string;
   goalId: string;
@@ -57,6 +81,8 @@ export interface GoalCriterion {
   acceptanceThreshold: string;
   status: CriterionStatus;
   evidenceRefs: string[];
+  /** 该 Criterion 接受的证据类型；缺省不限制，但仍排除 MODEL_CLAIM 单独成立。 */
+  acceptedEvidenceTypes?: GoalEvidenceType[];
   waiver?: { authorizedBy: string; reason: string; at: number };
   updatedAt: number;
 }
@@ -226,6 +252,7 @@ export function createGoalCriterion(input: {
   acceptanceThreshold: string;
   status?: CriterionStatus;
   evidenceRefs?: readonly string[];
+  acceptedEvidenceTypes?: readonly GoalEvidenceType[];
   waiver?: GoalCriterion['waiver'];
   updatedAt?: number;
 }): GoalCriterion {
@@ -240,6 +267,9 @@ export function createGoalCriterion(input: {
     acceptanceThreshold: input.acceptanceThreshold.trim(),
     status: input.status ?? 'PENDING',
     evidenceRefs: [...(input.evidenceRefs ?? [])],
+    ...(input.acceptedEvidenceTypes && input.acceptedEvidenceTypes.length > 0
+      ? { acceptedEvidenceTypes: [...input.acceptedEvidenceTypes] }
+      : {}),
     ...(input.waiver ? { waiver: { ...input.waiver } } : {}),
     updatedAt: input.updatedAt ?? Date.now()
   };
