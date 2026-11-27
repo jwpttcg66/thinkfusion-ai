@@ -1,6 +1,6 @@
 # GCE-P5：UI 与长任务恢复详细设计
 
-**状态：** `PARTIAL`：目标/Criterion/真实阶段/决策/目标变更已接入；恢复版本一致性与真机长任务未完成。
+**状态：** `PARTIAL`：目标/Criterion/真实阶段/决策/目标变更已接入；应用重启后的版本核对与 stale 投影已真机点验；暂停语义与三场景统一回归未完成。
 **基线：** `main@9026e0e`  
 **总设计：** [V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md)  
 **UI 规格：** [GOAL_CONTRACT_UI.md](../spec/GOAL_CONTRACT_UI.md)  

@@ -38,7 +38,8 @@ import { verificationIsComplete } from '../shared/task-view';
 import {
   decideNextEngineeringAction,
   planGoalRevision,
-  projectGoalDrivenWorkbench
+  projectGoalDrivenWorkbench,
+  revisionBaselineCriteria
 } from '../shared/goal-driven-cycle';
 import { createGoalCriterion, type GoalContract } from '../shared/goal-contract';
 import { legacyGoalFitEvent } from '../shared/goal-compat';
@@ -1215,7 +1216,12 @@ export class AgentOrchestrator {
     const plan = planGoalRevision({
       tasks: workTasks,
       previousVersion: task.goalVersion ?? 1,
-      previousCriteria: task.goalCriteria ?? [],
+      // 契约里已有 Criterion 时以契约为基线：计划生成时 `goalCriteria`
+      // 可能还是空的，用它比较会把「删除已有标准」误判成「只补充」。
+      previousCriteria: revisionBaselineCriteria({
+        contractCriteria: task.goalContract?.criteria.map(item => item.description),
+        goalCriteria: task.goalCriteria
+      }),
       nextCriteria: input.nextCriteria,
       ...(input.userConfirmedChange === undefined ? {} : { userConfirmedChange: input.userConfirmedChange }),
       ...(input.changedTaskIds ? { changedTaskIds: input.changedTaskIds } : {})

@@ -194,6 +194,22 @@ export function classifyGoalChange(input: {
 }
 
 /**
+ * 目标修订的比较基线。
+ *
+ * 计划生成时建立契约但未必写回 `task.goalCriteria`；界面展示的是契约里的
+ * Criterion。若仍拿空的 `goalCriteria` 当基线，用户删掉契约里已有的标准会
+ * 被当成「只补充」，既不抬版本也不要求确认。契约存在时必须以契约为准。
+ */
+export function revisionBaselineCriteria(input: {
+  contractCriteria?: readonly string[];
+  goalCriteria?: readonly string[];
+}): string[] {
+  const fromContract = (input.contractCriteria ?? []).map(item => item.trim()).filter(Boolean);
+  if (fromContract.length > 0) return fromContract;
+  return (input.goalCriteria ?? []).map(item => item.trim()).filter(Boolean);
+}
+
+/**
  * 目标修订 → 版本与任务影响（P0-03）。
  *
  * 目标变更不能只改一句 userPrompt：已完成的成果要能继承，未完成的任务要

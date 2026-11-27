@@ -2,7 +2,7 @@
 
 - 日期：2026-11-27
 - 分支：`lt-goal-contract-design`
-- 提交：`b15ee56`（含目标卡版本/兜底说明修复）
+- 提交：`b15ee56` + 本轮目标修订基线修复（见 6.3）
 - 环境：macOS，默认数据目录 `~/Library/Application Support/thinkfusion-ai`；未设置 `THINKFUSION_USER_DATA`，未复制用户数据。
 - 启动方式：`desktop-agent-macos` 下 `npx electron-vite dev --noSandbox --remoteDebuggingPort 9222`（等价 `npm run dev:local` 的 CDP 模式）。
 
@@ -169,12 +169,54 @@ final version=2 criteria=["写入后回读内容一致"]
 
 ## 5. 未完成/未验证
 
-- 恢复后的版本一致性、stale 展示未做真机长任务样本（见 GCE-TEST-PLAN 故障注入第 6 条）。
 - General / Knowledge / Engineering 三场景在 `b15ee56` 之后未统一重跑：通用/知识场景见 4.1，工程场景见第 1、2 节，但基线早于本次目标卡修复。
+- 暂停不能中断在途 `shell.run`：第一次恢复样本在暂停后仍把 `sleep 40` 跑完并出了报告，所以恢复样本改用应用重启（见第 6 节）。暂停语义的缺口未在本任务修。
 - 真机日志来自 CDP 事件流；没有截图。
 
 已关闭（原列在本节）：
 
 - 目标卡鼠标交互已在 4.3 用真实点击完成：“修改目标 → 删除标准 → 确认后 v1→v2”，并修掉版本号与兜底说明两处 UI 缺陷。
+- 恢复后的版本一致性与 stale 展示已在第 6 节用真实重启任务点验。
 
-因此本记录支持：GCE 目标/证据/阶段/决策/交付在真实主进程链路可用；目标卡目标修订可用；不支持：长任务恢复的 stale 展示已验收，或三场景已在最新基线全量回归。
+因此本记录支持：GCE 目标/证据/阶段/决策/交付在真实主进程链路可用；目标卡目标修订可用；应用重启后的 stale 投影可用。不支持：三场景已在最新基线全量回归，或暂停语义已能中断在途命令。
+
+## 6. 应用重启恢复与 stale 投影（真机）
+
+### 6.1 场景
+
+- 环境同第 1 节：默认数据目录，`dev:local`（CDP 9333），分支 `lt-goal-contract-design`。
+- 工作流：`fs.writeFile(first.txt)` → 8 × `shell.run(sleep 45)` → `fs.writeFile(second.txt)`，权限 `danger-full-access`。
+- 第一段写文件真实完成后，用 `SIGKILL` 杀掉 Electron 主进程（不是正常退出），再启动同一个 App。
+- 重启后任务状态为 `interrupted`；在目标卡上删除原标准（`userConfirmedChange=true`），再点继续。
+
+### 6.2 结果
+
+```text
+重启后：status=interrupted goalVersion=1
+目标修订：kind=change nextVersion=2 versionChanged=true
+          impacted=11 个未完成任务 inherited=wt-write-first
+继续：version.consistency consistent=true notes=四层版本一致，可以按检查点继续
+      goal.contract.stale goalVersion=2
+      reasons=["任务树仍有 v1 的任务，当前目标为 v2"]
+```
+
+目标卡真实渲染（CDP 读取 `.goal-contract-card`）：
+
+```text
+工程目标 · active · 符合度 未验证 · v2
+还没有可验收的成功标准；执行完成不会自动算目标达成。
+符合度说明：任务树仍有 v1 的任务，当前目标为 v2
+待澄清：目标契约已过期；继续前会按当前目标重新建立
+```
+
+结论：
+
+- 重启不会复用旧契约：`goal.contract.stale` 落下后卡片清空 Criterion、Goal Fit 回到「未验证」，并明确写出目标版本与原因。
+- `version.consistency` 与 goal 核对判据不同：前者取任务树里最高版本（v2）所以报一致；后者逐个任务核对，发现已完成的 `wt-write-first` 仍绑 v1，判 stale。界面以 stale 为准；两者口径若要统一需要单独裁决，本次没有改。
+- 继续后的下一轮因网页通道未就绪失败（`ChatGPT 页面尚未就绪`），发生在恢复判定之后，与 stale 结论无关。样本任务与临时工作区已删除。
+
+### 6.3 本轮修复
+
+计划生成时建立了 GoalContract，但 `task.goalCriteria` 仍为空；`reviseGoal` 拿空数组当比较基线，把「删除契约里已有标准」误判成 `clarify`，不抬版本、不要求确认，而目标卡却写着“确认后目标版本会递增”。
+
+修复：契约存在时以契约的 Criterion 为修订基线（`revisionBaselineCriteria`），没有契约才退回 `goalCriteria`。`test:gdc-goal` 增加该用例（10/10）。

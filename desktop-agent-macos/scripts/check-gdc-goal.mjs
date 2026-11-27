@@ -10,7 +10,8 @@ import {
   classifyGoalChange,
   planGoalRevision,
   projectEngineeringGoal,
-  projectGoalDrivenWorkbench
+  projectGoalDrivenWorkbench,
+  revisionBaselineCriteria
 } from '../out-test/shared/goal-driven-cycle.js';
 import { createGoalContract, createGoalCriterion } from '../out-test/shared/goal-contract.js';
 
@@ -47,6 +48,29 @@ test('变更分类：删减成功标准视为 change，不得当 clarify', () =>
       nextCriteria: ['支持 Java 21', '给出路径:行号']
     }),
     'clarify'
+  );
+});
+
+test('目标修订以契约标准为基线：goalCriteria 为空时删标准仍要确认并抬版本', () => {
+  const baseline = revisionBaselineCriteria({
+    contractCriteria: ['写入后回读内容一致', '测试退出码为 0'],
+    goalCriteria: []
+  });
+  assert.deepEqual(baseline, ['写入后回读内容一致', '测试退出码为 0']);
+  const plan = planGoalRevision({
+    tasks: [],
+    previousVersion: 1,
+    previousCriteria: baseline,
+    nextCriteria: ['写入后回读内容一致'],
+    userConfirmedChange: true
+  });
+  assert.equal(plan.kind, 'change');
+  assert.equal(plan.nextVersion, 2);
+  assert.equal(plan.requiresUserConfirmation, false);
+  // 契约没有标准时才退回任务字段，不能凭空比较。
+  assert.deepEqual(
+    revisionBaselineCriteria({ contractCriteria: [], goalCriteria: ['旧标准'] }),
+    ['旧标准']
   );
 });
 
