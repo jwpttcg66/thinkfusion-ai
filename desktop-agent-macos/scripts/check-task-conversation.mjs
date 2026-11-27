@@ -1817,6 +1817,28 @@ test('D2：浮层接线与样式槽位真实存在', async () => {
   }
 });
 
+test('主会话按流式文档排版，不再套卡片', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
+  assert.match(css, /主会话流式文档/);
+  assert.match(css, /\.chat-feed \.chat-member,[\s\S]{0,500}border:\s*0;[\s\S]{0,200}background:\s*none;/);
+  assert.match(css, /\.chat-feed \.chat-note \{ font-size: 13px/);
+});
+
+test('思考流式正文默认停在最新一行', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
+  assert.match(ui, /const bodyRef = useRef<HTMLPreElement \| null>\(null\)/);
+  assert.match(ui, /el\.scrollTop = live \? el\.scrollHeight : 0/);
+  assert.match(ui, /ref=\{bodyRef\}/);
+});
+
 test('折叠的流式正文必须能在框内滚动，不能只靠「展开全文」', async () => {
   const { readFileSync } = await import('node:fs');
   const { dirname, join } = await import('node:path');

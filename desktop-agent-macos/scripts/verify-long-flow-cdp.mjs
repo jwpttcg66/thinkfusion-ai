@@ -453,8 +453,18 @@ async function main() {
       const rail = document.querySelectorAll('.chat-locate-rail, .chat-locate-list').length;
       const layoutEl = document.querySelector('.chat-feed-layout');
       const feed = document.querySelector('.chat-feed');
+      // 主会话必须是流式文档：这些块不能还有边框/底色，否则视觉上又是卡片。
+      const cards = [...document.querySelectorAll(
+        '.chat-feed .chat-note, .chat-feed .chat-member, .chat-feed .chat-step, .chat-feed .chat-stream-member'
+      )].filter(el => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.borderTopWidth) > 0
+          || parseFloat(cs.borderLeftWidth) > 0
+          || cs.backgroundColor !== 'rgba(0, 0, 0, 0)';
+      }).length;
       return {
         rails: rail,
+        cards,
         layoutWidth: layoutEl?.clientWidth ?? 0,
         feedWidth: feed?.clientWidth ?? 0
       };
@@ -462,7 +472,7 @@ async function main() {
     evidence.layout = layout;
     note(
       'timeline-inline-no-rail',
-      layout?.rails === 0 && layout.feedWidth >= layout.layoutWidth - 1,
+      layout?.rails === 0 && layout.cards === 0 && layout.feedWidth >= layout.layoutWidth - 1,
       JSON.stringify(layout)
     );
   }

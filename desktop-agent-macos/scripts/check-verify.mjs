@@ -71,6 +71,33 @@ test('改了文件但只跑了失败测试：不算', () => {
   assert.match(outcome.reasons.join('；'), /不能算已验证/);
 });
 
+test('改文本并回读同路径：算已验证，不再要求构建/测试', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: '/tmp/note.txt', created: true }, { path: 'note.txt', content: 'hello' }),
+    step('fs.readFile', 'completed', { path: '/tmp/note.txt', content: 'hello', sha256: 'abc' }, { path: 'note.txt' })
+  ]);
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.fullyVerified, true);
+  assert.doesNotMatch(outcome.reasons.join('；'), /不能算已验证/);
+});
+
+test('代码改动即使回读也不算验证：回读源码不等于能编译/运行', () => {
+  const outcome = verifyExecution([
+    step('fs.writeFile', 'completed', { path: '/tmp/a.ts' }, { path: 'a.ts', content: 'export {}' }),
+    step('fs.readFile', 'completed', { path: '/tmp/a.ts', content: 'export {}', sha256: 'abc' })
+  ]);
+  assert.equal(outcome.verified, false);
+  assert.match(outcome.reasons.join('；'), /不能算已验证/);
+});
+
+test('先读后写不算回读验证：必须读在写之后', () => {
+  const outcome = verifyExecution([
+    step('fs.readFile', 'completed', { path: '/tmp/note.txt', content: 'old' }),
+    step('fs.writeFile', 'completed', { path: '/tmp/note.txt' }, { path: 'note.txt', content: 'hello' })
+  ]);
+  assert.equal(outcome.verified, false);
+});
+
 test('shell.run 里真编译 + 运行断言：算已验证（真实 Java 工程踩过）', () => {
   const outcome = verifyExecution([
     step('fs.writeFile', 'completed', { path: 'hello-jwp/src/main/java/com/example/App.java' }),

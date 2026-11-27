@@ -68,6 +68,13 @@ test('单实例锁必须落在隔离后的 userData 上', () => {
   assert.ok(setPathAt >= 0 && lockAt > setPathAt, 'setPath(userData) 必须在单实例锁之前');
 });
 
+test('完全权限下验证闸门不再停下问人', () => {
+  const orchestrator = readFileSync(new URL('../src/main/orchestrator.ts', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/renderer/src/App.tsx', import.meta.url), 'utf8');
+  assert.match(orchestrator, /完全权限：不再询问，按接受未验证收尾/);
+  assert.match(app, /activeTask\.permissionPreset !== 'danger-full-access'/);
+});
+
 test('三档的界面说明各不相同，且完全权限明确说「不再询问」', () => {
   const hints = (['read-only', 'workspace-write', 'danger-full-access']).map(approvalHintFor);
   assert.equal(new Set(hints).size, 3);

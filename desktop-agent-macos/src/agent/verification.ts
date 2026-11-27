@@ -212,14 +212,35 @@ export function verifyExecution(results: readonly StepResult[]): ExecutionVerifi
   ])].sort();
   checks.changedFiles = changedPaths;
 
+  const wroteAnything = completedWrites.length > 0 || externalChanged.length > 0;
+  const changesCode = changedPaths.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path));
+
+  // 非代码改动（txt/md/json 这类）没有编译/测试可跑。写完再用 fs.readFile
+  // 回读同一路径，就是「改动效果看得见」的证据；否则改一行文本也会被判
+  // 未验证、反复开修复轮（2026-11-27 真机：改一个 note.txt 跑了 5 轮）。
+  // 代码改动不适用：回读源码不等于它能编译或运行。
+  const writeIndexByPath = new Map<string, number>();
+  results.forEach((item, index) => {
+    if (!WRITE_TOOLS.has(item.tool) || item.status !== 'completed') return;
+    const written = (item.result as { path?: unknown } | null)?.path;
+    if (typeof written === 'string') writeIndexByPath.set(written, index);
+  });
+  const readbackPassed = !changesCode && results.some((item, index) => {
+    if (item.tool !== 'fs.readFile' || item.status !== 'completed') return false;
+    const read = item.result as { path?: unknown; content?: unknown; sha256?: unknown } | null;
+    const readPath = typeof read?.path === 'string' ? read.path : undefined;
+    const writeIndex = readPath ? writeIndexByPath.get(readPath) : undefined;
+    if (writeIndex === undefined || index <= writeIndex) return false;
+    return (typeof read?.content === 'string' && read.content.length > 0)
+      || typeof read?.sha256 === 'string';
+  });
+
   const anyCheckPassed =
     checks.compile.status === 'passed' ||
     checks.run.status === 'passed' ||
     checks.tests.status === 'passed' ||
-    checks.diagnostics.status === 'passed';
-
-  const wroteAnything = completedWrites.length > 0 || externalChanged.length > 0;
-  const changesCode = changedPaths.some(path => /\.(ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|rs)$/i.test(path));
+    checks.diagnostics.status === 'passed' ||
+    readbackPassed;
   const allChecksPassed =
     checks.compile.status === 'passed' &&
     checks.run.status === 'passed' &&

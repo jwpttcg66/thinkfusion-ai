@@ -2794,7 +2794,8 @@ export default function App() {
             {/* 「验证后续动作 / 还原本轮」整卡已去掉：验证结论只在对话时间线与任务收口。
                 仅 report_pending（需用户决定出口）保留一行动作，不套后续动作卡壳。 */}
             {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output')
-              && activeTask.status === 'report_pending' && (
+              && activeTask.status === 'report_pending'
+              && activeTask.permissionPreset !== 'danger-full-access' && (
               <div className="chat-note is-focus verify-pending-actions" role="group" aria-label="验证待你决定">
                 <span className="chat-stream-badge">重点</span>
                 <span className="chat-note-text">验证待你决定 · 未通过闸门，需选出口</span>

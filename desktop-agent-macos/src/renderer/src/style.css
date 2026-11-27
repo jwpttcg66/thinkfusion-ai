@@ -7213,3 +7213,145 @@ button:disabled {
   font-size: 10px;
 }
 .parallel-lane-md { max-height: 180px; overflow: auto; margin-top: 4px; font-size: 10.5px; line-height: 1.5; }
+
+/* ------------------------------------------------------------------------- *
+   主会话流式文档：连续铺开，不再一块块套卡片。
+   结构层级只靠字号、间距、前缀和代码块；边框/底色/圆角一律去掉。
+--------------------------------------------------------------------------- */
+.chat-feed {
+  display: block;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 4px 2px 28px;
+  font-size: 13.5px;
+  line-height: 1.78;
+  color: var(--text);
+}
+.chat-feed > * { margin: 0 0 24px; }
+
+/* 提问是文档开头，不再画气泡。 */
+.chat-feed .chat-row.is-user {
+  display: block;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-feed .chat-user-bubble {
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.chat-feed .chat-user-bubble p { margin-top: 6px; font-size: 14px; line-height: 1.75; }
+.chat-feed .chat-who { font-size: 11.5px; color: var(--text-3); }
+
+/* 成员/回答：小标题 + 正文，没有头像、边框和底色。 */
+.chat-feed .chat-member,
+.chat-feed .chat-stream-member,
+.chat-feed .chat-agent,
+.chat-feed .chat-step,
+.chat-feed .chat-step-cluster,
+.chat-feed .chat-note,
+.chat-feed .chat-stream-block,
+.chat-feed .chat-diff-block,
+.chat-feed .chat-diff-capsule {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.chat-feed .chat-member { overflow: visible; }
+.chat-feed .chat-stream-member { display: block; }
+.chat-feed .chat-member-head,
+.chat-feed .chat-stream-head {
+  padding: 0 0 2px;
+  background: none;
+  border: 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.chat-feed .chat-avatar { display: none; }
+.chat-feed .chat-member-title { flex-direction: row; align-items: baseline; gap: 8px; }
+.chat-feed .chat-member-title b { font-size: 12px; color: var(--text-2); }
+.chat-feed .chat-member-body { padding: 0; }
+.chat-feed .chat-member-text,
+.chat-feed .chat-stream-body { font-size: 13.5px; line-height: 1.78; }
+.chat-feed .chat-member-text:not(.is-clamped),
+.chat-feed .chat-stream-body:not(.is-clamped) { max-height: none; overflow: visible; }
+.chat-feed .member-pill {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.chat-feed .chat-stream-badge { display: none; }
+
+/* 步骤：一行前缀 + 可展开的命令/输出，不是卡片。 */
+.chat-feed .chat-step > summary,
+.chat-feed .chat-step-cluster > summary {
+  padding: 0;
+  font-size: 12.5px;
+  gap: 8px;
+}
+.chat-feed .chat-step-body,
+.chat-feed .chat-step-cluster-body { padding: 6px 0 0; }
+.chat-feed .chat-step-body pre,
+.chat-feed .chat-step-sub pre {
+  background: var(--bg-side);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+}
+.chat-feed .chat-step-target { max-width: 68%; }
+
+/* 旁注/验证/评审：普通段落，状态只体现在文字颜色。 */
+.chat-feed .chat-note { font-size: 13px; color: var(--text-2); }
+.chat-feed .chat-note-text { line-height: 1.75; }
+.chat-feed .chat-note-detail > summary { font-size: 11.5px; }
+.chat-feed .chat-note-detail pre {
+  background: var(--bg-side);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+/* 协议摘要、交付物、变更统计都压成行内信息。 */
+.chat-feed .chat-protocol-summary {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.chat-feed .chat-deliverables { gap: 2px; }
+.chat-feed .chat-deliverable {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+}
+.chat-feed .chat-diff-capsule { font-size: 12.5px; color: var(--text-2); }
+.chat-feed .chat-diff-files li { border: 0; padding: 0; }
+.chat-feed .chat-member-md { max-height: none; overflow: visible; font-size: 13.5px; line-height: 1.78; }
+.chat-feed .chat-agent-pill,
+.chat-feed .chat-agent-task-label {
+  border: 0;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.chat-feed .chat-agent-error { padding: 0; background: none; }
+.chat-feed .chat-diff-head { padding: 0 0 2px; }
+.chat-feed .chat-diff-files { padding: 2px 0 0; border-top: 0; }
+.chat-feed .chat-diff-review { border: 0; padding: 0; color: var(--text-2); }
+.chat-feed .chat-stream-conclusion {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}

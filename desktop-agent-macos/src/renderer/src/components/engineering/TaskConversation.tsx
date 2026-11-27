@@ -367,6 +367,13 @@ function MemberStreamNote(props: {
   const elapsed = entry.durationMs ?? (live && entry.at ? props.now - entry.at : null);
   const view = memberBodyView({ ...entry, waitMs: elapsed });
   const [expanded, setExpanded] = useState(false);
+  const bodyRef = useRef<HTMLPreElement | null>(null);
+  // 思考原文超过可视高度时，默认停在最新一行；结束后回到开头，方便从头读。
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = live ? el.scrollHeight : 0;
+  }, [live, entry.text, entry.reasoning, view.bodyText, expanded]);
   const summary = entry.protocol ? protocolSummary(entry.text) : null;
   const derivation = entry.protocol ? protocolDerivation(entry.text) : null;
   return (
@@ -391,7 +398,7 @@ function MemberStreamNote(props: {
           </p>
           {summary && <p className="chat-protocol-summary">{summary}</p>}
           {derivation && (
-            <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`}>{derivation}</pre>
+            <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`} ref={bodyRef}>{derivation}</pre>
           )}
         </>
       ) : (
@@ -402,7 +409,7 @@ function MemberStreamNote(props: {
           {/* C4：普通成员回答也走 MarkdownBody。流式期间保留 pre（半成品降级、
               不逐字符重排），结束后用同一份原文做完整排版。 */}
           {live ? (
-            <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`}>
+            <pre className={`chat-stream-body${expanded ? '' : ' is-clamped'}`} ref={bodyRef}>
               {view.bodyText || view.placeholder}
             </pre>
           ) : (

@@ -2577,6 +2577,22 @@ export class AgentOrchestrator {
     });
 
     if (repairBlocked && repairGate) {
+      // 完全权限已经等于「这台机器的操作与风险我都接受」，不能再把「接受未验证 /
+      // 继续修复」丢回给人点。这里按接受未验证收尾，摘要如实写明缺口；非完全权限
+      // 仍停在 report_pending，让人自己选出口。
+      if (approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan) {
+        const summary = '执行完成（存在未验证缺口；完全权限按风险接受，未再开修复轮）';
+        this.tasks.transition(taskId, 'completed', { summary });
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId,
+          level: 'warn',
+          message: `GDC 停止自动修复：${repairGate.reason}；完全权限：不再询问，按接受未验证收尾。`
+        });
+        this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary });
+        return;
+      }
       // 状态留在 report_pending：那里本来就有「接受未验证」「继续修复」两个出口，
       // 不新造一个只能干等的状态。
       this.tasks.patch(taskId, {
