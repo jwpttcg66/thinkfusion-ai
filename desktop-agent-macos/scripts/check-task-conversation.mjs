@@ -1219,7 +1219,7 @@ test('只有一个地标时不出定位轨：一个点占一列没有跳转价�
   );
 });
 
-test('阶段 A 接线守住：定位轨与「执行中 N 秒」确实被渲染层消费', async () => {
+test('时间线不再单独挂定位列表：里程碑直接在正文流里出现', async () => {
   const { readFileSync } = await import('node:fs');
   const { dirname, join } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
@@ -1227,16 +1227,17 @@ test('阶段 A 接线守住：定位轨与「执行中 N 秒」确实被渲染�
   const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
   const css = readFileSync(join(root, 'src/renderer/src/style.css'), 'utf8');
 
-  // 投影写好了没人调，等于没做：这里守住「真的被调用」。
-  assert.match(ui, /buildStreamLandmarks\(entries\)/);
-  assert.match(ui, /shouldShowLandmarkRail\(/);
   assert.match(ui, /from '\.\.\/\.\.\/\.\.\/\.\.\/shared\/task-conversation'/);
+  // 独立定位轨连组件带样式一起退场；里程碑本身已经是流里的记录。
+  assert.doesNotMatch(ui, /LocateRail/);
+  assert.doesNotMatch(ui, /chat-locate/);
+  assert.doesNotMatch(css, /chat-locate/);
+  assert.doesNotMatch(css, /--chat-locate-w/);
+  assert.doesNotMatch(css, /\.chat-feed-layout\s*\{[^}]*grid-template-columns/);
 
   // 锚点 id 只能有一个来源：渲染层不许再手拼 `stream-${key}`。
   assert.match(ui, /id=\{streamAnchorId\(entryKey\)\}/);
-  assert.match(ui, /getElementById\(streamAnchorId\(entryKey\)\)/);
   assert.doesNotMatch(ui, /id=\{`stream-\$\{/);
-  assert.doesNotMatch(ui, /getElementById\(`stream-\$\{/);
 
   // 计时：条件与文案都走投影层，渲染层只调用。
   assert.match(ui, /needsLiveTimer\(entries\)/);
@@ -1244,16 +1245,6 @@ test('阶段 A 接线守住：定位轨与「执行中 N 秒」确实被渲染�
   assert.match(ui, /liveElapsedText\(live\)/);
   // 旧写法（只看成员流式）必须彻底消失，否则步骤跑起来秒数还是不动。
   assert.doesNotMatch(ui, /entries\.some\(entry => entry\.kind === 'member' && entry\.status === 'streaming'\)/);
-
-  // 定位轨画的是短记列表，不是那条被刻意隐藏的连续竖轨。
-  assert.match(ui, /chat-locate-tick/);
-  assert.match(ui, /chat-locate-label/);
-  assert.doesNotMatch(ui, /chat-locate-track/);
-
-  // 样式要真的留出槽位：变量得定义，否则宽度是 invalid。
-  assert.match(css, /--chat-locate-w:\s*\d+px/);
-  assert.match(css, /\.chat-feed-layout\.has-locate-rail\s*\{[^}]*grid-template-columns/);
-  assert.match(css, /\.chat-locate-track\s*\{\s*display:\s*none/);
 });
 
 /* ------------------------------------------------------------------------- *

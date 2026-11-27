@@ -448,6 +448,25 @@ async function main() {
 
   await shot('02-final.png');
 
+  if (process.env.CHECK_INLINE_TIMELINE === '1') {
+    const layout = await tryEval(`(() => {
+      const rail = document.querySelectorAll('.chat-locate-rail, .chat-locate-list').length;
+      const layoutEl = document.querySelector('.chat-feed-layout');
+      const feed = document.querySelector('.chat-feed');
+      return {
+        rails: rail,
+        layoutWidth: layoutEl?.clientWidth ?? 0,
+        feedWidth: feed?.clientWidth ?? 0
+      };
+    })()`);
+    evidence.layout = layout;
+    note(
+      'timeline-inline-no-rail',
+      layout?.rails === 0 && layout.feedWidth >= layout.layoutWidth - 1,
+      JSON.stringify(layout)
+    );
+  }
+
   if (!process.env.KEEP_RUNNING) await stopDev();
   await sleep(500);
   const storeAfter = sha256(REAL_STORE);
