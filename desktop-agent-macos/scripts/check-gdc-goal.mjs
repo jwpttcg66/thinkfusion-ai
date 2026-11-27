@@ -140,3 +140,14 @@ test('目标绑定：指定受影响任务时只重规划该闭包，不做全�
   assert.deepEqual(plan.impactedTaskIds.sort(), ['a', 'c']);
   assert.deepEqual(plan.inheritedTaskIds, ['b']);
 });
+
+test('任务摘要不能冒充成功标准', () => {
+  const goal = projectEngineeringGoal({
+    workId: 'w2',
+    originalRequest: '优化代码理解能力',
+    summary: '已经列出几个文件'
+  });
+  assert.deepEqual(goal.successCriteria, []);
+  assert.ok(goal.openQuestions.includes('成功标准尚未明确'));
+  assert.equal(goal.fit, 'unknown');
+});

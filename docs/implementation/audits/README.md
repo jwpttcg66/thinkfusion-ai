@@ -3,6 +3,7 @@
 此处只收按明确范围完成、能指向代码和测试的专项审计。审计是某一时点的观察，不是永久事实。
 
 - [global-memory/GLOBAL_MEMORY_AUDIT.md](global-memory/GLOBAL_MEMORY_AUDIT.md)：全局记忆实现范围审计。
+- [GCE-P0-CURRENT-SYSTEM-AUDIT.md](GCE-P0-CURRENT-SYSTEM-AUDIT.md)：目标契约证据闭环 P0 现状、真实事件/投影/缺口审计。
 - 其他已关闭的迁移、设计一致性和根因审计已转入
   [`../../archive/README.md`](../../archive/README.md)。
 

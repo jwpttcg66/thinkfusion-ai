@@ -301,9 +301,9 @@ export function projectEngineeringGoal(input: {
   goalVersion?: number;
 }): EngineeringGoalView {
   const text = input.conversationGoal?.text?.trim() || input.originalRequest.trim();
-  const criteria = input.successCriteria?.length
-    ? [...input.successCriteria]
-    : (input.summary?.trim() ? [`任务摘要可核对：${input.summary.trim().slice(0, 120)}`] : []);
+  // 成功标准必须来自明确的用户目标或 Criterion；任务摘要不是成功标准。
+  // 没有标准时保持空列表并暴露 openQuestions，由 P1 Goal Contract 补齐。
+  const criteria = input.successCriteria?.length ? [...input.successCriteria] : [];
   return {
     goalId: `goal:${input.workId}`,
     workId: input.workId,
@@ -667,7 +667,7 @@ export function projectGoalDrivenWorkbench(input: {
       : false
   );
   const fit = assessGoalFit({
-    successCriteria: input.summary ? [input.summary] : [],
+    successCriteria: [],
     verified,
     fullyVerified,
     needsFix: Boolean(lastReview && 'needsFix' in lastReview && lastReview.needsFix),

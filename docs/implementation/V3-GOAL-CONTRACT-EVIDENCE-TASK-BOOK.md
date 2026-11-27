@@ -1,6 +1,6 @@
 # V3 目标契约证据闭环实施任务书
 
-**状态：** `DESIGN / NOT STARTED`。本文只定义任务、门禁和回滚；实现状态见 [STATUS.md](STATUS.md)。  
+**状态：** `P0 完成 / P1 进行中`。本文只定义任务、门禁和回滚；实现状态见 [STATUS.md](STATUS.md)。  
 **设计基线：** `main@9026e0e`  
 **设计说明：** [V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md](../architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md)  
 **契约：** [GOAL_CONTRACT_EVIDENCE_CONTRACTS.md](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md)  
@@ -31,7 +31,7 @@
 | ID | 名称 | 依赖 | 状态 | 主要交付 |
 | --- | --- | --- | --- | --- |
 | GCE-P0 | 现状与事件映射核对 | — | NOT STARTED | 生产链路图、真实事件/投影清单、缺口表 |
-| GCE-P1 | Goal Contract | P0 | NOT STARTED | 六维目标、Criterion、确认/变更入口 |
+| GCE-P1 | Goal Contract | P0 | 进行中（纯函数层 TESTED；未接线） | 六维目标、Criterion、确认/变更入口 |
 | GCE-P2 | Criterion ↔ Evidence 闭环 | P1 | NOT STARTED | 逐条 Goal Fit、三种完成状态 |
 | GCE-P3 | Cycle 生命周期与决策引擎 | P1,P2 | NOT STARTED | Work/Cycle/Round 分离、完整决策出口 |
 | GCE-P4 | TDL 与动态协作接入 | P2,P3 | NOT STARTED | 覆盖门禁、ECO 资格、DMOCA 版本绑定 |
