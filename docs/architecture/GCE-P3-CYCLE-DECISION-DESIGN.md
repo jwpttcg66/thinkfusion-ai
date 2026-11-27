@@ -142,6 +142,19 @@ interface CycleDecisionResult {
 
 `COMPLETE` 只能在 `fit === MET`，或 `fit === WITH_RISKS` 且 `userAcceptedRisks === true` 时产生；`delivery.verification === PASSED` 单独不足。
 
+### 5.4 Cycle 创建条件与确定性指纹
+
+新 Cycle 只在以下情况创建：
+
+1. `goalVersion` 发生变化；
+2. 决策目标阶段为 `GOAL_REASONING` / `ANALYSIS` / `DESIGN`，需要重新走完整决策链；
+3. 上一 Cycle 已 `COMPLETED/BLOCKED/ABORTED`，用户重新提交目标或授权继续；
+4. 外部约束/ECO 版本发生不兼容变化，旧设计与证据不能复用。
+
+以下仍留在同一 Cycle：`REPAIR`、局部 `REPLAN`、同阶段重试、仅补充证据。
+
+无进展指纹使用 canonical JSON：对象键排序、数组保留事件顺序、去除时间戳/UI 文案；对 `goalVersion/cycleId/stage/plan hash/step tool+args+exitCode+output hash/review issue fingerprints/criterion status map` 做稳定哈希。相同输入必须得到相同指纹，供重试去重与测试复现。
+
 ## 6. 无进展检测
 
 指纹至少包含：
