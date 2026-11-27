@@ -52,7 +52,7 @@
 
 | 项 | 状态 | 事实 |
 | --- | --- | --- |
-| 架构/契约/ADR | `DESIGN` | [架构](../architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) · [契约](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md) · [ADR 0011](../adr/0011-goal-contract-evidence-cycle.md) |
+| 架构/契约/ADR/UI/测试/灰度 | `DESIGN` | [架构](../architecture/V3-GOAL-CONTRACT-EVIDENCE-CYCLE.md) · [契约](../spec/GOAL_CONTRACT_EVIDENCE_CONTRACTS.md) · [UI](../spec/GOAL_CONTRACT_UI.md) · [测试](GCE-TEST-PLAN.md) · [灰度](../operations/GCE-ROLLOUT.md) · [ADR 0011](../adr/0011-goal-contract-evidence-cycle.md) |
 | 实施任务书 | `P1 进行中` | [P0–P5 任务书](V3-GOAL-CONTRACT-EVIDENCE-TASK-BOOK.md) |
 | P0 现状审计 | 完成（只读） | [GCE-P0 审计](audits/GCE-P0-CURRENT-SYSTEM-AUDIT.md)：确认真实事件、投影阶段和 7 项缺口 |
 | Goal Contract | `PARTIAL（纯函数层）` | 新增 `shared/goal-contract.ts`：六维、来源、Criterion、状态机、逐条 Goal Fit；已移除 summary 冒充成功标准。尚未接入 Orchestrator/UI。 |
