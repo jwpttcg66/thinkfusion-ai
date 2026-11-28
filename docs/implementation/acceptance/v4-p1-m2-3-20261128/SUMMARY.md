@@ -94,7 +94,8 @@
 - `/var/folders/…/T` 下留 6 个探针工作区 `tf-m2-3-ws-*`（每轮一个，探针只写自己的 `d1/f*.txt`、`d2/f*.txt`、
   `c1.txt/c3.txt/late-from-paused-shell.txt`），未碰用户目录；上一阶段 M2-2 的 10 个 `tf-m2-2-ws-*` 仍在。
 - 两个探针（A 续跑完剩余步骤、C 判成重规划开新轮）在收尾时状态都是 `failed`，`cancelTask` 因此报
-  「非法状态转换：failed → cancelled」（`dev.log:42/46`，脚本已忽略该回包，回收由 `deleteTask` 完成）。
+  「非法状态转换：failed → cancelled（task 275e5b15… / task 56f93127…）」（脚本已忽略该回包，回收由
+  `deleteTask` 完成；原始日志留在本机 `dev.log`，按 `.gitignore:22` 的 `*.log` 规则不入库）。
   **本轮判定不覆盖任务结局**，也未采到 `failed` 的原因事件；现象与 M2-2 探针（带 `final-gate` 写入证据、
   跑到 `completed`）的差别指向「验证门判不过 → 重规划 → 重规划这一轮需要模型规划源」这条链，
   列为 M3-1/M3-2（决策函数收敛、验证收敛）要处理的输入，不在 M2-3 内扩大改动。
