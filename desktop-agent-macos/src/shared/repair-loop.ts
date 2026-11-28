@@ -159,6 +159,46 @@ function normalizeIssues(issues: readonly string[]): string[] {
     .filter(Boolean);
 }
 
+/**
+ * 一轮里真正跑过的命令及其退出码，形如 `<command>#<exitCode>`。
+ *
+ * 写文件、抓网页这些没有「退出码」概念的动作不进这个集合：空转分类要回答的是
+ * 「同一件事是不是又做了一遍」，而重复的命令 + 相同的退出码是最硬的那条证据。
+ */
+export function commandOutcomes(report: ExecutionReport): string[] {
+  const outcomes = new Set<string>();
+  for (const item of report.results) {
+    const command = textOf(asRecord(item.args)?.command);
+    if (!command) continue;
+    const exitCode = asRecord(item.result)?.exitCode;
+    outcomes.add(`${command}#${exitCode === undefined || exitCode === null ? '' : String(exitCode)}`);
+  }
+  for (const ref of report.evidence?.refs ?? []) {
+    const record = asRecord(ref);
+    if (record?.kind !== 'command') continue;
+    const command = textOf(record.command);
+    if (!command) continue;
+    const exitCode = record.exitCode;
+    outcomes.add(`${command}#${exitCode === undefined || exitCode === null ? '' : String(exitCode)}`);
+  }
+  return [...outcomes];
+}
+
+/**
+ * 与上一轮「同命令同退出码」的那几条命令。
+ *
+ * 空列表表示这一轮确实换了做法（或换了结果）。条数用来分类空转原因，列表本身要交给
+ * 下一轮的计划请求：只说「不要重复」而不点名是哪几条，模型下一轮大概率还是原样再交一遍。
+ */
+export function repeatedCommands(
+  previous: ExecutionReport | null,
+  current: ExecutionReport
+): string[] {
+  if (!previous) return [];
+  const before = new Set(commandOutcomes(previous));
+  return commandOutcomes(current).filter(outcome => before.has(outcome));
+}
+
 export interface RepairGateResult {
   open: boolean;
   reason: string;

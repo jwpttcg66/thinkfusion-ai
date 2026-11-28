@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evidenceFacts, shouldOpenRepairRound } from '../out-test/shared/repair-loop.js';
+import { commandOutcomes, evidenceFacts, repeatedCommands, shouldOpenRepairRound } from '../out-test/shared/repair-loop.js';
 
 function report(overrides = {}) {
   return {
@@ -153,4 +153,48 @@ test('问题只是空白不同，不算新问题', () => {
     current: { facts: evidenceFacts(report()), issues: ['  测试未覆盖  校验失败分支  '] }
   });
   assert.equal(gate.open, false);
+});
+
+// --- M3-2：空转分类要能点名「哪几条命令被重复交了」 ----------------------------------
+
+test('命令清单取自执行记录与证据引用，同一轮重复只算一条', () => {
+  const outcomes = commandOutcomes(report({
+    results: [
+      ...report().results,
+      {
+        stepId: 'step-2',
+        tool: 'shell.run',
+        status: 'completed',
+        args: { command: 'npm test' },
+        result: { command: 'npm test', exitCode: 1, stdout: '1 test failed\n', stderr: '' }
+      }
+    ]
+  }));
+  assert.deepEqual(outcomes, ['npm test#1']);
+});
+
+test('没有退出码概念的动作（写文件）不进命令清单', () => {
+  const outcomes = commandOutcomes(report({
+    results: [
+      { stepId: 'step-9', tool: 'fs.write', status: 'completed', args: { path: 'a.ts' }, result: { bytes: 12 } }
+    ],
+    evidence: { refs: [] }
+  }));
+  assert.deepEqual(outcomes, []);
+});
+
+test('重复命令：同命令同退出码才算，改了参数或结果都不算', () => {
+  const first = report();
+  assert.deepEqual(repeatedCommands(null, first), [], '第一轮没有可比对象');
+  assert.deepEqual(repeatedCommands(first, report({ roundId: 'round-2' })), ['npm test#1']);
+  // 同一条命令但这次跑过了（退出码 1 → 0）：做法没换，结果换了，不该点名让人别跑。
+  const fixed = report({
+    roundId: 'round-3',
+    results: [
+      { stepId: 'step-1', tool: 'shell.run', status: 'completed', args: { command: 'npm test' },
+        result: { command: 'npm test', exitCode: 0, stdout: 'ok\n', stderr: '' } }
+    ],
+    evidence: { refs: [{ kind: 'command', command: 'npm test', exitCode: 0, at: 1 }] }
+  });
+  assert.deepEqual(repeatedCommands(first, fixed), []);
 });

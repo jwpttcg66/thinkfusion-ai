@@ -145,6 +145,7 @@ import {
   type ExecutionMode
 } from '../shared/conversation';
 import { AgentOrchestrator } from './orchestrator';
+import { resolveNoProgressLimits } from '../shared/cycle-decision';
 import { recordAppExit, setAgentEventSink, setMainCallHandler, setTerminalSink, setTerminalEndedSink, requestTerminal, startAgentProcess } from './agent-manager';
 import type { CliAgentView } from '../shared/cli-agents';
 import {
@@ -1365,6 +1366,22 @@ function contextManagerEnabled(): boolean {
     env: process.env.THINKFUSION_CONTEXT_MANAGER,
     config
   }).enabled;
+}
+/**
+ * M3-2 反空转阈值的取值：环境变量 > 配置文件 > 默认（与 context-manager 同一优先级）。
+ *
+ * 这是这条判定的回退开关——现网如果出现「正常推进的任务被误判成空转」，
+ * 把数调大（例如 `10,10`）即等效关闭，不需要改代码或删判定分支。
+ */
+function noProgressLimitsConfig(): unknown {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.join(app.getPath('userData'), 'no-progress.json'), 'utf8')
+    );
+  } catch {
+    /* 没有配置文件就走默认 */
+    return null;
+  }
 }
 let defaultContextManager: DefaultContextManager | null = null;
 let checkpointStore: ContextCheckpointStore | null = null;
@@ -6234,6 +6251,11 @@ app.whenReady().then(async () => {
     },
     emit,
     dbPath: () => path.join(app.getPath('userData'), 'agent-journal.json'),
+    // 阈值每次判定时读，不缓存：改配置或环境变量后不必重启就能影响下一个周期。
+    noProgressLimits: () => resolveNoProgressLimits({
+      env: process.env.THINKFUSION_NO_PROGRESS_LIMITS,
+      config: noProgressLimitsConfig()
+    }),
     onReport: (task, report) => recordExecutionReport(traceStore, task, report, emitConversation),
     // 独立评审优先用本地/云端模型，不用刚才做规划的那个网页通道。
     // 一个可用模型都没有时 reviewExecution 会退回规则版并明写 backend。

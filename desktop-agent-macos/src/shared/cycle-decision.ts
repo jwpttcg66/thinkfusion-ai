@@ -68,6 +68,40 @@ export type CycleDiagnosis =
   | 'goal'
   | 'environment';
 
+/**
+ * 空转的原因分类（任务书 M3-2 的四类）。
+ *
+ * 只从报告里已有的结构化事实判，不问模型「你为什么没进展」：模型会说「我再试一次」，
+ * 而这句话既不能核对也不能当证据用。
+ */
+export type CycleNoProgressCause =
+  /** 同一批命令又跑了一遍、退出码也一样——再开一轮只会得到同样的输出。 */
+  | 'repeated_call'
+  /** 这一轮没有采到任何可核对的事实，或做的事与未满足的标准无关。 */
+  | 'missing_context'
+  /** 步骤被授权/权限挡下（只有人能解除，模型重试不会让许可出现）。 */
+  | 'missing_permission'
+  /** 工具本身做不到（平台不支持、helper 缺失、参数不合法）。 */
+  | 'needs_tool_change';
+
+/** 分类的中文说法：理由文本、事件、界面共用一份，不再各处手抄。 */
+export const CYCLE_NO_PROGRESS_CAUSE_TEXT: Record<CycleNoProgressCause, string> = {
+  repeated_call: '重复调用',
+  missing_context: '缺上下文',
+  missing_permission: '缺权限',
+  needs_tool_change: '需换工具'
+};
+
+export const CYCLE_DIAGNOSIS_TEXT: Record<CycleDiagnosis, string> = {
+  none: '没有明确病因（各层都过得去，缺的是推进本身）',
+  implementation: '实现层缺陷',
+  design: '方案设计',
+  analysis: '事实/分析不足',
+  task_plan: '任务拆分或依赖',
+  goal: '目标本身',
+  environment: '执行通道或模型源'
+};
+
 export interface CycleProgress {
   fingerprint: string;
   repeated: number;
@@ -78,6 +112,16 @@ export interface CycleProgress {
   criterionKey?: string;
   /** 本轮采用的重复阈值：配置只在这一处，判定口径不再散在调用点。 */
   repeatLimit?: number;
+  /** 本轮采用的标准停滞阈值，与 repeatLimit 同理由随进展落进事件（M3-2 的回退开关）。 */
+  criteriaLimit?: number;
+  /**
+   * 连续被判定为空转的轮数（0＝这一轮有前进）。
+   *
+   * 需要单独记：只看指纹重复数，重做计划后仍然原地打转的任务会每轮都得到同一个
+   * 「REPLAN」，等于把同一件事反复交给模型却不看它有没有改。有了这个数，第二连续
+   * 空转就能改口为停下等人。
+   */
+  noProgressStreak?: number;
 }
 
 export const EMPTY_CYCLE_PROGRESS: CycleProgress = {
@@ -85,6 +129,56 @@ export const EMPTY_CYCLE_PROGRESS: CycleProgress = {
   repeated: 0,
   criterionStalled: false
 };
+
+/** 空转阈值默认值：同一证据指纹重复 2 轮、未满足标准集合停滞 2 轮，都算这一轮没有前进。 */
+export const DEFAULT_NO_PROGRESS_REPEAT_LIMIT = 2;
+export const DEFAULT_NO_PROGRESS_CRITERIA_LIMIT = 2;
+
+export interface CycleNoProgressLimits {
+  repeatLimit: number;
+  criteriaLimit: number;
+}
+
+/**
+ * 读用户配的阈值（M3-2 的回退开关）。
+ *
+ * 配置文件里可能是任意 JSON、缺字段、写 0、写字符串：非正整数一律回到默认值而不是
+ * 「0＝永远判空转」或「NaN＝永远不判」——阈值参与的是 `>=` 比较，脏值会让空转判定
+ * 变成一个静默失效或静默失控的开关。
+ */
+export function cycleNoProgressLimits(raw: unknown): CycleNoProgressLimits {
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+  const positive = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+  return {
+    repeatLimit: positive(record.repeatLimit, DEFAULT_NO_PROGRESS_REPEAT_LIMIT),
+    criteriaLimit: positive(record.criteriaLimit, DEFAULT_NO_PROGRESS_CRITERIA_LIMIT)
+  };
+}
+
+/**
+ * 阈值的取值优先级：环境变量 > 配置文件 > 默认值（与 context-manager 开关同一套规则）。
+ *
+ * 环境变量写成 `3` 或 `3,4`：前者两阈值同值，后者依次是 repeatLimit、criteriaLimit。
+ * 需要只调其中一个时用配置文件。写错的值不当成「关掉判定」——解析失败就退回下一档，
+ * 因为空转判定是省轮次预算的那道闸，静默失效比误触发更难发现。
+ */
+export function resolveNoProgressLimits(input: { env?: unknown; config?: unknown }): CycleNoProgressLimits {
+  const fallback = cycleNoProgressLimits(input.config);
+  const text = typeof input.env === 'string' ? input.env.trim() : '';
+  if (!text) return fallback;
+  const parts = text.split(',').map(item => item.trim()).filter(Boolean);
+  if (parts.length === 0 || parts.length > 2) return fallback;
+  const numbers = parts.map(item => Number(item));
+  if (numbers.some(item => !Number.isInteger(item) || item <= 0)) return fallback;
+  const [repeatLimit, criteriaLimit] = numbers;
+  return {
+    repeatLimit: repeatLimit ?? fallback.repeatLimit,
+    criteriaLimit: criteriaLimit ?? repeatLimit ?? fallback.criteriaLimit
+  };
+}
 
 export interface CycleDecisionInput {
   /** 没有目标契约就是没有：不传而不是塞一个 DRAFT 假装契约存在。 */
@@ -96,6 +190,13 @@ export interface CycleDecisionInput {
   task: { cancelled?: boolean; blockedReason?: string };
   progress: CycleProgress;
   diagnosis: CycleDiagnosis;
+  /**
+   * 空转的原因分类（`deriveNoProgressCause` 的产物）。
+   *
+   * 只在 `isNoProgress(progress)` 为真时参与判定；不传时按「重复调用」处理——
+   * 拿不到分类事实的最保守解释就是「这一轮做的事和上一轮一样」。
+   */
+  noProgressCause?: CycleNoProgressCause;
   /**
    * 执行层已经算出的硬闸门。
    *
@@ -124,6 +225,8 @@ export interface CycleDecisionResult {
   /** 这一步是否停在人这里——与 `nextAction === 'stop_and_wait'` 同源。 */
   requiresUser: boolean;
   nextAction: CycleNextAction;
+  /** 命中空转判定时的原因分类；其它判定为 null（没有分类就不写，不拿默认值冒充）。 */
+  noProgressCause: CycleNoProgressCause | null;
 }
 
 /**
@@ -188,7 +291,8 @@ function nextActionOf(decision: CycleDecisionType): CycleNextAction {
 function result(
   decision: CycleDecisionType,
   reason: string,
-  nextAction?: CycleNextAction
+  nextAction?: CycleNextAction,
+  noProgressCause?: CycleNoProgressCause
 ): CycleDecisionResult {
   const action = nextAction ?? nextActionOf(decision);
   return {
@@ -198,7 +302,8 @@ function result(
     // 「要不要人」跟着落点走，不跟着标签走：同样是 BLOCKED，版本链冲突是停下等人，
     // 预算耗尽是把任务判死——按标签判会前把后者也报成「等你」，后把前者漏掉。
     requiresUser: action === 'stop_and_wait',
-    nextAction: action
+    nextAction: action,
+    noProgressCause: noProgressCause ?? null
   };
 }
 
@@ -219,15 +324,20 @@ export function decideCycleAction(input: CycleDecisionInput): CycleDecisionResul
   const autoAdvance = gates.risksAccepted === true;
 
   /** 需要再开一轮的判定：预算见底时改口为 `fail_budget`，标签如实写 BLOCKED。 */
-  const advance = (decision: CycleDecisionType, reason: string): CycleDecisionResult => {
+  const advance = (
+    decision: CycleDecisionType,
+    reason: string,
+    noProgressCause?: CycleNoProgressCause
+  ): CycleDecisionResult => {
     if (input.budget.atMaxRounds || input.budget.tokenExhausted) {
       return result(
         'BLOCKED',
         `预算已用尽，无法再开一轮（本来要做的是：${reason}${gateNote}）`,
-        'fail_budget'
+        'fail_budget',
+        noProgressCause
       );
     }
-    return result(decision, `${reason}${gateNote}`);
+    return result(decision, `${reason}${gateNote}`, undefined, noProgressCause);
   };
 
   if (input.task.cancelled) return result('ABORT', '用户取消或终止');
@@ -251,14 +361,38 @@ export function decideCycleAction(input: CycleDecisionInput): CycleDecisionResul
   }
 
   if (isNoProgress(input.progress)) {
-    if (input.diagnosis === 'design') return result('REDESIGN', '连续无进展且问题在方案设计');
-    if (input.diagnosis === 'analysis') return result('REANALYZE', '连续无进展且事实/分析不足');
-    if (input.diagnosis === 'task_plan') return result('REPLAN', '连续无进展且任务拆分/依赖不合理');
-    return result(
-      'WAIT_USER',
-      `连续无进展：同一证据指纹已重复 ${String(input.progress.repeated + 1)} 轮` +
-        `${input.progress.criterionStalled ? '，且未满足的标准集合没有变化' : ''}` +
-        `；停止自动循环，等待用户决定${gateNote}`
+    const cause = input.noProgressCause ?? 'repeated_call';
+    const streak = input.progress.noProgressStreak ?? 1;
+    // 理由只写事实里真有的东西：指纹重复触发的空转和「证据换了但目标没前进」是两回事，
+    // 混成一句「同一证据重复 N 轮」会让后面核对的人对不上事件里的计数。
+    const evidencePart = input.progress.repeated > 0
+      ? `同一批证据已连续 ${String(input.progress.repeated + 1)} 轮没有变化`
+      : '这一轮采到了不一样的证据，但未满足的标准一条也没变';
+    const factsLine =
+      `连续无进展（原因分类：${CYCLE_NO_PROGRESS_CAUSE_TEXT[cause]}，这是连续第 ${String(streak)} 轮）：${evidencePart}` +
+      `${input.progress.criterionStalled ? `；未满足的标准集合连续 ${String(input.progress.criteriaStreak ?? 0)} 轮没有变化` : ''}` +
+      `；诊断指向${CYCLE_DIAGNOSIS_TEXT[input.diagnosis]}`;
+    // 任务书 M3-2：判定无进展时只许两种出口——重做计划（换手段）或停下等人，绝不再把
+    // 同一批调用 EXECUTE 一遍。原来这里按诊断直接出 REDESIGN / REANALYZE，两条都落
+    // open_next_round，等于「明知在空转还继续执行」；诊断信息不丢，改写在理由里。
+    // 缺权限不给自动重规划的机会：重试不会让授权出现（与 AGENTS.md §9.1 同一个理由）。
+    // 其余分类先给一次「必须换个做法」的重规划；连续第二次仍空转，说明重规划也没换来
+    // 新事实，再跑只是烧轮次预算，交回给人。
+    const byPermission = cause === 'missing_permission';
+    if (byPermission || streak >= 2) {
+      return result(
+        'WAIT_USER',
+        `${factsLine}；${byPermission
+          ? '这一步只有用户能解除（授权或审批），停止自动循环'
+          : '重做计划后仍未出现新事实，停止自动循环等待用户决定'}${gateNote}`,
+        undefined,
+        cause
+      );
+    }
+    return advance(
+      'REPLAN',
+      `${factsLine}；下一轮必须先改变计划与手段（换验证方式、换工具，或把范围缩到一条未满足的标准上），不得重复同样的调用`,
+      cause
     );
   }
 
@@ -410,17 +544,25 @@ export function detectNoProgress(input: {
   criteriaLimit?: number;
 }): CycleProgress {
   const previous = input.previous ?? EMPTY_CYCLE_PROGRESS;
+  const repeatLimit = input.repeatLimit ?? DEFAULT_NO_PROGRESS_REPEAT_LIMIT;
+  const criteriaLimit = input.criteriaLimit ?? DEFAULT_NO_PROGRESS_CRITERIA_LIMIT;
   const sameEvidence = Boolean(input.fingerprint) && previous.fingerprint === input.fingerprint;
   const sameCriteria = Boolean(input.criterionKey) && previous.criterionKey === input.criterionKey;
   const repeated = sameEvidence ? previous.repeated + 1 : 0;
   const criteriaStreak = sameCriteria ? (previous.criteriaStreak ?? 0) + 1 : 0;
+  // 判定口径与 `isNoProgress` 必须同源，否则「进展状态说空转、决策函数说没空转」。
+  const noProgress = repeated >= repeatLimit || criteriaStreak >= criteriaLimit;
   return {
     fingerprint: input.fingerprint,
     criterionKey: input.criterionKey,
     repeated,
     criteriaStreak,
-    repeatLimit: input.repeatLimit ?? 2,
-    criterionStalled: criteriaStreak >= (input.criteriaLimit ?? 2)
+    // 两个阈值都跟着进展一起落进事件：判定口径从此可核对、可重放，重启或改配置后
+    // 回头看这条判定仍然说得出「当时用的是重复 2 轮就停」。
+    repeatLimit,
+    criteriaLimit,
+    criterionStalled: criteriaStreak >= criteriaLimit,
+    noProgressStreak: noProgress ? (previous.noProgressStreak ?? 0) + 1 : 0
   };
 }
 
@@ -458,6 +600,33 @@ const ENVIRONMENT_ERROR_CODES = new Set([
   'ADAPTER_UNAVAILABLE',
   'MODEL_UNAVAILABLE',
   'SESSION_UNAVAILABLE'
+]);
+
+/**
+ * 「这一步不被允许执行」的错误码。
+ *
+ * 全部取自 Runtime 实际写出的 code（`agent/index.ts` 的 `errorCode()` 与审批拒绝路径），
+ * 不解析中文文案：把缺权限判成实现缺陷，决策就会去 REPAIR，而重试不会让授权出现。
+ */
+const PERMISSION_ERROR_CODES = new Set([
+  'GRANT_INVALID',
+  'TOOL_NOT_ALLOWED',
+  'PATH_DENIED',
+  'STEP_REJECTED'
+]);
+
+/**
+ * 「工具本身做不到这件事」的错误码：换手段才有进展，改实现没有用。
+ *
+ * 同样只列 Runtime / 桌面通道实际写出的 code（`agent/index.ts` 的 `errorCode()`、
+ * `agent/computer/bridge.ts`）。`TEST_FAILED`/`COMMAND_FAILED` 不在这里——那是本轮要修的
+ * 东西本身，把它当成「工具不行」会让决策放弃修复。
+ */
+const TOOL_CHANGE_ERROR_CODES = new Set([
+  'UNSUPPORTED_PLATFORM',
+  'HELPER_MISSING',
+  'NOT_FOUND',
+  'LIMIT_EXCEEDED'
 ]);
 
 /** `deriveCycleDiagnosis` 的输入：全部是已经算好的结构化事实，不含模型自述。 */
@@ -507,5 +676,33 @@ export function deriveCycleDiagnosis(facts: CycleDiagnosisFacts): CycleDiagnosis
   if (facts.reportStatus === 'failed' || facts.failedSteps > 0) return 'implementation';
   if (facts.reviewIssues > 0) return 'implementation';
   return 'none';
+}
+
+/** `deriveNoProgressCause` 的输入：全部来自两轮报告的差集与错误码，不含模型自述。 */
+export interface NoProgressCauseFacts {
+  /** 本轮步骤错误里冒号前的 code。 */
+  errorCodes: string[];
+  /** 本轮真实执行过的步骤条数（0＝只出了一段话，什么都没做）。 */
+  steps: number;
+  /** 本轮采到的证据条数。 */
+  evidence: number;
+  /** 与上一轮「命令相同且退出码也相同」的条数——重复调用的直接证据。 */
+  repeatedCommands: number;
+}
+
+/**
+ * 空转是哪一类空转——`decideCycleAction` 的 `noProgressCause` 输入。
+ *
+ * 顺序即优先级：被授权挡下的步骤再多也不算「方法不对」（改计划不会让许可出现，必须等人）
+ * → 什么都没做、什么都没采到就是缺上下文 → 工具本身不支持就先换手段 → 同命令同退出码就是
+ * 重复调用。最后兜到缺上下文：能走到这里说明命令换过但判据没前进，缺的是「还差哪条标准」
+ * 这份上下文，而不是又一次重复。
+ */
+export function deriveNoProgressCause(facts: NoProgressCauseFacts): CycleNoProgressCause {
+  if (facts.errorCodes.some(code => PERMISSION_ERROR_CODES.has(code))) return 'missing_permission';
+  if (facts.steps === 0 && facts.evidence === 0) return 'missing_context';
+  if (facts.errorCodes.some(code => TOOL_CHANGE_ERROR_CODES.has(code))) return 'needs_tool_change';
+  if (facts.repeatedCommands > 0) return 'repeated_call';
+  return 'missing_context';
 }
 
