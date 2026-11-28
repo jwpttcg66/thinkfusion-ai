@@ -62,6 +62,7 @@ import { GoalContractCard } from './components/engineering/GoalContractCard';
 import { GoalRevisionConfirm } from './components/engineering/GoalRevisionConfirm';
 import { TaskStats } from './components/engineering/TaskStats';
 import { ExecutionHistory } from './components/engineering/ExecutionHistory';
+import { TaskContextCard } from './components/engineering/TaskContextCard';
 import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
@@ -3112,6 +3113,12 @@ export default function App() {
                 这里按轮次把每次执行的结果、证据与失败原因分开列出来。 */}
             {activeTask && workbenchTab === 'stats' && (
               <ExecutionHistory taskId={activeTask.taskId} refreshKey={events.length} />
+            )}
+
+            {/* 上下文这一段挂统计页：暂停留了哪份检查点、恢复读的是落库指针还是事件流重建、
+                副作用核对剩几条没对上，以前只存在于事件里，用户只能去翻 JSON 文件。 */}
+            {activeTask && workbenchTab === 'stats' && (
+              <TaskContextCard taskId={activeTask.taskId} refreshKey={events.length} />
             )}
           </div>
           </div>

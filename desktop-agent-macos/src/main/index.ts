@@ -50,6 +50,7 @@ import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entr
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
 import { buildExecutionHistory } from '../shared/execution-history';
+import { projectContextState } from '../shared/context-state';
 import { setMemoryService } from './memory/runtime';
 import type { CandidateStatusFilter, ListRecordsQuery, RecordPatch, RememberInput } from './memory/types';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
@@ -3616,6 +3617,19 @@ function registerIpc() {
       reports: store.allReportsFor(id),
       events: store.listEvents(id)
     });
+  });
+
+  /**
+   * 上下文状态（V4 P1 M2-3）：只读投影，不新增写入路径、不读检查点文件。
+   *
+   * 与 `task:executions` 同一口径取 store 而不是界面的事件流：界面那份按窗口裁剪过，
+   * 早先的暂停存档会被裁没，于是「这一栏说没有检查点」变成假话。
+   * 检查点文件里的内容只由恢复链路核对后发进事件流（M2-1/M2-2），这里转述事件，
+   * 不另起一处真相——字段与事件不一致时，恢复打点的 `pointerSource` 会说出来。
+   */
+  ipcMain.handle('task:context', (event, taskId: unknown) => {
+    trustedUiSender(event);
+    return projectContextState(store.listEvents(TaskIdSchema.parse(taskId)));
   });
 
   ipcMain.handle('task:approve', async (event, raw: unknown) => {

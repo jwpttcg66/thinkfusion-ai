@@ -3400,6 +3400,12 @@ export interface AgentApi {
    * 一次执行 = 一轮，由 store 的 rounds + reports + events 推导，不落新表。
    */
   getTaskExecutions(taskId: string): Promise<import('./execution-history').ExecutionRecord[]>;
+  /**
+   * 一个任务的上下文状态（V4 P1 M2-3 只读投影）。
+   * 当前 contextId、检查点存档、副作用核对、上次重建时间与原因——全部来自既有
+   * context.* 事件，不新增事件、不在这里读检查点文件。
+   */
+  getTaskContext(taskId: string): Promise<import('./context-state').ContextStateView>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
   /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */
