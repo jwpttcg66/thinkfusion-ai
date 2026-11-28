@@ -52,6 +52,7 @@
 | `task:events` | `taskId` | `AgentEvent[]` | 已持久化事件的回放，用于切换任务时重建界面 |
 | `task:executions` | `taskId` | `ExecutionRecord[]` | 只读投影（V4 M1-1）：一次执行＝一轮，取 store 而非界面事件流 |
 | `task:context` | `taskId` | `ContextStateView` | 只读投影（V4 P1 M2-3）：当前 contextId、检查点存档、副作用核对、上次重建时间与原因，全部来自既有 `context.*` 事件 |
+| `task:set-budget` | `{ taskId, maxRounds?, maxModelCalls?, maxTokens? }` | `{ budget, gate, status, state }` | 追加任务预算（V4 P1 M3-3）：只收正整数、只增不减；写 `task.budget.updated`，门禁放行且任务停在 `budget_exhausted` 时走常规 `resume` 接回循环 |
 | `task:approve` | `ApprovePlanInput` | `void` | `approved` 必须是字面量 `true` |
 | `task:reject` | `{ taskId, planId, reason? }` | `void` | |
 | `task:cancel` | `taskId` | `void` | 置取消标志并中断等待 |

@@ -11,6 +11,8 @@ import type { ContextEventPayload, ContextEventType } from './context';
 import type { CodeIntelligenceConfig, CodeIntelligenceManagedAction, CodeIntelligenceManagedResult, CodeIntelligencePatch, CodeIntelligenceStatus } from './code-intelligence';
 import type { PageSource } from './sources';
 import type { IntentKind } from './intent';
+import type { TaskBudget } from './task-budget';
+import type { BudgetDimension, BudgetState } from './task-budget';
 import type { EngineeringTaskKind, TaskRouting, WorkspaceEntry, WorkspaceMode, WorkspaceState } from './workspace';
 import type { LearnSelectorsReport } from './selectors';
 import type { SearchSettingsPatch, SearchSettingsView, SearchTestResult } from './search';
@@ -1484,7 +1486,17 @@ export interface AgentTask {
   planDebate?: 'auto' | 'on' | 'off';
   createdAt: number;
   updatedAt: number;
+  /**
+   * 轮数上限的显示别名。真正的预算读的是 `budget`（M3-3 单点），这里保留是为了
+   * 老任务与老界面；两处若不同步，以 `budget.maxRounds` 为准。写 `budget` 时一起写。
+   */
   maxRounds: number;
+  /**
+   * 任务级预算（轮数 / 模型调用 / tokens）。没写＝沿用默认（只有轮数有上限），
+   * 不是「关掉预算」也不是「上限 0」。超限的落点是 `budget_exhausted`（可恢复），
+   * 不是 `failed`（终态，用户加完预算接不回去）。
+   */
+  budget?: TaskBudget;
   maxSteps: number;
   timeoutMs: number;
   error?: string;
@@ -2112,6 +2124,36 @@ export type AgentEvent = AgentEventBase &
      */
     | { type: 'task.deleted'; taskId: string; at?: number; cleanup?: TaskCleanup }
     /**
+     * 超限暂停（M3-3）：门禁拦下「再开一轮」并把任务放进可恢复的 `budget_exhausted`。
+     * 这条事件是「任务为什么停在这里」的落点——不能只改状态不发声，
+     * 否则活动流里看不到停手原因，用户只能猜。
+     */
+    | {
+        type: 'task.budget.exhausted';
+        taskId: string;
+        /** `canOpenRound().reason`，形如「轮数 20/20」。 */
+        reason: string;
+        budget: TaskBudget | null;
+        /** 叫 `budgetUsage` 而不是 `usage`：后者在成员事件里是 token 用量，同名会让事件归约把两类事件混为一类。 */
+        budgetUsage: { rounds: number; modelCalls: number | null; tokens: number | null };
+      }
+    /**
+     * 预算变更（M3-3）：用户追加轮数/模型调用/tokens 上限，或超限暂停后选择收口。
+     * 只增不减由 `extendTaskBudget` 保证，这里记的是变更后的实际生效值与来源，
+     * 供详情核对「加完预算之后门禁确实放行了」而不是只发了条提示。
+     */
+    | {
+        type: 'task.budget.updated';
+        taskId: string;
+        budget: TaskBudget;
+        /** 变更前的预算（老任务没有 budget 字段时为 null，不拿默认值冒充）。 */
+        previous: TaskBudget | null;
+        /** 谁改的：用户从界面追加、模型建议、还是超限暂停后的收口决定。 */
+        source: 'user' | 'model' | 'resume';
+        /** 变更后立刻重算的门禁结果：追加预算必须能看见「现在还能不能开一轮」。 */
+        gate: { ok: boolean; reason: string; blockedBy: import('./task-budget').BudgetDimension[] };
+      }
+    /**
      * GDC：循环阶段快照（派生决策的可观测落点，不是第二套状态库）。
      * 权威仍是既有 plan/report/review/task 事件；本事件记录协调结论便于 UI/恢复对账。
      */
@@ -2228,8 +2270,21 @@ export type AgentEvent = AgentEventBase &
         noProgressCause: import('./cycle-decision').CycleNoProgressCause | null;
         /** 目标层证据：fit 与风险，缺契约时为 null，不伪造。 */
         goalFit: { fit: string; met: number; unmet: number; unverified: number; blockingRisks: string[] } | null;
-        /** 预算层证据：判定用的是哪一侧的数；拿不到就记 null，不用 0 冒充。 */
-        budget: { atMaxRounds: boolean; roundUsed: number | null; roundLimit: number | null };
+        /**
+         * 预算层证据：判定用的是哪一侧的数；拿不到就记 null，不用 0 冒充。
+         * `exceeded` 直接抄 `budgetStateOf().exceeded`——事件只转述核算结果，
+         * 不能在事件里再算一遍，否则「单点记账」又是一句空话。
+         * `unknowns` 记有上限但记不了账的维度（现网 token 通道不回报就是常态）。
+         */
+        budget: {
+          atMaxRounds: boolean;
+          exceeded: import('./task-budget').BudgetDimension[];
+          unknowns: import('./task-budget').BudgetDimension[];
+          roundUsed: number | null;
+          roundLimit: number | null;
+          /** `canOpenRound().reason`，形如「轮数 20/20，模型调用 9/4」。 */
+          note?: string;
+        };
       }
     /** TDL：单个 L2 子任务的独立循环快照（分析→设计→实现→审核）。 */
     | {
@@ -3411,6 +3466,18 @@ export interface AgentApi {
    * context.* 事件，不新增事件、不在这里读检查点文件。
    */
   getTaskContext(taskId: string): Promise<import('./context-state').ContextStateView>;
+  /**
+   * 追加任务预算并接回超限暂停的任务（V4 P1 M3-3）。
+   *
+   * 只增不减（`extendTaskBudget` 的约定）。返回生效后的预算、当场重算的门禁与任务状态：
+   * 界面要能说「加完了，现在还能不能再开一轮」，而不是只回一句成功。
+   */
+  setTaskBudget(input: {
+    taskId: string;
+    maxRounds?: number;
+    maxModelCalls?: number;
+    maxTokens?: number;
+  }): Promise<{ budget: TaskBudget; gate: { ok: boolean; reason: string; blockedBy: BudgetDimension[] }; status: TaskStatus; state: BudgetState }>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
   /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */

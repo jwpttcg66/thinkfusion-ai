@@ -22,6 +22,7 @@ import {
   RejectPlanSchema,
   RejectStepSchema,
   ReviewDispositionSchema,
+  SetTaskBudgetSchema,
   SubmitPromptSchema,
   TaskIdSchema,
   CliAgentToggleSchema,
@@ -3647,6 +3648,37 @@ function registerIpc() {
   ipcMain.handle('task:context', (event, taskId: unknown) => {
     trustedUiSender(event);
     return projectContextState(store.listEvents(TaskIdSchema.parse(taskId)));
+  });
+
+  /**
+   * 追加预算并接回任务（V4 P1 M3-3）。
+   *
+   * 「超限可恢复」必须在这条路径上真的成立：`extendBudget` 只写预算不改状态，
+   * 门禁放行后由这里走常规 `resume` 续跑——不在 IPC 里另起一套开轮逻辑。
+   * 返回核算结果与门禁理由，界面据此决定按钮是变绿还是继续亮着（不能加完预算还骗人说放行）。
+   */
+  ipcMain.handle('task:set-budget', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = SetTaskBudgetSchema.parse(raw);
+    const result = tasks.extendBudget(
+      input.taskId,
+      {
+        ...(input.maxRounds !== undefined ? { maxRounds: input.maxRounds } : {}),
+        ...(input.maxModelCalls !== undefined ? { maxModelCalls: input.maxModelCalls } : {}),
+        ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {})
+      },
+      'user'
+    );
+    const task = tasks.get(input.taskId);
+    if (result.gate.ok && task.status === 'budget_exhausted') {
+      await orchestrator.resume(task.taskId);
+    }
+    return {
+      budget: result.budget,
+      gate: result.gate,
+      status: task.status,
+      state: tasks.budgetView(task.taskId).state
+    };
   });
 
   ipcMain.handle('task:approve', async (event, raw: unknown) => {

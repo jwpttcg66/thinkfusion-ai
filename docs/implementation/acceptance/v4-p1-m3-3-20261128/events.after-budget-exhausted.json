@@ -1,0 +1,571 @@
+[
+  {
+    "type": "task.updated",
+    "at": 1795855342915,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "created",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855342879,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000
+    },
+    "eventId": "69ac02ae-7f8b-4177-a418-f2f67210b3ef",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 1,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855342974,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "planning",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855342944,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "ANALYZING"
+    },
+    "eventId": "5f41150c-7cd1-42a0-92ea-c3c158d88e87",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 2,
+    "phase": "understanding"
+  },
+  {
+    "type": "cycle.stage.started",
+    "at": 1795855343000,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "workId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "cycleId": "cycle:c915c69b-f756-4a5a-be94-af445e0dca71:1",
+    "stage": "GOAL_REASONING",
+    "eventId": "2d7e60bf-c908-45a1-93ef-9a6ff4e9f862",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 3,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343074,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "planning",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343048,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "ANALYZING",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319"
+    },
+    "eventId": "008d295d-7eb0-4de9-a1f2-b24fd39a0603",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 4,
+    "phase": "understanding"
+  },
+  {
+    "type": "round.started",
+    "at": 1795855343097,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "roundId": "517d2228-2451-407e-b70d-856f9590e319",
+    "roundNumber": 1,
+    "inputType": "user_prompt",
+    "eventId": "6ed51889-464f-40e9-9f47-c20d36fbc6db",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 5,
+    "phase": "planning"
+  },
+  {
+    "type": "round.peer",
+    "at": 1795855343146,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "roundId": "517d2228-2451-407e-b70d-856f9590e319",
+    "memberId": "lead:超算 · GLM-5.3-Flash",
+    "label": "超算 · GLM-5.3-Flash",
+    "status": "started",
+    "participantId": "lead:超算 · GLM-5.3-Flash",
+    "eventId": "59aaa775-5c51-492c-a703-e1e9c2d53c71",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 6,
+    "phase": "planning"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343417,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "cancel_requested",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343394,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "CANCELLED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning"
+    },
+    "eventId": "bbec6bd3-ccf8-443a-aa9c-2ce1d0e85eff",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 7,
+    "phase": "understanding"
+  },
+  {
+    "type": "log",
+    "at": 1795855343440,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "level": "info",
+    "message": "已收到取消请求：正在等待在途模型与工具停止。",
+    "eventId": "a137b4e9-17d9-4b9d-a8aa-099cd591db09",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 8,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343490,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "cancelling",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343465,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "CANCELLED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning"
+    },
+    "eventId": "b935b18d-3c13-46be-a1b6-365e0588749f",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 9,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343539,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "failed",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343596,
+      "maxRounds": 20,
+      "budget": {
+        "maxRounds": 20
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "FAILED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning",
+      "error": "请求超时",
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71"
+    },
+    "eventId": "797f37f7-8668-4b9e-821a-8b1db292fa5e",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 10,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.failed",
+    "at": 1795855343563,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "error": "请求超时",
+    "eventId": "46cf75a5-96b4-4fba-b673-34206f116634",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 11,
+    "phase": "terminal"
+  },
+  {
+    "type": "context.checkpoint.paused",
+    "at": 1795855343621,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "reason": "cancel",
+    "goalVersion": 1,
+    "taskRevision": 0,
+    "needsReconciliation": 0,
+    "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+    "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+    "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "eventId": "0ad01f62-313b-4ec8-a355-e088c7d92d90",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 12,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343698,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "failed",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343675,
+      "maxRounds": 25,
+      "budget": {
+        "maxRounds": 25
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "FAILED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning",
+      "error": "请求超时",
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71"
+    },
+    "eventId": "ceb722d9-d4a3-4aa1-9bf1-685fc2c904bc",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 13,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.budget.updated",
+    "at": 1795855343720,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "budget": {
+      "maxRounds": 25
+    },
+    "previous": {
+      "maxRounds": 20
+    },
+    "source": "user",
+    "gate": {
+      "ok": true,
+      "reason": "轮数 1/25",
+      "blockedBy": []
+    },
+    "eventId": "4f633300-082c-432d-adf3-3e01ea56ffd2",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 14,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855343794,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "failed",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855343772,
+      "maxRounds": 25,
+      "budget": {
+        "maxRounds": 25
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "FAILED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning",
+      "error": "请求超时",
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71"
+    },
+    "eventId": "7aecdc04-c281-459b-b2ea-75d2e2324931",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 15,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.budget.updated",
+    "at": 1795855343817,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "budget": {
+      "maxRounds": 25
+    },
+    "previous": {
+      "maxRounds": 25
+    },
+    "source": "user",
+    "gate": {
+      "ok": true,
+      "reason": "轮数 1/25",
+      "blockedBy": []
+    },
+    "eventId": "244be334-543e-4241-9c18-dd229c47452b",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 16,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855345534,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "failed",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855345489,
+      "maxRounds": 25,
+      "budget": {
+        "maxRounds": 25,
+        "maxModelCalls": 40
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "FAILED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "resumeStatus": "planning",
+      "error": "请求超时",
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71"
+    },
+    "eventId": "0aaf48b9-3952-483d-845c-c4769d212019",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 17,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.budget.updated",
+    "at": 1795855345568,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "budget": {
+      "maxRounds": 25,
+      "maxModelCalls": 40
+    },
+    "previous": {
+      "maxRounds": 25
+    },
+    "source": "user",
+    "gate": {
+      "ok": true,
+      "reason": "轮数 1/25，模型调用已设上限但没有调用计数",
+      "blockedBy": []
+    },
+    "eventId": "debab19f-80f9-488c-baa4-8705e4f214a4",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 18,
+    "phase": "execution"
+  },
+  {
+    "type": "context.event",
+    "at": 1795855354066,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "event": "context.recovered",
+    "context": {
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "pointerSource": "task-fields",
+      "reason": "从 Journal 活动指针恢复",
+      "sideEffects": {
+        "applied": 0,
+        "missing": 0,
+        "needsReconciliation": 0
+      }
+    },
+    "eventId": "960515fd-9bf4-4a47-a9af-25e49e7c77dd",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 19,
+    "phase": "execution"
+  },
+  {
+    "type": "version.consistency",
+    "at": 1795855354102,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "consistent": true,
+    "issues": [],
+    "inheritable": [
+      "goal",
+      "worktask",
+      "eco",
+      "contribution",
+      "decision"
+    ],
+    "expired": [],
+    "requiresReplan": false,
+    "requiresContextRefresh": false,
+    "notes": [
+      "四层版本一致，可以按检查点继续"
+    ],
+    "sources": {
+      "goalVersion": "task.goalVersion",
+      "currentGoalVersion": "task.goalVersion",
+      "workTaskGoalVersion": "work.task.upserted",
+      "ecoGoalVersion": "checkpoint.ecoRef",
+      "contributionSnapshotId": "plan.debated.contributionSnapshot",
+      "contributionGoalVersion": "unavailable",
+      "decisionContributionSnapshotId": "model.decision.snapshot"
+    },
+    "actedOnReplan": false,
+    "eventId": "44441e6f-5388-4881-8d79-3f0927596b6d",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 20,
+    "phase": "execution"
+  },
+  {
+    "type": "task.updated",
+    "at": 1795855354156,
+    "task": {
+      "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+      "title": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "userPrompt": "M3-3 预算探针：只读列出工作区根目录下的文件名，把文件名列表写进结论即可，不要改任何文件。",
+      "status": "budget_exhausted",
+      "permissionPreset": "read-only",
+      "workspaceRoot": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-3-ws-1795855332781",
+      "goalId": "goal:c915c69b-f756-4a5a-be94-af445e0dca71",
+      "goalVersion": 1,
+      "planDebate": "auto",
+      "debateAgentIds": [
+        "user:超算:GLM-5.3-Flash"
+      ],
+      "createdAt": 1795855342879,
+      "updatedAt": 1795855354131,
+      "maxRounds": 1,
+      "budget": {
+        "maxRounds": 1,
+        "maxModelCalls": 40
+      },
+      "maxSteps": 30,
+      "timeoutMs": 600000,
+      "codingState": "BLOCKED",
+      "currentRoundId": "517d2228-2451-407e-b70d-856f9590e319",
+      "error": "预算已用尽（轮数 1/1，模型调用已设上限但没有调用计数），任务暂停等你追加预算或选择收口",
+      "contextId": "pause:c915c69b-f756-4a5a-be94-af445e0dca71:1795855343515",
+      "checkpointId": "cp_8f4dd0a8-53d4-42b3-a3c0-0717733a63c6",
+      "activeRunId": "c915c69b-f756-4a5a-be94-af445e0dca71"
+    },
+    "eventId": "45293a63-091f-4b4f-954c-9d04016a1d96",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 21,
+    "phase": "understanding"
+  },
+  {
+    "type": "task.budget.exhausted",
+    "at": 1795855354180,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "reason": "轮数 1/1，模型调用已设上限但没有调用计数",
+    "budget": {
+      "maxRounds": 1,
+      "maxModelCalls": 40
+    },
+    "budgetUsage": {
+      "rounds": 1,
+      "modelCalls": null,
+      "tokens": null
+    },
+    "eventId": "06220fb2-54fb-4eb7-89b6-59ffa226c8bc",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 22,
+    "phase": "execution"
+  },
+  {
+    "type": "log",
+    "at": 1795855354206,
+    "taskId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "level": "warn",
+    "message": "预算门禁：预算已用尽（轮数 1/1，模型调用已设上限但没有调用计数），任务暂停等你追加预算或选择收口",
+    "eventId": "df27af89-53fa-4fa1-be2a-de751ce36cca",
+    "runId": "c915c69b-f756-4a5a-be94-af445e0dca71",
+    "sequence": 23,
+    "phase": "execution"
+  }
+]

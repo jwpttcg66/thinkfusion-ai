@@ -60,6 +60,8 @@ export type NoteSubtype =
   | 'context_request'
   | 'context_package'
   | 'participation'
+  /** 预算（M3-3）：超限暂停与追加预算两条旁注共用一类。 */
+  | 'budget'
   | 'decision'
   | 'goal_fit'
   | 'clarification'
@@ -1165,6 +1167,43 @@ export function buildTaskConversation(
             : '',
           event.reasons.slice(0, 4).join(' · ')
         ].filter(Boolean).join('\n')
+      });
+      continue;
+    }
+
+    if (event.type === 'task.budget.exhausted') {
+      // 停手必须能在活动流里读懂「为什么停、下一步要我做什么」：只改状态不发卡，
+      // 用户看到的就只是任务不动了（M3-2 真机教训：停下来等人，但没人告诉你怎么回来）。
+      push({
+        kind: 'note',
+        key: `budget-exhausted-${String(event.at)}`,
+        subtype: 'budget',
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'warn',
+        text: `预算用尽，任务已暂停 · ${event.reason}`,
+        detail: '追加预算后可继续，或直接结束任务。'
+      });
+      continue;
+    }
+
+    if (event.type === 'task.budget.updated') {
+      const before = event.previous?.maxRounds;
+      const after = event.budget.maxRounds;
+      push({
+        kind: 'note',
+        key: `budget-updated-${String(event.at)}`,
+        subtype: 'budget',
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: event.gate.ok ? 'ok' : 'warn',
+        text: `预算已更新 · 轮数上限 ${String(before ?? '默认')} → ${String(after ?? '默认')}`,
+        detail: [
+          `来源：${event.source === 'user' ? '用户追加' : event.source === 'model' ? '模型建议' : '恢复时确认'}`,
+          event.gate.ok ? `门禁放行：${event.gate.reason}` : `仍未放行：${event.gate.reason}`
+        ].join('\n')
       });
       continue;
     }

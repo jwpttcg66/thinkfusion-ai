@@ -14,6 +14,10 @@ import type {
   GoalFitAssessment
 } from './goal-contract';
 import type { DeliveryState } from './goal-contract';
+// 预算的算法只有一个（task-budget.ts），判定只转述它的结论：超限的维度与那句「轮数 3/3」
+// 由门禁算，判定不重算——两处各算一次就会出现在一处放行、另一处拦下的分叉。
+import type { BudgetDimension } from './task-budget';
+import { BUDGET_DIMENSION_TEXT } from './task-budget';
 
 export type GceCycleStage =
   | 'GOAL_REASONING'
@@ -37,6 +41,8 @@ export type CycleDecisionType =
   | 'CLARIFY_GOAL'
   | 'CHANGE_PROPOSED'
   | 'WAIT_USER'
+  /** 预算见底：不是「等用户提供信息」也不是「判死」，是等人追加预算或选择收口（M3-3）。 */
+  | 'PAUSE'
   | 'BLOCKED'
   | 'COMPLETE'
   | 'FAIL_DELIVERY'
@@ -48,14 +54,17 @@ export type CycleDecisionType =
  * 为什么把行为放进修函数：以前 `decideCycleAction` 只给标签、orchestrator 自己再判一遍
  * 行为（`goal-driven-cycle.ts:152` 的四出口 + 一段三元映射），于是「事件里记的决策」和
  * 「实际做的事」可以各说各话。现网读代码就能构造出这种组合：`goalNeedsMoreWork` 且
- * `atMaxRounds` 时标签走 `WAIT_USER` 分支，行为却仍按 `fail_budget` 把任务标成 `failed`
+ * `atMaxRounds` 时标签走 `WAIT_USER` 分支，行为却仍按预算出口把任务标成 `failed`
  * （`orchestrator.ts:3352-3382` 与 `:3512` 不在同一个条件上）。一个出口只有一处判定。
+ *
+ * 预算这条落点在 M3-3 从 `fail_budget` 改成 `pause_budget`：`failed` 是终态，用户加完预算
+ * 也接不回去，而状态表里「`budget_exhausted` 可恢复」那条边一直是死代码。
  */
 export type CycleNextAction =
   | 'finish_completed'
   | 'open_next_round'
   | 'stop_and_wait'
-  | 'fail_budget'
+  | 'pause_budget'
   | 'fail_delivery'
   | 'abort';
 
@@ -186,7 +195,16 @@ export interface CycleDecisionInput {
   goalFit?: GoalFitAssessment | null;
   delivery: DeliveryState;
   review: { needsFix: boolean; blockingIssues: number; unresolved: number };
-  budget: { atMaxRounds: boolean; tokenExhausted?: boolean; roundUsed?: number; roundLimit?: number };
+  budget: {
+    atMaxRounds: boolean;
+    tokenExhausted?: boolean;
+    roundUsed?: number;
+    roundLimit?: number;
+    /** `budgetStateOf().exceeded`：到底是哪几条维度见底，判定只转述不重算。 */
+    exceeded?: BudgetDimension[];
+    /** `canOpenRound().reason`，形如「轮数 3/3，模型调用 9/4」——直接给人看。 */
+    note?: string;
+  };
   task: { cancelled?: boolean; blockedReason?: string };
   progress: CycleProgress;
   diagnosis: CycleDiagnosis;
@@ -237,7 +255,7 @@ export const CYCLE_NEXT_ACTION_TEXT: Record<CycleNextAction, string> = {
   finish_completed: '按完成收尾',
   open_next_round: '开下一轮',
   stop_and_wait: '停下等你决定',
-  fail_budget: '预算用尽，判失败',
+  pause_budget: '预算用尽，暂停等你追加预算或收口',
   fail_delivery: '交付不成立，判失败',
   abort: '终止'
 };
@@ -264,17 +282,19 @@ function stageFor(decision: CycleDecisionType): GceCycleStage {
     case 'ABORT': return 'NEXT_DECISION';
     case 'CONTINUE':
     case 'WAIT_USER':
+    case 'PAUSE':
     case 'BLOCKED':
     default: return 'NEXT_DECISION';
   }
 }
 
-/** 标签 → 可执行落点；只有预算这条需要调用点点名（M3-3 会改成超限暂停）。 */
+/** 标签 → 可执行落点。 */
 function nextActionOf(decision: CycleDecisionType): CycleNextAction {
   switch (decision) {
     case 'COMPLETE': return 'finish_completed';
     case 'FAIL_DELIVERY': return 'fail_delivery';
     case 'ABORT': return 'abort';
+    case 'PAUSE': return 'pause_budget';
     case 'REPAIR':
     case 'REPLAN':
     case 'REDESIGN':
@@ -300,8 +320,9 @@ function result(
     reason,
     targetStage: stageFor(decision),
     // 「要不要人」跟着落点走，不跟着标签走：同样是 BLOCKED，版本链冲突是停下等人，
-    // 预算耗尽是把任务判死——按标签判会前把后者也报成「等你」，后把前者漏掉。
-    requiresUser: action === 'stop_and_wait',
+    // 预算见底在 M3-3 之前是把任务判死（那种根本没有人可等）——按标签判必然错一边。
+    // 现在两个停手落点都要人：`stop_and_wait` 等决定，`pause_budget` 等追加预算或收口。
+    requiresUser: action === 'stop_and_wait' || action === 'pause_budget',
     nextAction: action,
     noProgressCause: noProgressCause ?? null
   };
@@ -315,25 +336,30 @@ function result(
  * 交付证据 > 评审 > 验证 > 桌面收口 > 目标符合度 > 预算兜底 > 完成。
  *
  * 预算为什么排在各条「要再开一轮」的判定里而不是最前：正好用完最后一轮把目标做完的任务，
- * 结论是完成；反过来，任何还需要再开一轮的路径在预算见底时都必须落到 `fail_budget`，
- * 而不是悄悄多跑一轮。`advance()` 就是这个兜底。
+ * 结论是完成；反过来，任何还需要再开一轮的路径在预算见底时都必须落到 `pause_budget`，
+ * 而不是悄悄多跑一轮，也不能顺手判死（`failed` 是终态，用户加完预算接不回去）。`advance()` 就是这个兜底。
  */
 export function decideCycleAction(input: CycleDecisionInput): CycleDecisionResult {
   const gates = input.gates ?? {};
   /** 已接受未验证/风险（完全权限档）：出口不再丢回给人点。 */
   const autoAdvance = gates.risksAccepted === true;
 
-  /** 需要再开一轮的判定：预算见底时改口为 `fail_budget`，标签如实写 BLOCKED。 */
+  /** 需要再开一轮的判定：预算见底时改口为 `PAUSE` + `pause_budget`，等人追加预算而不是判死。 */
   const advance = (
     decision: CycleDecisionType,
     reason: string,
     noProgressCause?: CycleNoProgressCause
   ): CycleDecisionResult => {
-    if (input.budget.atMaxRounds || input.budget.tokenExhausted) {
+    if (input.budget.atMaxRounds || input.budget.tokenExhausted || (input.budget.exceeded?.length ?? 0) > 0) {
+      const spent = (input.budget.exceeded ?? []).length > 0
+        ? (input.budget.exceeded as BudgetDimension[]).map(dim => BUDGET_DIMENSION_TEXT[dim]).join('、')
+        // 老调用方只给布尔：按最靠近的那条维度说，不把「预算已用尽」写成没根据的清单。
+        : input.budget.tokenExhausted ? BUDGET_DIMENSION_TEXT.tokens : BUDGET_DIMENSION_TEXT.rounds;
       return result(
-        'BLOCKED',
-        `预算已用尽，无法再开一轮（本来要做的是：${reason}${gateNote}）`,
-        'fail_budget',
+        'PAUSE',
+        `预算已用尽（${spent}${input.budget.note ? ` ${input.budget.note}` : ''}）：再开一轮本身就是超限动作，`
+        + `任务暂停等你追加预算或选择收口。本来要做的是：${reason}${gateNote}`,
+        'pause_budget',
         noProgressCause
       );
     }
@@ -503,6 +529,7 @@ export function legacyDecisionOf(
     case 'REPAIR': return 'repair';
     case 'FAIL_DELIVERY': return 'fail_delivery';
     case 'BLOCKED':
+    case 'PAUSE':
     case 'WAIT_USER':
     case 'CLARIFY_GOAL':
     case 'CHANGE_PROPOSED':

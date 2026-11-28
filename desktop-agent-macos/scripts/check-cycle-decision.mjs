@@ -197,14 +197,17 @@ test('预算：还能收尾就收尾，需要再开一轮才判耗尽', () => {
   assert.equal(finished.decision, 'COMPLETE');
   assert.equal(finished.nextAction, 'finish_completed');
   // 还需要再修一轮时，预算见底必须停下并把原因说成预算，而不是悄悄多跑一轮。
+  // M3-3 改了这里的落点：原来是 `BLOCKED` + `fail_budget` 且 requiresUser=false（等于判死），
+  // 但 `failed` 没有回来的边，用户加完预算接不回去；现在出 `PAUSE` + `pause_budget` 并明确要人。
   const exhausted = decideCycleAction(input({
     budget: { atMaxRounds: true },
     review: { needsFix: true, blockingIssues: 1, unresolved: 0 }
   }));
-  assert.equal(exhausted.decision, 'BLOCKED');
-  assert.equal(exhausted.nextAction, 'fail_budget');
-  assert.equal(exhausted.requiresUser, false, '预算耗尽是把任务判死，不是等人');
+  assert.equal(exhausted.decision, 'PAUSE');
+  assert.equal(exhausted.nextAction, 'pause_budget');
+  assert.equal(exhausted.requiresUser, true, '预算耗尽是暂停等人追加预算，不是把任务判死');
   assert.match(exhausted.reason, /预算已用尽/);
+  assert.match(exhausted.reason, /追加预算/);
 });
 
 test('桌面动作链未收口时不得完成', () => {
@@ -319,7 +322,7 @@ test('缺权限的空转不给自动重规划：重试不会让授权出现', ()
     noProgressCause: 'needs_tool_change',
     budget: { atMaxRounds: true }
   }));
-  assert.equal(broke.nextAction, 'fail_budget');
+  assert.equal(broke.nextAction, 'pause_budget');
   assert.equal(broke.noProgressCause, 'needs_tool_change');
 });
 
@@ -426,8 +429,8 @@ test('判定句：只认带落点的循环判定，取最近一条', async () =>
     '最近一次周期判定：COMPLETE · 按完成收尾｜目标标准已满足');
   assert.equal(cycleDecisionText(latestCycleDecision([decisions[0]])), '', '处置决定不能显示成周期判定');
   assert.equal(cycleDecisionText(null), '');
-  assert.ok(cycleDecisionText({ ...decisions[2], nextAction: 'pause_budget' })
-    .includes('pause_budget'), '枚举新增成员时界面要暴露原始值，不能显示成空白');
+  assert.ok(cycleDecisionText({ ...decisions[2], nextAction: 'action_not_in_enum' })
+    .includes('action_not_in_enum'), '枚举新增成员时界面要暴露原始值，不能显示成空白');
 });
 
 // --- 源码守卫：双轨必须真的并成一套，光看函数测试证明不了调用点 ---------------------
@@ -445,7 +448,7 @@ test('守卫：orchestrator 只有一个判定出口并按 nextAction 落行为'
   assert.ok(!orch.includes('emitCycleDecision'), '裸枚举手写映射的 emitCycleDecision 还在');
   assert.ok(orch.includes('this.decideAndEmit('), '判定与落事件没有走同一处');
   assert.ok(/nextAction === 'finish_completed'/.test(orch), '收尾行为没有按决策落点分支');
-  assert.ok(/nextAction === 'fail_budget'/.test(orch), '预算行为没有按决策落点分支');
+  assert.ok(/nextAction === 'pause_budget'/.test(orch), '预算行为没有按决策落点分支');
   assert.ok(/nextAction === 'stop_and_wait'/.test(orch), '等待行为没有按决策落点分支');
   assert.ok(!/const actualDecision =/.test(orch), '决策标签的本地三元映射还在');
 });

@@ -470,12 +470,15 @@ function behaviourMatchesAction(event, laterEvents) {
   const cancelled = laterEvents.find(item => item.type === 'task.cancelled' && item.at > event.at) ?? null;
   const stopLog = laterEvents.find(item => item.type === 'log'
     && String(item.message ?? '').startsWith('GDC 停在待确认：') && item.at > event.at) ?? null;
+  // M3-3：预算超限不再是 `task.failed`，改成可恢复的 `budget_exhausted` + 专门事件。
+  const budgetPause = laterEvents.find(item => item.type === 'task.budget.exhausted' && item.at > event.at) ?? null;
   const facts = {
     nextAction: event.nextAction,
     newRoundId: newRound?.roundId ?? null,
     completed: Boolean(completed),
     failed: failed ? String(failed.error ?? '').slice(0, 160) : null,
     cancelled: Boolean(cancelled),
+    budgetPause: budgetPause ? String(budgetPause.reason).slice(0, 160) : null,
     stopLog: stopLog ? String(stopLog.message).slice(0, 200) : null
   };
   const issues = [];
@@ -492,7 +495,13 @@ function behaviourMatchesAction(event, laterEvents) {
       else if (stopLog.message.slice('GDC 停在待确认：'.length) !== event.reason)
         issues.push('日志那句理由与事件 reason 不逐字相同');
       break;
-    case 'fail_budget':
+    case 'pause_budget':
+      if (!budgetPause) issues.push('落点是 pause_budget，但之后没有 task.budget.exhausted');
+      else if (!String(budgetPause.reason ?? '').includes(event.reason.slice(0, 24)))
+        issues.push('超限事件的理由与判定 reason 对不上');
+      if (failed) issues.push('落点是 pause_budget，任务却被标成 failed（超限应可恢复）');
+      if (newRound) issues.push('落点是 pause_budget，却又开了新轮');
+      break;
     case 'fail_delivery':
       if (!failed) issues.push(`落点是 ${event.nextAction}，但之后没有 task.failed`);
       else if (!String(failed.error ?? '').includes(event.reason))

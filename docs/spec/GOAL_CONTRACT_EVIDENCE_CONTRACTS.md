@@ -188,7 +188,12 @@ export interface CycleSnapshot {
   decision?: CycleDecision;
   decisionEvidenceRefs: string[];
   artifactRefs: string[];
-  budget?: unknown;
+  /**
+   * 注意口径：这是**单个计划的编码迭代**读数（`roundCount` / `maxIterations` / `nearLimit`），
+   * 不是任务级预算。任务级「还能不能再开一轮」只读 `TaskManager.budgetView()`（见 §9.5），
+   * 两者同名不同轴，混用会让界面上出现「快照说没到限、任务却因预算停下」。
+   */
+  budget?: { roundCount: number; maxIterations: number; nearLimit: boolean };
   status: 'ACTIVE' | 'WAITING' | 'BLOCKED' | 'COMPLETED' | 'ABORTED';
   createdAt: number;
   updatedAt: number;
@@ -219,11 +224,29 @@ export interface CycleDecisionEvent {
   workId: string;
   cycleId: string;
   decision: CycleDecision;
+  /** 判定落点（M3-1 单出口）：这条决策实际让编排器做什么，必须与标签同源。 */
+  nextAction: CycleNextAction;
+  requiresUser: boolean;
+  /**
+   * 预算核算快照（M3-3）：与喂给 `decideCycleAction` 的 `budget` 来自同一次
+   * `TaskManager.budgetView()`，因此事件里看得见「当时是按什么数字判的」。
+   * `exceeded` 为已超限维度，`unknowns` 为记不了账的维度（如实列出，不当 0 也不当超限）。
+   */
+  budget: {
+    atMaxRounds: boolean;
+    exceeded: BudgetDimension[];
+    unknowns: BudgetDimension[];
+    roundUsed: number | null;
+    roundLimit: number | null;
+    note?: string;
+  };
   at: number;
 }
 ```
 
 旧 `cycle.snapshot` 与新阶段事件并存时：新阶段事件是阶段事实，`cycle.snapshot` 只作旧任务/兼容投影；`cycle.snapshot.decision` 是兼容镜像。
+
+> 现网落地的 `cycle.decision.created` 是扁平的（`contracts.ts:2252` 起）：`decisionType`/`reason`/`evidenceRefs` 直接放在事件上，另有 `roundId`、`targetStage`、`diagnosis`、`progress`、`noProgressCause`、`goalFit`。上面的 `decision: CycleDecision` 是契约意图的写法，字段口径以现网为准，不另建第二套事件。
 
 ## 7. CycleDecision
 
@@ -237,9 +260,21 @@ export type CycleDecisionType =
   | 'CLARIFY_GOAL'
   | 'CHANGE_PROPOSED'
   | 'WAIT_USER'
+  /** 预算见底：既不是「等用户提供信息」也不是「判死」，是等人追加预算或选择收口（M3-3）。 */
+  | 'PAUSE'
   | 'BLOCKED'
   | 'COMPLETE'
+  | 'FAIL_DELIVERY'
   | 'ABORT';
+
+/** 决策的可执行落点（M3-1：行为跟判定同处，编排器不再自己判第二遍）。 */
+export type CycleNextAction =
+  | 'finish_completed'
+  | 'open_next_round'
+  | 'stop_and_wait'
+  | 'pause_budget'
+  | 'fail_delivery'
+  | 'abort';
 
 export interface CycleDecision {
   decisionId: string;
@@ -323,6 +358,30 @@ export type DeliveryState = {
 - `verification.PASSED` 不能推导 `goal.MET`。
 - 完全权限允许未验证收尾，但 `verification` 必须保持 `UNVERIFIED`，摘要必须写明缺口。
 
+## 9.5 任务级预算（M3-3）
+
+预算只有一个算法、一处记账、一种超限后果。
+
+```ts
+// src/shared/task-budget.ts
+export interface TaskBudget { maxRounds?: number; maxModelCalls?: number; maxTokens?: number | 'unknown'; }
+export type BudgetDimension = 'rounds' | 'model_calls' | 'tokens';
+export interface BudgetUsage { rounds?: number; modelCalls?: number | null; tokens?: number | null; }
+// 默认只限轮数（DEFAULT_TASK_BUDGET.maxRounds = 20）；其余维度不写＝不设限，不是「上限 0」。
+```
+
+| 约束 | 落点 |
+| --- | --- |
+| 唯一读点 | `TaskManager.budgetView(taskId)` → `{ budget, state, gate }`；编排器的判定入参与 `cycle.decision.created.budget` 快照取自同一次调用 |
+| 唯一写点 | `TaskManager.extendBudget(taskId, raw, source)` → `extendTaskBudget`（只增不减）+ `task.budget.updated` |
+| 脏值 | `normalizeTaskBudget` 回落默认并留 `dirty[]`；不得把 `maxRounds: 0`/负数/小数/字符串当成「一开局就超限」 |
+| 记不了账 | `modelCalls` / `tokens` 现网没有任务级账本，如实传 `null` → 计入 `unknowns`、界面显示「未记账」；写成 0 等于装作还有余量，判超限等于误停任务 |
+| 超限后果 | `PAUSE` + `pause_budget` → 可恢复状态 `budget_exhausted`，**不是** `failed`（终态，用户加完预算也接不回去） |
+| 恢复 | 界面追加预算 → `task:set-budget`（IPC 边界过 `SetTaskBudgetSchema`）→ 门禁重算放行 → 走常规 `orchestrator.resume()` 接回循环 |
+| 边界 | 空转判定（`stop_and_wait`）优先于预算兜底，预算不得抢走「已经什么都不改了」这条更该问人的落点 |
+
+`cycle.snapshot.budget`（编码迭代读数）与这里的任务级预算是两条轴，不能互相推导；界面上的预算段只读 `budgetView` 的投影，不自己再算一遍轮数。
+
 ## 10. 事件语义
 
 事件名必须先核对 `contracts.ts`，优先复用已有语义。以下为需要评估的业务语义，不表示当前已存在：
@@ -335,7 +394,9 @@ export type DeliveryState = {
 | `goal.change.proposed/confirmed` | 目标变更与确认 |
 | `cycle.created` | 完整 Cycle |
 | `cycle.stage.started/completed/skipped` | 阶段真实发生 |
-| `cycle.decision.created` | 下一步决策 |
+| `cycle.decision.created` | 下一步决策（带预算核算快照，见 §9.5） |
+| `task.budget.exhausted` | 预算超限暂停：`reason` 即门禁读数（形如「轮数 20/20」），并带 `budget` / `budgetUsage` |
+| `task.budget.updated` | 追加预算：记变更后生效值、变更前值、来源与**立刻重算的门禁结果** |
 | `goal.contract.updated` | 目标契约创建/更新；正文用于恢复，旧 UI 不直接读 |
 | `goal.fit`（扩展字段） | 目标符合度评估；不新增 `goal.fit.assessed` |
 | `evidence.linked` | 证据关联 Criterion |
@@ -377,7 +438,8 @@ export type DeliveryState = {
 
 - **不新增 `goal.fit.assessed`**；扩展现有 `goal.fit` 的可选字段：`goalVersion`、`criteria[]`、计数、`blockingRisks`。旧字段 `fit/notes` 保留。
 - 新 `cycle.stage.started/completed/skipped` 是真实阶段事件；旧 `cycle.snapshot` 保留为旧任务/兼容投影，新事件存在时以新事件为准。
-- `cycle.decision.created` 是决策事实；`cycle.snapshot.decision` 是兼容镜像，不覆盖新决策。
+- `cycle.decision.created` 是决策事实；`cycle.snapshot.decision` 是兼容镜像，不覆盖新决策。兼容镜像只有四值，`PAUSE` 与 `BLOCKED`/`WAIT_USER` 同映射为 `observe`——**不能**映射成 `fail_budget`，那是旧口径的「判死」，与 §9.5 的可恢复落点冲突。
+- `task.budget.exhausted` / `task.budget.updated` 是任务级预算事实，与 `goal.*` 无关；字段命名上刻意用 `budgetUsage` 而非 `usage`（后者在成员事件里是 token 用量，同名会让事件归约把两类事件混成一类）。
 - `goal.*` 事件只存引用/摘要；完整契约正文仍由现有 Journal/Conversation 记录恢复。
 
 ## 11. 不变量
@@ -394,3 +456,5 @@ export type DeliveryState = {
 10. 恢复前必须做目标/任务/ECO/贡献/证据一致性检查。
 11. 无进展时停止自动循环，不用轮数上限掩盖重复失败。
 12. 不新建第二套 Journal、EvidenceStore、Approval、Verifier 或 Runtime。
+13. 预算超限必须可恢复：落点是 `budget_exhausted` 而不是 `failed`，且暂停要有事件、活动流要能读懂「为什么停、怎么回来」、详情里要能追加预算（§9.5）。
+14. 记不了账的维度如实记为未知：不写成 0（装作还有余量），也不判超限（误停任务）。

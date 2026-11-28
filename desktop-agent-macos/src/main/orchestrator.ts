@@ -71,6 +71,7 @@ import {
   legacyDecisionOf,
   openCriteriaKey
 } from '../shared/cycle-decision';
+import type { BudgetState, TaskBudget } from '../shared/task-budget';
 import { deliveryFromReport, evidenceFacts, repeatedCommands, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
@@ -1445,14 +1446,12 @@ export class AgentOrchestrator {
             goalFit: null,
             delivery: { execution: 'PENDING', verification: 'UNVERIFIED', goal: 'UNKNOWN' },
             review: { needsFix: false, blockingIssues: 0, unresolved: 0 },
-            budget: { atMaxRounds: false },
             task: { blockedReason: reason },
             progress: EMPTY_CYCLE_PROGRESS,
             diagnosis: 'goal',
             gates: {}
           },
-          ['version.consistency'],
-          { used: this.tasks.listRounds(taskId).length, limit: task.maxRounds }
+          ['version.consistency']
         );
         this.tasks.transition(taskId, 'blocked', { error: reason, resumeStatus: undefined });
         this.deps.emit({
@@ -1481,10 +1480,11 @@ export class AgentOrchestrator {
         await this.continueFromCheckpoint(task, verdict);
         return;
       }
-      const rounds = this.tasks.listRounds(taskId);
-      if (rounds.length >= task.maxRounds) {
-        this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，无法继续`, resumeStatus: undefined });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
+      // 恢复要开新一轮，先过同一道门禁。超限的落点是 `budget_exhausted`（可追加预算续跑），
+      // 不是 `failed`——原来判死之后状态表里没有回得来的边，用户加完预算也接不回去。
+      const resumeGate = this.tasks.budgetView(taskId).gate;
+      if (!resumeGate.ok) {
+        this.pauseOnBudget(taskId, resumeGate.reason);
         return;
       }
       // 重新规划这条路要留下事件：续跑与轮数耗尽都不该发它，所以放在两道判定之后。
@@ -3001,7 +3001,8 @@ export class AgentOrchestrator {
     if (TERMINAL.includes(task.status)) return false;
     const attempts = this.tasks.listRounds(taskId).filter(round => round.inputType === 'plan_repair').length;
     if (attempts >= 2) return false;
-    if (this.tasks.listRounds(taskId).length >= task.maxRounds) return false;
+    // 自纠也要开一轮，所以走同一道门禁；原来这里是第四处自己比轮数上限。
+    if (!this.tasks.budgetView(taskId).gate.ok) return false;
 
     this.tasks.transition(taskId, 'planning');
     const round = this.tasks.createRound({ taskId, inputType: 'plan_repair', requestText: '' });
@@ -3209,17 +3210,62 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 超限的唯一落点（M3-3）：`budget_exhausted` 是可恢复态，界面上的「追加预算或结束」
+   * 因此真的有路可走（`task:set-budget` → `extendBudget` → 门禁放行 → 继续规划）。
+   *
+   * 原来这里 transition 到 `failed`：那是终态，等于「预算用尽 = 任务判死」，
+   * 与状态表里 `budget_exhausted` 那条可恢复的边互相矛盾，而且那条边没人走所以是死代码。
+   */
+  private pauseOnBudget(taskId: string, reason: string): void {
+    const task = this.tasks.get(taskId);
+    const error = `预算已用尽（${reason}），任务暂停等你追加预算或选择收口`;
+    if (task.status !== 'budget_exhausted') {
+      this.tasks.transition(taskId, 'budget_exhausted', { error, resumeStatus: undefined });
+    } else {
+      this.tasks.patch(taskId, { error });
+    }
+    this.deps.emit({
+      type: 'task.budget.exhausted',
+      at: Date.now(),
+      taskId,
+      reason,
+      budget: task.budget ?? null,
+      budgetUsage: this.tasks.budgetView(taskId).state.usage
+    });
+    this.deps.emit({
+      type: 'log',
+      at: Date.now(),
+      taskId,
+      level: 'warn',
+      message: `预算门禁：${error}`
+    });
+  }
+
+  /**
    * 判定 + 落事件在同一处：事件里记的既是纯函数的输出，也是它看到的输入
    * （诊断、进展计数、目标证据、预算），事后核对时不存在「事件说 A、代码判 B」的空间。
+   *
+   * M3-3：预算不再由调用方算好塞进来。三处各写一遍「轮数够不够」的结果是没人说得清
+   * 「这一轮到底用了多少」，而且事件里的 used/limit 与判定用的布尔可以
+   * 悄悄不一致。现在两处都取自同一次 `tasks.budgetView()` 核算——判定看到的超限、
+   * 事件记下的 exceeded 清单、界面显示的比例，是同一份数。
    */
   private decideAndEmit(
     taskId: string,
     roundId: string,
-    input: CycleDecisionInput,
-    evidenceRefs: string[],
-    rounds: { used: number | null; limit: number | null }
+    input: Omit<CycleDecisionInput, 'budget'>,
+    evidenceRefs: string[]
   ): CycleDecisionResult {
-    const decision = decideCycleAction(input);
+    const view = this.tasks.budgetView(taskId);
+    const budget: CycleDecisionInput['budget'] = {
+      atMaxRounds: view.state.exceeded.includes('rounds'),
+      tokenExhausted: view.state.exceeded.includes('tokens'),
+      roundUsed: view.state.usage.rounds,
+      roundLimit: view.state.limits.maxRounds,
+      exceeded: view.state.exceeded,
+      note: view.gate.reason
+    };
+    const decision = decideCycleAction({ ...input, budget });
     this.deps.emit({
       type: 'cycle.decision.created',
       at: Date.now(),
@@ -3247,9 +3293,12 @@ export class AgentOrchestrator {
           }
         : null,
       budget: {
-        atMaxRounds: input.budget.atMaxRounds,
-        roundUsed: rounds.used,
-        roundLimit: rounds.limit
+        atMaxRounds: budget.atMaxRounds,
+        exceeded: [...budget.exceeded ?? []],
+        unknowns: [...view.state.unknowns],
+        roundUsed: budget.roundUsed ?? null,
+        roundLimit: budget.roundLimit ?? null,
+        note: budget.note
       }
     });
     return decision;
@@ -3308,7 +3357,6 @@ export class AgentOrchestrator {
     } | null = null
   ): Promise<void> {
     const task = this.tasks.get(taskId);
-    const rounds = this.tasks.listRounds(taskId);
 
     // 验证未通过时，即使报告自报 completed / nextAction=complete，也不能
     // 直接收尾。完全权限下会走到这里进入下一轮修复；这是「全部完成后才
@@ -3322,7 +3370,6 @@ export class AgentOrchestrator {
       Boolean(review?.needsFix) || (review?.issues?.length ?? 0) > 0;
     const reports = [...this.deps.store.allReportsFor(taskId), report];
     const genuineDelivery = hasGenuineDelivery(reports);
-    const atMaxRounds = rounds.length >= task.maxRounds;
     // Computer Use：桌面动作链未收口时不得 complete（与 main 闸门一致）。
     const desktopStillOpen = desktopActionStillOpen(task.userPrompt, report.results);
 
@@ -3475,7 +3522,6 @@ export class AgentOrchestrator {
             item => item.disposition === 'pending' || item.disposition === 'deferred'
           ).length
         },
-        budget: { atMaxRounds },
         task: {},
         progress,
         diagnosis,
@@ -3498,8 +3544,7 @@ export class AgentOrchestrator {
               ? `cmd:${ref.command}#${String(ref.exitCode)}`
               : `url:${ref.url}`
         ) ?? [])
-      ],
-      { used: this.tasks.listRounds(taskId).length, limit: task.maxRounds }
+      ]
     );
     const nextAction = cycleDecision.nextAction;
     const finished = nextAction === 'finish_completed';
@@ -3508,7 +3553,7 @@ export class AgentOrchestrator {
     const snapshotStage = finished ? 'done' : workbench.cycle.currentStage;
     const snapshotConclusion = finished
       ? (actionableReview ? 'accepted_with_risks' : 'accepted')
-      : nextAction === 'stop_and_wait'
+      : nextAction === 'stop_and_wait' || nextAction === 'pause_budget'
         ? 'blocked'
         : workbench.cycle.conclusionType;
     const snapshotNext = finished
@@ -3608,18 +3653,12 @@ export class AgentOrchestrator {
       return;
     }
 
-    if (nextAction === 'fail_budget') {
-      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '预算耗尽');
-      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '停止：达到最大轮数');
-      this.tasks.transition(taskId, 'failed', {
-        error: `达到最大轮数 ${String(task.maxRounds)}，任务未完成（GDC 收敛）：${cycleDecision.reason}`
-      });
-      this.deps.emit({
-        type: 'task.failed',
-        at: Date.now(),
-        taskId,
-        error: `达到最大轮数 ${String(task.maxRounds)}`
-      });
+    if (nextAction === 'pause_budget') {
+      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '预算用尽，暂停等你追加预算');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '暂停：预算门禁拦下再开一轮');
+      // 与恢复路径同一个落点：状态、事件、理由都由 pauseOnBudget 一处产出，
+      // 不再在这里 transition 到 `failed`（终态，加完预算接不回去）。
+      this.pauseOnBudget(taskId, this.tasks.budgetView(taskId).gate.reason);
       return;
     }
 

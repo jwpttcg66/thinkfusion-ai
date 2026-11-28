@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { ObservabilityEvent } from '../../../../shared/observability';
 import { TASK_MEMBER_STATUS_LABEL, type TaskMemberStream } from '../../../../shared/task-stream';
+import { BUDGET_DIMENSION_TEXT, budgetStateOf, normalizeTaskBudget } from '../../../../shared/task-budget';
 
 /**
  * 任务统计（V2.1 §9.4）。
@@ -102,6 +103,54 @@ export function TaskStats(props: {
   }, 0);
   const tokenKnown = members.some(item => typeof item.usage?.totalTokens === 'number');
 
+  /**
+   * 预算（M3-3）：读主进程判定当时用的那份数，界面不再自己比轮数。
+   * 这里再算一遍就是第五处记账——超限提示会和判定结论对不上。
+   */
+  const budgetEvents = props.events ?? [];
+  const lastBudget = [...budgetEvents].reverse()
+    .filter((event): event is Extract<AgentEvent, { type: 'cycle.decision.created' }> => event.type === 'cycle.decision.created')
+    .at(-1)?.budget ?? null;
+  const exhaustedAt = [...budgetEvents].reverse()
+    .filter((event): event is Extract<AgentEvent, { type: 'task.budget.exhausted' }> => event.type === 'task.budget.exhausted')
+    .at(-1) ?? null;
+  const budget = task.budget ?? normalizeTaskBudget({ maxRounds: task.maxRounds });
+  const budgetState = budgetStateOf({
+    budget,
+    // 模型调用没有任务级账本、成员 token 只覆盖辩论模型（不等于整轮消耗），
+    // 所以两条都如实传 null：显示「未记账」，不拿 0 装作还有余量。
+    usage: { rounds: rounds > 0 ? rounds : (lastBudget?.roundUsed ?? 0), modelCalls: null, tokens: null }
+  });
+  const limitText = (used: number | null, limit: number | null) =>
+    limit === null ? '未设限' : used === null ? '未记账' : `${String(used)}/${String(limit)}`;
+  const [extraRounds, setExtraRounds] = useState('');
+  const [budgetMsg, setBudgetMsg] = useState('');
+  const [budgetBusy, setBudgetBusy] = useState(false);
+  const addRounds = async () => {
+    const add = Number.parseInt(extraRounds, 10);
+    if (!Number.isInteger(add) || add <= 0) {
+      setBudgetMsg('要追加的轮数得是正整数');
+      return;
+    }
+    setBudgetBusy(true);
+    try {
+      const result = await window.agentAPI.setTaskBudget({
+        taskId: task.taskId,
+        maxRounds: (budget.maxRounds ?? budgetState.limits.maxRounds) + add
+      });
+      setBudgetMsg(
+        result.gate.ok
+          ? `轮数上限已调到 ${String(result.budget.maxRounds)}：${result.gate.reason}；任务状态 ${STATUS_LABEL[result.status]}`
+          : `已写入但仍不放行：${result.gate.reason}`
+      );
+      setExtraRounds('');
+    } catch (err) {
+      setBudgetMsg(`追加失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBudgetBusy(false);
+    }
+  };
+
   return (
     <div className="task-stats">
       <section className="card">
@@ -115,6 +164,44 @@ export function TaskStats(props: {
           <div><span className="task-progress-key">事件</span><b>{activity.length} 条</b></div>
           <div><span className="task-progress-key">总耗时</span><b>{formatDuration((endedAt ?? Date.now()) - task.createdAt)}</b></div>
         </div>
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <h2>预算</h2>
+          <span className="muted">
+            {budgetState.exceeded.length > 0
+              ? `已用尽：${budgetState.exceeded.map(dim => BUDGET_DIMENSION_TEXT[dim]).join('、')}`
+              : '仍可开新一轮'}
+          </span>
+        </div>
+        <div className="stats-grid">
+          <div><span className="task-progress-key">轮数</span><b>{limitText(budgetState.usage.rounds, budgetState.limits.maxRounds)}</b></div>
+          <div><span className="task-progress-key">模型调用</span><b>{limitText(budgetState.usage.modelCalls, budgetState.limits.maxModelCalls)}</b></div>
+          <div><span className="task-progress-key">Token</span><b>{limitText(budgetState.usage.tokens, typeof budgetState.limits.maxTokens === 'number' ? budgetState.limits.maxTokens : null)}</b></div>
+          <div><span className="task-progress-key">判定用的数</span><b>{lastBudget?.note ?? '本轮还没有判定'}</b></div>
+        </div>
+        {(budget.dirty?.length ?? 0) > 0 && (
+          <p className="muted">预算里写错的字段已回落默认：{budget.dirty!.join('、')}。</p>
+        )}
+        {exhaustedAt && (
+          <div className="stats-grid">
+            <div>
+              <span className="task-progress-key">追加轮数</span>
+              <input
+                type="number"
+                min={1}
+                value={extraRounds}
+                disabled={budgetBusy}
+                onChange={e => setExtraRounds(e.target.value)}
+              />
+              <button type="button" disabled={budgetBusy} onClick={() => void addRounds()}>
+                {budgetBusy ? '提交中…' : '追加并继续'}
+              </button>
+            </div>
+            {budgetMsg && <div><span className="task-progress-key">结果</span><b>{budgetMsg}</b></div>}
+          </div>
+        )}
       </section>
 
       <section className="card">

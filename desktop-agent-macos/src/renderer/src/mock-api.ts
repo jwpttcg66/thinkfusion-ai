@@ -20,6 +20,7 @@ import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
 import { aggregateTotals, foldTrace, type TraceEntry } from '../../shared/trace';
 import { buildExecutionHistory } from '../../shared/execution-history';
 import { projectContextState } from '../../shared/context-state';
+import { budgetStateOf, canOpenRound, extendTaskBudget } from '../../shared/task-budget';
 import { MEMORY_DEFAULTS } from '../../shared/memory';
 
 /**
@@ -304,6 +305,22 @@ export function createMockApi(): AgentApi {
         events: events[taskId] ?? []
       }),
     getTaskContext: async taskId => projectContextState(events[taskId] ?? []),
+    // 预览环境没有主进程的轮数账本：按 tasks/rounds 的既有假数据算，逻辑仍走同一份纯函数。
+    setTaskBudget: async input => {
+      const task = tasks.find(item => item.taskId === input.taskId);
+      const budget = extendTaskBudget(task?.budget, {
+        ...(input.maxRounds !== undefined ? { maxRounds: input.maxRounds } : {}),
+        ...(input.maxModelCalls !== undefined ? { maxModelCalls: input.maxModelCalls } : {}),
+        ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {})
+      });
+      const usage = { rounds: (events[input.taskId] ?? []).filter(event => event.type === 'round.started').length, modelCalls: null, tokens: null };
+      return {
+        budget,
+        gate: canOpenRound({ budget, usage }),
+        status: task?.status ?? 'created',
+        state: budgetStateOf({ budget, usage })
+      };
+    },
     approvePlan: async () => undefined,
     rejectPlan: async () => undefined,
     approveStep: async () => undefined,
