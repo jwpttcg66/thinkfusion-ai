@@ -928,9 +928,34 @@ export function buildReportPrompt(input: {
    * 空转照旧。清单是硬证据（命令 + 退出码取自上一轮报告），不是「请换个思路」这种没法核对的话。
    */
   noProgress?: { reason: string; commands: string[] } | null;
+  /**
+   * M3-4b：人在待确认交付上要求「换手段再来一轮」。
+   *
+   * `instruction` 是用户原话，逐字进请求，不改写也不套一层固定话术；`means` 是上一轮
+   * 真实调用过的做法清单（工具 + 关键参数 + 结果）。清单必须一起给：只说「换个做法」，
+   * 模型下一轮看到的还是同一份报告，很容易原样再交一遍；点名之后，重复没重复能核对。
+   */
+  userDirective?: { instruction: string; means: string[] } | null;
 }): string {
   const review = input.review;
   const noProgress = input.noProgress;
+  const directive = input.userDirective;
+  const directiveSection = directive
+    ? `
+用户对上一轮的结论不满意，明确要求再开一轮做下去。他的原话是：
+「${directive.instruction}」
+
+这一轮按他说的做，并且**做法要与上一轮不同**。上一轮真实用过的手段（同名命令重复的记了次数）：
+${directive.means.length > 0
+    ? directive.means.map(mean => `- ${mean}`).join('\n')
+    : '- （上一轮没有可点名的工具调用记录）'}
+
+要求：
+- 先用一句话说明这次打算换掉哪一条做法、换成什么，再写计划。
+- 上面清单里已经同结果跑过的调用不要再来一遍；确实没有新信息可查时输出 clarification_required。
+- 用户的这条指令是本轮的目标来源，不要退回上一轮的口径自行收尾。
+`
+    : '';
   const idleSection = noProgress
     ? `
 系统判定：${noProgress.reason}
@@ -964,9 +989,10 @@ ${review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')}
 ${input.subtaskScope.notes.map(note => `- ${note}`).join('\n')}
 `
     : '';
-  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}${scopeSection}${idleSection}
-完成口径：代码改动必须分别有编译、运行、测试、诊断四类检查通过的真实命令；
-缺少哪一项就先补哪一项，不能用「程序跑起来了」代替测试或诊断。
+  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}${scopeSection}${idleSection}${directiveSection}
+${directive
+    ? '完成口径：本轮按用户上面那条指令的范围验收——指令没要求的检查不要顺手扩大范围，但指令范围内改动仍要有真实执行过的验证。\n'
+    : '完成口径：代码改动必须分别有编译、运行、测试、诊断四类检查通过的真实命令；\n缺少哪一项就先补哪一项，不能用「程序跑起来了」代替测试或诊断。\n'}
 
 请基于实际结果决定下一步：
 - 需要继续执行：输出下一轮 ${PROTOCOL} 计划（taskId 与 roundId 使用下方给出的新值）。

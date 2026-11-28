@@ -51,6 +51,32 @@ export const SetTaskBudgetSchema = z
     { message: '至少指出一条预算维度' }
   );
 
+/**
+ * 换手段再来一轮（V4 P1 M3-4b）。
+ *
+ * 指令必须有实际内容：空白串照样能开一轮，只是把一轮真金白银的模型调用烧在
+ * 「用户说了个空格」上。长度封顶同澄清回答，超出的应当拆开说。
+ */
+export const ContinueTaskRoundSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    instruction: z.string().trim().min(1, '要说什么做法不对、想换成什么，不能空着').max(2000)
+  })
+  .strict();
+
+/**
+ * 无人值守续轮开关（V4 P1 M3-4c）。
+ *
+ * 只收布尔：字符串 "false" 在界面上会显示成「已打开」，而代码里 `"false" !== false` 为真——
+ * 这类「看着开了其实没开」的开关比没有开关更糟。
+ */
+export const SetTaskAutoContinueSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    autoContinue: z.boolean()
+  })
+  .strict();
+
 export const RejectPlanSchema = z
   .object({
     taskId: z.string().min(1).max(80),

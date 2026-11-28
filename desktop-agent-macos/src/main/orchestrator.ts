@@ -72,6 +72,8 @@ import {
   openCriteriaKey
 } from '../shared/cycle-decision';
 import type { BudgetState, TaskBudget } from '../shared/task-budget';
+import { isContinueRoundAllowed, isDeliveryCloseAllowed, autoContinueOf, meansOfRound } from '../shared/task-continue';
+import { classifyFault, stopIntent, PlanUnusableError, describeIgnoredAnnotations } from '../shared/task-fault';
 import { deliveryFromReport, evidenceFacts, repeatedCommands, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
@@ -799,8 +801,10 @@ export class AgentOrchestrator {
         });
         return;
       }
-      this.tasks.transition(task.taskId, 'failed', { error: message });
-      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId: task.taskId, error: message });
+      // 这里原来只写终态 `failed`：批准执行与检查点续跑这条路径上的异常绕开了 `fail()`，
+      // 于是「模型连续 N 秒没有输出」「连不上 <baseUrl>」这类通道断在批准之后照样把任务判死——
+      // M3-4d 的口径只在 `driveRound` 那几条 catch 上生效，等于留了第二个门。
+      this.fail(task.taskId, error);
       throw error;
     } finally {
       this.busy.delete(task.taskId);
@@ -990,8 +994,11 @@ export class AgentOrchestrator {
       // A failed plan is reported back so the planner can react, unless nothing
       // ran at all — then there is nothing useful to say.
       if (report.results.length === 0) {
-        this.tasks.transition(task.taskId, 'failed', { error: report.errors[0]?.message ?? '执行失败' });
-        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId: task.taskId, error: report.errors[0]?.message ?? '执行失败' });
+        const message = report.errors[0]?.message ?? '执行失败';
+        // 这里原来也一律写终态 `failed`：一个步骤都没跑成，最常见的原因恰恰是通道（CLI 起不来、
+        // provider 连不上、页面没接上），而 M3-4d 的口径是「通道断了停在可恢复那侧」。交给同一个
+        // 分类器：真·任务问题（工作区不合法、权限被拒）仍然落 `failed`，行为不变。
+        this.fail(task.taskId, new Error(message));
         return;
       }
     }
@@ -1062,7 +1069,7 @@ export class AgentOrchestrator {
 
   async acceptUnverified(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
-    if (task.status !== 'report_pending') {
+    if (!isDeliveryCloseAllowed(task.status)) {
       throw new Error(`任务当前状态为 ${task.status}，没有待确认的交付`);
     }
     this.tasks.transition(taskId, 'completed', { summary: '执行完成（未验证，已确认接受）', error: undefined });
@@ -1074,7 +1081,8 @@ export class AgentOrchestrator {
   }
 
   /**
-   * 按当前环境继续修复一个停在 report_pending 的任务。
+   * 按当前环境继续修复一个报告已落在用户手里的任务（`report_pending`，或关掉无人值守
+   * 后停在 `awaiting_next_round` 的那批——见 `DELIVERY_CLOSE_STATUSES`）。
    *
    * 与 recheckVerification 不同：这里不猜结论，而是把报告交回模型，重新
    * 规划并执行。用于验证失败的原因是本机环境（例如 Go 缓存目录）而代码
@@ -1082,7 +1090,7 @@ export class AgentOrchestrator {
    */
   async resumeRepair(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
-    if (task.status !== 'report_pending') {
+    if (!isDeliveryCloseAllowed(task.status)) {
       throw new Error(`任务当前状态为 ${task.status}，没有待修复的交付`);
     }
     const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
@@ -1101,6 +1109,75 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 换手段再来一轮（V4 P1 M3-4b）：用户在待确认的交付上给一条指令，直接开新一轮。
+   *
+   * 原来这里没有出口。`resumeRepair` 先过 `verificationIsComplete`，编译/运行/测试/诊断
+   * 四类检查都做全时当场抛「这一轮已经完成全部检查，不需要继续修复」——而 GDC 判
+   * `stop_and_wait` 恰恰常发生在「检查都做全了、目标标准还没满足」这种形状上，于是
+   * 三个按钮里只剩两个收尾，人想说「那你换个做法再来一轮」在界面上无处可点，任务永久停住。
+   *
+   * 这条入口刻意**不重跑判定**：重跑 `decideCycleAction` 只会再给一次 `stop_and_wait`，
+   * 等于把同一个死结再解一遍。人的指令就是本轮的理由，因此直接进 planning。
+   * 预算门禁照过（M3-3 的单一读点）：超限时报错并把人指回「追加并继续」，
+   * 不开一条绕过预算的后门。
+   */
+  async continueWithUserInstruction(taskId: string, instruction: string) {
+    const task = this.tasks.get(taskId);
+    if (!isContinueRoundAllowed(task.status)) {
+      throw new Error(
+        `任务当前状态为 ${task.status}，只有「已完成待确认」或「停在下一轮开始前」的任务能要求再来一轮` +
+        (task.status === 'budget_exhausted' ? '；预算已用尽，请先在预算卡「追加并继续」' : '')
+      );
+    }
+    const fromStatus = task.status;
+    const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
+    if (!report) throw new Error('没有找到这一轮的执行报告，无法带着上一轮的手段清单开新一轮');
+    const view = this.tasks.budgetView(taskId);
+    if (!view.gate.ok) {
+      throw new Error(`预算门禁拦下了这一轮：${view.gate.reason}。请先在预算卡「追加并继续」，再来一轮。`);
+    }
+    const means = meansOfRound(report);
+
+    // 状态表里没有自环：已经停在 awaiting_next_round（无人值守关着）时不能再走一次同名迁移。
+    if (fromStatus !== 'awaiting_next_round') this.tasks.transition(taskId, 'awaiting_next_round');
+    this.tasks.transition(taskId, 'planning');
+    const round = this.tasks.createRound({ taskId, inputType: 'user_continue', requestText: '' });
+    const prompt = buildReportPrompt({
+      taskId,
+      roundId: round.roundId,
+      report,
+      userDirective: { instruction, means }
+    });
+    this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
+    this.deps.emit({
+      type: 'task.round.user_continue',
+      at: Date.now(),
+      taskId,
+      roundId: round.roundId,
+      fromStatus,
+      instruction,
+      means,
+      gate: { ok: view.gate.ok, reason: view.gate.reason }
+    });
+    this.deps.emit({
+      type: 'log',
+      at: Date.now(),
+      taskId,
+      level: 'info',
+      message: `按你的指令开第 ${String(round.roundNumber)} 轮（上一轮停在你选的「待确认」）：已把原话与上一轮 ${String(means.length)} 条手段清单并进计划请求`
+    });
+    void this.driveRound(taskId, round.roundId, prompt).catch(error => this.fail(taskId, error));
+    return {
+      roundId: round.roundId,
+      roundNumber: round.roundNumber,
+      fromStatus,
+      means,
+      gate: { ok: view.gate.ok, reason: view.gate.reason },
+      status: this.tasks.get(taskId).status
+    };
+  }
+
+  /**
    * 用当前口径重新判定这一轮的验证结论。
    *
    * 存在的理由：验证口径本身会变（例如把 `shell.run` 里的 javac / mvn / 输出
@@ -1110,7 +1187,7 @@ export class AgentOrchestrator {
    */
   async recheckVerification(taskId: string): Promise<{ verified: boolean; reasons: string[] }> {
     const task = this.tasks.get(taskId);
-    if (task.status !== 'report_pending') {
+    if (!isDeliveryCloseAllowed(task.status)) {
       throw new Error(`任务当前状态为 ${task.status}，只有等待确认的交付可以重新判定`);
     }
     const report = this.deps.store.reportFor(taskId, task.currentPlanId ?? undefined);
@@ -1416,6 +1493,9 @@ export class AgentOrchestrator {
       }
 
       // 用户在恢复/核对期间取消或暂停：不能继续开新一轮。
+      // 名单是「允许继续开轮的落点」（M3-4d 的三种可恢复停法 + 预算超限），不是「用户已选的停法」：
+      // `blocked` 在这里继续，是因为恢复核对也可能把任务停在受阻（旧目标计划未执行那一支）；
+      // 而 `cancelled`/`completed`/`failed` 落进来时这里静默返回，调用方的回执按落库状态说真话。
       const current = this.tasks.get(taskId);
       if (!['paused', 'interrupted', 'budget_exhausted', 'blocked'].includes(current.status)) {
         this.deps.emit({
@@ -2376,21 +2456,23 @@ export class AgentOrchestrator {
       const error = '回答中没有找到 desktop-agent/v1 协议块';
       this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error });
       if (this.repairPlan(taskId, error)) return;
-      throw new Error('回答中没有找到可执行计划，已停止自动执行');
+      throw new PlanUnusableError('回答中没有找到可执行计划，已停止自动执行');
     }
 
     if (result.kind === 'invalid') {
       this.tasks.updateRound(roundId, { status: 'plan_invalid' });
       this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error: result.error });
       if (this.repairPlan(taskId, result.error)) return;
-      throw new Error(`计划校验失败：${result.error}`);
+      throw new PlanUnusableError(`计划校验失败：${result.error}`);
     }
 
     if (result.kind === 'conflict') {
       this.tasks.updateRound(roundId, { status: 'plan_invalid' });
       const error = `回答中包含 ${result.blocks} 个互相冲突的协议消息，已拒绝执行`;
       this.deps.emit({ type: 'plan.invalid', at: Date.now(), taskId, roundId, error });
-      throw new Error(error);
+      // 不自动重出：同一份回答里两个冲突块，重问一次多半还是两个。停成「受阻」等人，
+      // 而不是终态失败——用户改一句说法就能接着走，不必把前几轮作废。
+      throw new PlanUnusableError(error);
     }
 
     if (result.kind === 'clarification') {
@@ -2502,6 +2584,13 @@ export class AgentOrchestrator {
         type: 'log', at: Date.now(), taskId, level: 'warn',
         message: `TDL：${decomposition.reason}；${planGate.decompositionNote}，任务树暂无独立验收的 L2。`
       });
+    }
+    // M3-4d：模型在步骤上多写的 `dependsOn`/`expect`/`checksCategory` 现在不再让整份计划
+    // 判废（真机样本：8 个步骤全带，白烧过一轮自纠）。接住不等于生效——执行器按数组顺序跑，
+    // 这句话必须让审批的人看见，否则「依赖已声明」会被当成「依赖被强制」。
+    const ignoredText = describeIgnoredAnnotations(plan.steps);
+    if (ignoredText) {
+      planPreview.warnings = [...(planPreview.warnings ?? []), ignoredText];
     }
     this.deps.emit({
       type: 'plan.ready', at: Date.now(), taskId, roundId,
@@ -2990,16 +3079,26 @@ export class AgentOrchestrator {
   }
 
   /**
-   * 计划没通过校验时，让模型自己改一轮（最多两次）。
+   * 计划没通过校验时，让模型自己改一轮（连着最多两次）。
    *
    * 一个占位符不该让整个任务死掉：模型不知道自己错在哪，用户看到的是一串
    * zod 路径。把失败原因原样交回去，它通常一次就能改对（真机验证过）。
-   * 两次还不行才失败——无限重试等于把页面当成免费算力。
+   * 两次还不行就停手——无限重试等于把页面当成免费算力。
+   *
+   * 计数口径（M3-4d）：只数**连着几次**，不数整条任务的历史总量。原来算的是后者，
+   * 于是第 2 轮撞过一次计划不合规之后，这条任务后面每一轮再撞上都直接不给自纠机会，
+   * 剩下的下场只有终态失败；而 2 这个上限本来说的是「同一次生成重试两次」。
+   * 修正轮仍占一轮预算（M3-3 只有一个记账点，这里不开例外），但统计页会把它单列出来，
+   * 不至于让人以为「烧掉的那轮做了事」。
    */
   private repairPlan(taskId: string, error: string): boolean {
     const task = this.tasks.get(taskId);
     if (TERMINAL.includes(task.status)) return false;
-    const attempts = this.tasks.listRounds(taskId).filter(round => round.inputType === 'plan_repair').length;
+    const rounds = this.tasks.listRounds(taskId);
+    let attempts = 0;
+    while (attempts < rounds.length && rounds[rounds.length - 1 - attempts].inputType === 'plan_repair') {
+      attempts += 1;
+    }
     if (attempts >= 2) return false;
     // 自纠也要开一轮，所以走同一道门禁；原来这里是第四处自己比轮数上限。
     if (!this.tasks.budgetView(taskId).gate.ok) return false;
@@ -3675,8 +3774,27 @@ export class AgentOrchestrator {
     const purpose = roundPurpose[cycleDecision.decision] ?? `按 ${cycleDecision.decision} 推进`;
     this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
     this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', `进入下一轮：${purpose}`);
-    this.emitCycleStage(taskId, 'PLANNING', 'started', `下一轮重新规划（${purpose}）`);
     this.tasks.transition(taskId, 'awaiting_next_round');
+    if (!autoContinueOf(this.tasks.get(taskId))) {
+      // M3-4c：无人值守续轮被关掉后，判定给出的「该开下一轮」不再自动落地。
+      // 停必须停得可解释——为什么停（设置 + 判定原话 + 门禁读数）与怎么回来（同一个
+      // 「换手段再来一轮」入口）都进事件，活动流与统计页读同一份，不在界面另猜。
+      const gate = this.tasks.budgetView(taskId).gate;
+      this.deps.emit({
+        type: 'task.round.await_user',
+        at: Date.now(),
+        taskId,
+        purpose,
+        reason: cycleDecision.reason,
+        gate: { ok: gate.ok, reason: gate.reason }
+      });
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'info',
+        message: `停在下一轮开始前（无人值守续轮已关）：${purpose}｜${gate.reason}`
+      });
+      return;
+    }
+    this.emitCycleStage(taskId, 'PLANNING', 'started', `下一轮重新规划（${purpose}）`);
     this.tasks.transition(taskId, 'planning');
 
     // 下一轮干什么必须进计划请求，否则「重做」只是把同一个计划重新生成一遍。
@@ -3753,10 +3871,25 @@ export class AgentOrchestrator {
     return real;
   }
 
+  /**
+   * 一条异常把任务停在哪里——分得清才接得回去（V4 P1 M3-4d）。
+   *
+   * 原来这里只有一个下场：`failed`。而「模型连续 120 秒没有输出」「请求超时」是通道断了，
+   * 不是任务做错了；`failed` 在状态表里没有出边，用户换好网络也只剩重新提问，前几轮的
+   * 产物与检查点就此作废。现在按 `classifyFault` 分：
+   * - 通道故障 → `interrupted`（`resume()` 允许，带着检查点重开一轮）；
+   * - 计划连续不合规 → `blocked`（要人换个说法，不是重跑同一次生成）；
+   * - 用户已经在按暂停/取消 → 落回用户选的那个结局，不让超时报「失败」顶掉「取消」；
+   * - 其余仍判 `failed`，行为不变。
+   *
+   * 三种可恢复落点都发 `task.fault.stopped`：分类、原文、落点、怎么回来一次记全，
+   * 否则事后只看得到状态变了，看不出是它自己停的还是被人停的。
+   */
   private fail(taskId: string, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     // 失败或超时后旁听者不能继续占着页面：它们的结果已经没有主线可回。
     try { this.cancelPeers(taskId); } catch { /* 取消失败不影响失败收敛 */ }
+    const fault = classifyFault(error);
     try {
       const task = this.tasks.get(taskId);
       if (TERMINAL.includes(task.status)) return;
@@ -3767,10 +3900,52 @@ export class AgentOrchestrator {
         });
         return;
       }
-      this.tasks.transition(taskId, 'failed', { error: message });
-      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: message });
+      const intent = stopIntent(task.status);
+      const landed: AgentTask['status'] = intent ?? fault.status;
+      this.tasks.transition(taskId, landed, { error: message });
+      if (landed === 'failed') {
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: message });
+        return;
+      }
+      if (landed === 'cancelled') {
+        // 走取消的正常事件：只发 fault 的话，按事件重建的列表会以为这是一次失败。
+        this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId });
+      }
+      this.deps.emit({
+        type: 'task.fault.stopped',
+        at: Date.now(),
+        taskId,
+        ...(task.currentRoundId ? { roundId: task.currentRoundId } : {}),
+        kind: fault.kind,
+        error: message.slice(0, 2000),
+        landedStatus: landed,
+        headline: intent ? `你已在${intent === 'cancelled' ? '取消' : '暂停'}途中，通道这时断了：按「${intent === 'cancelled' ? '已取消' : '已暂停'}」收口` : fault.headline,
+        howBack: intent === 'cancelled'
+          ? '任务已按取消收口；已有产物不回滚，需要接着做就新开一轮。'
+          : intent === 'paused'
+            ? '点「继续任务」回到暂停前的等待状态。'
+            : fault.howBack
+      });
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId, level: 'warn',
+        message: `${message}｜没有判成失败：${fault.headline}（停在「${landed}」）。${fault.howBack}`
+      });
     } catch {
-      this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: message });
+      // 落点写不进去时原来只补一条 `task.failed`：行还停在非终态，事件流却说它已经死了。
+      // 按事件重建的列表会显示「已失败」、统计页拿 endedAt 把总耗时冻住，而这条任务其实
+      // 还能 resume——等于在本该堵住终态误判的地方又开了一个。要么把状态真写成终态再发
+      // 事件，要么只留日志，不让两者对不上。
+      try {
+        const now = this.tasks.get(taskId);
+        if (TERMINAL.includes(now.status)) return;
+        this.tasks.transition(taskId, 'failed', { error: message });
+        this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: message });
+      } catch {
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId, level: 'error',
+          message: `${message}｜连失败落点也没写进去（当前「${this.tasks.get(taskId).status}」）：状态未变，刷新后以任务列表为准`
+        });
+      }
     }
   }
 }

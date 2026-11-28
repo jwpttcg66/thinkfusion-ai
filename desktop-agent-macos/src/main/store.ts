@@ -81,7 +81,14 @@ const KEEP_FOREVER: ReadonlySet<string> = new Set([
   'work.breakdown.replanned',
   // M1-3：这是一张压在用户这儿没回答的确认卡。裁掉它等于替用户把问题吞了：
   // 重启之后卡片消失、版本却还是旧的那一版。
-  'goal.revision.pending'
+  'goal.revision.pending',
+  // M3-4：这一类是「停在哪、为什么停、怎么回来」的唯一出处。`task.fault.stopped` 的
+  // headline/howBack 不存在任务字段上（行里只有裸 error），挤到 800 条窗口外之后，
+  // 重启就再也说不出这条任务当初为什么没判死——和上面那条确认卡是同一个失效。
+  'task.fault.stopped',
+  'task.round.await_user',
+  'task.round.user_continue',
+  'task.auto_continue.updated'
 ]);
 
 function taskIdOfEvent(event: AgentEvent): string | null {

@@ -20,7 +20,7 @@ import { OPENCODE_GO_MODELS } from '../../shared/opencode-models';
 import { aggregateTotals, foldTrace, type TraceEntry } from '../../shared/trace';
 import { buildExecutionHistory } from '../../shared/execution-history';
 import { projectContextState } from '../../shared/context-state';
-import { budgetStateOf, canOpenRound, extendTaskBudget } from '../../shared/task-budget';
+import { budgetStateOf, canOpenRound, extendTaskBudget, normalizeTaskBudget } from '../../shared/task-budget';
 import { MEMORY_DEFAULTS } from '../../shared/memory';
 
 /**
@@ -320,6 +320,24 @@ export function createMockApi(): AgentApi {
         status: task?.status ?? 'created',
         state: budgetStateOf({ budget, usage })
       };
+    },
+    // 预览环境不会真的开轮：只回门禁读数，让「换手段再来一轮」这条入口在预览里可点可看。
+    continueWithUserInstruction: async input => {
+      const task = tasks.find(item => item.taskId === input.taskId);
+      const budget = normalizeTaskBudget(task?.budget ?? { maxRounds: 20 });
+      const usage = { rounds: (events[input.taskId] ?? []).filter(event => event.type === 'round.started').length, modelCalls: null, tokens: null };
+      return {
+        roundId: 'round-preview',
+        roundNumber: usage.rounds + 1,
+        fromStatus: task?.status ?? 'report_pending',
+        means: [],
+        gate: canOpenRound({ budget, usage }),
+        status: 'planning'
+      };
+    },
+    setTaskAutoContinue: async input => {
+      const task = tasks.find(item => item.taskId === input.taskId);
+      return { autoContinue: input.autoContinue, previous: task?.autoContinue !== false, status: task?.status ?? 'report_pending' };
     },
     approvePlan: async () => undefined,
     rejectPlan: async () => undefined,

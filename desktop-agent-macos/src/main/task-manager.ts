@@ -9,6 +9,7 @@ import type {
 import { AgentStore } from './store';
 import { codingStateFor } from '../shared/coding-workflow';
 import { DEFAULT_TASK_BUDGET, budgetStateOf, canOpenRound, extendTaskBudget, normalizeTaskBudget } from '../shared/task-budget';
+import { autoContinueOf } from '../shared/task-continue';
 import type { BudgetState, TaskBudget } from '../shared/task-budget';
 
 /** Transitions the spec allows. Anything else is a bug, not a warning. */
@@ -28,7 +29,10 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   executing: ['verifying', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   verifying: ['report_pending', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   report_pending: ['awaiting_next_round', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'completed', 'failed', 'cancelled'],
-  awaiting_next_round: ['planning', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
+  // completed 这条是 M3-4 的用户出口：判定要开下一轮、但用户关了无人值守时，任务停在这里
+  // 且手里已经有一份报告。缺这条边的话，「不再做一轮」只剩两条路——要么白烧一整轮模型
+  // 去够 report_pending 的收口按钮，要么点取消把已交付的东西记成没交付。
+  awaiting_next_round: ['planning', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'completed', 'failed', 'cancelled'],
   pause_requested: ['pausing', 'paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
   pausing: ['paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
   cancel_requested: ['cancelling', 'cancelled', 'interrupted', 'paused', 'failed'],
@@ -37,8 +41,13 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   // 这条落点必须可达，否则又只能退回 `failed` 那个接不回去的终态。
   paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
-  budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
-  blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'failed', 'cancelled'],
+  // 这两个落点也吃 `interrupted`：停在「等预算」或「等你处理」的任务上，在途那一轮的
+  // promise 还活着，通道断了照样会走 fail() 的分类落点。缺这条边时 transition 抛错，
+  // fail() 的兜底就把一条还能接回去的通道故障写成了终态——正是 M3-4d 要堵的口。
+  // 预算/阻塞信息不会因此丢掉：resume() 会重读门禁与前置条件，再把它送回原落点
+  // （`interrupted -> budget_exhausted` / `blocked` 本来就是允许的）。
+  budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'interrupted', 'budget_exhausted', 'failed', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: []
@@ -209,6 +218,28 @@ export class TaskManager {
       gate
     });
     return { task, budget, gate };
+  }
+
+  /**
+   * 无人值守续轮开关的唯一写路径（M3-4c）：落盘 → 发事件 → 回执生效值。
+   *
+   * 与预算同类：只改一个字段但必须留痕，否则「这一轮为什么没自己开」事后无从核对。
+   * `previous` 记的是**生效值**而不是字段原值——老任务没写过这个字段，缺省按「自动续轮」算，
+   * 直接回 `undefined` 会让界面显示成「原来是关的」。
+   */
+  setAutoContinue(taskId: string, autoContinue: boolean): { task: AgentTask; previous: boolean } {
+    const current = this.get(taskId);
+    const previous = autoContinueOf(current);
+    const task = this.patch(taskId, { autoContinue });
+    this.emit({
+      type: 'task.auto_continue.updated',
+      at: Date.now(),
+      taskId,
+      autoContinue,
+      previous,
+      source: 'user'
+    });
+    return { task, previous };
   }
 
   /** 预算核算读数（详情面板与门禁共用）：轮数从轮次表现算，token 拿不到就记未知。 */

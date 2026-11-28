@@ -144,6 +144,7 @@ function roundType(inputType: string) {
   if (inputType === 'user_prompt') return '任务';
   if (inputType === 'execution_report') return '执行报告';
   if (inputType === 'plan_repair') return '计划修正';
+  if (inputType === 'user_continue') return '换手段再来一轮';
   return '澄清回答';
 }
 

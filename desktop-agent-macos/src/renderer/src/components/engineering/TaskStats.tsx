@@ -3,6 +3,7 @@ import type { AgentEvent, AgentTask } from '../../../../shared/contracts';
 import type { ObservabilityEvent } from '../../../../shared/observability';
 import { TASK_MEMBER_STATUS_LABEL, type TaskMemberStream } from '../../../../shared/task-stream';
 import { BUDGET_DIMENSION_TEXT, budgetStateOf, normalizeTaskBudget } from '../../../../shared/task-budget';
+import { autoContinueOf } from '../../../../shared/task-continue';
 
 /**
  * 任务统计（V2.1 §9.4）。
@@ -61,6 +62,14 @@ export function TaskStats(props: {
   const recoveries = contextEvents.filter(event => event.event === 'context.recovered').length;
 
   const rounds = activity.filter(item => item.payload.type === 'round.started').length;
+  /**
+   * 计划修正轮单独列出来（M3-4d）：修正轮一样占预算轮数（M3-3 只有一个记账点，
+   * 不在这里开例外），但它没做任何工作——不写清就会把「烧掉两轮」读成「做了两轮」。
+   */
+  const repairRounds = activity.filter(item => {
+    const payload = item.payload as { type?: string; inputType?: string };
+    return payload.type === 'round.started' && payload.inputType === 'plan_repair';
+  }).length;
   const endedAt = activity
     .filter(item => ['task.completed', 'task.failed', 'task.cancelled'].includes(String(item.payload.type)))
     .map(item => item.occurredAt)
@@ -126,6 +135,24 @@ export function TaskStats(props: {
   const [extraRounds, setExtraRounds] = useState('');
   const [budgetMsg, setBudgetMsg] = useState('');
   const [budgetBusy, setBudgetBusy] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoMsg, setAutoMsg] = useState('');
+  const autoOn = autoContinueOf(task);
+  const toggleAutoContinue = async (next: boolean) => {
+    setAutoBusy(true);
+    try {
+      const result = await window.agentAPI.setTaskAutoContinue({ taskId: task.taskId, autoContinue: next });
+      setAutoMsg(
+        result.autoContinue
+          ? `已打开：下一轮判定要开就自动开（改之前${result.previous ? '本来就是开的' : '是关着的'}）`
+          : `已关闭：判定要开下一轮时会停在「等待你继续」（改之前${result.previous ? '是开的' : '本来就是关的'}）`
+      );
+    } catch (err) {
+      setAutoMsg(`设置失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAutoBusy(false);
+    }
+  };
   const addRounds = async () => {
     const add = Number.parseInt(extraRounds, 10);
     if (!Number.isInteger(add) || add <= 0) {
@@ -160,9 +187,27 @@ export function TaskStats(props: {
         </div>
         <div className="stats-grid">
           <div><span className="task-progress-key">目标</span><b>{task.title}</b></div>
-          <div><span className="task-progress-key">轮次</span><b>{rounds} 轮</b></div>
+          <div>
+            <span className="task-progress-key">轮次</span>
+            <b>{rounds} 轮{repairRounds > 0 ? `（含 ${repairRounds} 次计划修正）` : ''}</b>
+          </div>
           <div><span className="task-progress-key">事件</span><b>{activity.length} 条</b></div>
           <div><span className="task-progress-key">总耗时</span><b>{formatDuration((endedAt ?? Date.now()) - task.createdAt)}</b></div>
+          {/* 无人值守续轮（M3-4c）：关掉的只是「判定说该开下一轮时自动开」，预算超限、
+              空转、待审批这些停法与它无关——开关不能变成「跳过闸门」。 */}
+          <div>
+            <span className="task-progress-key">无人值守</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={autoOn}
+                disabled={autoBusy}
+                onChange={event => void toggleAutoContinue(event.target.checked)}
+              />
+              {autoOn ? '判定要开下一轮时自动开' : '停在轮次开始前，等你点「继续下一轮」'}
+            </label>
+          </div>
+          {autoMsg && <div><span className="task-progress-key">结果</span><b>{autoMsg}</b></div>}
         </div>
       </section>
 

@@ -26,6 +26,7 @@ import type {
 import { buildTimeline, type StepCard } from './execution-timeline';
 import { contextEventView } from './context';
 import { artifactPaths, diagnosticsOfReport, verificationIsComplete, type TaskView } from './task-view';
+import { continueExitText } from './task-continue';
 
 export type ConversationTone = 'info' | 'ok' | 'warn' | 'error' | 'muted';
 
@@ -62,6 +63,10 @@ export type NoteSubtype =
   | 'participation'
   /** 预算（M3-3）：超限暂停与追加预算两条旁注共用一类。 */
   | 'budget'
+  /** 换手段再来一轮（M3-4b）：这一轮是人要的，不是模型判的，活动流要单独留痕。 */
+  | 'continue'
+  /** 异常停在可恢复那一侧（M3-4d）：通道故障/计划不可用，不是任务判死。 */
+  | 'fault'
   | 'decision'
   | 'goal_fit'
   | 'clarification'
@@ -829,7 +834,9 @@ export function buildTaskConversation(
               ? `第 ${String(event.roundNumber)} 轮 · 执行报告已发回模型`
               : event.inputType === 'plan_repair'
                 ? `第 ${String(event.roundNumber)} 轮 · 计划修正`
-                : `第 ${String(event.roundNumber)} 轮 · 补充回答已发回模型`
+                : event.inputType === 'user_continue'
+                  ? `第 ${String(event.roundNumber)} 轮 · 你要求换手段再来`
+                  : `第 ${String(event.roundNumber)} 轮 · 补充回答已发回模型`
       });
       continue;
     }
@@ -1204,6 +1211,85 @@ export function buildTaskConversation(
           `来源：${event.source === 'user' ? '用户追加' : event.source === 'model' ? '模型建议' : '恢复时确认'}`,
           event.gate.ok ? `门禁放行：${event.gate.reason}` : `仍未放行：${event.gate.reason}`
         ].join('\n')
+      });
+      continue;
+    }
+
+    if (event.type === 'task.round.user_continue') {
+      // 人要的那一轮必须和活动流里模型判出来的那些轮区分开：详情里点得开「原话是什么、
+      // 上一轮用过哪些手段、开轮时门禁怎么算」，否则「用户介入后继续」只剩一句提示。
+      push({
+        kind: 'note',
+        key: `user-continue-${event.roundId}`,
+        subtype: 'continue',
+        at: event.at,
+        roundId: event.roundId,
+        roundNumber: roundNumber(event.roundId),
+        tone: 'ok',
+        text: `你要求换手段再来一轮 · ${event.instruction}`,
+        detail: [
+          `开轮前状态：${event.fromStatus}`,
+          `门禁：${event.gate.reason}`,
+          event.means.length > 0
+            ? `随请求下发的上一轮手段（${String(event.means.length)} 条）：\n${event.means.map(mean => `- ${mean}`).join('\n')}`
+            : '上一轮没有可点名的工具调用记录，只下发了你的指令。'
+        ].join('\n')
+      });
+      continue;
+    }
+
+    if (event.type === 'task.round.await_user') {
+      // 关掉无人值守之后的「停」最容易看不懂：轮数不涨，界面也没有红字。这里把
+      // 为什么停（设置 + 判定原话）和怎么回来一次性写清，措辞与统计页同一个出处。
+      push({
+        kind: 'note',
+        key: `round-await-user-${String(event.at)}`,
+        subtype: 'continue',
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'warn',
+        text: `判定要开下一轮，按你的设置停在这里 · ${event.purpose}`,
+        detail: [
+          `判定原话：${event.reason}`,
+          `预算门禁：${event.gate.reason}`,
+          continueExitText('awaiting_next_round')?.howBack ?? ''
+        ].filter(Boolean).join('\n')
+      });
+      continue;
+    }
+
+    if (event.type === 'task.auto_continue.updated') {
+      push({
+        kind: 'note',
+        key: `auto-continue-${String(event.at)}`,
+        subtype: 'continue',
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: 'ok',
+        text: `无人值守续轮已${event.autoContinue ? '打开' : '关闭'} · 原来${event.previous ? '是开的' : '是关的'}`,
+        detail: event.autoContinue
+          ? '判定要开下一轮时会直接开，不再等人点；预算超限与空转仍会停下。'
+          : '判定要开下一轮时会停在「等待你继续」，由你点「换手段再来一轮」才开。'
+      });
+      continue;
+    }
+
+    if (event.type === 'task.fault.stopped') {
+      // 这条旁注存在的理由：任务自己停在「已中断/受阻」上时，界面没有红字，活动流里
+      // 也只有状态变化——用户分不清是通道断了、模型写废了，还是自己按了暂停。
+      // 措辞不在这里另写一遍：headline/howBack 取自 `classifyFault`，与进度卡同一出处。
+      push({
+        kind: 'note',
+        key: `fault-stopped-${String(event.at)}`,
+        subtype: 'fault',
+        at: event.at,
+        roundId: event.roundId ?? currentRoundId,
+        roundNumber: roundNumber(event.roundId ?? currentRoundId),
+        tone: 'warn',
+        text: `${event.headline} · 停在「${event.landedStatus}」`,
+        detail: [`原文：${event.error}`, event.howBack].filter(Boolean).join('\n')
       });
       continue;
     }
