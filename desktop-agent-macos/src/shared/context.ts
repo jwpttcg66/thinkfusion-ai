@@ -243,6 +243,11 @@ export interface ContextEventPayload {
   /** 事件 payload 只放展示用预览；完整来源在检查点文件。 */
   sourceEventIdsPreview?: string[];
   reason?: string;
+  /**
+   * 恢复用的活动指针来自哪里：任务字段（Journal 事务写的权威指针）还是事件流重放
+   * （任务字段缺失时按最后一条检查点事件重建）。M2-1 要求恢复路径可观测。
+   */
+  pointerSource?: 'task-fields' | 'events-replay';
   /** 恢复时附带的副作用核对计数；只有 context.recovered 会带。 */
   sideEffects?: {
     applied: number;

@@ -5,7 +5,9 @@
 **状态：** M1-1 / M1-2 / M1-3 全部 `LIVE_TESTED`，**M1 里程碑判定完成**（最后一轮真机 50 项判定 0 失败）。
 M1-2 的「同一 Goal 下 ≥2 Task」最初验不出来，根因是缺一个可被多条任务指向的目标实体，已补
 `store.goals` + 绑定写入路径 + 界面「在此目标下新建任务」入口，并在真机上跑通跨任务扇出（场景④）。
-M2、M3 `DESIGN / NOT STARTED`。
+M2-1 `LIVE_TESTED`（真机 19 项判定 0 未通过，证据
+[`../../acceptance/v4-p1-m2-1-20261128/SUMMARY.md`](../../acceptance/v4-p1-m2-1-20261128/SUMMARY.md)），
+其「指针未接线」的原前提已按代码事实改判，见该节前提修正。M2-2 / M2-3、M3 `DESIGN / NOT STARTED`。
 真机证据 [`../../acceptance/v4-p1-m1-20261127/SUMMARY.md`](../../acceptance/v4-p1-m1-20261127/SUMMARY.md)。
 实现进度以 [`../../STATUS.md`](../../STATUS.md) 为准，本文件只写任务口径。
 **基线：** `main@bd5a883`
@@ -93,14 +95,33 @@ needs_replan 门禁均已 IMPLEMENTED/TESTED/VERIFIED（P0-1～P0-5）。
 - **当前状态：** `ContextCheckpoint` 完整（shared/context.ts，含 Journal 活动指针）；
   暂停路径已写 checkpoint（orchestrator.ts:967），但任务字段 `checkpointId/contextId`
   （contracts.ts:1441-1447）未与 Journal 指针保持一致更新。
-- **目标状态：** `commitPauseCheckpoint` 成功后 patch 任务
-  `{checkpointId, contextId, activeRunId}`；resume 优先按任务字段定位 Journal 指针，
-  读取失败再按事件流回溯（现有行为兜底）。
-- **文件范围：** `src/main/orchestrator.ts:967-1071`、`src/main/context/checkpoint/store.ts`、
-  `src/shared/contracts.ts`（无结构变化）。
-- **测试：** `test:pause-checkpoint` 扩展（字段一致性断言）；`test:context-checkpoint` 扩展
-  （指针优先、回溯兜底两路径）。
+- **前提修正（2026-11-28，实现前核对）：** 上面这条「未与 Journal 指针保持一致更新」已经不成立。
+  P0-4 落地时 `store.commitContextCheckpoint()`（store.ts:441）把 `contextId/checkpointId/activeRunId`
+  三个字段连同事件一次写完，`index.ts` 注入 `journal: store`，`task-recovery.ts` 也已优先读任务字段。
+  真正的缺口是**反过来的**：`orchestrator.ts:1013` 在 Journal 事务之后又 `tasks.patch()` 了一遍
+  `checkpointId/contextId`——那是第二个写者，而且它漏写 `activeRunId`，等于用半套指针盖掉权威值；
+  恢复时 runId 门判不过，检查点看着在却读不出来。所以本节改判为「去掉重复写者 + 补重建路径」，
+  原计划的「成功后 patch」不再做。
+- **目标状态：**
+  1. 指针三字段只由 Journal 事务写（`commitPauseCheckpoint` 返回完整指针，不再补 patch）；
+  2. `context.checkpoint.paused` 事件带完整指针（`contextId/checkpointId/activeRunId`），
+     使任务字段缺失时能从事件流重建；
+  3. resume 优先按任务字段定位指针，字段不全才按事件流回溯重建，重建结果仍走同一套
+     runId/hash/归档校验（读不出就 stale，不放行）；
+  4. 走的是哪条路必须能被看见：恢复结论带 `pointerSource`，并写进
+     `context.recovered` / `context.refresh.required` / `context.compaction.stale` 事件。
+- **文件范围：** `src/main/orchestrator.ts`（commitPauseCheckpoint、resume 打点）、
+  `src/main/context/recovery/task-recovery.ts`（`resolveTaskPointer`）、
+  `src/main/context/checkpoint/pause.ts`（返回完整指针）、
+  `src/shared/contracts.ts` + `src/shared/context.ts`（事件加字段，无结构变化）。
+- **不做：** 启动时全量扫一遍任务字段与检查点文件对账。指针读不出时恢复本来就会
+  在校验处停下并点名原因，加一道启动扫描只是把同样的判断提前，还要付全量磁盘读的代价。
+- **测试：** `test:checkpoint-pointer`（新增：字段↔文件一致、事件带指针、两条恢复路径打点）；
+  `test:pause-checkpoint` 扩展（字段一致性 + 半套指针重建 + 无指针判 none，并把事件同时落 Journal
+  以贴合主进程）；`test:context-recovery` 扩展（指针优先、回溯兜底、兜底后仍要过校验）。
 - **真机验收：** 暂停后 store 里任务字段与检查点文件一致；重启恢复走的路径打点可见。
+  脚本 `scripts/verify-v4-p1-m2-1-cdp.mjs`（默认数据目录；重启前把探针任务的指针字段抹掉，
+  抹之前整份 store 备份进验收目录）。
 - **回退：** resume 的回溯兜底就是旧行为，字段写入可独立回退。
 
 ## P1-M2-2：重启后从检查点继续执行成为常规路径

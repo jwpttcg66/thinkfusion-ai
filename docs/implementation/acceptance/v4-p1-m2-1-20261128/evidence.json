@@ -1,0 +1,168 @@
+{
+  "startedAt": "2026-11-28T00:43:54.856Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-28T00:43:54.856Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "CDP 已连接",
+      "at": "2026-11-28T00:44:01.635Z"
+    },
+    "probe-task-created": {
+      "ok": true,
+      "detail": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+      "at": "2026-11-28T00:44:02.443Z"
+    },
+    "pointer-fields-complete": {
+      "ok": true,
+      "detail": "{\"contextId\":\"pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342\",\"checkpointId\":\"cp_02987a71-3473-479b-a788-3f8c748aeb6b\",\"activeRunId\":\"41d81e2d-836a-4c2d-9107-fdb6a393a716\"}",
+      "at": "2026-11-28T00:44:03.495Z"
+    },
+    "pointer-fields-persisted-to-store": {
+      "ok": true,
+      "detail": "{\"contextId\":\"pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342\",\"checkpointId\":\"cp_02987a71-3473-479b-a788-3f8c748aeb6b\",\"activeRunId\":\"41d81e2d-836a-4c2d-9107-fdb6a393a716\"}",
+      "at": "2026-11-28T00:44:03.495Z"
+    },
+    "pointer-matches-checkpoint-file": {
+      "ok": true,
+      "detail": "文件 contextId=pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342 runId=41d81e2d-836a-4c2d-9107-fdb6a393a716",
+      "at": "2026-11-28T00:44:03.495Z"
+    },
+    "pause-event-carries-full-pointer": {
+      "ok": true,
+      "detail": "事件 contextId=pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342 activeRunId=41d81e2d-836a-4c2d-9107-fdb6a393a716",
+      "at": "2026-11-28T00:44:03.497Z"
+    },
+    "checkpoint-summary-truthful": {
+      "ok": true,
+      "detail": "目标版本 v1 / 任务树 revision 3 / 暂停原因：pause / 工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1 ｜ 证据 [\"/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-1-written-1795826634856.txt\"]",
+      "at": "2026-11-28T00:44:03.497Z"
+    },
+    "late-write-never-happened": {
+      "ok": true,
+      "detail": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-1-late-1795826634856.txt",
+      "at": "2026-11-28T00:44:04.099Z"
+    },
+    "written-file-still-there": {
+      "ok": true,
+      "detail": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-1-written-1795826634856.txt",
+      "at": "2026-11-28T00:44:04.099Z"
+    },
+    "probe-task-selected-in-ui": {
+      "ok": true,
+      "detail": "任务详情页",
+      "at": "2026-11-28T00:44:04.107Z"
+    },
+    "pointer-fields-stripped-offline": {
+      "ok": true,
+      "detail": "抹掉的是 {\"contextId\":\"pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342\",\"checkpointId\":\"cp_02987a71-3473-479b-a788-3f8c748aeb6b\",\"activeRunId\":\"41d81e2d-836a-4c2d-9107-fdb6a393a716\"}，备份 ../docs/implementation/acceptance/v4-p1-m2-1-20261128/agent-store.before-strip.json",
+      "at": "2026-11-28T00:44:05.399Z"
+    },
+    "renderer-ready-after-restart": {
+      "ok": true,
+      "detail": "CDP 已连接（未重编译，读的是同一份 store）",
+      "at": "2026-11-28T00:44:12.517Z"
+    },
+    "restarted-still-paused-without-pointer": {
+      "ok": true,
+      "detail": "状态 paused，指针 {\"contextId\":null,\"checkpointId\":null,\"activeRunId\":null}",
+      "at": "2026-11-28T00:44:12.519Z"
+    },
+    "recovered-event-emitted": {
+      "ok": true,
+      "detail": "{\"pointerSource\":\"events-replay\",\"contextId\":\"pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342\",\"checkpointId\":\"cp_02987a71-3473-479b-a788-3f8c748aeb6b\",\"reason\":\"任务指针字段缺失，已按事件流最后一条检查点事件重建指针并校验通过\",\"sideEffects\":{\"applied\":2,\"missing\":0,\"needsReconciliation\":1}}",
+      "at": "2026-11-28T00:44:13.295Z"
+    },
+    "recovery-path-is-observable": {
+      "ok": true,
+      "detail": "pointerSource=events-replay",
+      "at": "2026-11-28T00:44:13.295Z"
+    },
+    "rebuilt-pointer-points-at-pause-checkpoint": {
+      "ok": true,
+      "detail": "重建 cp_02987a71-3473-479b-a788-3f8c748aeb6b / 暂停 cp_02987a71-3473-479b-a788-3f8c748aeb6b",
+      "at": "2026-11-28T00:44:13.295Z"
+    },
+    "recovered-side-effect-ledger": {
+      "ok": true,
+      "detail": "{\"applied\":2,\"missing\":0,\"needsReconciliation\":1}",
+      "at": "2026-11-28T00:44:13.295Z"
+    },
+    "probe-task-deleted": {
+      "ok": true,
+      "detail": "before=0 after=0",
+      "at": "2026-11-28T00:44:14.184Z"
+    }
+  },
+  "shots": [
+    "../docs/implementation/acceptance/v4-p1-m2-1-20261128/01-pointer-consistency.png",
+    "../docs/implementation/acceptance/v4-p1-m2-1-20261128/02-pointer-lost-after-restart.png",
+    "../docs/implementation/acceptance/v4-p1-m2-1-20261128/03-replay-pointer-recovered.png"
+  ],
+  "taskId": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+  "pointer": {
+    "contextId": "pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342",
+    "checkpointId": "cp_02987a71-3473-479b-a788-3f8c748aeb6b",
+    "activeRunId": "41d81e2d-836a-4c2d-9107-fdb6a393a716"
+  },
+  "checkpointFile": {
+    "file": "/Users/yalla/Library/Application Support/thinkfusion-ai/context-checkpoints/owners/agent-task/41d81e2d-836a-4c2d-9107-fdb6a393a716.json",
+    "contextId": "pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342",
+    "runId": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+    "status": "prepared",
+    "constraints": [
+      "目标版本 v1",
+      "任务树 revision 3",
+      "暂停原因：pause",
+      "工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1"
+    ],
+    "evidencePaths": [
+      "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-1-written-1795826634856.txt"
+    ]
+  },
+  "pauseEvent": {
+    "type": "context.checkpoint.paused",
+    "at": 1795826643382,
+    "taskId": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+    "reason": "pause",
+    "goalVersion": 1,
+    "taskRevision": 3,
+    "needsReconciliation": 1,
+    "contextId": "pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342",
+    "checkpointId": "cp_02987a71-3473-479b-a788-3f8c748aeb6b",
+    "activeRunId": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+    "eventId": "77f67b01-033f-4564-b67a-3dc898f688bd",
+    "runId": "41d81e2d-836a-4c2d-9107-fdb6a393a716",
+    "sequence": 42,
+    "phase": "execution"
+  },
+  "statusSequence": [
+    "created",
+    "planning",
+    "plan_ready",
+    "awaiting_approval",
+    "executing",
+    "pause_requested",
+    "pausing",
+    "paused"
+  ],
+  "replay": {
+    "pointerSource": "events-replay",
+    "contextId": "pause:41d81e2d-836a-4c2d-9107-fdb6a393a716:1795826643342",
+    "checkpointId": "cp_02987a71-3473-479b-a788-3f8c748aeb6b",
+    "reason": "任务指针字段缺失，已按事件流最后一条检查点事件重建指针并校验通过",
+    "sideEffects": {
+      "applied": 2,
+      "missing": 0,
+      "needsReconciliation": 1
+    }
+  },
+  "taskIdsBefore": [],
+  "storeBackup": "../docs/implementation/acceptance/v4-p1-m2-1-20261128/agent-store.before-strip.json",
+  "taskIdsAfter": [],
+  "finishedAt": "2026-11-28T00:44:14.184Z"
+}

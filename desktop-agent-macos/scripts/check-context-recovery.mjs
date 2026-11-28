@@ -5,7 +5,9 @@
  * - 报告记录的改动路径存在 → applied；
  * - 缺失 → missing；
  * - 没有路径的写操作 → needs_reconciliation；
- * - Journal/归档有效 → recovered；归档被篡改 → stale，不返回半可用摘要。
+ * - Journal/归档有效 → recovered；归档被篡改 → stale，不返回半可用摘要；
+ * - 指针来源分两档（M2-1）：任务字段（Journal 事务写的权威指针）优先，
+ *   字段缺时才按事件流最后一条检查点事件重建，且重建结果同样要过校验。
  *
  * Run with: npm run test:context-recovery
  */
@@ -164,12 +166,65 @@ test('检查点恢复：有效指针返回 recovered，摘要只作为数据', a
     const result = await recoverTaskContext(task, [report()], { store, archive });
     assert.equal(result.status, 'recovered');
     assert.equal(result.checkpointId, 'cp-1');
+    // 指针落在任务字段上时优先读字段，不走重放。
+    assert.equal(result.pointerSource, 'task-fields');
     assert.equal(result.summary.goal, '完成任务');
     assert.ok(result.ledger);
 
     const text = recoveryPromptData(result);
     assert.match(text, /模型生成的摘要，不是执行事实/);
     assert.match(text, /副作用核对/);
+    assert.doesNotMatch(text, /指针来源/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('M2-1：任务字段没落全时按事件流重建指针，重建后仍要过同一套校验', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-recovery-replay-'));
+  try {
+    const events = [{ eventId: 'e1' }, { eventId: 'e2' }, { eventId: 'e3' }];
+    const { store, archive } = await writeCheckpoint(dir, events, summary);
+    const task = {
+      taskId: 't1',
+      runId: 'r1',
+      title: 't',
+      userPrompt: 'p',
+      status: 'interrupted',
+      permissionPreset: 'workspace-write',
+      createdAt: 1,
+      updatedAt: 1,
+      maxRounds: 20,
+      maxSteps: 30,
+      timeoutMs: 1000
+    };
+    const journal = [{
+      type: 'context.checkpoint.paused', at: 2, taskId: 't1', reason: 'pause',
+      goalVersion: 1, taskRevision: 1, needsReconciliation: 0,
+      contextId: 'ctx-1', checkpointId: 'cp-1', activeRunId: 'r1'
+    }];
+    const result = await recoverTaskContext(task, [report()], {
+      store, archive, eventsForTask: () => journal
+    });
+    assert.equal(result.status, 'recovered');
+    assert.equal(result.pointerSource, 'events-replay');
+    assert.equal(result.checkpointId, 'cp-1');
+    assert.equal(result.contextId, 'ctx-1');
+    // 来源要能写进提示：重放出来的指针可信度低于落库指针。
+    assert.match(recoveryPromptData(result), /指针来源/);
+
+    // 事件里的指针指向不存在的检查点：仍然要判 stale，不能因为「重建出来了」就放行。
+    const ghost = await recoverTaskContext(task, [], {
+      store, archive,
+      eventsForTask: () => [{ ...journal[0], checkpointId: 'cp-missing' }]
+    });
+    assert.equal(ghost.status, 'stale');
+    assert.equal(ghost.pointerSource, 'events-replay');
+    assert.equal(ghost.summary, undefined);
+
+    // 没有事件可重放：如实 none，不去猜一个 checkpointId。
+    const blind = await recoverTaskContext(task, [], { store, archive });
+    assert.equal(blind.status, 'none');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

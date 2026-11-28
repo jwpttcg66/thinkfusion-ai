@@ -23,10 +23,17 @@ export interface PauseCheckpointInput {
   needsReconciliation: number;
 }
 
+/** 暂停检查点的提交结果：就是 Journal 指针的三要素，调用方只搬运不再补写。 */
+export interface PauseCheckpointOutcome {
+  contextId: string;
+  checkpointId: string;
+  activeRunId: string;
+}
+
 export async function commitPauseCheckpoint(
   input: PauseCheckpointInput,
   deps: CommitCheckpointDeps
-): Promise<{ checkpointId: string; contextId: string }> {
+): Promise<PauseCheckpointOutcome> {
   const owner = taskContextOwner(input.task);
   const runId = input.task.runId ?? input.task.taskId;
   const contextId = `pause:${runId}:${String(Date.now())}`;
@@ -92,5 +99,5 @@ export async function commitPauseCheckpoint(
     },
     sourceEvents: []
   }, deps);
-  return { checkpointId, contextId };
+  return { contextId, checkpointId, activeRunId: runId };
 }
