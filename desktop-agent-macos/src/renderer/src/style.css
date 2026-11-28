@@ -7403,6 +7403,44 @@ button:disabled {
 .exec-evidence-kind { margin-right: 6px; font-size: 11px; opacity: 0.7; }
 .exec-sources { margin: 0; font-size: 11px; }
 
+/* V4 M2-3：上下文状态卡（折叠段）。数字全部来自 context.* 事件，取不到写「未记录」。 */
+.task-context-card { margin: 12px 0 0; padding: 0 12px 10px; }
+.task-context-card > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 0;
+  font-weight: 600;
+}
+.task-context-card > summary .muted { font-weight: 400; font-size: 12px; }
+.task-context-card .stats-grid { margin-top: 4px; }
+.ctx-line { margin: 0; font-size: 12px; word-break: break-all; }
+.ctx-block { margin-top: 12px; }
+.ctx-block h3 { margin: 0 0 4px; font-size: 12px; color: var(--text-2); }
+.ctx-block ul { margin: 0; padding-left: 16px; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.ctx-row {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ctx-row.t-warn { border-left-color: rgba(255, 190, 90, 0.75); }
+.ctx-row.t-muted { border-left-color: rgba(255, 255, 255, 0.16); }
+.ctx-row-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 12px; }
+.ctx-reasons { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
+.ctx-entries { margin-top: 12px; font-size: 12px; }
+.ctx-entry { margin: 4px 0 4px 12px; }
+.ctx-entry > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.ctx-entry-type { font-size: 11px; opacity: 0.72; font-family: var(--mono, ui-monospace, monospace); }
+.ctx-entry .exec-code { max-height: 240px; }
+.task-context-card .t-muted { color: var(--text-2); }
+
 /* V4 M1-2：侧栏按目标分组 */
 .goal-group { margin: 0 0 6px; }
 .goal-head {

@@ -1,0 +1,650 @@
+{
+  "startedAt": "2026-11-28T03:28:05.418Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333 / 同一进程内暂停→恢复",
+  "workspace": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-3-ws-1795836485418",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-28T03:28:05.419Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "CDP 已连接",
+      "at": "2026-11-28T03:28:15.041Z"
+    },
+    "ipc-pause-projects-checkpoint": {
+      "ok": true,
+      "detail": "投影 [{\"at\":1795836497867,\"checkpointId\":\"cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561\",\"source\":\"pause\",\"contextId\":\"pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836\",\"needsReconciliation\":0,\"goalVersion\":1,\"taskRevision\":3,\"unavailableReason\":null}]｜事件 cp=cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 nr=0｜磁盘 cp=cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561（工具执行状态：已完成 0 步；副作用核对 applied 6 / missing 0 / needs_reconciliation 0，共 1 份）",
+      "at": "2026-11-28T03:28:19.980Z"
+    },
+    "ipc-pause-keeps-unreconciled-as-null": {
+      "ok": true,
+      "detail": "暂停只给待核对条数，不给存在/已消失：{\"at\":1795836497867,\"applied\":null,\"missing\":null,\"needsReconciliation\":0,\"source\":\"pause\"}",
+      "at": "2026-11-28T03:28:19.980Z"
+    },
+    "ipc-task-context-is-read-only": {
+      "ok": true,
+      "detail": "同一任务连读两次投影完全一致（不写盘、不推进状态、不补数据）",
+      "at": "2026-11-28T03:28:19.980Z"
+    },
+    "ui-shows-paused-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 A",
+      "at": "2026-11-28T03:28:20.795Z"
+    },
+    "ui-context-card-renders": {
+      "ok": true,
+      "detail": "状态 {\"loading\":false,\"error\":\"\",\"chars\":535}",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-summary-line-matches-projection": {
+      "ok": true,
+      "detail": "界面「上下文 1 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied ? / missing ? / 待核对 0」 vs 投影「1 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied ? / missing ? / 待核对 0」",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-checkpoint-cell-matches-event": {
+      "ok": true,
+      "detail": "最近检查点「cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561（暂停存档）」｜存档时间「11:28:17」",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-pause-reconciliation-says-unrecorded": {
+      "ok": true,
+      "detail": "副作用核对「存在 未记录 · 已消失 未记录 · 待核对 0」｜口径说明 true",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-pause-no-rebuild-claim": {
+      "ok": true,
+      "detail": "上次重建「未重建」｜重建原因「未记录」",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-pause-entries-are-raw-payloads": {
+      "ok": true,
+      "detail": "原文 1 条 vs 投影 1 条；类型 context.checkpoint.paused",
+      "at": "2026-11-28T03:28:21.327Z"
+    },
+    "ui-pause-card-scrolled": {
+      "ok": true,
+      "detail": "截图前把「上下文」段滚进视口",
+      "at": "2026-11-28T03:28:21.328Z"
+    },
+    "resume-ipc-accepted": {
+      "ok": true,
+      "detail": "recovered=1795836501439，判定=context.resume.continued",
+      "at": "2026-11-28T03:29:25.574Z"
+    },
+    "ipc-resume-projects-reconciled-ledger": {
+      "ok": true,
+      "detail": "事件 sideEffects={\"applied\":7,\"missing\":0,\"needsReconciliation\":0}｜投影行 {\"applied\":7,\"missing\":0,\"needsReconciliation\":0}｜lastReconciliation {\"at\":1795836501439,\"applied\":7,\"missing\":0,\"needsReconciliation\":0,\"source\":\"recovered\"}",
+      "at": "2026-11-28T03:29:25.574Z"
+    },
+    "ipc-resume-projects-pointer-source": {
+      "ok": true,
+      "detail": "投影 task-fields｜事件 task-fields",
+      "at": "2026-11-28T03:29:25.574Z"
+    },
+    "ipc-resume-projects-rebuild-reason": {
+      "ok": true,
+      "detail": "lastRebuild.reason=检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079｜判定行 resume={\"reusedStepIds\":[\"write-1\",\"write-2\",\"write-3\",\"write-4\",\"write-5\",\"write-6\"],\"pendingStepIds\":[\"write-7\",\"write-8\"],\"reasons\":[],\"planId\":\"3bb24e9c-9144-4ec2-940b-92ee48e43079\",\"roundId\":\"bbe89182-ae75-4de0-8c47-01511a391eae\"}",
+      "at": "2026-11-28T03:29:25.574Z"
+    },
+    "ui-resume-reconciliation-matches-event": {
+      "ok": true,
+      "detail": "界面「存在 7 · 已消失 0 · 待核对 0」｜应为「存在 7 · 已消失 0 · 待核对 0」｜核对来源「恢复时核对 @ 11:28:21」",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-rebuild-reason-visible": {
+      "ok": true,
+      "detail": "上次重建「已从检查点续跑：沿用已批准计划，未重新规划 @ 11:28:21」｜重建原因「检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079」｜事件 reason=检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-pointer-source-visible": {
+      "ok": true,
+      "detail": "11:28:21 已从检查点恢复上下文 指针来自任务字段 ⏎ 11:28:21 已从检查点续跑：沿用已批准计划，未重新规划 指针来自任务字段 复用 6 步 · 本轮执行 2 步",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-decision-row-counts-steps": {
+      "ok": true,
+      "detail": "应有步数行「复用 6 步 · 本轮执行 2 步」｜界面行 [\"11:28:21 已从检查点恢复上下文 指针来自任务字段\",\"11:28:21 已从检查点续跑：沿用已批准计划，未重新规划 指针来自任务字段 复用 6 步 · 本轮执行 2 步\"]",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-reasons-listed": {
+      "ok": true,
+      "detail": "事件理由 []｜界面理由 []",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-step-list-names-steps": {
+      "ok": true,
+      "detail": "事件复用首步 write-1、本轮首步 write-7、计划 3bb24e9c-9144-4ec2-940b-92ee48e43079｜界面行 [\"复用 write-1、write-2、write-3、write-4、write-5、write-6\",\"本轮 write-7、write-8\",\"计划 3bb24e9c · 轮次 bbe89182\"]",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-entries-cover-both-phases": {
+      "ok": true,
+      "detail": "界面 3 条 context.checkpoint.paused,context.event:context.recovered,context.event:context.resume.continued｜投影 3 条",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-detail-payload-carries-ledger": {
+      "ok": true,
+      "detail": "{\n  \"contextId\": \"pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836\",\n  \"checkpointId\": \"cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561\",\n  \"pointerSource\": \"task-fields\",\n  \"reason\": \"从 Journal 活动指针恢复\",\n  \"sideEffects\": {\n    \"applied\": 7,\n    \"missing\": 0,\n ",
+      "at": "2026-11-28T03:29:25.575Z"
+    },
+    "ui-resume-card-scrolled": {
+      "ok": true,
+      "detail": "截图前把「上下文」段滚进视口",
+      "at": "2026-11-28T03:29:25.576Z"
+    },
+    "ui-detail-entries-are-visible": {
+      "ok": true,
+      "detail": "逐条原文展开 3 条，截图前已滚进视口",
+      "at": "2026-11-28T03:29:25.702Z"
+    },
+    "ipc-no-context-probe-has-no-checkpoint": {
+      "ok": true,
+      "detail": "投影 {\"hasEvents\":false,\"contextId\":null,\"contextIdFrom\":null,\"checkpoints\":[],\"rebuilds\":[],\"lastRebuild\":null,\"reconciliation\":null,\"budget\":null,\"entryCount\":0,\"summary\":\"没有记录到上下文事件\"}｜上下文事件 无",
+      "at": "2026-11-28T03:29:28.093Z"
+    },
+    "ui-shows-empty-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 B",
+      "at": "2026-11-28T03:29:28.899Z"
+    },
+    "ui-empty-probe-says-nothing-happened": {
+      "ok": true,
+      "detail": "摘要「上下文 没有记录到上下文事件」｜空态文案 true｜最近检查点「」",
+      "at": "2026-11-28T03:29:28.903Z"
+    },
+    "ui-empty-probe-leaks-no-other-task": {
+      "ok": true,
+      "detail": "探针 B 的原文里出现探针 A 的 cp=cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561：false",
+      "at": "2026-11-28T03:29:28.903Z"
+    },
+    "ipc-replan-projects-gap-and-decision": {
+      "ok": true,
+      "detail": "判定=context.resume.replanned｜恢复账本 {\"applied\":2,\"missing\":0,\"needsReconciliation\":1}｜投影 rebuilds [{\"at\":1795836572312,\"kind\":\"recovered\",\"text\":\"已从检查点恢复上下文\",\"tone\":\"muted\",\"contextId\":\"pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666\",\"checkpointId\":\"cp_0637ddb5-860c-4885-9113-c937129d6b7a\",\"pointerSource\":\"task-fields\",\"reason\":\"从 Journal 活动指针恢复\",\"sideEffects\":{\"applied\":2,\"missing\":0,\"needsReconciliation\":1},\"resume\":null},{\"at\":1795836572417,\"kind\":\"resume-replan\",\"text\":\"已重新规划：检查点不足以安全续跑\",\"tone\":\"warn\",\"contextId\":\"pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666\",\"checkpointId\":\"cp_0637ddb5-860c-4885-9113-c937129d6b7a\",\"pointerSource\":\"task-fields\",\"reason\":\"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\",\"sideEffects\":null,\"resume\":{\"reusedStepIds\":[],\"pendingStepIds\":[],\"reasons\":[\"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\"],\"planId\":null,\"roundId\":null}}]",
+      "at": "2026-11-28T03:29:32.673Z"
+    },
+    "ipc-replan-listens-to-event-reasons": {
+      "ok": true,
+      "detail": "事件理由 [\"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\"]｜投影理由 [\"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\"]",
+      "at": "2026-11-28T03:29:32.673Z"
+    },
+    "ui-shows-replan-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 C",
+      "at": "2026-11-28T03:29:33.477Z"
+    },
+    "ui-replan-card-says-replanned": {
+      "ok": true,
+      "detail": "上次重建「已重新规划：检查点不足以安全续跑 @ 11:29:32」｜续跑判定「已重新规划：检查点不足以安全续跑 @ 11:29:32」",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-reason-names-the-gap": {
+      "ok": true,
+      "detail": "重建原因「1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）」｜界面理由 [\"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\"]",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-row-is-warn-toned": {
+      "ok": true,
+      "detail": "行的配色类名「t-warn」｜行头「11:29:32 已重新规划：检查点不足以安全续跑 指针来自任务字段 不复用上一轮步骤」",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-row-says-no-reuse": {
+      "ok": true,
+      "detail": "行头「11:29:32 已重新规划：检查点不足以安全续跑 指针来自任务字段 不复用上一轮步骤」",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-gap-is-a-number-not-zero": {
+      "ok": true,
+      "detail": "界面「存在 2 · 已消失 0 · 待核对 1」｜事件 {\"applied\":2,\"missing\":0,\"needsReconciliation\":1}",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-keeps-the-checkpoint-it-rejected": {
+      "ok": true,
+      "detail": "最近检查点「cp_0637ddb5-860c-4885-9113-c937129d6b7a（暂停存档）」｜磁盘 工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-entries-cover-the-decision": {
+      "ok": true,
+      "detail": "原文 3 条 context.checkpoint.paused,context.event:context.recovered,context.event:context.resume.replanned",
+      "at": "2026-11-28T03:29:33.482Z"
+    },
+    "ui-replan-card-scrolled": {
+      "ok": true,
+      "detail": "截图前把「上下文」段滚进视口",
+      "at": "2026-11-28T03:29:33.483Z"
+    },
+    "A-delete-reclaims-checkpoint": {
+      "ok": true,
+      "detail": "删前文件 true，回收结果 {\"taskId\":\"275e5b15-d8c5-48f2-8f98-39c1c50f4339\",\"checkpointsRemoved\":true,\"archiveSegments\":0,\"goalId\":\"goal:275e5b15-d8c5-48f2-8f98-39c1c50f4339\",\"goalReclaimed\":false}",
+      "at": "2026-11-28T03:29:36.395Z"
+    },
+    "B-delete-reclaims-checkpoint": {
+      "ok": true,
+      "detail": "删前文件 true，回收结果 {\"taskId\":\"464b50b0-0edf-4922-8c5e-9b4dcbc75d6e\",\"checkpointsRemoved\":true,\"archiveSegments\":0,\"goalId\":\"goal:464b50b0-0edf-4922-8c5e-9b4dcbc75d6e\",\"goalReclaimed\":false}",
+      "at": "2026-11-28T03:29:39.198Z"
+    },
+    "C-delete-reclaims-checkpoint": {
+      "ok": true,
+      "detail": "删前文件 true，回收结果 {\"taskId\":\"56f93127-29f9-4bf9-914c-4df9254ecd12\",\"checkpointsRemoved\":true,\"archiveSegments\":0,\"goalId\":\"goal:56f93127-29f9-4bf9-914c-4df9254ecd12\",\"goalReclaimed\":false}",
+      "at": "2026-11-28T03:29:42.006Z"
+    },
+    "disk-has-no-orphan-after-run": {
+      "ok": true,
+      "detail": "探针之外没有无人认领的归属文件",
+      "at": "2026-11-28T03:29:42.025Z"
+    },
+    "probe-tasks-cleaned-up": {
+      "ok": true,
+      "detail": "任务数 1 → 0（扫前的 1 个归属文件里，上一轮中断留下的探针 1 条已在开头删掉）",
+      "at": "2026-11-28T03:29:42.054Z"
+    }
+  },
+  "shots": [
+    "01-A-paused-context-card.png",
+    "02-A-resumed-context-card.png",
+    "03-A-context-detail-entries.png",
+    "04-B-no-context-card.png",
+    "05-C-replanned-context-card.png"
+  ],
+  "before": {
+    "tasks": 1,
+    "ownerSegments": [
+      "7107cbd2-2843-4282-9628-51cd02329285.json"
+    ]
+  },
+  "backups": {
+    "checkpoints": "context-checkpoints.before.tgz",
+    "store": "agent-store.before.json"
+  },
+  "staleProbes": [
+    "7107cbd2-2843-4282-9628-51cd02329285"
+  ],
+  "probeA": {
+    "taskId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+    "title": "工作流：M2-3 上下文状态探针",
+    "files": [
+      "d1/f1.txt",
+      "d1/f2.txt",
+      "d1/f3.txt",
+      "d1/f4.txt",
+      "d2/f5.txt",
+      "d2/f6.txt",
+      "d2/f7.txt",
+      "d2/f8.txt"
+    ]
+  },
+  "probeB": {
+    "taskId": "464b50b0-0edf-4922-8c5e-9b4dcbc75d6e",
+    "title": "工作流：M2-3 无上下文事件反例"
+  },
+  "probeC": {
+    "taskId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+    "lateFile": "late-from-paused-shell.txt"
+  },
+  "pauseProjection": {
+    "hasEvents": true,
+    "contextId": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+    "contextIdFrom": {
+      "at": 1795836497867,
+      "label": "暂停已提交检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561"
+    },
+    "checkpoints": [
+      "pause:cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561:nr=0"
+    ],
+    "rebuilds": [],
+    "lastRebuild": null,
+    "reconciliation": {
+      "at": 1795836497867,
+      "applied": null,
+      "missing": null,
+      "needsReconciliation": 0,
+      "source": "pause"
+    },
+    "budget": null,
+    "entryCount": 1,
+    "summary": "1 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied ? / missing ? / 待核对 0"
+  },
+  "resumeProjection": {
+    "hasEvents": true,
+    "contextId": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+    "contextIdFrom": {
+      "at": 1795836501565,
+      "label": "已从检查点续跑：沿用已批准计划，未重新规划"
+    },
+    "checkpoints": [
+      "pause:cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561:nr=0"
+    ],
+    "rebuilds": [
+      "recovered:ptr=task-fields",
+      "resume-continue:ptr=task-fields"
+    ],
+    "lastRebuild": {
+      "kind": "resume-continue",
+      "at": 1795836501565,
+      "reason": "检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079"
+    },
+    "reconciliation": {
+      "at": 1795836501439,
+      "applied": 7,
+      "missing": 0,
+      "needsReconciliation": 0,
+      "source": "recovered"
+    },
+    "budget": null,
+    "entryCount": 3,
+    "summary": "3 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied 7 / missing 0 / 待核对 0"
+  },
+  "pauseCard": {
+    "tabMissing": null,
+    "renderTimeout": null,
+    "loading": false,
+    "errorText": "",
+    "summary": "上下文 1 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied ? / missing ? / 待核对 0",
+    "cells": {
+      "当前上下文": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+      "来源事件": "暂停已提交检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 @ 11:28:17",
+      "最近检查点": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561（暂停存档）",
+      "存档时间": "11:28:17",
+      "副作用核对": "存在 未记录 · 已消失 未记录 · 待核对 0",
+      "核对来源": "暂停时核对 @ 11:28:17",
+      "上次重建": "未重建",
+      "重建原因": "未记录",
+      "续跑判定": "没有点过「继续」",
+      "预算水位": "未记录"
+    },
+    "rows": [],
+    "entryCount": 1,
+    "entryTypes": [
+      "context.checkpoint.paused"
+    ]
+  },
+  "resumeCard": {
+    "loading": false,
+    "errorText": "",
+    "summary": "上下文 3 条 context 事件 · 最近检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561 · 核对 applied 7 / missing 0 / 待核对 0",
+    "cells": {
+      "当前上下文": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+      "来源事件": "已从检查点续跑：沿用已批准计划，未重新规划 @ 11:28:21",
+      "最近检查点": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561（暂停存档）",
+      "存档时间": "11:28:17",
+      "副作用核对": "存在 7 · 已消失 0 · 待核对 0",
+      "核对来源": "恢复时核对 @ 11:28:21",
+      "上次重建": "已从检查点续跑：沿用已批准计划，未重新规划 @ 11:28:21",
+      "重建原因": "检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079",
+      "续跑判定": "已从检查点续跑：沿用已批准计划，未重新规划 @ 11:28:21",
+      "预算水位": "未记录"
+    },
+    "rows": [
+      {
+        "head": "11:28:21 已从检查点恢复上下文 指针来自任务字段",
+        "tone": "t-muted",
+        "lines": [
+          "原因 从 Journal 活动指针恢复",
+          "检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561",
+          "副作用 存在 7 · 已消失 0 · 待核对 0"
+        ],
+        "reasons": [],
+        "steps": []
+      },
+      {
+        "head": "11:28:21 已从检查点续跑：沿用已批准计划，未重新规划 指针来自任务字段 复用 6 步 · 本轮执行 2 步",
+        "tone": "t-muted",
+        "lines": [
+          "原因 检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079",
+          "检查点 cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561"
+        ],
+        "reasons": [],
+        "steps": [
+          "复用 write-1、write-2、write-3、write-4、write-5、write-6",
+          "本轮 write-7、write-8",
+          "计划 3bb24e9c · 轮次 bbe89182"
+        ]
+      }
+    ],
+    "entryCount": 3,
+    "entryTypes": [
+      "context.checkpoint.paused",
+      "context.event:context.recovered",
+      "context.event:context.resume.continued"
+    ]
+  },
+  "emptyCard": {
+    "summary": "上下文 没有记录到上下文事件",
+    "cells": {},
+    "entryCount": 0,
+    "emptyState": true,
+    "loading": false,
+    "errorText": "",
+    "renderTimeout": null
+  },
+  "replanProjection": {
+    "hasEvents": true,
+    "contextId": "pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666",
+    "contextIdFrom": {
+      "at": 1795836572417,
+      "label": "已重新规划：检查点不足以安全续跑"
+    },
+    "checkpoints": [
+      "pause:cp_0637ddb5-860c-4885-9113-c937129d6b7a:nr=1"
+    ],
+    "rebuilds": [
+      "recovered:ptr=task-fields",
+      "resume-replan:ptr=task-fields"
+    ],
+    "lastRebuild": {
+      "kind": "resume-replan",
+      "at": 1795836572417,
+      "reason": "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）"
+    },
+    "reconciliation": {
+      "at": 1795836572312,
+      "applied": 2,
+      "missing": 0,
+      "needsReconciliation": 1,
+      "source": "recovered"
+    },
+    "budget": null,
+    "entryCount": 3,
+    "summary": "3 条 context 事件 · 最近检查点 cp_0637ddb5-860c-4885-9113-c937129d6b7a · 核对 applied 2 / missing 0 / 待核对 1"
+  },
+  "replanCard": {
+    "loading": false,
+    "errorText": "",
+    "summary": "上下文 3 条 context 事件 · 最近检查点 cp_0637ddb5-860c-4885-9113-c937129d6b7a · 核对 applied 2 / missing 0 / 待核对 1",
+    "cells": {
+      "当前上下文": "pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666",
+      "来源事件": "已重新规划：检查点不足以安全续跑 @ 11:29:32",
+      "最近检查点": "cp_0637ddb5-860c-4885-9113-c937129d6b7a（暂停存档）",
+      "存档时间": "11:29:30",
+      "副作用核对": "存在 2 · 已消失 0 · 待核对 1",
+      "核对来源": "恢复时核对 @ 11:29:32",
+      "上次重建": "已重新规划：检查点不足以安全续跑 @ 11:29:32",
+      "重建原因": "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+      "续跑判定": "已重新规划：检查点不足以安全续跑 @ 11:29:32",
+      "预算水位": "未记录"
+    },
+    "rows": [
+      {
+        "head": "11:29:32 已从检查点恢复上下文 指针来自任务字段",
+        "tone": "t-muted",
+        "lines": [
+          "原因 从 Journal 活动指针恢复",
+          "检查点 cp_0637ddb5-860c-4885-9113-c937129d6b7a",
+          "副作用 存在 2 · 已消失 0 · 待核对 1"
+        ],
+        "reasons": [],
+        "steps": []
+      },
+      {
+        "head": "11:29:32 已重新规划：检查点不足以安全续跑 指针来自任务字段 不复用上一轮步骤",
+        "tone": "t-warn",
+        "lines": [
+          "原因 1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+          "检查点 cp_0637ddb5-860c-4885-9113-c937129d6b7a"
+        ],
+        "reasons": [
+          "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）"
+        ],
+        "steps": []
+      }
+    ],
+    "entryCount": 3,
+    "entryTypes": [
+      "context.checkpoint.paused",
+      "context.event:context.recovered",
+      "context.event:context.resume.replanned"
+    ]
+  },
+  "rawEvents": {
+    "pauseEvent": {
+      "type": "context.checkpoint.paused",
+      "at": 1795836497867,
+      "taskId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+      "reason": "pause",
+      "goalVersion": 1,
+      "taskRevision": 3,
+      "needsReconciliation": 0,
+      "contextId": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+      "checkpointId": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561",
+      "activeRunId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+      "eventId": "a6a84d08-430d-4f1f-b01c-017eeb28fbb9",
+      "runId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+      "sequence": 85,
+      "phase": "execution"
+    },
+    "diskTail": {
+      "count": 1,
+      "checkpointId": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561",
+      "line": "工具执行状态：已完成 0 步；副作用核对 applied 6 / missing 0 / needs_reconciliation 0",
+      "applied": 6,
+      "missing": 0,
+      "needsReconciliation": 0
+    },
+    "resumeError": null,
+    "recoveredEvent": {
+      "contextId": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+      "checkpointId": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561",
+      "pointerSource": "task-fields",
+      "reason": "从 Journal 活动指针恢复",
+      "sideEffects": {
+        "applied": 7,
+        "missing": 0,
+        "needsReconciliation": 0
+      }
+    },
+    "decisionEvent": {
+      "contextId": "pause:275e5b15-d8c5-48f2-8f98-39c1c50f4339:1795836497836",
+      "checkpointId": "cp_8af45f5d-7be2-4bbc-950f-a56c3c4a9561",
+      "pointerSource": "task-fields",
+      "reason": "检查点有效、副作用账本无未知缺口，直接续跑已批准计划 3bb24e9c-9144-4ec2-940b-92ee48e43079",
+      "resume": {
+        "mode": "continue",
+        "planId": "3bb24e9c-9144-4ec2-940b-92ee48e43079",
+        "roundId": "bbe89182-ae75-4de0-8c47-01511a391eae",
+        "reusedStepIds": [
+          "write-1",
+          "write-2",
+          "write-3",
+          "write-4",
+          "write-5",
+          "write-6"
+        ],
+        "pendingStepIds": [
+          "write-7",
+          "write-8"
+        ],
+        "reasons": []
+      }
+    },
+    "decisionType": "context.resume.continued",
+    "B": [],
+    "pauseEventC": {
+      "type": "context.checkpoint.paused",
+      "at": 1795836570700,
+      "taskId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+      "reason": "pause",
+      "goalVersion": 1,
+      "taskRevision": 3,
+      "needsReconciliation": 1,
+      "contextId": "pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666",
+      "checkpointId": "cp_0637ddb5-860c-4885-9113-c937129d6b7a",
+      "activeRunId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+      "eventId": "413fa8c5-d1d8-42c8-9101-bd8572c67308",
+      "runId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+      "sequence": 45,
+      "phase": "execution"
+    },
+    "diskTailC": {
+      "count": 1,
+      "checkpointId": "cp_0637ddb5-860c-4885-9113-c937129d6b7a",
+      "line": "工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1",
+      "applied": 1,
+      "missing": 0,
+      "needsReconciliation": 1
+    },
+    "resumeErrorC": null,
+    "recoveredEventC": {
+      "contextId": "pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666",
+      "checkpointId": "cp_0637ddb5-860c-4885-9113-c937129d6b7a",
+      "pointerSource": "task-fields",
+      "reason": "从 Journal 活动指针恢复",
+      "sideEffects": {
+        "applied": 2,
+        "missing": 0,
+        "needsReconciliation": 1
+      }
+    },
+    "decisionEventC": {
+      "contextId": "pause:56f93127-29f9-4bf9-914c-4df9254ecd12:1795836570666",
+      "checkpointId": "cp_0637ddb5-860c-4885-9113-c937129d6b7a",
+      "pointerSource": "task-fields",
+      "reason": "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+      "resume": {
+        "mode": "replan",
+        "reasons": [
+          "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）"
+        ]
+      }
+    }
+  },
+  "cleanup": [
+    {
+      "tag": "A",
+      "taskId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+      "checkpointExistedBeforeDelete": true,
+      "cleanup": {
+        "taskId": "275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+        "checkpointsRemoved": true,
+        "archiveSegments": 0,
+        "goalId": "goal:275e5b15-d8c5-48f2-8f98-39c1c50f4339",
+        "goalReclaimed": false
+      }
+    },
+    {
+      "tag": "B",
+      "taskId": "464b50b0-0edf-4922-8c5e-9b4dcbc75d6e",
+      "checkpointExistedBeforeDelete": true,
+      "cleanup": {
+        "taskId": "464b50b0-0edf-4922-8c5e-9b4dcbc75d6e",
+        "checkpointsRemoved": true,
+        "archiveSegments": 0,
+        "goalId": "goal:464b50b0-0edf-4922-8c5e-9b4dcbc75d6e",
+        "goalReclaimed": false
+      }
+    },
+    {
+      "tag": "C",
+      "taskId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+      "checkpointExistedBeforeDelete": true,
+      "cleanup": {
+        "taskId": "56f93127-29f9-4bf9-914c-4df9254ecd12",
+        "checkpointsRemoved": true,
+        "archiveSegments": 0,
+        "goalId": "goal:56f93127-29f9-4bf9-914c-4df9254ecd12",
+        "goalReclaimed": false
+      }
+    }
+  ],
+  "error": null,
+  "finishedAt": "2026-11-28T03:29:42.054Z"
+}
