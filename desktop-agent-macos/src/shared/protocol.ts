@@ -920,8 +920,30 @@ export function buildReportPrompt(input: {
    * 失败会把整条工程从头再跑一遍，已经通过的子任务白做。
    */
   subtaskScope?: { label: string; notes: string[] } | null;
+  /**
+   * M3-2：上一轮被判为连续无进展时，把判定原话与「已经同结果跑过一遍」的命令清单带进
+   * 下一轮计划请求。
+   *
+   * 不带这段，REPLAN 只是换了个标签：模型看到的还是同一份报告，产出的还是同一份计划，
+   * 空转照旧。清单是硬证据（命令 + 退出码取自上一轮报告），不是「请换个思路」这种没法核对的话。
+   */
+  noProgress?: { reason: string; commands: string[] } | null;
 }): string {
   const review = input.review;
+  const noProgress = input.noProgress;
+  const idleSection = noProgress
+    ? `
+系统判定：${noProgress.reason}
+${noProgress.commands.length > 0
+    ? `这些命令已经带着同样的退出码跑过一遍，这一轮不允许再跑：\n${noProgress.commands.map(command => `- ${command}`).join('\n')}`
+    : '上一轮换过命令，但未满足的标准一条也没动——照原计划再跑一遍不会改变结论。'}
+
+这一轮要做的事还是那些标准，但**手段必须与上一轮不同**：
+- 先用一句话说明上一轮为什么没前进（缺事实、缺授权、工具做不到，还是方法本身不对）。
+- 再给出不同的做法：换验证方式、换工具，或把范围缩到其中一条未满足的标准上先做穿。
+- 确实拿不到新信息时输出 clarification_required，不要把同一批调用再交一遍。
+`
+    : '';
   const fixSection = review && review.issues.length > 0
     ? `
 独立评审${review.needsFix ? '判定需要修复' : '给出了待改进项'}（${review.reviewer}）：
@@ -942,7 +964,7 @@ ${review.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n')}
 ${input.subtaskScope.notes.map(note => `- ${note}`).join('\n')}
 `
     : '';
-  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}${scopeSection}
+  return `以下是 ThinkFusion 的本地执行报告（真实执行结果，未省略）。${fixSection}${scopeSection}${idleSection}
 完成口径：代码改动必须分别有编译、运行、测试、诊断四类检查通过的真实命令；
 缺少哪一项就先补哪一项，不能用「程序跑起来了」代替测试或诊断。
 

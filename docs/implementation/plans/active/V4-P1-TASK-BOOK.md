@@ -383,6 +383,21 @@ M3-3 的预算超限改成 `PAUSE` 也走同一个出口，M3-4 只是把"出口
 - **真机验收：** 构造一个会空转的任务（如反复读同一文件不产出），系统在阈值轮停下并
   说明原因；截图 + 事件流存证。
 - **回退：** 阈值配置化，调大即等效关闭。
+- **落地后的实况修正（2026-11-28 真机，[验收汇总](../../acceptance/v4-p1-m3-2-20261128/SUMMARY.md)）：**
+  1. **空转在现网不是靠「重复调用」触发的。** 探针每轮都在换工具（`fs.writeFile`×6 → `session.search`/
+     `fs.tree`/`fs.find`/`git status` → `fs.tree`/`fs.search`×3/`fs.find`×2），`progress.repeated` 三轮
+     恒为 0，拦住它的是第二维 `criterionStalled`（未满足的标准集合连续不变）。所以测试口径必须是两条：
+     同证据 3 轮（离线 `check-cycle-decision.mjs` 覆盖）**加**「换手段但不推进标准」（真机覆盖）——
+     只写前者会让人以为现网永远撞不到反空转。
+  2. **「停下等人」之后用户接不回去。** 阈值调大确实让判定不再拦（离线证到），但真机上任务已经停在
+     `report_pending`，`resumeRepair()` 在「本轮三项检查都已跑（哪怕全 `skipped`）」的前提下直接拒绝
+     「这一轮已经完成全部检查，不需要继续修复」，界面上只剩「接受未验证并结束」与取消。**本条「回退：
+     调大即等效关闭」在用户侧因此不成立**，补齐入口归 M3-4：`stop_and_wait` 之后要有一条「换手段再来一轮」
+     的用户动作，它必须绕开「已验证完」的门禁（要改的是计划与手段，不是补一次验证）。
+  3. 阈值读取口落在 `resolveNoProgressLimits({env, config})`（env > `userData/no-progress.json` > 默认 2/2，
+     脏值回退默认），宿主注入的是 `noProgressLimits: () => …` 因而每次判定现读。**本轮只证到「配置文件真的
+     进了判定」**（事件里记录的阈值就是写入值）；「运行中改文件不重启就跟着变」需要按修正后的写入时机
+     （渲染进程连上之后）再跑一次才算现场证据，脚本已加 `a-threshold-applies-without-restart` 断言。
 
 ## P1-M3-3：Budget Manager 收敛
 
@@ -414,6 +429,13 @@ M3-3 的预算超限改成 `PAUSE` 也走同一个出口，M3-4 只是把"出口
   开启时 continueAfterReport 决策为 CONTINUE 且预算未超、无空转、无 WAIT_USER 判定 →
   自动进入下一轮（复用 driveRound），每轮发 `cycle.decision.created` 说明为什么继续。
   决策为 WAIT_USER/PAUSE/COMPLETE 时停下等用户——**持续循环的每一类停止原因都必须可解释**。
+- **硬前置（M3-2 真机挖出，2026-11-28）：** 「停下等用户」目前没有可用的出口。任务被 `WAIT_USER` 停在
+  `report_pending` 时，唯一的续跑入口 `resumeRepair()` 要求「验证尚未完成」，而模型完全可以给出
+  `verified:yes` + 三项检查全 `skipped` 的报告（本轮真机就是这样），于是界面只剩「接受未验证并结束」
+  与取消——**没有任何一条路径能让用户说「换手段再来一轮」**。本任务必须先补这条入口（含事件与界面痕迹，
+  §8 三件齐），再谈 autoContinue；否则 ≥2 小时无人值守任务一旦撞上空转就永久停住，M3 的闸门也过不了。
+  另两条同源放大器一并收口：瞬时通道故障（「模型连续 120 秒没有输出」）不该把任务判成终态 `failed`；
+  `plan.invalid`（步骤多写 `mapsTo`/`expect`/`checksCategory` 被 zod strict 整份拒绝）会白烧整轮。
 - **文件范围：** `src/main/orchestrator.ts:2801+`、`src/shared/contracts.ts`（任务字段）、
   渲染层开关 + 停止原因展示（接 M2-3 的上下文段或任务头）。
 - **测试：** 决策映射单测（CONTINUE→自动续、四类停止→停）；与 M3-2 空转、M3-3 预算的

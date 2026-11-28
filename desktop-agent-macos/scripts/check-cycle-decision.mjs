@@ -1,10 +1,13 @@
 /**
- * GCE-P3 + V4 P1 M3-1：Cycle 决策纯函数是唯一判定出口。
+ * GCE-P3 + V4 P1 M3-1/M3-2：Cycle 决策纯函数是唯一判定出口，且空转真的会被拦下。
  *
- * 两组用例的分工：
+ * 三组用例的分工：
  * - 「场景 → 决策」映射：把 orchestrator 现场会出现的组合（交付未确认、修复闸门已停、
  *   无契约、预算见底、连续无进展）逐个钉死在纯函数上，不再靠读代码确认它有没有被用；
- * - 源码守卫：简化版四出口必须已删除，决策事件必须带全字段——这两条只有源码能证明。
+ * - 反空转（M3-2）：三轮同证据必须在第三轮被拦下、带上原因分类、连续两次空转就停下等人，
+ *   同时正常推进的任务不误伤，阈值调大等效关闭；
+ * - 源码守卫：简化版四出口必须已删除，决策事件必须带全字段，空转判定必须真的接进执行层
+ *   ——这三条只有源码能证明。
  * Run: npm run test:cycle-decision
  */
 import assert from 'node:assert/strict';
@@ -13,12 +16,15 @@ import test from 'node:test';
 
 import {
   cycleFingerprint,
+  cycleNoProgressLimits,
   decideCycleAction,
   deriveCycleDiagnosis,
+  deriveNoProgressCause,
   detectNoProgress,
   isNoProgress,
   legacyDecisionOf,
-  openCriteriaKey
+  openCriteriaKey,
+  resolveNoProgressLimits
 } from '../out-test/shared/cycle-decision.js';
 
 const CLEAN_REVIEW = { needsFix: false, blockingIssues: 0, unresolved: 0 };
@@ -64,15 +70,24 @@ test('取消/阻塞/目标未就绪优先于完成判断', () => {
   );
 });
 
-test('连续无进展按诊断选择重设计/重分析/重规划/等待', () => {
-  const progress = { fingerprint: 'f1', repeated: 2, criterionStalled: false };
-  assert.equal(decideCycleAction(input({ progress, diagnosis: 'design' })).decision, 'REDESIGN');
-  assert.equal(decideCycleAction(input({ progress, diagnosis: 'analysis' })).decision, 'REANALYZE');
-  assert.equal(decideCycleAction(input({ progress, diagnosis: 'task_plan' })).decision, 'REPLAN');
-  const stalled = decideCycleAction(input({ progress, diagnosis: 'implementation' }));
-  assert.equal(stalled.decision, 'WAIT_USER');
-  // 理由必须点名「重复了几轮」，否则界面上只有一句「等待用户」，看不出是在等人还是机器卡住。
-  assert.match(stalled.reason, /已重复 3 轮/);
+test('连续无进展只出重做计划或停下等人，不再按诊断继续执行', () => {
+  // 原来这里按诊断出 REDESIGN / REANALYZE：两条都落 open_next_round，等于明知在空转
+  // 还把同一批调用再交一遍。现在诊断只进理由文本，落点收窄到 REPLAN / WAIT_USER 两种。
+  const progress = { fingerprint: 'f1', repeated: 2, criterionStalled: false, noProgressStreak: 1 };
+  for (const diagnosis of ['design', 'analysis', 'implementation', 'task_plan', 'goal', 'none']) {
+    const out = decideCycleAction(input({ progress, diagnosis }));
+    assert.ok(
+      out.decision === 'REPLAN' || out.decision === 'WAIT_USER',
+      `${diagnosis} 的空转轮落在了 ${out.decision}：既不是重做计划也不是停下等人`
+    );
+    assert.equal(out.noProgressCause, 'repeated_call', '不传分类时按最保守的「重复调用」');
+    assert.match(out.reason, /连续无进展（原因分类：重复调用，这是连续第 1 轮）/);
+  }
+  // 不传分类时不能拿别的分类冒充；理由要点名轮数，否则界面只剩一句「等待用户」。
+  assert.match(
+    decideCycleAction(input({ progress })).reason,
+    /同一批证据已连续 3 轮没有变化/
+  );
 });
 
 test('GAP 按诊断回到实现/设计/分析/规划/目标', () => {
@@ -220,10 +235,12 @@ test('指纹与进展：同证据连续重复才算空转', () => {
   const third = detectNoProgress({ previous: second, fingerprint: a, criterionKey: 'c1' });
   assert.equal(third.repeated, 2);
   assert.equal(isNoProgress(third), true);
+  assert.equal(third.noProgressStreak, 1, '第一次判空转：还没有重规划过');
   // A→B→A 的来回摆：证据每轮都在变，但没满足的标准一条没少——仍算停滞。
   const swung = detectNoProgress({ previous: third, fingerprint: b, criterionKey: 'c1' });
   assert.equal(swung.repeated, 0);
   assert.equal(isNoProgress(swung), true);
+  assert.equal(swung.noProgressStreak, 2, '重规划后仍空转要能数出来，否则每轮都只会重复给一次机会');
   // 阈值配置化：调大即等效关闭。
   assert.equal(isNoProgress({ ...third, repeatLimit: 9, criterionStalled: false }), false);
 });
@@ -253,6 +270,104 @@ test('未满足标准集合：变了就不算停滞', () => {
     key,
     '集合只看仍未满足的那几条，顺序无关'
   );
+});
+
+test('三轮同证据：第三轮判空转、带分类，且不再选择继续执行（任务书 M3-2 用例）', () => {
+  const first = detectNoProgress({ previous: null, fingerprint: 'F', criterionKey: 'K' });
+  const second = detectNoProgress({ previous: first, fingerprint: 'F', criterionKey: 'K' });
+  const third = detectNoProgress({ previous: second, fingerprint: 'F', criterionKey: 'K' });
+  assert.equal(isNoProgress(first), false, '第一轮没有可比对象');
+  assert.equal(isNoProgress(second), false, '第二轮可能只是重试，不能当空转杀掉');
+  assert.equal(isNoProgress(third), true);
+  // 「非 EXECUTE」在这套枚举里的意思是：既不 CONTINUE 也不 REPAIR（那两条就是把同一批
+  // 调用再跑一遍），更不是 COMPLETE（明知没进展还收尾）。
+  const decision = decideCycleAction(input({ progress: third, noProgressCause: 'repeated_call' }));
+  assert.equal(decision.decision, 'REPLAN');
+  assert.equal(decision.noProgressCause, 'repeated_call', '事件要能说出这一轮为什么被判空转');
+  assert.equal(decision.nextAction, 'open_next_round');
+  assert.match(decision.reason, /不得重复同样的调用/);
+  // 重做计划之后仍然同样的证据 → 不再给第三次机会，停下等人。
+  const fourth = detectNoProgress({ previous: third, fingerprint: 'F', criterionKey: 'K' });
+  const waited = decideCycleAction(input({ progress: fourth, noProgressCause: 'repeated_call' }));
+  assert.equal(waited.decision, 'WAIT_USER');
+  assert.equal(waited.nextAction, 'stop_and_wait');
+  assert.equal(waited.requiresUser, true);
+  assert.match(waited.reason, /重做计划后仍未出现新事实/);
+});
+
+test('正常推进不误伤：证据换了、标准集合缩了都不判空转', () => {
+  const first = detectNoProgress({ previous: null, fingerprint: 'A', criterionKey: 'K-open-both' });
+  const second = detectNoProgress({ previous: first, fingerprint: 'B', criterionKey: 'K-open-both' });
+  const third = detectNoProgress({ previous: second, fingerprint: 'C', criterionKey: 'K-one-left' });
+  // 三轮各做掉一条标准：未满足集合每轮都在变，即使证据指纹完全不同也不该被杀。
+  assert.equal(isNoProgress(third), false);
+  assert.equal(third.noProgressStreak, 0);
+  const done = decideCycleAction(input({ progress: third }));
+  assert.equal(done.decision, 'COMPLETE');
+  assert.equal(done.noProgressCause, null, '没有命中空转判定就不写分类');
+});
+
+test('缺权限的空转不给自动重规划：重试不会让授权出现', () => {
+  const progress = { fingerprint: 'f1', repeated: 2, criterionStalled: false, noProgressStreak: 1 };
+  const out = decideCycleAction(input({ progress, noProgressCause: 'missing_permission' }));
+  assert.equal(out.decision, 'WAIT_USER');
+  assert.equal(out.noProgressCause, 'missing_permission');
+  assert.match(out.reason, /只有用户能解除/);
+  // 预算见底时的空转轮也不能「再开一轮」：落点必须是判耗尽，不是继续跑。
+  const broke = decideCycleAction(input({
+    progress,
+    noProgressCause: 'needs_tool_change',
+    budget: { atMaxRounds: true }
+  }));
+  assert.equal(broke.nextAction, 'fail_budget');
+  assert.equal(broke.noProgressCause, 'needs_tool_change');
+});
+
+test('空转分类只从结构化事实推导，不看模型自述', () => {
+  const facts = { errorCodes: [], steps: 2, evidence: 1, repeatedCommands: 0 };
+  // 被授权/审批挡下排第一：改计划不会让许可出现，分类错就会白重规划一轮。
+  assert.equal(deriveNoProgressCause({ ...facts, errorCodes: ['STEP_REJECTED'], repeatedCommands: 2 }), 'missing_permission');
+  assert.equal(deriveNoProgressCause({ ...facts, errorCodes: ['GRANT_INVALID', 'COMMAND_FAILED'] }), 'missing_permission');
+  // 什么都没执行、什么都没采到 → 缺的是上下文。
+  assert.equal(deriveNoProgressCause({ ...facts, steps: 0, evidence: 0 }), 'missing_context');
+  // 工具本身不支持 → 换手段，不是改实现。
+  assert.equal(deriveNoProgressCause({ ...facts, errorCodes: ['UNSUPPORTED_PLATFORM'] }), 'needs_tool_change');
+  // 同命令同退出码 → 重复调用。
+  assert.equal(deriveNoProgressCause({ ...facts, repeatedCommands: 2 }), 'repeated_call');
+  // COMMAND_FAILED / TEST_FAILED 是本轮要修的东西本身，不能算「工具不行」。
+  assert.equal(deriveNoProgressCause({ ...facts, errorCodes: ['COMMAND_FAILED'] }), 'missing_context');
+  // 带后缀的原始 code 不在这里归一：`COMMAND_FAILED: 命令退出码 3` 认不出来，
+  // 冒号前截取只在 orchestrator 那一处做（诊断与分类共用同一份 errorCodes）。
+  assert.equal(deriveNoProgressCause({ ...facts, errorCodes: ['GRANT_INVALID: 未授权工具'] }), 'missing_context');
+});
+
+test('阈值来源：环境变量 > 配置文件 > 默认；脏值不会静默关掉判定', () => {
+  assert.deepEqual(resolveNoProgressLimits({}), { repeatLimit: 2, criteriaLimit: 2 });
+  assert.deepEqual(resolveNoProgressLimits({ config: { repeatLimit: 4 } }), { repeatLimit: 4, criteriaLimit: 2 });
+  assert.deepEqual(resolveNoProgressLimits({ env: '5', config: { repeatLimit: 4 } }), { repeatLimit: 5, criteriaLimit: 5 });
+  assert.deepEqual(resolveNoProgressLimits({ env: '3,7' }), { repeatLimit: 3, criteriaLimit: 7 });
+  for (const dirty of ['', 'abc', '0', '-1', '0,9', '1,2,3', 'null', '2.5']) {
+    assert.deepEqual(
+      resolveNoProgressLimits({ env: dirty, config: { repeatLimit: 6 } }),
+      { repeatLimit: 6, criteriaLimit: 2 },
+      `「${dirty}」退回配置文件那一档，不能被读成「永远判空转」或「永远不判」`
+    );
+  }
+  assert.deepEqual(cycleNoProgressLimits({ repeatLimit: 0, criteriaLimit: 'x' }), { repeatLimit: 2, criteriaLimit: 2 });
+  assert.deepEqual(cycleNoProgressLimits(null), { repeatLimit: 2, criteriaLimit: 2 });
+});
+
+test('阈值调大即等效关闭（M3-2 回退路径，不需要删判定分支）', () => {
+  const first = detectNoProgress({ previous: null, fingerprint: 'F', criterionKey: 'K', repeatLimit: 9, criteriaLimit: 9 });
+  const second = detectNoProgress({ previous: first, fingerprint: 'F', criterionKey: 'K', repeatLimit: 9, criteriaLimit: 9 });
+  const third = detectNoProgress({ previous: second, fingerprint: 'F', criterionKey: 'K', repeatLimit: 9, criteriaLimit: 9 });
+  assert.equal(isNoProgress(third), false);
+  assert.equal(third.noProgressStreak, 0);
+  // 同一份进展在默认阈值下是空转：差别只在阈值，不在调用点各自加条件。
+  assert.equal(isNoProgress({ ...third, repeatLimit: 2, criterionStalled: true }), true);
+  const done = decideCycleAction(input({ progress: third, noProgressCause: 'repeated_call' }));
+  assert.equal(done.decision, 'COMPLETE');
+  assert.equal(done.noProgressCause, null);
 });
 
 test('诊断从结构化事实推导，不读模型自述', () => {
@@ -349,6 +464,37 @@ test('守卫：决策事件带 CycleDecisionResult 全字段', () => {
   const orch = readFileSync(new URL('../src/main/orchestrator.ts', import.meta.url), 'utf8');
   assert.ok(orch.includes('nextAction: decision.nextAction'), '事件没有记判定给出的落点');
   assert.ok(orch.includes('progress: input.progress'), '事件没有记进展计数');
+});
+
+test('守卫：反空转真的接进了执行层（阈值、分类、指令三处都不留第二套口径）', () => {
+  const orch = readFileSync(new URL('../src/main/orchestrator.ts', import.meta.url), 'utf8');
+  assert.ok(
+    /detectNoProgress\(\{[\s\S]{0,400}repeatLimit: limits\.repeatLimit/.test(orch),
+    '阈值没有传进 detectNoProgress——配置化就只剩一个没人读的常量'
+  );
+  assert.ok(orch.includes('deriveNoProgressCause({'), '空转分类没有从两轮报告的硬事实推导');
+  // 截取冒号前的 code 只准有一处：诊断与分类共用同一份 errorCodes，各截一次迟早不一致。
+  assert.equal((orch.match(/code\.split\(':'\)\[0\]/g) ?? []).length, 1, '归一化错误码的地方不止一处');
+  assert.match(orch, /deriveNoProgressCause\(\{[\s\S]{0,240}errorCodes,/, '分类没有复用归一化后的错误码');
+  assert.ok(orch.includes('noProgressCause: decision.noProgressCause'), '事件记的不是判定真正用上的分类');
+  assert.ok(orch.includes('noProgress: cycleDecision.noProgressCause'), '空转指令没有随下一轮计划请求下发');
+  // 下一轮的定位写死成「修复」时，REPLAN 轮在界面上会显示成修 bug，和事件里的决策对不上。
+  assert.ok(!orch.includes('GDC 下一轮=repair'), '下一轮的定位仍写死为修复');
+  assert.ok(!orch.includes("'修复轮重新规划'"), '阶段提示仍写死为修复轮');
+
+  const contracts = readFileSync(new URL('../src/shared/contracts.ts', import.meta.url), 'utf8');
+  const block = contracts.slice(contracts.indexOf("type: 'cycle.decision.created'"));
+  assert.ok(block.slice(0, 1800).includes('noProgressCause:'), 'cycle.decision.created 少了空转分类字段');
+
+  // 算了没拼进提示词等于没做：这一段曾经是一个没人用的局部变量。
+  const protocol = readFileSync(new URL('../src/shared/protocol.ts', import.meta.url), 'utf8');
+  assert.ok(protocol.includes('${idleSection}'), '空转指令算出来了但没有进下一轮提示词');
+
+  // 阈值来源只有一处解析：调用点各写各的 `?? 2` 会让「配置了但没生效」查不出来。
+  const shared = readFileSync(new URL('../src/shared/cycle-decision.ts', import.meta.url), 'utf8');
+  assert.ok(shared.includes('export function resolveNoProgressLimits'), '阈值优先级没有放在纯函数侧');
+  const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8');
+  assert.ok(main.includes('noProgressLimits: () => resolveNoProgressLimits('), '宿主没有把阈值接进编排器');
 });
 
 test('守卫：详情入口能看到判定落点，且说法只有一个来源（渲染层无测试框架，按源码核对）', () => {

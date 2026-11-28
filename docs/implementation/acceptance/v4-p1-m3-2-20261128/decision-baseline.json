@@ -1,0 +1,51 @@
+{
+  "type": "cycle.decision.created",
+  "at": 1795850223200,
+  "taskId": "5c8edc7b-5421-4636-9753-90340639782f",
+  "workId": "5c8edc7b-5421-4636-9753-90340639782f",
+  "cycleId": "cycle:5c8edc7b-5421-4636-9753-90340639782f:1",
+  "roundId": "d858eb60-b4db-4d3f-8657-b64c5035deb0",
+  "decisionType": "REPAIR",
+  "reason": "存在待修或未解决评审问题",
+  "evidenceRefs": [
+    "evidence:5c8edc7b-5421-4636-9753-90340639782f:d858eb60-b4db-4d3f-8657-b64c5035deb0:criterion:5c8edc7b-5421-4636-9753-90340639782f:plan:tests-failed",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f01.txt",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f02.txt",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f03.txt",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f04.txt",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f05.txt",
+    "file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f06.txt",
+    "cmd:for i in $(seq -w 1 6); do want=$(sha256sum f$i.txt | cut -d' ' -f1); got=$(tr -d '\\n' < f$i.txt); [ -n \"$want\" ] && [ \"$want\" = \"$got\" ] || { echo \"f$i.txt 的内容不是它自身的 sha256\"; exit 3; }; done && echo all-fixed#3"
+  ],
+  "nextAction": "open_next_round",
+  "requiresUser": false,
+  "targetStage": "IMPLEMENTATION",
+  "diagnosis": "implementation",
+  "progress": {
+    "fingerprint": "[\"step:write-1:fs.writeFile:completed::\",\"args:write-1:bbfdf13f\",\"step:write-2:fs.writeFile:completed::\",\"args:write-2:2dad2e43\",\"step:write-3:fs.writeFile:completed::\",\"args:write-3:6667ee53\",\"step:write-4:fs.writeFile:completed::\",\"args:write-4:ac915437\",\"step:write-5:fs.writeFile:completed::\",\"args:write-5:6f5301c7\",\"step:write-6:fs.writeFile:completed::\",\"args:write-6:f5d9a2a3\",\"step:check-hash-fixed:shell.run:failed:3:命令退出码 3\",\"args:check-hash-fixed:c9bdc155\",\"out:check-hash-fixed:3d593787\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f01.txt:\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f02.txt:\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f03.txt:\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f04.txt:\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f05.txt:\",\"evidence:file:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f06.txt:\",\"evidence:command:for i in $(seq -w 1 6); do want=$(sha256sum f$i.txt | cut -d' ' -f1); got=$(tr -d '\\\\n' < f$i.txt); [ -n \\\"$want\\\" ] && [ \\\"$want\\\" = \\\"$got\\\" ] || { echo \\\"f$i.txt 的内容不是它自身的 sha256\\\"; exit 3; }; done && echo all-fixed:3\",\"verified:no\",\"check:compile:skipped::050c5d1f\",\"check:run:skipped::050c5d1f\",\"check:tests:failed:3:abd5750b\",\"diagnostics:skipped:0:0\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f01.txt\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f02.txt\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f03.txt\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f04.txt\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f05.txt\",\"changed:/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-2-ws-1795848954037/f06.txt\",\"reason:改了文件，但没有任何成功的构建 / 运行 / 测试 / 诊断：本轮不能算已验证\",\"reason:测试失败（for i in $(seq -w 1 6); do want=$(sha256sum f$i.txt | cut -d' ' -f1); got=$(tr -d '\\\\n' < f$i.txt); [ -n \\\"$want\\\" ] && [ \\\"$want\\\" = \\\"$got\\\" ] || { echo \\\"f$i.txt 的内容不是它自身的 sha256\\\"; exit 3; }; done && echo all-fixed，退出码 3）\"]",
+    "criterionKey": "[\"工作区里 f01.txt 到 f6.txt 共 6 个文件，每个文件的内容必须恰好等于该文件自身的 sha256（64 位十六进制、不含空白），且 REPORT.md 逐条记录这 6 次校验命令与退出码\"]",
+    "repeated": 0,
+    "criteriaStreak": 0,
+    "repeatLimit": 1,
+    "criteriaLimit": 1,
+    "criterionStalled": false,
+    "noProgressStreak": 0
+  },
+  "noProgressCause": null,
+  "goalFit": {
+    "fit": "GAP",
+    "met": 0,
+    "unmet": 1,
+    "unverified": 0,
+    "blockingRisks": []
+  },
+  "budget": {
+    "atMaxRounds": false,
+    "roundUsed": 1,
+    "roundLimit": 20
+  },
+  "eventId": "97c2a92a-de1b-4fe5-a49f-c7b29c0a58c9",
+  "runId": "5c8edc7b-5421-4636-9753-90340639782f",
+  "sequence": 76,
+  "phase": "execution"
+}

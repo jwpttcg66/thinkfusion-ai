@@ -2224,6 +2224,8 @@ export type AgentEvent = AgentEventBase &
         /** 判定依据：诊断结论与无进展计数，供「为什么是这一步」核对。 */
         diagnosis: import('./cycle-decision').CycleDiagnosis;
         progress: import('./cycle-decision').CycleProgress;
+        /** 空转判定的原因分类（M3-2）：重复调用 / 缺上下文 / 缺权限 / 需换工具；没命中就是 null。 */
+        noProgressCause: import('./cycle-decision').CycleNoProgressCause | null;
         /** 目标层证据：fit 与风险，缺契约时为 null，不伪造。 */
         goalFit: { fit: string; met: number; unmet: number; unverified: number; blockingRisks: string[] } | null;
         /** 预算层证据：判定用的是哪一侧的数；拿不到就记 null，不用 0 冒充。 */

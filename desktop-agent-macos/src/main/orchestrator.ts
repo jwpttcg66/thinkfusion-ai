@@ -58,17 +58,20 @@ import {
   assessReportsAgainstGoal,
   goalContractFromPlan
 } from './engineering/goal-contract-runtime';
-import type { CycleDecisionInput, CycleDecisionResult, CycleProgress, GceCycleStage } from '../shared/cycle-decision';
+import type { CycleDecisionInput, CycleDecisionResult, CycleNoProgressLimits, CycleProgress, GceCycleStage } from '../shared/cycle-decision';
 import {
   cycleFingerprint,
+  cycleNoProgressLimits,
+  CYCLE_NO_PROGRESS_CAUSE_TEXT,
   decideCycleAction,
   deriveCycleDiagnosis,
+  deriveNoProgressCause,
   detectNoProgress,
   EMPTY_CYCLE_PROGRESS,
   legacyDecisionOf,
   openCriteriaKey
 } from '../shared/cycle-decision';
-import { deliveryFromReport, evidenceFacts, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
+import { deliveryFromReport, evidenceFacts, repeatedCommands, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
   assertDecisionSnapshotIntegrity,
@@ -253,6 +256,12 @@ export interface OrchestratorDeps {
    * 的旧行为，改一个返回值即可，不需要回滚续跑分支本身。
    */
   resumeContinue?: () => boolean;
+  /**
+   * 空转阈值（M3-2 的回退路径）。不注入就是默认值：证据连续重复 2 轮、未满足标准
+   * 连续停滞 2 轮才算空转。把它配成很大的数等效于关掉反空转——不需要删判定分支，
+   * 也不用回滚「无进展时不许继续执行」这条行为。
+   */
+  noProgressLimits?: () => Partial<CycleNoProgressLimits> | null;
   /**
    * 删除任务时回收它的检查点文件与归档段（M2-2 垃圾回收）。
    *
@@ -3097,6 +3106,18 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 本轮之前那份执行报告（按存储顺序），第一轮返回 null。
+   *
+   * 比对必须按「本轮在历史里的位置」取前一份，不能拿 `history[history.length-2]`：
+   * 报告是执行完就落库的，续跑或失败重报时最后两份不一定是相邻两轮。
+   */
+  private previousReport(report: ExecutionReport): ExecutionReport | null {
+    const history = this.deps.store.allReportsFor(report.taskId);
+    const index = history.findIndex(item => item.roundId === report.roundId && item.planId === report.planId);
+    return index > 0 ? history[index - 1] : null;
+  }
+
+  /**
    * 这一轮修复该不该真的开。
    *
    * 只看报告里的事实与评审的问题，不看模型自述。没有上一轮报告（第一次
@@ -3108,9 +3129,7 @@ export class AgentOrchestrator {
     events: readonly AgentEvent[]
   ): RepairGateResult | null {
     if (!review) return null;
-    const history = this.deps.store.allReportsFor(report.taskId);
-    const index = history.findIndex(item => item.roundId === report.roundId && item.planId === report.planId);
-    const previous = index > 0 ? history[index - 1] : null;
+    const previous = this.previousReport(report);
     if (!previous) return null;
     const previousReview = [...events]
       .reverse()
@@ -3216,6 +3235,8 @@ export class AgentOrchestrator {
       targetStage: decision.targetStage,
       diagnosis: input.diagnosis,
       progress: input.progress,
+      // 记的是判定**用上**的分类：非空转判定这里是 null，不拿输入里的分类冒充。
+      noProgressCause: decision.noProgressCause,
       goalFit: input.goalFit
         ? {
             fit: input.goalFit.fit,
@@ -3401,6 +3422,7 @@ export class AgentOrchestrator {
         .map(link => link.criterionId)
         .filter((id): id is string => typeof id === 'string')
     );
+    const errorCodes = report.errors.map(item => item.code.split(':')[0]?.trim() ?? item.code);
     const diagnosis = deriveCycleDiagnosis({
       goalFit: goalAssessment?.fit ?? null,
       // 「覆盖不到」= 契约里的标准没有任何一条证据链指向它。
@@ -3416,13 +3438,26 @@ export class AgentOrchestrator {
         : null,
       reportStatus: report.status,
       failedSteps: report.results.filter(item => item.status === 'failed').length,
-      errorCodes: report.errors.map(item => item.code.split(':')[0]?.trim() ?? item.code),
+      errorCodes,
       reviewIssues: review?.issues.length ?? 0
     });
+    // 空转的分类只取自两轮报告的硬事实（错误码、执行条数、同命令同退出码的条数），
+    // 不看模型自述：真机上出现过「报告说换了思路、交回来的命令一字未改」。
+    const previousReport = this.previousReport(report);
+    const repeats = repeatedCommands(previousReport, report);
+    const noProgressCause = deriveNoProgressCause({
+      errorCodes,
+      steps: report.results.length,
+      evidence: report.evidence?.refs.length ?? 0,
+      repeatedCommands: repeats.length
+    });
+    const limits = cycleNoProgressLimits(this.deps.noProgressLimits?.() ?? null);
     const progress = detectNoProgress({
       previous: this.lastCycleProgress(priorEvents, taskId),
       fingerprint: cycleFingerprint(evidenceFacts(report)),
-      criterionKey: openCriteriaKey(liveContract)
+      criterionKey: openCriteriaKey(liveContract),
+      repeatLimit: limits.repeatLimit,
+      criteriaLimit: limits.criteriaLimit
     });
     const cycleDecision = this.decideAndEmit(
       taskId,
@@ -3444,6 +3479,7 @@ export class AgentOrchestrator {
         task: {},
         progress,
         diagnosis,
+        noProgressCause,
         gates: {
           deliveryUnconfirmed: !genuineDelivery,
           desktopOpen: desktopStillOpen,
@@ -3588,26 +3624,39 @@ export class AgentOrchestrator {
     }
 
     // nextAction === 'open_next_round'
+    // 下一轮干什么，跟着决策标签写。原来这里三处都写死「修复」：空转轮判的是 REPLAN
+    // （要改的是计划与手段），界面却显示「进入下一轮修复」，事件与活动流就对不上。
+    const roundPurpose: Partial<Record<typeof cycleDecision.decision, string>> = {
+      CONTINUE: '继续当前阶段未完成的步骤',
+      REPAIR: '按评审与验证问题修复',
+      REPLAN: '重做计划与手段',
+      REDESIGN: '重做方案设计',
+      REANALYZE: '补足事实后重做分析'
+    };
+    const purpose = roundPurpose[cycleDecision.decision] ?? `按 ${cycleDecision.decision} 推进`;
     this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
-    this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '进入下一轮修复');
-    this.emitCycleStage(taskId, 'PLANNING', 'started', '修复轮重新规划');
+    this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', `进入下一轮：${purpose}`);
+    this.emitCycleStage(taskId, 'PLANNING', 'started', `下一轮重新规划（${purpose}）`);
     this.tasks.transition(taskId, 'awaiting_next_round');
     this.tasks.transition(taskId, 'planning');
 
-    // 修复任务：评审指出的问题必须进到下一轮计划请求里，否则「修复」只是把
-    // 同一个计划重新生成一遍。这里显式记一条，界面上能看出这一轮是修什么。
+    // 下一轮干什么必须进计划请求，否则「重做」只是把同一个计划重新生成一遍。
+    // 这里显式记一条，界面上能看出这一轮是修什么、还是换手段。
+    const idleNote = cycleDecision.noProgressCause
+      ? `（连续无进展·${CYCLE_NO_PROGRESS_CAUSE_TEXT[cycleDecision.noProgressCause]}，已把「不得重复」的命令清单并进计划请求）`
+      : '';
     if (review && review.issues.length > 0) {
       // 下一轮要不要人点，由权限预设决定：完全权限下说「仍需重新批准」是错的，
       // 那一档的计划会自动执行。
       const needsClick = !approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: review.needsFix ? 'warn' : 'info',
-        message: `GDC 下一轮=repair：${review.reviewer} 指出 ${String(review.issues.length)} 项问题，已并入下一轮计划请求${needsClick ? '（仍需你重新批准）' : '（完全权限：下一轮计划会自动执行）'}`
+        message: `GDC 下一轮=${cycleDecision.decision.toLowerCase()}：${review.reviewer} 指出 ${String(review.issues.length)} 项问题，已并入下一轮计划请求${needsClick ? '（仍需你重新批准）' : '（完全权限：下一轮计划会自动执行）'}${idleNote}`
       });
     } else {
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'info',
-        message: `GDC 下一轮=repair：${workbench.cycle.nextAction}`
+        message: `GDC 下一轮=${cycleDecision.decision.toLowerCase()}：${purpose}${idleNote || `（${workbench.cycle.nextAction}）`}`
       });
     }
 
@@ -3633,6 +3682,11 @@ export class AgentOrchestrator {
       roundId: round.roundId,
       report,
       review,
+      // 空转判定要随计划请求下发：只在事件里记「不要重复」，下一轮拿到的还是同一份报告，
+      // REPLAN 就只是个标签。清单点名到命令 + 退出码，模型换没换做法事后能核对。
+      noProgress: cycleDecision.noProgressCause
+        ? { reason: cycleDecision.reason, commands: repeats.slice(0, 8) }
+        : null,
       ...(subtaskScope ? { subtaskScope } : {})
     });
     this.tasks.updateRound(round.roundId, { requestText: prompt, status: 'sending' });
