@@ -50,6 +50,8 @@ export interface TaskRecoveryResult {
   ecoRef?: EcoCheckpointRef;
   /** 目标/任务版本兼容性；缺省表示检查点里没有对应引用。 */
   goal?: { ok: boolean; reason: string };
+  /** 这次恢复用的指针来自任务字段还是事件流重放；M2-1 要求路径可观测。 */
+  pointerSource?: TaskPointerSource;
   checkpointId?: string;
   contextId?: string;
   compactionStatus?: ContextCompactionStatus;
@@ -70,11 +72,72 @@ export function taskContextOwner(task: AgentTask): ContextOwner {
   return { ownerType: 'agent-task', ownerId: task.taskId, taskId: task.taskId, runId };
 }
 
+export type TaskPointerSource = 'task-fields' | 'events-replay';
+
+/** Journal 活动指针（来自任务字段或事件流重放）+ 来源标记。 */
+export interface ResolvedTaskPointer {
+  contextId: string;
+  checkpointId: string;
+  activeRunId: string;
+  source: TaskPointerSource;
+}
+
+/**
+ * 解析恢复用的活动指针。
+ *
+ * 优先任务字段：Journal 提交事务把 contextId/checkpointId/activeRunId 一次写全，
+ * 这三项就是权威指针。字段缺（半套写入、事件落库后进程被杀）才退到事件流重放，
+ * 取最后一条带完整 contextId+checkpointId 的检查点事件。activeRunId 只存在于任务
+ * 字段里，事件带就用事件、不带就按当前 run 补，并在 source 上如实标记，
+ * 让调用方知道这次靠的是重放而不是落库指针。
+ */
+export function resolveTaskPointer(
+  task: AgentTask,
+  eventsForTask: (taskId: string) => readonly AgentEvent[]
+): ResolvedTaskPointer | null {
+  const runId = task.runId ?? task.taskId;
+  if (task.checkpointId && task.contextId) {
+    return {
+      contextId: task.contextId,
+      checkpointId: task.checkpointId,
+      activeRunId: task.activeRunId ?? runId,
+      source: 'task-fields'
+    };
+  }
+  const events = eventsForTask(task.taskId);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    let contextId: string | null = null;
+    let checkpointId: string | null = null;
+    let eventRunId: string | null = null;
+    if (event.type === 'context.checkpoint.paused' && event.taskId === task.taskId) {
+      contextId = event.contextId ?? null;
+      checkpointId = event.checkpointId ?? null;
+      eventRunId = event.activeRunId ?? null;
+    } else if (
+      event.type === 'context.event' &&
+      event.taskId === task.taskId &&
+      event.event === 'context.compaction.committed'
+    ) {
+      contextId = event.context.contextId || null;
+      checkpointId = event.context.checkpointId ?? null;
+    }
+    if (!contextId || !checkpointId) continue;
+    return {
+      contextId,
+      checkpointId,
+      activeRunId: eventRunId ?? runId,
+      source: 'events-replay'
+    };
+  }
+  return null;
+}
+
 /**
  * 恢复任务上下文。
  *
- * - 没有 checkpointId：`none`，调用方保持原行为；
- * - 指针/hash/归档有效：`recovered`；
+ * - 任务字段与事件流都拿不到指针：`none`，调用方保持原行为；
+ * - 指针/hash/归档有效：`recovered`（来源见 pointerSource）；
  * - 检查点损坏或 runId 不一致：`stale`，不返回半可用摘要。
  */
 export async function recoverTaskContext(
@@ -86,16 +149,9 @@ export async function recoverTaskContext(
     workspaceRoot: task.workspaceRoot
   });
 
-  if (!task.checkpointId || !task.contextId) {
-    return { status: 'none', ledger };
-  }
-
   const owner = taskContextOwner(task);
-  const pointer = {
-    contextId: task.contextId,
-    checkpointId: task.checkpointId,
-    activeRunId: task.activeRunId ?? owner.runId
-  };
+  const pointer = resolveTaskPointer(task, taskId => deps.eventsForTask?.(taskId) ?? []);
+  if (!pointer) return { status: 'none', ledger, reason: '任务字段与事件流都没有检查点指针' };
 
   try {
     const prepared = await recoverContext(
@@ -105,6 +161,7 @@ export async function recoverTaskContext(
     if (!prepared) {
       return {
         status: 'none',
+        pointerSource: pointer.source,
         ledger,
         reason: '检查点活动指针与当前 runId 不一致'
       };
@@ -125,6 +182,7 @@ export async function recoverTaskContext(
     ) {
       return {
         status: 'needs_replan',
+        pointerSource: pointer.source,
         checkpointId: pointer.checkpointId,
         contextId: pointer.contextId,
         compactionStatus: prepared.compactionStatus,
@@ -150,6 +208,7 @@ export async function recoverTaskContext(
     if (eco && !eco.ok) {
       return {
         status: 'needs_context_refresh',
+        pointerSource: pointer.source,
         checkpointId: pointer.checkpointId,
         contextId: pointer.contextId,
         compactionStatus: prepared.compactionStatus,
@@ -162,6 +221,7 @@ export async function recoverTaskContext(
     }
     return {
       status: 'recovered',
+      pointerSource: pointer.source,
       checkpointId: pointer.checkpointId,
       contextId: pointer.contextId,
       compactionStatus: prepared.compactionStatus,
@@ -174,7 +234,14 @@ export async function recoverTaskContext(
     const reason = error instanceof ContextCheckpointStaleError
       ? error.message
       : error instanceof Error ? error.message : String(error);
-    return { status: 'stale', checkpointId: pointer.checkpointId, ledger, reason };
+    return {
+      status: 'stale',
+      pointerSource: pointer.source,
+      checkpointId: pointer.checkpointId,
+      contextId: pointer.contextId,
+      ledger,
+      reason
+    };
   }
 }
 
@@ -191,6 +258,12 @@ export function recoveryPromptData(result: TaskRecoveryResult): string {
     '上次上下文检查点（模型生成的摘要，不是执行事实；恢复以执行报告与工作区为准）：',
     JSON.stringify(result.summary ?? null, null, 2)
   ];
+  if (result.pointerSource === 'events-replay') {
+    lines.push(
+      '',
+      '指针来源：任务字段缺失，本次由事件流最后一条检查点事件重建。已落库事实以此为准，涉及目标版本与任务树 revision 时按当前任务记录重新核对。'
+    );
+  }
   if (result.status === 'needs_replan') {
     lines.push(
       '',

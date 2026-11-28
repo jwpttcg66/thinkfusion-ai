@@ -24,7 +24,15 @@ const workspace = path.join(dir, 'ws');
 fs.mkdirSync(workspace, { recursive: true });
 const store = new AgentStore(path.join(dir, 'agent-store.json'));
 const events = [];
-const tasks = new TaskManager(store, event => events.push(event));
+// 与主进程同口径：转发给界面的事件同时进 Journal（index.ts 的 appendEvent）。
+// 不落盘的话这里就测不到「任务字段丢了、只能靠事件流重建指针」这条恢复路径。
+function emit(event) {
+  events.push(event);
+  store.appendEvent(event.taskId
+    ? { ...event, eventId: `ev_${String(events.length)}`, runId: event.taskId }
+    : event);
+}
+const tasks = new TaskManager(store, emit);
 const checkpointBase = path.join(dir, 'checkpoints');
 const checkpointStore = new ContextCheckpointStore({ baseDir: checkpointBase });
 const archive = new ContextArchiveStore(checkpointBase);
@@ -34,7 +42,7 @@ function orchestrator(overrides = {}) {
     tasks,
     store,
     adapter: () => ({ cancelWait: () => {} }),
-    emit: event => events.push(event),
+    emit,
     dbPath: () => path.join(dir, 'journal.json'),
     pauseCheckpoint: async input => commitPauseCheckpoint(input, {
       store: checkpointStore, archive, journal: store
@@ -104,8 +112,17 @@ test('暂停：先到请求态/停止中，检查点记录目标版本、任务�
   assert.equal(pausedEvent?.checkpointId, current.checkpointId);
   assert.ok(pausedEvent?.needsReconciliation >= 1);
 
+  // M2-1：指针三字段只能由 Journal 事务写。事件里也要带全，否则任务字段丢了
+  // 就再也重建不出指针；activeRunId 尤其关键——恢复时靠它过 runId 门。
+  assert.ok(current.activeRunId, '任务字段缺 activeRunId，Journal 指针写不全');
+  assert.equal(pausedEvent?.contextId, current.contextId);
+  assert.equal(pausedEvent?.activeRunId, current.activeRunId);
+
   const checkpoint = await checkpointStore.find(taskContextOwner(current), current.checkpointId);
   assert.ok(checkpoint);
+  assert.equal(current.checkpointId, checkpoint.checkpointId);
+  assert.equal(current.contextId, checkpoint.contextId);
+  assert.equal(current.activeRunId, checkpoint.runId);
   assert.ok(checkpoint.summary.constraints.some(line => line.includes('目标版本 v1')));
   assert.ok(checkpoint.summary.constraints.some(line => line.includes('任务树 revision 3')));
   assert.ok(checkpoint.summary.openIssues.some(line => line.includes('needs_reconciliation')));
@@ -170,16 +187,92 @@ test('恢复入口读暂停检查点：拿到的是落库摘要与副作用账�
         archive,
         eventsForTask: id => store.listEvents(id)
       });
-      // 测试里停在恢复前，不让 driveRound 真的发模型请求。
-      return { status: 'stale', reason: '测试中止恢复' };
+      // 停在恢复前，不让 driveRound 真的发模型请求；指针来源照实透传，
+      // 用来验证 Orchestrator 把「走的哪条路」写进了事件。
+      return {
+        status: 'stale',
+        reason: '测试中止恢复',
+        ...(captured?.pointerSource ? { pointerSource: captured.pointerSource } : {}),
+        ...(captured?.contextId ? { contextId: captured.contextId } : {}),
+        ...(captured?.checkpointId ? { checkpointId: captured.checkpointId } : {})
+      };
     }
   });
 
   await assert.rejects(() => resumeOrchestrator.resume(task.taskId), /检查点不可用/);
   assert.equal(captured?.status, 'recovered');
   assert.equal(captured?.checkpointId, paused.checkpointId);
+  // 恢复路径要打点：正常情况读的就是落库指针。
+  assert.equal(captured?.pointerSource, 'task-fields');
   assert.ok(captured?.summary?.constraints.some(line => line.includes('任务树 revision 4')));
   assert.ok((captured?.ledger?.needsReconciliation ?? 0) >= 1);
+  const staleEvent = events.filter(event =>
+    event.type === 'context.event' && event.taskId === task.taskId &&
+    event.event === 'context.compaction.stale'
+  ).at(-1);
+  assert.equal(staleEvent?.context?.pointerSource, 'task-fields');
+});
+
+test('半套指针：任务字段没落全时按事件流重建，不把已落盘的检查点当不存在', async () => {
+  const task = tasks.create({ prompt: '指针字段丢失', permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(task.taskId, 'planning');
+  upsertWorkTask(task.taskId, 5);
+  await orchestrator().pause(task.taskId);
+  const paused = tasks.get(task.taskId);
+  assert.ok(paused.checkpointId);
+
+  // 模拟中间态：Journal 事件已落库，任务上的指针字段没写进去（旧库 / 半套写入）。
+  tasks.patch(task.taskId, { contextId: undefined, checkpointId: undefined, activeRunId: undefined });
+  const stripped = tasks.get(task.taskId);
+  assert.equal(stripped.checkpointId, undefined);
+
+  let captured = null;
+  const resumeOrchestrator = orchestrator({
+    contextRecovery: async (current, reports) => {
+      captured = await recoverTaskContext(current, reports, {
+        store: checkpointStore,
+        archive,
+        eventsForTask: id => store.listEvents(id)
+      });
+      // 停在恢复前，同时把重建出的指针来源透传给 Orchestrator，
+      // 验证「走的哪条路」确实写进了恢复事件。
+      return {
+        status: 'stale',
+        reason: '测试中止恢复',
+        ...(captured?.pointerSource ? { pointerSource: captured.pointerSource } : {}),
+        ...(captured?.contextId ? { contextId: captured.contextId } : {}),
+        ...(captured?.checkpointId ? { checkpointId: captured.checkpointId } : {})
+      };
+    }
+  });
+
+  await assert.rejects(() => resumeOrchestrator.resume(task.taskId), /检查点不可用/);
+  assert.equal(captured?.status, 'recovered');
+  assert.equal(captured?.pointerSource, 'events-replay');
+  assert.equal(captured?.checkpointId, paused.checkpointId);
+  assert.equal(captured?.contextId, paused.contextId);
+  // 重建出的指针必须还能过校验：读到的仍是那份暂停检查点。
+  assert.ok(captured?.summary?.constraints.some(line => line.includes('任务树 revision 5')));
+  const recoveredEvent = events.filter(event =>
+    event.type === 'context.event' && event.taskId === task.taskId &&
+    event.event === 'context.compaction.stale'
+  ).at(-1);
+  assert.equal(recoveredEvent?.context?.pointerSource, 'events-replay');
+});
+
+test('既没有指针字段也没有检查点事件：判 none，不凭空造指针', async () => {
+  const task = tasks.create({ prompt: '无检查点恢复', permissionPreset: 'read-only' });
+  tasks.transition(task.taskId, 'planning');
+  const orphan = tasks.get(task.taskId);
+  assert.equal(orphan.checkpointId, undefined);
+
+  const result = await recoverTaskContext(orphan, [], {
+    store: checkpointStore,
+    archive,
+    eventsForTask: id => store.listEvents(id)
+  });
+  assert.equal(result.status, 'none');
+  assert.ok(result.reason);
 });
 
 test('进程重启收敛：暂停中间态转 interrupted，取消中间态转 cancelled', () => {

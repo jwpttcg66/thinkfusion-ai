@@ -18,6 +18,7 @@ import type {
 import type { ContextHistoryItem, ContextManager, SideEffectLedger } from '../shared/context';
 import { scopeHistory } from './context/entry-policy';
 import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
+import type { PauseCheckpointOutcome } from './context/checkpoint/pause';
 import { collectInFlightSideEffects, collectSideEffects, reconcileSideEffects } from './context/recovery/side-effects';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS, TOOL_NAMES } from '../shared/contracts';
@@ -220,7 +221,7 @@ export interface OrchestratorDeps {
     taskRevision: number;
     ledger: SideEffectLedger;
     needsReconciliation: number;
-  }) => Promise<{ checkpointId: string; contextId: string }>;
+  }) => Promise<PauseCheckpointOutcome>;
   /** 规划看门狗的静默阈值；测试可调小，生产默认 120 秒。 */
   planningIdleMs?: number;
   /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
@@ -1002,7 +1003,7 @@ export class AgentOrchestrator {
     const taskRevision = Math.max(0, ...[...rebuildWorkTasksFromEvents(
       taskId, events
     ).values()].map(item => item.revision ?? 1));
-    let checkpoint: { checkpointId: string; contextId: string } | null = null;
+    let checkpoint: PauseCheckpointOutcome | null = null;
     let unavailableReason: string | undefined;
     if (this.deps.pauseCheckpoint) {
       try {
@@ -1010,7 +1011,9 @@ export class AgentOrchestrator {
           task, reason, reports, taskRevision,
           ledger, needsReconciliation: ledger.needsReconciliation
         });
-        this.tasks.patch(taskId, { checkpointId: checkpoint.checkpointId, contextId: checkpoint.contextId });
+        // 指针三字段由 Journal 事务（store.commitContextCheckpoint）一次写完，
+        // 这里不能再 patch 一遍：上一版补写时漏了 activeRunId，等于用一份不完整的
+        // 指针盖掉权威值，恢复时 runId 门判不过，检查点看着在却读不出。
       } catch (error) {
         unavailableReason = error instanceof Error ? error.message : String(error);
         this.deps.emit({
@@ -1027,7 +1030,15 @@ export class AgentOrchestrator {
       goalVersion: task.goalVersion ?? 1,
       taskRevision,
       needsReconciliation: ledger.needsReconciliation,
-      ...(checkpoint ? { checkpointId: checkpoint.checkpointId } : {}),
+      // 完整指针进事件流：任务字段丢了（旧库、半套写入、宿主没走 Journal 事务）
+      // 恢复时还能从事件里重建，不必把已落盘的检查点判成不存在。
+      ...(checkpoint
+        ? {
+            contextId: checkpoint.contextId,
+            checkpointId: checkpoint.checkpointId,
+            activeRunId: checkpoint.activeRunId
+          }
+        : {}),
       ...(unavailableReason ? { unavailableReason } : {})
     });
   }
@@ -1120,8 +1131,9 @@ export class AgentOrchestrator {
           type: 'context.event', at: Date.now(), taskId,
           event: 'context.compaction.stale',
           context: {
-            contextId: task.contextId ?? '',
-            ...(task.checkpointId ? { checkpointId: task.checkpointId } : {}),
+            contextId: recovery.contextId ?? task.contextId ?? '',
+            ...(recovery.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
+            ...(recovery.pointerSource ? { pointerSource: recovery.pointerSource } : {}),
             reason: recovery.reason ?? '检查点不可用'
           }
         });
@@ -1135,7 +1147,12 @@ export class AgentOrchestrator {
           context: {
             contextId: recovery.contextId ?? task.contextId ?? '',
             ...(recovery.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
-            reason: '从 Journal 活动指针恢复',
+            // M2-1：把「这次恢复到底读的是落库指针还是事件流重建」记进事件。
+            // 不记的话两条路径产出同一个 recovered，出问题只看得到结果看不到来源。
+            ...(recovery.pointerSource ? { pointerSource: recovery.pointerSource } : {}),
+            reason: recovery.pointerSource === 'events-replay'
+              ? '任务指针字段缺失，已按事件流最后一条检查点事件重建指针并校验通过'
+              : '从 Journal 活动指针恢复',
             ...(ledger
               ? {
                   sideEffects: {
@@ -1157,6 +1174,7 @@ export class AgentOrchestrator {
           context: {
             contextId: recovery.contextId ?? task.contextId ?? '',
             ...(recovery.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
+            ...(recovery.pointerSource ? { pointerSource: recovery.pointerSource } : {}),
             reason: recovery.eco?.reason ?? recovery.reason ?? '工程上下文已过期'
           }
         });

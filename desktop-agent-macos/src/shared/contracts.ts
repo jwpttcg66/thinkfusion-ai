@@ -2345,7 +2345,13 @@ export type AgentEvent = AgentEventBase &
         goalVersion: number;
         taskRevision: number;
         needsReconciliation: number;
+        /**
+         * 检查点提交成功时带完整 Journal 指针三要素。任务字段丢了也能靠
+         * 这条事件重建指针（M2-1），所以 contextId/checkpointId 必须成对出现。
+         */
         checkpointId?: string;
+        contextId?: string;
+        activeRunId?: string;
         /** 没有检查点能力（测试宿主）时如实写明，不假装已落盘。 */
         unavailableReason?: string;
       }
