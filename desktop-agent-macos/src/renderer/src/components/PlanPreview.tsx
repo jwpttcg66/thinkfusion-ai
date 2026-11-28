@@ -115,7 +115,12 @@ export function PlanPreview(props: {
 
       {(props.plan.warnings ?? []).length > 0 && (
         <div className="notice warn">
-          计划缺少判据：{(props.plan.warnings ?? []).join('；')}。仍可执行，但结果不会被标成「已验证」。
+          {/* 原来这里固定念一句「计划缺少判据：…」再拼上整条列表。可 warnings 里不止判据：
+              分解方式是归纳出来的、工作流要人工批准、步骤带了执行器不用的说明字段
+              （orchestrator.ts 的 toPreview + describeIgnoredAnnotations），套这个前缀就等于
+              对着一份判据齐全的计划说它缺判据。每条本来就自带后果（判据缺失那句会自己说
+              「执行后不会标已验证」），这里只逐条念原文，不再替它们下结论。 */}
+          {(props.plan.warnings ?? []).map((line, index) => <p key={index}>{line}</p>)}
         </div>
       )}
 

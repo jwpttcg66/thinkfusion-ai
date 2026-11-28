@@ -13,6 +13,7 @@ import type {
 } from '../../shared/contracts';
 import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsComplete, type TaskView } from '../../shared/task-view';
 import { buildConclusion } from '../../shared/task-conversation';
+import { continueExitText, isDeliveryCloseAllowed } from '../../shared/task-continue';
 import { projectConversationCollaborationResult } from '../../shared/collaboration-result';
 import {
   isGoalRevisionPendingEvent,
@@ -194,6 +195,8 @@ export default function App() {
   const [derived, setDerived] = useState<Derived>(EMPTY_DERIVED);
   const [status, setStatus] = useState<DeepSeekStatus | null>(null);
   const [clarifyText, setClarifyText] = useState('');
+  /** 「换手段再来一轮」的指令（M3-4b）：逐字进下一轮计划请求，不改写。 */
+  const [continueText, setContinueText] = useState('');
   const [error, setError] = useState('');
   /** Neither an error nor progress: "you clicked, nothing was submitted, here's why". */
   const [notice, setNotice] = useState('');
@@ -679,6 +682,13 @@ export default function App() {
    * — which is indistinguishable from a hang.
    */
   const awaitingAnswer = activeTask?.status === 'awaiting_clarification';
+  /**
+   * 「停在这里怎么回来」的唯一措辞出处（M3-4b/4c）。
+   *
+   * 措辞来自 `shared/task-continue.ts`：动作行、活动流旁注读同一份，界面不再自己编一句
+   * 「验证待你决定」——原来那句话在 awaiting_next_round 上是错的（闸门没拦，是设置停的）。
+   */
+  const continueExit = activeTask ? continueExitText(activeTask.status) : null;
   const roundCount = events.filter(event => event.type === 'round.started').length;
   /**
    * 工程对话流进行中：规划/方案评审(plan_ready)/执行/澄清都会往 `.scroll` 追加时序条。
@@ -1126,6 +1136,10 @@ export default function App() {
     setActiveId(taskId);
     setError('');
     setClarifyText('');
+    // 指令框跟问题框一样是「上一条任务的话」：不清的话，在 A 上写了一半的换手段指令
+    // 会原样出现在 B 的输入框里，点一下就连着 B 的计划请求逐字送进模型（protocol.ts
+    // 还会把它当成 B 的验收范围重写一遍）。
+    setContinueText('');
     try {
       // 会话转交工程任务时，tasks 列表可能还没有这条（或被晚到的 history 冲掉）。
       // 先把任务本体挂进列表，主区才不会从会话页直接掉进空白首页。
@@ -1329,6 +1343,7 @@ export default function App() {
     setEvents([]);
     setDerived(EMPTY_TASK_VIEW);
     setClarifyText('');
+    setContinueText('');
     setMessages([]);
     setPhases({});
     setAnswerDeltas({});
@@ -1855,6 +1870,30 @@ export default function App() {
     }
   }
 
+  /**
+   * 换手段再来一轮（M3-4b）。
+   *
+   * 「继续修复」在验证四类检查都做全时会当场抛错，这条不看验证做没做全，只看人还要不要
+   * 往下做。回执带回轮次、门禁与上一轮手段条数：只说一句「已提交」的话，用户没法知道
+   * 这一轮到底开没开出来、预算还剩多少。
+   */
+  async function continueRound() {
+    if (!activeTask || !continueText.trim()) return;
+    setError('');
+    try {
+      const result = await window.agentAPI.continueWithUserInstruction({
+        taskId: activeTask.taskId,
+        instruction: continueText.trim()
+      });
+      setContinueText('');
+      setNotice(
+        `已开第 ${String(result.roundNumber)} 轮（门禁：${result.gate.reason}）；你的原话与上一轮 ${String(result.means.length)} 条手段清单一起进了计划请求`
+      );
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function answerClarification() {
     if (!activeTask || !clarifyText.trim()) return;
     setError('');
@@ -2305,6 +2344,7 @@ export default function App() {
           setNotice('');
           setPrompt('');
           setClarifyText('');
+          setContinueText('');
           setAttachments([]);
           // On an already-empty screen the click changes nothing you can see,
           // which reads as "the button is dead". The caret is the feedback: it
@@ -2856,24 +2896,51 @@ export default function App() {
             )}
 
             {/* 「验证后续动作 / 还原本轮」整卡已去掉：验证结论只在对话时间线与任务收口。
-                仅 report_pending（需用户决定出口）保留一行动作，不套后续动作卡壳。 */}
+                仅 report_pending（需用户决定出口）保留一行动作，不套后续动作卡壳。
+                「换手段再来一轮」不受完全权限档的隐藏限制：那一档里 GDC 照样可能因目标缺口
+                停在 report_pending，而这条恰恰是无人值守跑到底时唯一还能用的介入入口。
+                awaiting_next_round 是关掉无人值守后的落点（M3-4c），共用同一个出口与措辞。 */}
             {activeTask && (workbenchTab === 'conversation' || workbenchTab === 'output')
-              && activeTask.status === 'report_pending'
-              && activeTask.permissionPreset !== 'danger-full-access' && (
+              && continueExit && (
               <div className="chat-note is-focus verify-pending-actions" role="group" aria-label="验证待你决定">
                 <span className="chat-stream-badge">重点</span>
-                <span className="chat-note-text">验证待你决定 · 未通过闸门，需选出口</span>
+                <span className="chat-note-text">{continueExit.headline}</span>
+                {isDeliveryCloseAllowed(activeTask.status) && activeTask.permissionPreset !== 'danger-full-access' && (
+                  <div className="row" style={{ marginTop: 6 }}>
+                    <button className="btn" type="button" onClick={() => void resumeRepair()}>
+                      继续修复（重新执行验证）
+                    </button>
+                    <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
+                      按当前口径重新判定
+                    </button>
+                    <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
+                      接受未验证并结束
+                    </button>
+                  </div>
+                )}
                 <div className="row" style={{ marginTop: 6 }}>
-                  <button className="btn" type="button" onClick={() => void resumeRepair()}>
-                    继续修复（重新执行验证）
-                  </button>
-                  <button className="btn ghost" type="button" onClick={() => void recheckVerification()}>
-                    按当前口径重新判定
-                  </button>
-                  <button className="btn ghost" type="button" onClick={() => void acceptUnverified()}>
-                    接受未验证并结束
+                  <textarea
+                    rows={2}
+                    style={{ flex: 1, minWidth: 240 }}
+                    value={continueText}
+                    onChange={event => setContinueText(event.target.value)}
+                    placeholder={
+                      activeTask.status === 'awaiting_next_round'
+                        ? '上一轮判定要开新一轮（见活动流）。要补什么、换什么做法，写在这里（原话逐字进计划请求）'
+                        : '上一轮哪里不对、想换成什么做法（原话会逐字进下一轮计划请求）'
+                    }
+                    aria-label="换手段再来一轮的指令"
+                  />
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    disabled={!continueText.trim()}
+                    onClick={() => void continueRound()}
+                  >
+                    {activeTask.status === 'awaiting_next_round' ? '继续下一轮' : '换手段再来一轮'}
                   </button>
                 </div>
+                <p className="muted" style={{ marginTop: 4 }}>{continueExit.howBack}</p>
               </div>
             )}
 

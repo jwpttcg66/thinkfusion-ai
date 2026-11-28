@@ -149,6 +149,10 @@ const api: AgentApi = {
   getTaskContext: (taskId: string) => ipcRenderer.invoke('task:context', taskId),
   setTaskBudget: (input: { taskId: string; maxRounds?: number; maxModelCalls?: number; maxTokens?: number }) =>
     ipcRenderer.invoke('task:set-budget', input),
+  continueWithUserInstruction: (input: { taskId: string; instruction: string }) =>
+    ipcRenderer.invoke('task:continue-round', input),
+  setTaskAutoContinue: (input: { taskId: string; autoContinue: boolean }) =>
+    ipcRenderer.invoke('task:set-auto-continue', input),
   approvePlan: (input: ApprovePlanInput) => ipcRenderer.invoke('task:approve', input),
   rejectPlan: (input: { taskId: string; planId: string; reason?: string }) => ipcRenderer.invoke('task:reject', input),
   approveStep: (input: { taskId: string; stepId: string; remember?: boolean }) =>

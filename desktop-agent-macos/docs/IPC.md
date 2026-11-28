@@ -52,14 +52,22 @@
 | `task:events` | `taskId` | `AgentEvent[]` | 已持久化事件的回放，用于切换任务时重建界面 |
 | `task:executions` | `taskId` | `ExecutionRecord[]` | 只读投影（V4 M1-1）：一次执行＝一轮，取 store 而非界面事件流 |
 | `task:context` | `taskId` | `ContextStateView` | 只读投影（V4 P1 M2-3）：当前 contextId、检查点存档、副作用核对、上次重建时间与原因，全部来自既有 `context.*` 事件 |
-| `task:set-budget` | `{ taskId, maxRounds?, maxModelCalls?, maxTokens? }` | `{ budget, gate, status, state }` | 追加任务预算（V4 P1 M3-3）：只收正整数、只增不减；写 `task.budget.updated`，门禁放行且任务停在 `budget_exhausted` 时走常规 `resume` 接回循环 |
-| `task:approve` | `ApprovePlanInput` | `void` | `approved` 必须是字面量 `true` |
+| `task:set-budget` | `{ taskId, maxRounds?, maxModelCalls?, maxTokens? }` | `{ budget, gate, status, state }` | 追加任务预算（V4 P1 M3-3）：只收正整数、只增不减；写 `task.budget.updated`，门禁放行且任务停在 `budget_exhausted` 时走常规 `resume` 接回循环。回执的 `status` 取 **resume 之后**重读的那一份（M3-4 修）：`tasks.get()` 是那一刻的快照，先取后跑就会把「已接回」报成「仍用尽」，界面那颗按钮跟着显示错的下一步 |
+| `task:continue-round` | `{ taskId, instruction }` | `{ roundId, roundNumber, fromStatus, means, gate, status }` | 换手段再来一轮（V4 P1 M3-4b）：只对 `report_pending` 与 `awaiting_next_round` 开放（M3-4c 后后者是「无人值守关掉时停的地方」），指令非空白且 ≤2000 字；不重跑 GDC 判定（重跑只会再给一次 `stop_and_wait`），但要过 M3-3 的预算门禁；写 `task.round.user_continue`，新轮 `inputType='user_continue'`，用户原话与上一轮手段清单一起进计划请求 |
+| `task:set-auto-continue` | `{ taskId, autoContinue }` | `{ autoContinue, previous, status }` | 无人值守续轮开关（V4 P1 M3-4c）：只收布尔，多余键拒；`previous` 回的是**生效值**（老任务没写过该字段，缺省按「自动开」算，不返回 `undefined`）。关掉后 GDC 判定为 `open_next_round` 时停在 `awaiting_next_round`——停在 `createRound` 之前，不会留下「已发回模型」却没发的轮次，并写 `task.round.await_user`（带判定原话与预算门禁读数）；回来有两条：`task:continue-round` 开新一轮，或 `task:accept-unverified` 就地按完成收尾（这一档手里已经有报告，原来只有白烧一轮和取消两条路，见 `DELIVERY_CLOSE_STATUSES`）。开关不管预算超限、空转、待审批这些停法 |
+| `task:approve` | `ApprovePlanInput` | `void` | `approved` 必须是字面量 `true`。**回执要等整轮跑完**：`orchestrator.approve()` 末尾 `await executeApprovedPlan()`（`orchestrator.ts:768`），一轮 = 计划执行 + 复验 + 报告四次模型往返，分钟级；调用方不能把它当「点下去了」的确认（M3-4 真机第 7 次就在 B 段等这条回执等到 CDP 超时）。`task:continue-round` 没有这个问题：它 `void driveRound(...)` 后立刻回执 |
 | `task:reject` | `{ taskId, planId, reason? }` | `void` | |
 | `task:cancel` | `taskId` | `void` | 置取消标志并中断等待 |
 | `task:answer` | `{ taskId, answer }` | `void` | 回答澄清问题，开启新一轮 |
 | `task:delete` | `taskId` | `void` | 只删本地记录 |
 
 `task:approve` 的 `approved: true` 是刻意的：拒绝走单独的 `task:reject`。一个布尔开关会让"传错值"变成"批准"。
+
+M3-4 加的三条「为什么停」事件都只有一份来源（主进程 `fail()`/停在轮次开始前那一处），界面读同一份、不自己猜：
+
+- `task.auto_continue.updated`：`{ taskId, autoContinue, previous, source }`（`source` 恒为 `user`，这个字段没有自动改的路径）。`previous` 同样是生效值，与 `task:set-auto-continue` 的回执一致，否则刷新前后会显示成两个状态。
+- `task.round.await_user`：无人值守关掉后判定仍说要开下一轮时的停痕，带 `purpose`（GDC 原话）、`reason`（判定理由）、`gate`（M3-3 门禁读数）。没有这条事件时，界面只看得出轮数不涨。
+- `task.fault.stopped`：`{ taskId, roundId?, kind, error, landedStatus, headline, howBack }`。`kind` 取 `classifyFault()` 的六类（`src/shared/task-fault.ts`），`landedStatus` 是这条故障把任务停在哪儿——通道故障 `interrupted`、计划不合规或网页源没打开 `blocked`，两者都能 `task:resume`；只有确实是任务本身的错才 `failed`。用户已在暂停/取消过程中时改由 `stopIntent()` 保住用户选的结局，此时 `headline` 说的是「按已取消/已暂停收口」而不是通道那句故障。
 
 ## 环境
 

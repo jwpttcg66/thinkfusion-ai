@@ -205,13 +205,25 @@ const ComputerExpect = z.object({
  * 「这一步怎么算做到」。以前每个分支都是 `.strict()`，模型多写一句就让整份
  * 计划判成 `plan.invalid`，界面上是「计划不合规，准备重出」，用户等到的是
  * 一轮重来。这里把它们接住：执行器忽略，计划与评审材料能看到。
+ *
+ * M3-4d 补上三个真机样本里出现过的键（2026-11-28，`acceptance/v4-p1-m3-1-20261128`
+ * 的事件导出：8 个步骤全带 `dependsOn`/`expect`，5 个还带 `checksCategory`）：
+ * - `dependsOn`：模型自己画的步骤依赖。执行器按数组顺序跑，**不会强制**这个关系，
+ *   所以 `task-fault.ts` 的 `describeIgnoredAnnotations` 要把这件事说出来；
+ * - `checksCategory`：模型声明这一步属于四类检查里的哪一类（compile/run/tests/diagnostics）；
+ * - `expect`：步骤级预期。注意它和 `computer.*` 的 `args.expect` 不是一回事——
+ *   真机写的是 `{ exitCode: 0, stdout: "" }` 这类自由对象，所以这里不收成 `ComputerExpect`，
+ *   否则 `.strict()` 又会把整份计划拒掉，等于白改。
  */
 const stepNotes = {
   description: z.string().max(500).optional(),
   acceptance: z
     .union([z.string().max(1000), z.array(z.string().min(1).max(300)).max(8)])
     .optional(),
-  acceptanceCriteria: z.array(z.string().min(1).max(300)).max(8).optional()
+  acceptanceCriteria: z.array(z.string().min(1).max(300)).max(8).optional(),
+  dependsOn: z.array(z.string().min(1).max(200)).max(30).optional(),
+  checksCategory: z.string().max(60).optional(),
+  expect: z.union([z.string().max(1000), z.record(z.unknown())]).optional()
 };
 
 export const StepSchema = z.discriminatedUnion('tool', [
@@ -1497,6 +1509,15 @@ export interface AgentTask {
    * 不是 `failed`（终态，用户加完预算接不回去）。
    */
   budget?: TaskBudget;
+  /**
+   * 判定要开下一轮时是否自动开（V4 P1 M3-4c）。
+   *
+   * 缺省（`undefined`）＝自动开，与这条开关出现之前的行为逐字一致：`open_next_round`
+   * 那一支本来就直接 `driveRound`，中间没有等人点的环节。置 `false` 才停：轮次停在
+   * `awaiting_next_round`，事件说明「为什么停 / 怎么回来」，人点了才开新一轮。
+   * 用 `!== false` 判，不要把缺省读成关（那等于给每个老任务悄悄改了行为）。
+   */
+  autoContinue?: boolean;
   maxSteps: number;
   timeoutMs: number;
   error?: string;
@@ -1511,8 +1532,11 @@ export interface AgentRound {
   /**
    * `plan_repair`：模型上一轮的计划没通过校验，这一轮带着失败原因让它改。
    * 单独一类而不是复用 `user_prompt`，因为「问了几次才对」必须能数出来。
+   * `user_continue`：交付停在待确认时，用户给了条指令要求换手段再来一轮（M3-4b）。
+   * 单独一类是因为它既不是原任务、也不是模型自己判出来的下一轮——无人值守跑过的轮数
+   * 与人工介入的轮数必须能分开数，否则「≥1 次用户介入后继续」没法从数据里核实。
    */
-  inputType: 'user_prompt' | 'execution_report' | 'clarification_answer' | 'plan_repair';
+  inputType: 'user_prompt' | 'execution_report' | 'clarification_answer' | 'plan_repair' | 'user_continue';
   requestText: string;
   answerText?: string;
   status: RoundStatus;
@@ -2152,6 +2176,70 @@ export type AgentEvent = AgentEventBase &
         source: 'user' | 'model' | 'resume';
         /** 变更后立刻重算的门禁结果：追加预算必须能看见「现在还能不能开一轮」。 */
         gate: { ok: boolean; reason: string; blockedBy: import('./task-budget').BudgetDimension[] };
+      }
+    /**
+     * 用户要求换手段再来一轮（M3-4b）：这一轮不是模型判出来的，是人要的。
+     *
+     * 记 `instruction` 原文与 `means`（上一轮真实用过的做法清单）：这两样就是发给模型的
+     * 那段计划请求的内容，落库后事后能核对「用户说的那条指令到底进没进下一轮」，
+     * 而不是只在界面上闪一下。`gate` 记开轮时的预算读数，与 M3-3 同一个单一读点。
+     */
+    | {
+        type: 'task.round.user_continue';
+        taskId: string;
+        roundId: string;
+        /** 开这一轮之前任务停在哪：现在只有待确认的交付可以要求再来一轮。 */
+        fromStatus: AgentTask['status'];
+        instruction: string;
+        means: string[];
+        gate: { ok: boolean; reason: string };
+      }
+    /**
+     * 自动续轮被关掉之后停在轮次开始前（V4 P1 M3-4c）。
+     *
+     * 判定已经给出「要开下一轮」，但没有真的开——这条记录的就是「停」这个动作本身。
+     * 没有它，事后只看得到轮数不涨，看不出是被设置停住的还是循环卡死了。
+     * `purpose`/`reason` 沿用判定原话，与 `cycle.decision.created` 同一个口径。
+     */
+    | {
+        type: 'task.round.await_user';
+        taskId: string;
+        purpose: string;
+        reason: string;
+        gate: { ok: boolean; reason: string };
+      }
+    /**
+     * 无人值守开关变更（V4 P1 M3-4c）：谁改的、改成什么、当前判定是什么。
+     * 与预算同类：改设置必须留痕，否则「这一轮为什么没自己开」只能靠猜。
+     */
+    | {
+        type: 'task.auto_continue.updated';
+        taskId: string;
+        autoContinue: boolean;
+        /** 变更前的生效值（老任务没写过这个字段时按默认「自动续轮」计）。 */
+        previous: boolean;
+        source: 'user';
+      }
+    /**
+     * 异常把任务停在**可恢复**的那一侧（V4 P1 M3-4d）。
+     *
+     * 原来错在哪：`driveRound` 的六条 `.catch(this.fail)` 把所有异常一律写成终态 `failed`，
+     * 「模型连续 120 秒没有输出」「请求超时」这类通道故障因此和「任务做错了」共用一个下场——
+     * 而 `failed` 没有出边，用户换好网络也只能重新提问。真机留证见
+     * `acceptance/v4-p1-m3-3-20261128`：用户正在取消（`cancelling`）时一条「请求超时」把任务判成了失败。
+     * 这条事件是「它自己停下来的那些次」的落点：分类、原文、实际落点、怎么回来，一次记全。
+     */
+    | {
+        type: 'task.fault.stopped';
+        taskId: string;
+        roundId?: string;
+        kind: import('./task-fault').FaultKind;
+        /** 原始错误文本（截断）：只留分类名，用户看不出是网络还是模型。 */
+        error: string;
+        /** 实际落点：`interrupted` / `blocked` / `cancelled` / `paused` / `failed`。 */
+        landedStatus: AgentTask['status'];
+        headline: string;
+        howBack: string;
       }
     /**
      * GDC：循环阶段快照（派生决策的可观测落点，不是第二套状态库）。
@@ -3478,6 +3566,33 @@ export interface AgentApi {
     maxModelCalls?: number;
     maxTokens?: number;
   }): Promise<{ budget: TaskBudget; gate: { ok: boolean; reason: string; blockedBy: BudgetDimension[] }; status: TaskStatus; state: BudgetState }>;
+  /**
+   * 换手段再来一轮（V4 P1 M3-4b）：交付停在待确认时，用户给一条指令开新一轮。
+   *
+   * 与 `resumeRepair` 的区别：那条先过「验证是否已做全」，做全就抛错；这条要的不是
+   * 再验一次，而是按人说的换个做法再来。返回新轮次与开轮时的预算读数，界面必须能
+   * 说清「第几轮开了、门禁怎么算的」，不能只回一句成功。
+   */
+  continueWithUserInstruction(input: {
+    taskId: string;
+    instruction: string;
+  }): Promise<{
+    roundId: string;
+    roundNumber: number;
+    fromStatus: TaskStatus;
+    means: string[];
+    gate: { ok: boolean; reason: string };
+    status: TaskStatus;
+  }>;
+  /**
+   * 无人值守开关（V4 P1 M3-4c）：判定要开下一轮时自动开还是停下等人。
+   * 返回变更后的生效值与当前停在哪，界面要能说「从现在起会自己开轮 / 会停在这里」。
+   */
+  setTaskAutoContinue(input: { taskId: string; autoContinue: boolean }): Promise<{
+    autoContinue: boolean;
+    previous: boolean;
+    status: TaskStatus;
+  }>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
   /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */

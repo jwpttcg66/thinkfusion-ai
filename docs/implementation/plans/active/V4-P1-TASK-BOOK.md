@@ -443,9 +443,9 @@ M3-3 的预算超限改成 `PAUSE` 也走同一个出口，M3-4 只是把"出口
 - **业务目标：** 计划书 4.6 的基本循环落地：目标→分析→设计→（必要时辩论）→计划→执行→
   验证→修复→复核目标→决定下一轮，每轮有可检查的状态变化。
 - **当前状态：** 单轮内循环完整（driveRound→handleAnswer→runPlan→continueAfterReport，
-  修复轮有闸门）；「复核目标并决定下一轮」由 `awaiting_next_round` + 用户手点衔接，
-  无自动续推。
-- **目标状态：** 新增任务级开关 `autoContinue`（默认关，**行为不默认变化**）：
+  修复轮有闸门）；「复核目标并决定下一轮」这条边在写本任务书时被记成「`awaiting_next_round` + 用户手点
+  衔接，无自动续推」——**这条前提核实后是错的**，见下方落地校正 1。
+- **目标状态：** 新增任务级开关 `autoContinue`（**缺省按开算，行为不默认变化**）：
   开启时 continueAfterReport 决策为 CONTINUE 且预算未超、无空转、无 WAIT_USER 判定 →
   自动进入下一轮（复用 driveRound），每轮发 `cycle.decision.created` 说明为什么继续。
   决策为 WAIT_USER/PAUSE/COMPLETE 时停下等用户——**持续循环的每一类停止原因都必须可解释**。
@@ -463,7 +463,67 @@ M3-3 的预算超限改成 `PAUSE` 也走同一个出口，M3-4 只是把"出口
 - **真机验收：** 一个 ≥3 轮的真实小任务在 autoContinue 下无人值守推进到 COMPLETE，
   事件流里每轮决策带 reason；中途 WAIT_USER 一次（如审批）证明介入出口有效；
   事件流 + 截图存证。
-- **回退：** 开关默认关；关掉即完全回到现状。
+- **回退：** 开关关掉即在每轮报告后停在 `awaiting_next_round`（带 `task.round.await_user` 事件）；
+  这不是「恢复旧行为」——旧行为本来就自动开轮，关掉是新增的一种停法。
+
+**M3-4 落地校正（写代码时核实，2026-11-28）：**
+
+1. **「无自动续推」是错的，`autoContinue` 因此不能默认关。** M3-1 合入后的
+   `orchestrator.ts`（commit `bf03d1f`，`continueAfterReport` 的 `open_next_round` 一支）是
+   `transition('awaiting_next_round')` 紧接着 `transition('planning')`——`awaiting_next_round` 只是
+   一个瞬态落点，下一轮当场就开了。按本任务书原写「默认关」实现，等于把现网一直在跑的自动开轮
+   悄悄改成等人点，违反同一行里的「行为不默认变化」。落法：`contracts.ts` 的 `autoContinue?: boolean`
+   故意不在建任务时写值，`autoContinueOf()` 只认显式 `false`（`src/shared/task-continue.ts`），
+   存量任务与新建任务同口径；界面开关关掉才发 `task:set-auto-continue`（`preload` 的 `setTaskAutoContinue`）。
+2. **停止原因分四类落点，不是全部 `failed`。** 瞬时通道故障（看门狗「模型连续 N 秒没有输出」、请求超时、
+   网络断、上下文满、provider 报「连不上 <baseUrl>」）落 `interrupted`，计划不合规与网页源没打开落 `blocked`，
+   两者都在 `resume()` 的允许名单里；只有确实是任务本身的错才落 `failed`。分类与措辞在纯函数
+   `classifyFault()`（`src/shared/task-fault.ts`），主进程只负责迁移与发事件。用户已经按下暂停/取消时，
+   通道故障不得顶掉用户选的结局（`stopIntent()`）——M3-3 真机那条「正在取消却被判 failed」就是这个。
+   「连不上」这一句是 M3-4 真机第 8 次补的：超算网关当场断了，provider 自己包成中文
+   （`providers/openai-compatible.ts:648`、`ollama.ts:613`），网络正则里当时只有英文关键词，于是评审阶段
+   的连接失败仍被判成终态 `failed`（现场原文见 `acceptance/v4-p1-m3-4-20261128/fault.cloud-unreachable.json`）。
+3. **`plan.invalid` 不再白烧一轮。** 模型在步骤上多写 `dependsOn`/`expect`/`checksCategory` 会被
+   `StepSchema` 的 `.strict()` 整份拒掉（真机样本：8 个步骤全带），代价是一轮真金白银的调用。现在这些
+   「执行器不用但模型确实写了」的字段接住并留痕，`describeIgnoredAnnotations()` 明确告诉用户
+   **dependsOn 声明的依赖不会被强制**（执行器按数组顺序跑）；协议块真的缺失/冲突才抛
+   `PlanUnusableError`，且自动重出有上限，超限停在 `blocked` 而不是继续烧轮。
+4. **`source_disabled` 这一类没有真机样本，而且现网轮不到它说话。** 产品有个不变量：`saveSource`
+   要求「至少要留一个来源」，所以界面上不可能把最后的网页源全关掉（用户口头指示的「默认网页源可以
+   全部关闭」在现网形态下等价于「用的时候提示打开」）。改动仍然落地：页面通道现在抛设置里那句原话
+   （「X 还没启用，先在设置里打开」），不再是永远等不来视图的「页面尚未就绪」，分类落 `blocked`
+   并给出可照做的恢复路径。证到的是单测 + 源码守门（`scripts/check-task-fault.mjs`），真机复现不了，
+   SUMMARY 按未证真机记。
+   **真机第 10 次把「为什么复现不了」看清了一层**：F 段按 `selectedWebChannels:['deepseek']`（关着的源）
+   建探针，被拒的那句却是「ChatGPT 未登录：页面尚未加载」——提交阶段的登录门禁
+   （`orchestrator.ts:479`）读的是 `planners` 第一个成员，选不出成员时退回**默认适配器**
+   （`deps.adapter()`，即当前开着的那条页面），而不是这条任务勾选的那条通道；`model-route.ts:181`
+   那句说得对的「没有可用的网页通道：这一轮无法回答，需要先在通道设置里打开一条」压根轮不到执行。
+   也就是说「指定了关着的源」在现网表现为**另一条源的登录问题**，`SOURCE_CLOSED` 的分类改进在这条
+   路径上被上游门禁挡住了。改法（把提交门禁改成按任务勾选的那条通道探活，探不通就报「去设置里打开」）
+   属通道选择层，不在 M3-4 范围内，记为后续项。
+5. **落点写不进去时会自己造出一个终态**（代码复审挖出的第四个判死口，2026-11-28）。状态表里
+   `blocked` 与 `budget_exhausted` 两行没有 `interrupted` 出边——它们是本里程碑自己引入的落点，
+   加边的时候只想到「跑着的任务」能到得了它们。停在「等你处理/等预算」的任务上，在途那一轮的
+   promise 还活着；它一旦被通道故障 reject，`fail()` 拿 `interrupted` 去 transition 就抛错，
+   而 catch 原来只补发一条 `task.failed` 不改状态：行还在非终态，事件流已说它死了（统计页据此
+   冻结总耗时、`KEEP_FOREVER` 永久保留这条假终态）。两处一起改：状态表给这两个落点补
+   `interrupted`（恢复时 `resume()` 会重读门禁把它送回原落点，预算/阻塞信息不丢），兜底改成
+   「先把状态真写成终态再发事件，写不动就只留日志」。用例也从只看源码改成真跑：
+   `TaskManager` + `AgentOrchestrator` 各起一个内存实例，断 `blocked`/`budget_exhausted` 上
+   来了「连不上」之后状态是 `interrupted` 且**没有** `task.failed`——这类断言用源码正则永远
+   证明不了（`failedIdx < faultIdx` 那种比较即使删掉守卫也照样通过）。
+6. **本任务书写的「真机验收：≥3 轮小任务在 autoContinue 下无人值守推进到 COMPLETE」这条口径未按字面
+   达成**（run 13，[验收汇总](../../acceptance/v4-p1-m3-4-20261128/SUMMARY.md) 51 项判定 0 未通过）。
+   现场证到的是两侧边界各自成立：缺省即开（判定 `REPAIR/open_next_round` → 0 次点击自动开出
+   `execution_report` 轮）与关档即停（同一判定停在 `awaiting_next_round`、不偷开轮），**轮数最多到 2、
+   没有一路跑到 `completed`**——一次判定为 `open_next_round` 需要 300 秒上下（E 段实测 301 秒），
+   三轮到完成必然落进「≥2 小时」那条闸门里，按用户 2026-11-28 指示暂缓。所以 M3-4 标
+   `LIVE_TESTED` 而不标「≥3 轮无人值守完成」；把它当成已完成的那句话不存在。
+   同时留下一条取证纪律：**验收脚本必须串行跑**。run 11/12 被我并发跑在同一个 dev 实例上——
+   共用 CLI 单名额、共用证据目录，且前一轮的孤儿清扫会把后一轮刚建的探针会话当遗留删掉，
+   两轮证据一起作废（表现为 `FAIL tasks-back-to-baseline`、`SKIP e-default-auto-open`）。
+
 
 **M3 完成条件（=P1 完成条件）：**
 真机完成一次 ≥2 小时墙钟的持续任务：多轮自动推进、至少一次失败与修复、

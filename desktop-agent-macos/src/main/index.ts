@@ -19,10 +19,12 @@ import {
   ApprovePlanSchema,
   ApproveStepSchema,
   ClarificationAnswerSchema,
+  ContinueTaskRoundSchema,
   RejectPlanSchema,
   RejectStepSchema,
   ReviewDispositionSchema,
   SetTaskBudgetSchema,
+  SetTaskAutoContinueSchema,
   SubmitPromptSchema,
   TaskIdSchema,
   CliAgentToggleSchema,
@@ -573,7 +575,14 @@ function adapterFor(id: string): ChatPageDriver {
       // 站点把页面转到会员/排队页时立刻停，别让一条注定发不出去的问题
       // 白等 20 秒确认、再白等 180 秒回答，最后只报一句「发送未确认」。
       blockedPaths: () => blockedPathsFor(id),
-      siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id
+      siteLabel: sourceById(sources, id)?.label ?? providerFor(id)?.label ?? id,
+      // 「还没启用，先在设置里打开」这句话设置里早就有（`activateSource`），但提问路径
+      // 此前只会说「X 页面尚未就绪」——源关着的时候视图永远等不来，于是任务拿到一个终态
+      // 失败。同一件事不该有两种说法，也不该因为设置里一个开关就没法恢复（V4 P1 M3-4d）。
+      closedReason: () => {
+        const source = sourceById(sources, id);
+        return source && !source.enabled ? `${source.label} 还没启用，先在设置里打开` : null;
+      }
     }
   );
   adapters.set(id, created);
@@ -3669,16 +3678,34 @@ function registerIpc() {
       },
       'user'
     );
-    const task = tasks.get(input.taskId);
-    if (result.gate.ok && task.status === 'budget_exhausted') {
-      await orchestrator.resume(task.taskId);
+    const gateOpen = result.gate.ok && tasks.get(input.taskId).status === 'budget_exhausted';
+    if (gateOpen) {
+      await orchestrator.resume(input.taskId);
     }
+    // 状态要在 resume 之后重读：`tasks.get()` 拿的是那一刻的快照，接回循环之后还回旧状态，
+    // 界面那颗按钮就会在「已接回」和「仍用尽」之间显示成一个假的。
+    const task = tasks.get(input.taskId);
     return {
       budget: result.budget,
       gate: result.gate,
       status: task.status,
       state: tasks.budgetView(task.taskId).state
     };
+  });
+
+  ipcMain.handle('task:continue-round', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = ContinueTaskRoundSchema.parse(raw);
+    // 开轮逻辑全在 orchestrator 一处：IPC 只过边界，不改状态、不补发事件，
+    // 否则「界面点出来的那一轮」与「模型自己判出来的下一轮」会变成两套记账。
+    return orchestrator.continueWithUserInstruction(input.taskId, input.instruction);
+  });
+
+  ipcMain.handle('task:set-auto-continue', async (event, raw: unknown) => {
+    trustedUiSender(event);
+    const input = SetTaskAutoContinueSchema.parse(raw);
+    const { task, previous } = tasks.setAutoContinue(input.taskId, input.autoContinue);
+    return { autoContinue: task.autoContinue !== false, previous, status: task.status };
   });
 
   ipcMain.handle('task:approve', async (event, raw: unknown) => {

@@ -84,6 +84,11 @@ const EVENT_LABEL: Record<string, string> = {
   'task.completed': '任务完成',
   'task.failed': '任务失败',
   'task.cancelled': '任务已取消',
+  'task.budget.exhausted': '预算用尽，已暂停',
+  'task.round.user_continue': '按你的指令开了新一轮',
+  'task.round.await_user': '停在下一轮开始前',
+  'task.auto_continue.updated': '无人值守续轮设置已改',
+  'task.fault.stopped': '异常停住，没有判死',
   'context.event': '上下文状态更新',
   'send.failed': '发送失败'
 };
@@ -146,6 +151,16 @@ export function TaskProgressCard(props: {
     .find(event => event.type !== 'log' && event.type !== 'task.updated') ?? ordered.at(-1) ?? null;
   const contextEvent = [...ordered].reverse().find(
     (event): event is Extract<AgentEvent, { type: 'context.event' }> => event.type === 'context.event'
+  ) ?? null;
+  /**
+   * 这条异常把任务停在了可恢复的那一侧（M3-4d）。
+   *
+   * 只认「落点就是当前状态」的那一条：任务后来被人继续跑下去、最后真的失败了，
+   * 拿旧的那条通道故障解释当前的 `failed` 就是假话。
+   */
+  const faultHere = [...ordered].reverse().find(
+    (event): event is Extract<AgentEvent, { type: 'task.fault.stopped' }> =>
+      event.type === 'task.fault.stopped' && event.landedStatus === task.status
   ) ?? null;
   const contextLabel = contextEvent
     ? contextEvent.event === 'context.budget.warning' ? '接近上限'
@@ -247,7 +262,19 @@ export function TaskProgressCard(props: {
             : ''}
         </p>
       )}
-      {task.error && <p className="task-progress-error">失败原因：{task.error}</p>}
+      {/* M3-4d：通道故障/计划不可用停在的是可恢复状态，不能一律写「失败原因」——
+          那一行会让人以为任务已经作废，而正确动作是「继续任务」。落点状态和当前状态
+          一致才用这套说法：后来真的失败了就不能再拿旧的那条 fault 解释。 */}
+      {task.error && faultHere && (
+        <p className="task-progress-error">停下的原因：{faultHere.headline}｜{task.error}</p>
+      )}
+      {task.error && !faultHere && <p className="task-progress-error">失败原因：{task.error}</p>}
+      {faultHere && (
+        <p className="task-progress-line">
+          <span className="task-progress-key">怎么回来</span>
+          {faultHere.howBack}
+        </p>
+      )}
     </section>
   );
 }

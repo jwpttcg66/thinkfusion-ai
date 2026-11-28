@@ -16,6 +16,7 @@ const INPUT_TYPE_LABEL: Record<string, string> = {
   user_prompt: '任务',
   execution_report: '执行报告',
   plan_repair: '计划修正',
+  user_continue: '换手段再来一轮',
   clarification_answer: '澄清回答'
 };
 

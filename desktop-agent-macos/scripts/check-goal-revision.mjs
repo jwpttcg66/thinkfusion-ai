@@ -101,8 +101,14 @@ test('源码守卫：重大变更不再只留一行日志', () => {
   assert.match(orchestrator, /impactedTaskIds: target\.plan\.impactedTaskIds/);
   assert.match(orchestrator, /inheritedCount: target\.plan\.inheritedTaskIds\.length/);
   // 待确认事件必须活过事件裁剪，否则重启后卡片凭空消失。
+  // 原来钉的是「它是名单里最后一条」（`'goal.revision.pending'\n]);`）：后来的人往名单里
+  // 加一项，这条守卫就以「M1-3 的卡片丢了」的名义报失败，而它真正要问的只是在不在名单里。
   const store = readSource('src/main/store.ts');
-  assert.match(store, /'goal\.revision\.pending'\n\]\);/);
+  const keepStart = store.indexOf('const KEEP_FOREVER');
+  assert.ok(keepStart > 0, '找不到 KEEP_FOREVER，后面的断言会是空断言');
+  const keepList = store.slice(keepStart, store.indexOf(']);', keepStart));
+  assert.ok(keepList.length > 100, 'KEEP_FOREVER 名单切片异常');
+  assert.match(keepList, /'goal\.revision\.pending'/);
 });
 
 

@@ -2636,6 +2636,8 @@ export class ChatPageDriver {
   private readonly signedOutPathsOf: () => readonly string[];
   private readonly blockedPathsOf: () => readonly string[];
   private readonly challengeWordsOf: () => readonly string[];
+  /** 源在设置里关着时的一句说明（没有就是 null，交回原来的「页面尚未就绪」）。 */
+  private readonly closedReasonOf: () => string | null;
   /**
    * 页面落在站点自己声明的「不接受提问」路径上时，返回给用户看的那句话。
    * `getStatus()` 和 `submit()` 共用，避免一个说会员排队、另一个又退回
@@ -2735,6 +2737,15 @@ export class ChatPageDriver {
        * 认出来只为了说清楚，绝不去解验证。
        */
       challengeText?: readonly string[] | (() => readonly string[]);
+      /**
+       * 这条通道的源在设置里是关着的时，该怎么对用户说（见 `main/index.ts` 的 `adapterFor`）。
+       *
+       * 默认没有这句话，于是源被关掉之后任务只能拿到「X 页面尚未就绪」——它既没说清是
+       * 谁没就绪，也没有出路：视图永远等不来，最后一律判成任务失败。设置里那句
+       * 「还没启用，先在设置里打开」本来就存在（`activateSource`），这里只是让提问路径
+       * 说同一句话，用户拨一下开关就能接着跑。
+       */
+      closedReason?: () => string | null;
     }
   ) {
     const hosts = options.hosts;
@@ -2754,6 +2765,7 @@ export class ChatPageDriver {
     this.blockedPathsOf = typeof blockedPaths === 'function' ? blockedPaths : () => blockedPaths;
     const challengeText = options.challengeText ?? [];
     this.challengeWordsOf = typeof challengeText === 'function' ? challengeText : () => challengeText;
+    this.closedReasonOf = options.closedReason ?? (() => null);
     this.siteLabel = options.siteLabel;
   }
 
@@ -2768,7 +2780,12 @@ export class ChatPageDriver {
 
   private driver(): PageDriver {
     const driver = this.getDriver();
-    if (!driver || driver.isDestroyed()) throw new Error(`${this.siteLabel} 页面尚未就绪`);
+    if (!driver || driver.isDestroyed()) {
+      // 关着的源不会有视图：这句不是「等一下就好」，而是「去设置里打开」。
+      const closed = this.closedReasonOf();
+      if (closed) throw new Error(closed);
+      throw new Error(`${this.siteLabel} 页面尚未就绪`);
+    }
     const url = driver.url();
     if (!this.isAllowed(url)) throw new Error(`当前页面不是允许的 ${this.siteLabel} 页面：${url || '(空白)'}`);
     return driver;

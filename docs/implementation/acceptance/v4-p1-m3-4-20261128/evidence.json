@@ -1,0 +1,766 @@
+{
+  "startedAt": "2026-11-28T13:49:39.456Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9334 / 通道停住用 SIGSTOP 停住 CLI 子进程喂给现网看门狗 / 附着在手起的 dev 实例上（脚本不起也不收 App）",
+  "workspace": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-4-ws-1795873779456",
+  "store": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-28T13:49:39.458Z"
+    },
+    "d-live-strings-not-fatal": {
+      "ok": true,
+      "detail": "真机原文 5 条，落点 [\"channel_timeout→interrupted\"]｜仍判死的 []",
+      "at": "2026-11-28T13:49:39.506Z"
+    },
+    "a-stale-probes-cleared": {
+      "ok": true,
+      "detail": "清掉 2 条遗留探针任务 + 2 条探针会话，基线任务数 0／会话数 0",
+      "at": "2026-11-28T13:49:43.661Z"
+    },
+    "a-channel-state": {
+      "ok": true,
+      "detail": "网页登录=false 页面可用=false（页面尚未加载）｜已实测可用的 CLI=[\"qoder\"]",
+      "at": "2026-11-28T13:49:43.664Z"
+    },
+    "a-probe-created": {
+      "ok": true,
+      "detail": "task=3040c256 conv=e567c2b1",
+      "at": "2026-11-28T13:49:45.296Z"
+    },
+    "a-parked-at-approval": {
+      "ok": true,
+      "detail": "停在 awaiting_approval（计划 4f3014d3），确认留到关掉无人值守之后再点",
+      "at": "2026-11-28T13:49:58.574Z"
+    },
+    "a-dirty-rejected:{\"taskId\":\"3040c256-70d1-49c3-917e-be127046395c\"}": {
+      "ok": true,
+      "detail": "边界拒了：Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"undefined\",\n    \"｜理由 没指布尔，改的是哪一侧说不清",
+      "at": "2026-11-28T13:49:58.575Z"
+    },
+    "a-dirty-rejected:{\"taskId\":\"3040c256-70d1-49c3-917e-be127046395c\",\"autoContinue\":\"false\"}": {
+      "ok": true,
+      "detail": "边界拒了：Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"string\",\n    \"pat｜理由 字符串 \"false\" 在代码里 !== false，会显示成已打开",
+      "at": "2026-11-28T13:49:58.576Z"
+    },
+    "a-dirty-rejected:{\"taskId\":\"3040c256-70d1-49c3-917e-be127046395c\",\"autoContinue\":1}": {
+      "ok": true,
+      "detail": "边界拒了：Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"number\",\n    \"pat｜理由 数字不能当布尔",
+      "at": "2026-11-28T13:49:58.576Z"
+    },
+    "a-dirty-rejected:{\"taskId\":\"3040c256-70d1-49c3-917e-be127046395c\",\"autoContinue\":true,\"extra\":1}": {
+      "ok": true,
+      "detail": "边界拒了：Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"extra\"\n    ],\n    \"path\": [],\n    \"｜理由 多余键必须拒（strict），不能悄悄吞掉",
+      "at": "2026-11-28T13:49:58.577Z"
+    },
+    "a-switch-off-receipt": {
+      "ok": true,
+      "detail": "回执 {\"autoContinue\":false,\"previous\":true,\"status\":\"awaiting_approval\"}｜建立时的生效值 true（老任务没写过这个字段，缺省按自动续轮算）",
+      "at": "2026-11-28T13:49:58.696Z"
+    },
+    "a-switch-off-persisted": {
+      "ok": true,
+      "detail": "落库 autoContinue=false（重启后要读回来的就是这一格）",
+      "at": "2026-11-28T13:49:58.696Z"
+    },
+    "a-switch-off-event": {
+      "ok": true,
+      "detail": "事件 {\"autoContinue\":false,\"previous\":true}｜这条任务共 1 次改动",
+      "at": "2026-11-28T13:49:58.696Z"
+    },
+    "a-ui-switch-off": {
+      "ok": true,
+      "detail": "界面读数「无人值守 停在轮次开始前，等你点「继续下一轮」」",
+      "at": "2026-11-28T13:49:59.305Z"
+    },
+    "a-switch-back-on": {
+      "ok": true,
+      "detail": "回执 {\"autoContinue\":true,\"previous\":false,\"status\":\"awaiting_approval\"}｜界面「无人值守 判定要开下一轮时自动开」",
+      "at": "2026-11-28T13:50:00.013Z"
+    },
+    "a-continue-boundary": {
+      "ok": true,
+      "detail": "拒了 4 条（状态检查=true）：Error invoking remote method 'task:continue-round': [\n  {\n   / Error invoking remote method 'task:continue-round': [\n  {\n   / Error invoking remote method 'task:continue-round': [\n  {\n   / Error invoking remote method 'task:continue-round': Error: 任",
+      "at": "2026-11-28T13:50:00.146Z"
+    },
+    "a-continue-no-sneak-round": {
+      "ok": true,
+      "detail": "此刻状态 awaiting_approval（允许名单=[\"report_pending\",\"awaiting_next_round\"]）｜轮数 1",
+      "at": "2026-11-28T13:50:00.176Z"
+    },
+    "b-stopped-before-wait": {
+      "ok": true,
+      "detail": "等待前把无人值守关掉：{\"autoContinue\":false,\"previous\":true,\"status\":\"awaiting_approval\"}",
+      "at": "2026-11-28T13:50:00.259Z"
+    },
+    "a-wait-user-approved": {
+      "ok": true,
+      "detail": "无人值守已关，脚本代点「确认并执行」开跑本轮：回执 null｜之后状态 report_pending",
+      "at": "2026-11-28T13:50:07.343Z"
+    },
+    "b-stops-before-round": {
+      "ok": "skipped",
+      "detail": "本轮自然停在 report_pending（不是 awaiting_next_round）：停轮段本轮没有样本，不拿「没撞见」当「证过了」",
+      "at": "2026-11-28T13:50:07.381Z"
+    },
+    "b-reached-waiting-state": {
+      "ok": true,
+      "detail": "状态 report_pending｜轮数 1",
+      "at": "2026-11-28T13:50:07.381Z"
+    },
+    "b-exit-visible-in-ui": {
+      "ok": true,
+      "detail": "入口渲染=true｜按钮「换手段再来一轮」｜同组按钮 [\"继续修复（重新执行验证）\",\"按当前口径重新判定\",\"接受未验证并结束\",\"换手段再来一轮\"]",
+      "at": "2026-11-28T13:50:08.272Z"
+    },
+    "b-opened-round": {
+      "ok": true,
+      "detail": "轮数 1 → 2，状态 planning（不是只回一个回执）",
+      "at": "2026-11-28T13:50:08.662Z"
+    },
+    "b-instruction-persisted": {
+      "ok": true,
+      "detail": "新一轮 inputType=user_continue，请求文本含用户原话=true｜上一轮手段清单 1 条一并带上",
+      "at": "2026-11-28T13:50:08.662Z"
+    },
+    "b-event-and-gate": {
+      "ok": true,
+      "detail": "事件 gate={\"ok\":true,\"reason\":\"轮数 1/20\"}｜脚本用同一批纯函数反算 gate={\"ok\":true,\"reason\":\"轮数 1/20\",\"blockedBy\":[]}",
+      "at": "2026-11-28T13:50:08.662Z"
+    },
+    "c-switch-back-on": {
+      "ok": true,
+      "detail": "{\"autoContinue\":true,\"previous\":true,\"status\":\"planning\"}",
+      "at": "2026-11-28T13:50:10.433Z"
+    },
+    "c-channel-stall-injected": {
+      "ok": true,
+      "detail": "已 SIGSTOP 规划用的 CLI 进程 组 -94738（进程态 TNs，组内子进程 1 个｜/Users/yalla/.local/bin/qodercli -p M-dM-=\\240M-fM^XM-/M-fM^\\M-,M-eM^\\）",
+      "at": "2026-11-28T13:50:11.085Z"
+    },
+    "c-not-killed": {
+      "ok": true,
+      "detail": "实际状态 interrupted（要停在可恢复那侧，不是终态 failed）｜错误「模型连续 120 秒没有输出，已停止。请重试或换模型。」",
+      "at": "2026-11-28T13:52:16.403Z"
+    },
+    "c-fault-event": {
+      "ok": true,
+      "detail": "事件 {\"kind\":\"channel_stall\",\"landedStatus\":\"interrupted\",\"error\":\"模型连续 120 秒没有输出，已停止。请重试或换模型。\"}",
+      "at": "2026-11-28T13:52:16.403Z"
+    },
+    "c-no-new-round-while-stopped": {
+      "ok": true,
+      "detail": "停住之后不得再开轮：1 → 1",
+      "at": "2026-11-28T13:52:16.403Z"
+    },
+    "c-activity-note": {
+      "ok": true,
+      "detail": "活动流旁注「这一轮模型不再输出，是通道停住了 · 停在「interrupted」 详情」｜带回来的说法=true",
+      "at": "2026-11-28T13:52:19.021Z"
+    },
+    "c-ui-says-why-and-how": {
+      "ok": true,
+      "detail": "仍在说「失败原因」的条数=0｜统计页 无人值守「无人值守 判定要开下一轮时自动开」｜轮次「轮次 1 轮」",
+      "at": "2026-11-28T13:52:19.021Z"
+    },
+    "c-resume-recovers": {
+      "ok": true,
+      "detail": "继续任务后状态 planning｜轮数 1 → 2（可恢复不是写在状态表里的空话）",
+      "at": "2026-11-28T13:52:25.503Z"
+    },
+    "c-resume-plan-approved": {
+      "ok": true,
+      "detail": "恢复后停在待审批，脚本代点确认：回执 null｜之后状态 report_pending",
+      "at": "2026-11-28T13:52:43.786Z"
+    },
+    "c-plan-annotations": {
+      "ok": true,
+      "detail": "事件尾部 40 条里没有因说明字段而判废的计划（真机样本那三条键已接住）",
+      "at": "2026-11-28T13:52:43.790Z"
+    },
+    "c-open-still-obays-gate": {
+      "ok": true,
+      "detail": "判定说「WAIT_USER/stop_and_wait」（目标仅部分达成（0 项部分满足），需补充证据或调整范围）→ 判定后没有新轮（出口点击 0 次，开着也不新开轮才算对）｜状态 report_pending｜轮次记录 1:user_prompt、2:user_prompt",
+      "at": "2026-11-28T13:52:44.026Z"
+    },
+    "c-auto-open-after-resume": {
+      "ok": "skipped",
+      "detail": "窗口内到不了「要开下一轮」这一格（最近判定 stop_and_wait）：这一轮自己判成停，正向半边由 E 段补",
+      "at": "2026-11-28T13:52:44.026Z"
+    },
+    "c-probe-cleaned-up": {
+      "ok": true,
+      "detail": "C 段探针删除后仍存在 false",
+      "at": "2026-11-28T13:52:48.229Z"
+    },
+    "e-default-field-untouched": {
+      "ok": true,
+      "detail": "全程没碰开关：改动事件 0 条｜出口点击 0 次｜字段是否被显式写过 建=false/现=false（生效值 true）",
+      "at": "2026-11-28T13:58:21.653Z"
+    },
+    "e-default-auto-open": {
+      "ok": true,
+      "detail": "判定 REPAIR/open_next_round「存在待修或未解决评审问题」→ 判定后自动开出「execution_report」轮，没落「等你点继续」旁注=true，全程出口点击 0 次（0 才算自动）｜轮次记录 1:user_prompt、2:execution_report",
+      "at": "2026-11-28T13:58:21.655Z"
+    },
+    "e-probe-cleaned-up": {
+      "ok": true,
+      "detail": "缺省探针删除后仍存在 false",
+      "at": "2026-11-28T13:58:25.830Z"
+    },
+    "f-source-disabled-landing": {
+      "ok": "skipped",
+      "detail": "源关着时这条探针没建出来（ChatGPT 未登录：页面尚未加载）：落点在提问/规划之前，本段证不到｜顺手回收 1 条会话，仍没删掉的 0 条",
+      "at": "2026-11-28T13:59:58.328Z"
+    },
+    "g-stopped-at-await": {
+      "ok": true,
+      "detail": "状态 awaiting_next_round｜事件 {\"purpose\":\"按评审与验证问题修复\",\"gate\":{\"ok\":true,\"reason\":\"轮数 1/20\"}}",
+      "at": "2026-11-28T14:05:33.593Z"
+    },
+    "g-ui-says-why-and-how": {
+      "ok": true,
+      "detail": "按钮「继续下一轮」｜同组 [\"继续修复（重新执行验证）\",\"按当前口径重新判定\",\"接受未验证并结束\",\"继续下一轮\"]｜文案含「判定要开下一轮，按你的设置停在这里」=true",
+      "at": "2026-11-28T14:05:35.851Z"
+    },
+    "g-no-sneak-round": {
+      "ok": true,
+      "detail": "出口点击 0 次、轮数 1 → 1（开着无人值守时同一问法当场就开了轮，见 E 段）",
+      "at": "2026-11-28T14:05:35.851Z"
+    },
+    "g-probe-cleaned-up": {
+      "ok": true,
+      "detail": "停轮探针删除后仍存在 false",
+      "at": "2026-11-28T14:05:39.961Z"
+    },
+    "probe-cleaned-up": {
+      "ok": true,
+      "detail": "删除后仍存在 false",
+      "at": "2026-11-28T14:05:44.083Z"
+    },
+    "tasks-back-to-baseline": {
+      "ok": true,
+      "detail": "任务数 0 → 0",
+      "at": "2026-11-28T14:05:44.115Z"
+    },
+    "probe-conversations-cleaned-up": {
+      "ok": true,
+      "detail": "探针会话 5 条，没删掉的 0 条",
+      "at": "2026-11-28T14:05:44.181Z"
+    },
+    "conversations-back-to-baseline": {
+      "ok": true,
+      "detail": "会话数 0 → 0",
+      "at": "2026-11-28T14:05:44.207Z"
+    },
+    "probe-workspace-removed": {
+      "ok": true,
+      "detail": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-4-ws-1795873779456",
+      "at": "2026-11-28T14:05:44.207Z"
+    }
+  },
+  "shots": [
+    "01-auto-continue-switch.png",
+    "02-exit-visible.png",
+    "03-continue-round.png",
+    "04-fault-interrupted.png",
+    "05-default-auto-open.png",
+    "06-awaiting-next-round.png"
+  ],
+  "phaseA": {
+    "rejected": [
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c"
+        },
+        "why": "没指布尔，改的是哪一侧说不清",
+        "ok": false,
+        "error": "Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"autoContinue\"\n    ],\n    \"message\": \"Required\"\n  }\n]"
+      },
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "autoContinue": "false"
+        },
+        "why": "字符串 \"false\" 在代码里 !== false，会显示成已打开",
+        "ok": false,
+        "error": "Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"string\",\n    \"path\": [\n      \"autoContinue\"\n    ],\n    \"message\": \"Expected boolean, received string\"\n  }\n]"
+      },
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "autoContinue": 1
+        },
+        "why": "数字不能当布尔",
+        "ok": false,
+        "error": "Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"boolean\",\n    \"received\": \"number\",\n    \"path\": [\n      \"autoContinue\"\n    ],\n    \"message\": \"Expected boolean, received number\"\n  }\n]"
+      },
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "autoContinue": true,
+          "extra": 1
+        },
+        "why": "多余键必须拒（strict），不能悄悄吞掉",
+        "ok": false,
+        "error": "Error invoking remote method 'task:set-auto-continue': [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"extra\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key(s) in object: 'extra'\"\n  }\n]"
+      }
+    ],
+    "persistedAutoContinue": false,
+    "switchOff": {
+      "checked": false,
+      "disabled": false,
+      "label": "无人值守 停在轮次开始前，等你点「继续下一轮」",
+      "result": ""
+    },
+    "switchOn": {
+      "checked": true,
+      "disabled": false,
+      "label": "无人值守 判定要开下一轮时自动开",
+      "result": ""
+    },
+    "continueRefused": [
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "instruction": "   "
+        },
+        "why": "空指令照样开一轮，等于把一轮模型调用烧在空格上",
+        "ok": false,
+        "error": "Error invoking remote method 'task:continue-round': [\n  {\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"type\": \"string\",\n    \"inclusive\": true,\n    \"exact\": false,\n    \"message\": \"要说什么做法不对、想换成什么，不能空着\",\n    \"path\": [\n      \"instruction\"\n    ]\n  }\n]"
+      },
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "instruction": "上一轮只列了文件名。这一轮改成同时给出每个文件的",
+          "extra": 1
+        },
+        "why": "多余键必须拒",
+        "ok": false,
+        "error": "Error invoking remote method 'task:continue-round': [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"extra\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key(s) in object: 'extra'\"\n  }\n]"
+      },
+      {
+        "input": {
+          "instruction": "上一轮只列了文件名。这一轮改成同时给出每个文件的"
+        },
+        "why": "没有任务 id，不能猜对哪条任务开轮",
+        "ok": false,
+        "error": "Error invoking remote method 'task:continue-round': [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"taskId\"\n    ],\n    \"message\": \"Required\"\n  }\n]"
+      },
+      {
+        "input": {
+          "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+          "instruction": "上一轮只列了文件名。这一轮改成同时给出每个文件的"
+        },
+        "why": "状态 awaiting_approval 不在允许名单",
+        "ok": false,
+        "error": "Error invoking remote method 'task:continue-round': Error: 任务当前状态为 awaiting_approval，只有「已完成待确认」或「停在下一轮开始前」的任务能要求再来一轮"
+      }
+    ],
+    "stateWhenChecked": "awaiting_approval"
+  },
+  "phaseB": {
+    "switchForB": {
+      "autoContinue": false,
+      "previous": true,
+      "status": "awaiting_approval"
+    },
+    "statusAtGate": "report_pending",
+    "roundsBefore": 1,
+    "awaitEvent": null,
+    "exitShown": {
+      "found": true,
+      "placeholder": "上一轮哪里不对、想换成什么做法（原话会逐字进下一轮计划请求）",
+      "button": "换手段再来一轮",
+      "buttons": [
+        "继续修复（重新执行验证）",
+        "按当前口径重新判定",
+        "接受未验证并结束",
+        "换手段再来一轮"
+      ],
+      "groupText": "重点 验证待你决定 · 未通过闸门，需选出口 继续修复（重新执行验证） 按当前口径重新判定 接受未验证并结束 换手段再来一轮 想按自己的判断再做一轮，写下指令点「换手段再来一轮」；不想再做就「接受未验证并结束」。"
+    },
+    "receipt": {
+      "roundId": "4622cf3c-0eca-4cbb-82f9-4f2a24fc8cce",
+      "roundNumber": 2,
+      "fromStatus": "report_pending",
+      "means": [
+        "fs.list path=."
+      ],
+      "gate": {
+        "ok": true,
+        "reason": "轮数 1/20"
+      },
+      "status": "planning"
+    },
+    "status": "planning",
+    "roundsAfter": 2,
+    "round": {
+      "inputType": "user_continue",
+      "requestHasInstruction": true
+    },
+    "event": {
+      "fromStatus": "report_pending",
+      "instruction": "上一轮只列了文件名。这一轮改成同时给出每个文件的大小，仍然不要新建或修改文件。",
+      "means": 1,
+      "gate": {
+        "ok": true,
+        "reason": "轮数 1/20"
+      }
+    }
+  },
+  "phaseC": {
+    "listeners": [
+      {
+        "pid": 89425,
+        "command": "/Users/yalla/data/localLab/thinkfusion-ai/desktop-agent-macos/node_modules/electron/dist/T"
+      }
+    ],
+    "taskId": "235c063a-3bc4-4b53-a109-6bb400de58c7",
+    "switchBackOn": {
+      "autoContinue": true,
+      "previous": true,
+      "status": "planning"
+    },
+    "inject": {
+      "cliId": "qoder",
+      "executable": "/Users/yalla/.qoder/entry/qoder",
+      "mainPid": 89425,
+      "pid": 94738,
+      "stopped": "-94738",
+      "mode": "group",
+      "group": [
+        94753
+      ],
+      "state": "TNs",
+      "command": "/Users/yalla/.local/bin/qodercli -p M-dM-=\\240M-fM^XM-/M-fM^\\M-,M-eM^\\M-0 ThinkFusion M-gM^ZM^DM-dM-;M-;M-eM^JM-!M-hM-'M^DM-eM^HM^RM-eM-<M^UM-fM^SM^NM-cM^@M^B\\0",
+      "at": "2026-11-28T13:50:11.085Z"
+    },
+    "released": "已 SIGCONT 放开 进程组 -94738（它剩下的输出按「回答来晚」丢掉，不再补刀）",
+    "status": "interrupted",
+    "error": "模型连续 120 秒没有输出，已停止。请重试或换模型。",
+    "faultEvent": {
+      "type": "task.fault.stopped",
+      "at": 1795873930208,
+      "taskId": "235c063a-3bc4-4b53-a109-6bb400de58c7",
+      "roundId": "a005807b-ba26-4f53-9e6e-fab84bae833d",
+      "kind": "channel_stall",
+      "error": "模型连续 120 秒没有输出，已停止。请重试或换模型。",
+      "landedStatus": "interrupted",
+      "headline": "这一轮模型不再输出，是通道停住了",
+      "howBack": "不是任务做错了：换模型或等通道恢复后点「继续任务」，会按上一轮检查点重开一轮。",
+      "eventId": "c0df49e3-b02b-40f0-b770-90f4b43015e5",
+      "runId": "235c063a-3bc4-4b53-a109-6bb400de58c7",
+      "sequence": 10,
+      "phase": "execution"
+    },
+    "failedAfterFault": [],
+    "roundsBeforeFault": 1,
+    "roundsAfterFault": 1,
+    "ui": {
+      "selectedRow": true,
+      "conv": {
+        "stopped": [
+          "这一轮模型不再输出，是通道停住了 · 停在「interrupted」 详情",
+          "这一轮模型不再输出，是通道停住了 · 停在「interrupted」",
+          "模型连续 120 秒没有输出，已停止。请重试或换模型。｜没有判成失败：这一轮模型不再输出，是通道停住了（停在「interrupted」）。不是任务做错了：换模型或等通道恢复后点「继续任务」，会按上一轮检查点重开一轮。",
+          "模型连续 120 秒没有输出，已停止。请重试或换模型。｜没有判成失败：这一轮模型不再输出，是通道停住了（停在「interrupted」）。不是任务做错了：换模型或等通道恢复后点「继续任务」，会按上一轮检查点重开一轮。"
+        ],
+        "howBack": true,
+        "failedWord": []
+      },
+      "stats": {
+        "keys": [
+          "目标",
+          "轮次",
+          "事件",
+          "总耗时",
+          "无人值守",
+          "轮数",
+          "模型调用",
+          "Token",
+          "判定用的数",
+          "估算输入",
+          "窗口",
+          "使用率"
+        ],
+        "auto": "无人值守 判定要开下一轮时自动开",
+        "rounds": "轮次 1 轮"
+      }
+    },
+    "afterResume": {
+      "status": "planning",
+      "rounds": 2,
+      "fired": {
+        "state": "settled",
+        "ok": true
+      }
+    },
+    "resumeGate": {
+      "status": "awaiting_approval",
+      "planId": "95604ba0-4875-4e2c-9944-9f29429ad287"
+    },
+    "approveAfterResume": {
+      "reached": true,
+      "planId": "95604ba0-4875-4e2c-9944-9f29429ad287",
+      "roundId": "177a248e-57f7-4e43-9c03-732ad5537047",
+      "receipt": null,
+      "ok": true,
+      "statusAfter": "report_pending"
+    },
+    "autoOpen": {
+      "decision": {
+        "decisionType": "WAIT_USER",
+        "nextAction": "stop_and_wait",
+        "reason": "目标仅部分达成（0 项部分满足），需补充证据或调整范围",
+        "at": 1795873957509
+      },
+      "openedAfterDecision": false,
+      "openedInputType": null,
+      "clicks": 0,
+      "awaitUser": false,
+      "status": "report_pending",
+      "roundTypes": [
+        "1:user_prompt",
+        "2:user_prompt"
+      ],
+      "timedOut": false,
+      "waitedMs": 24924
+    }
+  },
+  "replay": {
+    "liveSamples": 5,
+    "stillFatal": [],
+    "kinds": [
+      "channel_timeout→interrupted"
+    ]
+  },
+  "cleanup": [
+    {
+      "taskId": "235c063a-3bc4-4b53-a109-6bb400de58c7",
+      "conversationIds": [
+        "d1313482-3ef3-4580-ba32-e708d844f527"
+      ],
+      "removed": true,
+      "conversationLeft": []
+    },
+    {
+      "taskId": "71aa36ae-6f92-46a4-a587-c908a68635a2",
+      "conversationIds": [
+        "5fae8b68-6091-4212-a828-0d4a0be90449"
+      ],
+      "removed": true,
+      "conversationLeft": []
+    },
+    {
+      "taskId": "（F 段只有会话，没有任务）",
+      "conversationIds": [
+        "50d8f1dc-3ed4-4cf4-8373-2eff80824c03"
+      ],
+      "removed": true,
+      "conversationLeft": []
+    },
+    {
+      "taskId": "9bdcf62b-3ff5-405c-9d6e-a32400551f21",
+      "conversationIds": [
+        "6b5932ba-a7b3-4893-ac6b-6deaf5d03ca3"
+      ],
+      "removed": true,
+      "conversationLeft": []
+    },
+    {
+      "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+      "conversationIds": [
+        "e567c2b1-355f-4a3b-a412-3a46ed0dd256"
+      ],
+      "removed": true,
+      "conversationLeft": []
+    }
+  ],
+  "probeIds": [
+    "3040c256-70d1-49c3-917e-be127046395c",
+    "235c063a-3bc4-4b53-a109-6bb400de58c7",
+    "71aa36ae-6f92-46a4-a587-c908a68635a2",
+    "9bdcf62b-3ff5-405c-9d6e-a32400551f21"
+  ],
+  "error": null,
+  "before": {
+    "tasks": 0,
+    "conversations": 0
+  },
+  "staleProbes": [
+    "78074029-72d6-4248-ad61-a0071c83a620",
+    "8b7a275a-76b2-46f9-8088-7db44f4cf3e4"
+  ],
+  "staleConversations": [
+    "7a3176c8-45f8-4085-98cc-a473ff02a033",
+    "07d49945-8c05-40d5-9fd5-194e4ed16a76"
+  ],
+  "channel": {
+    "page": {
+      "loggedIn": false,
+      "pageReady": false,
+      "detail": "页面尚未加载",
+      "url": ""
+    },
+    "cli": [
+      {
+        "id": "qoder",
+        "available": true,
+        "headless": "verified",
+        "reason": null
+      },
+      {
+        "id": "claude",
+        "available": false,
+        "headless": "unverified",
+        "reason": "已在设置里关闭"
+      }
+    ]
+  },
+  "defaults": {
+    "executionMode": "cloud",
+    "fallbackEnabled": false,
+    "privacyMode": "allow-cloud",
+    "selectedCloudModels": [
+      "user:超算:GLM-5.3-Flash"
+    ],
+    "selectedCliAgents": []
+  },
+  "probeExecution": "探针用 CLI 主导（cli:qoder）、云模型清空；用户默认配置见 evidence.defaults",
+  "taskId": "3040c256-70d1-49c3-917e-be127046395c",
+  "conversationId": "e567c2b1-355f-4a3b-a412-3a46ed0dd256",
+  "parkedAtApproval": {
+    "status": "awaiting_approval",
+    "planId": "4f3014d3-0aa2-48f3-a3cd-d2e278c2e2eb"
+  },
+  "approval": {
+    "reached": true,
+    "planId": "4f3014d3-0aa2-48f3-a3cd-d2e278c2e2eb",
+    "roundId": "823f5360-c77b-45eb-833a-d5ce1bc9c6fb",
+    "receipt": null,
+    "ok": true,
+    "statusAfter": "report_pending"
+  },
+  "phaseE": {
+    "taskId": "71aa36ae-6f92-46a4-a587-c908a68635a2",
+    "lostReceipt": null,
+    "bornFieldWritten": false,
+    "bornEffective": true,
+    "approved": {
+      "ok": true,
+      "statusAfter": "executing"
+    },
+    "roundTypesAtApproval": "1:user_prompt",
+    "decision": {
+      "decisionType": "REPAIR",
+      "nextAction": "open_next_round",
+      "reason": "存在待修或未解决评审问题"
+    },
+    "boundary": {
+      "decision": {
+        "decisionType": "REPAIR",
+        "nextAction": "open_next_round",
+        "reason": "存在待修或未解决评审问题",
+        "at": 1795874301092
+      },
+      "openedAfterDecision": true,
+      "openedInputType": "execution_report",
+      "clicks": 0,
+      "awaitUser": false,
+      "status": "planning",
+      "roundTypes": [
+        "1:user_prompt",
+        "2:execution_report"
+      ],
+      "timedOut": false,
+      "waitedMs": 301188
+    },
+    "roundsAfter": 2,
+    "autoContinueEvents": 0,
+    "userContinueClicks": 0,
+    "nowFieldWritten": false,
+    "nowEffective": true
+  },
+  "phaseF": {
+    "pageSources": [
+      {
+        "id": "deepseek",
+        "label": "DeepSeek",
+        "enabled": false
+      },
+      {
+        "id": "chatgpt",
+        "label": "ChatGPT",
+        "enabled": true
+      },
+      {
+        "id": "kimi",
+        "label": "Kimi",
+        "enabled": false
+      },
+      {
+        "id": "gemini",
+        "label": "Gemini",
+        "enabled": false
+      },
+      {
+        "id": "workbuddy",
+        "label": "WorkBuddy",
+        "enabled": false
+      }
+    ],
+    "chosen": "deepseek",
+    "reject": "ChatGPT 未登录：页面尚未加载",
+    "strayConversations": [
+      "50d8f1dc-3ed4-4cf4-8373-2eff80824c03"
+    ]
+  },
+  "phaseG": {
+    "taskId": "9bdcf62b-3ff5-405c-9d6e-a32400551f21",
+    "switchOff": {
+      "autoContinue": false,
+      "previous": true,
+      "status": "planning"
+    },
+    "approved": {
+      "ok": true,
+      "statusAfter": "executing"
+    },
+    "roundsAtApproval": 1,
+    "rounds": 1,
+    "clicks": 0,
+    "stop": {
+      "decision": {
+        "decisionType": "REPAIR",
+        "nextAction": "open_next_round",
+        "reason": "存在待修或未解决评审问题"
+      },
+      "awaitEvent": {
+        "purpose": "按评审与验证问题修复",
+        "gate": {
+          "ok": true,
+          "reason": "轮数 1/20"
+        },
+        "roundNumber": null
+      },
+      "status": "awaiting_next_round"
+    },
+    "ui": {
+      "exitShown": {
+        "found": true,
+        "button": "继续下一轮",
+        "buttons": [
+          "继续修复（重新执行验证）",
+          "按当前口径重新判定",
+          "接受未验证并结束",
+          "继续下一轮"
+        ],
+        "groupText": "重点 判定要开下一轮，按你的设置停在这里 继续修复（重新执行验证） 按当前口径重新判定 接受未验证并结束 继续下一轮 点「继续下一轮」才开新一轮；这一轮的报告已经在手里，不想再做就「接受未验证并结束」。统计页的「无人值守续轮」只管之后的边界，拨开它仍要点一次「继续下一轮」。"
+      },
+      "wantedHeadline": "判定要开下一轮，按你的设置停在这里"
+    }
+  },
+  "finishedAt": "2026-11-28T14:05:44.207Z"
+}
