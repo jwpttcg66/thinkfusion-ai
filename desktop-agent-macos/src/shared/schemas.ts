@@ -28,6 +28,29 @@ export const ApprovePlanSchema = z
   })
   .strict();
 
+/**
+ * 追加任务预算（V4 P1 M3-3）。
+ *
+ * 边界上只收正整数：0 / 负数 / 小数直接拒，不等到 `normalizeTaskBudget` 悄悄回落默认——
+ * 用户在输入框里填错必须当场看见，否则他会以为预算已经加过了。
+ * 至少要指一条维度：一条都不给的调用什么都没改，却要发一条「预算已更新」，那是假事件。
+ */
+export const SetTaskBudgetSchema = z
+  .object({
+    taskId: z.string().min(1).max(80),
+    maxRounds: z.number().int().positive().max(10_000).optional(),
+    maxModelCalls: z.number().int().positive().max(100_000).optional(),
+    maxTokens: z.number().int().positive().max(100_000_000).optional()
+  })
+  .strict()
+  .refine(
+    value =>
+      value.maxRounds !== undefined ||
+      value.maxModelCalls !== undefined ||
+      value.maxTokens !== undefined,
+    { message: '至少指出一条预算维度' }
+  );
+
 export const RejectPlanSchema = z
   .object({
     taskId: z.string().min(1).max(80),

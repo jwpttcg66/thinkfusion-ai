@@ -8,6 +8,8 @@ import type {
 } from '../shared/contracts';
 import { AgentStore } from './store';
 import { codingStateFor } from '../shared/coding-workflow';
+import { DEFAULT_TASK_BUDGET, budgetStateOf, canOpenRound, extendTaskBudget, normalizeTaskBudget } from '../shared/task-budget';
+import type { BudgetState, TaskBudget } from '../shared/task-budget';
 
 /** Transitions the spec allows. Anything else is a bug, not a warning. */
 const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
@@ -24,17 +26,19 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   plan_ready: ['awaiting_approval', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
   awaiting_approval: ['executing', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
   executing: ['verifying', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
-  verifying: ['report_pending', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
-  report_pending: ['awaiting_next_round', 'paused', 'interrupted', 'blocked', 'completed', 'failed', 'cancelled'],
-  awaiting_next_round: ['planning', 'paused', 'interrupted', 'blocked', 'failed', 'cancelled'],
+  verifying: ['report_pending', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
+  report_pending: ['awaiting_next_round', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'completed', 'failed', 'cancelled'],
+  awaiting_next_round: ['planning', 'paused', 'interrupted', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   pause_requested: ['pausing', 'paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
   pausing: ['paused', 'interrupted', 'cancel_requested', 'cancelled', 'failed'],
   cancel_requested: ['cancelling', 'cancelled', 'interrupted', 'paused', 'failed'],
   cancelling: ['cancelled', 'interrupted', 'failed'],
-  paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
-  interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
+  // paused/interrupted/blocked → budget_exhausted：恢复（resume）时才发现轮数已见底，
+  // 这条落点必须可达，否则又只能退回 `failed` 那个接不回去的终态。
+  paused: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
+  interrupted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'blocked', 'failed', 'cancelled'],
   budget_exhausted: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'blocked', 'failed', 'cancelled'],
-  blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'failed', 'cancelled'],
+  blocked: ['planning', 'plan_ready', 'awaiting_clarification', 'awaiting_approval', 'executing', 'verifying', 'report_pending', 'awaiting_next_round', 'budget_exhausted', 'failed', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: []
@@ -89,7 +93,9 @@ export class TaskManager {
       ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: input.debateAgentIds } : {}),
       createdAt: now,
       updatedAt: now,
-      maxRounds: 20,
+      // 预算从建立那天就落盘：`maxRounds` 只作显示别名，判定读的是 `budget`（M3-3 单点）。
+      maxRounds: DEFAULT_TASK_BUDGET.maxRounds,
+      budget: normalizeTaskBudget(),
       maxSteps: 30,
       timeoutMs: 600_000
     };
@@ -167,6 +173,54 @@ export class TaskManager {
     this.store.upsertTask(next);
     this.publish(next);
     return next;
+  }
+
+  /**
+   * 预算的唯一写路径（M3-3）：追加 → 落盘 → 发事件 → 当场重算门禁。
+   *
+   * 原来错在哪：界面上有「追加预算或结束」的文案，却没有任何地方能把预算写回任务，
+   * 所以超限只能停在 `failed`。这里同时保证「只增不减」（`extendTaskBudget` 的约定）
+   * 和 `maxRounds` 这个显示别名跟着走，避免两份数对不上。
+   *
+   * 返回的 `gate` 是给调用方与事件用的：加完预算到底放行没有，必须当场可核对。
+   */
+  extendBudget(
+    taskId: string,
+    raw: TaskBudget | null | undefined,
+    source: 'user' | 'model' | 'resume' = 'user'
+  ): { task: AgentTask; budget: TaskBudget; gate: ReturnType<typeof canOpenRound> } {
+    const current = this.get(taskId);
+    const previous = current.budget ?? null;
+    const budget = extendTaskBudget(previous, raw);
+    const task = this.patch(taskId, { budget, maxRounds: budget.maxRounds ?? DEFAULT_TASK_BUDGET.maxRounds });
+    const gate = canOpenRound({
+      budget,
+      // 模型调用与 token 现网没有任务级账本（主进程不回填每轮 usage），如实记 null：
+      // 设了这两条上限也不会误判超限，界面会显示「未记账」而不是「没用完」。
+      usage: { rounds: this.store.listRounds(taskId).length, modelCalls: null, tokens: null }
+    });
+    this.emit({
+      type: 'task.budget.updated',
+      at: Date.now(),
+      taskId,
+      budget,
+      previous,
+      source,
+      gate
+    });
+    return { task, budget, gate };
+  }
+
+  /** 预算核算读数（详情面板与门禁共用）：轮数从轮次表现算，token 拿不到就记未知。 */
+  budgetView(taskId: string): { budget: TaskBudget; state: BudgetState; gate: ReturnType<typeof canOpenRound> } {
+    const task = this.get(taskId);
+    const budget = task.budget ?? normalizeTaskBudget({ maxRounds: task.maxRounds });
+    const usage = { rounds: this.store.listRounds(taskId).length, modelCalls: null, tokens: null };
+    return {
+      budget,
+      state: budgetStateOf({ budget, usage }),
+      gate: canOpenRound({ budget, usage })
+    };
   }
 
   createRound(input: {

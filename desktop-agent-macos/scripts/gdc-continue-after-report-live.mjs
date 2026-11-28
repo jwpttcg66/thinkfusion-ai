@@ -207,7 +207,7 @@ if (evidence.snapshots.length > 0) {
   const last = evidence.snapshots[evidence.snapshots.length - 1];
   note(
     'snapshot-decision-sane',
-    ['complete', 'repair', 'fail_delivery', 'fail_budget'].includes(last.decision),
+    ['complete', 'repair', 'fail_delivery', 'fail_budget', 'observe'].includes(last.decision),
     `decision=${last.decision}`
   );
 }

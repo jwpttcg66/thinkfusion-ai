@@ -147,6 +147,8 @@ const api: AgentApi = {
   getTaskEvents: (taskId: string) => ipcRenderer.invoke('task:events', taskId),
   getTaskExecutions: (taskId: string) => ipcRenderer.invoke('task:executions', taskId),
   getTaskContext: (taskId: string) => ipcRenderer.invoke('task:context', taskId),
+  setTaskBudget: (input: { taskId: string; maxRounds?: number; maxModelCalls?: number; maxTokens?: number }) =>
+    ipcRenderer.invoke('task:set-budget', input),
   approvePlan: (input: ApprovePlanInput) => ipcRenderer.invoke('task:approve', input),
   rejectPlan: (input: { taskId: string; planId: string; reason?: string }) => ipcRenderer.invoke('task:reject', input),
   approveStep: (input: { taskId: string; stepId: string; remember?: boolean }) =>
