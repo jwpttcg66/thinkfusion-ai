@@ -15,8 +15,10 @@ import { EMPTY_TASK_VIEW, applyTaskViewEvent, projectTaskView, verificationIsCom
 import { buildConclusion } from '../../shared/task-conversation';
 import { projectConversationCollaborationResult } from '../../shared/collaboration-result';
 import {
+  isGoalRevisionPendingEvent,
   projectConversationGoalWorkbench,
-  projectGoalDrivenWorkbench
+  projectGoalDrivenWorkbench,
+  projectPendingGoalRevision
 } from '../../shared/goal-driven-cycle';
 import { mergeTaskEvent } from '../../shared/task-events';
 import { mergeTaskLists } from '../../shared/task-list';
@@ -57,7 +59,9 @@ import { CollaborationResultPanel } from './components/CollaborationResultPanel'
 import { MemoryTraceCard } from './components/MemoryTraceCard';
 import { TaskTrajectory } from './components/engineering/TaskTrajectory';
 import { GoalContractCard } from './components/engineering/GoalContractCard';
+import { GoalRevisionConfirm } from './components/engineering/GoalRevisionConfirm';
 import { TaskStats } from './components/engineering/TaskStats';
+import { ExecutionHistory } from './components/engineering/ExecutionHistory';
 import { PageSaveDialog } from './components/PageSaveDialog';
 import { Glyph } from './components/Glyph';
 import type { StyleReportData } from './components/StyleReport';
@@ -547,6 +551,14 @@ export default function App() {
   const finalConclusion = useMemo(
     () => buildConclusion(events, { summary: activeTask?.summary, status: activeTask?.status }),
     [events, activeTask?.summary, activeTask?.status]
+  );
+  /** M1-3：压在用户这儿还没确认的目标变更；确认后版本抬起来，卡片自己就消失了。 */
+  const pendingGoalRevision = useMemo(
+    () => projectPendingGoalRevision({
+      events: events.filter(isGoalRevisionPendingEvent),
+      currentVersion: activeTask?.goalVersion ?? 1
+    }),
+    [events, activeTask?.goalVersion]
   );
   /** GDC：目标 / 循环 / 产物 — 仅从权威事件派生；对话胶囊用 intent。 */
   const engineeringWorkbench = useMemo(() => {
@@ -2545,9 +2557,28 @@ export default function App() {
 
             {activeTask && workbenchTab === 'conversation' && (
               <>
+                <GoalRevisionConfirm
+                  pending={pendingGoalRevision}
+                  onConfirm={async criteria => { await reviseTaskGoal(criteria, true); }}
+                />
                 <GoalContractCard
                   workbench={engineeringWorkbench}
                   onReviseGoal={reviseTaskGoal}
+                  onCreateTaskInGoal={async prompt => {
+                    // M1-2：挂在当前目标下新建任务，目标口径由后端按实体取，不在这里猜版本。
+                    const created = await window.agentAPI.submitPrompt({
+                      prompt,
+                      permissionPreset: activeTask.permissionPreset,
+                      ...(activeTask.workspaceRoot ? { workspaceRoot: activeTask.workspaceRoot } : {}),
+                      goalId: activeTask.goalId ?? engineeringWorkbench?.goal.goalId ?? `goal:${activeTask.taskId}`
+                    });
+                    await selectTask(created.taskId);
+                    setNotice(
+                      created.goalVersion
+                        ? `已在目标 v${String(created.goalVersion)} 下新建任务「${created.title}」。`
+                        : `已新建任务「${created.title}」，但任务上没记到目标版本。`
+                    );
+                  }}
                 />
                 {/* 主会话只保留时序流；结果大卡 / 任务分解不贴在流尾。完整证据去「轨迹」。 */}
                 <TaskConversation
@@ -3075,6 +3106,12 @@ export default function App() {
                 verification={derived.verification}
                 events={events}
               />
+            )}
+
+            {/* 逐次执行台账：统计页的聚合数字看不出「第 2 次执行失败了什么」，
+                这里按轮次把每次执行的结果、证据与失败原因分开列出来。 */}
+            {activeTask && workbenchTab === 'stats' && (
+              <ExecutionHistory taskId={activeTask.taskId} refreshKey={events.length} />
             )}
           </div>
           </div>

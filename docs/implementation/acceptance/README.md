@@ -16,6 +16,12 @@
 | 主活动区 U7 | [main-activity/U7-ACCEPTANCE.md](main-activity/U7-ACCEPTANCE.md) |
 | 全轮交付文件 | [main-activity/DELIVERABLES-LIVE.md](main-activity/DELIVERABLES-LIVE.md) |
 | 目标契约证据闭环（GCE） | [gce/ACCEPTANCE.md](gce/ACCEPTANCE.md) |
+| V4 P0-1 版本链核对 | [p0-1-version-chain-20261127/EVIDENCE.md](p0-1-version-chain-20261127/EVIDENCE.md) |
+| V4 P0-2 重规划门禁 | [p0-2-replan-gate-20261127/EVIDENCE.md](p0-2-replan-gate-20261127/EVIDENCE.md) |
+| V4 P0-3 在途命令真中断 | [p0-3-shell-interrupt-20261127/EVIDENCE.md](p0-3-shell-interrupt-20261127/EVIDENCE.md) |
+| V4 P0-4 暂停检查点 | [p0-4-pause-checkpoint-20261127/EVIDENCE.md](p0-4-pause-checkpoint-20261127/EVIDENCE.md) |
+| V4 P0-5 当前基线重启恢复 | [p0-5-current-baseline-20261127/SUMMARY.md](p0-5-current-baseline-20261127/SUMMARY.md) |
+| V4 P1 M1 执行历史 / 目标实体化与分组 / 变更影响面 | [v4-p1-m1-20261127/SUMMARY.md](v4-p1-m1-20261127/SUMMARY.md) |
 | 全局记忆 M2 真机证据 | [evidence/global-memory/M2/M2-REPORT.md](../evidence/global-memory/M2/M2-REPORT.md) |
 | 主活动区 P7 证据报告 | [evidence/main-activity/P7/P7-REPORT.md](../evidence/main-activity/P7/P7-REPORT.md) |
 

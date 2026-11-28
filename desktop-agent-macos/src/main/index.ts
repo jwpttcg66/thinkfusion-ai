@@ -45,6 +45,7 @@ import { recoverTaskContext } from './context/recovery/task-recovery';
 import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entry-policy';
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
+import { buildExecutionHistory } from '../shared/execution-history';
 import { setMemoryService } from './memory/runtime';
 import type { CandidateStatusFilter, ListRecordsQuery, RecordPatch, RememberInput } from './memory/types';
 import { conversationEventToTaskEvent, phaseOfEvent, taskIdOf } from '../shared/task-events';
@@ -576,6 +577,24 @@ function adapterFor(id: string): ChatPageDriver {
 function planningAdapter(): ChatPageDriver {
   return adapterFor(planningChannelId());
 }
+
+/**
+ * 装配后暴露出来的「按执行档挑规划主导」。
+ *
+ * 为什么要一份而不是各调用方自己判：`pickPlanningAdapter` 需要探活 Provider 与
+ * CLI，而这两份清单在装配函数里才建好，所以它长在装配函数里。原来只有「会话
+ * 转交工程」用它，「工程里新建任务」那条直接退回 `planningAdapter()` 的网页
+ * 通道——于是设置里明明开了一个已实测能非交互跑的 Qoder CLI，新建任务却仍然
+ * 只会问「ChatGPT 登录了没」，网页不通就整个功能停摆。同一个「这一轮谁主导
+ * 规划」的问题不能有两套答案，这里把装配函数里那份递出来给两条路共用。
+ * 没装配上之前为 `null`，那时新建任务保持原来的网页行为。
+ */
+let planningLeadPicker: ((input: {
+  executionMode?: 'web' | 'local' | 'cloud' | 'hybrid';
+  plannerAgentId?: string;
+  selectedCloudModels?: string[];
+  selectedCliAgents?: string[];
+}) => Promise<PlannerMember | null>) | null = null;
 
 /**
  * 这次规划用哪条通道的页面。
@@ -3526,8 +3545,41 @@ function registerIpc() {
   ipcMain.handle('task:submit', async (event, raw: unknown) => {
     trustedUiSender(event);
     const input = SubmitPromptSchema.parse(raw);
-    await ensureChannelSnapshot();
-    return orchestrator.submit(input);
+    // 这一轮谁主导规划，按设置里的执行档定，规则与会话转交工程那条同一条：
+    // 只有网页档/混合档才需要探页面，云端档、本地档由 `planningLeadPicker`
+    // 探 Provider 与 CLI。挑不出主导时照旧明说「Planner 不可用」，不悄悄改用
+    // 网页——用户勾的是 CLI，就只能是 CLI 坏了要修，不能拿一个没选的源顶上去。
+    const config = executionDefaults?.get();
+    const mode = config?.executionMode ?? 'web';
+    if (mode === 'web' || mode === 'hybrid') await ensureChannelSnapshot();
+    const lead = planningLeadPicker
+      ? await planningLeadPicker({
+        executionMode: mode,
+        ...(config?.leadAgentId ? { plannerAgentId: config.leadAgentId } : {}),
+        ...(config?.selectedCloudModels ? { selectedCloudModels: config.selectedCloudModels } : {}),
+        ...(config?.selectedCliAgents ? { selectedCliAgents: config.selectedCliAgents } : {})
+      })
+      : null;
+    if (!lead && (mode === 'cloud' || mode === 'local')) {
+      const named = (config?.selectedCloudModels?.length ?? 0) > 0
+        ? config!.selectedCloudModels!.join('、')
+        : (config?.leadAgentId ?? '');
+      throw new Error(
+        `${mode === 'cloud' ? '云端' : '本地'} Planner 不可用` +
+          (named ? `（${named}）` : '') +
+          '：已开启的 CLI / 已勾选模型都没探活成功；不会改用网页或其他未勾选模型。'
+      );
+    }
+    return orchestrator.submit(
+      lead
+        ? {
+          ...input,
+          planningAdapter: lead.adapter,
+          // 记成员 id：进程重启后编排器靠它用 memberAdapter 重建，不会再退回网页。
+          debateAgentIds: [lead.id]
+        }
+        : input
+    );
   });
 
   ipcMain.handle('task:get', (event, taskId: unknown) => {
@@ -3543,6 +3595,23 @@ function registerIpc() {
   ipcMain.handle('task:events', (event, taskId: unknown) => {
     trustedUiSender(event);
     return store.listEvents(TaskIdSchema.parse(taskId));
+  });
+
+  /**
+   * 执行历史（V4 M1-1）：只读投影，不新增写入路径。
+   *
+   * 数据取 store 而不是界面已拿到的事件流——事件按任务配额裁剪过，
+   * 只靠事件推导会让早先的执行「消失」，那正是这个任务要修的问题。
+   */
+  ipcMain.handle('task:executions', (event, taskId: unknown) => {
+    trustedUiSender(event);
+    const id = TaskIdSchema.parse(taskId);
+    return buildExecutionHistory({
+      task: store.getTask(id),
+      rounds: store.listRounds(id),
+      reports: store.allReportsFor(id),
+      events: store.listEvents(id)
+    });
   });
 
   ipcMain.handle('task:approve', async (event, raw: unknown) => {
@@ -6050,6 +6119,10 @@ app.whenReady().then(async () => {
     }
     return null;
   }
+
+  // 递出去给「工程里新建任务」共用（见 `planningLeadPicker`）：清单已建好，
+  // 这一步只负责暴露，不重新挑一次。
+  planningLeadPicker = pickPlanningAdapter;
 
   /**
    * 这一轮除主导外还问谁（V2.1 多模型独立输出）。

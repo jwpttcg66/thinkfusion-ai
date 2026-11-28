@@ -26,11 +26,30 @@ interface StoreState {
   messages: ConversationMessage[];
   /** P1-00：协作运行状态，和会话同一个 journal。 */
   collaborations?: StoredCollaboration[];
+  /** V4 M1-2：目标实体，和任务同一个 journal。可选字段，老 journal 直接读通。 */
+  goals?: StoredGoal[];
 }
 
 export interface StoredCollaboration {
   goalId: string;
   state: unknown;
+  updatedAt: number;
+}
+
+/**
+ * 目标实体（V4 M1-2）。
+ *
+ * 一个目标下可以挂多条任务，版本与成功标准就不该由某一条任务单独持有：
+ * 否则从 A 改目标只有 A 的版本抬起来，B 还停在旧口径，界面上两条任务
+ * 看着像同一个目标、实际跑在两个版本上。
+ * 任务上的 `goalContract` 降级为该目标口径的快照，GCE 取证链路照旧读它。
+ */
+export interface StoredGoal {
+  goalId: string;
+  /** 目标原文，取建立该目标时那条任务的契约原文；不做摘要。 */
+  title: string;
+  version: number;
+  criteria: string[];
   updatedAt: number;
 }
 
@@ -59,7 +78,10 @@ const KEEP_FOREVER: ReadonlySet<string> = new Set([
   'work.task.status',
   'work.task.blocked',
   'work.task.accepted',
-  'work.breakdown.replanned'
+  'work.breakdown.replanned',
+  // M1-3：这是一张压在用户这儿没回答的确认卡。裁掉它等于替用户把问题吞了：
+  // 重启之后卡片消失、版本却还是旧的那一版。
+  'goal.revision.pending'
 ]);
 
 function taskIdOfEvent(event: AgentEvent): string | null {
@@ -88,7 +110,8 @@ export class AgentStore {
     runEvents: [],
     conversations: [],
     messages: [],
-    collaborations: []
+    collaborations: [],
+    goals: []
   };
 
   constructor(private readonly file: string) {
@@ -109,9 +132,9 @@ export class AgentStore {
         runEvents: parsed.runEvents ?? [],
         conversations: parsed.conversations ?? [],
         messages: parsed.messages ?? [],
-        collaborations: parsed.collaborations ?? []
-      };
-    } catch (error) {
+        collaborations: parsed.collaborations ?? [],
+        goals: parsed.goals ?? []
+      };    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         // Corrupt journal: keep it for forensics, start clean rather than crash on boot.
         const backup = `${this.file}.corrupt-${Date.now()}`;
@@ -474,6 +497,24 @@ export class AgentStore {
 
   getCollaboration(goalId: string): unknown | null {
     return (this.state.collaborations ?? []).find(item => item.goalId === goalId)?.state ?? null;
+  }
+
+  /** V4 M1-2：目标实体读写。侧栏分组仍由任务驱动，所以这里不需要为「空目标」做过滤。 */
+  listGoals(): StoredGoal[] {
+    return [...(this.state.goals ?? [])];
+  }
+
+  getGoal(goalId: string): StoredGoal | null {
+    return (this.state.goals ?? []).find(item => item.goalId === goalId) ?? null;
+  }
+
+  upsertGoal(goal: StoredGoal) {
+    const list = this.state.goals ?? [];
+    const index = list.findIndex(item => item.goalId === goal.goalId);
+    if (index >= 0) list[index] = goal;
+    else list.push(goal);
+    this.state.goals = list;
+    this.persist();
   }
 
   appendMessage(message: ConversationMessage) {

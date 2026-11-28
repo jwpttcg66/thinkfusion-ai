@@ -60,6 +60,23 @@
 | P0-4 暂停状态机与检查点 | `IMPLEMENTED / TESTED / VERIFIED` | `pause/cancel` 走 `请求态 → 停止中 → 实际态`；暂停/取消复用 `commitContextCheckpoint` 落目标版本、任务树 revision、工具状态与副作用账本；没有执行报告的在途写操作也标 `needs_reconciliation`，不假装已核对；重启时中间态收敛为 `interrupted/cancelled`；`test:pause-checkpoint` 5 条、`test:state-machine` 9 条；真机状态序列 `executing → pause_requested → pausing → paused`，检查点文件与事件一致，标记文件未出现，见 [P0-4 验收](acceptance/p0-4-pause-checkpoint-20261127/EVIDENCE.md) |
 | P0-5 当前基线真机恢复验收 | `IMPLEMENTED / TESTED / VERIFIED` | 三场景真机证据已按「启动配置 / 任务 ID / 证据路径 / 未覆盖项」汇总到 [P0-5 验收汇总](acceptance/p0-5-current-baseline-20261127/SUMMARY.md)；① 目标修订后进入 `blocked + WAIT_USER`、② 在途 shell 中断且暂停检查点带副作用缺口、③ SIGKILL 重启后 `interrupted → version.consistency(sources) → planning`。场景③ 同时修掉固定工作流未记规划成员、重启后退回网页 planner 的缺口，探针任务记下并执行档选中的云端模型，日志无 ChatGPT 回退；typecheck、P0 相关单测与 `verify-p0-5-restart-cdp.mjs` 均通过 |
 
+## V4 P1 Engineering Runtime（M1：Goal / Task / Execution 统一）
+
+以 [V4 实施计划](plans/V4-IMPLEMENTATION-PLAN.md) 与 [P1 任务书](plans/active/V4-P1-TASK-BOOK.md) 为准。
+口径为五态 `DESIGNED → IMPLEMENTED → AUTOMATED_TESTED → LIVE_TESTED → PRODUCTION_VERIFIED`；真机未跑不升级。
+
+| 任务 | 状态 | 事实 |
+| --- | --- | --- |
+| M1-1 Execution 显式化 | `LIVE_TESTED` | 新增 `desktop-agent-macos/src/shared/execution-history.ts` 纯函数投影：`rounds + reports + events` → 按轮次分组的执行台账。口径为「一次执行＝一轮」，同轮多份报告合并成一条（结论取最新、证据取并集），缺字段一律 `null` 或空数组，不用 0 顶替。只读 IPC `task:executions` 从 store 取数而非渲染层事件流（`trimEvents` 会裁掉早期 `step.*`，用事件推导会让先前的执行凭空消失），配 preload `getTaskExecutions`、`AgentApi` 声明与 `mock-api` 实现。统计页新增「执行历史」卡 `components/engineering/ExecutionHistory.tsx`，逐条列出结果、成员、步骤、验证、交付、证据与失败原因。零迁移、不建表、不改状态机。`test:execution-history` 9 条（多次执行互不覆盖、无报告轮如实标注、跨任务报告不混入、排序按轮次号）已并入 `verify`。真机（[验收汇总](acceptance/v4-p1-m1-20261127/SUMMARY.md)）：一个 Task 投影出 4 条执行、`roundId` 去重 4 条，第 1 条仍是 `round 1 / outcome=failed`（`steps.failed=1`、`COMMAND_FAILED: 命令退出码 3`），第 2/3 轮无报告如实显示「未收口」而非 0 次失败，统计页 `.exec-item` 4 条＝同时刻投影 4 条；第 2 条及以后由目标驱动闭环自动续出，脚本未调 `resumeRepair`、未放行审批（`loopActions` 为空）。复跑（探针 `0a429d96`，即影响面分账改动后的回归跑）同样如实：2 条执行都带报告，第 1 条 `round 1 / outcome=failed`（`COMMAND_FAILED: 命令退出码 3`）、第 2 条 `round 2 / completed`（5 步全完成），`.exec-item` 2 条＝同时刻投影 2 条，`loopActions` 仍为空。最终复跑（探针 `2b0a189a`）3 条执行：第 1 条 `round 1 / failed`、第 2 条无报告如实标 `unknown`（成员列表保留「未记录成员」不抹平）、第 3 条 `plan_repair / partial`（2 步 1 完成 1 失败，失败原因如实带出 `TOOL_ERROR: 这次执行没有关联会话，无法使用会话级能力`），卡片头「执行历史 3 次执行 · 1 次失败」＝同时刻投影 3 条；上一轮 `514d0787` 同样是 3 条（第 3 轮为 `completed`、6 步全完成）。缺口：同一 Task 跨 `runId` 的两次独立运行未覆盖（四轮各自都只有一个 `runId`） |
+| M1-2 Goal 聚合视图 | `LIVE_TESTED` | 分组投影 `src/shared/goal-view.ts`：`groupTasksByGoal()` 用任务上已有的 `goalId/goalVersion`（其次取契约正文里的 `goalId`）分组，组标题取版本最高的契约原文、没有才退回任务标题，版本列表升序去重；没记目标的老任务落在「未绑定目标」一组并永远排最后，不硬塞关系。侧栏 `TaskSidebar.tsx` 在工程模式下按目标分组渲染（目标名 + 版本 + 逐条任务状态点），并留「◈」开关一键退回时间平铺。会话行只挂到它绑定任务的目标上。**目标实体化（解除「同一 Goal 下 ≥2 Task」阻断项）**：首两轮真机发现现网没有任何两条任务共用一个 `goalId`——根因是目标口径只存在于各任务自己的契约里，没有可被多条任务指向的实体，`task-manager.create` 一律写 `goal:<taskId>`。新增 `store.goals`（`StoredGoal[]`，journal `version` 仍为 1，靠可选字段让老 `agent-store` 直接读通、不写迁移脚本）持有版本与成功标准的真源，任务上的契约降级为快照；读不到实体时按 `groupTasksByGoal` 现成口径懒迁移（取该目标下版本最高的契约派生），不批量刷盘、不凭空造版本，`listGoals` 只报仍有绑定任务的 goal。新建链路接受 `goalId/goalVersion/goalCriteria`，界面在目标契约卡上加「在此目标下新建任务」入口。`test:goal-view` 9 条 + 新增 `test:goal-entity` 11 条（实体读写、懒迁移、绑定继承、按 goalId 跨任务扇出、删除任务不删实体）均已并入 `verify`。真机（[验收汇总](acceptance/v4-p1-m1-20261127/SUMMARY.md)，探针 `2b0a189a` + `38be442b`）：侧栏分组渲染、「◈」`aria-pressed=true`、关掉后 `.goal-group` 归零且 `.task-item` 仍在列；界面点「在此目标下新建任务」真实产出第二条任务并绑定同一 `goal:2b0a189a`，分组里 2 条，`second-task-inherits-goal/-version/-criteria` 三条继承断言全绿，`store.goals` 落盘 `version:2` 带标准。**前提修复**：`task:submit` 过去无条件探网页通道再把 input 原样交给编排器，云端档下新建任务仍报「ChatGPT 未登录」，场景④ 断在第一步；现按 AGENTS.md §9.1 的源归属规则统一走 `pickPlanningAdapter`（经模块级 `planningLeadPicker` 暴露，与「会话转交工程」共用一份选人逻辑），只有网页/混合档才探页面，挑不出主导就点名报错，防回归并入 `test:cli-answer` |
+| M1-3 目标变更影响面确认页 | `LIVE_TESTED` | `reviseGoal` 在 `requiresUserConfirmation` 分支除原有 warn 日志外，增发结构化事件 `goal.revision.pending`（`goalId`、`fromVersion→nextVersion`、`reason`、变更后标准原文、`impactedTaskIds` 与当时重建任务树里的受影响条目标题/状态、可继承条数），并加入 `store.ts` 的 `KEEP_FOREVER`——待用户回答的确认不能因事件裁剪而凭空消失。新增投影 `projectPendingGoalRevision()`（取时间最新一条；任务版本已追平 `nextVersion` 即认为已生效或过期不再弹卡；「暂不变更」不写库所以卡片仍在）与确认卡组件 `engineering/GoalRevisionConfirm.tsx`，确认走既有 `reviseTaskGoal(criteria, true)`，无新任务状态。`GoalContractCard` 的删标准不再用 `window.confirm` 只问一句，改为提交后由确认卡列出影响面。`test:goal-revision` 11 条（确认/取消两条路径、多 pending 取最新、非 pending 事件过滤、影响面按步骤与节点分账、四处源码守卫）已并入 `verify`。真机（[验收汇总](acceptance/v4-p1-m1-20261127/SUMMARY.md)）：契约 1 条标准时追加 1 条判 `clarify`、不要求确认、版本仍 v1；删标准判 `change` 且 `requiresUserConfirmation=true`、确认前 `goalVersion` 保持 v1；`goal.revision.pending` 落库带原文；确认卡显示「目标变更待确认 v1 → v2 · 确认前不抬版本、不改任务」，点「确认变更」后版本抬到 v2 且卡片消失。影响面呈现已按「可执行步骤 / 任务级节点」分账：新增 shared 纯函数 `partitionImpactedTasks()`（`wt-work-*`/`wt-group-*` 归节点，L2 子任务与步骤归可执行），确认卡只逐条列步骤，节点折成一行「另有 N 条任务级节点（任务本体 / 执行计划组）· 状态，随下属步骤一起重规划」，汇总数字仍取事件原文 `impactedTaskIds.length`；事件本体不改，折叠只发生在呈现层。真机复跑（探针 `0a429d96`）：受影响 2 条＝0 步骤 + 2 节点，卡片分账行与事件数字一致，步骤列表里不再出现同名「执行计划」。**目标扇出（场景④）**：`reviseGoal` 的受影响集合改为按 `goalId` 跨任务计算，确认后在同一事务里 `upsertGoal` + 逐任务 patch 版本与标准快照 + 逐任务发 `goal.revision.pending`，取消路径继续不写库；确认卡新增「本目标下 N 条任务一起生效」一行，事件带 `goalTasks`。真机（探针 `2b0a189a` + `38be442b`）：事件 `goalTasks` 2 条、卡片逐条列出两条任务与状态，点确认后第一条 v2、第二条同抬 v2 且两条标准完全相同（`fan-out-bumps-sibling-task`、`fan-out-shares-criteria`）；同一轮的影响面分账两类同时非零——「受影响 9 条： 可执行步骤 7 条，任务级节点 2 条。」与事件 `impactedTaskIds.length=9` 一致，步骤行逐条列出 `goal.get`/`session.search` 等，节点仍折成一行。**遗留观察**：本轮 6 个步骤全部终态（`inheritedCount=6`）但 `wt-work-*`/`wt-group-*` 仍是 `ready`——汇总节点状态没有从下属收敛，所以「全部做完」的计划重规划时仍会被列进受影响清单；属状态收敛问题，不在 M1-3 范围 |
+
+
+## M1 里程碑判定
+
+任务书的 M1 完成条件是三件事同时成立：三任务全部 `LIVE_TESTED`、同一 Goal 下 ≥2 Task、同一 Task 下 ≥2 Execution。最后一轮真机（探针 `2b0a189a`，50 项判定 0 失败）三件同时满足：M1-1/M1-2/M1-3 全部 `LIVE_TESTED`；同一 Goal 下 2 条 Task 由界面「在此目标下新建任务」真实产出并落在同一侧栏分组；同一 Task 下 3 条 Execution 且界面与投影同时刻一致。场景④（改标准 → 确认卡列出跨两条任务 → 确认后同抬 v2 并共用同一份标准）已验。**M1 判定完成**。剩余非阻断项：跨 `runId` 的独立重跑未覆盖、汇总节点状态不收敛（见缺口）、确认后不自动重开规划轮（缺口 5）。
+
+
 ## 目标契约证据闭环（GCE）
 
 | 项 | 状态 | 事实 |
@@ -91,12 +108,22 @@
 3. **长任务默认策略**：运行时功能可用但默认关闭；扩大真实场景覆盖后再决定是否改变默认值。
 4. **ECO 恢复兼容性**：`Orchestrator.resume` 已用不兼容结果改判 `needs_context_refresh` / `needs_replan`
    并发对应事件；仍未强制同步重建包，刷新由下一轮规划的真实读取完成。
-5. **Goal ↔ WorkTask 版本闭环**：任务创建写入 `goalId/goalVersion`，种树全量继承；目标修订有版本
-   递增、影响闭包与继承判定，并经 `task:revise-goal` 落事件；版本链核对覆盖
-   Goal→WorkTask→ECO→贡献→决策。尚缺界面确认入口与自动重开规划轮。
+5. **Goal ↔ WorkTask 版本闭环**：任务创建写入 `goalId/goalVersion`，种树全量继承；目标口径由 `store.goals`
+   实体持有（M1-2），任务上的契约是它的快照；版本递增、影响闭包与继承判定经 `task:revise-goal` 落事件，
+   界面确认入口由 M1-3 的待确认卡提供；版本链核对覆盖 Goal→WorkTask→ECO→贡献→决策。仍缺「确认后自动
+   重开规划轮」——目前只重打版本，下一轮要用户手动继续。
 6. **Workflow**：注册表、条件/循环/审批与 `workflow:run` 已接线；但 `until` 运行时循环不支持（明确报错），parallel 为串行执行，且没有界面入口。
 7. **深层 Java 分析**：AST/类型绑定/调用图不属于当前已交付能力。
 8. **发布门禁**：签名、公证、干净机器安装和发布回滚仍需完成。
+9. **检查点残留**：`store.deleteTask()` 只清 tasks/rounds/plans/reports/events，磁盘上的检查点归属
+   文件不受影响，checkpoint store 也没有删除接口。M1 真机验收收尾时实测：删掉 2 个 P0-4 探针任务后
+   `context-checkpoints/owners/agent-task/<taskId>.json` 全部仍在，owner 目录 11 个文件对应用户任务 0 条。
+   属 M2-2（检查点恢复）范围内的垃圾回收缺口，未擅自删用户数据。
+10. **目标实体残留**：`store.deleteTask()` 同样不清 `store.goals`。目标可以在最后一条任务删掉后继续留在
+    journal 里（M1 真机验收全部结束后实测：用户任务 0 条，`store.goals` 仍有 6 条孤儿实体，对应
+    `ea994813`/`22713ed3`/`b5cd244e`/`b4ed7aee`/`514d0787`/`2b0a189a` 各轮探针，每条 v2 带 1 条标准）。不会误伤新任务
+    （`goalId` 由任务 id 派生，对不上号），`listGoals` 也不会显示它们，但删除任务后目标列表会越积越多，
+    需要与缺口 9 一起做回收（已写进 M2-2 的任务口径）。
 
 这些缺口按计划排序见 [plans/README.md](plans/README.md)。某项代码变动关闭缺口时，应同步补测试、状态和对应验收证据。
 

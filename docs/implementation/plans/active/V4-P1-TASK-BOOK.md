@@ -2,7 +2,12 @@
 
 **上游：** [`../V4-IMPLEMENTATION-PLAN.md`](../V4-IMPLEMENTATION-PLAN.md) P1 +
 4.1.1 里程碑拆分；事实底稿 [`../../audits/V4-P0-CODE-FACT-AUDIT.md`](../../audits/V4-P0-CODE-FACT-AUDIT.md)。
-**状态：** `DESIGN / NOT STARTED`
+**状态：** M1-1 / M1-2 / M1-3 全部 `LIVE_TESTED`，**M1 里程碑判定完成**（最后一轮真机 50 项判定 0 失败）。
+M1-2 的「同一 Goal 下 ≥2 Task」最初验不出来，根因是缺一个可被多条任务指向的目标实体，已补
+`store.goals` + 绑定写入路径 + 界面「在此目标下新建任务」入口，并在真机上跑通跨任务扇出（场景④）。
+M2、M3 `DESIGN / NOT STARTED`。
+真机证据 [`../../acceptance/v4-p1-m1-20261127/SUMMARY.md`](../../acceptance/v4-p1-m1-20261127/SUMMARY.md)。
+实现进度以 [`../../STATUS.md`](../../STATUS.md) 为准，本文件只写任务口径。
 **基线：** `main@bd5a883`
 **通用规则：** 每个任务开工前按计划书 11.1 先核对引用的文件行号是否漂移；
 只在独立 worktree 开发；每任务完成必须更新 `STATUS.md` 并留真机证据；
@@ -70,6 +75,9 @@ M2 的检查点要记录多任务多执行结构，M3 的决策要读可区分�
 
 **M1 完成条件：** 三任务全部 LIVE_TESTED；同一 Goal 下 ≥2 Task、同一 Task 下 ≥2 Execution
 在真机可区分展示。
+**判定（2026-11-28）：** 达成——探针 `514d0787` 同目标下 2 条任务、同一 Task 下 3 条执行，
+改标准确认后两条任务同抬 v2 且共用同一份标准。未覆盖项只有「同一 Task 跨 `runId` 的两次独立运行」，
+属非阻断补充，见验收汇总。
 
 ---
 
@@ -112,6 +120,10 @@ needs_replan 门禁均已 IMPLEMENTED/TESTED/VERIFIED（P0-1～P0-5）。
   「有缺口 → 仍走重规划」负例必须同时存在。
 - **真机验收：** 复用 `verify-p0-5-restart-cdp.mjs` 场景，断言恢复后第一个事件是
   `step.started`（续跑）而非 planning 轮；两条路径都要有真机样本。
+- **垃圾回收（顺带关闭缺口 9/10）：** `store.deleteTask()` 目前只清 tasks/rounds/plans/reports/events，
+  磁盘上的检查点归属文件与 `store.goals` 里的孤儿目标都不回收（M1 真机验收收尾实测：用户任务 0 条、
+  检查点 owner 文件 11 个、孤儿目标 6 条）。本任务要给 checkpoint store 加删除接口并在删任务时回收
+  已无绑定任务的目标实体；回收口径必须只认「最后一条绑定任务被删」，不能按时间猜。
 - **回退：** 转移表补边可撤；续跑分支按环境开关（默认走重规划）灰度。
 
 ## P1-M2-3：上下文重建显性化

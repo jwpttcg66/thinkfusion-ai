@@ -6,7 +6,8 @@
  * - 本地 / 云端主导：不问网页，也不问 CLI（归属规则不变）；
  * - 第一轮只放「此刻可用」的 CLI，关掉的如实写进 blocked；
  * - 送进去的是用户原话，不夹角色行；不传权限参数、不在工程目录里跑；
- * - 失败翻译成 CLI 错误分类，不糊一整段 stderr。
+ * - 失败翻译成 CLI 错误分类，不糊一整段 stderr；
+ * - 工程「新建任务」的规划主导也按设置里的执行档挑，CLI 可以当主导，不再写死网页。
  *
  * Run with: npm run test:cli-answer
  */
@@ -15,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { selectParticipants } from '../out-test/main/execution/policy.js';
 import { normalizeExecutionConfig } from '../out-test/shared/conversation.js';
@@ -23,6 +25,11 @@ import { ExecutionPool } from '../out-test/main/execution/execution-pool.js';
 import { CliAnswerAgent, runCliAnswer, cancelCliAnswer } from '../out-test/main/execution/cli-answer-agent.js';
 
 const QUESTION = '这个项目 0.2.7 的 CLI 会不会被当成回答源？';
+
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+function readSource(relative) {
+  return fs.readFileSync(path.join(repoRoot, relative), 'utf8');
+}
 
 function pageAgent(id) {
   return {
@@ -350,4 +357,55 @@ test('真实 spawn：不带权限参数、问题作为单个 argv、不在工程
   assert.equal(cwdPart.length > 0, true);
   assert.equal(cancelCliAnswer('不存在的请求'), false);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// 工程「新建任务」这条也必须认 CLI 主导（2026-11-28 真机验收 M1-2 场景④ 撞上）。
+//
+// 规划主导的选人规则本来只长在装配函数里，只有「会话转交工程」用它；
+// `task:submit` 直接 `orchestrator.submit(input)`，编排器于是退回网页 adapter。
+// 结果是：设置里开了一个已实测能非交互跑的 Qoder CLI，新建任务却仍然只会问
+// 「ChatGPT 登录了没」——网页不通功能就停摆，而 CLI 从头到尾没被试过。
+// 这条链在 `src/main/index.ts` 的 IPC 处理里，没有可单测的纯函数，钉源码。
+// ---------------------------------------------------------------------------
+
+const mainIndex = readSource('src/main/index.ts');
+
+test('task:submit 按执行档挑规划主导，不再写死网页通道', () => {
+  const handler = mainIndex.slice(
+    mainIndex.indexOf("ipcMain.handle('task:submit'"),
+    mainIndex.indexOf("ipcMain.handle('task:get'")
+  );
+  assert.ok(handler.length > 0, '没找到 task:submit 处理器');
+  assert.doesNotMatch(
+    handler,
+    /await ensureChannelSnapshot\(\);\s*return orchestrator\.submit\(input\);/,
+    '原来错在这：新建任务无条件走网页规划通道，已实测可用的 CLI 永远轮不上'
+  );
+  assert.match(handler, /planningLeadPicker/, '要复用装配函数那份选人规则，不在这里另写一套');
+  assert.match(handler, /executionMode: mode/, '按设置里的执行档挑，不是按通道列表猜');
+  assert.match(handler, /planningAdapter: lead\.adapter/, '挑中的源要真的传给编排器当规划 adapter');
+  assert.match(handler, /debateAgentIds: \[lead\.id\]/, '记下成员 id，重启后才不会退回网页重建');
+});
+
+test('只有网页档/混合档才探页面；挑不出主导时明说，不悄悄改用网页', () => {
+  const handler = mainIndex.slice(
+    mainIndex.indexOf("ipcMain.handle('task:submit'"),
+    mainIndex.indexOf("ipcMain.handle('task:get'")
+  );
+  assert.match(
+    handler,
+    /if \(mode === 'web' \|\| mode === 'hybrid'\) await ensureChannelSnapshot\(\);/,
+    '云端/本地档不该为一条用不上的页面探活'
+  );
+  assert.match(handler, /Planner 不可用/);
+  assert.match(handler, /不会改用网页/, '用户勾的是 CLI，就只能报 CLI 没探活成功');
+});
+
+test('规划主导规则由装配函数递出来，两条入口共用一份', () => {
+  assert.match(mainIndex, /let planningLeadPicker/, '模块级 ref：网页 adapter 之外的那份规则');
+  assert.match(mainIndex, /planningLeadPicker = pickPlanningAdapter;/, '会话转交与新建任务必须是同一个函数');
+  // AGENTS.md §9.1 说这条链在 verify 里，就得真的在——否则守卫等于没跑。
+  const pkg = JSON.parse(readSource('package.json'));
+  assert.match(pkg.scripts.verify, /npm run test:cli-answer/, '源归属守卫必须进 verify 链，不然会被静默跳过');
 });

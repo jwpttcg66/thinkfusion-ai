@@ -2107,6 +2107,35 @@ export type AgentEvent = AgentEventBase &
         goalVersion: number;
         reasons: string[];
       }
+    /**
+     * V4 M1-3：重大目标变更停在「等用户确认影响面」这一步（P0-03 只发了一行日志，
+     * 用户在界面上看不到到底会牵动哪些任务）。确认前不抬版本、不改任务，
+     * 所以这条事件是待办的唯一凭据：重进任务还要能把卡片的原话端出来。
+     */
+    | {
+        type: 'goal.revision.pending';
+        taskId: string;
+        goalId: string;
+        /** 当前版本与确认后要抬到的版本，卡片上要写清楚不是悄悄改。 */
+        fromVersion: number;
+        nextVersion: number;
+        /** 为什么算重大变更（如「删除了 2 条成功标准」）。 */
+        reason: string;
+        /** 确认后会生效的成功标准原文。 */
+        nextCriteria: string[];
+        impactedTaskIds: string[];
+        /** 受影响子任务的快照；只写事件当时真的知道的标题与状态。 */
+        impactedTasks: { workTaskId: string; title: string; status: string }[];
+        /** 不受影响、可继承成果的子任务数。 */
+        inheritedCount: number;
+        /**
+         * V4 M1-2：确认后会一起抬版本的本目标全部任务（事件当时的快照）。
+         * 目标实体化后一次修订不再只动一条任务，卡片要能说清还有谁被带着走。
+         */
+        goalTasks?: { taskId: string; title: string; status: string }[];
+        at: number;
+      }
+
     /** GCE：真实阶段入口发出的阶段事件；不从旧事件反推。 */
     | {
         type: 'cycle.stage.started' | 'cycle.stage.completed' | 'cycle.stage.skipped';
@@ -2542,6 +2571,8 @@ export interface SubmitPromptInput {
   workspaceRoot?: string;
   /** 任务选定的模型；方案评审只能使用这些模型。 */
   debateAgentIds?: string[];
+  /** V4 M1-2：把这条新任务挂到既有目标下（采用该目标当前版本与成功标准）。 */
+  goalId?: string;
 }
 
 export interface ApprovePlanInput {
@@ -3299,6 +3330,11 @@ export interface AgentApi {
   getTask(taskId: string): Promise<AgentTask | null>;
   getTaskHistory(): Promise<AgentTask[]>;
   getTaskEvents(taskId: string): Promise<AgentEvent[]>;
+  /**
+   * 一个任务的执行历史（V4 M1-1 只读投影）。
+   * 一次执行 = 一轮，由 store 的 rounds + reports + events 推导，不落新表。
+   */
+  getTaskExecutions(taskId: string): Promise<import('./execution-history').ExecutionRecord[]>;
   approvePlan(input: ApprovePlanInput): Promise<void>;
   rejectPlan(input: { taskId: string; planId: string; reason?: string }): Promise<void>;
   /** 逐次审批：放行某一步。`remember` 表示本次任务的同类步骤不再问。 */

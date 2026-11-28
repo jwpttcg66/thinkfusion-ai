@@ -43,6 +43,7 @@ import {
   revisionBaselineCriteria
 } from '../shared/goal-driven-cycle';
 import { createGoalCriterion, type GoalContract } from '../shared/goal-contract';
+import { resolveGoalEntity, tasksUnderGoal } from '../shared/goal-entity';
 import { legacyGoalFitEvent } from '../shared/goal-compat';
 import {
   assessReportsAgainstGoal,
@@ -376,6 +377,13 @@ export class AgentOrchestrator {
      * 生成计划，其余成员的回答作为独立输出落事件，绝不混进计划文本。
      */
     planners?: readonly PlannerMember[];
+    /**
+     * V4 M1-2：把这条新任务挂到既有目标下。
+     *
+     * 不传就是「一个任务一个目标 v1」的既有行为。传了则新任务采用该目标当前的
+     * 版本与成功标准——挂在同一个目标下却各跑各的版本，目标聚合视图就成了假的。
+     */
+    goalId?: string;
   }): Promise<AgentTask> {
     const members = (input.planners ?? []).filter(member => member.id);
     const planner = members[0]?.adapter ?? input.planningAdapter ?? this.deps.adapter();
@@ -385,12 +393,23 @@ export class AgentOrchestrator {
     if (!status.pageReady) throw new Error(`${site} 页面不可用：${status.detail ?? '未找到输入框'}`);
     if (status.generating) throw new Error(`${site} 正在生成上一条回答，请等待完成后再提交`);
 
+    const boundGoalId = input.goalId?.trim() ?? '';
+    const boundGoal = boundGoalId
+      ? resolveGoalEntity({
+        goalId: boundGoalId,
+        stored: this.deps.store.getGoal(boundGoalId),
+        tasks: this.deps.store.listTasks()
+      })
+      : null;
     const task = this.tasks.create({
       prompt: input.prompt,
       permissionPreset: input.permissionPreset,
       workspaceRoot: input.workspaceRoot,
       planDebate: input.planDebate,
-      ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: [...input.debateAgentIds] } : {})
+      ...(input.debateAgentIds && input.debateAgentIds.length > 0 ? { debateAgentIds: [...input.debateAgentIds] } : {}),
+      ...(boundGoalId ? { goalId: boundGoalId } : {}),
+      ...(boundGoal && boundGoal.version !== null ? { goalVersion: boundGoal.version } : {}),
+      ...(boundGoal && boundGoal.criteria.length > 0 ? { goalCriteria: boundGoal.criteria } : {})
     });
     this.tasks.transition(task.taskId, 'planning');
     this.emitCycleStage(task.taskId, 'GOAL_REASONING', 'started');
@@ -1300,119 +1319,180 @@ export class AgentOrchestrator {
   }
 
   /**
-   * 目标修订（P0-03）。
+   * 目标修订（P0-03 + V4 M1-2 目标实体化）。
    *
-   * 只做三件事：算版本、算影响、把新的 goalVersion 正式写回 WorkTask。
-   * - 澄清 / 优化不抬版本，也不动任务；
-   * - 重大变更未经用户确认只发警告并返回计划，不落库（不允许静默换目标）；
+   * 做四件事：按目标口径算版本、算影响、把新口径落到目标实体、把该目标下
+   * **全部**任务一起重打版本。
+   * - 澄清 / 优化不抬版本，但新标准照样落库；
+   * - 重大变更未经用户确认只发 `goal.revision.pending`，不落库、不抬版本（不允许静默换目标）；
    * - 受影响任务按 replan 闭包重打版本，已完成且不受影响的成果保留原版本。
+   *
+   * 影响面按任务分别算：`changedTaskIds` 是界面从当前任务的结构里读出来的，
+   * 套到兄弟任务上会漏算，所以兄弟任务按保守口径（全部未完成任务受影响）。
    */
   async reviseGoal(
     taskId: string,
     input: { nextCriteria: string[]; userConfirmedChange?: boolean; changedTaskIds?: string[] }
   ): Promise<ReturnType<typeof planGoalRevision>> {
     const task = this.tasks.get(taskId);
+    const goalId = task.goalId ?? `goal:${taskId}`;
+    const allTasks = this.deps.store.listTasks();
+    const entity = resolveGoalEntity({ goalId, stored: this.deps.store.getGoal(goalId), tasks: allTasks });
+    const previousVersion = entity.version ?? task.goalVersion ?? 1;
+    // 基线优先取目标口径（落库实体，或同目标里版本最高的契约）；一条依据都没有
+    // 才退回本任务自己的契约。计划生成时 `goalCriteria` 可能还是空的，拿它比较
+    // 会把「删除已有标准」误判成「只补充」。
+    const previousCriteria = entity.criteria.length > 0
+      ? entity.criteria
+      : revisionBaselineCriteria({
+        contractCriteria: task.goalContract?.criteria.map(item => item.description),
+        goalCriteria: task.goalCriteria
+      });
     const workTasks = [...rebuildWorkTasksFromEvents(taskId, this.deps.store.listEvents(taskId)).values()];
     const plan = planGoalRevision({
       tasks: workTasks,
-      previousVersion: task.goalVersion ?? 1,
-      // 契约里已有 Criterion 时以契约为基线：计划生成时 `goalCriteria`
-      // 可能还是空的，用它比较会把「删除已有标准」误判成「只补充」。
-      previousCriteria: revisionBaselineCriteria({
-        contractCriteria: task.goalContract?.criteria.map(item => item.description),
-        goalCriteria: task.goalCriteria
-      }),
+      previousVersion,
+      previousCriteria,
       nextCriteria: input.nextCriteria,
       ...(input.userConfirmedChange === undefined ? {} : { userConfirmedChange: input.userConfirmedChange }),
       ...(input.changedTaskIds ? { changedTaskIds: input.changedTaskIds } : {})
     });
+    const targets = tasksUnderGoal(goalId, allTasks).map(item => {
+      if (item.taskId === taskId) return { task: item, workTasks, plan };
+      const itemWorkTasks = [...rebuildWorkTasksFromEvents(item.taskId, this.deps.store.listEvents(item.taskId)).values()];
+      return {
+        task: item,
+        workTasks: itemWorkTasks,
+        plan: planGoalRevision({
+          tasks: itemWorkTasks,
+          previousVersion,
+          previousCriteria,
+          nextCriteria: input.nextCriteria,
+          ...(input.userConfirmedChange === undefined ? {} : { userConfirmedChange: input.userConfirmedChange })
+        })
+      };
+    });
+    const goalTasks = targets.map(item => ({
+      taskId: item.task.taskId,
+      title: item.task.title,
+      status: String(item.task.status)
+    }));
 
     if (plan.requiresUserConfirmation) {
-      this.deps.emit({
-        type: 'log', at: Date.now(), taskId, level: 'warn',
-        message: `目标变更等待用户确认：${plan.reason}；确认前不抬版本、不改任务。`
-      });
+      for (const target of targets) {
+        const impacted = new Set(target.plan.impactedTaskIds);
+        this.deps.emit({
+          type: 'log', at: Date.now(), taskId: target.task.taskId, level: 'warn',
+          message: `目标变更等待用户确认：${target.plan.reason}；确认前不抬版本、不改任务。`
+        });
+        // M1-3：影响面不能只留一行日志。发结构化事件，界面据此弹确认卡；
+        // 受影响任务的标题取事件当时重建出来的那份任务树，事后不回填。
+        this.deps.emit({
+          type: 'goal.revision.pending',
+          taskId: target.task.taskId,
+          goalId,
+          fromVersion: previousVersion,
+          nextVersion: target.plan.nextVersion,
+          reason: target.plan.reason,
+          nextCriteria: input.nextCriteria,
+          impactedTaskIds: target.plan.impactedTaskIds,
+          impactedTasks: target.workTasks
+            .filter(workTask => impacted.has(workTask.workTaskId))
+            .map(workTask => ({ workTaskId: workTask.workTaskId, title: workTask.title, status: String(workTask.status) })),
+          inheritedCount: target.plan.inheritedTaskIds.length,
+          // M1-2：确认后这些任务会一起抬版本，卡片必须说清还有谁被带着走。
+          goalTasks,
+          at: Date.now()
+        });
+      }
       return plan;
     }
     const at = Date.now();
-    const goalId = task.goalId ?? `goal:${taskId}`;
-    // 即使用户只是补充标准（不抬版本），也要落库；否则界面刚保存的目标
-    // 下一次投影又回到旧值。重大变更已在上面被拦住，走到这里的都是可生效的。
-    const nextCriteria = task.goalContract
-      ? input.nextCriteria
-          .map(item => item.trim())
-          .filter(Boolean)
-          .map((description, index) => createGoalCriterion({
-            goalId,
-            goalVersion: plan.nextVersion,
-            criterionId: `criterion:${taskId}:user:${String(index + 1)}`,
-            description,
-            source: 'USER_EXPLICIT',
-            priority: 'MUST',
-            verificationMethod: '执行报告中的测试/编译/运行/诊断或非代码回读证据',
-            acceptanceThreshold: '存在与该标准匹配的 PASSED 证据，且没有 FAILED 证据',
-            updatedAt: at
-          }))
-      : null;
-    const nextContract: GoalContract | undefined = task.goalContract && nextCriteria
-      ? {
-          ...task.goalContract,
+    const nextCriteriaLines = input.nextCriteria.map(item => item.trim()).filter(Boolean);
+    // 即使用户只是补充标准（不抬版本），目标实体也要落库；否则界面刚保存的
+    // 目标下一次投影又回到旧值。重大变更已在上面被拦住，走到这里的都是可生效的。
+    this.deps.store.upsertGoal({
+      goalId,
+      title: entity.title || (task.goalContract?.originalRequest ?? '').trim(),
+      version: plan.nextVersion,
+      criteria: nextCriteriaLines,
+      updatedAt: at
+    });
+    for (const target of targets) {
+      // 任务上的契约是目标口径的快照：取证链路照旧读它，但版本由目标决定。
+      const snapshotCriteria = target.task.goalContract
+        ? nextCriteriaLines.map((description, index) => createGoalCriterion({
           goalId,
-          goalVersion: plan.nextVersion,
-          criteria: nextCriteria,
+          goalVersion: target.plan.nextVersion,
+          criterionId: `criterion:${target.task.taskId}:user:${String(index + 1)}`,
+          description,
+          source: 'USER_EXPLICIT',
+          priority: 'MUST',
+          verificationMethod: '执行报告中的测试/编译/运行/诊断或非代码回读证据',
+          acceptanceThreshold: '存在与该标准匹配的 PASSED 证据，且没有 FAILED 证据',
+          updatedAt: at
+        }))
+        : null;
+      const nextContract: GoalContract | undefined = target.task.goalContract && snapshotCriteria
+        ? {
+          ...target.task.goalContract,
+          goalId,
+          goalVersion: target.plan.nextVersion,
+          criteria: snapshotCriteria,
           status: 'ACTIVE',
           updatedAt: at
         }
-      : undefined;
-    this.tasks.patch(taskId, {
-      goalId,
-      goalVersion: plan.nextVersion,
-      goalCriteria: [...input.nextCriteria],
-      ...(nextContract ? { goalContract: nextContract } : {})
-    });
-    if (nextContract) {
+        : undefined;
+      this.tasks.patch(target.task.taskId, {
+        goalId,
+        goalVersion: target.plan.nextVersion,
+        goalCriteria: [...nextCriteriaLines],
+        ...(nextContract ? { goalContract: nextContract } : {})
+      });
+      if (nextContract) {
+        this.deps.emit({
+          type: 'goal.contract.updated',
+          at,
+          taskId: target.task.taskId,
+          contract: nextContract
+        });
+      }
+      if (!target.plan.versionChanged) {
+        this.deps.emit({
+          type: 'log', at, taskId: target.task.taskId, level: 'info',
+          message: `${target.plan.reason}；目标版本保持 v${String(previousVersion)}。`
+        });
+        continue;
+      }
+      const impacted = new Set(target.plan.impactedTaskIds);
+      for (const item of target.workTasks) {
+        if (!impacted.has(item.workTaskId)) continue;
+        this.deps.emit({
+          type: 'work.task.upserted',
+          at,
+          taskId: target.task.taskId,
+          workId: target.task.taskId,
+          task: {
+            ...item,
+            goalId,
+            goalVersion: target.plan.nextVersion,
+            revision: item.revision + 1,
+            updatedAt: at
+          }
+        });
+      }
       this.deps.emit({
-        type: 'goal.contract.updated',
+        type: 'work.breakdown.replanned',
         at,
-        taskId,
-        contract: nextContract
+        taskId: target.task.taskId,
+        workId: target.task.taskId,
+        impactedIds: target.plan.impactedTaskIds
       });
-    }
-    if (!plan.versionChanged) {
       this.deps.emit({
-        type: 'log', at: Date.now(), taskId, level: 'info',
-        message: `${plan.reason}；目标版本保持 v${String(task.goalVersion ?? 1)}。`
-      });
-      return plan;
-    }
-    const impacted = new Set(plan.impactedTaskIds);
-    for (const item of workTasks) {
-      if (!impacted.has(item.workTaskId)) continue;
-      this.deps.emit({
-        type: 'work.task.upserted',
-        at,
-        taskId,
-        workId: taskId,
-        task: {
-          ...item,
-          goalId,
-          goalVersion: plan.nextVersion,
-          revision: item.revision + 1,
-          updatedAt: at
-        }
+        type: 'log', at, taskId: target.task.taskId, level: 'warn',
+        message: `目标版本 → v${String(target.plan.nextVersion)}（${target.plan.kind}）：${target.plan.reason}。`
       });
     }
-    this.deps.emit({
-      type: 'work.breakdown.replanned',
-      at,
-      taskId,
-      workId: taskId,
-      impactedIds: plan.impactedTaskIds
-    });
-    this.deps.emit({
-      type: 'log', at, taskId, level: 'warn',
-      message: `目标版本 → v${String(plan.nextVersion)}（${plan.kind}）：${plan.reason}。`
-    });
     return plan;
   }
 

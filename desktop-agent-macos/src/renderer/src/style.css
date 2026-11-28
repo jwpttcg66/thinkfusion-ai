@@ -7373,3 +7373,92 @@ button:disabled {
   color: var(--text);
 }
 .goal-contract-actions { display: flex; gap: 8px; }
+
+/* V4 M1-1：执行历史台账 */
+.exec-item {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exec-item-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-size: 12px; }
+.exec-item-head b { font-size: 13px; }
+.exec-chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.exec-chip.ok { border-color: rgba(120, 220, 150, 0.5); background: rgba(120, 220, 150, 0.12); }
+.exec-chip.warn { border-color: rgba(255, 190, 90, 0.55); background: rgba(255, 190, 90, 0.12); }
+.exec-chip.error { border-color: rgba(240, 110, 110, 0.55); background: rgba(240, 110, 110, 0.12); }
+.exec-line { margin: 0; font-size: 12px; word-break: break-all; }
+.exec-failures { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
+.exec-evidence ul { margin: 0; padding-left: 16px; font-size: 12px; }
+.exec-evidence code { word-break: break-all; }
+.exec-evidence-kind { margin-right: 6px; font-size: 11px; opacity: 0.7; }
+.exec-sources { margin: 0; font-size: 11px; }
+
+/* V4 M1-2：侧栏按目标分组 */
+.goal-group { margin: 0 0 6px; }
+.goal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px 3px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.goal-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.goal-ver {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+}
+.goal-count { flex: 0 0 auto; font-size: 11px; opacity: 0.75; }
+.goal-group .task-item { padding-left: 18px; }
+
+/* V4 M1-3：目标变更影响面确认卡 */
+.goal-revision-confirm { border-color: rgba(255, 190, 90, 0.45); }
+.grc-reason { margin: 0 0 8px; font-size: 13px; }
+.grc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grc-cols h3 { margin: 0 0 6px; font-size: 12px; color: var(--text-3); font-weight: 600; }
+.grc-criteria { margin: 0; padding-left: 18px; font-size: 13px; }
+.grc-impacted { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.grc-impacted li { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.grc-impacted-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grc-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* V4 M1-3 收尾：影响面按「可执行步骤 / 任务级节点」分账，节点折叠成一行 */
+.grc-impact-summary { margin: 0 0 6px; font-size: 12px; }
+.grc-impacted li.grc-structural {
+  display: block;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+/* V4 M1-2：同目标一起生效的任务，与「在此目标下新建任务」入口 */
+.grc-goal-tasks { margin: 0 0 8px; font-size: 12px; }
+.goal-new-task { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
