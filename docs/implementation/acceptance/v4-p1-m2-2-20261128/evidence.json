@@ -1,0 +1,483 @@
+{
+  "startedAt": "2026-11-28T02:42:55.542Z",
+  "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333 / SIGKILL 后重启",
+  "workspace": "/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542",
+  "checks": {
+    "default-store-readable": {
+      "ok": true,
+      "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
+      "at": "2026-11-28T02:42:55.542Z"
+    },
+    "renderer-ready": {
+      "ok": true,
+      "detail": "CDP 已连接",
+      "at": "2026-11-28T02:43:05.138Z"
+    },
+    "startup-sweep-removed-orphans": {
+      "ok": true,
+      "detail": "扫前 0 个归属文件 → 扫后 0 个；扫后仍无人认领的：无",
+      "at": "2026-11-28T02:43:08.195Z"
+    },
+    "startup-sweep-removed-orphan-goals": {
+      "ok": true,
+      "detail": "扫前 0 条目标 → 扫后 0 条（任务表 0 条）；扫后仍无任务绑定的：无",
+      "at": "2026-11-28T02:43:08.211Z"
+    },
+    "startup-sweep-keeps-live-task-artifacts": {
+      "ok": true,
+      "detail": "任务表 0 条，其中 0 个归属文件被保留（本轮任务表为空，活任务保留这条由 test:pause-checkpoint 覆盖）",
+      "at": "2026-11-28T02:43:08.211Z"
+    },
+    "A-pause-checkpoint-committed": {
+      "ok": true,
+      "detail": "指针 {\"contextId\":\"pause:36ea5531-0393-467d-a321-be3c72c58111:1795833791039\",\"checkpointId\":\"cp_33b18923-7798-4755-89aa-bdb843d1ff3b\",\"activeRunId\":\"36ea5531-0393-467d-a321-be3c72c58111\"}｜磁盘 context-checkpoints/owners/agent-task/36ea5531-0393-467d-a321-be3c72c58111.json｜文件里的 checkpointId=cp_33b18923-7798-4755-89aa-bdb843d1ff3b",
+      "at": "2026-11-28T02:43:11.173Z"
+    },
+    "A-pause-ledger-has-no-gap": {
+      "ok": true,
+      "detail": "检查点里的账本：工具执行状态：已完成 0 步；副作用核对 applied 6 / missing 0 / needs_reconciliation 0｜暂停事件 needsReconciliation=0",
+      "at": "2026-11-28T02:43:11.173Z"
+    },
+    "A-paused-survives-late-cancel-report": {
+      "ok": true,
+      "detail": "暂停落地后 paused，再等 4s（报告收尾应已到）→ paused；状态序列 created → planning → plan_ready → awaiting_approval → executing → pause_requested → pausing → paused",
+      "at": "2026-11-28T02:43:15.188Z"
+    },
+    "ui-shows-paused-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 A（界面要能核对暂停态与计划进度）",
+      "at": "2026-11-28T02:43:15.807Z"
+    },
+    "A-forced-exit": {
+      "ok": true,
+      "detail": "SIGKILL 后端口已释放",
+      "at": "2026-11-28T02:43:15.933Z"
+    },
+    "A-restarted-resumable": {
+      "ok": true,
+      "detail": "状态 paused，resumeStatus=executing，checkpointId=cp_33b18923-7798-4755-89aa-bdb843d1ff3b",
+      "at": "2026-11-28T02:43:20.954Z"
+    },
+    "startup-sweep-keeps-paused-live-task": {
+      "ok": true,
+      "detail": "重启后 owners/agent-task/36ea5531-0393-467d-a321-be3c72c58111.json 仍在：true｜任务表 1 条",
+      "at": "2026-11-28T02:43:20.972Z"
+    },
+    "A-resume-ipc-accepted": {
+      "ok": true,
+      "detail": "resumeTask 正常返回",
+      "at": "2026-11-28T02:44:53.577Z"
+    },
+    "A-resume-takes-continuation": {
+      "ok": true,
+      "detail": "实际 context.resume.continued；理由 []",
+      "at": "2026-11-28T02:44:53.584Z"
+    },
+    "A-resume-reads-the-pause-checkpoint": {
+      "ok": true,
+      "detail": "恢复用的是 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（暂停点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b）",
+      "at": "2026-11-28T02:44:53.584Z"
+    },
+    "A-resume-marker-located-in-event-stream": {
+      "ok": true,
+      "detail": "恢复打点在事件流下标 104（共 184 条，按 at=1795833801144 取后段 79 条）",
+      "at": "2026-11-28T02:44:53.589Z"
+    },
+    "A-first-event-after-checkpoint-is-step-not-planning": {
+      "ok": true,
+      "detail": "恢复打点之后第一个执行/规划事件：step.reused（seed-test）｜第一个规划类事件在下标 -1",
+      "at": "2026-11-28T02:44:53.589Z"
+    },
+    "A-reused-steps-carry-the-checkpoint-id": {
+      "ok": true,
+      "detail": "复用 6 步：seed-test, write-1, write-2, write-3, write-4, write-5｜执行时间戳都在",
+      "at": "2026-11-28T02:44:53.589Z"
+    },
+    "A-reuses-interrupted-plan": {
+      "ok": true,
+      "detail": "续跑 planId=79289ed1-f90d-4336-b231-8d57afe10688 与被中断那份计划一致（暂停时任务上的 79289ed1-f90d-4336-b231-8d57afe10688）；复用 [\"seed-test\",\"write-1\",\"write-2\",\"write-3\",\"write-4\",\"write-5\"]，续跑 [\"write-6\",\"write-7\",\"write-8\",\"write-9\",\"write-10\",\"write-11\",\"write-12\",\"final-gate\"]",
+      "at": "2026-11-28T02:44:53.589Z"
+    },
+    "A-no-round-opened-by-resume": {
+      "ok": true,
+      "detail": "恢复打点到第一个执行事件之间没有 round.started / plan.ready；打点之后 round.started 共 0 条",
+      "at": "2026-11-28T02:44:53.589Z"
+    },
+    "A-remaining-steps-actually-ran": {
+      "ok": true,
+      "detail": "12 个写步骤文件都在；收尾 shell.run step.completed，退出码 0",
+      "at": "2026-11-28T02:44:53.594Z"
+    },
+    "A-resumed-report-restores-reused-steps": {
+      "ok": true,
+      "detail": "报告 e279497c-efc7-46ce-b8c1-334cd17b501f（计划 e10688，completed）里标了复用的步骤：seed-test:completed(复用) write-1:completed(复用) write-2:completed(复用) write-3:completed(复用) write-4:completed(复用) write-5:completed(复用)｜整份 [\"seed-test:completed(复用)\",\"write-1:completed(复用)\",\"write-2:completed(复用)\",\"write-3:completed(复用)\",\"write-4:completed(复用)\",\"write-5:completed(复用)\",\"write-6:completed\",\"write-7:completed\",\"write-8:completed\",\"write-9:completed\",\"write-10:completed\",\"write-11:completed\",\"write-12:completed\",\"final-gate:completed#0\"]",
+      "at": "2026-11-28T02:44:53.614Z"
+    },
+    "A-resume-completes-with-verified-report": {
+      "ok": true,
+      "detail": "任务状态 completed，续跑后的状态序列 verifying → report_pending → completed",
+      "at": "2026-11-28T02:44:53.639Z"
+    },
+    "ui-shows-resumed-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 A",
+      "at": "2026-11-28T02:44:54.248Z"
+    },
+    "ui-timeline-shows-pause-checkpoint-and-continuation": {
+      "ok": true,
+      "detail": "检查点行 暂停已提交检查点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（待核对｜续跑行 已从检查点续跑：沿用已批准计划，未重新规划｜「复用自上次执行」出现 6 次",
+      "at": "2026-11-28T02:44:54.367Z"
+    },
+    "ui-resume-milestone-is-a-row-in-output-panel": {
+      "ok": true,
+      "detail": "「已从检查点续跑」是输出页时间线里的一行，截图前已滚进视口（时间线一屏装不下 184 条事件）",
+      "at": "2026-11-28T02:44:54.448Z"
+    },
+    "ui-conversation-shows-context-notes-on-resume": {
+      "ok": true,
+      "detail": "对话流检查点行 暂停已提交检查点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（待核对｜续跑行 已从检查点续跑：沿用已批准计划，未重新规划",
+      "at": "2026-11-28T02:44:54.458Z"
+    },
+    "ui-context-note-is-a-row-in-conversation": {
+      "ok": true,
+      "detail": "「已从检查点续跑」在对话流里是一条 chat-note，截图前已滚进视口",
+      "at": "2026-11-28T02:44:54.523Z"
+    },
+    "B-pause-checkpoint-reports-gap": {
+      "ok": true,
+      "detail": "暂停事件 needsReconciliation=1；检查点账本 工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1",
+      "at": "2026-11-28T02:44:56.306Z"
+    },
+    "ui-shows-paused-gap-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 B",
+      "at": "2026-11-28T02:44:56.914Z"
+    },
+    "B-resume-ipc-accepted": {
+      "ok": true,
+      "detail": "resumeTask 正常返回",
+      "at": "2026-11-28T02:45:02.395Z"
+    },
+    "B-resume-falls-back-to-replan": {
+      "ok": true,
+      "detail": "实际 context.resume.replanned；理由 1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation） / 1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+      "at": "2026-11-28T02:45:02.401Z"
+    },
+    "B-replan-reason-names-the-gap": {
+      "ok": true,
+      "detail": "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation） / 1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+      "at": "2026-11-28T02:45:02.401Z"
+    },
+    "B-replan-opens-new-round": {
+      "ok": true,
+      "detail": "新轮 5d531c0e-9999-420b-9b42-cc1eff2e0b24；任务状态 planning",
+      "at": "2026-11-28T02:45:02.439Z"
+    },
+    "ui-shows-replanned-probe": {
+      "ok": true,
+      "detail": "侧栏选中探针 B",
+      "at": "2026-11-28T02:45:03.334Z"
+    },
+    "ui-timeline-shows-replan-naming-the-gap": {
+      "ok": true,
+      "detail": "检查点行 暂停已提交检查点 cp_b0bd619c-d53b-45d9-a4f0-d24bfb53bc75（待核对｜重规划行 已重新规划：检查点不足以安全续跑｜详情点名 无路径可核对：long-shell（needs_reconciliation）\",",
+      "at": "2026-11-28T02:45:03.457Z"
+    },
+    "ui-replan-milestone-is-a-row-in-output-panel": {
+      "ok": true,
+      "detail": "「已重新规划：检查点不足以安全续跑」是输出页时间线里的一行，截图前已滚进视口",
+      "at": "2026-11-28T02:45:03.546Z"
+    },
+    "A-delete-reclaims-checkpoint": {
+      "ok": true,
+      "detail": "删前文件 true，回收结果 {\"taskId\":\"36ea5531-0393-467d-a321-be3c72c58111\",\"checkpointsRemoved\":true,\"archiveSegments\":0,\"goalId\":\"goal:36ea5531-0393-467d-a321-be3c72c58111\",\"goalReclaimed\":false}",
+      "at": "2026-11-28T02:45:05.862Z"
+    },
+    "A-delete-reclaims-goal": {
+      "ok": true,
+      "detail": "目标 goal:36ea5531-0393-467d-a321-be3c72c58111 还在不在：false",
+      "at": "2026-11-28T02:45:05.895Z"
+    },
+    "B-delete-reclaims-checkpoint": {
+      "ok": true,
+      "detail": "删前文件 true，回收结果 {\"taskId\":\"9487adcf-5db2-4e8f-bed1-1abbc21868e1\",\"checkpointsRemoved\":true,\"archiveSegments\":0,\"goalId\":\"goal:9487adcf-5db2-4e8f-bed1-1abbc21868e1\",\"goalReclaimed\":false}",
+      "at": "2026-11-28T02:45:05.933Z"
+    },
+    "B-delete-reclaims-goal": {
+      "ok": true,
+      "detail": "目标 goal:9487adcf-5db2-4e8f-bed1-1abbc21868e1 还在不在：false",
+      "at": "2026-11-28T02:45:05.959Z"
+    },
+    "disk-has-no-orphan-after-run": {
+      "ok": true,
+      "detail": "探针之外没有无人认领的归属文件",
+      "at": "2026-11-28T02:45:05.970Z"
+    },
+    "probe-tasks-cleaned-up": {
+      "ok": true,
+      "detail": "任务数 0 → 0",
+      "at": "2026-11-28T02:45:05.993Z"
+    }
+  },
+  "shots": [
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/01-A-paused-with-checkpoint.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/02-A-resumed-from-checkpoint.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/05-A-output-timeline-checkpoint.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/06-A-conversation-context-notes.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/03-B-paused-with-unknown-gap.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/04-B-replanned-with-unknown-gap.png",
+    "../docs/implementation/acceptance/v4-p1-m2-2-20261128/07-B-output-timeline-replan.png"
+  ],
+  "before": {
+    "tasks": 0,
+    "goals": [],
+    "ownerSegments": [],
+    "archiveSegments": []
+  },
+  "afterSweep": {
+    "ownerSegments": [],
+    "archiveSegments": [],
+    "goals": [],
+    "tasks": 0
+  },
+  "staleProbes": [],
+  "probeA": {
+    "taskId": "36ea5531-0393-467d-a321-be3c72c58111",
+    "autoApproved": true,
+    "files": [
+      "d1/f1.txt",
+      "d1/f2.txt",
+      "d1/f3.txt",
+      "d1/f4.txt",
+      "d1/f5.txt",
+      "d1/f6.txt",
+      "d2/f7.txt",
+      "d2/f8.txt",
+      "d2/f9.txt",
+      "d2/f10.txt",
+      "d2/f11.txt",
+      "d2/f12.txt"
+    ]
+  },
+  "probeB": {
+    "taskId": "9487adcf-5db2-4e8f-bed1-1abbc21868e1",
+    "lateFile": "late-from-killed-shell.txt",
+    "lateFileAppearedAfterKill": false
+  },
+  "continued": {
+    "event": "context.resume.continued",
+    "at": 1795833801144,
+    "context": {
+      "contextId": "pause:36ea5531-0393-467d-a321-be3c72c58111:1795833791039",
+      "checkpointId": "cp_33b18923-7798-4755-89aa-bdb843d1ff3b",
+      "pointerSource": "task-fields",
+      "reason": "检查点有效、副作用账本无未知缺口，直接续跑已批准计划 79289ed1-f90d-4336-b231-8d57afe10688",
+      "resume": {
+        "mode": "continue",
+        "planId": "79289ed1-f90d-4336-b231-8d57afe10688",
+        "roundId": "e279497c-efc7-46ce-b8c1-334cd17b501f",
+        "reusedStepIds": [
+          "seed-test",
+          "write-1",
+          "write-2",
+          "write-3",
+          "write-4",
+          "write-5"
+        ],
+        "pendingStepIds": [
+          "write-6",
+          "write-7",
+          "write-8",
+          "write-9",
+          "write-10",
+          "write-11",
+          "write-12",
+          "final-gate"
+        ],
+        "reasons": []
+      }
+    }
+  },
+  "replanned": {
+    "event": "context.resume.replanned",
+    "at": 1795833902146,
+    "context": {
+      "contextId": "pause:9487adcf-5db2-4e8f-bed1-1abbc21868e1:1795833896169",
+      "checkpointId": "cp_b0bd619c-d53b-45d9-a4f0-d24bfb53bc75",
+      "pointerSource": "task-fields",
+      "reason": "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）",
+      "resume": {
+        "mode": "replan",
+        "reasons": [
+          "1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）"
+        ]
+      }
+    }
+  },
+  "pauseLedger": {
+    "A": {
+      "checkpointId": "cp_33b18923-7798-4755-89aa-bdb843d1ff3b",
+      "line": "工具执行状态：已完成 0 步；副作用核对 applied 6 / missing 0 / needs_reconciliation 0",
+      "applied": 6,
+      "missing": 0,
+      "needsReconciliation": 0
+    },
+    "B": {
+      "checkpointId": "cp_b0bd619c-d53b-45d9-a4f0-d24bfb53bc75",
+      "line": "工具执行状态：已完成 0 步；副作用核对 applied 1 / missing 0 / needs_reconciliation 1",
+      "applied": 1,
+      "missing": 0,
+      "needsReconciliation": 1
+    }
+  },
+  "eventTail": {
+    "A": [
+      "marker:context.resume.continued",
+      "execution.bridge@e10688",
+      "log",
+      "task.started",
+      "step.reused:seed-test",
+      "step.reused:write-1",
+      "step.reused:write-2",
+      "step.reused:write-3",
+      "step.reused:write-4",
+      "step.reused:write-5",
+      "step.started:write-6",
+      "work.task.status",
+      "cycle.subtask.snapshot",
+      "step.completed:write-6",
+      "work.task.status",
+      "cycle.subtask.snapshot",
+      "step.started:write-7"
+    ]
+  },
+  "cleanup": [
+    {
+      "tag": "A",
+      "taskId": "36ea5531-0393-467d-a321-be3c72c58111",
+      "checkpointExistedBeforeDelete": true,
+      "goalId": "goal:36ea5531-0393-467d-a321-be3c72c58111",
+      "cleanup": {
+        "taskId": "36ea5531-0393-467d-a321-be3c72c58111",
+        "checkpointsRemoved": true,
+        "archiveSegments": 0,
+        "goalId": "goal:36ea5531-0393-467d-a321-be3c72c58111",
+        "goalReclaimed": false
+      }
+    },
+    {
+      "tag": "B",
+      "taskId": "9487adcf-5db2-4e8f-bed1-1abbc21868e1",
+      "checkpointExistedBeforeDelete": true,
+      "goalId": "goal:9487adcf-5db2-4e8f-bed1-1abbc21868e1",
+      "cleanup": {
+        "taskId": "9487adcf-5db2-4e8f-bed1-1abbc21868e1",
+        "checkpointsRemoved": true,
+        "archiveSegments": 0,
+        "goalId": "goal:9487adcf-5db2-4e8f-bed1-1abbc21868e1",
+        "goalReclaimed": false
+      }
+    }
+  ],
+  "statusSequences": {
+    "A_pause": [
+      "created",
+      "planning",
+      "plan_ready",
+      "awaiting_approval",
+      "executing",
+      "pause_requested",
+      "pausing",
+      "paused"
+    ],
+    "B_pause": [
+      "created",
+      "planning",
+      "plan_ready",
+      "awaiting_approval",
+      "executing",
+      "pause_requested",
+      "pausing",
+      "paused"
+    ]
+  },
+  "statusAfterResume": {
+    "A": [
+      "verifying",
+      "report_pending",
+      "completed"
+    ]
+  },
+  "uiText": {
+    "outputA": {
+      "chars": 24048,
+      "checkpoint": [
+        "暂停已提交检查点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（待核对 0 项）"
+      ],
+      "resume": [
+        "已从检查点续跑：沿用已批准计划，未重新规划"
+      ],
+      "reused": [
+        "1. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/probe.test.mjs",
+        "2. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/d1/f1.txt",
+        "3. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/d1/f2.txt",
+        "4. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/d1/f3.txt",
+        "5. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/d1/f4.txt",
+        "6. [fs.writeFile] completed（复用自上次执行） · /var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m2-2-ws-1795833775542/d1/f5.txt"
+      ]
+    },
+    "conversationA": {
+      "chars": 20672,
+      "checkpoint": [
+        "暂停已提交检查点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（待核对 0 项）",
+        "暂停已提交检查点 cp_33b18923-7798-4755-89aa-bdb843d1ff3b（待核对 0 项）"
+      ],
+      "resume": [
+        "已从检查点续跑：沿用已批准计划，未重新规划",
+        "已从检查点续跑：沿用已批准计划，未重新规划"
+      ]
+    },
+    "outputB": {
+      "chars": 6587,
+      "checkpoint": [
+        "暂停已提交检查点 cp_b0bd619c-d53b-45d9-a4f0-d24bfb53bc75（待核对 1 项）"
+      ],
+      "replan": [
+        "已重新规划：检查点不足以安全续跑"
+      ],
+      "gapReason": [
+        "  \"reason\": \"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\",",
+        "      \"1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）\""
+      ]
+    }
+  },
+  "reportA": {
+    "roundId": "e279497c-efc7-46ce-b8c1-334cd17b501f",
+    "planId": "79289ed1-f90d-4336-b231-8d57afe10688",
+    "status": "completed",
+    "verified": true,
+    "fullyVerified": false,
+    "results": [
+      "seed-test:completed(复用)",
+      "write-1:completed(复用)",
+      "write-2:completed(复用)",
+      "write-3:completed(复用)",
+      "write-4:completed(复用)",
+      "write-5:completed(复用)",
+      "write-6:completed",
+      "write-7:completed",
+      "write-8:completed",
+      "write-9:completed",
+      "write-10:completed",
+      "write-11:completed",
+      "write-12:completed",
+      "final-gate:completed#0"
+    ]
+  },
+  "error": null,
+  "backups": {
+    "checkpoints": "../docs/implementation/acceptance/v4-p1-m2-2-20261128/context-checkpoints.before.tgz",
+    "store": "../docs/implementation/acceptance/v4-p1-m2-2-20261128/agent-store.before.json"
+  },
+  "finishedAt": "2026-11-28T02:45:05.993Z"
+}

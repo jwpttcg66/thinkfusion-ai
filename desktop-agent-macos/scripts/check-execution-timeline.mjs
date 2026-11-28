@@ -70,3 +70,66 @@ test('工具名与目标：命令、搜索词、代码位置各有可读形式',
   assert.equal(target('fs.search', { query: 'TODO', path: 'src' }), 'TODO · src');
   assert.equal(target('code.definition', { path: 'a.ts', line: 12 }), 'a.ts:12');
 });
+
+/**
+ * M2-2 验收要求「UI 可核对上下文状态」：续跑与重规划都只落成 context.event，
+ * 标签缺一项就退化成「上下文事件」四个字，用户分不出系统在等还是在重做。
+ */
+test('恢复的两条路径在时间线上各有说法，被迫重规划按提醒配色', () => {
+  const items = buildTimeline([
+    {
+      type: 'context.checkpoint.paused', at: 100, taskId: 't1', reason: 'pause',
+      goalVersion: 1, taskRevision: 3, needsReconciliation: 0,
+      contextId: 'pause:r1:100', checkpointId: 'cp_1', activeRunId: 'r1'
+    },
+    {
+      type: 'context.event', at: 200, taskId: 't1', event: 'context.resume.continued',
+      context: { contextId: 'pause:r1:100', checkpointId: 'cp_1', resume: { mode: 'continue', planId: 'p1', reusedStepIds: ['s1'], pendingStepIds: ['s2'] } }
+    },
+    {
+      type: 'context.event', at: 300, taskId: 't1', event: 'context.resume.replanned',
+      context: { contextId: 'pause:r1:100', reason: '结局未知且无路径可核对：/tmp/late.txt' }
+    }
+  ]);
+  const milestones = items.filter(item => item.kind === 'milestone');
+  assert.equal(milestones.length, 3);
+  assert.match(milestones[0].text, /暂停已提交检查点 cp_1/);
+  assert.match(milestones[0].detail, /"checkpointId": "cp_1"/);
+  assert.match(milestones[1].text, /已从检查点续跑/);
+  assert.equal(milestones[1].tone, 'muted');
+  assert.match(milestones[2].text, /已重新规划/);
+  assert.equal(milestones[2].tone, 'warn', '重规划意味着有一轮要重做，不能和续跑同色');
+  assert.match(milestones[2].detail, /结局未知且无路径可核对/);
+});
+
+test('暂停没留下检查点时如实写明，不画成已存档', () => {
+  const items = buildTimeline([
+    { type: 'context.checkpoint.paused', at: 100, taskId: 't1', reason: 'cancel', goalVersion: 1, taskRevision: 2, needsReconciliation: 1, unavailableReason: '当前宿主未注入检查点能力' }
+  ]);
+  const milestone = items.find(item => item.kind === 'milestone');
+  assert.match(milestone.text, /取消未提交检查点：当前宿主未注入检查点能力/);
+  assert.equal(milestone.tone, 'warn');
+});
+
+/** 续跑报告里复用的那一步状态是 completed（主进程还原过），本轮真跑的也一样——只能靠标注区分。 */
+test('续跑报告的复用步骤带「复用自上次执行」', () => {
+  const report = {
+    protocol: 'desktop-agent/v1',
+    type: 'execution_report',
+    taskId: 't1',
+    roundId: 'r2',
+    planId: 'p1',
+    status: 'completed',
+    errors: [],
+    nextAction: 'complete',
+    createdAt: 500,
+    results: [
+      { stepId: 's1', tool: 'fs.writeFile', status: 'completed', verified: true, durationMs: 12, args: { path: '/tmp/f1.txt' }, reusedFrom: { checkpointId: 'cp_1', executedAt: 111 } },
+      { stepId: 's2', tool: 'shell.run', status: 'completed', verified: true, durationMs: 40, args: { command: 'node --test .' } }
+    ]
+  };
+  const items = buildTimeline([{ type: 'report.ready', at: 500, taskId: 't1', roundId: 'r2', report }]);
+  const detail = items.find(item => item.kind === 'milestone').detail;
+  assert.match(detail, /1\. \[fs\.writeFile\] completed（复用自上次执行） · \/tmp\/f1\.txt/);
+  assert.match(detail, /2\. \[shell\.run\] completed · node --test \./);
+});

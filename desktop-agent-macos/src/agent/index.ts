@@ -447,12 +447,53 @@ async function runTask(message: {
           item => item && typeof item.id === 'string' && typeof item.command === 'string'
         )
       : [];
+    // 检查点续跑（M2-2）：主进程已经核对过「这一步上一轮真跑成功了」，这里只负责
+    // 不再跑第二遍。只接受命中当前计划步骤 id 的项——拿一份旧步骤清单来跳过，
+    // 等于把本轮该做的步骤静默吞掉。
+    const planStepIds = new Set(plan.steps.map(step => step.id));
+    const reused = new Map<string, { checkpointId?: string; executedAt: number }>();
+    const reusedInput = (message as { reusedSteps?: unknown }).reusedSteps;
+    if (Array.isArray(reusedInput)) {
+      for (const item of reusedInput as Array<{ stepId?: unknown; checkpointId?: unknown; executedAt?: unknown }>) {
+        const stepId = typeof item?.stepId === 'string' ? item.stepId : '';
+        if (!stepId || !planStepIds.has(stepId)) continue;
+        reused.set(stepId, {
+          ...(typeof item.checkpointId === 'string' && item.checkpointId ? { checkpointId: item.checkpointId } : {}),
+          executedAt: typeof item.executedAt === 'number' ? item.executedAt : 0
+        });
+      }
+    }
 
     for (const [index, step] of plan.steps.entries()) {
       const recordedArgs = (step.tool.startsWith('computer.') ? redactComputerArgs(step.args) : step.args) as typeof step.args;
       if (cancelled.has(taskId)) {
         aborted = true;
         results.push({ stepId: step.id, tool: step.tool, status: 'skipped', verified: false, durationMs: 0, error: '任务已取消', args: recordedArgs });
+        continue;
+      }
+
+      const reuse = reused.get(step.id);
+      if (reuse) {
+        // 不写 RUNNING 步骤流水：这一步本轮确实没有执行；它的执行事实留在上一份报告里。
+        results.push({
+          stepId: step.id,
+          tool: step.tool,
+          status: 'skipped',
+          verified: false,
+          durationMs: 0,
+          args: recordedArgs,
+          reusedFrom: { checkpointId: reuse.checkpointId ?? '', executedAt: reuse.executedAt }
+        });
+        port.postMessage({
+          type: 'step.reused',
+          at: Date.now(),
+          taskId,
+          stepId: step.id,
+          tool: step.tool,
+          ...(roundId ? { roundId } : {}),
+          ...(reuse.checkpointId ? { checkpointId: reuse.checkpointId } : {}),
+          executedAt: reuse.executedAt
+        });
         continue;
       }
 

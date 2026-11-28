@@ -1697,6 +1697,12 @@ export interface StepResult {
   durationMs: number;
   /** 这一步实际用的参数；新报告才带，用来核对改了哪些文件。 */
   args?: Record<string, unknown>;
+  /**
+   * 检查点续跑（M2-2）：这一步本轮没跑，因为它在同一个计划的上一轮执行里已经
+   * completed，检查点与副作用账本都核对得过。带这个字段的 skipped 不是「跳过没做」，
+   * 主进程收尾时会把它还原成上轮的真实结果，界面据此标注「复用自上次执行」。
+   */
+  reusedFrom?: { checkpointId: string; executedAt: number };
 }
 
 /**
@@ -1803,6 +1809,38 @@ export type TaskEventPhase =
   | 'review'
   | 'delivery'
   | 'terminal';
+
+/**
+ * 删除任务时顺带回收的附属实体（V4 P1 M2-2 垃圾回收）。
+ *
+ * 判据写在调用方：检查点按 owner（任务没了就再没人寻得到），目标按「最后一条绑定
+ * 任务被删」。这里只如实记录回收结果，没回收过就报 false/0，不粉饰成「已清理」。
+ */
+export interface TaskCleanup {
+  taskId: string;
+  /** 检查点 owner 文件是否真的删掉一份。 */
+  checkpointsRemoved: boolean;
+  /** 随该 owner 一起删掉的归档段数量。 */
+  archiveSegments: number;
+  /** 该任务绑的目标 id（旧任务可能没有）。 */
+  goalId?: string;
+  /** 目标实体是否被回收——只有最后一条绑定任务被删才为真。 */
+  goalReclaimed: boolean;
+}
+
+/**
+ * 启动扫描回收的残留（V4 P1 M2-2 垃圾回收）。
+ *
+ * 与 `TaskCleanup` 的区别是触发时机：删除任务时只能收掉「这一条」，而回收逻辑上线
+ * 之前删掉的任务留下的归属文件没有任何动作会再来碰它。判据同样是「任务表里查不到」。
+ */
+export interface OrphanCleanup {
+  /** 扫描时任务表里的条数：0 条任务 + 若干残留才说明是真孤儿。 */
+  liveTasks: number;
+  checkpointsRemoved: number;
+  archiveSegments: number;
+  goalsRemoved: number;
+}
 
 export type AgentEvent = AgentEventBase &
   (
@@ -1925,6 +1963,22 @@ export type AgentEvent = AgentEventBase &
         result: unknown;
         /** 本步耗时；老事件没有这个字段。 */
         durationMs?: number;
+      }
+    /**
+     * 检查点续跑（M2-2）：这一步本轮没有执行，因为上一轮已按同一份已批准计划
+     * 跑成功、且副作用账本核对得过。它必须单独成事件——续跑与「跳过未做」在
+     * 报告里都是 skipped，只看报告分不出来，界面也不能把复用的步骤画成没执行。
+     */
+    | {
+        type: 'step.reused';
+        taskId: string;
+        stepId: string;
+        roundId?: string;
+        tool: string;
+        /** 依据哪个检查点判定「这步已经做过」。 */
+        checkpointId?: string;
+        /** 上一次真正执行这一步的时间。 */
+        executedAt: number;
       }
     | {
         type: 'step.failed';
@@ -2050,8 +2104,13 @@ export type AgentEvent = AgentEventBase &
     | { type: 'task.completed'; taskId: string; summary?: string }
     | { type: 'task.failed'; taskId: string; error: string }
     | { type: 'task.cancelled'; taskId: string }
-    /** Emitted on delete, so a list built from events drops the row too. */
-    | { type: 'task.deleted'; taskId: string }
+    /**
+     * Emitted on delete, so a list built from events drops the row too.
+     *
+     * `cleanup` 记录这次删除顺带回收了哪些附属实体。它是删除之后唯一的观测落点：
+     * 任务自己的事件已随删除一起清掉，再发一条带 taskId 的事件只会留下没人认领的孤儿。
+     */
+    | { type: 'task.deleted'; taskId: string; at?: number; cleanup?: TaskCleanup }
     /**
      * GDC：循环阶段快照（派生决策的可观测落点，不是第二套状态库）。
      * 权威仍是既有 plan/report/review/task 事件；本事件记录协调结论便于 UI/恢复对账。

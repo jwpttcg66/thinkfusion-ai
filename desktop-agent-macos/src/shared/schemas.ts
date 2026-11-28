@@ -95,7 +95,20 @@ export const StepResultSchema = z
     /** 这一步实际用的参数；contracts.StepResult 一直带着它，schema 以前漏了。 */
     args: z.unknown().optional(),
     error: z.string().max(2000).optional(),
-    durationMs: z.number().int().min(0)
+    durationMs: z.number().int().min(0),
+    /**
+     * 检查点续跑（M2-2）：这一步本轮没跑，是从上一轮执行复用来的。
+     * `contracts.StepResult` 有这个字段，schema 漏了就会把整份续跑报告判成无效
+     * （报「执行报告无效：unrecognized_keys reusedFrom」），恢复直接失败——2026-11-28 真机命中。
+     * `checkpointId` 允许空串：老检查点没有 id 时 Runtime 补的就是空串。
+     */
+    reusedFrom: z
+      .object({
+        checkpointId: z.string().max(200),
+        executedAt: z.number().int().min(0)
+      })
+      .strict()
+      .optional()
   })
   .strict();
 

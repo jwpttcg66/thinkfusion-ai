@@ -12,15 +12,11 @@ import type {
   ContextOwner,
   ContextOwnerFile
 } from '../../../shared/context';
-import { CONTEXT_CONTRACT_VERSION } from '../../../shared/context';
+import { CONTEXT_CONTRACT_VERSION, contextOwnerSegment } from '../../../shared/context';
 
 export interface ContextCheckpointStoreOptions {
   baseDir: string;
   now?: () => number;
-}
-
-function safeSegment(value: string): string {
-  return encodeURIComponent(value).replace(/%/g, '_');
 }
 
 async function atomicWrite(file: string, content: string): Promise<void> {
@@ -56,8 +52,8 @@ export class ContextCheckpointStore {
     return path.join(
       this.baseDir,
       'owners',
-      safeSegment(owner.ownerType),
-      `${safeSegment(owner.ownerId)}.json`
+      contextOwnerSegment(owner.ownerType),
+      `${contextOwnerSegment(owner.ownerId)}.json`
     );
   }
 
@@ -111,5 +107,52 @@ export class ContextCheckpointStore {
     file.activeCache = active;
     file.updatedAt = this.now();
     await atomicWrite(this.ownerFile(owner), JSON.stringify(file, null, 2));
+  }
+
+  /**
+   * 回收整个 owner 的检查点文件（V4 P1 M2-2 垃圾回收）。
+   *
+   * owner 就是 `agent-task:<taskId>`，任务删了这份文件再没人读：Journal 指针随任务
+   * 一起消失，留着只会变成磁盘上的孤儿。返回「是否真的删掉了一份」而不是笼统的
+   * 成功——调用方要把这个数字讲给用户听，没删过就不能报「已回收」。
+   * 读不到/删不动一律按未回收处理，不让磁盘异常把「删除任务」这个用户动作变成报错。
+   */
+  async deleteOwner(owner: ContextOwner): Promise<boolean> {
+    return this.removeOwnerSegment(owner.ownerType, contextOwnerSegment(owner.ownerId));
+  }
+
+  private ownersDir(ownerType: ContextOwner['ownerType']): string {
+    return path.join(this.baseDir, 'owners', contextOwnerSegment(ownerType));
+  }
+
+  /**
+   * 孤儿扫描入口（V4 P1 M2-2 垃圾回收）：列出某类 owner 的归属文件段名。
+   *
+   * 只给段名、不给 owner：`safeSegment` 不是单射，解码再拼回 ownerId 会把两个不同
+   * id 认成同一个，删除也就可能删错。目录不存在给空表——「没跑过检查点」不是错误。
+   */
+  async listOwnerSegments(ownerType: ContextOwner['ownerType']): Promise<string[]> {
+    try {
+      const names = await fs.readdir(this.ownersDir(ownerType));
+      return names.filter(name => name.endsWith('.json')).map(name => name.slice(0, -'.json'.length));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 按段名删一份归属文件；同样只报「真的删掉了没有」，`force` 的沉默成功不算数。 */
+  async removeOwnerSegment(ownerType: ContextOwner['ownerType'], segment: string): Promise<boolean> {
+    const file = path.join(this.ownersDir(ownerType), `${segment}.json`);
+    try {
+      await fs.access(file);
+    } catch {
+      return false;
+    }
+    try {
+      await fs.rm(file, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

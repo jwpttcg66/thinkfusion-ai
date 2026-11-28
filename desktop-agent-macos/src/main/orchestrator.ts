@@ -11,15 +11,24 @@ import type {
   PermissionPreset,
   PlanDebate,
   PlanPreview,
+  OrphanCleanup,
   StepApprovalMode,
   StoredPlan,
+  TaskCleanup,
   TaskGrant
 } from '../shared/contracts';
 import type { ContextHistoryItem, ContextManager, SideEffectLedger } from '../shared/context';
 import { scopeHistory } from './context/entry-policy';
 import { recoveryPromptData, type TaskRecoveryResult } from './context/recovery/task-recovery';
+import {
+  decideContinuation,
+  mergeReusedResults,
+  type CompletedStep,
+  type ContinuationPlan,
+  type ReusedStepInput
+} from './context/recovery/continuation';
 import type { PauseCheckpointOutcome } from './context/checkpoint/pause';
-import { collectInFlightSideEffects, collectSideEffects, reconcileSideEffects } from './context/recovery/side-effects';
+import { collectReportedAndInFlightSideEffects, reconcileSideEffects } from './context/recovery/side-effects';
 import { allowedToolsForPreset, buildClarificationAnswerPrompt, buildInitialPrompt, buildPlanRepairPrompt, buildReportPrompt, parseAnswer } from '../shared/protocol';
 import { READ_ONLY_TOOLS, TOOL_NAMES } from '../shared/contracts';
 import type { WorkflowDefinition } from '../shared/workflow';
@@ -226,6 +235,31 @@ export interface OrchestratorDeps {
   planningIdleMs?: number;
   /** 恢复流程产生的副作用核对；已含在 result 里，这里只给测试/旁路观察。 */
   onRecovery?: (task: AgentTask, result: TaskRecoveryResult) => void;
+  /**
+   * 把已批准计划交给 Runtime。默认用 agent-manager 的实现；
+   * 续跑分支要能在单测里跑通「跳过哪些步骤、报告怎么合并」，不注入就只能真起子进程。
+   */
+  runPlan?: typeof runPlan;
+  /**
+   * 检查点续跑开关（M2-2 的回退路径）。默认开：关掉它就是回到「继续一律重规划」
+   * 的旧行为，改一个返回值即可，不需要回滚续跑分支本身。
+   */
+  resumeContinue?: () => boolean;
+  /**
+   * 删除任务时回收它的检查点文件与归档段（M2-2 垃圾回收）。
+   *
+   * 注入而不是直接 import 存储：检查点落在 userData 目录下、由宿主决定基路径，
+   * 编排器只负责说「这个任务没了」。没注入时回收数为 0，删除照常成功——
+   * 回收失败不能把用户的删除动作变成报错。
+   */
+  deleteContextArtifacts?: (task: AgentTask) => Promise<{ checkpointsRemoved: boolean; archiveSegments: number }>;
+  /**
+   * 启动扫描的孤儿回收入口（M2-2 垃圾回收）：只给「现在还活着的任务 id」，
+   * 其余 owner 段一律按孤儿回收。判据由调用方给，宿主只管删文件——编排器不认识
+   * userData 目录结构。
+   */
+  reclaimOrphanArtifacts?: (liveTaskIds: readonly string[]) =>
+    Promise<{ checkpointsRemoved: number; archiveSegments: number }>;
 }
 
 /**
@@ -260,6 +294,38 @@ function commonDirectory(paths: readonly string[]): string | undefined {
     if (common.length === 0) return undefined;
   }
   return common.length > 0 ? common.join('/') : undefined;
+}
+
+/**
+ * 执行前桥接的步骤预览：把计划步骤映射成「第几步、用什么工具、针对哪个目标」。
+ *
+ * 审批执行与检查点续跑共用这份映射。续跑只列出本轮真正要执行的步骤，但序号仍按
+ * 原计划位置——用户对着审批时看到的计划，得能认出少跑的是哪几步。
+ */
+function bridgeSteps(
+  steps: AgentPlan['steps'],
+  onlyIds?: ReadonlySet<string>
+): Array<{ index: number; tool: string; description: string; target?: string }> {
+  return steps
+    .map((step, position) => ({ step, index: position + 1 }))
+    .filter(({ step }) => !onlyIds || onlyIds.has(step.id))
+    .slice(0, 20)
+    .map(({ step, index }) => {
+      const args = (step.args ?? {}) as Record<string, unknown>;
+      const target = typeof args.path === 'string'
+        ? args.path
+        : typeof args.command === 'string'
+          ? args.command
+          : typeof args.to === 'string'
+            ? args.to
+            : undefined;
+      return {
+        index,
+        tool: step.tool,
+        description: step.description?.trim() || step.tool,
+        ...(target ? { target: String(target) } : {})
+      };
+    });
 }
 
 export class AgentOrchestrator {
@@ -592,6 +658,16 @@ export class AgentOrchestrator {
     for (const event of seededWork.events) {
       this.deps.emit(event);
     }
+    this.deps.emit({
+      type: 'plan.ready',
+      at: Date.now(),
+      taskId: task.taskId,
+      roundId: round.roundId,
+      plan: planPreview
+    });
+    // 顺序不能反：`plan.ready` 会清掉步骤身份索引（见 shared/event-identity）。
+    // 先报准备再发 plan.ready 的话，Runtime 回来的 step.started/completed 补不到
+    // roundId，副作用核对与检查点续跑就认不出这一步属于哪一轮，只能整计划重跑。
     for (const step of stored.plan.steps) {
       this.deps.emit({
         type: 'step.preparing',
@@ -604,13 +680,6 @@ export class AgentOrchestrator {
         args: step.args as Record<string, unknown>
       });
     }
-    this.deps.emit({
-      type: 'plan.ready',
-      at: Date.now(),
-      taskId: task.taskId,
-      roundId: round.roundId,
-      plan: planPreview
-    });
     this.tasks.transition(task.taskId, 'awaiting_approval', { currentPlanId: stored.planId });
 
     if (built.requiresApproval) {
@@ -653,46 +722,16 @@ export class AgentOrchestrator {
       if (writes.length > 0) throw new Error('计划包含写入或系统操作，但当前权限为「仅可查看」');
     }
 
-    const grant: TaskGrant = {
-      taskId: task.taskId,
-      permissionPreset: task.permissionPreset,
-      approvalPolicy: 'ask',
-      rootDir,
-      allowedTools: [...new Set(plan.steps.map(step => step.tool))],
-      expiresAt: Date.now() + GRANT_TTL_MS,
-      maxSteps: Math.min(plan.steps.length, task.maxSteps),
-      grantVersion: 1,
-      // 审批粒度随授权一起下发：Runtime 只认凭据里的值，界面改不了执行中的计划。
-      // 完全权限下是 `off`——那一档已经等于「都允许」，再逐步问是重复确认。
-      stepApproval: this.deps.stepApproval?.() ?? approvalPolicyFor(task.permissionPreset).stepApproval
-    };
+    const grant = await this.grantForApprovedPlan(task, stored, rootDir);
 
     const budgetViolations = checkCodingBudget(plan);
     if (budgetViolations.length > 0) {
       throw new Error(`计划超出编码预算：${budgetViolations.join('；')}`);
     }
 
-    // 外部 CLI 自带工具循环，不能让它直接改主工作区：审批时先建独立
-    // Worktree，把路径写进授权。取消/失败保留这棵树，合并是用户的下一个显式动作。
-    if (plan.steps.some(step => step.tool === 'agent.exec')) {
-      const worktree = await (this.deps.worktree ?? ensureTaskWorktree)({
-        rootDir,
-        taskId: task.taskId
-      });
-      grant.worktreeDir = worktree.dir;
-      this.deps.emit({
-        type: 'log',
-        at: Date.now(),
-        taskId: task.taskId,
-        level: 'info',
-        message: `外部 Agent 将在独立工作树中执行：${worktree.dir}（分支 ${worktree.branch}）。主工作区不会被直接修改；合并需要你确认。`
-      });
-    }
-
     this.deps.store.updatePlan(stored.planId, { approvalStatus: 'approved' });
     this.tasks.transition(task.taskId, 'executing', { workspaceRoot: rootDir });
     this.emitCycleStage(task.taskId, 'IMPLEMENTATION', 'started');
-    this.busy.add(task.taskId);
 
     // 执行前先画出依据：将跑哪些步骤、针对什么目标；不能一批准就静默开工。
     this.deps.emit({
@@ -702,31 +741,32 @@ export class AgentOrchestrator {
       roundId: stored.roundId,
       planId: stored.planId,
       message: `计划已批准，将按 ${String(plan.steps.length)} 步执行「${plan.title}」${plan.completion ? `（完成条件：${plan.completion}）` : ''}`,
-      steps: plan.steps.slice(0, 20).map((step, index) => {
-        const args = (step.args ?? {}) as Record<string, unknown>;
-        const target = typeof args.path === 'string'
-          ? args.path
-          : typeof args.command === 'string'
-            ? args.command
-            : typeof args.to === 'string'
-              ? args.to
-              : undefined;
-        return {
-          index: index + 1,
-          tool: step.tool,
-          description: step.description?.trim() || step.tool,
-          ...(target ? { target: String(target) } : {})
-        };
-      })
+      steps: bridgeSteps(plan.steps)
     });
 
+    await this.executeApprovedPlan({ task, stored, grant });
+  }
+
+  /**
+   * 执行一份已批准的计划并走统一收尾。
+   *
+   * 审批执行与检查点续跑共用这一条：两边的失败收敛必须一样——用户取消后 Runtime
+   * 的拒绝是预期结果，不能从 cancelled 再迁到 failed。分开写就会出现「批准执行时
+   * 取消是静默结束、续跑时取消是报错」这种说不清的区别。
+   */
+  private async executeApprovedPlan(input: {
+    task: AgentTask;
+    stored: StoredPlan;
+    grant: TaskGrant;
+    reusedSteps?: ReusedStepInput[];
+    /** 续跑判定用的完成证据；收尾时把「本轮没跑」的步骤还原成真实结果。 */
+    completed?: ReadonlyMap<string, CompletedStep>;
+  }): Promise<void> {
+    const { task, stored } = input;
     let report: ExecutionReport;
+    this.busy.add(task.taskId);
     try {
-      report = await runPlan(plan, grant, this.deps.dbPath(), this.planTimeout(task.timeoutMs, plan), {
-        roundId: stored.roundId,
-        planId: stored.planId,
-        ...(task.conversationId ? { conversationId: task.conversationId } : {})
-      });
+      report = await this.dispatchPlan(input);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // 用户取消后，Runtime 的拒绝是预期结果：不能再从 cancelled 迁到 failed，
@@ -748,6 +788,90 @@ export class AgentOrchestrator {
       this.busy.delete(task.taskId);
     }
 
+    // 复用步骤要还原成上次的真实结果（报告 completed 或事件 started+completed）。
+    // 不还原就等于把已经做过的构建/测试当没做，任务会白停在 VERIFYING。
+    await this.finishPlanExecution(task, stored, mergeReusedResults(report, input.completed ?? null));
+  }
+
+  /**
+   * 按已批准的计划装配执行授权。
+   *
+   * 审批执行与检查点续跑必须共用这一份装配逻辑：两边各写一遍，续跑就会漏掉外部
+   * Agent 的独立工作树或审批粒度，Runtime 报「未授权工具」时界面看不出跟权限档
+   * 有任何关系。
+   */
+  private async grantForApprovedPlan(task: AgentTask, stored: StoredPlan, rootDir: string): Promise<TaskGrant> {
+    const plan = stored.plan;
+    const grant: TaskGrant = {
+      taskId: task.taskId,
+      permissionPreset: task.permissionPreset,
+      approvalPolicy: 'ask',
+      rootDir,
+      allowedTools: [...new Set(plan.steps.map(step => step.tool))],
+      expiresAt: Date.now() + GRANT_TTL_MS,
+      maxSteps: Math.min(plan.steps.length, task.maxSteps),
+      grantVersion: 1,
+      // 审批粒度随授权一起下发：Runtime 只认凭据里的值，界面改不了执行中的计划。
+      // 完全权限下是 `off`——那一档已经等于「都允许」，再逐步问是重复确认。
+      stepApproval: this.deps.stepApproval?.() ?? approvalPolicyFor(task.permissionPreset).stepApproval
+    };
+
+    // 外部 CLI 自带工具循环，不能让它直接改主工作区：审批时先建独立
+    // Worktree，把路径写进授权。取消/失败保留这棵树，合并是用户的下一个显式动作。
+    if (plan.steps.some(step => step.tool === 'agent.exec')) {
+      const worktree = await (this.deps.worktree ?? ensureTaskWorktree)({
+        rootDir,
+        taskId: task.taskId
+      });
+      grant.worktreeDir = worktree.dir;
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        taskId: task.taskId,
+        level: 'info',
+        message: `外部 Agent 将在独立工作树中执行：${worktree.dir}（分支 ${worktree.branch}）。主工作区不会被直接修改；合并需要你确认。`
+      });
+    }
+    return grant;
+  }
+
+  /**
+   * 把计划交给 Runtime。
+   *
+   * `reusedSteps` 只让 Runtime 少跑几步（并如实发 `step.reused`），计划内容、
+   * planId、roundId 都不动——续跑改的是「这一步还要不要执行」，不是「批准了什么」。
+   */
+  private dispatchPlan(input: {
+    task: AgentTask;
+    stored: StoredPlan;
+    grant: TaskGrant;
+    reusedSteps?: ReusedStepInput[];
+  }): Promise<ExecutionReport> {
+    const run = this.deps.runPlan ?? runPlan;
+    const reused = input.reusedSteps ?? [];
+    return run(
+      input.stored.plan,
+      input.grant,
+      this.deps.dbPath(),
+      this.planTimeout(input.task.timeoutMs, input.stored.plan),
+      {
+        roundId: input.stored.roundId,
+        planId: input.stored.planId,
+        ...(input.task.conversationId ? { conversationId: input.task.conversationId } : {})
+      },
+      reused.length > 0 ? { reusedSteps: reused } : undefined
+    );
+  }
+
+  /** 一份已批准计划跑完之后的统一收尾：落报告、评审、验证判定、决定下一轮。 */
+  private async finishPlanExecution(
+    task: AgentTask,
+    stored: StoredPlan,
+    initialReport: ExecutionReport
+  ): Promise<void> {
+    const plan = stored.plan;
+    let report = initialReport;
+
     // 改动量必须在报告成形的这一刻取：读完报告再回头跑 git diff，
     // 工作区可能已经被下一轮改过，数字就不是这份报告的了。
     if (report.verification && report.verification.changedFiles > 0) {
@@ -764,7 +888,8 @@ export class AgentOrchestrator {
     this.deps.store.insertReport(report);
     this.emitCycleStage(task.taskId, 'IMPLEMENTATION', 'completed');
     this.emitCycleStage(task.taskId, 'REVIEW', 'started');
-    this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });    try {
+    this.deps.emit({ type: 'report.ready', at: Date.now(), taskId: task.taskId, roundId: stored.roundId, report });
+    try {
       this.deps.onReport?.(task, report);
     } catch {
       // 轨迹是旁路：记录失败不能让已经完成的执行看起来失败。
@@ -773,6 +898,19 @@ export class AgentOrchestrator {
     // 取消发生在执行过程中时，报告仍然要落库（轨迹与证据不能丢），但状态
     // 已经由 cancel() 置为 cancelled，不能再走 verifying / report_pending。
     if (TERMINAL.includes(this.tasks.get(task.taskId).status)) return;
+
+    // 用户点的是「暂停」不是「取消」，但 Runtime 对两种停止请求回的是同一份
+    // status='cancelled' 报告。让它继续往下走会把任务从 paused 带去
+    // verifying → report_pending → cancelled，而 resume 只认
+    // paused/interrupted/budget_exhausted/blocked——暂停检查点就此再也续不上
+    // （M2-2 真机：暂停后点「继续」提示状态不允许）。
+    if (['pause_requested', 'pausing', 'paused'].includes(this.tasks.get(task.taskId).status)) {
+      this.deps.emit({
+        type: 'log', at: Date.now(), taskId: task.taskId, level: 'info',
+        message: '任务处于暂停：本轮执行报告已落库（已完成步骤的证据不丢），状态保持暂停，点「继续」按暂停检查点核对后续跑。'
+      });
+      return;
+    }
 
     // 独立评审只读执行事实，不改任务状态；失败也不该把已经完成的执行作废。
     // 需要修复时只是给出结论：下一轮计划要不要人重新批准，由权限预设决定
@@ -988,15 +1126,7 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const reports = this.deps.store.allReportsFor(taskId);
     const events = this.deps.store.listEvents(taskId);
-    const entries = collectSideEffects(reports);
-    const seen = new Set(entries.map(entry => `${entry.stepId}:${entry.tool}`));
-    for (const entry of collectInFlightSideEffects(events)) {
-      const key = `${entry.stepId}:${entry.tool}`;
-      if (!seen.has(key)) {
-        entries.push(entry);
-        seen.add(key);
-      }
-    }
+    const entries = collectReportedAndInFlightSideEffects({ reports, events });
     const ledger = await reconcileSideEffects(entries, {
       workspaceRoot: task.workspaceRoot
     });
@@ -1043,7 +1173,7 @@ export class AgentOrchestrator {
     });
   }
 
-  /** 用户暂停：请求态 → Runtime 确认 → 检查点 → 实际态；恢复时重新开一轮。 */
+  /** 用户暂停：请求态 → Runtime 确认 → 检查点 → 实际态；恢复按这份检查点决定续跑还是重规划。 */
   async pause(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
     const pending = ['pause_requested', 'pausing', 'cancel_requested', 'cancelling'];
@@ -1087,7 +1217,7 @@ export class AgentOrchestrator {
     this.deps.emit({
       type: 'log', at: Date.now(), taskId, level: 'info',
       message: inFlight
-        ? '任务已暂停：停止请求与检查点均已落库；继续会重新规划，先核对现有结果。'
+        ? '任务已暂停：停止请求与检查点均已落库；继续时按这份检查点核对副作用，能续跑就直接续，核对不过才重规划。'
         : '任务已暂停：检查点已落库；继续会回到暂停前的等待状态。'
     });
   }
@@ -1296,12 +1426,43 @@ export class AgentOrchestrator {
         return;
       }
 
+      // M2-2：检查点 fresh、副作用账本无缺口、门禁放行、且任务挂着已批准计划时，
+      // 直接把那份计划剩下的步骤跑完，不再问一轮 Planner。放在轮数预算之前是有意的：
+      // 续跑不建新一轮，不该被「轮数用尽」判死——用户点的是继续一份已经批准的计划。
+      const resumePlan = task.currentPlanId ? this.deps.store.getPlan(task.currentPlanId) : null;
+      const verdict = decideContinuation({
+        taskId,
+        recovery,
+        enabled: this.deps.resumeContinue?.() ?? true,
+        plan: resumePlan,
+        planHashMatches: !!resumePlan && hashPlan(resumePlan.plan) === resumePlan.contentHash,
+        reports,
+        events: resumeEvents,
+        gateBlocks,
+        requiresReplan: versionChain.requiresReplan
+      });
+      if (verdict.mode === 'continue') {
+        await this.continueFromCheckpoint(task, verdict);
+        return;
+      }
       const rounds = this.tasks.listRounds(taskId);
       if (rounds.length >= task.maxRounds) {
         this.tasks.transition(taskId, 'failed', { error: `达到最大轮数 ${task.maxRounds}，无法继续`, resumeStatus: undefined });
         this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: `达到最大轮数 ${task.maxRounds}` });
         return;
       }
+      // 重新规划这条路要留下事件：续跑与轮数耗尽都不该发它，所以放在两道判定之后。
+      this.deps.emit({
+        type: 'context.event', at: Date.now(), taskId,
+        event: 'context.resume.replanned',
+        context: {
+          contextId: recovery?.contextId ?? task.contextId ?? '',
+          ...(recovery?.checkpointId ? { checkpointId: recovery.checkpointId } : {}),
+          ...(recovery?.pointerSource ? { pointerSource: recovery.pointerSource } : {}),
+          reason: verdict.reasons[0] ?? '按新一轮重新规划',
+          resume: { mode: 'replan', reasons: verdict.reasons }
+        }
+      });
       this.tasks.transition(taskId, 'planning', { resumeStatus: undefined, error: undefined });
       const round = this.tasks.createRound({ taskId, inputType: 'user_prompt', requestText: '' });
       const recovered = recovery ? recoveryPromptData(recovery) : '';
@@ -1334,6 +1495,69 @@ export class AgentOrchestrator {
     } finally {
       this.resuming.delete(taskId);
     }
+  }
+
+  /**
+   * 检查点续跑：把已批准计划里没跑完的步骤跑掉，不开新一轮、不再问 Planner。
+   *
+   * 三条口径必须和审批执行完全一致，否则「续跑」这条路会出现独立的一套行为：
+   * - 授权由 `grantForApprovedPlan` 装配（含外部 Agent 的独立工作树）；
+   * - planId / roundId 沿用被中断那一份计划，报告归属不能挂到新的轮次上；
+   * - 收尾走 `executeApprovedPlan`，失败收敛、报告落库、评审与验证判定同一条路。
+   */
+  private async continueFromCheckpoint(task: AgentTask, verdict: ContinuationPlan): Promise<void> {
+    const taskId = task.taskId;
+    const stored = verdict.plan;
+    const rootDir = await this.resolveWorkspace(task);
+    const grant = await this.grantForApprovedPlan(task, stored, rootDir);
+    this.tasks.transition(taskId, 'executing', {
+      workspaceRoot: rootDir,
+      resumeStatus: undefined,
+      error: undefined
+    });
+    this.emitCycleStage(taskId, 'IMPLEMENTATION', 'started');
+
+    this.deps.emit({
+      type: 'context.event', at: Date.now(), taskId,
+      event: 'context.resume.continued',
+      context: {
+        contextId: verdict.contextId ?? task.contextId ?? '',
+        ...(verdict.checkpointId ? { checkpointId: verdict.checkpointId } : {}),
+        ...(verdict.pointerSource ? { pointerSource: verdict.pointerSource } : {}),
+        reason: `检查点有效、副作用账本无未知缺口，直接续跑已批准计划 ${stored.planId}`,
+        resume: {
+          mode: 'continue',
+          planId: stored.planId,
+          roundId: stored.roundId,
+          reusedStepIds: verdict.reusedStepIds,
+          pendingStepIds: verdict.pendingStepIds,
+          reasons: verdict.reasons
+        }
+      }
+    });
+    this.deps.emit({
+      type: 'execution.bridge',
+      at: Date.now(),
+      taskId,
+      roundId: stored.roundId,
+      planId: stored.planId,
+      message: `从检查点续跑：跳过 ${String(verdict.reusedStepIds.length)} 步已完成，执行剩余 ${String(verdict.pendingStepIds.length)} 步「${stored.plan.title}」`,
+      steps: bridgeSteps(stored.plan.steps, new Set(verdict.pendingStepIds))
+    });
+    this.deps.emit({
+      type: 'log', at: Date.now(), taskId, level: 'info',
+      message: verdict.reusedStepIds.length > 0
+        ? `任务已继续：不重新规划，沿用已批准计划 ${stored.planId}，复用上轮完成的 ${verdict.reusedStepIds.join('、')}，本轮执行 ${verdict.pendingStepIds.join('、')}。`
+        : `任务已继续：不重新规划，沿用已批准计划 ${stored.planId}，本轮执行全部 ${String(verdict.pendingStepIds.length)} 步。`
+    });
+
+    await this.executeApprovedPlan({
+      task,
+      stored,
+      grant,
+      reusedSteps: verdict.reusedSteps,
+      completed: verdict.completed
+    });
   }
 
   /**
@@ -1589,14 +1813,102 @@ export class AgentOrchestrator {
     void this.driveRound(input.taskId, round.roundId, prompt).catch(error => this.fail(input.taskId, error));
   }
 
-  async deleteTask(taskId: string) {
+  /**
+   * 删除任务，并回收只属于它的附属实体。
+   *
+   * 两类东西的判据完全不同，不能一把切：
+   * - **检查点与归档**：owner 就是 `agent-task:<taskId>`。任务记录一删，Journal 指针
+   *   和事件流同时消失，这份文件再也寻不到——留着只是磁盘孤儿，直接回收。
+   * - **目标实体**：目标是「同一目标下几条任务」的共享口径。只有**最后一条绑定任务
+   *   被删**它才成孤儿。按 `updatedAt` 猜「很久没人动」会误删：用户删掉一条旧任务，
+   *   剩下几条的侧栏分组标题就凭空换了。
+   *
+   * 回收结果原样返回：`task.deleted` 只在 IPC 上发一次、不落 Journal（任务事件已随
+   * 删除清掉），它是删除之后唯一还能对用户交代「少了什么」的入口。
+   */
+  async deleteTask(taskId: string): Promise<TaskCleanup> {
     const task = this.deps.store.getTask(taskId);
     // 删除是用户的最终意图：运行中的任务先取消、停外部进程，再删除记录。
     // 不能因为“还没结束”把行留在列表里，那会让用户无法清掉卡住的任务。
-    if (task && !TERMINAL.includes(task.status)) {
+    // `created` 例外：这条状态下一步都没派发过（driveRound 第一件事就是转 planning），
+    // 没有在途请求可停，而转移表刻意不给它 cancel_requested 这条边——照着走一遍
+    // 只会让「删掉一条没启动的记录」抛成非法状态转换，用户从此删不掉它。
+    if (task && !TERMINAL.includes(task.status) && task.status !== 'created') {
       await this.cancel(taskId);
     }
+    const goalId = task?.goalId;
     this.deps.store.deleteTask(taskId);
+
+    const cleanup: TaskCleanup = {
+      taskId,
+      checkpointsRemoved: false,
+      archiveSegments: 0,
+      ...(goalId ? { goalId } : {}),
+      goalReclaimed: false
+    };
+    if (task && this.deps.deleteContextArtifacts) {
+      try {
+        const reclaimed = await this.deps.deleteContextArtifacts(task);
+        cleanup.checkpointsRemoved = reclaimed.checkpointsRemoved;
+        cleanup.archiveSegments = reclaimed.archiveSegments;
+      } catch {
+        // 磁盘回收失败（只读、权限、并发写）不能让删除任务变成报错：任务已经删掉了。
+      }
+    }
+    if (goalId) {
+      // 判据只认「还有没有任务绑着它」，算的是删除之后的事实。
+      const stillBound = tasksUnderGoal(goalId, this.deps.store.listTasks()).length > 0;
+      if (!stillBound) cleanup.goalReclaimed = this.deps.store.deleteGoal(goalId);
+    }
+    return cleanup;
+  }
+
+  /**
+   * 启动扫描：把「已经没有任务对应」的检查点、归档段与目标实体收掉（M2-2 垃圾回收）。
+   *
+   * 为什么删除任务时回收还不够：这台机器实测过 store 里 0 条任务、磁盘上 11 个归属
+   * 文件、6 条孤儿目标——那些任务是在回收逻辑存在之前删掉的，再也没有「删除动作」
+   * 会来清它们。判据只有「任务表里查不到这条 id」，不按时间、不按文件大小猜：
+   * 活动很旧的任务仍在表里，它的检查点必须留着。
+   *
+   * 只在启动时跑：那会儿还没有新任务能并发写入，也就不会把刚落的检查点判成孤儿。
+   * 计数如实返回，回收失败（只读、权限）只让数字变小，不让启动失败。
+   */
+  async reclaimOrphanArtifacts(): Promise<OrphanCleanup> {
+    const tasks = this.deps.store.listTasks();
+    const liveTaskIds = tasks.map(task => task.taskId);
+    const result: OrphanCleanup = {
+      liveTasks: liveTaskIds.length,
+      checkpointsRemoved: 0,
+      archiveSegments: 0,
+      goalsRemoved: 0
+    };
+    if (this.deps.reclaimOrphanArtifacts) {
+      try {
+        const reclaimed = await this.deps.reclaimOrphanArtifacts(liveTaskIds);
+        result.checkpointsRemoved = reclaimed.checkpointsRemoved;
+        result.archiveSegments = reclaimed.archiveSegments;
+      } catch {
+        // 磁盘扫描失败只报零，不能因为清不掉孤儿就把应用启动挡在门外。
+      }
+    }
+    // 先取快照再删：listGoals() 给的是 store 里那份数组，边遍历边 splice 会跳过条目。
+    for (const goal of [...this.deps.store.listGoals()]) {
+      if (tasksUnderGoal(goal.goalId, tasks).length === 0 && this.deps.store.deleteGoal(goal.goalId)) {
+        result.goalsRemoved += 1;
+      }
+    }
+    if (result.checkpointsRemoved > 0 || result.archiveSegments > 0 || result.goalsRemoved > 0) {
+      this.deps.emit({
+        type: 'log',
+        at: Date.now(),
+        level: 'info',
+        message: `已清理无人认领的上下文残留：检查点 ${String(result.checkpointsRemoved)} 份、`
+          + `归档段 ${String(result.archiveSegments)} 个、目标 ${String(result.goalsRemoved)} 条`
+          + `（现存任务 ${String(result.liveTasks)} 条）`
+      });
+    }
+    return result;
   }
 
   // -------------------------------------------------------------------------

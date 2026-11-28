@@ -40,8 +40,12 @@ import { ContextCheckpointStore } from './context/checkpoint/store';
 import { ContextArchiveStore } from './context/checkpoint/archive';
 import { commitContextCheckpoint } from './context/checkpoint/commit';
 import { commitPauseCheckpoint } from './context/checkpoint/pause';
+import {
+  deleteTaskContextArtifacts,
+  reclaimOrphanContextArtifacts
+} from './context/checkpoint/gc';
 import { summarizeHistory } from './context/compaction/summarizer';
-import { recoverTaskContext } from './context/recovery/task-recovery';
+import { recoverTaskContext, taskContextOwner } from './context/recovery/task-recovery';
 import { contextScopeFor, scopeHistory, type ContextEntry } from './context/entry-policy';
 import { MemoryService } from './memory/service';
 import { projectIdFor } from '../shared/project-id';
@@ -4026,10 +4030,13 @@ function isMissingTerminal(error: unknown): boolean {
   ipcMain.handle('task:delete', async (event, taskId: unknown) => {
     trustedUiSender(event);
     const id = TaskIdSchema.parse(taskId);
-    await orchestrator.deleteTask(id);
+    const cleanup = await orchestrator.deleteTask(id);
     // The list is built from events, so a delete that is only persisted leaves
     // the row on screen until the window is reloaded.
-    win?.webContents.send('agent:event', { type: 'task.deleted', taskId: id, at: Date.now() });
+    // 回收计数跟着走：任务事件已随删除清掉，这条一次性事件是「磁盘上少了什么」
+    // 唯一的落点，不报就只能说"删了"。
+    win?.webContents.send('agent:event', { type: 'task.deleted', taskId: id, at: Date.now(), cleanup });
+    return cleanup;
   });
 
   ipcMain.handle('permission:get', event => {
@@ -6024,7 +6031,6 @@ app.whenReady().then(async () => {
   tasks = new TaskManager(store, emit);
   tasks.reconcileInterrupted();
   store.pruneOrphanEvents();
-
   /**
    * 云端/本地模式用选中的 Provider 做计划，不再去网页规划器。
    *
@@ -6492,6 +6498,18 @@ app.whenReady().then(async () => {
       const { store: cps, archive } = checkpointStores();
       return commitPauseCheckpoint(input, { store: cps, archive, journal: store });
     },
+    // M2-2 垃圾回收：任务删除后，以它为 owner 的检查点文件与归档段再没人寻得到。
+    // 只按 owner 删，不按时间清目录——同基路径下还住着别的任务。
+    deleteContextArtifacts: async task => {
+      const { store: cps, archive } = checkpointStores();
+      return deleteTaskContextArtifacts(cps, archive, taskContextOwner(task));
+    },
+    // 回收逻辑上线之前删掉的任务，磁盘上留下的归属文件再没人碰（实测 0 条任务对应
+    // 11 个归属文件）。启动时按「任务表里查不到」扫一遍，只扫 agent-task。
+    reclaimOrphanArtifacts: async liveTaskIds => {
+      const { store: cps, archive } = checkpointStores();
+      return reclaimOrphanContextArtifacts(cps, archive, liveTaskIds);
+    },
     // LT-P4-02：Engineering 的 Provider 规划器接收上下文；Web/CLI 没有
     // withContext，仍按原话直发。
     contextManager: contextManagerFor(),
@@ -6507,6 +6525,10 @@ app.whenReady().then(async () => {
       }
     }
   });
+
+  // M2-2 垃圾回收：必须在 orchestrator 建好之后、在任何任务能写入之前跑，
+  // 否则「任务表里查不到」这个判据会把刚落的检查点当成孤儿。
+  await orchestrator.reclaimOrphanArtifacts();
 
   // The conversation runner gets the workspace hand-off as a function, not an
   // import, so that "does this file depend on the runtime" is answerable by

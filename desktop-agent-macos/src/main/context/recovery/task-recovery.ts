@@ -21,7 +21,7 @@ import {
 import type { ContextArchiveStore } from '../checkpoint/archive';
 import type { ContextCheckpointStore } from '../checkpoint/store';
 import {
-  collectSideEffects,
+  collectReportedAndInFlightSideEffects,
   reconcileSideEffects
 } from './side-effects';
 
@@ -145,9 +145,16 @@ export async function recoverTaskContext(
   reports: readonly ExecutionReport[],
   deps: RecoverTaskDeps
 ): Promise<TaskRecoveryResult> {
-  const ledger = await reconcileSideEffects(collectSideEffects(reports), {
-    workspaceRoot: task.workspaceRoot
-  });
+  // 账本必须和暂停时同一套口径：只看报告会把「起了但没落报告」的写操作当成
+  // 没有副作用。SIGKILL 恰好留的就是这种步骤，而 M2-2 的续跑门槛正是靠
+  // needsReconciliation==0 放行——漏记就等于拿着一个假「无缺口」直接续跑。
+  const ledger = await reconcileSideEffects(
+    collectReportedAndInFlightSideEffects({
+      reports,
+      events: deps.eventsForTask?.(task.taskId) ?? []
+    }),
+    { workspaceRoot: task.workspaceRoot }
+  );
 
   const owner = taskContextOwner(task);
   const pointer = resolveTaskPointer(task, taskId => deps.eventsForTask?.(taskId) ?? []);

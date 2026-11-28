@@ -24,6 +24,7 @@ import type {
   ReviewIssueDetail
 } from './contracts';
 import { buildTimeline, type StepCard } from './execution-timeline';
+import { contextEventView } from './context';
 import { artifactPaths, diagnosticsOfReport, verificationIsComplete, type TaskView } from './task-view';
 
 export type ConversationTone = 'info' | 'ok' | 'warn' | 'error' | 'muted';
@@ -473,7 +474,9 @@ export function reportDeliveryFacts(report: ExecutionReport): string[] {
     }
     if (step.status === 'skipped') {
       const path = argPath(step);
-      facts.push(`${step.tool}${path ? ` ${path}` : ''}：已跳过`);
+      // 续跑复用但上轮证据没还原回来时报告里仍是 skipped：这时写「复用自上次执行」，
+      // 不能写「已跳过」——那会把「上一轮真做过」说成「这一步没做」。
+      facts.push(`${step.tool}${path ? ` ${path}` : ''}：${step.reusedFrom ? '复用自上次执行（本轮未重跑）' : '已跳过'}`);
       continue;
     }
     if (step.status !== 'completed') continue;
@@ -1044,16 +1047,7 @@ export function buildTaskConversation(
     }
 
     if (event.type === 'context.event') {
-      const labels: Record<string, string> = {
-        'context.prepared': '上下文已准备',
-        'context.budget.warning': '上下文接近上限',
-        'context.compaction.started': '开始压缩上下文',
-        'context.compaction.summary.ready': '摘要已生成',
-        'context.compaction.committed': '上下文检查点已提交',
-        'context.compaction.failed': '上下文压缩失败',
-        'context.compaction.stale': '上下文摘要已过期',
-        'context.recovered': '已从检查点恢复上下文'
-      };
+      const view = contextEventView(event.event);
       push({
         kind: 'note',
         key: `context-${String(event.at)}-${String(seq)}`,
@@ -1061,9 +1055,38 @@ export function buildTaskConversation(
         at: event.at,
         roundId: event.taskId ? currentRoundId : null,
         roundNumber: event.taskId ? roundNumber(currentRoundId) : null,
-        tone: event.event === 'context.budget.warning' ? 'warn' : 'muted',
-        text: labels[event.event] ?? '上下文事件',
+        tone: view.tone,
+        text: view.text,
         detail: JSON.stringify(event.context, null, 2)
+      });
+      continue;
+    }
+
+    // 暂停存档这一条与时间线同源：用户看对话流时也要能确认「暂停留下了哪份检查点」。
+    if (event.type === 'context.checkpoint.paused') {
+      push({
+        kind: 'note',
+        key: `checkpoint-paused-${String(event.at)}-${String(seq)}`,
+        subtype: 'context',
+        at: event.at,
+        roundId: currentRoundId,
+        roundNumber: roundNumber(currentRoundId),
+        tone: event.checkpointId ? 'muted' : 'warn',
+        text: event.checkpointId
+          ? `${event.reason === 'pause' ? '暂停' : '取消'}已提交检查点 ${event.checkpointId}（待核对 ${String(event.needsReconciliation)} 项）`
+          : `${event.reason === 'pause' ? '暂停' : '取消'}未提交检查点：${event.unavailableReason ?? '宿主没有检查点能力'}`,
+        detail: JSON.stringify(
+          {
+            reason: event.reason,
+            contextId: event.contextId,
+            checkpointId: event.checkpointId,
+            activeRunId: event.activeRunId,
+            needsReconciliation: event.needsReconciliation,
+            unavailableReason: event.unavailableReason
+          },
+          null,
+          2
+        )
       });
       continue;
     }
