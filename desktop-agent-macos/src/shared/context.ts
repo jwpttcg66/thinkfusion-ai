@@ -14,6 +14,17 @@ export const CONTEXT_CONTRACT_VERSION = 1 as const;
 export type ContextContractVersion = typeof CONTEXT_CONTRACT_VERSION;
 
 /**
+ * owner id / checkpoint id 在磁盘上的段名（无副作用，纯字符串变换）。
+ *
+ * 检查点文件、归档目录、回收扫描都要用同一个形态拼路径；各处各写一份的话，
+ * 回收就会去删一个从来没被写出来的文件名。转换不可逆（`%`→`_` 有歧义），
+ * 所以扫描只比段名、不解码。
+ */
+export function contextOwnerSegment(value: string): string {
+  return encodeURIComponent(value).replace(/%/g, '_');
+}
+
+/**
  * 上下文所有权。
  *
  * Engineering 用 agent-task；General/Knowledge 用 conversation。
@@ -201,6 +212,11 @@ export type SideEffectStatus = 'applied' | 'missing' | 'needs_reconciliation';
 
 export interface SideEffectEntry {
   stepId: string;
+  /**
+   * 步骤所属轮次。模型给的 stepId 每轮都从 step-1 开始，只按 stepId 去重会把
+   * 第二轮的在途写操作当成「上一轮已经报告过」而漏掉，所以核对必须带轮次。
+   */
+  roundId?: string;
   tool: string;
   paths: string[];
   status: SideEffectStatus;
@@ -225,7 +241,45 @@ export type ContextEventType =
   | 'context.compaction.stale'
   /** 检查点可读但工程上下文已过期：恢复前必须重新采集。 */
   | 'context.refresh.required'
-  | 'context.recovered';
+  | 'context.recovered'
+  /** M2-2：继续时真走的是哪条路——直达执行续跑，还是重新规划。两者都必须可观察。 */
+  | 'context.resume.continued'
+  | 'context.resume.replanned';
+
+/**
+ * 上下文事件在界面上的一句话。时间线（execution-timeline）与对话流（task-conversation）
+ * 共用这一份：两处各写一套，迟早变成「在线时和刷新后看到的不是同一句话」。
+ * 续跑与重规划必须一眼分得开——前者说明检查点接住了工作，后者意味着有一轮要重做，
+ * 只看「上下文事件」四个字，用户无法判断自己该不该等。
+ */
+export const CONTEXT_EVENT_LABELS: Record<ContextEventType, string> = {
+  'context.prepared': '上下文已准备',
+  'context.budget.warning': '上下文接近上限',
+  'context.compaction.started': '开始压缩上下文',
+  'context.compaction.summary.ready': '摘要已生成',
+  'context.compaction.committed': '上下文检查点已提交',
+  'context.compaction.failed': '上下文压缩失败',
+  'context.compaction.stale': '上下文摘要已过期',
+  'context.refresh.required': '工程上下文已过期，恢复前需重新采集',
+  'context.recovered': '已从检查点恢复上下文',
+  'context.resume.continued': '已从检查点续跑：沿用已批准计划，未重新规划',
+  'context.resume.replanned': '已重新规划：检查点不足以安全续跑'
+};
+
+/** 需要用户注意的上下文事件：预算告警、压缩失败、上下文过期、被迫重规划。 */
+const CONTEXT_EVENT_WARN: ReadonlySet<ContextEventType> = new Set([
+  'context.budget.warning',
+  'context.compaction.failed',
+  'context.refresh.required',
+  'context.resume.replanned'
+]);
+
+export function contextEventView(event: ContextEventType): { text: string; tone: 'warn' | 'muted' } {
+  return {
+    text: CONTEXT_EVENT_LABELS[event] ?? '上下文事件',
+    tone: CONTEXT_EVENT_WARN.has(event) ? 'warn' : 'muted'
+  };
+}
 
 export interface ContextEventPayload {
   contextId: string;
@@ -253,6 +307,22 @@ export interface ContextEventPayload {
     applied: number;
     missing: number;
     needsReconciliation: number;
+  };
+  /**
+   * 「继续」这一条路走的是直达续跑还是重新规划，以及为什么。只有
+   * context.resume.continued / context.resume.replanned 会带——判错一次就要
+   * 重跑写操作或白重规划一轮，事后必须能对回依据。
+   */
+  resume?: {
+    mode: 'continue' | 'replan';
+    planId?: string;
+    roundId?: string;
+    /** 上轮报告已 completed、本轮不重做的步骤。 */
+    reusedStepIds?: string[];
+    /** 本轮真正要执行的步骤。 */
+    pendingStepIds?: string[];
+    /** 判定理由；replan 时是「为什么不续跑」。 */
+    reasons?: string[];
   };
 }
 

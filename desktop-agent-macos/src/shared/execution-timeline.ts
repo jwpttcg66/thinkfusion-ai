@@ -6,6 +6,7 @@
  */
 
 import type { AgentEvent } from './contracts';
+import { contextEventView } from './context';
 
 export type StepStatus = 'preparing' | 'waiting' | 'running' | 'completed' | 'failed';
 
@@ -118,6 +119,9 @@ export function target(tool: string, args?: Record<string, unknown>): string {
   }
   if (tool.startsWith('computer.')) return pairs(['bundleId', 'elementId', 'title', 'windowId', 'key']);
   if (tool === 'fs.find') return pairs(['pattern', 'path']);
+  // 检索类要把「搜什么」显示出来：只列目录（甚至整项为空）的话，
+  // 用户看不出这一步查的是哪个词，也就无从判断结论的依据。
+  if (tool === 'fs.search' || tool === 'code.search' || tool === 'web.search') return pairs(['query', 'path', 'site']);
   if (tool === 'fs.move' || tool === 'fs.copy') return `${one('from')} → ${one('to')}`;
   return pairs(['path', 'from', 'to', 'name', 'url', 'task']);
 }
@@ -182,7 +186,9 @@ function milestone(
           : '';
         const err = typeof step.error === 'string' && step.error.trim() ? step.error.trim() : '';
         const bits = [
-          `${String(index + 1)}. [${step.tool}] ${step.status}${target ? ` · ${target}` : ''}`,
+          // 续跑复用的步骤在报告里也是 skipped/还原后的 completed，不带这一句
+          // 就和「本轮真的又跑了一遍」长得一样（契约里承诺的标注，见 contracts.StepResult）。
+          `${String(index + 1)}. [${step.tool}] ${step.status}${step.reusedFrom ? '（复用自上次执行）' : ''}${target ? ` · ${target}` : ''}`,
           typeof result?.exitCode === 'number' ? `退出码 ${String(result.exitCode)}` : '',
           stdout ? `stdout：${stdout}` : '',
           err ? `错误：${err}` : ''
@@ -285,25 +291,42 @@ function milestone(
         tone: event.level === 'error' ? 'error' : event.level === 'warn' ? 'warn' : 'muted'
       };
     case 'context.event': {
-      const labels: Record<string, string> = {
-        'context.prepared': '上下文已准备',
-        'context.budget.warning': '上下文接近上限',
-        'context.compaction.started': '开始压缩上下文',
-        'context.compaction.summary.ready': '摘要已生成',
-        'context.compaction.committed': '上下文检查点已提交',
-        'context.compaction.failed': '上下文压缩失败',
-        'context.compaction.stale': '上下文摘要已过期',
-        'context.recovered': '已从检查点恢复上下文'
-      };
+      const view = contextEventView(event.event);
       return {
         kind: 'milestone',
         key,
         at: event.at,
-        text: labels[event.event] ?? '上下文事件',
-        tone: event.event === 'context.budget.warning' ? 'warn' : 'muted',
+        text: view.text,
+        tone: view.tone,
         detail: JSON.stringify(event.context, null, 2)
       };
     }
+    /**
+     * 暂停存档的那一行必须出现在时间线上：续跑出问题时，「暂停时到底有没有留下
+     * 检查点、留下的是哪一份」是界面上唯一的核对入口（§8 每项进度都要有真实事件与检查入口）。
+     */
+    case 'context.checkpoint.paused':
+      return {
+        kind: 'milestone',
+        key,
+        at: event.at,
+        text: event.checkpointId
+          ? `${event.reason === 'pause' ? '暂停' : '取消'}已提交检查点 ${event.checkpointId}（待核对 ${String(event.needsReconciliation)} 项）`
+          : `${event.reason === 'pause' ? '暂停' : '取消'}未提交检查点：${event.unavailableReason ?? '宿主没有检查点能力'}`,
+        tone: event.checkpointId ? 'muted' : 'warn',
+        detail: JSON.stringify(
+          {
+            reason: event.reason,
+            contextId: event.contextId,
+            checkpointId: event.checkpointId,
+            activeRunId: event.activeRunId,
+            needsReconciliation: event.needsReconciliation,
+            unavailableReason: event.unavailableReason
+          },
+          null,
+          2
+        )
+      };
     default:
       return null;
   }

@@ -23,6 +23,7 @@
 | V4 P0-5 当前基线重启恢复 | [p0-5-current-baseline-20261127/SUMMARY.md](p0-5-current-baseline-20261127/SUMMARY.md) |
 | V4 P1 M1 执行历史 / 目标实体化与分组 / 变更影响面 | [v4-p1-m1-20261127/SUMMARY.md](v4-p1-m1-20261127/SUMMARY.md) |
 | V4 P1 M2-1 检查点指针一致性与恢复路径打点 | [v4-p1-m2-1-20261128/SUMMARY.md](v4-p1-m2-1-20261128/SUMMARY.md) |
+| V4 P1 M2-2 重启后从检查点续跑 / 不可核对时重规划 / 残留回收 | [v4-p1-m2-2-20261128/SUMMARY.md](v4-p1-m2-2-20261128/SUMMARY.md) |
 | 全局记忆 M2 真机证据 | [evidence/global-memory/M2/M2-REPORT.md](../evidence/global-memory/M2/M2-REPORT.md) |
 | 主活动区 P7 证据报告 | [evidence/main-activity/P7/P7-REPORT.md](../evidence/main-activity/P7/P7-REPORT.md) |
 

@@ -1,10 +1,13 @@
 /**
- * 恢复前的工具副作用核对（LT-P5-04）。
+ * 恢复前的工具副作用核对（LT-P5-04，M2-2 收口）。
  *
- * 只从已落库的执行报告取事实：
+ * 只从已落库的事实取：
  * - 报告记录过 `changedPaths` 且仍存在 → applied；
  * - 报告记录过但已消失 → missing；
- * - 写工具执行过但没有可核对路径 → needs_reconciliation。
+ * - 写工具执行过但没有可核对路径、或起了但报告未落 → needs_reconciliation。
+ *
+ * 暂停与恢复必须共用 `collectReportedAndInFlightSideEffects`：两侧算出的
+ * needs_reconciliation 不一样时，检查点写着「有缺口」、续跑门槛却按「无缺口」放行。
  *
  * 没有记录内容 hash，所以 `applied` 不声称「文件内容与当时一致」。
  */
@@ -14,8 +17,7 @@ import path from 'node:path';
 import type { AgentEvent, ExecutionReport, StepResult } from '../../../shared/contracts';
 import type {
   SideEffectEntry,
-  SideEffectLedger,
-  SideEffectStatus
+  SideEffectLedger
 } from '../../../shared/context';
 
 const PATH_KEYS = ['path', 'file', 'filePath', 'target', 'from', 'to', 'source', 'destination'] as const;
@@ -53,13 +55,27 @@ function pathsOf(result: StepResult): string[] {
   return pathsFromArgs(result.args ?? {});
 }
 
+/** 核对项的身份：同一个 stepId 每轮都会重新出现，必须带轮次才唯一。 */
+export function sideEffectKey(entry: { roundId?: string; stepId: string }): string {
+  return `${entry.roundId ?? ''}:${entry.stepId}`;
+}
+
 /**
  * 暂停点可能还没有执行报告：`step.started` 已经落库，Runtime 还没把报告写回来。
  * 即便 `step.failed` 先到了，失败也不等于「没写过文件」。这类没有报告可核对的
  * 写操作必须进 needs_reconciliation，不能因为「报告还没落」就当成没有副作用。
+ *
+ * `reported` 是已经能从报告核对的步骤（collectSideEffects 的结果）：同一轮同一
+ * stepId 报告都落了的步骤不该再被算成「在途」，否则一次正常暂停也会把每个已完成
+ * 写步骤重新记成 needs_reconciliation，续跑门槛就永远过不去（M2-2 实测过这条）。
+ * 去重必须按 roundId+stepId：模型每轮的步骤 id 都从 step-1 开始，按 stepId+tool
+ * 去重会把第二轮真正在途的那一步误删。
  */
-export function collectInFlightSideEffects(events: readonly AgentEvent[]): SideEffectEntry[] {
-  const started = new Map<string, { stepId: string; tool: string; paths: string[] }>();
+export function collectInFlightSideEffects(
+  events: readonly AgentEvent[],
+  reported?: readonly SideEffectEntry[]
+): SideEffectEntry[] {
+  const started = new Map<string, { stepId: string; roundId: string; tool: string; paths: string[] }>();
   const keyOf = (event: { roundId?: string; stepId: string }) => `${event.roundId ?? ''}:${event.stepId}`;
 
   for (const event of events) {
@@ -68,20 +84,40 @@ export function collectInFlightSideEffects(events: readonly AgentEvent[]): SideE
     if (!PATH_WRITE_TOOLS.has(tool) && !OPAQUE_WRITE_TOOLS.has(tool)) continue;
     started.set(keyOf(event), {
       stepId: event.stepId,
+      roundId: event.roundId ?? '',
       tool,
       paths: pathsFromArgs(event.args)
     });
   }
 
-  return [...started.values()].map(item => ({
-    stepId: item.stepId,
-    tool: item.tool,
-    paths: item.paths,
-    status: 'needs_reconciliation' as const,
-    detail: item.paths.length > 0
-      ? '暂停时步骤在途或报告未落；报告记录的路径必须人工核对'
-      : '暂停时步骤在途或报告未落，也没有可核对路径'
-  }));
+  const reportedKeys = new Set((reported ?? []).map(sideEffectKey));
+
+  return [...started.values()]
+    .filter(item => !reportedKeys.has(sideEffectKey(item)))
+    .map(item => ({
+      stepId: item.stepId,
+      ...(item.roundId ? { roundId: item.roundId } : {}),
+      tool: item.tool,
+      paths: item.paths,
+      status: 'needs_reconciliation' as const,
+      detail: item.paths.length > 0
+        ? '暂停或中断时这一步在途、报告未落；它记录的路径必须人工核对'
+        : '暂停或中断时这一步在途、报告未落，也没有可核对路径'
+    }));
+}
+
+/**
+ * 报告 + 事件流合并出一份待核对清单（暂停与恢复共用）。
+ *
+ * 两侧口径必须一致：暂停时按「报告+在途」写检查点，恢复时只按报告核对，
+ * 会让同一件事在写和读两侧算出不同的 needs_reconciliation。
+ */
+export function collectReportedAndInFlightSideEffects(input: {
+  reports: readonly ExecutionReport[];
+  events: readonly AgentEvent[];
+}): SideEffectEntry[] {
+  const entries = collectSideEffects(input.reports);
+  return [...entries, ...collectInFlightSideEffects(input.events, entries)];
 }
 
 /** 从全部轮次报告提取待核对项；同一 step 只保留一条。 */
@@ -99,16 +135,22 @@ export function collectSideEffects(reports: readonly ExecutionReport[]): SideEff
       // 只读工具即使带 path 也不是副作用；把 fs.readFile 当写操作会让
       // 恢复报告凭空多出 missing。
       if (!writes && !opaque) continue;
+      // 暂停/取消时没轮到的步骤会以 skipped + 原参数落进报告（见 agent 主循环）。
+      // 这一步本轮没动过手，把它的目标路径当成「记录过的改动已消失」判成 missing，
+      // 等于用一份根本没执行的清单挡住续跑——M2-2 真机上「暂停→重启」必然重规划。
+      // 带 reusedFrom 的 skipped 是「上一轮真写过、本轮不再重跑」，路径要照常核对。
+      if (result.status === 'skipped' && !result.reusedFrom) continue;
 
       const key = `${report.roundId}:${result.stepId}`;
-      const status: SideEffectStatus = paths.length > 0
-        ? (result.status === 'completed' ? 'needs_reconciliation' : 'needs_reconciliation')
-        : 'needs_reconciliation';
       entries.set(key, {
         stepId: result.stepId,
+        roundId: report.roundId,
         tool,
         paths,
-        status,
+        // 报告只能说明「这一步写过这些路径」，内容是否仍是当时的版本没有 hash 可证，
+        // 所以初始一律 needs_reconciliation，由 reconcileSideEffects 按路径是否还在
+        // 落成 applied / missing。
+        status: 'needs_reconciliation' as const,
         detail: paths.length > 0
           ? (result.status === 'completed'
               ? '报告记录了写入路径，恢复时核对文件是否仍在'
@@ -125,6 +167,7 @@ export function collectSideEffects(reports: readonly ExecutionReport[]): SideEff
       const key = `${report.roundId}:report:${report.planId}`;
       entries.set(key, {
         stepId: report.roundId,
+        roundId: report.roundId,
         tool: 'report',
         paths: [...new Set(changed)],
         status: 'needs_reconciliation',

@@ -493,6 +493,60 @@ test('shell 诊断带 command/exitCode 的执行报告必须通过 schema', () =
   assert.equal(parsed.success, true, parsed.success ? '' : parsed.error.message);
 });
 
+/**
+ * 续跑报告的复用条目必须过 schema（2026-11-28 真机命中）。
+ *
+ * Runtime 对被复用的那一步发的是 `status:'skipped' + reusedFrom`
+ * （src/agent/index.ts 的 reuse 分支），而 `side-effects.ts` 靠这个字段区分
+ * 「上轮真写过」和「跳过没做」。schema 里漏了它，`.strict()` 会把整份报告判无效，
+ * `task:resume` 直接抛「执行报告无效：unrecognized_keys reusedFrom」，续跑路径整体走不通。
+ */
+test('续跑报告带 reusedFrom 的复用步骤必须通过 schema', () => {
+  const report = {
+    protocol: 'desktop-agent/v1',
+    type: 'execution_report',
+    taskId: 't-reuse',
+    roundId: 'r1',
+    planId: 'p1',
+    status: 'completed',
+    results: [
+      {
+        stepId: 'write-1',
+        tool: 'fs.writeFile',
+        status: 'skipped',
+        verified: false,
+        durationMs: 0,
+        args: { path: '/tmp/x/f1.txt', content: 'a' },
+        reusedFrom: { checkpointId: 'cp_1', executedAt: 1795831763786 }
+      },
+      // 老检查点没有 id 时 Runtime 补的是空串，不能因此判非法。
+      {
+        stepId: 'write-2',
+        tool: 'fs.writeFile',
+        status: 'skipped',
+        verified: false,
+        durationMs: 0,
+        reusedFrom: { checkpointId: '', executedAt: 0 }
+      },
+      { stepId: 'final-gate', tool: 'shell.run', status: 'completed', verified: true, durationMs: 12 }
+    ],
+    errors: [],
+    nextAction: 'complete',
+    createdAt: 1
+  };
+  const parsed = ExecutionReportSchema.safeParse(report);
+  assert.equal(parsed.success, true, parsed.success ? '' : parsed.error.message);
+  // 严格性不能因为补字段就丢掉：未知键仍然要拒，否则写错字段名会静默通过。
+  assert.equal(
+    ExecutionReportSchema.safeParse({
+      ...report,
+      results: [{ ...report.results[0], reused: { checkpointId: 'cp_1' } }]
+    }).success,
+    false,
+    'StepResult 出现未知键时必须拒绝（.strict() 被削弱）'
+  );
+});
+
 console.log('');
 if (process.exitCode) {
   console.error(`Protocol tests failed.`);

@@ -13,11 +13,15 @@ import test from 'node:test';
 
 import { AgentStore } from '../out-test/main/store.js';
 import { TaskManager } from '../out-test/main/task-manager.js';
-import { AgentOrchestrator } from '../out-test/main/orchestrator.js';
+import { AgentOrchestrator, hashPlan } from '../out-test/main/orchestrator.js';
 import { ContextArchiveStore } from '../out-test/main/context/checkpoint/archive.js';
 import { ContextCheckpointStore } from '../out-test/main/context/checkpoint/store.js';
 import { commitPauseCheckpoint } from '../out-test/main/context/checkpoint/pause.js';
 import { recoverTaskContext, taskContextOwner } from '../out-test/main/context/recovery/task-recovery.js';
+import {
+  deleteTaskContextArtifacts,
+  reclaimOrphanContextArtifacts
+} from '../out-test/main/context/checkpoint/gc.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pause-checkpoint-'));
 const workspace = path.join(dir, 'ws');
@@ -47,6 +51,11 @@ function orchestrator(overrides = {}) {
     pauseCheckpoint: async input => commitPauseCheckpoint(input, {
       store: checkpointStore, archive, journal: store
     }),
+    // 与 index.ts 同口径：回收走 gc 模块本体，测试里不再抄一份判据。
+    deleteContextArtifacts: async task =>
+      deleteTaskContextArtifacts(checkpointStore, archive, taskContextOwner(task)),
+    reclaimOrphanArtifacts: liveTaskIds =>
+      reclaimOrphanContextArtifacts(checkpointStore, archive, liveTaskIds),
     ...overrides
   });
 }
@@ -289,6 +298,345 @@ test('进程重启收敛：暂停中间态转 interrupted，取消中间态转 c
   assert.ok(tasks.reconcileInterrupted() >= 2);
   assert.equal(tasks.get(pausing.taskId).status, 'interrupted');
   assert.equal(tasks.get(cancelling.taskId).status, 'cancelled');
+});
+
+/**
+ * M2-2 口径对接：暂停侧写进检查点的账本，必须就是恢复侧放行/拦下续跑的那份账本。
+ *
+ * 上面几例把 `contextRecovery` 换成替身，测的是「恢复读到检查点」；本例用真
+ * `recoverTaskContext` + 真归档 + 真文件，把「暂停落账 → 恢复判定 → 续跑/重规划」
+ * 整条链跑一遍。写读两侧口径不一致时（比如恢复侧漏了在途步骤），这里就会红。
+ */
+/**
+ * 造一个「执行中暂停」的任务：已批准计划 + 本轮跑过的步骤事件。
+ *
+ * `executed` 里带 `result` 的是真跑完的一步（started+completed），只带 `args` 的是
+ * 起了但没落结局的在途一步——后者就是 SIGKILL 留下的形态。
+ */
+function pausedMidPlan(name, steps, executed) {
+  const task = tasks.create({ prompt: name, permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(task.taskId, 'planning');
+  const round = tasks.createRound({ taskId: task.taskId, inputType: 'user_prompt', requestText: '' });
+  const plan = {
+    protocol: 'desktop-agent/v1', type: 'plan', taskId: task.taskId, roundId: round.roundId,
+    planId: `plan-${round.roundId}`, title: '写文件并验证', description: '两步', kind: 'implementation',
+    steps, completion: { condition: '文件存在且测试通过' }
+  };
+  store.insertPlan({
+    planId: plan.planId, taskId: task.taskId, roundId: round.roundId, plan,
+    contentHash: hashPlan(plan), approvalStatus: 'approved', createdAt: Date.now()
+  });
+  tasks.patch(task.taskId, { currentPlanId: plan.planId });
+  tasks.transition(task.taskId, 'plan_ready');
+  tasks.transition(task.taskId, 'awaiting_approval');
+  tasks.transition(task.taskId, 'executing');
+  let completedAt = 0;
+  for (const item of executed) {
+    const startedAt = Date.now();
+    emit({
+      type: 'step.started', at: startedAt, taskId: task.taskId, roundId: round.roundId,
+      stepId: item.stepId, tool: item.tool, args: item.args
+    });
+    if (item.result === undefined) continue;
+    completedAt = startedAt + 12;
+    emit({
+      type: 'step.completed', at: completedAt, taskId: task.taskId, roundId: round.roundId,
+      stepId: item.stepId, tool: item.tool, result: item.result, durationMs: 12
+    });
+  }
+  return { taskId: task.taskId, roundId: round.roundId, planId: plan.planId, completedAt };
+}
+
+function resumeWithRealRecovery(runPlan) {
+  const spy = { calls: [] };
+  const orch = orchestrator({
+    contextRecovery: async (current, reports) => recoverTaskContext(current, reports, {
+      store: checkpointStore, archive, eventsForTask: id => store.listEvents(id)
+    }),
+    runPlan: async (plan, grant, dbPath, timeoutMs, meta, options) => {
+      spy.calls.push({ plan, meta, options });
+      return runPlan(plan, meta, options);
+    }
+  });
+  return { orch, spy };
+}
+
+test('真检查点续跑：暂停账本无未知缺口 → 复用已跑完的一步，不建新一轮', async () => {
+  fs.writeFileSync(path.join(workspace, 'resume-note.txt'), 'hello', 'utf8');
+  const scenario = pausedMidPlan(
+    '真检查点续跑',
+    [{ id: 'step-1', tool: 'fs.writeFile', args: { path: 'resume-note.txt', content: 'hello' }, description: '写文件' },
+      { id: 'step-2', tool: 'test.run', args: { command: 'npm test' }, description: '跑测试' }],
+    [
+      { stepId: 'step-1', tool: 'fs.writeFile', args: { path: 'resume-note.txt', content: 'hello' }, result: { path: 'resume-note.txt', bytes: 5 } }
+    ]
+  );
+
+  await orchestrator().pause(scenario.taskId);
+  const paused = tasks.get(scenario.taskId);
+  assert.equal(paused.resumeStatus, 'executing', '暂停自执行中，继续时才轮得到续跑判定');
+  const roundsBefore = tasks.listRounds(scenario.taskId).length;
+
+  const { orch, spy } = resumeWithRealRecovery((plan, meta, options) => ({
+    protocol: 'desktop-agent/v1', type: 'execution_report', taskId: plan.taskId,
+    roundId: meta.roundId, planId: meta.planId, status: 'completed', nextAction: 'complete',
+    errors: [], createdAt: Date.now(),
+    results: [
+      ...(options?.reusedSteps ?? []).map(item => ({
+        stepId: item.stepId, tool: 'fs.writeFile', status: 'skipped', verified: false, durationMs: 0,
+        args: { path: 'resume-note.txt' },
+        reusedFrom: { checkpointId: item.checkpointId ?? '', executedAt: item.executedAt }
+      })),
+      { stepId: 'step-2', tool: 'test.run', status: 'completed', verified: true, durationMs: 4, args: { command: 'npm test' }, result: { command: 'npm test', exitCode: 0 } }
+    ]
+  }));
+  await orch.resume(scenario.taskId);
+
+  assert.equal(spy.calls.length, 1);
+  assert.deepEqual(spy.calls[0].options?.reusedSteps, [
+    { stepId: 'step-1', checkpointId: paused.checkpointId, executedAt: scenario.completedAt }
+  ]);
+  assert.equal(tasks.listRounds(scenario.taskId).length, roundsBefore);
+  const final = store.allReportsFor(scenario.taskId).at(-1);
+  assert.equal(final.results.find(item => item.stepId === 'step-1').status, 'completed');
+  assert.ok((final.verification?.changedPaths ?? []).includes('resume-note.txt'));
+});
+
+test('真检查点拦下续跑：暂停时留了无路径的在途写 → 走重规划，不开 Runtime', async () => {
+  const scenario = pausedMidPlan(
+    '真检查点缺口',
+    [{ id: 'step-1', tool: 'fs.writeFile', args: { path: 'resume-note.txt', content: 'hello' }, description: '写文件' },
+      { id: 'step-2', tool: 'shell.run', args: { command: 'echo hi' }, description: '无路径可核对' }],
+    [
+      { stepId: 'step-1', tool: 'fs.writeFile', args: { path: 'resume-note.txt', content: 'hello' }, result: { path: 'resume-note.txt', bytes: 5 } },
+      { stepId: 'step-2', tool: 'shell.run', args: { command: 'echo hi' } }
+    ]
+  );
+
+  await orchestrator().pause(scenario.taskId);
+  const paused = tasks.get(scenario.taskId);
+  const roundsBefore = tasks.listRounds(scenario.taskId).length;
+  const { orch, spy } = resumeWithRealRecovery(() => { throw new Error('不该执行'); });
+
+  await orch.resume(scenario.taskId);
+
+  assert.equal(spy.calls.length, 0);
+  assert.equal(tasks.listRounds(scenario.taskId).length, roundsBefore + 1);
+  const replanned = events.filter(event =>
+    event.type === 'context.event' && event.taskId === scenario.taskId &&
+    event.event === 'context.resume.replanned'
+  ).at(-1);
+  assert.match(replanned.context.reason, /结局未知且无路径可核对/);
+  assert.equal(replanned.context.checkpointId, paused.checkpointId);
+  // 重规划这条路会异步开一轮规划（适配器替身会失败）：等它落地，别在目录删掉后还写库。
+  for (let i = 0; i < 8; i += 1) await new Promise(resolve => setImmediate(resolve));
+});
+
+test('暂停后取消报告才到：状态留在 paused，之后仍能从检查点续跑', async () => {
+  fs.writeFileSync(path.join(workspace, 'late-note.txt'), 'hello', 'utf8');
+  const scenario = pausedMidPlan(
+    '暂停后报告迟到',
+    [
+      { id: 'step-1', tool: 'fs.writeFile', args: { path: 'late-note.txt', content: 'hello' }, description: '写文件' },
+      { id: 'step-2', tool: 'fs.writeFile', args: { path: 'never-run.txt', content: 'x' }, description: '没轮到的写' }
+    ],
+    [{ stepId: 'step-1', tool: 'fs.writeFile', args: { path: 'late-note.txt', content: 'hello' }, result: { path: 'late-note.txt', bytes: 5 } }]
+  );
+  await orchestrator().pause(scenario.taskId);
+  const paused = tasks.get(scenario.taskId);
+  assert.equal(paused.status, 'paused');
+
+  // Runtime 的停止回执先到（pause 据此写完检查点），执行报告随后才落地。
+  // 这份报告的 status 是 cancelled——暂停与取消在 Runtime 侧是同一次停止。
+  const closing = orchestrator();
+  await closing.finishPlanExecution(paused, store.getPlan(scenario.planId), {
+    protocol: 'desktop-agent/v1', type: 'execution_report', taskId: scenario.taskId,
+    roundId: scenario.roundId, planId: scenario.planId, status: 'cancelled',
+    nextAction: 'stop', errors: [], createdAt: Date.now(),
+    results: [
+      { stepId: 'step-1', tool: 'fs.writeFile', status: 'completed', verified: true, durationMs: 5, args: { path: 'late-note.txt' }, result: { path: 'late-note.txt', bytes: 5 } },
+      { stepId: 'step-2', tool: 'fs.writeFile', status: 'skipped', verified: false, durationMs: 0, error: '任务已取消', args: { path: 'never-run.txt' } }
+    ]
+  });
+
+  assert.equal(tasks.get(scenario.taskId).status, 'paused', '暂停点不能被收尾流程带走：resume 只认 paused/interrupted/budget_exhausted/blocked');
+  assert.equal(events.some(event => event.type === 'task.cancelled' && event.taskId === scenario.taskId), false);
+  assert.equal(store.allReportsFor(scenario.taskId).length, 1, '报告要落库，已完成步骤的证据不能丢');
+  assert.ok(events.some(event => event.type === 'report.ready' && event.taskId === scenario.taskId));
+  assert.ok(events.some(event => event.type === 'log' && event.taskId === scenario.taskId && /暂停/.test(event.message ?? '')));
+
+  const { orch, spy } = resumeWithRealRecovery((plan, meta, options) => ({
+    protocol: 'desktop-agent/v1', type: 'execution_report', taskId: plan.taskId,
+    roundId: meta.roundId, planId: meta.planId, status: 'completed', nextAction: 'complete',
+    errors: [], createdAt: Date.now(),
+    results: [
+      ...(options?.reusedSteps ?? []).map(item => ({
+        stepId: item.stepId, tool: 'fs.writeFile', status: 'skipped', verified: false, durationMs: 0,
+        args: { path: 'late-note.txt' },
+        reusedFrom: { checkpointId: item.checkpointId ?? '', executedAt: item.executedAt }
+      })),
+      { stepId: 'step-2', tool: 'fs.writeFile', status: 'completed', verified: true, durationMs: 3, args: { path: 'never-run.txt' }, result: { path: 'never-run.txt', bytes: 1 } }
+    ]
+  }));
+  await orch.resume(scenario.taskId);
+
+  const reused = spy.calls[0]?.options?.reusedSteps ?? [];
+  assert.deepEqual(reused.map(item => item.stepId), ['step-1'], '迟到的取消报告不该把续跑门槛弄成过不去');
+  assert.equal(reused[0]?.checkpointId, paused.checkpointId);
+  // executedAt 取的是「这条完成证据来自哪里」的时间：报告落了就以报告为准。
+  assert.ok(Number.isFinite(reused[0]?.executedAt) && reused[0].executedAt > 0);
+  assert.equal(spy.calls.length, 1, '续跑必须把计划交给 Runtime');
+  // 只断言「恢复这一步」没有另起一轮：续跑沿用被中断那份计划所在的轮次。
+  // 报告落地后是否再开一轮由 continueAfterReport 判（没有通过测试就补一轮修复），
+  // 与暂停检查点无关，那条路由上面「真检查点续跑」的用例覆盖。
+  assert.equal(spy.calls[0].meta.roundId, scenario.roundId, '续跑应沿用被中断那轮的 roundId');
+  const continued = events.filter(event =>
+    event.type === 'context.event' && event.taskId === scenario.taskId &&
+    event.event === 'context.resume.continued'
+  ).at(-1);
+  assert.equal(continued?.context?.checkpointId, paused.checkpointId);
+});
+
+test('删除任务：按 owner 回收检查点文件与归档段，磁盘上不残留孤儿', async () => {
+  const doomed = tasks.create({ prompt: '删除回收检查点', permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(doomed.taskId, 'planning');
+  await orchestrator().pause(doomed.taskId);
+  const paused = tasks.get(doomed.taskId);
+  const owner = taskContextOwner(paused);
+
+  // 另建一个同基路径下的任务：回收只认 owner，不能顺手清整个目录。
+  const keeper = tasks.create({ prompt: '保留的检查点', permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(keeper.taskId, 'planning');
+  await orchestrator().pause(keeper.taskId);
+  const keeperOwner = taskContextOwner(tasks.get(keeper.taskId));
+
+  // 归档段由上下文压缩路径写；这里直接造一段，测的是回收不是写入。
+  const segment = await archive.write({
+    owner, checkpointId: paused.checkpointId, sourceStream: 'events', events: [{ type: 'log', at: 1 }]
+  });
+  assert.ok(await checkpointStore.read(owner), '前置条件：检查点确实落了盘');
+  assert.ok(await archive.read(segment.archiveRef), '前置条件：归档段确实落了盘');
+
+  const cleanup = await orchestrator().deleteTask(doomed.taskId);
+
+  assert.equal(cleanup.taskId, doomed.taskId);
+  assert.equal(cleanup.checkpointsRemoved, true);
+  assert.equal(cleanup.archiveSegments, 1);
+  assert.equal(store.getTask(doomed.taskId), null);
+  assert.equal(await checkpointStore.read(owner), null, '任务删了，检查点必须跟着走');
+  assert.equal(await archive.read(segment.archiveRef), null, '没有指针寻得到的归档段就是孤儿');
+  assert.ok(await checkpointStore.read(keeperOwner), '别的任务的检查点不能被顺带清掉');
+});
+
+test('目标回收只认「最后一条绑定任务被删」，不把活动很旧当成删除理由', async () => {
+  const goalId = 'goal-shared-cleanup';
+  // 故意写得很旧：按时间猜的话这里会被误删，剩下那条任务的分组标题就凭空换了。
+  store.upsertGoal({ goalId, title: '同一个目标', version: 3, criteria: ['口径一致'], updatedAt: Date.now() - 400 * 86_400_000 });
+  const first = tasks.create({ prompt: '同目标 A', permissionPreset: 'read-only', goalId });
+  const second = tasks.create({ prompt: '同目标 B', permissionPreset: 'read-only', goalId });
+
+  const oneDeleted = await orchestrator().deleteTask(first.taskId);
+  assert.equal(oneDeleted.goalId, goalId);
+  assert.equal(oneDeleted.goalReclaimed, false, '还有一条任务绑着目标，删不得');
+  assert.ok(store.getGoal(goalId));
+  assert.ok(store.getTask(second.taskId));
+
+  const lastDeleted = await orchestrator().deleteTask(second.taskId);
+  assert.equal(lastDeleted.goalReclaimed, true);
+  assert.equal(store.getGoal(goalId), null);
+
+  // 没落过目标实体的任务（默认 goal:<taskId>）：回收如实报 false，不假装清掉了什么。
+  const lone = tasks.create({ prompt: '没有目标实体', permissionPreset: 'read-only' });
+  const loneCleanup = await orchestrator().deleteTask(lone.taskId);
+  assert.equal(loneCleanup.goalReclaimed, false);
+  assert.equal(loneCleanup.checkpointsRemoved, false);
+});
+
+test('启动扫描：任务表里查不到的残留被回收，活任务与会话上下文一份不动', async () => {
+  // 一台「回收逻辑上线前就删过任务」的机器：没有删除动作可依，只能按任务表判孤儿。
+  const orphan = tasks.create({ prompt: '回收前删掉的任务', permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(orphan.taskId, 'planning');
+  await orchestrator().pause(orphan.taskId);
+  const orphanOwner = taskContextOwner(tasks.get(orphan.taskId));
+  const orphanSegment = await archive.write({
+    owner: orphanOwner,
+    checkpointId: tasks.get(orphan.taskId).checkpointId,
+    sourceStream: 'events',
+    events: [{ type: 'log', at: 1 }]
+  });
+  // 绕过 orchestrator.deleteTask：模拟旧版本「只删任务记录、不碰磁盘」的删除。
+  store.deleteTask(orphan.taskId);
+
+  const alive = tasks.create({ prompt: '还在列表里的任务', permissionPreset: 'workspace-write', workspaceRoot: workspace });
+  tasks.transition(alive.taskId, 'planning');
+  await orchestrator().pause(alive.taskId);
+  const aliveOwner = taskContextOwner(tasks.get(alive.taskId));
+
+  const conversationOwner = {
+    ownerType: 'conversation',
+    ownerId: 'conv-keep-me',
+    conversationId: 'conv-keep-me',
+    runId: 'conv-keep-me'
+  };
+  await checkpointStore.write(conversationOwner, {
+    contractVersion: 1,
+    checkpointId: 'cp_conv_keep',
+    owner: conversationOwner,
+    taskId: '',
+    runId: 'conv-keep-me',
+    contextId: 'ctx_conv',
+    sourceStartSeq: 0,
+    sourceEndSeq: 0,
+    sourceEventIds: [],
+    summary: { goal: '会话', constraints: [], completed: [], decisions: [], evidence: [], openIssues: [], currentStep: null, nextActions: [], risks: [], stopConditions: [] },
+    summaryHash: 'sha256:whatever',
+    retainedEventIds: [],
+    evidenceRefs: [],
+    modelId: 'test',
+    inputTokensBefore: null,
+    inputTokensAfter: null,
+    status: 'committed',
+    createdAt: Date.now()
+  });
+  const conversationSegment = await archive.write({
+    owner: conversationOwner,
+    checkpointId: 'cp_conv_keep',
+    sourceStream: 'events',
+    events: [{ type: 'log', at: 2 }]
+  });
+
+  // 孤儿目标：任务表里没有任何任务绑它。
+  store.upsertGoal({ goalId: 'goal-orphan', title: '没人绑的目标', version: 1, criteria: [], updatedAt: Date.now() });
+
+  const counts = await orchestrator().reclaimOrphanArtifacts();
+
+  assert.equal(counts.checkpointsRemoved, 1, `实际 ${JSON.stringify(counts)}`);
+  assert.equal(counts.archiveSegments, 1, `实际 ${JSON.stringify(counts)}`);
+  assert.equal(counts.goalsRemoved, 1);
+  assert.equal(await checkpointStore.read(orphanOwner), null, '没有任务认领的检查点必须收掉');
+  assert.equal(await archive.read(orphanSegment.archiveRef), null, '归档段跟着 owner 一起收');
+  assert.ok(await checkpointStore.read(aliveOwner), '任务还在表里，检查点就得留着');
+  assert.ok(await archive.read(conversationSegment.archiveRef), '会话归档不按任务表判孤儿');
+  assert.ok(await checkpointStore.read(conversationOwner), '会话检查点同上');
+  assert.equal(store.getGoal('goal-orphan'), null);
+
+  const sweepLog = events.filter(event =>
+    event.type === 'log' && /已清理无人认领的上下文残留/.test(event.message)
+  ).at(-1);
+  assert.ok(sweepLog, '回收了东西必须在事件流里留下可对账的一句话');
+  assert.match(sweepLog.message, /检查点 1 份/);
+});
+
+test('启动扫描没有残留时不报数、不误删：计数为 0 也不发清理日志', async () => {
+  // 事件数组是跨用例共用的：只认这次调用之后新增的那几条。
+  const seenBefore = events.length;
+  const counts = await orchestrator().reclaimOrphanArtifacts();
+  assert.equal(counts.checkpointsRemoved, 0);
+  assert.equal(counts.archiveSegments, 0);
+  assert.equal(counts.goalsRemoved, 0);
+  assert.equal(events.slice(seenBefore).some(event =>
+    event.type === 'log' && /已清理无人认领的上下文残留/.test(event.message)
+  ), false, '没删任何东西就不该报「已清理」');
 });
 
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));

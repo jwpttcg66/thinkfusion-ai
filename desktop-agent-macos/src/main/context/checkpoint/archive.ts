@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import type { ContextOwner } from '../../../shared/context';
+import { contextOwnerSegment, type ContextOwner } from '../../../shared/context';
 
 export interface ContextArchiveResult {
   /** 相对 context 根目录的路径；写入 checkpoint.archiveRef。 */
@@ -29,10 +29,6 @@ export interface ContextArchiveFile {
   events: unknown[];
 }
 
-function safeSegment(value: string): string {
-  return encodeURIComponent(value).replace(/%/g, '_');
-}
-
 function hashOf(content: string): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
 }
@@ -43,9 +39,9 @@ export class ContextArchiveStore {
   private fileOf(owner: ContextOwner, checkpointId: string): { abs: string; rel: string } {
     const rel = path.join(
       'archive',
-      safeSegment(owner.ownerType),
-      safeSegment(owner.ownerId),
-      `${safeSegment(checkpointId)}.jsonl`
+      contextOwnerSegment(owner.ownerType),
+      contextOwnerSegment(owner.ownerId),
+      `${contextOwnerSegment(checkpointId)}.jsonl`
     );
     return { abs: path.join(this.baseDir, rel), rel };
   }
@@ -112,5 +108,59 @@ export class ContextArchiveStore {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 回收该 owner 的全部归档段（V4 P1 M2-2 垃圾回收）。
+   *
+   * 段文件名带 checkpointId，而检查点文件已随任务删除——没有指针就再也寻不到这些
+   * 段，留着就是纯占用磁盘的孤儿。返回删掉的段数；目录不存在返回 0。
+   * 只按 owner 目录删，不按时间或文件大小猜：误删别人正在用的归档比留几个孤儿更糟。
+   */
+  async deleteOwner(owner: ContextOwner): Promise<number> {
+    return this.removeOwnerSegment(owner.ownerType, contextOwnerSegment(owner.ownerId));
+  }
+
+  /**
+   * 孤儿扫描入口：列出某类 owner 下有归档段的段名（V4 P1 M2-2 垃圾回收）。
+   * 与检查点存储一样只给段名不给 owner——段名不可逆地解码会认错人。
+   */
+  async listOwnerSegments(ownerType: ContextOwner['ownerType']): Promise<string[]> {
+    try {
+      const entries = await fs.readdir(path.join(this.baseDir, 'archive', contextOwnerSegment(ownerType)));
+      return entries.filter(name => !name.startsWith('.'));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 删掉该段名下全部归档段与目录，返回删掉的段数。 */
+  async removeOwnerSegment(
+    ownerType: ContextOwner['ownerType'],
+    segment: string
+  ): Promise<number> {
+    const dir = path.join(this.baseDir, 'archive', contextOwnerSegment(ownerType), segment);
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      return 0;
+    }
+    let removed = 0;
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      try {
+        await fs.rm(path.join(dir, name), { force: true });
+        removed += 1;
+      } catch {
+        // 单个段删不动不影响其余回收；调用方按「没删掉的就不算回收」如实报数。
+      }
+    }
+    try {
+      await fs.rmdir(dir);
+    } catch {
+      // 还有别的文件（或并发写入）时保留目录。
+    }
+    return removed;
   }
 }

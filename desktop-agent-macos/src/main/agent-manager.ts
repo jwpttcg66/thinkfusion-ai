@@ -376,7 +376,9 @@ export function runPlan(
   grant: TaskGrant,
   dbPath: string,
   timeoutMs: number,
-  ids: { roundId: string; planId: string; conversationId?: string }
+  ids: { roundId: string; planId: string; conversationId?: string },
+  /** 检查点续跑：本轮不重做的步骤（主进程已核对过上轮报告）。 */
+  options?: { reusedSteps?: Array<{ stepId: string; checkpointId?: string; executedAt: number }> }
 ): Promise<ExecutionReport> {
   if (!child) startAgentProcess();
   if (!child) return Promise.reject(new Error('Agent Runtime 启动失败'));
@@ -408,7 +410,10 @@ export function runPlan(
       // 开关只对这次执行生效；运行中的计划不会被中途改掉。
       disabledCapabilities: disabledCapabilities(),
       // CLI 配置同样只对这次执行生效；Runtime 读不到 userData。
-      cliAgents: cliAgentsProvider()
+      cliAgents: cliAgentsProvider(),
+      ...(options?.reusedSteps && options.reusedSteps.length > 0
+        ? { reusedSteps: options.reusedSteps }
+        : {})
     });
   });
 }

@@ -147,6 +147,96 @@ needs_replan 门禁均已 IMPLEMENTED/TESTED/VERIFIED（P0-1～P0-5）。
   已无绑定任务的目标实体；回收口径必须只认「最后一条绑定任务被删」，不能按时间猜。
 - **回退：** 转移表补边可撤；续跑分支按环境开关（默认走重规划）灰度。
 
+### 实现后的口径修正（2026-11-28；与本节上文不一致处以本节为准）
+
+1. **续跑门槛不是字面的 `needsReconciliation==0`。** 账本分两类：`PATH_WRITE_TOOLS`
+   （fs.writeFile / fs.applyPatch …）按路径存在性核对，落 `applied` / `missing`；
+   `OPAQUE_WRITE_TOOLS`（shell.run / test.run / code.run / agent.exec / term.send …）没有路径
+   可核对，落 `needs_reconciliation`。判定落在 `decideContinuation()`
+   （`src/main/context/recovery/continuation.ts`）：`ledger.missing > 0`（记过的改动已不在盘上）
+   或存在「结局未知且无路径可核对」的在途写 → 重规划；否则续跑。
+   这与任务书原意的偏差只是换了度量名，方向不变：不可核对的写操作仍然挡住续跑。
+2. **没有新增 `interrupted → executing` 转移边。** 续跑复用的是 resume 分支既有的
+   `paused/interrupted → executing`，所以「状态机变化」一项实际为零，回退面比预估小。
+3. **真机探针另写 `scripts/verify-v4-p1-m2-2-cdp.mjs`，没有复用 `verify-p0-5-restart-cdp.mjs`。**
+   P0-5 那份走模型规划，步骤 id 与步数每轮都不同，命中不了「暂停时还剩 N 步」这个前提；
+   M2-2 的两条路要确定性，所以改用固定工作流（`workflow:run`，节点 id 即步骤 id）。
+   断言内容与任务书一致：恢复后第一个执行事件是 `step.reused`/`step.started`，不是 planning 轮。
+4. **回退开关是注入点，不是环境变量。** 续跑分支的灰度口径落在
+   `AgentOrchestratorDeps.resumeContinue?: () => boolean`（`orchestrator.ts:247`，
+   判定处 `orchestrator.ts:1436` 取 `?.() ?? true`）：返回 false 即回到「继续一律重规划」，
+   不用回滚续跑分支本身。主进程目前没有把它接到任何环境变量/设置项上，所以线上要关还得改一行
+   注入——记为后续项，不在本任务里加开关面。
+
+### 真机跑出来的四个产品缺陷（已修，各有回归测试）
+
+- **没轮到的 `skipped` 步骤被当成副作用缺口。** `collectSideEffects()` 按 `args.path` 核对暂停时
+  未执行的步骤，文件当然不存在 → 记 `missing` → 续跑门槛永远过不去（「暂停→重启」在真机上
+  必然重规划，也就是本任务头号场景不可达）。修：`status:'skipped'` 且没有 `reusedFrom` 的条目
+  跳过（本轮没动过手），带 `reusedFrom` 的照旧核对（上一轮真写过、本轮不重跑）。
+  回归：`test:task-resume` 的「暂停报告后到：本轮没跑过的 skipped 步骤不算副作用缺口」与
+  「复用步骤照旧算副作用：reusedFrom 的 skipped 路径消失要报 missing」；前者移除修复后确认变红。
+- **暂停后落地的执行报告把 `paused` 带去 `cancelled`。** Runtime 对「暂停」与「取消」回的是同一份
+  `status:'cancelled'` 报告，`finishPlanExecution()` 照报告收尾会把状态推到
+  verifying → report_pending → cancelled，而 `resume()` 只认 paused/interrupted/budget_exhausted/blocked
+  → 暂停检查点再也续不上（真机现象：点「继续」提示状态不允许）。修：任务处于
+  pause_requested/pausing/paused 时报告照常落库（已完成步骤的证据不丢），状态保持暂停并留一条日志。
+  回归：`test:pause-checkpoint` 的「暂停后取消报告才到：状态留在 paused，之后仍能从检查点续跑」。
+- **续跑报告带 `reusedFrom`，被契约校验整份判非法。** M2-2c 给 `contracts.StepResult` 加了
+  `reusedFrom`、Runtime 也真发这个字段，但 `src/shared/schemas.ts` 的 `StepResultSchema` 是
+  `.strict()` 且没跟着加 → 续跑回到主进程的第一份报告整体非法，`task:resume` 抛
+  「Runtime 返回的执行报告无效：unrecognized_keys reusedFrom」，本任务头号场景在真机上根本走不完
+  （单测全绿的原因：测试自己造的假报告不经 IPC，摸不到这一层校验——这正是本任务要求真机跑一遍的理由）。
+  修：schema 补 `reusedFrom`（`checkpointId` 允许空串，老检查点就是空串）。
+  回归：`test:protocol` 的「续跑报告带 reusedFrom 的复用步骤必须通过 schema」，同条里保留
+  「出现未知键仍要拒」的断言，防止为了过校验把 `.strict()` 拆掉。
+- **恢复走了哪条路、复用了哪几步，界面上看不出来。** 时间线与对话流各写了一份 context 事件标签表，
+  两张表都缺 `context.resume.continued`/`context.resume.replanned`/`context.refresh.required`
+  → 续跑与被迫重规划都显示成「上下文事件」四个字；`context.checkpoint.paused` 在 UI 里零消费
+  （暂停到底留下了哪份检查点，只能去翻磁盘文件）；报告明细与交付事实把被复用的步骤写成「已跳过」，
+  等于对人说「这一步没做」。修：标签与配色收进 `shared/context.ts` 的 `contextEventView()` 一处、
+  两处投影共用；新增暂停检查点里程碑（带 checkpointId，没落盘时如实写「未提交」并标成提醒色）；
+  被复用的步骤标「复用自上次执行」。顺手修 `target('fs.search')` 丢掉检索词——`test:execution-timeline`
+  里这条断言一直是红的，因为这个脚本没进 `verify` 闸门，所以从没拦住过任何事。
+  回归：`test:execution-timeline` 新增 3 条 + `test:task-conversation` 新增 2 条；
+  `test:protocol` 与 `test:execution-timeline` 已并入 `npm run verify`（53 步 → 55 步）。
+
+### 真机验收结果（2026-11-28，43 项判定 0 未通过）
+
+见 [验收汇总](../../acceptance/v4-p1-m2-2-20261128/SUMMARY.md)。两条路径都拿到真机样本：
+
+- **续跑正例**（探针 `36ea5531`，固定工作流 14 步，跑到 `write-4` 暂停 → SIGKILL → 重启 → 点继续）：
+  `context.resume.continued`，`pointerSource=task-fields`，沿用被中断那份计划
+  `79289ed1`（续跑 planId 与暂停时任务上的完全相同），复用 6 步
+  `seed-test, write-1…write-5`、本轮执行 `write-6…write-12, final-gate`；恢复打点之后第一个执行事件是
+  `step.reused`，打点之后 `round.started` 0 条（没重开规划轮）；落库报告 14 步全 `completed`、
+  6 条带 `reusedFrom`、收尾 `shell.run` 退出码 0，任务 `verifying → report_pending → completed`。
+- **重规划反例**（探针 `9487adcf`，暂停时留一条起了但没路径可核对的 `shell.run`）：
+  检查点账本 `applied 1 / missing 0 / needs_reconciliation 1`，`context.resume.replanned`
+  理由点名「1 个写操作结局未知且无路径可核对：long-shell（needs_reconciliation）」并开出新轮。
+- **回收**：删任务时 `checkpointsRemoved=true`（owner 文件删掉）、`archiveSegments=0`、
+  探针目标实体随之不再被任何任务绑定；启动扫描只删「任务表里查不到」的段，
+  本轮实测扫前/扫后归属文件 0→0、孤儿目标 0→0，且重启时活任务 `36ea5531` 的 owner 文件被保留。
+- **界面可核对**：「输出」页时间线里「暂停已提交检查点 cp_…（待核对 N 项）」
+  「已从检查点续跑：沿用已批准计划，未重新规划」「已重新规划：检查点不足以安全续跑」都是
+  可点开详情的行，报告明细把复用步骤标「复用自上次执行」；「对话」页同样有这两条上下文备注。
+  截图 05/06/07 为证。
+
+### 真机跑出来的三个判据缺陷（已修，属探针自身，不是产品）
+
+- **段名带扩展名比对**：`listSegments()` 返回 `4a6776de….json`，而 `contextOwnerSegment()` 是不带
+  扩展名的段名，于是「活任务保留」永远 0 条、「孤儿残留」永远非空——两条启动扫描判据一直是假红，
+  另一条（任务表为空时）是空跑。修：与产品 `listOwnerSegments()` 同口径先剥 `.json`。
+- **恢复打点找不到**：`event === aResumeEvent` 跨两次取数比对象引用必然为 `false`，`resumeIndex` 恒为 -1，
+  「续跑后第一个事件是 step 不是 planning」这条最关键的判据实际是在整份事件流上取的。修：按
+  `at + event` 值定位，并新增 `A-resume-marker-located-in-event-stream` 把下标与条数写进证据。
+- **收尾命令写法在这台 node 上不通**：`node --test .` 回「Could not find '.'」，退出码 1，
+  把「续跑把剩余步骤跑完了」盖成一条假红。修：点名文件 `node --test probe.test.mjs`，
+  并让那份测试自己断言 12 个写文件齐备（收尾步骤亲自核对，而不是脚本站在外面数）。
+- 另有两处探针自身炸点：`evidence.statusAfterResume` / `evidence.uiText` 未在初始化里声明就被赋值
+  （`Cannot set properties of undefined`，直接把探针 B 与收尾回收整段跳掉），以及界面判据找错页签
+  （执行时间线挂在「输出」`output`，不是「轨迹」）。都已修，并让「页签没切过去」把现存页签名写进证据。
+
 ## P1-M2-3：上下文重建显性化
 
 - **业务目标：** 「重建了什么上下文」对用户可见、可核对。

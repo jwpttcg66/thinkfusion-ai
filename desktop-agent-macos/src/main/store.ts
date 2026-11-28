@@ -517,6 +517,25 @@ export class AgentStore {
     this.persist();
   }
 
+  /**
+   * 回收目标实体（V4 P1 M2-2 垃圾回收）。
+   *
+   * 目标唯一的意义是「串起同一目标下的任务」，所以能不能删只有一条判据：还有没有
+   * 任务绑在它下面。这条判据由调用方用 `tasksUnderGoal()` 现场算——不在这里按
+   * `updatedAt` 猜「很久没人用」：一个用户两周没回来、但只删了其中一条任务的目标，
+   * 按时间猜会被连带删掉，剩下几条任务侧栏分组就凭空换标题。
+   * 返回是否真删掉一份，没删过就不能报「已回收」。
+   */
+  deleteGoal(goalId: string): boolean {
+    const list = this.state.goals ?? [];
+    const index = list.findIndex(item => item.goalId === goalId);
+    if (index < 0) return false;
+    list.splice(index, 1);
+    this.state.goals = list;
+    this.persist();
+    return true;
+  }
+
   appendMessage(message: ConversationMessage) {
     // A stage that was still running when its conversation was deleted keeps
     // producing turns. The deletion removed the conversation and every message

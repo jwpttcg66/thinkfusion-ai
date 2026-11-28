@@ -49,3 +49,5 @@ docs/reports/
 
 # 真机验收会备份整份用户 journal（含任务与会话原文），只留在本机做回滚用
 docs/implementation/acceptance/**/agent-store*.json
+# 同一口径：检查点目录的备份里也是用户真实任务的摘要与证据路径，不入库
+docs/implementation/acceptance/**/*.tgz

@@ -1,6 +1,9 @@
 # ThinkFusion 实现状态
 
-**唯一当前状态来源**。快照对应 `main@b15ee56`（2026-11-27，目标卡鼠标交互与恢复契约核对）。代码、测试和真实验收变化时更新本页；不要在其他文档另建阶段完成度表。
+**唯一当前状态来源**。快照对应 `main` 于 2026-11-28 合入 V4 P1 M2-2（任务分支
+`v4/p1-m2-2-checkpoint-resume`，基线 `5e72934` = M2-1 合并点）之后的状态；此前记的 `b15ee56`
+（2026-11-27，目标卡鼠标交互与恢复契约核对）已随 M1/M2-1/M2-2 三次合并过期。代码、测试和真实
+验收变化时更新本页；不要在其他文档另建阶段完成度表。
 
 > 设计说明不是实现证据；单测不是真机证据；一个真机样本不代表所有环境。
 > 缺证据时标“未确认”，不要从目录、类型或任务书标题推断完成。
@@ -82,6 +85,11 @@
 | 任务 | 状态 | 事实 |
 | --- | --- | --- |
 | M2-1 检查点指针接线 | `LIVE_TESTED` | **前提修正**：任务书原写「暂停后 patch 任务 `{checkpointId, contextId, activeRunId}`」，核对代码发现 P0-4 落地时 `store.commitContextCheckpoint()`（`store.ts:441`）已在一次持久化里写完三项，`index.ts` 注入 `journal: store`，`task-recovery.ts` 也已优先读任务字段——缺口是反的：`orchestrator.ts:1013` 在 Journal 事务之后又 `tasks.patch({checkpointId, contextId})`，那是第二个写者且漏了 `activeRunId`，等于把权威指针盖成半套，恢复时 `recoverContext()` 的 runId 门判不过，出现「检查点文件在、任务读不出上下文」。现删除重复写者，`commitPauseCheckpoint()` 改返回完整指针 `PauseCheckpointOutcome`。① `context.checkpoint.paused` 事件新增 `contextId/activeRunId`，与 `checkpointId` 成对落库，使任务字段缺失时事件流本身即可重建指针；② 新增 `resolveTaskPointer()`：字段齐全走 `task-fields`，不全则倒扫事件流取最后一条带完整指针的检查点事件（暂停事件或 `context.compaction.committed`）走 `events-replay`，重建结果继续过同一套 runId/摘要 hash/归档校验，读不出即 `stale`，两者皆无判 `none` 不凭空造指针；③ 恢复结论带 `pointerSource` 并写进 `context.recovered` / `context.refresh.required` / `context.compaction.stale`，`recoveryPromptData()` 在走重放时如实标注指针来源弱于落库指针。**不做**启动全量对账：指针读不出时恢复已在校验处点名停下，提前扫描要多付全量磁盘读。**测试**：新增 `test:checkpoint-pointer`（4 条：字段↔文件一致、事件带指针、两条路径打点）；`test:pause-checkpoint` 扩到 7 条并修掉 harness 自身口径——过去 `emit` 只收数组不落 Journal，导致「靠事件流重建」这条路径在本能通过的代码上永远测不到，现与主进程同口径（转发即 `store.appendEvent`）；`test:context-recovery` 扩到 9 条（重建仍要过校验、无事件判 none、指针来源进提示词）。**真机**（[验收汇总](acceptance/v4-p1-m2-1-20261128/SUMMARY.md)，探针 `41d81e2d`，19 项判定 0 未通过）：暂停后任务三项指针与 `agent-store.json`、`owners/agent-task/<taskId>.json` 的 `contextId/runId` 逐项相等，暂停事件带同一组指针，检查点摘要「目标版本 v1 / 任务树 revision 3 / applied 1 · missing 0 · needs_reconciliation 1」且证据含真实写出路径；SIGTERM 停进程抹掉探针任务三项指针后重启，任务仍 `paused` 且指针为空，点继续产出 `context.recovered` 带 `pointerSource=events-replay`、重建 `checkpointId` 正是暂停那份、副作用账本 `applied 2 / missing 0 / needsReconciliation 1`。**遗留**：探针删除后 `context-checkpoints/owners/agent-task/` 累积 22 个孤立 owner 文件（M1 记录 11 个），回收并入 M2-2；「事件已落库、检查点文件未落」的窗口未覆盖 |
+| M2-2 从检查点续跑成为常规路径 | `LIVE_TESTED` | **前提修正**：门槛不是字面的 `needsReconciliation==0`（账本分两档：有路径的 `fs.writeFile`/`fs.applyPatch` 落 `applied`/`missing`，无路径的 `shell.run`/`test.run` 等落 `needs_reconciliation`），且没有新增 `interrupted → executing` 转移边——续跑复用 resume 既有的 `paused/interrupted → executing`，状态机变化为零；真机探针另写 `verify-v4-p1-m2-2-cdp.mjs`（P0-5 那份走模型规划、步骤 id 每轮不同，命中不了「暂停时还剩 N 步」），改用固定工作流 14 步、暂停点定在 `write-4`。**新增** `src/main/context/recovery/continuation.ts`：`collectCompletedSteps()` 只认同轮 `started+completed`（同名步骤不跨轮误认）、`decideContinuation()` 逐条给理由（缺指针/文件不在/hash 不符/`missing>0`/有结局未知且无路径可核对的在途写/步骤已跑完）、`mergeReusedResults()` 把复用步骤还原成上一轮真实结果（无证据的保留 `skipped`，不把缺口判成已完成）。Runtime 侧加 `skipStepIds` 与 `step.reused` 事件（带 `checkpointId` 与真实时间戳），resume 判定为 continue 时直达执行不建新一轮，结论写进 `context.resume.continued`/`context.resume.replanned`（带 `pointerSource` 与理由）；灰度口径落在注入点 `AgentOrchestratorDeps.resumeContinue`（`orchestrator.ts:247`，`?.() ?? true`），改一行即回到「继续一律重规划」。**新增** `src/main/context/checkpoint/gc.ts` 关闭缺口 9/10：`deleteTaskContextArtifacts()` 删任务按 owner 回收检查点文件与归档段，`reclaimOrphanContextArtifacts()` 启动时只回收「任务表里查不到」的段（按归属文件比对不按时间猜，只扫 `agent-task`，会话归档不动），目标回收只认「最后一条绑定任务被删」。**界面**：context 事件标签/配色收进 `shared/context.ts` 的 `contextEventView()` 一处、两处投影共用（过去时间线与对话流各写一份表且都缺 resume 两类 → 续跑与被迫重规划都显示成「上下文事件」四个字）；新增暂停检查点里程碑（未落盘如实写「未提交」并标提醒色）、复用步骤标「复用自上次执行」、修 `target('fs.search')` 丢检索词。**真机跑出来的四个产品缺陷**（详见[任务书](plans/active/V4-P1-TASK-BOOK.md)）：① 没轮到的 `skipped` 步骤被当成副作用缺口 → 真机上「暂停→重启」必然重规划；② 暂停后迟到的报告把 `paused` 带去 `cancelled` → 点「继续」提示状态不允许；③ `reusedFrom` 没进 `StepResultSchema`（`.strict()`）→ 续跑第一份报告整体非法、`task:resume` 抛错，单测全绿因为假报告不经 IPC；④ 恢复走了哪条路界面看不出来。**测试**：`test:task-resume` 6→16、`test:pause-checkpoint` 7→14、`test:execution-timeline` 5→8、`test:task-conversation` 68→70、`test:protocol` +1；`test:protocol`(177) 与 `test:execution-timeline` 并入 `verify`（53→55 步，全绿 exit 0）。**真机**（[验收汇总](acceptance/v4-p1-m2-2-20261128/SUMMARY.md)，43 项判定 0 未通过）：A 续跑探针 `36ea5531` 暂停后 SIGKILL 重启，`context.resume.continued` 用正是暂停那份 `cp_33b18923…`（`pointerSource=task-fields`）、沿用被中断计划 `79289ed1…`、复用 6 步续跑 8 步、打点后 `round.started` 0 条、12 个写文件齐且收尾 `shell.run` 退出码 0、报告 14 步全 `completed` 其中 6 步带 `reusedFrom`、任务 `verifying → report_pending → completed`；B 反例 `9487adcf` 账本 `applied 1 / missing 0 / needs_reconciliation 1` → `context.resume.replanned` 点名「long-shell（needs_reconciliation）」并开新轮；两条路在「输出」时间线与「对话」流里都是可点开详情的行（截图 05/06/07，截图前已把命中行滚进视口）；活任务 owner 文件穿过启动扫描被保留、删任务 `checkpointsRemoved=true`、扫后无孤儿。**未覆盖**：`pointerSource=events-replay` 下的续跑（M2-1 只验到重建指针本身）与跨重启的 `budget_exhausted` 续跑 |
+
+M2 还剩 M2-3（上下文重建显性化）未到 `LIVE_TESTED`，因此 M2 里程碑判定暂未成立。任务书的 M2 完成
+条件里两条路径的真机证据（「暂停→强退→重启→续跑」与「→明确重规划」）与「UI 可核对上下文状态」
+已由 M2-2 拿到，「上下文」独立视图归 M2-3。
 
 
 ## 目标契约证据闭环（GCE）
@@ -120,16 +128,22 @@
 6. **Workflow**：注册表、条件/循环/审批与 `workflow:run` 已接线；但 `until` 运行时循环不支持（明确报错），parallel 为串行执行，且没有界面入口。
 7. **深层 Java 分析**：AST/类型绑定/调用图不属于当前已交付能力。
 8. **发布门禁**：签名、公证、干净机器安装和发布回滚仍需完成。
-9. **检查点残留**：`store.deleteTask()` 只清 tasks/rounds/plans/reports/events，磁盘上的检查点归属
-   文件不受影响，checkpoint store 也没有删除接口。M1 真机验收收尾时实测：删掉 2 个 P0-4 探针任务后
-   `context-checkpoints/owners/agent-task/<taskId>.json` 全部仍在，owner 目录 11 个文件对应用户任务 0 条。
-   M2-1 收尾复测已涨到 **22 个**（同样对应用户任务 0 条，含本轮探针 `41d81e2d`）——每跑一次真机验收就多攒
-   若干条，回收口径不能只想着存量。属 M2-2（检查点恢复）范围内的垃圾回收缺口，未擅自删用户数据。
-10. **目标实体残留**：`store.deleteTask()` 同样不清 `store.goals`。目标可以在最后一条任务删掉后继续留在
-    journal 里（M1 真机验收全部结束后实测：用户任务 0 条，`store.goals` 仍有 6 条孤儿实体，对应
-    `ea994813`/`22713ed3`/`b5cd244e`/`b4ed7aee`/`514d0787`/`2b0a189a` 各轮探针，每条 v2 带 1 条标准）。不会误伤新任务
-    （`goalId` 由任务 id 派生，对不上号），`listGoals` 也不会显示它们，但删除任务后目标列表会越积越多，
-    需要与缺口 9 一起做回收（已写进 M2-2 的任务口径）。
+9. **检查点残留**（M2-2 已关闭）：原缺口是 `store.deleteTask()` 只清 tasks/rounds/plans/reports/events，
+   磁盘上的检查点归属文件不受影响，checkpoint store 也没有删除接口——M1 收尾实测 owner 目录 11 个文件
+   对应用户任务 0 条，M2-1 收尾复测涨到 22 个（每跑一轮真机验收就多攒几条）。现由
+   `src/main/context/checkpoint/gc.ts` 两处收口：删任务时 `deleteTaskContextArtifacts()` 按 owner 回收
+   检查点文件与归档段，启动时 `reclaimOrphanContextArtifacts()` 只回收「任务表里查不到」的段（按归属
+   文件比对、不按时间猜，且只扫 `agent-task`，会话归档不动）。M2-2 真机实测（[验收汇总](acceptance/v4-p1-m2-2-20261128/SUMMARY.md)）：
+   默认数据目录 `owners/agent-task/` 已由 22 个降到 **0 段**，两个探针任务删除时 `checkpointsRemoved=true`、
+   `archiveSegments=0`，扫后无孤儿归属文件（`disk-has-no-orphan-after-run`），且暂停中的活任务
+   `36ea5531-…` 的 owner 文件穿过重启扫描被保留。仍在的只有 `owners/conversation/b614fc2e-….json` 1 段
+   ——会话生命周期，不在本回收口径内。
+10. **目标实体残留**（M2-2 已关闭）：原缺口是 `store.deleteTask()` 不清 `store.goals`，M1 收尾实测
+    用户任务 0 条而 `store.goals` 仍有 6 条孤儿实体（`ea994813`/`22713ed3`/`b5cd244e`/`b4ed7aee`/
+    `514d0787`/`2b0a189a`）。现在回收只认「最后一条绑定任务被删」这一条判据（`reclaimOrphanContextArtifacts()`
+    同事务里比对任务表），不按活动新旧猜。M2-2 真机实测：默认数据目录 `store.goals` **0 条**（M1 那 6 条
+    已随启动扫描清掉），探针目标 `goal:36ea5531…`/`goal:9487adcf…` 在删任务后不再存在；
+    `test:pause-checkpoint` 的「目标回收只认『最后一条绑定任务被删』」用例守住多任务共用同一目标时不误删。
 
 这些缺口按计划排序见 [plans/README.md](plans/README.md)。某项代码变动关闭缺口时，应同步补测试、状态和对应验收证据。
 

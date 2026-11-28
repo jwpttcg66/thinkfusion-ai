@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import {
   buildConclusion,
+  reportDeliveryFacts,
   buildStreamLandmarks,
   buildTaskConversation,
   memberBodyView,
@@ -1855,4 +1856,34 @@ test('折叠的流式正文必须能在框内滚动，不能只靠「展开全�
   const ui = readFileSync(join(root, 'src/renderer/src/components/engineering/TaskConversation.tsx'), 'utf8');
   assert.match(ui, /stickRef/);
   assert.match(ui, /onScroll=\{followScroll\}/);
+});
+
+/**
+ * 续跑的复用步骤在报告里也是 skipped（主进程找不到上轮证据时保留原样）。
+ * 写成「已跳过」等于对用户说这一步没做——上一轮它真写过文件。
+ */
+test('复用步骤的交付事实写「复用自上次执行」，普通跳过仍写「已跳过」', () => {
+  const facts = reportDeliveryFacts({
+    results: [
+      { stepId: 's1', tool: 'fs.writeFile', status: 'skipped', verified: false, durationMs: 0, args: { path: '/tmp/f1.txt' }, reusedFrom: { checkpointId: 'cp_1', executedAt: 111 } },
+      { stepId: 's2', tool: 'fs.writeFile', status: 'skipped', verified: false, durationMs: 0, args: { path: '/tmp/f2.txt' } }
+    ]
+  });
+  assert.deepEqual(facts, [
+    'fs.writeFile /tmp/f1.txt：复用自上次执行（本轮未重跑）',
+    'fs.writeFile /tmp/f2.txt：已跳过'
+  ]);
+});
+
+test('对话流里能核对暂停留了哪份检查点、恢复走的是哪条路', () => {
+  const entries = buildTaskConversation([
+    { type: 'context.checkpoint.paused', at: 100, taskId: task, reason: 'pause', goalVersion: 1, taskRevision: 2, needsReconciliation: 0, contextId: 'pause:r1:100', checkpointId: 'cp_1', activeRunId: 'r1' },
+    { type: 'context.event', at: 200, taskId: task, event: 'context.resume.continued', context: { contextId: 'pause:r1:100', checkpointId: 'cp_1', resume: { mode: 'continue', reusedStepIds: ['s1'], pendingStepIds: ['s2'] } } }
+  ]);
+  const notes = entries.filter(entry => entry.kind === 'note' && entry.subtype === 'context');
+  assert.equal(notes.length, 2);
+  assert.match(notes[0].text, /暂停已提交检查点 cp_1/);
+  assert.match(notes[0].detail, /"checkpointId": "cp_1"/);
+  assert.match(notes[1].text, /已从检查点续跑/);
+  assert.match(notes[1].detail, /"reusedStepIds"/);
 });
