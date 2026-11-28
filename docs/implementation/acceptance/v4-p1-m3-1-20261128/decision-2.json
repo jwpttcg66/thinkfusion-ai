@@ -1,0 +1,44 @@
+{
+  "type": "cycle.decision.created",
+  "at": 1795841618512,
+  "taskId": "035d44a9-00db-479e-ad02-994eed68de1c",
+  "workId": "035d44a9-00db-479e-ad02-994eed68de1c",
+  "cycleId": "cycle:035d44a9-00db-479e-ad02-994eed68de1c:1",
+  "roundId": "2daad2a6-28f3-4f76-aa0e-c63771c009c2",
+  "decisionType": "COMPLETE",
+  "reason": "执行、验证和目标标准均已满足",
+  "evidenceRefs": [
+    "evidence:035d44a9-00db-479e-ad02-994eed68de1c:37a8cfc5-d98e-4e17-9d05-8fc3a5f6c432:criterion:035d44a9-00db-479e-ad02-994eed68de1c:plan:execution",
+    "evidence:035d44a9-00db-479e-ad02-994eed68de1c:2daad2a6-28f3-4f76-aa0e-c63771c009c2:criterion:035d44a9-00db-479e-ad02-994eed68de1c:plan:readback",
+    "file:/private/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-1-ws-1795840894362/probe-m3-1-2daad2a6",
+    "file:/private/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-1-ws-1795840894362/probe-m3-1-2daad2a6/probe.txt"
+  ],
+  "nextAction": "finish_completed",
+  "requiresUser": false,
+  "targetStage": "NEXT_DECISION",
+  "diagnosis": "none",
+  "progress": {
+    "fingerprint": "[\"step:step-1:fs.list:completed::\",\"args:step-1:fff89cca\",\"step:step-2:fs.mkdir:completed::\",\"args:step-2:8b3dfd27\",\"step:step-3:fs.writeFile:completed::\",\"args:step-3:b4704b64\",\"step:step-4:fs.readFile:completed::\",\"args:step-4:42952318\",\"step:step-5:fs.stat:completed::\",\"args:step-5:42952318\",\"step:step-6:notify:completed::\",\"args:step-6:801390a9\",\"evidence:file:/private/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-1-ws-1795840894362/probe-m3-1-2daad2a6:\",\"evidence:file:/private/var/folders/67/wwgq5pv14wsc30489jtftvt00000gn/T/tf-m3-1-ws-1795840894362/probe-m3-1-2daad2a6/probe.txt:\",\"verified:yes\",\"check:compile:skipped::050c5d1f\",\"check:run:skipped::050c5d1f\",\"check:tests:skipped::050c5d1f\",\"diagnostics:skipped:0:0\",\"changed:probe-m3-1-2daad2a6/probe.txt\"]",
+    "criterionKey": "[]",
+    "repeated": 0,
+    "criteriaStreak": 0,
+    "repeatLimit": 2,
+    "criterionStalled": false
+  },
+  "goalFit": {
+    "fit": "MET",
+    "met": 1,
+    "unmet": 0,
+    "unverified": 0,
+    "blockingRisks": []
+  },
+  "budget": {
+    "atMaxRounds": false,
+    "roundUsed": 3,
+    "roundLimit": 20
+  },
+  "eventId": "08ebf37d-e1d9-444b-b244-531e85169e22",
+  "runId": "035d44a9-00db-479e-ad02-994eed68de1c",
+  "sequence": 34041,
+  "phase": "execution"
+}

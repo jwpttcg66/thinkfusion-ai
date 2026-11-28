@@ -2211,20 +2211,23 @@ export type AgentEvent = AgentEventBase &
         taskId: string;
         workId: string;
         cycleId: string;
-        decisionType:
-          | 'CONTINUE'
-          | 'REPAIR'
-          | 'REPLAN'
-          | 'REDESIGN'
-          | 'REANALYZE'
-          | 'CLARIFY_GOAL'
-          | 'CHANGE_PROPOSED'
-          | 'WAIT_USER'
-          | 'BLOCKED'
-          | 'COMPLETE'
-          | 'ABORT';
+        roundId: string;
+        /** 与纯函数的判定同一套枚举，不再在事件里另列一份。 */
+        decisionType: import('./cycle-decision').CycleDecisionType;
         reason: string;
         evidenceRefs: string[];
+        /** 判定落点：这条决策实际让 orchestrator 做什么，与事件标签必须同源。 */
+        nextAction: import('./cycle-decision').CycleNextAction;
+        /** 是否停在人这里（WAIT_USER/CLARIFY_GOAL/CHANGE_PROPOSED）。 */
+        requiresUser: boolean;
+        targetStage: import('./cycle-decision').GceCycleStage;
+        /** 判定依据：诊断结论与无进展计数，供「为什么是这一步」核对。 */
+        diagnosis: import('./cycle-decision').CycleDiagnosis;
+        progress: import('./cycle-decision').CycleProgress;
+        /** 目标层证据：fit 与风险，缺契约时为 null，不伪造。 */
+        goalFit: { fit: string; met: number; unmet: number; unverified: number; blockingRisks: string[] } | null;
+        /** 预算层证据：判定用的是哪一侧的数；拿不到就记 null，不用 0 冒充。 */
+        budget: { atMaxRounds: boolean; roundUsed: number | null; roundLimit: number | null };
       }
     /** TDL：单个 L2 子任务的独立循环快照（分析→设计→实现→审核）。 */
     | {

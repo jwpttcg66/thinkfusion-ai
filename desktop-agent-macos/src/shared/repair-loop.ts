@@ -12,12 +12,53 @@
  */
 
 import type { ExecutionReport } from './contracts';
+import type { DeliveryState, GoalContractFit } from './goal-contract';
+import { verificationIsComplete } from './task-view';
 
 export interface RepairLoopState {
   /** 报告里能核对的事实指纹（见 `evidenceFacts`）。 */
   facts: readonly string[];
   /** 评审给出的待修问题。 */
   issues: readonly string[];
+}
+
+/**
+ * 报告 → 交付三态。
+ *
+ * 决策函数要的是「做完了吗 / 验过了吗」的可核对口径，不是报告自述的 `nextAction`：
+ * `partial` 说明活没干完，execution 记 `PENDING`；改了代码但四项检查没齐，verification
+ * 记 `PARTIAL` 而不是 `PASSED`。这里不推断，只翻译报告里已有的字段。
+ */
+export function deliveryFromReport(
+  report: ExecutionReport,
+  goal: GoalContractFit = 'UNKNOWN'
+): DeliveryState {
+  const execution = report.status === 'completed'
+    ? 'COMPLETED'
+    : report.status === 'cancelled'
+      ? 'CANCELLED'
+      : report.status === 'failed'
+        ? 'FAILED'
+        : 'PENDING';
+  const checks = report.verification?.checks;
+  const anyFailed = Boolean(
+    checks && (
+      checks.compile.status === 'failed' ||
+      checks.tests.status === 'failed' ||
+      checks.run?.status === 'failed' ||
+      checks.diagnostics?.status === 'failed'
+    )
+  );
+  const verification = anyFailed
+    ? 'FAILED'
+    : !report.verification
+      ? 'UNVERIFIED'
+      : verificationIsComplete(report.verification)
+        ? 'PASSED'
+        : report.verification.verified || checks
+          ? 'PARTIAL'
+          : 'UNVERIFIED';
+  return { execution, verification, goal };
 }
 
 function hashText(text: string): string {

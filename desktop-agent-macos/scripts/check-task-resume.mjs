@@ -109,8 +109,15 @@ test('恢复时目标版本过期：不进 planning，停在 blocked 且记 acte
   ).at(-1);
   assert.equal(consistency?.actedOnReplan, true);
   assert.ok(consistency?.requiresReplan);
-  assert.ok(events.some(event => event.type === 'cycle.decision.created'
-    && event.taskId === task.taskId && event.decisionType === 'WAIT_USER'));
+  // M3-1：恢复门禁也走同一个判定出口。这条路径的结论本来就是「外部阻塞」
+  // （任务确实转成了 blocked），以前事件写 WAIT_USER、状态转 blocked，两处各说各话。
+  const resumeDecision = events.find(event => event.type === 'cycle.decision.created'
+    && event.taskId === task.taskId);
+  assert.equal(resumeDecision?.decisionType, 'BLOCKED');
+  assert.equal(resumeDecision?.nextAction, 'stop_and_wait');
+  assert.equal(resumeDecision?.requiresUser, true);
+  assert.match(resumeDecision?.reason ?? '', /旧目标计划未执行/);
+  assert.deepEqual(resumeDecision?.evidenceRefs, ['version.consistency']);
   assert.match(tasks.get(task.taskId).error ?? '', /旧目标计划未执行/);
 });
 

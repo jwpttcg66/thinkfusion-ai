@@ -47,7 +47,6 @@ import { collectDiffStats, withDiffStats } from './engineering/diff-stats';
 import { verifyExecution, hasGenuineDelivery } from '../agent/verification';
 import { verificationIsComplete } from '../shared/task-view';
 import {
-  decideNextEngineeringAction,
   planGoalRevision,
   projectGoalDrivenWorkbench,
   revisionBaselineCriteria
@@ -59,8 +58,17 @@ import {
   assessReportsAgainstGoal,
   goalContractFromPlan
 } from './engineering/goal-contract-runtime';
-import type { GceCycleStage } from '../shared/cycle-decision';
-import { evidenceFacts, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
+import type { CycleDecisionInput, CycleDecisionResult, CycleProgress, GceCycleStage } from '../shared/cycle-decision';
+import {
+  cycleFingerprint,
+  decideCycleAction,
+  deriveCycleDiagnosis,
+  detectNoProgress,
+  EMPTY_CYCLE_PROGRESS,
+  legacyDecisionOf,
+  openCriteriaKey
+} from '../shared/cycle-decision';
+import { deliveryFromReport, evidenceFacts, shouldOpenRepairRound, type RepairGateResult } from '../shared/repair-loop';
 import {
   applyEcoGateToDecision,
   assertDecisionSnapshotIntegrity,
@@ -1417,7 +1425,26 @@ export class AgentOrchestrator {
           });
         }
         const reason = `旧目标计划未执行：${versionChain.issues.map(item => `[${item.layer}] ${item.reason}`).join('；') || goalRecovery.reasons.join('；') || '目标契约已过期'}；等待确认后按新目标重规划`;
-        this.emitCycleDecision(taskId, 'WAIT_USER', reason, ['version.consistency']);
+        // 恢复门禁也走同一个出口：这条路径的结论是「外部阻塞」，标签与行为（转 blocked）同源。
+        this.decideAndEmit(
+          taskId,
+          this.tasks.get(taskId).currentRoundId ?? 'resume',
+          {
+            ...(this.tasks.get(taskId).goalContract
+              ? { goalStatus: this.tasks.get(taskId).goalContract!.status }
+              : {}),
+            goalFit: null,
+            delivery: { execution: 'PENDING', verification: 'UNVERIFIED', goal: 'UNKNOWN' },
+            review: { needsFix: false, blockingIssues: 0, unresolved: 0 },
+            budget: { atMaxRounds: false },
+            task: { blockedReason: reason },
+            progress: EMPTY_CYCLE_PROGRESS,
+            diagnosis: 'goal',
+            gates: {}
+          },
+          ['version.consistency'],
+          { used: this.tasks.listRounds(taskId).length, limit: task.maxRounds }
+        );
         this.tasks.transition(taskId, 'blocked', { error: reason, resumeStatus: undefined });
         this.deps.emit({
           type: 'log', at: Date.now(), taskId, level: 'warn',
@@ -3149,22 +3176,62 @@ export class AgentOrchestrator {
   }
 
   /** 实际决策落事件；这是执行过的决策，不是建议。 */
-  private emitCycleDecision(
+  /**
+   * 上一轮的进展状态从事件里读，不另建内存计数。
+   *
+   * 空转判定要是只活在内存里，进程重启一次就把「同一件事已经重复三轮」忘了，
+   * 又会开始烧轮次预算——M2-2 的续跑路径正需要这一点。
+   */
+  private lastCycleProgress(events: readonly AgentEvent[], taskId: string): CycleProgress | null {
+    const last = [...events]
+      .reverse()
+      .find(event => event.type === 'cycle.decision.created' && event.taskId === taskId);
+    return last?.type === 'cycle.decision.created' ? last.progress : null;
+  }
+
+  /**
+   * 判定 + 落事件在同一处：事件里记的既是纯函数的输出，也是它看到的输入
+   * （诊断、进展计数、目标证据、预算），事后核对时不存在「事件说 A、代码判 B」的空间。
+   */
+  private decideAndEmit(
     taskId: string,
-    decisionType: 'CONTINUE' | 'REPAIR' | 'REPLAN' | 'REDESIGN' | 'REANALYZE' | 'CLARIFY_GOAL' | 'CHANGE_PROPOSED' | 'WAIT_USER' | 'BLOCKED' | 'COMPLETE' | 'ABORT',
-    reason: string,
-    evidenceRefs: string[] = []
-  ): void {
+    roundId: string,
+    input: CycleDecisionInput,
+    evidenceRefs: string[],
+    rounds: { used: number | null; limit: number | null }
+  ): CycleDecisionResult {
+    const decision = decideCycleAction(input);
     this.deps.emit({
       type: 'cycle.decision.created',
       at: Date.now(),
       taskId,
       workId: taskId,
       cycleId: `cycle:${taskId}:1`,
-      decisionType,
-      reason,
-      evidenceRefs
+      roundId,
+      decisionType: decision.decision,
+      reason: decision.reason,
+      evidenceRefs,
+      nextAction: decision.nextAction,
+      requiresUser: decision.requiresUser,
+      targetStage: decision.targetStage,
+      diagnosis: input.diagnosis,
+      progress: input.progress,
+      goalFit: input.goalFit
+        ? {
+            fit: input.goalFit.fit,
+            met: input.goalFit.met,
+            unmet: input.goalFit.unmet,
+            unverified: input.goalFit.unverified,
+            blockingRisks: [...input.goalFit.blockingRisks]
+          }
+        : null,
+      budget: {
+        atMaxRounds: input.budget.atMaxRounds,
+        roundUsed: rounds.used,
+        roundLimit: rounds.limit
+      }
     });
+    return decision;
   }
 
   /**
@@ -3222,16 +3289,6 @@ export class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     const rounds = this.tasks.listRounds(taskId);
 
-    // 执行报告已经完成、没有可执行评审问题：直接交付，不再无意义地
-    // 让模型生成下一轮计划。以前这里无条件再规划，成功的任务也会被
-    // 后续非法计划拖成 failed。
-    const commandTestsPassed = report.results.some(item => {
-      const result = item.result as { command?: unknown; exitCode?: unknown } | null;
-      return typeof result?.command === 'string' &&
-        /(?:^|\s)(?:npm\s+test|node\s+--test|mvn\s+(?:-B\s+)?test|pytest|go\s+test)/.test(result.command) &&
-        result.exitCode === 0;
-    });
-    const testsPassed = report.verification?.checks?.tests.status === 'passed' || commandTestsPassed;
     // 验证未通过时，即使报告自报 completed / nextAction=complete，也不能
     // 直接收尾。完全权限下会走到这里进入下一轮修复；这是「全部完成后才
     // 算好」的底线，不能因为报告文字写完成就跳过。
@@ -3331,82 +3388,96 @@ export class AgentOrchestrator {
     const goalFitEvent = goalAssessment
       ? legacyGoalFitEvent(goalAssessment.contract, goalAssessment.fit)
       : null;
-    // 执行完成只说明这一轮跑完了。GAP / PARTIAL / UNKNOWN 都不等于目标达成：
-    // 完全权限下继续开修复轮；其他权限停在待确认，由用户决定继续还是接受缺口。
-    const goalNeedsMoreWork = Boolean(
-      goalAssessment && goalAssessment.fit.fit !== 'MET' && goalAssessment.fit.fit !== 'WITH_RISKS'
-    );
-    let decision = decideNextEngineeringAction({
-      cycle: workbench.cycle,
-      verifiedDone: Boolean(
-        !desktopStillOpen &&
-        report.status === 'completed' &&
-        (!report.verification || verificationIsComplete(report.verification)) &&
-        (report.nextAction === 'complete' || testsPassed || !actionableReview)
-      ),
-      actionableReview: actionableReview || desktopStillOpen,
-      atMaxRounds,
-      genuineDelivery
-    });
+    // M3-1：判定只有一个出口。执行层只把事实摆进输入——验证收口没有、交付有没有证据、
+    // 桌面收口没有、修复闸门停没停、这一轮比上一轮多了什么——结论与实际落点都出自
+    // `decideCycleAction`。以前这里先让执行层判一遍四出口、再按标签映射一遍行为，
+    // 两处判定不在同一个条件上，事件里的标签和实际发生的事可以各说各话。
     const autoApprove = approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan;
-    if (goalNeedsMoreWork && decision === 'complete') {
-      decision = atMaxRounds ? 'fail_budget' : autoApprove ? 'repair' : 'complete';
-    }
-    // GCE：目标标准已经逐条满足时，不让旧的「必须同时 compile+run+test」
-    // 一刀切把测试型工作流判成未完成。Goal Fit 是目标层的判定，旧检查仍
-    // 保留在报告里供核对。
-    if (
-      goalAssessment?.fit.fit === 'MET' &&
-      report.status === 'completed' &&
-      !actionableReview &&
-      !desktopStillOpen
-    ) {
-      decision = 'complete';
-    }
-    const goalBlocksCompletion = goalNeedsMoreWork && decision !== 'repair';
-    // 无新证据不得再开修复轮：两轮之间命令、参数、输出、验证结论都没变，
-    // 评审也重复同样的问题，再开一轮就是把同一件事做第三遍。停下来交回
-    // 用户，比再花一轮预算重复一遍更诚实。
-    const repairGate = decision === 'repair' ? this.guardRepairRound(report, review, priorEvents) : null;
-    const repairBlocked = Boolean(repairGate && !repairGate.open);
-    const actualDecision = goalBlocksCompletion
-      ? 'WAIT_USER'
-      : repairBlocked
-        ? 'WAIT_USER'
-        : decision === 'complete'
-          ? 'COMPLETE'
-          : decision === 'repair'
-            ? 'REPAIR'
-            : decision === 'fail_budget'
-              ? 'BLOCKED'
-              : 'ABORT';
-    this.emitCycleDecision(
-      taskId,
-      actualDecision,
-      goalBlocksCompletion
-        ? `目标有明确缺口：${goalAssessment?.fit.notes.join('；') || '仍有标准未满足'}`
-        : repairBlocked
-          ? `自动修复已停止：${repairGate?.reason ?? '无新证据'}`
-          : workbench.cycle.nextAction,
-      goalAssessment?.links.map(item => item.evidenceId) ?? []
+    const repairGate = this.guardRepairRound(report, review, priorEvents);
+    // 逐条判定后的契约才是这一轮的判据；任务记录上的那份可能还是上一轮的。
+    const liveContract = goalAssessment?.contract ?? goalContract ?? null;
+    const linkedCriteria = new Set(
+      (goalAssessment?.links ?? [])
+        .map(link => link.criterionId)
+        .filter((id): id is string => typeof id === 'string')
     );
-    // complete 时 snapshot 必须写终态，不能沿用派生里残留的 needs_fix / implementation，
-    // 否则 UI 在 task.completed 之后仍显示「需修复」。
-    const snapshotStage = decision === 'complete' && !goalBlocksCompletion
-      ? 'done'
-      : workbench.cycle.currentStage;
-    const snapshotConclusion = decision === 'complete' && !goalBlocksCompletion
+    const diagnosis = deriveCycleDiagnosis({
+      goalFit: goalAssessment?.fit ?? null,
+      // 「覆盖不到」= 契约里的标准没有任何一条证据链指向它。
+      uncoveredCriteria: liveContract
+        ? liveContract.criteria.filter(item => !linkedCriteria.has(item.criterionId)).length
+        : 0,
+      verification: report.verification?.checks
+        ? {
+            compile: report.verification.checks.compile.status,
+            run: report.verification.checks.run?.status,
+            tests: report.verification.checks.tests.status
+          }
+        : null,
+      reportStatus: report.status,
+      failedSteps: report.results.filter(item => item.status === 'failed').length,
+      errorCodes: report.errors.map(item => item.code.split(':')[0]?.trim() ?? item.code),
+      reviewIssues: review?.issues.length ?? 0
+    });
+    const progress = detectNoProgress({
+      previous: this.lastCycleProgress(priorEvents, taskId),
+      fingerprint: cycleFingerprint(evidenceFacts(report)),
+      criterionKey: openCriteriaKey(liveContract)
+    });
+    const cycleDecision = this.decideAndEmit(
+      taskId,
+      report.roundId,
+      {
+        ...(liveContract ? { goalStatus: liveContract.status } : {}),
+        goalFit: goalAssessment?.fit ?? null,
+        delivery: deliveryFromReport(report, goalAssessment?.fit.fit ?? 'UNKNOWN'),
+        review: {
+          needsFix: Boolean(review?.needsFix),
+          blockingIssues: (review?.issueDetails ?? []).filter(
+            item => item.severity === 'high' && item.disposition !== 'rejected'
+          ).length,
+          unresolved: (review?.issueDetails ?? []).filter(
+            item => item.disposition === 'pending' || item.disposition === 'deferred'
+          ).length
+        },
+        budget: { atMaxRounds },
+        task: {},
+        progress,
+        diagnosis,
+        gates: {
+          deliveryUnconfirmed: !genuineDelivery,
+          desktopOpen: desktopStillOpen,
+          ...(repairGate
+            ? { repairBlocked: !repairGate.open, repairBlockedReason: repairGate.reason }
+            : {}),
+          risksAccepted: autoApprove
+        }
+      },
+      [
+        ...(goalAssessment?.links.map(item => item.evidenceId) ?? []),
+        ...(report.evidence?.refs.map(ref =>
+          ref.kind === 'file'
+            ? `file:${ref.path}`
+            : ref.kind === 'command'
+              ? `cmd:${ref.command}#${String(ref.exitCode)}`
+              : `url:${ref.url}`
+        ) ?? [])
+      ],
+      { used: this.tasks.listRounds(taskId).length, limit: task.maxRounds }
+    );
+    const nextAction = cycleDecision.nextAction;
+    const finished = nextAction === 'finish_completed';
+    // snapshot 的阶段/结论/下一步全部取自同一条决策：以前这里按本地 `decision`
+    // 再拼一遍，和事件里的标签是两处判定，改一处忘一处就会对不上。
+    const snapshotStage = finished ? 'done' : workbench.cycle.currentStage;
+    const snapshotConclusion = finished
       ? (actionableReview ? 'accepted_with_risks' : 'accepted')
-      : repairBlocked || goalBlocksCompletion
+      : nextAction === 'stop_and_wait'
         ? 'blocked'
         : workbench.cycle.conclusionType;
-    const snapshotNext = goalBlocksCompletion
-      ? '目标还有明确缺口：先补齐失败/未满足的标准，不能按完成收尾'
-      : decision === 'complete'
-        ? '无需下一轮；可做整体验收'
-        : repairBlocked
-          ? '自动修复已停：等你确认是继续修、接受未验证，还是改需求'
-          : workbench.cycle.nextAction;
+    const snapshotNext = finished
+      ? '无需下一轮；可做整体验收'
+      : cycleDecision.reason;
     this.deps.emit({
       type: 'cycle.snapshot',
       at: Date.now(),
@@ -3417,7 +3488,7 @@ export class AgentOrchestrator {
       conclusionType: snapshotConclusion,
       nextAction: snapshotNext,
       debateSkipped: workbench.cycle.debateSkipped,
-      decision: repairBlocked ? 'observe' : decision,
+      decision: legacyDecisionOf(cycleDecision.decision),
       budget: workbench.cycle.budget
     });
     this.deps.emit({
@@ -3430,90 +3501,82 @@ export class AgentOrchestrator {
       })
     });
 
-    if (repairBlocked && repairGate) {
-      // 完全权限已经等于「这台机器的操作与风险我都接受」，不能再把「接受未验证 /
-      // 继续修复」丢回给人点。这里按接受未验证收尾，摘要如实写明缺口；非完全权限
-      // 仍停在 report_pending，让人自己选出口。
-      if (approvalPolicyFor(this.tasks.get(taskId).permissionPreset).autoApprovePlan) {
-        const summary = '执行完成（存在未验证缺口；完全权限按风险接受，未再开修复轮）';
-        this.tasks.transition(taskId, 'completed', { summary });
-        this.deps.emit({
-          type: 'log',
-          at: Date.now(),
-          taskId,
-          level: 'warn',
-          message: `GDC 停止自动修复：${repairGate.reason}；完全权限：不再询问，按接受未验证收尾。`
-        });
-        this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary });
-        return;
-      }
-      // 状态留在 report_pending：那里本来就有「接受未验证」「继续修复」两个出口，
-      // 不新造一个只能干等的状态。
-      this.tasks.patch(taskId, {
-        error: `自动修复已停止：${repairGate.reason}。可以「接受未验证」收尾，或改清楚需求后重新开始。`
-      });
+    if (nextAction === 'stop_and_wait') {
+      // 停在这里的三种原因（目标缺口、修复闸门关闭、计划待确认）都由决策说清楚，
+      // 这里不再分情况另判。状态留在 report_pending：那里本来就有「接受未验证」
+      // 「继续修复」两个出口，不新造一个只能干等的状态。
       this.deps.emit({
         type: 'log',
         at: Date.now(),
         taskId,
         level: 'warn',
-        message: `GDC 停止自动修复：${repairGate.reason}。已停在待确认，不再自动开下一轮。`
+        message: `GDC 停在待确认：${cycleDecision.reason}`
+      });
+      this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '未形成可交付结论，停在待确认');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
+      this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '等待用户决定继续修复或接受缺口');
+      this.tasks.patch(taskId, {
+        error: `${cycleDecision.reason}。可以「接受未验证」收尾，或改清楚需求后重新开始。`
       });
       return;
     }
 
-    if (decision === 'complete') {
-      if (goalBlocksCompletion && goalAssessment) {
-        this.deps.emit({
-          type: 'log',
-          at: Date.now(),
-          taskId,
-          level: 'warn',
-          message: `GCE：目标仍有 ${String(goalAssessment.fit.unmet)} 条标准未满足，执行完成不算目标达成；停在待确认，不写 achieved。`
-        });
-        this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '目标未达成，停在待确认');
-        this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
-        this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '等待用户决定继续修复或接受缺口');
-        this.tasks.patch(taskId, {
-          error: `目标未达成：${goalAssessment.fit.notes.join('；') || '仍有标准未满足'}。可以继续修复，或明确接受缺口。`
-        });
-        return;
-      }
+    if (nextAction === 'abort') {
+      this.tasks.transition(taskId, 'cancelled', { error: cycleDecision.reason });
+      this.deps.emit({ type: 'task.cancelled', at: Date.now(), taskId });
+      return;
+    }
+
+    if (finished) {
+      // 完全权限下的「修复闸门已停」等于风险已接受：摘要必须写明还有未验证缺口，
+      // 不能和正常完成共用一句「执行完成，验证通过」。
+      const repairStopped = Boolean(repairGate && !repairGate.open);
       this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '已形成交付结论');
       this.emitCycleStage(taskId, 'GOAL_FIT', 'started');
       this.emitCycleStage(taskId, 'GOAL_FIT', 'completed');
       this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
       this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '任务收尾，无需下一轮');
       const gceFit = goalAssessment?.fit.fit;
-      const summary = gceFit === 'MET'
-        ? (report.errors.length === 0 ? '执行完成，验证通过，目标标准已满足' : '执行完成，目标标准已满足')
-        : gceFit === 'WITH_RISKS'
-          ? '执行完成（目标带风险达成：存在未验证或豁免项）'
-          : gceFit
-            ? '执行完成（目标尚未完全验证，不以执行完成冒充达成）'
-            : (report.errors.length === 0 ? '执行完成，验证通过' : '执行完成');
+      const summary = repairStopped
+        ? '执行完成（存在未验证缺口；完全权限按风险接受，未再开修复轮）'
+        : gceFit === 'MET'
+          ? (report.errors.length === 0 ? '执行完成，验证通过，目标标准已满足' : '执行完成，目标标准已满足')
+          : gceFit === 'WITH_RISKS'
+            ? '执行完成（目标带风险达成：存在未验证或豁免项）'
+            : gceFit
+              ? '执行完成（目标尚未完全验证，不以执行完成冒充达成）'
+              : (report.errors.length === 0 ? '执行完成，验证通过' : '执行完成');
+      if (repairStopped) {
+        this.deps.emit({
+          type: 'log',
+          at: Date.now(),
+          taskId,
+          level: 'warn',
+          message: `GDC 停止自动修复：${repairGate?.reason ?? '两轮之间没有新证据'}；完全权限：不再询问，按接受未验证收尾。`
+        });
+      }
       this.tasks.transition(taskId, 'completed', { summary });
       this.deps.emit({ type: 'task.completed', at: Date.now(), taskId, summary });
       return;
     }
 
-    if (decision === 'fail_delivery') {
+    if (nextAction === 'fail_delivery') {
       this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '未确认交付');
       this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '停止：交付条件不成立');
       this.deps.emit({
         type: 'log', at: Date.now(), taskId, level: 'warn',
-        message: 'GDC：报告声明完成，但尚未确认交付（计划中的检查未落到可核对的验证结论）；拒绝标记完成'
+        message: `GDC：${cycleDecision.reason}；拒绝标记完成`
       });
       this.tasks.transition(taskId, 'failed', { error: '任务尚未确认交付：计划中的检查未完成或不成立' });
       this.deps.emit({ type: 'task.failed', at: Date.now(), taskId, error: '任务尚未确认交付' });
       return;
     }
 
-    if (decision === 'fail_budget') {
+    if (nextAction === 'fail_budget') {
       this.emitCycleStage(taskId, 'CONCLUSION', 'completed', '预算耗尽');
       this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '停止：达到最大轮数');
       this.tasks.transition(taskId, 'failed', {
-        error: `达到最大轮数 ${String(task.maxRounds)}，任务未完成（GDC 收敛）`
+        error: `达到最大轮数 ${String(task.maxRounds)}，任务未完成（GDC 收敛）：${cycleDecision.reason}`
       });
       this.deps.emit({
         type: 'task.failed',
@@ -3524,7 +3587,7 @@ export class AgentOrchestrator {
       return;
     }
 
-    // decision === 'repair'
+    // nextAction === 'open_next_round'
     this.emitCycleStage(taskId, 'NEXT_DECISION', 'started');
     this.emitCycleStage(taskId, 'NEXT_DECISION', 'completed', '进入下一轮修复');
     this.emitCycleStage(taskId, 'PLANNING', 'started', '修复轮重新规划');

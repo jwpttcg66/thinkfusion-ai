@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import type { CollaborationResultView, ReviewDisposition, SourceReference } from '../../../shared/collaboration-result';
 import type { GoalDrivenWorkbenchView } from '../../../shared/goal-driven-cycle';
+import { cycleDecisionText, latestCycleDecision } from '../../../shared/goal-driven-cycle';
 import type { DmocaWorkbenchView } from '../../../shared/dmoca';
 import type { EcoWorkbenchView } from '../../../shared/eco';
 import { MarkdownBody } from './MarkdownBody';
@@ -60,6 +61,8 @@ export function CollaborationResultPanel(props: {
     Boolean(result.conclusion),
     result.progress.summary
   );
+  // 最近一次周期判定：决策事件的判定理由与落点是同一处产出，这里只做展示。
+  const shownCycleDecision = latestCycleDecision(workbench?.decisions ?? []);
 
   async function decide(
     issueId: string,
@@ -513,6 +516,10 @@ export function CollaborationResultPanel(props: {
             {workbench.artifacts.some(item => item.status === 'superseded') && workbench.decisions.length > 0 ? ' · ' : ''}
             {workbench.decisions.length > 0 ? `处理决定 ${String(workbench.decisions.length)} 条` : ''}
           </p>
+        )}
+
+        {shownCycleDecision && (
+          <p className="muted">{cycleDecisionText(shownCycleDecision)}</p>
         )}
 
         {result.conclusion?.executionResults && result.conclusion.executionResults.length > 0 && (
