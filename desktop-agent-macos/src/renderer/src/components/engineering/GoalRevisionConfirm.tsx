@@ -10,6 +10,9 @@ import { partitionImpactedTasks, type GoalRevisionPendingEvent } from '../../../
  * 否则确认的内容和真正落库的内容可能不是同一份。
  *
  * 「暂不变更」只关卡片，不写任何东西：版本没抬，所以重进任务它还会出现。
+ *
+ * M1-2 目标实体化后，一次修订会带着同目标的全部任务一起抬版本，卡片要把
+ * 「还有谁被带着走」列出来——这份名单同样取事件原文，不在这里重算。
  */
 
 const STATUS_LABEL: Record<string, string> = {
@@ -64,6 +67,12 @@ export function GoalRevisionConfirm(props: {
         </span>
       </div>
       <p className="grc-reason">{pending.reason}</p>
+      {pending.goalTasks && (
+        <p className="muted grc-goal-tasks">
+          本目标下 {String(pending.goalTasks.length)} 条任务一起生效：
+          {pending.goalTasks.map(item => `${item.title}（${STATUS_LABEL[item.status] ?? item.status}）`).join('、')}
+        </p>
+      )}
 
       <div className="grc-cols">
         <div>

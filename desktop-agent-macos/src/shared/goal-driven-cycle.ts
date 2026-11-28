@@ -297,6 +297,12 @@ export interface GoalRevisionPendingEvent {
   impactedTaskIds: string[];
   impactedTasks: { workTaskId: string; title: string; status: string }[];
   inheritedCount: number;
+  /**
+   * V4 M1-2：确认后会同一起生效的同目标任务（事件当时的快照）。
+   * 目标实体化后一次修订不再只动一条任务，卡片必须说清还有谁被带着走。
+   * 老事件没有这个字段，界面按「未记录」处理，不回填。
+   */
+  goalTasks?: { taskId: string; title: string; status: string }[];
   at: number;
 }
 

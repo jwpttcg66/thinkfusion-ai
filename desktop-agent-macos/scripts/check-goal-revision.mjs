@@ -97,8 +97,9 @@ test('别的事件不会被当成待确认，非事件类型也能安全过滤',
 test('源码守卫：重大变更不再只留一行日志', () => {
   const orchestrator = readSource('src/main/orchestrator.ts');
   assert.match(orchestrator, /type: 'goal\.revision\.pending'/);
-  assert.match(orchestrator, /impactedTaskIds: plan\.impactedTaskIds/);
-  assert.match(orchestrator, /inheritedCount: plan\.inheritedTaskIds\.length/);
+  // M1-2 后一次修订按目标扇出：每条待确认事件的影响面取该任务自己的计划，不能是界面传来的那份。
+  assert.match(orchestrator, /impactedTaskIds: target\.plan\.impactedTaskIds/);
+  assert.match(orchestrator, /inheritedCount: target\.plan\.inheritedTaskIds\.length/);
   // 待确认事件必须活过事件裁剪，否则重启后卡片凭空消失。
   const store = readSource('src/main/store.ts');
   assert.match(store, /'goal\.revision\.pending'\n\]\);/);

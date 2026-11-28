@@ -2564,6 +2564,21 @@ export default function App() {
                 <GoalContractCard
                   workbench={engineeringWorkbench}
                   onReviseGoal={reviseTaskGoal}
+                  onCreateTaskInGoal={async prompt => {
+                    // M1-2：挂在当前目标下新建任务，目标口径由后端按实体取，不在这里猜版本。
+                    const created = await window.agentAPI.submitPrompt({
+                      prompt,
+                      permissionPreset: activeTask.permissionPreset,
+                      ...(activeTask.workspaceRoot ? { workspaceRoot: activeTask.workspaceRoot } : {}),
+                      goalId: activeTask.goalId ?? engineeringWorkbench?.goal.goalId ?? `goal:${activeTask.taskId}`
+                    });
+                    await selectTask(created.taskId);
+                    setNotice(
+                      created.goalVersion
+                        ? `已在目标 v${String(created.goalVersion)} 下新建任务「${created.title}」。`
+                        : `已新建任务「${created.title}」，但任务上没记到目标版本。`
+                    );
+                  }}
                 />
                 {/* 主会话只保留时序流；结果大卡 / 任务分解不贴在流尾。完整证据去「轨迹」。 */}
                 <TaskConversation

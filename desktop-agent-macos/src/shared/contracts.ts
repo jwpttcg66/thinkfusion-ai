@@ -2128,6 +2128,11 @@ export type AgentEvent = AgentEventBase &
         impactedTasks: { workTaskId: string; title: string; status: string }[];
         /** 不受影响、可继承成果的子任务数。 */
         inheritedCount: number;
+        /**
+         * V4 M1-2：确认后会一起抬版本的本目标全部任务（事件当时的快照）。
+         * 目标实体化后一次修订不再只动一条任务，卡片要能说清还有谁被带着走。
+         */
+        goalTasks?: { taskId: string; title: string; status: string }[];
         at: number;
       }
 
@@ -2566,6 +2571,8 @@ export interface SubmitPromptInput {
   workspaceRoot?: string;
   /** 任务选定的模型；方案评审只能使用这些模型。 */
   debateAgentIds?: string[];
+  /** V4 M1-2：把这条新任务挂到既有目标下（采用该目标当前版本与成功标准）。 */
+  goalId?: string;
 }
 
 export interface ApprovePlanInput {

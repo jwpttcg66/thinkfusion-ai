@@ -61,12 +61,18 @@ export function GoalContractCard(props: {
     criteria: string[],
     userConfirmedChange: boolean
   ) => Promise<{ requiresUserConfirmation?: boolean } | void>;
+  /** V4 M1-2：在当前目标下新建一条任务（沿用目标当前的版本与成功标准）。 */
+  onCreateTaskInGoal?: (prompt: string) => Promise<void>;
 }) {
   const { workbench } = props;
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newText, setNewText] = useState('');
+  const [creatingBusy, setCreatingBusy] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   const criteria = workbench?.goal.criteria ?? [];
   const currentLines = criteria.length > 0
@@ -100,6 +106,23 @@ export function GoalContractCard(props: {
     }
   }
 
+
+  async function createInGoal(): Promise<void> {
+    if (!props.onCreateTaskInGoal) return;
+    const prompt = newText.trim();
+    if (!prompt) return;
+    setCreatingBusy(true);
+    setCreateError('');
+    try {
+      await props.onCreateTaskInGoal(prompt);
+      setCreating(false);
+      setNewText('');
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreatingBusy(false);
+    }
+  }
 
   return (
     <details className="card goal-contract-card" open>
@@ -163,6 +186,44 @@ export function GoalContractCard(props: {
             ) : (
               <button className="btn ghost" type="button" onClick={() => setEditing(true)}>
                 修改目标 / 成功标准
+              </button>
+            )}
+          </div>
+        )}
+        {props.onCreateTaskInGoal && (
+          <div className="goal-new-task">
+            {creating ? (
+              <>
+                <textarea
+                  className="goal-contract-input"
+                  value={newText}
+                  onChange={event => setNewText(event.target.value)}
+                  rows={3}
+                  aria-label="这条新任务要做什么"
+                  placeholder="这条任务要做什么。它会挂在当前目标下，沿用目标当前的版本与成功标准。"
+                />
+                <div className="goal-contract-actions">
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={creatingBusy || newText.trim() === ''}
+                    onClick={() => void createInGoal()}
+                  >
+                    {creatingBusy ? '提交中…' : '在目标下新建任务'}
+                  </button>
+                  <button className="btn ghost" type="button" disabled={creatingBusy} onClick={() => setCreating(false)}>
+                    取消
+                  </button>
+                </div>
+                {createError && <p className="collab-result-open">{createError}</p>}
+              </>
+            ) : (
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={() => { setCreating(true); setNewText(''); setCreateError(''); }}
+              >
+                在此目标下新建任务
               </button>
             )}
           </div>

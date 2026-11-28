@@ -1,192 +1,267 @@
 {
-  "startedAt": "2026-11-27T15:42:02.393Z",
+  "startedAt": "2026-11-28T00:20:17.832Z",
   "mode": "默认数据目录 / ThinkFusion Dev / CDP 9333",
   "checks": {
     "default-store-readable": {
       "ok": true,
       "detail": "/Users/yalla/Library/Application Support/thinkfusion-ai/agent-store.json",
-      "at": "2026-11-27T15:42:02.394Z"
+      "at": "2026-11-28T00:20:17.834Z"
     },
     "renderer-ready": {
       "ok": true,
       "detail": "CDP 已连接",
-      "at": "2026-11-27T15:42:11.443Z"
+      "at": "2026-11-28T00:20:26.705Z"
     },
     "probe-task-created": {
       "ok": true,
-      "detail": "0a429d96-b37e-44b4-9a78-33dff271142f",
-      "at": "2026-11-27T15:42:12.860Z"
+      "detail": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "at": "2026-11-28T00:20:28.132Z"
     },
     "execution-1-recorded": {
       "ok": true,
       "detail": "{\"outcome\":\"failed\",\"hasReport\":true,\"steps\":{\"total\":1,\"completed\":0,\"failed\":1,\"skipped\":0,\"unknown\":false},\"failures\":1}",
-      "at": "2026-11-27T15:42:13.990Z"
+      "at": "2026-11-28T00:20:29.264Z"
     },
     "execution-1-carries-failure": {
       "ok": true,
       "detail": "outcome=failed 失败步骤 1 条 失败原因 [\"COMMAND_FAILED: 命令退出码 3\"]",
-      "at": "2026-11-27T15:42:13.990Z"
+      "at": "2026-11-28T00:20:29.264Z"
     },
     "execution-1-no-phantom-zero": {
       "ok": true,
       "detail": "sources={\"round\":true,\"report\":true,\"events\":5}",
-      "at": "2026-11-27T15:42:13.990Z"
+      "at": "2026-11-28T00:20:29.264Z"
     },
     "two-executions-distinct-rounds": {
       "ok": true,
-      "detail": "roundId 去重后 2 条",
-      "at": "2026-11-27T15:44:36.489Z"
+      "detail": "roundId 去重后 3 条",
+      "at": "2026-11-28T00:26:41.823Z"
     },
     "executions-not-overwritten": {
       "ok": true,
-      "detail": "第 1 条 79039329-604f-4ecc-88b0-8458925a9956 / 第 2 条 518ed40a-7559-406a-8e53-aa05fc82245c",
-      "at": "2026-11-27T15:44:36.489Z"
+      "detail": "第 1 条 bf6ec399-0ed5-4a19-a755-d99a43168f3e / 第 2 条 b658c95c-99d0-4993-9bbc-b9dae5a09f11",
+      "at": "2026-11-28T00:26:41.823Z"
     },
     "later-execution-not-overwrite-first": {
       "ok": true,
       "detail": "第 1 条仍为 round 1，outcome=failed",
-      "at": "2026-11-27T15:44:36.489Z"
+      "at": "2026-11-28T00:26:41.823Z"
     },
     "run-id-linkage-recorded": {
       "ok": true,
-      "detail": "1:0a429d96-b37e-44b4-9a78-33dff271142f 2:0a429d96-b37e-44b4-9a78-33dff271142f",
-      "at": "2026-11-27T15:44:36.489Z"
+      "detail": "1:2b0a189a-8180-413a-92b7-e1c5000b2586 2:2b0a189a-8180-413a-92b7-e1c5000b2586 3:2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "at": "2026-11-28T00:26:41.823Z"
     },
     "report-less-round-marked-unknown": {
       "ok": true,
-      "detail": "本次每轮都有报告",
-      "at": "2026-11-27T15:44:36.489Z"
+      "detail": "无报告轮 r2",
+      "at": "2026-11-28T00:26:41.823Z"
     },
     "round-input-types-recorded": {
       "ok": true,
-      "detail": "1:user_prompt 2:execution_report",
-      "at": "2026-11-27T15:44:36.495Z"
+      "detail": "1:user_prompt 2:execution_report 3:plan_repair",
+      "at": "2026-11-28T00:26:41.835Z"
     },
     "ui-execution-card-found": {
       "ok": true,
-      "detail": "\"执行历史2 次执行 · 1 次失败\"",
-      "at": "2026-11-27T15:44:38.320Z"
+      "detail": "\"执行历史3 次执行 · 1 次失败\"",
+      "at": "2026-11-28T00:26:43.672Z"
     },
     "ui-execution-rows-match-projection": {
       "ok": true,
-      "detail": "界面 2 条 / 同时刻投影 2 条（快照时 2 条）",
-      "at": "2026-11-27T15:44:38.321Z"
+      "detail": "界面 3 条 / 同时刻投影 3 条（快照时 3 条）",
+      "at": "2026-11-28T00:26:43.672Z"
     },
     "ui-execution-rows-show-outcome": {
       "ok": true,
-      "detail": "[\"执行 #1任务失败23:42:12 → 23:42:13用时 840 ms\",\"执行 #2执行报告完成23:42:31 → 23:44:34用时 2 分 3 秒\"]",
-      "at": "2026-11-27T15:44:38.321Z"
+      "detail": "[\"执行 #1任务失败08:20:27 → 08:20:28用时 863 ms\",\"执行 #2执行报告未收口08:21:36 → 08:23:53用时 2 分 17 秒\",\"执行 #3计划修正部分完成08:23:53 → 08:26:39用时 2 分 46 秒\"]",
+      "at": "2026-11-28T00:26:43.673Z"
     },
     "ui-execution-rows-honest-about-missing": {
       "ok": true,
       "detail": "界面缺报告文案=true",
-      "at": "2026-11-27T15:44:38.321Z"
+      "at": "2026-11-28T00:26:43.673Z"
     },
     "ui-goal-toggle-present": {
       "ok": true,
       "detail": "aria-pressed=true",
-      "at": "2026-11-27T15:44:38.420Z"
+      "at": "2026-11-28T00:26:43.776Z"
     },
     "ui-goal-groups-rendered": {
       "ok": true,
-      "detail": "分组 3 个",
-      "at": "2026-11-27T15:44:38.420Z"
+      "detail": "分组 1 个",
+      "at": "2026-11-28T00:26:43.776Z"
     },
     "ui-goal-grouping-toggle-back": {
       "ok": true,
-      "detail": "关分组后 goal-group=0 task-item=3",
-      "at": "2026-11-27T15:44:39.196Z"
+      "detail": "关分组后 goal-group=0 task-item=1",
+      "at": "2026-11-28T00:26:44.478Z"
+    },
+    "planner-mode": {
+      "ok": true,
+      "detail": "cloud（点名 user:超算:GLM-5.3-Flash）",
+      "at": "2026-11-28T00:26:45.905Z"
+    },
+    "planner-page-ready-for-binding": {
+      "ok": true,
+      "detail": "执行档源就绪：超算 · GLM-5.3-Flash（reload=false）",
+      "at": "2026-11-28T00:26:46.834Z"
+    },
+    "ui-create-in-goal-entry": {
+      "ok": true,
+      "detail": "{\"entry\":{\"found\":true},\"form\":{\"hasTextarea\":true,\"submitFound\":true,\"submitDisabled\":false}}",
+      "at": "2026-11-28T00:26:46.837Z"
+    },
+    "ui-create-in-goal-submitted": {
+      "ok": true,
+      "detail": "true",
+      "at": "2026-11-28T00:26:46.923Z"
     },
     "live-two-tasks-one-goal": {
-      "ok": false,
-      "detail": "无写入路径可产生同目标多任务",
-      "at": "2026-11-27T15:44:39.703Z"
+      "ok": true,
+      "detail": "第二条 38be442b-f2a6-4e06-9fe3-50d0c83c2161 挂在 goal:2b0a189a-8180-413a-92b7-e1c5000b2586 下",
+      "at": "2026-11-28T00:26:47.929Z"
+    },
+    "second-task-inherits-goal": {
+      "ok": true,
+      "detail": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586 vs 第一条 goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "at": "2026-11-28T00:26:47.929Z"
+    },
+    "second-task-inherits-version": {
+      "ok": true,
+      "detail": "第二条 v1 / 目标 v1",
+      "at": "2026-11-28T00:26:47.929Z"
+    },
+    "second-task-inherits-criteria": {
+      "ok": true,
+      "detail": "第二条 [\"工作流全部节点执行完成并各自验证通过\"] / 目标当时 [\"工作流全部节点执行完成并各自验证通过\"]（第一条快照字段 null，标准在它的契约里 1 条）",
+      "at": "2026-11-28T00:26:47.960Z"
+    },
+    "ui-goal-group-has-two-tasks": {
+      "ok": true,
+      "detail": "分组里 2 条：[\"V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。\",\"工作流：V4M1执行历史探针刚刚删除\"]",
+      "at": "2026-11-28T00:26:48.284Z"
+    },
+    "ui-reselected-first-probe": {
+      "ok": true,
+      "detail": "按标题「工作流：V4M1执行历史探针」回选",
+      "at": "2026-11-28T00:26:48.362Z"
+    },
+    "live-goal-grouping-has-binding": {
+      "ok": true,
+      "detail": "[[\"goal:2b0a189a-8180-413a-92b7-e1c5000b2586\",2]]",
+      "at": "2026-11-28T00:26:49.167Z"
     },
     "contract-criteria-read": {
       "ok": true,
       "detail": "1 条：[\"工作流全部节点执行完成并各自验证通过\"]",
-      "at": "2026-11-27T15:44:40.318Z"
+      "at": "2026-11-28T00:26:49.771Z"
     },
     "append-criteria-is-clarify": {
       "ok": true,
       "detail": "kind=clarify requires=false version=1",
-      "at": "2026-11-27T15:44:40.456Z"
+      "at": "2026-11-28T00:26:50.000Z"
     },
     "version-not-bumped-on-clarify": {
       "ok": true,
       "detail": "补充后 v1 / 原来 v1",
-      "at": "2026-11-27T15:44:40.459Z"
+      "at": "2026-11-28T00:26:50.004Z"
     },
     "removal-requires-confirmation": {
       "ok": true,
-      "detail": "kind=change impacted=2",
-      "at": "2026-11-27T15:44:40.511Z"
+      "detail": "kind=change impacted=9",
+      "at": "2026-11-28T00:26:50.104Z"
     },
     "version-unchanged-before-confirm": {
       "ok": true,
       "detail": "确认前 v1 / 基线 v1",
-      "at": "2026-11-27T15:44:40.515Z"
+      "at": "2026-11-28T00:26:50.105Z"
     },
     "structured-event-emitted": {
       "ok": true,
-      "detail": "reason=目标变更影响 2 个未完成任务；已完成且不受影响的成果可继承 impacted=2 next=v2",
-      "at": "2026-11-27T15:44:40.521Z"
+      "detail": "reason=目标变更影响 9 个未完成任务；已完成且不受影响的成果可继承 impacted=9 next=v2",
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-confirm-card-visible": {
       "ok": true,
       "detail": "\"目标变更待确认v1 → v2 · 确认前不抬版本、不改任务\"",
-      "at": "2026-11-27T15:44:40.521Z"
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-card-lists-criteria-and-impact": {
       "ok": true,
-      "detail": "标准 1 条 / 步骤 0 条",
-      "at": "2026-11-27T15:44:40.521Z"
+      "detail": "标准 1 条 / 步骤 7 条",
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-card-impact-count-reconciles": {
       "ok": true,
-      "detail": "受影响 2 条： 可执行步骤 0 条，任务级节点 2 条。 / 事件 impacted=2",
-      "at": "2026-11-27T15:44:40.521Z"
+      "detail": "受影响 9 条： 可执行步骤 7 条，任务级节点 2 条。 / 事件 impacted=9",
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-card-folds-structural-nodes": {
       "ok": true,
-      "detail": "另有 2 条任务级节点（任务本体 / 执行计划组） · 就绪，随下属步骤一起重规划｜步骤行 []",
-      "at": "2026-11-27T15:44:40.522Z"
+      "detail": "另有 2 条任务级节点（任务本体 / 执行计划组） · 就绪，随下属步骤一起重规划｜步骤行 [\"goal.get\",\"session.search\",\"session.search\",\"team.task.list\",\"job.list\",\"schedule.list\",\"fs.tree\"]",
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-card-steps-free-of-aggregate-rows": {
       "ok": true,
-      "detail": "[]",
-      "at": "2026-11-27T15:44:40.522Z"
+      "detail": "[\"goal.get\",\"session.search\",\"session.search\",\"team.task.list\",\"job.list\",\"schedule.list\",\"fs.tree\"]",
+      "at": "2026-11-28T00:26:50.111Z"
+    },
+    "event-carries-goal-tasks": {
+      "ok": true,
+      "detail": "2 条：[{\"taskId\":\"2b0a189a-8180-413a-92b7-e1c5000b2586\",\"title\":\"工作流：V4M1执行历史探针\",\"status\":\"executing\"},{\"taskId\":\"38be442b-f2a6-4e06-9fe3-50d0c83c2161\",\"title\":\"V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。\",\"status\":\"failed\"}]",
+      "at": "2026-11-28T00:26:50.111Z"
+    },
+    "ui-card-lists-goal-tasks": {
+      "ok": true,
+      "detail": "本目标下 2 条任务一起生效：工作流：V4M1执行历史探针（executing）、V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。（失败）",
+      "at": "2026-11-28T00:26:50.111Z"
     },
     "ui-confirm-clicked": {
       "ok": true,
       "detail": "true",
-      "at": "2026-11-27T15:44:40.770Z"
+      "at": "2026-11-28T00:26:50.647Z"
     },
     "version-bumped-after-confirm": {
       "ok": true,
       "detail": "v2",
-      "at": "2026-11-27T15:44:40.773Z"
+      "at": "2026-11-28T00:26:50.648Z"
+    },
+    "fan-out-bumps-sibling-task": {
+      "ok": true,
+      "detail": "第二条 v2 / 应为 v2",
+      "at": "2026-11-28T00:26:50.649Z"
+    },
+    "fan-out-shares-criteria": {
+      "ok": true,
+      "detail": "第二条 [\"工作流全部节点执行完成并各自验证通过\"] / 第一条 [\"工作流全部节点执行完成并各自验证通过\"]",
+      "at": "2026-11-28T00:26:50.649Z"
+    },
+    "goal-entity-persisted": {
+      "ok": true,
+      "detail": "{\"goalId\":\"goal:2b0a189a-8180-413a-92b7-e1c5000b2586\",\"title\":\"工作流：V4M1执行历史探针\",\"version\":2,\"criteria\":[\"工作流全部节点执行完成并各自验证通过\"],\"updatedAt\":1795825610188}",
+      "at": "2026-11-28T00:26:50.663Z"
     },
     "card-dismissed-after-confirm": {
       "ok": true,
       "detail": "刷新后仍在=false",
-      "at": "2026-11-27T15:44:41.982Z"
+      "at": "2026-11-28T00:26:51.872Z"
     },
     "probe-task-deleted": {
       "ok": true,
-      "detail": "before=2 after=2",
-      "at": "2026-11-27T15:44:44.167Z"
+      "detail": "before=0 after=0",
+      "at": "2026-11-28T00:26:54.087Z"
     }
   },
-  "taskId": "0a429d96-b37e-44b4-9a78-33dff271142f",
+  "taskId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
   "executions": [
     {
-      "executionId": "79039329-604f-4ecc-88b0-8458925a9956",
-      "roundId": "79039329-604f-4ecc-88b0-8458925a9956",
+      "executionId": "bf6ec399-0ed5-4a19-a755-d99a43168f3e",
+      "roundId": "bf6ec399-0ed5-4a19-a755-d99a43168f3e",
       "roundNumber": 1,
       "inputType": "user_prompt",
-      "runId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-      "planId": "35d36f13-1c18-4096-b864-7957eb91d946",
+      "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "planId": "8d81fecd-2a39-405b-bc95-aab41a3dbac3",
       "roundStatus": "plan_ready",
       "outcome": "failed",
       "nextAction": "stop",
@@ -209,39 +284,86 @@
       "sources": {
         "round": true,
         "report": true,
-        "events": 10
+        "events": 7
       },
-      "startedAt": 1795794132204,
-      "endedAt": 1795794133044,
-      "durationMs": 840
+      "startedAt": 1795825227456,
+      "endedAt": 1795825228319,
+      "durationMs": 863
     },
     {
-      "executionId": "518ed40a-7559-406a-8e53-aa05fc82245c",
-      "roundId": "518ed40a-7559-406a-8e53-aa05fc82245c",
+      "executionId": "b658c95c-99d0-4993-9bbc-b9dae5a09f11",
+      "roundId": "b658c95c-99d0-4993-9bbc-b9dae5a09f11",
       "roundNumber": 2,
       "inputType": "execution_report",
-      "runId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-      "planId": "ce75ec69-6f2b-434f-be65-b94ea7e0ec15",
+      "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "planId": null,
+      "roundStatus": "plan_invalid",
+      "outcome": null,
+      "nextAction": null,
+      "verified": null,
+      "fullyVerified": null,
+      "changedFiles": null,
+      "steps": {
+        "total": 0,
+        "completed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "unknown": true
+      },
+      "failureReasons": [],
+      "deliverables": [],
+      "evidenceCount": 0,
+      "participants": [
+        {
+          "label": "user:超算/GLM-5.3-Flash",
+          "modelId": "GLM-5.3-Flash",
+          "status": null
+        },
+        {
+          "label": "未记录成员",
+          "modelId": null,
+          "status": null
+        }
+      ],
+      "sources": {
+        "round": true,
+        "report": false,
+        "events": 4
+      },
+      "startedAt": 1795825296235,
+      "endedAt": 1795825433194,
+      "durationMs": 136959
+    },
+    {
+      "executionId": "8de48ffe-80b4-454d-8be6-3e37d211b0a6",
+      "roundId": "8de48ffe-80b4-454d-8be6-3e37d211b0a6",
+      "roundNumber": 3,
+      "inputType": "plan_repair",
+      "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+      "planId": "89ea1b95-ae90-4abd-b99a-b04fca537648",
       "roundStatus": "plan_ready",
-      "outcome": "completed",
-      "nextAction": "continue",
+      "outcome": "partial",
+      "nextAction": "stop",
       "verified": true,
       "fullyVerified": true,
       "changedFiles": 0,
       "steps": {
-        "total": 5,
-        "completed": 5,
-        "failed": 0,
+        "total": 2,
+        "completed": 1,
+        "failed": 1,
         "skipped": 0,
         "unknown": false
       },
-      "failureReasons": [],
+      "failureReasons": [
+        "TOOL_ERROR: 这次执行没有关联会话，无法使用会话级能力",
+        "goal.get: 这次执行没有关联会话，无法使用会话级能力"
+      ],
       "deliverables": [],
-      "evidenceCount": 5,
+      "evidenceCount": 0,
       "participants": [
         {
-          "label": "opencode-go/deepseek-v4.1-flash",
-          "modelId": "deepseek-v4.1-flash",
+          "label": "user:超算/GLM-5.3-Flash",
+          "modelId": "GLM-5.3-Flash",
           "status": null
         },
         {
@@ -253,44 +375,98 @@
       "sources": {
         "round": true,
         "report": true,
-        "events": 22
+        "events": 19
       },
-      "startedAt": 1795794151426,
-      "endedAt": 1795794274418,
-      "durationMs": 122992
+      "startedAt": 1795825433333,
+      "endedAt": 1795825599639,
+      "durationMs": 166306
     }
   ],
   "pendingEvent": {
     "type": "goal.revision.pending",
-    "taskId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "goalId": "goal:0a429d96-b37e-44b4-9a78-33dff271142f",
+    "taskId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "goalId": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
     "fromVersion": 1,
     "nextVersion": 2,
-    "reason": "目标变更影响 2 个未完成任务；已完成且不受影响的成果可继承",
+    "reason": "目标变更影响 9 个未完成任务；已完成且不受影响的成果可继承",
     "nextCriteria": [
       "工作流全部节点执行完成并各自验证通过"
     ],
     "impactedTaskIds": [
-      "wt-work-0a429d96",
-      "wt-group-0a429d96"
+      "wt-work-2b0a189a",
+      "wt-group-2b0a189a",
+      "wt-step-2",
+      "wt-step-3",
+      "wt-step-4",
+      "wt-step-5",
+      "wt-step-6",
+      "wt-step-7",
+      "wt-step-8"
     ],
     "impactedTasks": [
       {
-        "workTaskId": "wt-work-0a429d96",
+        "workTaskId": "wt-work-2b0a189a",
         "title": "执行计划",
         "status": "ready"
       },
       {
-        "workTaskId": "wt-group-0a429d96",
+        "workTaskId": "wt-group-2b0a189a",
         "title": "执行计划",
         "status": "ready"
+      },
+      {
+        "workTaskId": "wt-step-2",
+        "title": "goal.get",
+        "status": "failed"
+      },
+      {
+        "workTaskId": "wt-step-3",
+        "title": "session.search",
+        "status": "pending"
+      },
+      {
+        "workTaskId": "wt-step-4",
+        "title": "session.search",
+        "status": "pending"
+      },
+      {
+        "workTaskId": "wt-step-5",
+        "title": "team.task.list",
+        "status": "pending"
+      },
+      {
+        "workTaskId": "wt-step-6",
+        "title": "job.list",
+        "status": "pending"
+      },
+      {
+        "workTaskId": "wt-step-7",
+        "title": "schedule.list",
+        "status": "pending"
+      },
+      {
+        "workTaskId": "wt-step-8",
+        "title": "fs.tree",
+        "status": "pending"
       }
     ],
-    "inheritedCount": 6,
-    "at": 1795794280485,
-    "eventId": "b391e526-7841-474a-b8b1-3b7c58fa0d9a",
-    "runId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "sequence": 4618,
+    "inheritedCount": 2,
+    "goalTasks": [
+      {
+        "taskId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+        "title": "工作流：V4M1执行历史探针",
+        "status": "executing"
+      },
+      {
+        "taskId": "38be442b-f2a6-4e06-9fe3-50d0c83c2161",
+        "title": "V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。",
+        "status": "failed"
+      }
+    ],
+    "at": 1795825610030,
+    "eventId": "ae91f3e9-e1df-441b-8974-ad9a8618530b",
+    "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "sequence": 9871,
     "phase": "execution"
   },
   "statusSequence": [
@@ -309,33 +485,30 @@
   ],
   "shots": [
     "../docs/implementation/acceptance/v4-p1-m1-20261127/01-execution-history.png",
+    "../docs/implementation/acceptance/v4-p1-m1-20261127/05-create-in-goal.png",
     "../docs/implementation/acceptance/v4-p1-m1-20261127/02-sidebar-goal-grouping.png",
     "../docs/implementation/acceptance/v4-p1-m1-20261127/03-goal-revision-pending.png",
     "../docs/implementation/acceptance/v4-p1-m1-20261127/04-goal-revision-confirmed.png"
   ],
   "notes": [
-    "两轮共用同一个 runId：本次是同一次连续执行的续跑，不是两次独立运行。",
-    "现网数据里没有任何两条任务共用一个 goalId：代码里没有把新任务绑到既有 goalId 的写入路径（task-manager.create 一律写 goal:<taskId>）。M1-2 的「同一 Goal 下 ≥2 Task」真机条件在当前版本无法由界面产生，只验到分组渲染与退回开关。"
+    "两轮共用同一个 runId：本次是同一次连续执行的续跑，不是两次独立运行。"
   ],
   "loopActions": [],
-  "taskIdsBefore": [
-    "9b4f2d6f-dc25-4fe1-889b-b4c24bc61745",
-    "ef852583-7e5e-40da-b193-48d69bbcfc13"
-  ],
+  "taskIdsBefore": [],
   "executionsRound1": {
-    "executionId": "79039329-604f-4ecc-88b0-8458925a9956",
-    "taskId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "roundId": "79039329-604f-4ecc-88b0-8458925a9956",
+    "executionId": "bf6ec399-0ed5-4a19-a755-d99a43168f3e",
+    "taskId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "roundId": "bf6ec399-0ed5-4a19-a755-d99a43168f3e",
     "roundNumber": 1,
     "inputType": "user_prompt",
-    "runId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "planId": "35d36f13-1c18-4096-b864-7957eb91d946",
+    "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "planId": "8d81fecd-2a39-405b-bc95-aab41a3dbac3",
     "roundStatus": "plan_ready",
     "outcome": "failed",
     "nextAction": "stop",
-    "startedAt": 1795794132204,
-    "endedAt": 1795794133044,
-    "durationMs": 840,
+    "startedAt": 1795825227456,
+    "endedAt": 1795825228319,
+    "durationMs": 863,
     "participants": [],
     "steps": {
       "total": 1,
@@ -353,7 +526,7 @@
         "kind": "command",
         "command": "echo v4m1-round1-begins; exit 3",
         "exitCode": 3,
-        "at": 1795794133043
+        "at": 1795825228319
       }
     ],
     "failureReasons": [
@@ -366,25 +539,25 @@
     }
   },
   "round2Sample": {
-    "executionId": "518ed40a-7559-406a-8e53-aa05fc82245c",
-    "taskId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "roundId": "518ed40a-7559-406a-8e53-aa05fc82245c",
-    "roundNumber": 2,
-    "inputType": "execution_report",
-    "runId": "0a429d96-b37e-44b4-9a78-33dff271142f",
-    "planId": "ce75ec69-6f2b-434f-be65-b94ea7e0ec15",
+    "executionId": "8de48ffe-80b4-454d-8be6-3e37d211b0a6",
+    "taskId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "roundId": "8de48ffe-80b4-454d-8be6-3e37d211b0a6",
+    "roundNumber": 3,
+    "inputType": "plan_repair",
+    "runId": "2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "planId": "89ea1b95-ae90-4abd-b99a-b04fca537648",
     "roundStatus": "plan_ready",
-    "outcome": "completed",
-    "nextAction": "continue",
-    "startedAt": 1795794151426,
-    "endedAt": 1795794274418,
-    "durationMs": 122992,
+    "outcome": "partial",
+    "nextAction": "stop",
+    "startedAt": 1795825433333,
+    "endedAt": 1795825599639,
+    "durationMs": 166306,
     "participants": [
       {
         "id": null,
-        "label": "opencode-go/deepseek-v4.1-flash",
-        "providerId": "opencode-go",
-        "modelId": "deepseek-v4.1-flash",
+        "label": "user:超算/GLM-5.3-Flash",
+        "providerId": "user:超算",
+        "modelId": "GLM-5.3-Flash",
         "status": null,
         "answered": true
       },
@@ -398,9 +571,9 @@
       }
     ],
     "steps": {
-      "total": 5,
-      "completed": 5,
-      "failed": 0,
+      "total": 2,
+      "completed": 1,
+      "failed": 1,
       "skipped": 0,
       "unknown": false
     },
@@ -408,95 +581,122 @@
     "fullyVerified": true,
     "changedFiles": 0,
     "deliverables": [],
-    "evidenceRefs": [
-      {
-        "kind": "command",
-        "command": "cat > /private/tmp/v4m1_probe_assert.sh <<'EOF'\n#!/bin/sh\nset -u\necho v4m1-round1-begins\n/bin/sh -c 'exit 3'\nrc=$?\nif [ \"$rc\" -ne 3 ]; then\n  echo \"unexpected exit code: $rc (expected 3)\" >&2\n  exit 1\nfi\necho \"expected-failure-code-3-observed\"\nexit 0\nEOF\nchmod +x /private/tmp/v4m1_probe_assert.sh",
-        "exitCode": 0,
-        "at": 1795794276206
-      },
-      {
-        "kind": "command",
-        "command": "/bin/sh -n /private/tmp/v4m1_probe_assert.sh",
-        "exitCode": 0,
-        "at": 1795794276206
-      },
-      {
-        "kind": "command",
-        "command": "/private/tmp/v4m1_probe_assert.sh",
-        "exitCode": 0,
-        "at": 1795794276206
-      },
-      {
-        "kind": "command",
-        "command": "set -u; out=$(/private/tmp/v4m1_probe_assert.sh); rc=$?; if [ \"$rc\" -ne 0 ]; then echo \"wrapper exit $rc\"; exit 1; fi; printf '%s\\n' \"$out\" | grep -q 'expected-failure-code-3-observed' || { echo \"missing expected marker\"; exit 1; }; set +e; /bin/sh -c 'exit 3' >/tmp/v4m1_inner_out 2>/tmp/v4m1_inner_err; inner=$?; set -e; if [ \"$inner\" -ne 3 ]; then echo \"inner exit $inner\"; exit 1; fi; cat /tmp/v4m1_inner_out",
-        "exitCode": 0,
-        "at": 1795794276206
-      },
-      {
-        "kind": "command",
-        "command": "set -ex; /bin/sh -n /private/tmp/v4m1_probe_assert.sh; grep -n 'expected-failure-code-3-observed' /private/tmp/v4m1_probe_assert.sh; grep -n 'rc.*-ne 3' /private/tmp/v4m1_probe_assert.sh; wc -l /private/tmp/v4m1_probe_assert.sh",
-        "exitCode": 0,
-        "at": 1795794276206
-      }
+    "evidenceRefs": [],
+    "failureReasons": [
+      "TOOL_ERROR: 这次执行没有关联会话，无法使用会话级能力",
+      "goal.get: 这次执行没有关联会话，无法使用会话级能力"
     ],
-    "failureReasons": [],
     "sources": {
       "round": true,
       "report": true,
-      "events": 22
+      "events": 19
     }
   },
   "tabSwitched": false,
   "statsProjection": {
     "found": true,
-    "headText": "执行历史2 次执行 · 1 次失败",
-    "itemCount": 2,
+    "headText": "执行历史3 次执行 · 1 次失败",
+    "itemCount": 3,
     "itemHeads": [
-      "执行 #1任务失败23:42:12 → 23:42:13用时 840 ms",
-      "执行 #2执行报告完成23:42:31 → 23:44:34用时 2 分 3 秒"
+      "执行 #1任务失败08:20:27 → 08:20:28用时 863 ms",
+      "执行 #2执行报告未收口08:21:36 → 08:23:53用时 2 分 17 秒",
+      "执行 #3计划修正部分完成08:23:53 → 08:26:39用时 2 分 46 秒"
     ],
-    "hasEvidence": false,
+    "hasEvidence": true,
     "showsMissing": true
   },
   "executionsAtRender": [
     {
       "roundNumber": 1,
-      "roundId": "79039329-604f-4ecc-88b0-8458925a9956",
+      "roundId": "bf6ec399-0ed5-4a19-a755-d99a43168f3e",
       "outcome": "failed",
       "sources": {
         "round": true,
         "report": true,
-        "events": 10
+        "events": 7
       }
     },
     {
       "roundNumber": 2,
-      "roundId": "518ed40a-7559-406a-8e53-aa05fc82245c",
-      "outcome": "completed",
+      "roundId": "b658c95c-99d0-4993-9bbc-b9dae5a09f11",
+      "outcome": null,
+      "sources": {
+        "round": true,
+        "report": false,
+        "events": 4
+      }
+    },
+    {
+      "roundNumber": 3,
+      "roundId": "8de48ffe-80b4-454d-8be6-3e37d211b0a6",
+      "outcome": "partial",
       "sources": {
         "round": true,
         "report": true,
-        "events": 22
+        "events": 19
       }
     }
   ],
   "sidebarProjection": {
     "toggleFound": true,
     "togglePressed": "true",
-    "groupCount": 3,
+    "groupCount": 1,
     "groupHeads": [
-      "工作流：V4M1执行历史探针v11",
-      "工作流：工作流：P0-4 暂停检查点探针v11",
-      "工作流：工作流：P0-4 暂停检查点探针v11"
+      "工作流：V4M1执行历史探针v11"
     ],
     "unboundShown": false
   },
   "probeGoal": {
-    "goalId": "goal:0a429d96-b37e-44b4-9a78-33dff271142f",
-    "goalVersion": 1
+    "goalId": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "goalVersion": 1,
+    "title": "工作流：V4M1执行历史探针"
   },
-  "tasksSharingGoal": [],
+  "plannerStatus": {
+    "id": "user:超算:GLM-5.3-Flash",
+    "label": "超算 · GLM-5.3-Flash",
+    "type": "cloud"
+  },
+  "plannerMode": {
+    "mode": "cloud",
+    "selected": [
+      "user:超算:GLM-5.3-Flash"
+    ],
+    "webLed": false
+  },
+  "plannerReloaded": false,
+  "secondTaskId": "38be442b-f2a6-4e06-9fe3-50d0c83c2161",
+  "secondTaskBinding": {
+    "goalId": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "goalVersion": 1,
+    "goalCriteria": [
+      "工作流全部节点执行完成并各自验证通过"
+    ],
+    "contractCriteria": [],
+    "status": "planning"
+  },
+  "firstTaskAtBind": {
+    "goalId": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "goalVersion": 1,
+    "goalCriteria": null,
+    "contractCriteria": [
+      "工作流全部节点执行完成并各自验证通过"
+    ],
+    "status": "executing"
+  },
+  "goalEntityAtBind": null,
+  "goalGroupAfterBind": {
+    "groupCount": 1,
+    "items": [
+      "V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。",
+      "工作流：V4M1执行历史探针刚刚删除"
+    ]
+  },
+  "tasksSharingGoal": [
+    [
+      "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+      2
+    ]
+  ],
   "contractCriteriaBeforeBaseline": [
     "工作流全部节点执行完成并各自验证通过"
   ],
@@ -507,14 +707,17 @@
     "requiresUserConfirmation": false,
     "impactedTaskIds": [],
     "inheritedTaskIds": [
-      "wt-work-0a429d96",
-      "wt-group-0a429d96",
+      "wt-work-2b0a189a",
+      "wt-group-2b0a189a",
       "wt-must-fail",
-      "wt-write-wrapper-assert",
-      "wt-compile-syntax",
-      "wt-run-wrapper",
-      "wt-test-assertion",
-      "wt-diagnostics"
+      "wt-step-1",
+      "wt-step-2",
+      "wt-step-3",
+      "wt-step-4",
+      "wt-step-5",
+      "wt-step-6",
+      "wt-step-7",
+      "wt-step-8"
     ],
     "reason": "目标澄清：成功标准只是补充，不构成版本变更"
   },
@@ -525,40 +728,62 @@
     "versionChanged": true,
     "requiresUserConfirmation": true,
     "impactedTaskIds": [
-      "wt-work-0a429d96",
-      "wt-group-0a429d96"
+      "wt-work-2b0a189a",
+      "wt-group-2b0a189a",
+      "wt-step-2",
+      "wt-step-3",
+      "wt-step-4",
+      "wt-step-5",
+      "wt-step-6",
+      "wt-step-7",
+      "wt-step-8"
     ],
     "inheritedTaskIds": [
       "wt-must-fail",
-      "wt-write-wrapper-assert",
-      "wt-compile-syntax",
-      "wt-run-wrapper",
-      "wt-test-assertion",
-      "wt-diagnostics"
+      "wt-step-1"
     ],
-    "reason": "目标变更影响 2 个未完成任务；已完成且不受影响的成果可继承"
+    "reason": "目标变更影响 9 个未完成任务；已完成且不受影响的成果可继承"
   },
   "confirmCard": {
     "found": true,
     "head": "目标变更待确认v1 → v2 · 确认前不抬版本、不改任务",
-    "reason": "目标变更影响 2 个未完成任务；已完成且不受影响的成果可继承",
-    "summary": "受影响 2 条： 可执行步骤 0 条，任务级节点 2 条。",
+    "reason": "目标变更影响 9 个未完成任务；已完成且不受影响的成果可继承",
+    "summary": "受影响 9 条： 可执行步骤 7 条，任务级节点 2 条。",
     "criteria": [
       "工作流全部节点执行完成并各自验证通过"
     ],
-    "impacted": [],
+    "impacted": [
+      "goal.get",
+      "session.search",
+      "session.search",
+      "team.task.list",
+      "job.list",
+      "schedule.list",
+      "fs.tree"
+    ],
     "structural": "另有 2 条任务级节点（任务本体 / 执行计划组） · 就绪，随下属步骤一起重规划",
+    "goalTasks": "本目标下 2 条任务一起生效：工作流：V4M1执行历史探针（executing）、V4M1执行历史探针 同目标：只回答上一轮执行历史是否已记录，不要修改任何文件。（失败）",
     "buttons": [
       "确认变更",
       "暂不变更"
     ]
   },
   "goalVersionAfterConfirm": 2,
-  "contractUpdatedAfterConfirm": true,
-  "reupsertedAfterConfirm": 12,
-  "taskIdsAfter": [
-    "9b4f2d6f-dc25-4fe1-889b-b4c24bc61745",
-    "ef852583-7e5e-40da-b193-48d69bbcfc13"
+  "siblingVersionAfterConfirm": 2,
+  "siblingCriteriaAfterConfirm": [
+    "工作流全部节点执行完成并各自验证通过"
   ],
-  "finishedAt": "2026-11-27T15:44:44.167Z"
+  "storedGoal": {
+    "goalId": "goal:2b0a189a-8180-413a-92b7-e1c5000b2586",
+    "title": "工作流：V4M1执行历史探针",
+    "version": 2,
+    "criteria": [
+      "工作流全部节点执行完成并各自验证通过"
+    ],
+    "updatedAt": 1795825610188
+  },
+  "contractUpdatedAfterConfirm": true,
+  "reupsertedAfterConfirm": 22,
+  "taskIdsAfter": [],
+  "finishedAt": "2026-11-28T00:26:54.087Z"
 }

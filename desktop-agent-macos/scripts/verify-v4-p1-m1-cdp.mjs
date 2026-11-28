@@ -10,7 +10,9 @@
  *   所以第 2 条执行不需要额外调用 resumeRepair；脚本只负责在循环停住时把它推回去
  *   （等审批就放行、等回答就答复、已暂停就恢复）；
  * - 目标修订先用「补两条标准」（不抬版本）落基线，再删一条 → 触发 requiresUserConfirmation，
- *   验证 goal.revision.pending 事件、确认卡与确认后的版本抬升。
+ *   验证 goal.revision.pending 事件、确认卡与确认后的版本抬升；
+ * - M1-2 目标实体化：走界面「在此目标下新建任务」产生第二条同目标任务，验证新任务沿用目标的
+ *   版本与标准、确认卡列出一起生效的同目标名单、确认后两条任务与 `store.goals` 同步抬版本。
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -395,7 +397,6 @@ async function phases() {
   evidence.sidebarProjection = sidebarView;
   note('ui-goal-toggle-present', sidebarView.toggleFound === true, `aria-pressed=${String(sidebarView.togglePressed)}`);
   note('ui-goal-groups-rendered', sidebarView.groupCount >= 1, `分组 ${String(sidebarView.groupCount)} 个`);
-  await shot('02-sidebar-goal-grouping.png');
   // 退回开关：关掉分组必须回到平铺。
   const flatView = await ev(`(() => {
     const toggle = [...document.querySelectorAll('.side-icon')].find(node => (node.getAttribute('title') ?? '').includes('目标'));
@@ -416,8 +417,174 @@ async function phases() {
     return true;
   })()`);
   await sleep(500);
-  const goalOfProbe = await ev(`window.agentAPI.getTask(${JSON.stringify(taskId)}).then(task => ({ goalId: task.goalId ?? null, goalVersion: task.goalVersion ?? null }))`, 30000);
+  const goalOfProbe = await ev(`window.agentAPI.getTask(${JSON.stringify(taskId)}).then(task => ({ goalId: task.goalId ?? null, goalVersion: task.goalVersion ?? null, title: task.title ?? '' }))`, 30000);
   evidence.probeGoal = goalOfProbe;
+
+  /* ---------------- M1-2 目标实体化：在同一个目标下再建一条任务 ---------------- */
+  await openTab('对话');
+  await sleep(900);
+  /**
+   * 「在此目标下新建任务」要求这一轮真的有一个可用的规划源，探法按设置里的执行档：
+   * 网页 / 混合档探内嵌页面（没就绪就 reload 一次再等它加载完），云端 / 本地档探
+   * 执行档点名的模型 / CLI 通道。网页源不能被别的档借用（AGENTS.md §9.1）——
+   * 上一轮真机就是在这里吃到「ChatGPT 未登录：页面尚未加载」，而执行档其实是云端档，
+   * 那条链根本没资格去问网页。webview 从没创建过也不等于没登录，所以要探一次。
+   */
+  const defaults = await ev(`window.agentAPI.getExecutionDefaults().catch(() => null)`, 20000).catch(() => null);
+  const plannerMode = defaults?.executionMode ?? 'web';
+  const plannerSelected = [
+    ...(defaults?.selectedCloudModels ?? []),
+    ...(defaults?.selectedLocalModels ?? []),
+    ...(defaults?.selectedCliAgents ?? [])
+  ];
+  const plannerWebLed = plannerMode === 'web' || plannerMode === 'hybrid';
+  note('planner-mode', true, `${plannerMode}（点名 ${plannerSelected.length > 0 ? plannerSelected.join('、') : '未点名，按该类可用源'}）`);
+  const plannerReady = async () => plannerWebLed
+    ? ev(`window.agentAPI.getDeepSeekStatus().catch(err => ({ detail: String(err) }))`, 30000)
+      .then(status => (status?.pageReady && status?.loggedIn ? status : null))
+      .catch(() => null)
+    // 模型源不在「通道状态」里（那份名单只有网页通道 + CLI），云端 / 本地档要探的是
+    // 辩论候选：它把网页、Provider、CLI 都按 id 真探一次 available，正对应「这一轮能不能真的问它」。
+    : ev(`window.agentAPI.getExecutionOptions().then(o => (o.debateCandidates ?? []).filter(c => c.available).map(c => ({ id: c.id, label: c.label, type: c.type })))`, 90000)
+      .then(list => (list ?? []).find(c => plannerSelected.length === 0
+        || plannerSelected.includes(c.id)
+        || plannerSelected.includes(c.id.replace(/^cli:/, ''))) ?? null)
+      .catch(() => null);
+  let plannerStatus = await plannerReady();
+  const plannerReloaded = plannerWebLed && !plannerStatus;
+  if (plannerWebLed && !plannerStatus) {
+    await ev(`window.agentAPI.reloadPage()`, 90000).catch(() => null);
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline && !plannerStatus) {
+      await sleep(2000);
+      plannerStatus = await plannerReady();
+    }
+  }
+  const plannerRaw = plannerWebLed
+    ? await ev(`window.agentAPI.getDeepSeekStatus().catch(err => ({ detail: String(err) }))`, 30000).catch(() => null)
+    : plannerStatus;
+  evidence.plannerStatus = plannerRaw;
+  evidence.plannerMode = { mode: plannerMode, selected: plannerSelected, webLed: plannerWebLed };
+  evidence.plannerReloaded = plannerReloaded;
+  const canBind = Boolean(plannerStatus);
+  note('planner-page-ready-for-binding', canBind,
+    canBind
+      ? `${plannerWebLed ? '网页通道' : '执行档源'}就绪：${plannerRaw?.label ?? plannerRaw?.url ?? 'ok'}（reload=${String(plannerReloaded)}）`
+      : `未就绪：${JSON.stringify(plannerRaw ?? { mode: plannerMode, selected: plannerSelected })?.slice(0, 160)}`);
+  const SECOND_MARK = `${PROBE_MARK} 同目标`;
+  const entryView = canBind ? await ev(`(() => {
+    const card = document.querySelector('.goal-contract-card');
+    const button = card ? [...card.querySelectorAll('button')].find(node => (node.textContent ?? '').includes('在此目标下新建任务')) : null;
+    if (!button) return { found: false, buttons: card ? [...card.querySelectorAll('button')].map(node => (node.textContent ?? '').trim()) : null };
+    button.click();
+    return { found: true };
+  })()`) : { found: false, skipped: '规划页面未就绪' };
+  // React 的展开与受控值都是异步的：点完当场查 DOM 只会拍到旧的那颗按钮，
+  // 按钮在文本落进 state 之前还是 disabled，立刻 click 等于没提交。
+  const formView = canBind ? await waitFor(async () => {
+    const view = await ev(`(() => {
+      const node = document.querySelector('.goal-contract-card textarea[aria-label="这条新任务要做什么"]');
+      if (!node) return { hasTextarea: false };
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(node, ${JSON.stringify(`${SECOND_MARK}：只回答上一轮执行历史是否已记录，不要修改任何文件。`)});
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      const submit = [...(document.querySelector('.goal-contract-card')?.querySelectorAll('button') ?? [])]
+        .find(item => (item.textContent ?? '').trim() === '在目标下新建任务');
+      return { hasTextarea: true, submitFound: Boolean(submit), submitDisabled: submit?.disabled ?? null };
+    })()`);
+    return view?.hasTextarea === true && view?.submitDisabled === false ? view : null;
+  }, '新建任务表单展开且提交按钮可用', 20000).catch(() => null) : null;
+  note('ui-create-in-goal-entry', entryView?.found === true && formView?.hasTextarea === true,
+    JSON.stringify({ entry: entryView, form: formView }).slice(0, 200));
+  // 取图取在表单展开这一刻：提交后卡片会收起，再截就拍不到「在此目标下新建任务」的入口了。
+  if (canBind && formView?.hasTextarea === true) await shot('05-create-in-goal.png');
+  const submitted = canBind ? await ev(`(() => {
+    const card = document.querySelector('.goal-contract-card');
+    const button = card ? [...card.querySelectorAll('button')].find(node => (node.textContent ?? '').trim() === '在目标下新建任务') : null;
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`) : false;
+  note('ui-create-in-goal-submitted', submitted === true, String(submitted));
+  const second = canBind ? await waitFor(async () => {
+    const list = await ev(`window.agentAPI.getTaskHistory()`, 30000).catch(() => []);
+    return (list ?? []).find(item => item.taskId !== taskId && String(item.title ?? '').includes(SECOND_MARK)) ?? null;
+  }, '目标下新建的任务出现在历史里', 90000).catch(() => null) : null;
+  const createError = await ev(`(() => {
+    const el = document.querySelector('.goal-contract-card .collab-result-open');
+    return el ? (el.textContent ?? '').trim() : '';
+  })()`);
+  const secondTaskId = second?.taskId ?? null;
+  evidence.secondTaskId = secondTaskId;
+  if (!secondTaskId) {
+    note('live-two-tasks-one-goal', false,
+      canBind ? `界面新建任务没成功：${createError || '历史里没出现新任务'}` : `执行档点名的规划源未就绪，未尝试提交：${JSON.stringify(plannerRaw ?? { mode: plannerMode, selected: plannerSelected }).slice(0, 140)}`);
+    remark('「在此目标下新建任务」这条路在真机上没走通，M1-2 的「同一 Goal 下 ≥2 Task」仍未取得现场证据。');
+  } else {
+    // 两条任务在同一刻各读一份，基准取目标实体（读不到再退到第一条的契约）：
+    // 上一轮拿「第一条的 goalCriteria」当基准，判成 0 条不一致，其实是基准选错了。
+    const readGoal = id => ev(`window.agentAPI.getTask(${JSON.stringify(id)}).then(task => ({
+      goalId: task.goalId ?? null,
+      goalVersion: task.goalVersion ?? null,
+      goalCriteria: task.goalCriteria ?? null,
+      contractCriteria: (task.goalContract?.criteria ?? []).map(item => item.description),
+      status: String(task.status)
+    }))`, 30000);
+    const [bound, firstNow] = await Promise.all([readGoal(secondTaskId), readGoal(taskId)]);
+    evidence.secondTaskBinding = bound;
+    evidence.firstTaskAtBind = firstNow;
+    note('live-two-tasks-one-goal', true, `第二条 ${secondTaskId} 挂在 ${String(bound?.goalId ?? '-')} 下`);
+    note('second-task-inherits-goal', bound?.goalId === goalOfProbe.goalId,
+      `${String(bound?.goalId ?? '-')} vs 第一条 ${String(goalOfProbe.goalId ?? '-')}`);
+    note('second-task-inherits-version', (bound?.goalVersion ?? 0) >= (goalOfProbe.goalVersion ?? 1),
+      `第二条 v${String(bound?.goalVersion ?? '-')} / 目标 v${String(goalOfProbe.goalVersion ?? '-')}`);
+    // M1-2 的口径是「新任务沿用目标当时的标准」，基准得是目标本身：第一条是目标的来源，
+    // 它的标准存在契约里（`task.goalCriteria` 只在「绑定到既有目标」时才写，见 orchestrator.ts:412），
+    // 拿第一条那个空字段当基准是在验设想而不是验行为。「两条不能各留一套标准」留到确认扇出后验
+    // （`fan-out-shares-criteria`），那才是必须相同的地方。
+    const goalEntityAtBind = (() => {
+      try {
+        const goals = JSON.parse(fs.readFileSync(STORE, 'utf8')).goals ?? [];
+        return goals.find(item => item.goalId === goalOfProbe.goalId) ?? null;
+      } catch { return null; }
+    })();
+    const inheritBaseline = goalEntityAtBind?.criteria ?? firstNow?.contractCriteria ?? [];
+    evidence.goalEntityAtBind = goalEntityAtBind;
+    note('second-task-inherits-criteria',
+      JSON.stringify(bound?.goalCriteria ?? []) === JSON.stringify(inheritBaseline),
+      `第二条 ${JSON.stringify(bound?.goalCriteria ?? [])} / 目标当时 ${JSON.stringify(inheritBaseline)}（第一条快照字段 ${JSON.stringify(firstNow?.goalCriteria ?? null)}，标准在它的契约里 ${String(firstNow?.contractCriteria?.length ?? 0)} 条）`);
+    // 绑定证据已到手，立刻停掉第二条的规划：两个任务抢同一个页面没有意义。
+    await ev(`window.agentAPI.cancelTask(${JSON.stringify(secondTaskId)})`, 30000).catch(() => null);
+  }
+  const groupView = await ev(`(() => {
+    const mark = ${JSON.stringify(PROBE_MARK)};
+    const groups = [...document.querySelectorAll('.goal-group')];
+    const hit = groups.find(group => (group.textContent ?? '').includes(mark));
+    return {
+      groupCount: groups.length,
+      items: hit ? [...hit.querySelectorAll('.task-item')].map(node => (node.textContent ?? '').trim().slice(0, 40)) : []
+    };
+  })()`);
+  evidence.goalGroupAfterBind = groupView;
+  note('ui-goal-group-has-two-tasks', (groupView.items ?? []).length >= 2,
+    `分组里 ${String(groupView.items?.length ?? 0)} 条：${JSON.stringify(groupView.items ?? [])}`);
+  // 分组证据要拍「同一目标下真有两条任务」这一刻；上一轮这张拍在只有一条任务的时刻，
+  // 结果和统计页那张字节完全相同，等于没有独立证据。
+  await shot('02-sidebar-goal-grouping.png');
+  // 新建任务把活动任务切到了第二条，后面的 M1-3 断言全部针对第一条，必须切回去。
+  const reselected = await ev(`(() => {
+    const title = ${JSON.stringify(goalOfProbe.title)};
+    const nodes = [...document.querySelectorAll('.task-item')];
+    const target = nodes.find(node => {
+      const text = node.textContent ?? '';
+      return text.includes(title) && !text.includes(${JSON.stringify(SECOND_MARK)});
+    });
+    if (!target) return false;
+    target.click();
+    return true;
+  })()`);
+  note('ui-reselected-first-probe', reselected === true, `按标题「${goalOfProbe.title}」回选`);
+  await sleep(800);
   const sharedGoal = await ev(`window.agentAPI.getTaskHistory().then(list => {
     const byGoal = new Map();
     for (const item of list) { const key = item.goalId ?? '(none)'; byGoal.set(key, (byGoal.get(key) ?? 0) + 1); }
@@ -425,10 +592,10 @@ async function phases() {
   })`, 30000);
   evidence.tasksSharingGoal = sharedGoal;
   if ((sharedGoal ?? []).length === 0) {
-    remark('现网数据里没有任何两条任务共用一个 goalId：代码里没有把新任务绑到既有 goalId 的写入路径（task-manager.create 一律写 goal:<taskId>）。M1-2 的「同一 Goal 下 ≥2 Task」真机条件在当前版本无法由界面产生，只验到分组渲染与退回开关。');
-    note('live-two-tasks-one-goal', false, '无写入路径可产生同目标多任务');
+    remark('历史里没有任何两条任务共用一个 goalId：目标实体化后的绑定链路没在真机上产生分组，M1-2 的同目标条件未达成。');
+    note('live-goal-grouping-has-binding', false, '无同目标多任务');
   } else {
-    note('live-two-tasks-one-goal', true, JSON.stringify(sharedGoal));
+    note('live-goal-grouping-has-binding', true, JSON.stringify(sharedGoal));
   }
 
   /* ---------------- M1-3：目标变更影响面确认 ---------------- */
@@ -484,6 +651,7 @@ async function phases() {
       criteria: [...card.querySelectorAll('.grc-criteria li')].map(node => node.textContent ?? ''),
       impacted: stepRows.map(node => (node.querySelector('.grc-impacted-title')?.textContent ?? '').trim()),
       structural: (card.querySelector('.grc-structural')?.textContent ?? '').trim(),
+      goalTasks: (card.querySelector('.grc-goal-tasks')?.textContent ?? '').trim(),
       buttons: [...card.querySelectorAll('button')].map(node => (node.textContent ?? '').trim())
     };
   })()`);
@@ -505,6 +673,14 @@ async function phases() {
   // 汇总节点不该再顶着一行「执行计划」混在步骤里。
   note('ui-card-steps-free-of-aggregate-rows', (cardView.impacted ?? []).every(title => title !== '执行计划'),
     JSON.stringify(cardView.impacted ?? []));
+  // M1-2：确认卡必须说出「确认后同目标哪些任务一起生效」，否则用户以为只改了自己这一条。
+  const eventGoalTasks = (lastPending.goalTasks ?? []).map(item => item.taskId);
+  note('event-carries-goal-tasks', eventGoalTasks.length >= (secondTaskId ? 2 : 1),
+    `${String(eventGoalTasks.length)} 条：${JSON.stringify(lastPending.goalTasks ?? null)}`);
+  note('ui-card-lists-goal-tasks', secondTaskId
+    ? (cardView.goalTasks ?? '').includes('条任务一起生效') && (cardView.goalTasks ?? '').includes(SECOND_MARK)
+    : (cardView.goalTasks ?? '').includes('条任务一起生效'),
+    cardView.goalTasks || '确认卡没有同目标一行');
   await shot('03-goal-revision-pending.png');
 
   const confirmed = await ev(`(() => {
@@ -521,6 +697,38 @@ async function phases() {
   }, '确认后目标版本抬起', 120000);
   evidence.goalVersionAfterConfirm = bumped?.goalVersion ?? null;
   note('version-bumped-after-confirm', Boolean(bumped), `v${String(bumped?.goalVersion ?? '-')}`);
+  // 目标实体化：确认后同目标的任务要一起抬版本并共用同一份标准，只动被点的那条不算生效。
+  const sibling = secondTaskId
+    ? await waitFor(async () => {
+        const view = await ev(`window.agentAPI.getTask(${JSON.stringify(secondTaskId)}).then(task => ({
+          goalVersion: task.goalVersion ?? null,
+          goalCriteria: task.goalCriteria ?? null
+        }))`, 30000).catch(() => null);
+        return Number(view?.goalVersion ?? 0) >= lastPending.nextVersion ? view : null;
+      }, '同目标第二条任务一起抬版本', 60000).catch(() => null)
+    : null;
+  evidence.siblingVersionAfterConfirm = sibling?.goalVersion ?? null;
+  evidence.siblingCriteriaAfterConfirm = sibling?.goalCriteria ?? null;
+  note('fan-out-bumps-sibling-task', secondTaskId ? Number(sibling?.goalVersion ?? 0) >= lastPending.nextVersion : false,
+    secondTaskId
+      ? `第二条 v${String(sibling?.goalVersion ?? '-')} / 应为 v${String(lastPending.nextVersion)}`
+      : '没有第二条同目标任务，扇出无从验证');
+  // 扇出抬版本之外，成功标准也必须是同一份：只改版本号、两条各留一套标准，
+  // 目标聚合视图就成了假的。
+  note('fan-out-shares-criteria', secondTaskId
+    ? JSON.stringify(sibling?.goalCriteria ?? null) === JSON.stringify(bumped?.goalCriteria ?? null)
+      && (bumped?.goalCriteria ?? []).length >= 1
+    : false,
+  `第二条 ${JSON.stringify(sibling?.goalCriteria ?? [])} / 第一条 ${JSON.stringify(bumped?.goalCriteria ?? [])}`);
+  const storedGoal = (() => {
+    try {
+      const goals = JSON.parse(fs.readFileSync(STORE, 'utf8')).goals ?? [];
+      return goals.find(item => item.goalId === goalOfProbe.goalId) ?? null;
+    } catch { return null; }
+  })();
+  evidence.storedGoal = storedGoal;
+  note('goal-entity-persisted', Boolean(storedGoal) && Number(storedGoal?.version ?? 0) >= lastPending.nextVersion && (storedGoal?.criteria?.length ?? 0) >= 1,
+    JSON.stringify(storedGoal ?? null).slice(0, 220));
   const afterEvents = await events();
   evidence.contractUpdatedAfterConfirm = afterEvents.some(event => event.type === 'goal.contract.updated');
   evidence.reupsertedAfterConfirm = afterEvents.filter(event => event.type === 'work.task.upserted').length;
@@ -570,11 +778,11 @@ try {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(path.join(OUT_DIR, 'evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`);
   const lines = [
-    '# V4 P1 M1 真机验收：执行历史 / 目标分组 / 目标变更影响面',
+    '# V4 P1 M1 真机验收：执行历史 / 目标实体化与分组 / 目标变更影响面',
     '',
     '- 启动方式：' + evidence.mode,
     '- 数据目录：默认 `~/Library/Application Support/thinkfusion-ai`（未提供 THINKFUSION_USER_DATA，未复制用户数据）',
-    `- 探针任务：${evidence.taskId ?? '未创建'}（验收后删除；任务数 ${String(evidence.taskIdsBefore?.length ?? '?')} → ${String(evidence.taskIdsAfter?.length ?? '?')}）`,
+    `- 探针任务：${evidence.taskId ?? '未创建'}${evidence.secondTaskId ? ` + 目标下新建 ${evidence.secondTaskId}` : ''}（验收后删除；任务数 ${String(evidence.taskIdsBefore?.length ?? '?')} → ${String(evidence.taskIdsAfter?.length ?? '?')}）`,
     '',
     '## 结果',
     '',
@@ -601,6 +809,18 @@ try {
     '```json',
     JSON.stringify(evidence.pendingEvent, null, 2),
     '```',
+    '',
+    '## 目标实体化（M1-2：同目标多任务）',
+    '',
+    // 新建任务这条必须按执行档挑源，不能悄悄退回网页（AGENTS.md §9.1）。
+    `- 这一轮的执行档：${JSON.stringify(evidence.plannerMode ?? null)}；就绪的规划源：${JSON.stringify(evidence.plannerStatus ?? null).slice(0, 220)}`,
+    `- 第一条任务的目标：${JSON.stringify(evidence.probeGoal ?? null)}`,
+    `- 界面「在此目标下新建任务」产生：${evidence.secondTaskId ?? '未产生'}，绑定 ${JSON.stringify(evidence.secondTaskBinding ?? null)}`,
+    `- 侧栏分组内容：${JSON.stringify(evidence.goalGroupAfterBind ?? null)}`,
+    `- 绑定时两条的快照：第一条 ${JSON.stringify(evidence.firstTaskAtBind ?? null).slice(0, 200)} / 第二条 ${JSON.stringify(evidence.secondTaskBinding ?? null).slice(0, 200)}`,
+    `- 绑定时目标实体（继承基准）：${JSON.stringify(evidence.goalEntityAtBind ?? 'store 里还没落盘，改用第一条契约标准')}`,
+    `- 确认后第二条：v${String(evidence.siblingVersionAfterConfirm ?? '未同步')}，标准 ${JSON.stringify(evidence.siblingCriteriaAfterConfirm ?? null)}`,
+    `- 落库目标实体 \`store.goals\`：${JSON.stringify(evidence.storedGoal ?? null)}`,
     '',
     '## 说明与未覆盖项',
     '',

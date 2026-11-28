@@ -7458,3 +7458,7 @@ button:disabled {
   font-size: 12px;
   opacity: 0.78;
 }
+
+/* V4 M1-2：同目标一起生效的任务，与「在此目标下新建任务」入口 */
+.grc-goal-tasks { margin: 0 0 8px; font-size: 12px; }
+.goal-new-task { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.1); }

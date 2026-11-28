@@ -19,7 +19,7 @@ export interface GoalViewTask {
   updatedAt?: number;
   goalId?: string;
   goalVersion?: number;
-  goalContract?: { goalId?: string; originalRequest?: string; goalVersion?: number };
+  goalContract?: { goalId?: string; originalRequest?: string; goalVersion?: number; criteria?: readonly { description: string }[] };
 }
 
 export interface GoalGroup<T extends GoalViewTask> {
@@ -41,14 +41,15 @@ export interface GoalGroup<T extends GoalViewTask> {
 }
 
 /** 任务真正挂在哪条目标上：任务字段优先，其次契约正文里的 goalId。 */
-function goalIdOf(task: GoalViewTask): string | null {
+export function goalIdOf(task: GoalViewTask): string | null {
   const fromTask = typeof task.goalId === 'string' ? task.goalId.trim() : '';
   if (fromTask) return fromTask;
   const fromContract = typeof task.goalContract?.goalId === 'string' ? task.goalContract.goalId.trim() : '';
   return fromContract || null;
 }
 
-function versionOf(task: GoalViewTask): number | null {
+/** 任务记的目标版本：任务字段优先，其次契约里的版本；都没记就返回 null，不顶成 v1。 */
+export function goalVersionOf(task: GoalViewTask): number | null {
   const candidates = [task.goalVersion, task.goalContract?.goalVersion];
   for (const value of candidates) {
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.trunc(value);
@@ -93,13 +94,13 @@ export function groupTasksByGoal<T extends GoalViewTask>(tasks: readonly T[]): G
 function build<T extends GoalViewTask>(goalId: string | null, list: T[], unbound: boolean): GoalGroup<T> {
   // 时间倒序；缺时间的任务保持在后，不拿 Date.now() 或 0 冒充一个时间点。
   const items = [...list].sort((a, b) => (timeOf(b) ?? -1) - (timeOf(a) ?? -1));
-  const versions = [...new Set(items.map(versionOf).filter((v): v is number => v !== null))].sort((a, b) => a - b);
+  const versions = [...new Set(items.map(goalVersionOf).filter((v): v is number => v !== null))].sort((a, b) => a - b);
 
   let label = '';
   let labelVersion = -1;
   for (const task of items) {
     const text = typeof task.goalContract?.originalRequest === 'string' ? task.goalContract.originalRequest.trim() : '';
-    const version = versionOf(task) ?? 0;
+    const version = goalVersionOf(task) ?? 0;
     if (text && version >= labelVersion) {
       labelVersion = version;
       label = text;

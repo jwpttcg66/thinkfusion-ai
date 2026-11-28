@@ -13,7 +13,9 @@ export const SubmitPromptSchema = z
   .object({
     prompt: z.string().min(1).max(20_000),
     permissionPreset: presetEnum,
-    workspaceRoot: z.string().min(1).max(2000).optional()
+    workspaceRoot: z.string().min(1).max(2000).optional(),
+    /** V4 M1-2：挂到既有目标下新建任务；不传就是「一任务一目标 v1」。 */
+    goalId: z.string().min(1).max(120).optional()
   })
   .strict();
 
