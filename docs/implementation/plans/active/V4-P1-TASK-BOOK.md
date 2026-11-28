@@ -313,6 +313,45 @@ needs_replan 门禁均已 IMPLEMENTED/TESTED/VERIFIED（P0-1～P0-5）。
 **可交付结果：** 系统能判断下一步并持续推进，直到目标完成或需要用户介入。
 **这是整个 P1 的判定点：** M3 不成立不进入 P2，也不以「M1/M2 已完成」宣布 P1 完成。
 
+## M3 开工前的现状审计（2026-11-28，基线 main `add2be9`）
+
+下面几条是核对代码后对**本节任务书原文**的修正，实施时以本节为准。
+
+1. **M3-1 的「双轨」比原文写的多一条轨，而且缺口不在"没人调用"。** 现网判定链是
+   `decideNextEngineeringAction`（`goal-driven-cycle.ts:152`，四出口 `complete|repair|fail_budget|fail_delivery`，
+   **决定行为**）→ `orchestrator.ts:3372-3382` 一段三元映射把它翻译成 11 值枚举 →
+   `emitCycleDecision`（`orchestrator.ts:3152`，只是个事件发射器，`decisionType` 由调用点硬编码）。
+   `decideCycleAction`（`cycle-decision.ts:118`）确实零生产调用，但**直接接上它不会得到正确决策**：
+   它的输入里 `diagnosis`（七值病因分类）与 `progress`（跨轮指纹计数）在生产里**从来没有来源**——
+   没有任何代码产出 diagnosis，`CycleProgress` 也只出现在 `check-cycle-decision.mjs` 里。缺了这两项，
+   所有轮次都会落到 `WAIT_USER`（"目标符合度不足或未知"）或 `CONTINUE`，等于把决策权交回去之前先锁死。
+   所以 M3-1 的真实工作量是**先补两个输入的来源，再收敛出口**，见 M3-1a。
+2. **`goalStatus` 门槛不会误伤（这条是收敛安全性的前提）。** `goalContractFromPlan` 建契约时写
+   `status: 'ACTIVE'`（`main/engineering/goal-contract-runtime.ts:102`），不在 `USER_GATE` 名单里；只有目标修订
+   流程会把它推到 `CHANGE_PROPOSED`（`goal-contract.ts:441`），那时纯函数返回 `CHANGE_PROPOSED` 正好与
+   P0-2 已有的 replan 门禁同向，不会新增"待用户确认目标"的死锁。
+3. **M3-2 的「无任何无进展检测」不成立。** `orchestrator.ts:3078 guardRepairRound()` 已在用
+   `shouldOpenRepairRound()`（`shared/repair-loop.ts:135`）比对上一轮与本轮的 `evidenceFacts()`（同文件 :50，
+   含命令/参数哈希/退出码/输出哈希/验证结论/changedPaths）与评审问题，**0 新事实且 0 新评审问题就停自动修复**，
+   真机 2026-11-24 起就在生效。真正的缺口是三条，不是"没有检测"：① 只在 `decision === 'repair'` 时才跑
+   （`orchestrator.ts:3370`），complete/observe 路径完全不判；② 只比相邻两轮，**不累计**，所以"每轮都改一点点但方向错"
+   与"第三轮重复同一件事"分不开；③ 计数不落库，重启后从零开始。`detectNoProgress` 接线必须与它**合流**
+   （同一份事实来源 `evidenceFacts` + `cycleFingerprint`），否则就造出第二套空转判定，正是 M3-1 要消灭的东西。
+4. **M3-3 的「状态机已有该状态与恢复路径，P0 已验证」只对了一半。** `budget_exhausted` 在
+   `task-manager.ts:36` 有完整出边、`resume()` 认它（`orchestrator.ts:1238/1402`）、UI 有标签（`TaskStats.tsx:30` 等），
+   但**全仓没有任何一处 `transition(..., 'budget_exhausted')`**——没有任何代码会把任务放进这个状态，
+   历次验收也没有一条入边样本。因此"超限 → 暂停 → 用户批准继续"是**新增行为**，不是接回既有行为，
+   真机验收必须自己造出入边证据。现在超限的实际落点是 `failed`（`orchestrator.ts:1449-1451` 与 `:3512-3525`），
+   文案「达到最大轮数 N，无法继续」。
+5. **给决策事件加字段是安全的。** `cycle.decision.created` 只有 TS 联合类型（`contracts.ts:2209-2228`），
+   全仓没有事件级 zod 校验（无 `AgentEventSchema`）——与 M2-2 的 `StepResultSchema.strict()` 教训不同，
+   加字段不会让报告变非法。但消费方 `goal-driven-cycle.ts:793` 与 `check-task-resume.mjs:112` 按
+   `decisionType` 读，字段名与取值必须保持向后兼容。
+
+**顺序结论：** M3-1 必须先做（它决定"下一步"由谁说了算），M3-2 的空转计数要作为 M3-1 那个唯一出口的输入接进去，
+M3-3 的预算超限改成 `PAUSE` 也走同一个出口，M3-4 只是把"出口判完要不要自动再跑一轮"这一步从人手点变成开关。
+
+
 ## P1-M3-1：决策函数收敛为一套（消灭双轨）
 
 - **业务目标：** 全系统只有一个「下一步」判定出口。

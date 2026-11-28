@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { GoalDrivenWorkbenchView } from '../../../../shared/goal-driven-cycle';
+import { cycleDecisionText, latestCycleDecision } from '../../../../shared/goal-driven-cycle';
 
 const STAGE_LABEL: Record<string, string> = {
   goal_reasoning: '目标理解',
@@ -75,6 +76,7 @@ export function GoalContractCard(props: {
   const [createError, setCreateError] = useState('');
 
   const criteria = workbench?.goal.criteria ?? [];
+  const cycleDecisionLine = cycleDecisionText(latestCycleDecision(workbench?.decisions ?? []));
   const currentLines = criteria.length > 0
     ? criteria.map(item => item.description)
     : workbench?.goal.successCriteria ?? [];
@@ -162,6 +164,8 @@ export function GoalContractCard(props: {
           当前阶段：{STAGE_LABEL[workbench.cycle.currentStage] ?? workbench.cycle.currentStage}
           {' · '}下一步：{workbench.cycle.nextAction || '尚未确定'}
         </p>
+        {/* M3-1：判定标签与实际落点摆在同一句里，用户看得到「系统打算做什么」而不是只有一句下一步。 */}
+        {cycleDecisionLine && <p className="muted">{cycleDecisionLine}</p>}
         {props.onReviseGoal && (
           <div className="goal-contract-edit">
             {editing ? (

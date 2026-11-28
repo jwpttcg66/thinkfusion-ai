@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  decideNextEngineeringAction,
   projectConversationGoalWorkbench,
   projectGoalDrivenWorkbench,
   projectWorkCycleFromEvents
@@ -182,49 +181,8 @@ test('General：不强制八阶段实现/审核', () => {
   assert.equal(view.cycle.conclusionType, 'accepted');
 });
 
-test('编排决策：verified+无评审 → complete；needsFix → repair；满轮 → fail_budget', () => {
-  const base = projectWorkCycleFromEvents({ workId: taskId, events: baseEvents });
-  assert.equal(
-    decideNextEngineeringAction({
-      cycle: base,
-      verifiedDone: true,
-      actionableReview: false,
-      atMaxRounds: false,
-      genuineDelivery: true
-    }),
-    'complete'
-  );
-  assert.equal(
-    decideNextEngineeringAction({
-      cycle: { ...base, conclusionType: 'needs_fix' },
-      verifiedDone: false,
-      actionableReview: true,
-      atMaxRounds: false,
-      genuineDelivery: false
-    }),
-    'repair'
-  );
-  assert.equal(
-    decideNextEngineeringAction({
-      cycle: base,
-      verifiedDone: false,
-      actionableReview: true,
-      atMaxRounds: true,
-      genuineDelivery: false
-    }),
-    'fail_budget'
-  );
-  assert.equal(
-    decideNextEngineeringAction({
-      cycle: base,
-      verifiedDone: true,
-      actionableReview: false,
-      atMaxRounds: false,
-      genuineDelivery: false
-    }),
-    'fail_delivery'
-  );
-});
+// V4 P1 M3-1：编排决策的用例已并入 `scripts/check-cycle-decision.mjs`（场景 → decideCycleAction
+// 映射）。这里原来另写了一份四出口断言，等于给同一规则两处锚点，改一处就会漏另一处。
 
 test('时间线：cycle.snapshot / goal.fit 进入对话笔记', async () => {
   const { buildTaskConversation } = await import('../out-test/shared/task-conversation.js');

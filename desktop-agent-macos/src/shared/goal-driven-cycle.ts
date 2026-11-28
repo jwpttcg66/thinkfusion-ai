@@ -8,6 +8,7 @@
 import type { AgentEvent } from './contracts';
 import type { ConversationGoal } from './conversation';
 import { CODING_BUDGET } from './coding-workflow';
+import { CYCLE_NEXT_ACTION_TEXT } from './cycle-decision';
 import { impactedByReplan, isTerminalWorkStatus, type WorkTask } from './task-decomposition';
 
 export type GoalStatusGdc =
@@ -134,6 +135,37 @@ export interface WorkDecisionRef {
   decision: string;
   rationale: string;
   eventAt?: number;
+  /**
+   * 这条周期判定实际让编排器做了什么（M3-1）。
+   * 评审处置类决定没有这个字段——它不是一次循环判定，别拿空字符串冒充。
+   */
+  nextAction?: string;
+}
+
+/**
+ * 最近一次「周期判定」：只认带 `nextAction` 的那几条——评审问题的处置决定也是一条
+ * decision，但它不是一次循环判定，拿它顶上会让界面显示成周期结论。
+ */
+export function latestCycleDecision(
+  decisions: readonly WorkDecisionRef[]
+): WorkDecisionRef | null {
+  return [...decisions]
+    .filter(item => item.nextAction)
+    .sort((a, b) => (b.eventAt ?? 0) - (a.eventAt ?? 0))[0] ?? null;
+}
+
+/**
+ * 「最近一次周期判定」的一句话（M3-1）。任务卡与结果面板共用一句：两处各写一遍，
+ * 落点说法改了其中一处就看不出是同一份判定。
+ */
+export function cycleDecisionText(decision: WorkDecisionRef | null): string {
+  if (!decision?.nextAction) return '';
+  const action =
+    CYCLE_NEXT_ACTION_TEXT[decision.nextAction as keyof typeof CYCLE_NEXT_ACTION_TEXT]
+    ?? decision.nextAction;
+  return `最近一次周期判定：${decision.decisionType} · ${action}${
+    decision.rationale ? `｜${decision.rationale}` : ''
+  }`;
 }
 
 export interface GoalDrivenWorkbenchView {
@@ -146,24 +178,13 @@ export interface GoalDrivenWorkbenchView {
 }
 
 /**
- * 编排器用的下一动作：把循环结论落到执行决策。
- * 不替代 TaskGrant / 验证闸门，只统一「完成 / 修复 / 预算耗尽」分支命名。
+ * 编排器用的下一动作已从本文件删除（V4 P1 M3-1）。
+ *
+ * 原来这里有一份四出口简化版（complete / repair / fail_budget / fail_delivery），
+ * orchestrator 先用它判一遍、再自己映射成事件标签，于是「事件里记的决策」和
+ * 「实际做的事」由两处代码决定。判定只剩 `cycle-decision.ts` 的 `decideCycleAction`
+ * 一个出口，它同时给出标签与可执行落点 `nextAction`。
  */
-export function decideNextEngineeringAction(input: {
-  cycle: WorkCycleView;
-  verifiedDone: boolean;
-  actionableReview: boolean;
-  atMaxRounds: boolean;
-  genuineDelivery: boolean;
-}): 'complete' | 'repair' | 'fail_budget' | 'fail_delivery' {
-  if (input.verifiedDone && !input.actionableReview) {
-    return input.genuineDelivery ? 'complete' : 'fail_delivery';
-  }
-  if (input.atMaxRounds) return 'fail_budget';
-  if (input.cycle.conclusionType === 'needs_fix' || input.actionableReview) return 'repair';
-  if (input.verifiedDone) return input.genuineDelivery ? 'complete' : 'fail_delivery';
-  return 'repair';
-}
 
 /** 实质变更才抬升 goalVersion；澄清/优化路径不变。 */
 export function applyGoalVersionBump(previousVersion: number, kind: GoalChangeKind): number {
@@ -799,6 +820,7 @@ export function projectDecisionsFromEvents(input: {
       decisionType: event.decisionType,
       decision: event.decisionType,
       rationale: event.reason,
+      nextAction: event.nextAction,
       eventAt: event.at
     }));
   return [...reviewDecisions, ...cycleDecisions];
